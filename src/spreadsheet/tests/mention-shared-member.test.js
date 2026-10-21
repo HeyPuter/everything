@@ -17,14 +17,14 @@ const ME = { username: 'demo' };
 function setup() {
   const wb = new Workbook();
   const members = [{ username: 'alice', role: 'owner' }, { username: 'demo', role: 'editor' }, { username: 'ana', role: 'editor' }];
-  const doc = { wb, name: 'Plan', path: null, uid: null, save: vi.fn(), collab: { room: 'r1', people: new Map(), request: vi.fn(async () => ({ members })) } };
+  const doc = { wb, name: 'Plan', path: null, uid: null, save: vi.fn(), collab: { room: 'r1', o: { server: 'https://spreadsheet-abc.puter.work' }, people: new Map(), request: vi.fn(async () => ({ members })) } };
   vi.spyOn(P, 'canShare').mockReturnValue(true);
   vi.spyOn(P, 'shareFile').mockResolvedValue({});
   const toast = vi.spyOn(T, 'toast').mockImplementation(() => {});
-  const mailer = { available: () => true, sendMentions: vi.fn(async () => ({ sent: 0, failed: 0, results: [] })) };
+  const mailer = { available: () => true, sendMentions: vi.fn(async ({ recipients }) => ({ sent: recipients.length, failed: 0, results: recipients.map((r) => ({ email: r.email, status: 'sent' })) })) };
   const ask = vi.fn(async () => ({ action: 'share', mode: 'write' }));
   const notifier = createMentionNotifier({ doc, wb, mailer, me: () => ME, ask, location: { origin: 'https://spreadsheet.puter.com', pathname: '/' } });
-  return { wb, doc, notifier, ask, toast };
+  return { wb, doc, notifier, ask, toast, mailer };
 }
 
 function posted(wb, text, people) {
@@ -35,18 +35,18 @@ function posted(wb, text, people) {
 }
 
 it('does not ask a member of a shared workbook to save and share it before telling another member', async () => {
-  const { wb, doc, notifier, ask, toast } = setup();
+  const { wb, doc, notifier, ask, mailer } = setup();
   await notifier.notify(posted(wb, '@ana have a look', [{ name: 'ana', user: 'ana' }]));
   expect(ask).not.toHaveBeenCalled();
   expect(doc.save).not.toHaveBeenCalled();
-  expect(toast).toHaveBeenCalledWith('ana will see the mention when they open this spreadsheet', expect.anything());
+  expect(mailer.sendMentions.mock.calls[0][0].recipients).toEqual([{ email: 'ana@puter.email', name: 'ana' }]);
 });
 
 it('says that someone outside the shared workbook needs its owner to invite them', async () => {
-  const { wb, notifier, ask, toast } = setup();
+  const { wb, notifier, ask, toast, mailer } = setup();
   await notifier.notify(posted(wb, '@bo and @ana have a look', [{ name: 'bo', user: 'bo' }, { name: 'ana', user: 'ana' }]));
   expect(ask).not.toHaveBeenCalled();
   expect(P.shareFile).not.toHaveBeenCalled();
   expect(toast).toHaveBeenCalledWith('bo cannot open this shared workbook. Ask its owner to invite them', expect.anything());
-  expect(toast).toHaveBeenCalledWith('ana will see the mention when they open this spreadsheet', expect.anything());
+  expect(mailer.sendMentions.mock.calls[0][0].recipients).toEqual([{ email: 'ana@puter.email', name: 'ana' }]);
 });

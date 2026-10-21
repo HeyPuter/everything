@@ -17,7 +17,7 @@ import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { SHARE_MODES } from './share.js';
 import * as P from '../lib/puter.js';
-import { fileLink } from '../lib/links.js';
+import { fileLink, roomLink } from '../lib/links.js';
 import { cellName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
 import { mentionAddress, mentionsOfPerson, assignmentsOfPerson, isUsername } from '../core/mentions.js';
@@ -103,19 +103,20 @@ function askToShare(people, { unsaved }) {
  */
 export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, location: where = globalThis.location }) {
   async function access() {
-    // Someone a shared workbook was shared with has no file of it, and nothing to save: its members can open it.
-    if (!doc.path && !doc.collab) return { unsaved: true };
-    let rows = null, members = [];
-    if (doc.path && P.canShare()) {
+    if (doc.collab) {
+      // A shared workbook opens for its members (the comment's link leads there), whoever else the owner's file is shared
+      // with; someone it was shared with has no file of it, and nothing to save. Members that could not be read are no answer.
+      let members = null;
+      try { members = ((await doc.collab.request({ op: 'members' }))?.members || []).filter((m) => m.role !== 'removed').map((m) => m.username); } catch { /* none known */ }
+      return { rows: members ? [] : null, members: members || [], noFile: !doc.path };
+    }
+    if (!doc.path) return { unsaved: true };
+    let rows = null;
+    if (P.canShare()) {
       try { rows = await P.shareAccess(doc.path); } catch { rows = null; }
     }
-    if (doc.collab) {
-      try { members = ((await doc.collab.request({ op: 'members' }))?.members || []).filter((m) => m.role !== 'removed').map((m) => m.username); } catch { members = null; }
-    }
-    // Without a way to read the shares (a host that cannot share), nobody is known to lack access; without a file,
-    // whoever is not a member does, when the members could be read.
-    if (!doc.path) return { rows: members ? [] : null, members: members || [], noFile: true };
-    return { rows: P.canShare() ? rows : null, members: members || [] };
+    // Without a way to read the shares (a host that cannot share), nobody is known to lack access.
+    return { rows: P.canShare() ? rows : null, members: [] };
   }
 
   async function share(people, mode) {
@@ -164,14 +165,16 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       .map((p) => ({ email: mentionAddress(p), name: p.name })).filter((p) => p.email);
     const names = people.map((p) => p.name).join(', ');
     if (!recipients.length) return { sent: 0 };
-    if (!mailer.available() || !doc.uid) {
+    // A shared workbook's comment opens in the shared workbook, for its members, whether or not the owner's file is theirs to open.
+    if (!mailer.available() || (!doc.uid && !doc.collab)) {
       toast(`${names} will see the mention when they open this spreadsheet`, { icon: 'comment', duration: 3500 });
       return { sent: 0 };
     }
     const sheet = wb.sheet(sheetId);
     const cell = `${quoteSheet(sheet?.name || '')}!${cellName(r, c)}`;
     const assignee = assigned && mentionAddress(assigned);
-    const base = { workbookName: doc.name, link: fileLink(where, doc.uid, cell), comment: { id: item.id, text: item.text, cell: `${sheet?.name || ''}!${cellName(r, c)}` } };
+    const link = doc.collab ? roomLink(where, doc.collab, cell) : fileLink(where, doc.uid, cell);
+    const base = { workbookName: doc.name, link, comment: { id: item.id, text: item.text, cell: `${sheet?.name || ''}!${cellName(r, c)}` } };
     try {
       // The person assigned gets a mail that says so; everyone else mentioned, one that they were mentioned.
       const batches = [

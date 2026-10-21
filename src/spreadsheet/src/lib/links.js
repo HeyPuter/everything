@@ -9,7 +9,7 @@
 
 import { quoteSheet } from '../core/refs.js';
 import { rangeName } from '../core/cell.js';
-import { parseLiveHash } from '../collab/protocol.js';
+import { parseLiveHash, shareLink } from '../collab/protocol.js';
 
 /** The route a location hash names: { route: 'home' | 'new' | 'sample' | 'template' | 'edit' | 'file' | 'live', path?, id?, range?, server?, room?, token? }. */
 export function parseAppHash(hash) {
@@ -31,7 +31,8 @@ export function parseAppHash(hash) {
     // A shared workbook: #/live/<room>?server=…&invite=… (see collab/protocol.js).
     if (base.startsWith('live/')) {
       const live = parseLiveHash(h.startsWith('#') ? h : `#/${h}`);
-      if (live) return { route: 'live', ...live };
+      // With ?range= it opens at those cells (a comment's link in a mention email).
+      if (live) return { route: 'live', ...live, range: params.get('range') || null };
     }
     if (base.startsWith('file/')) {
       const id = decodeURIComponent(base.slice(5));
@@ -49,6 +50,15 @@ export function editHash(path, range = null) {
 /** A full address that opens `path` with the range on `sheetName` selected. */
 export function rangeLink({ origin, pathname }, path, sheetName, range) {
   return `${origin}${pathname}${editHash(path, `${quoteSheet(sheetName)}!${rangeName(range)}`)}`;
+}
+
+/**
+ * A full address that opens a shared workbook (`client`, see collab/client.js) for the people in it, at `range`
+ * ("Sheet1!B4") when given: the owner's file opens alone for whoever it is shared with, outside the shared workbook.
+ */
+export function roomLink({ origin, pathname }, client, range = null) {
+  const link = shareLink(`${origin}${pathname}`, { server: client.o.server, room: client.room });
+  return range ? `${link}&range=${encodeURIComponent(range)}` : link;
 }
 
 /**
