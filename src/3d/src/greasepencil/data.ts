@@ -409,6 +409,11 @@ export function defaultGPStyle(o: Partial<MaterialGPencilStyle> = {}): MaterialG
     stroke_style: 'SOLID',
     fill_style: 'SOLID',
     alignment_mode: 'PATH',
+    // dots / squares: one per diameter along the stroke
+    placement_mode: 'RADIUS',
+    placement_count: 1,
+    placement_radius_spacing: 100,
+    placement_density: 10,
     hide: false,
     lock: false,
     ghost: true,

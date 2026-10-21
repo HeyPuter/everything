@@ -352,3 +352,25 @@ describe('vertex paint blend modes', () => {
     expect(v[1]).toBeCloseTo(0);
   });
 });
+
+describe('dot placement', () => {
+  it('places dots by spacing, count or density', async () => {
+    const { dotPlacements } = await import('../../src/greasepencil/geometry');
+    const P = [0, 0, 0, 5, 0, 0, 10, 0, 0];
+    const R = () => 0.5;
+    expect(dotPlacements(P, R, 0, 3, false)).toHaveLength(3);
+    expect(dotPlacements(P, R, 0, 3, false, { mode: 'RADIUS', count: 1, spacing: 100, density: 1 })).toHaveLength(11);
+    expect(dotPlacements(P, R, 0, 3, false, { mode: 'RADIUS', count: 1, spacing: 200, density: 1 })).toHaveLength(6);
+    expect(dotPlacements(P, R, 0, 3, false, { mode: 'COUNT', count: 2, spacing: 100, density: 1 })).toHaveLength(5);
+    expect(dotPlacements(P, R, 0, 3, false, { mode: 'DENSITY', count: 1, spacing: 100, density: 2 })).toHaveLength(21);
+  });
+  it('randomizes dots deterministically', () => {
+    const DOTS: StrokeStyle = { stroke: true, fill: false, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'DOTS', placement: { mode: 'RADIUS', count: 1, spacing: 100, density: 1 }, random: { size: 1, strength: 0, rotation: 1, hue: 0, sat: 0, val: 0, scale: 1 } };
+    const d = fromStrokes([newStroke([newPoint([0, 0, 0], 0.5), newPoint([10, 0, 0], 0.5)])]);
+    const a = buildStrokeBuffers(d, [DOTS]),
+      b = buildStrokeBuffers(d, [DOTS]);
+    expect([...a.radius]).toEqual([...b.radius]);
+    const radii = new Set([...a.radius].map((x) => x.toFixed(4)));
+    expect(radii.size).toBeGreaterThan(3);
+  });
+});

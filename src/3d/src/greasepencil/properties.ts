@@ -686,6 +686,37 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
                 ['FIXED', 'Fixed'],
               ])
             : null,
+          st.mode !== 'LINE' ? num(st as { alignment_rotation: number }, 'alignment_rotation', 'Rotation', { unit: 'angle', min: -Math.PI / 2, max: Math.PI / 2 }) : null,
+          st.mode !== 'LINE'
+            ? [
+                enumProp(st as { placement_mode: string }, 'placement_mode', 'Placement', [
+                  ['COUNT', 'Count'],
+                  ['RADIUS', 'Radius'],
+                  ['DENSITY', 'Density'],
+                ]),
+                (st.placement_mode ?? 'RADIUS') === 'COUNT' ? num(st as { placement_count: number }, 'placement_count', 'Count', { int: true, min: 1, max: 100 }) : null,
+                (st.placement_mode ?? 'RADIUS') === 'RADIUS' ? num(st as { placement_radius_spacing: number }, 'placement_radius_spacing', 'Spacing', { min: 1, max: 1000, step: 5 }) : null,
+                st.placement_mode === 'DENSITY' ? num(st as { placement_density: number }, 'placement_density', 'Density', { min: 0.01, max: 1000 }) : null,
+                panel(
+                  'gpm-random',
+                  'Randomize',
+                  () => [
+                    num(st as { random_size_factor: number }, 'random_size_factor', 'Size', { min: 0, max: 1, slider: true }),
+                    num(st as { random_strength_factor: number }, 'random_strength_factor', 'Strength', { min: 0, max: 1, slider: true }),
+                    num(st as { random_rotation_factor: number }, 'random_rotation_factor', 'Rotation', { min: 0, max: 1, slider: true }),
+                    num(st as { random_hue_factor: number }, 'random_hue_factor', 'Hue', { min: 0, max: 1, slider: true }),
+                    num(st as { random_saturation_factor: number }, 'random_saturation_factor', 'Saturation', { min: 0, max: 1, slider: true }),
+                    num(st as { random_value_factor: number }, 'random_value_factor', 'Value', { min: 0, max: 1, slider: true }),
+                    num(st as { random_noise_scale: number }, 'random_noise_scale', 'Noise Scale', { min: 0, max: 100 }),
+                  ],
+                  {
+                    sub: true,
+                    closed: !st.use_randomization,
+                    header: checkbox('gpm-random-on', '', !!st.use_randomization, (v) => ((st.use_randomization = v), changed('Randomize')), { tip: 'Randomize\nVary the size, strength, rotation and color of each dot' }),
+                  },
+                ),
+              ]
+            : null,
         ],
         { sub: true },
       ),

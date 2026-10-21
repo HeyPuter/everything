@@ -24,6 +24,102 @@ export interface StrokeStyle {
   /** image textures (drawn by a pass of their own that binds the image) */
   fillTex?: { image: string; mix: number; clamp: boolean; offset: [number, number]; angle: number; scale: [number, number] };
   strokeTex?: { image: string; mix: number; uvFactor: number };
+  /** Dots / Squares placement along the stroke (absent: one per point) */
+  placement?: { mode: 'COUNT' | 'RADIUS' | 'DENSITY'; count: number; spacing: number; density: number };
+  /** extra rotation of dots / squares (radians) */
+  alignRotation?: number;
+  /** per dot randomness (factors 0..1) and the frequency of its noise along the stroke */
+  random?: { size: number; strength: number; rotation: number; hue: number; sat: number; val: number; scale: number };
+}
+
+/** Hash noise in [-1, 1] for dot randomness. */
+function dotNoise(seed: number, i: number) {
+  let x = (Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(i + 0x632be5ab, 0xc2b2ae35)) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x2c1b3c6d) >>> 0;
+  x ^= x >>> 12;
+  return (x / 4294967295) * 2 - 1;
+}
+function smoothDotNoise(seed: number, t: number) {
+  const i = Math.floor(t),
+    f = t - i;
+  const w = f * f * (3 - 2 * f);
+  return dotNoise(seed, i) * (1 - w) + dotNoise(seed, i + 1) * w;
+}
+
+/** Shift a linear RGB color in hue / saturation / value. */
+function hsvShift(c: number[], dh: number, ds: number, dv: number): number[] {
+  const mx = Math.max(c[0], c[1], c[2]),
+    mn = Math.min(c[0], c[1], c[2]);
+  const d = mx - mn;
+  let hh = 0;
+  if (d > 1e-9) {
+    if (mx === c[0]) hh = ((c[1] - c[2]) / d) % 6;
+    else if (mx === c[1]) hh = (c[2] - c[0]) / d + 2;
+    else hh = (c[0] - c[1]) / d + 4;
+    hh /= 6;
+  }
+  let sat = mx > 0 ? d / mx : 0,
+    v = mx;
+  hh = (((hh + dh) % 1) + 1) % 1;
+  sat = Math.max(0, Math.min(1, sat * (1 + ds)));
+  v = Math.max(0, v * (1 + dv));
+  const i = Math.floor(hh * 6),
+    f = hh * 6 - i;
+  const p = v * (1 - sat),
+    q = v * (1 - f * sat),
+    t = v * (1 - (1 - f) * sat);
+  const rgb = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ][((i % 6) + 6) % 6];
+  return [rgb[0], rgb[1], rgb[2], c[3]];
+}
+
+/**
+ * Where the dots / squares of a stroke go: one per point, or placed along the poly line by count
+ * per segment, by spacing (percent of the diameter) or by density (per unit of length). Returns
+ * the segment index and parameter of each.
+ */
+export function dotPlacements(P: ArrayLike<number>, radius: (i: number) => number, a: number, b: number, cyclic: boolean, pl?: StrokeStyle['placement']): { i: number; t: number }[] {
+  const n = b - a;
+  const out: { i: number; t: number }[] = [];
+  if (!pl || n < 2) {
+    for (let i = a; i < b; i++) out.push({ i, t: 0 });
+    return out;
+  }
+  const segs = cyclic ? n : n - 1;
+  const seg = (k: number) => {
+    const i = a + k,
+      j = a + ((k + 1) % n);
+    return { i, j, len: Math.hypot(P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]) };
+  };
+  if (pl.mode === 'COUNT') {
+    const c = Math.max(1, Math.round(pl.count));
+    for (let k = 0; k < segs; k++) for (let m = 0; m < c; m++) out.push({ i: a + k, t: m / c });
+    if (!cyclic) out.push({ i: b - 1, t: 0 });
+    return out;
+  }
+  // walk the line, dropping a dot every `step`
+  let next = 0,
+    acc = 0;
+  for (let k = 0; k < segs; k++) {
+    const { i, j, len } = seg(k);
+    while (next <= acc + len + 1e-9) {
+      const t = len > 1e-12 ? (next - acc) / len : 0;
+      out.push({ i, t: Math.min(1, t) });
+      const r = radius(i) + (radius(j) - radius(i)) * t;
+      const step = pl.mode === 'DENSITY' ? 1 / Math.max(1e-3, pl.density) : Math.max(1e-6, 2 * r * Math.max(0.01, pl.spacing / 100));
+      next += step;
+      if (out.length > 200000) return out;
+    }
+    acc += len;
+  }
+  return out;
 }
 
 /** Flag bit of segments / dots that sample the stroke texture. */
@@ -372,18 +468,42 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     }
     if (st.mode !== 'LINE') {
       const kind = st.mode === 'DOTS' ? KIND_DOT : KIND_SQUARE;
-      for (let i = a; i < b; i++) {
+      const places = dotPlacements(P, R, a, b, !!d.cyclic[s] && n > 2, st.placement);
+      const rnd = st.random;
+      const cc = [0, 0, 0, 0];
+      places.forEach(({ i, t }, k) => {
+        const j = i + 1 < b ? i + 1 : !!d.cyclic[s] && n > 2 ? a : i;
+        const x = P[i * 3] + (P[j * 3] - P[i * 3]) * t,
+          y = P[i * 3 + 1] + (P[j * 3 + 1] - P[i * 3 + 1]) * t,
+          z = P[i * 3 + 2] + (P[j * 3 + 2] - P[i * 3 + 2]) * t;
+        let r = R(i) + (R(j) - R(i)) * t;
         pointColor(d, i, st.color, ca);
-        const j = i + 1 < b ? i + 1 : i - 1 >= a ? i - 1 : i;
-        const sign = j < i ? -1 : 1;
-        // p1 only gives the alignment direction (squares follow the path)
-        let dx = (P[j * 3] - P[i * 3]) * sign,
-          dy = (P[j * 3 + 1] - P[i * 3 + 1]) * sign,
-          dz = (P[j * 3 + 2] - P[i * 3 + 2]) * sign;
-        if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(R(i), 1e-4), 0, 0];
-        // flag 8: screen aligned (fixed)
-        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits | texBit, s, NONE, NONE, dotRot);
-      }
+        pointColor(d, j, st.color, cb);
+        let col = [0, 1, 2, 3].map((c) => ca[c] + (cb[c] - ca[c]) * t);
+        let rot = dotRot + (st.alignRotation ?? 0);
+        if (rnd) {
+          // smooth noise along the dots (its frequency set by the noise scale)
+          const u = (k + 0.5) * Math.max(0.001, rnd.scale);
+          const nz = (c: number) => smoothDotNoise(s * 7919 + c * 104729, u);
+          r *= Math.max(0.05, 1 + rnd.size * nz(1));
+          col[3] *= Math.max(0, Math.min(1, 1 + rnd.strength * nz(2)));
+          rot += rnd.rotation * Math.PI * nz(3);
+          if (rnd.hue || rnd.sat || rnd.val) col = hsvShift(col, rnd.hue * 0.5 * nz(4), rnd.sat * nz(5), rnd.val * nz(6));
+        }
+        // p1 only gives the alignment direction (squares follow the path): toward the next point,
+        // or away from the previous one at the end
+        const [fi, ti] = j !== i ? [i, j] : i - 1 >= a ? [i - 1, i] : [i, i];
+        let dx = P[ti * 3] - P[fi * 3],
+          dy = P[ti * 3 + 1] - P[fi * 3 + 1],
+          dz = P[ti * 3 + 2] - P[fi * 3 + 2];
+        if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(r, 1e-4), 0, 0];
+        cc[0] = col[0];
+        cc[1] = col[1];
+        cc[2] = col[2];
+        cc[3] = col[3];
+        // flag 8: screen aligned (fixed); the rotation turns the square and its texture
+        quad(x, y, z, x + dx, y + dy, z + dz, Math.max(0, r), Math.max(0, r), cc, cc, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits | texBit, s, NONE, NONE, rot);
+      });
       order++;
       continue;
     }

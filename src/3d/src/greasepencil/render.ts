@@ -316,6 +316,8 @@ void main() {
     else {
       vec2 ab = vS1 - vS0;
       vec2 dir = dot(ab, ab) > 1e-8 ? normalize(ab) : vec2(1.0, 0.0);
+      // extra rotation of the square (material rotation, randomness)
+      dir = vec2(cos(vSU.x) * dir.x - sin(vSU.x) * dir.y, sin(vSU.x) * dir.x + cos(vSU.x) * dir.y);
       vec2 q = vec2(dot(p, dir), dot(p, vec2(-dir.y, dir.x)));
       d = max(abs(q.x), abs(q.y));
     }
@@ -474,7 +476,7 @@ export function geometryFromBuffers(b: StrokeBuffers): BufferGeometry {
 }
 
 function styleKey(styles: (StrokeStyle | null)[]) {
-  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}|${s.fillTex ? JSON.stringify(s.fillTex) : ''}|${s.strokeTex ? JSON.stringify(s.strokeTex) : ''}` : '-')).join(';');
+  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}|${s.fillTex ? JSON.stringify(s.fillTex) : ''}|${s.strokeTex ? JSON.stringify(s.strokeTex) : ''}|${s.placement ? JSON.stringify(s.placement) : ''}|${s.alignRotation ?? 0}|${s.random ? JSON.stringify(s.random) : ''}` : '-')).join(';');
 }
 
 function cachedGeometry(d0: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false, guides = false, slots?: { key: string; test: (k: number) => boolean }): CachedGeo {
@@ -535,6 +537,12 @@ export function materialStyles(doc: DocumentData, gp: GreasePencilData, ghost = 
           ? { image: st.fill_image, mix: st.mix_factor ?? 0, clamp: !!st.texture_clamp, offset: [...(st.texture_offset ?? [0, 0])] as [number, number], angle: st.texture_angle ?? 0, scale: [...(st.texture_scale ?? [1, 1])] as [number, number] }
           : undefined,
       strokeTex: !ghost && st.stroke_style === 'TEXTURE' && st.stroke_image && doc.images[st.stroke_image] ? { image: st.stroke_image, mix: st.mix_stroke_factor ?? 0, uvFactor: st.pixel_size ?? 1 } : undefined,
+      placement: st.mode !== 'LINE' && st.placement_mode ? { mode: st.placement_mode, count: st.placement_count ?? 1, spacing: st.placement_radius_spacing ?? 100, density: st.placement_density ?? 10 } : undefined,
+      alignRotation: st.alignment_rotation ?? 0,
+      random:
+        st.mode !== 'LINE' && st.use_randomization
+          ? { size: st.random_size_factor ?? 0, strength: st.random_strength_factor ?? 0, rotation: st.random_rotation_factor ?? 0, hue: st.random_hue_factor ?? 0, sat: st.random_saturation_factor ?? 0, val: st.random_value_factor ?? 0, scale: st.random_noise_scale ?? 1 }
+          : undefined,
     });
   }
   return out;

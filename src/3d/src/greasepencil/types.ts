@@ -165,6 +165,20 @@ export interface MaterialGPencilStyle {
   pixel_size?: number;
   /** fill texture: show it once instead of repeating */
   texture_clamp?: boolean;
+  /** Dots / Squares: how they are placed along the stroke, their extra rotation, and randomness */
+  placement_mode?: 'COUNT' | 'RADIUS' | 'DENSITY';
+  placement_count?: number;
+  placement_radius_spacing?: number;
+  placement_density?: number;
+  alignment_rotation?: number;
+  use_randomization?: boolean;
+  random_size_factor?: number;
+  random_strength_factor?: number;
+  random_rotation_factor?: number;
+  random_hue_factor?: number;
+  random_saturation_factor?: number;
+  random_value_factor?: number;
+  random_noise_scale?: number;
   /** gradient fills */
   gradient_type?: 'LINEAR' | 'RADIAL';
   mix_color?: [number, number, number, number];
