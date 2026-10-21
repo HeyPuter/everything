@@ -144,9 +144,14 @@ export function collectParts(proportional: boolean, size: number, falloffType: s
     if (proportional && size > 0) {
       for (const c of moving) selectedVerts.push(t.uvVert[c]);
       const pts = [...new Set(selectedVerts)].map((id) => t.vertUV(id));
+      // Connected Only: just the islands that hold selected UVs
+      const connected = !!app.doc.scene.tool_settings.use_proportional_connected;
+      const fi = connected ? t.islands.faceIsland : null;
+      const islands = fi ? new Set(moving.map((c) => fi[t.cornerFace[c]])) : null;
       for (let id = 0; id < t.vertCount; id++) {
         const cs = t.vertCorners[id];
         if (cs.some((c) => w[c] >= 1)) continue;
+        if (islands && !cs.some((c) => islands.has(fi![t.cornerFace[c]]))) continue;
         const [u, v] = t.vertUV(id);
         let d = Infinity;
         for (const p of pts) d = Math.min(d, Math.hypot(p[0] - u, p[1] - v));

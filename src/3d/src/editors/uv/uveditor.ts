@@ -457,6 +457,18 @@ export class UVEditor implements Editor, UVView, View2D {
         icon('down_arrow_hlt', 'tiny'),
       ),
       h('button', { class: { 'hdr-toggle': true, on: ts.use_proportional_edit }, 'data-tip': 'Proportional Editing (O)\nMove nearby UVs too, with a falloff', onclick: () => setTs('use_proportional_edit', !ts.use_proportional_edit, 'Proportional Editing') }, icon(ts.use_proportional_edit ? 'prop_on' : 'prop_off')),
+      h(
+        'button',
+        {
+          class: 'hdr-icondrop uv-proportional',
+          'data-tip': 'Proportional Editing\nFalloff, size and whether only connected UVs follow',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => this.proportionalPopover(), { width: 230 });
+          },
+        },
+        icon('down_arrow_hlt', 'tiny'),
+      ),
       h('div', { class: 'hdr-sep' }),
       h(
         'div',
@@ -475,6 +487,25 @@ export class UVEditor implements Editor, UVView, View2D {
           icon('down_arrow_hlt', 'tiny'),
         ),
       ),
+    );
+  }
+
+  /** Header ▸ Proportional Editing: connected only, falloff and size. */
+  private proportionalPopover(): Child {
+    const ts = app.doc.scene.tool_settings;
+    const set = (fn: () => void, label: string) => (fn(), app.pushUndo(label), app.changed('ui'));
+    return h(
+      'div',
+      { class: 'pop-panel' },
+      h('div', { class: 'pop-title' }, 'Proportional Editing'),
+      checkbox('uv-prop-conn', 'Connected Only', !!ts.use_proportional_connected, (v) => set(() => (ts.use_proportional_connected = v), 'Connected Only'), { tip: 'Only UVs of islands with selected UVs follow' }),
+      enumMenu(
+        'uv-prop-falloff',
+        (['SMOOTH', 'SPHERE', 'ROOT', 'INVERSE_SQUARE', 'SHARP', 'LINEAR', 'CONSTANT', 'RANDOM'] as const).map((f) => ({ value: f, label: f === 'INVERSE_SQUARE' ? 'Inverse Square' : f[0] + f.slice(1).toLowerCase() })),
+        ts.proportional_edit_falloff,
+        (v) => set(() => (ts.proportional_edit_falloff = v as 'SMOOTH'), 'Proportional Falloff'),
+      ),
+      numberField({ id: 'uv-prop-size', label: 'Size', value: ts.proportional_size, min: 0.0001, max: 100, set: (v, f) => ((ts.proportional_size = v), f && app.pushUndo('Proportional Size'), app.changed('ui')) }),
     );
   }
 

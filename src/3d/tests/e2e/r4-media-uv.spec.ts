@@ -203,3 +203,33 @@ test('UV editor: snapping popover sets the rotation step and what snapping affec
   expect(Math.abs(((c * 180) / Math.PI) / 45 - Math.round(((c * 180) / Math.PI) / 45))).toBeGreaterThan(1e-3);
   await expectNoErrors(errors);
 });
+
+test('UV editor: proportional editing with Connected Only leaves other islands alone', async ({ page }) => {
+  const { errors } = await uvWorkspace(page);
+  const run = (connected: boolean) =>
+    page.evaluate((connected) => {
+      const app = (window as any).app;
+      const me = app.doc.meshes[app.activeObject.data];
+      // face 0 becomes its own island right next to the rest
+      const uvs = new Float32Array(me.uvs);
+      for (let c = me.offsets[0]; c < me.offsets[1]; c++) uvs[c * 2] += 0.02;
+      me.uvs = uvs;
+      app.changed('doc');
+      app.run('uv.select_all', { action: 'DESELECT' });
+      // select one UV of another face
+      const c0 = me.offsets[2];
+      app.run('uv.select', { location: [me.uvs[c0 * 2], me.uvs[c0 * 2 + 1]], deselect_all: true }, { invoke: false });
+      const ts = app.doc.scene.tool_settings;
+      ts.use_proportional_connected = connected;
+      const before = Array.from(me.uvs as Float32Array);
+      app.run('uv.translate', { value: [0, 0.1], use_proportional_edit: true, proportional_size: 5, proportional_edit_falloff: 'CONSTANT' }, { invoke: false });
+      const after = Array.from(app.doc.meshes[app.activeObject.data].uvs as Float32Array);
+      const moved0 = [];
+      for (let c = me.offsets[0]; c < me.offsets[1]; c++) moved0.push(Math.abs(after[c * 2 + 1] - before[c * 2 + 1]) > 1e-6);
+      app.run('ed.undo');
+      return moved0.some(Boolean);
+    }, connected);
+  expect(await run(false)).toBe(true);
+  expect(await run(true)).toBe(false);
+  await expectNoErrors(errors);
+});
