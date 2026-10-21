@@ -731,10 +731,15 @@ export class PageEditor extends Emitter {
   }
 
   async insertImage(file, { alt = '' } = {}) {
+    // A picture the browser can't show (HEIC outside Safari, a damaged
+    // file) goes in as an attachment instead of a broken image.
+    const probe = URL.createObjectURL(file);
+    const width = await imageWidth(probe);
+    URL.revokeObjectURL(probe);
+    if (width === null) return this.insertAttachment(file);
     this.ensureCaret();
     const id = await this.store.saveAsset(file, file.name || 'picture.png', { sectionId: this.store.findPage?.(this.page.id)?.section.id });
     const url = await this.store.assetUrl(id);
-    const width = await imageWidth(url);
     const style = width > 600 ? ' style="width: 600px"' : '';
     this.ensureCaret();
     insertHtml(`<img data-asset="${id}" src="${url}" alt="${escapeAttr(alt || file.name || '')}"${style}>`);
@@ -969,11 +974,12 @@ function escapeAttr(s) {
   return String(s).replace(/[&"<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
 }
 
+/** The picture's natural width, or null when the browser can't decode it. */
 function imageWidth(url) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => resolve(img.naturalWidth);
-    img.onerror = () => resolve(0);
+    img.onerror = () => resolve(null);
     img.src = url;
   });
 }
