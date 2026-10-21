@@ -155,9 +155,13 @@ describe('Doc', () => {
     const doc = Doc.blank();
     const id = doc.wb.sheets[0].id;
     doc.wb.setInput(id, 0, 0, '1');
-    const saving = doc.save();
-    doc.wb.setInput(id, 0, 0, '2'); // lands mid-flight
-    await saving;
+    const write = puter.fs.write;
+    puter.fs.write = (...args) => {
+      puter.fs.write = write;
+      doc.wb.setInput(id, 0, 0, '2'); // lands while the encoded book is being written
+      return write.apply(puter.fs, args);
+    };
+    await doc.save();
     expect(doc.wb.dirty).toBe(true);
     expect(doc.status).toBe('unsaved');
     await vi.advanceTimersByTimeAsync(2000);

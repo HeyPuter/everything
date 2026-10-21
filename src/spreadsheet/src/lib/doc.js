@@ -543,7 +543,6 @@ export class Doc extends EventTarget {
   }
 
   async _doSave(auto, force = false) {
-    const version = this.wb.version;
     try {
       // A failed check cannot establish that overwriting is safe. Keep the
       // edits dirty and use the normal save-error/retry path in that case.
@@ -631,8 +630,9 @@ export class Doc extends EventTarget {
       this.remoteModified = modifiedMs(written) ?? modifiedMs(await P.statFile(this.path).catch(() => null)) ?? Date.now();
       this.remoteSize = blob.size;
       this._written = blob.size <= COMPARE_MAX_BYTES ? blob : null;
-      // Edits that landed while the write was in flight keep the doc dirty.
-      if (this.wb.version === version) this.wb.markClean();
+      // Edits that landed while the book was encoded or the write was in flight keep the doc dirty; those made
+      // while the file was checked, before, are in the bytes written.
+      if (this.wb.version === exportedVersion) this.wb.markClean();
       this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
       if (this.wb.dirty) {
         this._changed('cells');
