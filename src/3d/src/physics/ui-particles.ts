@@ -245,10 +245,22 @@ function hairDynamicsPanel(ob: ObjectPhysics, ps: ParticleSystemX, m: ModifierBa
     panel('pa-hairdyn-struct', 'Structure', () => [
       num(dyn, 'mass', 'Vertex Mass', { min: 0.001, max: 10, disabled: d }),
       num(dyn, 'bending_stiffness', 'Stiffness', { min: 0, max: 10000, softMax: 50, disabled: d }),
+      num(dyn, 'bending_random', 'Random', { min: 0, max: 1, slider: true, disabled: d, tip: 'Random stiffness per strand' }),
       num(dyn, 'bending_damping', 'Damping', { min: 0, max: 50, disabled: d }),
     ], { sub: true }),
-    panel('pa-hairdyn-vol', 'Volume', () => [num(dyn, 'air_damping', 'Air Drag', { min: 0, max: 10, disabled: d })], { sub: true }),
-    panel('pa-hairdyn-col', 'Collisions', () => [num(dyn, 'collision_distance', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !dyn.use_collision })], {
+    panel('pa-hairdyn-vol', 'Volume', () => [
+      num(dyn, 'air_damping', 'Air Drag', { min: 0, max: 10, disabled: d }),
+      num(dyn, 'internal_friction', 'Internal Friction', { min: 0, max: 1, slider: true, disabled: d, tip: 'Strands passing through the same cell move together' }),
+      num(dyn, 'voxel_cell_size', 'Voxel Grid Cell Size', { min: 0.0001, max: 10, unit: 'distance', disabled: d }),
+      num(dyn, 'density_target', 'Density Target', { min: 0, max: 10000, softMax: 1000, disabled: d, tip: 'Hair points per cubic metre above which strands push apart' }),
+      num(dyn, 'density_strength', 'Density Strength', { min: 0, max: 1, slider: true, disabled: d }),
+    ], { sub: true }),
+    panel('pa-hairdyn-col', 'Collisions', () => [
+      num(dyn, 'collision_quality', 'Quality', { int: true, min: 1, max: 20, disabled: d || !dyn.use_collision }),
+      num(dyn, 'collision_distance', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !dyn.use_collision }),
+      num(dyn, 'impulse_clamp', 'Impulse Clamping', { min: 0, max: 100, disabled: d || !dyn.use_collision, tip: 'Most speed a collision may add in one frame (0: no limit)' }),
+      collectionRow(`pa-hd-coll-${ob.id}`, dyn as never, 'collision_collection', 'Collision Collection', 'All colliders', d || !dyn.use_collision),
+    ], {
       sub: true,
       header: checkbox(`pa-hd-col-${ob.id}`, '', !!dyn.use_collision, (v) => ((dyn.use_collision = v), changed('Toggle Hair Collisions'))),
     }),

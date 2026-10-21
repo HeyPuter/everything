@@ -17,6 +17,8 @@ export interface RigidBodyWorldX extends RigidBodyWorld {
   effector_weights_types?: Record<string, number>;
   /** effector weight for gravity (effector_weights.gravity) */
   effector_weights_gravity?: number;
+  /** resolve overlaps without adding energy */
+  use_split_impulse?: boolean;
 }
 
 export interface RigidBodyX extends RigidBodyData {
@@ -382,10 +384,40 @@ export interface HairDynamicsSettings {
   collision_distance: number;
   effector_weights_gravity: number;
   effector_weights_all: number;
+  /** random stiffness per strand */
+  bending_random?: number;
+  /** volume: strands share their motion within cells, and keep a target density */
+  internal_friction?: number;
+  voxel_cell_size?: number;
+  density_target?: number;
+  density_strength?: number;
+  collision_quality?: number;
+  /** most velocity a collision may add in one frame (0: no limit) */
+  impulse_clamp?: number;
+  collision_collection?: string | null;
 }
 
 export function defaultHairDynamics(): HairDynamicsSettings {
-  return { quality: 5, pin_stiffness: 0, mass: 0.3, bending_stiffness: 0.5, bending_damping: 0.5, air_damping: 1, use_collision: true, collision_distance: 0.005, effector_weights_gravity: 1, effector_weights_all: 1 };
+  return {
+    quality: 5,
+    pin_stiffness: 0,
+    mass: 0.3,
+    bending_stiffness: 0.5,
+    bending_damping: 0.5,
+    air_damping: 1,
+    use_collision: true,
+    collision_distance: 0.005,
+    effector_weights_gravity: 1,
+    effector_weights_all: 1,
+    bending_random: 0,
+    internal_friction: 0,
+    voxel_cell_size: 0.1,
+    density_target: 0,
+    density_strength: 0,
+    collision_quality: 2,
+    impulse_clamp: 0,
+    collision_collection: null,
+  };
 }
 
 export interface ObjectPhysics extends ObjectData {

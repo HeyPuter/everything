@@ -232,6 +232,8 @@ function buildWorld(R: Rapier, doc: DocumentData, graph: Depsgraph | null = null
   const substeps = Math.max(1, Math.round(w.substeps_per_frame));
   world.timestep = Math.max(1e-6, (w.time_scale || 0) / fps(doc) / substeps);
   world.integrationParameters.numSolverIterations = Math.max(1, Math.round(w.solver_iterations));
+  // split impulse: overlaps are pushed apart gently, without the push turning into a bounce
+  if (w.use_split_impulse) world.integrationParameters.contact_natural_frequency = 8;
   const bodies: Body[] = [];
   const byId = new Map<string, Body>();
   const masks = new Map<number, number>();

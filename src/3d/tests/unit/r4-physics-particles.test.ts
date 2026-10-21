@@ -285,3 +285,18 @@ describe('emission distributions', () => {
     expect(v[3].px).toBeCloseTo(sm.mesh.positions[9], 6);
   });
 });
+
+describe('hair dynamics volume', () => {
+  it('internal friction evens out velocities within a cell; density pushes crowded points apart', async () => {
+    const { hairVolume } = await import('../../src/physics/hairdyn');
+    // two strands of two points, their tips in the same cell
+    const x = new Float64Array([0, 0, 0, 0.01, 0, 0, 1, 0, 0, 0.02, 0, 0]);
+    const v = new Float64Array([0, 0, 0, 1, 0, 0, 0, 0, 0, -1, 0, 0]);
+    hairVolume({ x, v }, 2, 2, { internal_friction: 1, voxel_cell_size: 0.5 }, 0.1);
+    expect(Math.abs(v[3])).toBeLessThan(1);
+    expect(Math.abs(v[9])).toBeLessThan(1);
+    const x2 = new Float64Array([0, 0, 0, 0.01, 0, 0, 1, 0, 0, 0.02, 0, 0]);
+    hairVolume({ x: x2, v: new Float64Array(12) }, 2, 2, { density_strength: 1, density_target: 1, voxel_cell_size: 0.5 }, 0.1);
+    expect(x2[9] - x2[3]).toBeGreaterThan(0.01);
+  });
+});

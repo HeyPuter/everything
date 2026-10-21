@@ -2,7 +2,7 @@
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
 import { panel, checkbox, enumMenu, opButton } from '../ui/widgets';
-import { num, splitRow } from '../ui/props';
+import { num, bool, splitRow } from '../ui/props';
 import { sceneRigidBodyPanel } from '../editors/properties/tabs';
 import { cachePanel, changed, fieldWeightsPanel } from './ui-common';
 import { RB_CACHE } from './rigidbody';
@@ -26,6 +26,7 @@ sceneRigidBodyPanel.draw = () => {
         collectionRow('sc-rb-coll', w as never, 'collection', 'Collection', 'All rigid bodies'),
         collectionRow('sc-rb-ccoll', w as never, 'constraints', 'Constraints', 'All constraints'),
         num(w, 'time_scale', 'Speed', { min: 0, max: 100, disabled: d }),
+        bool(w, 'use_split_impulse', 'Split Impulse', { disabled: d, tip: 'Push overlapping bodies apart gently, so the correction does not make them bounce' }),
         num(w, 'substeps_per_frame', 'Substeps Per Frame', { int: true, min: 1, max: 1000, disabled: d }),
         num(w, 'solver_iterations', 'Solver Iterations', { int: true, min: 1, max: 1000, disabled: d }),
       ], { sub: true }),
