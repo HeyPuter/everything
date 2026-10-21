@@ -10,6 +10,58 @@ import type { BStruct } from './reader';
 import type { Ctx } from './context';
 import { importGeometryNodes } from './geonodes';
 import { convertAction } from './anim';
+import { DNA_PROP_RULES, type DnaPropRule } from './modprops.gen';
+
+// ---------------------------------------------------------------------------
+// generic conversion through the generated DNA rules (types without a hand-written mapping)
+
+/** Physics and particle data live in separate settings blocks: not converted generically. */
+const NO_GENERIC = new Set(['CLOTH', 'COLLISION', 'SOFT_BODY', 'FLUID', 'DYNAMIC_PAINT', 'PARTICLE_SYSTEM', 'PARTICLE_INSTANCE', 'OCEAN', 'SURFACE', 'NODES']);
+
+function fieldOf(d: BStruct, path: string): { s: BStruct; name: string } | null {
+  const parts = path.split('.');
+  let s: BStruct | null = d;
+  for (const p of parts.slice(0, -1)) {
+    s = s?.sub(p) ?? null;
+    if (!s) return null;
+  }
+  return s && s.has(parts[parts.length - 1]) ? { s, name: parts[parts.length - 1] } : null;
+}
+
+/** Read one setting through its rule; undefined when it cannot be read. */
+export function readRule(d: BStruct, r: DnaPropRule, ctx: Ctx, o: (s: BStruct | null) => string | null): unknown {
+  const at = fieldOf(d, r.f);
+  if (!at) return undefined;
+  if (r.ptr) {
+    const ref = at.s.ref(at.name);
+    if (!ref) return null;
+    if (ref.type === 'Object') return o(ref);
+    if (ref.type === 'Collection') return ctx.collection(ref);
+    if (ref.type === 'Image') return ctx.image(ref);
+    return undefined;
+  }
+  if (r.s) return at.s.str(at.name);
+  if (r.n) return at.s.nums(at.name, r.n);
+  const v = at.s.num(at.name);
+  if (r.e) return r.e[v];
+  if (r.b !== undefined) return r.b === 0 ? v !== 0 : r.b > 0 ? (v & r.b) !== 0 : (v & -r.b) === 0;
+  if (r.k) return v / r.k;
+  return v;
+}
+
+/** Settings of a modifier / constraint struct by the generated rules, limited to `known` keys. */
+export function genericProps(d: BStruct, ctx: Ctx, o: (s: BStruct | null) => string | null, known: Record<string, unknown> | undefined, plainOnly = false): { type: string; p: P } | null {
+  const rules = DNA_PROP_RULES[d.type];
+  if (!rules || NO_GENERIC.has(rules.rna)) return null;
+  const p: P = {};
+  for (const [k, r] of Object.entries(rules.props)) {
+    if (known && !(k in known)) continue;
+    if (plainOnly && r.ptr) continue;
+    const v = readRule(d, r, ctx, o);
+    if (v !== undefined) p[k] = v;
+  }
+  return { type: rules.rna, p };
+}
 
 type P = Record<string, unknown>;
 const bit = (v: number, b: number) => (v & b) !== 0;
@@ -248,12 +300,19 @@ export function convertModifiers(ob: BStruct, ctx: Ctx, o: (s: BStruct | null) =
     if (!md) continue;
     const name = md.str('name');
     const conv = MODS[d.type];
-    if (!conv) {
+    const rna = DNA_PROP_RULES[d.type]?.rna;
+    const generic = !conv && rna && modifierTypes[rna] ? genericProps(d, ctx, o, modifierTypes[rna].defaults() as Record<string, unknown>) : null;
+    if (!conv && !generic) {
       if (d.type !== 'NodesModifierData') ctx.warn.add('Modifiers not supported (skipped)', `${name} (${MOD_LABELS[d.type] ?? d.type.replace(/ModifierData$/, '')})`);
       continue;
     }
-    const r = conv(d, ctx, o);
+    let r = conv ? conv(d, ctx, o) : generic;
     if (!r) continue;
+    // settings measured by the generated rules win over the hand-written reading (ID pointers excepted)
+    if (d.type in MODS && modifierTypes[r.type]) {
+      const g = genericProps(d, ctx, o, modifierTypes[r.type].defaults() as Record<string, unknown>, true);
+      if (g && g.type === r.type) r = { type: r.type, p: { ...r.p, ...g.p } };
+    }
     const m = newModifier(r.type, uid('md'), out);
     for (const [k, v] of Object.entries(r.p)) if (v !== undefined) m[k] = v;
     m.name = name || m.name;
@@ -477,13 +536,18 @@ export function convertConstraints(list: BStruct[], ctx: Ctx, o: (s: BStruct | n
   for (const c of list) {
     const d = c.ref('data');
     const name = c.str('name');
-    const conv = d ? CONS[d.type] : undefined;
+    const rna = d ? DNA_PROP_RULES[d.type]?.rna : undefined;
+    const conv: ConMap | undefined = d ? (CONS[d.type] ?? (rna && constraintTypes[rna] ? (dd, cc, oo) => genericProps(dd, cc, oo, undefined) : undefined)) : undefined;
     if (!d || !conv) {
       ctx.warn.add('Constraints not supported (skipped)', `${owner}: ${name}${d ? ` (${d.type.replace(/^b|Constraint$/g, '')})` : ''}`);
       continue;
     }
-    const r = conv(d, ctx, o);
+    let r = conv(d, ctx, o);
     if (!r) continue;
+    if (d.type in CONS) {
+      const g = genericProps(d, ctx, o, undefined, true);
+      if (g && g.type === r.type) r = { type: r.type, p: { ...r.p, ...g.p } };
+    }
     if (!constraintTypes[r.type] && !(isBone && boneOnlyConstraints[r.type])) {
       ctx.warn.add('Constraints not supported (skipped)', `${owner}: ${name}`);
       continue;
