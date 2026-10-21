@@ -245,6 +245,31 @@ describe('password-protected sections: other devices', () => {
   });
 });
 
+describe('password-protected sections: removing the password', () => {
+  it('keeps deleted pages restorable', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png', { sectionId: section.id });
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    const entry = store.deletePage(meta.id);
+    await store.lockSection(section.id);
+    expect(await store.unlockSection(section.id, 'pw')).toBe(true);
+    expect(await store.unprotectSection(section.id)).toBe(true);
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.openTrash(entry.id)).toBe(true);
+    expect(fresh.trash[0].pages[0].title).toBe('Secret plans');
+    expect(fresh.restore(entry.id).pageId).toBe(meta.id);
+    const back = await fresh.loadPage(meta.id);
+    expect(back.outlines[0].html).toContain('treasure');
+    const img = back.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(img.endsWith('.sealed')).toBe(false);
+    expect(await (await fresh.assetBlob(img)).text()).toBe('png bytes');
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');

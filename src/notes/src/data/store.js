@@ -972,12 +972,39 @@ export class Store extends Emitter {
     if (!f?.node.locked || !this.keys.has(id)) return false;
     const pages = await Promise.all(f.node.pages.map((m) => this.loadPage(m.id)));
     const key = this.keys.get(id);
+    // Pages deleted from the section are decrypted too, or nothing could
+    // open them once the key is gone.
+    const entries = this.trash.filter((e) => e.kind === 'page' && e.lockedSection === id);
+    const trashed = [];
+    for (const entry of entries) {
+      const metas = entry.sealedPages ? await openJSON(key, entry.sealedPages) : entry.pages;
+      for (const m of metas) {
+        let page = this.pages.get(m.id);
+        if (!page) {
+          const raw = await this.backend.readJSON(`pages/${m.id}.json`);
+          page = raw?.sealed ? await openJSON(key, raw.sealed).catch(() => null) : raw;
+        }
+        if (page) trashed.push(page);
+      }
+      entry.pages = metas;
+    }
     delete f.node.locked;
     delete f.node.sealed;
-    for (const page of pages) {
+    for (const entry of entries) {
+      delete entry.sealedPages;
+      delete entry.lockedSection;
+      delete entry.pageIds;
+      entry.sectionName ||= f.node.name;
+    }
+    for (const page of trashed) {
+      page.outlines ||= [];
+      this.pages.set(page.id, page);
+    }
+    for (const page of [...pages, ...trashed]) {
       await this.rekeyAssets(page, { from: key, sectionId: null });
       this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
     }
+    if (entries.length) this.scheduleTrash();
     this.keys.delete(id);
     this.touchNotebook(f.notebook);
     await this.flush();
