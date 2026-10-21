@@ -61,6 +61,8 @@ export interface GPDrawing {
   uv_scale?: Float32Array;
   /** per stroke: helper lines drawn with the Fill tool (not rendered, removed by Remove Fill Guides) */
   is_fill_guide?: Uint8Array;
+  /** per stroke edge softness 0 (hard) .. 1 (fades from the center line) */
+  softness?: Float32Array;
 }
 
 export interface GPFrame {
@@ -247,6 +249,8 @@ export interface GPBrush {
   subdivision?: number;
   /** Sculpt brushes: affect the stroke falloff */
   direction?: 'ADD' | 'SUBTRACT';
+  /** Draw: edge hardness of new strokes (1 = hard; lower values give soft edges) */
+  hardness?: number;
 }
 
 /** A visual effect applied to a grease pencil object's rendered image. */

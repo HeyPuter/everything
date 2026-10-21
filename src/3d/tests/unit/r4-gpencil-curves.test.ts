@@ -259,3 +259,22 @@ describe('corner joins', () => {
     expect(b.nbr1[8 * 4 + 3]).toBeCloseTo(Math.PI / 4);
   });
 });
+
+describe('soft strokes', () => {
+  it('carry their softness in the flag bits and fill inner joints with dots', () => {
+    const LINE: StrokeStyle = { stroke: true, fill: false, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'LINE' };
+    const pts = [newPoint([0, 0, 0], 0.1), newPoint([1, 0, 0.2], 0.1), newPoint([2, 0, 0], 0.1), newPoint([3, 0, 0.3], 0.1)];
+    const d = fromStrokes([newStroke(pts, { softness: 0.5 })]);
+    expect(d.softness![0]).toBeCloseTo(0.5);
+    expect(toStrokes(d)[0].softness).toBeCloseTo(0.5);
+    const b = buildStrokeBuffers(d, [LINE]);
+    // three segments + two joint dots
+    expect(b.vertexCount).toBe(20);
+    const flags = [...b.info].filter((_, i) => i % 4 === 2);
+    expect(flags[0] >> 4).toBe(128);
+    // inner ends are cut, the stroke ends stay round
+    expect(flags[0] & 3).toBe(2);
+    expect(flags[4] & 3).toBe(3);
+    expect(flags[8] & 3).toBe(1);
+  });
+});

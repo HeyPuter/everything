@@ -282,6 +282,7 @@ function drawHeader(): Child {
             use_pressure_size: p.use_pressure_size,
             use_pressure_strength: p.use_pressure_strength,
             pen_smooth_factor: p.smooth,
+            hardness: p.hardness ?? 1,
           });
           refresh();
         },
@@ -786,6 +787,7 @@ export function gpToolPanels(): Child {
       row('', strengthField(b, 'gp-sb-str')),
       checkbox('gp-sb-ps', 'Use Pressure for Size', !!b.use_pressure_size, (x) => ((b.use_pressure_size = x), refresh())),
       checkbox('gp-sb-pst', 'Use Pressure for Strength', !!b.use_pressure_strength, (x) => ((b.use_pressure_strength = x), refresh())),
+      tool === 'builtin.brush.Draw' ? num(b, 'hardness', 'gp-sb-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }) : null,
       tool === 'builtin.brush.Draw' ? drawStrokePanels(b) : null,
       tool === 'builtin.brush.Erase'
         ? row(

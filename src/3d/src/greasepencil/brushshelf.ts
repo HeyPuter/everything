@@ -98,6 +98,7 @@ export function shelfBrushes(): ShelfBrush[] {
             use_pressure_size: p.use_pressure_size,
             use_pressure_strength: p.use_pressure_strength,
             pen_smooth_factor: p.smooth,
+            hardness: p.hardness ?? 1,
           });
           setActiveTool('builtin.brush.Draw');
         },

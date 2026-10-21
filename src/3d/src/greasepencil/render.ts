@@ -127,7 +127,7 @@ void main() {
   vS0 = s0;
   vS1 = (int(aInfo.z + 0.5) & 8) != 0 ? s0 + vec2(1.0, 0.0) : s1;
   vR = vec2(r0, r1);
-  if (kind == 1) {
+  if (kind == 1 || kind == 2) {
     vN0 = screenNbr(mvp, aN0, k);
     vN1 = screenNbr(mvp, aN1, k);
   }
@@ -204,6 +204,17 @@ flat varying vec4 vInfo;
 flat varying vec2 vZ;
 flat varying vec3 vN0;
 flat varying vec3 vN1;
+/** Edge softness: alpha falls from 1 at (1 - softness) of the radius to 0 at the edge. */
+float softEdge(float d, float r, float soft) {
+  float a = clamp((max(r, 0.5) - d) / max(r * soft, 0.75), 0.0, 1.0);
+  return a * a * (3.0 - 2.0 * a);
+}
+float capsuleSoft(vec2 p, vec2 a, vec2 b, float ra, float rb, float soft) {
+  vec2 ab = b - a;
+  float L2 = dot(ab, ab);
+  float t = L2 > 1e-8 ? clamp(dot(p - a, ab) / L2, 0.0, 1.0) : 0.0;
+  return softEdge(length(p - (a + ab * t)), mix(ra, rb, t), soft);
+}
 float capsuleCov(vec2 p, vec2 a, vec2 b, float ra, float rb) {
   vec2 ab = b - a;
   float L2 = dot(ab, ab);
@@ -217,6 +228,8 @@ void main() {
   float t = 0.0;
   float cov = 1.0;
   float zReal = gl_FragCoord.z;
+  float soft = 0.0;
+  float softA = 1.0;
   if (kind == 0) {
     col = vC0;
     if (vN0.y > 0.5) {
@@ -232,17 +245,29 @@ void main() {
     float L2 = dot(ab, ab);
     float tr = L2 > 1e-8 ? dot(vPix - vS0, ab) / L2 : 0.0;
     int flags = int(vInfo.z + 0.5);
-    if ((flags & 1) != 0 && tr < 0.0) discard;
-    if ((flags & 2) != 0 && tr > 1.0) discard;
+    // cut ends (flat caps, cut joints) stop a fraction of a pixel past the end point so the
+    // segments meeting there leave no pixel undrawn between them
+    float pad = L2 > 1e-8 ? 0.6 / sqrt(L2) : 0.0;
+    if ((flags & 1) != 0 && tr < -pad) discard;
+    if ((flags & 2) != 0 && tr > 1.0 + pad) discard;
     t = clamp(tr, 0.0, 1.0);
     float r = mix(vR.x, vR.y, t);
     float d = length(vPix - (vS0 + ab * t));
     cov = clamp(max(r, 0.5) + 0.5 - d, 0.0, 1.0) * clamp(r * 2.0, 0.0, 1.0);
     if (cov <= 0.0) discard;
+    soft = float(flags >> 4) / 255.0;
+    if (soft > 0.0) {
+      // the soft field of the joined stroke: the strongest of this segment and its neighbours,
+      // so round segment ends do not show through as rings
+      softA = softEdge(d, r, soft);
+      if (vN0.z > 0.0) softA = max(softA, capsuleSoft(vPix, vN0.xy, vS0, vN0.z, vR.x, soft));
+      if (vN1.z > 0.0) softA = max(softA, capsuleSoft(vPix, vS1, vN1.xy, vR.y, vN1.z, soft));
+    }
     // a partially covered pixel that a neighbouring segment covers fully is drawn by that one
+    // (not across a cut joint: the neighbour stops there too)
     if (cov < 0.999) {
-      if (vN0.z > 0.0 && capsuleCov(vPix, vN0.xy, vS0, vN0.z, vR.x) >= 0.999) discard;
-      if (vN1.z > 0.0 && capsuleCov(vPix, vS1, vN1.xy, vR.y, vN1.z) >= 0.999) discard;
+      if (vN0.z > 0.0 && (flags & 1) == 0 && capsuleCov(vPix, vN0.xy, vS0, vN0.z, vR.x) >= 0.999) discard;
+      if (vN1.z > 0.0 && (flags & 2) == 0 && capsuleCov(vPix, vS1, vN1.xy, vR.y, vN1.z) >= 0.999) discard;
     }
     col = mix(vC0, vC1, t);
     col.a *= cov;
@@ -263,10 +288,19 @@ void main() {
     }
     cov = clamp(max(r, 0.5) + 0.5 - d, 0.0, 1.0) * clamp(r * 2.0, 0.0, 1.0);
     if (cov <= 0.0) discard;
+    soft = float(int(vInfo.z + 0.5) >> 4) / 255.0;
+    if (soft > 0.0) {
+      softA = softEdge(d, r, soft);
+      // a joint of a soft stroke: as strong as the segments on either side
+      if (vN0.z > 0.0) softA = max(softA, capsuleSoft(vPix, vN0.xy, vS0, vN0.z, r, soft));
+      if (vN1.z > 0.0) softA = max(softA, capsuleSoft(vPix, vS0, vN1.xy, r, vN1.z, soft));
+    }
     col = vC0;
     col.a *= cov;
     zReal = vZ.x;
   }
+  // soft edges fade the color only: the coverage used for ordering stays the same
+  col.a *= softA;
   col.rgb = mix(col.rgb, uTint.rgb, uTint.a);
   col.rgb = mix(col.rgb, uOnion.rgb, uOnion.a);
   col.rgb *= uLight;
@@ -354,7 +388,7 @@ export function resetArrayIds() {
 }
 
 export function drawingKey(d: GPDrawing) {
-  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}.${aid(d.stroke_type)}.${aid(d.is_fill_guide)}.${aid(d.miter_angle)}.${aid(d.uv_translation)}.${aid(d.uv_rotation)}.${aid(d.uv_scale)}`;
+  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}.${aid(d.stroke_type)}.${aid(d.is_fill_guide)}.${aid(d.miter_angle)}.${aid(d.uv_translation)}.${aid(d.uv_rotation)}.${aid(d.uv_scale)}.${aid(d.softness)}`;
 }
 
 interface CachedGeo {

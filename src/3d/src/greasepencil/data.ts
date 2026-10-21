@@ -50,6 +50,8 @@ export interface GPStroke {
   uv_scale?: [number, number];
   /** Fill tool helper line */
   is_fill_guide?: boolean;
+  /** edge softness 0..1 */
+  softness?: number;
 }
 
 export function newStroke(points: GPPoint[], o: Partial<Omit<GPStroke, 'points'>> = {}): GPStroke {
@@ -102,6 +104,7 @@ const OPT_CURVE: [keyof GPDrawing, number][] = [
   ['uv_rotation', 1],
   ['uv_scale', 2],
   ['is_fill_guide', 1],
+  ['softness', 1],
 ];
 const OPT_POINT: [keyof GPDrawing, number][] = [
   ['handle_left', 3],
@@ -163,7 +166,8 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
     uvt = at(d.uv_translation, nStr * 2),
     uvr = at(d.uv_rotation, nStr),
     uvs = at(d.uv_scale, nStr * 2),
-    guide = at(d.is_fill_guide, nStr);
+    guide = at(d.is_fill_guide, nStr),
+    soft = at(d.softness, nStr);
   const hl = at(d.handle_left, nPts * 3),
     hr = at(d.handle_right, nPts * 3),
     htl = at(d.handle_type_left, nPts),
@@ -218,6 +222,7 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
     if (uvr?.[s]) st.uv_rotation = uvr[s];
     if (uvs && (uvs[s * 2] !== 1 || uvs[s * 2 + 1] !== 1)) st.uv_scale = [uvs[s * 2], uvs[s * 2 + 1]];
     if (guide?.[s]) st.is_fill_guide = true;
+    if (soft?.[s]) st.softness = soft[s];
     out.push(st);
   }
   return out;
@@ -275,6 +280,7 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
     d.uv_scale = new Float32Array(c * 2).fill(1);
   }
   if (list.some((s) => s.is_fill_guide)) d.is_fill_guide = new Uint8Array(c);
+  if (list.some((s) => s.softness)) d.softness = new Float32Array(c);
   if (list.some((s) => s.points.some((p) => p.miter_angle))) d.miter_angle = new Float32Array(n);
   let i = 0;
   list.forEach((s, k) => {
@@ -322,6 +328,7 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
       d.uv_scale!.set(s.uv_scale ?? [1, 1], k * 2);
     }
     if (d.is_fill_guide) d.is_fill_guide[k] = s.is_fill_guide ? 1 : 0;
+    if (d.softness) d.softness[k] = s.softness ?? 0;
   });
   d.offsets[c] = i;
   if (bez) deriveHandles(d);
@@ -590,6 +597,8 @@ export const DRAW_PRESETS: {
   use_pressure_size: boolean;
   use_pressure_strength: boolean;
   smooth: number;
+  /** edge hardness of the strokes (1 = hard) */
+  hardness?: number;
 }[] = [
   {
     id: 'Pencil',
@@ -626,6 +635,7 @@ export const DRAW_PRESETS: {
     use_pressure_size: false,
     use_pressure_strength: false,
     smooth: 0.6,
+    hardness: 0.85,
   },
   {
     id: 'Airbrush',
@@ -635,6 +645,7 @@ export const DRAW_PRESETS: {
     use_pressure_size: false,
     use_pressure_strength: true,
     smooth: 0.4,
+    hardness: 0.1,
   },
 ];
 

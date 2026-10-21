@@ -190,7 +190,8 @@ export function startDraw(v: View3D, e: PointerEvent, fillGuide = false) {
   const mat = Math.min(c.ob.active_material_index, Math.max(0, c.gp.materials.length - 1));
   const color = brushColorFor(b);
   const seed = strokeSeed++;
-  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat, ...(fillGuide ? { is_fill_guide: true } : {}) });
+  const softness = fillGuide ? 0 : Math.max(0, Math.min(1, 1 - (b.hardness ?? 1)));
+  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat, ...(fillGuide ? { is_fill_guide: true } : {}), ...(softness > 0 ? { softness } : {}) });
   const stab = !!b.use_smooth_stroke;
   const p0 = v.local(e);
   Object.assign(lazy, { on: stab, x: p0.x, y: p0.y, cx: p0.x, cy: p0.y, view: v });

@@ -263,6 +263,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
 
   const stype = d.stroke_type && d.stroke_type.length === nStrokes ? d.stroke_type : null;
   const guide = d.is_fill_guide && d.is_fill_guide.length === nStrokes ? d.is_fill_guide : null;
+  const soft = d.softness && d.softness.length === nStrokes ? d.softness : null;
   for (let s = 0; s < nStrokes; s++) {
     const st0 = styles[d.material_index[s]] ?? null;
     if (!st0) continue;
@@ -319,6 +320,8 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     }
     if (!st.stroke || !!st.holdoutStroke !== holdout) continue;
     if (strokeOrder[s] < 0) strokeOrder[s] = order;
+    // edge softness travels in the flag bits above 4 (0..255)
+    const softBits = soft ? Math.round(Math.max(0, Math.min(1, soft[s])) * 255) << 4 : 0;
     if (st.mode !== 'LINE') {
       const kind = st.mode === 'DOTS' ? KIND_DOT : KIND_SQUARE;
       for (let i = a; i < b; i++) {
@@ -331,7 +334,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
           dz = (P[j * 3 + 2] - P[i * 3 + 2]) * sign;
         if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(R(i), 1e-4), 0, 0];
         // flag 8: screen aligned (fixed)
-        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, st.alignment === 'FIXED' ? 8 : 0, s);
+        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits, s);
       }
       order++;
       continue;
@@ -340,7 +343,11 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     const segs = n === 1 ? 1 : cyclic ? n : n - 1;
     // corners: points with a miter angle get a cut join (flat, or pointed up to the limit)
     const miter = d.miter_angle && d.miter_angle.length === nPts ? d.miter_angle : null;
-    const cut = (i: number) => !!miter && miter[i] > 0 && n > 2 && (cyclic || (i !== a && i !== b - 1));
+    // soft strokes cut their segments at every inner point and fill the joints with round dots
+    // drawn after them, so each pixel takes the soft edge of the segment it lies across
+    const softStroke = !!soft && soft[s] > 0;
+    const inner = (i: number) => n > 2 && (cyclic || (i !== a && i !== b - 1));
+    const cut = (i: number) => inner(i) && ((!!miter && miter[i] > 0) || softStroke);
     for (let k = 0; k < segs; k++) {
       const i = a + k;
       const j = n === 1 ? i : a + ((k + 1) % n);
@@ -351,6 +358,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       if (!cyclic && k === segs - 1 && d.end_cap[s]) flags |= 2;
       if (cut(i)) flags |= 1;
       if (cut(j)) flags |= 2;
+      flags |= softBits;
       // neighbours (for single-coverage joins): the point before i and the point after j
       const hasPrev = n > 1 && (k > 0 || cyclic),
         hasNext = n > 1 && (k < segs - 1 || cyclic);
@@ -360,12 +368,16 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       const n1 = hasNext ? [P[nj * 3], P[nj * 3 + 1], P[nj * 3 + 2], R(nj)] : NONE;
       quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1);
     }
-    if (miter)
+    if (miter || softStroke)
       for (let i = a; i < b; i++) {
         if (!cut(i)) continue;
         const pi = i > a ? i - 1 : b - 1,
           ni = i < b - 1 ? i + 1 : a;
         pointColor(d, i, st.color, ca);
+        if (!(miter && miter[i] > 0)) {
+          quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3], P[i * 3 + 1], P[i * 3 + 2], R(i), R(i), ca, ca, KIND_DOT, softBits, s, [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)], [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], R(ni)]);
+          continue;
+        }
         // p0: the corner, p1: the previous point, next point + miter limit in the second neighbour slot
         quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(i), R(i), ca, ca, KIND_JOIN, 0, s, NONE, [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], miter[i]]);
       }
