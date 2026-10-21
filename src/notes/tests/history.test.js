@@ -64,3 +64,27 @@ describe('History with ink', () => {
     expect(h.push(snapshotOf(page))).toBe(false);
   });
 });
+
+describe('PageEditor undo', () => {
+  it('keeps focus on the page when undo removes the focused container', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const store = { pageChanged() {}, assetUrl: async () => null };
+    const ed = new PageEditor({ store, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [], ink: [] });
+    const el = ed.createOutlineAt(100, 200);
+    const bodyEl = el.querySelector('.outline-body');
+    bodyEl.innerHTML = '<p>typed</p>';
+    ed.dirty.add(el);
+    ed.commit();
+    expect(document.activeElement).toBe(bodyEl);
+    expect(await ed.undo()).toBe(true);
+    expect(ed.page.outlines).toHaveLength(0);
+    expect(ed.scroller.contains(document.activeElement)).toBe(true);
+    expect(await ed.redo()).toBe(true);
+    expect(ed.page.outlines[0].html).toBe('<p>typed</p>');
+    ed.destroy();
+    host.remove();
+  });
+});

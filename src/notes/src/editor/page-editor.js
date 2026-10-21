@@ -969,10 +969,15 @@ export class PageEditor extends Emitter {
   }
 
   async restoreSnapshot(entry) {
+    const hadFocus = this.scroller.contains(document.activeElement);
     applySnapshot(this.page, entry.snapshot);
     this.store.pageChanged(this.page, { title: this.page.title });
     await this.render();
     this.restoreCaret(entry.caret);
+    // When the restored state has no container for the caret (undoing the
+    // first typing in a new one), keep focus on the page so the next
+    // Ctrl+Z or Ctrl+Y still reaches the editor.
+    if (hadFocus && !this.scroller.contains(document.activeElement)) this.scroller.focus({ preventScroll: true });
     this.emit('change', { title: true });
   }
 
