@@ -283,14 +283,20 @@ function turnPage(page, delta) {
   page.setRotation(degrees((((pageRotation(page) + delta) % 360) + 360) % 360));
 }
 export function rotatePage(doc, index, delta = 90) {
-  turnPage(doc.getPage(index), delta);
-  // Sticky note icons are meant to stay upright whichever way the page is turned.
-  reorientNotes(doc, index);
+  rotatePages(doc, [index], delta);
+}
+/**
+ * Turn several pages by the same quarter turn. Their sticky note icons, meant to stay upright
+ * whichever way a page is turned, are set right in one pass over the document for all of them.
+ */
+export function rotatePages(doc, indices, delta = 90) {
+  const list = [...new Set(indices)];
+  for (const index of list) turnPage(doc.getPage(index), delta);
+  reorientNotes(doc, list);
 }
 /** Turn every page by the same quarter turn, as a scan that came in sideways needs. */
 export function rotateAllPages(doc, delta = 90) {
-  for (const page of doc.getPages()) turnPage(page, delta);
-  reorientNotes(doc, doc.getPageIndices());
+  rotatePages(doc, doc.getPageIndices(), delta);
 }
 /** Keep widget indices aligned with Opt while skipping unreadable children during deletion. */
 function deletionWidgets(field) {

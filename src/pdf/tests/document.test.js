@@ -18,6 +18,7 @@ import {
   samplePdf,
   normalizeRect,
   rotatePage,
+  rotatePages,
   deletePage,
   movePage,
   insertBlankPage,
@@ -38,6 +39,7 @@ import {
 } from '../src/core/document.js';
 import { addImagePages } from '../src/core/image-pages.js';
 import { addLink } from '../src/core/links.js';
+import { addNote } from '../src/core/notes.js';
 
 describe('PDF validation and names', () => {
   it('sanitizes paths and control characters while keeping one extension', () => {
@@ -742,4 +744,34 @@ it('duplicates several pages of a form at once as one by one, flattening the for
   } finally {
     vi.restoreAllMocks();
   }
+});
+
+it('turns several pages with notes at once as one by one, walking the document once', async () => {
+  const build = async () => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 6; i++) {
+      doc.addPage([300 + i, 400]);
+      addNote(doc, i, { x: 40, y: 40, text: `Note ${i}` });
+    }
+    return PDFDocument.load(await doc.save());
+  };
+  const describe = async (doc) => {
+    const saved = await PDFDocument.load(await doc.save());
+    return saved.getPages().map((page) => {
+      const note = saved.context.lookup(page.node.Annots().get(0));
+      const normal = note.lookup(PDFName.of('AP')).lookup(PDFName.of('N'));
+      return [page.getRotation().angle, String(normal.dict.lookup(PDFName.of('Matrix')))];
+    });
+  };
+  const oneByOne = await build();
+  for (const index of [4, 1, 2]) rotatePage(oneByOne, index, 90);
+  const together = await build();
+  // Setting a turned page's notes upright counts every object's uses in the document.
+  const walk = vi.spyOn(together.context, 'enumerateIndirectObjects');
+  rotatePages(together, [4, 1, 2, 4], 90);
+  expect(walk).toHaveBeenCalledTimes(1);
+  walk.mockRestore();
+  const result = await describe(together);
+  expect(result).toEqual(await describe(oneByOne));
+  expect(result.map(([angle]) => angle)).toEqual([0, 90, 90, 0, 90, 0]);
 });

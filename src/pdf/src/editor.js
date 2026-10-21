@@ -122,6 +122,7 @@ import {
   safeName,
   validatePdf,
   rotatePage,
+  rotatePages,
   rotateAllPages,
   deletePage,
   deletePages as deleteDocumentPages,
@@ -1239,7 +1240,7 @@ export function createEditor({
   // Its commands report their own failures, as the menus' commands do.
   const organizeActions = {
     rotate: safe((indices, delta) =>
-      mutate((doc) => indices.forEach((i) => rotatePage(doc, i, delta)), null, 'assemble'),
+      mutate((doc) => rotatePages(doc, indices, delta), null, 'assemble'),
     ),
     remove: safe((indices) => deletePages(indices)),
     extract: safe((indices) => extractToDownload(indices)),
