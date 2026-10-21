@@ -446,9 +446,12 @@ function paginateSegments(segments, page, maxPages, startY, paginateParagraphs, 
         }
         if (end === start) {
           if (!occupied && fitLines?.[start]?.topBottomBands && exceeds(lineFitHeight(fitLines[start]), textCapacity)) throw new Error('This positioned drawing paragraph is taller than the page writing area.');
-          if (occupied || exceeds(lineFitHeight(content[start]), textCapacity)) nextPage();
-          else y = freshTop(); // Before-spacing alone must not create a blank page.
-          continue;
+          if (occupied || exceeds(lineFitHeight(content[start]), textCapacity)) { nextPage(); continue; }
+          // Before-spacing alone must not create a blank page.
+          if (exceeds(y, freshTop())) { y = freshTop(); continue; }
+          // A side-wrapped drawing's reserved height can exceed what this paragraph's
+          // borders, a tall header or note area leave on every page. Start it here.
+          end = start + 1;
         }
         if (segment.format.widowControl && end < content.length) {
           let balanced = end;
