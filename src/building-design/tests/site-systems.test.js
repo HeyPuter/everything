@@ -83,6 +83,21 @@ describe('ducts and pipes', () => {
   });
 });
 
+describe('fittings', () => {
+  it('appear where runs meet, the joint drawn once', () => {
+    const { doc, add, L1 } = project();
+    const a = add({ kind: 'pipe', typeId: 'pt-copper', levelId: L1.id, a: [0, 0], b: [3000, 0], offset: 2600 });
+    const ctx = { doc, walls: new WallSolver(doc), material: (id) => doc.get(id) };
+    const alone = build3D(ctx, a).pos.length;
+    const b = add({ kind: 'pipe', typeId: 'pt-copper', levelId: L1.id, a: [3000, 0], b: [3000, 2000], offset: 2600 });
+    const withA = build3D(ctx, doc.get(a.id)).pos.length;
+    const withB = build3D(ctx, doc.get(b.id)).pos.length;
+    expect(withA).toBeGreaterThan(alone);
+    // Only one of the two draws the elbow body.
+    expect(withA).not.toBe(withB);
+  });
+});
+
 describe('foundations and braces', () => {
   it('sizes footings from their type and wall footings from their wall', () => {
     const { doc, add, wall, L1 } = project();

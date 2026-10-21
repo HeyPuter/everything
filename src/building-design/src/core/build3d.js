@@ -164,6 +164,29 @@ function buildMep(ctx, el) {
   const b = new MeshBuilder();
   if (round) b.tube([a[0], a[1], z], [e[0], e[1], z], w / 2, col, { segments: el.kind === 'conduit' ? 8 : 16 });
   else b.beam3([a[0], a[1], z], [e[0], e[1], z], w, h, col);
+  // Fittings where runs meet: a sleeve on this run, and the joint itself
+  // (drawn by one of the runs that meet there).
+  if (el.kind === 'duct' || el.kind === 'pipe') {
+    const len = Math.hypot(el.b[0] - el.a[0], el.b[1] - el.a[1]);
+    const d = len > 1e-6 ? [(el.b[0] - el.a[0]) / len, (el.b[1] - el.a[1]) / len] : [1, 0];
+    const fit = [Math.round(col[0] * 0.82), Math.round(col[1] * 0.82), Math.round(col[2] * 0.82), col[3]];
+    for (const [p, into] of [
+      [el.a, d],
+      [el.b, [-d[0], -d[1]]],
+    ]) {
+      const others = ctx.doc.all(el.kind).filter((o) => o.id !== el.id && o.levelId === el.levelId && ((Math.abs(o.a[0] - p[0]) < 1 && Math.abs(o.a[1] - p[1]) < 1) || (Math.abs(o.b[0] - p[0]) < 1 && Math.abs(o.b[1] - p[1]) < 1)));
+      if (!others.length) continue;
+      const at = (s) => [p[0] + into[0] * s, p[1] + into[1] * s, z];
+      if (round) {
+        const r = w / 2;
+        b.tube(at(r * 0.9), at(r * 1.6), r * 1.15, fit, { segments: 16 });
+        if (others.every((o) => o.id > el.id)) b.sphere([p[0], p[1], z], r * 1.12, fit, { segments: 16, rings: 10 });
+      } else {
+        b.beam3(at(w / 2), at(w / 2 + 60), w + 30, h + 30, fit);
+        if (others.every((o) => o.id > el.id)) b.beam3([p[0] - w * 0.55 * into[0], p[1] - w * 0.55 * into[1], z], [p[0] + w * 0.55 * into[0], p[1] + w * 0.55 * into[1], z], w * 1.1, h * 1.05, fit);
+      }
+    }
+  }
   return b.build();
 }
 
