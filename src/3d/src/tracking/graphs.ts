@@ -392,7 +392,7 @@ function segments(t: MovieTrackingTrack): [number, number][] {
 export function sortedTracks(ed: ClipEditor): MovieTrackingTrack[] {
   const c = ed.clip;
   if (!c) return [];
-  const list = tobj(c).tracks.filter((t) => !t.hide || ed.showHiddenTracks);
+  const list = tobj(c).tracks.filter((t) => (!t.hide || ed.showHiddenTracks) && (t.select || !ed.dopesheetOnlySelected));
   const longest = (t: MovieTrackingTrack) => Math.max(0, ...segments(t).map(([a, b]) => b - a + 1));
   const total = (t: MovieTrackingTrack) => segments(t).reduce((s, [a, b]) => s + b - a + 1, 0);
   if (ed.dopesheetSort === 'NAME') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

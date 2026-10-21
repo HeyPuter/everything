@@ -135,6 +135,8 @@ export class ClipEditor implements Editor {
   annotateTool: AnnotateTool | null = null;
   /** graph: only the selected tracks' curves; graph / dope sheet: also hidden tracks */
   graphOnlySelected = true;
+  /** dope sheet: only the selected tracks' channels */
+  dopesheetOnlySelected = false;
   showHiddenTracks = false;
   /** graph / dope sheet: keep the current frame centred while it changes */
   lockTimeCursor = false;
@@ -1432,7 +1434,9 @@ export class ClipEditor implements Editor {
         ? h(
             'div',
             { class: 'hdr-group', key: 'clip-graph-filter' },
-            h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off')),
+            this.view === 'GRAPH'
+              ? h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow the curves of selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off'))
+              : h('button', { class: { 'hdr-toggle': true, on: this.dopesheetOnlySelected }, 'data-tip': 'Only Show Selected\nList the channels of selected tracks only', onclick: () => ((this.dopesheetOnlySelected = !this.dopesheetOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off')),
             h('button', { class: { 'hdr-toggle': true, on: this.showHiddenTracks }, 'data-tip': 'Show Hidden\nInclude hidden tracks', onclick: () => ((this.showHiddenTracks = !this.showHiddenTracks), this.draw(), this.area.drawHeader()) }, icon(this.showHiddenTracks ? 'hide_off' : 'hide_on')),
           )
         : null,
