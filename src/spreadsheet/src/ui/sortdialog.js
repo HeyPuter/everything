@@ -131,7 +131,10 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
   const headerId = fieldId('sort');
   // The range came expanded from one selected cell, or covers whole columns: read as the quick sort reads them.
   const expanded = widened || (!!ctx.selection && S.isSingle(ctx.selection())) || (range.r1 === 0 && range.r2 >= ctx.wb.sheet(sheetId).rows - 1);
-  const headerInput = el('input', { type: 'checkbox', id: headerId, checked: sortHeaderDefault(ctx.wb, sheetId, range, { expanded }) });
+  const rowHeader = sortHeaderDefault(ctx.wb, sheetId, range, { expanded });
+  const headerInput = el('input', { type: 'checkbox', id: headerId, checked: rowHeader });
+  // The default reads the first row; until the box is ticked or cleared by hand, it follows the direction.
+  let headerTouched = false;
   const headerText = el('span', {}, 'Data has a header row');
   const caseId = fieldId('sort');
   const caseInput = el('input', { type: 'checkbox', id: caseId });
@@ -292,9 +295,12 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
     const text = index < 0 ? 'No levels' : `Level ${index + 1} of ${levels.children.length}`;
     if (status.textContent !== text) status.textContent = text;
   }
-  headerInput.addEventListener('change', () => { for (const row of levels.children) row.relabel(); });
+  headerInput.addEventListener('change', () => { headerTouched = true; for (const row of levels.children) row.relabel(); });
   orientSelect.addEventListener('change', () => {
     headerText.textContent = byRows() ? 'Data has a header row' : 'Data has a header column';
+    // A header row says nothing of the first column: sorting left to right starts with every column in the sort,
+    // as Excel's does, rather than keeping column A in place because row 1 read as headings.
+    if (!headerTouched) headerInput.checked = byRows() && rowHeader;
     levels.replaceChildren();
     selectedRow = null;
     addLevel(byRows() ? Math.max(range.c1, Math.min(range.c2, ctx.active().c)) : Math.max(range.r1, Math.min(range.r2, ctx.active().r)));
