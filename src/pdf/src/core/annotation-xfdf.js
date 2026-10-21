@@ -511,12 +511,32 @@ export async function importXfdf(doc, xfdf) {
   const pages = doc.getPages();
   // Names already in the document, so replies can find their parents and repeats are skipped.
   const named = new Map();
-  for (const page of pages)
+  // Comments without a name went out as annot-<object>-<generation> (see exportXfdf). Such a
+  // name is this PDF's comment only while that object is still the same kind of comment, on
+  // the same page and in the same place: another PDF's objects can share the numbers.
+  const unnamed = new Map();
+  pages.forEach((page, index) => {
     for (const ref of annotationsOf(page)?.asArray() || []) {
       const dict = doc.context.lookup(ref);
-      const nm = dict instanceof PDFDict ? text(dict, 'NM') : '';
-      if (nm && ref instanceof PDFRef && !named.has(nm)) named.set(nm, ref);
+      if (!(dict instanceof PDFDict) || !(ref instanceof PDFRef)) continue;
+      const nm = text(dict, 'NM');
+      if (nm && !named.has(nm)) named.set(nm, ref);
+      if (!nm)
+        unnamed.set(`annot-${ref.objectNumber}-${ref.generationNumber}`, { ref, dict, index });
     }
+  });
+  const sameComment = (element, entry) => {
+    if (!entry || Number(element.getAttribute('page')) !== entry.index) return false;
+    if (entry.dict.lookup(name('Subtype'))?.decodeText?.() !== SUBTYPES[element.localName])
+      return false;
+    const rect = numberList(element.getAttribute('rect')),
+      own = numbers(entry.dict.lookup(name('Rect')));
+    return (
+      rect.length === 4 &&
+      own?.length === 4 &&
+      rect.every((value, i) => Number.isFinite(value) && Math.abs(value - own[i]) < 0.01)
+    );
+  };
   const result = { imported: 0, skipped: 0, duplicates: 0 };
   let pending = elements.filter((element) => {
     if (SUBTYPES[element.localName]) return true;
@@ -533,6 +553,8 @@ export async function importXfdf(doc, xfdf) {
         continue;
       }
       const nm = element.getAttribute('name');
+      if (nm && !named.has(nm) && sameComment(element, unnamed.get(nm)))
+        named.set(nm, unnamed.get(nm).ref);
       if (nm && named.has(nm)) {
         result.duplicates++;
         continue;

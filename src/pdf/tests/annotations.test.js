@@ -1181,6 +1181,48 @@ describe('comment exchange', () => {
     expect(listAnnotations(older, 0)[0].align).toBe('right');
   });
 
+  it('knows its own comments without names when their XFDF comes back', async () => {
+    // Comments from writers that give them no name (NM), and a reply added by a reviewer.
+    const source = await blank();
+    const square = addShapeAnnotation(source, 0, {
+      kind: 'square',
+      rect: { x: 100, y: 100, width: 100, height: 80 },
+      text: 'Unnamed',
+    });
+    addNote(source, 0, { x: 300, y: 500, text: 'Unnamed note' });
+    for (const ref of source.getPage(0).node.Annots().asArray())
+      source.context.lookup(ref).delete(PDFName.of('NM'));
+    const exported = exportXfdf(source);
+    const squareName = `annot-${square.split(' ')[0]}-0`;
+    expect(exported).toContain(`name="${squareName}"`);
+    const reviewed = exported.replace(
+      '</annots>',
+      `<text page="0" rect="100,160,120,180" name="reply-1" inreplyto="${squareName}" title="Grace"><contents>Looks right</contents></text></annots>`,
+    );
+    const bytes = await source.save();
+
+    // Back into the same PDF: nothing is added twice, and the reply joins its comment.
+    const same = await PDFDocument.load(bytes);
+    expect(await importXfdf(same, reviewed)).toEqual({ imported: 1, skipped: 0, duplicates: 2 });
+    const [kept, note] = listAnnotations(same, 0);
+    expect([kept.contents, note.contents]).toEqual(['Unnamed', 'Unnamed note']);
+    expect(kept.replies.map((r) => r.contents)).toEqual(['Looks right']);
+    expect(listAnnotations(same, 0)).toHaveLength(2);
+
+    // A PDF whose objects of those numbers are other comments, or elsewhere, takes them all.
+    const other = await PDFDocument.load(bytes);
+    const [moved] = listAnnotations(other, 0);
+    await editAnnotation(other, 0, moved.id, { rect: { ...moved.rect, x: moved.rect.x + 50 } });
+    expect(listAnnotations(other, 0)[0].id).toBe(moved.id);
+    expect(await importXfdf(other, reviewed)).toEqual({ imported: 2, skipped: 0, duplicates: 1 });
+    expect(listAnnotations(other, 0).map((a) => a.contents)).toEqual([
+      'Unnamed',
+      'Unnamed note',
+      'Unnamed',
+    ]);
+    expect(listAnnotations(other, 0)[2].replies.map((r) => r.contents)).toEqual(['Looks right']);
+  });
+
   it('takes the text of comments that carry only rich text', async () => {
     const doc = await blank();
     const body = (paragraphs) =>
