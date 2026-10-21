@@ -4313,7 +4313,11 @@ export function createGrid(opts) {
     if (!isFilterHead && !isList) return null;
     const rect = cellRect(r, c);
     if (clientX < rect.right - 22 || clientX > rect.right) return null;
-    if (clientY < rect.top + 2 || clientY > rect.bottom - 8) return null;
+    // The button is drawn 16px tall in the middle of the cell at every zoom (grid.css), cut by a shorter
+    // cell: a press on it, or within a 24px target around it, opens it. The selection's fill handle, on the
+    // same corner when this cell ends the selection, keeps its own press.
+    if (clientY < rect.top || clientY > rect.bottom || Math.abs(clientY - (rect.top + rect.bottom) / 2) > 12) return null;
+    if (onFillHandle(clientX, clientY)) return null;
     return isFilterHead ? 'filter' : 'list';
   }
 
