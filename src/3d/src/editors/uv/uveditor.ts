@@ -141,6 +141,8 @@ export class UVEditor implements Editor, UVView, View2D {
   /** Overlays: master switch, edge style, stretch opacity and the background grid */
   showOverlays = true;
   edgeDisplay: 'OUTLINE' | 'DASH' | 'BLACK' | 'WHITE' = 'OUTLINE';
+  /** also draw the UVs of the mesh with its modifiers applied */
+  showModifiedEdges = false;
   stretchOpacity = 0.9;
   showGrid = true;
   /** UDIM tile grid shown without a tiled image (columns, rows) */
@@ -174,7 +176,8 @@ export class UVEditor implements Editor, UVView, View2D {
     if (st.edges === 'DASH' || st.edges === 'BLACK' || st.edges === 'WHITE') this.edgeDisplay = st.edges;
     if (typeof st.stretchOpacity === 'number') this.stretchOpacity = st.stretchOpacity;
     if (st.grid === false) this.showGrid = false;
-    const ex = state as { pixelRound?: string; lockBounds?: boolean; tiles?: [number, number] } | undefined;
+    const ex = state as { pixelRound?: string; lockBounds?: boolean; tiles?: [number, number]; modified?: boolean } | undefined;
+    if (ex?.modified) this.showModifiedEdges = true;
     if (Array.isArray(ex?.tiles)) this.tileGrid = [Math.max(1, Math.min(10, ex.tiles[0] | 0)), Math.max(1, Math.min(100, ex.tiles[1] | 0))];
     if (ex?.pixelRound === 'CORNER' || ex?.pixelRound === 'CENTER') this.pixelRoundMode = ex.pixelRound;
     if (ex?.lockBounds) this.lockBounds = true;
@@ -590,6 +593,7 @@ export class UVEditor implements Editor, UVView, View2D {
         this.edgeDisplay,
         (v) => ((this.edgeDisplay = v as 'OUTLINE'), redraw()),
       ),
+      checkbox('uv-ov-modified', 'Modified Edges', this.showModifiedEdges, (v) => ((this.showModifiedEdges = v), redraw()), { tip: 'Also show the UVs of the mesh with its modifiers applied' }),
       checkbox('uv-ov-faces', 'Faces', this.showFaces, (v) => ((this.showFaces = v), redraw())),
       h('div', { class: 'pop-title' }, 'UV Stretch'),
       checkbox('uv-ov-stretch', 'Display Stretch', this.showStretch, (v) => ((this.showStretch = v), redraw())),
@@ -956,8 +960,34 @@ export class UVEditor implements Editor, UVView, View2D {
     if (this.showOverlays || this.regionDrag) drawCustomRegion(g, (u, v) => this.toPx(u, v), this.regionDrag);
   }
 
+  /** Modified Edges: UV edges of the evaluated meshes (after modifiers), faint under the editable UVs. */
+  private drawModifiedEdges(g: CanvasRenderingContext2D, layers: ReturnType<typeof uvLayers>) {
+    g.save();
+    g.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const l of layers) {
+      const em = app.graph.get(l.ob.id)?.mesh;
+      if (!em?.uvs?.length) continue;
+      for (let f = 0; f < em.offsets.length - 1; f++) {
+        const s0 = em.offsets[f],
+          e0 = em.offsets[f + 1];
+        for (let c = s0; c < e0; c++) {
+          const p = this.toPx(em.uvs[c * 2], em.uvs[c * 2 + 1]);
+          if (c === s0) g.moveTo(p.x, p.y);
+          else g.lineTo(p.x, p.y);
+        }
+        const p0 = this.toPx(em.uvs[s0 * 2], em.uvs[s0 * 2 + 1]);
+        g.lineTo(p0.x, p0.y);
+      }
+    }
+    g.stroke();
+    g.restore();
+  }
+
   /** UV faces, edges and vertices of the edited meshes (with stretch colours). */
   private drawUVs(g: CanvasRenderingContext2D, layers: ReturnType<typeof uvLayers>) {
+    if (this.showModifiedEdges) this.drawModifiedEdges(g, layers);
     const mode = uvSelectMode();
     const stretch = this.showStretch ? layers.map((l) => (this.stretchType === 'ANGLE' ? angleStretch(new UVTopo(l)) : areaStretch(new UVTopo(l)))) : null;
     const SEL = '#ff9a1f';
@@ -1470,7 +1500,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   serialize() {
-    return { tiles: this.tileGrid, pixelRound: this.pixelRoundMode, lockBounds: this.lockBounds, zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces, overlays: this.showOverlays, edges: this.edgeDisplay, stretchOpacity: this.stretchOpacity, grid: this.showGrid };
+    return { modified: this.showModifiedEdges, tiles: this.tileGrid, pixelRound: this.pixelRoundMode, lockBounds: this.lockBounds, zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces, overlays: this.showOverlays, edges: this.edgeDisplay, stretchOpacity: this.stretchOpacity, grid: this.showGrid };
   }
 
   resize() {
