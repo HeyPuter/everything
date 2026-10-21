@@ -8,6 +8,7 @@ import { MeshBuilder, Frame, hexToRgba } from './mesh.js';
 import { add, scale, sub, dot, norm, perp, len, clipHalfPlane, triangulate } from './geom.js';
 import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wallAxis, rampLayout } from './model.js';
 import { cutFace, segmentInside, segmentOutside } from './roofcut.js';
+import { buildSweep } from './sweeps.js';
 import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
@@ -35,6 +36,8 @@ export function build3D(ctx, el) {
   switch (el.kind) {
     case 'wall':
       return buildWall(ctx, el);
+    case 'wallSweep':
+      return buildSweep(ctx, el);
     case 'floor':
       return buildSlab(ctx, el, 'floor');
     case 'ceiling':

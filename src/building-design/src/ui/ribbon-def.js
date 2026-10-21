@@ -19,6 +19,8 @@ export const RIBBON = [
               { cmd: 'wall', label: 'Wall' },
               { cmd: 'wallStructural', label: 'Structural Wall' },
               { cmd: 'curtainWall', label: 'Curtain Wall' },
+              { cmd: 'wallSweep', label: 'Wall: Sweep' },
+              { cmd: 'wallReveal', label: 'Wall: Reveal' },
             ],
           },
           { cmd: 'door', size: 'lg' },

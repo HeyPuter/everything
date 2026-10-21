@@ -24,7 +24,7 @@ import { isView, Doc } from './doc.js';
 import { upgradeDoc } from './template.js';
 import { linkFrame, linkedLevel, appendPlan, combineMeshes } from './links.js';
 
-export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass', 'link'];
+export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass', 'link', 'wallSweep'];
 export const PLAN_KINDS = [...MODEL_KINDS, 'basePoint', 'space', 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'treadNumbers', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'space', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
@@ -142,9 +142,10 @@ export class Scene {
     } else if (el.hostId) {
       const host = doc.get(el.hostId);
       d.push(host, host && doc.get(host.typeId), host && doc.get(host.levelId), host && doc.get(host.topLevelId));
-    } else if (el.kind === 'wallFooting') {
+    } else if (el.kind === 'wallFooting' || el.kind === 'wallSweep') {
       const w = doc.get(el.wallId);
       d.push(w, w && doc.get(w.typeId), w && doc.get(w.levelId));
+      if (w && el.kind === 'wallSweep') for (const o of hostedBy(doc, w.id)) d.push(o, doc.get(o.typeId));
     } else if (MEP_KINDS.includes(el.kind)) d.push(`${connected(doc, el, el.a)}|${connected(doc, el, el.b)}`);
     return d;
   }

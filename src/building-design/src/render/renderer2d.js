@@ -20,6 +20,7 @@ export const KIND_Z = {
   topo: 0,
   image: 0,
   space: 0,
+  wallSweep: 7,
   floor: 0,
   ceiling: 0,
   footing: 1,

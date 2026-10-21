@@ -76,6 +76,7 @@ export const CATEGORIES = [
   { id: 'parking', label: 'Parking', model: true },
   { id: 'masses', label: 'Mass', model: true },
   { id: 'links', label: 'Linked Projects', model: true },
+  { id: 'wallSweeps', label: 'Wall Sweeps and Reveals', model: true },
   { id: 'spaces', label: 'Spaces', model: false },
   { id: 'siteCoordinates', label: 'Project Base Point and Survey Point', model: false },
   { id: 'propertyLines', label: 'Property Lines', model: false },
@@ -150,6 +151,7 @@ const KIND_CATEGORY = {
   space: 'spaces',
   treadNumbers: 'tags',
   basePoint: 'siteCoordinates',
+  wallSweep: 'wallSweeps',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -212,6 +214,7 @@ export const KIND_LABEL = {
   link: 'Linked Project',
   treadNumbers: 'Tread Numbers',
   basePoint: 'Base Point',
+  wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',
 };
@@ -232,6 +235,7 @@ export const TYPE_KIND = {
   group: 'groupType',
   footing: 'footingType',
   wallFooting: 'wallFootingType',
+  wallSweep: 'wallSweepType',
   brace: 'beamType',
   duct: 'ductType',
   pipe: 'pipeType',
@@ -487,6 +491,17 @@ function foundationTypes(imp) {
   ];
 }
 
+function sweepTypes(imp) {
+  const t = (mm, inch) => (imp ? inch * IN : mm);
+  return [
+    { id: 'swt-cornice', name: imp ? 'Cornice - 8" x 10"' : 'Cornice - 200 x 250 mm', profile: 'cornice', width: t(200, 8), height: t(250, 10), materialId: 'mat-plaster' },
+    { id: 'swt-band', name: imp ? 'String Course - 4" x 8"' : 'String Course - 100 x 200 mm', profile: 'chamfer', width: t(100, 4), height: t(200, 8), materialId: 'mat-concrete' },
+    { id: 'swt-skirting', name: imp ? 'Skirting - 3/4" x 4"' : 'Skirting - 20 x 100 mm', profile: 'skirting', width: t(20, 0.75), height: t(100, 4), materialId: 'mat-wood' },
+    { id: 'swt-drip', name: imp ? 'Drip Mould - 2" x 3"' : 'Drip Mould - 50 x 75 mm', profile: 'drip', width: t(50, 2), height: t(75, 3), materialId: 'mat-concrete' },
+    { id: 'swt-reveal', name: imp ? 'Reveal - 1" x 1"' : 'Reveal - 20 x 20 mm', profile: 'rect', width: t(20, 0.75), height: t(20, 0.75), materialId: 'mat-default', reveal: true },
+  ].map((x) => ({ ...x, kind: 'wallSweepType', familyName: x.reveal ? 'Wall Reveal' : 'Wall Sweep' }));
+}
+
 function railingTypes(imp) {
   const t = (mm, inch) => (imp ? inch * IN : mm);
   return [
@@ -564,6 +579,7 @@ export function defaultTypes(system = 'metric') {
     ...railingTypes(imp),
     ...componentTypes(imp),
     ...foundationTypes(imp),
+    ...sweepTypes(imp),
     ...mepTypes(imp),
   ];
 }

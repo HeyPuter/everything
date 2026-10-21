@@ -49,6 +49,7 @@ import * as manage from './ui/manage.js';
 import * as collab from './ui/collab.js';
 import * as links from './ui/links.js';
 import * as dopts from './ui/designopts.js';
+import { WallSweepTool } from './editor/sweep.js';
 import * as sunui from './ui/sun.js';
 import * as analyze from './ui/analyze.js';
 import * as globalsui from './ui/globals.js';
@@ -208,6 +209,8 @@ export const COMMANDS = {
   groupCancel: { label: 'Cancel', icon: 'cancel', run: (app) => app.finishGroupEdit(false), desc: 'Discard the changes made to the group' },
   openingFace: { label: 'Opening by Face', icon: 'openingFace', run: tool(SketchTool, { kind: 'vopening' }), desc: 'Cut an opening through a floor, roof or ceiling' },
   beam: { label: 'Beam', icon: 'beam', keys: 'BM', run: tool(LineTool, { kind: 'beam' }) },
+  wallSweep: { label: 'Wall Sweep', icon: 'wallSweep', run: tool(WallSweepTool), desc: 'A cornice, skirting or band along a wall face' },
+  wallReveal: { label: 'Wall Reveal', icon: 'wallReveal', run: tool(WallSweepTool, { reveal: true }), desc: 'A groove along a wall face' },
   brace: { label: 'Brace', icon: 'brace', keys: 'BR', run: tool(LineTool, { kind: 'brace' }), desc: 'A diagonal member from this level up to the level above' },
   beamSystem: { label: 'Beam System', icon: 'beamSystem', keys: 'BS', run: tool(BeamSystemTool), desc: 'Fill an area or a floor with parallel beams at a spacing' },
   footing: { label: 'Isolated', icon: 'footing', run: tool(FootingTool), desc: 'Pad footings, placed one by one or under every column' },

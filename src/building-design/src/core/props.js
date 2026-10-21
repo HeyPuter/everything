@@ -313,6 +313,11 @@ const INSTANCE = {
     ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
   ],
   zone: [P('name', 'Name', 'Identity Data', 'text')],
+  wallSweep: [
+    len('z', 'Offset From Wall Base', 'Constraints'),
+    P('side', 'Face', 'Constraints', 'select', { get: (el) => el.side || 'exterior', options: () => [{ value: 'exterior', label: 'Exterior' }, { value: 'interior', label: 'Interior' }] }),
+    P('comments', 'Comments', 'Identity Data', 'text'),
+  ],
   basePoint: [
     ro('role', 'Point', 'Identity Data', (el) => (el.role === 'survey' ? 'Survey Point' : 'Project Base Point'), 'text'),
     len('n', 'N/S (northing here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
