@@ -642,7 +642,12 @@ function drawSignatureField(doc, field) {
 async function refreshAppearances(doc, field) {
   if (field instanceof PDFCheckBox || field instanceof PDFRadioGroup)
     return drawToggleField(doc, field);
-  if (field instanceof PDFSignature) return drawSignatureField(doc, field);
+  if (field instanceof PDFSignature) {
+    // A signed field keeps the drawing of its signature; only an empty one is a bordered box.
+    if (!(field.acroField.dict.lookup(name('V')) instanceof PDFDict))
+      drawSignatureField(doc, field);
+    return;
+  }
   const current = daFont(doc, field.acroField.dict);
   let font = formFont(doc, FORM_FONTS[current.font] ? current.font : 'Helvetica');
   const text = appearanceTexts(field).join('\n');

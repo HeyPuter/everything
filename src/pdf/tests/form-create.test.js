@@ -400,6 +400,22 @@ it('checks by default the box of a check box group whose properties say so', asy
   ]);
 });
 
+it('keeps the drawing of a signed signature field when it is moved or changed', async () => {
+  const doc = await blank();
+  await addFormField(doc, 0, { type: 'signature', name: 'Sig', rect: rect(50, 50, 150, 40) });
+  const field = doc.getForm().getSignature('Sig');
+  const widget = field.acroField.getWidgets()[0];
+  const drawing = doc.context.register(
+    doc.context.formXObject([], { BBox: doc.context.obj([0, 0, 150, 40]) }),
+  );
+  widget.dict.set(name('AP'), doc.context.obj({ N: drawing }));
+  field.acroField.dict.set(name('V'), doc.context.obj({ Type: 'Sig', Filter: 'Adobe.PPKLite' }));
+  await updateFormField(doc, 'Sig', { tooltip: 'Signed by Ada' });
+  await moveFormWidget(doc, 'Sig', 0, rect(60, 50, 150, 40));
+  expect(widget.dict.lookup(name('AP')).get(name('N'))).toBe(drawing);
+  expect(listFormFields(doc)[0].props).toMatchObject({ signed: true, tooltip: 'Signed by Ada' });
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>
