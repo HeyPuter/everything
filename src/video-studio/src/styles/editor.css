@@ -699,6 +699,42 @@
   color: var(--text-2);
 }
 
+/* A narrow player (small window, wide side panels, phones) stacks the time over the
+   duration, then shows the aspect ratio as an icon, so nothing runs under Play. */
+.player-bar {
+  container: player-bar / inline-size;
+}
+
+@container player-bar (max-width: 400px) {
+  .timecode {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .tc-sep {
+    display: none;
+  }
+}
+
+@container player-bar (max-width: 370px) {
+  .ratio-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+/* The narrowest player leaves the aspect ratio to Details > Frame. */
+@container player-bar (max-width: 300px) {
+  .ratio-btn {
+    display: none;
+  }
+}
+
 .player-panel:fullscreen {
   border-radius: 0;
   background: #000;
