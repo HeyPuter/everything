@@ -1052,7 +1052,11 @@ function lastContentColumns(wb, sheet) {
   const last = new Map();
   const note = (r, c) => { if ((last.get(r) ?? -1) < c) last.set(r, c); };
   for (const key of sheet.cells.keys()) { const { r, c } = parseKey(key); note(r, c); }
-  for (const { r, c } of wb.spillEntries(sheet.id)) note(r, c);
+  // An array's rows end at its last column, read off its extent: listing its results one by one never finished
+  // for an array over the whole sheet (seventeen billion of them).
+  for (const a of wb._ensureSpills(sheet).anchors.values()) {
+    for (let i = 0; i < a.rows; i++) if (i || a.cols > 1) note(a.r + i, a.c + a.cols - 1);
+  }
   return last;
 }
 
