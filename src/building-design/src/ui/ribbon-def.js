@@ -46,6 +46,7 @@ export const RIBBON = [
       {
         title: 'Model',
         items: [
+          { cmd: 'modelText', size: 'lg' },
           { cmd: 'modelLine', size: 'lg' },
           {
             cmd: 'groupCreate',
@@ -104,7 +105,7 @@ export const RIBBON = [
         ],
       },
       { title: 'Foundation', items: [{ cmd: 'footing', size: 'lg' }, { cmd: 'wallFooting', size: 'lg', label: 'Wall' }, { cmd: 'slabFoundation', size: 'lg', label: 'Slab' }] },
-      { title: 'Model', items: [{ cmd: 'modelLine', size: 'lg' }] },
+      { title: 'Model', items: [{ cmd: 'modelText', size: 'lg' }, { cmd: 'modelLine', size: 'lg' }] },
       { title: 'Opening', items: [{ cmd: 'openingFace', size: 'lg' }, { cmd: 'shaft', size: 'lg' }, { cmd: 'opening', size: 'lg' }] },
       { title: 'Datum', items: [{ cmd: 'level', size: 'lg' }, { cmd: 'grid', size: 'lg' }] },
       { title: 'Work Plane', items: [{ cmd: 'refPlane', size: 'lg' }, { cmd: 'workPlaneGrid', size: 'lg' }] },

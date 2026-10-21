@@ -336,6 +336,16 @@ const INSTANCE = {
     len('e', 'E/W (easting here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
     len('elevation', 'Elevation', 'Constraints'),
   ],
+  modelText: [
+    P('text', 'Text', 'Text', 'text'),
+    len('size', 'Letter Height', 'Dimensions'),
+    len('depth', 'Depth', 'Dimensions'),
+    P('plane', 'Orientation', 'Constraints', 'select', { get: (el) => el.plane || 'vertical', options: () => [{ value: 'vertical', label: 'Standing' }, { value: 'horizontal', label: 'Flat' }] }),
+    P('levelId', 'Level', 'Constraints', 'level'),
+    len('offset', 'Base Above Level', 'Constraints'),
+    P('rotation', 'Rotation', 'Constraints', 'angle'),
+    P('materialId', 'Material', 'Materials and Finishes', 'material'),
+  ],
   importedModel: [
     P('name', 'Name', 'Identity Data', 'text'),
     len('z', 'Elevation Offset', 'Constraints'),

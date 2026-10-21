@@ -11,6 +11,7 @@ import { cutFace, segmentInside, segmentOutside } from './roofcut.js';
 import { buildSweep } from './sweeps.js';
 import { buildTruss } from './truss.js';
 import { buildImported } from './imported.js';
+import { buildModelText } from './modeltext.js';
 import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
@@ -44,6 +45,8 @@ export function build3D(ctx, el) {
       return buildTruss(ctx, el);
     case 'importedModel':
       return buildImported(el);
+    case 'modelText':
+      return buildModelText(ctx, el);
     case 'floor':
       return buildSlab(ctx, el, 'floor');
     case 'ceiling':
