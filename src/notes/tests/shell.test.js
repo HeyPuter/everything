@@ -3,7 +3,7 @@ import { Store, snippet, foldWithOffsets } from '../src/data/store.js';
 import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
 import { closeAllMenus, openMenu } from '../src/ui/menu.js';
-import { setPref } from '../src/ui/prefs.js';
+import { setPref, prefs } from '../src/ui/prefs.js';
 
 // App shell and navigation: panes, routing, search, menus and dialogs.
 
@@ -237,6 +237,18 @@ describe('App shell', () => {
     app.deletePage(doomed.id);
     await tick(400);
     expect(app.search.results.querySelectorAll('.result')).toHaveLength(0);
+  });
+
+  it('stops resizing a pane when the browser cancels the drag', () => {
+    const r = app.nav.sectionsPane.querySelector('.pane-resizer');
+    const start = prefs().sectionsWidth;
+    r.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 100 }));
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 116 }));
+    window.dispatchEvent(new MouseEvent('pointercancel', {}));
+    window.dispatchEvent(new MouseEvent('pointermove', { clientX: 300 }));
+    expect(prefs().sectionsWidth).toBe(start + 16);
+    expect(r.classList.contains('dragging')).toBe(false);
+    setPref('sectionsWidth', start);
   });
 
   it('follows a page link pasted into the address bar of the open app', async () => {

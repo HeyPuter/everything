@@ -52,9 +52,11 @@ export class Nav {
         r.classList.remove('dragging');
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
       };
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
     });
     r.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowLeft') set(prefs()[key] - 16);

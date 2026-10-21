@@ -721,6 +721,8 @@
   width: 8px;
   z-index: 5;
   cursor: col-resize;
+  /* A finger drag resizes the pane instead of panning the page. */
+  touch-action: none;
 }
 .pane-resizer:hover,
 .pane-resizer.dragging {
