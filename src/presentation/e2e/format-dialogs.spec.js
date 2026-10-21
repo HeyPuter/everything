@@ -38,6 +38,10 @@ test("the Font dialog sets the face, underline, effects and character spacing", 
   await dialog.getByLabel("Underline style").selectOption("dbl");
   await dialog.getByRole("button", { name: /^Underline color/ }).click();
   await page.getByRole("menuitem", { name: "Red", exact: true }).click();
+  // The button names the colour now chosen.
+  await expect(
+    dialog.getByRole("button", { name: "Underline color: #FF0000" }),
+  ).toBeVisible();
   await dialog.getByRole("checkbox", { name: "Double strikethrough" }).check();
   await dialog.getByRole("checkbox", { name: "Small caps" }).check();
   await dialog.getByRole("checkbox", { name: "Superscript" }).check();

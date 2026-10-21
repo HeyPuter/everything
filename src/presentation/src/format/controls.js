@@ -321,6 +321,7 @@ export function colorButton({
             onPick: (v, hex) => {
               swatch.style.background = hex;
               swatch.classList.remove("empty");
+              say(hex.toUpperCase());
               onPick(v, hex);
             },
             none: none && {
@@ -329,6 +330,7 @@ export function colorButton({
               onSelect: () => {
                 swatch.classList.add("empty");
                 swatch.style.background = "";
+                say(none.label);
                 onPick(none.value ?? null, null);
               },
             },
@@ -340,6 +342,7 @@ export function colorButton({
                 swatch.style.background = auto || "";
                 swatch.classList.toggle("auto", !auto);
                 swatch.classList.remove("empty");
+                say(auto ? auto.toUpperCase() : automatic.label);
                 onPick(automatic.value, auto);
               },
             },
@@ -349,6 +352,8 @@ export function colorButton({
     swatch,
     el("span", { class: "fmt-caret", "aria-hidden": "true" }),
   );
+  // The name says the colour now chosen, as the swatch shows it.
+  const say = (text) => button.setAttribute("aria-label", `${label}: ${text}`);
   if (hideLabel) return button;
   return el(
     "div",
