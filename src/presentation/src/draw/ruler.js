@@ -83,6 +83,7 @@ export function createRuler({ canvas, slideSize }) {
   function attach() {
     const host = canvas();
     if (!visible || !host) {
+      release?.();
       node?.remove();
       return;
     }
@@ -94,15 +95,24 @@ export function createRuler({ canvas, slideSize }) {
     place();
     save(state);
   }
+  // Lets go of the pointer moving or turning the ruler. One does at a
+  // time, so a second finger laid on it does not pull it to and fro
+  // between the two.
+  let release = null;
+  let held = null;
   function grab(e) {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    if (release && held !== e.pointerId) return;
+    release?.();
+    const id = (held = e.pointerId);
     const host = canvas().getBoundingClientRect();
     node.setPointerCapture(e.pointerId);
     const turning = e.target === knob;
     const start = { x: state.x, y: state.y, px: e.clientX, py: e.clientY };
     const move = (ev) => {
+      if (ev.pointerId !== id) return;
       if (turning) {
         const cx = host.left + state.x * host.width,
           cy = host.top + state.y * host.height;
@@ -124,15 +134,23 @@ export function createRuler({ canvas, slideSize }) {
       }
       place();
     };
-    const up = () => {
-      node.removeEventListener("pointermove", move);
-      node.removeEventListener("pointerup", up);
-      node.removeEventListener("pointercancel", up);
+    const target = node;
+    release = () => {
+      release = null;
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", up);
+      target.removeEventListener("pointercancel", up);
+      target.removeEventListener("lostpointercapture", up);
+    };
+    const up = (ev) => {
+      if (ev.pointerId !== id) return;
+      release();
       commit();
     };
     node.addEventListener("pointermove", move);
     node.addEventListener("pointerup", up);
     node.addEventListener("pointercancel", up);
+    node.addEventListener("lostpointercapture", up);
   }
   function wheel(e) {
     e.preventDefault();

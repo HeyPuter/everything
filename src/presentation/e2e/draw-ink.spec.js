@@ -387,6 +387,31 @@ test("a stroke begun on the ruler's edge is drawn straight along it", async ({
   await expect(page.locator(".ink-layer")).toHaveClass(/touch-pans/);
 });
 
+test("the ruler follows the first finger laid on it, not a second", async ({
+  page,
+}) => {
+  await start(page);
+  await command(page, "draw-ruler");
+  const ruler = page.locator(".ink-ruler");
+  await expect(ruler).toBeVisible();
+  const box = await ruler.boundingBox();
+  const cdp = await page.context().newCDPSession(page);
+  const touch = (type, points) =>
+    cdp.send("Input.dispatchTouchEvent", { type, touchPoints: points });
+  // Two fingers on the ruler, both moving 40px to the right.
+  const fingers = (dx) => [
+    { x: box.x + box.width * 0.4 + dx, y: box.y + box.height / 2, id: 1 },
+    { x: box.x + box.width * 0.6 + dx, y: box.y + box.height / 2, id: 2 },
+  ];
+  await touch("touchStart", fingers(0).slice(0, 1));
+  await touch("touchStart", fingers(0));
+  for (let dx = 10; dx <= 40; dx += 10) await touch("touchMove", fingers(dx));
+  await touch("touchEnd", []);
+  const after = await ruler.boundingBox();
+  expect(after.x - box.x).toBeCloseTo(40, -1);
+  expect(after.y).toBeCloseTo(box.y, 0);
+});
+
 test("two fingers draw one stroke, and a palm under the pen draws nothing", async ({
   page,
 }) => {
