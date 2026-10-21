@@ -25,7 +25,8 @@ import { createMobileChrome } from './mobile.js';
 import { openExportDialog } from './export-dialog.js';
 import { openVoiceoverDialog } from './voiceover-dialog.js';
 import { openProjectSettings } from './project-settings.js';
-import { openDialog, confirmDialog, toast, installTooltips, setTooltipShortcuts } from './dialog.js';
+import { openDialog, toast, installTooltips, setTooltipShortcuts } from './dialog.js';
+import { confirmLeave, finishUploads } from './leave.js';
 import { openShortcutsDialog } from './shortcuts-dialog.js';
 import { createHistoryPanel } from './history-panel.js';
 import { createReviewPanel } from './review/review-panel.js';
@@ -186,20 +187,14 @@ export class Editor {
     this._onKey = (e) => this.onKey(e);
     document.addEventListener('keydown', this._onKey);
     this._onUnload = (e) => {
-      if (store.dirty || library.unsavedMedia) {
+      // pageLeaving: the user already chose to leave (signing out, closing the window).
+      if (!this.pageLeaving && (store.dirty || library.unsavedMedia)) {
         this.saver.save();
         e.preventDefault();
         e.returnValue = '';
       }
     };
     window.addEventListener('beforeunload', this._onUnload);
-    // Inside the Puter desktop, save before the window closes.
-    if (typeof puter !== 'undefined' && puter.env === 'app' && puter.ui?.onWindowClose) {
-      puter.ui.onWindowClose(async () => {
-        if (this._disposed) await library.flushUploads().catch(() => {});
-        if (this._disposed || (await this.prepareToLeave({ waitForUploads: true }))) puter.exit();
-      });
-    }
     ctx.playerView.mounted?.();
     ctx.timeline.mounted?.();
     document.title = `${project.name} - Video Studio`;
@@ -427,20 +422,9 @@ export class Editor {
         saved = false;
       }
       // Media still uploading keeps going after the editor closes, but not after the page does.
-      const media = waitForUploads && !(await this.library.flushUploads().catch(() => false)) ? this.library.unsavedMedia : 0;
+      const media = waitForUploads ? await finishUploads(this.library) : 0;
       if (saved && !media) return true;
-      const where = this.library.backend.kind === 'local' ? 'in this browser' : 'to your Puter cloud';
-      const what = [!saved ? 'your latest changes' : null, media ? `${media} media file${media === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
-      const answer = confirmDialog({
-        title: "Couldn't save your changes",
-        message: `${what[0].toUpperCase()}${what.slice(1)} couldn't be saved ${where}. If you leave now, ${saved && media === 1 ? 'it' : 'they'} will be lost. Stay to keep trying.`,
-        confirm: 'Leave anyway',
-        cancel: 'Stay',
-        danger: true,
-      });
-      // Enter keeps the work: focus Stay rather than the destructive choice.
-      [...document.querySelectorAll('dialog[open] .dialog-actions .btn')].find((b) => b.textContent === 'Stay')?.focus();
-      return answer;
+      return confirmLeave(this.library, { edits: !saved, media });
     })().finally(() => (this._leaving = null));
     return this._leaving;
   }

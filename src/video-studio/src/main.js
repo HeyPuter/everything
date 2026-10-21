@@ -15,6 +15,7 @@ import { importProjectBundle } from './storage/bundle.js';
 import { toast, confirmDialog } from './ui/dialog.js';
 import { loadDsp } from './media/dsp.js';
 import { parseReviewHash } from './review/protocol.js';
+import { confirmLeave, finishUploads } from './ui/leave.js';
 
 const root = document.getElementById('app');
 applyTheme();
@@ -23,6 +24,8 @@ loadDsp();
 let library = null;
 let account = null;
 let view = null;
+// Set once the user chose to leave the page (signing out, closing the window): no more questions.
+let leaving = false;
 
 function loading(text) {
   root.setAttribute('aria-busy', 'true');
@@ -146,14 +149,40 @@ async function startSignedIn(env) {
     env,
     picture: await profilePicture(),
     onSignOut: env === 'app' ? null : async () => {
-      // Unsaved edits or uploads: ask before signing out drops them.
-      if (view?.prepareToLeave && !(await view.prepareToLeave({ waitForUploads: true }))) return;
+      if (!(await leavePage())) return;
       await puter.auth.signOut();
       location.hash = '';
       location.reload();
     },
   };
+  watchWindowClose();
   route();
+}
+
+/** Inside the Puter desktop: save (or ask) before the window closes, from any screen. */
+function watchWindowClose() {
+  if (typeof puter === 'undefined' || puter.env !== 'app' || !puter.ui?.onWindowClose) return;
+  puter.ui.onWindowClose(async () => {
+    if (await leavePage()) puter.exit();
+  });
+}
+
+/**
+ * The page is about to go away: save the open project and wait for media
+ * uploads, asking first when something couldn't be stored. Resolves false
+ * to stay.
+ */
+async function leavePage() {
+  if (leaving) return true;
+  if (view?.prepareToLeave) {
+    if (!(await view.prepareToLeave({ waitForUploads: true }))) return false;
+  } else {
+    const media = await finishUploads(library);
+    if (media && !(await confirmLeave(library, { media }))) return false;
+  }
+  leaving = true;
+  if (view) view.pageLeaving = true;
+  return true;
 }
 
 function startLocal(env) {
@@ -171,6 +200,7 @@ function startLocal(env) {
       }
     } : null,
   };
+  watchWindowClose();
   route();
 }
 
@@ -264,7 +294,7 @@ window.addEventListener('hashchange', () => {
 
 // Media still uploading (or waiting to be tried again) after leaving the editor: warn before the page closes.
 window.addEventListener('beforeunload', (e) => {
-  if (!library?.unsavedMedia) return;
+  if (leaving || !library?.unsavedMedia) return;
   e.preventDefault();
   e.returnValue = '';
 });
@@ -285,6 +315,8 @@ if (import.meta.env.DEV) {
     get ctx() {
       return view?.ctx;
     },
+    // What signing out and closing the Puter window do before the page goes.
+    leavePage: () => leavePage(),
     async importDev(names, { add = false } = {}) {
       const files = [];
       for (const n of names) {

@@ -168,3 +168,18 @@ describe('opening the editor', () => {
     expect(root.querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
   });
 });
+
+describe('closing the page', () => {
+  it('asks the browser to warn about unsaved edits, unless leaving was already chosen', async () => {
+    await open();
+    editor.store.update('Edit', (p) => void (p.name = 'Changed'));
+    const unload = () => {
+      const e = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    };
+    expect(unload()).toBe(true);
+    editor.pageLeaving = true;
+    expect(unload()).toBe(false);
+  });
+});
