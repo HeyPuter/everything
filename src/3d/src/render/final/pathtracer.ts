@@ -564,10 +564,16 @@ export class PathTracerCore {
     this.pt.reset();
     this.inner.reset();
     // stable noise restarts the sequence: offset it by the seed
-    const m = this.inner.material as unknown as { seed: number; stratifiedTexture?: { generator?: { seed: number } } };
+    const m = this.inner.material as unknown as { seed: number; bounces: number; transmissiveBounces: number; stratifiedTexture?: { generator?: { seed: number }; init(count: number, depth: number): void; reset(): void } };
     m.seed = this.seed * 7919;
     if (this.integ) this.integ.ptSeedOff.value.set(...seedOffset(this.seed));
-    if (m.stratifiedTexture?.generator) m.stratifiedTexture.generator.seed = (this.seed * 2654435761) % 0x80000000;
+    const st = m.stratifiedTexture;
+    if (st?.generator) {
+      // size the sample table now (the first sample would otherwise rebuild it from an unseeded state)
+      st.init(20, m.bounces + m.transmissiveBounces + 5);
+      st.reset();
+      st.generator.seed = (this.seed * 2654435761) % 0x80000000;
+    }
     this.resetAdaptive();
   }
 
