@@ -91,10 +91,10 @@ export function slideBy(df: number, dc: number): boolean {
 }
 
 /** Slip the selected strips' content by `df` frames (operator exec, redo). */
-export function slipBy(df: number): boolean {
+export function slipBy(df: number, clamp = true): boolean {
   const targets = seqList().filter((s) => s.select && !isLocked(s) && !isStill(s) && !inputCount(s.type));
   if (!targets.length) return false;
-  for (const s of targets) slip(s, df);
+  for (const s of targets) slip(s, df, clamp);
   afterEdit();
   restartPlayback();
   return true;
@@ -303,29 +303,55 @@ export function startSlip(ed: SeqEditorLike, x0: number, only?: Strip): boolean 
   const targets = (only ? [only] : list.filter((s) => s.select)).filter((s) => !isLocked(s) && !isStill(s) && !inputCount(s.type));
   if (!targets.length) return false;
   const orig = new Map(targets.map((s) => [s, snap(s)]));
-  const st = { text: '', df: 0 };
+  const st = { text: '', df: 0, clamp: true };
+  // pointer travel in pixels; Shift (precision) adds a tenth of the movement
+  let acc = 0;
   let lx = x0;
+  let precise = false;
   const apply = () => {
     for (const [s, o] of orig) restore(s, o);
-    const df = st.text && st.text !== '-' ? Math.round(Number(st.text)) || 0 : Math.round((lx - x0) / ed.ppf);
-    st.df = df;
-    for (const s of targets) slip(s, df);
+    const df = st.text && st.text !== '-' ? Math.round(Number(st.text)) || 0 : Math.round(acc / ed.ppf);
+    for (const s of targets) slip(s, df, st.clamp);
+    // the slip actually applied (clamping can limit it)
+    const s0 = targets[0];
+    st.df = s0.frame_start - orig.get(s0)!.frame_start;
     afterEdit();
     app.changed('doc');
   };
   const handler: ModalHandler = {
     label: 'Slip Strips',
     cursor: 'ew-resize',
-    header: () => `Slip Offset: ${st.text ? st.text + '|' : st.df}`,
+    header: () => `Slip Offset: ${st.text ? st.text + '|' : st.df}   Clamp (C): ${st.clamp ? 'On' : 'Off'}${precise ? '   Precision' : ''}`,
+    status: () => [
+      ['LMB / Enter', 'Confirm'],
+      ['RMB / Esc', 'Cancel'],
+      ['Shift', 'Precision'],
+      ['C', `Clamp ${st.clamp ? 'On' : 'Off'}`],
+    ],
     onPointerMove(e) {
+      acc += (e.clientX - lx) * (e.shiftKey ? 0.1 : 1);
       lx = e.clientX;
+      precise = e.shiftKey;
       apply();
     },
     onPointerDown: (e) => (e.button === 0 ? 'FINISHED' : e.button === 2 ? 'CANCELLED' : undefined),
     onPointerUp: (e) => (e.button === 0 && dragRelease ? 'FINISHED' : undefined),
     onKey(e) {
+      if (e.type === 'keyup') {
+        if (e.key === 'Shift') precise = false;
+        return true;
+      }
       if (e.key === 'Escape') return 'CANCELLED';
-      if (e.key === 'Enter') return 'FINISHED';
+      if (e.key === 'Enter' || e.key === ' ') return 'FINISHED';
+      if (e.key === 'Shift') {
+        precise = true;
+        return true;
+      }
+      if (e.key.toLowerCase() === 'c' && !e.ctrlKey && !e.metaKey) {
+        st.clamp = !st.clamp;
+        apply();
+        return true;
+      }
       if (numericKeys(st, e)) apply();
       return true;
     },
@@ -336,7 +362,7 @@ export function startSlip(ed: SeqEditorLike, x0: number, only?: Strip): boolean 
     },
     finish() {
       restartPlayback();
-      handler.redoOp = { idname: 'sequencer.slip', props: { offset: st.df } };
+      handler.redoOp = { idname: 'sequencer.slip', props: { offset: st.df, clamp: st.clamp } };
     },
   };
   app.startModal(handler);

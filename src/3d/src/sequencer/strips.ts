@@ -318,15 +318,19 @@ export function clampOffsets(s: Strip) {
   s.frame_offset_end = Math.max(0, Math.min(s.frame_offset_end, s.frame_duration - 1 - s.frame_offset_start));
 }
 
-/** Slip the content under fixed handles by `d` frames. */
-export function slip(s: Strip, d: number) {
+/**
+ * Slip the content under fixed handles by `d` frames. With `clamp` the visible range stays inside
+ * the content; without it the content may slide past a handle (the strip holds its first / last
+ * frame there).
+ */
+export function slip(s: Strip, d: number, clamp = true) {
   if (isStill(s) || inputCount(s.type)) return;
   const a = finalStart(s),
     b = finalEnd(s);
   // keep the visible range inside the content
   const lo = b - (s.frame_start + s.frame_duration);
   const hi = a - s.frame_start;
-  d = Math.max(lo, Math.min(hi, Math.round(d)));
+  d = clamp ? Math.max(lo, Math.min(hi, Math.round(d))) : Math.round(d);
   s.frame_start += d;
   s.frame_offset_start = a - s.frame_start;
   s.frame_offset_end = s.frame_start + s.frame_duration - b;
