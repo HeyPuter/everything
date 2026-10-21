@@ -95,6 +95,7 @@ export function createKeyframePanel(ctx, timeline) {
   let extra = new Set(); // props added to the panel without keys yet
   let drag = null;
   let selKey = null; // { prop, t }
+  let focusNext = null; // where keyboard focus goes after the next render: { prop, key } or { prop, nav }
   const title = h('span.kf-panel-title', 'Keyframes');
   const addBtn = h('button.btn.small.ghost', { type: 'button', 'aria-haspopup': 'menu' }, icon('plus', 14), 'Property');
   const closeBtn = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Close keyframe panel', 'data-tip': 'Close' }, icon('close', 14));
@@ -148,8 +149,37 @@ export function createKeyframePanel(ctx, timeline) {
     return props.sort((a, b) => (order.indexOf(a) + 1 || 999) - (order.indexOf(b) + 1 || 999));
   }
 
+  /** The lane control that has focus, to give it back after the lanes are rebuilt. */
+  function focusedControl() {
+    const a = document.activeElement;
+    if (!a || !body.contains(a)) return null;
+    const prop = a.closest('.kf-row')?.dataset.prop;
+    if (a.classList.contains('kf-key')) return { prop, key: Number(a.dataset.t) };
+    if (a.dataset.nav) return { prop, nav: a.dataset.nav };
+    return null;
+  }
+
+  function restoreFocus(f) {
+    const row = [...body.querySelectorAll('.kf-row')].find((r) => r.dataset.prop === f.prop);
+    let target = row && f.nav ? row.querySelector(`[data-nav="${f.nav}"]`) : null;
+    if (f.key !== undefined) {
+      // The same key, else the nearest one left on the lane (after a delete), else any key.
+      const keys = row ? [...row.querySelectorAll('.kf-key')] : [];
+      const d = (k) => Math.abs(Number(k.dataset.t) - f.key);
+      target = keys.reduce((best, k) => (!best || d(k) < d(best) ? k : best), null) || body.querySelector('.kf-key');
+    }
+    (target || addBtn).focus({ preventScroll: true });
+  }
+
   function render() {
+    const keep = focusNext || focusedControl();
+    focusNext = null;
     if (!open) return;
+    build();
+    if (keep) restoreFocus(keep);
+  }
+
+  function build() {
     const s = store.selected;
     const c = s?.clip;
     if (!c || !c.keyframes) {
@@ -180,8 +210,9 @@ export function createKeyframePanel(ctx, timeline) {
         if (atKey) actions.editClip(c.id, 'Remove keyframe', (cc) => deleteKey(cc, prop, local, tol()));
         else addKeyAtPlayhead(c.id, prop);
       });
-      const prev = h('button.icon-btn.small', { type: 'button', 'aria-label': `Previous ${propLabel(prop)} keyframe` }, icon('chevronLeft', 12));
-      const next = h('button.icon-btn.small', { type: 'button', 'aria-label': `Next ${propLabel(prop)} keyframe` }, icon('chevronRight', 12));
+      kfBtn.dataset.nav = 'toggle';
+      const prev = h('button.icon-btn.small', { type: 'button', 'aria-label': `Previous ${propLabel(prop)} keyframe`, 'data-nav': 'prev' }, icon('chevronLeft', 12));
+      const next = h('button.icon-btn.small', { type: 'button', 'aria-label': `Next ${propLabel(prop)} keyframe`, 'data-nav': 'next' }, icon('chevronRight', 12));
       prev.addEventListener('click', () => {
         const k = [...keys].reverse().find((x) => x.t < local - tol());
         if (k) store.seek(c.start + k.t);
@@ -207,7 +238,7 @@ export function createKeyframePanel(ctx, timeline) {
         }),
       );
       requestAnimationFrame(() => drawCurve(cv, c, prop, x0, wpx));
-      return h('div.kf-row', { style: { height: `${ROW_H}px` } }, label, lane);
+      return h('div.kf-row', { 'data-prop': prop, style: { height: `${ROW_H}px` } }, label, lane);
     }));
   }
 
@@ -267,14 +298,21 @@ export function createKeyframePanel(ctx, timeline) {
       keyEl.removeEventListener('pointerup', up);
       keyEl.removeEventListener('pointercancel', up);
       drag = null;
+      // The lanes are rebuilt below; focus goes to the new element for this key.
       if (moved && to !== from) {
-        actions.editClip(c.id, 'Move keyframe', (cc) => moveKey(cc, prop, from, to, tol()));
         selKey = { prop, t: to };
+        focusNext = { prop, key: to };
+        actions.editClip(c.id, 'Move keyframe', (cc) => moveKey(cc, prop, from, to, tol()));
       } else {
+        focusNext = { prop, key: from };
         store.seek(c.start + from);
-        render();
+        if (focusNext) render();
       }
-      keyEl.focus?.();
+      if (focusNext) {
+        // Nothing was rebuilt (the edit was refused): the key is still there.
+        focusNext = null;
+        keyEl.focus?.({ preventScroll: true });
+      }
     };
     keyEl.addEventListener('pointermove', move);
     keyEl.addEventListener('pointerup', up);
@@ -330,8 +368,10 @@ export function createKeyframePanel(ctx, timeline) {
       e.preventDefault();
       e.stopPropagation();
       const step = Math.round(US / store.fps) * (e.shiftKey ? 10 : 1) * (e.key === 'ArrowLeft' ? -1 : 1);
-      actions.editClip(c.id, 'Move keyframe', (cc) => moveKey(cc, prop, t, t + step, tol()), { coalesce: `kfmove:${c.id}:${prop}` });
       selKey = { prop, t: clamp(t + step, 0, c.duration) };
+      focusNext = { prop, key: selKey.t };
+      actions.editClip(c.id, 'Move keyframe', (cc) => moveKey(cc, prop, t, t + step, tol()), { coalesce: `kfmove:${c.id}:${prop}` });
+      focusNext = null;
     }
   });
 

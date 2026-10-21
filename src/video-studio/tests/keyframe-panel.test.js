@@ -75,4 +75,36 @@ describe('keyframe panel view', () => {
     panel.dispose();
     panel.el.remove();
   });
+
+  it('keeps keyboard focus on the key being moved or deleted', () => {
+    const p = fixture();
+    const [v] = onMain(p, keyed());
+    const store = new EditorStore(p);
+    const ctx = { store, player: { playing: false } };
+    ctx.actions = createActions(ctx);
+    const tl = { el: document.createElement('div'), geometry: () => ({ pps: 100, pad: 16, scrollLeft: 0, headerW: 92, timeToX: (t) => 16 + (t / 1e6) * 100 }), render() {} };
+    const panel = createKeyframePanel(ctx, tl);
+    document.body.append(panel.el);
+    panel.setOpen(true);
+    store.select(v.id);
+    const key = (prop, i) => panel.el.querySelectorAll(`.kf-lane[data-prop="${prop}"] .kf-key`)[i];
+    const press = (k) => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+    key('x', 1).focus();
+    press('ArrowRight');
+    press('ArrowRight');
+    const frame = Math.round(1e6 / store.fps);
+    expect(document.activeElement.classList.contains('kf-key')).toBe(true);
+    expect(Number(document.activeElement.dataset.t)).toBe(s(2) + 2 * frame);
+    expect(store.project.tracks[0].clips[0].keyframes.x[1].t).toBe(s(2) + 2 * frame);
+    // Deleting moves focus to the nearest key left, never to the page (where Delete removes the clip).
+    press('Delete');
+    expect(document.activeElement).toBe(key('x', 0));
+    press('Delete');
+    expect(document.activeElement).toBe(key('adjust.exposure', 0));
+    press('Delete');
+    expect(panel.el.contains(document.activeElement)).toBe(true);
+    expect(store.project.tracks[0].clips).toHaveLength(1);
+    panel.dispose();
+    panel.el.remove();
+  });
 });
