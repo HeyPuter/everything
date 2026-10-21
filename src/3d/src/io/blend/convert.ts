@@ -8,6 +8,8 @@ import { convertHairCurves, convertPointCloud, convertVolume } from './geometry'
 import { convertFreestyle, convertLineRender } from './lines';
 import { convertGPStyle, convertGreasePencil } from './greasepencil';
 import { convertSequencer, type SceneRefs } from './sequencer';
+import { convertGroupTree } from './nodes';
+import { getNodeType } from '../../nodes/registry';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -888,7 +890,21 @@ export function convertBlend(f: BlendFile): BlendImport {
     if (sc.ref('rigidbody_world')) warn.add('Rigid body world not imported');
     const seq = convertSequencer(sc, ctx, sceneRefs);
     if (seq) doc.scene.sequence_editor = seq;
-    if ((sc.num('use_nodes') && sc.ref('nodetree')) || sc.ref('compositing_node_group')) warn.add('Compositor node tree not imported');
+    // compositing: 5.x keeps a node group, older files an embedded tree
+    const comp = sc.ref('compositing_node_group') ?? (sc.num('use_nodes') ? sc.ref('nodetree') : null);
+    if (comp) {
+      const unknown = [...new Set(comp.list('nodes', 100_000).map((n) => n.str('idname')).filter((t) => !/^(NodeGroupInput|NodeGroupOutput|NodeFrame|NodeReroute|CompositorNodeGroup|NodeGroup)$/.test(t) && !getNodeType(t)?.treeTypes.includes('COMPOSITOR')))];
+      if (unknown.length) warn.add('Compositor node trees with unsupported nodes not imported', `${sc.idName} (${unknown.join(', ')})`);
+      else {
+        const gid = convertGroupTree(comp, 'COMPOSITOR', ctx);
+        if (gid) {
+          const g = doc.node_groups[gid];
+          if (g && !sc.ref('compositing_node_group')) g.name = `${sc.idName} Compositing`;
+          doc.scene.compositing_node_group = gid;
+          doc.scene.use_nodes = true;
+        }
+      }
+    }
     if (sc.ref('adt')) warn.add('Scene animation not imported');
   }
 
