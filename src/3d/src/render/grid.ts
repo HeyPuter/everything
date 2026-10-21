@@ -10,6 +10,7 @@ export function createGrid() {
       uAxisY: { value: new Color().setRGB(0.437, 0.744, 0.011, SRGBColorSpace) },
       uAxisZ: { value: new Color().setRGB(0.173, 0.47, 0.858, SRGBColorSpace) },
       uScale: { value: 1.0 },
+      uSubdiv: { value: 10.0 },
       uFade: { value: 60.0 },
       uPlane: { value: 0 }, // 0 xy, 1 xz, 2 yz
       uCam: { value: new Vector3() },
@@ -39,6 +40,7 @@ export function createGrid() {
       uniform vec3 uAxisY;
       uniform vec3 uAxisZ;
       uniform float uScale;
+      uniform float uSubdiv;
       uniform float uFade;
       uniform int uPlane;
       uniform vec3 uCam;
@@ -63,8 +65,8 @@ export function createGrid() {
         // level of detail: choose a power-of-ten spacing based on screen footprint
         float lod = max(fwidth(c.x), fwidth(c.y));
         float s0 = uScale;
-        float s1 = uScale * 10.0;
-        float s2 = uScale * 100.0;
+        float s1 = uScale * uSubdiv;
+        float s2 = uScale * uSubdiv * uSubdiv;
         float t0 = clamp(1.0 - lod / s0 * 6.0, 0.0, 1.0);
         float t1 = clamp(1.0 - lod / s1 * 6.0, 0.0, 1.0);
         float a = 0.0;

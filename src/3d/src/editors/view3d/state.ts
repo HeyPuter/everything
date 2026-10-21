@@ -44,6 +44,10 @@ export interface Overlay {
   show_axis_y: boolean;
   show_axis_z: boolean;
   grid_scale: number;
+  /** grid subdivisions of orthographic axis views */
+  grid_subdivisions?: number;
+  /** lights drawn in their light colour */
+  show_light_colors?: boolean;
   show_cursor: boolean;
   show_object_origins: boolean;
   show_object_origins_all: boolean;

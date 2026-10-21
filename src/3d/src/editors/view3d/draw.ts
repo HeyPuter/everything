@@ -43,6 +43,7 @@ import type { SyncedObject } from '../../render/scene';
 import { evaluateWorldForViewport } from '../../render/world';
 import { drawEnvironmentBackground, drawLookdevSpheres } from './lookdev';
 import { drawObjectOutlines } from './objoutline';
+import { thresholdEdges } from './wirethreshold';
 
 export interface DrawView {
   nav: NavCamera;
@@ -131,6 +132,24 @@ originScene.add(originPtsAll, originPtsSel, originPts, relLines);
 function objectColorState(app: App, ob: ObjectData): 0 | 1 | 2 {
   if (app.doc.scene.active_object === ob.id && ob.select) return 2;
   return ob.select ? 1 : 0;
+}
+
+/** Wire geometries limited by the wireframe threshold, per full wire geometry and threshold. */
+const thresholdCache = new WeakMap<BufferGeometry, { t: number; g: BufferGeometry }>();
+function thresholdWire(full: BufferGeometry, mesh: { offsets: Uint32Array | ArrayLike<number>; indices: Uint32Array | ArrayLike<number>; positions: Float32Array | ArrayLike<number> }, t: number): BufferGeometry {
+  const hit = thresholdCache.get(full);
+  if (hit && hit.t === t) return hit.g;
+  const g = new BufferGeometry();
+  g.setAttribute('position', full.getAttribute('position'));
+  g.setIndex(Array.from(thresholdEdges(mesh as Parameters<typeof thresholdEdges>[0], t)));
+  hit?.g.dispose();
+  thresholdCache.set(full, { t, g });
+  return g;
+}
+const swappedGeometry: [LineSegments, BufferGeometry][] = [];
+function swapGeometry(o: LineSegments, g: BufferGeometry) {
+  swappedGeometry.push([o, o.geometry]);
+  o.geometry = g;
 }
 
 /** MatCap mirrored left to right (Shading ▸ Flip MatCap): a mirrored copy of the MatCap image. */
@@ -409,6 +428,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     u.uOrtho.value = ortho ? 1 : 0;
     u.uFade.value = ortho ? Math.max(50, nav.distance * 10) : Math.max(40, Math.min(1000, nav.distance * 8 + Math.abs(cam.z) * 6));
     u.uScale.value = ov.grid_scale;
+    // subdivisions of the orthographic axis-view grid (the perspective floor steps by ten)
+    u.uSubdiv.value = axisView ? Math.max(2, ov.grid_subdivisions ?? 10) : 10;
     u.uShowAxes.value.set(axisView ? 1 : ov.show_axis_x ? 1 : 0, axisView ? 1 : ov.show_axis_y ? 1 : 0, axisView ? 1 : ov.show_axis_z ? 1 : 0);
     u.uShowFloor.value = axisView || ov.show_floor ? 1 : 0;
     grid.mesh.matrixWorld.identity();
@@ -429,7 +450,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     so.instances && set(so.instances, false);
     so.duplis && set(so.duplis, false);
     if (so.light) set(so.light, so.light.visible);
-    const col = helperColor(app, ob, theme.wire);
+    const col = ov.show_light_colors && ob.type === 'LIGHT' && !ob.select && ob.data && doc.lights[ob.data] ? new Color().setRGB(...(doc.lights[ob.data].color as [number, number, number])) : helperColor(app, ob, theme.wire);
     const inEdit = editing && app.graph.editObjects.has(ob.id);
     // the camera being looked through is not drawn (only its frame, as the passepartout)
     const lookingThrough = !!view.sceneCamera && ob.id === ((view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera);
@@ -441,6 +462,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
       (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || ob.show_wire || ov.show_wireframes || (ob.type !== 'MESH' && !so.mesh?.geometry.index?.count));
     if (so.wire) {
       set(so.wire, showWire);
+      if (showWire && ob.type === 'MESH' && so.ev.mesh && (ov.wireframe_threshold ?? 1) < 1) swapGeometry(so.wire, thresholdWire(so.wire.geometry, so.ev.mesh, ov.wireframe_threshold));
       const m = so.wire.material as LineBasicMaterial;
       const st = objectColorState(app, ob);
       if (inEdit) {
@@ -503,6 +525,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   afterOverlay();
   s.background = overlayBg;
   for (const v of visible) v.o.visible = v.v;
+  for (const [o, g] of swappedGeometry) o.geometry = g;
+  swappedGeometry.length = 0;
 
   // extra overlays (edit mesh, sculpt cursor, etc)
   for (const fn of view.extraOverlays) fn(s, camera);

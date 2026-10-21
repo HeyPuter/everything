@@ -14,3 +14,23 @@
 .v3d-svg .ogz {
   cursor: pointer;
 }
+/* Viewport Overlays popover rows */
+.ov-guides-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 0 10px;
+}
+.ov-guides-row .ov-axes {
+  justify-content: flex-end;
+}
+.ov-scale-row,
+.ov-wire-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  align-items: center;
+}
+.ov-wire-row {
+  grid-template-columns: auto 1fr 1fr;
+}

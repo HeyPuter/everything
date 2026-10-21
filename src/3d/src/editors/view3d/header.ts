@@ -371,6 +371,11 @@ export const overlayPopoverHooks: ((v: View3D) => Child)[] = [];
 /** Extra sections of the Mesh Edit Mode overlays popover. */
 export const editOverlayHooks: ((v: View3D) => Child)[] = [];
 
+/** Is the viewport showing an orthographic axis view (where the Grid rather than the Floor applies)? */
+function axisViewOf(v: View3D) {
+  return v.nav.ortho && !v.cameraView && v.nav.view !== 'USER';
+}
+
 function overlayPopover(v: View3D): Child {
   const o = v.overlay;
   const set = (k: keyof typeof o) => (x: unknown) => {
@@ -383,8 +388,20 @@ function overlayPopover(v: View3D): Child {
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Overlays'),
     panel('ov-guides', 'Guides', () => [
-      h('div', { class: 'pop-grid ov-guides' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z')))),
-      numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+      // the Grid (orthographic axis views) and Floor (other views) switches apply to one kind of view each
+      h(
+        'div',
+        { class: 'ov-guides-row' },
+        checkbox('o-ogrid', 'Grid', o.show_ortho_grid, set('show_ortho_grid'), { tip: 'Grid\nShow the grid in orthographic side views', disabled: !axisViewOf(v) }),
+        checkbox('o-grid', 'Floor', o.show_floor, set('show_floor'), { tip: 'Floor\nShow the ground plane grid', disabled: axisViewOf(v) }),
+        h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z'))),
+      ),
+      h(
+        'div',
+        { class: 'ov-scale-row' },
+        numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+        numberField({ id: 'o-gsub', label: 'Subdivisions', value: o.grid_subdivisions ?? 10, min: 2, max: 1024, step: 1, int: true, disabled: !axisViewOf(v), set: (x) => set('grid_subdivisions')(Math.round(x)) }),
+      ),
       h('div', { class: 'pop-grid' }, checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
     ], { sub: true }),
     panel('ov-text', 'Text', () => [
@@ -392,10 +409,16 @@ function overlayPopover(v: View3D): Child {
       v.shading.type === 'MATERIAL' || v.shading.type === 'RENDERED' ? checkbox('o-lookdev', 'HDRI Preview', !!o.show_look_dev, set('show_look_dev'), { tip: 'HDRI Preview\nShow a matte and a mirror sphere lit by the current environment' }) : null,
     ], { sub: true }),
     panel('ov-objects', 'Objects', () => [
-      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), h('span'), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
+      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-lcol', 'Light Colors', !!o.show_light_colors, set('show_light_colors'), { tip: 'Light Colors\nDraw lights in the colour of their light', disabled: !o.show_extras }), checkbox('o-mpaths2', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
     ], { sub: true }),
     panel('ov-geometry', 'Geometry', () => [
-      h('div', { class: 'row-split' }, checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }), numberField({ id: 'o-wireop', label: 'Wireframe Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) })),
+      h(
+        'div',
+        { class: 'ov-wire-row' },
+        checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }),
+        numberField({ id: 'o-wireth', label: 'Wireframe', value: o.wireframe_threshold ?? 1, min: 0, max: 1, slider: true, tip: 'Wireframe Threshold\nLower values show only the edges between faces that meet at sharper angles', set: (x) => set('wireframe_threshold')(x) }),
+        numberField({ id: 'o-wireop', label: 'Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) }),
+      ),
       checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation')),
     ], { sub: true }),
     overlayPopoverSections.map((f) => f(v)),
