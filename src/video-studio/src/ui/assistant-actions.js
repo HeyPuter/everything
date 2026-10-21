@@ -14,7 +14,7 @@ import { clipsForScope, errorMessage } from '../media/transcribe.js';
 import { ready } from '../media/segmenter.js';
 import { defaultLength } from './preferences-dialog.js';
 import { reframeSize, findSilences } from './smart-actions.js';
-import { generateCaptions } from './panels/captions.js';
+import { prepareCaptions } from './panels/captions.js';
 import { removeRanges } from './panels/transcript.js';
 
 /** Short names for the tools, used when one is skipped. */
@@ -60,11 +60,15 @@ function setConstant(c, prop, set) {
 
 /**
  * createAssistantRunner(ctx, deps) -> { run(calls, { label, signal, onProgress }), undo(entry) }
- * deps replace the slow analysis steps in tests: generateCaptions, findSilences.
+ * deps replace the slow analysis steps in tests: prepareCaptions, findSilences.
+ *
+ * A call with a slow analysis step (captions, silences) resolves to a
+ * function that makes its edits; the analysis runs outside the request's
+ * undo step, so what the user does meanwhile stays a step of its own.
  */
 export function createAssistantRunner(ctx, deps = {}) {
   const { store, actions } = ctx;
-  const d = { generateCaptions, findSilences, ...deps };
+  const d = { prepareCaptions, findSilences, ...deps };
   const name = (id) => {
     const f = T.findClip(store.project, id);
     return f ? JSON.stringify(T.clipLabel(store.project, f.clip)) : 'the clip';
@@ -283,22 +287,27 @@ export function createAssistantRunner(ctx, deps = {}) {
     async add_captions(a, env) {
       if (!clipsForScope(store.project, a.scope).length) return fail('add_captions', a.scope === 'main' ? 'the base track has no sound' : 'there is no sound to caption');
       env.progress('Listening for speech...');
-      const n = await d.generateCaptions(ctx, { language: a.language, scope: a.scope, preset: a.preset, position: a.position, maxWords: a.maxWords, captionStyle: a.captionStyle }, {
+      const add = await d.prepareCaptions(ctx, { language: a.language, scope: a.scope, preset: a.preset, position: a.position, maxWords: a.maxWords, captionStyle: a.captionStyle }, {
         mode: a.replace ? 'replace' : 'keep',
         signal: env.signal,
         onStep: (i) => env.progress(['Listening for speech...', 'Turning speech into words...', 'Adding captions...'][i]),
       });
-      return n ? done(`Added ${plural(n, 'caption')}`) : fail('add_captions', 'no speech was found');
+      return () => {
+        const n = add();
+        return n ? done(`Added ${plural(n, 'caption')}`) : fail('add_captions', 'no speech was found');
+      };
     },
 
     async remove_silences(o, env) {
       if (!clipsForScope(store.project, o.scope).length) return fail('remove_silences', o.scope === 'main' ? 'the base track has no sound' : 'there is no sound in this project');
       env.progress('Listening for silences...');
       const ranges = await d.findSilences(ctx, o, { signal: env.signal });
-      if (!ranges.length) return fail('remove_silences', 'no silences that long were found');
-      const total = ranges.reduce((s, r) => s + r.end - r.start, 0);
-      removeRanges(store, ranges, 'Remove silences');
-      return done(`Removed ${plural(ranges.length, 'silent part')} (${secs(total)} in all)`);
+      return () => {
+        if (!ranges.length) return fail('remove_silences', 'no silences that long were found');
+        const total = ranges.reduce((s, r) => s + r.end - r.start, 0);
+        removeRanges(store, ranges, 'Remove silences');
+        return done(`Removed ${plural(ranges.length, 'silent part')} (${secs(total)} in all)`);
+      };
     },
 
     add_marker({ time, label, color }) {
@@ -335,8 +344,11 @@ export function createAssistantRunner(ctx, deps = {}) {
   async function run(calls, { label = 'Assistant edit', signal, onProgress } = {}) {
     const env = { created: [], select: null, signal, progress: (text) => onProgress?.(text) };
     const results = [];
-    const mark = store.beginBatch();
+    let mark = store.beginBatch();
     let entry = null;
+    const fold = () => {
+      entry = store.endBatch(mark, label) || entry;
+    };
     try {
       for (const call of calls) {
         if (signal?.aborted) break;
@@ -346,7 +358,21 @@ export function createAssistantRunner(ctx, deps = {}) {
           continue;
         }
         try {
-          results.push(await APPLY[v.name](v.args, env));
+          let r = APPLY[v.name](v.args, env);
+          if (r instanceof Promise) {
+            // A slow analysis: close the step while it runs, and carry on with
+            // the same step after only when nothing was done or undone meanwhile.
+            fold();
+            const kept = entry;
+            try {
+              r = await r;
+            } finally {
+              if (!kept || store.history.undoStack.at(-1) !== kept) mark = store.beginBatch();
+            }
+            if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+            if (typeof r === 'function') r = r();
+          }
+          results.push(r);
         } catch (err) {
           if (err?.name === 'AbortError') {
             results.push(fail(v.name, 'stopped'));
@@ -357,7 +383,7 @@ export function createAssistantRunner(ctx, deps = {}) {
         }
       }
     } finally {
-      entry = store.endBatch(mark, label);
+      fold();
     }
     if (env.select) store.select(env.select);
     else if (env.created.length) store.select(env.created.filter((id) => T.findClip(store.project, id)));

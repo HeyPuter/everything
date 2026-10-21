@@ -94,7 +94,16 @@ function applyCaptions(ctx, cues, { mode, preset, position, wrap = true, label =
  * onStep(index, fraction) follows the three stages. Returns how many
  * captions were added (0 when no speech was found).
  */
-export async function generateCaptions(ctx, opts, { mode = 'keep', signal, onStep } = {}) {
+export async function generateCaptions(ctx, opts, steps = {}) {
+  return (await prepareCaptions(ctx, opts, steps))();
+}
+
+/**
+ * generateCaptions in two parts: does the slow listening and resolves to a
+ * function that adds the captions (one store step, synchronous) and returns
+ * how many it added.
+ */
+export async function prepareCaptions(ctx, opts, { mode = 'keep', signal, onStep } = {}) {
   const o = { ...DEFAULT_OPTS, ...opts };
   onStep?.(0, 0);
   // Work on a copy so edits made meanwhile do not shift what is being mixed.
@@ -110,8 +119,7 @@ export async function generateCaptions(ctx, opts, { mode = 'keep', signal, onSte
   const preset = TEXT_PRESETS.find((p) => p.id === o.preset);
   const lineChars = lineCharsFor(preset, project.settings.width);
   const cues = groupWords(words, { maxWords: o.maxWords, maxChars: Math.min(lineChars * 2, 84), maxGap: 0.8 });
-  if (!cues.length) return 0;
-  return applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null });
+  return () => (cues.length ? applyCaptions(ctx, cues, { mode, preset: o.preset, position: o.position, captionStyle: o.captionStyle || null }) : 0);
 }
 
 function fieldRow(label, control, id) {

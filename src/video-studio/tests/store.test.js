@@ -40,6 +40,23 @@ describe('History', () => {
     expect(h.undoStack.map((e) => e.snapshot)).toEqual([2, 3, 4]);
   });
 
+  it('folds the steps since a mark, even after old steps fell off, and nothing once the mark was undone', () => {
+    const h = new History(4);
+    h.push('o', 'O');
+    h.push('a', 'A');
+    const mark = h.mark();
+    for (let i = 0; i < 3; i++) h.push(i, `e${i}`); // the oldest step went, 'A' is still there
+    expect(h.fold(mark, 'Batch').snapshot).toBe(0);
+    expect(h.undoStack.map((e) => e.label)).toEqual(['A', 'Batch']);
+    // The marked step was undone meanwhile: what is on the stack is not the batch's to fold.
+    h.push('b', 'B');
+    const gone = h.mark();
+    h.undo('now');
+    h.push('c', 'C');
+    expect(h.fold(gone, 'Batch 2')).toBe(null);
+    expect(h.undoStack.map((e) => e.label)).toEqual(['A', 'Batch', 'C']);
+  });
+
   it('returns null with nothing to undo or redo', () => {
     const h = new History();
     expect(h.undo('x')).toBe(null);

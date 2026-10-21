@@ -7,6 +7,7 @@ export class History {
     this.limit = limit;
     this.undoStack = [];
     this.redoStack = [];
+    this.undos = 0; // how many steps were undone, for fold()
   }
 
   /** Record the state before an edit. */
@@ -18,7 +19,7 @@ export class History {
 
   /** A bookmark of the current top step, for fold(). */
   mark() {
-    return { top: this.undoStack.at(-1) || null };
+    return { top: this.undoStack.at(-1) || null, undos: this.undos };
   }
 
   /**
@@ -29,6 +30,8 @@ export class History {
   fold(mark, label) {
     // Find the bookmark by identity: the stack may have dropped old steps at its limit since.
     const at = mark?.top ? this.undoStack.lastIndexOf(mark.top) : -1;
+    // Gone because it was undone (not dropped): the steps above it are not the batch's alone.
+    if (mark?.top && at < 0 && this.undos !== mark.undos) return null;
     const steps = this.undoStack.splice(at + 1);
     if (!steps.length) return null;
     const entry = { snapshot: steps[0].snapshot, label: label || steps[0].label };
@@ -48,6 +51,7 @@ export class History {
   undo(current) {
     const entry = this.undoStack.pop();
     if (!entry) return null;
+    this.undos++;
     this.redoStack.push({ snapshot: current, label: entry.label });
     return entry;
   }

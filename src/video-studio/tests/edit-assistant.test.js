@@ -261,13 +261,13 @@ describe('performing edits', () => {
   it('runs captions and silence removal through their analysis steps', async () => {
     const { store, ctx, main } = setup(clip('video', 0, 10));
     const findSilences = vi.fn(async () => [{ start: s(2), end: s(3) }, { start: s(6), end: s(7) }]);
-    const generateCaptions = vi.fn(async (c, opts, { mode }) => {
+    const prepareCaptions = vi.fn(async (c, opts, { mode }) => () => {
       c.store.update('Generate captions', (p) => {
         p.tracks.unshift({ id: 'tc', kind: 'text', locked: false, hidden: false, muted: false, clips: [] });
       }, { keepEmptyTracks: true });
       return mode === 'replace' ? 7 : 3;
     });
-    const runner = createAssistantRunner(ctx, { findSilences, generateCaptions });
+    const runner = createAssistantRunner(ctx, { findSilences, prepareCaptions });
     const progress = [];
     const { results } = await runner.run([
       { name: 'remove_silences', args: { min_silence: 0.01, threshold_db: -5 } },
@@ -275,10 +275,45 @@ describe('performing edits', () => {
     ], { onProgress: (t) => progress.push(t) });
     expect(findSilences.mock.calls[0][1]).toMatchObject({ minSilence: 0.2, thresholdDb: -10, scope: 'main' });
     expect(main().clips.reduce((t, c) => t + c.duration, 0)).toBe(s(8));
-    expect(generateCaptions.mock.calls[0][1]).toMatchObject({ language: 'de', captionStyle: 'word-pop', preset: 'yellow-caption', maxWords: 12, scope: 'main' });
+    expect(prepareCaptions.mock.calls[0][1]).toMatchObject({ language: 'de', captionStyle: 'word-pop', preset: 'yellow-caption', maxWords: 12, scope: 'main' });
     expect(results.map((r) => r.text)).toEqual(['Removed 2 silent parts (2.0s in all)', 'Added 7 captions']);
     expect(progress).toContain('Listening for silences...');
     expect(store.history.undoStack).toHaveLength(1);
+  });
+
+  it('keeps edits and undos the user makes while captions are being made out of the request\'s undo step', async () => {
+    const { store, ctx } = twoClips();
+    const mark = (id) => (p) => { p.markers.push({ id, time: 0, label: '', color: 'red' }); };
+    store.update('Edit A', mark('a'));
+    store.update('Edit B', mark('b'));
+    let open;
+    const gate = () => new Promise((r) => (open = r));
+    const prepareCaptions = vi.fn(async () => {
+      await gate();
+      return () => (store.update('Generate captions', mark('cap')), 1);
+    });
+    const runner = createAssistantRunner(ctx, { prepareCaptions });
+    let running = runner.run([{ name: 'add_captions', args: {} }], { label: 'AI: captions' });
+    await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+    store.update('User marker', mark('user'));
+    open();
+    let { entry } = await running;
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Edit A', 'Edit B', 'User marker', 'AI: captions']);
+    expect(runner.undo(entry)).toBe(true);
+    expect(store.project.markers.map((m) => m.id)).toEqual(['a', 'b', 'user']);
+
+    // An undo meanwhile: the earlier steps stay as they were.
+    open = null;
+    running = runner.run([{ name: 'set_speed', args: { clips: ['first'], speed: 2 } }, { name: 'add_captions', args: {} }], { label: 'AI: speed and captions' });
+    await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+    expect(store.history.undoLabel).toBe('AI: speed and captions');
+    store.undo();
+    open();
+    ({ entry } = await running);
+    expect(store.history.undoStack.map((e) => e.label)).toEqual(['Edit A', 'Edit B', 'User marker', 'AI: speed and captions']);
+    expect(mainTrack(store.project).clips[0].speed).toBe(1);
+    expect(runner.undo(entry)).toBe(true);
+    expect(store.project.markers.map((m) => m.id)).toEqual(['a', 'b', 'user']);
   });
 
   it('summarizes what was done for the chat and for follow-up requests', () => {
