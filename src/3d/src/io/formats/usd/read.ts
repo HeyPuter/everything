@@ -729,7 +729,9 @@ export function readUsd(bytes: Uint8Array, opts: UsdReadOptions = {}): IRScene {
     if ((val(p, 'xformOpOrder') ?? []).length) return false;
     if (`/${root.defaultPrim}` !== p && rootPrims.length > 1) return false;
     const cd = f.customData ?? {};
-    return !!(cd.Blender?.generated || cd.puter3d?.generated || /^(Blender v|Puter 3D)/.test(String(root.documentation ?? root.doc ?? '')));
+    // any exporter's "generated" marker dictionary, or a stage documented as written by an application ("App v1.2")
+    if (Object.values(cd as Record<string, unknown>).some((d) => !!(d as { generated?: unknown } | null)?.generated)) return true;
+    return /^(\S+ v\d+\.\d+|Puter 3D)/.test(String(root.documentation ?? root.doc ?? ''));
   };
   for (const c of rootPrims) {
     if (isGeneratedRoot(c)) for (const k of childPaths(c)) visit(k, -1);

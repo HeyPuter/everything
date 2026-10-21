@@ -127,7 +127,8 @@ export function sampleAlembicScene(doc: DocumentData, o: AbcSampleOptions): { ro
   const frames = end - start + 1;
   const scene = buildExportScene(doc, { selectedOnly: o.selectedOnly, objectIds: o.objectIds, applyModifiers: o.applyModifiers !== false, skins: false, shapeKeys: false, animation: false });
   warnings.push(...scene.warnings);
-  const objects = scene.objects.filter((eo) => !['LIGHT', 'ARMATURE'].includes(eo.type) || eo.children.length);
+  // every object becomes a transform; meshes and cameras also get their shape
+  const objects = scene.objects;
   const nodes = new Map<ExportObject, SceneNode>();
   const world = new Map<ExportObject, Matrix4[]>();
   const meshSamples = new Map<ExportObject, MeshSample[]>();

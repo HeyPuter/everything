@@ -67,6 +67,8 @@ defineFormat({
       showIf: (v) => !!v.animation,
     },
     { id: 'scene_range', label: 'Use Scene Frame Range', type: 'bool', default: false, showIf: (v) => !!v.animation },
+    { id: 'export_cameras', label: 'Cameras', type: 'bool', default: false },
+    { id: 'export_lights', label: 'Punctual Lights', type: 'bool', default: false },
     { id: 'extras', bpy: 'export_extras', label: 'Custom Properties', type: 'bool', default: true },
   ],
   importOps: ['import_scene.gltf'],
@@ -100,6 +102,7 @@ defineFormat({
       shapeKeys: !!o.shape_keys,
       animation: !!o.animation,
       sceneFrameRange: !!o.scene_range,
+      types: ['MESH', 'CURVE', 'FONT', 'EMPTY', 'ARMATURE', ...(o.export_cameras ? (['CAMERA'] as const) : []), ...(o.export_lights ? (['LIGHT'] as const) : [])],
     });
     // a written path ending in .gltf asks for the JSON variant
     const glb = target.path && /\.gltf$/i.test(target.path) ? false : o.format !== 'GLTF_EMBEDDED';

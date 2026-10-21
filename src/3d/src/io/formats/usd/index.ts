@@ -52,7 +52,7 @@ defineFormat({
     APPLY_MODIFIERS,
     { id: 'export_armatures', label: 'Armatures (UsdSkel)', type: 'bool', default: true },
     { id: 'export_shapekeys', label: 'Shape Keys', type: 'bool', default: true },
-    { id: 'export_animation', label: 'Animation', type: 'bool', default: true },
+    { id: 'export_animation', label: 'Animation', type: 'bool', default: false, description: 'Write the animation of the scene frame range as time samples' },
   ],
   importOps: ['wm.usd_import'],
   exportOps: ['wm.usd_export'],
