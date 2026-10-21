@@ -30,3 +30,25 @@ it('does not upload the whole shared workbook each time the connection comes bac
   expect(env.calls.filter((c) => c.op === 'checkpoint' && c.xlsx)).toEqual([]);
   doc.destroy();
 });
+
+// The editor saves on its own when the session changes (a sign-in, or any setting: the theme, the regional format) and
+// when AutoSave is turned on. In a member's browser a shared workbook is never "saved" (others' changes keep arriving),
+// so each of those uploaded the whole workbook too.
+it('does not upload the whole shared workbook for a save nobody asked for in a member\'s browser', async () => {
+  const env = environment();
+  const wb = new Workbook({ sheets: [{ name: 'Plan' }] });
+  const room = await RoomClient.create({ puter: env.sdk(owner), server: SERVER, wb, name: 'Plan', file: { path: 'Spreadsheets/Plan.xlsx', uid: 'u1' } });
+  const token = (await call(env.sdk(owner), SERVER, { op: 'invite', room, role: 'editor' })).token;
+  const client = new RoomClient({ puter: env.sdk(editor), server: SERVER, room, token, store: memoryOutbox(), poll: 50, noPeers: true, toXlsx: (w) => workbookToXlsx(w) });
+  open.push(client);
+  await client.open();
+  const doc = Doc.forRoom(client);
+  client.wb.setInput(client.wb.sheets[0].id, 0, 0, 'mine');
+  expect(await doc.save({ auto: true })).toBe(true);
+  expect(client.replica.pending).toEqual([]);
+  expect(env.calls.filter((c) => c.op === 'checkpoint' && c.xlsx)).toEqual([]);
+  // Saving by hand still writes it, for the owner's file.
+  expect(await doc.save()).toBe(true);
+  expect(env.calls.filter((c) => c.op === 'checkpoint' && c.xlsx)).toHaveLength(1);
+  doc.destroy();
+});
