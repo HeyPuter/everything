@@ -231,6 +231,22 @@ describe('mobile chrome', () => {
     expect(mobile.sheets.assets.body.contains(ctx.assets.el)).toBe(true);
   });
 
+  it('uses the tablet layout on a desktop screen whose workspace is too narrow for both side panels', () => {
+    const { root, mm, mobile, ctx } = fakeEditor('desktop');
+    mobile.setNarrowWorkspace(true);
+    expect(root.dataset.layout).toBe('tablet');
+    expect(mobile.sheets.details.body.contains(ctx.inspector.el)).toBe(true);
+    mobile.setNarrowWorkspace(false);
+    expect(root.dataset.layout).toBe('desktop');
+    // Phones stay phones, and a forced layout wins.
+    mobile.setNarrowWorkspace(true);
+    mm.set('phone');
+    expect(root.dataset.layout).toBe('phone');
+    mm.set('desktop');
+    mobile.setMode('desktop');
+    expect(root.dataset.layout).toBe('desktop');
+  });
+
   it('can be forced into a layout and releases its listeners on dispose', () => {
     const { root, mm, mobile } = fakeEditor('desktop');
     mobile.setMode('phone');

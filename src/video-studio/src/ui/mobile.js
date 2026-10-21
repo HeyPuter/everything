@@ -74,13 +74,14 @@ function arrowNav(bar) {
 
 /**
  * createMobileChrome(ctx, root, { matchMedia })
- * root is the editor element. Returns { mode, setMode(forced|null), openAssets(id), openDetails(), dispose() }.
+ * root is the editor element. Returns { mode, setMode(forced|null), setNarrowWorkspace(on), openAssets(id), openDetails(), dispose() }.
  */
 export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
   const { store, actions } = ctx;
   const mm = mmImpl || ((q) => window.matchMedia(q));
   const mqls = [mm(PHONE_QUERY), mm(TABLET_QUERY)];
   let forced = null;
+  let narrow = false;
   let mode = null;
 
   // Where the panels live on desktop, so they can go back.
@@ -374,7 +375,10 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
   }
 
   function update() {
-    apply(forced || layoutMode((q) => (q === PHONE_QUERY ? mqls[0] : mqls[1]).matches));
+    const screen = layoutMode((q) => (q === PHONE_QUERY ? mqls[0] : mqls[1]).matches);
+    // A desktop screen whose workspace is too narrow for both side panels (a small window
+    // with the AI sidebar open) uses the tablet layout: Details moves into a sheet.
+    apply(forced || (screen === 'desktop' && narrow ? 'tablet' : screen));
   }
   for (const q of mqls) q.addEventListener?.('change', update);
 
@@ -394,6 +398,12 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
     /** Force a layout ('phone' | 'tablet' | 'desktop'), or null to follow the screen. */
     setMode(m) {
       forced = m || null;
+      update();
+    },
+    /** Whether the workspace is too narrow for the desktop layout's two side panels. */
+    setNarrowWorkspace(on) {
+      if (narrow === Boolean(on)) return;
+      narrow = Boolean(on);
       update();
     },
     openAssets,

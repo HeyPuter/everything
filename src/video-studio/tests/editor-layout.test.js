@@ -80,6 +80,20 @@ describe('editor panel widths', () => {
     expect(prefs().leftW).toBe(l);
   });
 
+  it('moves Details into a sheet while the workspace is too narrow for both side panels', () => {
+    width = 700;
+    editor.fitPanels();
+    expect(editor.ctx.mobile.mode).toBe('tablet');
+    expect(editor.ctx.mobile.sheets.details.body.contains(editor.ctx.inspector.el)).toBe(true);
+    // The media panel still leaves the player room.
+    expect(shown()[0]).toBeLessThanOrEqual(700 - 4 - 280);
+    expect(prefs().leftW).toBe(720);
+    width = 1400;
+    editor.fitPanels();
+    expect(editor.ctx.mobile.mode).toBe('desktop');
+    expect(shown()[0] + shown()[1]).toBeLessThanOrEqual(1400 - 8 - 280);
+  });
+
   it('fits layout presets to the window', () => {
     width = 1000;
     editor.applyLayout('media');

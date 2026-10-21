@@ -463,24 +463,37 @@ export class Editor {
     return true;
   }
 
-  /** Width the side panels can share: the workspace less the resizers and the narrowest player (Infinity off desktop or unknown). */
-  _panelRoom() {
+  /** The workspace's inner width (0 when unknown). */
+  _workspaceWidth() {
     const ws = this._workspace;
-    if (!ws || (this.el.dataset.layout && this.el.dataset.layout !== 'desktop')) return Infinity;
+    if (!ws) return 0;
     const cs = getComputedStyle(ws);
-    const width = ws.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    return Math.max(0, ws.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+  }
+
+  /** Width the side panels can share: the workspace less the resizers and the narrowest player (Infinity off desktop or unknown). */
+  _panelRoom(width = this._workspaceWidth()) {
+    if (this.el.dataset.layout && this.el.dataset.layout !== 'desktop') return Infinity;
     return width > 0 ? width - RESIZERS - MIN_PLAYER : Infinity;
   }
 
   /** The side panel widths on screen: the saved ones, narrowed to fit the window. */
   shownPanelWidths(room = this._panelRoom()) {
-    return fitPanelWidths(this._panelW.left, this._panelW.right, room);
+    const [left, right] = fitPanelWidths(this._panelW.left, this._panelW.right, room);
+    // The tablet layout has only the media panel beside the player.
+    const width = this.el.dataset.layout === 'tablet' ? this._workspaceWidth() : 0;
+    if (width > 0) return [Math.round(Math.max(PANEL_LIMITS.left[0], Math.min(left, width - RESIZERS / 2 - MIN_PLAYER))), right];
+    return [left, right];
   }
 
   /** Show the side panels at widths that fit (after a resize, a layout preset or a drag). */
   fitPanels({ relayout = true } = {}) {
     if (!this._panelW) return;
-    const room = this._panelRoom();
+    const width = this._workspaceWidth();
+    // Too narrow for both side panels and the player (a small window with the AI sidebar open):
+    // the tablet layout takes over, with Details in a sheet.
+    if (width > 0) this.ctx.mobile?.setNarrowWorkspace?.(width < PANEL_LIMITS.left[0] + PANEL_LIMITS.right[0] + MIN_PLAYER + RESIZERS);
+    const room = this._panelRoom(width);
     const [left, right] = this.shownPanelWidths(room);
     const st = this.el.style;
     const changed = st.getPropertyValue('--left-w') !== `${left}px` || st.getPropertyValue('--right-w') !== `${right}px`;
