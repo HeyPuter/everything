@@ -1089,6 +1089,12 @@ function sameRule(stored, next, defaults) {
   return true;
 }
 
+/**
+ * A function left uncalled has no value a cell can show: =HSTACK(SUM,MAX) spills #CALC! in each of its cells,
+ * as the anchor shows (see _compute), rather than handing the function itself to whatever reads the cell.
+ */
+const uncalled = (v) => (v !== null && typeof v === 'object' && v.lambda ? err('#CALC!') : v);
+
 /** The calculation's working state, set aside while a data table calculates with substituted inputs. */
 const SUBSTITUTE_STATE = ['_iterationReady', '_cache', '_rangeCache', '_rangeCacheCells', '_rangeRuns', '_usedCache', '_cellBoundsCache', '_statsCache',
   '_volatile', '_spills', '_spillBuilds', '_hasDeferredSpills', '_spillComputed', '_evaluating', '_evalOrder', '_evalLast', '_cyclic', '_provisional', '_blankProvisional',
@@ -11938,13 +11944,13 @@ export class Workbook extends EventTarget {
       if (!a.samples.has(key)) {
         if (a.sampling) return err('#CYCLE!');
         a.sampling = true;
-        try { a.samples.set(key, fixedArrayValue(a.sample(), row, col)); }
+        try { a.samples.set(key, uncalled(fixedArrayValue(a.sample(), row, col))); }
         catch (e) { a.samples.set(key, err(e instanceof RangeError ? '#VALUE!' : '#ERROR!')); }
         finally { a.sampling = false; }
       }
       return a.samples.get(key);
     }
-    return a.fixed ? fixedArrayValue(a.result, row, col) : a.values[row]?.[col] ?? 0;
+    return uncalled(a.fixed ? fixedArrayValue(a.result, row, col) : a.values[row]?.[col] ?? 0);
   }
 
   _fixedResult(sheet, r, c, result, randomized = false) {
