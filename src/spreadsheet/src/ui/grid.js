@@ -6369,7 +6369,7 @@ export function createGrid(opts) {
     }
     // Whole columns (A:C) and whole rows (3:5), as the name box accepts in Excel and Sheets.
     const cols = /^\$?([A-Za-z]{1,3})\$?:\$?([A-Za-z]{1,3})$/.exec(t);
-    const lines = /^(\d+):(\d+)$/.exec(t);
+    const lines = /^\$?(\d+):\$?(\d+)$/.exec(t);
     if (cols || lines) {
       const s = sheet();
       const [a, b] = cols ? [colIndex(cols[1].toUpperCase()), colIndex(cols[2].toUpperCase())] : [Number(lines[1]) - 1, Number(lines[2]) - 1];

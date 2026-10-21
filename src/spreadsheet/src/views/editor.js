@@ -741,8 +741,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     });
   }
 
-  function selectLocation(sheetId, range) {
-    if (!range || !wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) {
+  function selectLocation(sheetId, range, lines = null) {
+    // `lines` instead of a range: whole columns or rows (B:C, $3:$5), which the grid selects by their text.
+    if (!lines && (!range || !wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1))) {
       toast('That range is beyond this sheet’s available size', { icon: 'alert' }); return false;
     }
     // Navigating is not an edit. A target on a hidden sheet is refused, rather than the
@@ -754,7 +755,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       return null;
     }
     if (sheetId !== wb.activeSheetId) wb.setActiveSheet(sheetId);
-    return grid.selectByName(rangeName(range));
+    return grid.selectByName(lines || rangeName(range));
   }
 
   /** Jump to a "#Sheet!A1" / "#Name" link target, switching sheets when needed. */
@@ -925,6 +926,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (range) {
         return selectLocation(target.id, range);
       }
+      // Whole columns or rows (Sheet2!B:C, Sheet2!$3:$5), which no cell range reads, as the box takes them on its own sheet.
+      if (/^\$?[A-Za-z]{1,3}\$?:\$?[A-Za-z]{1,3}$|^\$?\d+:\$?\d+$/.test(rest)) return selectLocation(target.id, null, rest);
       return goToName(rest, target.id);
     }
     const scopeName = entry ? entry.sheet || null : wb.sheet(scopeSheet)?.name;
