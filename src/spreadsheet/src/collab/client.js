@@ -331,6 +331,8 @@ export class RoomClient extends EventTarget {
       if (!this.o.noPeers && this.o.puter.peer && !this.peers) {
         this.peers = new PeerNetwork({
           peer: this.o.puter.peer, session: this.session, keys: this.keys, roomKey: this.roomKey, room: this.room,
+          // Tickets expire by the worker's clock.
+          now: () => Date.now() - (this.skew ?? 0),
           receive: (kind, data, ticket) => this.receivePeer(kind, data, ticket),
           changed: () => this.checkIn().catch(() => {}),
           stranger: () => this.soonCheckIn(),
@@ -347,7 +349,8 @@ export class RoomClient extends EventTarget {
       const here = new Set(res.roster.map((t) => t.session));
       for (const s of [...this.people.keys()]) if (!here.has(s)) this.people.delete(s);
       // The worker says when each person last checked in by its own clock, which can be minutes from this browser's.
-      const skew = Number.isFinite(res.serverTime) ? Date.now() - res.serverTime : 0;
+      if (Number.isFinite(res.serverTime)) this.skew = Date.now() - res.serverTime;
+      const skew = this.skew ?? 0;
       for (const t of res.roster) {
         if (t.session === this.session) continue;
         const known = this.people.get(t.session);

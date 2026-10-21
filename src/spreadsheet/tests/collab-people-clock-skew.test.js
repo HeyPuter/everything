@@ -4,6 +4,7 @@ import { RoomClient } from '../src/collab/client.js';
 import { memoryOutbox } from '../src/collab/outbox.js';
 import { call } from '../src/collab/api.js';
 import { peopleHere } from '../src/ui/coauthor.js';
+import { keyPair } from '../src/collab/protocol.js';
 import { environment, owner, editor, SERVER, until, wait } from './collab-helpers.js';
 
 const open = [];
@@ -34,4 +35,23 @@ it('keeps showing the others on a computer whose clock runs a few minutes ahead 
   expect(peopleHere(bob).map((p) => p.name)).toEqual(['alice']);
   await wait(2500); // a tick of the client's own
   expect(peopleHere(bob).map((p) => p.name)).toEqual(['alice']);
+});
+
+// The tickets the worker signs for peer links expire ninety seconds after each check-in, by the worker's clock; this
+// browser judged them by its own, so on a computer whose clock ran fast every link and every packet was refused as expired.
+it('takes the others\' peer tickets as current on a computer whose clock runs a few minutes ahead of the worker\'s', async () => {
+  const env = environment();
+  env.now = Date.now() - 5 * 60_000;
+  const wb = new Workbook({ sheets: [{ name: 'Plan' }] });
+  const room = await RoomClient.create({ puter: env.sdk(owner), server: SERVER, wb, name: 'Plan' });
+  const token = (await call(env.sdk(owner), SERVER, { op: 'invite', room, role: 'editor' })).token;
+  await call(env.sdk(editor), SERVER, { op: 'join', room, token });
+  const bob = await call(env.sdk(editor), SERVER, { op: 'presence', room, session: 'bobsession', publicKey: (await keyPair()).publicKey, invite: 'bob-invite' });
+  const puter = { ...env.sdk(owner), peer: { serve: async () => ({ inviteCode: 'alice-invite', addEventListener() {}, close() {} }), connect: () => new Promise(() => {}) } };
+  const alice = new RoomClient({ puter, server: SERVER, room, store: memoryOutbox(), poll: 50 });
+  open.push(alice);
+  await alice.open();
+  await alice.checkIn();
+  expect(alice.peers.roster.map((t) => t.session)).toContain('bobsession');
+  expect(await alice.peers.validTicket({ ticket: bob.ticket, signature: bob.signature })).toBe(true);
 });
