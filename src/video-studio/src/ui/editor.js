@@ -284,8 +284,8 @@ export class Editor {
       if (e.key === 'Escape') t.blur();
       return;
     }
-    // Space and Enter activate focused buttons, except where a control opts in to play.
-    if ((e.key === ' ' || e.key === 'Enter') && t.matches?.('button, [role=button], [role=tab], [role=radio], [role=switch], a') && !t.closest('[data-space-plays]')) return;
+    // Space and Enter activate focused buttons and check boxes, except where a control opts in to play.
+    if ((e.key === ' ' || e.key === 'Enter') && t.matches?.('button, [role=button], [role=tab], [role=radio], [role=switch], [role=checkbox], input[type=checkbox], a') && !t.closest('[data-space-plays]')) return;
     // Arrow keys belong to sliders, tab lists and the timeline's own navigation.
     if (e.key.startsWith('Arrow') && (t.matches?.('input[type=range], [role=tab], [role=radio], [role=separator], [role=slider]') || t.closest?.('[data-own-arrows]'))) return;
     if (this.ctx.commands.handleKey(e)) {

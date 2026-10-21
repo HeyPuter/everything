@@ -153,3 +153,26 @@ describe('editor shell', () => {
     d.close();
   });
 });
+
+describe('editor keyboard', () => {
+  it('leaves Space on a focused checkbox or radio to the control, and plays elsewhere', () => {
+    const handled = [];
+    const fake = { ctx: { commands: { handleKey: (e) => handled.push(e.target.tagName + (e.target.type ? `:${e.target.type}` : '')) || true } } };
+    const press = (el) => {
+      document.body.append(el);
+      const e = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+      Object.defineProperty(e, 'target', { value: el });
+      Editor.prototype.onKey.call(fake, e);
+      el.remove();
+    };
+    press(Object.assign(document.createElement('input'), { type: 'checkbox' }));
+    press(Object.assign(document.createElement('input'), { type: 'radio' }));
+    const sw = document.createElement('div');
+    sw.setAttribute('role', 'checkbox');
+    press(sw);
+    expect(handled).toEqual([]);
+    press(Object.assign(document.createElement('input'), { type: 'range' }));
+    press(document.createElement('div'));
+    expect(handled).toEqual(['INPUT:range', 'DIV']);
+  });
+});
