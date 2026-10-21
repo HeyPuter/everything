@@ -12,6 +12,7 @@ import { colorSwatch, formatNumber, numberField, enumMenu, opButton, checkbox } 
 import { addKeys } from '../../app/keymap';
 import { findSnapTarget } from '../../ops/snap';
 import { activeView3D } from './view3d';
+import { registerIcons } from '../../ui/icons';
 import type { SceneData } from '../../data/types';
 
 export interface AnnotationStroke {
@@ -155,7 +156,12 @@ editModeHooks.svg.push((v) => {
 // Annotate
 
 function annotatePointer(v: View3D, e: PointerEvent): boolean {
-  const erase = e.ctrlKey;
+  const t = tool();
+  if (t === 'builtin.annotate_polygon') return polygonPointer(v, e);
+  // the Eraser tool (or Ctrl with the other annotate tools) removes strokes under the pointer
+  const erase = e.ctrlKey || t === 'builtin.annotate_eraser';
+  // Annotate Line draws one straight segment from the press to the release
+  const straight = t === 'builtin.annotate_line';
   const layer = activeAnnotationLayer(!erase);
   if (layer?.lock) {
     app.report('WARNING', `Annotation layer "${layer.name}" is locked`);
@@ -171,6 +177,7 @@ function annotatePointer(v: View3D, e: PointerEvent): boolean {
       return;
     }
     const p = placePoint(v, x, y, annotateSettings.placement);
+    if (straight && pts.length >= 6) pts.length = 3;
     pts.push(p.x, p.y, p.z);
     const screen: string[] = [];
     for (let i = 0; i < pts.length; i += 3) {
@@ -219,6 +226,75 @@ function annotatePointer(v: View3D, e: PointerEvent): boolean {
   addEventListener('pointerup', up);
   return true;
 }
+
+// Annotate Polygon: each click adds a corner; double-click, Enter, Esc or the right button ends it
+
+let polygon: { v: View3D; pts: number[]; color: [number, number, number]; width: number; layer?: string } | null = null;
+let polygonHover: { x: number; y: number } | null = null;
+
+function polygonPreview() {
+  if (!polygon) return;
+  const v = polygon.v;
+  const screen: string[] = [];
+  for (let i = 0; i < polygon.pts.length; i += 3) {
+    const s = v.project(new Vector3(polygon.pts[i], polygon.pts[i + 1], polygon.pts[i + 2]));
+    screen.push(`${s.x.toFixed(1)},${s.y.toFixed(1)}`);
+  }
+  if (polygonHover) screen.push(`${polygonHover.x.toFixed(1)},${polygonHover.y.toFixed(1)}`);
+  preview = h('polyline', { points: screen.join(' '), fill: 'none', stroke: rgbCss(polygon.color), 'stroke-width': polygon.width, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
+  app.changed('ui');
+  v.drawSvg();
+}
+
+/** Finish the polygon being drawn (a stroke needs two corners or more). */
+export function finishAnnotationPolygon() {
+  const p = polygon;
+  polygon = null;
+  polygonHover = null;
+  preview = null;
+  if (p && p.pts.length >= 6) {
+    const sc = scene();
+    sc.annotations = [...(sc.annotations ?? []), { points: p.pts, color: p.color, thickness: p.width, layer: p.layer }];
+    app.pushUndo('Annotate Polygon');
+  }
+  app.changed('doc');
+  p?.v.drawSvg();
+}
+
+function polygonPointer(v: View3D, e: PointerEvent): boolean {
+  if (e.button === 2) {
+    finishAnnotationPolygon();
+    return true;
+  }
+  const { x, y } = localXY(v, e);
+  if (!polygon) {
+    const layer = activeAnnotationLayer(true);
+    if (layer?.lock) {
+      app.report('WARNING', `Annotation layer "${layer.name}" is locked`);
+      return true;
+    }
+    polygon = { v, pts: [], color: [...(layer?.color ?? annotateSettings.color)] as [number, number, number], width: layer?.thickness ?? annotateSettings.thickness, layer: layer?.name };
+  }
+  // a second click on the last corner (double-click) ends the polygon
+  const n = polygon.pts.length;
+  if (n >= 3) {
+    const last = v.project(new Vector3(polygon.pts[n - 3], polygon.pts[n - 2], polygon.pts[n - 1]));
+    if (Math.hypot(last.x - x, last.y - y) < 4) {
+      finishAnnotationPolygon();
+      return true;
+    }
+  }
+  const p = placePoint(v, x, y, annotateSettings.placement);
+  polygon.pts.push(p.x, p.y, p.z);
+  polygonPreview();
+  return true;
+}
+
+editModeHooks.hover.push((v, e) => {
+  if (!polygon || polygon.v !== v) return;
+  polygonHover = localXY(v, e);
+  polygonPreview();
+});
 
 // ---------------------------------------------------------------------------
 // Measure
@@ -292,7 +368,7 @@ export function measurePointer(v: View3D, e: PointerEvent): boolean {
 editModeHooks.pointer.push((v, e) => {
   const t = tool();
   if (e.altKey) return false;
-  if (t === 'builtin.annotate') return annotatePointer(v, e);
+  if (t === 'builtin.annotate' || t === 'builtin.annotate_line' || t === 'builtin.annotate_polygon' || t === 'builtin.annotate_eraser') return annotatePointer(v, e);
   if (t === 'builtin.measure') return measurePointer(v, e);
   return false;
 });
@@ -354,6 +430,8 @@ registerOperators([
 ]);
 
 addKeys('3D View', [
+  { key: 'RET', action: finishAnnotationPolygon, when: () => !!polygon },
+  { key: 'ESC', action: finishAnnotationPolygon, when: () => !!polygon },
   { key: 'X', op: 'view3d.ruler_remove', when: () => tool() === 'builtin.measure' && activeRuler >= 0 },
   { key: 'DEL', op: 'view3d.ruler_remove', when: () => tool() === 'builtin.measure' && activeRuler >= 0 },
 ]);
@@ -428,3 +506,12 @@ toolSettingsRenderers['builtin.cursor'] = () =>
       (o) => ((cursorToolSettings.orientation = o as typeof cursorToolSettings.orientation), app.changed('ui')),
     ),
   );
+
+// the annotate tool variants share the annotate settings
+for (const id of ['builtin.annotate_line', 'builtin.annotate_polygon', 'builtin.annotate_eraser']) toolSettingsRenderers[id] = () => toolSettingsRenderers['builtin.annotate']();
+
+registerIcons({
+  annotate_line: '<path class="f" d="M2.5 12.2 12.2 2.5l1.3 1.3-9.7 9.7z"/><circle class="f" cx="3" cy="13" r="1.6"/><circle class="f" cx="13" cy="3" r="1.6"/>',
+  annotate_polygon: '<path class="s" d="M2.5 12.5 5 4l5.5 2.5L13.5 12z" fill="none" stroke-width="1.4" stroke-linejoin="round"/><circle class="f" cx="2.5" cy="12.5" r="1.4"/><circle class="f" cx="5" cy="4" r="1.4"/><circle class="f" cx="10.5" cy="6.5" r="1.4"/><circle class="f" cx="13.5" cy="12" r="1.4"/>',
+  annotate_eraser: '<path class="f" d="M9.5 2.5 14 7l-6 6H4.5L2 10.5z" opacity=".35"/><path class="s" d="M9.5 2.5 14 7l-6 6H4.5L2 10.5zM6 6.5l4.5 4.5M7 13.5h7" fill="none" stroke-width="1.2" stroke-linejoin="round"/>',
+});

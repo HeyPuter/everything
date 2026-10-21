@@ -150,3 +150,39 @@ test('bpy.context.space_data exposes the 3D viewport settings', async ({ page })
   expect(await view(page, '[v.shading.type, v.overlay.show_face_orientation, v.nav.lens, v.nav.pivot.toArray(), v.nav.ortho]')).toEqual(['WIREFRAME', true, 35, [1, 2, 3], true]);
   await expectNoErrors(errors);
 });
+
+test('annotate line, polygon and eraser tools', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const strokes = () => get<{ points: number[] }[]>(page, 'app.doc.scene.annotations ?? []');
+  await run(page, 'wm.tool_set_by_id', { name: 'builtin.annotate_line' });
+  await page.mouse.move(c.x - 150, c.y + 100);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) await page.mouse.move(c.x - 150 + i * 30, c.y + 100 - i * 10);
+  await page.mouse.up();
+  let s = await strokes();
+  expect(s.length).toBe(1);
+  expect(s[0].points.length).toBe(6);
+  await run(page, 'wm.tool_set_by_id', { name: 'builtin.annotate_polygon' });
+  for (const [dx, dy] of [
+    [-100, -120],
+    [0, -160],
+    [100, -120],
+  ]) {
+    await page.mouse.move(c.x + dx, c.y + dy);
+    await page.mouse.down();
+    await page.mouse.up();
+  }
+  await page.keyboard.press('Enter');
+  s = await strokes();
+  expect(s.length).toBe(2);
+  expect(s[1].points.length).toBe(9);
+  // the eraser removes what it passes over
+  await run(page, 'wm.tool_set_by_id', { name: 'builtin.annotate_eraser' });
+  await page.mouse.move(c.x - 2, c.y - 162);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 2, c.y - 158, { steps: 3 });
+  await page.mouse.up();
+  expect((await strokes()).length).toBe(1);
+  await expectNoErrors(errors);
+});

@@ -52,7 +52,10 @@ const COMMON: (ToolDef | null)[] = [
   { id: 'builtin.scale', label: 'Scale', icon: 'transform_scale', shortcut: 'S', description: 'Scale (resize) selected items' },
   { id: 'builtin.transform', label: 'Transform', icon: 'transform', description: 'Supports any combination of grab, rotate, and scale at once' },
   null,
-  { id: 'builtin.annotate', label: 'Annotate', icon: 'annotate', description: 'Draw free-hand annotation' },
+  { id: 'builtin.annotate', label: 'Annotate', icon: 'annotate', group: 'annotate', description: 'Draw free-hand annotation' },
+  { id: 'builtin.annotate_line', label: 'Annotate Line', icon: 'annotate_line', group: 'annotate', description: 'Draw a straight annotation line' },
+  { id: 'builtin.annotate_polygon', label: 'Annotate Polygon', icon: 'annotate_polygon', group: 'annotate', description: 'Draw an annotation from clicked corners (double-click or Enter ends it)' },
+  { id: 'builtin.annotate_eraser', label: 'Annotate Eraser', icon: 'annotate_eraser', group: 'annotate', description: 'Erase annotation strokes' },
   { id: 'builtin.measure', label: 'Measure', icon: 'measure', description: 'Measure distance and angles' },
 ];
 
