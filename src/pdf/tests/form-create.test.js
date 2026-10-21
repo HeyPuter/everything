@@ -479,6 +479,30 @@ it('refuses a character limit shorter than the value the field holds', async () 
   expect(listFormFields(doc)[0].props).toMatchObject({ maxLength: 3, value: 'XYZ' });
 });
 
+it('keeps a list’s default value and its filled value apart when its options change', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  for (const [field, y] of [
+    ['Size', 700],
+    ['Color', 650],
+  ])
+    await addFormField(doc, 0, {
+      type: 'dropdown',
+      name: field,
+      rect: rect(50, y, 120, 22),
+      options: ['A', 'B', 'C'],
+      defaultValue: 'A',
+    });
+  await fillFields(doc, { Size: ['B'] });
+  // Other tools can leave a list its default alone, which viewers show as its value.
+  doc.getForm().getDropdown('Color').acroField.dict.delete(name('V'));
+  for (const field of ['Size', 'Color'])
+    await updateFormField(doc, field, { options: ['A', 'B', 'C', 'D'] });
+  const [size, color] = listFormFields(await PDFDocument.load(await doc.save()));
+  expect(size.props).toMatchObject({ value: ['B'], defaultValue: ['A'] });
+  expect(color.props).toMatchObject({ value: ['A'], defaultValue: ['A'] });
+});
+
 it('moves widgets and deletes one widget or the whole field', async () => {
   const doc = await blank();
   for (const [i, value] of ['A', 'B', 'C'].entries())

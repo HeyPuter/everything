@@ -1034,19 +1034,29 @@ function applyFieldProps(doc, field, props) {
         throw new Error('This list accepts one selection.');
       writeChoiceValue(doc, dict, values);
     } else if (listChanged) {
-      // Keep the selection that is still on the list, with indices into the new order.
-      const value = inherited(dict, 'V');
-      const current = (
-        value instanceof PDFArray
-          ? value.asArray().map((e) => textOf(dict.context.lookup(e)))
-          : [textOf(value)]
-      ).filter((v) => v !== undefined);
+      // Keep the selection and the default that are still on the list, each on its own,
+      // with indices into the new order.
       const options = choiceOptionsOf(dict);
-      writeChoiceValue(
-        doc,
-        dict,
-        current.filter((v) => flagsOf(dict) & EDIT || options.some((o) => o.value === v)),
-      );
+      const kept = (key) => {
+        const value = inherited(dict, key);
+        return (
+          value instanceof PDFArray
+            ? value.asArray().map((e) => textOf(dict.context.lookup(e)))
+            : [textOf(value)]
+        ).filter(
+          (v) => v !== undefined && (flagsOf(dict) & EDIT || options.some((o) => o.value === v)),
+        );
+      };
+      const defaults = kept('DV');
+      writeChoiceValue(doc, dict, kept('V'), { initial: false });
+      if (!defaults.length) dict.delete(name('DV'));
+      else
+        dict.set(
+          name('DV'),
+          defaults.length === 1
+            ? textObject(defaults[0])
+            : doc.context.obj(defaults.map(textObject)),
+        );
     }
   }
 }
