@@ -238,3 +238,27 @@ test('Camera Parent Lock moves the camera parent when navigating a locked camera
   expect(Math.hypot(...rig)).toBeGreaterThan(0.01);
   await expectNoErrors(errors);
 });
+
+test('object context menu offers type-specific adjustments', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  await run(page, 'object.light_add', { type: 'SPOT', location: [0, 0, 3] });
+  await page.mouse.click(c.x + 200, c.y + 150, { button: 'right' });
+  const menu = page.locator('.menu').last();
+  await expect(menu).toContainText('Adjust Light Power');
+  await expect(menu).toContainText('Adjust Spot Light Beam Angle');
+  await expect(menu).not.toContainText('Shade Smooth');
+  const e0 = await get<number>(page, 'app.doc.lights[app.activeObject.data].energy');
+  const item = menu.locator('.menu-item', { hasText: 'Adjust Light Power' });
+  const ib = (await item.boundingBox())!;
+  await item.click();
+  // the value follows the horizontal motion from where the item was clicked
+  await page.mouse.move(ib.x + ib.width / 2 + 60, ib.y + ib.height / 2, { steps: 4 });
+  await page.mouse.click(ib.x + ib.width / 2 + 60, ib.y + ib.height / 2);
+  expect(await get<number>(page, 'app.doc.lights[app.activeObject.data].energy')).toBeGreaterThan(e0);
+  await run(page, 'object.camera_add', { location: [0, -5, 1] });
+  await page.mouse.click(c.x + 200, c.y + 150, { button: 'right' });
+  await expect(page.locator('.menu').last()).toContainText('Adjust Focal Length');
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});
