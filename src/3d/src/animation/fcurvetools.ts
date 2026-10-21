@@ -94,26 +94,31 @@ export interface BlendOptions {
 }
 
 /**
- * S-shaped ease from 0 to 1. `shift` (-1..1) moves the steep part towards the
- * start (positive) or the end (negative); `sharpness` controls how abrupt it is.
+ * S-shaped ease from 0 to 1 (an algebraic sigmoid, normalized to the segment). `shift` (-1..1)
+ * moves the steep part towards the start (positive) or the end (negative); `sharpness` is its
+ * steepness. Matches the reference app's Ease tool.
  */
 export function easeCurve(x: number, shift: number, sharpness: number) {
   const t = Math.max(0, Math.min(1, x));
-  // remap x so the midpoint of the S moves with the shift
-  const s = Math.max(-0.999, Math.min(0.999, shift));
-  const p = Math.pow(2, -s * 2);
-  const xs = Math.pow(t, p);
-  const e = Math.max(0.05, sharpness + 1);
-  const a = Math.pow(xs, e),
-    b = Math.pow(1 - xs, e);
-  return a + b > 0 ? a / (a + b) : xs;
+  const w = Math.max(1e-6, 2 * sharpness),
+    c = 0.5 - shift / 2;
+  const g = (u: number) => {
+    const z = (u - c) * w;
+    return z / Math.sqrt(1 + z * z);
+  };
+  const lo = g(0),
+    hi = g(1);
+  return hi - lo > 1e-12 ? (g(t) - lo) / (hi - lo) : t;
 }
 
-/** One-sided ease used by Blend to Ease: fast start (out) or slow start (in). */
+/**
+ * One-sided ease used by Blend to Ease: fast start (out) or slow start (in). The ease-in shape is
+ * x³ / (1 + 3(1 − x)²) (fitted exactly to the reference app's results); ease-out mirrors it.
+ */
 export function easeOneSided(x: number, out: boolean) {
   const t = Math.max(0, Math.min(1, x));
-  const p = 4;
-  return out ? 1 - Math.pow(1 - t, p) : Math.pow(t, p);
+  const easeIn = (u: number) => (u * u * u) / (1 + 3 * (1 - u) * (1 - u));
+  return out ? 1 - easeIn(1 - t) : easeIn(t);
 }
 
 /**

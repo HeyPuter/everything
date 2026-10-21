@@ -37,9 +37,8 @@ const RUN: Record<string, (r: ReturnType<typeof setup>['refs']) => void> = {
   scale_from_neighbor: (r) => T.applyBlend(r, 'SCALE_FROM_NEIGHBOR', 0.5),
 };
 
-/** Tools whose results still differ: curve-fitting decimation, the S-curves of Ease / Blend to
- * Ease, and one boundary key of the legacy smoothing. */
-const KNOWN_DIFFERENT = new Set(['decimate_ratio', 'decimate_error', 'ease', 'blend_to_ease', 'smooth']);
+/** Tools whose results still differ: curve-fitting decimation and one boundary key of the legacy smoothing. */
+const KNOWN_DIFFERENT = new Set(['decimate_ratio', 'decimate_error', 'smooth']);
 
 describe('Graph Editor key tools match the reference', () => {
   for (const [name, res] of Object.entries(expected as Record<string, { keys: number[][] }>)) {
@@ -56,4 +55,27 @@ describe('Graph Editor key tools match the reference', () => {
       });
     });
   }
+});
+
+describe('ease shapes', () => {
+  it('Blend to Ease follows the recorded ease-in / ease-out values', async () => {
+    const { easeOneSided } = await import('../../src/animation/fcurvetools');
+    // recorded from the reference app on a 0 → 1 segment
+    const easeIn: [number, number][] = [
+      [0.2, 1 / 365],
+      [0.4, 2 / 65],
+      [0.5, 1 / 14],
+      [0.8, 16 / 35],
+    ];
+    for (const [x, y] of easeIn) {
+      expect(easeOneSided(x, false)).toBeCloseTo(y, 9);
+      expect(easeOneSided(1 - x, true)).toBeCloseTo(1 - y, 9);
+    }
+  });
+  it('Ease is an algebraic S-curve shifted by the factor', async () => {
+    const { easeCurve } = await import('../../src/animation/fcurvetools');
+    // recorded: factor 0 / sharpness 2 and factor 0.8 / sharpness 2, at x = 0.25
+    expect(easeCurve(0.25, 0, 2)).toBeCloseTo(0.10472, 5);
+    expect(easeCurve(0.25, 0.8, 2)).toBeCloseTo(0.66363, 5);
+  });
 });
