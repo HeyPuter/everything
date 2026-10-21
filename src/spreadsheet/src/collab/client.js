@@ -230,7 +230,9 @@ export class RoomClient extends EventTarget {
             this.replica.discardPending();
             await this.persist();
             this.dispatchEvent(new CustomEvent('refused', { detail: { message: error.message } }));
-            if (error.status === 403) await this.sync().catch(() => {});
+            // The room is asked what changed (a role, say) once this sending is done: a synchronization waits its turn
+            // behind it, and awaited here, neither would ever finish.
+            if (error.status === 403) this.scheduleSync(0);
             break;
           }
           throw error;
