@@ -103,6 +103,30 @@ test("a graphic is inserted as diagram parts and its Text Pane edits the outline
     expect(names.some((n) => n.startsWith(`ppt/diagrams/${part}`))).toBe(true);
 });
 
+// A new graphic's items hold the sample text "[Text]", and typing in the
+// Text Pane added to it ("[Text]Plan") instead of replacing it.
+test("typing in a new graphic's Text Pane replaces the sample text", async ({
+  page,
+}) => {
+  await start(page);
+  await insertGraphic(page, "Process", "Chevron Flow");
+  const inputs = page.locator(".smartart-outline-input");
+  await expect(inputs.nth(0)).toBeFocused();
+  await page.keyboard.type("Plan");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.type("Build");
+  await inputs.nth(2).click();
+  await page.keyboard.type("Ship");
+  await page.waitForTimeout(600);
+  const { model } = await download(page);
+  expect(model.items.map((i) => i.text)).toEqual([
+    "Plan",
+    "Build",
+    "Ship",
+    "[Text]",
+  ]);
+});
+
 test("SmartArt Design adds and moves shapes, and changes layout, colors and style", async ({
   page,
 }) => {

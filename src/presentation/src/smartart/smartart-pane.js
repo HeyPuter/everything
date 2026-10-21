@@ -11,6 +11,11 @@ import {
   splitItem,
 } from "./outline.js";
 
+// A new graphic's items hold this sample text until they are typed in. Like
+// a placeholder, it is selected whole on arriving in its item, so typing
+// replaces it rather than adding to it.
+const SAMPLE = "[Text]";
+
 // `read()` gives the graphic's items now (null once it is gone), `write(items)`
 // applies new ones; `onCurrent(index)` hears the item being edited.
 export function openTextPane({ title, about, read, write, onCurrent }) {
@@ -93,6 +98,15 @@ export function openTextPane({ title, about, read, write, onCurrent }) {
               current = i;
               onCurrent?.(i);
             },
+            // A click places the caret after the focus arrives.
+            onclick: (e) => {
+              const input = e.currentTarget;
+              if (
+                input.value === SAMPLE &&
+                input.selectionStart === input.selectionEnd
+              )
+                input.select();
+            },
             oninput: (e) => {
               items[i] = { ...items[i], text: e.target.value };
               schedule();
@@ -107,6 +121,10 @@ export function openTextPane({ title, about, read, write, onCurrent }) {
     const input = list.querySelector(`input[data-index="${i}"]`);
     if (!input) return;
     input.focus();
+    if (input.value === SAMPLE) {
+      input.select();
+      return;
+    }
     const at = caret == null ? input.value.length : caret;
     input.setSelectionRange(at, at);
   }
