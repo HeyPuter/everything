@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { gradeParams, Compositor } from '../src/engine/compositor.js';
 import { DEFAULT_ADJUST } from '../src/model/project.js';
+import { effectPass } from '../src/engine/fx-render.js';
+import { EFFECT_SHADERS, TRANSITION_SHADERS, GRADE_FS } from '../src/engine/shaders.js';
 
 describe('gradeParams', () => {
   it('is neutral with no adjustments and no filter', () => {
@@ -45,5 +47,40 @@ describe('Compositor', () => {
     canvas.getContext = vi.fn(() => null);
     expect(() => new Compositor(canvas, { resolve: () => null })).toThrow('WebGL2 is not available');
     expect(canvas.getContext).toHaveBeenCalledWith('webgl2', expect.any(Object));
+  });
+});
+
+describe('sizes in pixels', () => {
+  it('counts output pixels per project pixel', () => {
+    const c = Object.assign(Object.create(Compositor.prototype), { width: 552, projW: 1920 });
+    expect(c.pxScale).toBeCloseTo(0.2875, 6);
+    c.width = 1920;
+    expect(c.pxScale).toBe(1);
+    c.width = 3840;
+    expect(c.pxScale).toBe(2);
+  });
+
+  it('gives effects the pixel scale, so a blur reaches as far in the preview as in the export', () => {
+    const set = {};
+    const comp = {
+      gl: { BLEND: 1, disable() {} },
+      pxScale: 0.25,
+      _program: () => ({}),
+      _into() {},
+      _use: (p) => p,
+      _bindTex() {},
+      _seti() {},
+      _set: (p, name, ...v) => (set[name] = v),
+      _fullPass() {},
+    };
+    const buf = { w: 480, h: 270, tex: {}, fb: {} };
+    expect(effectPass(comp, 'blur', { strength: 100 }, buf, { ...buf }, {})).toBe(true);
+    expect(set.u_px).toEqual([0.25]);
+  });
+
+  it('measures blur and kernel offsets in project pixels', () => {
+    for (const id of ['blur', 'glow', 'sharpen', 'edge']) expect(EFFECT_SHADERS[id], id).toMatch(/u_texel \* u_px/);
+    expect(TRANSITION_SHADERS.blur).toMatch(/r \* u_px \/ u_res/);
+    expect(GRADE_FS).toMatch(/u_texel \* u_px/);
   });
 });

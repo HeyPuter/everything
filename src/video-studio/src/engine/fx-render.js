@@ -49,6 +49,7 @@ export function effectPass(comp, id, params, src, dst, { time = 0, duration = 0 
   comp._seti(p, 'u_tex', 0);
   comp._set(p, 'u_texel', 1 / src.w, 1 / src.h);
   comp._set(p, 'u_res', src.w, src.h);
+  comp._set(p, 'u_px', comp.pxScale);
   comp._set(p, 'u_time', time);
   comp._set(p, 'u_dur', duration);
   for (const [name, value] of effectUniforms(id, params)) comp._set(p, name, value);
@@ -199,7 +200,8 @@ export function drawLayerWithEffects(comp, layer, time) {
   comp._set(p, 'u_flip', 0, 0);
   comp._set(p, 'u_opacity', layer.opacity);
   comp._set(p, 'u_texel', 1 / w, 1 / h);
-  comp._set(p, 'u_blur', layer.blur > 0 ? layer.blur * 4 * Math.max(1, w / 640) : 0);
+  // Sized as at the project's own resolution, so the preview blurs as much as the export.
+  comp._set(p, 'u_blur', layer.blur > 0 ? layer.blur * 4 * Math.max(1, w / k / 640) * k : 0);
   comp._bindTex(0, cur.tex);
   comp._seti(p, 'u_tex', 0);
   gl.bindVertexArray(comp.vao);

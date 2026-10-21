@@ -205,6 +205,15 @@ export class Compositor {
     this._freeTargets();
   }
 
+  /**
+   * Output pixels per project pixel (1 when exporting at the project's size,
+   * below 1 in the preview). Blur radii and other sizes in pixels are scaled
+   * by it so effects look the same at every resolution.
+   */
+  get pxScale() {
+    return this.width / (this.projW || this.width || 1);
+  }
+
   _freeTargets() {
     if (!this.targets) return;
     const gl = this.gl;
@@ -566,7 +575,7 @@ export class Compositor {
     const fit = Math.min(W / info.width, H / info.height);
     fake.scale = cover / fit;
     this._drawLayer(fake, time);
-    const blurred = this._blurInto(small.tex, this._target('bgA', 0.25), this._target('bgB', 0.25), 1 + (bg.blur ?? 0.5) * 3);
+    const blurred = this._blurInto(small.tex, this._target('bgA', 0.25), this._target('bgB', 0.25), (1 + (bg.blur ?? 0.5) * 3) * this.pxScale);
     this._into(acc);
     gl.disable(gl.BLEND);
     this._copy(blurred.tex);
@@ -640,6 +649,7 @@ export class Compositor {
         this._seti(p, 'u_to', 1);
         this._set(p, 'u_progress', layer.progress);
         this._set(p, 'u_res', this.width, this.height);
+        this._set(p, 'u_px', this.pxScale);
         this._fullPass(p);
       } else if (layer.kind === 'filter' || layer.kind === 'adjust') {
         this._into(alt);
@@ -649,6 +659,7 @@ export class Compositor {
         this._setGrade(p, g, time);
         this._set(p, 'u_mix', 1);
         this._set(p, 'u_texel', 1 / acc.w, 1 / acc.h);
+        this._set(p, 'u_px', this.pxScale);
         this._bindTex(0, acc.tex);
         this._seti(p, 'u_tex', 0);
         this._fullPass(p);

@@ -564,6 +564,7 @@ precision highp float;
 in vec2 v_uv;
 uniform sampler2D u_tex;
 uniform vec2 u_texel;
+uniform float u_px; // output pixels per project pixel
 uniform float u_mix;
 out vec4 outColor;
 ${COLOR_FN}
@@ -574,7 +575,8 @@ void main() {
   vec3 c = s.a > 0.0 ? s.rgb / s.a : s.rgb;
   if (u_clarity != 0.0) g_local = localLuma(v_uv);
   if (u_sharpen > 0.0) {
-    vec3 n = texture(u_tex, v_uv + vec2(u_texel.x, 0.0)).rgb + texture(u_tex, v_uv - vec2(u_texel.x, 0.0)).rgb + texture(u_tex, v_uv + vec2(0.0, u_texel.y)).rgb + texture(u_tex, v_uv - vec2(0.0, u_texel.y)).rgb;
+    vec2 d = u_texel * u_px;
+    vec3 n = texture(u_tex, v_uv + vec2(d.x, 0.0)).rgb + texture(u_tex, v_uv - vec2(d.x, 0.0)).rgb + texture(u_tex, v_uv + vec2(0.0, d.y)).rgb + texture(u_tex, v_uv - vec2(0.0, d.y)).rgb;
     c = c + (c - n * 0.25) * u_sharpen * 0.012;
   }
   vec3 g = grade(c, v_uv, u_texel);
@@ -624,6 +626,7 @@ in vec2 v_uv;
 uniform sampler2D u_tex;
 uniform vec2 u_texel;
 uniform vec2 u_res;
+uniform float u_px;        // buffer texels per project pixel: sizes in pixels look the same in the preview and any export size
 uniform float u_time;      // seconds since the effect clip started
 uniform float u_speed;     // 0..1
 uniform float u_strength;  // 0..1
@@ -639,12 +642,12 @@ float rate() { return 0.25 + u_speed * 3.0; }
 export const EFFECT_SHADERS = {
   blur: `void main() {
     vec4 c = vec4(0.0); float r = 1.0 + u_strength * 10.0; float n = 0.0;
-    for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { float w = exp(-float(i*i + j*j) / 18.0); c += src(v_uv + vec2(i, j) * u_texel * r) * w; n += w; }
+    for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { float w = exp(-float(i*i + j*j) / 18.0); c += src(v_uv + vec2(i, j) * u_texel * u_px * r) * w; n += w; }
     outColor = c / n; }`,
   vignette: `void main() { vec4 c = src(v_uv); float d = distance(v_uv, vec2(0.5)); c.rgb *= 1.0 - smoothstep(0.2, 0.8, d) * u_strength; outColor = c; }`,
   'black-white': `void main() { vec4 c = src(v_uv); c.rgb = mix(c.rgb, vec3(luma(c.rgb / max(c.a, 1e-4)) * c.a), u_strength * 0.5 + 0.5); outColor = c; }`,
   invert: `void main() { vec4 c = src(v_uv); vec3 inv = c.a - c.rgb; c.rgb = mix(c.rgb, inv, 0.5 + 0.5 * u_strength); outColor = c; }`,
-  sharpen: `void main() { vec4 c = src(v_uv); vec4 n = src(v_uv + vec2(u_texel.x, 0.0)) + src(v_uv - vec2(u_texel.x, 0.0)) + src(v_uv + vec2(0.0, u_texel.y)) + src(v_uv - vec2(0.0, u_texel.y)); c.rgb += (c.rgb - n.rgb * 0.25) * (0.5 + u_strength * 2.5); outColor = clamp(c, 0.0, 1.0); }`,
+  sharpen: `void main() { vec4 c = src(v_uv); vec2 d = u_texel * u_px; vec4 n = src(v_uv + vec2(d.x, 0.0)) + src(v_uv - vec2(d.x, 0.0)) + src(v_uv + vec2(0.0, d.y)) + src(v_uv - vec2(0.0, d.y)); c.rgb += (c.rgb - n.rgb * 0.25) * (0.5 + u_strength * 2.5); outColor = clamp(c, 0.0, 1.0); }`,
   'zoom-pulse': `void main() { float p = 0.5 - 0.5 * cos(u_time * rate() * 6.2831); float z = 1.0 + p * (0.05 + u_strength * 0.2); outColor = src((v_uv - 0.5) / z + 0.5); }`,
   shake: `void main() { float t = floor(u_time * (8.0 + u_speed * 24.0)); vec2 o = (vec2(hash11(t), hash11(t + 7.1)) - 0.5) * (0.01 + u_strength * 0.05); float z = 1.0 + (0.01 + u_strength * 0.05) * 2.0; outColor = src((v_uv - 0.5) / z + 0.5 + o); }`,
   'spin-blur': `void main() { vec2 c = v_uv - 0.5; vec4 acc = vec4(0.0); float a = u_strength * 0.12 * (0.5 + 0.5 * sin(u_time * rate() * 3.0)); for (int i = 0; i < 12; i++) { float t = (float(i) / 11.0 - 0.5) * a; mat2 m = mat2(cos(t), -sin(t), sin(t), cos(t)); acc += src(m * c + 0.5); } outColor = acc / 12.0; }`,
@@ -674,11 +677,11 @@ export const EFFECT_SHADERS = {
     c.rgb += (hash12(v_uv * u_res + t) - 0.5) * 0.12 * u_strength;
     c.rgb *= 1.0 - smoothstep(0.3, 0.9, distance(v_uv, vec2(0.5))) * 0.6;
     outColor = c; }`,
-  scanlines: `void main() { vec4 c = src(v_uv); float s = 0.5 + 0.5 * sin((v_uv.y * u_res.y * 0.5 + u_time * rate() * 20.0)); c.rgb *= 1.0 - s * u_strength * 0.45; outColor = c; }`,
+  scanlines: `void main() { vec4 c = src(v_uv); float s = 0.5 + 0.5 * sin((v_uv.y * u_res.y * min(0.5 / u_px, 2.0) + u_time * rate() * 20.0)); c.rgb *= 1.0 - s * u_strength * 0.45; outColor = c; }`,
   posterize: `void main() { vec4 c = src(v_uv); float levels = mix(12.0, 3.0, u_strength); vec3 rgb = c.a > 0.0 ? c.rgb / c.a : c.rgb; rgb = floor(rgb * levels + 0.5) / levels; outColor = vec4(rgb * c.a, c.a); }`,
   glow: `void main() {
     vec4 c = src(v_uv); vec4 b = vec4(0.0); float n = 0.0;
-    for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { float w = exp(-float(i*i + j*j) / 10.0); b += src(v_uv + vec2(i, j) * u_texel * 6.0) * w; n += w; }
+    for (int i = -4; i <= 4; i++) for (int j = -4; j <= 4; j++) { float w = exp(-float(i*i + j*j) / 10.0); b += src(v_uv + vec2(i, j) * u_texel * u_px * 6.0) * w; n += w; }
     b /= n; vec3 bright = max(b.rgb - 0.45, 0.0) * 2.0;
     c.rgb = 1.0 - (1.0 - c.rgb) * (1.0 - bright * (0.4 + u_strength * 1.2));
     c.rgb = mix(c.rgb, c.rgb * 0.9 + 0.08, 0.3 * u_strength);
@@ -712,9 +715,10 @@ export const EFFECT_SHADERS = {
   mirror: `void main() { vec2 uv = v_uv; if (u_strength > 0.5) uv.y = uv.y > 0.5 ? 1.0 - uv.y : uv.y; uv.x = uv.x > 0.5 ? 1.0 - uv.x : uv.x; outColor = src(uv); }`,
   kaleidoscope: `void main() { vec2 p = v_uv - 0.5; p.x *= u_res.x / u_res.y; float a = atan(p.y, p.x) + u_time * rate() * 0.3; float r = length(p); float seg = 6.2831 / floor(4.0 + u_strength * 8.0); a = mod(a, seg); a = abs(a - seg * 0.5); vec2 q = vec2(cos(a), sin(a)) * r; q.x /= u_res.x / u_res.y; outColor = src(q + 0.5); }`,
   edge: `void main() {
-    float tl = luma(src(v_uv + u_texel * vec2(-1, 1)).rgb), t = luma(src(v_uv + u_texel * vec2(0, 1)).rgb), tr = luma(src(v_uv + u_texel * vec2(1, 1)).rgb);
-    float l = luma(src(v_uv + u_texel * vec2(-1, 0)).rgb), r = luma(src(v_uv + u_texel * vec2(1, 0)).rgb);
-    float bl = luma(src(v_uv + u_texel * vec2(-1, -1)).rgb), b = luma(src(v_uv + u_texel * vec2(0, -1)).rgb), br = luma(src(v_uv + u_texel * vec2(1, -1)).rgb);
+    vec2 d = u_texel * u_px;
+    float tl = luma(src(v_uv + d * vec2(-1, 1)).rgb), t = luma(src(v_uv + d * vec2(0, 1)).rgb), tr = luma(src(v_uv + d * vec2(1, 1)).rgb);
+    float l = luma(src(v_uv + d * vec2(-1, 0)).rgb), r = luma(src(v_uv + d * vec2(1, 0)).rgb);
+    float bl = luma(src(v_uv + d * vec2(-1, -1)).rgb), b = luma(src(v_uv + d * vec2(0, -1)).rgb), br = luma(src(v_uv + d * vec2(1, -1)).rgb);
     float gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br; float gy = -bl - 2.0 * b - br + tl + 2.0 * t + tr;
     float e = clamp(length(vec2(gx, gy)) * 2.0, 0.0, 1.0);
     vec4 c = src(v_uv); vec3 sketch = vec3(1.0 - e);
@@ -764,6 +768,7 @@ uniform sampler2D u_from;
 uniform sampler2D u_to;
 uniform float u_progress;
 uniform vec2 u_res;
+uniform float u_px; // output pixels per project pixel
 out vec4 outColor;
 float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
 float hash11(float p) { p = fract(p * 0.1031); p *= p + 33.33; p *= p + p; return fract(p); }
@@ -780,7 +785,7 @@ export const TRANSITION_SHADERS = {
   'dip-white': `void main() { float p = u_progress; vec4 c = p < 0.5 ? A(v_uv) : B(v_uv); float w = 1.0 - abs(p * 2.0 - 1.0); outColor = vec4(mix(c.rgb, vec3(1.0), w), 1.0); }`,
   blur: `void main() {
     float p = u_progress; float r = sin(p * 3.1416) * 18.0; vec4 a = vec4(0.0), b = vec4(0.0);
-    for (int i = -3; i <= 3; i++) for (int j = -3; j <= 3; j++) { vec2 o = vec2(i, j) * r / u_res; a += A(v_uv + o); b += B(v_uv + o); }
+    for (int i = -3; i <= 3; i++) for (int j = -3; j <= 3; j++) { vec2 o = vec2(i, j) * r * u_px / u_res; a += A(v_uv + o); b += B(v_uv + o); }
     outColor = mix(a, b, smoothstep(0.3, 0.7, p)) / 49.0; }`,
   'zoom-in': `void main() { float p = ease(u_progress); vec4 a = A((v_uv - 0.5) / (1.0 + p * 1.5) + 0.5); vec4 b = B((v_uv - 0.5) * (1.0 + (1.0 - p) * 0.4) + 0.5); outColor = mix(a, b, smoothstep(0.35, 0.75, u_progress)); }`,
   'zoom-out': `void main() { float p = ease(u_progress); vec4 a = A((v_uv - 0.5) * (1.0 + p * 1.0) + 0.5); vec4 b = B((v_uv - 0.5) / (1.0 + (1.0 - p) * 1.2) + 0.5); outColor = mix(a, b, smoothstep(0.35, 0.75, u_progress)); }`,
