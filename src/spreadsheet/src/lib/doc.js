@@ -748,6 +748,8 @@ export class Doc extends EventTarget {
     const clean = P.sanitizeName(newName).replace(/\.xlsx$/i, '');
     if (!clean) return 'Enter a name';
     if (clean === this.name) return null;
+    // A shared workbook is its owner's file: renamed here alone, the name would change in this title bar and nowhere else.
+    if (this.collab && !this.path) return 'This shared workbook is its owner’s file: only its owner can rename it';
     if (!this.path) {
       const oldKey = this.draftKey;
       this.name = clean;
