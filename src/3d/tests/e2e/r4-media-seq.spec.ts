@@ -234,3 +234,41 @@ test('sequencer preview: View Settings ▸ Channel previews only the channels up
   expect(await sample()).toEqual([true, false, false]);
   await expectNoErrors(errors);
 });
+
+test('sequencer preview: rendered frames stay in the Final cache until something changes', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    const app = (window as any).app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 40, color: [1, 0, 0] }, { invoke: false });
+  });
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const cached = () => page.evaluate(() => (window as any).app.hoverArea.editor.preview.cachedFrames().sort((a: number, b: number) => a - b));
+  for (const f of [5, 6, 7]) {
+    await page.evaluate((f) => (window as any).app.setFrame(f), f);
+    await page.waitForTimeout(250);
+  }
+  expect(await cached()).toEqual(expect.arrayContaining([5, 6, 7]));
+  // an edit drops them
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    app.doc.scene.sequence_editor.strips[0].color = [0, 0, 1];
+    app.changed('doc');
+  });
+  await page.waitForTimeout(250);
+  expect((await cached()).length).toBeLessThanOrEqual(1);
+  // switched off: nothing is kept
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    app.doc.scene.sequence_editor.use_cache_final = false;
+    app.changed('doc');
+    app.setFrame(9);
+  });
+  await page.waitForTimeout(250);
+  expect(await cached()).toEqual([]);
+  await expectNoErrors(errors);
+});

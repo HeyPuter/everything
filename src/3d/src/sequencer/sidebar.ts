@@ -591,6 +591,7 @@ export function cacheTab(info: { previewSize: string; renderMs: number; scale: n
   return [
     proxyPanel(info.previewSize),
     panel('seq-cache', 'Cache', () => [
+      hasEditor() ? checkbox('seq-cache-final', 'Final Frames', seqEditor().use_cache_final !== false, (v) => ((seqEditor().use_cache_final = v), app.pushUndo('Cache Settings'), app.changed('doc')), { tip: 'Keep composited frames so scrubbing back to them is instant' }) : null,
       splitRow('Movies', h('span', { class: 'seq-src' }, String(st.movies))),
       splitRow('Cached Frames', h('span', { class: 'seq-src' }, String(st.frames))),
       splitRow('', opButton('sequencer.refresh_all', 'Clear Cache', {}, { icon: 'file_refresh' })),

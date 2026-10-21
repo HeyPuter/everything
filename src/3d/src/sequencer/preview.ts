@@ -72,6 +72,10 @@ export class PreviewRegion implements Annotate2DHost {
   showAnnotations = true;
   /** preview the channels up to this one only (0: all) */
   displayChannel = 0;
+  /** Final cache: composited frames by scene frame, valid while `finalKey` (settings) holds */
+  private finalCache = new Map<number, HTMLCanvasElement>();
+  private finalKey = '';
+  private finalBytes = 0;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
   /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
@@ -110,6 +114,41 @@ export class PreviewRegion implements Annotate2DHost {
     const left = (w - W * aspect * s) / 2 + this.panX;
     const top = (h - H * s) / 2 + this.panY;
     return { s, sx: s * aspect, left, top, W, H, fit };
+  }
+
+  /** Drop every cached frame (an edit changed the result); `key`: the new render settings. */
+  clearFinalCache(key = this.finalKey) {
+    this.finalCache.clear();
+    this.finalBytes = 0;
+    this.finalKey = key;
+  }
+
+  /** Frames in the Final cache (for the timeline). */
+  cachedFrames(): number[] {
+    return [...this.finalCache.keys()];
+  }
+
+  private cacheFinal(frame: number, src: HTMLCanvasElement) {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    c.getContext('2d')!.drawImage(src, 0, 0);
+    this.finalCache.set(frame, c);
+    this.finalBytes += c.width * c.height * 4;
+    // keep within a memory budget: drop the frames farthest from this one
+    const budget = 512 * 1024 * 1024;
+    while (this.finalBytes > budget && this.finalCache.size > 1) {
+      let far = frame,
+        d = -1;
+      for (const f of this.finalCache.keys())
+        if (Math.abs(f - frame) > d) {
+          d = Math.abs(f - frame);
+          far = f;
+        }
+      const x = this.finalCache.get(far)!;
+      this.finalBytes -= x.width * x.height * 4;
+      this.finalCache.delete(far);
+    }
   }
 
   // 2D annotations of the preview (kept on the scene)
@@ -255,6 +294,25 @@ export class PreviewRegion implements Annotate2DHost {
       return;
     }
     const frame = s.frame_current;
+    const useCache = ed.use_cache_final !== false && !ed.show_overlay_frame;
+    const key = `${W}x${H}|${k}|${this.size}|${this.displayChannel}`;
+    if (key !== this.finalKey) this.clearFinalCache(key);
+    const cached = useCache ? this.finalCache.get(frame) : undefined;
+    if (cached) {
+      // a frame rendered before (nothing changed since): show it right away
+      const f = this.frame;
+      if (f.width !== cached.width || f.height !== cached.height) {
+        f.width = cached.width;
+        f.height = cached.height;
+      }
+      const g = f.getContext('2d')!;
+      g.clearRect(0, 0, f.width, f.height);
+      g.drawImage(cached, 0, 0);
+      this.hasFrame = true;
+      this.hasRef = false;
+      this.frameStamp++;
+      return;
+    }
     await withCompositor(async (comp) => {
       if (my !== this.gen) throw new Cancelled();
       const sr = new SequencerRender(comp, {
@@ -282,6 +340,8 @@ export class PreviewRegion implements Annotate2DHost {
       g.drawImage(comp.canvas, 0, 0);
       this.hasFrame = true;
       this.frameStamp++;
+      // complete frames (no media still loading) go to the Final cache
+      if (useCache && !sr.pending.length && !app.playing) this.cacheFinal(frame, f);
       // frame overlay: render the reference frame too
       const rf = overlayRefFrame(ed, frame);
       this.hasRef = false;

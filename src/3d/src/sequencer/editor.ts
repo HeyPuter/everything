@@ -104,6 +104,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showColorTags = true;
   showRetiming = true;
   showFcurves = true;
+  /** timeline: the frames in the Final cache */
+  showCache = false;
   /** sound strips: waveforms of all strips, of none, or as each strip says; full or half height */
   waveformType: 'ALL_WAVEFORMS' | 'NO_WAVEFORMS' | 'DEFAULT_WAVEFORMS' = 'DEFAULT_WAVEFORMS';
   waveformStyle: 'FULL_WAVEFORMS' | 'HALF_WAVEFORMS' = 'FULL_WAVEFORMS';
@@ -199,6 +201,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       showColorTags: this.showColorTags,
       showRetiming: this.showRetiming,
       showFcurves: this.showFcurves,
+      showCache: this.showCache,
       waveformType: this.waveformType,
       waveformStyle: this.waveformStyle,
       splitRatio: this.splitRatio,
@@ -215,7 +218,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const s = (state ?? {}) as Record<string, unknown>;
     if (s.view === 'PREVIEW' || s.view === 'SEQUENCER_PREVIEW' || s.view === 'SEQUENCER') this.view = s.view;
     for (const k of ['x0', 'ppf', 'cy0', 'chH', 'chWidth', 'splitRatio'] as const) if (typeof s[k] === 'number') (this as Record<string, unknown>)[k] = s[k];
-    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted', 'showStripName', 'showStripSource', 'showStripDuration', 'showOffsets', 'showGrid', 'showColorTags', 'showRetiming', 'showFcurves'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
+    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted', 'showStripName', 'showStripSource', 'showStripDuration', 'showOffsets', 'showGrid', 'showColorTags', 'showRetiming', 'showFcurves', 'showCache'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (s.waveformType === 'ALL_WAVEFORMS' || s.waveformType === 'NO_WAVEFORMS' || s.waveformType === 'DEFAULT_WAVEFORMS') this.waveformType = s.waveformType;
     if (s.waveformStyle === 'HALF_WAVEFORMS' || s.waveformStyle === 'FULL_WAVEFORMS') this.waveformStyle = s.waveformStyle;
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
@@ -298,6 +301,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   update(kinds?: Set<ChangeKind>) {
     if (this.disposed) return;
     this.refresh();
+    // an edit changes the composited result: cached frames are stale
+    if (!kinds || kinds.has('doc') || kinds.has('geometry') || kinds.has('mode')) this.preview.clearFinalCache();
     if (!kinds || kinds.has('doc') || kinds.has('frame') || kinds.has('geometry') || kinds.has('mode')) this.preview.request();
     else this.preview.draw();
   }
@@ -488,7 +493,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   }
 
   private overlayPopover(): Child {
-    type Flag = 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets' | 'showGrid' | 'showColorTags' | 'showRetiming' | 'showFcurves';
+    type Flag = 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets' | 'showGrid' | 'showColorTags' | 'showRetiming' | 'showFcurves' | 'showCache';
     const t = (key: Flag, label: string) => checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
     const o = this.preview.opts;
     const pt = (key: keyof typeof o, label: string) => checkbox(`seq-pov-${key}`, label, o[key], (v) => ((o[key] = v), this.preview.draw(), app.changed('ui')));
@@ -513,7 +518,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       this.hasTimeline()
         ? [
             h('div', { class: 'pop-title' }, 'Sequencer Overlays'),
-            two(t('showGrid', 'Grid'), null),
+            two(t('showGrid', 'Grid'), t('showCache', 'Cache')),
             h('div', { class: 'pop-title' }, 'Strips'),
             two([t('showStripName', 'Name'), t('showStripSource', 'Source'), t('showStripDuration', 'Duration'), t('showFcurves', 'Animation Curves')], [t('showColorTags', 'Color Tags'), t('showOffsets', 'Offsets'), t('showRetiming', 'Retiming')]),
             h('div', { class: 'pop-title' }, 'Thumbnails'),
@@ -939,6 +944,16 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.lineTo(rx, H);
       g.stroke();
       g.restore();
+    }
+    // Final cache: frames that show without rendering again
+    if (this.showCache && this.hasPreview()) {
+      g.fillStyle = 'rgba(110, 170, 255, 0.75)';
+      for (const f of this.preview.cachedFrames()) {
+        const a = this.fx(f),
+          b = this.fx(f + 1);
+        if (b < 0 || a > W) continue;
+        g.fillRect(a, RULER_H + 1, Math.max(1, b - a), 3);
+      }
     }
     // snap indicator: the frames a running transform snapped to
     if (this.snapLines.length && app.modal) {
