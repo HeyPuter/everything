@@ -56,6 +56,18 @@ describe('home screen', () => {
     expect(h.onCreate.mock.calls).toEqual([[{ ratio: 'original' }], [{ ratio: '9:16' }]]);
   });
 
+  it('names template cards starting with their visible text', async () => {
+    mount(new Library(memoryBackend()));
+    await settle();
+    const cards = root.querySelectorAll('.tpl-strip .tpl-card');
+    expect(cards.length).toBeGreaterThan(0);
+    const words = (t) => t.replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    for (const card of cards) {
+      const visible = [card.querySelector('.tpl-badge'), card.querySelector('.tpl-name'), card.querySelector('.tpl-sub')].map((e) => e.textContent).join(' ');
+      expect(words(card.getAttribute('aria-label')).startsWith(words(visible))).toBe(true);
+    }
+  });
+
   it('names shape cards starting with their visible text', async () => {
     mount(new Library(memoryBackend()));
     await settle();

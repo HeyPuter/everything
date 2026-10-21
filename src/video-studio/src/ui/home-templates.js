@@ -45,13 +45,16 @@ export function templateCard(tpl, { onChoose }) {
   const view = mirror(p);
   const slots = slotCount(tpl);
   const shape = tpl.ratio === '9:16' || tpl.ratio === '4:5' || tpl.ratio === '3:4' ? 'tall' : tpl.ratio === '1:1' ? 'square' : 'wide';
+  const facts = [CATEGORY.get(tpl.category), clock(p.duration), slots ? `${slots} slot${slots === 1 ? '' : 's'}` : null].filter(Boolean);
+  // The name starts with the visible text in reading order (ratio badge, name, details), then the description.
   const btn = h('button.tpl-card', {
     type: 'button',
-    'aria-label': `${tpl.name}, ${tpl.ratio}, ${clock(p.duration)}. ${tpl.description}`,
+    'aria-label': `${tpl.ratio} ${tpl.name}, ${facts.join(', ')}. ${tpl.description}`,
     dataset: { shape },
   },
-  h('span.tpl-thumb', view.el, h('span.tpl-badge', tpl.ratio), h('span.tpl-play', icon('play', 14))),
-  h('span.tpl-meta', h('span.tpl-name', tpl.name), h('span.tpl-sub', `${CATEGORY.get(tpl.category)}  ·  ${clock(p.duration)}${slots ? `  ·  ${slots} slot${slots === 1 ? '' : 's'}` : ''}`)));
+  h('span.tpl-thumb', view.el, h('span.tpl-badge', tpl.ratio), ' ', h('span.tpl-play', icon('play', 14))),
+  ' ',
+  h('span.tpl-meta', h('span.tpl-name', tpl.name), ' ', h('span.tpl-sub', facts.join('  ·  '))));
   let raf = 0;
   const start = () => {
     if (raf) return;
