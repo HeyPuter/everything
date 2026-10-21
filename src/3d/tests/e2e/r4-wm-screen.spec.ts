@@ -193,3 +193,17 @@ test('side regions of other editors resize from their inner edge too', async ({ 
   expect((await side.boundingBox())!.width).toBeCloseTo(b.width + 61, -1);
   await expectNoErrors(errors);
 });
+
+test('the top bar pin button pins the scene to the workspace', async ({ page }) => {
+  const errors = await openApp(page);
+  const pin = page.locator('.tb-scene-pin');
+  await expect(pin).toHaveAttribute('aria-pressed', 'false');
+  await pin.click();
+  await expect(pin).toHaveAttribute('aria-pressed', 'true');
+  const pinned = await page.evaluate(() => (window as any).app && document.querySelector('.ws-tab.on')?.textContent);
+  expect(pinned).toBe('Layout');
+  await page.locator('.ws-tab', { hasText: /^Layout$/ }).click({ button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Pin Scene' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

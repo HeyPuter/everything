@@ -305,6 +305,7 @@ export class Shell {
         icon('assistant'),
         'Assistant',
       ),
+      this.scenePinButton(),
       topbarSceneWidgets.length
         ? topbarSceneWidgets.map((f) => f())
         : [
@@ -314,6 +315,27 @@ export class Shell {
     ]);
     const tabs = this.top.querySelector<HTMLElement>('.ws-tabs');
     if (tabs) tabs.classList.toggle('overflow', tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1);
+  }
+
+  /** Pin the scene to the active workspace (the workspace switches back to it when activated). */
+  private scenePinButton(): Child {
+    const ws = this.workspaces.find((w) => w.name === this.active);
+    const on = !!ws?.pinScene;
+    return h(
+      'button',
+      {
+        key: 'scene-pin',
+        class: { 'hdr-toggle': true, 'tb-scene-pin': true, on },
+        'data-tip': 'Pin Scene to Workspace\nRemember the scene used in this workspace and switch back to it whenever the workspace is activated',
+        'aria-label': 'Pin Scene to Workspace',
+        'aria-pressed': on ? 'true' : 'false',
+        onclick: () => {
+          app.run('workspace.scene_pin_toggle', { name: this.active });
+          this.drawTop();
+        },
+      },
+      icon(on ? 'pinned' : 'unpinned'),
+    );
   }
 
   drawStatus() {
