@@ -132,7 +132,7 @@ import { openEquationDialog, runInsertEquation } from '../ui/equation.js';
 import { openThemeEffectsMenu } from '../ui/theme-effects.js';
 import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu } from '../ui/themes.js';
 import { themedPreset, themedCellStylePatch, themedSeriesColors } from '../core/workbook-theme.js';
-import { chartData } from '../core/charts.js';
+import { chartData, textBoxText } from '../core/charts.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
 import { openCellContextMenu } from '../ui/contextmenu.js';
 import { openMenu } from '../ui/menu.js';
@@ -3794,7 +3794,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           keepFocus(); return;
         }
         if (ch.type === 'text') {
-          try { await navigator.clipboard.writeText(ch.text); toast('Text copied', { icon: 'copy', duration: 1800 }); } catch { toast('Could not copy the text', { icon: 'alert' }); }
+          // A box linked to a cell copies the text it shows, the cell's as it reads now.
+          try { await navigator.clipboard.writeText(textBoxText(wb, sheetId, ch)); toast('Text copied', { icon: 'copy', duration: 1800 }); } catch { toast('Could not copy the text', { icon: 'alert' }); }
           keepFocus();
           return;
         }
