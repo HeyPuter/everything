@@ -1651,6 +1651,17 @@ function renderStyledCartesian(data, chart, width, height) {
   const outsideLabels = [];
   const pointLabel = (...args) => { label(...args); outsideLabels.push(parts.pop()); };
   parts.push(`<g clip-path="url(#${clipId})">`);
+  // A linear trendline through a series' points, from its first category to its last: across a column or
+  // line chart, and down a bar chart, whose categories run up its side and whose values run across it.
+  const trendline = (s, color, valueY) => {
+    const points = s.values.map((v, i) => [xValue(i, s), v]).filter(p => p.every(Number.isFinite)
+      && (!dates || Number.isFinite(dates.fraction(p[0])))), fit = linearFit(points);
+    if (!fit) return;
+    const first = minOf(points.map(p => p[0])), last = maxOf(points.map(p => p[0]));
+    const at = x => (horizontal ? [valueX(fit.intercept + fit.slope * x), dates ? datePosition(x) : categoryY(x)] : [sx(x), valueY(fit.intercept + fit.slope * x)]);
+    const [x1, y1] = at(first), [x2, y2] = at(last);
+    parts.push(`<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" stroke="${color}" stroke-width="1.5" stroke-dasharray="5 4"/>`);
+  };
   series.forEach((s, j) => {
     const color = seriesColor(chart, j), line = lineStyle(j), runs = [];
     const valueY = secondary && j === series.length - 1 ? sy2 : sy;
@@ -1757,6 +1768,7 @@ function renderStyledCartesian(data, chart, width, height) {
           }
         }
       });
+      if (chart.trendline && !stacked) trendline(s, color, valueY);
       return;
     }
     let run = [];
@@ -1795,14 +1807,7 @@ function renderStyledCartesian(data, chart, width, height) {
         }
       }
     }
-    if (chart.trendline) {
-      const points = s.values.map((v, i) => [xValue(i, s), v]).filter(p => p.every(Number.isFinite)
-        && (!dates || Number.isFinite(dates.fraction(p[0])))), fit = linearFit(points);
-      if (fit) {
-        const first = minOf(points.map(p => p[0])), last = maxOf(points.map(p => p[0]));
-        parts.push(`<line x1="${f(sx(first))}" y1="${f(valueY(fit.intercept + fit.slope * first))}" x2="${f(sx(last))}" y2="${f(valueY(fit.intercept + fit.slope * last))}" stroke="${color}" stroke-width="1.5" stroke-dasharray="5 4"/>`);
-      }
-    }
+    if (chart.trendline) trendline(s, color, valueY);
   });
   parts.push('</g>');
   // Interior tick labels remain readable over bars, areas and other marks.

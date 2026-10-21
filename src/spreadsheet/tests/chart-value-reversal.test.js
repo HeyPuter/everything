@@ -93,7 +93,8 @@ it('reverses the secondary scale independently of primary columns and preserves 
     const { doc, plot } = render('combo', { reverseValues, reverseSecondaryValues: true, y2Min: 0, y2Max: 10, y2Step: 2 }, { secondaryAxis: true, trendline: true }, values);
     const line = doc.querySelector('path.chart-series').getAttribute('d');
     for (const v of [2, 6, 8]) expect(line).toContain(` ${plot.y + v / 10 * plot.h}`);
-    const trend = doc.querySelector('line[stroke-dasharray="5 4"]');
+    // The columns' trendline comes first; the line's, on the secondary scale, last.
+    const trend = [...doc.querySelectorAll('line[stroke-dasharray="5 4"]')].at(-1);
     expect(+trend.getAttribute('y2')).toBeGreaterThan(+trend.getAttribute('y1'));
     const first = doc.querySelector('.chart-column');
     const expected = plot.y + plot.h * (reverseValues ? .2 : .5);
