@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, mkdirSync, copyFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
-import { menuBarMenu } from './helpers/editor-tools.js';
+import { menuBarMenu, onTab } from './helpers/editor-tools.js';
 
 test.use({ viewport: { width: 1440, height: 900 } });
 const ribbon = page => page.locator('.ribbon-card');
@@ -295,6 +295,38 @@ test('side-to-side page movement, gridlines and split', async ({ page }) => {
   expect(await input.evaluate(el => el.selectionStart)).toBeGreaterThan(0);
   await (await viewTab(page)).getByRole('button', { name: 'Split', exact: true }).click();
   await expect(pane).toHaveCount(0);
+});
+
+test('with reduced motion, page thumbnails and Table properties jump instead of scrolling smoothly', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.addInitScript(() => {
+    window.scrolls = [];
+    for (const name of ['scrollTo', 'scrollIntoView']) {
+      const original = Element.prototype[name];
+      Element.prototype[name] = function (options, ...rest) { window.scrolls.push(options?.behavior ?? null); return original.call(this, options, ...rest); };
+    }
+  });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  const tab = await viewTab(page);
+  await tab.getByRole('button', { name: 'Side to Side', exact: true }).click();
+  await tab.getByRole('button', { name: 'Thumbnails', exact: true }).click();
+  const thumbs = page.getByRole('list', { name: 'Page thumbnails' }).getByRole('listitem');
+  await page.evaluate(() => { window.scrolls = []; });
+  await thumbs.last().getByRole('button').click();
+  expect(await page.evaluate(() => window.scrolls)).toContain('auto');
+  expect(await page.evaluate(() => window.scrolls)).not.toContain('smooth');
+  await tab.getByRole('button', { name: 'Vertical', exact: true }).click();
+  await caret(input, 0);
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+  await (await onTab(page, 'tableLayout')).locator('.ribbon-card').getByRole('button', { name: 'Table properties', exact: true }).click();
+  const properties = page.getByRole('dialog', { name: 'Table properties' });
+  await page.evaluate(() => { window.scrolls = []; });
+  await properties.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Alt Text' }).click();
+  expect(await page.evaluate(() => window.scrolls)).toEqual(['auto']);
 });
 
 test('New Window shows a live copy that follows edits', async ({ page, context }) => {

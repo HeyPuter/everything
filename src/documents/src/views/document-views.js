@@ -11,7 +11,7 @@
  * browser window, kept in step over a BroadcastChannel) and Split (a second, independently scrolling
  * pane of the same document).
  */
-import { el, isComposing, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
+import { el, isComposing, MOD_KEY, scrollBehavior, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { paintFormattingMarks, formattingMarks } from '../engine/formatting-marks.js';
@@ -203,7 +203,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   }
   function goToPage(index) {
     const engine = editor(), canvas = engine?.canvases[index]; if (!canvas) return;
-    host.scrollTo({ left: canvas.offsetLeft - 24, behavior: 'smooth' });
+    host.scrollTo({ left: canvas.offsetLeft - 24, behavior: scrollBehavior() });
   }
   function revealCaretHorizontally() {
     const engine = editor(); if (!engine || !sideToSide) return;

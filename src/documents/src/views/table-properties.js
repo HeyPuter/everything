@@ -1,4 +1,4 @@
-import { el } from '../ui/dom.js';
+import { el, scrollBehavior } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 
 /**
@@ -105,7 +105,7 @@ export function openTableProperties(table, displayedWidths, selectedColumn, appl
   const panels = sections.map(([id, label, body]) => el('section.table-properties-section', { id: `table-properties-${id}`, 'aria-label': label }, el('h3', {}, label), ...body));
   const scroller = el('div.table-properties-scroll', {}, ...panels);
   const nav = el('nav.table-properties-nav', { 'aria-label': 'Sections' }, ...sections.map(([id, label], i) => el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => {
-    panels[i].scrollIntoView({ block: 'start', behavior: 'smooth' }); panels[i].querySelector('input, select, textarea')?.focus({ preventScroll: true });
+    panels[i].scrollIntoView({ block: 'start', behavior: scrollBehavior() }); panels[i].querySelector('input, select, textarea')?.focus({ preventScroll: true });
   } }, label)));
 
   const error = el('p.field-error', { role: 'alert', hidden: true });
