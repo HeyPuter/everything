@@ -19,6 +19,8 @@ import { setMode, activeCollection } from '../ops/object';
 import { statsLines } from '../editors/view3d/view3d';
 import { assistantOpen } from '../assistant';
 import './screenops';
+import './view2d';
+import './view2d_hosts';
 import './favorites';
 import './areawindow';
 import './screenshot';

@@ -42,6 +42,9 @@ export const keymaps: Record<string, KeyItem[]> = {};
 /** Modes that consume raw key input (e.g. text editing in the 3D view) before keymaps run. */
 export const keyInputHooks: ((e: KeyboardEvent) => boolean)[] = [];
 
+/** Keymaps added for an area after its editor's own ones (e.g. the shared View2D navigation). */
+export const areaKeymapHooks: ((area: unknown) => string | null)[] = [];
+
 export function addKeys(name: string, items: KeyItem[]) {
   (keymaps[name] ??= []).push(...items);
   keymapHooks.added?.(name, items);
@@ -164,7 +167,12 @@ const freeKeys = new Set<string>();
 
 /** Run the first matching item of the hovered editor's keymaps for one key event value. */
 function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, editor: EditorKeys | undefined, value: KeyValue, pressMods?: number): boolean {
-  const names = [...(editor?.keymaps ?? []), 'Frames', 'Screen', 'Window'];
+  const extra: string[] = [];
+  for (const f of areaKeymapHooks) {
+    const n = f(area);
+    if (n) extra.push(n);
+  }
+  const names = [...(editor?.keymaps ?? []), ...extra, 'Frames', 'Screen', 'Window'];
   const seen = new Set<string>();
   const ev = pressMods === undefined ? e : { ctrlKey: !!(pressMods & 1), metaKey: false, shiftKey: !!(pressMods & 2), altKey: !!(pressMods & 4) };
   for (const km of names) {

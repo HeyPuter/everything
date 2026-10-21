@@ -201,3 +201,30 @@ body.screen-gesture-active * {
 .area-toolheader .clip-l.clip-r {
   mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
 }
+
+/* View2D zoom border (Shift B in 2D editors) */
+.v2d-border {
+  position: fixed;
+  z-index: 900;
+  pointer-events: none;
+  border: 1px dashed var(--g-ff, #ffffff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.v2d-border-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  z-index: 900;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgb(from var(--g-14, #101113) r g b / 0.9);
+  color: var(--c-text);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+body.v2d-border-active,
+body.v2d-border-active * {
+  cursor: crosshair !important;
+}
