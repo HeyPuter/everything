@@ -3,11 +3,12 @@ import { h, patch, type Child } from './h';
 import './screen.css';
 import { icon } from './icons';
 import { openMenu, captureMenuItems, type MenuItem } from './menu';
+import { regionSizes, setRegionSizes } from './regionscale';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
 import { prefs } from '../app/prefs';
-import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, type Side } from './layout';
+import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, type Side, type LayoutEdge } from './layout';
 
-export { areaRects, type Side };
+export { areaRects, type Side, type LayoutEdge };
 
 export type EditorTypeId =
   | 'VIEW_3D'
@@ -110,7 +111,12 @@ export interface AreaUi {
   header?: boolean;
   flip?: boolean;
   menus?: boolean;
+  /** widths of resized side regions (selector → pixels) */
+  regions?: Record<string, number>;
 }
+
+/** The Area object of an area element (main screen and area windows). */
+export const areaOfElement = new WeakMap<HTMLElement, Area>();
 
 const CORNERS = ['tl', 'tr', 'bl', 'br'] as const;
 
@@ -145,9 +151,11 @@ export class Area implements AreaLike {
       this.flipHeader = st.ui.flip;
       this.showMenus = st.ui.menus !== false;
     }
+    setRegionSizes(st.id, st.ui?.regions);
     this.el = document.createElement('div');
     this.el.className = 'area';
     this.el.dataset.area = st.id;
+    areaOfElement.set(this.el, this);
     this.headerEl = document.createElement('div');
     this.headerEl.className = 'area-header';
     this.toolHeaderEl = document.createElement('div');
@@ -293,8 +301,8 @@ export class Area implements AreaLike {
       { label: 'Horizontal Split', op: 'screen.area_split', props: { direction: 'HORIZONTAL' }, action: run('screen.area_split', { direction: 'HORIZONTAL' }) },
       { label: 'Vertical Split', op: 'screen.area_split', props: { direction: 'VERTICAL' }, action: run('screen.area_split', { direction: 'VERTICAL' }) },
       { separator: true },
-      { label: max && !sc.fullscreen ? 'Back to Previous' : 'Toggle Maximize Area', shortcut: 'Ctrl Space', op: 'screen.screen_full_area', disabled: sc.fullscreen, action: run('screen.screen_full_area') },
-      { label: max && sc.fullscreen ? 'Back to Previous' : 'Toggle Fullscreen Area', shortcut: 'Ctrl Alt Space', op: 'screen.screen_full_area', props: { use_hide_panels: true }, disabled: max && !sc.fullscreen, action: run('screen.screen_full_area', { use_hide_panels: true }) },
+      { label: max && !sc.fullscreen ? 'Back to Previous' : 'Maximize Area', shortcut: 'Ctrl Space', op: 'screen.screen_full_area', disabled: sc.fullscreen, action: run('screen.screen_full_area') },
+      { label: max && sc.fullscreen ? 'Back to Previous' : 'Focus Mode', shortcut: 'Ctrl Alt Space', op: 'screen.screen_full_area', props: { use_hide_panels: true }, disabled: max && !sc.fullscreen, action: run('screen.screen_full_area', { use_hide_panels: true }) },
       { separator: true },
       { label: 'Swap Areas…', op: 'screen.area_swap', disabled: !multi, action: run('screen.area_swap') },
       { label: 'Join Areas…', op: 'screen.area_join', disabled: !multi, action: run('screen.area_join') },
@@ -432,7 +440,8 @@ export class Area implements AreaLike {
 
   serialize(): AreaState {
     const st: AreaState = { id: this.id, type: this.type, state: this.editor.serialize?.() };
-    if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus };
+    const regions = regionSizes(this.id);
+    if (!this.showHeader || this.flipHeader !== undefined || !this.showMenus || regions) st.ui = { header: this.showHeader, flip: this.flipHeader, menus: this.showMenus, regions };
     return st;
   }
 }
@@ -657,6 +666,81 @@ export class Screen {
     this.dividers.push(d);
   }
 
+  /** Edges between the areas, in screen-local pixels (none while an area is maximized). */
+  edges(): LayoutEdge[] {
+    if (!this.layout || this.maximized) return [];
+    const { w, h } = this.size;
+    return layoutEdges(this.layout, w, h);
+  }
+
+  /** The edge under a client point (within `tol` pixels). */
+  edgeAtClient(x: number, y: number, tol = 4): LayoutEdge | null {
+    const r = this.el.getBoundingClientRect();
+    return edgeNear(this.edges(), x - r.left, y - r.top, tol);
+  }
+
+  /** Move an edge by `delta` pixels (right / down); `snap` rounds to common proportions. */
+  moveEdge(e: LayoutEdge, delta: number, snap = false) {
+    let r = edgeRatio(e, e.pos + delta);
+    if (snap) r = snapRatio(r);
+    e.node.ratio = r;
+    this.relayout();
+    app.changed('ui', 'view');
+  }
+
+  /** Drag an edge with the pointer until release (Ctrl snaps, Esc / right click restore it). */
+  dragEdge(e: LayoutEdge) {
+    const r0 = e.node.ratio;
+    const origin = this.el.getBoundingClientRect();
+    document.body.classList.add(e.dir === 'h' ? 'edge-drag-h' : 'edge-drag-v');
+    const move = (ev: PointerEvent) => {
+      const pos = e.dir === 'h' ? ev.clientX - origin.left : ev.clientY - origin.top;
+      let r = edgeRatio(e, pos);
+      if (ev.ctrlKey || ev.metaKey) r = snapRatio(r);
+      e.node.ratio = r;
+      this.relayout();
+    };
+    const end = (ok: boolean) => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      removeEventListener('pointerdown', down, true);
+      removeEventListener('keydown', key, true);
+      document.body.classList.remove('edge-drag-h', 'edge-drag-v');
+      if (!ok) {
+        e.node.ratio = r0;
+        this.relayout();
+      }
+      app.changed('ui', 'view');
+    };
+    const up = () => end(true);
+    const down = (ev: PointerEvent) => {
+      if (ev.button !== 2) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      end(false);
+    };
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape' && ev.key !== 'Enter') return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      end(ev.key === 'Enter');
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+    addEventListener('pointerdown', down, true);
+    addEventListener('keydown', key, true);
+  }
+
+  /** The area whose corner zone contains a client point (corner zones are about 12 px squares). */
+  cornerAt(x: number, y: number, size = 12): Area | null {
+    const a = this.areaAt(x, y);
+    if (!a) return null;
+    const r = this.clientRect(a);
+    const nearX = x - r.x < size || r.x + r.w - x < size;
+    const nearY = y - r.y < size || r.y + r.h - y < size;
+    return nearX && nearY ? a : null;
+  }
+
   /** Area Options (right-click on an edge between areas): split, join towards a side, swap. */
   areaOptions(dir: 'h' | 'v', x: number, y: number): MenuItem[] {
     const before = dir === 'h' ? this.areaAt(x - 4, y) : this.areaAt(x, y - 4);
@@ -828,7 +912,7 @@ export class Screen {
     return { el, line, box, label, dispose: () => el.remove() };
   }
 
-  private clientRect(a: Area) {
+  clientRect(a: Area) {
     const r = this.el.getBoundingClientRect();
     return { x: r.left + a.rect.x, y: r.top + a.rect.y, w: a.rect.w, h: a.rect.h };
   }
@@ -1021,6 +1105,10 @@ export interface Workspace {
   name: string;
   layout: LayoutNode;
   mode?: 'OBJECT' | 'EDIT' | 'SCULPT' | 'TEXTURE_PAINT' | 'POSE' | 'WEIGHT_PAINT' | 'VERTEX_PAINT' | 'PAINT_GREASE_PENCIL';
+  /** remember the scene used in this workspace and switch back to it when the workspace is activated */
+  pinScene?: boolean;
+  /** the remembered scene (id) of a pinned workspace */
+  scene?: string;
 }
 
 export const A = (type: EditorTypeId, state?: unknown): LayoutNode => ({ area: { id: newAreaId(), type, state } });

@@ -133,8 +133,8 @@ test('F3 searches the top bar and header menus with their paths', async ({ page 
   await page.keyboard.press('F3');
   await page.keyboard.type('recover auto');
   await expect(page.locator('.search-popup .menu-item').first()).toContainText('File ▸ Recover ▸ Auto Save');
-  await page.locator('.search-input').fill('area toggle maximize');
-  await expect(page.locator('.search-popup .menu-item').first()).toContainText('View ▸ Area ▸ Toggle Maximize Area');
+  await page.locator('.search-input').fill('area maximize area');
+  await expect(page.locator('.search-popup .menu-item').first()).toContainText('View ▸ Area ▸ Maximize Area');
   await page.keyboard.press('Enter');
   expect(await areaCount(page)).toBe(1);
   await expectNoErrors(errors);

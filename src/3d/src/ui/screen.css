@@ -228,3 +228,19 @@ body.v2d-border-active,
 body.v2d-border-active * {
   cursor: crosshair !important;
 }
+
+/* dragging an area edge or a region edge */
+body.edge-drag-h,
+body.edge-drag-h * {
+  cursor: ew-resize !important;
+}
+body.edge-drag-v,
+body.edge-drag-v * {
+  cursor: ns-resize !important;
+}
+body.region-edge-hover,
+body.region-edge-hover *,
+body.region-scaling,
+body.region-scaling * {
+  cursor: ew-resize !important;
+}
