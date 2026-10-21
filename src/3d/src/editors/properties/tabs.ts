@@ -168,8 +168,8 @@ registerTab({
             ]
           : h('div', { class: 'prop-note' }, 'The world node tree has no Background node. Edit it in the Shader Editor (World).'),
       ),
-      panel('wo-visibility', 'Ray Visibility', () => [bool((w.visible_camera ??= true, w), 'visible_camera', 'Camera', { tip: 'Show the world in the background (off: the world only lights the scene)' })], { closed: true }),
       panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' }), enumProp(w as never, 'mist_falloff' as never, 'Falloff', [['QUADRATIC', 'Quadratic'], ['LINEAR', 'Linear'], ['INVERSE_QUADRATIC', 'Inverse Quadratic']])], { closed: true }),
+      panel('wo-visibility', 'Ray Visibility', () => [bool((w.visible_camera ??= true, w), 'visible_camera', 'Camera', { tip: 'Show the world in the background (off: the world only lights the scene)' })], { closed: true }),
       worldExtraPanels.map((p) => p(w)),
       panel('wo-display', 'Viewport Display', () => [colorProp(w, 'color', 'Color')], { closed: true }),
     ];
