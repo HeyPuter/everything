@@ -8,6 +8,7 @@ import { prefs } from '../app/prefs';
 import { widgetSettings } from '../ui/widgets';
 import { keyframeDefaults } from '../anim/fcurve';
 import { animSettings } from '../animation/view2d';
+import { view2dSettings } from '../ui/view2d';
 import { textureSettings, applyTextureSettings } from '../render/images';
 import { renderViewSettings } from '../render/final/renderwindow';
 import { annotateSettings } from '../editors/view3d/tools3d';
@@ -49,6 +50,7 @@ onPrefsApply((p) => {
   keyframeDefaults.handle = p.keyframe_new_handle_type;
   keyframeDefaults.insertNeeded = p.use_keyframe_insert_needed;
   keyframeDefaults.xyzToRgb = p.use_insertkey_xyz_to_rgb;
+  view2dSettings.smoothMs = Math.max(0, p.smooth_view);
   animSettings.gridMinPx = Math.max(10, Math.min(200, p.view2d_grid_spacing_min));
   animSettings.timecode = p.timecode_style;
   animSettings.unselectedAlpha = Math.max(0.01, Math.min(1, p.fcurve_unselected_alpha));
