@@ -348,6 +348,12 @@ export interface CameraData {
   show_passepartout: boolean;
   passepartout_alpha: number;
   show_limits?: boolean;
+  /** draw the world's mist range along the camera axis */
+  show_mist?: boolean;
+  /** camera view: outline of the sensor area */
+  show_sensor?: boolean;
+  /** colour of the composition guides (RGBA) */
+  composition_guide_color?: [number, number, number, number];
   /** camera view overlays (src/render/final/cameraoverlay.ts) */
   show_name?: boolean;
   show_safe_areas?: boolean;

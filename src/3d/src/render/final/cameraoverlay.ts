@@ -78,6 +78,20 @@ export function compositionGuides(ca: Partial<CameraData>, r: Rect): Seg[] {
 
 const rectEl = (r: Rect, stroke: string, dash = '') => h('rect', { x: r.x, y: r.y, width: r.w, height: r.h, fill: 'none', stroke, 'stroke-width': 1, 'stroke-dasharray': dash });
 
+/**
+ * Outline of the camera's sensor in the camera frame: the fitted sensor dimension matches the
+ * frame, the other one follows the sensor's own proportions.
+ */
+export function sensorRect(ca: Pick<CameraData, 'sensor_fit' | 'sensor_width' | 'sensor_height'>, f: Rect): Rect | null {
+  if (!(ca.sensor_width > 0) || !(ca.sensor_height > 0) || !(f.w > 0) || !(f.h > 0)) return null;
+  // the sensor width lies along the fitted (for AUTO: the larger) frame dimension
+  const horizontal = ca.sensor_fit === 'HORIZONTAL' || (ca.sensor_fit === 'AUTO' && f.w >= f.h);
+  const ratio = ca.sensor_height / ca.sensor_width;
+  const w = horizontal ? f.w : ca.sensor_fit === 'AUTO' ? f.h * ratio : f.h / ratio;
+  const hh = horizontal ? f.w * ratio : f.h;
+  return { x: f.x + (f.w - w) / 2, y: f.y + (f.h - hh) / 2, w, h: hh };
+}
+
 editModeHooks.svg.push((v) => {
   if (!v.cameraView || !v.overlay.show_overlays) return null;
   const f = v.cameraFrame();
@@ -95,7 +109,13 @@ editModeHooks.svg.push((v) => {
     }
   }
   const guides = compositionGuides(ca, f);
-  if (guides.length) parts.push(h('path', { d: guides.map((s) => `M${s[0]} ${s[1]}L${s[2]} ${s[3]}`).join(''), fill: 'none', stroke: 'rgba(255, 255, 255,0.5)', 'stroke-width': 1 }));
+  const gc = ca.composition_guide_color ?? [0.5, 0.5, 0.5, 1];
+  const guideColor = `rgba(${Math.round(Math.min(1, gc[0]) * 255)}, ${Math.round(Math.min(1, gc[1]) * 255)}, ${Math.round(Math.min(1, gc[2]) * 255)}, ${gc[3] ?? 1})`;
+  if (guides.length) parts.push(h('path', { d: guides.map((s) => `M${s[0]} ${s[1]}L${s[2]} ${s[3]}`).join(''), fill: 'none', stroke: guideColor, 'stroke-width': 1 }));
+  if (ca.show_sensor) {
+    const sr = sensorRect(ca, f);
+    if (sr) parts.push(rectEl(sr, 'rgba(255, 255, 255,0.45)', '6 3'));
+  }
   if (ca.show_name) parts.push(h('text', { x: f.x + 6, y: f.y - 6, fill: '#e8e9ea', 'font-size': 12, style: { 'paint-order': 'stroke', stroke: 'rgba(0, 0, 0,0.6)', 'stroke-width': 3 } }, ob.name));
   return parts.length ? h('g', { class: 'camera-guides', 'pointer-events': 'none' }, ...parts) : null;
 });

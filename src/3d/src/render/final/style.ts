@@ -2,7 +2,7 @@
 const css = /* css */ `
 .rs-curve-presets { display: flex; gap: 2px; margin: 4px 0 2px; padding-left: 40%; }
 .rs-curve-presets > .btn { flex: 1; min-width: 0; padding: 0; height: 20px; justify-content: center; }
-.btn.out-swap { width: 20px; height: 20px; padding: 0; margin-left: 2px; justify-content: center; flex: none; }
+.btn.out-swap, .btn.ca-eyedropper { width: 20px; height: 20px; padding: 0; margin-left: 2px; justify-content: center; flex: none; }
 .sr-value.rs-checknum { display: flex; align-items: center; gap: 4px; }
 .sr-value.rs-checknum > .checkbox { flex: none; }
 .sr-value.rs-checknum > .num-field { flex: 1; min-width: 0; }

@@ -212,7 +212,8 @@ export class SceneSync {
       }
       let seg: number[] | null = null;
       if (ob.type === 'CAMERA' && ob.data) {
-        seg = cameraWire(doc.cameras[ob.data], aspect);
+        const wo = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+        seg = cameraWire(doc.cameras[ob.data], aspect, wo ? { start: wo.mist_start ?? 5, depth: wo.mist_depth ?? 25 } : null);
         const tri = new BufferGeometry();
         tri.setAttribute('position', geom(cameraTriangle(doc.cameras[ob.data], aspect)).getAttribute('position'));
         so.helperFill = new Mesh(tri, new MeshBasicMaterial({ color: 0x000000, side: DoubleSide }));

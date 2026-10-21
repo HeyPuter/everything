@@ -38,8 +38,14 @@ export function geom(seg: Seg) {
   return g;
 }
 
-/** Camera frustum in camera local space (looks down -Z). */
-export function cameraWire(ca: CameraData, aspect: number): Seg {
+/** A small cross across the camera axis at distance `d` (limits / mist markers). */
+function axisCross(out: Seg, d: number, r: number) {
+  line(out, [-r, 0, -d], [r, 0, -d]);
+  line(out, [0, -r, -d], [0, r, -d]);
+}
+
+/** Camera frustum in camera local space (looks down -Z), with the clipping limits and mist range when shown. */
+export function cameraWire(ca: CameraData, aspect: number, mist?: { start: number; depth: number } | null): Seg {
   const out: Seg = [];
   const s = ca.display_size;
   let w: number, h: number, d: number;
@@ -81,6 +87,19 @@ export function cameraWire(ca: CameraData, aspect: number): Seg {
   line(out, [-w * 0.55 + sx, ty, -d], [w * 0.55 + sx, ty, -d]);
   line(out, [-w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
   line(out, [w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
+  const r = Math.max(0.02, s * 0.15);
+  if (ca.show_limits) {
+    // the clipping range along the view axis, and the focus distance when depth of field is on
+    line(out, [0, 0, -ca.clip_start], [0, 0, -ca.clip_end]);
+    axisCross(out, ca.clip_start, r);
+    axisCross(out, ca.clip_end, r);
+    if (ca.dof?.use_dof) axisCross(out, ca.dof.focus_distance, r * 1.5);
+  }
+  if (ca.show_mist && mist) {
+    dashedLine(out, [0, 0, -mist.start], [0, 0, -(mist.start + mist.depth)], Math.max(0.05, mist.depth / 40));
+    axisCross(out, mist.start, r);
+    axisCross(out, mist.start + mist.depth, r);
+  }
   return out;
 }
 

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 // Panoramic cameras of the path tracer: ray directions per projection and the shader patch.
 import { describe, expect, it } from 'vitest';
 import { PhysicalPathTracingMaterial } from 'three-gpu-pathtracer';
@@ -68,5 +69,32 @@ describe('panoramic cameras', () => {
     const src = patchPanorama(m.fragmentShader)!;
     expect(src).toContain('ptPanoDir( jitteredUv )');
     expect(src).toContain('if ( ptPanoOutside )');
+  });
+});
+
+describe('camera display', () => {
+  it('draws the clipping limits and the mist range along the view axis', async () => {
+    const { cameraWire } = await import('../../src/render/helpers');
+    const ca = newCamera('Cam');
+    const base = cameraWire(ca, 16 / 9).length;
+    ca.show_limits = true;
+    const lim = cameraWire(ca, 16 / 9);
+    expect(lim.length).toBeGreaterThan(base);
+    // the axis line reaches the far clip distance
+    expect(Math.min(...lim.filter((_, i) => i % 3 === 2))).toBeCloseTo(-ca.clip_end);
+    ca.show_mist = true;
+    expect(cameraWire(ca, 16 / 9, { start: 5, depth: 25 }).length).toBeGreaterThan(lim.length);
+  });
+
+  it('outlines the sensor inside the camera frame', async () => {
+    const { sensorRect } = await import('../../src/render/final/cameraoverlay');
+    const f = { x: 0, y: 0, w: 160, h: 90 };
+    const r = sensorRect({ sensor_fit: 'HORIZONTAL', sensor_width: 36, sensor_height: 24 }, f)!;
+    expect(r.w).toBe(160);
+    expect(r.h).toBeCloseTo((160 * 24) / 36);
+    expect(r.y).toBeCloseTo((90 - r.h) / 2);
+    const v = sensorRect({ sensor_fit: 'VERTICAL', sensor_width: 36, sensor_height: 24 }, f)!;
+    expect(v.h).toBe(90);
+    expect(v.w).toBeCloseTo((90 * 36) / 24);
   });
 });

@@ -1,9 +1,13 @@
 // Properties ▸ Camera data: lens, sensor, depth of field (with aperture shape), safe areas and
 // viewport display (composition guides). The overlays are drawn by ../cameraoverlay.ts.
-import { h, type Child } from '../../../ui/h';
+import { h, type Child, type VNode } from '../../../ui/h';
 import { app } from '../../../app/app';
 import { panel, numberField, checkbox } from '../../../ui/widgets';
-import { num, bool, enumProp, splitRow, objectProp } from '../../../ui/props';
+import { num, bool, enumProp, splitRow, objectProp, colorProp, oid } from '../../../ui/props';
+import { icon } from '../../../ui/icons';
+import { getBinding } from '../../../ui/binding';
+import { withButton } from '../../../ui/buttons';
+import '../icons';
 import type { CameraData, ObjectData, SceneData } from '../../../data/types';
 import { DEFAULT_SAFE_AREAS } from '../cameraoverlay';
 import { panorama, PANORAMA_TYPES } from '../ptcamera';
@@ -39,6 +43,29 @@ function margins(owner: Record<string, [number, number]>, key: string, label: st
 
 /** Panels other modules add after the built-in camera data panels. */
 export const cameraExtraPanels: ((o: ObjectData, ca: CameraData) => Child)[] = [];
+
+/** A number row with a depth eyedropper button after the field (pick the distance in the 3D view). */
+function withEyedropper(row: Child, bindingId: string, disabled: boolean): Child {
+  const v = (row as VNode).children?.[1];
+  if (!v) return row;
+  v.attrs.class = 'sr-value rs-checknum';
+  v.children.push(
+    h(
+      'button',
+      {
+        class: 'btn ca-eyedropper',
+        disabled,
+        'data-tip': 'Sample the focus distance from a surface in the 3D viewport',
+        onclick: () => {
+          const b = getBinding(bindingId);
+          if (b) withButton(b, () => app.run('ui.eyedropper_depth', {}, { invoke: true }));
+        },
+      },
+      icon('rs_eyedropper'),
+    ),
+  );
+  return row;
+}
 
 /** Lens rows of panoramic cameras (rendered by the path tracer). */
 function panoramaRows(ca: CameraData): Child {
@@ -101,7 +128,7 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
       'Depth of Field',
       () => [
         objectProp(ca.dof, 'focus_object', 'Focus on Object', { undo: 'Focus Object', filter: (x) => x.id !== o.id }),
-        num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, disabled: !!ca.dof.focus_object, anim: { ob: o, path: 'data.dof.focus_distance' } }),
+        withEyedropper(num(ca.dof, 'focus_distance', 'Focus Distance', { unit: 'distance', min: 0, disabled: !!ca.dof.focus_object, anim: { ob: o, path: 'data.dof.focus_distance' } }), `${oid(ca.dof)}.focus_distance`, !!ca.dof.focus_object),
         sub('ca-dof-aperture', 'Aperture', () => [
           num(ca.dof, 'aperture_fstop', 'F-Stop', { min: 0.1, softMax: 128, precision: 1, tip: 'Lower values give a shallower depth of field' }),
           num(ca.dof, 'aperture_blades', 'Blades', { int: true, min: 0, max: 16, tip: 'Number of aperture blades (0 for a round bokeh)' }),
@@ -129,10 +156,21 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
       'Viewport Display',
       () => [
         num(ca, 'display_size', 'Size', { unit: 'distance', min: 0.01, max: 1000 }),
+        bool(ca, 'show_limits', 'Limits', { tip: 'Draw the clipping range (and the focus distance) along the camera’s view axis' }),
+        bool(ca, 'show_mist', 'Mist', { tip: 'Draw the world’s mist range along the camera’s view axis' }),
+        bool(ca, 'show_sensor', 'Sensor', { tip: 'Outline the sensor area in camera view' }),
         bool(ca, 'show_name', 'Name', { tip: 'Show the camera name in camera view' }),
         splitRow('Passepartout', checkbox('ca-pp', '', ca.show_passepartout, (v) => ((ca.show_passepartout = v), changed('Passepartout')))),
         num(ca, 'passepartout_alpha', 'Opacity', { min: 0, max: 1, slider: true, disabled: !ca.show_passepartout }),
-        sub('ca-guides', 'Composition Guides', () => h('div', { class: 'out-stamp-grid' }, guides.map(([k, l]) => checkbox(`ca-${k}`, l, !!ca[k], (v) => (((ca as unknown as Record<string, boolean>)[k] = v), changed(`Composition ${l}`))))), { closed: true }),
+        sub(
+          'ca-guides',
+          'Composition Guides',
+          () => [
+            h('div', { class: 'out-stamp-grid' }, guides.map(([k, l]) => checkbox(`ca-${k}`, l, !!ca[k], (v) => (((ca as unknown as Record<string, boolean>)[k] = v), changed(`Composition ${l}`))))),
+            colorProp((ca.composition_guide_color ??= [0.5, 0.5, 0.5, 1], ca), 'composition_guide_color', 'Color', { alpha: true, tip: 'Colour of the composition guides' }),
+          ],
+          { closed: true },
+        ),
       ],
       { closed: true },
     ),
