@@ -10,11 +10,11 @@ import { keyconfig, keyconfigChanged, presetChoices, choosePreset, currentPreset
 import { library } from '../render/studiolights';
 import { cleanStudioLight, installMatcap, installHdri, newStudioLight, removeEntry, saveStudioLights, studioLightChanged, studioSelection } from './lights_ui';
 import { setThemePreset, themeState } from './theme_ui';
-import { addons, expandAddon, setAddonFilter, refreshAddons } from './addons';
+import { addons, expandAddon, setAddonFilter, refreshAddons, setAddonEnabled } from './addons';
 import { setPref } from './store';
 import { showPreferences } from '../scripting/wmops';
 import { userLibraries, createLibrary, deleteLibrary } from '../assets/library';
-import { scriptDirs, addScriptDirectory, removeScriptDirectory } from './scriptdirs';
+import { scriptDirs, addScriptDirectory, removeScriptDirectory, refreshScriptDirectories } from './scriptdirs';
 import { keyConflicts } from './keyconflicts';
 
 /** Key map item of an operator call: by keymap name and index (or the item's stable id). */
@@ -290,6 +290,23 @@ registerOperators([
       if (!inp) return 'CANCELLED';
       inp.value = '';
       inp.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+  },
+  {
+    idname: 'script.reload',
+    label: 'Reload Scripts',
+    description: 'Run the enabled add-ons again (after their files changed), picking up changes in the script directories',
+    undo: false,
+    exec: () => {
+      void (async () => {
+        const n = await refreshScriptDirectories().catch(() => 0);
+        const on = [...addons.values()].filter((a) => a.enabled).map((a) => a.id);
+        for (const id of on) {
+          await setAddonEnabled(id, false);
+          await setAddonEnabled(id, true);
+        }
+        app.report('INFO', `Reloaded ${on.length} add-on${on.length === 1 ? '' : 's'}${n ? ` (${n} updated from script directories)` : ''}`);
+      })();
     },
   },
   // ------------------------------------------------------------------ asset libraries

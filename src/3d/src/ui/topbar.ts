@@ -197,8 +197,12 @@ export function appMenu(): MenuItem[] {
     {
       label: 'System',
       submenu: () => [
+        { label: 'Reload Scripts', op: 'script.reload' },
+        { separator: true },
         { label: 'Memory Statistics', op: 'wm.memory_statistics' },
         { label: 'Redraw Timer', submenu: () => REDRAW_TYPES.map(([id, label]) => ({ label, op: 'wm.redraw_timer', props: { type: id } })) },
+        { separator: true },
+        { label: 'Clean Up Operator Presets', op: 'wm.operator_presets_cleanup' },
       ],
     },
   ];

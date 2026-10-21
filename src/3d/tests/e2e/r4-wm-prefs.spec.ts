@@ -112,3 +112,15 @@ test('Preferences sections follow the reference order; keymap and path operators
   expect(sl).toEqual({ made: true, after: true });
   await expectNoErrors(errors);
 });
+
+test('Reload Scripts runs the enabled add-ons again', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const m = await import('/src/prefs/extensions.ts');
+    await m.installPackage(m.examplePackage(), {});
+  });
+  await run(page, 'script.reload');
+  await expect.poll(() => page.evaluate(() => (window as any).app.reports.at(-1)?.message)).toMatch(/Reloaded 1 add-on/);
+  expect(await page.evaluate(() => (window as any).app.run('wm.hello_extension_greet'))).toBe('FINISHED');
+  await expectNoErrors(errors);
+});
