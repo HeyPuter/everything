@@ -48,7 +48,7 @@ export const GEOMETRY_MENU_LAYOUT: MenuCategory[] = [
       e('GeometryNodeViewportTransform'),
     ]),
   ]),
-  cat('Output', [e('GeometryNodeViewer'), e('GeometryNodeWarning')]),
+  cat('Output', [e('NodeEnableOutput'), e('GeometryNodeViewer'), e('GeometryNodeWarning')]),
   cat('Attribute', [
     e('GeometryNodeAttributeStatistic'),
     e('GeometryNodeAttributeDomainSize'),

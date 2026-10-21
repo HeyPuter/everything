@@ -8,7 +8,7 @@ import { COMPOSITOR_MENU } from '../nodes/defs';
 import type { MenuCategory } from '../../nodes/types';
 import { onAppReady } from '../../app/app';
 
-const SHARED = ['GeometryNodeMenuSwitch', 'GeometryNodeIndexSwitch', 'FunctionNodeInputMenu', 'NodeImplicitConversion'];
+const SHARED = ['GeometryNodeMenuSwitch', 'GeometryNodeIndexSwitch', 'FunctionNodeInputMenu', 'NodeImplicitConversion', 'NodeEnableOutput'];
 
 function items(n: NodeData, key: string): { id: number; name: string }[] {
   try {
@@ -39,6 +39,12 @@ registerExec('GeometryNodeIndexSwitch', (x) => {
 
 registerExec('NodeImplicitConversion', (x) => x.out('Value', x.input('Value')));
 
+registerExec('NodeEnableOutput', (x) => {
+  const t = String(x.prop('data_type') ?? 'FLOAT');
+  const off = t === 'RGBA' ? [0, 0, 0, 0] : t === 'VECTOR' ? [0, 0, 0] : t === 'STRING' ? '' : t === 'BOOLEAN' ? false : 0;
+  x.out('Value', x.bool('Enable') ? x.input('Value') : Result.single((['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'STRING'].includes(t) ? t : 'FLOAT') as never, off));
+});
+
 /** Compositing trees use these nodes too: tree type and Add-menu entries (Input ▸ Constant, Utilities). */
 const DATA_TYPES: [string, string][] = [
   ['FLOAT', 'Float'],
@@ -55,7 +61,7 @@ function share() {
     if (d && !d.treeTypes.includes('COMPOSITOR')) d.treeTypes = [...d.treeTypes, 'COMPOSITOR'];
   }
   // compositor value types; new switches start as colors
-  for (const id of ['GeometryNodeMenuSwitch', 'GeometryNodeIndexSwitch', 'NodeImplicitConversion']) {
+  for (const id of ['GeometryNodeMenuSwitch', 'GeometryNodeIndexSwitch', 'NodeImplicitConversion', 'NodeEnableOutput']) {
     const d = getNodeType(id);
     const p = d?.props.find((x) => x.id === 'data_type');
     if (!d || !p) continue;
@@ -71,6 +77,8 @@ function share() {
   const input = COMPOSITOR_MENU.find((c) => c.label === 'Input');
   const constant = input?.items.find((i) => typeof i !== 'string' && 'items' in i && i.label === 'Constant') as MenuCategory | undefined;
   if (constant && getNodeType('FunctionNodeInputMenu') && !has(constant, 'FunctionNodeInputMenu')) constant.items.push({ idname: 'FunctionNodeInputMenu' });
+  const output = COMPOSITOR_MENU.find((c) => c.label === 'Output');
+  if (output && getNodeType('NodeEnableOutput') && !has(output, 'NodeEnableOutput')) output.items.unshift({ idname: 'NodeEnableOutput' });
   const util = COMPOSITOR_MENU.find((c) => c.label === 'Utilities');
   if (util && !has(util, 'GeometryNodeMenuSwitch')) {
     const extra: MenuCategory['items'] = ['SEPARATOR'];
