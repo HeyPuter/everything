@@ -3,7 +3,7 @@
  * chosen one previewed on the right, OK inserting it on a new sheet; Blank PivotTable opens the full
  * PivotTable dialog instead.
  */
-import { el } from './dom.js';
+import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { recommendPivots } from '../core/pivot-recommend.js';
@@ -37,13 +37,17 @@ export function openRecommendedPivots(ctx) {
       el('table.rec-pivot-table', {}, el('thead', {}, el('tr', {}, ...pick.headers.map((h, i) => el(i ? 'th.num' : 'th', { scope: 'col' }, h)))),
         el('tbody', {}, ...pick.preview.map(([label, ...values]) => el('tr', {}, el('td', {}, String(label)), ...values.map((v) => el('td.num', {}, shownValue(pick, v))))))));
     for (const [i, node] of list.querySelectorAll('[role="option"]').entries()) node.setAttribute('aria-selected', String(i === chosen));
+    // The focus stays on the list: the option chosen is named to assistive technology as the active one, and kept in view.
+    const active = list.children[chosen];
+    list.setAttribute('aria-activedescendant', active.id);
+    active.scrollIntoView?.({ block: 'nearest' });
   };
   const list = el('div.rec-pivot-list', { role: 'listbox', 'aria-label': 'Recommended PivotTables', tabindex: 0,
     onkeydown: (e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); chosen = Math.max(0, Math.min(picks.length - 1, chosen + (e.key === 'ArrowDown' ? 1 : -1))); show(); }
       if (e.key === 'Enter') { e.preventDefault(); insert(); }
     } },
-  ...picks.map((pick, i) => el('div.rec-pivot-item', { role: 'option', 'aria-selected': 'false', onclick: () => { chosen = i; show(); }, ondblclick: () => { chosen = i; insert(); } },
+  ...picks.map((pick, i) => el('div.rec-pivot-item', { id: fieldId('rec-pivot'), role: 'option', 'aria-selected': 'false', onclick: () => { chosen = i; show(); }, ondblclick: () => { chosen = i; insert(); } },
     el('span.rec-pivot-item-title', {}, pick.title),
     el('span.rec-pivot-item-sample', { 'aria-hidden': 'true' }, pick.preview.slice(0, 3).map((row) => `${row[0]} ${shownValue(pick, row.at(-1))}`).join(' · ')))));
   const insert = () => {
