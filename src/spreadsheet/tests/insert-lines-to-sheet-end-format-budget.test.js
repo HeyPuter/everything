@@ -41,3 +41,29 @@ describe('formatting lent to inserted lines', () => {
     expect(wb.getCell(id, 0, 4)).toEqual({ v: null, f: null, s: { bold: true, bg: '#eeeeee' } });
   });
 });
+
+// A whole row's own format (rows 1:50 formatted from their headers) was lent to each of a million rows inserted
+// under it as well: a million line formats that every later save, insertion and undo wrote out again, each taking
+// half a minute. Lent line formats now stop at the same budget.
+describe('whole-line formats lent to inserted lines', () => {
+  it('are not stored for a million rows inserted under a formatted row, and later edits stay quick', () => {
+    const { wb, id } = list();
+    wb.applyStyle(id, { r1: 0, c1: 0, r2: 49, c2: 16383 }, { bg: '#eeeeee' });
+    expect(wb.sheet(id).rowStyles.size).toBe(50);
+    expect(wb.insertRows(id, 50, 1048576 - 50)).toBe(true);
+    expect(wb.sheet(id).rowStyles.size).toBe(50);
+    const started = performance.now();
+    expect(JSON.stringify(wb.toJSON()).length).toBeLessThan(200000);
+    expect(wb.insertRows(id, 5, 1)).toBe(true);
+    wb.undo();
+    expect(performance.now() - started).toBeLessThan(2000);
+  });
+
+  it('are still lent to the rows of an ordinary insertion', () => {
+    const { wb, id } = list();
+    wb.applyStyle(id, { r1: 0, c1: 0, r2: 49, c2: 16383 }, { bg: '#eeeeee' });
+    expect(wb.insertRows(id, 50, 20)).toBe(true);
+    expect(wb.styleAt(id, 69, 300)?.bg).toBe('#eeeeee');
+    expect(wb.styleAt(id, 70, 300)?.bg).toBeUndefined();
+  });
+});

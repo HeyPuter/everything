@@ -6619,7 +6619,10 @@ export class Workbook extends EventTarget {
       const lineStyles = axis === 'row' ? sheet.rowStyles : sheet.colStyles;
       const shiftedStyles = new Map();
       for (const [i, st] of lineStyles) if (move(i) <= limit) shiftedStyles.set(move(i), st);
-      for (const b of blocks) {
+      // A line's format is stored line by line too, and so goes as far as the cells' formatting does (above): lent to a
+      // million rows, every save and every later insertion wrote and rewrote a million line formats, half a minute each.
+      const lentLines = blocks.reduce((count, b) => count + (b.at > 0 && lineStyles.has(b.at - 1) ? b.n : 0), 0);
+      if (lentLines <= STYLE_FILL_CELLS) for (const b of blocks) {
         const lentLine = b.at > 0 ? lineStyles.get(b.at - 1) : null;
         if (lentLine) for (let i = b.start; i < b.start + b.n && i <= limit; i++) shiftedStyles.set(i, cloneStyle(lentLine));
       }
