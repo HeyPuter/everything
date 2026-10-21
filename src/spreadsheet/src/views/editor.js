@@ -1705,7 +1705,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             }
           });
           // The workbook declines a block past its size limit or over a table's header and data cells (a protected sheet it reports itself).
-          if (refused.length === blocks.length) { if (!wb.isProtected(sheetId)) toast(mergeRefusal(refused[0]), { icon: 'info', duration: 3500 }); }
+          if (refused.length === blocks.length) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(mergeRefusal(refused[0]), { icon: 'info', duration: 3500 }); }
           else if (cleared) toast(`Merged. Only the top-left value${blocks.length > 1 ? ' of each block' : ''} was kept (${cleared} cleared)`, { icon: 'merge', duration: 4000 });
         }
         grid.setSelection(S.single(a.r, a.c), { scroll: false });
@@ -1738,7 +1738,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           wb.unmergeCells(sheetId, range);
           for (const b of blocks) if (wb.mergeCells(sheetId, b) === false) refused++;
         });
-        if (refused === blocks.length) { if (!wb.isProtected(sheetId)) toast(mergeRefusal(range), { icon: 'info', duration: 3500 }); }
+        if (refused === blocks.length) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(mergeRefusal(range), { icon: 'info', duration: 3500 }); }
         else if (cleared) toast(`Merged. Only the first value of each ${cmd === 'mergeAcross' ? 'row' : 'column'} was kept (${cleared} cleared)`, { icon: 'merge', duration: 4000 });
         grid.setSelection(S.fromRange(range, a), { scroll: false });
         keepFocus();
@@ -2121,7 +2121,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           // A row a filter hides is as invisible as one hidden by hand, so the landing skips both.
           const hiddenAt = (i) => (axis === 'row' ? wb.isRowHidden(sheetId, i) : sheet.hiddenCols.has(i));
           // The workbook keeps at least one line showing; asking to hide them all is told so rather than ignored (a protected sheet it reports itself).
-          if (wb.setHidden(sheetId, axis, indices, true) === false) { if (!wb.isProtected(sheetId)) toast(`Every ${axis === 'row' ? 'row' : 'column'} cannot be hidden: the sheet keeps at least one showing`, { icon: 'info', duration: 3000 }); keepFocus(); return; }
+          if (wb.setHidden(sheetId, axis, indices, true) === false) { if (!(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(`Every ${axis === 'row' ? 'row' : 'column'} cannot be hidden: the sheet keeps at least one showing`, { icon: 'info', duration: 3000 }); keepFocus(); return; }
           // Land on the next visible line so the selection is not invisible.
           let next = to + 1;
           while (next < total && hiddenAt(next)) next++;
@@ -4813,7 +4813,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (ok) write();
       });
       if (!ok) {
-        if (!wasRefused() && !wb.isProtected(sheetId)) toast(shiftProblem(sheetId, block, direction === 'right' ? 'col' : 'row', false)
+        if (!wasRefused() && !(wb.sheetGroup || [sheetId]).some((id) => wb.isProtected(id))) toast(shiftProblem(sheetId, block, direction === 'right' ? 'col' : 'row', false)
           || `The cells cannot be shifted: what is ${direction === 'right' ? 'to their right' : 'below them'} would be pushed past the edge of the sheet`, { icon: 'info', duration: 4000 });
         return;
       }
@@ -5262,7 +5262,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
    */
   function refusalSaid(sheetId, edit) {
     let said = false;
-    const onRefusal = ({ detail }) => { if (['protected', 'array-edit', 'pivot-edit'].includes(detail?.type) && detail.sheetId === sheetId) said = true; };
+    // A sheet grouped with this one refuses the edit for the whole group, and says so for itself.
+    const onRefusal = ({ detail }) => { if (['protected', 'array-edit', 'pivot-edit'].includes(detail?.type) && (detail.sheetId === sheetId || wb.isSheetGrouped(detail.sheetId))) said = true; };
     wb.addEventListener('change', onRefusal);
     try { return [edit(), said]; } finally { wb.removeEventListener('change', onRefusal); }
   }

@@ -160,6 +160,11 @@ export function installSheetGroups(Workbook) {
     proto[name] = function (sheetId, ...rest) {
       const others = this._groupTargets(sheetId);
       if (!others) return original.call(this, sheetId, ...rest);
+      // A protected sheet in the group refuses the edit for every sheet, as it refuses it alone: made on the others
+      // only, it would leave the sheets out of line, a row inserted on one and not the next, and every later edit to
+      // the group landing on different data on each.
+      const locked = others.map((id) => this.sheet(id)).find((sheet) => sheet?.protected);
+      if (locked) { this._locked(locked); return false; }
       return this.transaction(groupLabel(name), () => this._withoutGroup(() => {
         const result = original.call(this, sheetId, ...rest);
         if (result === false) return result;
