@@ -100,6 +100,15 @@ describe('commands', () => {
     const { commands, store } = await load(false);
     commands.run('frameForward');
     expect(store.time).toBe(Math.round(s(1) / 30));
+    // Frame starts as the export rounds them, not a sum of rounded steps (66,666 shows frame 1).
+    commands.run('frameForward');
+    expect(store.time).toBe(66_667);
+    commands.run('frameForward');
+    commands.run('framesBack');
+    expect(store.time).toBe(0);
+    store.seek(50_000); // between frames 1 and 2, the timecode shows frame 2
+    commands.run('frameForward');
+    expect(store.time).toBe(100_000);
     commands.run('toEnd');
     expect(store.time).toBe(s(4));
     commands.run('prevEdit');

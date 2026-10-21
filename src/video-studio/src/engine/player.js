@@ -3,7 +3,7 @@
  * Renders on demand while paused and every animation frame while playing.
  */
 import { Emitter } from '../lib/emitter.js';
-import { US } from '../lib/time.js';
+import { US, snapToFrame } from '../lib/time.js';
 import { Compositor } from './compositor.js';
 import { MediaPool } from './media-pool.js';
 import { AudioGraph } from './audio-graph.js';
@@ -210,6 +210,8 @@ export class Player extends Emitter {
     this.playing = false;
     this.playRange = false;
     this.pool.pauseAll();
+    // Stop on a whole frame, so the picture and the timecode show the same one.
+    this.store.seek(snapToFrame(this.store.time, this.store.fps));
     this.emit('play', { playing: false });
     this.invalidate();
   }
@@ -382,7 +384,8 @@ export class Player extends Emitter {
     } else {
       if (!el.paused) el.pause();
       if (entry.gain) entry.gain.gain.value = 0;
-      const tol = visual ? 0.5 / fps : 0.05;
+      // Paused, show the frame at sec itself (as the timecode and the export do), not one up to half a frame off.
+      const tol = visual ? (this.playing ? 0.5 / fps : 0.001) : 0.05;
       if (Math.abs(el.currentTime - sec) > tol || el.readyState < 2) {
         if (Math.abs(el.currentTime - sec) > tol) this.pool.seek(entry, sec);
       }

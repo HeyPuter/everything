@@ -90,3 +90,18 @@ describe('preview playback through transitions', () => {
     expect(e.gain.gain.value).toBe(0);
   });
 });
+
+describe('pausing', () => {
+  it('stops on a whole frame, the one the timecode shows', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 5));
+    const { player } = setup(p);
+    player.store.seek(1_234_567); // 37.04 frames at 30 fps
+    player.pause();
+    expect(player.store.time).toBe(1_233_333);
+    player.playing = true;
+    player.store.seek(1_250_000); // 37.5: the next frame is nearest
+    player.pause();
+    expect(player.store.time).toBe(1_266_667);
+  });
+});

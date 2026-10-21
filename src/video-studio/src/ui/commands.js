@@ -20,7 +20,8 @@ export function createCommands(ctx) {
   const { store, actions } = ctx;
   const player = () => ctx.player;
   const timeline = () => ctx.timeline;
-  const step = (frames) => store.seek(store.time + Math.round((frames * US) / store.fps));
+  // From the frame shown (and in the timecode) to the start of another, at the export's whole-microsecond frame times.
+  const step = (frames) => store.seek(Math.round(((Math.round((store.time * store.fps) / US) + frames) * US) / store.fps));
   const hasSel = () => store.selection.size > 0;
   const multicamSel = () => isMulticam(store.selected?.clip);
   const stepTimeline = (dir) => {
