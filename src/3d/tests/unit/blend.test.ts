@@ -118,7 +118,7 @@ describe('robustness', () => {
   });
   it('rejects truncated files', async () => {
     for (const frac of [0.01, 0.3, 0.7, 0.999]) {
-      await expect(readBlend(raw.slice(0, Math.floor(raw.length * frac)))).rejects.toThrow(/Truncated|extends past end|Not a Blender/);
+      await expect(readBlend(raw.slice(0, Math.floor(raw.length * frac)))).rejects.toThrow(/Truncated|extends past end|Not a .blend file/);
     }
   });
   it('rejects corrupt compressed data and corrupt SDNA', async () => {

@@ -1,7 +1,7 @@
 #usda 1.0
 (
     defaultPrim = "root"
-    doc = "Blender v5.2.2 LTS"
+    doc = "reference scene"
     endTimeCode = 24
     metersPerUnit = 1
     startTimeCode = 1
@@ -12,7 +12,7 @@
 def Xform "root" (
     prepend apiSchemas = ["ColorSpaceAPI"]
     customData = {
-        dictionary Blender = {
+        dictionary exporter = {
             bool generated = 1
         }
     }
@@ -22,7 +22,7 @@ def Xform "root" (
 
     def Xform "Cube"
     {
-        custom string userProperties:blender:object_name = "Cube"
+        custom string userProperties:source:object_name = "Cube"
         float3 xformOp:rotateXYZ.timeSamples = {
             1: (0, -0, 0),
         }
@@ -77,7 +77,7 @@ def Xform "root" (
             int[] primvars:st:indices = [0, 3, 8, 6, 6, 8, 13, 12, 12, 13, 11, 10, 10, 11, 4, 1, 7, 12, 10, 2, 13, 9, 5, 11]
             uniform token subdivisionScheme = "none"
             uniform token subsetFamily:materialBind:familyType = "nonOverlapping"
-            custom string userProperties:blender:data_name = "Cube"
+            custom string userProperties:source:data_name = "Cube"
 
             def GeomSubset "Red" (
                 prepend apiSchemas = ["MaterialBindingAPI"]
@@ -102,7 +102,7 @@ def Xform "root" (
 
         def Xform "Sphere"
         {
-            custom string userProperties:blender:object_name = "Sphere"
+            custom string userProperties:source:object_name = "Sphere"
             float3 xformOp:rotateXYZ = (17.188736, 11.459157, 5.729579)
             float3 xformOp:scale = (0.99999994, 1, 1)
             double3 xformOp:translate = (2, -3, 0)
@@ -124,7 +124,7 @@ def Xform "root" (
                 )
                 int[] primvars:st:indices = [12, 0, 29, 17, 16, 33, 15, 14, 31, 32, 13, 12, 29, 30, 16, 15, 32, 33, 14, 13, 30, 31, 18, 33, 38, 32, 31, 36, 37, 30, 29, 34, 35, 33, 32, 37, 38, 31, 30, 35, 36, 29, 1, 34, 37, 36, 41, 42, 35, 34, 39, 40, 38, 37, 42, 43, 36, 35, 40, 41, 34, 2, 39, 19, 38, 43, 40, 39, 44, 45, 43, 42, 47, 48, 41, 40, 45, 46, 39, 3, 44, 20, 43, 48, 42, 41, 46, 47, 48, 47, 52, 53, 46, 45, 50, 51, 44, 4, 49, 21, 48, 53, 47, 46, 51, 52, 45, 44, 49, 50, 53, 52, 57, 58, 51, 50, 55, 56, 49, 5, 54, 22, 53, 58, 52, 51, 56, 57, 50, 49, 54, 55, 58, 57, 62, 63, 56, 55, 60, 61, 54, 6, 59, 23, 58, 63, 57, 56, 61, 62, 55, 54, 59, 60, 63, 62, 67, 68, 61, 60, 65, 66, 59, 7, 64, 24, 63, 68, 62, 61, 66, 67, 60, 59, 64, 65, 66, 65, 71, 73, 64, 8, 69, 25, 68, 77, 67, 66, 73, 75, 65, 64, 69, 71, 68, 67, 75, 77, 70, 9, 79, 26, 78, 83, 76, 74, 81, 82, 72, 70, 79, 80, 78, 76, 82, 83, 74, 72, 80, 81, 27, 83, 88, 82, 81, 86, 87, 80, 79, 84, 85, 83, 82, 87, 88, 81, 80, 85, 86, 79, 10, 84, 28, 88, 16, 87, 86, 14, 15, 85, 84, 12, 13, 88, 87, 15, 16, 86, 85, 13, 14, 84, 11, 12]
                 uniform token subdivisionScheme = "none"
-                custom string userProperties:blender:data_name = "Sphere"
+                custom string userProperties:source:data_name = "Sphere"
             }
         }
     }
@@ -137,7 +137,7 @@ def Xform "root" (
         {
             uniform token colorSpace:name = "lin_rec709_scene"
             token outputs:surface.connect = </root/_materials/Red/Principled_BSDF.outputs:surface>
-            custom string userProperties:blender:data_name = "Red"
+            custom string userProperties:source:data_name = "Red"
 
             def Shader "Principled_BSDF"
             {
@@ -160,7 +160,7 @@ def Xform "root" (
         {
             uniform token colorSpace:name = "lin_rec709_scene"
             token outputs:surface.connect = </root/_materials/Blue/Principled_BSDF.outputs:surface>
-            custom string userProperties:blender:data_name = "Blue"
+            custom string userProperties:source:data_name = "Blue"
 
             def Shader "Principled_BSDF"
             {
@@ -183,7 +183,7 @@ def Xform "root" (
         {
             uniform token colorSpace:name = "lin_rec709_scene"
             token outputs:surface.connect = </root/_materials/Textured/Principled_BSDF.outputs:surface>
-            custom string userProperties:blender:data_name = "Textured"
+            custom string userProperties:source:data_name = "Textured"
 
             def Shader "Principled_BSDF"
             {
@@ -224,7 +224,7 @@ def Xform "root" (
 
     def Xform "Cam"
     {
-        custom string userProperties:blender:object_name = "Cam"
+        custom string userProperties:source:object_name = "Cam"
         float3 xformOp:rotateXYZ = (63.025368, -0.000004383801, 45.836628)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (7, -7, 5)
@@ -236,14 +236,14 @@ def Xform "root" (
             float focalLength = 0.35
             float horizontalAperture = 0.36
             token projection = "perspective"
-            custom string userProperties:blender:data_name = "Cam"
+            custom string userProperties:source:data_name = "Cam"
             float verticalAperture = 0.2025
         }
     }
 
     def Xform "Point"
     {
-        custom string userProperties:blender:object_name = "Point"
+        custom string userProperties:source:object_name = "Point"
         float3 xformOp:rotateXYZ = (28.64789, 11.459156, 17.188734)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0, 0, 5)
@@ -260,13 +260,13 @@ def Xform "root" (
             bool inputs:normalize = 1
             float inputs:radius = 0
             bool treatAsPoint = 1
-            custom string userProperties:blender:data_name = "Point"
+            custom string userProperties:source:data_name = "Point"
         }
     }
 
     def SkelRoot "Plane"
     {
-        custom string userProperties:blender:object_name = "Plane"
+        custom string userProperties:source:object_name = "Plane"
         float3 xformOp:rotateXYZ = (0, -0, 0)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (-3, 0, 0)
@@ -304,7 +304,7 @@ def Xform "root" (
             rel skel:blendShapeTargets = </root/Plane/Plane/Lift>
             prepend rel skel:skeleton = </root/Plane/Skel>
             uniform token subdivisionScheme = "none"
-            custom string userProperties:blender:data_name = "Plane"
+            custom string userProperties:source:data_name = "Plane"
 
             def BlendShape "Lift"
             {
@@ -357,7 +357,7 @@ def Xform "root" (
 
     def Xform "Sun"
     {
-        custom string userProperties:blender:object_name = "Sun"
+        custom string userProperties:source:object_name = "Sun"
         float3 xformOp:rotateXYZ = (28.64789, 11.459156, 17.188734)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0, 0, 8)
@@ -372,13 +372,13 @@ def Xform "root" (
             color3f inputs:color = (1, 0.9, 0.8)
             float inputs:intensity = 0.625
             bool inputs:normalize = 1
-            custom string userProperties:blender:data_name = "Sun"
+            custom string userProperties:source:data_name = "Sun"
         }
     }
 
     def Xform "Ngon"
     {
-        custom string userProperties:blender:object_name = "Ngon"
+        custom string userProperties:source:object_name = "Ngon"
         float3 xformOp:rotateXYZ = (0, -0, 0)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (0, -3, 0)
@@ -396,13 +396,13 @@ def Xform "root" (
             )
             point3f[] points = [(1, 0, 0), (0.5, 0.8660254, 0), (-0.5, 0.8660254, 0), (-1, 1.2246469e-16, 0), (-0.5, -0.8660254, 0), (0.5, -0.8660254, 0)]
             uniform token subdivisionScheme = "none"
-            custom string userProperties:blender:data_name = "Ngon"
+            custom string userProperties:source:data_name = "Ngon"
         }
     }
 
     def Xform "Spot"
     {
-        custom string userProperties:blender:object_name = "Spot"
+        custom string userProperties:source:object_name = "Spot"
         float3 xformOp:rotateXYZ = (28.64789, 11.459156, 17.188734)
         float3 xformOp:scale = (1, 1, 1)
         double3 xformOp:translate = (3, -3, 4)
@@ -421,13 +421,13 @@ def Xform "root" (
             float inputs:shaping:cone:angle = 22.5
             float inputs:shaping:cone:softness = 0.15
             bool treatAsPoint = 1
-            custom string userProperties:blender:data_name = "Spot"
+            custom string userProperties:source:data_name = "Spot"
         }
     }
 
     def SkelRoot "Rig"
     {
-        custom string userProperties:blender:object_name = "Rig"
+        custom string userProperties:source:object_name = "Rig"
         float3 xformOp:rotateXYZ.timeSamples = {
             1: (0, -0, 0),
         }
@@ -488,7 +488,7 @@ def Xform "root" (
 
         def Xform "Skinned"
         {
-            custom string userProperties:blender:object_name = "Skinned"
+            custom string userProperties:source:object_name = "Skinned"
             float3 xformOp:rotateXYZ = (0, -0, 0)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (0, 0, 1.399999976158142)
@@ -523,7 +523,7 @@ def Xform "root" (
                 }
                 rel skel:skeleton = </root/Rig/Rig>
                 uniform token subdivisionScheme = "none"
-                custom string userProperties:blender:data_name = "Cylinder"
+                custom string userProperties:source:data_name = "Cylinder"
             }
         }
     }
