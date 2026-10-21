@@ -10715,6 +10715,10 @@ export function createEditor({
             iconButton(`Remove ${file.name}`, 'Trash2', () => {
               files.splice(i, 1);
               renderFiles();
+              // The pressed button is gone; the file that takes its place, the one before it,
+              // or Add PDFs keeps the keyboard focus in the dialog.
+              const buttons = list.querySelectorAll('button');
+              (buttons[Math.min(i, buttons.length - 1)] || addButton).focus();
             }),
           ),
         ),
@@ -10838,6 +10842,7 @@ export function createEditor({
       d.close();
       await runBatchSteps(inputs, chosen);
     });
+    const addButton = button('Add PDFs…', 'Plus', addFiles, 'btn');
     const d = modal(
       'Batch process',
       el(
@@ -10854,7 +10859,7 @@ export function createEditor({
           el('span', {}, `Include ${name}`),
           includeCurrent,
         ),
-        button('Add PDFs…', 'Plus', addFiles, 'btn'),
+        addButton,
         list,
         el('h3', { class: 'batch-heading' }, 'Steps, in this order'),
         ...stepRows,

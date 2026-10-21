@@ -1132,6 +1132,33 @@ test('Batch process stays open, with its files, until it has files and steps', a
   await expect(dialog.getByLabel('Rotate all pages')).toBeChecked();
 });
 
+test('removing a file from Batch process keeps the keyboard focus in the dialog', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  const files = [];
+  for (const name of ['a.pdf', 'b.pdf'])
+    files.push({
+      name,
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await (await numberedPdf(1)).save()),
+    });
+  await (await chooser).setFiles(files);
+  await dialog.getByRole('button', { name: 'Remove a.pdf' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Remove b.pdf' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Remove b.pdf' })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Add PDFs…' })).toBeFocused();
+});
+
 test('Prepare a form adds fields, edits their properties, and detects blanks', async ({ page }) => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
