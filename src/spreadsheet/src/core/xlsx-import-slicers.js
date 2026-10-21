@@ -24,7 +24,8 @@ export const olap = cache => cache?.kind === 'pivot' && !cache.pivot;
 export function importXlsxSlicers(book, sheets, themes = book.Themes, sheetXml = null) {
   const part = book.Directory?.workbooks?.[0]?.replace(/^\//, '') || 'xl/workbook.xml';
   const bytes = book.files?.[part]?.content;
-  if (!bytes) return;
+  // An .xlsb's workbook part is binary records, with no slicers this reader can find.
+  if (!bytes || !/\.xml$/i.test(part)) return;
   // Older app exports could not emit slicers. Do not resurrect saved controls
   // after another application deletes the native views or their cache list.
   for (const sheet of sheets) sheet.charts = (sheet.charts || []).filter(c => c.type !== 'slicer');

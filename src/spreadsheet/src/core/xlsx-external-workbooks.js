@@ -31,6 +31,8 @@ export function readXlsxExternalWorkbooks(book) {
     return root;
   };
   const owner = book.Directory?.workbooks?.[0]?.replace(/^\//, '') || 'xl/workbook.xml';
+  // An .xlsb's parts are binary records, its links among them: there is no XML to read them from.
+  if (!/\.xml$/i.test(owner)) return null;
   const workbook = read(owner); if (!workbook) return null;
   const refs = kids(one(workbook, 'externalReferences'), 'externalReference'); if (!refs.length) return null;
   if (refs.length > 1024) fail('link count');
