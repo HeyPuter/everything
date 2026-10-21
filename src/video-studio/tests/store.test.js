@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { History } from '../src/model/history.js';
-import { setTransition, mainTrack, addClip, findClip } from '../src/model/timeline.js';
+import { setTransition, mainTrack, addClip, findClip, moveClip } from '../src/model/timeline.js';
 import { makeTrack } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
@@ -94,6 +94,60 @@ describe('EditorStore.update', () => {
     expect(store.history.canUndo()).toBe(false);
     expect(store.revision).toBe(rev);
     expect(changes).toEqual([]);
+  });
+
+  it('keeps the same project, track and clip objects when an edit is cancelled', () => {
+    const store = storeWith(clip('video', 0, 4), clip('video', 4, 4));
+    const project = store.project;
+    const track = mainTrack(project);
+    const [a, b] = track.clips;
+    expect(store.update('Split', () => false)).toBe(false);
+    expect(store.project).toBe(project);
+    expect(store.project.tracks[0]).toBe(track);
+    // An edit that changed things before cancelling is undone in place.
+    expect(store.update('Nope', (p) => {
+      findClip(p, a.id).clip.start = s(9);
+      mainTrack(p).clips.reverse();
+      p.tracks.push(makeTrack('audio'));
+      return false;
+    })).toBe(false);
+    expect(store.project).toBe(project);
+    expect(project.tracks).toEqual([track]);
+    expect(track.clips).toEqual([a, b]);
+    expect(track.clips[0]).toBe(a);
+    expect(track.clips[1]).toBe(b);
+    expect(a.start).toBe(0);
+  });
+
+  it('rolls back an edit that fails inside a coalesced run, keeping the run so far', () => {
+    const store = storeWith();
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    store.update('Volume', (p) => { p.name = 'v1'; }, { coalesce: 'vol', structural: false });
+    now += 100;
+    expect(store.update('Volume', (p) => { p.name = 'half'; return false; }, { coalesce: 'vol', structural: false })).toBe(false);
+    expect(store.project.name).toBe('v1');
+    now += 100;
+    expect(() => store.update('Volume', (p) => { p.name = 'boom'; throw new Error('boom'); }, { coalesce: 'vol', structural: false })).toThrow('boom');
+    expect(store.project.name).toBe('v1');
+    expect(store.history.undoStack).toHaveLength(1);
+    store.undo();
+    expect(store.project.name).toBe('Test');
+  });
+
+  it('leaves a grouped overlay in place when a coalesced nudge is blocked', () => {
+    const store = storeWith(clip('video', 0, 5), clip('video', 5, 5));
+    store.setToggle('ripple', false);
+    const b = mainTrack(store.project).clips[1];
+    const o = clip('text', 0, 2);
+    addClip(store.project, o, { ripple: false });
+    const f = Math.round(s(1) / 30);
+    const nudge = (d) => store.update('Nudge clip', (p) => moveClip(p, b.id, { start: findClip(p, b.id).clip.start + d, trackId: mainTrack(p).id }, { ...store.opts, with: [b.id, o.id] }), { coalesce: 'nudge' });
+    expect(nudge(f)).toBe(true);
+    expect(nudge(-f)).toBe(true);
+    expect(nudge(-f)).toBe(false); // blocked by the first clip
+    expect(findClip(store.project, o.id).clip.start).toBe(0);
+    expect(findClip(store.project, b.id).clip.start).toBe(s(5));
   });
 
   it('restores the project and rethrows when the edit throws', () => {

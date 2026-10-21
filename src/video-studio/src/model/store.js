@@ -160,15 +160,19 @@ export class EditorStore extends Emitter {
     const now = performance.now();
     const merge = opts.coalesce && this._coalesce && this._coalesce.key === opts.coalesce && now - this._coalesce.at < 1200;
     const before = merge ? null : structuredClone(this.project);
+    // A merged step records no snapshot, but still needs one to roll back to (JSON is the cheap copy).
+    const rollback = merge ? JSON.stringify(this.project) : null;
+    // A cancelled edit is undone in place, so views holding the project, its tracks or clips stay valid.
+    const cancel = () => restoreInto(this.project, before || JSON.parse(rollback));
     let result;
     try {
       result = fn(this.project);
     } catch (err) {
-      if (before) this.project = before;
+      cancel();
       throw err;
     }
     if (result === false) {
-      if (before) this.project = before;
+      cancel();
       return false;
     }
     if (opts.structural !== false) {
@@ -307,4 +311,38 @@ export class EditorStore extends Emitter {
     this.toggles[name] = value;
     this.emit('toggles', { name, value });
   }
+}
+
+const isObject = (v) => v !== null && typeof v === 'object';
+
+/**
+ * Make target's contents equal to src's while keeping target's objects:
+ * array items are matched by id (or by position), so the project, its
+ * tracks and its clips keep their identity. src's own objects are used for
+ * anything target no longer has.
+ */
+function restoreInto(target, src) {
+  if (Array.isArray(src)) {
+    const byId = new Map();
+    for (const x of target) if (isObject(x) && x.id !== undefined) byId.set(x.id, x);
+    const next = src.map((v, i) => {
+      const cur = isObject(v) && v.id !== undefined ? byId.get(v.id) : target[i];
+      return restoreValue(cur, v);
+    });
+    target.length = next.length;
+    for (let i = 0; i < next.length; i++) target[i] = next[i];
+    return;
+  }
+  for (const k of Object.keys(target)) if (!(k in src)) delete target[k];
+  for (const k of Object.keys(src)) {
+    const v = restoreValue(target[k], src[k]);
+    if (target[k] !== v) target[k] = v;
+  }
+}
+
+function restoreValue(cur, src) {
+  const plain = (v) => Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype;
+  if (!isObject(src) || !isObject(cur) || !plain(src) || Array.isArray(cur) !== Array.isArray(src) || !plain(cur)) return src;
+  restoreInto(cur, src);
+  return cur;
 }
