@@ -13,7 +13,7 @@ import { icon, appIcon } from '../../lib/icons.js';
 import { ReviewSession } from '../../review/session.js';
 import { threadsFor, threadCounts, threadOf } from '../../review/comments.js';
 import { canComment, ROLE_LABELS, LIMITS, textProblem, workerURL } from '../../review/protocol.js';
-import { reviewFps, reviewTimecode, stepFrames, seekSeconds, fromSeconds, snapToFrame, stripMarkers, spokenAt, frameStart, frameAt } from '../../review/time.js';
+import { reviewFps, reviewTimecode, stepFrames, seekSeconds, fromSeconds, snapToFrame, stripMarkers, spokenAt, frameStart, frameAt, lastFrame } from '../../review/time.js';
 import { createThreadList, submitForm } from './threads.js';
 import { confirmDialog, toast } from '../dialog.js';
 
@@ -307,11 +307,11 @@ export class ReviewPage {
     });
     on('pause', () => {
       this.renderPlay();
-      this.t = snapToFrame(fromSeconds(v.currentTime), this.fps);
+      this.t = this.frameTime(fromSeconds(v.currentTime));
       this.renderTime();
     });
     on('seeked', () => {
-      if (v.paused) this.t = snapToFrame(fromSeconds(v.currentTime), this.fps);
+      if (v.paused) this.t = this.frameTime(fromSeconds(v.currentTime));
       this.renderTime();
     });
     // A fallback while playing where frame callbacks are throttled (background tabs).
@@ -320,7 +320,11 @@ export class ReviewPage {
       this.t = fromSeconds(v.currentTime);
       this.renderTime();
     });
-    on('ended', () => this.renderPlay());
+    on('ended', () => {
+      this.renderPlay();
+      this.t = this.frameTime(this.t);
+      this.renderTime();
+    });
     on('error', () => {
       // An expired or revoked link: ask for the current one once.
       if (this._linkTries++ < 1) this.loadVideo({ fresh: true });
@@ -364,10 +368,14 @@ export class ReviewPage {
     });
   }
 
+  /** Start of the frame showing at time t, never past the last frame (the end of the video shows it). */
+  frameTime(t) {
+    return Math.min(snapToFrame(clamp(Math.round(t), 0, this.duration), this.fps), frameStart(lastFrame(this.duration, this.fps), this.fps));
+  }
+
   /** Show the frame at time t (microseconds). */
   seek(t) {
-    const target = clamp(Math.round(t), 0, this.duration);
-    this.t = snapToFrame(target, this.fps);
+    this.t = this.frameTime(t);
     if (this.video.readyState >= 1) this.video.currentTime = Math.min(seekSeconds(this.t, this.fps), Math.max(0, this.duration / 1e6 - 0.001));
     this.renderTime();
   }

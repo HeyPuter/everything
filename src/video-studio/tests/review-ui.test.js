@@ -417,6 +417,19 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('stops on the last frame with End and at the end of playback', async () => {
+    const { page, root } = await opened();
+    page.strip.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(page.t).toBe(9_960_000);
+    expect(root.querySelector('.rv-timecode').textContent).toBe('00:00:09:24');
+    page.seek(0);
+    page.video._time = 10;
+    page.video._paused = false;
+    page.video.pause();
+    await until(() => page.t === 9_960_000);
+    page.dispose();
+  });
+
   it('offers a version picker and keeps comments with their version', async () => {
     const { env, page, root, rid } = await opened('commenter', { versions: 2 });
     const select = root.querySelector('.rv-version');
