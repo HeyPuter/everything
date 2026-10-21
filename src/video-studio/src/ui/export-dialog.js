@@ -12,7 +12,7 @@ import { projectDuration } from '../model/timeline.js';
 import { audibleClips } from '../engine/scene.js';
 import {
   RESOLUTIONS, FRAME_RATES, BITRATE_LEVELS, VIDEO_CODECS, CONTAINERS, AUDIO_FORMATS, DEFAULT_SETTINGS,
-  outputSize, videoBitrate, estimateSize, reconcile, detectCapabilities, exportProject, renderStill,
+  outputSize, videoBitrate, estimateSize, reconcile, audioCodecFor, detectCapabilities, exportProject, renderStill,
   describeError, formatBytes, safeFileName, renderFrames,
 } from '../engine/exporter.js';
 import { sliceProject, exportSpan } from '../model/slice.js';
@@ -355,7 +355,10 @@ export function openExportDialog(ctx) {
     customNum.textContent = `${s.customMbps} Mbps`;
     bitrate.el.title = `${(bps / 1e6).toFixed(1)} Mbps`;
     const codecLabel = VIDEO_CODECS.find((c) => c.value === s.codec)?.label;
+    // The container's sound codecs may not be encodable here (MOV needs AAC).
+    const noSound = Boolean(s.video && s.includeAudio && hasSound && caps && !audioCodecFor(s.format, caps.audio));
     if (caps && !caps.video.length) codecNote.textContent = 'This browser cannot encode video. Audio export still works.';
+    else if (noSound) codecNote.replaceChildren(icon('alert', 14), `This browser cannot encode sound for ${CONTAINERS[s.format].label}. Choose another format, or turn off Export audio.`);
     else codecNote.textContent = `${size.width} x ${size.height}, ${codecLabel}, about ${(bps / 1e6).toFixed(1)} Mbps`;
     audioSwitch.disabled = !hasSound;
     audioRow.classList.toggle('disabled', !hasSound);
@@ -370,7 +373,7 @@ export function openExportDialog(ctx) {
     const bytes = (s.video || s.audio ? estimateSize(s, duration, { projW, projH }) : 0) + gifBytes;
     const nothing = !s.video && !s.audio && !s.gif && !(s.captions && hasCaptions);
     const noVideo = s.video && caps && !caps.video.length;
-    exportBtn.disabled = duration <= 0 || nothing || noVideo;
+    exportBtn.disabled = duration <= 0 || nothing || noVideo || noSound;
     scope.set(s.scope);
     footerInfo.replaceChildren(
       h('span', icon('clock', 14), `Length ${clock(duration)}`),

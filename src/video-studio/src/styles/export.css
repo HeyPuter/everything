@@ -116,6 +116,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.export-codec-note .icon {
+  display: inline-block;
+  color: var(--warning);
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
 .export-switch-wrap {
   display: flex;
 }

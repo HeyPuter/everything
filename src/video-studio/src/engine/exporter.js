@@ -688,6 +688,8 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
         break;
       }
     }
+    // Never drop the sound without saying so.
+    if (!audioCodec) throw new Error(`This browser cannot encode sound for ${container.label}. Choose another format, or turn off Export audio.`);
   }
   const sampleRate = 48000;
   const totalSamples = Math.round((duration * sampleRate) / US);

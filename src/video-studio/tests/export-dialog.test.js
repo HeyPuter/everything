@@ -13,7 +13,7 @@ vi.mock('../src/engine/exporter.js', async (orig) => {
 });
 
 const { openExportDialog } = await import('../src/ui/export-dialog.js');
-const { exportProject } = await import('../src/engine/exporter.js');
+const { exportProject, detectCapabilities } = await import('../src/engine/exporter.js');
 
 function ctxWith(project) {
   return { store: { project, time: 0 }, library: { backend: { kind: 'opfs' } }, account: { user: null } };
@@ -27,6 +27,28 @@ beforeEach(() => {
 });
 
 describe('export dialog', () => {
+  it('warns and holds Export when the format cannot carry sound in this browser', async () => {
+    detectCapabilities.mockResolvedValueOnce({ video: ['avc', 'vp9'], audio: ['opus'], audioFormats: ['wav', 'ogg'] });
+    const p = createProject({ name: 'Trip' });
+    p.tracks[0].clips.push(makeClip('video', { assetId: 'v', duration: 2 * US }));
+    p.assets.v = { id: 'v', kind: 'video', width: 100, height: 100, duration: 2 * US, hasAudio: true };
+    const d = openExportDialog(ctxWith(p));
+    await flush();
+    const format = [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.value === 'mov'));
+    const exportBtn = [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Export');
+    const note = d.el.querySelector('.export-codec-note');
+    expect(exportBtn.disabled).toBe(false);
+    format.value = 'mov';
+    format.dispatchEvent(new Event('change'));
+    expect(note.textContent).toMatch(/cannot encode sound for MOV/);
+    expect(exportBtn.disabled).toBe(true);
+    // Without sound, MOV is fine.
+    d.el.querySelector('button.switch').click();
+    expect(note.textContent).not.toMatch(/cannot encode sound/);
+    expect(exportBtn.disabled).toBe(false);
+    d.close();
+  });
+
   it("starts at the timeline's frame rate, keeping a rate picked for it this session", async () => {
     const { setPref } = await import('../src/ui/prefs.js');
     setPref('exportSettings', { fps: 30, resolution: 720 });
