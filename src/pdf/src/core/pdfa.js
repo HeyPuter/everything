@@ -37,6 +37,7 @@ import { decode, pageSource } from './text-edit.js';
 import { annotationList, annotationsOf, formFields } from './structure.js';
 import { ensureNoteAppearance } from './notes.js';
 import { ensureMarkupAppearance } from './highlight.js';
+import { DRAWABLE, refreshAppearance } from './annotation-appearance.js';
 import { appearanceRollback, updateFieldAppearance } from './form-appearance.js';
 import { drawnFieldTexts } from './flatten.js';
 import { textFonts } from './document.js';
@@ -1137,12 +1138,7 @@ const zeroRect = (dict) => {
   const [a, b, c, d] = rect.asArray().map((v) => numberOf(dict.context.lookup(v)) ?? 0);
   return a === c && b === d;
 };
-const appearanceGenerable = (dict) => {
-  const subtype = text(get(dict, 'Subtype'));
-  if (subtype === 'Text')
-    return [undefined, name('Note'), name('Comment')].includes(get(dict, 'Name'));
-  return ['Highlight', 'Underline', 'StrikeOut', 'Squiggly'].includes(subtype);
-};
+const appearanceGenerable = (dict) => DRAWABLE.has(text(get(dict, 'Subtype')));
 
 function checkAnnotations(doc, { part }, add, widgets) {
   const context = doc.context;
@@ -1930,7 +1926,8 @@ export async function convertToPdfA(doc, options = {}) {
   await convertOptionalContent(doc, part, fixed);
 
   // Annotations.
-  convertAnnotations(doc, part, fixed);
+  // Text box appearances can use fonts pdf-lib embeds lazily; materialize them for the checks.
+  if (await convertAnnotations(doc, part, fixed)) await doc.flush();
 
   // Content: images, forms, graphics states, streams, fonts.
   let model = scanDocument(doc);
@@ -2255,8 +2252,9 @@ async function convertOptionalContent(doc, part, fixed) {
   });
 }
 
-function convertAnnotations(doc, part, fixed) {
+async function convertAnnotations(doc, part, fixed) {
   const context = doc.context;
+  let drew = false;
   const allowed = ANNOTATIONS[part === 1 ? 1 : 2];
   const removed = new Set(),
     structKeys = new Set();
@@ -2328,6 +2326,14 @@ function convertAnnotations(doc, part, fixed) {
         try {
           if (ensureNoteAppearance(doc, page, dict) || ensureMarkupAppearance(doc, dict))
             fixed('Drew missing annotation appearances.');
+          else if (DRAWABLE.has(subtype)) {
+            // Shapes, lines, ink, text boxes, stamps: drawn from the dictionary, as comments are.
+            await refreshAppearance(doc, page, dict);
+            if (get(dict, 'AP') instanceof PDFDict) {
+              fixed('Drew missing annotation appearances.');
+              drew = true;
+            }
+          }
         } catch {
           /* Left for the report. */
         }
@@ -2365,6 +2371,7 @@ function convertAnnotations(doc, part, fixed) {
     }
   }
   removeStructReferences(doc, removed, structKeys);
+  return drew;
 }
 
 /** Re-encode LZW streams with Flate; the stages after LZW are kept as they are. */

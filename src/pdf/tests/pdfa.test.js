@@ -421,6 +421,44 @@ describe('Save as PDF/A', () => {
     expect(spec.has(name('UF'))).toBe(true);
   });
 
+  it('draws the missing appearances of shapes, text boxes, and squiggly underlines', async () => {
+    const source = await PDFDocument.create();
+    const page = source.addPage([400, 300]);
+    const annotations = [
+      { Subtype: 'Square', Rect: [40, 40, 140, 120], C: [1, 0, 0] },
+      {
+        Subtype: 'FreeText',
+        Rect: [160, 40, 360, 80],
+        Contents: PDFHexString.fromText('A note in a box'),
+        DA: PDFHexString.fromText('/Helv 12 Tf 0 0 1 rg'),
+      },
+      {
+        Subtype: 'Squiggly',
+        Rect: [40, 200, 200, 220],
+        QuadPoints: [40, 220, 200, 220, 40, 200, 200, 200],
+        C: [0, 0.6, 0],
+      },
+    ].map((a) => source.context.register(source.context.obj({ Type: 'Annot', ...a })));
+    page.node.set(name('Annots'), source.context.obj(annotations));
+    const doc = await PDFDocument.load(await source.save());
+    expect(
+      preflightPdfA(doc, { part: 2, conformance: 'b' }).issues.filter(
+        (issue) => issue.id === 'annotation-ap-missing',
+      ),
+    ).not.toEqual([]);
+    const report = await convertToPdfA(doc, { part: 2, conformance: 'b', loadAsset });
+    expect(errors(report.remaining)).toEqual([]);
+    const saved = await doc.save(pdfaSaveOptions(2));
+    const reopened = await PDFDocument.load(saved, { updateMetadata: false });
+    expect(
+      errors(preflightPdfA(reopened, { part: 2, conformance: 'b', bytes: saved }).issues),
+    ).toEqual([]);
+    for (const annotation of reopened.getPage(0).node.lookup(name('Annots'), PDFArray).asArray())
+      expect(reopened.context.lookup(annotation).lookup(name('AP'), PDFDict).has(name('N'))).toBe(
+        true,
+      );
+  });
+
   it('re-encodes LZW streams with Flate', async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([200, 200]);
