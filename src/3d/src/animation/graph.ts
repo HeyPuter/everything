@@ -460,7 +460,23 @@ export class GraphEditor extends AnimEditor {
 
   private drawCurve(g: CanvasRenderingContext2D, r: CurveRef, color: string, selected: boolean, W: number) {
     const fc = r.fc;
-    if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) return;
+    if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) {
+      // a driver curve without keys passes the driver value through: show that as the line y = x
+      if (this.space() === 'DRIVERS' && !fc.modifiers.length) {
+        const x0 = this.view.xf(0),
+          x1 = this.view.xf(W);
+        g.strokeStyle = color;
+        g.globalAlpha = selected ? 1 : animSettings.unselectedAlpha;
+        g.lineWidth = selected ? 1.6 : 1.2;
+        g.beginPath();
+        g.moveTo(this.px(x0), this.py(this.toDisp(fc, x0)));
+        g.lineTo(this.px(x1), this.py(this.toDisp(fc, x1)));
+        g.stroke();
+        g.globalAlpha = 1;
+        g.lineWidth = 1;
+      }
+      return;
+    }
     g.strokeStyle = color;
     g.globalAlpha = selected ? 1 : animSettings.unselectedAlpha;
     g.lineWidth = selected ? 1.6 : 1.2;
