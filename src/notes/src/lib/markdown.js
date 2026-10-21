@@ -53,6 +53,12 @@ function list(el, depth) {
   const lines = [];
   let n = Number(el.getAttribute('start')) || 1;
   for (const li of el.children) {
+    // Chrome's indent nests the new list directly in the old one
+    // (<ul><li>a</li><ul><li>b</li></ul></ul>); it belongs to the item above.
+    if (li.tagName === 'UL' || li.tagName === 'OL') {
+      lines.push(...list(li, depth + 1));
+      continue;
+    }
     if (li.tagName !== 'LI') continue;
     const marker = el.tagName === 'OL' ? `${n++}.` : '-';
     const textParts = [];

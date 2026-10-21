@@ -16,6 +16,10 @@ describe('htmlToMarkdown', () => {
     expect(md).toBe('- A\n  - A1\n- B\n\n| K | V |\n| --- | --- |\n| a | 1 |');
   });
 
+  it('keeps list levels made with Tab (a list nested directly in a list)', () => {
+    expect(htmlToMarkdown('<ul><li>one</li><ul><li>two</li><ol><li>deep</li></ol></ul><li>three</li></ul>')).toBe('- one\n  - two\n    1. deep\n- three');
+  });
+
   it('escapes Markdown characters in text', () => {
     expect(htmlToMarkdown('<p>2*3 = 6_x</p>')).toBe('2\\*3 = 6\\_x');
   });
