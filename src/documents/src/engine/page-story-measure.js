@@ -19,7 +19,8 @@ export function measurePageStory(story, geometry, measure, numbering, context, {
   const placed = layoutDocument(paragraphs, measure, storyGeometry, numbering, story.tables || [], undefined,
     { drawingLayouts, bestEffort: !!onUnsupported, frameGeometry: geometry, previewCellPageBreaks: !!onUnsupported, previewRotatedCells: !!onUnsupported, previewNegativeWrap: !!onUnsupported, previewManualBreakWrap: !!onUnsupported });
   for (const approximation of [...(placed.floatingTableApproximations || []), ...(placed.frameApproximations || []), ...(placed.rotatedCellApproximations || []), ...(placed.negativeWrapApproximations || []), ...(placed.manualBreakWrapApproximations || [])]) onUnsupported(new Error(approximation.message));
-  if (placed.pageCount !== 1) throw new Error('This header or footer is taller than a page.');
+  // Notes are measured as 'footnote' stories (endnotes included).
+  if (placed.pageCount !== 1) throw new Error(`This ${geometry.storyKind === 'footnote' ? 'footnote or endnote' : 'header or footer'} is taller than a page.`);
   const last = placed.lines.at(-1), format = paragraphFormat(paragraphs.at(-1), numbering);
   const visible = last?.fragments.filter(f => !isPositionedImage(f.image)) || [];
   const trim = geometry.storyKind === 'footer' && !last?.cellId && format.lineRule === 'auto' && format.lineSpacing === 1 && visible.length && visible.every(f => f.image)

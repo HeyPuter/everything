@@ -111,6 +111,13 @@ describe('footnotes', () => {
     expect(lastOnFirst(withNotes)).toBeLessThan(lastOnFirst(without));
   });
 
+  it('names the note, not a header or footer, when a note grows taller than a page', async () => {
+    const { pkg, model } = await open(notedDocx());
+    const note = Object.values(pkg.pageStories.stories).find(story => story.kind === 'footnote');
+    note.paragraphs[0].runs.at(-1).text += ' Long source text.'.repeat(1500);
+    expect(() => layout(pkg, model)).toThrow('This footnote or endnote is taller than a page.');
+  });
+
   it('saves untouched notes byte for byte, edits a note and prunes deleted references', async () => {
     const source = notedDocx(), { pkg, model } = await open(source);
     const save = async (edits) => new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets, edits).arrayBuffer());
