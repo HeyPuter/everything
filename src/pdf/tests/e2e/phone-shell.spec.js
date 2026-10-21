@@ -159,6 +159,23 @@ test('the hints speak of taps on a touch screen, and a double tap edits text', a
   await expect(page.locator('.page-text-input, .text-line-input').first()).toBeVisible();
 });
 
+test('read mode tells a touch screen how to bring the tools back', async ({ page }) => {
+  await openPdf(page, await pages(1));
+  const readMode = async () => {
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+    await page.getByRole('menuitemcheckbox', { name: 'Read mode', exact: true }).click();
+  };
+  await readMode();
+  await expect(page.locator('.editor')).toHaveClass(/read-mode/);
+  // A phone has no Escape key; the way back is the one the message names.
+  await expect(page.locator('#toast')).toHaveText(
+    'Read mode. Turn it off in the View menu to show the tools again.',
+  );
+  await readMode();
+  await expect(page.locator('.editor')).not.toHaveClass(/read-mode/);
+});
+
 test('a stamp placed on a phone is brought into view above the selection dock', async ({
   page,
 }) => {

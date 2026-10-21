@@ -3066,7 +3066,13 @@ export function createEditor({
   /** Read mode keeps only the pages and their controls on screen. */
   function setReadMode(on) {
     editorRoot.classList.toggle('read-mode', on);
-    if (on) toast('Read mode. Press Escape to show the tools again.');
+    if (on)
+      toast(
+        // A touch screen usually has no Escape key.
+        touchScreen?.matches
+          ? 'Read mode. Turn it off in the View menu to show the tools again.'
+          : 'Read mode. Press Escape to show the tools again.',
+      );
     setTimeout(refitPage, 0);
   }
   function toggleFullScreen() {
