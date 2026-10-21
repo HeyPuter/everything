@@ -874,12 +874,22 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions;
   for (let v = 0; v < P.length / 3; v++) b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  // the original corner behind every new corner (edge flags follow the original edges, diagonals get none)
+  const src: number[] = [];
+  const flagsFor = (cs: number[], s: number, e: number) => {
+    const next = (c: number) => (c + 1 < e ? c + 1 : s);
+    const on = (c: number, d: number) => next(c) === d;
+    const pick = (arr: ArrayLike<number> | undefined) => (arr ? cs.map((c, i) => (on(c, cs[(i + 1) % cs.length]) ? arr[c] : 0)) : undefined);
+    return { seams: pick(m.seams), sharp: pick(m.sharp), creases: pick(m.creases), colors: m.colors ? cs.flatMap((c) => Array.from(m.colors!.subarray(c * 4, c * 4 + 4))) : undefined };
+  };
   const tmp: number[] = [];
   for (let f = 0; f < m.offsets.length - 1; f++) {
     const s = m.offsets[f],
       e = m.offsets[f + 1];
     if (e - s < minVerts) {
-      b.addFace(Array.from(m.indices.subarray(s, e)), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+      const cs = Array.from({ length: e - s }, (_, i) => s + i);
+      b.addFace(Array.from(m.indices.subarray(s, e)), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, flagsFor(cs, s, e));
+      src.push(...cs);
       continue;
     }
     tmp.length = 0;
@@ -887,10 +897,18 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     else triangulatePoly(P, m.indices.subarray(s, e), tmp, 0);
     for (let i = 0; i < tmp.length; i += 3) {
       const cs = [s + tmp[i], s + tmp[i + 1], s + tmp[i + 2]];
-      b.addFace(cs.map((c) => m.indices[c]), cs.flatMap((c) => [m.uvs[c * 2], m.uvs[c * 2 + 1]]), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+      b.addFace(cs.map((c) => m.indices[c]), cs.flatMap((c) => [m.uvs[c * 2], m.uvs[c * 2 + 1]]), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, flagsFor(cs, s, e));
+      src.push(...cs);
     }
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
+  // Keep Normals: the triangles keep the custom normals of the corners they come from
+  if (bool(mod, 'keep_custom_normals') && m.custom_normals && src.length === out.indices.length) {
+    const cn = new Float32Array(src.length * 3);
+    src.forEach((c, i) => cn.set(m.custom_normals!.subarray(c * 3, c * 3 + 3), i * 3));
+    out.custom_normals = cn;
+  }
+  return out;
 }
 
 function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -2132,7 +2150,7 @@ export const modifierTypes: Record<string, ModifierType> = {
         uvSmooth: str(mod, 'uv_smooth', 'PRESERVE_BOUNDARIES'),
       }),
   },
-  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
+  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4, keep_custom_normals: false }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL', loose_edges: false, vertex_group: '', invert_vertex_group: false }), apply: weldMod },
   WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
   // Deform

@@ -23,3 +23,24 @@ describe('Cast: control object transform', () => {
     (F[ut ? 'True' : 'False'] as number[][]).forEach((p, i) => expect(Math.hypot(r[i * 3] - p[0], r[i * 3 + 1] - p[1], r[i * 3 + 2] - p[2]), `vertex ${i}`).toBeLessThan(1e-3));
   });
 });
+
+import { buildMesh } from '../../src/mesh/mesh';
+import '../../src/eval/modifiers_extra';
+
+describe('Triangulate keeps edge data', () => {
+  it('sharp edges stay on the original edges; Keep Normals carries custom normals', () => {
+    const quad = buildMesh([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], [{ verts: [0, 1, 2, 3] }]);
+    const m = { ...quad, sharp: new Uint32Array([1, 0, 1, 0]), custom_normals: Float32Array.from([0, 0, 1, 0.6, 0, 0.8, 0, 0, 1, 0, 0.6, 0.8]) } as unknown as EvalMesh;
+    const t = modifierTypes.TRIANGULATE;
+    const out = t.apply(m, { ...t.defaults(), keep_custom_normals: true } as never, {} as ModifierContext);
+    expect(out.offsets.length - 1).toBe(2);
+    // two sharp edges survive (each on one triangle corner), the diagonal is not sharp
+    expect(Array.from(out.sharp!).filter(Boolean).length).toBe(2);
+    // each corner keeps its vertex's custom normal
+    for (let c = 0; c < out.indices.length; c++) {
+      const v = out.indices[c];
+      const want = [[0, 0, 1], [0.6, 0, 0.8], [0, 0, 1], [0, 0.6, 0.8]][v];
+      expect(Array.from(out.custom_normals!.subarray(c * 3, c * 3 + 3)).map((x) => +x.toFixed(3))).toEqual(want);
+    }
+  });
+});
