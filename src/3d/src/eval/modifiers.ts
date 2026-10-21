@@ -1378,21 +1378,22 @@ function cast(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     type = str(mod, 'cast_type', 'SPHERE');
   const use = [bool(mod, 'use_x', true), bool(mod, 'use_y', true), bool(mod, 'use_z', true)];
   const radius = num(mod, 'radius', 0);
-  // an object (e.g. an empty) can be the center and orientation of the effect
-  const space = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  // an object (e.g. an empty) is the center of the effect; with Use Transform also its orientation and scale
+  const full = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  const space = full && !bool(mod, 'use_transform') ? new Matrix4().copyPosition(full) : full;
   const toS = space ? space.clone().invert() : null;
   const P0 = m.positions;
   const P = toS ? transformMesh(m, toS).positions : P0;
   const nv = P.length / 3;
   let size = bool(mod, 'use_radius_as_size', true) ? radius : num(mod, 'size', 0);
-  // without a size: the average distance from the center (per axis extents for cuboids)
+  // without a size: the average distance from the center (measured without the control object's
+  // rotation and scale), per axis extents for cuboids
   const ext = [0, 0, 0];
   if (!size) {
+    const off = full ? new Vector3().setFromMatrixPosition(full) : new Vector3();
     let sum = 0;
-    for (let i = 0; i < P.length; i += 3) {
-      sum += Math.hypot(P[i], P[i + 1], P[i + 2]);
-      for (let k = 0; k < 3; k++) ext[k] = Math.max(ext[k], Math.abs(P[i + k]));
-    }
+    for (let i = 0; i < P0.length; i += 3) sum += Math.hypot(P0[i] - off.x, P0[i + 1] - off.y, P0[i + 2] - off.z);
+    for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) ext[k] = Math.max(ext[k], Math.abs(P[i + k]));
     size = sum / (nv || 1);
   } else ext.fill(size);
   const out = deform({ ...m, positions: P }, mod, (p) => {
@@ -1562,12 +1563,16 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   // per-vertex UVs (first corner of each vertex)
   let vuv: Float32Array | null = null;
   if (tex && coords === 'UV') {
+    // a named UV map of the original mesh (same corners), else the evaluated one
+    const src = ctx.source;
+    const named = str(mod, 'uv_layer') && src && src.indices === m.indices ? (src.uv_map_name === str(mod, 'uv_layer') ? src.uvs : src.uv_layers_extra?.find((u) => u.name === str(mod, 'uv_layer'))?.data) : undefined;
+    const uvs = named && named.length === m.indices.length * 2 ? named : m.uvs;
     vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
     for (let c = 0; c < m.indices.length; c++) {
       const v = m.indices[c];
       if (Number.isNaN(vuv[v * 2])) {
-        vuv[v * 2] = m.uvs[c * 2] * 2 - 1;
-        vuv[v * 2 + 1] = m.uvs[c * 2 + 1] * 2 - 1;
+        vuv[v * 2] = uvs[c * 2] * 2 - 1;
+        vuv[v * 2 + 1] = uvs[c * 2 + 1] * 2 - 1;
       }
     }
   }

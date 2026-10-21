@@ -5,7 +5,8 @@ import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
 import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget, flagToggles } from './kit';
-import type { ModifierBase } from '../../../data/types';
+import type { ModifierBase, ObjectData } from '../../../data/types';
+import { uvMaps } from '../../../mesh/uvmaps';
 
 type Rec = Record<string, unknown>;
 
@@ -212,6 +213,7 @@ modifierExtraUI.DISPLACE = (ob, m) => {
             ['UV', 'UV'],
           ]),
           r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
+          r.texture_coords === 'UV' ? uvMapRow(ob, r) : null,
         ]
       : null,
     enumProp(r, 'direction', 'Direction', [
@@ -331,8 +333,16 @@ modifierExtraUI.CAST = (ob, m) => {
     bool(r, 'use_radius_as_size', 'Size from Radius'),
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     objRow(r, 'object', 'Control Object', (o) => o.id !== ob.id),
+    r.object ? bool(r, 'use_transform', 'Use Transform') : null,
   ];
 };
+
+/** UV map picker of a modifier (the mesh's UV maps by name; empty: the active one). */
+function uvMapRow(ob: ObjectData, r: Rec) {
+  const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+  const items = [{ value: '', label: '—' }, ...(me ? uvMaps(me).map((u) => ({ value: u.name, label: u.name })) : [])];
+  return splitRow('UV Map', enumMenu(`uvmap.${String(r.id)}`, items, String(r.uv_layer ?? ''), (v) => ((r.uv_layer = v), touch('UV Map'))));
+}
 
 modifierFields.SMOOTH = [];
 modifierExtraUI.SMOOTH = (ob, m) => {
