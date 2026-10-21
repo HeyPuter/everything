@@ -23,7 +23,7 @@ export function openInsertTable(apply, { anchor = document.activeElement, focusF
     [...grid.children].forEach((cell, i) => cell.classList.toggle('is-preview', Math.floor(i / COLUMNS) < rows && i % COLUMNS < columns));
   };
   for (let rows = 1; rows <= ROWS; rows++) for (let columns = 1; columns <= COLUMNS; columns++) grid.append(el('button.swatch.table-size-cell', {
-    type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': `${columns} columns, ${rows} rows`,
+    type: 'button', role: 'menuitem', tabindex: -1, 'aria-label': `${columns} ${columns === 1 ? 'column' : 'columns'}, ${rows} ${rows === 1 ? 'row' : 'rows'}`,
     onfocus: () => preview(rows, columns), onpointerenter: () => preview(rows, columns), onclick: () => insert(rows, columns),
   }));
   grid.addEventListener('pointerleave', () => { dimensions.textContent = 'Choose a table size'; for (const cell of grid.children) cell.classList.remove('is-preview'); });

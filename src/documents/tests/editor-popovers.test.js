@@ -13,6 +13,12 @@ it('previews table dimensions with keyboard navigation and inserts exactly once'
   expect(popup.menu.querySelectorAll('.is-preview')).toHaveLength(6);
   cell.click(); cell.click(); expect(apply).toHaveBeenCalledExactlyOnceWith(2, 3);
 });
+it('names the table size cells in the singular for one row or column', () => {
+  const popup = openInsertTable(vi.fn(), { anchor: anchor() });
+  const names = [...popup.menu.querySelectorAll('.table-size-cell')].map(cell => cell.getAttribute('aria-label'));
+  expect(names.slice(0, 2)).toEqual(['1 column, 1 row', '2 columns, 1 row']);
+  expect(names[10]).toBe('1 column, 2 rows');
+});
 it('keeps links non-modal and leaves selected content unchanged on dismissal', () => {
   const apply = vi.fn(), opener = anchor();
   const popup = openHyperlink({ anchor: opener, apply, insert: false });
