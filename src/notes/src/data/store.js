@@ -41,6 +41,8 @@ export class Store extends Emitter {
     this.library = { v: 1, notebooks: [] };
     this.notebooks = [];
     this.trash = [];
+    // Ids in trash.json as last read or written, to merge other devices' changes.
+    this.trashBase = new Set();
     this.pages = new Map();
     this.pageLoads = new Map();
     this.textCache = new Map();
@@ -68,6 +70,7 @@ export class Store extends Emitter {
     ]);
     this.library = library && Array.isArray(library.notebooks) ? library : { v: 1, notebooks: [] };
     this.trash = Array.isArray(trash) ? trash : [];
+    this.trashBase = new Set(this.trash.map((t) => t.id));
     const trashedNotebooks = new Set(this.trash.filter((t) => t.kind === 'notebook').map((t) => t.notebook.id));
     // Notebooks created on another device before this library.json was
     // written still show up: the folder listing is the source of truth.
@@ -104,6 +107,15 @@ export class Store extends Emitter {
     const library = await this.backend.readJSON('library.json').catch(() => null);
     if (!library) return false;
     let changed = false;
+    if (await this.mergeTrash(await this.backend.readJSON('trash.json').catch(() => null))) {
+      changed = true;
+      // A notebook deleted on another device leaves this one too, unless it
+      // has changes here that are not saved yet.
+      for (const entry of this.trash) {
+        const i = entry.kind === 'notebook' ? this.notebooks.findIndex((n) => n.id === entry.notebook.id) : -1;
+        if (i >= 0 && !this.timers.has(`notebooks/${entry.notebook.id}.json`)) this.notebooks.splice(i, 1);
+      }
+    }
     for (const id of library.notebooks || []) {
       if (this.timers.has(`notebooks/${id}.json`)) continue;
       const remote = await this.backend.readJSON(`notebooks/${id}.json`).catch(() => null);
@@ -136,6 +148,37 @@ export class Store extends Emitter {
       this.emit('change', { type: 'refresh' });
     }
     return changed;
+  }
+
+  /**
+   * Folds in Deleted Notes changes another device saved since this session
+   * last read or wrote trash.json: what was deleted there is added here,
+   * what was restored or purged there is dropped. True when trash changed.
+   */
+  async mergeTrash(remote) {
+    if (!Array.isArray(remote)) return false;
+    const base = this.trashBase;
+    const remoteIds = new Set(remote.map((t) => t?.id));
+    const localIds = new Set(this.trash.map((t) => t.id));
+    const kept = this.trash.filter((t) => !base.has(t.id) || remoteIds.has(t.id));
+    const added = remote.filter((t) => t?.id && !base.has(t.id) && !localIds.has(t.id));
+    this.trashBase = remoteIds;
+    if (!added.length && kept.length === this.trash.length) return false;
+    for (const entry of added) {
+      // A protected section unlocked here holds its pages decrypted, or the
+      // next save would seal an empty list over them.
+      const root = entry.node || entry.notebook;
+      if (!root) continue;
+      for (const s of this.sectionsOf({ sections: root.sections || [root] })) {
+        const key = s.locked && this.keys.get(s.id);
+        if (!key) continue;
+        const pages = s.sealed ? await openJSON(key, s.sealed).catch(() => null) : null;
+        if (pages) s.pages = pages;
+        else this.keys.delete(s.id);
+      }
+    }
+    this.trash = [...kept, ...added].sort((a, b) => String(b.deletedAt).localeCompare(String(a.deletedAt)));
+    return true;
   }
 
   /**
@@ -608,12 +651,20 @@ export class Store extends Emitter {
     if (i < 0) return null;
     const entry = this.trash[i];
     let result = null;
+    // Anything already back (restored on another device) is not added
+    // twice, but it is saved again so the restore sticks.
     if (entry.kind === 'notebook') {
-      this.notebooks.splice(Math.min(entry.index, this.notebooks.length), 0, entry.notebook);
-      this.library.notebooks = this.notebooks.map((n) => n.id);
-      this.touchNotebook(entry.notebook);
+      if (!this.notebook(entry.notebook.id)) {
+        this.notebooks.splice(Math.min(entry.index, this.notebooks.length), 0, entry.notebook);
+        this.library.notebooks = this.notebooks.map((n) => n.id);
+      }
+      this.touchNotebook(this.notebook(entry.notebook.id));
       this.scheduleLibrary();
       result = { notebookId: entry.notebook.id };
+    } else if ((entry.kind === 'section' || entry.kind === 'group') && this.findNode(entry.node.id)) {
+      const live = this.findNode(entry.node.id);
+      this.touchNotebook(live.notebook);
+      result = { notebookId: live.notebook.id, sectionId: entry.node.id };
     } else if (entry.kind === 'section' || entry.kind === 'group') {
       const nb = this.notebook(entry.notebookId) || this.notebooks[0];
       if (!nb) return null;
@@ -622,6 +673,10 @@ export class Store extends Emitter {
       list.splice(Math.min(entry.index, list.length), 0, entry.node);
       this.touchNotebook(nb);
       result = { notebookId: nb.id, sectionId: entry.node.id };
+    } else if (entry.kind === 'page' && entry.pages.length && entry.pages.every((p) => this.findPage(p.id))) {
+      const live = this.findPage(entry.pages[0].id);
+      this.touchNotebook(live.notebook);
+      result = { sectionId: live.section.id, pageId: live.meta.id };
     } else if (entry.kind === 'page') {
       let section = this.section(entry.sectionId);
       if (!section) {
@@ -630,7 +685,7 @@ export class Store extends Emitter {
         section = [...this.sectionsOf(nb)][0] || this.createSection(nb.id, { name: entry.sectionName || 'Restored Pages', silent: true });
       }
       if (this.isLocked(section.id)) return null;
-      section.pages.splice(Math.min(entry.index, section.pages.length), 0, ...entry.pages);
+      section.pages.splice(Math.min(entry.index, section.pages.length), 0, ...entry.pages.filter((p) => !this.findPage(p.id)));
       normalizeLevels(section.pages);
       this.touchNotebook(this.findNode(section.id).notebook);
       result = { sectionId: section.id, pageId: entry.pages[0]?.id };
@@ -646,11 +701,12 @@ export class Store extends Emitter {
     const i = this.trash.findIndex((t) => t.id === trashId);
     if (i < 0) return;
     const [entry] = this.trash.splice(i, 1);
-    const pageIds = trashPageIds(entry);
+    // Never delete the files of anything that is live again (restored on another device).
+    const pageIds = trashPageIds(entry).filter((id) => !this.findPage(id));
     this.scheduleTrash();
     this.emit('change', { type: 'purge' });
     await Promise.all(pageIds.map((id) => this.dropPageFiles(id)));
-    if (entry.kind === 'notebook') {
+    if (entry.kind === 'notebook' && !this.notebook(entry.notebook.id)) {
       this.cancel(`notebooks/${entry.notebook.id}.json`);
       await this.backend.remove(`notebooks/${entry.notebook.id}.json`);
     }
@@ -1136,8 +1192,15 @@ export class Store extends Emitter {
       this.pendingWrites.set(path, (this.pendingWrites.get(path) || 0) + 1);
       this.setStatus('saving');
       try {
+        // Another device may have changed Deleted Notes since this session
+        // read it: merge rather than write over its entries.
+        if (path === 'trash.json' && (await this.mergeTrash(await this.backend.readJSON(path)))) {
+          snapshot = JSON.parse(JSON.stringify(this.trash));
+          this.emit('change', { type: 'trash' });
+        }
         snapshot = await this.seal(path, snapshot);
         if (snapshot !== null) await this.backend.writeJSON(path, snapshot);
+        if (path === 'trash.json' && snapshot) this.trashBase = new Set(snapshot.map((t) => t.id));
         this.failed.delete(path);
       } catch (err) {
         console.warn('Save failed', path, err);

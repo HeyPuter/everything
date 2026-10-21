@@ -249,6 +249,101 @@ describe('Store: saving after a failure', () => {
   });
 });
 
+describe('Store: Deleted Notes on two devices', () => {
+  const later = () => new Promise((r) => setTimeout(r, 5));
+  async function twoDevices() {
+    const backend = memoryBackend();
+    const a = new Store(backend, { saveDelay: 0 });
+    await a.load();
+    const section = [...a.sectionsOf(a.notebooks[0])][0];
+    const one = a.createPage(section.id, { title: 'One' });
+    const two = a.createPage(section.id, { title: 'Two' });
+    await a.flush();
+    const b = new Store(backend, { saveDelay: 0 });
+    await b.load();
+    await later();
+    return { backend, a, b, one, two };
+  }
+
+  it('keeps pages deleted on each device in Deleted Notes', async () => {
+    const { backend, a, b, one, two } = await twoDevices();
+    a.deletePage(one.id);
+    await a.flush();
+    await later();
+    await b.refresh();
+    b.deletePage(two.id);
+    await b.flush();
+    const c = new Store(backend, { saveDelay: 0 });
+    await c.load();
+    expect(c.trash.map((t) => t.pages[0].title).sort()).toEqual(['One', 'Two']);
+    // A session that never refreshed still merges before it writes.
+    await a.purge(a.trash[0].id);
+    await a.flush();
+    const d = new Store(backend, { saveDelay: 0 });
+    await d.load();
+    expect(d.trash.map((t) => t.pages[0].title)).toEqual(['Two']);
+  });
+
+  it('does not bring back what another device restored or emptied', async () => {
+    const { backend, a, b, one, two } = await twoDevices();
+    const e1 = a.deletePage(one.id);
+    a.deletePage(two.id);
+    await a.flush();
+    await later();
+    await b.refresh();
+    expect(b.trash).toHaveLength(2);
+    b.restore(e1.id);
+    await b.flush();
+    // a still lists both; its next Deleted Notes save must not undo b's restore.
+    const n = a.createNotebook('Other');
+    a.deleteNotebook(n.id);
+    await a.flush();
+    expect(a.trash.map((t) => t.kind).sort()).toEqual(['notebook', 'page']);
+    const c = new Store(backend, { saveDelay: 0 });
+    await c.load();
+    expect(c.findPage(one.id)).toBeTruthy();
+    expect(c.trash.some((t) => t.id === e1.id)).toBe(false);
+  });
+
+  it('drops a notebook deleted on another device', async () => {
+    const { backend, a, b } = await twoDevices();
+    const nb = a.createNotebook('Trip');
+    await a.flush();
+    await later();
+    await b.refresh();
+    expect(b.notebook(nb.id)).toBeTruthy();
+    a.deleteNotebook(nb.id);
+    await a.flush();
+    await later();
+    expect(await b.refresh()).toBe(true);
+    expect(b.notebook(nb.id)).toBeNull();
+    b.moveNotebook(b.notebooks[0].id, 0);
+    await b.flush();
+    const c = new Store(backend, { saveDelay: 0 });
+    await c.load();
+    expect(c.notebook(nb.id)).toBeNull();
+    expect(c.trash.some((t) => t.kind === 'notebook' && t.notebook.id === nb.id)).toBe(true);
+  });
+
+  it('never purges or duplicates a page that is live again', async () => {
+    const { a, one } = await twoDevices();
+    const entry = a.deletePage(one.id);
+    await a.flush();
+    // The same page back in its section while its entry is still listed.
+    const section = [...a.sectionsOf(a.notebooks[0])][0];
+    section.pages.push(...structuredClone(entry.pages));
+    a.trash.unshift(structuredClone(entry));
+    a.restore(entry.id);
+    expect(section.pages.filter((p) => p.id === one.id)).toHaveLength(1);
+    await a.flush();
+    const saved = JSON.parse(a.backend.files.get(`notebooks/${a.notebooks[0].id}.json`));
+    expect(saved.sections[0].pages.filter((p) => p.id === one.id)).toHaveLength(1);
+    a.trash.unshift(structuredClone(entry));
+    await a.purge(entry.id);
+    expect(a.backend.files.has(`pages/${one.id}.json`)).toBe(true);
+  });
+});
+
 describe('helpers', () => {
   it('normalizeLevels clamps orphaned subpages', () => {
     expect(normalizeLevels([{ level: 2 }, { level: 2 }, { level: 0 }, { level: 2 }]).map((p) => p.level)).toEqual([0, 1, 0, 1]);
