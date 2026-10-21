@@ -228,12 +228,24 @@ export function documentMarkdown(model) {
 }
 
 /* ---- Plain text ---- */
+/** Each list item's marker as the document shows it ("1.", "a)", "•") and what separates it from the text. */
+function itemMarkers(model) {
+  const markers = new Map();
+  try {
+    listMarkers(model.paragraphs, model.numbering).forEach((marker, i) => {
+      if (marker?.text) markers.set(model.paragraphs[i], marker.text + ({ space: ' ', nothing: '' }[marker.level.suffix] ?? '\t'));
+    });
+  } catch { /* Items are written without their markers instead. */ }
+  return markers;
+}
 export function documentPlainText(model) {
-  const lines = [];
+  const lines = [], markers = itemMarkers(model);
+  // A list item keeps its number or bullet, indented two spaces a level, as text has no other way to show them.
+  const marker = (p, indent = true) => markers.has(p) ? (indent ? '  '.repeat(listLevel(p)) : '') + markers.get(p) : '';
   const walk = blocks => {
     for (const block of blocks) {
-      if (block.type === 'table') { for (const row of tableRows(block, cell => cellText(cell, p => p.runs.map(runText).join('').replace(/[\v\f\u000e]/g, ' '), ' ', ' '))) lines.push(row.join('\t')); continue; }
-      lines.push(block.paragraph.runs.map(runText).join('').replace(/[\v\f\u000e]/g, '\n'));
+      if (block.type === 'table') { for (const row of tableRows(block, cell => cellText(cell, p => marker(p, false) + p.runs.map(runText).join('').replace(/[\v\f\u000e]/g, ' '), ' ', ' '))) lines.push(row.join('\t')); continue; }
+      lines.push(marker(block.paragraph) + block.paragraph.runs.map(runText).join('').replace(/[\v\f\u000e]/g, '\n'));
     }
   };
   walk(blocksOf(model));

@@ -93,7 +93,7 @@ describe('text exports', () => {
     expect(html).toContain('<h1>Title line</h1>');
     expect(html).toContain('<ul><li>First point</li><li>Second point</li></ul>');
     expect(html).toContain('<strong>bold</strong>');
-    expect(documentPlainText(m)).toBe('Title line\nFirst point\nSecond point\nBody with bold\n');
+    expect(documentPlainText(m)).toBe('Title line\n•\tFirst point\n•\tSecond point\nBody with bold\n');
     m.select(m.text.length); m.insertTable(2, 2);
     expect(documentHtml(m)).toContain('<table><tr><td>');
     expect(documentMarkdown(m)).toContain('| --- | --- |');

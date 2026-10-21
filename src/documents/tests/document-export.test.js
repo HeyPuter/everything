@@ -155,6 +155,9 @@ describe('exported lists', () => {
     expect(body(documentHtml(doc))).toBe('<ol><li>a<ol><li>a1</li><li>a2</li></ol></li><li>b<ul><li>b1</li></ul></li><li>c</li></ol>');
     expect(shape(reopen(documentHtml(doc), true))).toEqual(shape(doc));
   });
+  it('keep their numbers and bullets in plain text', () => {
+    expect(documentPlainText(nested())).toBe('1.\ta\n  1.1.\ta1\n  1.2.\ta2\n2.\tb\n  ◦\tb1\n3.\tc\n');
+  });
   it('keep the number a list continues from after a paragraph between its items', () => {
     const doc = blankDoc();
     doc.replace('one'); doc.toggleList('number');
