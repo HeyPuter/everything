@@ -107,6 +107,14 @@ describe('App shell', () => {
     app.runCommand('prevPage');
     await tick();
     expect(document.activeElement.closest('.outline-body')?.textContent).toBe('First text');
+    // With a pen, the canvas keeps focus (Delete and Escape go there).
+    app.setTool('pen');
+    expect(document.activeElement).toBe(app.editor.scroller);
+    app.runCommand('nextPage');
+    await tick();
+    expect(app.state.pageId).toBe(second.id);
+    expect(document.activeElement).toBe(app.editor.scroller);
+    app.setTool('type');
   });
 
   it('steps on from an open subpage whose parent is collapsed', async () => {

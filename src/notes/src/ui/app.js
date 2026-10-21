@@ -617,9 +617,14 @@ export class App {
     // Opening the page replaces the one being typed in; carry on writing in
     // the new page (as opening it from the page list with Enter does)
     // rather than leave focus on nothing.
+    // With a pen or other tool, the canvas itself has focus: keep it there.
     const active = document.activeElement;
-    const typing = !active || active === document.body || this.editor.scroller.contains(active);
-    if (next) this.openPage(next, { focus: typing });
+    const canvas = active === this.editor.scroller;
+    const typing = !canvas && (!active || active === document.body || this.editor.scroller.contains(active));
+    if (!next) return;
+    Promise.resolve(this.openPage(next, { focus: typing })).then(() => {
+      if (canvas && this.state.pageId === next && this.editor.page) this.editor.scroller.focus({ preventScroll: true });
+    });
   }
 
   isUnlocked(id) {
