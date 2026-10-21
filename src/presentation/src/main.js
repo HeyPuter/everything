@@ -9571,8 +9571,12 @@ function startDrag(e, shape, mode = "move") {
   // The objects in motion stay on the slide, and they move as one: by the
   // step the pointer asks for, or by the room the one nearest the slide's
   // edge has left, so their arrangement holds. Artwork already past an edge
-  // keeps the overflow it came with.
-  const held = [...(carried ? [] : [b]), ...companions.map((c) => c.bounds)];
+  // keeps the overflow it came with, and a turned object meets the edge
+  // where the slide shows it.
+  const held = [
+    ...(carried ? [] : [turnedBounds(b, rotation)]),
+    ...companions.map((c) => turnedBounds(c.bounds, c.rotation)),
+  ];
   const withinSlide = (candidate) => {
     let dx = candidate.x - b.x,
       dy = candidate.y - b.y;
@@ -16781,10 +16785,12 @@ document.addEventListener("keydown", (e) => {
         if (b) items.push({ obj, b });
       }
       // The objects move as one: by the step, or by the room the one nearest
-      // the slide's edge has left, so their arrangement holds.
+      // the slide's edge has left, so their arrangement holds. A turned
+      // object meets the edge where the slide shows it.
       let stepX = dx,
         stepY = dy;
-      for (const { b } of items) {
+      for (const { obj, b: own } of items) {
+        const b = turnedBounds(own, slideRotation(obj, parents));
         const roomX = clampMovement(b.x + dx, b.x, size.cx - b.w) - b.x;
         const roomY = clampMovement(b.y + dy, b.y, size.cy - b.h) - b.y;
         if (Math.abs(roomX) < Math.abs(stepX)) stepX = roomX;

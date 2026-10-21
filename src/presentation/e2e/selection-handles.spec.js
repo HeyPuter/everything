@@ -281,3 +281,44 @@ test("the outline around several objects encloses a turned one as the slide show
   expect(box.y + box.height).toBeGreaterThanOrEqual(shown.y + shown.height - 1);
   expect(box.x + box.width).toBeLessThanOrEqual(shown.x + shown.width + 1);
 });
+
+// A turned object stopped at the slide's edges where its upright box met
+// them: a bar turned a quarter turn halted well short of the left edge and
+// could be pushed off the top.
+test("a turned object moves up to the slide's edges as the slide shows it", async ({
+  page,
+}) => {
+  await start(page);
+  const source = createDeck("blank");
+  const bar = P.addSlideShape(P.getSlides(source)[0], {
+    preset: "rect",
+    x: P.inches(0.25),
+    y: P.inches(3),
+    w: P.inches(4),
+    h: P.inches(0.5),
+  });
+  P.setShapeRotation(bar, 90);
+  // Shown 0.5 inches wide from 2 inches in, and 4 inches tall from 1.25.
+  await load(page, source);
+  for (let i = 0; i < 25; i++) await page.keyboard.press("Shift+ArrowLeft");
+  for (let i = 0; i < 15; i++) await page.keyboard.press("Shift+ArrowUp");
+  const moved = await download(page);
+  let saved = P.getShapeBoundsResolved(moved, first(moved));
+  expect(saved.x).toBe(P.inches(-1.75));
+  expect(saved.y).toBe(P.inches(1.75));
+  // Dragged far past the top left corner, it stops there too.
+  const object = await load(page, source);
+  const canvas = await page.locator("#slide-canvas").boundingBox();
+  const b = await object.boundingBox();
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(canvas.x - 40, canvas.y - 200, { steps: 8 });
+  await page.mouse.up();
+  await expect
+    .poll(async () => Math.round((await object.boundingBox()).x - canvas.x))
+    .toBeLessThanOrEqual(1);
+  const result = await download(page);
+  saved = P.getShapeBoundsResolved(result, first(result));
+  expect(Math.abs(saved.x - P.inches(-1.75))).toBeLessThan(P.inches(0.01));
+  expect(Math.abs(saved.y - P.inches(1.75))).toBeLessThan(P.inches(0.01));
+});
