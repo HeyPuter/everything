@@ -381,6 +381,16 @@ addKeys('UV Editor', [
   { key: 'ONE', op: 'uv.select_mode', props: { type: 'VERTEX' }, when: editing },
   { key: 'TWO', op: 'uv.select_mode', props: { type: 'EDGE' }, when: editing },
   { key: 'THREE', op: 'uv.select_mode', props: { type: 'FACE' }, when: editing },
+  // with UV Sync Selection the mesh select modes can be combined (Shift) or grown / shrunk (Ctrl)
+  ...(['ONE', 'TWO', 'THREE'] as const).flatMap((key, i) => {
+    const type = (['VERT', 'EDGE', 'FACE'] as const)[i];
+    const sync = () => editing() && !!ts().use_uv_select_sync;
+    return [
+      { key, shift: true, op: 'mesh.select_mode', props: { type, use_extend: true }, when: sync },
+      { key, ctrl: true, op: 'mesh.select_mode', props: { type, use_expand: true }, when: sync },
+      { key, shift: true, ctrl: true, op: 'mesh.select_mode', props: { type, use_extend: true, use_expand: true }, when: sync },
+    ];
+  }),
   { key: 'FOUR', op: 'uv.select_mode', props: { type: 'ISLAND' }, when: () => editing() && !ts().use_uv_select_sync },
   { key: 'E', ctrl: true, op: 'uv.mark_seam', when: editing },
   { key: 'Y', op: 'uv.select_split', when: editing },
