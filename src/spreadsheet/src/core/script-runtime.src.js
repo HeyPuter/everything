@@ -483,9 +483,10 @@
       return this;
     },
     setValue: function (value, options) {
+      // Counted before the grid of copies is built: over a whole sheet that grid ran until the time limit.
+      if (this.getCellCount() > 1000000) fail('setValue: at most 1,000,000 cells at once.');
       var rows = [];
       for (var r = 0; r < this.getRowCount(); r++) { var row = []; for (var c = 0; c < this.getColumnCount(); c++) row.push(value); rows.push(row); }
-      if (this.getCellCount() > 1000000) fail('setValue: at most 1,000,000 cells at once.');
       return this.setValues(rows, options);
     },
     setFormulas: function (rows) { return this.setValues(rows); },
