@@ -1,5 +1,6 @@
 // Popup menus, submenus, pie menus, search popups and tooltips.
 import { h, patch, clearRoot, type VNode, type Child } from './h';
+import { menuAccelerators } from './menuaccel';
 import { icon } from './icons';
 import { app, operators } from '../app/app';
 import { prefs } from '../app/prefs';
@@ -142,6 +143,17 @@ function itemLabel(item: MenuItem) {
   return '';
 }
 
+/** Accelerator letters of a menu's entries (see menuaccel.ts). */
+function accelOf(items: MenuItem[]): (number | undefined)[] {
+  return menuAccelerators(items.map((it) => (it.separator || it.heading || it.custom || it.search ? null : itemLabel(it))));
+}
+
+/** A label with its accelerator letter underlined. */
+function accelLabel(label: string, at: number | undefined): Child {
+  if (at === undefined || !label[at]) return label;
+  return [label.slice(0, at), h('u', { class: 'mi-accel' }, label[at]), label.slice(at + 1)];
+}
+
 function isDisabled(item: MenuItem) {
   if (item.disabled) return true;
   if (item.op && !app.poll(item.op)) return true;
@@ -219,6 +231,7 @@ function redrawMenus() {
 let submenuTimer = 0;
 
 function renderMenu(m: OpenMenu) {
+  const accel = accelOf(m.items);
   const vnodes: Child[] = m.items.map((item, i) => {
     if (item.separator) return h('div', { class: 'menu-sep' });
     if (item.heading) return h('div', { class: { 'menu-heading': true, 'menu-title': !!item.title, 'col-break': !!item.columnBreak } }, item.heading);
@@ -277,7 +290,7 @@ function renderMenu(m: OpenMenu) {
         },
       },
       h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : itemIcon(item) ? icon(itemIcon(item)!) : item.active ? icon('dot') : null),
-      h('span', { class: 'mi-label' }, itemLabel(item)),
+      h('span', { class: 'mi-label' }, accelLabel(itemLabel(item), accel[i])),
       h('span', { class: 'mi-key' }, shortcutFor(item)),
       item.submenu ? h('span', { class: 'mi-arrow' }) : null,
     );
@@ -871,10 +884,11 @@ export function menuKey(e: KeyboardEvent): boolean {
     fn(e.key);
     return true;
   }
-  // underline-style accelerators: first letter of label
+  // accelerators: the underlined letter of an entry
   if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) {
     const k = e.key.toLowerCase();
-    const found = actionable.find((i) => itemLabel(m.items[i]).toLowerCase().startsWith(k));
+    const acc = accelOf(m.items);
+    const found = actionable.find((i) => acc[i] !== undefined && itemLabel(m.items[i])[acc[i]!].toLowerCase() === k) ?? actionable.find((i) => itemLabel(m.items[i]).toLowerCase().startsWith(k));
     if (found !== undefined) {
       m.index = found;
       activate(m, m.items[found]);
