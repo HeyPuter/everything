@@ -1,7 +1,7 @@
-// Annotations in the 2D editors (node editors, Image Editor, Movie Clip Editor): hold D and drag to draw (Alt: a
+// Annotations in the node editors (Shader, Geometry, Compositor): hold D and drag to draw (Alt: a
 // straight line, Shift Alt: a poly line), hold D and right drag to erase. Strokes are stored with
-// the edited data — the node tree, or the image (the Render Result's notes live on the scene) — in
-// that data's own coordinates, so they follow panning and zooming. An overlay per editor draws them.
+// the node tree in node-space coordinates, so they follow panning and zooming. An overlay per editor
+// draws them. The Image, Movie Clip, UV and Sequencer views have their own (mask/annotate2d.ts).
 import { app } from '../app/app';
 import { shell } from '../ui/shell';
 import { h, patch, type VNode } from '../ui/h';
@@ -27,48 +27,10 @@ function hostOf(type: string, ed: AnyEditor): Host2D | null {
     const e = ed as AnyEditor & { toNode(x: number, y: number): [number, number]; toScreen(x: number, y: number): [number, number]; tree(): Record<string, unknown> | null };
     return { owner: () => e.tree(), toData: (x, y) => e.toNode(x, y), toView: (x, y) => e.toScreen(x, y) };
   }
-  if (type === 'IMAGE_EDITOR' && typeof ed.toImage === 'function' && typeof ed.imageSize === 'function') {
-    const e = ed as AnyEditor & {
-      toImage(x: number, y: number): [number, number];
-      imageSize(): [number, number] | null;
-      zoom: number;
-      offX: number;
-      offY: number;
-      image: Record<string, unknown> | null;
-    };
-    return {
-      owner: () => {
-        if (!e.imageSize()) return null;
-        return e.image ?? (app.doc.scene as unknown as Record<string, unknown>);
-      },
-      toData: (cx, cy) => {
-        const r = e.el.getBoundingClientRect();
-        return e.toImage(cx - r.left, cy - r.top);
-      },
-      toView: (x, y) => {
-        const s = e.imageSize() ?? [1, 1];
-        const w = Math.max(1, e.el.clientWidth),
-          hh = Math.max(1, e.el.clientHeight);
-        return [(x - s[0] / 2 + e.offX) * e.zoom + w / 2, (y - s[1] / 2 + e.offY) * e.zoom + hh / 2];
-      },
-    };
-  }
-  if (type === 'CLIP_EDITOR' && typeof ed.toImage === 'function' && typeof ed.toScreen === 'function') {
-    // footage pixels: notes stay on the footage (also when stabilized or undistorted)
-    const e = ed as AnyEditor & { toImage(x: number, y: number): [number, number]; toScreen(x: number, y: number): [number, number]; clip: Record<string, unknown> | null };
-    return {
-      owner: () => e.clip,
-      toData: (cx, cy) => {
-        const r = e.el.getBoundingClientRect();
-        return e.toImage(cx - r.left, cy - r.top);
-      },
-      toView: (x, y) => e.toScreen(x, y),
-    };
-  }
   return null;
 }
 
-/** Key of the stroke list on the owner (images and node trees use their own; the scene one is for Render Result). */
+/** Key of the stroke list on the node tree. */
 const KEY = 'annotation_strokes_2d';
 const strokesOf = (owner: Record<string, unknown>): AnnotationStroke[] => (owner[KEY] as AnnotationStroke[] | undefined) ?? [];
 

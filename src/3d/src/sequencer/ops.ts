@@ -719,10 +719,13 @@ const ops: Operator[] = [
     idname: 'sequencer.slip',
     label: 'Slip Strips',
     description: 'Slip the contents of selected strips',
-    props: [{ id: 'offset', label: 'Offset', type: 'int', default: 0 }],
+    props: [
+      { id: 'offset', label: 'Offset', type: 'int', default: 0 },
+      { id: 'clamp', label: 'Clamp', type: 'bool', default: true },
+    ],
     poll: () => anySelected() && !!hoverSeq() && !overPreview(),
     invoke: () => (startSlip(hoverSeq()!, app.pointer.x) ? 'RUNNING_MODAL' : 'CANCELLED'),
-    exec: (_c, p) => (slipBy(p.offset as number) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_c, p) => (slipBy(p.offset as number, p.clamp !== false) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'sequencer.strip_transform',

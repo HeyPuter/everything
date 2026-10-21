@@ -490,7 +490,12 @@ function dot(a: number[], b: number[]) {
 }
 
 /** Scale islands so they all have the same texel density (UV area per 3D area). */
-export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: number[][]): number {
+/**
+ * Average the islands' scale so their UV area matches their 3D area relative to each other.
+ * `scaleUV`: also stretch each island along U and V separately so its edge lengths follow the 3D
+ * ones (least squares over the island's edges).
+ */
+export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: number[][], scaleUV = false): number {
   const me: MeshData = { ...t.me, uvs } as MeshData;
   const info = islands.map((faces) => {
     let a2 = 0,
@@ -509,13 +514,48 @@ export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: numbe
   for (const i of info) {
     if (i.a2 <= 1e-20 || i.a3 <= 1e-20) continue;
     const s = Math.sqrt((density * i.a3) / i.a2);
+    let su = s,
+      sv = s;
+    if (scaleUV) {
+      // a = su², b = sv² from Σ (a·du² + b·dv² − density·L²)² → 2 × 2 normal equations
+      let m11 = 0,
+        m12 = 0,
+        m22 = 0,
+        r1 = 0,
+        r2 = 0;
+      const P = t.me.positions;
+      for (const f of i.faces)
+        for (let c = t.me.offsets[f]; c < t.me.offsets[f + 1]; c++) {
+          const n = t.next(c);
+          const du2 = (uvs[n * 2] - uvs[c * 2]) ** 2,
+            dv2 = (uvs[n * 2 + 1] - uvs[c * 2 + 1]) ** 2;
+          const va = t.me.indices[c] * 3,
+            vb = t.me.indices[n] * 3;
+          const L2 = (P[vb] - P[va]) ** 2 + (P[vb + 1] - P[va + 1]) ** 2 + (P[vb + 2] - P[va + 2]) ** 2;
+          const target = density * L2;
+          m11 += du2 * du2;
+          m12 += du2 * dv2;
+          m22 += dv2 * dv2;
+          r1 += target * du2;
+          r2 += target * dv2;
+        }
+      const det = m11 * m22 - m12 * m12;
+      if (Math.abs(det) > 1e-30) {
+        const a = (r1 * m22 - r2 * m12) / det,
+          b = (m11 * r2 - m12 * r1) / det;
+        if (a > 0 && b > 0) {
+          su = Math.sqrt(a);
+          sv = Math.sqrt(b);
+        }
+      }
+    }
     const corners = islandCorners(t, i.faces);
     const b = cornersBounds(uvs, corners);
     const cu = (b[0] + b[2]) / 2,
       cv = (b[1] + b[3]) / 2;
     for (const k of corners) {
-      uvs[k * 2] = cu + (uvs[k * 2] - cu) * s;
-      uvs[k * 2 + 1] = cv + (uvs[k * 2 + 1] - cv) * s;
+      uvs[k * 2] = cu + (uvs[k * 2] - cu) * su;
+      uvs[k * 2 + 1] = cv + (uvs[k * 2 + 1] - cv) * sv;
     }
     n++;
   }
@@ -604,11 +644,37 @@ export interface PackOptions {
   rotateMethod?: 'ANY' | 'CARDINAL' | 'AXIS_ALIGNED' | 'AXIS_ALIGNED_X' | 'AXIS_ALIGNED_Y';
   /** scale the islands to fill the unit square (else keep their size) */
   scale: boolean;
+  /** target rectangle [x, y, width, height] in UV space (default: the 0–1 square) */
+  region?: [number, number, number, number];
+}
+
+/** Merge islands whose UV bounds overlap into one group each (packed as a unit). */
+export function mergeOverlapping(t: UVTopo, uvs: Float32Array, islands: number[][]): number[][] {
+  const bb = islands.map((faces) => cornersBounds(uvs, islandCorners(t, faces)));
+  const parent = islands.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < islands.length; i++)
+    for (let j = i + 1; j < islands.length; j++) {
+      const a = bb[i],
+        b = bb[j];
+      // strictly overlapping areas (touching edges do not merge)
+      if (a[0] < b[2] - 1e-9 && b[0] < a[2] - 1e-9 && a[1] < b[3] - 1e-9 && b[1] < a[3] - 1e-9) parent[find(i)] = find(j);
+    }
+  const groups = new Map<number, number[]>();
+  islands.forEach((faces, i) => {
+    const r = find(i);
+    groups.set(r, [...(groups.get(r) ?? []), ...faces]);
+  });
+  return [...groups.values()];
 }
 
 /** Pack islands into the 0–1 UV square keeping their relative sizes. */
 export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][], o: PackOptions): boolean {
   if (!islands.length) return false;
+  // pack in a space where the target region is the unit square, then map back
+  const [RX, RY, RW0, RH0] = o.region ?? [0, 0, 1, 1];
+  const RW = Math.max(RW0, 1e-9),
+    RH = Math.max(RH0, 1e-9);
   const boxes: Box[] = islands.map((faces) => {
     const corners = islandCorners(t, faces);
     if (o.rotate) {
@@ -635,7 +701,7 @@ export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][],
       }
     }
     const b = cornersBounds(uvs, corners);
-    return { corners, w: Math.max(b[2] - b[0], 1e-9), h: Math.max(b[3] - b[1], 1e-9), x0: b[0], y0: b[1] };
+    return { corners, w: Math.max(b[2] - b[0], 1e-9) / RW, h: Math.max(b[3] - b[1], 1e-9) / RH, x0: b[0], y0: b[1] };
   });
   const order = boxes.map((_, i) => i).sort((a, b) => boxes[b].h - boxes[a].h || boxes[b].w - boxes[a].w);
   const pos: V2[] = [];
@@ -669,8 +735,8 @@ export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][],
     const b = boxes[bi];
     const [x, y] = pos[j];
     for (const c of b.corners) {
-      uvs[c * 2] = m + x + (uvs[c * 2] - b.x0) * k;
-      uvs[c * 2 + 1] = m + y + (uvs[c * 2 + 1] - b.y0) * k;
+      uvs[c * 2] = RX + (m + x) * RW + (uvs[c * 2] - b.x0) * k;
+      uvs[c * 2 + 1] = RY + (m + y) * RH + (uvs[c * 2 + 1] - b.y0) * k;
     }
   });
   return true;

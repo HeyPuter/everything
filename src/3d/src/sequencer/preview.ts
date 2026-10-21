@@ -13,6 +13,20 @@ import { editedText, drawTextEditOverlay } from './textedit';
 import { cursorPoint } from './pvtransform';
 import { drawScope, type ScopeMode } from './scopes';
 import { T } from './theme';
+import { compositionGuides, insetRect, centerCut, DEFAULT_SAFE_AREAS } from '../render/final/cameraoverlay';
+
+export interface PreviewGuides {
+  show_composition_thirds: boolean;
+  show_composition_center: boolean;
+  show_composition_center_diagonal: boolean;
+  show_composition_golden: boolean;
+  show_composition_golden_tria_a: boolean;
+  show_composition_golden_tria_b: boolean;
+  show_composition_harmony_tri_a: boolean;
+  show_composition_harmony_tri_b: boolean;
+  composition_guide_color: [number, number, number, number];
+}
+import { drawAnnotations2D, type Annotate2DHost, type Annotation2DOwner } from '../mask/annotate2d';
 
 /** The frame-overlay reference frame (null when the overlay is off). */
 export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_frame?: number; use_overlay_frame_lock?: boolean; overlay_frame_type?: string }, current: number): number | null {
@@ -22,7 +36,7 @@ export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_fram
 
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_100' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
 
-export class PreviewRegion {
+export class PreviewRegion implements Annotate2DHost {
   el: HTMLElement;
   canvas: HTMLCanvasElement;
   /** last composited frame */
@@ -49,7 +63,19 @@ export class PreviewRegion {
   private scopePx: { px: Uint8ClampedArray; w: number; h: number; stamp: number } | null = null;
   private frameStamp = 0;
   /** preview overlay options */
-  opts = { safeAreas: false, cursor: true, outline: true };
+  opts = { safeAreas: false, cursor: true, outline: true, safeCenter: false, guides: true };
+  /** composition guides drawn over the frame (and their colour) */
+  composition: PreviewGuides = { show_composition_thirds: false, show_composition_center: false, show_composition_center_diagonal: false, show_composition_golden: false, show_composition_golden_tria_a: false, show_composition_golden_tria_b: false, show_composition_harmony_tri_a: false, show_composition_harmony_tri_b: false, composition_guide_color: [1, 1, 1, 1] };
+  /** Transform tool: show the frame with handles around the selected images */
+  transformCage = false;
+  /** draw the scene's annotations over the preview */
+  showAnnotations = true;
+  /** preview the channels up to this one only (0: all) */
+  displayChannel = 0;
+  /** Final cache: composited frames by scene frame, valid while `finalKey` (settings) holds */
+  private finalCache = new Map<number, HTMLCanvasElement>();
+  private finalKey = '';
+  private finalBytes = 0;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
   /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
@@ -88,6 +114,55 @@ export class PreviewRegion {
     const left = (w - W * aspect * s) / 2 + this.panX;
     const top = (h - H * s) / 2 + this.panY;
     return { s, sx: s * aspect, left, top, W, H, fit };
+  }
+
+  /** Drop every cached frame (an edit changed the result); `key`: the new render settings. */
+  clearFinalCache(key = this.finalKey) {
+    this.finalCache.clear();
+    this.finalBytes = 0;
+    this.finalKey = key;
+  }
+
+  /** Frames in the Final cache (for the timeline). */
+  cachedFrames(): number[] {
+    return [...this.finalCache.keys()];
+  }
+
+  private cacheFinal(frame: number, src: HTMLCanvasElement) {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    c.getContext('2d')!.drawImage(src, 0, 0);
+    this.finalCache.set(frame, c);
+    this.finalBytes += c.width * c.height * 4;
+    // keep within a memory budget: drop the frames farthest from this one
+    const budget = 512 * 1024 * 1024;
+    while (this.finalBytes > budget && this.finalCache.size > 1) {
+      let far = frame,
+        d = -1;
+      for (const f of this.finalCache.keys())
+        if (Math.abs(f - frame) > d) {
+          d = Math.abs(f - frame);
+          far = f;
+        }
+      const x = this.finalCache.get(far)!;
+      this.finalBytes -= x.width * x.height * 4;
+      this.finalCache.delete(far);
+    }
+  }
+
+  // 2D annotations of the preview (kept on the scene)
+  annToScreen(u: number, v: number): [number, number] {
+    const L = this.layout();
+    return this.toLocal(u * L.W, v * L.H);
+  }
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const [W, H] = this.res();
+    const [x, y] = this.toFrame(clientX, clientY);
+    return [x / W, y / H];
+  }
+  annotationOwner(): Annotation2DOwner | null {
+    return hasEditor() ? (app.doc.scene as unknown as Annotation2DOwner) : null;
   }
 
   /** client px → output px (y up) */
@@ -219,6 +294,25 @@ export class PreviewRegion {
       return;
     }
     const frame = s.frame_current;
+    const useCache = ed.use_cache_final !== false && !ed.show_overlay_frame;
+    const key = `${W}x${H}|${k}|${this.size}|${this.displayChannel}`;
+    if (key !== this.finalKey) this.clearFinalCache(key);
+    const cached = useCache ? this.finalCache.get(frame) : undefined;
+    if (cached) {
+      // a frame rendered before (nothing changed since): show it right away
+      const f = this.frame;
+      if (f.width !== cached.width || f.height !== cached.height) {
+        f.width = cached.width;
+        f.height = cached.height;
+      }
+      const g = f.getContext('2d')!;
+      g.clearRect(0, 0, f.width, f.height);
+      g.drawImage(cached, 0, 0);
+      this.hasFrame = true;
+      this.hasRef = false;
+      this.frameStamp++;
+      return;
+    }
     await withCompositor(async (comp) => {
       if (my !== this.gen) throw new Cancelled();
       const sr = new SequencerRender(comp, {
@@ -231,6 +325,7 @@ export class PreviewRegion {
         sceneImage: renderScenePreview,
         cancelled: () => my !== this.gen || this.disposed,
         proxy: this.size.startsWith('PROXY_') ? (Number(this.size.slice(6)) as ProxySize) : undefined,
+        maxChannel: this.displayChannel,
       });
       const t = await sr.render(ed, frame);
       comp.present(t);
@@ -245,6 +340,8 @@ export class PreviewRegion {
       g.drawImage(comp.canvas, 0, 0);
       this.hasFrame = true;
       this.frameStamp++;
+      // complete frames (no media still loading) go to the Final cache
+      if (useCache && !sr.pending.length && !app.playing) this.cacheFinal(frame, f);
       // frame overlay: render the reference frame too
       const rf = overlayRefFrame(ed, frame);
       this.hasRef = false;
@@ -316,6 +413,7 @@ export class PreviewRegion {
     g.lineWidth = 1;
     g.strokeRect(Math.round(L.left) - 0.5, Math.round(L.top) - 0.5, Math.round(fw) + 1, Math.round(fh) + 1);
     if (this.showOverlays && hasEditor()) this.drawOverlays(g);
+    if (this.showOverlays && this.showAnnotations) drawAnnotations2D(this, g);
     if (this.boxRect) {
       const b = this.boxRect;
       g.fillStyle = 'rgba(255, 255, 255,0.06)';
@@ -376,11 +474,53 @@ export class PreviewRegion {
     g.restore();
   }
 
+  /** Screen rectangle around the selected strips' images (Transform tool), or null. */
+  cageRect(): { x0: number; y0: number; x1: number; y1: number } | null {
+    const [W, H] = this.res();
+    const pts = previewStrips(app.doc.scene.frame_current)
+      .filter((s) => s.select)
+      .flatMap((s) => stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y)));
+    if (!pts.length) return null;
+    const xs = pts.map((p) => p[0]),
+      ys = pts.map((p) => p[1]);
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  }
+
+  /** Part of the Transform cage under an editor-local point. */
+  cagePart(x: number, y: number): 'MOVE' | 'SCALE' | 'ROTATE' | null {
+    const r = this.cageRect();
+    if (!r) return null;
+    const near = (px: number, py: number) => Math.abs(x - px) <= 7 && Math.abs(y - py) <= 7;
+    if (near(r.x0, r.y0) || near(r.x1, r.y0) || near(r.x0, r.y1) || near(r.x1, r.y1)) return 'SCALE';
+    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return 'MOVE';
+    return 'ROTATE';
+  }
+
+  private drawCage(g: CanvasRenderingContext2D) {
+    const r = this.cageRect();
+    if (!r) return;
+    g.save();
+    g.setLineDash([5, 4]);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    g.lineWidth = 1;
+    g.strokeRect(Math.round(r.x0) + 0.5, Math.round(r.y0) + 0.5, Math.round(r.x1 - r.x0), Math.round(r.y1 - r.y0));
+    g.setLineDash([]);
+    for (const [x, y] of [[r.x0, r.y0], [r.x1, r.y0], [r.x0, r.y1], [r.x1, r.y1]]) {
+      g.fillStyle = '#ffffff';
+      g.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+      g.fillRect(Math.round(x) - 4, Math.round(y) - 4, 8, 8);
+      g.strokeRect(Math.round(x) - 4.5, Math.round(y) - 4.5, 9, 9);
+    }
+    g.restore();
+  }
+
   private drawOverlays(g: CanvasRenderingContext2D) {
     const [W, H] = this.res();
     const act = activeStrip();
     const editing = editedText();
+    if (this.transformCage && !app.modal) this.drawCage(g);
     if (this.opts.safeAreas) this.drawSafeAreas(g);
+    if (this.opts.guides) this.drawGuides(g);
     if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
     if (this.opts.cursor) this.drawCursor(g);
     for (const s of previewStrips(app.doc.scene.frame_current)) {
@@ -407,20 +547,32 @@ export class PreviewRegion {
   }
 
   /** Title-safe and action-safe frames (inset by a share of the frame size) and a centre cross. */
+  /** The frame as a screen rectangle (y down). */
+  private frameRect() {
+    const L = this.layout();
+    return { x: L.left, y: L.top, w: L.W * L.sx, h: L.H * L.s };
+  }
+
+  /** Title and action safe frames from the scene (inset by a share of the frame), the 4:3 centre-cut ones, a centre cross. */
   private drawSafeAreas(g: CanvasRenderingContext2D) {
-    const [W, H] = this.res();
-    const rect = (mx: number, my: number) => {
-      const [x0, y0] = this.toLocal(W * mx, H * my),
-        [x1, y1] = this.toLocal(W * (1 - mx), H * (1 - my));
-      g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
-    };
+    const sa = app.doc.scene.safe_areas ?? DEFAULT_SAFE_AREAS;
+    const r = this.frameRect();
+    const box = (b: { x: number; y: number; w: number; h: number }) => g.strokeRect(Math.round(b.x) + 0.5, Math.round(b.y) + 0.5, Math.round(b.w), Math.round(b.h));
     g.save();
     g.strokeStyle = 'rgba(255, 255, 255,0.35)';
     g.setLineDash([5, 4]);
-    rect(0.1, 0.05);
-    rect(0.035, 0.035);
+    box(insetRect(r, sa.title[0], sa.title[1]));
+    box(insetRect(r, sa.action[0], sa.action[1]));
+    if (this.opts.safeCenter) {
+      const c = centerCut(r);
+      g.strokeStyle = 'rgba(255, 220, 140, 0.4)';
+      box(insetRect(c, sa.title_center[0], sa.title_center[1]));
+      box(insetRect(c, sa.action_center[0], sa.action_center[1]));
+    }
     g.setLineDash([]);
-    const [cx, cy] = this.toLocal(W / 2, H / 2);
+    g.strokeStyle = 'rgba(255, 255, 255,0.35)';
+    const cx = r.x + r.w / 2,
+      cy = r.y + r.h / 2;
     g.beginPath();
     g.moveTo(cx - 8, cy);
     g.lineTo(cx + 8, cy);
@@ -429,6 +581,23 @@ export class PreviewRegion {
     g.stroke();
     g.restore();
   }
+
+  private drawGuides(g: CanvasRenderingContext2D) {
+    const segs = compositionGuides(this.composition, this.frameRect());
+    if (!segs.length) return;
+    const c = this.composition.composition_guide_color;
+    g.save();
+    g.strokeStyle = `rgba(${c.slice(0, 3).map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255)).join(', ')}, ${0.75 * (c[3] ?? 1)})`;
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const [a, b, x, y] of segs) {
+      g.moveTo(a, b);
+      g.lineTo(x, y);
+    }
+    g.stroke();
+    g.restore();
+  }
+
 
   /** The 2D cursor: a ring with tick marks. */
   private drawCursor(g: CanvasRenderingContext2D) {

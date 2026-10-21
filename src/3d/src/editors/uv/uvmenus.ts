@@ -5,6 +5,7 @@ import { openMenu, openPie, type MenuItem, type PieItem } from '../../ui/menu';
 import { activeUVEditor, uvSelectMode, uvEditPoll } from './uvcontext';
 import { operatorDialog } from './dialog';
 import { radialControl } from './uvsculpt';
+import { regionSettings } from './uvregion';
 
 const ts = () => app.doc.scene.tool_settings;
 
@@ -106,6 +107,34 @@ export function uvMenu(): MenuItem[] {
     { label: 'Transform', submenu: transformMenu },
     { label: 'Mirror', submenu: mirrorMenu },
     { label: 'Snap', submenu: snapMenu },
+    {
+      label: 'Pixel Round Mode',
+      description: 'Land moved UVs on pixel corners or centres of the image',
+      submenu: () => {
+        const v = activeUVEditor();
+        return (
+          [
+            ['DISABLED', 'Disabled', 'Move UVs freely'],
+            ['CORNER', 'Corner', 'Round moved UVs to the nearest pixel corner'],
+            ['CENTER', 'Center', 'Round moved UVs to the nearest pixel centre'],
+          ] as const
+        ).map(([value, label, description]) => ({ label, description, active: (v?.pixelRoundMode ?? 'DISABLED') === value, action: () => v && ((v.pixelRoundMode = value), app.changed('ui')) }));
+      },
+    },
+    {
+      label: 'Constrain to Image Bounds',
+      checked: !!activeUVEditor()?.lockBounds,
+      description: 'Keep UVs inside the image while transforming them',
+      action: () => {
+        const v = activeUVEditor();
+        if (v) (v.lockBounds = !v.lockBounds), app.changed('ui');
+      },
+    },
+    { separator: true },
+    { label: 'Merge', submenu: mergeMenu },
+    { label: 'Split', submenu: splitMenu },
+    { separator: true },
+    { label: 'Rip Move UVs', op: 'uv.rip_move', shortcut: 'V' },
     { separator: true },
     { label: 'Unwrap', submenu: unwrapMenu },
     { separator: true },
@@ -113,21 +142,58 @@ export function uvMenu(): MenuItem[] {
     { separator: true },
     { label: 'Pin', op: 'uv.pin', props: { clear: false }, shortcut: 'P' },
     { label: 'Unpin', op: 'uv.pin', props: { clear: true }, shortcut: 'Alt P' },
-    { label: 'Merge', submenu: mergeMenu },
-    { label: 'Split', submenu: splitMenu },
-    { separator: true },
-    { label: 'Pack Islands', op: 'uv.pack_islands' },
-    { label: 'Average Islands Scale', op: 'uv.average_islands_scale' },
-    { label: 'Arrange/Align Islands', op: 'uv.arrange_islands' },
-    { label: 'Minimize Stretch', op: 'uv.minimize_stretch' },
-    { label: 'Stitch', op: 'uv.stitch', shortcut: 'Alt V' },
+    { label: 'Invert Pins', op: 'uv.pin', props: { invert: true } },
     { separator: true },
     { label: 'Mark Seam', op: 'uv.mark_seam', props: { clear: false }, shortcut: 'Ctrl E' },
     { label: 'Clear Seam', op: 'uv.mark_seam', props: { clear: true } },
     { label: 'Seams from Islands', op: 'uv.seams_from_islands' },
     { separator: true },
+    { label: 'Pack Islands', op: 'uv.pack_islands', props: regionSettings().use_uv_custom_region ? { udim_source: 'CUSTOM_REGION' } : {} },
+    { label: 'Average Islands Scale', op: 'uv.average_islands_scale' },
+    { label: 'Arrange/Align Islands', op: 'uv.arrange_islands' },
+    { label: 'Set User Region', op: 'uv.custom_region_set', shortcut: 'Ctrl B' },
+    {
+      label: 'Custom Region',
+      checked: !!regionSettings().use_uv_custom_region,
+      shortcut: 'Ctrl Alt B',
+      description: 'Pack islands into the user region instead of the UV square',
+      action: () => {
+        const r = regionSettings();
+        r.use_uv_custom_region = !r.use_uv_custom_region;
+        app.changed('ui');
+      },
+    },
+    { separator: true },
+    { label: 'Minimize Stretch', op: 'uv.minimize_stretch' },
+    { label: 'Stitch', op: 'uv.stitch', shortcut: 'Alt V' },
     { label: 'Align', submenu: alignMenu },
     { label: 'Align Rotation', op: 'uv.align_rotation' },
+    {
+      label: 'Move on Axis',
+      submenu: () =>
+        (
+          [
+            ['UDIM', 'UDIM'],
+            ['PIXEL', 'Pixel'],
+            ['DYNAMIC', 'Dynamic'],
+          ] as const
+        ).map(([type, label]) => ({
+          label,
+          submenu: () =>
+            (
+              [
+                ['X', 1, '+X'],
+                ['X', -1, '-X'],
+                ['Y', 1, '+Y'],
+                ['Y', -1, '-Y'],
+              ] as const
+            ).map(([axis, distance, l]) => ({ label: l, op: 'uv.move_on_axis', props: { type, axis, distance } })),
+        })),
+    },
+    { separator: true },
+    { label: 'Copy UVs', op: 'uv.copy', shortcut: 'Ctrl C' },
+    { label: 'Paste UVs', op: 'uv.paste', shortcut: 'Ctrl V' },
+    { separator: true },
     { label: 'UV Select Mode', submenu: selectModeMenu },
     { separator: true },
     { label: 'Show/Hide Faces', submenu: showHideMenu },
@@ -200,6 +266,7 @@ export function selectMenu(): MenuItem[] {
     {
       label: 'Select All by Trait',
       submenu: () => [
+        { label: 'Tile', op: 'uv.select_tile' },
         { label: 'Pinned', op: 'uv.select_pinned', shortcut: 'Shift P' },
         { label: 'Overlap', op: 'uv.select_overlap' },
         { label: 'Winding', op: 'uv.select_by_winding' },
@@ -314,6 +381,16 @@ addKeys('UV Editor', [
   { key: 'ONE', op: 'uv.select_mode', props: { type: 'VERTEX' }, when: editing },
   { key: 'TWO', op: 'uv.select_mode', props: { type: 'EDGE' }, when: editing },
   { key: 'THREE', op: 'uv.select_mode', props: { type: 'FACE' }, when: editing },
+  // with UV Sync Selection the mesh select modes can be combined (Shift) or grown / shrunk (Ctrl)
+  ...(['ONE', 'TWO', 'THREE'] as const).flatMap((key, i) => {
+    const type = (['VERT', 'EDGE', 'FACE'] as const)[i];
+    const sync = () => editing() && !!ts().use_uv_select_sync;
+    return [
+      { key, shift: true, op: 'mesh.select_mode', props: { type, use_extend: true }, when: sync },
+      { key, ctrl: true, op: 'mesh.select_mode', props: { type, use_expand: true }, when: sync },
+      { key, shift: true, ctrl: true, op: 'mesh.select_mode', props: { type, use_extend: true, use_expand: true }, when: sync },
+    ];
+  }),
   { key: 'FOUR', op: 'uv.select_mode', props: { type: 'ISLAND' }, when: () => editing() && !ts().use_uv_select_sync },
   { key: 'E', ctrl: true, op: 'uv.mark_seam', when: editing },
   { key: 'Y', op: 'uv.select_split', when: editing },

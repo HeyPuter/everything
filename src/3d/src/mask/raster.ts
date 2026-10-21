@@ -49,7 +49,7 @@ function drawLayer(g: Ctx, layer: MaskLayer, W: number, H: number, feather: bool
         const v = (f: number) => (layer.falloff === 'SMOOTH' ? 1 - smooth(f) : 1 - f);
         const step = v(f0) - v(f1);
         if (step <= 0) continue;
-        const ring = featherOutline(samples, aspect, f1 - 0.5 / FEATHER_STEPS);
+        const ring = featherOutline(samples, aspect, f1 - 0.5 / FEATHER_STEPS, sp.offset_mode);
         g.globalCompositeOperation = 'lighter';
         g.globalAlpha = step;
         g.fillStyle = '#ffffff';

@@ -95,12 +95,14 @@ export function sampleSpline(sp: MaskSpline, steps = 16): Sample[] {
   if (n === 1) return [{ p: [...pts[0].co], w: pts[0].weight, seg: 0, t: 0 }];
   const segs = sp.use_cyclic ? n : n - 1;
   const out: Sample[] = [];
+  const ease = (sp as { weight_interpolation?: string }).weight_interpolation === 'EASE';
   for (let s = 0; s < segs; s++) {
     const a = pts[s],
       b = pts[(s + 1) % n];
     for (let k = 0; k < steps; k++) {
       const t = k / steps;
-      out.push({ p: bezier(a, b, t), w: a.weight + (b.weight - a.weight) * t, seg: s, t });
+      const tw = ease ? t * t * (3 - 2 * t) : t;
+      out.push({ p: bezier(a, b, t), w: a.weight + (b.weight - a.weight) * tw, seg: s, t });
     }
   }
   if (!sp.use_cyclic) {
@@ -125,14 +127,16 @@ export function signedArea(poly: V[], aspect = 1): number {
  * The feather outline: each sample pushed outward along the curve normal by `w × frac`
  * (frame widths, aspect-correct). Closed splines only.
  */
-export function featherOutline(samples: Sample[], aspect = 1, frac = 1): V[] {
+export function featherOutline(samples: Sample[], aspect = 1, frac = 1, mode: 'EVEN' | 'SMOOTH' = 'EVEN'): V[] {
   const n = samples.length;
   if (n < 3) return samples.map((s) => s.p);
   const poly = samples.map((s) => s.p);
   const ccw = signedArea(poly, aspect) > 0;
+  // Smooth: the tangent from samples further apart, so corners get rounded feather offsets
+  const span = mode === 'SMOOTH' ? Math.max(1, Math.round(n / 16)) : 1;
   return samples.map((s, i) => {
-    const a = samples[(i - 1 + n) % n].p,
-      b = samples[(i + 1) % n].p;
+    const a = samples[(i - span + n * span) % n].p,
+      b = samples[(i + span) % n].p;
     let tx = (b[0] - a[0]) * aspect,
       ty = b[1] - a[1];
     const L = Math.hypot(tx, ty) || 1;

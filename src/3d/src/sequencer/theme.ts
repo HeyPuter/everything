@@ -10,7 +10,7 @@ export const T = {
   grid: 'rgba(255, 255, 255,0.045)',
   channels: '#181a1b',
   playhead: '#4b70b5',
-  selected: '#fa9404',
+  selected: '#ff8f0d',
   active: '#ffffff',
   outline: 'rgba(0, 0, 0,0.85)',
   text: '#ffffff',
@@ -36,8 +36,8 @@ export const TYPE_COLORS: Record<string, string> = {
   meta: rgb(0.482, 0.6, 0.361),
   text: rgb(0.624, 0.573, 0.435),
   adjustment: '#645e7d',
-  mask: rgb(0.5, 0.25, 0.25),
-  clip: rgb(0.392, 0.373, 0.565),
+  mask: rgb(0.561, 0.337, 0.337),
+  clip: rgb(0.561, 0.431, 0.337),
 };
 
 /** Strip colour tags (theme.strip_color). */

@@ -7,7 +7,7 @@ import { app, type ChangeKind } from '../app/app';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { enumMenu, textField } from '../ui/widgets';
-import { shortcutLabel } from '../app/keymap';
+import { shortcutLabel, addKeys } from '../app/keymap';
 import { View2D } from '../animation/view2d';
 import {
   activeTrack,
@@ -19,6 +19,7 @@ import {
   markerAt,
   markerExact,
   sceneToClipFrame,
+  clipToSceneFrame,
   tobj,
   normalizeTracking,
   type MovieClipData,
@@ -36,10 +37,12 @@ import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
-import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost, type MaskDisplayType } from '../mask/clipmask';
 import { clipLasso } from './graphops';
-import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
+import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar, maskProportionalHeader } from '../mask/maskui';
 import { maskTable } from '../mask/types';
+import { navGizmo2D } from '../render/final/navgizmo2d';
+import { annotatePointerDown, annotateKeyHeld, annotateModeOf, drawAnnotations2D, type AnnotateTool, type Annotation2DOwner } from '../mask/annotate2d';
 
 export type ClipView = 'CLIP' | 'GRAPH' | 'DOPESHEET';
 
@@ -63,6 +66,22 @@ export interface ClipOverlays {
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
+  /** how splines are drawn, and how dark the outside of a Combined overlay gets */
+  mask_display_type?: MaskDisplayType;
+  blend_factor?: number;
+  /** master switch of everything drawn over the footage (Shift Alt Z) */
+  show_overlays?: boolean;
+  /** footage channels shown, and a black-and-white display */
+  show_red_channel?: boolean;
+  show_green_channel?: boolean;
+  show_blue_channel?: boolean;
+  use_grayscale_preview?: boolean;
+  /** markers without the dark outline */
+  show_tiny_markers?: boolean;
+  /** the 2D cursor */
+  show_cursor?: boolean;
+  /** notes drawn on the clip */
+  show_annotation?: boolean;
 }
 
 export const COLORS = {
@@ -106,10 +125,21 @@ export class ClipEditor implements Editor {
   /** graph / dope sheet view */
   v2 = new View2D();
   v2Fitted = false;
-  graphShow = { motion: true, speed_x: true, speed_y: true };
-  dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' = 'NAME';
+  graphShow = { motion: true, speed_x: true, speed_y: true, error: true, frames: true };
+  dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' | 'AVERAGE_ERROR' | 'START' | 'END' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
+  /** navigation buttons of the clip view (Ctrl `) */
+  showGizmo = true;
+  /** Annotation toolbar tool in use (left button draws notes instead of editing markers) */
+  annotateTool: AnnotateTool | null = null;
+  /** graph: only the selected tracks' curves; graph / dope sheet: also hidden tracks */
+  graphOnlySelected = true;
+  /** dope sheet: only the selected tracks' channels */
+  dopesheetOnlySelected = false;
+  showHiddenTracks = false;
+  /** graph / dope sheet: keep the current frame centred while it changes */
+  lockTimeCursor = false;
   boxPending = false;
   /** proxy size the footage is displayed at (when the clip uses proxies) */
   proxyRenderSize: ProxyRenderSize = 'FULL';
@@ -160,7 +190,10 @@ export class ClipEditor implements Editor {
     if (st.lock) this.lockSelection = st.lock;
     if (st.mode === 'MASK') this.mode = 'MASK';
     if (st.mask !== undefined) this.maskId = st.mask;
-    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
+    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT'; lockTime?: boolean; onlySelected?: boolean; showHidden?: boolean } | undefined;
+    if (ext?.onlySelected === false) this.graphOnlySelected = false;
+    if (ext?.showHidden) this.showHiddenTracks = true;
+    if (ext?.lockTime) this.lockTimeCursor = true;
     if (ext?.cursor) this.cursor = ext.cursor;
     if (ext?.pivot) this.pivot = ext.pivot;
     const px = (state as { proxy?: ProxyRenderSize } | undefined)?.proxy;
@@ -434,7 +467,10 @@ export class ClipEditor implements Editor {
       const filter = c.tracking.stabilization.filter_type;
       ctx.imageSmoothingEnabled = T ? filter !== 'NEAREST' : this.zoom < 1;
       ctx.imageSmoothingQuality = filter === 'BICUBIC' ? 'high' : 'low';
+      if (this.overlays.use_grayscale_preview) ctx.filter = 'grayscale(1)';
       ctx.drawImage(bmp, 0, 0, W, H);
+      ctx.filter = 'none';
+      this.maskChannels(ctx, W, H);
     }
     ctx.restore();
     if (bmp && !this.overlays.use_mute_footage && lens) this.drawUndistorted(ctx, bmp, lens, T);
@@ -449,12 +485,15 @@ export class ClipEditor implements Editor {
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
-    if (this.mode === 'MASK') {
-      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
-      drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    if (this.overlays.show_overlays === false) {
+      if (this.mode === 'MASK') drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
+    } else if (this.mode === 'MASK') {
+      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
+      drawMask(this, ctx, this.overlays.show_mask_spline !== false, this.overlays.mask_display_type ?? 'OUTLINE');
       this.drawCursor(ctx);
     } else {
       drawPlaneTracks(this, ctx, T);
+      if (this.overlays.show_annotation !== false) drawAnnotations2D(this, ctx);
       this.drawMarkers(ctx, T);
       if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
@@ -566,8 +605,55 @@ export class ClipEditor implements Editor {
     ctx.restore();
   }
 
+  /** Hide footage channels switched off in Clip Display (multiplies the drawn frame). */
+  private maskChannels(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const ov = this.overlays;
+    const r = ov.show_red_channel !== false,
+      g = ov.show_green_channel !== false,
+      b = ov.show_blue_channel !== false;
+    if (r && g && b) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgb(${r ? 255 : 0}, ${g ? 255 : 0}, ${b ? 255 : 0})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  /** Graph / dope sheet header: refine, clear and track the selected tracks without the clip view. */
+  private trackingButtons(): Child {
+    const ib = (op: string, ic: string, props: Record<string, unknown>, tip: string) =>
+      h('button', { key: `${op}-${ic}`, class: 'hdr-toggle', disabled: !app.poll(op), 'data-tip': tip, onclick: () => app.run(op, props, { area: this.area }) }, icon(ic));
+    return h(
+      'div',
+      { class: 'hdr-group clip-track-buttons', key: 'clip-track-buttons' },
+      ib('clip.refine_markers', 'tracking_refine_backwards', { backwards: true }, 'Refine Markers\nRefine markers from the next keyframe'),
+      ib('clip.clear_track_path', 'tracking_clear_backwards', { action: 'UPTO' }, 'Clear Track Path\nClear the path up to the current frame'),
+      ib('clip.track_markers', 'tracking_backwards_single', { backwards: true, sequence: false }, 'Track Markers\nTrack one frame backwards'),
+      ib('clip.track_markers', 'tracking_backwards', { backwards: true, sequence: true }, 'Track Markers\nTrack backwards'),
+      ib('clip.track_markers', 'tracking_forwards', { backwards: false, sequence: true }, 'Track Markers\nTrack forwards'),
+      ib('clip.track_markers', 'tracking_forwards_single', { backwards: false, sequence: false }, 'Track Markers\nTrack one frame forwards'),
+      ib('clip.clear_track_path', 'tracking_clear_forwards', { action: 'REMAINED' }, 'Clear Track Path\nClear the path after the current frame'),
+      ib('clip.refine_markers', 'tracking_refine_forwards', { backwards: false }, 'Refine Markers\nRefine markers from the previous keyframe'),
+    );
+  }
+
+  toggleLockTime() {
+    this.lockTimeCursor = !this.lockTimeCursor;
+    if (this.lockTimeCursor) this.v2.centerOnFrame(app.doc.scene.frame_current);
+    this.draw();
+    app.changed('ui');
+  }
+
+  toggleOverlays() {
+    this.overlays.show_overlays = this.overlays.show_overlays === false;
+    this.draw();
+    this.drawUI();
+    this.area.drawHeader();
+  }
+
   /** The 2D cursor (Shift right click places it). */
   private drawCursor(ctx: CanvasRenderingContext2D) {
+    if (this.overlays.show_cursor === false) return;
     const [W, H] = this.frameSize();
     const [x, y] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
     ctx.save();
@@ -606,8 +692,8 @@ export class ClipEditor implements Editor {
     ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
-    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
-    drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
+    drawMask(this, ctx, this.overlays.show_mask_spline !== false, this.overlays.mask_display_type ?? 'OUTLINE');
     this.drawCursor(ctx);
     ctx.font = '11px var(--mono, monospace)';
     ctx.fillStyle = '#9a9b9c';
@@ -651,12 +737,42 @@ export class ClipEditor implements Editor {
     }
   }
 
+  /** Horizontal extent of the frame strip at the bottom of the clip view. */
+  private scrubRange(w: number) {
+    return { x0: this.showToolbar ? 230 : 0, x1: w - (this.showSidebar ? 290 : 0) };
+  }
+
+  /** Whether a local point is on the frame strip (it scrubs frames). */
+  scrubStripAt(x: number, y: number) {
+    const { w, h: hh } = this.viewSize();
+    const { x0, x1 } = this.scrubRange(w);
+    return y >= hh - 14 && x >= x0 && x <= x1;
+  }
+
+  /** Drag along the frame strip to change the frame. */
+  private scrubStrip(e: PointerEvent) {
+    e.preventDefault();
+    const c = this.clip!;
+    const n = Math.max(1, c.frame_duration);
+    const go = (ev: { clientX: number }) => {
+      const { w } = this.viewSize();
+      const { x0, x1 } = this.scrubRange(w);
+      const x = this.local({ clientX: ev.clientX, clientY: 0 }).x;
+      const cf = Math.max(1, Math.min(n, Math.floor(1 + ((x - x0) / Math.max(1, x1 - x0)) * n)));
+      const f = clipToSceneFrame(c, cf);
+      if (f !== app.doc.scene.frame_current) app.setFrame(f);
+    };
+    go(e);
+    const up = () => (removeEventListener('pointermove', go), removeEventListener('pointerup', up));
+    addEventListener('pointermove', go);
+    addEventListener('pointerup', up);
+  }
+
   private drawCacheLine(ctx: CanvasRenderingContext2D, w: number, hh: number) {
     const c = this.clip!;
     const src = readySource(c);
     const n = Math.max(1, c.frame_duration);
-    const x0 = this.showToolbar ? 230 : 0,
-      x1 = w - (this.showSidebar ? 290 : 0);
+    const { x0, x1 } = this.scrubRange(w);
     const y = hh - 8;
     const fx = (f: number) => x0 + ((f - 1) / n) * (x1 - x0);
     ctx.fillStyle = 'rgba(0, 0, 0,0.4)';
@@ -754,9 +870,11 @@ export class ClipEditor implements Editor {
         ctx.beginPath();
         pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
         if (closed) ctx.closePath();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = COLORS.outline;
-        ctx.stroke();
+        if (!ov.show_tiny_markers) {
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = COLORS.outline;
+          ctx.stroke();
+        }
         ctx.lineWidth = 1;
         ctx.strokeStyle = color;
         ctx.stroke();
@@ -937,7 +1055,7 @@ export class ClipEditor implements Editor {
     const start = this.local(e);
     const el = this.canvas;
     // pan / zoom with the middle button (or Alt+LMB emulation)
-    if (e.button === 1 || (e.button === 0 && e.altKey && !e.ctrlKey)) {
+    if (e.button === 1 || (e.button === 0 && e.altKey && !e.ctrlKey && !annotateKeyHeld())) {
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       let last = start;
@@ -965,6 +1083,12 @@ export class ClipEditor implements Editor {
       el.addEventListener('pointerup', up);
       return;
     }
+    if (this.view === 'CLIP' && this.clip && ((annotateKeyHeld() && (e.button === 0 || e.button === 2)) || (e.button === 0 && this.annotateTool && !e.altKey))) {
+      if (e.button === 2) this.cursorPlaced = true; // no context menu after erasing
+      const mode = annotateKeyHeld() ? (e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW') : annotateModeOf(this.annotateTool!);
+      annotatePointerDown(this, e, mode);
+      return;
+    }
     if (e.button === 2 && e.shiftKey && this.view === 'CLIP') {
       // Shift right click places the 2D cursor
       const [W, H] = this.frameSize();
@@ -976,6 +1100,7 @@ export class ClipEditor implements Editor {
       return;
     }
     if (e.button !== 0) return;
+    if (this.view === 'CLIP' && this.clip && this.overlays.show_cache && this.scrubStripAt(start.x, start.y)) return this.scrubStrip(e);
     if (this.view === 'CLIP' && this.mode === 'MASK') {
       e.preventDefault();
       if (!hostMask(this)) return;
@@ -1175,6 +1300,12 @@ export class ClipEditor implements Editor {
       if (e.code === 'KeyN') return this.toggleSidebar(), true;
       if (e.code === 'KeyT') return this.toggleToolbar(), true;
     }
+    if (e.code === 'Backquote' && ctrl && !e.altKey && !e.shiftKey && this.view === 'CLIP') return ((this.showGizmo = !this.showGizmo), this.drawUI()), true;
+    if (e.code === 'Escape' && this.annotateTool) {
+      this.annotateTool = null;
+      this.drawUI();
+      return true;
+    }
     if (e.code === 'Escape' && (this.boxPending || this.boxRect)) {
       this.boxPending = false;
       this.boxRect = null;
@@ -1250,7 +1381,7 @@ export class ClipEditor implements Editor {
         : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
       c && this.view === 'CLIP' && this.mode !== 'MASK' && solveErrorText(c) ? h('span', { class: 'clip-header-error', 'data-tip': 'Average reprojection error of the solution' }, solveErrorText(c)) : null,
-      this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
+      this.view === 'CLIP' && this.mode === 'MASK' ? [maskBrowse(this), maskProportionalHeader()] : null,
       h(
         'div',
         { class: 'clip-browse' },
@@ -1289,32 +1420,78 @@ export class ClipEditor implements Editor {
               { value: 'NAME', label: 'Name', description: 'Sort channels by their names' },
               { value: 'LONGEST', label: 'Longest', description: 'Sort channels by longest tracked segment' },
               { value: 'TOTAL', label: 'Total', description: 'Sort channels by overall amount of tracked segments' },
+              { value: 'AVERAGE_ERROR', label: 'Average Error', description: 'Sort channels by the average reprojection error of their tracks after a solve' },
+              { value: 'START', label: 'Start Frame', description: 'Sort channels by the first frame they are tracked on' },
+              { value: 'END', label: 'End Frame', description: 'Sort channels by the last frame they are tracked on' },
             ],
             this.dopesheetSort,
             (v) => ((this.dopesheetSort = v as 'NAME'), this.draw(), this.area.drawHeader()),
             { tip: 'Sort Method\nMethod to be used to sort channels in dopesheet view' },
           )
         : null,
+      this.view !== 'CLIP' ? this.trackingButtons() : null,
+      this.view !== 'CLIP'
+        ? h(
+            'div',
+            { class: 'hdr-group', key: 'clip-graph-filter' },
+            this.view === 'GRAPH'
+              ? h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow the curves of selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off'))
+              : h('button', { class: { 'hdr-toggle': true, on: this.dopesheetOnlySelected }, 'data-tip': 'Only Show Selected\nList the channels of selected tracks only', onclick: () => ((this.dopesheetOnlySelected = !this.dopesheetOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off')),
+            h('button', { class: { 'hdr-toggle': true, on: this.showHiddenTracks }, 'data-tip': 'Show Hidden\nInclude hidden tracks', onclick: () => ((this.showHiddenTracks = !this.showHiddenTracks), this.draw(), this.area.drawHeader()) }, icon(this.showHiddenTracks ? 'hide_off' : 'hide_on')),
+          )
+        : null,
+      this.view === 'GRAPH'
+        ? h(
+            'div',
+            { class: 'hdr-group', key: 'clip-graph-show' },
+            (
+              [
+                ['frames', 'Show Frames\nThe average reprojection error of each frame (after solving the camera)', 'clip_error_frames'],
+                ['motion', 'Show Tracks Motion\nThe speed curves of the tracks', 'graph'],
+                ['error', 'Show Tracks Error\nThe reprojection error of the tracks over time (after solving the camera)', 'clip_error_tracks'],
+              ] as const
+            ).map(([k, tip, ic]) => h('button', { key: k, class: { 'hdr-toggle': true, on: this.graphShow[k] }, 'data-tip': tip, onclick: () => ((this.graphShow[k] = !this.graphShow[k]), this.draw(), this.area.drawHeader()) }, icon(ic))),
+          )
+        : null,
       this.view === 'DOPESHEET' ? h('button', { class: { 'hdr-toggle': true, on: this.dopesheetInvert }, 'data-tip': 'Invert Dopesheet Sort\nInvert sort order of dopesheet channels', onclick: () => ((this.dopesheetInvert = !this.dopesheetInvert), this.draw(), this.area.drawHeader()) }, icon('sort')) : null,
       this.view === 'CLIP'
         ? h('button', { class: { 'hdr-toggle': true, on: this.lockSelection }, 'data-tip': 'Lock to Selection (L)\nLock viewport to selected markers during playback', onclick: () => app.run('clip.lock_selection_toggle', {}, { area: this.area }) }, icon(this.lockSelection ? 'locked' : 'unlocked'))
         : null,
+      this.view === 'CLIP' ? h('button', { class: { 'hdr-toggle': true, on: this.overlays.show_overlays !== false }, 'data-tip': 'Show Overlays (Shift Alt Z)', onclick: () => this.toggleOverlays() }, icon('overlay')) : null,
       this.view === 'CLIP'
         ? h(
             'button',
             {
-              class: 'hdr-toggle clip-overlays',
-              'data-tip': 'Overlays\nMarker display and clip display settings',
+              class: 'hdr-icondrop clip-overlays',
+              'data-tip': 'Overlays\nMarker display, guides and clip display settings',
               onpointerdown: (e: PointerEvent) => {
                 e.preventDefault();
-                openMenu(overlayMenu(this), e.currentTarget as HTMLElement, { title: 'Marker Display' });
+                openMenu(overlayMenu(this), e.currentTarget as HTMLElement, { title: 'Overlays' });
               },
             },
-            icon('overlay'),
             icon('down_arrow_hlt', 'tiny'),
           )
         : null,
     );
+  }
+
+  redrawHeader() {
+    this.area.drawHeader();
+  }
+
+  // 2D annotations (kept on the movie clip)
+  annToScreen(u: number, v: number): [number, number] {
+    const [W, H] = this.frameSize();
+    return this.toScreen(u * W, (1 - v) * H);
+  }
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const q = this.local({ clientX, clientY });
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toImage(q.x, q.y);
+    return [x / W, 1 - y / H];
+  }
+  annotationOwner(): Annotation2DOwner | null {
+    return this.view === 'CLIP' ? ((this.clip as unknown as Annotation2DOwner | null) ?? null) : null;
   }
 
   setMode(m: 'TRACKING' | 'MASK') {
@@ -1351,8 +1528,17 @@ export class ClipEditor implements Editor {
       const panel = lastOpPanel(this);
       if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.showToolbar ? 236 : 6}px` } }, panel));
     }
+    if (this.view === 'CLIP') children.push(navGizmo2D(this, this.showSidebar ? 290 : 0, this.showGizmo));
     patch(this.ui, children);
     drawPatternPreviews(this);
+  }
+
+  /** Pan the clip view by screen pixels. */
+  panBy(dx: number, dy: number) {
+    this.offX += dx / this.zoom;
+    this.offY += dy / this.zoom;
+    this.fitted = true;
+    this.draw();
   }
 
   frameAllView() {
@@ -1372,6 +1558,7 @@ export class ClipEditor implements Editor {
       if (first && clipTable(app.doc)[first]) this.clipId = first;
     }
     if (this.lockSelection && (kinds.has('frame') || kinds.has('doc'))) this.followSelection();
+    if (this.lockTimeCursor && this.view !== 'CLIP' && kinds.has('frame')) this.v2.centerOnFrame(app.doc.scene.frame_current);
     if (kinds.has('doc') || kinds.has('ui') || kinds.has('frame') || kinds.has('select')) {
       this.draw();
       if (!kinds.has('frame') || kinds.size > 1 || this.showSidebar) this.drawUI();
@@ -1403,7 +1590,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, lockTime: this.lockTimeCursor, onlySelected: this.graphOnlySelected, showHidden: this.showHiddenTracks, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
   }
 
   dispose() {
@@ -1444,7 +1631,11 @@ function viewMenu(ed: ClipEditor): MenuItem[] {
       { label: 'Lock to Selection', checked: ed.lockSelection, shortcut: 'L', op: 'clip.lock_selection_toggle' },
     );
   } else {
-    items.push({ label: 'Frame All', shortcut: 'Home', action: () => ed.frameAllView() }, { label: 'Center View to Current Frame', shortcut: 'Numpad 0', action: () => (ed.v2.centerOnFrame(app.doc.scene.frame_current), ed.draw()) });
+    items.push(
+      { label: 'Frame All', shortcut: 'Home', action: () => ed.frameAllView() },
+      { label: 'Center View to Current Frame', shortcut: 'Numpad 0', action: () => (ed.v2.centerOnFrame(app.doc.scene.frame_current), ed.draw()) },
+      { label: 'Lock Time Cursor', checked: ed.lockTimeCursor, shortcut: 'L', description: 'Keep the current frame in the middle of the view while it changes', action: () => ed.toggleLockTime() },
+    );
     if (ed.view === 'GRAPH')
       items.push(
         { separator: true },
@@ -1635,6 +1826,17 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
       ed.drawUI();
     },
   });
+  // options that are on unless switched off
+  const togOn = (label: string, key: keyof ClipOverlays): MenuItem => ({
+    label,
+    checked: ov[key] !== false,
+    keepOpen: true,
+    action: () => {
+      (ov as unknown as Record<string, unknown>)[key] = ov[key] === false;
+      ed.draw();
+      ed.drawUI();
+    },
+  });
   const maskModes: [NonNullable<ClipOverlays['mask_overlay_mode']>, string][] = [
     ['NONE', 'None'],
     ['COMBINED', 'Combined (darken outside)'],
@@ -1644,7 +1846,12 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     return [
       { heading: 'Mask Display' },
       { label: 'Spline', checked: ov.show_mask_spline !== false, keepOpen: true, action: () => ((ov.show_mask_spline = ov.show_mask_spline === false), ed.draw()) },
+      {
+        label: 'Spline Display',
+        submenu: () => (['OUTLINE', 'DASH', 'BLACK', 'WHITE'] as const).map((v) => ({ label: v[0] + v.slice(1).toLowerCase(), active: (ov.mask_display_type ?? 'OUTLINE') === v, action: () => ((ov.mask_display_type = v), ed.draw()) })),
+      },
       { label: 'Overlay', submenu: () => maskModes.map(([v, l]) => ({ label: l, active: (ov.mask_overlay_mode ?? 'NONE') === v, action: () => ((ov.mask_overlay_mode = v), ed.draw()) })) },
+      { label: 'Blending Factor', submenu: () => [0.25, 0.5, 0.75, 1].map((v) => ({ label: `${Math.round(v * 100)}%`, active: (ov.blend_factor ?? 0.5) === v, action: () => ((ov.blend_factor = v), ed.draw()) })) },
       { separator: true },
       { heading: 'Clip Display' },
       tog('Mute', 'use_mute_footage', 'Ctrl H'),
@@ -1661,12 +1868,23 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     tog('Disabled', 'show_disabled', 'Alt D'),
     tog('Info', 'show_info'),
     tog('Names', 'show_names'),
+    togOn('3D Markers', 'show_bundles'),
+    tog('Display Thin', 'show_tiny_markers'),
+    { separator: true },
+    { heading: 'Guides' },
+    tog('Distortion Grid', 'show_grid'),
+    togOn('Cursor', 'show_cursor'),
+    togOn('Annotations', 'show_annotation'),
     { separator: true },
     { heading: 'Clip Display' },
+    togOn('Red Channel', 'show_red_channel'),
+    togOn('Green Channel', 'show_green_channel'),
+    togOn('Blue Channel', 'show_blue_channel'),
+    tog('Black and White', 'use_grayscale_preview'),
+    tog('Mute', 'use_mute_footage', 'Ctrl H'),
+    { separator: true },
     tog('Show Stable', 'show_stable'),
     tog('Render Undistorted', 'render_undistorted'),
-    tog('Grid', 'show_grid'),
-    tog('Mute', 'use_mute_footage', 'Ctrl H'),
     tog('Cache Line', 'show_cache'),
   ];
 }
@@ -1679,3 +1897,7 @@ registerEditor({
   create: (area, state) => new ClipEditor(area, state),
 });
 
+
+addKeys('Clip', [{ key: 'Z', shift: true, alt: true, when: () => currentClipEditor()?.view === 'CLIP', action: () => currentClipEditor()?.toggleOverlays() }]);
+addKeys('Clip Graph Editor', [{ key: 'L', action: () => currentClipEditor()?.toggleLockTime() }]);
+addKeys('Clip Dopesheet Editor', [{ key: 'L', action: () => currentClipEditor()?.toggleLockTime() }]);

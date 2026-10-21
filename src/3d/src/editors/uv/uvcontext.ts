@@ -20,6 +20,10 @@ export interface UVView {
   pivot: 'BOUNDING_BOX_CENTER' | 'CURSOR' | 'INDIVIDUAL_ORIGINS' | 'MEDIAN_POINT';
   image(): ImageData | null;
   local(e: { clientX: number; clientY: number }): { x: number; y: number };
+  /** transforms land moved UVs on pixel corners / centres of the image */
+  pixelRoundMode?: 'DISABLED' | 'CORNER' | 'CENTER';
+  /** transforms keep UVs inside the 0–1 square */
+  lockBounds?: boolean;
 }
 
 /** The 2D cursor in UV space. */

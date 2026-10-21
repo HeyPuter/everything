@@ -5,7 +5,8 @@ import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import type { Area, Editor } from '../ui/screen';
 import { openMenu, openPopover, type MenuItem } from '../ui/menu';
-import { checkbox, enumMenu, numberField } from '../ui/widgets';
+import { checkbox, enumMenu, enumRow, numberField, panel } from '../ui/widgets';
+import { splitRow } from '../ui/props';
 import { menuButton } from '../animation/animeditor';
 import { playbackFooter } from '../animation/footer';
 import { frameStep } from '../animation/view2d';
@@ -16,11 +17,11 @@ import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, setActive, isL
 import { T, stripColor, cssColor, typeColor } from './theme';
 import { selectStrip, deselectAll, renameChannel } from './ops';
 import { startSlide, startSlip, startRetimingKeyMove } from './transform';
-import { startPreviewTransform, setCursorPoint, pivotPoint } from './pvtransform';
-import { pivotItems, PIVOT_ICONS } from './previewops';
+import { startPreviewTransform, setCursorPoint, pivotPoint, PIVOTS, type Pivot } from './pvtransform';
+import { pivotItems, PIVOT_ICONS, setPivot } from './previewops';
 import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
-import { stripTab, modifiersTab, cacheTab, viewTab } from './sidebar';
+import { stripTab, modifiersTab, cacheTab, viewTab, previewGuidePanels } from './sidebar';
 import { PreviewRegion, overlayRefFrame, type PreviewSize } from './preview';
 import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './media';
 import { addFiles } from './add';
@@ -37,13 +38,15 @@ import { keysOf, keyValue, fadeProp } from './fades';
 import { keyFrames, KEY_PATHS } from './stripanim';
 import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
 import { prevWord, nextWord } from './textcursor';
+import { navGizmo2D } from '../render/final/navgizmo2d';
+import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, isAnnotateTool, type AnnotateTool } from '../mask/annotate2d';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
 type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale';
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale' | 'transform' | AnnotateTool;
 
 /** Variants of the select tool slot (box / circle / lasso). */
 const SELECT_VARIANTS = [
@@ -87,6 +90,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showToolbar = true;
   tool: Tool = 'select_box';
   pvTool: PreviewTool = 'select';
+  private lastAnnotate: AnnotateTool = 'annotate';
   showSeconds = true;
   showMarkers = true;
   showWaveforms = true;
@@ -96,8 +100,19 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showStripSource = true;
   showStripDuration = true;
   showOffsets = false;
+  /** timeline overlays: grid lines, colour tags, retiming keys, keyframes / fade curves */
+  showGrid = true;
+  showColorTags = true;
+  showRetiming = true;
+  showFcurves = true;
+  /** timeline: the frames in the Final cache */
+  showCache = false;
+  /** sound strips: waveforms of all strips, of none, or as each strip says; full or half height */
+  waveformType: 'ALL_WAVEFORMS' | 'NO_WAVEFORMS' | 'DEFAULT_WAVEFORMS' = 'DEFAULT_WAVEFORMS';
+  waveformStyle: 'FULL_WAVEFORMS' | 'HALF_WAVEFORMS' = 'FULL_WAVEFORMS';
   splitRatio = 0.55;
   invalid = new Set<Strip>();
+  snapLines: number[] = [];
   private hoverStrip: Strip | null = null;
   private hoverHandle: 'LEFT' | 'RIGHT' | null = null;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
@@ -123,6 +138,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private sbEl: HTMLElement;
   private footerEl: HTMLElement;
   preview: PreviewRegion;
+  /** navigation buttons of the preview (Ctrl `) */
+  private pvNav: HTMLElement;
+  showGizmo = true;
 
   constructor(
     public area: Area,
@@ -134,7 +152,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     this.pvWrap = div('seq-pvwrap');
     this.pvToolbar = div('seq-toolbar seq-pv-toolbar');
     this.preview = new PreviewRegion(() => this.drawSidebarIfCache());
-    this.pvWrap.append(this.preview.el, this.pvToolbar);
+    this.pvNav = div('seq-pv-nav');
+    this.pvWrap.append(this.preview.el, this.pvToolbar, this.pvNav);
     this.grip = div('seq-split-grip');
     this.tlWrap = div('seq-tlwrap');
     this.toolbarEl = div('seq-toolbar');
@@ -175,9 +194,22 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       showWaveforms: this.showWaveforms,
       showThumbnails: this.showThumbnails,
       showOverlays: this.showOverlays,
+      showStripName: this.showStripName,
+      showStripSource: this.showStripSource,
+      showStripDuration: this.showStripDuration,
+      showOffsets: this.showOffsets,
+      showGrid: this.showGrid,
+      showColorTags: this.showColorTags,
+      showRetiming: this.showRetiming,
+      showFcurves: this.showFcurves,
+      showCache: this.showCache,
+      waveformType: this.waveformType,
+      waveformStyle: this.waveformStyle,
       splitRatio: this.splitRatio,
       previewSize: this.preview.size,
       previewOverlays: { ...this.preview.opts },
+      previewGuides: { ...this.preview.composition },
+      displayChannel: this.preview.displayChannel,
       scopeMode: this.preview.scopeMode,
       fitted: this.fitted,
     };
@@ -187,12 +219,16 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const s = (state ?? {}) as Record<string, unknown>;
     if (s.view === 'PREVIEW' || s.view === 'SEQUENCER_PREVIEW' || s.view === 'SEQUENCER') this.view = s.view;
     for (const k of ['x0', 'ppf', 'cy0', 'chH', 'chWidth', 'splitRatio'] as const) if (typeof s[k] === 'number') (this as Record<string, unknown>)[k] = s[k];
-    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
+    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted', 'showStripName', 'showStripSource', 'showStripDuration', 'showOffsets', 'showGrid', 'showColorTags', 'showRetiming', 'showFcurves', 'showCache'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
+    if (s.waveformType === 'ALL_WAVEFORMS' || s.waveformType === 'NO_WAVEFORMS' || s.waveformType === 'DEFAULT_WAVEFORMS') this.waveformType = s.waveformType;
+    if (s.waveformStyle === 'HALF_WAVEFORMS' || s.waveformStyle === 'FULL_WAVEFORMS') this.waveformStyle = s.waveformStyle;
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
-    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
+    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale', 'transform'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
+    if (s.previewGuides && typeof s.previewGuides === 'object') Object.assign(this.preview.composition, s.previewGuides);
+    if (typeof s.displayChannel === 'number') this.preview.displayChannel = s.displayChannel;
     if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
     this.preview.showOverlays = this.showOverlays;
   }
@@ -266,6 +302,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   update(kinds?: Set<ChangeKind>) {
     if (this.disposed) return;
     this.refresh();
+    // an edit changes the composited result: cached frames are stale
+    if (!kinds || kinds.has('doc') || kinds.has('geometry') || kinds.has('mode')) this.preview.clearFinalCache();
     if (!kinds || kinds.has('doc') || kinds.has('frame') || kinds.has('geometry') || kinds.has('mode')) this.preview.request();
     else this.preview.draw();
   }
@@ -456,23 +494,56 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   }
 
   private overlayPopover(): Child {
-    const t = (key: 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets', label: string) =>
-      checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
+    type Flag = 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets' | 'showGrid' | 'showColorTags' | 'showRetiming' | 'showFcurves' | 'showCache';
+    const t = (key: Flag, label: string) => checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
     const o = this.preview.opts;
     const pt = (key: keyof typeof o, label: string) => checkbox(`seq-pov-${key}`, label, o[key], (v) => ((o[key] = v), this.preview.draw(), app.changed('ui')));
+    const two = (a: Child, b: Child) => h('div', { class: 'seq-ov-cols' }, h('div', null, a), h('div', null, b));
+    const ed = hasEditor() ? seqEditor() : null;
     return h(
       'div',
       { class: 'pop-panel' },
-      this.hasPreview() ? [h('div', { class: 'pop-title' }, 'Preview Overlays'), pt('outline', 'Image Outline'), pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas')] : null,
+      this.hasPreview()
+        ? [
+            h('div', { class: 'pop-title' }, 'Preview Overlays'),
+            two(
+              [
+                pt('outline', 'Image Outline'),
+                ed ? checkbox('seq-pov-frame', 'Frame Overlay', !!ed.show_overlay_frame, (v) => ((ed.show_overlay_frame = v), app.pushUndo('Frame Overlay'), app.changed('doc'))) : null,
+                checkbox('seq-pov-ann', 'Annotations', this.preview.showAnnotations, (v) => ((this.preview.showAnnotations = v), this.preview.draw(), app.changed('ui'))),
+              ],
+              [pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas'), pt('guides', 'Guides')],
+            ),
+          ]
+        : null,
       this.hasTimeline()
         ? [
+            h('div', { class: 'pop-title' }, 'Sequencer Overlays'),
+            two(t('showGrid', 'Grid'), t('showCache', 'Cache')),
             h('div', { class: 'pop-title' }, 'Strips'),
-            t('showStripName', 'Name'),
-            t('showStripSource', 'Source'),
-            t('showStripDuration', 'Duration'),
-            t('showWaveforms', 'Waveforms'),
+            two([t('showStripName', 'Name'), t('showStripSource', 'Source'), t('showStripDuration', 'Duration'), t('showFcurves', 'Animation Curves')], [t('showColorTags', 'Color Tags'), t('showOffsets', 'Offsets'), t('showRetiming', 'Retiming')]),
+            h('div', { class: 'pop-title' }, 'Thumbnails'),
             t('showThumbnails', 'Thumbnails'),
-            t('showOffsets', 'Offsets'),
+            h('div', { class: 'pop-title' }, 'Waveforms'),
+            enumRow(
+              'seq-ov-wtype',
+              [
+                { value: 'ALL_WAVEFORMS', label: 'On', description: 'Show the waveform of every sound strip' },
+                { value: 'DEFAULT_WAVEFORMS', label: 'Strip', description: 'Show waveforms as each strip says' },
+                { value: 'NO_WAVEFORMS', label: 'Off', description: 'Show no waveforms' },
+              ],
+              this.waveformType,
+              (v) => ((this.waveformType = v as 'ALL_WAVEFORMS'), this.redraw(), app.changed('ui')),
+            ),
+            enumRow(
+              'seq-ov-wstyle',
+              [
+                { value: 'FULL_WAVEFORMS', label: 'Full', description: 'The waveform around the middle of the strip' },
+                { value: 'HALF_WAVEFORMS', label: 'Half', description: 'The level of the sound from the bottom of the strip' },
+              ],
+              this.waveformStyle,
+              (v) => ((this.waveformStyle = v as 'FULL_WAVEFORMS'), this.redraw(), app.changed('ui')),
+            ),
           ]
         : null,
     );
@@ -480,7 +551,32 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 
   // ------------------------------------------------------------------ toolbars, channels, sidebar
 
+  /** The preview's zoom / pan buttons. */
+  private drawPreviewNav() {
+    const pv = this.preview;
+    const host = {
+      el: pv.el,
+      zoomAt: (f: number, x?: number, y?: number) => {
+        const r = pv.el.getBoundingClientRect();
+        pv.zoomAt(f, r.left + (x ?? r.width / 2), r.top + (y ?? r.height / 2));
+        pv.request();
+      },
+      panBy: (dx: number, dy: number) => {
+        pv.panX += dx;
+        pv.panY += dy;
+        pv.fitted = false;
+        pv.draw();
+      },
+    };
+    patch(this.pvNav, [navGizmo2D(host, 0, this.showGizmo && pv.scopeMode === 'IMAGE')]);
+  }
+
   private drawToolbars() {
+    this.drawPreviewNav();
+    if (this.preview.transformCage !== (this.pvTool === 'transform')) {
+      this.preview.transformCage = this.pvTool === 'transform';
+      this.preview.draw();
+    }
     const tb = (key: string, ic: string, on: boolean, tip: string, set: () => void) => h('button', { key, class: { 'tb-tool': true, on }, 'data-tip': tip, onclick: () => (set(), this.drawToolbars(), app.changed('ui')) }, icon(ic));
     // the select slot shows its current variant; right click, double click or a long press picks another
     const selectSlot = (key: string, cur: string, setTool: (v: SelectVariant) => void) => {
@@ -528,8 +624,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       tb('pmove', 'transform_move', this.pvTool === 'move', 'Move\nMove the selected strips’ images', () => (this.pvTool = 'move')),
       tb('prot', 'transform_rotate', this.pvTool === 'rotate', 'Rotate\nRotate the selected strips’ images', () => (this.pvTool = 'rotate')),
       tb('pscale', 'transform_scale', this.pvTool === 'scale', 'Scale\nScale the selected strips’ images', () => (this.pvTool = 'scale')),
+      tb('ptransform', 'transform', this.pvTool === 'transform', 'Transform\nDrag inside the frame around the selected images to move them, a corner to scale, outside to rotate', () => (this.pvTool = 'transform')),
       h('div', { key: 'sep2', class: 'tb-sep' }),
       tb('psample', 'eyedropper', this.pvTool === 'sample', 'Sample\nShow the colour of the pixel under the pointer while the button is held', () => (this.pvTool = 'sample')),
+      h('div', { key: 'sep3', class: 'tb-sep' }),
+      annotateToolSlot(this.pvTool, this.lastAnnotate, (t) => ((this.pvTool = t), (this.lastAnnotate = t), this.drawToolbars(), app.changed('ui'))),
     ]);
   }
 
@@ -602,12 +701,81 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (this.showSidebar && this.sidebarTab === 'cache') this.drawSidebar();
   }
 
+  /** Sidebar ▸ Tool: the active tools of the timeline and the preview, with their settings. */
+  private toolTab(): Child {
+    const timelineTools: Record<string, [string, string]> = {
+      select_box: ['Select Box', 'select_box'],
+      select_circle: ['Select Circle', 'select_circle'],
+      select_lasso: ['Select Lasso', 'select_lasso'],
+      blade: ['Blade', 'seq_blade'],
+      slip: ['Slip', 'seq_slip'],
+    };
+    const previewTools: Record<string, [string, string]> = {
+      select: ['Select Box', 'select_box'],
+      select_circle: ['Select Circle', 'select_circle'],
+      select_lasso: ['Select Lasso', 'select_lasso'],
+      cursor: ['Cursor', 'cursor'],
+      move: ['Move', 'transform_move'],
+      rotate: ['Rotate', 'transform_rotate'],
+      scale: ['Scale', 'transform_scale'],
+      transform: ['Transform', 'transform'],
+      sample: ['Sample', 'eyedropper'],
+    };
+    const row = (label: string, ic: string) => h('div', { class: 'seq-tool-name' }, icon(ic), label);
+    const out: Child[] = [];
+    if (this.hasTimeline()) {
+      const [label, ic] = timelineTools[this.tool] ?? ['Select Box', 'select_box'];
+      out.push(
+        panel('seq-tool-timeline', 'Active Tool (Sequencer)', () => [
+          row(label, ic),
+          this.tool === 'blade' ? h('div', { class: 'sb-hint' }, 'Click splits the strip under the pointer; dragging cuts out a box (Shift keeps the gap, Alt ignores connections).') : null,
+          this.tool === 'slip' ? h('div', { class: 'sb-hint' }, 'Drag a strip to slip its content; Shift is precise and C toggles clamping.') : null,
+        ]),
+      );
+    }
+    if (this.hasPreview()) {
+      const ann = isAnnotateTool(this.pvTool);
+      const [label, ic] = ann ? ['Annotate', 'annotate'] : (previewTools[this.pvTool] ?? ['Select Box', 'select_box']);
+      const transform = ['move', 'rotate', 'scale', 'transform'].includes(this.pvTool);
+      out.push(
+        panel('seq-tool-preview', 'Active Tool (Preview)', () => [
+          row(label, ic),
+          transform
+            ? splitRow(
+                'Pivot Point',
+                enumMenu(
+                  'seq-tool-pivot',
+                  PIVOTS.map(([value, l]) => ({ value, label: l, icon: PIVOT_ICONS[value] })),
+                  pivotPoint(),
+                  (v) => setPivot(v as Pivot),
+                ),
+              )
+            : null,
+        ]),
+      );
+      if (ann) out.push(annotationsPanel('seq-tool', this.preview));
+    }
+    return out;
+  }
+
   drawSidebar() {
     if (!this.showSidebar) return;
     const tabs = [
+      { id: 'tool', label: 'Tool', draw: () => this.toolTab() },
       { id: 'strip', label: 'Strip', draw: stripTab },
       { id: 'modifiers', label: 'Modifiers', draw: modifiersTab },
-      { id: 'view', label: 'View', draw: () => (hasEditor() ? viewTab({ safeAreas: this.preview.opts.safeAreas, setSafeAreas: (v) => ((this.preview.opts.safeAreas = v), this.preview.draw(), this.drawSidebar()) }) : h('div', { class: 'sb-empty' }, 'No sequence editor')) },
+      {
+        id: 'view',
+        label: 'View',
+        draw: () =>
+          hasEditor()
+            ? [
+                viewTab(),
+                this.hasPreview() ? previewGuidePanels(this.preview, () => (this.preview.draw(), this.drawSidebar(), app.changed('ui'))) : null,
+                this.hasPreview() ? annotationsPanel('seq', this.preview) : null,
+              ]
+            : h('div', { class: 'sb-empty' }, 'No sequence editor'),
+      },
       { id: 'cache', label: 'Proxy & Cache', draw: () => cacheTab({ previewSize: this.preview.size, renderMs: this.preview.renderMs, scale: this.preview.scale }) },
     ];
     const tab = tabs.find((t) => t.id === this.sidebarTab) ?? tabs[0];
@@ -704,7 +872,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       a = Math.min(a, ...l.map(S.finalStart));
       b = Math.max(b, ...l.map(S.finalEnd));
       c0 = Math.min(...l.map((s) => s.channel));
-      c1 = Math.max(c1, ...l.map((s) => s.channel));
+      // fit the used channels (at least three rows, so short edits do not get huge strips)
+      c1 = Math.max(Math.min(1, c0) + 2, ...l.map((s) => s.channel));
     }
     this.fitFrames(a, b);
     const avail = this.contentBottom() - RULER_H;
@@ -800,7 +969,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     // grid
     const step = frameStep(this.ppf, sceneFps(), 64);
     const first = Math.floor(this.xf(0) / step) * step;
-    g.strokeStyle = T.grid;
+    g.strokeStyle = this.showGrid ? T.grid : 'rgba(0, 0, 0, 0)';
     g.lineWidth = 1;
     g.beginPath();
     for (let f = first; this.fx(f) < W + 1; f += step) {
@@ -833,6 +1002,30 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.moveTo(rx, RULER_H);
       g.lineTo(rx, H);
       g.stroke();
+      g.restore();
+    }
+    // Final cache: frames that show without rendering again
+    if (this.showCache && this.hasPreview()) {
+      g.fillStyle = 'rgba(110, 170, 255, 0.75)';
+      for (const f of this.preview.cachedFrames()) {
+        const a = this.fx(f),
+          b = this.fx(f + 1);
+        if (b < 0 || a > W) continue;
+        g.fillRect(a, RULER_H + 1, Math.max(1, b - a), 3);
+      }
+    }
+    // snap indicator: the frames a running transform snapped to
+    if (this.snapLines.length && app.modal) {
+      g.save();
+      g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      g.lineWidth = 1;
+      for (const f of this.snapLines) {
+        const sx = Math.round(this.fx(f)) + 0.5;
+        g.beginPath();
+        g.moveTo(sx, RULER_H);
+        g.lineTo(sx, H);
+        g.stroke();
+      }
       g.restore();
     }
     // playhead
@@ -945,7 +1138,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       y1 = Math.round(r.y1);
     const w = x1 - x0,
       hgt = y1 - y0;
-    const base = stripColor(s);
+    const base = this.showColorTags ? stripColor(s) : typeColor(s.type);
     const muted = s.mute || !!seqChannels()[s.channel]?.mute;
     g.save();
     if (muted) g.globalAlpha = 0.45;
@@ -981,10 +1174,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.stroke();
       g.lineWidth = 1;
     }
-    this.drawFadeCurve(g, s, x0, y0, w, hgt);
-    if (s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
+    if (this.showFcurves) this.drawFadeCurve(g, s, x0, y0, w, hgt);
+    if (this.showRetiming && s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
     // keyframes of animated properties (fades show as a curve)
-    if (s.keys) {
+    if (s.keys && this.showFcurves) {
       const frames = keyFrames(s, KEY_PATHS.filter((p) => p !== 'blend_alpha' && p !== 'volume'));
       const ky = y0 + titleH + 6;
       for (const f of frames) {
@@ -1200,7 +1393,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         g.fillRect(x0, y0, w, h);
         return;
       case 'SOUND': {
-        if (!this.showWaveforms || s.show_waveform === false || !s.media) return;
+        if (!this.showWaveforms || this.waveformType === 'NO_WAVEFORMS' || (this.waveformType === 'DEFAULT_WAVEFORMS' && s.show_waveform === false) || !s.media) return;
         const buf = soundNow(s.media.bytes, () => this.redraw());
         if (!buf) {
           g.fillStyle = 'rgba(0, 0, 0,0.15)';
@@ -1209,8 +1402,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         }
         const pk = soundPeaks(buf);
         const n = pk.length / 2;
-        const mid = y0 + h / 2;
-        const amp = (h / 2 - 1) * Math.min(4, s.volume ?? 1);
+        const half = this.waveformStyle === 'HALF_WAVEFORMS';
+        // half: the absolute level rises from the bottom of the strip
+        const mid = half ? y0 + h - 1 : y0 + h / 2;
+        const amp = (half ? h - 2 : h / 2 - 1) * Math.min(4, s.volume ?? 1);
         g.fillStyle = T.waveform;
         g.beginPath();
         const xa = Math.max(0, x0),
@@ -1230,8 +1425,13 @@ export class SequencerEditor implements Editor, SeqEditorLike {
             lo = Math.min(lo, pk[b * 2]);
             hi = Math.max(hi, pk[b * 2 + 1]);
           }
-          top.push(mid - hi * amp);
-          bot.push(mid - lo * amp);
+          if (half) {
+            top.push(mid - Math.max(hi, -lo) * amp);
+            bot.push(mid);
+          } else {
+            top.push(mid - hi * amp);
+            bot.push(mid - lo * amp);
+          }
         }
         if (!top.length) return;
         g.moveTo(Math.floor(xa), top[0]);
@@ -1369,7 +1569,14 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     );
     // preview
     const pv = this.preview.el;
-    pv.addEventListener('pointermove', () => (this.hover = 'preview'));
+    pv.addEventListener('pointermove', (e) => {
+      this.hover = 'preview';
+      if (this.pvTool === 'transform' && !app.modal) {
+        const r = pv.getBoundingClientRect();
+        const part = this.preview.cagePart(e.clientX - r.left, e.clientY - r.top);
+        pv.style.cursor = part === 'MOVE' ? 'move' : part === 'SCALE' ? 'nwse-resize' : part === 'ROTATE' ? 'alias' : '';
+      } else if (pv.style.cursor) pv.style.cursor = '';
+    });
     this.pvToolbar.addEventListener('pointermove', () => (this.hover = 'toolbar'));
     pv.addEventListener('pointerdown', (e) => this.onPreviewDown(e));
     pv.addEventListener('wheel', (e) => this.onPreviewWheel(e), { passive: false });
@@ -2065,6 +2272,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       addEventListener('pointerup', up);
       return;
     }
+    if ((annotateKeyHeld() && (e.button === 0 || e.button === 2)) || (e.button === 0 && isAnnotateTool(this.pvTool) && !editedText())) {
+      const mode = annotateKeyHeld() ? (e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW') : annotateModeOf(this.pvTool as AnnotateTool);
+      annotatePointerDown(this.preview, e, mode);
+      return;
+    }
     if (e.button === 2) {
       e.preventDefault();
       if (e.shiftKey) {
@@ -2151,6 +2363,19 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       addEventListener('pointerup', up);
       return;
     }
+    if (this.pvTool === 'transform') {
+      const r = this.preview.el.getBoundingClientRect();
+      const part = this.preview.cagePart(x0 - r.left, y0 - r.top);
+      if (!part) {
+        // nothing selected yet: a click selects
+        if (hit) selectStrip(hit, { extend: e.shiftKey });
+        app.pushUndo('Select');
+        app.changed('select');
+        return;
+      }
+      startPreviewTransform(this, part === 'MOVE' ? 'TRANSLATE' : part === 'SCALE' ? 'RESIZE' : 'ROTATE', x0, y0, true);
+      return;
+    }
     if (this.pvTool !== 'select') {
       if (hit && !hit.select) selectStrip(hit, { extend: e.shiftKey });
       app.changed('select');
@@ -2235,6 +2460,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       this.showSeconds = !this.showSeconds;
       this.redraw();
       app.changed('ui');
+      return true;
+    }
+    if (e.code === 'Backquote' && ctrl && !e.shiftKey && !e.altKey && this.hasPreview()) {
+      this.showGizmo = !this.showGizmo;
+      this.drawPreviewNav();
       return true;
     }
     if (e.code === 'Tab' && ctrl && !e.shiftKey) {

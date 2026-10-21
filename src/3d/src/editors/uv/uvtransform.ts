@@ -66,6 +66,62 @@ export interface TransformParams {
   proportional: boolean;
   size: number;
   falloffType: string;
+  /** land moved UVs on pixel corners or centres of a w × h image */
+  round?: { mode: 'CORNER' | 'CENTER'; w: number; h: number };
+  /** keep moved UVs inside the 0–1 square (Constrain to Image Bounds) */
+  lock?: boolean;
+}
+
+/** Snapping options of UV transforms kept on the tool settings (what snapping affects, rotation steps). */
+export interface UVSnapSettings {
+  use_snap_translate?: boolean;
+  use_snap_rotate?: boolean;
+  use_snap_scale?: boolean;
+  /** radians */
+  snap_angle_increment_2d?: number;
+  snap_angle_increment_2d_precision?: number;
+}
+export const uvSnapSettings = () => app.doc.scene.tool_settings as unknown as UVSnapSettings;
+
+/** Transform options that come from the UV editor (pixel rounding, image bounds). */
+export function viewTransformOptions(view: UVView | null): Pick<TransformParams, 'round' | 'lock'> {
+  const out: Pick<TransformParams, 'round' | 'lock'> = {};
+  if (!view) return out;
+  const img = view.image();
+  if (view.pixelRoundMode && view.pixelRoundMode !== 'DISABLED') out.round = { mode: view.pixelRoundMode, w: Math.max(1, img?.width ?? 256), h: Math.max(1, img?.height ?? 256) };
+  if (view.lockBounds) out.lock = true;
+  return out;
+}
+
+/** Limit a move or scale so the moving UVs stay inside the 0–1 square (when they start inside). */
+function limitToBounds(parts: Part[], p: TransformParams): number[] {
+  let a = Infinity,
+    b = Infinity,
+    c = -Infinity,
+    d = -Infinity;
+  for (const part of parts)
+    for (const k of part.moving) {
+      if (part.w[k] < 1) continue;
+      const u = part.base[k * 2],
+        v = part.base[k * 2 + 1];
+      a = Math.min(a, u);
+      b = Math.min(b, v);
+      c = Math.max(c, u);
+      d = Math.max(d, v);
+    }
+  if (a > c || a < -1e-6 || b < -1e-6 || c > 1 + 1e-6 || d > 1 + 1e-6) return p.value;
+  if (p.kind === 'TRANSLATE') return [Math.max(-a, Math.min(1 - c, p.value[0])), Math.max(-b, Math.min(1 - d, p.value[1]))];
+  if (p.kind === 'RESIZE' && p.pivot !== 'INDIVIDUAL_ORIGINS') {
+    const lim = (s: number, lo: number, hi: number, c0: number) => {
+      if (s <= 1) return s;
+      let m = s;
+      if (hi > c0) m = Math.min(m, (1 - c0) / (hi - c0));
+      if (lo < c0) m = Math.min(m, c0 / (c0 - lo));
+      return Math.max(1, m);
+    };
+    return [lim(p.value[0], a, c, p.center[0]), lim(p.value[1], b, d, p.center[1])];
+  }
+  return p.value;
 }
 
 /** Gather selected UVs (and proportional neighbours) of the edited meshes. */
@@ -88,9 +144,14 @@ export function collectParts(proportional: boolean, size: number, falloffType: s
     if (proportional && size > 0) {
       for (const c of moving) selectedVerts.push(t.uvVert[c]);
       const pts = [...new Set(selectedVerts)].map((id) => t.vertUV(id));
+      // Connected Only: just the islands that hold selected UVs
+      const connected = !!app.doc.scene.tool_settings.use_proportional_connected;
+      const fi = connected ? t.islands.faceIsland : null;
+      const islands = fi ? new Set(moving.map((c) => fi[t.cornerFace[c]])) : null;
       for (let id = 0; id < t.vertCount; id++) {
         const cs = t.vertCorners[id];
         if (cs.some((c) => w[c] >= 1)) continue;
+        if (islands && !cs.some((c) => islands.has(fi![t.cornerFace[c]]))) continue;
         const [u, v] = t.vertUV(id);
         let d = Infinity;
         for (const p of pts) d = Math.min(d, Math.hypot(p[0] - u, p[1] - v));
@@ -164,6 +225,9 @@ export function pivotCenter(parts: Part[], pivot: UVPivot): [number, number] {
 
 /** Write transformed UVs for the given parameters. */
 export function applyParts(parts: Part[], p: TransformParams) {
+  if (p.lock) p = { ...p, value: limitToBounds(parts, p) };
+  const rnd = p.round;
+  const snapPx = (x: number, n: number) => (rnd!.mode === 'CORNER' ? Math.round(x * n) / n : (Math.floor(x * n) + 0.5) / n);
   for (const part of parts) {
     const uvs = new Float32Array(part.base);
     for (const k of part.moving) {
@@ -195,6 +259,14 @@ export function applyParts(parts: Part[], p: TransformParams) {
         if (p.constraint[1] && !p.constraint[0]) v = v0 + p.value[0] * w * (u0 - cu);
         else u = u0 + p.value[0] * w * (v0 - cv);
       }
+      if (rnd && w >= 1) {
+        u = snapPx(u, rnd.w);
+        v = snapPx(v, rnd.h);
+      }
+      if (p.lock && w > 0) {
+        u = Math.max(0, Math.min(1, u));
+        v = Math.max(0, Math.min(1, v));
+      }
       uvs[k * 2] = u;
       uvs[k * 2 + 1] = v;
     }
@@ -224,6 +296,7 @@ const hiddenProps: PropDef[] = [
   { id: 'pivot', type: 'enum', default: 'MEDIAN_POINT', items: [['BOUNDING_BOX_CENTER', 'Bounding Box Center'], ['CURSOR', '2D Cursor'], ['INDIVIDUAL_ORIGINS', 'Individual Origins'], ['MEDIAN_POINT', 'Median Point']], hidden: true },
   { id: 'release_confirm', type: 'bool', default: false, hidden: true },
   { id: 'use_center', type: 'bool', default: false, hidden: true },
+  { id: 'constraint_axis', type: 'bools', default: [false, false], hidden: true },
 ];
 
 const IDS: Record<Kind, string> = { TRANSLATE: 'uv.translate', ROTATE: 'uv.rotate', RESIZE: 'uv.resize', SHEAR: 'uv.shear' };
@@ -240,7 +313,7 @@ function execTransform(kind: Kind, p: Record<string, unknown>, view: UVView | nu
   const parts = collectParts(!!p.use_proportional_edit, p.proportional_size as number, p.proportional_edit_falloff as string, pivot === 'INDIVIDUAL_ORIGINS');
   if (!parts.length) return 'CANCELLED' as const;
   const center = p.use_center ? (p.center as [number, number]) : pivotCenter(parts, pivot);
-  applyParts(parts, { kind, value: valueOf(kind, p), center, pivot, constraint: [false, false], proportional: !!p.use_proportional_edit, size: p.proportional_size as number, falloffType: p.proportional_edit_falloff as string });
+  applyParts(parts, { kind, value: valueOf(kind, p), center, pivot, constraint: [false, false], proportional: !!p.use_proportional_edit, size: p.proportional_size as number, falloffType: p.proportional_edit_falloff as string, ...viewTransformOptions(view) });
   return 'FINISHED' as const;
 }
 
@@ -260,7 +333,10 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
   const ev = ctx.event ?? app.pointer;
   const start = { x: ev.x - r.left, y: ev.y - r.top };
   let mouse = { ...start };
+  const viewOpts = viewTransformOptions(view);
   const constraint: [boolean, boolean] = [false, false];
+  const ca = props.constraint_axis as boolean[] | undefined;
+  if (Array.isArray(ca)) [constraint[0], constraint[1]] = [!!ca[0], !!ca[1]];
   let numeric = '';
   let snap = false,
     precise = false;
@@ -273,6 +349,7 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
   const startUV = view.toUV(start.x, start.y);
   // snapping: the header toggle (Ctrl inverts it while transforming)
   const snapOn = () => !!ts.use_snap_uv !== snap;
+  const sx = uvSnapSettings();
   const snapElement = ts.snap_uv_element ?? 'INCREMENT';
   // vertex snapping targets: UV vertices that do not move
   const targets: [number, number][] = [];
@@ -301,7 +378,26 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       }
     }
     if (!best) return null;
-    // the moved UV closest to it lands exactly on it
+    // Snap Base: the selection's centre or median lands on the target, or (Closest) the moved UV nearest to it
+    const base = ts.snap_target;
+    if (sources.length && (base === 'CENTER' || base === 'MEDIAN' || base === 'ACTIVE')) {
+      let a = Infinity,
+        b = Infinity,
+        c = -Infinity,
+        d = -Infinity,
+        mu = 0,
+        mv = 0;
+      for (const s of sources) {
+        a = Math.min(a, s[0]);
+        b = Math.min(b, s[1]);
+        c = Math.max(c, s[0]);
+        d = Math.max(d, s[1]);
+        mu += s[0] / sources.length;
+        mv += s[1] / sources.length;
+      }
+      const p = base === 'CENTER' ? [(a + c) / 2, (b + d) / 2] : [mu, mv];
+      return [best[0] - p[0], best[1] - p[1]];
+    }
     let src: [number, number] | null = null;
     bd = Infinity;
     for (const s of sources) {
@@ -324,7 +420,7 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
         du *= 0.1;
         dv *= 0.1;
       }
-      if (snapOn()) {
+      if (snapOn() && sx.use_snap_translate !== false) {
         const v = snapElement === 'VERTEX' ? snapVertex(du, dv) : null;
         if (v) [du, dv] = v;
         else if (snapElement === 'INCREMENT') {
@@ -347,14 +443,17 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       totalAng += precise ? d * 0.1 : d;
       lastAng = a;
       let ang = totalAng;
-      if (snapOn()) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
+      if (snapOn() && sx.use_snap_rotate !== false) {
+        const inc = Math.max(1e-4, precise ? sx.snap_angle_increment_2d_precision ?? Math.PI / 180 : sx.snap_angle_increment_2d ?? Math.PI / 36);
+        ang = Math.round(ang / inc) * inc;
+      }
       if (Number.isFinite(num)) ang = (num * Math.PI) / 180;
       value = [ang];
     } else if (kind === 'RESIZE') {
       const d0 = Math.max(1, Math.hypot(start.x - cPx.x, start.y - cPx.y));
       let s = Math.hypot(mouse.x - cPx.x, mouse.y - cPx.y) / d0;
       if (precise) s = 1 + (s - 1) * 0.1;
-      if (snapOn()) s = Math.round(s * 10) / 10;
+      if (snapOn() && sx.use_snap_scale !== false) s = Math.round(s * 10) / 10;
       if (Number.isFinite(num)) s = num;
       value = [only === 1 ? 1 : s, only === 0 ? 1 : s];
     } else {
@@ -365,7 +464,7 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       if (Number.isFinite(num)) k = num;
       value = [k];
     }
-    applyParts(parts, { kind, value, center, pivot, constraint, proportional, size, falloffType });
+    applyParts(parts, { kind, value, center, pivot, constraint, proportional, size, falloffType, ...viewOpts });
   };
   const redoProps = () => ({
     value: kind === 'ROTATE' || kind === 'SHEAR' ? value[0] : value,

@@ -13,6 +13,8 @@ import {
   selectedIslands,
   averageIslandsScale,
   packIslandsUV,
+  mergeOverlapping,
+  islandCorners,
   arrangeIslands,
   randomizeIslands,
   minimizeStretch,
@@ -29,6 +31,9 @@ import { ripKeep } from './uvselect';
 import { locInvoke } from './uvops-select';
 import { uvLayers, uvEditPoll, ctxUVEditor, uvCursor, uvChanged, inUVEditor, type EditLayer } from './uvcontext';
 import { startUVTransform, nudgeSelection } from './uvtransform';
+import { packRegion, selectionBounds, regionSettings, type PackSource } from './uvregion';
+import { startStitch } from './uvstitch';
+import type { ImageData } from '../../data/types';
 
 type Sel = (c: number) => boolean;
 
@@ -233,9 +238,22 @@ registerOperators([
     props: [
       { id: 'method', label: 'Method', type: 'enum', default: 'AUTO', items: [['AUTO', 'Auto'], ['EDGE', 'Edge'], ['GEOMETRY', 'Geometry']] },
       { id: 'axis', label: 'Axis', type: 'enum', default: 'X', items: [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']], showIf: (p) => p.method === 'GEOMETRY' },
+      { id: 'correct_aspect', label: 'Correct Aspect', type: 'bool', default: false },
     ],
     poll: uvEditPoll,
-    exec: (_ctx, p) => (editUVs((t, uvs, sel) => alignRotation(t, uvs, sel, p.method as 'AUTO', p.axis as 'X')) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => {
+      // with Correct Aspect, rotate in the image's pixel proportions
+      const [w, h] = imageSize(ctx);
+      const k = p.correct_aspect ? w / h : 1;
+      return editUVs((t, uvs, sel) => {
+        if (k !== 1) for (let i = 0; i < uvs.length; i += 2) uvs[i] *= k;
+        const n = alignRotation(t, uvs, sel, p.method as 'AUTO', p.axis as 'X');
+        if (k !== 1) for (let i = 0; i < uvs.length; i += 2) uvs[i] /= k;
+        return n;
+      })
+        ? 'FINISHED'
+        : 'CANCELLED';
+    },
   },
   {
     idname: 'uv.stitch',
@@ -251,6 +269,7 @@ registerOperators([
       { id: 'mode', label: 'Operation Mode', type: 'enum', default: 'VERTEX', items: [['VERTEX', 'Vertex'], ['EDGE', 'Edge']] },
     ],
     poll: (ctx) => uvEditPoll() && !app.doc.scene.tool_settings.use_uv_select_sync && !!ctx,
+    invoke: (ctx, p) => (ctxUVEditor(ctx) ? startStitch(ctx, p) : app.run('uv.stitch', p, { invoke: false, area: ctx.area })),
     exec: (_ctx, p) => {
       let groups = 0;
       editUVs((t, uvs, sel, layer) => {
@@ -347,16 +366,45 @@ registerOperators([
       { id: 'rotate_method', label: 'Rotation Method', type: 'enum', default: 'ANY', items: [['ANY', 'Any'], ['CARDINAL', 'Cardinal'], ['AXIS_ALIGNED', 'Axis-aligned'], ['AXIS_ALIGNED_X', 'Axis-aligned (Horizontal)'], ['AXIS_ALIGNED_Y', 'Axis-aligned (Vertical)']], showIf: (p) => !!p.rotate },
       { id: 'scale', label: 'Scale', type: 'bool', default: true },
       { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, precision: 3 },
+      { id: 'merge_overlap', label: 'Merge Overlapping', type: 'bool', default: false },
+      { id: 'pin', label: 'Lock Pinned Islands', type: 'bool', default: false },
+      {
+        id: 'udim_source',
+        label: 'Pack to',
+        type: 'enum',
+        default: 'CLOSEST_UDIM',
+        items: [
+          ['CLOSEST_UDIM', 'Closest UDIM', 'The UDIM tile nearest to the selection'],
+          ['ACTIVE_UDIM', 'Active UDIM', 'The active tile of the shown UDIM image'],
+          ['ORIGINAL_AABB', 'Original bounding box', 'The bounds of the selected islands before packing'],
+          ['CUSTOM_REGION', 'Custom Region', 'The user region (Set User Region, Ctrl B)'],
+        ],
+      },
     ],
     poll: uvEditPoll,
-    exec: (ctx, p) => (editUVs((t, uvs, sel) => packIslandsUV(t, uvs, opIslands(ctx, t, sel), p as unknown as PackOptions), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => {
+      const layers = opLayers(ctx);
+      const view = ctxUVEditor(ctx) as unknown as { image?(): ImageData | null } | null;
+      const region = packRegion(p.udim_source as PackSource, selectionBounds(layers), view?.image?.() ?? null, regionSettings().uv_custom_region);
+      const o: PackOptions = { margin: p.margin as number, rotate: !!p.rotate, rotateMethod: p.rotate_method as PackOptions['rotateMethod'], scale: !!p.scale, region };
+      return editUVs((t, uvs, sel) => {
+        let islands = opIslands(ctx, t, sel);
+        // pinned islands stay where they are
+        if (p.pin) islands = islands.filter((faces) => !islandCorners(t, faces).some((c) => isPinned(t.me, c)));
+        if (p.merge_overlap) islands = mergeOverlapping(t, uvs, islands);
+        return packIslandsUV(t, uvs, islands, o);
+      }, layers)
+        ? 'FINISHED'
+        : 'CANCELLED';
+    },
   },
   {
     idname: 'uv.average_islands_scale',
     label: 'Average Islands Scale',
     description: 'Scale islands so their UV area matches their 3D area relative to each other',
+    props: [{ id: 'scale_uv', label: 'Non-Uniform', type: 'bool', default: false }],
     poll: uvEditPoll,
-    exec: (ctx) => (editUVs((t, uvs, sel) => averageIslandsScale(t, uvs, opIslands(ctx, t, sel)), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => (editUVs((t, uvs, sel) => averageIslandsScale(t, uvs, opIslands(ctx, t, sel), !!p.scale_uv), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'uv.arrange_islands',

@@ -2,7 +2,7 @@
 // overlap, pinned, split, winding, shortest path, select mode and hide/reveal.
 import { app, registerOperators, operators, type OpContext } from '../../app/app';
 import { UVTopo, SelEdit, isPinned, faceUVCenter, pointInPolygon, visibleFaces, type UVLayer } from './uvcore';
-import { pickVert, pickEdge, pickFace, edgeLoop, edgeRing, growCorners, shrinkCorners, similarCorners, overlappingFaces, windingFaces, shortestVertPath, shortestFacePath, type SimilarType, type Compare } from './uvselect';
+import { pickVert, pickEdge, pickFace, edgeLoop, edgeRing, growCorners, shrinkCorners, similarCorners, overlappingFaces, windingFaces, shortestVertPath, shortestFacePath, shortestVertFill, shortestFaceFill, type SimilarType, type Compare } from './uvselect';
 import { uvLayers, layerTopos, uvSelectMode, stickyMode, uvEditPoll, ctxUVEditor, pickRadius, uvChanged, type EditLayer } from './uvcontext';
 
 type SelMode = 'SET' | 'ADD' | 'SUB';
@@ -460,7 +460,7 @@ registerOperators([
     idname: 'uv.shortest_path_pick',
     label: 'Pick Shortest Path',
     description: 'Select the shortest path from the last picked element to the one under the pointer',
-    props: [{ id: 'use_topology_distance', label: 'Topology Distance', type: 'bool', default: false }, locProp()],
+    props: [{ id: 'use_topology_distance', label: 'Topology Distance', type: 'bool', default: false }, { id: 'use_fill', label: 'Fill Region', type: 'bool', default: false }, locProp()],
     poll: uvEditPoll,
     exec: (ctx, p) => {
       const [u, v] = p.location as number[];
@@ -474,7 +474,12 @@ registerOperators([
       const target = faceMode ? hit.face : t.uvVert[hit.corner];
       const sameStart = uvActive.objectId === (layer.objectId ?? '') && uvActive.kind === (faceMode ? 'FACE' : 'VERT') && uvActive.index >= 0;
       if (sameStart) {
-        const path = faceMode ? shortestFacePath(t, uvActive.index, target, !!p.use_topology_distance) : uvActive.index < t.vertCount ? shortestVertPath(t, uvActive.index, target, !!p.use_topology_distance) : [];
+        const topo = !!p.use_topology_distance;
+        const path = faceMode
+          ? (p.use_fill ? shortestFaceFill : shortestFacePath)(t, uvActive.index, target, topo)
+          : uvActive.index < t.vertCount
+            ? (p.use_fill ? shortestVertFill : shortestVertPath)(t, uvActive.index, target, topo)
+            : [];
         if (faceMode) for (const f of path) for (let c = t.me.offsets[f]; c < t.me.offsets[f + 1]; c++) e.set(c, true);
         else for (const id of path) for (const c of t.vertCorners[id]) e.set(c, true);
       }

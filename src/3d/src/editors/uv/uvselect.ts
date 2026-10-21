@@ -418,11 +418,9 @@ export function windingFaces(t: UVTopo, positive: boolean): number[] {
 // shortest path
 
 /** Shortest chain of UV vertices between two UV vertices along UV edges (by UV length). */
-export function shortestVertPath(t: UVTopo, from: number, to: number, topology = false): number[] {
-  const n = t.vertCount;
-  const adj: [number, number][][] = Array.from({ length: n }, () => []);
-  for (const [key, corners] of t.edges) {
-    void key;
+function vertGraph(t: UVTopo, topology: boolean): [number, number][][] {
+  const adj: [number, number][][] = Array.from({ length: t.vertCount }, () => []);
+  for (const corners of t.edges.values()) {
     const c = corners[0];
     const a = t.uvVert[c],
       b = t.uvVert[t.next(c)];
@@ -430,11 +428,39 @@ export function shortestVertPath(t: UVTopo, from: number, to: number, topology =
     adj[a].push([b, w]);
     adj[b].push([a, w]);
   }
-  return dijkstra(n, adj, from, to);
+  return adj;
+}
+
+export function shortestVertPath(t: UVTopo, from: number, to: number, topology = false): number[] {
+  return dijkstra(t.vertCount, vertGraph(t, topology), from, to);
+}
+
+/** Every element on some shortest path between two (fill: the region between them on a grid). */
+function fillBetween(n: number, adj: [number, number][][], from: number, to: number): number[] {
+  const a = distances(n, adj, from),
+    b = distances(n, adj, to);
+  const best = a[to];
+  if (!Number.isFinite(best)) return [];
+  const eps = 1e-7 * Math.max(1, best);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (a[i] + b[i] <= best + eps) out.push(i);
+  return out;
+}
+
+export function shortestVertFill(t: UVTopo, from: number, to: number, topology = false): number[] {
+  return fillBetween(t.vertCount, vertGraph(t, topology), from, to);
+}
+
+export function shortestFaceFill(t: UVTopo, from: number, to: number, topology = false): number[] {
+  return fillBetween(t.me.offsets.length - 1, faceGraph(t, topology), from, to);
 }
 
 /** Shortest chain of faces between two faces across shared UV edges. */
 export function shortestFacePath(t: UVTopo, from: number, to: number, topology = false): number[] {
+  return dijkstra(t.me.offsets.length - 1, faceGraph(t, topology), from, to);
+}
+
+function faceGraph(t: UVTopo, topology: boolean): [number, number][][] {
   const nf = t.me.offsets.length - 1;
   const adj: [number, number][][] = Array.from({ length: nf }, () => []);
   for (const corners of t.edges.values()) {
@@ -450,7 +476,56 @@ export function shortestFacePath(t: UVTopo, from: number, to: number, topology =
         adj[b].push([a, w]);
       }
   }
-  return dijkstra(nf, adj, from, to);
+  return adj;
+}
+
+/** Distances of every node from `from` (unreachable: Infinity). */
+function distances(n: number, adj: [number, number][][], from: number): Float64Array {
+  const dist = new Float64Array(n).fill(Infinity);
+  dist[from] = 0;
+  const done = new Uint8Array(n);
+  // binary heap of [distance, node]
+  const heap: [number, number][] = [[0, from]];
+  const push = (e: [number, number]) => {
+    heap.push(e);
+    for (let i = heap.length - 1; i > 0; ) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0];
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ; ) {
+        const l = i * 2 + 1,
+          r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length) {
+    const [d, x] = pop();
+    if (done[x]) continue;
+    done[x] = 1;
+    for (const [y, w] of adj[x]) {
+      const nd = d + w;
+      if (nd < dist[y]) {
+        dist[y] = nd;
+        push([nd, y]);
+      }
+    }
+  }
+  return dist;
 }
 
 function dijkstra(n: number, adj: [number, number][][], from: number, to: number): number[] {

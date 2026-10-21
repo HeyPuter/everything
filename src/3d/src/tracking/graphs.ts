@@ -3,6 +3,7 @@
 import { app } from '../app/app';
 import { frameStep, valueStep, formatValue } from '../animation/view2d';
 import { tobj, clipToSceneFrame, markerExact, trackSpan, type MovieClipData, type MovieTrackingTrack } from './types';
+import { reprojectBundle } from './reconstruction';
 import type { ClipEditor } from './editor';
 
 const BG = '#2d2e30',
@@ -11,7 +12,36 @@ const BG = '#2d2e30',
   TEXT = '#9a9b9c',
   CURFRAME = '#4b70b5';
 const SPEED_X = '#e35c54',
-  SPEED_Y = '#67cf6c';
+  SPEED_Y = '#67cf6c',
+  ERROR_TRACK = '#e8b23c',
+  ERROR_FRAME = '#5d8fe6';
+
+/** Reprojection error (pixels) of a solved track per frame, as runs of consecutive frames. */
+export function trackErrors(c: MovieClipData, t: MovieTrackingTrack): { f: number; e: number }[][] {
+  const o = tobj(c);
+  if (!o.reconstruction?.is_valid || !t.has_bundle || !t.bundle) return [];
+  const [W, H] = c.size;
+  const out: { f: number; e: number }[][] = [];
+  let run: { f: number; e: number }[] = [];
+  let prev = -Infinity;
+  for (const m of t.markers) {
+    const q = m.mute ? null : reprojectBundle(c, o, t.bundle, m.frame);
+    if (!q) continue;
+    const e = Math.hypot((m.co[0] + t.offset[0]) * W - q[0], (m.co[1] + t.offset[1]) * H - q[1]);
+    if (m.frame !== prev + 1 && run.length) (out.push(run), (run = []));
+    run.push({ f: clipToSceneFrame(c, m.frame), e });
+    prev = m.frame;
+  }
+  if (run.length) out.push(run);
+  return out;
+}
+
+/** Average solve error of each solved frame (scene frames). */
+export function frameErrors(c: MovieClipData): { f: number; e: number }[] {
+  const rec = tobj(c).reconstruction;
+  if (!rec?.is_valid) return [];
+  return rec.cameras.map((cam) => ({ f: clipToSceneFrame(c, cam.frame), e: cam.average_error ?? 0 })).sort((a, b) => a.f - b.f);
+}
 
 function clipRange(c: MovieClipData): [number, number] {
   return [clipToSceneFrame(c, 1), clipToSceneFrame(c, Math.max(1, c.frame_duration))];
@@ -19,6 +49,11 @@ function clipRange(c: MovieClipData): [number, number] {
 
 /** Selected curve points (knots) of the graph view: "track|frame|axis" (UI state per editor). */
 const knotSel = new WeakMap<ClipEditor, Set<string>>();
+/** Tracks shown in the graph and dope sheet views (header: Only Show Selected, Show Hidden). */
+export function shownIn(ed: ClipEditor, t: MovieTrackingTrack): boolean {
+  return (!t.hide || ed.showHiddenTracks) && (t.select || !ed.graphOnlySelected);
+}
+
 export function graphSelection(ed: ClipEditor): Set<string> {
   let s = knotSel.get(ed);
   if (!s) knotSel.set(ed, (s = new Set()));
@@ -34,7 +69,7 @@ export function graphKnotAt(ed: ClipEditor, x: number, y: number, radius = 7): {
   let best: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y' } | null = null,
     bd = radius;
   for (const t of tobj(c).tracks) {
-    if (!t.select || t.hide) continue;
+    if (!shownIn(ed, t)) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
         for (const axis of ['x', 'y'] as const) {
@@ -53,7 +88,7 @@ export function graphKnots(ed: ClipEditor): { track: MovieTrackingTrack; frame: 
   const v = ed.v2;
   const out: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y'; x: number; y: number }[] = [];
   for (const t of tobj(c).tracks) {
-    if (!t.select || t.hide) continue;
+    if (!shownIn(ed, t)) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
         for (const axis of ['x', 'y'] as const) if ((axis === 'x' ? ed.graphShow.speed_x : ed.graphShow.speed_y) && ed.graphShow.motion) out.push({ track: t, frame: s.m, axis, x: v.fx(s.f), y: v.vy(s[axis]) + 24 });
@@ -144,12 +179,14 @@ export function frameGraphAll(ed: ClipEditor) {
   let lo = Infinity,
     hi = -Infinity;
   for (const t of tobj(c).tracks)
-    if (t.select && !t.hide)
+    if (shownIn(ed, t))
       for (const seg of speeds(c, t))
         for (const s of seg) {
           if (ed.graphShow.speed_x) ((lo = Math.min(lo, s.x)), (hi = Math.max(hi, s.x)));
           if (ed.graphShow.speed_y) ((lo = Math.min(lo, s.y)), (hi = Math.max(hi, s.y)));
         }
+  for (const t of tobj(c).tracks) if (shownIn(ed, t) && ed.graphShow.error) for (const run of trackErrors(c, t)) for (const p of run) ((lo = Math.min(lo, p.e)), (hi = Math.max(hi, p.e)));
+  if (ed.graphShow.frames) for (const p of frameErrors(c)) ((lo = Math.min(lo, p.e)), (hi = Math.max(hi, p.e)));
   if (!Number.isFinite(lo)) ((lo = -1), (hi = 1));
   ed.v2.fitY(lo, hi);
   ed.v2Fitted = true;
@@ -192,8 +229,19 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.rect(0, top, w, h - top);
     ctx.clip();
     ctx.translate(0, top);
+    const curve = (pts: { f: number; e: number }[], col: string, dots: boolean) => {
+      if (!pts.length) return;
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      pts.forEach((p, i) => (i ? ctx.lineTo(v.fx(p.f), v.vy(p.e)) : ctx.moveTo(v.fx(p.f), v.vy(p.e))));
+      ctx.stroke();
+      if (dots && v.ppf > 4) for (const p of pts) ctx.fillRect(v.fx(p.f) - 1.5, v.vy(p.e) - 1.5, 3, 3);
+    };
+    if (ed.graphShow.frames) curve(frameErrors(c), ERROR_FRAME, true);
     for (const t of tobj(c).tracks) {
-      if (!t.select || t.hide) continue;
+      if (!shownIn(ed, t)) continue;
+      if (ed.graphShow.error) for (const run of trackErrors(c, t)) curve(run, ERROR_TRACK, false);
       const segs = speeds(c, t);
       for (const [on, key, col] of [
         [ed.graphShow.speed_x && ed.graphShow.motion, 'x', SPEED_X],
@@ -227,7 +275,11 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.fillText('X speed (px/frame)', w - 10, top + 16);
     ctx.fillStyle = SPEED_Y;
     ctx.fillText('Y speed (px/frame)', w - 10, top + 30);
-    if (!tobj(c).tracks.some((t) => t.select && !t.hide)) {
+    if (tobj(c).reconstruction?.is_valid) {
+      if (ed.graphShow.error) (ctx.fillStyle = ERROR_TRACK), ctx.fillText('Track error (px)', w - 10, top + 44);
+      if (ed.graphShow.frames) (ctx.fillStyle = ERROR_FRAME), ctx.fillText('Frame error (px)', w - 10, top + 58);
+    }
+    if (!tobj(c).tracks.some((t) => shownIn(ed, t))) {
       ctx.fillStyle = TEXT;
       ctx.textAlign = 'center';
       ctx.fillText('Select tracks to show their motion curves', w / 2, top + (h - top) / 2);
@@ -290,7 +342,7 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
     let best: MovieTrackingTrack | null = null,
       bd = 7;
     for (const t of tobj(c).tracks) {
-      if (!t.select || t.hide) continue;
+      if (!shownIn(ed, t)) continue;
       for (const seg of speeds(c, t))
         for (const s of seg)
           for (const val of [ed.graphShow.speed_x ? s.x : null, ed.graphShow.speed_y ? s.y : null]) {
@@ -340,11 +392,14 @@ function segments(t: MovieTrackingTrack): [number, number][] {
 export function sortedTracks(ed: ClipEditor): MovieTrackingTrack[] {
   const c = ed.clip;
   if (!c) return [];
-  const list = tobj(c).tracks.filter((t) => !t.hide);
+  const list = tobj(c).tracks.filter((t) => (!t.hide || ed.showHiddenTracks) && (t.select || !ed.dopesheetOnlySelected));
   const longest = (t: MovieTrackingTrack) => Math.max(0, ...segments(t).map(([a, b]) => b - a + 1));
   const total = (t: MovieTrackingTrack) => segments(t).reduce((s, [a, b]) => s + b - a + 1, 0);
   if (ed.dopesheetSort === 'NAME') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   else if (ed.dopesheetSort === 'LONGEST') list.sort((a, b) => longest(b) - longest(a));
+  else if (ed.dopesheetSort === 'AVERAGE_ERROR') list.sort((a, b) => (b.average_error ?? 0) - (a.average_error ?? 0));
+  else if (ed.dopesheetSort === 'START') list.sort((a, b) => (a.markers[0]?.frame ?? Infinity) - (b.markers[0]?.frame ?? Infinity));
+  else if (ed.dopesheetSort === 'END') list.sort((a, b) => (a.markers[a.markers.length - 1]?.frame ?? -Infinity) - (b.markers[b.markers.length - 1]?.frame ?? -Infinity));
   else list.sort((a, b) => total(b) - total(a));
   if (ed.dopesheetInvert) list.reverse();
   return list;
@@ -447,9 +502,10 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
     if (span) {
       ctx.fillStyle = '#898a8c';
       ctx.textAlign = 'right';
-      ctx.fillText(`${span[1] - span[0] + 1}`, CHANNEL_W - 8, y + 14);
+      ctx.fillText(`${span[1] - span[0] + 1}`, CHANNEL_W - 28, y + 14);
       ctx.textAlign = 'left';
     }
+    drawLockGlyph(ctx, CHANNEL_W - 18, y + ROW_H / 2 - 1, t.lock);
   });
   ctx.restore();
   ctx.fillStyle = '#9a9b9c';
@@ -462,6 +518,20 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   ctx.stroke();
 }
 
+/** Small padlock (closed when locked) for the channel list. */
+function drawLockGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, locked: boolean) {
+  ctx.save();
+  ctx.strokeStyle = locked ? '#e1e2e4' : '#7d7e80';
+  ctx.fillStyle = locked ? '#e1e2e4' : '#7d7e80';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(x - 4, y, 8, 6);
+  ctx.beginPath();
+  if (locked) ctx.arc(x, y, 3, Math.PI, 0);
+  else ctx.arc(x + 3, y - 1, 3, Math.PI, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function dopesheetPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y: number }) {
   const c = ed.clip;
   if (p.x < CHANNEL_W) {
@@ -469,6 +539,13 @@ export function dopesheetPointer(ed: ClipEditor, e: PointerEvent, p: { x: number
     const i = Math.floor((p.y - HEAD_H + ed.dopesheetScroll) / ROW_H);
     const t = sortedTracks(ed)[i];
     if (!t) return;
+    if (p.x >= CHANNEL_W - 26) {
+      // the padlock: lock / unlock the track
+      t.lock = !t.lock;
+      app.pushUndo(t.lock ? 'Lock Track' : 'Unlock Track');
+      app.changed('doc');
+      return;
+    }
     if (e.shiftKey || e.ctrlKey) t.select = !t.select;
     else {
       for (const o of tobj(c).tracks) o.select = false;

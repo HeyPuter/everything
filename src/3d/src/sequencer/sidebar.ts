@@ -10,6 +10,8 @@ import type { Strip, StripModifier, ColorBalanceData } from './types';
 import { BLEND_ITEMS, inputCount, isStill, finalStart, finalEnd, finalDuration, setLeftHandle, setRightHandle, translateStrip, isVisual, TRANSITIONS, findStrip, resolveOverlap } from './strips';
 import { activeStrip, afterEdit, seqEditor, seqList, toolSettings, hasEditor, sceneFps } from './context';
 import { stripIcon } from './theme';
+import { DEFAULT_SAFE_AREAS } from '../render/final/cameraoverlay';
+import type { PreviewGuides } from './preview';
 import { restartPlayback } from './audio';
 import { movieCacheStats } from './media';
 import { pickFiles, fileBytes } from './add';
@@ -589,6 +591,7 @@ export function cacheTab(info: { previewSize: string; renderMs: number; scale: n
   return [
     proxyPanel(info.previewSize),
     panel('seq-cache', 'Cache', () => [
+      hasEditor() ? checkbox('seq-cache-final', 'Final Frames', seqEditor().use_cache_final !== false, (v) => ((seqEditor().use_cache_final = v), app.pushUndo('Cache Settings'), app.changed('doc')), { tip: 'Keep composited frames so scrubbing back to them is instant' }) : null,
       splitRow('Movies', h('span', { class: 'seq-src' }, String(st.movies))),
       splitRow('Cached Frames', h('span', { class: 'seq-src' }, String(st.frames))),
       splitRow('', opButton('sequencer.refresh_all', 'Clear Cache', {}, { icon: 'file_refresh' })),
@@ -620,8 +623,8 @@ export function setOverlayReference() {
   app.changed('doc');
 }
 
-/** View tab: frame overlay, 2D cursor and preview overlays. */
-export function viewTab(opts: { safeAreas: boolean; setSafeAreas: (v: boolean) => void }): Child {
+/** View tab: frame overlay and the 2D cursor (safe areas and guides: previewGuidePanels). */
+export function viewTab(): Child {
   const ed = seqEditor();
   const ts = toolSettings();
   const cur = ts.cursor_location ?? [0, 0];
@@ -660,6 +663,73 @@ export function viewTab(opts: { safeAreas: boolean; setSafeAreas: (v: boolean) =
       splitRow('Location X', numberField({ id: 'seq-cur-x', value: cur[0], unit: 'pixel', precision: 0, set: (v, f) => ((ts.cursor_location = [v, cur[1]]), app.changed('ui'), f && app.pushUndo('2D Cursor')) })),
       splitRow('Y', numberField({ id: 'seq-cur-y', value: cur[1], unit: 'pixel', precision: 0, set: (v, f) => ((ts.cursor_location = [cur[0], v]), app.changed('ui'), f && app.pushUndo('2D Cursor')) })),
     ]),
-    panel('seq-safe', 'Safe Areas', () => [checkbox('seq-safe-show', 'Show Safe Areas', opts.safeAreas, (v) => opts.setSafeAreas(v))]),
+  ];
+}
+
+/** View tab: safe areas (shared with the camera's), the 4:3 centre-cut ones and composition guides of the preview. */
+export function previewGuidePanels(pv: { opts: { safeAreas: boolean; safeCenter: boolean; guides: boolean }; composition: PreviewGuides; displayChannel: number; draw(): void; request(): void }, redraw: () => void): Child[] {
+  const sc = app.doc.scene;
+  const sa = () => (sc.safe_areas ??= JSON.parse(JSON.stringify(DEFAULT_SAFE_AREAS)) as NonNullable<typeof sc.safe_areas>);
+  const pair = (key: 'title' | 'action' | 'title_center' | 'action_center', label: string) =>
+    [0, 1].map((i) =>
+      splitRow(
+        i ? 'Y' : label,
+        numberField({
+          id: `seq-sa-${key}-${i}`,
+          value: (sc.safe_areas ?? DEFAULT_SAFE_AREAS)[key][i],
+          min: 0,
+          max: 1,
+          slider: true,
+          unit: 'factor',
+          set: (v, f) => {
+            const a = sa();
+            a[key] = (i ? [a[key][0], v] : [v, a[key][1]]) as [number, number];
+            pv.draw();
+            if (f) app.pushUndo('Safe Areas');
+          },
+        }),
+      ),
+    );
+  const g = pv.composition;
+  const gt = (key: Exclude<keyof PreviewGuides, 'composition_guide_color'>, label: string) => checkbox(`seq-cg-${key}`, label, g[key], (v) => ((g[key] = v), (pv.opts.guides = true), redraw()));
+  return [
+    panel('seq-view-settings', 'View Settings', () => [
+      splitRow(
+        'Channel',
+        numberField({
+          id: 'seq-display-channel',
+          value: pv.displayChannel,
+          int: true,
+          min: 0,
+          max: 128,
+          tip: 'Preview the channels up to this one only (0 shows every channel)',
+          set: (v) => {
+            pv.displayChannel = Math.max(0, Math.round(v));
+            pv.request();
+          },
+        }),
+      ),
+    ]),
+    panel('seq-safe', 'Safe Areas', () => [checkbox('seq-safe-show', 'Show Safe Areas', pv.opts.safeAreas, (v) => ((pv.opts.safeAreas = v), redraw())), ...pair('title', 'Title X'), ...pair('action', 'Action X')]),
+    panel('seq-safe-center', 'Center-Cut Safe Areas', () => [checkbox('seq-safe-cc', 'Show Center-Cut', pv.opts.safeCenter, (v) => ((pv.opts.safeCenter = v), redraw())), ...pair('title_center', 'Title X'), ...pair('action_center', 'Action X')], { closed: true }),
+    panel(
+      'seq-guides',
+      'Composition Guides',
+      () => [
+        gt('show_composition_thirds', 'Thirds'),
+        h('div', { class: 'pop-label' }, 'Center'),
+        gt('show_composition_center', 'Center'),
+        gt('show_composition_center_diagonal', 'Diagonal'),
+        h('div', { class: 'pop-label' }, 'Golden'),
+        gt('show_composition_golden', 'Ratio'),
+        gt('show_composition_golden_tria_a', 'Triangle A'),
+        gt('show_composition_golden_tria_b', 'Triangle B'),
+        h('div', { class: 'pop-label' }, 'Harmony'),
+        gt('show_composition_harmony_tri_a', 'Triangle A'),
+        gt('show_composition_harmony_tri_b', 'Triangle B'),
+        splitRow('Color', colorSwatch('seq-cg-color', g.composition_guide_color, (v) => ((g.composition_guide_color = [v[0], v[1], v[2], v[3] ?? 1]), redraw()))),
+      ],
+      { closed: true },
+    ),
   ];
 }

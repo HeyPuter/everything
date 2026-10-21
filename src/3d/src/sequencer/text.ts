@@ -56,7 +56,8 @@ function familyOf(file: { bytes: Uint8Array; filepath: string }): string | null 
 
 export function fontFor(s: Strip, px: number) {
   const fam = s.font_file ? familyOf(s.font_file) : null;
-  return `${s.use_italic ? 'italic ' : ''}${s.use_bold ? 600 : 400} ${px}px ${fam ? `"${fam}", ` : ''}Inter, system-ui, sans-serif`;
+  // without a font file: a monospace face (titles and timecodes line up)
+  return `${s.use_italic ? 'italic ' : ''}${s.use_bold ? 600 : 400} ${px}px ${fam ? `"${fam}", ` : ''}"DejaVu Sans Mono", Menlo, Consolas, "Liberation Mono", monospace`;
 }
 
 /** A wrapped line: displayed text and the index of its first character in the source text. */

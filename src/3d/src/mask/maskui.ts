@@ -9,13 +9,14 @@ import { num, bool, enumProp, splitRow } from '../ui/props';
 import type { MaskLayer } from './types';
 import { maskTable, activeLayer } from './types';
 import { hostMask, selectedPoints } from './clipmask';
-import { maskEditor } from './maskops';
+import { maskEditor, maskPropSettings } from './maskops';
+import { addKeys } from '../app/keymap';
 
 interface Host {
   maskId: string | null;
   draw(): void;
   drawUI(): void;
-  area: { drawHeader(): void };
+  redrawHeader(): void;
 }
 
 const SELECT_MODES = [
@@ -88,6 +89,8 @@ export function maskMenu(): MenuItem[] {
         { label: 'Rotate', op: 'mask.transform', props: { mode: 'ROTATE' }, shortcut: 'R' },
         { label: 'Scale', op: 'mask.transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
         { label: 'Scale Feather', op: 'mask.transform', props: { mode: 'FEATHER' }, shortcut: 'Alt S' },
+        { label: 'To Sphere', op: 'mask.transform', props: { mode: 'TOSPHERE' }, shortcut: 'Shift Alt S' },
+        { label: 'Shear', op: 'mask.transform', props: { mode: 'SHEAR' }, shortcut: 'Shift Ctrl Alt S' },
       ],
     },
     {
@@ -141,7 +144,7 @@ export function maskBrowse(ed: Host): Child {
     ed.maskId = id;
     ed.draw();
     ed.drawUI();
-    ed.area.drawHeader();
+    ed.redrawHeader();
     app.changed('ui');
   };
   return h(
@@ -229,6 +232,11 @@ export function maskSidebar(ed: Host): Child[] {
   const sel = selectedPoints(m);
   const p = sel.length ? sel[sel.length - 1].point : null;
   const sp = l && l.active_spline >= 0 ? l.splines[l.active_spline] : null;
+  // settings older splines lack (shown with their defaults)
+  if (sp) {
+    sp.offset_mode ??= 'EVEN';
+    sp.weight_interpolation ??= 'LINEAR';
+  }
   return [
     panel('mask-n-settings', 'Mask Settings', () => [num(m, 'frame_start', 'Start Frame', { int: true }), num(m, 'frame_end', 'End', { int: true })]),
     panel('mask-n-layers', 'Mask Layers', () => [
@@ -279,7 +287,22 @@ export function maskSidebar(ed: Host): Child[] {
           ]
         : null,
     ]),
-    panel('mask-n-spline', 'Active Spline', () => (sp ? [bool(sp, 'use_cyclic', 'Cyclic'), bool(sp, 'use_fill', 'Fill')] : [h('div', { class: 'sb-empty' }, 'No active spline')])),
+    panel('mask-n-spline', 'Active Spline', () =>
+      sp
+        ? [
+            enumProp(sp as unknown as Record<string, unknown>, 'offset_mode', 'Feather Offset', [
+              ['EVEN', 'Even'],
+              ['SMOOTH', 'Smooth'],
+            ]),
+            enumProp(sp as unknown as Record<string, unknown>, 'weight_interpolation', 'Interpolation', [
+              ['LINEAR', 'Linear'],
+              ['EASE', 'Ease'],
+            ]),
+            bool(sp, 'use_cyclic', 'Cyclic'),
+            bool(sp, 'use_fill', 'Fill'),
+          ]
+        : [h('div', { class: 'sb-empty' }, 'No active spline')],
+    ),
     panel('mask-n-point', 'Active Point', () =>
       p
         ? [
@@ -296,3 +319,60 @@ export function maskSidebar(ed: Host): Child[] {
     ),
   ];
 }
+
+const FALLOFFS: [string, string][] = [
+  ['SMOOTH', 'Smooth'],
+  ['SPHERE', 'Sphere'],
+  ['ROOT', 'Root'],
+  ['INVERSE_SQUARE', 'Inverse Square'],
+  ['SHARP', 'Sharp'],
+  ['LINEAR', 'Linear'],
+  ['CONSTANT', 'Constant'],
+  ['RANDOM', 'Random'],
+];
+
+/** Falloff menu of proportional editing (shared size and falloff with the other editors). */
+export function maskFalloffMenu(): MenuItem[] {
+  const ps = maskPropSettings();
+  return FALLOFFS.map(([v, label]) => ({
+    label,
+    active: ps.proportional_edit_falloff === v,
+    action: () => {
+      ps.proportional_edit_falloff = v;
+      app.pushUndo('Proportional Falloff');
+      app.changed('ui');
+    },
+  }));
+}
+
+export function toggleMaskProportional() {
+  const ps = maskPropSettings();
+  ps.use_proportional_edit_mask = !ps.use_proportional_edit_mask;
+  app.pushUndo('Proportional Editing');
+  app.changed('ui');
+}
+
+/** Header toggle and falloff dropdown of proportional editing in mask mode. */
+export function maskProportionalHeader(): Child {
+  const on = !!maskPropSettings().use_proportional_edit_mask;
+  return h(
+    'div',
+    { key: 'mask-prop', class: 'hdr-group' },
+    h('button', { class: { 'hdr-toggle': true, on }, 'data-tip': 'Proportional Editing (O)\nNearby points follow transforms with a falloff', onclick: () => toggleMaskProportional() }, icon(on ? 'prop_on' : 'prop_off')),
+    h(
+      'button',
+      {
+        class: 'hdr-icondrop',
+        'data-tip': 'Proportional Editing Falloff (Shift O)',
+        onpointerdown: (e: PointerEvent) => (e.preventDefault(), openMenu(maskFalloffMenu(), e.currentTarget as HTMLElement, { title: 'Proportional Editing Falloff' })),
+      },
+      icon('down_arrow_hlt', 'tiny'),
+    ),
+  );
+}
+
+addKeys('Mask Editing', [
+  { key: 'A', shift: true, menu: maskAddMenu, menuTitle: 'Add' },
+  { key: 'O', action: toggleMaskProportional },
+  { key: 'O', shift: true, menu: maskFalloffMenu, menuTitle: 'Proportional Editing Falloff' },
+]);

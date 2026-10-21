@@ -35,6 +35,10 @@ export interface MaskSpline {
   points: MaskPoint[];
   use_cyclic: boolean;
   use_fill: boolean;
+  /** feather offset: along each curve normal (EVEN) or along smoothed normals (SMOOTH) */
+  offset_mode?: 'EVEN' | 'SMOOTH';
+  /** how the feather width changes between points */
+  weight_interpolation?: 'LINEAR' | 'EASE';
 }
 
 /** Shape key: all point coordinates of a layer at a frame (7 numbers per point, splines in order). */
