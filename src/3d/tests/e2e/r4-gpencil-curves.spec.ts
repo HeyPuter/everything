@@ -262,3 +262,34 @@ test('edit mode sidebar: median, mean radius and the active stroke settings', as
   expect(after / before).toBeCloseTo(2, 2);
   await expectNoErrors(errors);
 });
+
+test('user presets: save a Draw brush and a material, apply them back', async ({ page }) => {
+  const errors = await openApp(page);
+  await load2D(page);
+  await page.evaluate(() => localStorage.removeItem('p3d.gpencil.presets'));
+  const brush = `app.doc.scene.tool_settings.gpencil_brushes['builtin.brush.Draw']`;
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.scene.tool_settings.gpencil_brushes['builtin.brush.Draw'].size = 77;
+  });
+  expect(await run(page, 'scene.gpencil_brush_preset_add', { name: 'Big' })).toBe('FINISHED');
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.gpencil_brushes['builtin.brush.Draw'].size = 5));
+  // the header preset menu lists it
+  await page.locator('.gp-brush-preset').dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: 'Big' }).first().click();
+  expect(await get(page, `${brush}.size`)).toBe(77);
+  // material presets
+  const style = `app.doc.materials[${gp}.materials[app.activeObject.active_material_index]].grease_pencil`;
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const g = a.doc.grease_pencils[a.activeObject.data];
+    a.doc.materials[g.materials[a.activeObject.active_material_index]].grease_pencil.color = [1, 0, 0, 1];
+  });
+  expect(await run(page, 'scene.gpencil_material_preset_add', { name: 'Red' })).toBe('FINISHED');
+  const stored = (await page.evaluate(() => JSON.parse(localStorage.getItem('p3d.gpencil.presets') ?? '{}'))) as { brushes: unknown[]; materials: unknown[] };
+  expect(stored.brushes).toHaveLength(1);
+  expect(stored.materials).toHaveLength(1);
+  expect(await run(page, 'scene.gpencil_material_preset_add', { name: 'Red', remove_name: true })).toBe('FINISHED');
+  expect(await get(page, `${style}.color[0]`)).toBe(1);
+  await expectNoErrors(errors);
+});

@@ -18,6 +18,7 @@ import { gpTS, gpBrush, gpOf, DRAW_PRESETS, slotStyle } from './data';
 import { drawMenu, sculptMenu } from './menus';
 import { guideButton } from './guides';
 import { gpColorPanel } from './colorpanel';
+import { brushPresetItems } from './presets';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
 
@@ -266,28 +267,24 @@ function drawHeader(): Child {
   return [
     field(
       110,
-      enumMenu(
-        'gp-brush',
-        DRAW_PRESETS.map((p) => ({
-          value: p.id,
-          label: p.name,
-          icon: 'gp_draw',
-        })),
-        preset?.id ?? '',
-        (id) => {
-          const p = DRAW_PRESETS.find((x) => x.id === id)!;
-          ts.gpencil_draw_brush = id;
-          Object.assign(b, {
-            size: p.size,
-            strength: p.strength,
-            use_pressure_size: p.use_pressure_size,
-            use_pressure_strength: p.use_pressure_strength,
-            pen_smooth_factor: p.smooth,
-            hardness: p.hardness ?? 1,
-          });
-          refresh();
+      h(
+        'button',
+        {
+          class: 'enum-menu gp-brush-preset',
+          'data-tip': 'Brush Preset\nPick a built-in or saved brush, or save the current settings',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            const apply = (p: (typeof DRAW_PRESETS)[number]) => {
+              ts.gpencil_draw_brush = p.id;
+              Object.assign(b, { size: p.size, strength: p.strength, use_pressure_size: p.use_pressure_size, use_pressure_strength: p.use_pressure_strength, pen_smooth_factor: p.smooth, hardness: p.hardness ?? 1 });
+              refresh();
+            };
+            openMenu([...DRAW_PRESETS.map((p) => ({ label: p.name, icon: 'gp_draw', active: p.id === ts.gpencil_draw_brush, action: () => apply(p) })), { separator: true }, ...brushPresetItems()], e.currentTarget as HTMLElement);
+          },
         },
-        { tip: 'Brush preset' },
+        icon('gp_draw'),
+        h('span', { class: 'em-label' }, preset?.name ?? (ts.gpencil_draw_brush?.startsWith('user:') ? ts.gpencil_draw_brush.slice(5) : 'Brush')),
+        h('span', { class: 'em-arrow' }, icon('down_arrow_hlt')),
       ),
     ),
     materialSwatch(),

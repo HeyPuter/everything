@@ -13,6 +13,7 @@ import { uiList } from '../editors/properties/uilist';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { cloneShared } from '../data/cow';
 import { importImageFile } from '../ops/data';
+import { materialPresetButton } from './presets';
 import { uid } from '../data/defaults';
 import { uniqueName } from '../ops/object';
 import { gpOf, gpTable, newGreasePencil, newLayer, setKeyframe, emptyDrawing, defaultGPStyle, newGPMaterial, frameAt } from './data';
@@ -722,7 +723,7 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
         ],
         { sub: true },
       ),
-    ]),
+    ], { header: materialPresetButton() }),
     panel('gpm-settings', 'Settings', () => [num(st, 'pass_index', 'Pass Index', { int: true, min: 0, max: 255 }), bool(st, 'ghost', 'Show in Ghosts')], { closed: true }),
   ];
 }

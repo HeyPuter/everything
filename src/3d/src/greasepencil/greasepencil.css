@@ -240,3 +240,29 @@
   justify-content: center;
   cursor: pointer;
 }
+
+/* user presets popover */
+.gp-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px;
+}
+.gp-preset-row {
+  display: flex;
+  gap: 2px;
+}
+.gp-preset-name {
+  flex: 1;
+  text-align: left;
+  background: var(--w-regular, #545454);
+  color: var(--c-text, #dedfe1);
+  border: 1px solid var(--w-outline, #3d3d3d);
+  border-radius: var(--radius, 4px);
+  padding: 2px 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.gp-preset-row.on .gp-preset-name {
+  background: var(--accent, #4772b3);
+}
