@@ -188,6 +188,39 @@ test("a timed advance plays the slide's remaining click steps first", async ({
   await expect(counter).toHaveText("2 / 2");
 });
 
+test("a timed advance waits for effects that start with the slide", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const box = shape(slide, 1, 1, 2, 1.5, "#2266cc");
+  P.setSlideAnimations(slide, [
+    {
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "after",
+      delayMs: 0,
+      durationMs: 1500,
+    },
+  ]);
+  // A self-running slide: on as soon as its effects are done.
+  P.setSlideTransition(slide, { effect: "none", advanceAfterMs: 0 });
+  P.addBlankSlide(pres);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect.poll(() => visibleLayers(page)).toEqual([true]);
+  await expect(counter).toHaveText("1 / 2");
+  expect(
+    await page.evaluate(() =>
+      document.getAnimations().some((a) => a.playState === "running"),
+    ),
+  ).toBe(true);
+  await expect(counter).toHaveText("2 / 2");
+});
+
 test("going to an earlier slide from See All Slides starts it over", async ({
   page,
 }) => {

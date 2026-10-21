@@ -15672,7 +15672,10 @@ async function present(options = {}) {
   }
   const advanceClock = createSlideAdvanceClock(() => {
     timeUp = true;
-    advance(true);
+    // Effects still playing (such as those that start by themselves with
+    // the slide) end first, as their own clicks would wait for them.
+    if (animator?.playing) advanceClock.select(0, animator.played);
+    else advance(true);
   });
   const pauseButton = iconButton(
     "Pause automatic advance",
