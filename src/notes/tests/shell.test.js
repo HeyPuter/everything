@@ -314,6 +314,18 @@ describe('search folding', () => {
   });
 });
 
+describe('search ranking', () => {
+  it('ranks a title match above a page that only repeats the word in its text', async () => {
+    const store = new Store(memoryBackend(), { saveDelay: 0 });
+    await store.load({ defaultName: 'x' });
+    const { section } = [...store.allSections()][0];
+    store.createPage(section.id, { title: 'Notes', outlines: [{ id: 'o', x: 0, y: 0, html: `<p>${'budget '.repeat(12)}</p>` }] });
+    store.createPage(section.id, { title: 'Budget', outlines: [] });
+    const results = await store.search('budget');
+    expect(results.map((r) => r.meta.title)).toEqual(['Budget', 'Notes']);
+  });
+});
+
 describe('Find on Page', () => {
   afterEach(() => {
     for (const a of mounted) a.destroy();

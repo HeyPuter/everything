@@ -1147,10 +1147,13 @@ export class Store extends Emitter {
       const hay = normalize(text);
       if (!terms.every((t) => hay.includes(t))) return;
       const title = normalize(c.meta.title || '');
+      const titleHits = terms.filter((t) => title.includes(t)).length;
       const score = terms.reduce((s, t) => s + (title.includes(t) ? 10 : 0) + countOf(hay, t), 0);
-      results.push({ ...c, score, snippet: snippet(text, terms) });
+      results.push({ ...c, score, titleHits, snippet: snippet(text, terms) });
     });
-    results.sort((a, b) => b.score - a.score || (b.meta.modified || '').localeCompare(a.meta.modified || ''));
+    // Pages whose title has more of the terms come first, however often
+    // another page's text repeats them.
+    results.sort((a, b) => b.titleHits - a.titleHits || b.score - a.score || (b.meta.modified || '').localeCompare(a.meta.modified || ''));
     return results.slice(0, limit);
   }
 
