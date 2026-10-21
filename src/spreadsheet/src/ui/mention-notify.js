@@ -103,16 +103,19 @@ function askToShare(people, { unsaved }) {
  */
 export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, location: where = globalThis.location }) {
   async function access() {
-    if (!doc.path) return { unsaved: true };
+    // Someone a shared workbook was shared with has no file of it, and nothing to save: its members can open it.
+    if (!doc.path && !doc.collab) return { unsaved: true };
     let rows = null, members = [];
-    if (P.canShare()) {
+    if (doc.path && P.canShare()) {
       try { rows = await P.shareAccess(doc.path); } catch { rows = null; }
     }
     if (doc.collab) {
-      try { members = ((await doc.collab.request({ op: 'members' }))?.members || []).filter((m) => m.role !== 'removed').map((m) => m.username); } catch { /* none known */ }
+      try { members = ((await doc.collab.request({ op: 'members' }))?.members || []).filter((m) => m.role !== 'removed').map((m) => m.username); } catch { members = null; }
     }
-    // Without a way to read the shares (a host that cannot share), nobody is known to lack access.
-    return { rows: P.canShare() ? rows : null, members };
+    // Without a way to read the shares (a host that cannot share), nobody is known to lack access; without a file,
+    // whoever is not a member does, when the members could be read.
+    if (!doc.path) return { rows: members ? [] : null, members: members || [], noFile: true };
+    return { rows: P.canShare() ? rows : null, members: members || [] };
   }
 
   async function share(people, mode) {
@@ -141,7 +144,12 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
     const state = await access();
     const missing = withoutAccess(people, { ...state, me: user });
     let shareFailures = [];
-    if (missing.length && (state.unsaved || P.canShare())) {
+    if (missing.length && state.noFile) {
+      // Only the owner can let anyone else into a shared workbook: those outside it are left for the owner to invite.
+      const list = missing.map((p) => p.name).join(', ');
+      toast(`${list} cannot open this shared workbook. Ask its owner to invite ${missing.length === 1 ? 'them' : 'them all'}`, { icon: 'info', duration: 5000 });
+      people = people.filter((p) => !missing.includes(p));
+    } else if (missing.length && (state.unsaved || P.canShare())) {
       const answer = await ask(missing, { unsaved: !!state.unsaved });
       if (!answer) return { sent: 0, skipped: true };
       if (answer.action === 'share') {
