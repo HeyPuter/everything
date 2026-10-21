@@ -351,7 +351,8 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       const rule = ruleAt(r, c);
       const checkbox = rule?.type === 'checkbox';
       if (checkbox) tickBox(rule, value === true, cx, cy, cw, ch);
-      const text = checkbox || cf?.barOnly || cf?.iconOnly ? '' : wb.getDisplay(shown, r, c);
+      // A sheet set to hide its zero values prints those cells blank, as the grid shows them.
+      const text = checkbox || cf?.barOnly || cf?.iconOnly || (value === 0 && sheet.zeros === false) ? '' : wb.getDisplay(shown, r, c);
       if (text) {
         // With no alignment of its own, as the print sets it: logical values and errors centred, text written right to left at the right.
         const align = st.align || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
