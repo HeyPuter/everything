@@ -3551,8 +3551,9 @@ export function createGrid(opts) {
     if (validationPending) return false;
     returnHome();
     const { r, c, preserveRichText } = edit;
-    // A whole number typed without a decimal point gets one, when the options fix the decimal places.
-    const text = appOption('fixedDecimal') && !edit.arrayRange && !arrayEntry
+    // A whole number typed without a decimal point gets one, when the options fix the decimal places; not in a
+    // Plain text cell, which keeps what was typed.
+    const text = appOption('fixedDecimal') && !edit.arrayRange && !arrayEntry && wb.styleAt(sheetId, r, c)?.fmt !== 'text'
       ? applyFixedDecimal(edit.text, appOption('fixedDecimalPlaces'), localeInfo().decimal) : edit.text;
     // The cell was protected while its entry was being typed: the workbook would refuse the write in
     // silence, so the entry stays open (the workbook's notice says why) rather than being dropped.
