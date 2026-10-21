@@ -49,6 +49,8 @@ import * as manage from './ui/manage.js';
 import * as collab from './ui/collab.js';
 import * as links from './ui/links.js';
 import * as dopts from './ui/designopts.js';
+import * as sunui from './ui/sun.js';
+import { sunDirection } from './core/sun.js';
 import { editingOption } from './core/designopts.js';
 import { worksharingOn } from './core/worksets.js';
 import { confirmDialog } from './ui/dialog.js';
@@ -345,6 +347,20 @@ export const COMMANDS = {
   selectionIds: { label: 'IDs of Selection', icon: 'selectionIds', enabled: hasSel, run: (app) => manage.idsOfSelection(app) },
   selectById: { label: 'Select by ID', icon: 'selectById', run: (app) => manage.selectById(app) },
   warnings: { label: 'Warnings', icon: 'warning', run: (app) => manage.warningsDialog(app), desc: 'Problems in the model: overlapping walls, unenclosed rooms, duplicate marks' },
+  shadows: {
+    label: 'Shadows',
+    icon: 'shadows',
+    toggle: (app) => !!app.activeView?.shadows,
+    enabled: (app) => ['view3d', 'elevation', 'section'].includes(app.activeView?.kind),
+    run: (app) => {
+      const v = app.activeView;
+      if (!v) return;
+      app.commit(v.shadows ? 'Shadows off' : 'Shadows on', () => app.doc.update(v.id, { shadows: !v.shadows }));
+      if (!v.shadows && sunDirection(app.doc.get('project')).altitude <= 0) app.toast('The sun is below the horizon at the set date and time. Change it in Sun Settings.');
+    },
+    desc: 'Cast shadows from the sun at the project location, date and time',
+  },
+  sunSettings: { label: 'Sun Settings', icon: 'sun-l', run: (app) => sunui.sunSettingsDialog(app), desc: 'Project location, north angle, date and time for shadows' },
   designOptions: { label: 'Design Options', icon: 'designOptions', keys: 'DO', run: (app) => dopts.designOptionsDialog(app), desc: 'Explore alternatives for part of the design in one project' },
   addToOption: { label: 'Add to Option', icon: 'designOptions', enabled: hasSel, run: (app) => dopts.addToOption(app), desc: 'Move the selected elements into the design option being edited' },
   viewOptions: { label: 'View Design Options', icon: 'designOptions', run: (app) => dopts.viewOptionsDialog(app), desc: 'Which option of each set the active view shows' },

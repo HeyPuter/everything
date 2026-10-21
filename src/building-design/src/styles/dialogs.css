@@ -894,3 +894,95 @@
   color: var(--fg-muted);
   font-size: var(--fs-xs);
 }
+
+/* Sun settings ------------------------------------------------------------------- */
+
+.sun-layout {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 20px;
+  align-items: start;
+}
+
+.sun-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sun-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.sun-row > * {
+  flex: 1;
+  min-width: 0;
+}
+
+.sun-slider {
+  accent-color: var(--accent);
+}
+
+.sun-time {
+  flex: none !important;
+  width: 48px;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+.sun-dial {
+  --sx: 50%;
+  --sy: 50%;
+  position: relative;
+  aspect-ratio: 1;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 32%, var(--border) 32% calc(32% + 1px), transparent calc(32% + 1px)),
+    linear-gradient(var(--border), var(--border)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(var(--border), var(--border)) 0 50% / 100% 1px no-repeat,
+    color-mix(in srgb, var(--accent) 6%, var(--bg-panel));
+}
+
+.sun-dial::before {
+  content: 'N';
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.sun-dial::after {
+  content: '';
+  position: absolute;
+  left: var(--sx);
+  top: var(--sy);
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: #f5b301;
+  box-shadow: 0 0 0 4px rgb(245 179 1 / 0.25);
+}
+
+.sun-dial.night::after {
+  background: var(--fg-faint);
+  box-shadow: none;
+}
+
+@media (max-width: 560px) {
+  .sun-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sun-dial {
+    max-width: 180px;
+    margin: 0 auto;
+  }
+}

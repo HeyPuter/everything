@@ -400,6 +400,7 @@ const viewName = P('name', 'View Name', 'Identity Data', 'text');
 const viewScale = P('scale', 'View Scale', 'Graphics', 'select', { options: (c) => scaleOptions(c.doc.units), get: (el) => el.scale, set: (el, v) => ({ scale: +v }), ro: templated });
 const viewDetail = P('detail', 'Detail Level', 'Graphics', 'select', { options: () => DETAIL, ro: templated });
 const vis = P('vis', 'Visibility/Graphics', 'Graphics', 'button', { action: 'visibility', text: 'Edit...' });
+const shadowsP = P('shadows', 'Cast Shadows', 'Graphics', 'bool', { get: (el) => !!el.shadows });
 const viewStyle = P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES, ro: templated });
 const viewTemplate = P('templateId', 'View Template', 'Identity Data', 'select', {
   get: (el) => el.templateId || '',
@@ -449,6 +450,7 @@ const VIEW = {
     viewStyle,
     viewDetail,
     vis,
+    shadowsP,
     P('sectionBoxOn', 'Section Box', 'Extents', 'bool', { get: (el) => !!el.sectionBox, set: () => null, action: 'section-box' }),
     P('persp', 'Perspective', 'Camera', 'bool', { get: (el, c) => c.app?.vc?.cam?.persp !== false, set: () => null, action: 'toggle-persp' }),
     viewTemplate,
@@ -456,8 +458,8 @@ const VIEW = {
   ],
   drafting: [viewScale, viewDetail, vis, viewName],
   legend: [viewScale, viewDetail, vis, viewName],
-  elevation: [viewScale, viewStyle, viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
-  section: [viewScale, viewStyle, viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
+  elevation: [viewScale, viewStyle, viewDetail, vis, shadowsP, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
+  section: [viewScale, viewStyle, viewDetail, vis, shadowsP, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
   schedule: [viewName, ro('category', 'Category', 'Other', (el) => el.category, 'text'), P('fields', 'Fields', 'Other', 'button', { action: 'schedule-fields', text: 'Edit...' })],
   sheet: [
     P('number', 'Sheet Number', 'Identity Data', 'text'),

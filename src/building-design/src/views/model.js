@@ -9,6 +9,7 @@ import { viewMatrix2D } from '../render/renderer2d.js';
 import { viewFrame, viewClip, elevationAnnotations, sectionCuts } from '../core/elevation.js';
 import { pointInPolygon, distToSegment, bboxContains, bboxIntersects } from '../core/geom.js';
 import { drawLayerTexts } from './overlay.js';
+import { sunDirection } from '../core/sun.js';
 
 const SECTION_BOX_PAD = 0;
 
@@ -195,7 +196,13 @@ export class ModelController {
       const f = this.frame();
       light = norm3([-f.look[0] * 0.7 - f.right[0] * 0.3, -f.look[1] * 0.7 - f.right[1] * 0.3, 0.55]);
     }
-    vp.r3.draw(cam, vp.theme, { style, clip: this.clipPlanes(), light, edgeWidth: this.app.settings.thinLines ? 1 : 1.15 });
+    // Shadows: light comes from the sun of the project's location, date and time.
+    let sun = null;
+    if (view.shadows) {
+      sun = sunDirection(this.app.doc.get('project')).dir;
+      if (sun[2] > 0.01) light = sun;
+    }
+    vp.r3.draw(cam, vp.theme, { style, clip: this.clipPlanes(), light, sun, edgeWidth: this.app.settings.thinLines ? 1 : 1.15 });
     if (!this.is3D) {
       this.syncAnnotations();
       const { cx, cy, zoom } = this.cam;

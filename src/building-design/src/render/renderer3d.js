@@ -5,6 +5,7 @@
  * and elevation depth), transparency, and GPU picking by element index.
  */
 import { createProgram, STATE_GLSL } from './gl.js';
+import { lookAt, ortho, multiply, toF32 } from './math3d.js';
 
 const CHUNK = 160;
 export const STYLE = { wireframe: 0, hidden: 1, shaded: 2, consistent: 3, realistic: 4 };
@@ -60,8 +61,26 @@ uniform vec3 uHover;
 uniform vec3 uLight;
 uniform vec3 uEye;
 uniform float uFlat;
+uniform vec3 uOriginF;
+uniform int uShadowOn;
+uniform mat4 uLightVP;
+uniform highp sampler2DShadow uShadow;
+uniform float uShadowTexel;
 ${CLIP_GLSL}
 out vec4 o;
+// 1 where the sun reaches the point, 0 in shadow (filtered over a few texels).
+float sunlit(vec3 n) {
+  vec4 lp = uLightVP * vec4(vW - uOriginF, 1.0);
+  vec3 p = lp.xyz / lp.w * 0.5 + 0.5;
+  if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0 || p.z > 1.0) return 1.0;
+  float slope = 1.0 - abs(dot(n, uLight));
+  float z = p.z - 0.0008 - 0.002 * slope;
+  float s = 0.0;
+  for (int i = -1; i <= 1; i++)
+    for (int j = -1; j <= 1; j++)
+      s += texture(uShadow, vec3(p.xy + vec2(float(i), float(j)) * uShadowTexel, z));
+  return s / 9.0;
+}
 void main() {
   if (clipped(vW)) discard;
   vec3 n = normalize(vN);
@@ -69,9 +88,12 @@ void main() {
   vec3 base = vCol.rgb;
   vec3 c;
   if (uStyle == 1) c = uBg;
-  else if (uStyle == 3) c = base * (0.9 + 0.1 * abs(n.z));
-  else {
+  else if (uStyle == 3) {
+    c = base * (0.9 + 0.1 * abs(n.z));
+    if (uShadowOn == 1) c *= mix(0.62, 1.0, sunlit(n));
+  } else {
     float d = max(dot(n, uLight), 0.0);
+    if (uShadowOn == 1 && d > 0.0) d *= sunlit(n);
     float sky = 0.5 + 0.5 * n.z;
     c = base * (0.36 + 0.52 * d + 0.18 * sky);
     if (uStyle == 4) {
@@ -88,6 +110,21 @@ void main() {
   else if ((vFlags & 2u) != 0u) c = mix(c, uHover, 0.35);
   o = vec4(c, a);
 }`;
+
+const SHADOW_FS = /* glsl */ `#version 300 es
+precision highp float;
+precision highp int;
+in vec3 vN;
+in vec4 vCol;
+in vec3 vW;
+flat in uint vFlags;
+flat in uint vElem;
+${CLIP_GLSL}
+void main() {
+  if (clipped(vW)) discard;
+}`;
+
+const SHADOW_SIZE = 2048;
 
 const PICK_FS = /* glsl */ `#version 300 es
 precision highp float;
@@ -195,6 +232,8 @@ export class Renderer3D {
     this.state = state;
     this.mesh = createProgram(gl, MESH_VS, MESH_FS, 'mesh3d');
     this.pickP = createProgram(gl, MESH_VS, PICK_FS, 'pick3d');
+    this.shadowP = createProgram(gl, MESH_VS, SHADOW_FS, 'shadow3d');
+    this.shadow = null;
     this.edge = createProgram(gl, EDGE_VS, EDGE_FS, 'edge3d');
     this.quad = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
@@ -412,10 +451,22 @@ export class Renderer3D {
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
+    const shadows = !!opts.sun && opts.sun[2] > 0.01 && style !== STYLE.wireframe && style !== STYLE.hidden && this.renderShadows(opts.sun, clip, cam);
+    this.state.bind(0);
     if (style !== STYLE.wireframe) {
       const p = this.mesh;
       this.setUniformsCommon(p, cam, clip);
       gl.uniform1i(p.u.uStyle, style);
+      gl.uniform1i(p.u.uShadowOn, shadows ? 1 : 0);
+      gl.uniform1i(p.u.uShadow, 1);
+      if (shadows) {
+        gl.uniformMatrix4fv(p.u.uLightVP, false, this.shadow.vp);
+        gl.uniform3f(p.u.uOriginF, this.origin[0], this.origin[1], this.origin[2]);
+        gl.uniform1f(p.u.uShadowTexel, 1 / SHADOW_SIZE);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, this.shadow.tex);
+        gl.activeTexture(gl.TEXTURE0);
+      }
       gl.uniform3fv(p.u.uBg, theme.bg);
       gl.uniform3fv(p.u.uSel, theme.sel);
       gl.uniform3fv(p.u.uHover, theme.hover);
@@ -474,6 +525,71 @@ export class Renderer3D {
     this.lastCam = cam;
     this.lastClip = clip;
     this.pickDirty = true;
+  }
+
+  /** Render the sun's depth map. Returns false when there is nothing to shade. */
+  renderShadows(sun, clip, cam) {
+    const gl = this.gl;
+    const b = this.bounds();
+    if (!b) return false;
+    if (!this.shadow) {
+      // Unit 1: unit 0 holds the element state texture.
+      const tex = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.DEPTH_COMPONENT24, SHADOW_SIZE, SHADOW_SIZE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL);
+      gl.activeTexture(gl.TEXTURE0);
+      const fbo = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0);
+      gl.drawBuffers([gl.NONE]);
+      gl.readBuffer(gl.NONE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      this.shadow = { tex, fbo, vp: null };
+    }
+    // An orthographic camera looking down the sun's rays, fitted around the model.
+    const o = this.origin;
+    const c = [0, 1, 2].map((i) => (b.min[i] + b.max[i]) / 2 - o[i]);
+    const r = Math.max(1, Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2);
+    const eye = [c[0] + sun[0] * r * 2, c[1] + sun[1] * r * 2, c[2] + sun[2] * r * 2];
+    const vp = toF32(multiply(ortho(-r, r, -r, r, r * 0.5, r * 3.5), lookAt(eye, c, Math.abs(sun[2]) > 0.99 ? [0, 1, 0] : [0, 0, 1])));
+    this.shadow.vp = vp;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.shadow.fbo);
+    gl.viewport(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    gl.clear(gl.DEPTH_BUFFER_BIT);
+    const p = this.shadowP;
+    gl.useProgram(p.program);
+    gl.uniformMatrix4fv(p.u.uVP, false, vp);
+    if (p.u.uOrigin) gl.uniform3f(p.u.uOrigin, o[0], o[1], o[2]);
+    if (p.u.uState) {
+      gl.uniform1i(p.u.uState, 0);
+      gl.uniform1i(p.u.uStateW, this.state.width);
+    }
+    if (p.u.uClip) {
+      const arr = new Float32Array(32);
+      clip.slice(0, 8).forEach((cl, i) => arr.set(cl, i * 4));
+      gl.uniform4fv(p.u.uClip, arr);
+      gl.uniform1i(p.u.uClipN, Math.min(8, clip.length));
+    }
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.enable(gl.POLYGON_OFFSET_FILL);
+    gl.polygonOffset(2, 4);
+    for (const ch of this.chunks) {
+      if (!ch.opaque) continue;
+      gl.bindVertexArray(ch.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, ch.opaque);
+    }
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cam.width, cam.height);
+    return true;
   }
 
   relativeVP(vp) {

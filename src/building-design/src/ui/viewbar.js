@@ -59,6 +59,8 @@ export function renderViewbar(app) {
       bar.append(btn(icon(s[2], 16), `Visual style: ${s[1]}`, (e) => showMenu(e.currentTarget, STYLES.map(([v, l, ic]) => ({ label: l, icon: ic, checked: view.style === v, radio: true, action: () => set({ style: v }, 'Visual style') })), { label: 'Visual style' }), null, { menu: true }));
     }
     bar.append(btn(icon('thinLines', 16), 'Thin lines', () => app.toggleSetting('thinLines'), !!app.settings.thinLines));
+    if (view.kind === 'view3d' || view.kind === 'elevation' || view.kind === 'section')
+      bar.append(btn(icon('shadows', 16), view.shadows ? 'Shadows: on' : 'Shadows: off', () => app.run('shadows'), !!view.shadows), btn(icon('sun-l', 16), 'Sun settings', () => app.run('sunSettings')));
     if (view.kind === 'view3d') {
       const persp = app.vc?.cam?.persp !== false;
       bar.append(
