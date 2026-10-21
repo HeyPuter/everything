@@ -304,6 +304,7 @@ registerTab({
         bool(o, 'show_name', 'Name'),
         bool(o, 'show_axis', 'Axes'),
         o.type === 'MESH' ? bool(o, 'show_wire', 'Wireframe') : null,
+        o.type === 'MESH' ? bool(o as never, 'show_all_edges' as never, 'All Edges', { tip: 'All Edges\nThe wireframe shows every edge, whatever the wireframe threshold' }) : null,
         bool(o, 'show_in_front', 'In Front'),
         enumProp(o, 'display_type', 'Display As', [['BOUNDS', 'Bounds'], ['WIRE', 'Wire'], ['SOLID', 'Solid'], ['TEXTURED', 'Textured']]),
         colorProp(o, 'color', 'Color', { alpha: true }),

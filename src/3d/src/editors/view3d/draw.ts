@@ -590,7 +590,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
       (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || ob.show_wire || ov.show_wireframes || (ob.type !== 'MESH' && !so.mesh?.geometry.index?.count));
     if (so.wire) {
       set(so.wire, showWire);
-      if (showWire && ob.type === 'MESH' && so.ev.mesh && (ov.wireframe_threshold ?? 1) < 1) swapGeometry(so.wire, thresholdWire(so.wire.geometry, so.ev.mesh, ov.wireframe_threshold));
+      if (showWire && ob.type === 'MESH' && so.ev.mesh && (ov.wireframe_threshold ?? 1) < 1 && !(ob as { show_all_edges?: boolean }).show_all_edges) swapGeometry(so.wire, thresholdWire(so.wire.geometry, so.ev.mesh, ov.wireframe_threshold));
       const m = so.wire.material as LineBasicMaterial;
       const st = objectColorState(app, ob);
       if (inEdit) {
