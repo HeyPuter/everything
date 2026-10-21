@@ -21,6 +21,7 @@ import {
   contentReport,
   filterContent,
   formQuad,
+  latticeSome,
   placementQuad,
   quadOverlapsRect,
   rectInside,
@@ -537,6 +538,34 @@ function redactionPolicy(doc, areas, { codec } = {}) {
     formFailed: ({ object, ctm }) => {
       const quad = formQuad(object, ctm);
       return !quad || hits(quad) ? 'remove' : 'keep';
+    },
+    tiled(lattice, bounds) {
+      const within = areas
+        .map(({ rect }) => [
+          Math.max(rect[0], bounds[0]),
+          Math.max(rect[1], bounds[1]),
+          Math.min(rect[2], bounds[2]),
+          Math.min(rect[3], bounds[3]),
+        ])
+        .filter((rect) => rect[2] - rect[0] > 0.01 && rect[3] - rect[1] > 0.01);
+      if (!within.length) return null;
+      // A pattern cell shows in every repetition, so what any repetition puts under a mark goes.
+      const tileHits = (quad) =>
+        within.some((rect) => latticeSome(quad, rect, lattice, quadOverlapsRect));
+      const image = ({ ctm }) =>
+        tileHits(placementQuad(ctm)) ? { remove: true, repeated: true } : null;
+      return {
+        conservative: true,
+        softMasks: true,
+        glyph: tileHits,
+        image,
+        inlineImage: image,
+        form: () => 'descend',
+        formFailed: ({ object, ctm }) => {
+          const quad = formQuad(object, ctm);
+          return !quad || tileHits(quad) ? 'remove' : 'keep';
+        },
+      };
     },
   };
 }

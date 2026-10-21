@@ -84,6 +84,37 @@ export function quadOverlapsRect(quad, rect, epsilon = 0.01) {
   }
   return true;
 }
+/**
+ * Whether some copy of `quad`, moved by whole steps `u` and `v` of a tiling pattern, passes
+ * `test` against `rect`. Only copies whose bounds meet the rect are tried; when there are too
+ * many of those to try, the answer is yes.
+ */
+export function latticeSome(quad, rect, { u, v }, test) {
+  const det = u[0] * v[1] - u[1] * v[0];
+  if (!(Math.abs(det) > 1e-9)) return true;
+  const [x0, y0, x1, y1] = quadBounds(quad);
+  // The shifts that bring the quad's bounds onto the rect, in steps of u and v.
+  const shifts = [
+    [rect[0] - x1, rect[1] - y1],
+    [rect[2] - x0, rect[1] - y1],
+    [rect[0] - x1, rect[3] - y0],
+    [rect[2] - x0, rect[3] - y0],
+  ].map(([dx, dy]) => [(dx * v[1] - dy * v[0]) / det, (u[0] * dy - u[1] * dx) / det]);
+  const i0 = Math.ceil(Math.min(...shifts.map((p) => p[0]))),
+    i1 = Math.floor(Math.max(...shifts.map((p) => p[0]))),
+    j0 = Math.ceil(Math.min(...shifts.map((p) => p[1]))),
+    j1 = Math.floor(Math.max(...shifts.map((p) => p[1])));
+  if (i1 < i0 || j1 < j0) return false;
+  if ((i1 - i0 + 1) * (j1 - j0 + 1) > 10000) return true;
+  for (let i = i0; i <= i1; i++)
+    for (let j = j0; j <= j1; j++) {
+      const dx = i * u[0] + j * v[0],
+        dy = i * u[1] + j * v[1];
+      const copy = quad.map(([x, y]) => [x + dx, y + dy]);
+      if (test(copy, rect)) return true;
+    }
+  return false;
+}
 export const rectInside = (inner, outer, epsilon = 0.01) =>
   inner[0] >= outer[0] - epsilon &&
   inner[1] >= outer[1] - epsilon &&
@@ -269,11 +300,16 @@ const freshGraphics = () => ({
   Ts: 0,
   Tr: 0,
   lineWidth: 1,
+  fillPattern: null,
+  strokePattern: null,
 });
 const scaleOf = (m) => Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || Math.hypot(m[0], m[1]);
 const PAINT = new Set(['S', 's', 'f', 'F', 'f*', 'B', 'B*', 'b', 'b*', 'n']);
 const STROKE = new Set(['S', 's', 'B', 'B*', 'b', 'b*']);
 const PATH = new Set(['m', 'l', 'c', 'v', 'y', 'h', 're']);
+const FILL = new Set(['f', 'F', 'f*', 'B', 'B*', 'b', 'b*']);
+const FILL_COLOR = new Set(['cs', 'g', 'rg', 'k', 'sc']);
+const STROKE_COLOR = new Set(['CS', 'G', 'RG', 'K', 'SC']);
 const hexString = (bytes) =>
   `<${[...bytes].map((c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')}>`;
 
@@ -292,7 +328,8 @@ export const contentReport = () => ({
  *  - glyph(quad, ctx) → remove?   quad is the glyph box in page space; ctx { mode, hidden,
  *    code, metrics, size, box } (box: the glyph box in glyph space, [x0, y0, x1, y1])
  *  - path(bounds, ctx) → remove?  bounds of the painted path, including stroke width
- *  - image({ object, ctm, resources, hidden }) → { remove } | { stream } | null (keep)
+ *  - image({ object, ctm, resources, hidden }) → { remove } | { stream } | null (keep);
+ *    `repeated` with `remove` leaves the image out of the count of undecodable ones
  *  - inlineImage({ header, data, ctm, resources, hidden }) → { remove } | { source } | null
  *  - form({ object, ctm, hidden }) → 'descend' | 'remove' | 'keep'
  *  - formFailed({ object, ctm }) → 'remove' | 'keep' for forms whose content cannot be read
@@ -303,6 +340,8 @@ export const contentReport = () => ({
  *  - conservative: remove every glyph of a show whose widths are estimates when one is hit
  *  - softMasks: also filter the groups of soft masks that `gs` sets (ExtGState /SMask /G)
  *  - memoKey(form, graphics, hidden) → a key when the result does not depend on position
+ *  - tiled({ u, v }, bounds) → the policy for the content of a tiling pattern that paints
+ *    `bounds`, repeated every u and v (page space), or null to leave the pattern alone
  * Resolves to `{ source, resources, changed, mcids, open, underflow }`: `mcids` are the marked
  * content ids that lost content, `open` the q states left open and `underflow` the unmatched Q
  * operators at this level. Throws when the content cannot be read.
@@ -337,7 +376,7 @@ export async function filterContent(doc, options) {
   const owned = () => {
     if (!own) {
       own = resources?.clone(context) || context.obj({});
-      for (const key of ['XObject', 'Properties', 'ExtGState']) {
+      for (const key of ['XObject', 'Properties', 'ExtGState', 'Pattern']) {
         const dict = get(resources, key);
         if (dict instanceof PDFDict) own.set(PDFName.of(key), dict.clone(context));
       }
@@ -345,9 +384,17 @@ export async function filterContent(doc, options) {
     return own;
   };
   // Uses per resource name, so a name whose last use was replaced can leave the resources.
-  const uses = { XObject: new Map(), Properties: new Map(), ExtGState: new Map() };
+  const uses = {
+    XObject: new Map(),
+    Properties: new Map(),
+    ExtGState: new Map(),
+    Pattern: new Map(),
+  };
   for (const command of commands) {
     const [first, second] = command.args;
+    const last = command.args.at(-1);
+    if ((command.op === 'scn' || command.op === 'SCN') && last?.type === 'name')
+      uses.Pattern.set(last.value, (uses.Pattern.get(last.value) || 0) + 1);
     if (command.op === 'Do' && first?.type === 'name')
       uses.XObject.set(first.value, (uses.XObject.get(first.value) || 0) + 1);
     if (command.op === 'gs' && first?.type === 'name')
@@ -355,7 +402,12 @@ export async function filterContent(doc, options) {
     if ((command.op === 'BDC' || command.op === 'DP') && second?.type === 'name')
       uses.Properties.set(second.value, (uses.Properties.get(second.value) || 0) + 1);
   }
-  const released = { XObject: new Set(), Properties: new Set(), ExtGState: new Set() };
+  const released = {
+    XObject: new Set(),
+    Properties: new Set(),
+    ExtGState: new Set(),
+    Pattern: new Set(),
+  };
   const release = (name, category = 'XObject') => {
     const left = (uses[category].get(name) || 1) - 1;
     uses[category].set(name, left);
@@ -379,6 +431,24 @@ export async function filterContent(doc, options) {
     for (const frame of frames) frame.tainted = true;
   };
   const ocHidden = (dict) => !!(dict && policy.hidden?.(dict));
+  // Tiling patterns set in this stream, with the bounds they paint (their content shows there).
+  const baseCtm = gs.ctm;
+  const patterns = new Map();
+  const paintWith = (pattern, bounds) => {
+    if (!pattern || pattern.commands !== commands || !policy.tiled) return;
+    const known = patterns.get(pattern.command);
+    patterns.set(
+      pattern.command,
+      known
+        ? [
+            Math.min(known[0], bounds[0]),
+            Math.min(known[1], bounds[1]),
+            Math.max(known[2], bounds[2]),
+            Math.max(known[3], bounds[3]),
+          ]
+        : bounds,
+    );
+  };
 
   for (const command of commands) {
     const { op, args } = command;
@@ -406,7 +476,8 @@ export async function filterContent(doc, options) {
       continue;
     }
     if (PAINT.has(op)) {
-      if (path && op !== 'n' && path.points.length && policy.path) {
+      const patterned = policy.tiled && (gs.fillPattern || gs.strokePattern);
+      if (path && op !== 'n' && path.points.length && (policy.path || patterned)) {
         const xs = path.points.map((p) => p[0]),
           ys = path.points.map((p) => p[1]);
         // Hairlines (width 0) still paint about one device pixel; allow half a point.
@@ -417,7 +488,9 @@ export async function filterContent(doc, options) {
           Math.max(...xs) + pad,
           Math.max(...ys) + pad,
         ];
-        if (policy.path(bounds, { hidden: isHidden() })) {
+        if (FILL.has(op)) paintWith(gs.fillPattern, bounds);
+        if (STROKE.has(op)) paintWith(gs.strokePattern, bounds);
+        if (policy.path?.(bounds, { hidden: isHidden() })) {
           report.paths++;
           taint();
           // A clipping path still clips; only its painting goes.
@@ -448,6 +521,14 @@ export async function filterContent(doc, options) {
       case 'w':
         if (Number.isFinite(a[0])) gs.lineWidth = a[0];
         break;
+      case 'scn':
+      case 'SCN': {
+        const last = args.at(-1);
+        const pattern = last?.type === 'name' ? { command, commands } : null;
+        if (op === 'scn') gs.fillPattern = pattern;
+        else gs.strokePattern = pattern;
+        break;
+      }
       case 'gs': {
         const state = get(get(resources, 'ExtGState'), a[0]);
         const lw = get(state, 'LW')?.asNumber?.();
@@ -547,9 +628,13 @@ export async function filterContent(doc, options) {
       case 'Do':
         await place(command);
         break;
+      default:
+        if (FILL_COLOR.has(op)) gs.fillPattern = null;
+        else if (STROKE_COLOR.has(op)) gs.strokePattern = null;
     }
   }
   for (const frame of frames) if (frame.tainted) markedEdit(frame);
+  for (const [command, bounds] of patterns) await filterPattern(command, bounds);
 
   const open = stack.length;
   if (!edits.length && !own) return { source, resources, changed: false, mcids, open, underflow };
@@ -557,7 +642,7 @@ export async function filterContent(doc, options) {
   let out = source;
   for (const edit of edits) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
   if (own)
-    for (const category of ['XObject', 'Properties', 'ExtGState']) {
+    for (const category of ['XObject', 'Properties', 'ExtGState', 'Pattern']) {
       const dict = get(own, category);
       if (dict instanceof PDFDict)
         for (const name of released[category]) dict.delete(PDFName.of(name));
@@ -575,6 +660,12 @@ export async function filterContent(doc, options) {
     let position = tm;
     let removed = false,
       estimated = false;
+    // Glyphs filled or stroked with a pattern show its content through their shapes.
+    const fills = [0, 2, 4, 6].includes(gs.Tr),
+      strokes = [1, 2, 5, 6].includes(gs.Tr);
+    const patternPaint =
+      policy.tiled && ((fills && gs.fillPattern) || (strokes && gs.strokePattern));
+    let painted = null;
     const size = gs.size;
     const render = (at) => matrix(matrix(gs.ctm, at), [size * gs.Th, 0, 0, size, 0, gs.Ts]);
     for (const element of elements) {
@@ -607,6 +698,17 @@ export async function filterContent(doc, options) {
           units = w * size + spacing;
         }
         const quad = boxQuad(render(position), box);
+        if (patternPaint) {
+          const [x0, y0, x1, y1] = quadBounds(quad);
+          painted = painted
+            ? [
+                Math.min(painted[0], x0),
+                Math.min(painted[1], y0),
+                Math.max(painted[2], x1),
+                Math.max(painted[3], y1),
+              ]
+            : [x0, y0, x1, y1];
+        }
         const remove = !!policy.glyph?.(quad, { ...ctx, code, metrics, size, box });
         if (remove) removed = true;
         pieces.push({ code, units, remove });
@@ -615,6 +717,10 @@ export async function filterContent(doc, options) {
           metrics.vertical ? translate(0, units) : translate(units * gs.Th, 0),
         );
       }
+    }
+    if (painted) {
+      if (fills) paintWith(gs.fillPattern, painted);
+      if (strokes) paintWith(gs.strokePattern, painted);
     }
     if (!removed) return { tm: position, text: null };
     if (estimated) {
@@ -732,7 +838,7 @@ export async function filterContent(doc, options) {
       hidden: hiddenNow,
     });
     if (result?.remove) {
-      report.images.removed++;
+      if (!result.repeated) report.images.removed++;
       taint();
       edits.push({ start: command.start, end: command.end, text: '' });
     } else if (result?.source) {
@@ -786,6 +892,53 @@ export async function filterContent(doc, options) {
     edits.push({ start: command.start, end: command.end, text: `${fresh} gs` });
   }
 
+  /** Filter the tiling pattern `command` (scn or SCN) sets, where it paints `bounds`. */
+  async function filterPattern(command, bounds) {
+    const name = command.args.at(-1).value;
+    const object = get(get(resources, 'Pattern'), name);
+    if (!(object instanceof PDFStream) || get(object.dict, 'PatternType')?.asNumber?.() !== 1)
+      return;
+    const ctm = matrix(baseCtm, numbers(get(object.dict, 'Matrix')) || identity);
+    const step = (x, y) => [ctm[0] * x + ctm[2] * y, ctm[1] * x + ctm[3] * y];
+    const xStep = get(object.dict, 'XStep')?.asNumber?.() ?? 0,
+      yStep = get(object.dict, 'YStep')?.asNumber?.() ?? 0;
+    const tiled = policy.tiled({ u: step(xStep, 0), v: step(0, yStep) }, bounds);
+    if (!tiled) return;
+    let result;
+    try {
+      if (ancestors.has(object) || depth >= MAX_DEPTH) throw unsafeContent();
+      const patternResources = get(object.dict, 'Resources');
+      result = await filterContent(doc, {
+        source: decode(object),
+        resources: patternResources instanceof PDFDict ? patternResources : resources,
+        policy: tiled,
+        report,
+        graphics: { ...freshGraphics(), ctm },
+        depth: depth + 1,
+        ancestors: new Set([...ancestors, object]),
+        memo,
+      });
+    } catch {
+      report.warnings.add(
+        'A repeating pattern under a mark could not be read and was left as it was. It may still hold content from under the mark.',
+      );
+      return;
+    }
+    if (!result.changed) return;
+    report.warnings.add(
+      'Content of a repeating pattern under a mark was removed from every repetition of it.',
+    );
+    release(name, 'Pattern');
+    const ref = context.register(filteredForm(context, object, result));
+    const fresh = addResource('Pattern', 'RedactedPattern', ref);
+    const last = command.args.at(-1);
+    edits.push({
+      start: command.start,
+      end: command.end,
+      text: `${source.slice(command.start, last.start)}${fresh} ${command.op}`,
+    });
+  }
+
   async function place(command) {
     const name = command.args[0]?.value;
     const object = get(get(resources, 'XObject'), name);
@@ -810,7 +963,7 @@ export async function filterContent(doc, options) {
       if (!policy.image) return;
       const result = await policy.image({ object, ctm: gs.ctm, resources, hidden: hiddenNow });
       if (result?.remove) {
-        report.images.removed++;
+        if (!result.repeated) report.images.removed++;
         removeCall();
       } else if (result?.stream) {
         report.images.redacted++;

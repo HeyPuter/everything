@@ -993,6 +993,50 @@ it('removes text that shapes a soft mask under the area', async () => {
   );
 });
 
+it('removes text that a repeating pattern paints under the area', async () => {
+  // A tiling pattern draws its cell again and again over the shape it fills; text in the cell
+  // shows under the mark in one of the repetitions and is as readable from the file as page text.
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 400]);
+  const font = doc.embedStandardFont(StandardFonts.Helvetica);
+  const pattern = doc.context.register(
+    doc.context.stream('BT /F1 10 Tf 10 40 Td (TILESECRET) Tj ET', {
+      Type: 'Pattern',
+      PatternType: 1,
+      PaintType: 1,
+      TilingType: 1,
+      BBox: [0, 0, 100, 100],
+      XStep: 100,
+      YStep: 100,
+      Resources: { Font: { F1: font.ref } },
+    }),
+  );
+  page.node.set(
+    n('Resources'),
+    doc.context.obj({ Pattern: { P1: pattern }, Font: { F1: font.ref } }),
+  );
+  page.node.set(
+    n('Contents'),
+    doc.context.register(
+      doc.context.stream(
+        'q /Pattern cs /P1 scn 0 200 400 200 re f Q BT /F1 12 Tf 60 100 Td (Public) Tj ET',
+      ),
+    ),
+  );
+  const { bytes: out, report } = await redact(await doc.save(), [[0, [[205, 235, 300, 255]]]]);
+  expect(report.text).toBe(10);
+  expect(report.warnings).toContain(
+    'Content of a repeating pattern under a mark was removed from every repetition of it.',
+  );
+  expectGone(await recoverable(out), 'TILESECRET');
+  expect(await pageText(out)).toContain('Public');
+  // The shape is still filled with the pattern, now without the lettering.
+  const saved = await PDFDocument.load(out);
+  const patterns = saved.getPage(0).node.Resources().lookup(n('Pattern'));
+  expect(patterns.keys().map(String)).toEqual(['/RedactedPattern1']);
+  expect(pageSource(saved.getPage(0))).toContain('/RedactedPattern1 scn');
+});
+
 it('removes a field everywhere it shows when one of its widgets is under the area', async () => {
   // A field repeated on another page (or kept in a hidden widget) holds one value; removing
   // only the widget under the mark left the value in the file and on the other page.
