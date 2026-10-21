@@ -163,6 +163,12 @@ const RANGE_CACHE_CELLS = 2_000_000;
 // so far is remembered, so that a longer one of the family carries on from it (see getRangeValues).
 const RANGE_CACHE_RUNS = 4000;
 const SMALL_RANGE_CELLS = 16;
+/**
+ * The last range cut from the first rows of a longer one read before it (see getRangeValues), kept with the longer
+ * array: such a cut is not cached, since a column of running totals read from the bottom cuts a different one per
+ * row, but the same range read in every row (SUM($B$1:$B$9999) beside a COUNTA(B:B)) was copied afresh each time.
+ */
+const LAST_CUT = new WeakMap(); // longer values array → { rows, values }
 function rangeCost(values) { return values.length * ((values[0]?.length || 0) + 8); }
 // Formatting a range formats its empty cells too, so what is typed there later takes the format. Over a range
 // of more cells than this (a whole sheet of 20,000 rows) that would store a cell per empty coordinate, 320,000
@@ -13033,8 +13039,13 @@ export class Workbook extends EventTarget {
         const repeats = !!longer && longer.length >= rows && longer[0]?.length === cols;
         if (repeats) {
           // Not kept itself: the next one up is read from the longer one too, which kept too many shorter copies would evict.
-          out = longer.slice(0, rows);
-          noteRangeRows(out, longer);
+          const last = LAST_CUT.get(longer);
+          if (last?.rows === rows) out = last.values;
+          else {
+            out = longer.slice(0, rows);
+            noteRangeRows(out, longer);
+            LAST_CUT.set(longer, { rows, values: out });
+          }
         } else if (kept && (rows - kept.length) * cols <= Math.min(rows * cols, target.cells.size + spills.cover.size)) {
           // Worth it only while appending the missing rows costs no more than reading the range afresh.
           const blank = Object.freeze(new Array(cols).fill(null));

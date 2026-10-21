@@ -286,7 +286,14 @@ function rangeTotal(values) {
   let run = RANGE_TOTALS.get(values);
   if (!run) {
     const parent = RANGE_PARENTS.get(values);
-    run = (parent && RANGE_TOTALS.get(parent)) || { sums: [0], errorRow: Infinity, error: null };
+    run = parent && RANGE_TOTALS.get(parent);
+    if (!run) {
+      run = { sums: [0], errorRow: Infinity, error: null };
+      // Kept with the array these rows repeat as well: a range read again is cut afresh from a longer one read before
+      // it (SUM($B$1:$B$9999) in every row beside a COUNTA(B:B)), and each cut then carries on from the one total
+      // rather than adding its rows up anew, which made the column quadratic once anything read the whole of B.
+      if (parent) RANGE_TOTALS.set(parent, run);
+    }
     RANGE_TOTALS.set(values, run);
   }
   const { sums } = run;
