@@ -10420,7 +10420,7 @@ export function createEditor({
     showPdfaReport(`Saved as PDF/A-${part}${conformance}`, result, result.fixed);
   }
   /* ---------- Compare files ---------- */
-  let comparison = null; // { view, task }
+  let comparison = null; // { view, tasks }
   /** Compare this PDF with another version, side by side with every change listed. */
   function compareDialog() {
     if (!pdf) return;
@@ -10499,9 +10499,13 @@ export function createEditor({
       if (!done) controller.abort();
     });
     const task = loadPdf(other.bytes.slice());
+    // The view keeps its own copy of this PDF: an edit made while it is open replaces the
+    // editor's document, and the pages compared must still draw.
+    const ownTask = loadPdf(session.bytes.slice());
+    const tasks = [task, ownTask];
     try {
-      const otherPdf = await task.promise;
-      const [oldPdf, newPdf] = currentIsNew ? [otherPdf, pdf] : [pdf, otherPdf];
+      const [otherPdf, ownPdf] = await Promise.all(tasks.map((t) => t.promise));
+      const [oldPdf, newPdf] = currentIsNew ? [otherPdf, ownPdf] : [ownPdf, otherPdf];
       const [oldName, newName] = currentIsNew ? [other.name, name] : [name, other.name];
       const result = await compareDocuments(oldPdf, newPdf, {
         signal: controller.signal,
@@ -10513,7 +10517,10 @@ export function createEditor({
       });
       done = true;
       if (d.open) d.close();
-      if (destroyed) return;
+      if (destroyed) {
+        for (const t of tasks) t.destroy().catch(() => {});
+        return;
+      }
       const view = createCompareView({
         oldPdf,
         newPdf,
@@ -10522,12 +10529,12 @@ export function createEditor({
         result,
         onClose: () => closeComparison(),
       });
-      comparison = { view, task };
+      comparison = { view, tasks };
       editorRoot.querySelector('.document-view').append(view.root);
       editorRoot.classList.add('comparing');
       view.focus();
     } catch (error) {
-      task.destroy().catch(() => {});
+      for (const t of tasks) t.destroy().catch(() => {});
       if (!['AbortError', 'RenderingCancelledException'].includes(error?.name)) throw error;
     } finally {
       done = true;
@@ -10538,11 +10545,11 @@ export function createEditor({
   }
   function closeComparison() {
     if (!comparison) return;
-    const { view, task } = comparison;
+    const { view, tasks } = comparison;
     comparison = null;
     view.destroy();
     view.root.remove();
-    task.destroy().catch(() => {});
+    for (const task of tasks) task.destroy().catch(() => {});
     editorRoot.classList.remove('comparing');
     workspace.focus({ preventScroll: true });
   }
