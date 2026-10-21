@@ -14,7 +14,8 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 
 **Modeling**
 - Walls drawn as chains, rectangles or along picked lines, with a choice of location line (centerline, exterior or interior face), base and top constraints, and typed lengths. Walls join cleanly at corners, T junctions and multi-wall nodes, and their layers (finish, structure, insulation, air space...) show in plan at fine detail.
-- Curtain walls with a regular grid of mullions and glass panels.
+- Curtain walls with a regular grid of mullions and glass panels; grid lines placed per wall, mullion segments removed or restored, and panels made solid, empty or doors.
+- Wall sweeps and reveals (cornices, string courses, skirtings, grooves) along either face, stopping at openings.
 - Doors (single, double, sliding, pocket, bifold, overhead, cased opening) and windows (fixed, casement, double hung, sliding, awning, picture) hosted in walls, with swing and facing controls. Rectangular wall openings.
 - Floors and ceilings from a picked room or building outline, a rectangle, or a sketched boundary. Footprint roofs with a slope per edge: hips, gables and shed roofs come out of the same model.
 - Walls can attach their tops to a roof and follow it when the roof changes.
@@ -26,7 +27,9 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Site: toposurfaces through points with contour lines, property lines, parking and site components. Massing: in-place masses with gross floor areas, and walls, floors, roofs and curtain systems made from their faces.
 - A library of furniture, casework, plumbing fixtures, appliances, planting and lighting. Furniture placed near a wall turns its back to it.
 - Rooms placed by clicking or automatically, bounded by walls, columns and room separation lines, with live area, perimeter and volume. Area plans with area boundaries, for gross and rentable areas.
-- Model groups that update every instance when one is edited, phases (existing, demolished, new) with phase filters, and design options for exploring alternatives side by side.
+- Model and detail groups that update every instance when one is edited, phases (existing, demolished, new) with phase filters, and design options for exploring alternatives side by side.
+- Global parameters with formulas that element parameters can follow, and dimension constraints: equal spacing (EQ) and locked distances that hold as the model changes.
+- Spaces and zones with first heating and cooling load estimates, and a check for duct and pipe ends that connect to nothing.
 - Levels and grids.
 
 **Editing**
@@ -39,11 +42,14 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 
 **Views and documentation**
 - Floor and ceiling plans with cut plane, detail level, underlay of the level below, room color fill and per-view visibility of categories and elements.
-- 3D views with an orientation cube, orbit, perspective or orthographic projection, section box and five visual styles.
+- 3D views with an orientation cube, orbit, perspective or orthographic projection, section box, five visual styles, and shadows from the sun at the project's location, date and time. Render makes presentation images with materials, shadows and sky, up to 4K.
+- Tile views side by side, each with its own visibility.
+- Project base point and survey point for site coordinates; scope boxes that views crop to.
 - Elevations and sections drawn from the model with cut elements filled, levels and grids annotated.
 - Callouts, drafting views, legends and view duplication with or without detailing; crop regions with grips.
 - Aligned, linear, angular, radial and diameter dimensions, spot elevations, coordinates and slopes, text with leaders, tags (by mark, type, material or keynote), detail lines, arcs, detail components, insulation, filled regions, revision clouds, colour fill legends, north arrows and scale bars.
-- Visibility/Graphics with category and per-element overrides, rule-based filters, view templates and project-wide object styles.
+- Visibility/Graphics with category and per-element overrides (colour, weight, halftone and, in 3D, transparency), rule-based filters, view templates and project-wide object styles.
+- Tags in plans, elevations and sections, tread numbers on stairs, and arc length dimensions.
 - Schedules of doors, windows, rooms, areas, walls, floors, ceilings, roofs, ramps, furniture, columns, stairs, ducts, pipes and foundations, plus material takeoffs, sheet lists and view lists, with field selection (including project parameters), sorting, grouping, filters, totals, in-place editing and CSV export.
 - Sheets with a title block, placed views and a revision table.
 - Temporary hide and isolate, reveal hidden elements, thin lines.
