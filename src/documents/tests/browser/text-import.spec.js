@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { unzipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
 import { downloadDocx, onTab, showAllTools } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
@@ -69,4 +69,26 @@ test('an HTML file opens with its structure', async ({ page }) => {
   expect(await state(page, 'Section')).toMatchObject({ style: 'Heading2' });
   expect(await state(page, 'strong')).toMatchObject({ bold: 'true' });
   expect(await state(page, 'Two')).toMatchObject({ numbers: 'true' });
+});
+
+test('a Word template opens for editing and saves as a document', async ({ page }, info) => {
+  // A .dotx differs from a .docx in its main part's content type.
+  const parts = unzipSync(readFileSync(new URL('../../public/fixtures/two-paragraphs.docx', import.meta.url)));
+  parts['[Content_Types].xml'] = strToU8(strFromU8(parts['[Content_Types].xml']).replace('wordprocessingml.document.main+xml', 'wordprocessingml.template.main+xml'));
+  await page.goto('/mock.html#/home');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import', exact: true }).first().click();
+  await (await chooser).setFiles({ name: 'Letter.dotx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.template', buffer: Buffer.from(zipSync(parts)) });
+  await expect(page.getByRole('textbox', { name: 'Document name' })).toHaveValue('Letter');
+  await expect(page.locator('.editor-error')).toHaveCount(0);
+  const original = await input(page).inputValue();
+  expect(original.length).toBeGreaterThan(0);
+  await input(page).press('ControlOrMeta+Home'); await page.keyboard.type('Dear Rosa, ');
+  await expect(input(page)).toHaveValue(`Dear Rosa, ${original}`);
+  const download = page.waitForEvent('download'); await downloadDocx(page);
+  const path = info.outputPath('letter.docx'); await (await download).saveAs(path);
+  const types = strFromU8(unzipSync(readFileSync(path))['[Content_Types].xml']);
+  expect(types).toContain('wordprocessingml.document.main+xml');
+  expect(types).not.toContain('template.main+xml');
+  await reopenDocx(page, input(page), path, `Dear Rosa, ${original}`);
 });

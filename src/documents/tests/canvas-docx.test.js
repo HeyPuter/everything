@@ -87,6 +87,27 @@ describe('original DOCX codec', () => {
     data['word/document.xml'] = strToU8(`<!DOCTYPE x [<!ENTITY y "bad">]><w:document xmlns:w="${W}"><w:body/></w:document>`);
     await expect(DocxPackage.open(zipSync(data))).rejects.toThrow('entity');
   });
+  it('opens a Word template for editing and saves it as a document', async () => {
+    const data = unzipSync(await fixture('<w:p><w:r><w:t>Dear name,</w:t></w:r></w:p>'));
+    const types = strFromU8(data['[Content_Types].xml']);
+    data['[Content_Types].xml'] = strToU8(types.replace('wordprocessingml.document.main+xml', 'wordprocessingml.template.main+xml'));
+    const pkg = await DocxPackage.open(zipSync(data)), doc = new TextDocument(pkg.paragraphs);
+    expect(pkg.readOnly).toBeFalsy();
+    doc.select(5, 9); doc.replace('Rosa');
+    // What is saved is a .docx, which Word opens only with a document's content type.
+    const output = unzipSync(await bytes(pkg.export(doc.paragraphs)));
+    expect(strFromU8(output['[Content_Types].xml'])).toContain('wordprocessingml.document.main+xml');
+    expect(strFromU8(output['[Content_Types].xml'])).not.toContain('template.main');
+    expect(new TextDocument((await DocxPackage.open(zipSync(output))).paragraphs).text).toBe('Dear Rosa,');
+  });
+  it('shows a macro-enabled document read-only, without its macros', async () => {
+    const data = unzipSync(await fixture('<w:p><w:r><w:t>Has macros</w:t></w:r></w:p>'));
+    data['[Content_Types].xml'] = strToU8(strFromU8(data['[Content_Types].xml']).replace('application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml'));
+    data['word/vbaProject.bin'] = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0]);
+    const pkg = await DocxPackage.open(zipSync(data), { bestEffort: true });
+    expect(pkg.readOnly).toBe(true);
+    expect(new TextDocument(pkg.paragraphs).text).toBe('Has macros');
+  });
   it('retains continuous section declarations through no-edit export and reopen', async () => {
     const input = await fixture('<w:p><w:pPr><w:sectPr/></w:pPr></w:p><w:p><w:pPr><w:sectPr><w:type w:val="continuous"/></w:sectPr></w:pPr></w:p>');
     const pkg = await DocxPackage.open(input), output = await bytes(pkg.export());

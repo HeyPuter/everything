@@ -55,6 +55,24 @@ cases. The valid independent fixture and its browser download are checked with
 `npm run check:conformance`; malformed regression inputs are intentionally not
 claimed to pass the schema.
 
+## Templates and macro-enabled documents
+
+ECMA-376 Part 1 §11.3.10 gives the Main Document part one of two content types:
+`…wordprocessingml.document.main+xml` for a document and
+`…wordprocessingml.template.main+xml` for a template (.dotx). Macro-enabled files
+(.docm, .dotm) use Microsoft's `application/vnd.ms-word.document.macroEnabled.main+xml`
+and `…template.macroEnabledTemplate.main+xml` for the same markup. The codec
+accepts all four at `/word/document.xml`. A template opens editable like a
+document; a package with a VBA project or digital signature opens only as the
+read-only preview above, and its macros are neither run nor removed.
+
+What the editor saves is always a .docx (a template's first save writes a new .docx
+file and leaves the template as it was), so an export rewrites the Main Document override to the
+document content type, the one Word requires of a .docx. No other part changes
+for that reason; a template's attached-template setting and glossary (building
+block) parts are kept as they are but not used. Unit tests in
+`tests/canvas-docx.test.js` cover a template and a macro-enabled document.
+
 ## DOCX font families and theme inheritance
 
 | Area | Specification | Supported subset |

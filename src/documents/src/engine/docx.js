@@ -95,6 +95,16 @@ import { unzipSync, strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
 export const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+// A template (.dotx) or macro-enabled file (.docm, .dotm) differs from a document only in its main
+// part's content type, and in the macros (refused for editing below). Saving writes a .docx.
+const MAIN_TYPES = new Set([`${DOCX_TYPE}.main+xml`, 'application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml', 'application/vnd.ms-word.document.macroEnabled.main+xml', 'application/vnd.ms-word.template.macroEnabledTemplate.main+xml']);
+function writeDocumentType(parts) {
+  const types = xml(parts['[Content_Types].xml']);
+  const main = [...types.getElementsByTagNameNS('*', 'Override')].find(n => n.getAttribute('PartName') === '/word/document.xml');
+  if (!main || main.getAttribute('ContentType') === `${DOCX_TYPE}.main+xml`) return;
+  main.setAttribute('ContentType', `${DOCX_TYPE}.main+xml`);
+  parts['[Content_Types].xml'] = strToU8(serialize(types));
+}
 export const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const XML = 'http://www.w3.org/XML/1998/namespace';
@@ -1093,7 +1103,7 @@ export class DocxPackage {
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
-    if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && n.getAttribute('ContentType') === `${DOCX_TYPE}.main+xml`)) {
+    if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
       throw new Error('Only standard .docx files are supported in this version.');
     }
     const relations = xml(parts['_rels/.rels']);
@@ -1981,6 +1991,7 @@ export class DocxPackage {
   }
   export(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
     const parts = this.exportBodyParts(paragraphs, pageSettings, numbering, styles, tables, assets, comments, trackRevisions);
+    writeDocumentType(parts);
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
     // Mail merge settings and the embedded recipient list (docx-mail-merge.js), only when changed.
     if (JSON.stringify(this.mailMerge ?? null) !== this.initialMailMerge) writeMailMerge(parts, this.mailMerge);
