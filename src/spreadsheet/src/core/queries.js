@@ -1130,6 +1130,25 @@ function tableHeaderNames(columns) {
   });
 }
 
+/** What a query records of the table it loads to: where it is, the columns it loaded (which tell them from columns added by hand), its rows. */
+const loadRecord = (q) => ({ load: { ...q.load }, rowCount: q.rowCount, errorCount: q.errorCount });
+
+/**
+ * Make the query's load record go back and forth with the step being recorded (`before`, and `after()` once the step
+ * is done), so an undone load, refresh or unload leaves no record of a table, or of columns, that is not there. It goes
+ * first among the step's entries: those after a structural one are not replayed (see Workbook.transaction).
+ */
+function loadStep(wb, id, label, before, after) {
+  const restore = (state) => {
+    const live = queryById(wb, id);
+    if (!live) return;
+    live.load = { ...state.load };
+    for (const key of ['rowCount', 'errorCount']) if (state[key] === undefined) delete live[key]; else live[key] = state[key];
+    wb._announce?.('queries', null);
+  };
+  wb._group.unshift({ label, undo: () => restore(before), redo: () => restore(after()) });
+}
+
 export function loadResult(wb, query, table, { at = null } = {}) {
   if (!table.columns.length) return { error: 'The query returned no columns to load.' };
   // The result is laid out under the names its columns take in the table, so a refresh finds each column again
@@ -1140,18 +1159,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
   const existing = loadedTable(wb, query);
   let result = null;
   const label = existing ? 'Refresh' : 'Load query';
-  // What the query records of its table (the columns it loaded, which tell them from columns added by hand, and the
-  // rows) goes back and forth with the step, so a refresh undone leaves no record of columns the table no longer has.
-  // It goes first among the step's entries: those after a structural one are not replayed (see Workbook.transaction).
-  const record = (q) => ({ load: { ...q.load }, rowCount: q.rowCount, errorCount: q.errorCount });
-  const restore = (state) => {
-    const live = queryById(wb, query.id);
-    if (!live) return;
-    live.load = { ...state.load };
-    for (const key of ['rowCount', 'errorCount']) if (state[key] === undefined) delete live[key]; else live[key] = state[key];
-    wb._announce?.('queries', null);
-  };
-  const before = record(query);
+  const before = loadRecord(query);
   let after = before;
   const write = () => {
     if (existing) {
@@ -1264,12 +1272,12 @@ export function loadResult(wb, query, table, { at = null } = {}) {
   };
   wb.transaction(label, () => {
     write();
-    if (result && !result.error) wb._group.unshift({ label, undo: () => restore(before), redo: () => restore(after) });
+    if (result && !result.error) loadStep(wb, query.id, label, before, () => after);
   });
   if (result && !result.error) {
     query.refreshed = Date.now(); query.rowCount = height;
     if (result.errors) query.errorCount = result.errors; else delete query.errorCount;
-    after = record(saveQuery(wb, query));
+    after = loadRecord(saveQuery(wb, query));
   }
   return result || { error: 'Nothing was loaded.' };
 }
@@ -1302,13 +1310,16 @@ export async function refreshAll(wb, io = {}) {
 /** Stop loading a query to a sheet (Load To ▸ Only Create Connection): its table goes. */
 export function unloadQuery(wb, query) {
   const hit = loadedTable(wb, query);
+  const before = loadRecord(query);
+  let after = before;
   if (hit) {
     wb.transaction('Load query', () => {
       const range = { ...hit.table.range };
       wb.deleteTable(hit.sheet.id, hit.table.id);
       wb.clearRange(hit.sheet.id, range, { styles: true });
+      loadStep(wb, query.id, 'Load query', before, () => after);
     });
   }
   query.load = { kind: 'connection' };
-  saveQuery(wb, query);
+  after = loadRecord(saveQuery(wb, query));
 }
