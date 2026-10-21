@@ -1062,6 +1062,7 @@ export class App {
         const n = parseFloat(value);
         if (n >= 1 && n <= 400) setFontSize(n);
       }
+      this.editor.rememberRange();
       this.editor.markActiveDirty();
       this.updateFormatState();
     };

@@ -789,6 +789,16 @@ export class PageEditor extends Emitter {
     return currentRange() || (el && currentRange());
   }
 
+  /**
+   * Saves the selection a command just made in a note (a font or size from
+   * the ribbon boxes re-selects the text it moved) before selectionchange
+   * records it: the saved range may have collapsed as its text moved.
+   */
+  rememberRange() {
+    const cur = currentRange();
+    if (cur && this.scroller.contains(cur.commonAncestorContainer) && editableRoot(cur.commonAncestorContainer)) this.lastRange = cur.cloneRange();
+  }
+
   /** Restores the last caret (after a ribbon control took focus). */
   restoreRange() {
     if (!this.lastRange || !this.lastRange.commonAncestorContainer.isConnected) return false;

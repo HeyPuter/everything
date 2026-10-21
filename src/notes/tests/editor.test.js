@@ -548,3 +548,26 @@ describe('note containers', () => {
     host.remove();
   });
 });
+
+describe('ribbon round trips', () => {
+  it('remembers the selection a font command just made, not an older saved one', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>one two three</p>' }], ink: [] });
+    const text = host.querySelector('.outline-body p').firstChild;
+    // The saved caret collapsed when a font command moved the text into a span.
+    const stale = document.createRange();
+    stale.setStart(text, 0);
+    ed.lastRange = stale;
+    const now = document.createRange();
+    now.setStart(text, 10);
+    now.setEnd(text, 13);
+    selectRange(now);
+    ed.rememberRange();
+    expect(ed.restoreRange()).toBe(true);
+    expect(document.getSelection().toString()).toBe('ree');
+    ed.destroy();
+    host.remove();
+  });
+});
