@@ -1154,8 +1154,12 @@ export class CanvasEditor {
       const { index, offset } = locate(this.model.paragraphs, position), start = position - offset;
       return { start, end: start + paragraphText(this.model.paragraphs[index]).length };
     }
+    return this.wordAt(e, position);
+  }
+  /** The word under the pointer; none on a paragraph mark or break (an empty line, past a line's end), which typing would remove. */
+  wordAt(e, position) {
     const word = new Intl.Segmenter(undefined, { granularity: 'word' }).segment(this.model.text).containing(this.pointCharacter(e, position));
-    return word ? { start: word.index, end: word.index + word.segment.length } : null;
+    return word && !/[\n\v\f\u000e]/.test(word.segment) ? { start: word.index, end: word.index + word.segment.length } : null;
   }
   /** Extend a pointer selection to a point. */
   dragTo(e) {
@@ -1252,8 +1256,8 @@ export class CanvasEditor {
     if (this.pointImage) {
       this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection(); return;
     }
-    const word = new Intl.Segmenter(undefined, { granularity: 'word' }).segment(this.model.text).containing(this.pointCharacter(e, pos));
-    if (word) { this.model.select(word.index, word.index + word.segment.length); this.focus(); this.onSelection(); }
+    const word = this.wordAt(e, pos);
+    if (word) { this.model.select(word.start, word.end); this.focus(); this.onSelection(); }
   }
   /**
    * The offset of the character under the pointer. A press resolves to the nearest caret stop, which

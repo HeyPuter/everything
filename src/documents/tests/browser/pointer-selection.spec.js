@@ -157,3 +157,20 @@ test('on a Mac, Control+click keeps the selection for the context menu it opens'
   expect(await selected(page)).toBe('world');
   await expect(page.getByRole('menuitem', { name: 'Copy', exact: true })).toBeEnabled();
 });
+
+test('a double click on an empty line places the caret there instead of selecting its paragraph mark', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha\n\nBravo charlie');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const lines = await page.evaluate(() => { const e = window.__docs.current.view.engine; return e.selectionLayout.lines.map(l => ({ x: l.stops.at(-1).x * e.zoom, y: (l.y + l.height / 2) * e.zoom })); });
+  await page.mouse.dblclick(box.x + lines[1].x + 40, box.y + lines[1].y);
+  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([6, 6]);
+  // Typing fills the empty line rather than replacing its mark and joining the next paragraph.
+  await page.keyboard.type('Xy');
+  await expect(input(page)).toHaveValue('Alpha\nXy\nBravo charlie');
+  await page.waitForTimeout(600);
+  // Past the end of a line, likewise.
+  await page.mouse.dblclick(box.x + lines[0].x + 100, box.y + lines[0].y);
+  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([5, 5]);
+});
