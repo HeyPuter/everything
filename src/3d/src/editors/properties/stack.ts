@@ -48,6 +48,7 @@ export const modifierFields: Record<string, Field[]> = {
     ['mirror_offset_u', 'Flip U Offset', 'num', { min: -1, max: 1, slider: true }],
     ['use_mirror_v', 'Mirror V', 'bool'],
     ['mirror_offset_v', 'Flip V Offset', 'num', { min: -1, max: 1, slider: true }],
+    ['use_mirror_udim', 'Flip UDIM', 'bool'],
     ['offset_u', 'Offset U', 'num', { softMin: -1, softMax: 1, slider: true }],
     ['offset_v', 'V', 'num', { softMin: -1, softMax: 1, slider: true }],
     ['use_mirror_vertex_groups', 'Vertex Groups', 'bool'],

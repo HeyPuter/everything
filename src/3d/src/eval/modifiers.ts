@@ -442,9 +442,12 @@ function mirrorMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
       ov = num(mod, 'offset_v');
     if (bool(mod, 'use_mirror_u') || bool(mod, 'use_mirror_v') || ou || ov) {
       const uv = local.uvs.slice();
+      // UDIM: flip within each corner's own tile (whole numbers stay on their tile edge)
+      const udim = bool(mod, 'use_mirror_udim');
+      const flipU = (u: number) => (udim ? Math.ceil(u) - (u - Math.floor(u)) : 1 - u);
       for (let i = 0; i < uv.length; i += 2) {
-        if (bool(mod, 'use_mirror_u')) uv[i] = 1 - uv[i] + num(mod, 'mirror_offset_u');
-        if (bool(mod, 'use_mirror_v')) uv[i + 1] = 1 - uv[i + 1] + num(mod, 'mirror_offset_v');
+        if (bool(mod, 'use_mirror_u')) uv[i] = flipU(uv[i]) + num(mod, 'mirror_offset_u');
+        if (bool(mod, 'use_mirror_v')) uv[i + 1] = flipU(uv[i + 1]) + num(mod, 'mirror_offset_v');
         uv[i] += ou;
         uv[i + 1] += ov;
       }
@@ -2352,7 +2355,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     label: 'Mirror',
     category: 'GENERATE',
     icon: 'mod_mirror',
-    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, mirror_offset_u: 0, mirror_offset_v: 0, offset_u: 0, offset_v: 0, bisect_threshold: 0.001, use_mirror_vertex_groups: true }),
+    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, use_mirror_udim: false, mirror_offset_u: 0, mirror_offset_v: 0, offset_u: 0, offset_v: 0, bisect_threshold: 0.001, use_mirror_vertex_groups: true }),
     deps: (m) => [m.mirror_object as string],
     supportsEditMode: true,
     apply: mirrorMesh,

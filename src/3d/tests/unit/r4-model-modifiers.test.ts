@@ -197,3 +197,19 @@ describe('Texture coordinates shared by Displace, Warp and Wave', () => {
     expect(tex[0 * 3 + 2]).toBeCloseTo(0, 5);
   });
 });
+
+describe('Mirror: UV flip within UDIM tiles (recorded)', () => {
+  it.each([
+    [false, 0, [0, -0.3, -1, -1]],
+    [true, 0, [1, 1.7, 2, 2]],
+    [true, 0.25, [1.25, 1.95, 2.25, 2.25]],
+  ] as [boolean, number, number[]][])('udim %s offset %s', (udim, off, us) => {
+    const m = buildMesh([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], [{ verts: [0, 1, 2, 3], uvs: [1, 0.2, 2, 0.2, 2, 0.8, 1.3, 0.8] }]) as unknown as EvalMesh;
+    const t = modifierTypes.MIRROR;
+    const out = t.apply(m, { ...t.defaults(), use_mirror_u: true, use_mirror_udim: udim, mirror_offset_u: off, use_mirror_merge: false } as never, { ob: { id: 'ob' }, graph: new Map() } as unknown as ModifierContext);
+    // the mirrored face's corners in reverse order: 0, 3, 2, 1
+    const got = [4, 5, 6, 7].map((c) => +out.uvs[c * 2].toFixed(4));
+    const byCorner = [got[0], got[3], got[2], got[1]];
+    expect(byCorner.sort()).toEqual([...us].sort());
+  });
+});
