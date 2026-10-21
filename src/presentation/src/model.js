@@ -1693,11 +1693,36 @@ export function matchHeaderFooter(pres, slide, previous, number) {
   if (settings.date || settings.footer !== null || settings.slideNumber)
     P.applySlideHeaderFooter(slide, settings, number);
 }
+// The parts (by lowercase name) `starts` lead to through their internal
+// relationships, `starts` among them; "/" starts at the package's own.
+function partsReachedFrom(pkg, starts) {
+  const seen = new Set();
+  const queue = [...starts];
+  while (queue.length) {
+    const name = queue.pop();
+    if (seen.has(name.toLowerCase())) continue;
+    seen.add(name.toLowerCase());
+    let rels = null;
+    try {
+      rels = name === "/" ? pkg.rootRels() : pkg.getRels(name);
+    } catch {}
+    for (const rel of rels?.items ?? []) {
+      if (rel.targetMode === "External") continue;
+      try {
+        queue.push(resolveTarget(name, rel.target));
+      } catch {}
+    }
+  }
+  return seen;
+}
 // Removes slides from the deck. Links to them on the slides that stay would
-// point at parts no longer in the file, so they go first; media only the
-// removed slides showed goes after.
+// point at parts no longer in the file, so they go first. What only the
+// removed slides led to (their notes, comments, charts, SmartArt and media)
+// goes after: it would otherwise travel on, unseen, in every copy shared.
 export function removeSlides(pres, slides) {
   const parts = new Set(slides.map(P.getSlidePartName));
+  const pkg = P._internalPackageOf(pres);
+  const reached = partsReachedFrom(pkg, parts);
   for (const s of P.getSlides(pres))
     if (!parts.has(P.getSlidePartName(s)))
       for (const shape of P.getSlideShapes(s)) {
@@ -1717,7 +1742,6 @@ export function removeSlides(pres, slides) {
   for (const s of slides) P.removeSlide(pres, s);
   // The relationships those links used stay behind; drop the ones nothing
   // refers to any more.
-  const pkg = P._internalPackageOf(pres);
   for (const s of P.getSlides(pres)) {
     const part = P.getSlidePartName(s);
     const rels = pkg.getRels(part);
@@ -1732,6 +1756,13 @@ export function removeSlides(pres, slides) {
     );
     if (kept.length !== rels.items.length)
       pkg.setRels(part, { ...rels, items: kept });
+  }
+  const used = partsReachedFrom(pkg, ["/"]);
+  for (const part of [...pkg.parts]) {
+    const name = part.name.toLowerCase();
+    if (!reached.has(name) || used.has(name)) continue;
+    pkg.removePart(relsPartNameFor(part.name));
+    pkg.removePart(part.name);
   }
   pruneUnusedMedia(pres);
 }

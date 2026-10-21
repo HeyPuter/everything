@@ -25,6 +25,7 @@ import {
   slideRotation,
   ownRotation,
   pruneUnusedMedia,
+  removeSlides,
   dedupeSlideMedia,
   relativePartName,
   resolvePartName,
@@ -631,6 +632,52 @@ it("gives a copied group's children ids of their own", async () => {
   expect(P.validatePresentation(saved)).toEqual([]);
 });
 describe("deleted media", () => {
+  it("takes a deleted slide's notes, comments, chart and SmartArt out of the file", async () => {
+    const pres = createDeck("story");
+    const [kept, gone] = P.getSlides(pres);
+    const box = { x: 0, y: 0, w: P.inches(3), h: P.inches(2) };
+    const chart = {
+      kind: "bar",
+      categories: ["A", "B"],
+      series: [{ name: "Units", values: [1, 2] }],
+    };
+    P.addSlideChart(kept, { ...box, spec: chart });
+    P.setSlideNotes(kept, "Kept notes");
+    P.addSlideChart(gone, { ...box, spec: chart });
+    P.addSlideSmartArt(gone, {
+      ...box,
+      model: {
+        layout: "arrow-steps",
+        colors: P.DEFAULT_SMARTART_COLORS,
+        style: P.DEFAULT_SMARTART_STYLE,
+        items: [{ text: "Step", level: 0 }],
+      },
+    });
+    P.addSlideComment(gone, { author: { name: "Ana" }, text: "Private" });
+    P.setSlideNotes(gone, "Confidential notes");
+    removeSlides(pres, [gone]);
+    const files = unzipSync(await P.savePresentation(pres));
+    const names = Object.keys(files).sort();
+    expect(names.filter((n) => /^ppt\/(charts|embeddings)\//.test(n))).toEqual([
+      "ppt/charts/_rels/chart1.xml.rels",
+      "ppt/charts/chart1.xml",
+      "ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx",
+    ]);
+    expect(names.filter((n) => /^ppt\/(diagrams|comments)\//.test(n))).toEqual(
+      [],
+    );
+    expect(names.filter((n) => n.startsWith("ppt/notesSlides/"))).toHaveLength(
+      2,
+    );
+    const text = names.map((n) => new TextDecoder().decode(files[n])).join();
+    expect(text).not.toContain("Confidential notes");
+    expect(text).not.toContain("Private");
+    const types = new TextDecoder().decode(files["[Content_Types].xml"]);
+    expect(types).not.toMatch(/diagrams|chart2|comments\//);
+    const saved = await parseDeck(await P.savePresentation(pres));
+    expect(P.getSlideNotes(P.getSlides(saved)[0])).toBe("Kept notes");
+    expect(P.validatePresentation(saved)).toEqual([]);
+  });
   it("drops the image parts deleted pictures and slides leave behind while keeping shared ones", async () => {
     const png = Buffer.from(
       "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGMwSJjwH4QZYAwARzQIfaOzYgMAAAAASUVORK5CYII=",
