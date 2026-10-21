@@ -236,7 +236,8 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   /** View → Zoom: presets, fit choices, many pages and a percentage, previewed live. */
   function zoomDialog() {
     const engine = ready(); if (!engine) return;
-    const start = engine.zoom, startMulti = engine.pages.classList.contains('is-multipage');
+    // Page width that follows the window is restored as that, not as the scale it worked out to.
+    const start = engine.zoom, startSetting = w.zoomSetting?.() ?? start, startMulti = engine.pages.classList.contains('is-multipage');
     let choice = null, modal = null, many = [2, 1];
     const percent = el('input.input', { type: 'number', min: 10, max: 200, step: 1, value: Math.round(start * 100), 'aria-label': 'Percent' });
     const preview = () => { if (!percent.checkValidity()) return; apply(Number(percent.value) / 100, true); };
@@ -271,7 +272,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     let applied = false;
     modal = openModal({ title: 'Zoom', onClose: () => {
       // Cancel puts the zoom back as it was.
-      if (!applied && editor()) { w.setZoom?.(start); if (startMulti) w.multiplePages?.(); }
+      if (!applied && editor()) { w.setZoom?.(startSetting); if (startMulti) w.multiplePages?.(); }
       queueMicrotask(() => editor()?.focus());
     }, content: el('form.ed-dialog-body.view-zoom-dialog', { onsubmit: e => {
       e.preventDefault();

@@ -237,6 +237,7 @@ export function createWordCommands({ editor, pkg, error, zoomControl, fitWidth, 
         el('div.modal-actions', {}, el('button.btn.btn-primary', { type: 'button', onclick: e => e.target.closest('.modal-panel')?.querySelector('.modal-head .icon-btn')?.click() }, 'Close'))) });
     },
     setZoom(value) { const engine = editor(); if (!engine) return; zoomControl.set(value); engine.focus(); },
+    zoomSetting() { return zoomControl.value; },
     zoomTo(kind) {
       const engine = editor(); if (!engine) return;
       if (kind === 'width') { zoomControl.set('fit'); fitWidth(); }

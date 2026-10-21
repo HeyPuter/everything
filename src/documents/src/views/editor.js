@@ -669,6 +669,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       else { customZoom.value = String(scale); customZoom.textContent = `${Math.round(scale * 100)}%`; customZoom.hidden = false; zoom.value = customZoom.value; }
       engine?.setZoom(scale); syncZoom();
     },
+    /** The zoom as chosen: 'fit' while the page follows the window's width, otherwise the scale. */
+    get value() { return zoom.value === 'fit' ? 'fit' : engine?.zoom ?? 1; },
   };
   // A drag hands the keyboard back to the text when it ends; the arrow keys, which end a change at every press, keep it on the slider.
   let zoomDragged = false;

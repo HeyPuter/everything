@@ -251,6 +251,24 @@ test('zoom: dialog presets, many pages, text width and Ctrl + wheel', async ({ p
   await expect(slider).toHaveValue(now);
 });
 
+test('cancelling the Zoom dialog keeps the page following the window width', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await (await viewTab(page)).getByRole('button', { name: 'Page Width', exact: true }).click();
+  const zoom = page.getByRole('combobox', { name: 'Zoom', exact: true });
+  await expect(zoom).toHaveValue('fit');
+  const pageWidth = () => page.locator('canvas.canvas-page').first().evaluate(c => c.getBoundingClientRect().width);
+  const fitted = await pageWidth();
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  await dialog.getByText('200%').click();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(zoom).toHaveValue('fit');
+  // Still Page Width, the page follows a narrower window.
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await expect.poll(pageWidth).toBeLessThan(fitted - 100);
+});
+
 test('side-to-side page movement, gridlines and split', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'Across pages', exact: true }).click();
