@@ -410,6 +410,23 @@ describe('audio and speed', () => {
     expect(clip(env.aud.id).speed).toBe(0.5);
     expect(preset.getAttribute('aria-pressed')).toBe('true');
   });
+
+  it('a speed drag that dips and comes back keeps a clip held by its neighbor', () => {
+    env.store.toggles.ripple = false;
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const r = env.el.querySelector('.speed-field input[type=range]');
+    drag(r, [speedToPos(0.7), speedToPos(0.5), speedToPos(0.7), speedToPos(1)]);
+    expect(clip(env.v1.id).speed).toBe(1);
+    expect(clip(env.v1.id).duration).toBe(5 * US);
+    // The neighbor still limits a slower clip.
+    drag(r, [speedToPos(0.5)]);
+    expect(clip(env.v1.id).duration).toBe(5 * US);
+    expect(clip(env.v1.id).speed).toBe(0.5);
+    // A new drag starts from what the clip now shows (2.5 s of footage).
+    drag(r, [speedToPos(1)]);
+    expect(clip(env.v1.id).duration).toBe(2.5 * US);
+  });
 });
 
 describe('animation and color', () => {

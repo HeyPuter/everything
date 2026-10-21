@@ -499,13 +499,18 @@ export function pasteClips(project, clips, t, opts = {}) {
   return pasted;
 }
 
+/**
+ * Play a clip at a constant speed. opts.span overrides the source length to
+ * keep (a drag keeps the one it began with, so a neighbor that cut the clip
+ * short mid-drag doesn't shorten it for good).
+ */
 export function setSpeed(project, id, speed, opts = {}) {
   const found = findClip(project, id);
   if (!found || !isTimed(found.clip) || found.track.locked) return false;
   const { clip, track } = found;
   const s = Math.min(100, Math.max(0.1, speed));
   const curved = hasCurve(clip);
-  const span = curved ? sourceSpan(clip) : clip.duration * clip.speed;
+  const span = opts.span ?? (curved ? sourceSpan(clip) : clip.duration * clip.speed);
   const duration = fitDuration(track, clip, Math.max(MIN_CLIP, Math.round(span / s)), opts);
   const before = { ...clip };
   // Constant speed replaces a velocity ramp, accents included.

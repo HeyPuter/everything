@@ -600,8 +600,9 @@ export function createActions(ctx) {
       });
     },
 
-    setSpeed(id, speed) {
-      store.update('Change speed', (p) => T.setSpeed(p, id, speed, store.opts), { coalesce: `speed:${id}` });
+    /** span: the source length to keep (a drag keeps the one it began with). */
+    setSpeed(id, speed, { span } = {}) {
+      store.update('Change speed', (p) => T.setSpeed(p, id, speed, { ...store.opts, ...(span !== undefined ? { span } : {}) }), { coalesce: `speed:${id}` });
     },
 
     /**

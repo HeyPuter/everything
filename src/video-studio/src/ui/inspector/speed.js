@@ -11,7 +11,7 @@
 import { h, announce } from '../../lib/dom.js';
 import { propSection, uidFor, secs, tabSet, note } from './common.js';
 import { switchField, segmented } from '../controls.js';
-import { hasCurve } from '../../model/speed-curve.js';
+import { hasCurve, sourceSpan } from '../../model/speed-curve.js';
 import { SMOOTH_SLOW_MODES, normalizeSmoothSlow, slowsDown } from '../../model/slow-motion.js';
 import { speedCurvePanel } from './speed-curve.js';
 import { speedRampsPanel } from './speed-ramps.js';
@@ -153,8 +153,10 @@ function constantPanel(view) {
     return b;
   });
 
-  // While dragging the thumb stays where the pointer put it.
+  // While dragging the thumb stays where the pointer put it, and the clip
+  // keeps the footage it had when the drag began.
   let dragging = false;
+  let span;
   const paint = (s) => {
     if (!dragging) {
       range.value = String(speedToPos(s));
@@ -168,13 +170,15 @@ function constantPanel(view) {
     const c = view.clip;
     if (!c) return;
     const v = Math.min(SPEED_MAX, Math.max(SPEED_MIN, s));
-    if (hasCurve(c) || Math.abs(v - c.speed) > 1e-9) actions.setSpeed(view.id, v);
+    if (hasCurve(c) || Math.abs(v - c.speed) > 1e-9) actions.setSpeed(view.id, v, { span });
     if (final) {
+      span = undefined;
       store.seal();
       announce(`Speed ${fmt(v)} times, ${secs(view.clip?.duration || 0)}`);
     }
   };
   range.addEventListener('input', () => {
+    if (!dragging) span = hasCurve(view.clip) ? sourceSpan(view.clip) : view.clip.duration * view.clip.speed;
     dragging = true;
     const s = posToSpeed(Number(range.value));
     num.value = fmt(s);
