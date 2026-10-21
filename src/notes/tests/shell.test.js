@@ -251,6 +251,23 @@ describe('App shell', () => {
     setPref('sectionsWidth', start);
   });
 
+  it('runs the Tell Me command for what is typed, not for the results still showing', async () => {
+    const input = app.tellMeInput;
+    input.focus();
+    input.value = 'zoom';
+    input.dispatchEvent(new Event('input'));
+    await tick(200);
+    expect([...document.querySelectorAll('.menu .menu-label')].map((l) => l.textContent)).toEqual(['Zoom Out', 'Zoom In']);
+    input.focus();
+    input.value = 'zoom in';
+    input.dispatchEvent(new Event('input'));
+    const before = app.editor.zoom;
+    keydown(input, 'Enter');
+    await tick();
+    expect(app.editor.zoom).toBeGreaterThan(before);
+    app.editor.setZoom(before);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

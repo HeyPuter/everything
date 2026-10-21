@@ -1127,19 +1127,27 @@ export class App {
       input.setAttribute('aria-expanded', 'true');
       input.focus();
     };
-    input.addEventListener('input', debounce(show, 120));
+    const showSoon = debounce(show, 120);
+    input.addEventListener('input', showSoon);
+    // The results may still be for what was typed before the last keys.
+    const showNow = () => {
+      if (!showSoon.pending() && menu?.el.isConnected) return;
+      showSoon.cancel();
+      show();
+    };
     input.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (!menu || !menu.el.isConnected) show();
+        showNow();
         menu?.el.querySelector('[role^="menuitem"]')?.focus();
       } else if (e.key === 'Escape') {
+        showSoon.cancel();
         input.value = '';
         closeAllMenus();
         this.editor.restoreRange();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (!menu || !menu.el.isConnected) show();
+        showNow();
         menu?.el.querySelector('[role^="menuitem"]:not([aria-disabled="true"])')?.click();
       }
     });
