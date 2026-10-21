@@ -34,3 +34,14 @@
 .ov-wire-row {
   grid-template-columns: auto 1fr 1fr;
 }
+/* sidebar View tab: a checkbox followed by a picker on one row */
+.sb-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sb-inline > :last-child {
+  flex: 1;
+  min-width: 0;
+}

@@ -169,28 +169,30 @@ sidebarTabs.push(
       const cur = app.doc.scene.cursor;
       return [
         panel('sb-view', 'View', () => [
-          numberField({ id: 'v-lens', label: 'Focal Length', value: v.nav.lens, min: 1, max: 5000, unit: 'none', precision: 0, set: (x) => ((v.nav.lens = x), renderContext?.engine.requestDraw(), app.changed('ui')) }),
-          h('div', { class: 'sb-label' }, 'Clip'),
-          col(
-            numberField({ id: 'v-cs', label: 'Start', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) }),
-            numberField({ id: 'v-ce', label: 'End', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) }),
-          ),
-          checkbox('v-localcam', 'Local Camera', v.useLocalCamera, (x) => {
-            v.useLocalCamera = x;
-            if (x && !v.localCamera) v.localCamera = app.doc.scene.camera;
-            v.updateSceneCamera();
-            v.afterNav();
-            app.changed('ui');
-          }),
-          v.useLocalCamera
-            ? enumMenu('v-localcam-ob', Object.values(app.doc.objects).filter((o) => o.type === 'CAMERA').map((o) => ({ value: o.id, label: o.name, icon: 'outliner_ob_camera' })), v.localCamera ?? '', (id) => {
+          row('Focal Length', numberField({ id: 'v-lens', value: v.nav.lens, min: 1, max: 5000, unit: 'none', precision: 0, tip: 'Focal Length\nLens of the viewport (millimetres)', set: (x) => ((v.nav.lens = x), renderContext?.engine.requestDraw(), app.changed('ui')) })),
+          row('Clip Start', numberField({ id: 'v-cs', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) })),
+          row('End', numberField({ id: 'v-ce', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) })),
+          row(
+            'Local Camera',
+            h(
+              'div',
+              { class: 'sb-inline' },
+              checkbox('v-localcam', '', v.useLocalCamera, (x) => {
+                v.useLocalCamera = x;
+                if (x && !v.localCamera) v.localCamera = app.doc.scene.camera;
+                v.updateSceneCamera();
+                v.afterNav();
+                app.changed('ui');
+              }, { tip: 'Local Camera\nThis viewport looks through its own camera' }),
+              enumMenu('v-localcam-ob', Object.values(app.doc.objects).filter((o) => o.type === 'CAMERA').map((o) => ({ value: o.id, label: o.name, icon: 'outliner_ob_camera' })), v.localCamera ?? '', (id) => {
                 v.localCamera = id;
                 v.updateSceneCamera();
                 v.afterNav();
                 app.changed('ui');
-              })
-            : null,
-          v.cameraView ? checkbox('v-region', 'Render Region', !!(app.doc.scene.render as { use_border?: boolean }).use_border, (x) => ((app.doc.scene.render as { use_border?: boolean }).use_border = x, app.pushUndo('Render Region'), app.changed('doc', 'ui'))) : null,
+              }, { disabled: !v.useLocalCamera, label: v.localCamera ? undefined : 'Camera' }),
+            ),
+          ),
+          row('', checkbox('v-region', 'Render Region', !!(app.doc.scene.render as { use_border?: boolean }).use_border, (x) => ((app.doc.scene.render as { use_border?: boolean }).use_border = x, app.pushUndo('Render Region'), app.changed('doc', 'ui')), { tip: 'Render Region\nRender only the region set with Ctrl B in camera view' })),
           v.clipPlanes ? h('div', { class: 'sb-row-btn' }, opButton('view3d.clip_border', 'Clear Clipping Region')) : null,
         ]),
         panel('sb-view-lock', 'View Lock', () => [
@@ -203,8 +205,14 @@ sidebarTabs.push(
               app.changed('ui');
             }),
           ),
-          !v.lockObject ? checkbox('v-lockcur', 'Lock to 3D Cursor', v.lockCursor, (x) => ((v.lockCursor = x), v.afterNav(), app.changed('ui'))) : null,
-          checkbox('v-lock', 'Lock Camera to View', v.lockCameraToView, (x) => ((v.lockCameraToView = x), app.changed('ui'))),
+          row(
+            'Lock',
+            col(
+              checkbox('v-lockcur', 'To 3D Cursor', v.lockCursor && !v.lockObject, (x) => ((v.lockCursor = x), v.afterNav(), app.changed('ui')), { disabled: !!v.lockObject, tip: 'To 3D Cursor\nThe view stays centred on the 3D cursor' }),
+              checkbox('v-lock', 'Camera to View', v.lockCameraToView, (x) => ((v.lockCameraToView = x), app.changed('ui')), { tip: 'Camera to View\nNavigating in camera view moves the camera' }),
+              checkbox('v-lockrot', 'Rotation', v.lockRotation, (x) => ((v.lockRotation = x), app.changed('ui')), { tip: 'Rotation\nThe view cannot be orbited (dragging pans instead)' }),
+            ),
+          ),
         ]),
         panel('sb-cursor', '3D Cursor', () => [
           h('div', { class: 'sb-label' }, 'Location:'),
