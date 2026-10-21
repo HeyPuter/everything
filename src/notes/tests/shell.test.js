@@ -148,6 +148,28 @@ describe('App shell', () => {
     expect(app.nav.sectionsList.querySelector('[aria-selected="true"]').dataset.id).toBe(other.id);
   });
 
+  it('renames a page or section on double-click even though the first click redraws the list', async () => {
+    app.newPage({ title: 'Two' });
+    await tick();
+    // Browsers send no dblclick when the first click replaced the row, only
+    // a second click with detail 2.
+    const click = (el, detail) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, detail }));
+    let row = app.nav.pagesList.querySelector('.row:not([aria-selected="true"])');
+    const id = row.dataset.id;
+    click(row, 1);
+    row = app.nav.pagesList.querySelector(`.row[data-id="${id}"]`);
+    click(row, 2);
+    expect(app.nav.pagesList.querySelector(`.row[data-id="${id}"] input.row-rename`)).toBeTruthy();
+    keydown(document.activeElement, 'Escape');
+    let section = app.nav.sectionsList.querySelector('.row:not([aria-selected="true"])');
+    const sid = section.dataset.id;
+    click(section, 1);
+    section = app.nav.sectionsList.querySelector(`.row[data-id="${sid}"]`);
+    click(section, 2);
+    expect(app.nav.sectionsList.querySelector(`.row[data-id="${sid}"] input.row-rename`)).toBeTruthy();
+    keydown(document.activeElement, 'Escape');
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

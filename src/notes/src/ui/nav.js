@@ -168,13 +168,16 @@ export class Nav {
       row.append(h('span.section-tab', { style: { '--sec-color': this.colorOf(node.color) } }), h('span.row-label', node.name));
       if (node.locked) row.append(h('span.lock', { title: 'Password protected' }, icon(this.app.isUnlocked(node.id) ? 'unlock' : 'lock', 14, undefined, { plain: true })));
     }
-    row.addEventListener('click', () => {
+    const rename = () => this.renameNow(node.id, node.name, (v) => this.app.store.renameNode(node.id, v));
+    row.addEventListener('click', (e) => {
+      const locked = node.locked && !this.app.isUnlocked(node.id);
       if (node.type === 'group') this.app.store.toggleGroup(node.id);
       else this.app.selectSection(node.id);
+      if (e.detail === 2 && !locked) rename();
     });
     row.addEventListener('dblclick', (e) => {
       e.preventDefault();
-      this.rename(row, node.name, (v) => this.app.store.renameNode(node.id, v));
+      rename();
     });
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -280,10 +283,14 @@ export class Nav {
       row.append(twisty);
     }
     row.append(h(`span.row-label${title ? '' : '.untitled'}`, title || 'Untitled Page'));
-    row.addEventListener('click', () => this.app.openPage(meta.id));
+    const rename = () => this.renameNow(meta.id, meta.title || '', (v) => this.app.renamePage(meta.id, v), true);
+    row.addEventListener('click', (e) => {
+      this.app.openPage(meta.id);
+      if (e.detail === 2) rename();
+    });
     row.addEventListener('dblclick', (e) => {
       e.preventDefault();
-      this.rename(row, meta.title || '', (v) => this.app.renamePage(meta.id, v), true);
+      rename();
     });
     row.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -448,6 +455,18 @@ export class Nav {
       const f = this.app.store.findNode(row.dataset.id);
       if (f) this.app.sectionMenu(f.node, point);
     }
+  }
+
+  /**
+   * Starts renaming the row for `id` as it is now. A click redraws the
+   * list, so the browser sends no dblclick for a double-click; the row's
+   * second click (detail 2) starts the rename instead. Phones show one
+   * list at a time and move on to the next, so they rename from the menu.
+   */
+  renameNow(id, value, commit, allowEmpty) {
+    if (this.app.isPhone()) return;
+    const row = this.el.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
+    if (row) this.rename(row, value, commit, allowEmpty);
   }
 
   /** Inline rename. commit(value) runs on Enter or blur. */
