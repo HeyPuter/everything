@@ -35,6 +35,12 @@ describe("AutoCorrect", () => {
     expect(type("Fruit, e.g. ", "apples ").text).toBe("Fruit, e.g. apples ");
     expect(type("Go! ", "now ").text).toBe("Go! Now ");
     expect(type("see ", "www.example.com ").text).toBe("see www.example.com ");
+    // "i.e." keeps its small i, and times of day do not end a sentence.
+    expect(type("Fruit, ", "i.e. apples ").text).toBe("Fruit, i.e. apples ");
+    expect(type("At 9 ", "a.m. today ").text).toBe("At 9 a.m. today ");
+    expect(type("Until 5 ", "p.m. we wait ").text).toBe(
+      "Until 5 p.m. we wait ",
+    );
   });
   it("makes quotes smart", () => {
     expect(type("He said ", '"hi"').text).toBe("He said “hi”");

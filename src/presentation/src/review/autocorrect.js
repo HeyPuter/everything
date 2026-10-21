@@ -86,6 +86,8 @@ const LETTER = /\p{L}/u;
 const ABBREVIATIONS = new Set([
   "e.g",
   "i.e",
+  "a.m",
+  "p.m",
   "etc",
   "vs",
   "mr",
@@ -224,8 +226,9 @@ export function autoCorrectAt(text, caret, options = DEFAULT_OPTIONS) {
         from.toLowerCase() === word.toLowerCase() && LETTER.test(from),
     );
     if (hit) {
-      // "i" only alone; other words keep the case they were typed in.
-      if (hit[0] === "i" ? word === "i" : true)
+      // "i" only alone, and not as the start of "i.e."; other words keep
+      // the case they were typed in.
+      if (hit[0] === "i" ? word === "i" && typed !== "." : true)
         replacement = hit[0] === "i" ? "I" : shapeCase(word, hit[1]);
     }
   }
