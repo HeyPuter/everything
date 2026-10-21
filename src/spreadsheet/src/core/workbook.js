@@ -908,7 +908,8 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
   for (const [k, h] of Object.entries(rowHeights || {})) if (/^\d+$/.test(k) && Number(k) <= MAX_ROW && Number.isFinite(Number(h))) sheet.rowHeights.set(Number(k), Number(h) > 0 ? Math.max(1, Math.min(MAX_STORED_ROW_HEIGHT, Number(h))) : 18);
   for (const [k, s] of Object.entries(colStyles || {})) { const st = /^\d+$/.test(k) && Number(k) <= MAX_COL ? lineStyle(s) : null; if (st) sheet.colStyles.set(Number(k), st); }
   for (const [k, s] of Object.entries(rowStyles || {})) { const st = /^\d+$/.test(k) && Number(k) <= MAX_ROW ? lineStyle(s) : null; if (st) sheet.rowStyles.set(Number(k), st); }
-  for (const [k, cell] of Object.entries(cells || {})) {
+  // An undo snapshot holds its cells as a map (see Workbook._settle), a file as an object.
+  for (const [k, cell] of cells instanceof Map ? cells : Object.entries(cells || {})) {
     const c = cloneCell(cell);
     if (!isEmptyCell(c)) sheet.cells.set(k, c);
   }
@@ -1396,8 +1397,9 @@ export class Workbook extends EventTarget {
     let cells = 0;
     for (const s of this.sheets) {
       if (!touched.has(s.id)) continue;
-      const json = { ...sheetShapeJSON(s, { live: true }), cells: Object.fromEntries([...s.cells].map(([k, c]) => [k, cloneCell(c)])) };
-      sheets.set(s.id, json);
+      const cellMap = new Map();
+      for (const [k, c] of s.cells) cellMap.set(k, cloneCell(c));
+      sheets.set(s.id, { ...sheetShapeJSON(s, { live: true }), cells: cellMap });
       cells += s.cells.size + s.styleResets.length + s.ignoredErrors.length + nativeSparklineSize(s.sparklineGroups) + hiddenLinesWeight(s.hiddenRows.size + s.hiddenCols.size);
     }
     return { externalWorkbooks: this.externalWorkbooks, dataModel: this.dataModel, nativePivots: this.nativePivots, order: this.sheets.map(sheetListEntry), activeSheetId: this.activeSheetId, names: this.names.map((n) => ({ ...n })), customViews: this.customViews, sheets, touched, cells };
@@ -1459,15 +1461,17 @@ export class Workbook extends EventTarget {
     for (const id of touched) {
       const cap = capture.sheets.get(id);
       if (!cap) continue;
-      const cellsJSON = {};
+      // Kept as a map, which makeSheet reads back as it reads a file's object of cells, without listing a hundred
+      // thousand keys afresh on every undo and redo.
+      const cellMap = new Map();
       let p = 0;
       for (let i = 0; i < cap.cells.length; i++) {
         const f = cap.fAt[p] === i ? cap.fText[p++] : null;
         const cell = cloneCell(cap.cells[i].externalResult ? { ...cap.cells[i], f } : cap.cells[i]);
         cell.f = f;
-        cellsJSON[cap.keys[i]] = cell;
+        cellMap.set(cap.keys[i], cell);
       }
-      sheets.set(id, { ...cap.shape, cells: cellsJSON });
+      sheets.set(id, { ...cap.shape, cells: cellMap });
       cells += cap.cells.length + (cap.shape.styleResets?.length || 0) + (cap.shape.ignoredErrors?.length || 0) + nativeSparklineSize(cap.shape.sparklineGroups)
         + hiddenLinesWeight(cap.shape.hiddenRows.length + cap.shape.hiddenCols.length);
     }
