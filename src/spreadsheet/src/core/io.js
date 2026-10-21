@@ -510,11 +510,13 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
   // Only a column or row with its own width, height, or hidden state gets an
   // entry. The writers skip the holes, whereas filling every index up to one
   // far-off row would put a million row records into each save.
-  if (sheet.colWidths.size || sheet.hiddenCols.size || (!ods && sheet.colStyles.size)) {
+  if (sheet.colWidths.size || sheet.hiddenCols.size || sheet.colStyles.size) {
     const cols = [];
     for (const [c, wpx] of sheet.colWidths) cols[c] = { wpx };
     for (const c of sheet.hiddenCols) (cols[c] ??= { wpx: sheet.defaultColWidth }).hidden = true;
     if (!ods) for (const c of sheet.colStyles.keys()) cols[c] ??= { wpx: sheet.defaultColWidth };
+    // An .ods column's format is the cell style it gives the cells without one of their own.
+    else for (const [c, style] of sheet.colStyles) (cols[c] ??= { wpx: sheet.defaultColWidth }).odsCell = { odsStyle: style, z: numFmtOf(style) };
     ws['!cols'] = cols;
   }
   if (sheet.rowHeights.size || sheet.rowHeightModes.size || sheet.hiddenRows.size || sheet.filterHidden.size || (!ods && sheet.rowStyles.size)) {
@@ -1644,6 +1646,9 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const formatOf = (fonts || lineFormats) && partXml ? cellFormatIndices(partXml) : null;
   const ownResets = own?.nativeStyles ? readStyleResets(own.styleResets) : [];
   const colStyles = metaLineStyles(own?.colStyles, MAX_COL), rowStyles = metaLineStyles(own?.rowStyles, MAX_ROW);
+  // An .ods column's own cell style, LibreOffice's whole-column format; this app's own files carry theirs in the settings.
+  const odsColumns = !own && !partXml && ws?.['!odsColumnStyles'] ? Object.fromEntries(Object.entries(ws['!odsColumnStyles'])
+    .map(([c, { props, z }]) => [c, { ...odsCellStyle(props), ...numFmtToStyle(z) }]).filter(([c, style]) => Object.keys(style).length && Number(c) <= MAX_COL)) : null;
   // XF zero governs unallocated cells, independently of named Normal. Only
   // sheets using the saved global default follow native edits to that XF;
   // differing sheet defaults were exported as explicit column formats.
@@ -1843,6 +1848,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     // An .ods cell style's font, fill, borders and alignment; this app's own files carry their styles in the sidecar.
     const odsLook = !own && !partXml && src.odsProps ? odsCellStyle(src.odsProps) : null;
     if (odsLook) cell.s = { ...(cell.s || {}), ...odsLook };
+    // A cell style is complete in ODF: a cell with one of its own takes nothing from its column's.
+    if (cell.s && odsColumns?.[c]) cell.s = replaceInheritedStyle(cell.s, odsColumns[c]);
     // Normal text formatting alone must not create a cell for a missing
     // shared string, an uncached external formula, or a blank spill result.
     if (font && (reconcileStyle || cell.v != null || cell.f != null || fontIndex || src.l?.Target || font.nativeFill)) cell.s = { ...(cell.s || {}), ...font };
@@ -2150,7 +2157,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     ...(nativeDefaultHeight ? { nativeDefaultHeight } : {}),
     ...(nativeWidths ? { nativeWidths } : {}),
     // The format a whole column or row carries; the cells in it store none of their own.
-    colStyles: lines?.cols || colStyles,
+    colStyles: odsColumns || lines?.cols || colStyles,
     rowStyles: lines?.rows || rowStyles,
     styleResets: meta?.sheets?.[name]?.styleResets,
     cells,

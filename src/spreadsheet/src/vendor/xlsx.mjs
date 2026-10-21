@@ -23865,6 +23865,12 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 
 			case 'table': case '工作表': // 9.1.2 <table:table>
 				if(Rn[1]==='/') {
+					/* Puter Spreadsheet local patch: the cell style a column gives the cells that have none of their own
+					 * (table:default-cell-style-name, LibreOffice's whole-column format), other than the Default style. */
+					columnStyleNames.forEach(function(name, c) {
+						var props = name && name !== "Default" ? ods_cell_props(name) : null;
+						if(props) (ws['!odsColumnStyles'] || (ws['!odsColumnStyles'] = {}))[c] = { props: props, z: number_format_map[columnNumberFormats[c]] || null };
+					});
 					if(range.e.c >= range.s.c && range.e.r >= range.s.r) ws['!ref'] = encode_range(range);
 					else ws['!ref'] = "A1:A1";
 					if(opts.sheetRows > 0 && opts.sheetRows <= range.e.r) {
@@ -24955,15 +24961,19 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		/* ODF requires column declarations even when every column uses defaults.
 		 * Repeat identical declarations to cover large validation-only areas. */
 		var columnStyle = function(c) { return ws["!cols"] && ws["!cols"][c] && ws["!cols"][c].ods != null ? "co" + ws["!cols"][c].ods : null; };
+		/* Puter Spreadsheet local patch: a column's format (!cols[c].odsCell, a cell's style and number format) is the
+		 * cell style it gives the cells that have none of their own, as LibreOffice keeps a whole-column format. */
+		var columnDefault = function(c) { return ws["!cols"] && ws["!cols"][c] && ws["!cols"][c].odsCell ? ods_cell_style_name(ws["!cols"][c].odsCell, nfs) : null; };
 		/* Puter Spreadsheet local patch: a hidden column (!cols[c].hidden) is declared collapsed, and a run of
 		 * columns is repeated as one declaration only when its visibility matches as well as its style. */
 		var columnHidden = function(c) { return !!(ws["!cols"] && ws["!cols"][c] && ws["!cols"][c].hidden); };
 		for(C = 0; C <= lastCol;) {
-			var colStyle = columnStyle(C), colHidden = columnHidden(C), colCount = 1;
+			var colStyle = columnStyle(C), colHidden = columnHidden(C), colDefault = columnDefault(C), colCount = 1;
 			if(!ws["!cols"]) colCount = lastCol - C + 1;
-			else while(C + colCount <= lastCol && columnStyle(C + colCount) === colStyle && columnHidden(C + colCount) === colHidden) ++colCount;
+			else while(C + colCount <= lastCol && columnStyle(C + colCount) === colStyle && columnHidden(C + colCount) === colHidden && columnDefault(C + colCount) === colDefault) ++colCount;
 			var columnAttrs = {};
 			if(colStyle) columnAttrs['table:style-name'] = colStyle;
+			if(colDefault) columnAttrs['table:default-cell-style-name'] = colDefault;
 			if(colHidden) columnAttrs['table:visibility'] = 'collapse';
 			if(colCount > 1) columnAttrs['table:number-columns-repeated'] = colCount;
 			o.push('        ' + writextag('table:table-column', null, columnAttrs) + '\n');
@@ -25279,6 +25289,8 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 				for(var ai = 0; ai < addrs.length; ++ai) noteFormat(ws[encode_cell(addrs[ai])]);
 				for(ai = 0; ai < addrs.length; ++ai) { noteCellStyle(ws[encode_cell(addrs[ai])]); noteRunStyles(ws[encode_cell(addrs[ai])]); }
 			}
+			/* Puter Spreadsheet local patch: the styles columns give their cells (see columnDefault). */
+			(ws["!cols"] || []).forEach(function(col) { if(col && col.odsCell) { noteFormat(col.odsCell); noteCellStyle(col.odsCell); } });
 		});
 		o.push('  <style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Default" style:data-style-name="N37"/>\n');
 		keys(nfs).forEach(function(nf) {

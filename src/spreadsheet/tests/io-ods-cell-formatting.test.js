@@ -95,8 +95,9 @@ it('reads LibreOffice styles: parents, a column default, painted blank cells, an
   const wb = await workbookFromFile(new TextEncoder().encode(fods), 'libre.fods');
   const id = wb.activeSheetId;
   expect(wb.styleAt(id, 0, 0)).toEqual({ size: 14 * 4 / 3, bold: true, font: 'font:Liberation Serif', bg: '#dde8cb', align: 'center' });
-  // A blank cell with a fill is kept for it, as LibreOffice shows it.
-  expect(wb.styleAt(id, 0, 1)).toEqual(wb.styleAt(id, 0, 0));
+  // A blank cell with a fill is kept for it, as LibreOffice shows it; its own style takes nothing from its column's italic.
+  expect(wb.styleAt(id, 0, 1)).toEqual({ ...wb.styleAt(id, 0, 0), italic: null });
+  expect(wb.activeSheet.colStyles.get(1)).toEqual({ italic: true });
   expect(wb.styleAt(id, 0, 3)).toEqual({ size: 14 * 4 / 3, font: 'font:Liberation Serif' });
   // The Default style's colour and size are the book's base, not a format of each cell.
   expect(wb.styleAt(id, 1, 0)).toBeFalsy();
