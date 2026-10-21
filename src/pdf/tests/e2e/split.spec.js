@@ -541,3 +541,27 @@ test('Batch process keeps the password of the open PDF on its processed copy', a
   const unlocked = await PDFDocument.load((await unlockPdf(bytes, 'split-secret')).bytes);
   expect(unlocked.getPage(0).getRotation().angle).toBe(90);
 });
+
+test('Organize pages says why a page cannot be extracted or duplicated', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await unflattenableWidget());
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  const downloads = [];
+  page.on('download', (download) => downloads.push(download));
+  for (const name of ['Extract pages', 'Duplicate pages']) {
+    await page.locator('#toast').evaluate((node) => (node.hidden = true));
+    await toolbar.getByRole('button', { name, exact: true }).click();
+    await expect(page.locator('#toast')).toContainText('could not be flattened safely');
+  }
+  expect(downloads).toHaveLength(0);
+  expect(errors).toEqual([]);
+  await expect(page.getByRole('listbox', { name: 'Pages' }).getByRole('option')).toHaveCount(2);
+});

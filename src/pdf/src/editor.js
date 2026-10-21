@@ -351,7 +351,7 @@ export function createEditor({
     (fn) =>
     async (...args) => {
       try {
-        await fn(...args);
+        return await fn(...args);
       } catch (e) {
         if (destroyed || P.isSignInCancelled(e)) return;
         toast(e.message || 'This action could not be completed.', { error: true });
@@ -1236,12 +1236,14 @@ export function createEditor({
     onScrollPage: (index) => navigate(index, null, { scroll: false }),
   });
   // Organize pages: a grid of every page that stands in for the document while it is open.
+  // Its commands report their own failures, as the menus' commands do.
   const organizeActions = {
-    rotate: (indices, delta) =>
+    rotate: safe((indices, delta) =>
       mutate((doc) => indices.forEach((i) => rotatePage(doc, i, delta)), null, 'assemble'),
-    remove: (indices) => deletePages(indices),
-    extract: (indices) => extractToDownload(indices),
-    duplicate: (indices) =>
+    ),
+    remove: safe((indices) => deletePages(indices)),
+    extract: safe((indices) => extractToDownload(indices)),
+    duplicate: safe((indices) =>
       mutate(
         async (doc) => {
           await duplicatePages(doc, indices);
@@ -1250,7 +1252,8 @@ export function createEditor({
         indices.length === 1 ? 'Page duplicated.' : `${indices.length} pages duplicated.`,
         'assemble',
       ),
-    insertBlank: (after) =>
+    ),
+    insertBlank: safe((after) =>
       mutate(
         (doc) => {
           insertBlankPage(doc, after);
@@ -1259,9 +1262,10 @@ export function createEditor({
         'Blank page inserted.',
         'assemble',
       ),
+    ),
     insertFile: (after) => pageDialog((version) => mergeDialog(after, version))(),
     insertPictures: (after) => pageAction(() => insertPicturePages(after))(),
-    move: (indices, to) => movePages(indices, to),
+    move: safe((indices, to) => movePages(indices, to)),
     open: (index) => {
       closeOrganizer();
       navigate(index);
