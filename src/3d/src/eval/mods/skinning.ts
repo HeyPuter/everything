@@ -3,6 +3,7 @@
 import { Matrix4, Quaternion, Vector3 } from 'three';
 import type { Bone } from '../../data/types';
 import type { PoseResult } from '../armature';
+import { bboneDeformAt } from '../bbone';
 
 export interface SkinOptions {
   useGroups: boolean;
@@ -38,6 +39,17 @@ function toDual(rot: Quaternion, tr: Vector3): [Quaternion, Quaternion] {
   return [real, dual];
 }
 
+/** Rigid dual quaternion and leftover scale of a matrix (for volume preserving blending). */
+function dualOf(m: Matrix4): { real: Quaternion; dual: Quaternion; scale: Matrix4 } {
+  const p = new Vector3(),
+    q = new Quaternion(),
+    s = new Vector3();
+  m.decompose(p, q, s);
+  const scale = new Matrix4().compose(p, q, new Vector3(1, 1, 1)).invert().multiply(m);
+  const [real, dual] = toDual(q, p);
+  return { real, dual, scale };
+}
+
 /** Deform object-space positions by the posed armature. */
 export function armatureDeform(positions: Float32Array, groups: { name: string }[] | undefined, weights: Float32Array[] | undefined, bones: Bone[], pose: PoseResult, meshToArm: Matrix4, armToMesh: Matrix4, o: SkinOptions): Float32Array {
   const n = positions.length / 3;
@@ -62,6 +74,22 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
     }
   }
   const groupBone: (string | null)[] = (groups ?? []).map((g) => (mats.has(g.name) ? g.name : null));
+  const boneByName = new Map(deformBones.map((b) => [b.name, b]));
+  // bending B-Bones deform each point by the segment it lies along
+  const bbones = new Map<string, { deform: Matrix4[]; restInv: Matrix4; length: number }>();
+  for (const b of deformBones) {
+    const ev = pose.bones.get(b.name)!;
+    if (ev.bbone) bbones.set(b.name, { deform: ev.bbone.deform, restInv: ev.restInv, length: ev.length });
+  }
+  const segMat = new Matrix4();
+  const armPt = new Vector3();
+  /** mesh-space matrix of a bone for the current point */
+  const matFor = (name: string): Matrix4 => {
+    const bb = bbones.get(name);
+    if (!bb) return mats.get(name)!;
+    bboneDeformAt(bb.deform, bb.restInv, bb.length, armPt, segMat);
+    return armToMesh.clone().multiply(segMat).multiply(meshToArm);
+  };
   const v = new Vector3(),
     a = new Vector3(),
     acc = new Vector3(),
@@ -71,10 +99,14 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
     v.fromArray(positions, i * 3);
     infl.length = 0;
     let total = 0;
+    armPt.copy(v).applyMatrix4(meshToArm);
     if (o.useGroups && weights)
       for (let g = 0; g < groupBone.length; g++) {
         const name = groupBone[g];
-        const w = name ? weights[g]?.[i] ?? 0 : 0;
+        let w = name ? weights[g]?.[i] ?? 0 : 0;
+        // Envelope Multiply: the group weight is scaled by the bone's envelope
+        const bone = name ? boneByName.get(name) : undefined;
+        if (w > 0 && o.useEnvelopes && bone?.use_envelope_multiply) w *= envelopeWeight(bone, armPt) * (bone.envelope_weight ?? 1);
         if (w > 0) {
           infl.push([name!, w]);
           total += w;
@@ -84,7 +116,7 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
     if (o.useEnvelopes && total === 0) {
       a.copy(v).applyMatrix4(meshToArm);
       for (const b of deformBones) {
-        const w = envelopeWeight(b, a);
+        const w = envelopeWeight(b, a) * (b.envelope_weight ?? 1);
         if (w > 0) {
           infl.push([b.name, w]);
           total += w;
@@ -97,7 +129,7 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
     }
     if (!o.preserveVolume) {
       acc.set(0, 0, 0);
-      for (const [name, w] of infl) acc.add(tmp.copy(v).applyMatrix4(mats.get(name)!).multiplyScalar(w / total));
+      for (const [name, w] of infl) acc.add(tmp.copy(v).applyMatrix4(matFor(name)).multiplyScalar(w / total));
       out.set([acc.x, acc.y, acc.z], i * 3);
       continue;
     }
@@ -108,7 +140,7 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
     sm.elements.fill(0);
     const first = duals.get(infl[0][0])!.real;
     for (const [name, w0] of infl) {
-      const dq = duals.get(name)!;
+      const dq = bbones.has(name) ? dualOf(matFor(name)) : duals.get(name)!;
       const w = (w0 / total) * (dq.real.dot(first) < 0 ? -1 : 1);
       r.set(r.x + dq.real.x * w, r.y + dq.real.y * w, r.z + dq.real.z * w, r.w + dq.real.w * w);
       d.set(d.x + dq.dual.x * w, d.y + dq.dual.y * w, d.z + dq.dual.z * w, d.w + dq.dual.w * w);

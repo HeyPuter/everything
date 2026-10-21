@@ -11,6 +11,7 @@ import { customPropsPanelBody } from '../../ui/customprops';
 import type { Bone, PoseBone } from '../../data/types';
 import { activeArmature, renameBone } from './armature';
 import { boneColorPanel } from './bonecolors';
+import './bbonedisplay';
 
 const ROT_MODES: [string, string][] = [
   ['QUATERNION', 'Quaternion (WXYZ)'],

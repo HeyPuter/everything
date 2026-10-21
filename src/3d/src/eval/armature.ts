@@ -6,6 +6,7 @@ import type { ArmatureData, Bone, DocumentData, ObjectData, PoseBone, Vec3 } fro
 import { poseBoneMatrix } from './transform';
 import type { Depsgraph } from './depsgraph';
 import { solveBoneConstraints } from './constraint_solve';
+import { bboneFrames, bboneIsStraight, bboneShape } from './bbone';
 
 export interface BoneEval {
   name: string;
@@ -16,6 +17,8 @@ export interface BoneEval {
   deform: Matrix4;
   length: number;
   parent: string | null;
+  /** B-Bones that bend: joint matrices (armature space) at rest and posed, and their deforms */
+  bbone?: { rest: Matrix4[]; pose: Matrix4[]; deform: Matrix4[] };
 }
 
 export interface PoseResult {
@@ -117,10 +120,12 @@ export function evaluatePose(doc: DocumentData, ob: ObjectData, arm: ArmatureDat
   }
   // Bone constraints (IK, copy rotation, damped track...) in hierarchy order
   if (ob.pose && !restPosition && graph) solveBoneConstraints(graph, doc, ob, arm, bones, order, (name, m) => setBonePose(bones, name, m));
+  computeBBones(arm, ob, bones, restPosition);
   let sig = '';
   for (const name of order) {
     const ev = bones.get(name)!;
     ev.deform.multiplyMatrices(ev.pose, ev.restInv);
+    if (ev.bbone) sig += ev.bbone.pose.map((m) => m.elements.map((x) => x.toFixed(3)).join(',')).join('/') + ';';
     sig += ev.pose.elements.map((x) => x.toFixed(4)).join(',') + ',' + ev.length.toFixed(4) + ';';
   }
   return { bones, order, signature: hashString(sig) };
@@ -193,6 +198,38 @@ export function removeShear(m: Matrix4): Matrix4 {
   [o[0], o[1], o[2]] = [xd.x, xd.y, xd.z];
   [o[8], o[9], o[10]] = [zd.x, zd.y, zd.z];
   return out;
+}
+
+/** Direction of `other`'s Y axis in the space of the matrix `m` (unit). */
+function yIn(m: Matrix4, other: Matrix4): Vector3 {
+  const inv = new Matrix4().extractRotation(m).invert();
+  return new Vector3().setFromMatrixColumn(other, 1).normalize().applyMatrix4(inv).normalize();
+}
+
+/** Joint frames of the B-Bones that bend (rest and posed) and their deform matrices. */
+function computeBBones(arm: ArmatureData, ob: ObjectData, bones: Map<string, BoneEval>, restPosition: boolean) {
+  for (const b of arm.bones) {
+    if ((b.bbone_segments ?? 1) <= 1) continue;
+    const ev = bones.get(b.name);
+    if (!ev) continue;
+    const pb = restPosition ? null : (ob.pose?.[b.name] ?? null);
+    const parent = b.parent ? bones.get(b.parent) : undefined;
+    const child = arm.bones.find((c) => c.parent === b.name && c.use_connect);
+    const childEv = child ? bones.get(child.name) : undefined;
+    const handle = (type: string | undefined, custom: string | undefined, auto: BoneEval | undefined) => (type && type !== 'AUTO' ? (custom ? bones.get(custom) : undefined) : auto);
+    const startBone = handle(b.bbone_handle_type_start, b.bbone_custom_handle_start, b.use_connect ? parent : undefined);
+    const endBone = handle(b.bbone_handle_type_end, b.bbone_custom_handle_end, childEv);
+    const restShape = bboneShape(b, null, ev.length);
+    if (startBone) restShape.startDir = yIn(ev.rest, startBone.rest);
+    if (endBone) restShape.endDir = yIn(ev.rest, endBone.rest);
+    const poseShape = bboneShape(b, pb, ev.length);
+    if (startBone) poseShape.startDir = yIn(ev.pose, startBone.pose);
+    if (endBone) poseShape.endDir = yIn(ev.pose, endBone.pose);
+    if (bboneIsStraight(restShape) && bboneIsStraight(poseShape)) continue;
+    const rest = bboneFrames(restShape).map((m) => ev.rest.clone().multiply(m));
+    const pose = bboneFrames(poseShape).map((m) => ev.pose.clone().multiply(m));
+    ev.bbone = { rest, pose, deform: pose.map((m, i) => m.clone().multiply(rest[i].clone().invert())) };
+  }
 }
 
 function hashString(s: string) {
