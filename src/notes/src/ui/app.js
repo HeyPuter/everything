@@ -587,9 +587,11 @@ export class App {
     if (kind === 'load-error' || kind === 'damaged') {
       // The selected page couldn't be loaded; the list keeps it selected.
       const id = this.state.pageId;
+      // A damaged file can also be a read that went wrong once: offer a retry too.
+      const retry = h('button.btn.primary', { type: 'button', onclick: () => id && this.openPage(id, { focus: true }) }, 'Try again');
       body = kind === 'damaged'
-        ? h('div', icon('cloudOff', 32), h('h2', "This page can't be opened"), h('p', 'Its file is damaged.'))
-        : h('div', icon('cloudOff', 32), h('h2', "Couldn't open this page"), h('p', 'Check your connection and try again.'), h('button.btn.primary', { type: 'button', onclick: () => id && this.openPage(id, { focus: true }) }, 'Try again'));
+        ? h('div', icon('cloudOff', 32), h('h2', "This page can't be opened"), h('p', 'Its file is damaged.'), retry)
+        : h('div', icon('cloudOff', 32), h('h2', "Couldn't open this page"), h('p', 'Check your connection and try again.'), retry);
     } else if (kind === 'locked') {
       body = h('div', icon('lock', 32), h('h2', 'This section is password protected'), h('p', 'Enter its password to see its pages.'), h('button.btn.primary', { type: 'button', onclick: () => section && this.selectSection(section.id) }, 'Unlock'));
     } else if (!this.store.notebook(this.state.notebookId)) {

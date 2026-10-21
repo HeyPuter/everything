@@ -268,13 +268,19 @@ describe('Opening a page that fails to load', () => {
     expect(app.editor.scroller.hidden).toBe(false);
   });
 
-  it('offers no retry for a damaged file', async () => {
+  it('says a damaged file is damaged, and still offers Try again (the read may have gone wrong once)', async () => {
     const { app, backend, other } = await twoPages();
+    const good = backend.files.get(`pages/${other.id}.json`);
     backend.files.set(`pages/${other.id}.json`, '{"id":');
     await app.openPage(other.id);
     const empty = app.canvasCol.querySelector('.canvas-empty');
+    expect(empty.textContent).toContain("This page can't be opened");
     expect(empty.textContent).toContain('Its file is damaged.');
-    expect(empty.querySelector('button')).toBeNull();
+    backend.files.set(`pages/${other.id}.json`, good);
+    const retry = [...empty.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+    retry.click();
+    for (let i = 0; i < 20 && !app.editor.page; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(app.editor.page.id).toBe(other.id);
   });
 
   it('blocks input on the old page while loading, and a late load never takes over a newer selection', async () => {
