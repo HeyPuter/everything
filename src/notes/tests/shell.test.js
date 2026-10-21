@@ -137,6 +137,17 @@ describe('App shell', () => {
     }
   });
 
+  it('follows the open page when it is dragged onto another section', async () => {
+    const other = store.notebooks[0].sections.find((n) => n.id !== app.state.sectionId && n.type === 'section');
+    const id = app.state.pageId;
+    app.drop({ kind: 'page', id }, { into: other.id }, 'section');
+    await tick();
+    expect(store.findPage(id).section.id).toBe(other.id);
+    expect(app.state.sectionId).toBe(other.id);
+    expect(app.state.pageId).toBe(id);
+    expect(app.nav.sectionsList.querySelector('[aria-selected="true"]').dataset.id).toBe(other.id);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

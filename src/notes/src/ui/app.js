@@ -806,7 +806,13 @@ export class App {
           toast('Unlock that section before moving pages into it.', { kind: 'error' });
           return;
         }
-        if (this.store.movePage(drag.id, { sectionId: target.into, level: 0 })) toast('Page moved');
+        if (this.store.movePage(drag.id, { sectionId: target.into, level: 0 })) {
+          toast('Page moved');
+          // When the open page moved (or went along as a subpage), follow
+          // it to its new section, as Move or Copy does.
+          const f = this.state.pageId && this.store.findPage(this.state.pageId);
+          if (f && f.section.id !== this.state.sectionId) this.openPage(f.meta.id);
+        }
         return;
       }
       const section = this.store.section(this.state.sectionId);
