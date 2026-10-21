@@ -488,6 +488,8 @@ function contextMenu(): MenuItem[] {
       { label: 'Mirror Vertices', submenu: mirrorMenu },
       { label: 'Snap Vertices', submenu: snapMenu },
       { separator: true },
+      { label: 'Vertex Crease', op: 'transform.vert_crease' },
+      { separator: true },
       { label: 'Merge Vertices', submenu: mergeMenu, shortcut: 'M' },
       ...tail('Vertices', 'mesh.dissolve_verts', 'VERT'),
     ];
@@ -511,6 +513,7 @@ function contextMenu(): MenuItem[] {
       { label: 'Edge Slide', op: 'transform.edge_slide' },
       { label: 'Offset Edge Slide', op: 'mesh.offset_edge_loops_slide', shortcut: 'Shift Ctrl R' },
       { separator: true },
+      { label: 'Edge Bevel Weight', op: 'transform.edge_bevelweight' },
       { label: 'Edge Crease', op: 'transform.edge_crease', shortcut: 'Shift E' },
       { separator: true },
       { label: 'Mark Seam', op: 'mesh.mark_seam', props: { clear: false } },

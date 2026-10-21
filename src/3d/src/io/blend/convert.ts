@@ -270,8 +270,13 @@ export function convertBlend(f: BlendFile): BlendImport {
   }
 
   // ---------------------------------------------------------------- curves / text
-  function convertCurve(cu: BStruct, isFont: boolean): CurveData {
+  function convertCurve(cu: BStruct, isFont: boolean, isSurface = false): CurveData {
     const c = newCurve(cu.idName);
+    if (isSurface) {
+      c.resolution_v = cu.num('resolv') || 4;
+      c.render_resolution_u = cu.num('resolu_ren');
+      c.render_resolution_v = cu.num('resolv_ren');
+    }
     const flag = cu.num('flag');
     c.dimensions = flag & 1 ? '3D' : '2D';
     const fill = flag & 6;
@@ -299,11 +304,12 @@ export function convertBlend(f: BlendFile): BlendImport {
       const type = nu.num('type');
       const pu = Math.max(0, nu.num('pntsu')),
         pv = Math.max(1, nu.num('pntsv'));
-      if (pv > 1) {
+      if (pv > 1 && !isSurface) {
         warn.add('NURBS surfaces not supported (skipped)', c.name);
         continue;
       }
       const flagu = nu.num('flagu');
+      const flagv = nu.num('flagv');
       const sp: Spline = {
         type: type === 1 ? 'BEZIER' : type === 4 ? 'NURBS' : 'POLY',
         bezier_points: [],
@@ -315,6 +321,19 @@ export function convertBlend(f: BlendFile): BlendImport {
         use_smooth: (nu.num('flag') & 1) !== 0,
         material_index: nu.num('mat_nr'),
       };
+      if (isSurface) {
+        // surface grids: U × V points, knot flags per direction (cyclic 1, endpoint 2, Bézier 4)
+        Object.assign(sp, {
+          point_count_u: pu,
+          point_count_v: pv,
+          order_v: pv > 1 ? nu.num('orderv') : 0,
+          resolution_v: nu.num('resolv') || cu.num('resolv') || 4,
+          use_cyclic_v: (flagv & 1) !== 0,
+          use_endpoint_v: (flagv & 2) !== 0,
+          use_bezier_u: (flagu & 4) !== 0,
+          use_bezier_v: (flagv & 4) !== 0,
+        });
+      } else if (flagu & 4) sp.use_bezier_u = true;
       if (type === 1) {
         for (const b of f.structsAt(nu.ptr('bezt'), 'BezTriple', pu, nu.block)) {
           const v = b.nums('vec', 9);
@@ -330,7 +349,7 @@ export function convertBlend(f: BlendFile): BlendImport {
           sp.bezier_points.push(bp);
         }
       } else {
-        for (const p of f.structsAt(nu.ptr('bp'), 'BPoint', pu, nu.block)) {
+        for (const p of f.structsAt(nu.ptr('bp'), 'BPoint', pu * (isSurface ? pv : 1), nu.block)) {
           const v = p.nums('vec', 4);
           sp.points.push({ co: [v[0], v[1], v[2], v[3]], radius: p.num('radius'), tilt: p.num('alfa') });
         }
@@ -432,6 +451,9 @@ export function convertBlend(f: BlendFile): BlendImport {
       case 2:
         type = 'CURVE';
         break;
+      case 3:
+        type = 'SURFACE';
+        break;
       case 4:
         type = 'FONT';
         break;
@@ -464,8 +486,8 @@ export function convertBlend(f: BlendFile): BlendImport {
           doc.meshes[me.id] = me;
           id = me.id;
         }
-      } else if ((type === 'CURVE' || type === 'FONT') && d.type === 'Curve') {
-        const cu = convertCurve(d, type === 'FONT');
+      } else if ((type === 'CURVE' || type === 'FONT' || type === 'SURFACE') && d.type === 'Curve') {
+        const cu = convertCurve(d, type === 'FONT', type === 'SURFACE');
         doc.curves[cu.id] = cu;
         id = cu.id;
       } else if (type === 'LIGHT' && (d.type === 'Lamp' || d.type === 'Light')) {

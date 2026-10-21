@@ -17,6 +17,7 @@ export type ObjectType =
   | 'MESH'
   | 'CURVE'
   | 'FONT'
+  | 'SURFACE'
   | 'EMPTY'
   | 'LIGHT'
   | 'CAMERA'
@@ -203,6 +204,18 @@ export interface Spline {
   resolution_u: number;
   order_u: number;
   use_endpoint_u?: boolean;
+  /** NURBS knots in Bézier segments (interior knots repeated order-1 times) */
+  use_bezier_u?: boolean;
+  /** NURBS surfaces: `points` is a grid of point_count_u × point_count_v (U varies fastest) */
+  point_count_u?: number;
+  point_count_v?: number;
+  order_v?: number;
+  resolution_v?: number;
+  use_cyclic_v?: boolean;
+  use_endpoint_v?: boolean;
+  use_bezier_v?: boolean;
+  /** hidden in Edit Mode */
+  hide?: boolean;
   use_smooth: boolean;
   material_index: number;
 }
@@ -220,6 +233,10 @@ export interface CurveData {
   eval_time?: number;
   splines: Spline[];
   resolution_u: number;
+  /** surfaces: preview resolution along V; render resolutions (0 = use the preview ones) */
+  resolution_v?: number;
+  render_resolution_u?: number;
+  render_resolution_v?: number;
   bevel_depth: number;
   bevel_resolution: number;
   extrude: number;

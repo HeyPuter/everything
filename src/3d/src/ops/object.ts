@@ -897,7 +897,7 @@ registerOperators([
         void m;
         const me = objectData(doc, ob);
         if (me) transformMeshData(me, apply);
-        else if ((ob.type === 'CURVE' || ob.type === 'FONT') && ob.data) transformCurve(doc.curves[ob.data].splines, apply);
+        else if ((ob.type === 'CURVE' || ob.type === 'FONT' || ob.type === 'SURFACE') && ob.data) transformCurve(doc.curves[ob.data].splines, apply);
         else if (ob.type === 'LIGHT' || ob.type === 'CAMERA' || ob.type === 'EMPTY') {
           if (p.scale && ob.type === 'EMPTY') ob.empty_display_size *= Math.max(...ob.scale.map(Math.abs));
         }
@@ -1473,7 +1473,7 @@ registerOperators([
       for (const hk of convertHooks) targets = hk(doc, targets, !!p.keep_original);
       for (const ob of targets) {
         const ev = app.graph.get(ob.id);
-        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META')) continue;
+        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META' && ob.type !== 'SURFACE')) continue;
         const m = ev.mesh;
         let target = ob;
         if (p.keep_original) target = duplicateObject(doc, ob, true);

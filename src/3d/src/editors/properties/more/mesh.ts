@@ -44,7 +44,7 @@ function attributesPanel(me: MeshData): Child {
 }
 
 /** Texture Space panel shared by meshes and curves. */
-export function texSpacePanel(id: string, owner: MeshData | CurveData, positions: () => ArrayLike<number>): Child {
+export function texSpacePanel(id: string, owner: MeshData | CurveData, positions: () => ArrayLike<number>, extra?: () => Child): Child {
   return panel(
     id,
     'Texture Space',
@@ -62,6 +62,7 @@ export function texSpacePanel(id: string, owner: MeshData | CurveData, positions
       return [
         bool(owner as { use_auto_texspace: boolean }, 'use_auto_texspace', 'Auto Texture Space', { tip: 'Fit the texture space to the bounds of the geometry', onChange: () => owner.use_auto_texspace === false && fromBounds() }),
         h('div', { class: { 'ts-fields': true, 'is-disabled': auto } }, vecProp(shown, 'texspace_location', 'Location', { unit: 'distance' }), vecProp(shown, 'texspace_size', 'Size')),
+        extra?.() ?? null,
       ];
     },
     { closed: true },

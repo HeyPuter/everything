@@ -4,3 +4,4 @@ import './interactiveadd';
 import './dropops';
 import './polybuild';
 import './meshdata';
+import './texspace';

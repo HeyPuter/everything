@@ -244,7 +244,7 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
   );
 }
 
-const MESH_LIKE = ['MESH', 'CURVE', 'FONT', 'LATTICE'];
+const MESH_LIKE = ['MESH', 'CURVE', 'FONT', 'SURFACE', 'LATTICE'];
 /** Whether a modifier type can be added to an object type. */
 export const modifierAllowed = (type: string, obType: string | undefined) => !!obType && (modifierTypes[type]?.objectTypes ?? MESH_LIKE).includes(obType);
 
@@ -276,7 +276,7 @@ registerTab({
   group: 3,
   poll: () => {
     const o = app.activeObject;
-    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'LATTICE' || o.type === 'GREASEPENCIL');
+    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'SURFACE' || o.type === 'LATTICE' || o.type === 'GREASEPENCIL');
   },
   draw: () => {
     const o = app.activeObject!;
@@ -308,7 +308,7 @@ registerOperators([
     idname: 'object.modifier_add',
     label: 'Add Modifier',
     props: [{ id: 'type', label: 'Type', type: 'string', default: 'SUBSURF' }],
-    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'LATTICE', 'GREASEPENCIL'].includes(app.activeObject.type),
+    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'SURFACE', 'LATTICE', 'GREASEPENCIL'].includes(app.activeObject.type),
     exec: (_ctx, p) => {
       const ob = app.activeObject!;
       if (!modifierTypes[p.type as string] || !modifierAllowed(p.type as string, ob.type)) return 'CANCELLED';

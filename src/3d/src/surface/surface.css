@@ -1,0 +1,9 @@
+/* Surface properties: two controls (U and V) side by side on one row */
+.su-pair {
+  display: flex;
+  gap: 2px;
+}
+.su-pair > * {
+  flex: 1;
+  min-width: 0;
+}
