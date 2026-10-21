@@ -76,6 +76,18 @@ export function clearingBreakTarget(hints, paragraphId, offset, clear, interval,
   return { page: line.page, startY: line.y + line.height, nextStart: offset + 1, bottom: Math.max(...active.map(e => e.bottom)), clear };
 }
 
+// Whether hints can change a paragraph's rows at all. squareRow places each row at a line the
+// paragraph had in the previous pass, or past its last line on that page or the next one, and a
+// clearing break looks only at those lines. Without an exclusion on any of those pages, every row
+// takes the full writing width, exactly as measured without hints.
+export function squareHintsReach(hints, paragraphId) {
+  const lines = hints?.paragraphs.get(paragraphId);
+  if (!lines?.length || !hints.exclusions.length) return false;
+  let first = Infinity, last = -Infinity;
+  for (const line of lines) { first = Math.min(first, line.page); last = Math.max(last, line.page); }
+  return hints.exclusions.some(e => e.page >= first && e.page <= last + 1);
+}
+
 export function squareRow(hints, paragraphId, index, edges, page, minimumWidth = 0, paragraphBefore = 0, clearance = null) {
   const previous = hints?.paragraphs.get(paragraphId);
   if (!previous?.length) return { intervals: [edges], before: 0 };

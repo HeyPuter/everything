@@ -33,7 +33,7 @@ import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { revisionView, runRevisionDisplay } from './revisions.js';
 import { inlineSegments, EMU_PER_PX, drawingOffsetPixels, imageExtents, inlineImageExtents, inlineImagePaintFrame, normalizedRotation, isPositionedImage, isSideWrappedImage } from './images.js';
-import { squareFlowHints, squareFlowSignature, squareRow, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
+import { squareFlowHints, squareFlowSignature, squareRow, squareHintsReach, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
 import { positionedImageFrame, positionedImageContains, positionedImageBounds, isCellRelativePosition, isPageBasedCellPosition } from './positioned-images.js';
 import { resolveDrawingCollisions } from './drawing-collisions.js';
 import { floatingParagraph } from './floating-images.js';
@@ -263,10 +263,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const textMeasure = page.rotatedCellText ? (text, style) => rotatedCellTextMetrics(measure(text, style), style) : measure;
         const hints = page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) };
         const run = () => measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges, hints, !cellEdges && keepBoundaryLine);
-        // Cells, wrapping around drawings, unequal columns and drawings themselves (whose objects
+        // Cells, rows wrapping around drawings, unequal columns and drawings themselves (whose objects
         // keep their identity) are always measured again.
         let key = null;
-        if (paragraphCache && !cellEdges && !hints && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
+        if (paragraphCache && !cellEdges && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
           try { key = JSON.stringify([block.paragraph, pageKey(page), markers[block.index] ?? null, keepBoundaryLine, sharedKey]); } catch { key = null; }
         }
         const measured = key === null ? run() : paragraphCache.measure(key, block.offset, run);
