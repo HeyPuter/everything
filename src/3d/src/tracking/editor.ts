@@ -7,7 +7,7 @@ import { app, type ChangeKind } from '../app/app';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { enumMenu, textField } from '../ui/widgets';
-import { shortcutLabel } from '../app/keymap';
+import { shortcutLabel, addKeys } from '../app/keymap';
 import { View2D } from '../animation/view2d';
 import {
   activeTrack,
@@ -63,6 +63,17 @@ export interface ClipOverlays {
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
+  /** master switch of everything drawn over the footage (Shift Alt Z) */
+  show_overlays?: boolean;
+  /** footage channels shown, and a black-and-white display */
+  show_red_channel?: boolean;
+  show_green_channel?: boolean;
+  show_blue_channel?: boolean;
+  use_grayscale_preview?: boolean;
+  /** markers without the dark outline */
+  show_tiny_markers?: boolean;
+  /** the 2D cursor */
+  show_cursor?: boolean;
 }
 
 export const COLORS = {
@@ -110,6 +121,8 @@ export class ClipEditor implements Editor {
   dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
+  /** graph / dope sheet: keep the current frame centred while it changes */
+  lockTimeCursor = false;
   boxPending = false;
   /** proxy size the footage is displayed at (when the clip uses proxies) */
   proxyRenderSize: ProxyRenderSize = 'FULL';
@@ -160,7 +173,8 @@ export class ClipEditor implements Editor {
     if (st.lock) this.lockSelection = st.lock;
     if (st.mode === 'MASK') this.mode = 'MASK';
     if (st.mask !== undefined) this.maskId = st.mask;
-    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT' } | undefined;
+    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT'; lockTime?: boolean } | undefined;
+    if (ext?.lockTime) this.lockTimeCursor = true;
     if (ext?.cursor) this.cursor = ext.cursor;
     if (ext?.pivot) this.pivot = ext.pivot;
     const px = (state as { proxy?: ProxyRenderSize } | undefined)?.proxy;
@@ -434,7 +448,10 @@ export class ClipEditor implements Editor {
       const filter = c.tracking.stabilization.filter_type;
       ctx.imageSmoothingEnabled = T ? filter !== 'NEAREST' : this.zoom < 1;
       ctx.imageSmoothingQuality = filter === 'BICUBIC' ? 'high' : 'low';
+      if (this.overlays.use_grayscale_preview) ctx.filter = 'grayscale(1)';
       ctx.drawImage(bmp, 0, 0, W, H);
+      ctx.filter = 'none';
+      this.maskChannels(ctx, W, H);
     }
     ctx.restore();
     if (bmp && !this.overlays.use_mute_footage && lens) this.drawUndistorted(ctx, bmp, lens, T);
@@ -449,7 +466,9 @@ export class ClipEditor implements Editor {
     fc.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
     ctx.closePath();
     ctx.stroke();
-    if (this.mode === 'MASK') {
+    if (this.overlays.show_overlays === false) {
+      if (this.mode === 'MASK') drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+    } else if (this.mode === 'MASK') {
       drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
       drawMask(this, ctx, this.overlays.show_mask_spline !== false);
       this.drawCursor(ctx);
@@ -566,8 +585,37 @@ export class ClipEditor implements Editor {
     ctx.restore();
   }
 
+  /** Hide footage channels switched off in Clip Display (multiplies the drawn frame). */
+  private maskChannels(ctx: CanvasRenderingContext2D, W: number, H: number) {
+    const ov = this.overlays;
+    const r = ov.show_red_channel !== false,
+      g = ov.show_green_channel !== false,
+      b = ov.show_blue_channel !== false;
+    if (r && g && b) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    ctx.fillStyle = `rgb(${r ? 255 : 0}, ${g ? 255 : 0}, ${b ? 255 : 0})`;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+
+  toggleLockTime() {
+    this.lockTimeCursor = !this.lockTimeCursor;
+    if (this.lockTimeCursor) this.v2.centerOnFrame(app.doc.scene.frame_current);
+    this.draw();
+    app.changed('ui');
+  }
+
+  toggleOverlays() {
+    this.overlays.show_overlays = this.overlays.show_overlays === false;
+    this.draw();
+    this.drawUI();
+    this.area.drawHeader();
+  }
+
   /** The 2D cursor (Shift right click places it). */
   private drawCursor(ctx: CanvasRenderingContext2D) {
+    if (this.overlays.show_cursor === false) return;
     const [W, H] = this.frameSize();
     const [x, y] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
     ctx.save();
@@ -754,9 +802,11 @@ export class ClipEditor implements Editor {
         ctx.beginPath();
         pts.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
         if (closed) ctx.closePath();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = COLORS.outline;
-        ctx.stroke();
+        if (!ov.show_tiny_markers) {
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = COLORS.outline;
+          ctx.stroke();
+        }
         ctx.lineWidth = 1;
         ctx.strokeStyle = color;
         ctx.stroke();
@@ -1299,18 +1349,18 @@ export class ClipEditor implements Editor {
       this.view === 'CLIP'
         ? h('button', { class: { 'hdr-toggle': true, on: this.lockSelection }, 'data-tip': 'Lock to Selection (L)\nLock viewport to selected markers during playback', onclick: () => app.run('clip.lock_selection_toggle', {}, { area: this.area }) }, icon(this.lockSelection ? 'locked' : 'unlocked'))
         : null,
+      this.view === 'CLIP' ? h('button', { class: { 'hdr-toggle': true, on: this.overlays.show_overlays !== false }, 'data-tip': 'Show Overlays (Shift Alt Z)', onclick: () => this.toggleOverlays() }, icon('overlay')) : null,
       this.view === 'CLIP'
         ? h(
             'button',
             {
-              class: 'hdr-toggle clip-overlays',
-              'data-tip': 'Overlays\nMarker display and clip display settings',
+              class: 'hdr-icondrop clip-overlays',
+              'data-tip': 'Overlays\nMarker display, guides and clip display settings',
               onpointerdown: (e: PointerEvent) => {
                 e.preventDefault();
-                openMenu(overlayMenu(this), e.currentTarget as HTMLElement, { title: 'Marker Display' });
+                openMenu(overlayMenu(this), e.currentTarget as HTMLElement, { title: 'Overlays' });
               },
             },
-            icon('overlay'),
             icon('down_arrow_hlt', 'tiny'),
           )
         : null,
@@ -1376,6 +1426,7 @@ export class ClipEditor implements Editor {
       if (first && clipTable(app.doc)[first]) this.clipId = first;
     }
     if (this.lockSelection && (kinds.has('frame') || kinds.has('doc'))) this.followSelection();
+    if (this.lockTimeCursor && this.view !== 'CLIP' && kinds.has('frame')) this.v2.centerOnFrame(app.doc.scene.frame_current);
     if (kinds.has('doc') || kinds.has('ui') || kinds.has('frame') || kinds.has('select')) {
       this.draw();
       if (!kinds.has('frame') || kinds.size > 1 || this.showSidebar) this.drawUI();
@@ -1407,7 +1458,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, lockTime: this.lockTimeCursor, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
   }
 
   dispose() {
@@ -1448,7 +1499,11 @@ function viewMenu(ed: ClipEditor): MenuItem[] {
       { label: 'Lock to Selection', checked: ed.lockSelection, shortcut: 'L', op: 'clip.lock_selection_toggle' },
     );
   } else {
-    items.push({ label: 'Frame All', shortcut: 'Home', action: () => ed.frameAllView() }, { label: 'Center View to Current Frame', shortcut: 'Numpad 0', action: () => (ed.v2.centerOnFrame(app.doc.scene.frame_current), ed.draw()) });
+    items.push(
+      { label: 'Frame All', shortcut: 'Home', action: () => ed.frameAllView() },
+      { label: 'Center View to Current Frame', shortcut: 'Numpad 0', action: () => (ed.v2.centerOnFrame(app.doc.scene.frame_current), ed.draw()) },
+      { label: 'Lock Time Cursor', checked: ed.lockTimeCursor, shortcut: 'L', description: 'Keep the current frame in the middle of the view while it changes', action: () => ed.toggleLockTime() },
+    );
     if (ed.view === 'GRAPH')
       items.push(
         { separator: true },
@@ -1639,6 +1694,17 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
       ed.drawUI();
     },
   });
+  // options that are on unless switched off
+  const togOn = (label: string, key: keyof ClipOverlays): MenuItem => ({
+    label,
+    checked: ov[key] !== false,
+    keepOpen: true,
+    action: () => {
+      (ov as unknown as Record<string, unknown>)[key] = ov[key] === false;
+      ed.draw();
+      ed.drawUI();
+    },
+  });
   const maskModes: [NonNullable<ClipOverlays['mask_overlay_mode']>, string][] = [
     ['NONE', 'None'],
     ['COMBINED', 'Combined (darken outside)'],
@@ -1665,12 +1731,22 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     tog('Disabled', 'show_disabled', 'Alt D'),
     tog('Info', 'show_info'),
     tog('Names', 'show_names'),
+    togOn('3D Markers', 'show_bundles'),
+    tog('Display Thin', 'show_tiny_markers'),
+    { separator: true },
+    { heading: 'Guides' },
+    tog('Distortion Grid', 'show_grid'),
+    togOn('Cursor', 'show_cursor'),
     { separator: true },
     { heading: 'Clip Display' },
+    togOn('Red Channel', 'show_red_channel'),
+    togOn('Green Channel', 'show_green_channel'),
+    togOn('Blue Channel', 'show_blue_channel'),
+    tog('Black and White', 'use_grayscale_preview'),
+    tog('Mute', 'use_mute_footage', 'Ctrl H'),
+    { separator: true },
     tog('Show Stable', 'show_stable'),
     tog('Render Undistorted', 'render_undistorted'),
-    tog('Grid', 'show_grid'),
-    tog('Mute', 'use_mute_footage', 'Ctrl H'),
     tog('Cache Line', 'show_cache'),
   ];
 }
@@ -1683,3 +1759,7 @@ registerEditor({
   create: (area, state) => new ClipEditor(area, state),
 });
 
+
+addKeys('Clip', [{ key: 'Z', shift: true, alt: true, when: () => currentClipEditor()?.view === 'CLIP', action: () => currentClipEditor()?.toggleOverlays() }]);
+addKeys('Clip Graph Editor', [{ key: 'L', action: () => currentClipEditor()?.toggleLockTime() }]);
+addKeys('Clip Dopesheet Editor', [{ key: 'L', action: () => currentClipEditor()?.toggleLockTime() }]);
