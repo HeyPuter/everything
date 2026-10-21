@@ -189,3 +189,22 @@ describe('Importing a notebook backup', () => {
     expect(toasts()).toContain("1 picture or file couldn't be imported. Check your connection and import the backup again.");
   });
 });
+
+describe('Page Versions', () => {
+  it('says so when restoring a version fails', async () => {
+    const { app, store, backend } = await mount();
+    const page = app.editor.page;
+    await store.addVersion(page.id, { ...structuredClone(page), outlines: [{ id: 'old', x: 40, y: 120, w: null, html: '<p>Earlier</p>' }] });
+    app.taskPanes.toggle('versions');
+    await new Promise((r) => setTimeout(r, 10));
+    const restore = [...document.querySelectorAll('.task-pane button, aside button')].find((b) => b.textContent === 'Restore');
+    restore.click();
+    await new Promise((r) => setTimeout(r, 0));
+    backend.failNext = 1;
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Restore').click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(toasts()).toContain("Couldn't restore this version. Check your connection and try again.");
+    expect(toasts()).not.toContain('Version restored');
+    expect(app.editor.page.outlines.some((o) => o.html.includes('Earlier'))).toBe(false);
+  });
+});

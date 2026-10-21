@@ -808,11 +808,12 @@ export class Store extends Emitter {
     return (await this.backend.readJSON(`versions/${pageId}.json`).catch(() => null)) || [];
   }
 
+  /** Puts a page back to a stored version. Null when that version is gone; throws when storage fails. */
   async restoreVersion(pageId, at) {
-    const list = await this.versions(pageId);
+    const list = (await this.readDamaged(`versions/${pageId}.json`)) || [];
     const v = list.find((x) => x.at === at);
-    const page = await this.loadPage(pageId);
     if (!v) return null;
+    const page = await this.loadPage(pageId);
     await this.addVersion(pageId, structuredClone(page));
     Object.assign(page, structuredClone(v.page), { id: pageId });
     this.pageChanged(page, { title: page.title });

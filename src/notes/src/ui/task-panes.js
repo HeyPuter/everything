@@ -210,8 +210,15 @@ export class TaskPanes {
         const preview = h('button.btn.small', { type: 'button', onclick: () => this.previewVersion(v) }, 'Preview');
         const restore = h('button.btn.small', { type: 'button', onclick: async () => {
           if (!(await confirmDialog({ title: 'Restore this version?', message: `The page will go back to how it was on ${when.toLocaleString()}.`, okLabel: 'Restore' }))) return;
-          await this.app.store.restoreVersion(pageId, v.at);
-          toast('Version restored');
+          let restored;
+          try {
+            restored = await this.app.store.restoreVersion(pageId, v.at);
+          } catch (err) {
+            console.error(err);
+            toast("Couldn't restore this version. Check your connection and try again.", { kind: 'error' });
+            return;
+          }
+          toast(restored ? 'Version restored' : 'That version is no longer available.', { kind: restored ? 'info' : 'error' });
           this.renderVersions();
         } }, 'Restore');
         return h('div.result', { style: { display: 'grid', gap: '6px' } },
