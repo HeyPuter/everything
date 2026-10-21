@@ -44,6 +44,8 @@ const ELEMENTS = {
   Stamp: 'stamp',
   Caret: 'caret',
 };
+/** XFDF's names for a text box's alignment (Q 0, 1 and 2). */
+const JUSTIFICATION = ['left', 'centered', 'right'];
 const SUBTYPES = Object.fromEntries(Object.entries(ELEMENTS).map(([k, v]) => [v, k]));
 
 const escapeAttribute = (value) =>
@@ -234,7 +236,7 @@ export function exportXfdf(doc) {
       }
       case 'FreeText': {
         const q = dict.lookup(name('Q'))?.asNumber?.();
-        attributes.justification = q === 1 || q === 2 ? q : 0;
+        attributes.justification = JUSTIFICATION[q === 1 || q === 2 ? q : 0];
         const cl = numbers(dict.lookup(name('CL')));
         if (cl?.length >= 4 && cl.every(Number.isFinite)) {
           attributes.callout = list(cl);
@@ -442,7 +444,11 @@ function dictFromElement(doc, page, element, subtype) {
       set('DA', PDFString.of(da || '/Helv 12 Tf 0 g'));
       const ds = textOf(child(element, 'defaultstyle'));
       if (ds) set('DS', PDFString.of(ds));
-      const q = Number(attr('justification'));
+      // XFDF names the alignment; files once written by this editor number it.
+      const justification = String(attr('justification') ?? '').toLowerCase();
+      const q = JUSTIFICATION.includes(justification)
+        ? JUSTIFICATION.indexOf(justification)
+        : Number(justification);
       if (q === 1 || q === 2) set('Q', PDFNumber.of(q));
       const callout = numberList(attr('callout'));
       if ((callout.length === 4 || callout.length === 6) && callout.every(Number.isFinite)) {

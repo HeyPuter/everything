@@ -1007,6 +1007,33 @@ describe('comment exchange', () => {
     await expect(importXfdf(doc, '<!DOCTYPE x><xfdf/>')).rejects.toThrow('could not be read');
   });
 
+  it('writes and reads text alignment by the names XFDF gives it', async () => {
+    const source = await blank();
+    for (const [align, y] of [
+      ['left', 100],
+      ['center', 200],
+      ['right', 300],
+    ])
+      await addTextBox(source, 0, {
+        rect: { x: 100, y, width: 200, height: 40 },
+        text: align,
+        align,
+      });
+    const xfdf = exportXfdf(source);
+    for (const name of ['left', 'centered', 'right'])
+      expect(xfdf).toContain(`justification="${name}"`);
+    const target = await blank();
+    await importXfdf(target, xfdf);
+    expect(listAnnotations(target, 0).map((a) => a.align)).toEqual(['left', 'center', 'right']);
+    // Files written with numbers are read as before.
+    const older = await blank();
+    await importXfdf(
+      older,
+      `<xfdf xmlns="http://ns.adobe.com/xfdf/"><annots><freetext page="0" rect="0,0,90,40" name="n" justification="2"><contents>x</contents></freetext></annots></xfdf>`,
+    );
+    expect(listAnnotations(older, 0)[0].align).toBe('right');
+  });
+
   it('takes the text of comments that carry only rich text', async () => {
     const doc = await blank();
     const body = (paragraphs) =>
