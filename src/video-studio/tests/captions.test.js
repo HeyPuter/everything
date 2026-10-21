@@ -1,12 +1,21 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   groupWords, joinWords, wrapCaption, segmentsToWords, distributeText, speechRegions,
   parseSubtitles, toSrt, buildCaptionClips, captionCues, splitForTranscription, lineCharsFor, CAPTION_POSITIONS,
+  mixdown,
 } from '../src/media/transcribe.js';
+import { captionsTab } from '../src/ui/panels/captions.js';
+import { EditorStore } from '../src/model/store.js';
+import { createActions } from '../src/ui/actions.js';
+import { setPref } from '../src/ui/prefs.js';
+import { fixture, clip, onMain } from './helpers.js';
 import { createProject } from '../src/model/project.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 
 const W = (text, start, end) => ({ text, start, end });
+
+// Decoding needs WebCodecs; the Generate test only needs a mix to hand on.
+vi.mock('../src/media/transcribe.js', async (orig) => ({ ...(await orig()), mixdown: vi.fn(async () => new Float32Array(16000)) }));
 
 describe('groupWords', () => {
   it('caps words per caption', () => {
@@ -173,5 +182,36 @@ describe('buildCaptionClips', () => {
     const clips = buildCaptionClips([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
     p.tracks.unshift({ id: 't1', kind: 'text', locked: false, hidden: false, muted: false, clips });
     expect(captionCues(p)).toEqual([{ start: 0, end: 1, text: 'x' }, { start: 1, end: 2, text: 'y' }]);
+  });
+});
+
+describe('Generate captions in the Captions tab', () => {
+  afterEach(() => {
+    delete globalThis.puter;
+    delete globalThis.__vsFakeTranscript;
+    document.body.replaceChildren();
+  });
+
+  it('Generate adds captions from the speech', async () => {
+    setPref('captionOpts', {});
+    globalThis.puter = { ai: {} };
+    globalThis.__vsFakeTranscript = async () => [W('Hello', 0.2, 0.5), W('there', 0.6, 0.9)];
+    const p = fixture();
+    onMain(p, clip('video', 0, 6));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: { backend: { kind: 'puter' } }, account: {} };
+    ctx.actions = createActions(ctx);
+    const tab = captionsTab(ctx);
+    document.body.append(tab.el);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const gen = [...tab.el.querySelectorAll('.cap-form button')].find((b) => b.textContent === 'Generate');
+    gen.click();
+    await vi.waitFor(() => expect(store.project.tracks.flatMap((t) => t.clips).filter((c) => c.caption)).toHaveLength(1));
+    expect(store.project.tracks.flatMap((t) => t.clips).find((c) => c.caption).text).toBe('Hello there');
+    expect(err).not.toHaveBeenCalled();
+    expect(mixdown).toHaveBeenCalled();
+    expect(gen.disabled).toBe(false);
+    err.mockRestore();
+    tab.dispose?.();
   });
 });

@@ -195,7 +195,8 @@ function autoPanel(ctx, opts, save) {
   const generate = h('button.btn.primary.block', { type: 'button' }, icon('magic', 16), 'Generate');
   generate.addEventListener('click', () => run());
 
-  const { el: progress, cancel, setStep } = stepProgress(['Preparing audio', 'Transcribing', 'Creating captions'], 'Generating captions');
+  const STEPS = ['Preparing audio', 'Transcribing', 'Creating captions'];
+  const { el: progress, cancel, setStep } = stepProgress(STEPS, 'Generating captions');
   let abort = null;
   cancel.addEventListener('click', () => abort?.abort());
 
