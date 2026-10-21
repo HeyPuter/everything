@@ -44,6 +44,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   localCamera: string | null = null;
   /** the view follows the 3D cursor (Lock to 3D Cursor) */
   lockCursor = false;
+  /** offset of a locked view's centre from its lock target (panning a locked view) */
+  lockOffset = new Vector3();
+  private lockOffsetKey = '';
   /** Clipping Region planes (world space [nx, ny, nz, constant], inward normals) */
   clipPlanes: number[][] | null = null;
   /** the view direction cannot be changed (the fixed views of Quad View) */
@@ -160,11 +163,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   draw(_engine: RenderEngine, x: number, y: number, w: number, h: number) {
     if (!renderContext) return;
     // View Lock to Object: keep the locked object's origin as the view pivot
-    if (this.lockObject && !this.cameraView) {
-      const ev = app.graph.get(this.lockObject);
-      if (ev) this.nav.pivot.setFromMatrixPosition(ev.world);
-      else this.lockObject = null;
-    } else if (this.lockCursor && !this.cameraView) this.nav.pivot.fromArray(app.doc.scene.cursor.location);
+    const lockAt = this.lockTarget();
+    if (lockAt) this.nav.pivot.copy(lockAt).add(this.lockOffset);
     const hadCamera = !!this.sceneCamera;
     this.updateSceneCamera();
     // the navigation gizmo follows the scene camera once camera view is first resolved
@@ -604,7 +604,28 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
   }
 
+  /** Where a locked view is centred (View Lock to object / 3D cursor), or null. */
+  lockTarget(): Vector3 | null {
+    if (this.cameraView) return null;
+    // a new lock target starts centred
+    const key = this.lockObject ?? (this.lockCursor ? '\u0000cursor' : '');
+    if (key !== this.lockOffsetKey) {
+      this.lockOffsetKey = key;
+      this.lockOffset.set(0, 0, 0);
+    }
+    if (this.lockObject) {
+      const ev = app.graph.get(this.lockObject);
+      if (ev) return new Vector3().setFromMatrixPosition(ev.world);
+      this.lockObject = null;
+      return null;
+    }
+    return this.lockCursor ? new Vector3().fromArray(app.doc.scene.cursor.location) : null;
+  }
+
   afterNav() {
+    // panning a locked view keeps an offset from the lock target (View Lock Center clears it)
+    const lockAt = this.lockTarget();
+    if (lockAt) this.lockOffset.copy(this.nav.pivot).sub(lockAt);
     if (this.cameraView && this.lockCameraToView) this.applyViewToCamera();
     if (this.quad && this.quadSync && this.quad.role !== 'USER') this.syncQuad();
     renderContext?.engine.requestDraw();

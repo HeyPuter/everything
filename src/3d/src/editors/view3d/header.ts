@@ -467,20 +467,25 @@ function shadingPopover(v: View3D): Child {
     'div',
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Shading'),
-    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')), solidLightingChooser(v)], { sub: true }),
-    panel('sh-color', 'Color', () => [
-      h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),
-      s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,
+    panel('sh-light', 'Lighting', () => [
+      enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')),
+      h('div', { class: 'sh-light-row' }, solidLightingChooser(v), s.light === 'MATCAP' ? h('button', { class: { 'icon-btn': true, on: !!s.matcap_flip }, 'data-tip': 'Flip MatCap\nMirror the MatCap left to right', onclick: () => app.run('view3d.toggle_matcap_flip') }, icon('mod_mirror')) : null, s.light !== 'FLAT' ? h('button', { class: 'icon-btn', 'data-tip': 'Preferences\nEdit studio lights and MatCaps', onclick: () => app.run('screen.userpref_show', { section: 'LIGHTS' }) }, icon('preferences')) : null),
     ], { sub: true }),
-    panel('sh-bg', 'Background', () => [
-      enumRow('s-bg', items([['THEME', 'Theme'], ['WORLD', 'World'], ['VIEWPORT', 'Viewport']]), s.background_type, set('background_type')),
+    panel('sh-color', 'Color', () => [
+      h('div', { class: 'pop-label' }, 'Wireframe'),
+      enumRow('s-wcolor', items([['THEME', 'Theme'], ['OBJECT', 'Object'], ['RANDOM', 'Random']]), s.wireframe_color_type, set('wireframe_color_type')),
+      h('div', { class: 'pop-label' }, 'Object'),
+      h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['RANDOM', 'Random'], ['VERTEX', 'Attribute'], ['TEXTURE', 'Texture'], ['SINGLE', 'Custom']]), s.color_type, set('color_type'))),
+      s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,
+      h('div', { class: 'pop-label' }, 'Background'),
+      enumRow('s-bg', items([['THEME', 'Theme'], ['WORLD', 'World'], ['VIEWPORT', 'Custom']]), s.background_type, set('background_type')),
       s.background_type === 'VIEWPORT' ? colorSwatch('s-bgc', s.background_color, (c) => set('background_color')(c.slice(0, 3))) : null,
     ], { sub: true }),
     panel('sh-opt', 'Options', () => [
-      h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
       checkbox('s-cull', 'Backface Culling', s.show_backface_culling, set('show_backface_culling')),
-      checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')),
+      h('div', { class: 'row-split' }, checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')), colorSwatch('s-outc', s.object_outline_color ?? [0, 0, 0], (c) => set('object_outline_color')(c.slice(0, 3)))),
       checkbox('s-spec', 'Specular Lighting', s.show_specular_highlight, set('show_specular_highlight')),
+      h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
     ], { sub: true }),
   );
 }

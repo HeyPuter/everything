@@ -1,6 +1,6 @@
 // Viewport drawing: scene pass (per shading mode), grid & overlays, ID pass,
 // selection outline compositing.
-import { applyStudioLighting, hdriEnvironment } from '../../render/studiolights';
+import { applyStudioLighting, hdriEnvironment, studioUniforms } from '../../render/studiolights';
 import {
   Color,
   Scene,
@@ -28,6 +28,7 @@ import {
   FrontSide,
   DoubleSide,
   PerspectiveCamera,
+  CanvasTexture,
 } from 'three';
 import type { RenderContext } from '../../render/context';
 import { createGrid } from '../../render/grid';
@@ -41,6 +42,7 @@ import type { DocumentData, ObjectData, WorldData } from '../../data/types';
 import type { SyncedObject } from '../../render/scene';
 import { evaluateWorldForViewport } from '../../render/world';
 import { drawEnvironmentBackground, drawLookdevSpheres } from './lookdev';
+import { drawObjectOutlines } from './objoutline';
 
 export interface DrawView {
   nav: NavCamera;
@@ -129,6 +131,43 @@ originScene.add(originPtsAll, originPtsSel, originPts, relLines);
 function objectColorState(app: App, ob: ObjectData): 0 | 1 | 2 {
   if (app.doc.scene.active_object === ob.id && ob.select) return 2;
   return ob.select ? 1 : 0;
+}
+
+/** MatCap mirrored left to right (Shading ▸ Flip MatCap): a mirrored copy of the MatCap image. */
+const flippedMatcaps = new WeakMap<object, { version: number; tex: CanvasTexture }>();
+function flipMatcap() {
+  const src = studioUniforms.uMatcap.value as (CanvasTexture & { image: HTMLCanvasElement }) | null;
+  if (!src?.image) return;
+  let f = flippedMatcaps.get(src);
+  if (!f || f.version !== src.version) {
+    const c = f?.tex.image ?? document.createElement('canvas');
+    c.width = src.image.width;
+    c.height = src.image.height;
+    const g = c.getContext('2d')!;
+    g.setTransform(-1, 0, 0, 1, c.width, 0);
+    g.drawImage(src.image, 0, 0);
+    if (!f) {
+      const tex = new CanvasTexture(c);
+      tex.colorSpace = src.colorSpace;
+      tex.minFilter = src.minFilter;
+      tex.magFilter = src.magFilter;
+      f = { version: src.version, tex };
+      flippedMatcaps.set(src, f);
+    } else f.version = src.version;
+    f.tex.needsUpdate = true;
+  }
+  studioUniforms.uMatcap.value = f.tex;
+}
+
+/** Unselected wire colour in Wireframe shading (Color ▸ Wireframe: theme, object or random). */
+function wireframeColor(ob: ObjectData, sh: Shading): Color {
+  if (sh.wireframe_color_type === 'OBJECT') return new Color().setRGB(ob.color[0], ob.color[1], ob.color[2]);
+  if (sh.wireframe_color_type === 'RANDOM') {
+    let hh = 0;
+    for (let i = 0; i < ob.name.length; i++) hh = (hh * 31 + ob.name.charCodeAt(i)) >>> 0;
+    return new Color().setHSL((hh % 360) / 360, 0.5, 0.55);
+  }
+  return new Color(0, 0, 0);
 }
 
 function solidColor(doc: DocumentData, ob: ObjectData, shading: Shading, slot: number, so: SyncedObject): [number, number, number] {
@@ -240,6 +279,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
   let bg: Color = theme.bg;
   // the studio light / matcap this view uses (shared shader uniforms)
   applyStudioLighting(sh);
+  if (sh.light === 'MATCAP' && sh.matcap_flip) flipMatcap();
   const rendered = sh.type === 'RENDERED';
   const material = sh.type === 'MATERIAL';
   const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
@@ -320,9 +360,30 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
     drawOverlays(app, ctx, view, camera, editing);
   }
 
-  // --- ID pass (also used for picking)
-  if (ov.show_overlays && ov.show_outline_selected && sh.show_object_outline !== false) drawOutline(app, ctx, view, camera, x, y, w, h);
-  else view.idDirty = true;
+  // --- ID pass (also used for picking): object outlines (Solid shading option) and selection outlines (overlay)
+  const objOutline = sh.type === 'SOLID' && sh.show_object_outline;
+  const selOutline = ov.show_overlays && ov.show_outline_selected;
+  if (objOutline || selOutline) {
+    const dpr = engine.dpr;
+    const W = Math.round(w * dpr),
+      H = Math.round(h * dpr);
+    renderIdPass(app, ctx, view, camera, W, H);
+    if (objOutline) drawObjectOutlines(r, outlinedObjects(app, ctx, view), view.idTarget!.texture, W, H, { x, y, w, h }, sh.object_outline_color ?? [0, 0, 0], dpr);
+    if (selOutline) drawOutline(app, ctx, view, camera, x, y, w, h, false);
+  } else view.idDirty = true;
+}
+
+/** ID-pass indices of the objects drawn as surfaces (they get the Solid shading outline). */
+function outlinedObjects(app: App, ctx: RenderContext, view: DrawView): number[] {
+  const out: number[] = [];
+  for (const so of ctx.sync.objects.values()) {
+    const ob = so.ev.ob;
+    if (!so.root.visible || !so.mesh || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || view.hiddenTypes?.has(ob.type)) continue;
+    if (!so.mesh.geometry.index?.count && !so.mesh.geometry.getAttribute('position')?.count) continue;
+    out.push(ctx.sync.objectIndex(ob.id));
+  }
+  void app;
+  return out;
 }
 
 function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Camera, editing: boolean) {
@@ -386,7 +447,7 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
         m.color.copy(theme.wire);
         m.opacity = 1;
       } else if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
-        m.color.copy(st ? col : sh.type === 'WIREFRAME' ? new Color(0, 0, 0) : theme.wire);
+        m.color.copy(st ? col : sh.type === 'WIREFRAME' ? wireframeColor(ob, sh) : theme.wire);
         m.opacity = st ? 1 : sh.type === 'WIREFRAME' ? 0.85 : 1;
       } else {
         m.color.copy(st ? col : theme.wire);
@@ -488,12 +549,12 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   }
 }
 
-function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camera, x: number, y: number, w: number, h: number) {
+function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camera, x: number, y: number, w: number, h: number, idPass = true) {
   const r = ctx.engine.renderer;
   const dpr = ctx.engine.dpr;
   const W = Math.round(w * dpr),
     H = Math.round(h * dpr);
-  renderIdPass(app, ctx, view, camera, W, H);
+  if (idPass) renderIdPass(app, ctx, view, camera, W, H);
   // selection state texture
   if (!selTex) {
     selTex = new DataTexture(selData, 4096, 64, RedFormat, UnsignedByteType);

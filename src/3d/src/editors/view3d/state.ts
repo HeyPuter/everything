@@ -17,6 +17,10 @@ export interface Shading {
   show_cavity: boolean;
   show_specular_highlight: boolean;
   show_object_outline: boolean;
+  /** colour of the Solid shading object outline (display colour) */
+  object_outline_color?: [number, number, number];
+  /** MatCap mirrored left to right */
+  matcap_flip?: boolean;
   use_scene_lights: boolean;
   use_scene_world: boolean;
   use_scene_lights_render: boolean;

@@ -1,0 +1,16 @@
+/* 3D Viewport additions: shading popover rows, data gizmos */
+.sh-light-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.sh-light-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.sh-light-row > .icon-btn.on {
+  background: var(--c-accent, #4772b3);
+}
+.v3d-svg .ogz {
+  cursor: pointer;
+}
