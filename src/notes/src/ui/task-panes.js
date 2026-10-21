@@ -4,6 +4,7 @@ import { formatRelative } from '../lib/dates.js';
 import { TAG_BY_ID, tagLabel, setTagDoneInHtml, extractTags } from '../data/tags.js';
 import { pageText } from '../data/store.js';
 import { insertHtml } from '../editor/format.js';
+import { blockOf, blocksInRange, editableRoot, textOffset } from '../editor/selection.js';
 import { textToHtml } from '../editor/page-editor.js';
 import { openDialog, confirmDialog } from './dialog.js';
 import { toast } from './toast.js';
@@ -298,7 +299,7 @@ export class TaskPanes {
     const insert = h('button.btn.small', { type: 'button', onclick: () => {
       if (!result) return;
       if (lastSelection && lastSelection.commonAncestorContainer.isConnected) {
-        app.editor.lastRange = lastSelection;
+        app.editor.lastRange = withoutNextParagraph(lastSelection);
         app.editor.restoreRange();
         insertHtml(textToHtml(result));
       } else {
@@ -319,6 +320,21 @@ export class TaskPanes {
       outputActions,
     ));
   }
+}
+
+/**
+ * A triple-clicked paragraph is selected up to the start of the next one;
+ * replacing that range would merge the next paragraph into the new text.
+ * Ends the range at the end of the last paragraph it really covers.
+ */
+function withoutNextParagraph(selection) {
+  const range = selection.cloneRange();
+  const root = editableRoot(range.commonAncestorContainer);
+  const end = root && blockOf(range.endContainer, root);
+  if (!end || end === blockOf(range.startContainer, root) || textOffset(end, range.endContainer, range.endOffset) > 0) return range;
+  const last = blocksInRange(range, root).filter((b) => b !== end && !b.contains(end)).at(-1);
+  if (last) range.setEnd(last, last.childNodes.length);
+  return range;
 }
 
 function escape(s) {

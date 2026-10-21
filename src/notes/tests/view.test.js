@@ -81,4 +81,27 @@ describe('assist pane', () => {
     expect(button('Insert on Page')).toBeTruthy();
     expect(button('Replace Selection')).toBeFalsy();
   });
+
+  it('replaces a triple-clicked paragraph without taking the next paragraph with it', async () => {
+    await mount();
+    app.ai = { available: () => true, ask: async () => 'Better text.' };
+    const body = app.editor.createOutlineAt(100, 200).querySelector('.outline-body');
+    body.innerHTML = '<p>Some bad text.</p><p>Next paragraph.</p>';
+    const [first, second] = body.querySelectorAll('p');
+    app.runCommand('assist');
+    await new Promise((r) => setTimeout(r, 20));
+    // What a triple click selects: up to the start of the next paragraph.
+    const range = document.createRange();
+    range.setStart(first.firstChild, 0);
+    range.setEnd(second, 0);
+    app.editor.lastRange = range;
+    const pane = document.querySelector('.task-pane');
+    const button = (label) => [...pane.querySelectorAll('button')].find((b) => b.textContent.includes(label));
+    button('Fix spelling').click();
+    await new Promise((r) => setTimeout(r, 0));
+    button('Replace Selection').click();
+    const replaced = app.editor.lastRange;
+    expect(replaced.toString()).toBe('Some bad text.');
+    expect(second.contains(replaced.endContainer)).toBe(false);
+  });
 });
