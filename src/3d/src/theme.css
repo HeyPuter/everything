@@ -1192,6 +1192,12 @@ input.num-field.editing {
 .menu-item .mi-label {
   flex: 1;
 }
+.menu-item .mi-accel {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: rgb(from currentColor r g b / 0.7);
+}
 .menu-item .mi-path {
   color: var(--t-88, #87888a);
 }

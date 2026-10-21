@@ -16,8 +16,8 @@ type Lang = 'python' | 'javascript';
 const history: string[] = [];
 let bannerShown = false;
 
-function banner() {
-  if (bannerShown) return;
+function banner(force = false) {
+  if (bannerShown && !force) return;
   bannerShown = true;
   output.push(`PYTHON INTERACTIVE CONSOLE (Pyodide ${PYODIDE_VERSION}; the runtime loads on first use and needs a network connection)`, 'INFO');
   output.push('', 'INFO');
@@ -248,6 +248,58 @@ export class PythonConsole implements Editor {
     inp.setSelectionRange(Math.max(0, p - n), Math.max(0, p - n));
   }
 
+  /** Run the input line (Enter). */
+  execute() {
+    const v = this.input.value;
+    this.input.value = '';
+    void this.submit(v);
+  }
+
+  /** Tab: complete the name before the caret, or indent an empty line start. */
+  indentOrAutocomplete() {
+    const before = this.input.value.slice(0, this.input.selectionStart ?? 0);
+    if (!before.trim()) this.insertAtCaret('    ');
+    else this.autocomplete();
+  }
+
+  /** Put `text` in the input line (adding it to the history) with the caret at `caret`. */
+  historyAppend(text: string, caret: number, removeDuplicates: boolean) {
+    if (removeDuplicates) for (let i = history.indexOf(text); i >= 0; i = history.indexOf(text)) history.splice(i, 1);
+    if (text.trim()) history.push(text);
+    this.histIndex = -1;
+    this.input.value = text;
+    const c = caret < 0 ? text.length : Math.min(text.length, caret);
+    this.input.focus();
+    this.input.setSelectionRange(c, c);
+  }
+
+  /** Select the whole input line, or (with nothing typed) all scrollback text. */
+  selectAll() {
+    if (this.input.value) {
+      this.input.focus();
+      this.input.select();
+      return;
+    }
+    const r = document.createRange();
+    r.selectNodeContents(this.linesEl);
+    const sel = getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(r);
+  }
+
+  /** Select the word at the caret in the input line. */
+  selectWord() {
+    const inp = this.input;
+    const v = inp.value;
+    const p = inp.selectionStart ?? 0;
+    let s0 = p,
+      e0 = p;
+    while (s0 > 0 && /[\w$]/.test(v[s0 - 1])) s0--;
+    while (e0 < v.length && /[\w$]/.test(v[e0])) e0++;
+    inp.focus();
+    inp.setSelectionRange(s0, e0);
+  }
+
   historyCycle(reverse: boolean) {
     this.historyStep(reverse ? -1 : 1);
   }
@@ -362,9 +414,7 @@ export class PythonConsole implements Editor {
     if (dispatchEditorKeys(e, this.area, ['Console'])) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      const v = this.input.value;
-      this.input.value = '';
-      void this.submit(v);
+      this.execute();
       return;
     }
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -374,10 +424,8 @@ export class PythonConsole implements Editor {
     }
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) {
       e.preventDefault();
-      const before = this.input.value.slice(0, this.input.selectionStart ?? 0);
       if (e.shiftKey) this.unindent();
-      else if (!before.trim()) this.insertAtCaret('    ');
-      else this.autocomplete();
+      else this.indentOrAutocomplete();
       return;
     }
     if (e.key === 'Tab' && e.ctrlKey && !e.altKey) {
@@ -627,6 +675,62 @@ registerOperators([
   },
 ]);
 
+registerOperators([
+  {
+    idname: 'console.execute',
+    label: 'Console Execute',
+    description: 'Run the input line',
+    undo: false,
+    props: [{ id: 'interactive', label: 'Interactive', type: 'bool', default: false, hidden: true }],
+    poll: (ctx) => !!consoleOf(ctx),
+    exec: (ctx) => consoleOf(ctx)!.execute(),
+  },
+  { idname: 'console.indent_or_autocomplete', label: 'Indent or Autocomplete', description: 'Complete the name before the caret, or indent at the start of the line', undo: false, poll: (ctx) => !!consoleOf(ctx), exec: (ctx) => consoleOf(ctx)!.indentOrAutocomplete() },
+  { idname: 'console.banner', label: 'Console Banner', description: 'Print the welcome text of the console', undo: false, poll: (ctx) => !!consoleOf(ctx), exec: () => banner(true) },
+  {
+    idname: 'console.history_append',
+    label: 'History Append',
+    description: 'Add a line to the input history and show it in the input line',
+    undo: false,
+    props: [
+      { id: 'text', label: 'Text', type: 'string', default: '' },
+      { id: 'current_character', label: 'Cursor', type: 'int', default: 0, min: 0 },
+      { id: 'remove_duplicates', label: 'Remove Duplicates', type: 'bool', default: false },
+    ],
+    poll: (ctx) => !!consoleOf(ctx),
+    exec: (ctx, p) => consoleOf(ctx)!.historyAppend(String(p.text), Number(p.current_character), !!p.remove_duplicates),
+  },
+  {
+    idname: 'console.scrollback_append',
+    label: 'Scrollback Append',
+    description: 'Add a line to the console output',
+    undo: false,
+    props: [
+      { id: 'text', label: 'Text', type: 'string', default: '' },
+      { id: 'type', label: 'Type', type: 'enum', default: 'OUTPUT', items: [['OUTPUT', 'Output'], ['INPUT', 'Input'], ['INFO', 'Information'], ['ERROR', 'Error']] },
+    ],
+    exec: (_ctx, p) => output.push(String(p.text), p.type as 'OUTPUT'),
+  },
+  { idname: 'console.select_all', label: 'Select All', description: 'Select the input line, or all console text when the line is empty', undo: false, poll: (ctx) => !!consoleOf(ctx), exec: (ctx) => consoleOf(ctx)!.selectAll() },
+  { idname: 'console.select_word', label: 'Select Word', description: 'Select the word at the caret', undo: false, poll: (ctx) => !!consoleOf(ctx), exec: (ctx) => consoleOf(ctx)!.selectWord() },
+  {
+    idname: 'console.language',
+    label: 'Console Language',
+    description: 'Set the language of the console (python or javascript)',
+    undo: false,
+    props: [{ id: 'language', label: 'Language', type: 'string', default: 'python' }],
+    poll: (ctx) => !!consoleOf(ctx),
+    exec: (ctx, p) => {
+      const l = String(p.language).toLowerCase();
+      if (l !== 'python' && l !== 'javascript') {
+        app.report('ERROR', `Unknown console language "${p.language}"`);
+        return 'CANCELLED';
+      }
+      consoleOf(ctx)!.setLang(l);
+    },
+  },
+]);
+
 addKeys('Console', [
   { key: 'SPACE', ctrl: true, op: 'console.autocomplete' },
   { key: 'HOME', op: 'console.move', props: { type: 'LINE_BEGIN' } },
@@ -637,6 +741,7 @@ addKeys('Console', [
   { key: 'NUMPAD_MINUS', ctrl: true, op: 'wm.context_cycle_int', props: { data_path: 'space_data.font_size', reverse: true } },
   { key: 'RET', shift: true, op: 'console.clear_line' },
   { key: 'C', shift: true, ctrl: true, op: 'console.copy_as_script' },
+  { key: 'A', ctrl: true, op: 'console.select_all' },
 ]);
 
 registerEditor({ id: 'CONSOLE', label: 'Python Console', icon: 'console', group: 'Scripting', create: (a, s) => new PythonConsole(a, s) });

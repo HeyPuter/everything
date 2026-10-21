@@ -599,9 +599,18 @@ export class Outliner implements Editor {
   // ---------------------------------------------------------------------------
   // drawing
 
+  /** active object seen by the last update (Scroll to Active follows changes) */
+  private lastActive: string | null | undefined = undefined;
+
   update(kinds?: Set<ChangeKind>) {
-    void kinds;
     const doc = app.doc;
+    const act0 = doc.scene.active_object ?? null;
+    if (this.filter.scroll_to_active && this.lastActive !== undefined && act0 !== this.lastActive && kinds?.has('select')) {
+      this.lastActive = act0;
+      // opens the parents and scrolls (it redraws through update again)
+      if (act0) return this.showActive();
+    }
+    this.lastActive = act0;
     setCurrentOutliner(this.el.isConnected ? this : null, true);
     this.rows = buildRows(doc, this.treeState(), {
       visible: (id) => app.isVisible(id),

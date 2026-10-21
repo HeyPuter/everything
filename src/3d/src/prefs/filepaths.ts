@@ -8,6 +8,7 @@ import { panel } from '../ui/widgets';
 import { recentFiles, clearRecent, hasStartupFile, clearStartupFile, listSnapshots, onSessionChange } from '../io/session';
 import { registerPrefSection } from './editor';
 import { pText, note, infoRow } from './ui';
+import { scriptDirectoriesPanel } from './pathlists';
 
 const FACTORY_OUTPUT = '//render/';
 
@@ -76,6 +77,7 @@ registerPrefSection({
     unsub ??= onSessionChange(() => void refresh(() => lastRedraw())) as unknown as () => void;
     return [
       panel('pf-fp-data', 'Data', () => [pText('render_output_directory', 'Render Output', FACTORY_OUTPUT), note('Output path of the scene in new files (File ▸ New with factory settings). "//" is relative to the project.')]),
+      scriptDirectoriesPanel(),
       panel('pf-fp-storage', 'Browser Storage', () => storagePanel(c.redraw)),
     ];
   },

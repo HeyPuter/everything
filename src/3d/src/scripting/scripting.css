@@ -284,6 +284,11 @@ body.no-tooltips .tooltip {
 .te-find-row .btn.grow {
   flex: 1;
 }
+.te-find-row .btn.icon-btn {
+  padding: 0 3px;
+  display: grid;
+  place-items: center;
+}
 .te-find-opts {
   display: flex;
   flex-direction: column;
@@ -328,7 +333,7 @@ body.no-tooltips .tooltip {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 4px 6px 6px;
-  font: var(--pc-fs) / 1.35 var(--mono);
+  font: var(--pc-fs) / 1.2 var(--mono);
   font-variant-ligatures: none;
   font-feature-settings: 'liga' 0, 'calt' 0;
   display: flex;

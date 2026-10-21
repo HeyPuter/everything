@@ -1,5 +1,6 @@
 // Popup menus, submenus, pie menus, search popups and tooltips.
 import { h, patch, clearRoot, type VNode, type Child } from './h';
+import { menuAccelerators } from './menuaccel';
 import { icon } from './icons';
 import { app, operators } from '../app/app';
 import { prefs } from '../app/prefs';
@@ -53,6 +54,8 @@ interface OpenMenu {
   owner?: HTMLElement;
   /** typing a character hands it to this (e.g. to start a search) instead of jumping to an item */
   onType?: (ch: string) => void;
+  /** Space is typed into onType too (instead of activating the highlighted entry) */
+  typeSpace?: boolean;
 }
 
 const stack: OpenMenu[] = [];
@@ -140,6 +143,17 @@ function itemLabel(item: MenuItem) {
   return '';
 }
 
+/** Accelerator letters of a menu's entries (see menuaccel.ts). */
+function accelOf(items: MenuItem[]): (number | undefined)[] {
+  return menuAccelerators(items.map((it) => (it.separator || it.heading || it.custom || it.search ? null : itemLabel(it))));
+}
+
+/** A label with its accelerator letter underlined. */
+function accelLabel(label: string, at: number | undefined): Child {
+  if (at === undefined || !label[at]) return label;
+  return [label.slice(0, at), h('u', { class: 'mi-accel' }, label[at]), label.slice(at + 1)];
+}
+
 function isDisabled(item: MenuItem) {
   if (item.disabled) return true;
   if (item.op && !app.poll(item.op)) return true;
@@ -217,6 +231,7 @@ function redrawMenus() {
 let submenuTimer = 0;
 
 function renderMenu(m: OpenMenu) {
+  const accel = accelOf(m.items);
   const vnodes: Child[] = m.items.map((item, i) => {
     if (item.separator) return h('div', { class: 'menu-sep' });
     if (item.heading) return h('div', { class: { 'menu-heading': true, 'menu-title': !!item.title, 'col-break': !!item.columnBreak } }, item.heading);
@@ -275,7 +290,7 @@ function renderMenu(m: OpenMenu) {
         },
       },
       h('span', { class: 'mi-icon' }, item.checked !== undefined ? icon(item.checked ? 'checkbox_hlt' : 'checkbox_dehlt') : itemIcon(item) ? icon(itemIcon(item)!) : item.active ? icon('dot') : null),
-      h('span', { class: 'mi-label' }, itemLabel(item)),
+      h('span', { class: 'mi-label' }, accelLabel(itemLabel(item), accel[i])),
       h('span', { class: 'mi-key' }, shortcutFor(item)),
       item.submenu ? h('span', { class: 'mi-arrow' }) : null,
     );
@@ -394,7 +409,7 @@ export function captureMenuItems(open: () => void): MenuItem[] {
 }
 
 /** Open a popup menu at a screen position (or below an element). */
-export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void; search?: boolean } = {}) {
+export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void; typeSpace?: boolean; search?: boolean } = {}) {
   if (capturing) {
     capturing.push(items);
     return null;
@@ -414,7 +429,10 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   const searchRow: MenuItem[] = opts.search ? [{ search: true }, { separator: true }] : [];
   const withTitle = opts.title ? [{ heading: opts.title, title: true }, ...searchRow, ...items] : [...searchRow, ...items];
   const m = createMenu(withTitle, x, y, undefined, opts.title);
-  if (opts.onType) m.onType = opts.onType;
+  if (opts.onType) {
+    m.onType = opts.onType;
+    m.typeSpace = !!opts.typeSpace;
+  }
   else if (opts.search) m.onType = (ch) => openMenuSearch(m, ch);
   openPress = at instanceof HTMLElement ? null : { presses: pressCount, x: at.x, y: at.y };
   // context menus open with the pointer over the first actionable item
@@ -860,16 +878,17 @@ export function menuKey(e: KeyboardEvent): boolean {
   }
   let root = m;
   while (root.parent) root = root.parent;
-  if (root.onType && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  if (root.onType && e.key.length === 1 && (e.key !== ' ' || root.typeSpace) && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const fn = root.onType;
     closeMenus();
     fn(e.key);
     return true;
   }
-  // underline-style accelerators: first letter of label
+  // accelerators: the underlined letter of an entry
   if (e.key.length === 1 && /[a-z0-9]/i.test(e.key)) {
     const k = e.key.toLowerCase();
-    const found = actionable.find((i) => itemLabel(m.items[i]).toLowerCase().startsWith(k));
+    const acc = accelOf(m.items);
+    const found = actionable.find((i) => acc[i] !== undefined && itemLabel(m.items[i])[acc[i]!].toLowerCase() === k) ?? actionable.find((i) => itemLabel(m.items[i]).toLowerCase().startsWith(k));
     if (found !== undefined) {
       m.index = found;
       activate(m, m.items[found]);

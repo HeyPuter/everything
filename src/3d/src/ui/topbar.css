@@ -215,3 +215,14 @@
 .qs-next:hover {
   filter: brightness(1.1);
 }
+
+/* pin the scene to the workspace (next to the scene selector) */
+.tb-scene-pin {
+  width: 22px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  flex: none;
+  margin-right: -2px;
+}

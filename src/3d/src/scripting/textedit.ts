@@ -16,7 +16,7 @@ import { templates } from './templates';
 import { runJavaScript, output, type RunResult } from './runner';
 import { loadPython, runPythonText } from './python';
 import { uniqueName } from './api';
-import { movePos, wordAt, lineStart, completionPrefix, wordCandidates, MOVE_TYPES, type MoveType } from './textnav';
+import { movePos, wordAt, lineStart, completionPrefix, wordCandidates, wordLeft, wordRight, MOVE_TYPES, type MoveType } from './textnav';
 import { jsComplete } from './console';
 import { newCurve, newObject } from '../data/defaults';
 import { addObjectToScene, uniqueName as uniqueDataName } from '../ops/object';
@@ -95,6 +95,9 @@ export class TextEditor implements Editor {
   replaceText = '';
   /** typing replaces the character after the caret (Insert) */
   overwrite = false;
+  /** run the script again a moment after each edit (Text ▸ Live Edit) */
+  liveEdit = false;
+  private liveTimer = 0;
   /** the file on disk changed since it was opened or saved */
   conflict = false;
   private acEl: HTMLElement;
@@ -126,7 +129,8 @@ export class TextEditor implements Editor {
     public area: Area,
     state?: unknown,
   ) {
-    const st = (state ?? {}) as Partial<{ text: string; lineNumbers: boolean; wrap: boolean; syntax: boolean; sidebar: boolean }>;
+    const st = (state ?? {}) as Partial<{ text: string; lineNumbers: boolean; wrap: boolean; syntax: boolean; sidebar: boolean; liveEdit: boolean }>;
+    this.liveEdit = !!st.liveEdit;
     this.textId = st.text ?? null;
     if (st.lineNumbers !== undefined) this.showLineNumbers = st.lineNumbers;
     if (st.wrap !== undefined) this.wordWrap = st.wrap;
@@ -363,6 +367,7 @@ export class TextEditor implements Editor {
       },
       { separator: true },
       { label: 'Run Script', icon: 'play', shortcut: 'Alt P', op: 'text.run_script', disabled: !t },
+      { label: 'Live Edit', checked: this.liveEdit, disabled: !t, description: 'Run the script again a moment after each edit', action: () => ((this.liveEdit = !this.liveEdit), this.area.drawHeader()) },
       {
         label: 'Register',
         checked: !!t?.use_module,
@@ -528,6 +533,21 @@ export class TextEditor implements Editor {
     this.errorLine = null;
     app.dirty = true;
     this.queueRender();
+    if (this.liveEdit && t.language !== 'text') {
+      clearTimeout(this.liveTimer);
+      this.liveTimer = window.setTimeout(() => void this.liveRun(), 500);
+    }
+  }
+
+  /** Live Edit: run the script without moving the caret to an error. */
+  private async liveRun() {
+    const t = this.text;
+    if (!t || !this.liveEdit) return;
+    t.body = this.ta.value;
+    this.commitUndo();
+    const res = await runText(t);
+    this.errorLine = res.ok ? null : res.line ?? null;
+    this.render();
   }
 
   /** Push one global undo step for typing done since the last push (on blur / before runs). */
@@ -681,12 +701,14 @@ export class TextEditor implements Editor {
             'div',
             { class: 'te-find-row' },
             h('label', { class: 'text-field te-find-field' }, icon('search'), h('input', { value: this.findText, placeholder: 'Find', spellcheck: 'false', 'aria-label': 'Find', ref: (el: HTMLInputElement) => this.findFocus && (requestAnimationFrame(() => (el.focus(), el.select())), (this.findFocus = false)), oninput: (e: Event) => (this.findText = (e.target as HTMLInputElement).value), onkeydown: (e: KeyboardEvent) => this.fieldKey(e, () => this.findNext()) })),
+            h('button', { class: 'btn icon-btn', 'data-tip': 'Find Set Selected\nUse the selected text (or the word at the caret) as the search text (Ctrl G)', 'aria-label': 'Find set selected', onclick: () => this.findSetSelected() }, icon('eyedropper')),
             h('button', { class: 'btn', onclick: () => this.findNext() }, 'Find Next'),
           ),
           h(
             'div',
             { class: 'te-find-row' },
             h('label', { class: 'text-field te-find-field' }, h('input', { value: this.replaceText, placeholder: 'Replace', spellcheck: 'false', 'aria-label': 'Replace', oninput: (e: Event) => (this.replaceText = (e.target as HTMLInputElement).value), onkeydown: (e: KeyboardEvent) => this.fieldKey(e, () => this.replaceOne()) })),
+            h('button', { class: 'btn icon-btn', 'data-tip': 'Replace Set Selected\nUse the selected text as the replacement text', 'aria-label': 'Replace set selected', onclick: () => this.replaceSetSelected() }, icon('eyedropper')),
             h('button', { class: 'btn', onclick: () => this.replaceOne() }, 'Replace'),
           ),
           h('div', { class: 'te-find-row' }, h('button', { class: 'btn grow', onclick: () => this.replaceAll() }, 'Replace All')),
@@ -1085,6 +1107,85 @@ export class TextEditor implements Editor {
     this.updateCaret();
   }
 
+  /** Delete a character or word before / after the caret (or the selection). */
+  deleteText(type: 'NEXT_CHARACTER' | 'PREVIOUS_CHARACTER' | 'NEXT_WORD' | 'PREVIOUS_WORD') {
+    const ta = this.ta;
+    const v = ta.value;
+    let s = ta.selectionStart,
+      e = ta.selectionEnd;
+    if (s === e) {
+      if (type === 'NEXT_CHARACTER') e = Math.min(v.length, s + 1);
+      else if (type === 'PREVIOUS_CHARACTER') s = Math.max(0, s - 1);
+      else if (type === 'NEXT_WORD') e = wordRight(v, s);
+      else s = wordLeft(v, s);
+    }
+    if (s === e) return false;
+    ta.focus();
+    ta.setSelectionRange(s, e);
+    this.insert('');
+    return true;
+  }
+
+  /** Enter: a new line keeping (or growing) the indentation. */
+  lineBreak() {
+    this.newlineWithIndent();
+  }
+
+  /** Tab: complete the word before the caret, or indent. */
+  indentOrAutocomplete() {
+    const p = this.ta.selectionStart;
+    const prev = this.ta.value[p - 1];
+    if (p === this.ta.selectionEnd && prev && /[\w$.]/.test(prev) && this.autocomplete()) return;
+    this.indent();
+  }
+
+  /** Scroll the view by whole lines (negative: up). */
+  scrollLines(n: number) {
+    this.scroll.scrollTop += n * this.lineHeight;
+  }
+
+  /** Character offset at a client point (nearest position). */
+  posAtClient(x: number, y: number): number {
+    const v = this.ta.value;
+    const line = this.lineAtY(y);
+    const start = this.lineStartPos(line);
+    if (start > v.length) return v.length;
+    const end = v.indexOf('\n', start) < 0 ? v.length : v.indexOf('\n', start);
+    const left = this.pre.getBoundingClientRect().left + 6;
+    // tabs count as tab-width columns
+    const target = Math.max(0, Math.round((x - left) / this.charWidth));
+    let col = 0,
+      i = start;
+    while (i < end) {
+      const w = v[i] === '\t' ? settings.tabWidth - (col % settings.tabWidth) : 1;
+      if (col + w / 2 > target) break;
+      col += w;
+      i++;
+    }
+    return i;
+  }
+
+  /** Extend the selection from its anchor to `pos`. */
+  selectTo(pos: number) {
+    const ta = this.ta;
+    const back = ta.selectionDirection === 'backward';
+    const anchor = back ? ta.selectionEnd : ta.selectionStart;
+    ta.focus();
+    ta.setSelectionRange(Math.min(anchor, pos), Math.max(anchor, pos), pos < anchor ? 'backward' : 'forward');
+    this.revealCaret();
+  }
+
+  /** Set the replace text to the selection and show the Find & Replace panel. */
+  replaceSetSelected() {
+    const v = this.ta.value;
+    const sel = v.slice(this.ta.selectionStart, this.ta.selectionEnd);
+    if (!sel || sel.includes('\n')) return false;
+    this.replaceText = sel;
+    if (!this.showSidebar) this.toggleSidebar(true);
+    this.renderSidebar();
+    return true;
+  }
+
   async cutSel() {
     await this.cut();
   }
@@ -1357,14 +1458,9 @@ export class TextEditor implements Editor {
     if (dispatchEditorKeys(e, this.area, ['Text'], () => this.commitUndo())) return;
     if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
+      // Tab right after a word completes it; elsewhere it indents
       if (e.shiftKey) this.unindent();
-      else {
-        // Tab right after a word completes it; elsewhere it indents
-        const p = this.ta.selectionStart;
-        const prev = this.ta.value[p - 1];
-        if (p === this.ta.selectionEnd && prev && /[\w$.]/.test(prev) && this.autocomplete()) return;
-        this.indent();
-      }
+      else this.indentOrAutocomplete();
       return;
     }
     if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
@@ -1418,7 +1514,7 @@ export class TextEditor implements Editor {
   }
 
   serialize() {
-    return { text: this.textId, lineNumbers: this.showLineNumbers, wrap: this.wordWrap, syntax: this.syntax, sidebar: this.showSidebar };
+    return { text: this.textId, lineNumbers: this.showLineNumbers, wrap: this.wordWrap, syntax: this.syntax, sidebar: this.showSidebar, liveEdit: this.liveEdit || undefined };
   }
 
   resize() {
@@ -1426,6 +1522,7 @@ export class TextEditor implements Editor {
   }
 
   dispose() {
+    clearTimeout(this.liveTimer);
     this.commitUndo();
     this.resizeObs.disconnect();
     document.removeEventListener('selectionchange', this.onSelectionChange);
@@ -1642,6 +1739,140 @@ registerOperators([
     poll: (ctx) => !!withText(ctx),
     exec: (ctx, p) => withText(ctx)!.moveCaret(p.type as MoveType, true),
   },
+  {
+    idname: 'text.insert',
+    label: 'Insert',
+    description: 'Insert text at the caret (replacing the selection)',
+    undo: false,
+    props: [{ id: 'text', label: 'Text', type: 'string', default: '' }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => {
+      if (!p.text) return 'CANCELLED';
+      const ed = withText(ctx)!;
+      ed.insert(String(p.text));
+      ed.commitUndo();
+    },
+  },
+  {
+    idname: 'text.delete',
+    label: 'Delete',
+    description: 'Delete the selection, or the character or word next to the caret',
+    undo: false,
+    props: [{ id: 'type', label: 'Type', type: 'enum', default: 'NEXT_CHARACTER', items: [['NEXT_CHARACTER', 'Next Character'], ['PREVIOUS_CHARACTER', 'Previous Character'], ['NEXT_WORD', 'Next Word'], ['PREVIOUS_WORD', 'Previous Word']] }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => {
+      const ed = withText(ctx)!;
+      if (!ed.deleteText(p.type as 'NEXT_CHARACTER')) return 'CANCELLED';
+      ed.commitUndo();
+    },
+  },
+  {
+    idname: 'text.line_break',
+    label: 'Line Break',
+    description: 'Insert a line break at the caret, keeping the indentation (one level more after a block opener)',
+    undo: false,
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx) => {
+      const ed = withText(ctx)!;
+      ed.lineBreak();
+      ed.commitUndo();
+    },
+  },
+  { idname: 'text.indent_or_autocomplete', label: 'Indent or Autocomplete', description: 'Complete the word before the caret, or indent the selected lines', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.indentOrAutocomplete() },
+  {
+    idname: 'text.scroll',
+    label: 'Scroll',
+    description: 'Scroll the text by a number of lines',
+    undo: false,
+    props: [{ id: 'lines', label: 'Lines', type: 'int', default: 1 }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => withText(ctx)!.scrollLines(Number(p.lines)),
+  },
+  {
+    idname: 'text.scroll_bar',
+    label: 'Scrollbar',
+    description: 'Scroll the text by a number of lines (as dragging the scroll bar does)',
+    undo: false,
+    internal: true,
+    props: [{ id: 'lines', label: 'Lines', type: 'int', default: 1 }],
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx, p) => withText(ctx)!.scrollLines(Number(p.lines)),
+  },
+  {
+    idname: 'text.cursor_set',
+    label: 'Set Cursor',
+    description: 'Place the caret at a position in the editor (region coordinates from the bottom left)',
+    undo: false,
+    props: [
+      { id: 'x', label: 'X', type: 'int', default: 0 },
+      { id: 'y', label: 'Y', type: 'int', default: 0 },
+    ],
+    poll: (ctx) => !!withText(ctx),
+    invoke: (ctx) => {
+      const ed = withText(ctx)!;
+      const p = ctx.event ?? app.pointer;
+      ed.setCaret(ed.posAtClient(p.x, p.y));
+      return 'FINISHED';
+    },
+    exec: (ctx, p) => {
+      const ed = withText(ctx)!;
+      const r = ed.el.getBoundingClientRect();
+      ed.setCaret(ed.posAtClient(r.left + Number(p.x), r.bottom - Number(p.y)));
+    },
+  },
+  {
+    idname: 'text.selection_set',
+    label: 'Set Selection',
+    description: 'Extend the selection to the pointer',
+    undo: false,
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx) => {
+      const ed = withText(ctx)!;
+      const p = ctx.event ?? app.pointer;
+      ed.selectTo(ed.posAtClient(p.x, p.y));
+    },
+  },
+  {
+    idname: 'text.replace_set_selected',
+    label: 'Replace & Set Selection',
+    description: 'Use the selected text as the replacement text of Find & Replace',
+    undo: false,
+    poll: (ctx) => !!withText(ctx),
+    exec: (ctx) => (withText(ctx)!.replaceSetSelected() ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'text.jump_to_file_at_point',
+    label: 'Jump to File at Point',
+    description: 'Show a text by its file path or name, at a line and column',
+    undo: false,
+    props: [
+      { id: 'filepath', label: 'Filepath', type: 'string', default: '' },
+      { id: 'line', label: 'Line', type: 'int', default: 0, min: 0 },
+      { id: 'column', label: 'Column', type: 'int', default: 0, min: 0 },
+    ],
+    poll: (ctx) => !!textArea(ctx),
+    exec: (ctx, p) => {
+      const ed = textArea(ctx)!;
+      const want = String(p.filepath);
+      const base = want.split(/[\\/]/).pop() ?? want;
+      const texts = Object.values(ctx.doc.texts);
+      const t = texts.find((x) => x.name === want) ?? texts.find((x) => x.name === base);
+      if (!t) {
+        app.report('ERROR', `No text for "${want}"`);
+        return 'CANCELLED';
+      }
+      ed.setText(t.id);
+      const v = t.body;
+      let pos = 0;
+      for (let i = 0; i < Number(p.line) && pos <= v.length; i++) {
+        const nl = v.indexOf('\n', pos);
+        if (nl < 0) break;
+        pos = nl + 1;
+      }
+      const end = v.indexOf('\n', pos) < 0 ? v.length : v.indexOf('\n', pos);
+      requestAnimationFrame(() => ed.setCaret(Math.min(end, pos + Number(p.column))));
+    },
+  },
   { idname: 'text.overwrite_toggle', label: 'Toggle Overwrite', description: 'Typing replaces the characters after the caret instead of inserting', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => withText(ctx)!.toggleOverwrite() },
   { idname: 'text.autocomplete', label: 'Text Autocomplete', description: 'Complete the word before the caret from the text, keywords and the scripting API', undo: false, poll: (ctx) => !!withText(ctx), exec: (ctx) => void withText(ctx)!.autocomplete() },
   {
@@ -1731,6 +1962,11 @@ addKeys('Text', [
   { key: 'UP_ARROW', shift: true, ctrl: true, op: 'text.move_lines', props: { direction: 'UP' } },
   { key: 'DOWN_ARROW', shift: true, ctrl: true, op: 'text.move_lines', props: { direction: 'DOWN' } },
   { key: 'T', ctrl: true, op: 'text.toggle_sidebar' },
+  { key: 'E', ctrl: true, op: 'text.move', props: { type: 'LINE_END' } },
+  { key: 'E', ctrl: true, shift: true, op: 'text.move_select', props: { type: 'LINE_END' } },
+  { key: 'DEL', shift: true, op: 'text.cut' },
+  { key: 'INSERT', ctrl: true, op: 'text.copy' },
+  { key: 'INSERT', shift: true, op: 'text.paste' },
 ]);
 
 /** Text to 3D Object: one text object, or one per non-empty line, at the 3D cursor. */

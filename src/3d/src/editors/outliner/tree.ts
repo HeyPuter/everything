@@ -18,6 +18,8 @@ export interface OutlinerFilter {
   show_restrict_column_indirect_only: boolean;
   use_sort_alpha: boolean;
   use_sync_select: boolean;
+  /** scroll the active item into view when it changes */
+  scroll_to_active: boolean;
   show_mode_column: boolean;
   use_filter_complete: boolean;
   use_filter_case_sensitive: boolean;
@@ -54,6 +56,7 @@ export function defaultFilter(): OutlinerFilter {
     show_restrict_column_indirect_only: false,
     use_sort_alpha: true,
     use_sync_select: true,
+    scroll_to_active: false,
     show_mode_column: true,
     use_filter_complete: false,
     use_filter_case_sensitive: false,

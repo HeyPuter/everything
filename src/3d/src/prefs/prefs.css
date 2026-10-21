@@ -586,3 +586,150 @@ body.no-region-toggles .area-header-reveal {
 .prefs-nav-btn.search-miss {
   opacity: 0.45;
 }
+
+/* ------------------------------------------------------------------ extensions */
+
+.ext-toolbar .enum-menu {
+  min-width: 110px;
+}
+.ext-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ext-item {
+  border-radius: var(--radius);
+  background: var(--c-panel-sub);
+}
+.ext-item.marked {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: calc(var(--row) * 2);
+  padding: 2px 6px;
+}
+.ext-row .checkbox .cb-label:empty {
+  display: none;
+}
+.ext-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius);
+  background: var(--w-regular);
+}
+.ext-item.off .ext-icon {
+  opacity: 0.55;
+}
+.ext-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.ext-name,
+.ext-tagline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ext-tagline {
+  color: var(--c-text-dim);
+  font-size: 11px;
+}
+.ext-version {
+  color: var(--c-text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ext-toggle {
+  padding: 0 10px;
+}
+.ext-toggle.on {
+  background: var(--accent);
+  color: var(--c-text-on-accent, #fff);
+}
+.ext-details {
+  padding: 4px 8px 8px 42px;
+}
+.ext-status {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+
+/* ------------------------------------------------------------------ path lists */
+
+.pl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+}
+.pl-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--row);
+}
+.pl-icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+}
+.pl-name {
+  flex: 1;
+  min-width: 0;
+}
+.pl-fixed {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+}
+.pl-item .enum-menu {
+  width: 170px;
+  flex: none;
+}
+.pl-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--w-regular);
+  color: var(--c-text-dim);
+  white-space: nowrap;
+}
+.pl-subtitle {
+  margin: 8px 0 4px;
+  color: var(--c-text-dim);
+}
+.ext-drop {
+  min-height: 100%;
+  border-radius: var(--radius);
+}
+.ext-drop.over {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.ad-item.off .ad-name {
+  color: var(--c-text-dim);
+}
+.pl-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.pl-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}

@@ -138,16 +138,21 @@ export async function removeAddon(id: string) {
   app.changed('ui');
 }
 
+/** Read the installed add-ons again (adds ones installed elsewhere, e.g. another tab). */
+export async function refreshAddons() {
+  await loadInstalled();
+}
+
 async function loadInstalled() {
   const keys = ((await assetKeys()) ?? []).map(String).filter((k) => k.startsWith('addon:'));
   const on = new Set(enabledIds());
   for (const k of keys) {
     const r = await assetGet<AddonRecord>(k);
-    if (!r || typeof r.source !== 'string') continue;
+    if (!r || typeof r.source !== 'string' || addons.has(r.id)) continue;
     addons.set(r.id, { ...r, info: parseAddonInfo(r.source, r.filename), enabled: false, owned: [] });
   }
   ready = true;
-  for (const a of addons.values()) if (on.has(a.id)) await enableAddon(a);
+  for (const a of addons.values()) if (on.has(a.id) && !a.enabled) await enableAddon(a);
   saveEnabled();
   app.changed('ui');
 }
@@ -170,11 +175,25 @@ let filter = '';
 let enabledOnly = false;
 const expanded = new Set<string>();
 
+/** Show or hide an add-on's details in the list (toggles when `on` is omitted). */
+export function expandAddon(id: string, on?: boolean) {
+  if (on ?? !expanded.has(id)) expanded.add(id);
+  else expanded.delete(id);
+  app.changed('ui');
+}
+
+/** Filter the add-on list (e.g. to show one add-on). */
+export function setAddonFilter(text: string) {
+  filter = text;
+  enabledOnly = false;
+  app.changed('ui');
+}
+
 function addonRow(a: Addon, redraw: () => void): Child {
   const open = expanded.has(a.id);
   return h(
     'div',
-    { key: a.id, class: { 'ad-item': true, open, error: !!a.error } },
+    { key: a.id, class: { 'ad-item': true, open, error: !!a.error, off: !a.enabled } },
     h(
       'div',
       { class: 'ad-row' },

@@ -422,6 +422,102 @@ registerOperators([
   },
 ]);
 
+/** The list an operator acts on: the one named by `list_path` (its list id), else the one under the pointer. */
+function listFor(p: Record<string, unknown>): string | null {
+  const named = String(p.list_path ?? '');
+  if (named && lists.has(named)) return named;
+  return hoveredList();
+}
+
+const listPathProps = [
+  { id: 'list_path', label: 'List Path', type: 'string' as const, default: '' },
+  { id: 'active_index_path', label: 'Active Index Path', type: 'string' as const, default: '' },
+];
+
+/** Scroll the active row of a list into view. */
+function focusActive(id: string) {
+  const l = lists.get(id);
+  const box = document.querySelector<HTMLElement>(`.uilist[data-list="${CSS.escape(id)}"] .ul-rows`);
+  if (!l || !box || l.active < 0) return false;
+  const row = box.querySelector<HTMLElement>(`.ul-row[data-index="${l.active}"]`);
+  if (row) row.scrollIntoView({ block: 'nearest' });
+  else {
+    // the active row is filtered out: show the list from the top
+    box.scrollTop = 0;
+  }
+  return !!row;
+}
+
+registerOperators([
+  {
+    idname: 'uilist.entry_add',
+    label: 'Add Entry',
+    description: 'Add an item to the list (the one under the pointer, or the one named by its path)',
+    props: listPathProps,
+    poll: () => true,
+    exec: (_c, p) => {
+      const l = lists.get(listFor(p) ?? '');
+      if (!l?.opts.add) return 'CANCELLED';
+      l.opts.add();
+    },
+  },
+  {
+    idname: 'uilist.entry_remove',
+    label: 'Remove Selected Entry',
+    description: 'Remove the active item of the list',
+    props: listPathProps,
+    poll: () => true,
+    exec: (_c, p) => {
+      const l = lists.get(listFor(p) ?? '');
+      if (!l?.opts.remove || !l.count) return 'CANCELLED';
+      l.opts.remove();
+    },
+  },
+  {
+    idname: 'uilist.entry_move',
+    label: 'Move Entry',
+    description: 'Move the active item of the list up or down',
+    props: [...listPathProps, { id: 'direction', label: 'Direction', type: 'enum', default: 'UP', items: [['UP', 'Up'], ['DOWN', 'Down']] }],
+    poll: () => true,
+    exec: (_c, p) => {
+      const id = listFor(p);
+      const l = lists.get(id ?? '');
+      if (!id || !l || l.active < 0) return 'CANCELLED';
+      const to = l.active + (p.direction === 'DOWN' ? 1 : -1);
+      return moveListItem(id, l.active, to) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
+  {
+    idname: 'ui.view_start_filter',
+    label: 'View Filter',
+    description: 'Search the list or tree view under the pointer by name',
+    undo: false,
+    poll: pollList,
+    exec: () => startListFilter(hoveredList()!),
+  },
+  {
+    idname: 'ui.view_item_focus',
+    label: 'Focus Active Item',
+    description: 'Scroll the active item of the list under the pointer into view',
+    undo: false,
+    poll: pollList,
+    exec: () => (focusActive(hoveredList()!) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'ui.view_scroll',
+    label: 'View Scroll',
+    description: 'Scroll the list under the pointer by a number of rows',
+    undo: false,
+    props: [{ id: 'delta', label: 'Rows', type: 'int', default: 1 }],
+    poll: pollList,
+    exec: (_c, p) => {
+      const box = document.querySelector<HTMLElement>(`.uilist[data-list="${CSS.escape(hoveredList()!)}"] .ul-rows`);
+      if (!box) return 'CANCELLED';
+      box.scrollTop += Number(p.delta) * ROW;
+    },
+  },
+]);
+
 // Over a list: Ctrl+F filters, Alt+F clears the filter, Up / Down / Home / End move the active
 // item, F2 renames it, Delete removes it.
 keyInputHooks.push((e) => {
@@ -444,6 +540,10 @@ keyInputHooks.push((e) => {
   const nav = ({ ArrowUp: 'UP', ArrowDown: 'DOWN', Home: 'FIRST', End: 'LAST' } as Record<string, string>)[e.code];
   if (nav && l.visible.length) {
     app.run('ui.view_item_navigate', { direction: nav });
+    return true;
+  }
+  if (e.code === 'NumpadDecimal' && l.active >= 0) {
+    app.run('ui.view_item_focus');
     return true;
   }
   if (e.code === 'F2' && app.poll('ui.view_item_rename')) {

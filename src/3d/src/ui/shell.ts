@@ -3,7 +3,7 @@ import { h, patch, type Child } from './h';
 import { appIcon, icon } from './icons';
 import { openMenu, promptText, type MenuItem } from './menu';
 import { app, registerOperators } from '../app/app';
-import { Screen, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
+import { Screen, areaOfElement, defaultWorkspaces, workspaceTemplates, type Workspace, type LayoutNode } from './screen';
 import { uiState, prefs, savePrefs } from '../app/prefs';
 import { projectUiState } from '../io/files';
 import { appMenu, fileMenu, editMenu, renderMenu, windowMenu, helpMenu, fileNewTemplates } from './topbar';
@@ -19,6 +19,18 @@ import { setMode, activeCollection } from '../ops/object';
 import { statsLines } from '../editors/view3d/view3d';
 import { assistantOpen } from '../assistant';
 import './screenops';
+import './view2d';
+import './view2d_hosts';
+import './view2d_scrollers';
+import { installRegionScale } from './regionscale';
+import { activeSceneId, sceneById } from '../scenes/scenes';
+import { switchScene } from '../scenes/switch';
+import './screenedit';
+import './wmicons';
+import './rampdropper';
+import './browseops';
+import './overridebuttons';
+import { shellRef } from './shellref';
 import './favorites';
 import './areawindow';
 import './screenshot';
@@ -61,6 +73,7 @@ export class Shell {
     // right-click anywhere on the status bar chooses what its right side shows
     this.status.addEventListener('contextmenu', (e) => (e.preventDefault(), openMenu(statusMenu(this), { x: e.clientX, y: e.clientY }, { title: 'Status Bar' })));
     this.screen = new Screen(main);
+    installRegionScale((el) => areaOfElement.get(el) ?? null);
     // the mouse hints follow the modifier keys being held
     const mods = (e: KeyboardEvent | null) => {
       const next = { shift: !!e?.shiftKey, ctrl: !!(e?.ctrlKey || e?.metaKey), alt: !!e?.altKey };
@@ -82,19 +95,19 @@ export class Shell {
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
       workspace: this.active,
-      workspaces: this.workspaces.map((w) => ({ name: w.name, mode: w.mode })),
+      workspaces: this.workspaces.map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene || undefined, scene: w.pinScene ? (w.name === this.active ? activeSceneId(app.doc) : w.scene) : undefined, use_filter_by_owner: w.use_filter_by_owner || undefined, owner_ids: w.owner_ids?.length ? w.owner_ids : undefined })),
       layouts: Object.fromEntries([...this.layouts.entries(), [this.active, this.screen.serialize()]]),
     });
     projectUiState.load = (s) => {
       const layouts = s.layouts as Record<string, LayoutNode> | undefined;
       if (layouts) for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
       // custom workspace lists (added, renamed, deleted or reordered workspaces)
-      const list = s.workspaces as { name: string; mode?: Workspace['mode'] }[] | undefined;
+      const list = s.workspaces as { name: string; mode?: Workspace['mode']; pinScene?: boolean; scene?: string; use_filter_by_owner?: boolean; owner_ids?: string[] }[] | undefined;
       if (Array.isArray(list) && list.length && layouts) {
         const defaults = defaultWorkspaces();
         this.workspaces = list
           .filter((w) => layouts[w.name] || defaults.some((d) => d.name === w.name))
-          .map((w) => ({ name: w.name, mode: w.mode, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
+          .map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene, scene: w.scene, use_filter_by_owner: w.use_filter_by_owner, owner_ids: Array.isArray(w.owner_ids) ? w.owner_ids.filter((x) => typeof x === 'string') : undefined, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
       }
       if (typeof s.workspace === 'string' && this.workspaces.some((w) => w.name === s.workspace)) {
         this.active = '';
@@ -187,7 +200,11 @@ export class Shell {
     const ws = this.workspaces.find((w) => w.name === name);
     if (!ws) return;
     if (this.active && this.screen.layout) this.layouts.set(this.active, this.screen.serialize());
+    // a pinned workspace remembers the scene it was left with
+    const prev = this.workspaces.find((w) => w.name === this.active);
+    if (prev?.pinScene) prev.scene = activeSceneId(app.doc);
     this.active = name;
+    if (switchMode && ws.pinScene && ws.scene && ws.scene !== activeSceneId(app.doc) && sceneById(app.doc, ws.scene)) switchScene(ws.scene);
     uiState.workspace = name;
     this.screen.load(structuredClone(this.layouts.get(name) ?? ws.layout));
     // workspaces carry a preferred object mode
@@ -201,6 +218,7 @@ export class Shell {
     }
     this.screen.update(new Set(['doc', 'ui']));
     this.drawTop();
+    app.changed('ui');
   }
 
   drawTop() {
@@ -271,18 +289,7 @@ export class Shell {
           'aria-label': 'Add Workspace',
           onpointerdown: (e: PointerEvent) => {
             e.preventDefault();
-            const cats = [...new Set(workspaceTemplates.map((t) => t.category))];
-            openMenu(
-              [
-                ...cats.map((c) => ({
-                  label: c,
-                  submenu: () => workspaceTemplates.filter((t) => t.category === c).map((t) => ({ label: t.create().name, action: () => this.addWorkspace(t.create()) })),
-                })),
-                { separator: true },
-                { label: 'Duplicate Current', action: () => this.duplicateWorkspace(this.active) },
-              ],
-              e.currentTarget as HTMLElement,
-            );
+            openMenu(addWorkspaceMenu(this), e.currentTarget as HTMLElement);
           },
         },
         icon('add'),
@@ -299,6 +306,7 @@ export class Shell {
         icon('assistant'),
         'Assistant',
       ),
+      this.scenePinButton(),
       topbarSceneWidgets.length
         ? topbarSceneWidgets.map((f) => f())
         : [
@@ -308,6 +316,27 @@ export class Shell {
     ]);
     const tabs = this.top.querySelector<HTMLElement>('.ws-tabs');
     if (tabs) tabs.classList.toggle('overflow', tabs.scrollLeft + tabs.clientWidth < tabs.scrollWidth - 1);
+  }
+
+  /** Pin the scene to the active workspace (the workspace switches back to it when activated). */
+  private scenePinButton(): Child {
+    const ws = this.workspaces.find((w) => w.name === this.active);
+    const on = !!ws?.pinScene;
+    return h(
+      'button',
+      {
+        key: 'scene-pin',
+        class: { 'hdr-toggle': true, 'tb-scene-pin': true, on },
+        'data-tip': 'Pin Scene to Workspace\nRemember the scene used in this workspace and switch back to it whenever the workspace is activated',
+        'aria-label': 'Pin Scene to Workspace',
+        'aria-pressed': on ? 'true' : 'false',
+        onclick: () => {
+          app.run('workspace.scene_pin_toggle', { name: this.active });
+          this.drawTop();
+        },
+      },
+      icon(on ? 'pinned' : 'unpinned'),
+    );
   }
 
   drawStatus() {
@@ -325,7 +354,7 @@ export class Shell {
     if (prefs.show_statusbar_version) right.push(h('span', { key: 'ver', class: 'sb-version' }, APP_VERSION));
     patch(this.status, [
       h('div', { class: 'sb-hints' }, m?.header ? h('span', { class: 'sb-modal' }, m.header()) : null, hints.map(([k, l]) => h('span', { class: 'sb-hint', key: k + l }, hintKey(k), l))),
-      h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}` }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
+      h('div', { class: 'sb-center' }, statusWidgets.map((w) => w()), showReport ? h('span', { class: `sb-report ${last.type.toLowerCase()}`, 'data-tip': 'Click to show the Info log', onclick: () => app.run('screen.info_log_show') }, icon(last.type === 'ERROR' ? 'error' : 'info_small'), last.message) : null),
       h('div', { class: 'sb-right' }, right.flatMap((c, i) => (i ? [h('span', { key: `sep${i}`, class: 'sb-sep' }), c] : [c]))),
     ]);
   }
@@ -382,16 +411,32 @@ function statusMenu(sh: Shell): MenuItem[] {
   ];
 }
 
+/** The "+" menu next to the workspace tabs: templates by category, then a copy of the current one. */
+function addWorkspaceMenu(sh: Shell): MenuItem[] {
+  const cats = [...new Set(workspaceTemplates.map((t) => t.category))];
+  return [
+    ...cats.map((c) => ({
+      label: c,
+      submenu: () => workspaceTemplates.filter((t) => t.category === c).map((t) => ({ label: t.create().name, action: () => sh.addWorkspace(t.create()) })),
+    })),
+    { separator: true },
+    { label: 'Duplicate Current', action: () => sh.duplicateWorkspace(sh.active) },
+  ];
+}
+
 /** Right-click menu of a workspace tab. */
 function workspaceMenu(sh: Shell, name: string): MenuItem[] {
   const p = { name };
+  const ws = sh.workspaces.find((w) => w.name === name);
   return [
-    { label: 'Duplicate', op: 'workspace.duplicate', props: p },
-    { label: 'Delete', op: 'workspace.delete', props: p },
+    { label: 'Duplicate', icon: 'duplicate', op: 'workspace.duplicate', props: p },
+    { label: 'Delete', icon: 'remove', op: 'workspace.delete', props: p },
     { label: 'Rename…', action: () => promptText('Rename Workspace', name, (n) => n && sh.renameWorkspace(name, n)) },
     { separator: true },
-    { label: 'Reorder to Front', op: 'workspace.reorder_to_front', props: p },
-    { label: 'Reorder to Back', op: 'workspace.reorder_to_back', props: p },
+    { label: 'Reorder to Front', icon: 'tria_left_bar', op: 'workspace.reorder_to_front', props: p },
+    { label: 'Reorder to Back', icon: 'tria_right_bar', op: 'workspace.reorder_to_back', props: p },
+    { separator: true },
+    { label: 'Pin Scene', checked: !!ws?.pinScene, op: 'workspace.scene_pin_toggle', props: p },
     { separator: true },
     { label: 'Previous Workspace', shortcut: 'Ctrl Page Up', op: 'screen.workspace_cycle', props: { direction: 'PREV' } },
     { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
@@ -403,6 +448,7 @@ function workspaceMenu(sh: Shell, name: string): MenuItem[] {
 export let shell: Shell;
 export function setShell(s: Shell) {
   shell = s;
+  shellRef.current = s;
 }
 
 /** Workspace named by an operator's `name` property (empty: the active one). */
@@ -415,6 +461,54 @@ registerOperators([
   { idname: 'workspace.reorder_to_front', label: 'Reorder Workspace to Front', description: 'Move the workspace tab to the start of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'FRONT') },
   { idname: 'workspace.reorder_to_back', label: 'Reorder Workspace to Back', description: 'Move the workspace tab to the end of the list', undo: false, props: [wsProp], poll: () => !!shell, exec: (_c, p) => shell.moveWorkspace(wsName(p), 'BACK') },
   { idname: 'workspace.delete_all_others', label: 'Delete All Other Workspaces', description: 'Remove every workspace tab except this one', undo: false, props: [wsProp], poll: () => !!shell && shell.workspaces.length > 1, exec: (_c, p) => shell.deleteOtherWorkspaces(wsName(p)) },
+  {
+    idname: 'workspace.scene_pin_toggle',
+    label: 'Pin Scene to Workspace',
+    description: 'Remember the scene used in this workspace and switch back to it whenever the workspace is activated',
+    undo: false,
+    props: [wsProp],
+    poll: () => !!shell,
+    exec: (_c, p) => {
+      const ws = shell.workspaces.find((w) => w.name === wsName(p));
+      if (!ws) return 'CANCELLED';
+      ws.pinScene = !ws.pinScene;
+      ws.scene = ws.pinScene ? activeSceneId(app.doc) : undefined;
+      app.changed('ui');
+    },
+  },
+  {
+    idname: 'workspace.add',
+    label: 'Add Workspace',
+    description: 'Add a workspace from a template, or a copy of the current one',
+    undo: false,
+    poll: () => !!shell,
+    invoke: (ctx) => {
+      const p = ctx.event ?? app.pointer;
+      openMenu(addWorkspaceMenu(shell), { x: p.x, y: p.y }, { title: 'Add Workspace' });
+      return 'CANCELLED';
+    },
+    exec: () => shell.duplicateWorkspace(shell.active),
+  },
+  {
+    idname: 'workspace.append_activate',
+    label: 'Append and Activate Workspace',
+    description: 'Add a workspace from the built-in templates by name and switch to it',
+    undo: false,
+    props: [
+      { id: 'idname', label: 'Identifier', type: 'string', default: '' },
+      { id: 'filepath', label: 'Filepath', type: 'string', default: '' },
+    ],
+    poll: () => !!shell,
+    exec: (_c, p) => {
+      const name = String(p.idname);
+      const t = workspaceTemplates.find((x) => x.create().name === name);
+      if (!t) {
+        app.report('ERROR', `No workspace template named "${name}"`);
+        return 'CANCELLED';
+      }
+      shell.addWorkspace(t.create());
+    },
+  },
   {
     idname: 'screen.toggle_statusbar',
     label: 'Show Status Bar',

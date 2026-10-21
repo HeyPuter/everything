@@ -201,3 +201,102 @@ body.screen-gesture-active * {
 .area-toolheader .clip-l.clip-r {
   mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
 }
+
+/* View2D zoom border (Shift B in 2D editors) */
+.v2d-border {
+  position: fixed;
+  z-index: 900;
+  pointer-events: none;
+  border: 1px dashed var(--g-ff, #ffffff);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.v2d-border-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 30px;
+  z-index: 900;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: rgb(from var(--g-14, #101113) r g b / 0.9);
+  color: var(--c-text);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+body.v2d-border-active,
+body.v2d-border-active * {
+  cursor: crosshair !important;
+}
+
+/* dragging an area edge or a region edge */
+body.edge-drag-h,
+body.edge-drag-h * {
+  cursor: ew-resize !important;
+}
+body.edge-drag-v,
+body.edge-drag-v * {
+  cursor: ns-resize !important;
+}
+body.region-edge-hover,
+body.region-edge-hover *,
+body.region-scaling,
+body.region-scaling * {
+  cursor: ew-resize !important;
+}
+
+/* color ramp eyedropper: the sampled line and points */
+.ramp-dropper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 900;
+  pointer-events: none;
+}
+.ramp-dropper line {
+  stroke: var(--g-ff, #ffffff);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
+.ramp-dropper circle {
+  fill: none;
+  stroke: var(--g-ff, #ffffff);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
+body.edge-drag-hv,
+body.edge-drag-hv * {
+  cursor: move !important;
+}
+
+/* View2D scrollers: thin bars along the bottom / right of 2D views */
+.v2d-scrollers {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.v2d-scroller {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 3px;
+  background: rgb(from var(--g-ff, #ffffff) r g b / 0.12);
+  transition: background 0.15s;
+}
+.v2d-scroller.x {
+  bottom: 3px;
+  height: 5px;
+}
+.v2d-scroller.y {
+  right: 3px;
+  width: 5px;
+}
+.v2d-scroller:hover,
+.v2d-scrollers.dragging .v2d-scroller {
+  background: rgb(from var(--g-ff, #ffffff) r g b / 0.3);
+}
+body.v2d-panning,
+body.v2d-panning * {
+  cursor: grabbing !important;
+}

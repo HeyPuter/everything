@@ -9,15 +9,16 @@ import { icon } from '../ui/icons';
 import { app, registerOperators, type ChangeKind, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
-import { openMenu, openPie, promptText, type MenuItem } from '../ui/menu';
-import { textField, enumRow } from '../ui/widgets';
+import { openMenu, openPie, openPopover, promptText, type MenuItem } from '../ui/menu';
+import { textField, enumRow, checkbox } from '../ui/widgets';
 import { openFile, formats, fileEvents, projectUiState } from '../io/files';
 import { encodeDocument } from '../io/native';
 import { imageFromFile } from '../ops/imageobjects';
 import { newText } from '../data/defaults';
 import { registerIcons } from '../ui/icons';
 import { kvGet, kvSet } from '../io/session';
-import { category as categoryOf, sortEntries, filterEntries, walkIndex, uniqueEntryName, formatSize, type Category, type SortBy } from './filebrowser_logic';
+import { keyconfig } from '../prefs/keyconfig';
+import { category as categoryOf, sortEntries, filterEntries, walkIndex, uniqueEntryName, formatSize, moveInList, type Category, type SortBy } from './filebrowser_logic';
 import './filebrowser.css';
 
 registerIcons({
@@ -64,7 +65,17 @@ interface Item {
   handle?: FileHandle;
   size?: number;
   mtime?: number;
+  /** folders between the browsed folder and this entry (listed through Recursions) */
+  via?: DirHandle[];
 }
+
+/** File ▸ Recursions: how many folder levels below the browsed one are listed too. */
+const RECURSIONS: [number, string, string][] = [
+  [0, 'None', 'Only the browsed folder'],
+  [1, 'One Level', 'Also list the contents of its folders'],
+  [2, 'Two Levels', 'Also list two levels of folders'],
+  [3, 'Three Levels', 'Also list three levels of folders'],
+];
 
 type View = 'LIST_VERTICAL' | 'LIST_HORIZONTAL' | 'THUMBNAIL';
 const SIZES: [number, string][] = [
@@ -151,6 +162,8 @@ export class FileBrowser implements Editor {
   private loose: File[] = [];
   view: View = 'THUMBNAIL';
   thumbSize = 96;
+  /** folder levels listed below the browsed one */
+  recursion = 0;
   sortBy: SortBy = 'ALPHA';
   sortReverse = false;
   filter = '';
@@ -171,7 +184,8 @@ export class FileBrowser implements Editor {
     public area: Area,
     state?: unknown,
   ) {
-    const st = (state ?? {}) as Partial<{ view: string; size: number; sort: SortBy; reverse: boolean; hidden: boolean; sidebar: boolean; categories: Category[] | null }>;
+    const st = (state ?? {}) as Partial<{ view: string; size: number; sort: SortBy; reverse: boolean; hidden: boolean; sidebar: boolean; categories: Category[] | null; recursion: number }>;
+    if (typeof st.recursion === 'number') this.recursion = Math.max(0, Math.min(3, Math.round(st.recursion)));
     if (st.view === 'LIST' || st.view === 'LIST_VERTICAL') this.view = 'LIST_VERTICAL';
     else if (st.view === 'LIST_HORIZONTAL' || st.view === 'THUMBNAIL') this.view = st.view;
     if (st.size) this.thumbSize = st.size;
@@ -217,7 +231,7 @@ export class FileBrowser implements Editor {
   }
 
   serialize() {
-    return { view: this.view, size: this.thumbSize, sort: this.sortBy, reverse: this.sortReverse, hidden: this.showHidden, sidebar: this.showSidebar, categories: this.categories ? [...this.categories] : null };
+    return { view: this.view, size: this.thumbSize, sort: this.sortBy, reverse: this.sortReverse, hidden: this.showHidden, sidebar: this.showSidebar, categories: this.categories ? [...this.categories] : null, recursion: this.recursion || undefined };
   }
 
   get dir(): DirHandle | null {
@@ -253,6 +267,21 @@ export class FileBrowser implements Editor {
         (v) => this.setView(v as View),
         { iconOnly: true },
       ),
+      h(
+        'button',
+        {
+          key: 'filter-pop',
+          class: { 'hdr-toggle': true, 'fb-filter-btn': true, on: !!this.categories || this.showHidden },
+          'data-tip': 'Filter\nWhich kinds of files are listed',
+          'aria-label': 'Filter settings',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => this.filterPopover(), { width: 220, className: 'fb-filter-pop' });
+          },
+        },
+        icon('filter'),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
       h('div', {
         key: 'filter',
         class: 'fb-filter-wrap',
@@ -263,6 +292,35 @@ export class FileBrowser implements Editor {
           }
         },
       }, textField('fb-filter', this.filter, (v) => ((this.filter = v), this.draw()), { placeholder: 'Filter (e.g. *.png)', icon: 'viewzoom', live: true, className: 'fb-filter' })),
+    );
+  }
+
+  /** The Filter popover: file kinds, hidden files, recursions. */
+  private filterPopover(): Child {
+    const on = !!this.categories;
+    const changed = () => {
+      this.draw();
+      app.changed('ui');
+    };
+    return h(
+      'div',
+      { class: 'fb-filter-body' },
+      checkbox('fbf-on', 'Filter', on, (v) => ((this.categories = v ? new Set(['project', 'image', 'model', 'text']) : null), changed()), { tip: 'Filter\nList only the kinds of files checked below' }),
+      ...CATEGORIES.map(([c, l, ic]) =>
+        h(
+          'div',
+          { key: c, class: 'fb-filter-row' },
+          h('span', { class: 'fb-filter-ic' }, icon(ic)),
+          checkbox(`fbf-${c}`, l, !this.categories || this.categories.has(c), (v) => {
+            if (!this.categories) return;
+            if (v) this.categories.add(c);
+            else this.categories.delete(c);
+            changed();
+          }, { disabled: !on }),
+        ),
+      ),
+      h('div', { class: 'fb-filter-sep' }),
+      checkbox('fbf-hidden', 'Show Hidden', this.showHidden, (v) => ((this.showHidden = v), changed()), { tip: 'Show Hidden\nList files and folders whose name starts with a dot (H)' }),
     );
   }
 
@@ -305,6 +363,7 @@ export class FileBrowser implements Editor {
           })),
         ],
       },
+      { label: 'Recursions', submenu: () => RECURSIONS.map(([n, l, d]) => ({ label: l, description: d, active: this.recursion === n, action: () => this.setRecursion(n) })) },
       { label: 'Show Hidden', shortcut: 'H', checked: this.showHidden, op: 'file.hidden_toggle' },
       { separator: true },
       { label: 'Sidebar', shortcut: 'T', checked: this.showSidebar, op: 'file.sidebar_toggle' },
@@ -330,6 +389,11 @@ export class FileBrowser implements Editor {
     const first = one[0];
     const writable = !!this.dir?.removeEntry;
     return [
+      { label: 'Back', icon: 'back', shortcut: 'Alt ←', disabled: !this.history.length, op: 'file.previous' },
+      { label: 'Forward', icon: 'forward', shortcut: 'Alt →', disabled: !this.future.length, op: 'file.next' },
+      { label: 'Go to Parent', icon: 'file_parent', shortcut: 'P', op: 'file.parent' },
+      { label: 'Refresh', icon: 'file_refresh', shortcut: 'R', disabled: !this.dir, op: 'file.refresh' },
+      { separator: true },
       { label: first?.kind === 'dir' ? 'Open Folder' : first && category(first.name) === 'model' ? 'Import' : 'Open', shortcut: 'Enter', disabled: !first, op: 'file.execute' },
       ...(one.length === 1 && first?.kind === 'file' && /\.(p3d|blend\d*)$/i.test(first.name) ? [{ label: 'Link…', icon: 'link', disabled: !app.poll('wm.link'), action: () => this.linkFrom(first, true) }, { label: 'Append…', icon: 'append_blend', disabled: !app.poll('wm.append'), action: () => this.linkFrom(first, false) }] : []),
       { separator: true },
@@ -339,7 +403,14 @@ export class FileBrowser implements Editor {
       { label: 'Save Project Here…', icon: 'file_3d', disabled: !this.dir?.getDirectoryHandle, op: 'file.save_project_here' },
       { separator: true },
       { label: 'Add Bookmark', shortcut: 'Ctrl B', disabled: !this.dir, op: 'file.bookmark_add' },
-      { label: 'Refresh', shortcut: 'R', disabled: !this.dir, op: 'file.refresh' },
+      { separator: true },
+      { label: 'Display Mode', submenu: () => [
+        { label: 'Vertical List', icon: 'listview', active: this.view === 'LIST_VERTICAL', action: () => this.setView('LIST_VERTICAL') },
+        { label: 'Horizontal List', icon: 'hlistview', active: this.view === 'LIST_HORIZONTAL', action: () => this.setView('LIST_HORIZONTAL') },
+        { label: 'Thumbnails', icon: 'imgdisplay', active: this.view === 'THUMBNAIL', action: () => this.setView('THUMBNAIL') },
+      ] },
+      { label: 'Recursions', submenu: () => RECURSIONS.map(([n, l, d]) => ({ label: l, description: d, active: this.recursion === n, action: () => this.setRecursion(n) })) },
+      { label: 'Sort By', submenu: () => (['ALPHA', 'EXTENSION', 'TIME', 'SIZE'] as SortBy[]).map((x) => ({ label: { ALPHA: 'Name', EXTENSION: 'Extension', TIME: 'Modified Date', SIZE: 'Size' }[x], active: this.sortBy === x, action: () => this.setSort(x) })) },
       { separator: true },
       { label: 'Select All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } },
     ];
@@ -356,6 +427,66 @@ export class FileBrowser implements Editor {
     if (v === 'LIST_VERTICAL' && this.items.some((i) => i.kind === 'file' && i.mtime === undefined)) void this.loadDetails();
     this.draw();
     this.area.drawHeader();
+  }
+
+  /** Column titles of the vertical list; clicking one sorts by it (again: reverses). */
+  private columnHeader(): Child {
+    const col = (by: SortBy, label: string, cls: string) =>
+      h(
+        'button',
+        {
+          key: `col-${by}`,
+          class: { 'fb-col': true, [cls]: true, on: this.sortBy === by },
+          'data-sort': by,
+          'data-tip': `Sort by ${label}\nClick again to reverse the order`,
+          onclick: () => app.run('file.sort_column_ui_context', { column: by }, { area: this.area }),
+        },
+        label,
+        this.sortBy === by ? icon(this.sortReverse ? 'triangle_up' : 'triangle_down', 'tiny') : null,
+      );
+    return h('div', { key: 'fb-cols', class: 'fb-cols' }, col('ALPHA', 'Name', 'fb-col-name'), col('SIZE', 'Size', 'fb-col-size'), col('TIME', 'Date Modified', 'fb-col-date'));
+  }
+
+  /** Sort by a column: a new column sorts ascending, the current one flips the order. */
+  sortColumn(by: SortBy) {
+    if (this.sortBy === by) this.sortReverse = !this.sortReverse;
+    else {
+      this.sortReverse = false;
+      this.setSort(by);
+      return;
+    }
+    this.draw();
+  }
+
+  /** The item at a client point. */
+  itemAt(x: number, y: number): Item | null {
+    const el = (document.elementFromPoint(x, y) as HTMLElement | null)?.closest<HTMLElement>('.fb-item');
+    if (!el || !this.main.contains(el)) return null;
+    return this.shown().find((i) => i.name === el.dataset.name) ?? null;
+  }
+
+  /** Select the item at a client point (extend toggles, fill selects the range from the active one). */
+  selectAt(x: number, y: number, o: { extend?: boolean; fill?: boolean; open?: boolean; deselectAll?: boolean }) {
+    const it = this.itemAt(x, y);
+    if (!it) {
+      if (o.deselectAll) {
+        this.selected.clear();
+        this.draw();
+      }
+      return false;
+    }
+    this.click(it, { shiftKey: !!o.fill, ctrlKey: !!o.extend && !o.fill, metaKey: false } as MouseEvent);
+    if (o.open) void this.activate(it);
+    return true;
+  }
+
+  /** Open the item at a client point (double click). */
+  executeAt(x: number, y: number) {
+    const it = this.itemAt(x, y);
+    if (!it) return false;
+    this.selectOnly(it.name);
+    void this.activate(it);
+    return true;
   }
 
   setSort(s: SortBy) {
@@ -426,10 +557,21 @@ export class FileBrowser implements Editor {
     this.status = 'Reading folder…';
     this.draw();
     const items: Item[] = [];
-    try {
-      for await (const entry of dir.values()) items.push(entry.kind === 'directory' ? { name: entry.name, kind: 'dir', dir: entry } : { name: entry.name, kind: 'file', handle: entry as FileHandle });
-    } catch (e) {
-      app.report('ERROR', `Cannot read folder: ${e instanceof Error ? e.message : e}`);
+    // the browsed folder, then (Recursions) the folders below it, level by level
+    const queue: { d: DirHandle; prefix: string; via: DirHandle[]; depth: number }[] = [{ d: dir, prefix: '', via: [], depth: 0 }];
+    while (queue.length && items.length < 20000) {
+      const { d, prefix, via, depth } = queue.shift()!;
+      try {
+        for await (const entry of d.values()) {
+          const name = prefix + entry.name;
+          if (entry.kind === 'directory') {
+            items.push({ name, kind: 'dir', dir: entry, via: via.length ? via : undefined });
+            if (depth < this.recursion && !entry.name.startsWith('.')) queue.push({ d: entry, prefix: `${name}/`, via: [...via, entry], depth: depth + 1 });
+          } else items.push({ name, kind: 'file', handle: entry as FileHandle, via: via.length ? via : undefined });
+        }
+      } catch (e) {
+        if (!depth) app.report('ERROR', `Cannot read folder: ${e instanceof Error ? e.message : e}`);
+      }
     }
     this.items = items;
     this.status = '';
@@ -492,8 +634,14 @@ export class FileBrowser implements Editor {
   }
 
   /** Double-click / Enter: open projects, import models, load images and texts, enter folders. */
+  /** Show folder levels below the browsed one too (0: none). */
+  setRecursion(n: number) {
+    this.recursion = Math.max(0, Math.min(3, Math.round(n)));
+    this.refresh();
+  }
+
   async activate(it: Item) {
-    if (it.kind === 'dir' && it.dir) return this.enter([...this.path, it.dir]);
+    if (it.kind === 'dir' && it.dir) return this.enter([...this.path, ...(it.via ?? []), it.dir]);
     const file = await this.fileOf(it);
     if (!file) return;
     if (!recentFiles.includes(file)) recentFiles.unshift(file);
@@ -551,6 +699,11 @@ export class FileBrowser implements Editor {
   }
 
   private click(it: Item, e: MouseEvent) {
+    // Preferences ▸ Keymap ▸ Open Folders on Single Click
+    if (it.kind === 'dir' && !e.shiftKey && !e.ctrlKey && !e.metaKey && keyconfig.data.options.use_file_single_click) {
+      void this.activate(it);
+      return;
+    }
     const list = this.shown();
     if (e.shiftKey && this.active) {
       const a = list.findIndex((x) => x.name === this.active),
@@ -699,7 +852,10 @@ export class FileBrowser implements Editor {
     let n = 0;
     for (const it of sel) {
       try {
-        await d.removeEntry(it.name, { recursive: true });
+        // entries listed from a folder below are removed from that folder
+        const owner = it.via?.length ? it.via[it.via.length - 1] : d;
+        if (!owner.removeEntry) throw new Error('the folder is read-only');
+        await owner.removeEntry(it.name.slice(it.name.lastIndexOf('/') + 1), { recursive: true });
         n++;
       } catch (e) {
         app.report('ERROR', `Cannot delete "${it.name}": ${e instanceof Error ? e.message : e}`);
@@ -714,6 +870,10 @@ export class FileBrowser implements Editor {
   async rename(it: Item, to: string): Promise<boolean> {
     const d = await this.writable();
     if (!d || !to || to === it.name) return false;
+    if (it.via?.length) {
+      app.report('WARNING', 'Rename items of a folder below from inside that folder');
+      return false;
+    }
     if (/[/\\]/.test(to) || this.items.some((x) => x.name.toLowerCase() === to.toLowerCase() && x !== it)) {
       app.report('ERROR', `Cannot rename to "${to}": the name is invalid or taken`);
       return false;
@@ -883,9 +1043,12 @@ export class FileBrowser implements Editor {
       'button',
       {
         key: `${kind}:${p.name}:${bookmarks.indexOf(p)}:${recentDirs.indexOf(p)}`,
-        class: { 'fb-side-item': true, on },
+        class: { 'fb-side-item': true, on, active: kind === 'bookmark' && bookmarks.indexOf(p) === activeBookmark },
         'data-tip': p.name,
-        onclick: () => void this.openRoot(p.handle),
+        onclick: () => {
+          if (kind === 'bookmark') activeBookmark = bookmarks.indexOf(p);
+          void this.openRoot(p.handle);
+        },
         oncontextmenu: (e: MouseEvent) => {
           e.preventDefault();
           e.stopPropagation();
@@ -927,6 +1090,7 @@ export class FileBrowser implements Editor {
       body = h(
         'div',
         { class: `fb-items ${cls}`, role: 'listbox', 'aria-multiselectable': 'true', style: { '--fb-thumb': `${this.thumbSize}px` } },
+        this.view === 'LIST_VERTICAL' && shown.length ? this.columnHeader() : null,
         this.status ? h('div', { class: 'fb-empty-small' }, this.status) : null,
         !this.status && !shown.length ? h('div', { class: 'fb-empty-small' }, this.items.length ? 'No files match the filter' : 'This folder is empty') : null,
         shown.map((it) => {
@@ -984,19 +1148,21 @@ async function copyFolder(src: DirHandle, parent: DirHandle, name: string) {
   }
 }
 
+/** Bookmark the bookmark operators act on (clicked last). */
+let activeBookmark = -1;
+
 function bookmarkMenu(p: Place): MenuItem[] {
-  const move = (to: 'TOP' | 'BOTTOM') => () => {
-    bookmarks.splice(bookmarks.indexOf(p), 1);
-    if (to === 'TOP') bookmarks.unshift(p);
-    else bookmarks.push(p);
-    saveBookmarks();
-    redrawAll();
-  };
+  activeBookmark = bookmarks.indexOf(p);
+  const i = activeBookmark;
   return [
-    { label: 'Remove Bookmark', icon: 'x', action: () => (bookmarks.splice(bookmarks.indexOf(p), 1), saveBookmarks(), redrawAll()) },
+    { label: 'Delete Bookmark', icon: 'x', op: 'file.bookmark_delete', props: { index: i } },
     { separator: true },
-    { label: 'Move to Top', action: move('TOP') },
-    { label: 'Move to Bottom', action: move('BOTTOM') },
+    { label: 'Move to Top', icon: 'tria_left_bar', op: 'file.bookmark_move', props: { direction: 'TOP' }, disabled: i === 0 },
+    { label: 'Move Up', icon: 'triangle_up', op: 'file.bookmark_move', props: { direction: 'UP' }, disabled: i === 0 },
+    { label: 'Move Down', icon: 'triangle_down', op: 'file.bookmark_move', props: { direction: 'DOWN' }, disabled: i === bookmarks.length - 1 },
+    { label: 'Move to Bottom', icon: 'tria_right_bar', op: 'file.bookmark_move', props: { direction: 'BOTTOM' }, disabled: i === bookmarks.length - 1 },
+    { separator: true },
+    { label: 'Cleanup Bookmarks', op: 'file.bookmark_cleanup' },
   ];
 }
 
@@ -1098,6 +1264,125 @@ registerOperators([
     },
     exec: (ctx, p) => void fbOf(ctx)!.saveProjectHere(String(p.filename || '') || undefined),
   },
+  {
+    idname: 'file.bookmark_delete',
+    label: 'Delete Bookmark',
+    description: 'Remove a bookmark (index -1: the active one)',
+    undo: false,
+    props: [{ id: 'index', label: 'Index', type: 'int', default: -1, min: -1 }],
+    poll: () => bookmarks.length > 0,
+    exec: (_ctx, p) => {
+      const i = Number(p.index) >= 0 ? Number(p.index) : activeBookmark;
+      if (i < 0 || i >= bookmarks.length) return 'CANCELLED';
+      bookmarks.splice(i, 1);
+      activeBookmark = Math.min(activeBookmark, bookmarks.length - 1);
+      saveBookmarks();
+      redrawAll();
+    },
+  },
+  {
+    idname: 'file.bookmark_move',
+    label: 'Move Bookmark',
+    description: 'Move the active bookmark up, down, to the top or to the bottom of the list',
+    undo: false,
+    props: [{ id: 'direction', label: 'Direction', type: 'enum', default: 'UP', items: [['TOP', 'Top', 'Top of the list'], ['UP', 'Up'], ['DOWN', 'Down'], ['BOTTOM', 'Bottom', 'Bottom of the list']] }],
+    poll: () => activeBookmark >= 0 && activeBookmark < bookmarks.length,
+    exec: (_ctx, p) => {
+      activeBookmark = moveInList(bookmarks, activeBookmark, p.direction as 'UP');
+      saveBookmarks();
+      redrawAll();
+    },
+  },
+  {
+    idname: 'file.bookmark_cleanup',
+    label: 'Cleanup Bookmarks',
+    description: 'Remove bookmarks of folders that are gone or bookmarked twice',
+    undo: false,
+    poll: () => bookmarks.length > 0,
+    exec: () => {
+      void (async () => {
+        const keep: Place[] = [];
+        for (const b of bookmarks) {
+          let dup = false;
+          for (const k of keep) if (await sameEntry(k.handle, b.handle)) dup = true;
+          let gone = false;
+          try {
+            // a folder that was deleted fails to list
+            const it = b.handle.values()[Symbol.asyncIterator]();
+            await it.next();
+          } catch (e) {
+            gone = (e as Error)?.name === 'NotFoundError';
+          }
+          if (!dup && !gone) keep.push(b);
+        }
+        const n = bookmarks.length - keep.length;
+        bookmarks = keep;
+        activeBookmark = Math.min(activeBookmark, bookmarks.length - 1);
+        saveBookmarks();
+        redrawAll();
+        app.report('INFO', n ? `Removed ${n} bookmark${n === 1 ? '' : 's'}` : 'All bookmarks are valid');
+      })();
+    },
+  },
+  {
+    idname: 'file.select_bookmark',
+    label: 'Select Directory',
+    description: 'Go to a bookmarked or recent folder by name',
+    undo: false,
+    props: [{ id: 'dir', label: 'Directory', type: 'string', default: '' }],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => {
+      const name = String(p.dir);
+      const place = bookmarks.find((b) => b.name === name) ?? recentDirs.find((b) => b.name === name);
+      const root = place?.handle ?? roots.find((r) => r.name === name) ?? (name === 'Browser Storage' ? opfs : null);
+      if (!root) {
+        app.report('WARNING', `No bookmark named "${name}"`);
+        return 'CANCELLED';
+      }
+      if (place && bookmarks.includes(place)) activeBookmark = bookmarks.indexOf(place);
+      void fbOf(ctx)!.openRoot(root);
+    },
+  },
+  { idname: 'file.hidedot', label: 'Toggle Hide Dot Files', description: 'Show or hide files and folders whose name starts with a dot', undo: false, poll: (ctx) => !!fbOf(ctx), exec: (ctx) => fbOf(ctx)!.toggleHidden() },
+  {
+    idname: 'file.sort_column_ui_context',
+    label: 'Sort from Column',
+    description: 'Sort the files by a column of the list; the current column reverses the order',
+    undo: false,
+    props: [{ id: 'column', label: 'Column', type: 'enum', default: 'ALPHA', items: [['ALPHA', 'Name'], ['EXTENSION', 'Extension'], ['TIME', 'Modified Date'], ['SIZE', 'Size']] }],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => fbOf(ctx)!.sortColumn(p.column as SortBy),
+  },
+  {
+    idname: 'file.select',
+    label: 'Select',
+    description: 'Select the file under the pointer (extend toggles, fill selects a range, open opens it)',
+    undo: false,
+    props: [
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+      { id: 'fill', label: 'Fill', type: 'bool', default: false },
+      { id: 'open', label: 'Open', type: 'bool', default: true },
+      { id: 'deselect_all', label: 'Deselect On Nothing', type: 'bool', default: false },
+      { id: 'mouse_x', label: 'Mouse X', type: 'int', default: 0, hidden: true },
+      { id: 'mouse_y', label: 'Mouse Y', type: 'int', default: 0, hidden: true },
+    ],
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx, p) => {
+      const pt = p.mouse_x || p.mouse_y ? { x: Number(p.mouse_x), y: Number(p.mouse_y) } : (ctx.event ?? app.pointer);
+      return fbOf(ctx)!.selectAt(pt.x, pt.y, { extend: !!p.extend, fill: !!p.fill, open: !!p.open, deselectAll: !!p.deselect_all }) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
+  {
+    idname: 'file.mouse_execute',
+    label: 'Execute File',
+    description: 'Open the file under the pointer (or enter the folder)',
+    undo: false,
+    poll: (ctx) => !!fbOf(ctx),
+    exec: (ctx) => {
+      const pt = ctx.event ?? app.pointer;
+      return fbOf(ctx)!.executeAt(pt.x, pt.y) ? 'FINISHED' : 'CANCELLED';
+    },
+  },
   { idname: 'file.bookmark_add', label: 'Add Bookmark', description: 'Bookmark the current folder', undo: false, poll: withDir, exec: (ctx) => void fbOf(ctx)!.addBookmark() },
   {
     idname: 'file.reset_recent',
@@ -1129,6 +1414,8 @@ registerOperators([
 ]);
 
 addKeys('File Browser', [
+  { key: 'BUTTON4MOUSE', op: 'file.previous' },
+  { key: 'BUTTON5MOUSE', op: 'file.next' },
   ...DIRS.flatMap(([d]) => [
     { key: `${d}_ARROW`, op: 'file.select_walk', props: { direction: d } },
     { key: `${d}_ARROW`, shift: true, op: 'file.select_walk', props: { direction: d, extend: true } },

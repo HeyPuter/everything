@@ -35,6 +35,8 @@ export interface KeyconfigOptions {
   use_v3d_tab_menu: boolean;
   /** G / R / S switch to the move / rotate / scale tool instead of moving at once */
   use_key_activate_tools: boolean;
+  /** File Browser: one click enters a folder (instead of a double click) */
+  use_file_single_click?: boolean;
 }
 
 export const defaultOptions = (): KeyconfigOptions => ({ spacebar_action: 'PLAY', use_select_all_toggle: false, use_v3d_tab_menu: false, use_key_activate_tools: false });
@@ -465,6 +467,7 @@ export function normalizeKeyconfig(raw: unknown): KeyconfigData {
   if (typeof o.use_select_all_toggle === 'boolean') out.options.use_select_all_toggle = o.use_select_all_toggle;
   if (typeof o.use_v3d_tab_menu === 'boolean') out.options.use_v3d_tab_menu = o.use_v3d_tab_menu;
   if (typeof o.use_key_activate_tools === 'boolean') out.options.use_key_activate_tools = o.use_key_activate_tools;
+  if (typeof o.use_file_single_click === 'boolean') out.options.use_file_single_click = o.use_file_single_click;
   if (r.edits && typeof r.edits === 'object') for (const [id, e] of Object.entries(r.edits as Record<string, unknown>)) if (e && typeof e === 'object') out.edits[id] = pickFields(e as Record<string, unknown>);
   if (Array.isArray(r.removed)) out.removed = r.removed.filter((x): x is string => typeof x === 'string');
   if (Array.isArray(r.added))

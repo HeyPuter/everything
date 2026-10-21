@@ -6,7 +6,7 @@ import { app, registerOperators, operators, onAppReady, type ChangeKind, type Op
 import { addKeys } from '../../app/keymap';
 import { registerEditor, type Area, type Editor } from '../../ui/screen';
 import { textField, setPanelSearch, enumRow, checkbox } from '../../ui/widgets';
-import { openPopover, anyPopupOpen, onMenusClosed } from '../../ui/menu';
+import { openPopover, openMenu, anyPopupOpen, onMenusClosed, type MenuItem } from '../../ui/menu';
 import type { ObjectData } from '../../data/types';
 import './properties.css';
 
@@ -119,6 +119,32 @@ export class Properties implements Editor {
       { passive: false },
     );
     this.body.addEventListener('pointerdown', (e) => this.onGripDown(e));
+    // right-click on the background (not on a button or panel header): the editor's own menu
+    this.el.addEventListener('contextmenu', (e) => {
+      if (e.defaultPrevented) return;
+      const t = e.target as HTMLElement;
+      if (t.closest('[data-id], button, input, textarea, .panel-header, .ul-row, .uilist, a, label')) return;
+      e.preventDefault();
+      app.run('buttons.context_menu', {}, { area: this.area, event: { x: e.clientX, y: e.clientY } });
+    });
+  }
+
+  /** Right-click menu of the editor background. */
+  contextMenu(): MenuItem[] {
+    return [
+      { label: 'Pin ID', checked: !!this.pinned, disabled: !this.pinned && !app.doc.scene.active_object, op: 'buttons.toggle_pin' },
+      { separator: true },
+      { label: 'Zoom In', shortcut: 'Numpad +', action: () => this.zoomBy(1.1) },
+      { label: 'Zoom Out', shortcut: 'Numpad -', action: () => this.zoomBy(1 / 1.1) },
+      { label: 'Reset Zoom', shortcut: 'Home', disabled: this.zoom === 1, action: () => this.resetView() },
+      { separator: true },
+      { label: 'Visible Tabs', submenu: () => propertiesTabs.map((t) => ({ label: t.label, icon: t.icon, checked: !this.hiddenTabs.includes(t.id), keepOpen: true, action: () => {
+        this.hiddenTabs = this.hiddenTabs.includes(t.id) ? this.hiddenTabs.filter((x) => x !== t.id) : [...this.hiddenTabs, t.id];
+        this.update();
+      } })) },
+      { separator: true },
+      { label: 'Area', submenu: () => this.area.areaMenu() },
+    ];
   }
 
   header(): Child {
@@ -527,6 +553,26 @@ function propsEditor(ctx: OpContext): Properties | null {
 }
 
 registerOperators([
+  {
+    idname: 'buttons.toggle_pin',
+    label: 'Toggle Pin ID',
+    description: 'Keep showing the current object in this editor even when the active object changes',
+    undo: false,
+    poll: (ctx) => !!propsEditor(ctx),
+    exec: (ctx) => propsEditor(ctx)!.togglePin(),
+  },
+  {
+    idname: 'buttons.context_menu',
+    label: 'Context Menu',
+    description: 'Display the context menu of the Properties editor',
+    undo: false,
+    poll: (ctx) => !!propsEditor(ctx),
+    invoke: (ctx) => {
+      const p = ctx.event ?? app.pointer;
+      openMenu(propsEditor(ctx)!.contextMenu(), { x: p.x, y: p.y }, { title: 'Properties' });
+      return 'CANCELLED';
+    },
+  },
   {
     idname: 'buttons.start_filter',
     label: 'Filter',

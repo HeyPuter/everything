@@ -1,6 +1,7 @@
 // Sculpt / paint mode UI: toolbar tools, tool header settings, sidebar Tool tab panels, header
 // menus, keymaps and the viewport input hooks (strokes, cursor, context menu).
 import { app, onAppReady, registerOperators } from '../app/app';
+import { workspacePanel } from '../ui/workspacepanel';
 import { propertiesTabs } from '../editors/properties/properties';
 import { activeTools } from '../app/prefs';
 import { addKeys, keyName, keymaps, keyLabel, type KeyItem } from '../app/keymap';
@@ -1181,7 +1182,7 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(panel('pt-sculpt-opts', 'Options', () => sculptOptionRows(), { closed: true }));
     out.push(panel('pt-automask', 'Auto-Masking', () => automaskSettings('pt-am'), { closed: true }));
   }
-  out.push(panel(`pt-workspace-${mode}`, 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${mode[0] + mode.slice(1).toLowerCase().replace('_', ' ')}`)], { closed: true }));
+  out.push(workspacePanel(`pt-workspace-${mode}`, { closed: true }));
   return out;
 }
 

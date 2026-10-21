@@ -7,6 +7,7 @@ import type { NodeData } from '../../data/types';
 import { getNodeType } from '../registry';
 import { readRamp, writeRamp, bakeRamp, evalRamp, readCurve, writeCurve, evalCurve, evalPeriodicCurve, CURVE_NAMES, CURVE_RANGE, defaultCurves, type CurveKind, type CurvePoint } from '../curves';
 import type { NodeDrawContext } from '../types';
+import { setHoveredRamp, type RampStopLike } from '../../ui/rampdropper';
 
 const css = (c: number[]) =>
   `rgba(${c
@@ -114,7 +115,18 @@ export function drawRamp(ctx: NodeDrawContext): Child {
   const key = `${ctx.key}:ramp`;
   return h(
     'div',
-    { class: 'nd-ramp' },
+    {
+      class: 'nd-ramp',
+      // the color ramp eyedroppers (E / Alt E over the ramp) sample into it
+      onpointerenter: (e: PointerEvent) =>
+        setHoveredRamp(e.currentTarget as HTMLElement, {
+          stops: () => readRamp(n.props).stops as RampStopLike[],
+          set: (s) => {
+            n.props.ramp_active = Math.min(rampActive(n, s.length), Math.max(0, s.length - 1));
+            setStops(s, 'Eyedropper Colorband', false);
+          },
+        }),
+    },
     h(
       'div',
       { class: 'nd-ramp-tools' },

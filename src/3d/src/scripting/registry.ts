@@ -281,6 +281,8 @@ export interface ScriptPanelSpec {
 
 export const scriptPanels = new Map<string, ScriptPanelSpec>();
 export const panelListeners = new Set<() => void>();
+/** Whether a script panel is shown (the workspace's add-on filter replaces the test). */
+export const panelVisibility = { test: (_idname: string) => true };
 
 export function registerScriptPanel(spec: ScriptPanelSpec) {
   if (spec.space !== 'VIEW_3D' || spec.region !== 'UI') {

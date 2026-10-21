@@ -151,6 +151,7 @@ export function renderMenu(): MenuItem[] {
 export function windowMenu(sh: Shell): MenuItem[] {
   return [
     { label: 'New Window', op: 'wm.window_new' },
+    { label: 'New Main Window', op: 'wm.window_new_main' },
     { separator: true },
     { label: 'Toggle Window Fullscreen', icon: 'fullscreen_enter', op: 'wm.window_fullscreen_toggle' },
     ...(app.doc.scene.render.use_multiview ? [{ label: 'Set Stereo 3D…', op: 'wm.set_stereo_3d' }] : []),
@@ -195,11 +196,17 @@ export function appMenu(): MenuItem[] {
     { label: 'Splash Screen', op: 'wm.splash' },
     { label: 'About', icon: 'info_small', op: 'wm.splash_about' },
     { separator: true },
+    { label: 'Install Application Template…', op: 'preferences.app_template_install' },
+    { separator: true },
     {
       label: 'System',
       submenu: () => [
+        { label: 'Reload Scripts', op: 'script.reload' },
+        { separator: true },
         { label: 'Memory Statistics', op: 'wm.memory_statistics' },
         { label: 'Redraw Timer', submenu: () => REDRAW_TYPES.map(([id, label]) => ({ label, op: 'wm.redraw_timer', props: { type: id } })) },
+        { separator: true },
+        { label: 'Clean Up Operator Presets', op: 'wm.operator_presets_cleanup' },
       ],
     },
   ];

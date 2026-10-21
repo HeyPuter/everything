@@ -42,6 +42,9 @@ export const keymaps: Record<string, KeyItem[]> = {};
 /** Modes that consume raw key input (e.g. text editing in the 3D view) before keymaps run. */
 export const keyInputHooks: ((e: KeyboardEvent) => boolean)[] = [];
 
+/** Keymaps added for an area after its editor's own ones (e.g. the shared View2D navigation). */
+export const areaKeymapHooks: ((area: unknown) => string | null)[] = [];
+
 export function addKeys(name: string, items: KeyItem[]) {
   (keymaps[name] ??= []).push(...items);
   keymapHooks.added?.(name, items);
@@ -87,6 +90,12 @@ const CODE_MAP: Record<string, string> = {
   AltRight: 'RIGHT_ALT',
   MetaLeft: 'OSKEY',
   MetaRight: 'OSKEY',
+  Insert: 'INSERT',
+  ContextMenu: 'APP',
+  MediaPlayPause: 'MEDIA_PLAY',
+  MediaStop: 'MEDIA_STOP',
+  MediaTrackNext: 'MEDIA_LAST',
+  MediaTrackPrevious: 'MEDIA_FIRST',
 };
 
 /** Modifier keys (never bound on their own by the dispatcher's click detection). */
@@ -126,6 +135,16 @@ const NICE: Record<string, string> = {
   NUMPAD_MINUS: 'Numpad -',
   NUMPAD_SLASH: 'Numpad /',
   NUMPAD_ASTERIX: 'Numpad *',
+  INSERT: 'Insert',
+  APP: 'Menu',
+  MEDIA_PLAY: 'Media Play',
+  MEDIA_STOP: 'Media Stop',
+  MEDIA_FIRST: 'Media Previous',
+  MEDIA_LAST: 'Media Next',
+  BUTTON4MOUSE: 'Mouse Back',
+  BUTTON5MOUSE: 'Mouse Forward',
+  WHEELUPMOUSE: 'Wheel Up',
+  WHEELDOWNMOUSE: 'Wheel Down',
 };
 
 export function keyLabel(k: KeyItem) {
@@ -164,7 +183,12 @@ const freeKeys = new Set<string>();
 
 /** Run the first matching item of the hovered editor's keymaps for one key event value. */
 function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, editor: EditorKeys | undefined, value: KeyValue, pressMods?: number): boolean {
-  const names = [...(editor?.keymaps ?? []), 'Frames', 'Screen', 'Window'];
+  const extra: string[] = [];
+  for (const f of areaKeymapHooks) {
+    const n = f(area);
+    if (n) extra.push(n);
+  }
+  const names = [...(editor?.keymaps ?? []), ...extra, 'Frames', 'Screen', 'Window'];
   const seen = new Set<string>();
   const ev = pressMods === undefined ? e : { ctrlKey: !!(pressMods & 1), metaKey: false, shiftKey: !!(pressMods & 2), altKey: !!(pressMods & 4) };
   for (const km of names) {
@@ -197,8 +221,45 @@ function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, e
   return false;
 }
 
+/** A wheel event from a mouse wheel (notches), not a trackpad's continuous scrolling. */
+export function isWheelNotch(e: WheelEvent) {
+  if (e.deltaMode === 1 || e.deltaMode === 2) return true;
+  return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50;
+}
+
+/** Keymap items bound to the mouse wheel (WHEELUPMOUSE / WHEELDOWNMOUSE) run before the editors' own wheel handling. */
+function onWheel(e: WheelEvent) {
+  if (app.modal || pieOpen() || !e.deltaY || !isWheelNotch(e)) return;
+  const t = e.target as HTMLElement | null;
+  if (t?.closest?.('input, textarea, select, .num-field, .popup-layer, .menu')) return;
+  const area = app.hoverArea ?? app.activeArea;
+  const editor = area?.editor as EditorKeys | undefined;
+  const name = e.deltaY < 0 ? 'WHEELUPMOUSE' : 'WHEELDOWNMOUSE';
+  const ev = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, repeat: false, preventDefault: () => e.preventDefault() } as unknown as KeyboardEvent;
+  if (dispatch(ev, name, area, editor, 'PRESS')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
+/** The extra mouse buttons (back / forward) run keymap items BUTTON4MOUSE / BUTTON5MOUSE. */
+function onExtraButton(e: MouseEvent) {
+  if (e.button !== 3 && e.button !== 4) return;
+  // never let them navigate the page away
+  e.preventDefault();
+  if (e.type !== 'mousedown' || app.modal || pieOpen()) return;
+  const area = app.hoverArea ?? app.activeArea;
+  const editor = area?.editor as EditorKeys | undefined;
+  const ev = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, repeat: false, preventDefault: () => e.preventDefault() } as unknown as KeyboardEvent;
+  dispatch(ev, e.button === 3 ? 'BUTTON4MOUSE' : 'BUTTON5MOUSE', area, editor, 'PRESS');
+}
+
 /** Install the global key handler. Area editors expose `keymaps` (names in priority order). */
 export function installKeyboard() {
+  addEventListener('wheel', onWheel, { capture: true, passive: false });
+  addEventListener('mousedown', onExtraButton, true);
+  addEventListener('mouseup', onExtraButton, true);
+  addEventListener('auxclick', (e) => (e.button === 3 || e.button === 4) && e.preventDefault(), true);
   addEventListener(
     'keydown',
     (e) => {

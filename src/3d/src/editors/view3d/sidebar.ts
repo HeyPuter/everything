@@ -1,5 +1,6 @@
 // Viewport sidebar (N panel): Item / Tool / View tabs.
 import { propertyAnimMenuHook } from '../../ui/props';
+import { workspacePanel } from '../../ui/workspacepanel';
 import { Box3, Vector3, Euler, Quaternion } from 'three';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
@@ -158,7 +159,7 @@ sidebarTabs.push(
       return [
         panel('sb-active-tool', 'Active Tool', () => h('div', { class: 'sb-active-tool' }, toolHeader(v))),
         panel('sb-options', 'Options', () => toolOptions('sb')),
-        panel('sb-workspace', 'Workspace', () => [h('div', { class: 'sb-label' }, `Mode: ${app.doc.mode[0] + app.doc.mode.slice(1).toLowerCase().replace('_', ' ')}`)]),
+        workspacePanel('sb-workspace'),
       ];
     },
   },

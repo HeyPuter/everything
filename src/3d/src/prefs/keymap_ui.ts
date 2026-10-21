@@ -14,6 +14,8 @@ import type { Edit, ItemFields } from './keyconfig_core';
 /** Parent keymap of each nested keymap (the tree shown in the editor). */
 const PARENT: Record<string, string> = {
   Frames: 'Screen',
+  'Screen Editing': 'Screen',
+  'Toolbar Popup': 'Window',
   'Object Mode': '3D View',
   'Object Non-modal': '3D View',
   Mesh: '3D View',
@@ -46,7 +48,7 @@ const PARENT: Record<string, string> = {
   'Clip Graph Editor': 'Clip',
   'Clip Dopesheet Editor': 'Clip',
 };
-const TOP_ORDER = ['Window', 'Screen', 'User Interface', '3D View', 'Image', 'Node Editor', 'Animation', 'Sequencer', 'Clip', 'Text', 'Console', 'Info', 'Outliner', 'Property Editor', 'File Browser'];
+const TOP_ORDER = ['Window', 'Screen', 'View2D', 'View2D Buttons List', 'User Interface', '3D View', 'Image', 'Node Editor', 'Animation', 'Sequencer', 'Clip', 'Text', 'Console', 'Info', 'Outliner', 'Property Editor', 'File Browser'];
 
 const VALUES: EnumItem[] = [
   { value: 'PRESS', label: 'Press', description: 'Runs when the key goes down' },
@@ -64,6 +66,8 @@ const KEY_NAMES: string[] = [
   'TAB', 'SPACE', 'RET', 'ESC', 'BACK_SPACE', 'DEL', 'HOME', 'END', 'PAGE_UP', 'PAGE_DOWN',
   'LEFT_ARROW', 'RIGHT_ARROW', 'UP_ARROW', 'DOWN_ARROW',
   'ACCENT_GRAVE', 'MINUS', 'EQUAL', 'LEFT_BRACKET', 'RIGHT_BRACKET', 'SEMI_COLON', 'QUOTE', 'COMMA', 'PERIOD', 'SLASH', 'BACK_SLASH',
+  'INSERT', 'APP', 'MEDIA_PLAY', 'MEDIA_STOP', 'MEDIA_FIRST', 'MEDIA_LAST',
+  'WHEELUPMOUSE', 'WHEELDOWNMOUSE', 'BUTTON4MOUSE', 'BUTTON5MOUSE',
   ...MODIFIER_KEYS,
   'NONE',
 ];
@@ -266,6 +270,8 @@ export class KeymapView {
           (v) => set({ use_key_activate_tools: v === 'TOOL' }),
         ),
       ),
+      h('div', { class: 'pl-subtitle' }, 'File Browser'),
+      splitRow('', checkbox('km-fb-single', 'Open Folders on Single Click', !!o.use_file_single_click, (v) => set({ use_file_single_click: v }), { tip: 'Open Folders on Single Click\nIn the File Browser one click enters a folder' }), undefined, 'check'),
     ], { closed: true });
   }
 

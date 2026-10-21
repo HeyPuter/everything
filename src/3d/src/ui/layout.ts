@@ -182,3 +182,82 @@ export function removeFromLayout(root: LayoutNode, id: string): LayoutNode | nul
   };
   return rec(root);
 }
+
+/** An edge between areas: the divider of one split node. */
+export interface LayoutEdge {
+  node: Split;
+  /** 'h': a vertical line between side-by-side areas; 'v': a horizontal line between stacked ones */
+  dir: 'h' | 'v';
+  /** line position (x for 'h', y for 'v') and its extent along the other axis */
+  pos: number;
+  from: number;
+  to: number;
+  /** start and size of the split node's box along the split axis */
+  start: number;
+  size: number;
+}
+
+/** All edges of a layout of `w`×`h` pixels (same rounding as the screen layout). */
+export function layoutEdges(root: LayoutNode, w: number, h: number, gap = GAP): LayoutEdge[] {
+  const out: LayoutEdge[] = [];
+  const rec = (n: LayoutNode, x: number, y: number, ww: number, hh: number) => {
+    if ('area' in n) return;
+    if (n.split === 'h') {
+      const wa = Math.round((ww - gap) * n.ratio);
+      out.push({ node: n, dir: 'h', pos: x + wa + gap / 2, from: y, to: y + hh, start: x, size: ww });
+      rec(n.a, x, y, wa, hh);
+      rec(n.b, x + wa + gap, y, ww - wa - gap, hh);
+    } else {
+      const ha = Math.round((hh - gap) * n.ratio);
+      out.push({ node: n, dir: 'v', pos: y + ha + gap / 2, from: x, to: x + ww, start: y, size: hh });
+      rec(n.a, x, y, ww, ha);
+      rec(n.b, x, y + ha + gap, ww, hh - ha - gap);
+    }
+  };
+  rec(root, 0, 0, w, h);
+  return out;
+}
+
+/** The edge closest to a screen-local point, within `tol` pixels. */
+export function edgeNear(edges: LayoutEdge[], x: number, y: number, tol = 4): LayoutEdge | null {
+  let best: LayoutEdge | null = null;
+  let bd = tol + 1e-9;
+  for (const e of edges) {
+    const [along, across] = e.dir === 'h' ? [y, x] : [x, y];
+    if (along < e.from - tol || along > e.to + tol) continue;
+    const d = Math.abs(across - e.pos);
+    if (d <= bd) ((bd = d), (best = e));
+  }
+  return best;
+}
+
+/**
+ * Ratio for an edge moved to `pos` (screen-local pixels), keeping at least `minPx` (a header's
+ * height) on both sides.
+ */
+export function edgeRatio(e: LayoutEdge, pos: number, minPx = 26, gap = GAP): number {
+  const avail = Math.max(1, e.size - gap);
+  const r = (pos - e.start - gap / 2) / avail;
+  const minFrac = Math.min(0.45, minPx / avail);
+  return Math.max(minFrac, Math.min(1 - minFrac, r));
+}
+
+/**
+ * Edges that continue `e` in a straight line (same direction and position, touching end to end,
+ * e.g. the two halves of a quad view's middle line): dragging one moves them all.
+ */
+export function alignedEdges(edges: LayoutEdge[], e: LayoutEdge, tol = 1, gap = GAP): LayoutEdge[] {
+  const out = [e];
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const x of edges) {
+      if (out.includes(x) || x.dir !== e.dir || Math.abs(x.pos - e.pos) > tol) continue;
+      if (out.some((y) => x.from <= y.to + gap + tol && y.from <= x.to + gap + tol)) {
+        out.push(x);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}

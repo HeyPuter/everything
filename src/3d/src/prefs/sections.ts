@@ -14,6 +14,8 @@ import { registerPrefSection } from './editor';
 import { pBool, pNum, pEnum, pText, pColor, note, infoRow } from './ui';
 import { setPref } from './store';
 import { ndofDevices } from './ndof';
+import { excludedPathsRows } from './pathlists';
+import { appTemplatesPanel } from './apptemplates';
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -412,7 +414,9 @@ registerPrefSection({
     panel('pf-textfiles', 'Text Files', () => [pBool('use_tabs_as_spaces', 'Tabs as Spaces', 'The Tab key in the Text Editor inserts spaces')]),
     panel('pf-autorun', 'Auto Run Scripts', () => [
       pBool('use_scripts_auto_execute', 'Auto Run Scripts', 'Run the texts marked Text ▸ Register when a project is opened. Only turn this on for projects you trust: scripts can change anything in the project.'),
+      excludedPathsRows(),
     ]),
+    appTemplatesPanel(),
     panel('pf-fb', 'File Browser', () => [
       pBool('use_filter_files', 'Filter Files', 'New File Browsers show only projects, images, models and texts'),
       pBool('show_hidden_files_datablocks', 'Show Hidden Files', 'New File Browsers list files whose names start with a dot'),
