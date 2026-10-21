@@ -724,6 +724,7 @@ function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         ),
       );
+    if (b.sculpt_tool === 'GRAB') rows.push(checkbox(`${p}-gsil`, 'Grab Silhouette', !!b.use_grab_silhouette, (x) => ((b.use_grab_silhouette = x), changed()), { tip: 'Only move the side facing like the grabbed point, keeping the outline of thin parts' }));
     if (b.sculpt_tool === 'LAYER')
       rows.push(
         checkbox(`${p}-persist`, 'Persistent', !!b.use_persistent, (x) => ((b.use_persistent = x), changed()), { tip: 'Measure the layer height from a stored base shape, so strokes build on the same layer' }),

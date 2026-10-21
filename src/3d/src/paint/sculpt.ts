@@ -730,6 +730,17 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         const n = gather(st, c, st.radiusLocal, mirrorVec(viewDir, sg));
         factors(st, n, tool === 'ROTATE' ? Math.min(1, strength * 2) : Math.min(1, strength * 1.5));
         const area = areaPlane(st, n, b.normal_radius_factor ?? 0.5, new Vector3(...mirror(hit.normal.toArray(), sg)), c);
+        if (tool === 'GRAB' && b.use_grab_silhouette) {
+          // silhouette: only the side of the surface facing like the grabbed point moves
+          const hn = mirrorVec(hit.normal, sg);
+          const vn = s.vn;
+          for (let k = 0; k < n; k++) {
+            const vi = s.gv[k] * 3;
+            const dt = vn[vi] * hn.x + vn[vi + 1] * hn.y + vn[vi + 2] * hn.z;
+            const u = Math.max(0, Math.min(1, (dt + 0.1) / 0.4));
+            s.gf[k] *= u * u * (3 - 2 * u);
+          }
+        }
         passes.push({
           sign: sg,
           verts: s.gv.slice(0, n),

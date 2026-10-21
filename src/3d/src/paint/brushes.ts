@@ -14,6 +14,8 @@ export interface PaintBrush extends BrushData, StencilSettings, GradientSettings
   use_frontface?: boolean;
   /** clay/flatten/fill/scrape plane offset (fraction of the radius) */
   plane_offset?: number;
+  /** grab brush: leave the far side of thin parts in place */
+  use_grab_silhouette?: boolean;
   /** layer brush: measure the layer height from the persistent base (kept between strokes) */
   use_persistent?: boolean;
   /** crease/blob pinch amount */
