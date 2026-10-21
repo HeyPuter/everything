@@ -779,7 +779,8 @@ export class Store extends Emitter {
     if (!before) return;
     this.versionState.set(page.id, { busy: true, last: Date.now() });
     const job = (async () => {
-      const list = (await this.backend.readJSON(`versions/${page.id}.json`).catch(() => null)) || [];
+      // A failed read must not save a list holding only this version.
+      const list = (await this.readDamaged(`versions/${page.id}.json`)) || [];
       // The section may have been protected while the list was read.
       if (this.protectionOf(page.id)) return;
       const newest = list[0] ? Date.parse(list[0].at) : 0;
@@ -797,7 +798,7 @@ export class Store extends Emitter {
   }
 
   async addVersion(pageId, snapshot) {
-    const list = (await this.backend.readJSON(`versions/${pageId}.json`).catch(() => null)) || [];
+    const list = (await this.readDamaged(`versions/${pageId}.json`)) || [];
     list.unshift({ at: this.now(), page: snapshot });
     list.length = Math.min(list.length, MAX_VERSIONS);
     await this.backend.writeJSON(`versions/${pageId}.json`, list);

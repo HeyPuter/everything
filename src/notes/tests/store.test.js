@@ -284,6 +284,30 @@ describe('Store: saving', () => {
   });
 });
 
+describe('Store: page versions on a flaky connection', () => {
+  it('never replaces the version list when reading it fails', async () => {
+    const backend = memoryBackend();
+    const store = new Store(backend, { saveDelay: 0 });
+    await store.load();
+    const meta = [...store.sectionsOf(store.notebooks[0])][0].pages[0];
+    const old = Array.from({ length: 3 }, (_, i) => ({ at: new Date(Date.now() - (i + 1) * 3600000).toISOString(), page: { id: meta.id, title: `v${i}`, modified: `m${i}`, outlines: [], ink: [] } }));
+    backend.files.set(`versions/${meta.id}.json`, JSON.stringify(old));
+    await store.flush();
+    const again = new Store(backend, { saveDelay: 0 });
+    await again.load();
+    const page = await again.loadPage(meta.id);
+    page.title = 'Edited';
+    backend.failNext = 1; // the version list read
+    again.pageChanged(page, { title: 'Edited' });
+    await new Promise((r) => setTimeout(r, 20));
+    await again.flush();
+    expect((await again.versions(meta.id)).length).toBeGreaterThanOrEqual(3);
+    backend.failNext = 1;
+    await expect(again.addVersion(meta.id, structuredClone(page))).rejects.toThrow();
+    expect((await again.versions(meta.id)).length).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('Store: saving after a failure', () => {
   it('stops reporting a failed save once what it was saving is deleted', async () => {
     const backend = memoryBackend();
