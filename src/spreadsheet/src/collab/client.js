@@ -346,12 +346,15 @@ export class RoomClient extends EventTarget {
       this.peers?.update(res.ticket, res.signature, res.roster);
       const here = new Set(res.roster.map((t) => t.session));
       for (const s of [...this.people.keys()]) if (!here.has(s)) this.people.delete(s);
+      // The worker says when each person last checked in by its own clock, which can be minutes from this browser's.
+      const skew = Number.isFinite(res.serverTime) ? Date.now() - res.serverTime : 0;
       for (const t of res.roster) {
         if (t.session === this.session) continue;
         const known = this.people.get(t.session);
+        const at = Number.isFinite(t.at) ? t.at + skew : Date.now();
         // A peer's report is newer than what the worker holds.
-        const state = known && known.at > (t.at ?? 0) ? known.state : t.state ?? null;
-        this.people.set(t.session, { session: t.session, user: t.user, username: t.username, role: t.role, state, at: Math.max(known?.at ?? 0, t.at ?? Date.now()) });
+        const state = known && known.at > at ? known.state : t.state ?? null;
+        this.people.set(t.session, { session: t.session, user: t.user, username: t.username, role: t.role, state, at: Math.max(known?.at ?? 0, at) });
       }
       this.dispatchEvent(new CustomEvent('people'));
       if (this.status.state === 'offline') this.setStatus('connected');
