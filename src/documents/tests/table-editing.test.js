@@ -407,3 +407,24 @@ it.each(['row', 'column', 'table'])('deletes a comment anchored in a deleted %s,
   expect(doc.comments.map(c => c.text)).toEqual(['about before']);
   expect(doc.commentList.every(c => c.start !== null)).toBe(true);
 });
+
+// The Table Layout tab, the table pointer and Delete Cells use the table-editing commands.
+it.each([
+  ['Delete Rows', doc => T.deleteRows(doc)], ['Delete Columns', doc => T.deleteColumns(doc)], ['Delete Table', doc => T.deleteTable(doc)],
+  ['Delete Cells, shifting left', doc => T.deleteCells(doc, { shift: 'left' })], ['Delete Cells, shifting up', doc => T.deleteCells(doc, { shift: 'up' })],
+  ['clearing the cells', doc => T.clearCells(doc)],
+])('deletes a comment anchored in the cells %s removes, keeping the others', (name, command) => {
+  const { doc } = tableDocument(2, 2, ['Before']);
+  const keep = doc.text.indexOf('Before');
+  doc.select(keep, keep + 6); doc.addComment({ author: 'C', text: 'about before' });
+  const at = doc.text.indexOf('b1');
+  doc.select(at, at + 2); const id = doc.addComment({ author: 'C', text: 'about b1' });
+  doc.replyToComment(id, { author: 'D', text: 'reply' });
+  doc.select(at + 1);
+  expect(command(doc)).toBe(true);
+  expect(doc.comments.map(c => c.text)).toEqual(['about before']);
+  expect(doc.commentList.every(c => c.start !== null)).toBe(true);
+  // Undo brings the comment back with its cell.
+  doc.undo();
+  expect(doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)])).toEqual([['about before', 'Before'], ['about b1', 'b1'], ['reply', 'b1']]);
+});

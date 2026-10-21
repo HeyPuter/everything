@@ -186,6 +186,7 @@ function removeTable(model, table) {
   if (!model.paragraphs.length) model.paragraphs.push(paragraph());
   repairStructuralBookmarks(model.paragraphs, state.bookmarks, model.tables, table.id);
   normalizeBlockBookmarkScopes(model.paragraphs, model.tables);
+  M.removeUnanchoredComments(model, state.comments);
   model.select(model.paragraphOffset(Math.max(0, Math.min(state.start, model.paragraphs.length - 1))));
   model.didChange(); return true;
 }

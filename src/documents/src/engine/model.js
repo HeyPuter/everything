@@ -144,7 +144,17 @@ function tableContent(doc, table) {
     byCell.get(owner).push(p); count++;
   }
   const selection = Object.fromEntries(Object.entries(doc.selection).map(([key, value]) => { const at = locate(doc.paragraphs, value); return [key, { id: doc.paragraphs[at.index].id, offset: at.offset }]; }));
-  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables) };
+  const comments = doc.comments?.length ? new Set(commentAnchors(doc.paragraphs).map(a => a.id)) : null;
+  return { start, count, byCell, selection, bookmarks: bookmarkStructureState(doc.paragraphs, doc.tables), comments };
+}
+/**
+ * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
+ * without an anchor it could not be reached and was written to the file again on every save.
+ */
+function removeUnanchoredComments(doc, anchored) {
+  if (!anchored?.size || !doc.comments) return;
+  const kept = new Set(commentAnchors(doc.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
+  if (gone.size) doc.comments = doc.comments.filter(c => !gone.has(c.id) && !gone.has(c.parentId));
 }
 function removeOrphanedTables(doc) {
   for (;;) {
@@ -164,6 +174,7 @@ function applyTableContent(doc, table, state) {
   if (doc.hasBlockControls) rehomeMovedBlockControls(doc.paragraphs);
   repairStructuralBookmarks(doc.paragraphs, state.bookmarks, doc.tables, table.id);
   normalizeBlockBookmarkScopes(doc.paragraphs, doc.tables);
+  removeUnanchoredComments(doc, state.comments);
   for (const [key, point] of Object.entries(state.selection)) {
     const index = doc.paragraphs.findIndex(p => p.id === point.id);
     if (index >= 0) doc.selection[key] = doc.paragraphOffset(index) + point.offset;
@@ -1162,7 +1173,6 @@ export class TextDocument {
     const widths = kind === 'column' ? table.layout === 'autofit' ? [...table.grid] : fixedColumnWidths(table, this.sectionWritingWidth) : null;
     const state = tableContent(this, table), owners = verticalMerges(table);
     if (kind === 'column') state.bookmarks.gridEdit = { tableId: table.id, position: column, removed: span, inserted: 0 };
-    const anchored = this.comments?.length ? new Set(commentAnchors(this.paragraphs).map(a => a.id)) : null;
     this.checkpoint();
     if (kind === 'table') { this.tables = this.tables.filter(t => t.id !== table.id); this.paragraphs.splice(state.start, state.count); removeOrphanedTables(this); }
     else if (kind === 'row') {
@@ -1186,13 +1196,7 @@ export class TextDocument {
     }
     if (kind !== 'table') applyTableContent(this, table, state);
     if (!this.paragraphs.length) this.paragraphs.push(paragraph());
-    if (kind === 'table') { repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id); normalizeBlockBookmarkScopes(this.paragraphs, this.tables); }
-    if (anchored) {
-      // A comment anchored in the deleted cells goes with them (and its replies), as in Word: left without
-      // an anchor it could not be reached and was written to the file again on every save.
-      const kept = new Set(commentAnchors(this.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
-      if (gone.size) this.comments = this.comments.filter(c => !gone.has(c.id) && !gone.has(c.parentId));
-    }
+    if (kind === 'table') { repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id); normalizeBlockBookmarkScopes(this.paragraphs, this.tables); removeUnanchoredComments(this, state.comments); }
     this.select(this.paragraphOffset(Math.max(0, Math.min(first, this.paragraphs.length - 1)))); this.didChange(); return true;
   }
   insertTableParagraph(after = true) {
@@ -2447,4 +2451,4 @@ export class TextDocument {
 }
 
 // Table commands outside this file (table-editing.js) share the structural helpers above.
-export const tableModelInternals = Object.freeze({ tableContent, applyTableContent, blankCellParagraph, clearMerge, setCellWidths, refreshTableStyles, reparentCellContent, removeOrphanedTables });
+export const tableModelInternals = Object.freeze({ tableContent, applyTableContent, blankCellParagraph, clearMerge, setCellWidths, refreshTableStyles, reparentCellContent, removeOrphanedTables, removeUnanchoredComments });
