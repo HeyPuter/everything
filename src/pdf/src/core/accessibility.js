@@ -977,6 +977,15 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
   {
     const untagged = [],
       unreadable = [];
+    // Marked content counts as tagged only when an element of the tag tree claims it; a copied
+    // page keeps its MCIDs but no element points at them, so readers skip its content.
+    const claimed = new Set();
+    for (const element of structure?.elements || [])
+      for (const { page, mcid, stream } of element.mcids)
+        if (!stream) claimed.add(`${page ?? '*'}:${mcid}`);
+    // A tag tree too large to read whole cannot say what it leaves out.
+    const unclaimed = (index, mcid) =>
+      !structure?.truncated && !claimed.has(`${index}:${mcid}`) && !claimed.has(`*:${mcid}`);
     scans.forEach((scan, index) => {
       if (scan.error) {
         unreadable.push({
@@ -986,7 +995,8 @@ export function checkAccessibility(doc, { textContents, access } = {}) {
         return;
       }
       const count = scan.items.filter(
-        (item) => item.mcid === undefined && !item.artifact && !item.tagged,
+        (item) =>
+          !item.artifact && (item.mcid === undefined ? !item.tagged : unclaimed(index, item.mcid)),
       ).length;
       if (count)
         untagged.push({

@@ -18,7 +18,7 @@ import {
 import { autotagDocument, tagAnnotations } from '../src/core/autotag.js';
 import { addLink } from '../src/core/links.js';
 import { readXmp } from '../src/core/xmp.js';
-import { PdfSession } from '../src/core/document.js';
+import { PdfSession, duplicatePage } from '../src/core/document.js';
 
 const fontUrl = new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url).pathname;
 const reload = async (doc) => PDFDocument.load(await doc.save(), { updateMetadata: false });
@@ -309,6 +309,20 @@ describe('accessibility check', () => {
     const [a, b] = [await renderAll(before), await renderAll(await fixed.save())];
     expect(b.pages[0].pixels.equals(a.pages[0].pixels)).toBe(true);
     expect(tagAnnotations(fixed)).toBe(false);
+  });
+
+  it('counts a copied page whose marked content no tag claims as untagged', async () => {
+    const doc = await untaggedPdf();
+    autotagDocument(doc);
+    const session = new PdfSession(await doc.save());
+    expect(
+      status(checkAccessibility(await PDFDocument.load(session.bytes)), 'tagged-content').status,
+    ).toBe('passed');
+    // The copy keeps the page's MCIDs, but the tag tree describes only the original.
+    await session.change((current) => duplicatePage(current, 0));
+    const report = checkAccessibility(await PDFDocument.load(session.bytes));
+    expect(status(report, 'tagged-content').status).toBe('failed');
+    expect(status(report, 'tagged-content').details.map((detail) => detail.page)).toEqual([1]);
   });
 
   it('reports a figure without alternate text and setFigureAltText fixes it', async () => {
