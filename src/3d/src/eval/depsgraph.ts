@@ -67,9 +67,22 @@ export function modifiersSignature(mods: ModifierBase[]): string {
 }
 
 export function meshSignature(me: MeshData) {
-  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.bevel_weight_edge)}:${aid(me.bevel_weight_vert)}:${aid(me.crease_vert)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
+  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${me.uv_render_name ?? ''}:${me.uv_active_index ?? 0}:${(me.uv_layers_extra ?? []).map((u) => aid(u.data)).join('/')}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.bevel_weight_edge)}:${aid(me.bevel_weight_vert)}:${aid(me.crease_vert)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
     .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}:${aid(me.skin_vertices)}${me.use_relative === false ? `:abs${me.eval_time ?? 0}:${me.shape_keys.map((k) => `${k.frame}/${k.interpolation}`).join(',')}` : ''}`;
+}
+
+/** The UV map marked for rendering (the active one unless another is marked). */
+function renderUVs(me: MeshData): Float32Array {
+  const name = me.uv_render_name;
+  if (!name || name === me.uv_map_name) {
+    // without a mark, the first map in the list renders
+    if (name || !me.uv_layers_extra?.length || (me.uv_active_index ?? 0) === 0) return me.uvs;
+    const first = me.uv_layers_extra[0];
+    return first.data.length === me.indices.length * 2 ? first.data : me.uvs;
+  }
+  const u = me.uv_layers_extra?.find((x) => x.name === name);
+  return u && u.data.length === me.indices.length * 2 ? u.data : me.uvs;
 }
 
 /** Frame of an absolute shape key (keys without one are 10 apart). */
@@ -141,7 +154,8 @@ export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
     positions,
     offsets: me.offsets,
     indices: me.indices,
-    uvs: me.uvs,
+    // shading uses the map marked for rendering
+    uvs: renderUVs(me),
     normals: me.normals,
     smooth: me.smooth,
     material_index: me.material_index,

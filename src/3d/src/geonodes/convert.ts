@@ -38,11 +38,13 @@ export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): Geome
     nv = m.positions.length / 3;
   const attrs: AttrMap = new Map();
   const mesh = new MeshComponent(m.positions, m.offsets, m.indices, m.looseEdges ?? new Uint32Array(0), attrs, source?.materials ? [...source.materials] : []);
+  // (the evaluated corners carry the map marked for rendering; the original mesh has the active one)
+  const ownUVs = !!source && source.indices === m.indices && source.uvs.length === nc * 2;
   if (m.uvs && m.uvs.length === nc * 2 && nc)
     attrs.set(source?.uv_map_name || UV_DEFAULT, {
       domain: 'CORNER',
       type: 'FLOAT2',
-      data: m.uvs,
+      data: ownUVs ? source!.uvs : m.uvs,
     });
   if (nf) {
     let anySharp = !m.smooth;
