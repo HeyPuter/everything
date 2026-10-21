@@ -30,7 +30,8 @@ import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSour
 import { strokeActive } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
-import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
+import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from './math';
+import { curveWidget } from '../render/final/props/curvewidget';
 import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
 import { paintHooks } from './painthooks';
@@ -117,13 +118,16 @@ toolSettingsRenderers['builtin.gradient'] = () => {
 const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE', 'PINCH', 'MASK']);
 const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE']);
 const FALLOFFS: [string, string][] = [
+  ['CUSTOM', 'Custom'],
   ['SMOOTH', 'Smooth'],
+  ['SMOOTHER', 'Smoother'],
   ['SPHERE', 'Sphere'],
   ['ROOT', 'Root'],
   ['SHARP', 'Sharp'],
   ['LINEAR', 'Linear'],
-  ['CONSTANT', 'Constant'],
+  ['POW4', 'Sharper'],
   ['INVERSE_SQUARE', 'Inverse Square'],
+  ['CONSTANT', 'Constant'],
 ];
 const BLENDS: [string, string][] = [
   ['MIX', 'Mix'],
@@ -214,7 +218,12 @@ function falloffMenu(b: PaintBrush, id: string) {
     id,
     FALLOFFS.map(([value, label]) => ({ value, label })),
     b.falloff,
-    (x) => ((b.falloff = x as PaintBrush['falloff']), changed()),
+    (x) => {
+      // a custom curve starts from the preset it replaces
+      if (x === 'CUSTOM' && !b.falloff_curve) b.falloff_curve = falloffPresetPoints(b.falloff);
+      b.falloff = x as PaintBrush['falloff'];
+      changed();
+    },
     { tip: 'Falloff curve preset' },
   );
 }
@@ -388,7 +397,7 @@ function falloffPreview(b: PaintBrush): VNode {
   let d = '';
   for (let i = 0; i <= 40; i++) {
     const t = i / 40;
-    const y = falloffFn(b.falloff, t, b.hardness ?? 0);
+    const y = brushFalloff(b, t);
     d += `${i ? 'L' : 'M'}${(t * W).toFixed(1)} ${(H - 2 - y * (H - 6)).toFixed(1)}`;
   }
   return h(
@@ -490,6 +499,7 @@ function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
     );
   }
   rows.push(strengthRow(b, `${p}-s`));
+  rows.push(...pressureCurveRows(b, p));
   if (mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'CLONE') {
     const imgs = Object.values(app.doc.images);
     rows.push(
@@ -576,6 +586,33 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
     m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH' || m === 'CURVE'
       ? numberField({ id: `${p}-sp`, label: 'Spacing', value: b.spacing ?? 10, min: 1, max: 1000, int: true, unit: 'percentage', tip: 'Spacing between dabs as a percentage of the brush radius', set: (x) => ((b.spacing = Math.round(x)), changed()) })
       : null,
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH' || m === 'CURVE'
+      ? checkbox(`${p}-psp`, 'Pressure Spacing', !!b.use_pressure_spacing, (x) => ((b.use_pressure_spacing = x), changed()), { tip: 'Light pen pressure places the dabs closer together' })
+      : null,
+    m !== 'LINE' && m !== 'ANCHORED' && m !== 'DRAG_DOT'
+      ? [
+          h(
+            'div',
+            { class: 'paint-pressure-row' },
+            (b.jitter_unit ?? 'BRUSH') === 'VIEW'
+              ? numberField({ id: `${p}-jit`, label: 'Jitter', value: b.jitter_absolute ?? 0, min: 0, max: 1000, int: true, unit: 'pixel', tip: 'Random offset of the dabs (pixels)', set: (x) => ((b.jitter_absolute = Math.round(x)), changed()) })
+              : numberField({ id: `${p}-jit`, label: 'Jitter', value: b.jitter ?? 0, min: 0, max: 2, slider: true, tip: 'Random offset of the dabs (fraction of the radius)', set: (x) => ((b.jitter = x), changed()) }),
+            h('button', { key: `${p}-jitp`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!b.use_pressure_jitter }, 'data-tip': 'Use pen pressure for the jitter', onclick: () => ((b.use_pressure_jitter = !b.use_pressure_jitter), changed()) }, icon('pressure')),
+          ),
+          row(
+            'Jitter Unit',
+            enumRow(
+              `${p}-jitu`,
+              [
+                { value: 'VIEW', label: 'View', description: 'Jitter in screen pixels' },
+                { value: 'BRUSH', label: 'Brush', description: 'Jitter relative to the brush radius' },
+              ],
+              b.jitter_unit ?? 'BRUSH',
+              (x) => ((b.jitter_unit = x as 'VIEW'), changed()),
+            ),
+          ),
+        ]
+      : null,
     m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
     m !== 'LINE' && m !== 'ANCHORED' ? checkbox(`${p}-stab`, 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' }) : null,
     b.use_smooth_stroke && m !== 'LINE' && m !== 'ANCHORED'
@@ -590,7 +627,9 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
 function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   return [
     row('Preset', falloffMenu(b, `${p}-fo`)),
-    falloffPreview(b),
+    b.falloff === 'CUSTOM'
+      ? curveWidget(`${p}-focurve`, () => b.falloff_curve ?? falloffPresetPoints('SMOOTH'), (pts) => ((b.falloff_curve = pts), changed()), 'Falloff curve: strength from the rim (left) to the center (right)')
+      : falloffPreview(b),
     mode !== 'TEXTURE_PAINT'
       ? row(
           'Shape',
@@ -606,7 +645,40 @@ function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         )
       : null,
+    mode === 'SCULPT'
+      ? [
+          checkbox(`${p}-fff`, 'Front-Face Falloff', !!b.use_frontface_falloff, (x) => ((b.use_frontface_falloff = x), (b.use_frontface ||= x), changed()), { tip: 'Fade the brush out on surfaces turning away from the view' }),
+          b.use_frontface_falloff ? numberField({ id: `${p}-ffa`, label: 'Angle', value: b.falloff_angle ?? 0, min: 0, max: Math.PI / 2, unit: 'angle', tip: 'Surfaces up to this angle from the view get full strength', set: (x) => ((b.falloff_angle = x), changed()) }) : null,
+        ]
+      : null,
   ];
+}
+
+/** Pressure response curve rows (shown under the size / strength fields when turned on). */
+function pressureCurveRows(b: PaintBrush, p: string): Child[] {
+  const out: Child[] = [];
+  for (const [flag, key, label] of [
+    ['use_size_curve', 'curve_size', 'Size'],
+    ['use_strength_curve', 'curve_strength', 'Strength'],
+  ] as const) {
+    const pressureOn = key === 'curve_size' ? !!b.use_pressure_size : b.use_pressure_strength !== false;
+    if (!pressureOn) continue;
+    out.push(checkbox(`${p}-${key}-on`, `${label} Pressure Curve`, !!b[flag], (x) => ((b[flag] = x), changed()), { tip: `Shape how pen pressure maps to the ${label.toLowerCase()}` }));
+    if (b[flag])
+      out.push(
+        curveWidget(
+          `${p}-${key}`,
+          () =>
+            b[key] ?? [
+              [0, 0],
+              [1, 1],
+            ],
+          (pts) => ((b[key] = pts), changed()),
+          `${label} pressure: pen pressure (left to right) to ${label.toLowerCase()}`,
+        ),
+      );
+  }
+  return out;
 }
 
 function textureRows(b: PaintBrush, p: string, mode: BrushMode = app.doc.mode as BrushMode, mask = false): Child[] {

@@ -7,7 +7,7 @@ import { cow, own } from '../data/cow';
 import type { MeshData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, type PaintBrush } from './brushes';
-import { falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
+import { brushFalloff, cachedCurveTable, falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
 import { beginGeometryStroke, meshSession, reevaluate, revertToUndoState, type Hit, type MeshSession } from './session';
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
@@ -77,6 +77,8 @@ export interface StrokeState {
   /** brush texture of the current dab (identity symmetry pass only) */
   texFn?: ((vi: number) => number) | null;
   texCur?: ((vi: number) => number) | null;
+  /** front-face falloff: view direction of the current dab pass (object space) */
+  ffDir?: Vector3 | null;
   /** normal auto-masking: start normal and the current view direction (object space) */
   startNormal?: Vector3 | null;
   viewDir?: Vector3 | null;
@@ -125,6 +127,7 @@ function gather(st: StrokeState, c: Vector3, radius: number, viewDir: Vector3 | 
   let n = 0;
   const nv = s.nv;
   const ff = !!st.brush.use_frontface && viewDir;
+  st.ffDir = ff && st.brush.use_frontface_falloff ? viewDir : null;
   const hid = s.hiddenV;
   for (let v = 0; v < nv; v++) {
     if (hid && hid[v]) continue;
@@ -152,16 +155,25 @@ function factors(st: StrokeState, n: number, strength: number, applyMask = true)
     gd = s.gd,
     gv = s.gv;
   const fo = b.falloff,
-    hard = b.hardness ?? 0;
+    hard = b.hardness ?? 0,
+    fc = fo === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null;
   const mask = applyMask ? st.mask : undefined;
   const am = applyMask ? st.automask : null;
   const ts = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt;
   const sn = applyMask && ts?.use_automasking_start_normal ? st.startNormal : null;
   const vd = applyMask && ts?.use_automasking_view_normal ? st.viewDir : null;
   const vn = s.vn;
+  // front-face falloff: full strength up to the angle, fading out toward 90°
+  const ffd = st.ffDir;
+  const ffA = Math.min(Math.PI / 2 - 1e-3, Math.max(0, b.falloff_angle ?? 0));
   for (let k = 0; k < n; k++) {
-    let f = falloff(fo, gd[k], hard) * strength;
+    let f = falloff(fo, gd[k], hard, fc) * strength;
     const v = gv[k];
+    if (ffd) {
+      const facing = -(vn[v * 3] * ffd.x + vn[v * 3 + 1] * ffd.y + vn[v * 3 + 2] * ffd.z);
+      const ang = Math.acos(Math.max(-1, Math.min(1, facing)));
+      if (ang > ffA) f *= Math.max(0, (Math.PI / 2 - ang) / (Math.PI / 2 - ffA));
+    }
     if (mask) f *= 1 - mask[v];
     if (am) f *= am[v];
     if (applyMask && st.texCur) f *= st.texCur(v);
@@ -561,7 +573,7 @@ function clothDab(st: StrokeState, c: Vector3, dir: Vector3, R: number, strength
     const d = s.gd[k] * (reach / R);
     if (d >= 1) continue;
     const v = s.gv[k] * 3;
-    const f = falloff(st.brush.falloff, d, st.brush.hardness ?? 0) * strength * free[k];
+    const f = brushFalloff(st.brush, d) * strength * free[k];
     P[v] += dir.x * f;
     P[v + 1] += dir.y * f;
     P[v + 2] += dir.z * f;

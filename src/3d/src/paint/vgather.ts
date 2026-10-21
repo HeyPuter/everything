@@ -5,7 +5,7 @@ import { Matrix3, Matrix4, Vector3 } from 'three';
 import type { View3D } from '../editors/view3d/view3d';
 import { app } from '../app/app';
 import type { PaintBrush } from './brushes';
-import { falloff, mirror, symmetryPasses } from './math';
+import { cachedCurveTable, falloff, mirror, symmetryPasses } from './math';
 import type { Hit, MeshSession } from './session';
 
 /** Screen positions of all vertices (x, y, ndc z) for the current view. */
@@ -86,6 +86,7 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
   const ff = !!b.use_frontface;
   const P = s.positions;
   const hard = b.hardness ?? 0;
+  const fc = b.falloff === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null;
   const rpx = brushRadiusPx(b, s, v, o.hit?.world) * (o.sizeFactor ?? 1);
   const R = b.falloff_shape === 'SPHERE' && o.hit ? s.pixelsToLocal(v, o.hit.world, rpx) : 0;
   if (b.falloff_shape === 'SPHERE' && !o.hit) return 0;
@@ -126,7 +127,7 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
           dz = P[vi * 3 + 2] - c[2];
         const d2 = dx * dx + dy * dy + dz * dz;
         if (d2 > r2) continue;
-        const f = falloff(b.falloff, Math.sqrt(d2) / R, hard) * o.strength * normalFactor(vi);
+        const f = falloff(b.falloff, Math.sqrt(d2) / R, hard, fc) * o.strength * normalFactor(vi);
         if (f <= 0) continue;
         if (best[vi] === 0) list.push(vi);
         if (f > best[vi]) best[vi] = f;
@@ -145,7 +146,7 @@ export function gatherPaint(s: MeshSession, v: View3D, o: GatherOptions, scratch
         if (proj[vi * 3 + 2] > 1 || proj[vi * 3 + 2] < -1) continue;
         const d = Math.hypot(dx, dy);
         if (d > r) continue;
-        const f = falloff(b.falloff, d / r, hard) * o.strength * normalFactor(vi);
+        const f = falloff(b.falloff, d / r, hard, fc) * o.strength * normalFactor(vi);
         if (f <= 0) continue;
         if (best[vi] === 0) list.push(vi);
         if (f > best[vi]) best[vi] = f;

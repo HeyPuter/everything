@@ -1,21 +1,28 @@
 // Pure brush math shared by sculpt and paint modes (no DOM / renderer dependencies so it can be
 // unit tested): falloff curves, symmetry passes, blend modes, weight normalization, smoothing.
 
-export type Falloff = 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'CONSTANT' | 'INVERSE_SQUARE';
+export type Falloff = 'SMOOTH' | 'SMOOTHER' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINEAR' | 'POW4' | 'CONSTANT' | 'INVERSE_SQUARE' | 'CUSTOM';
 
 /**
  * Brush falloff for a normalized distance `t` (0 at the center, 1 at the rim). `hardness` keeps the
  * full strength up to that fraction of the radius and remaps the rest of the curve.
  */
-export function falloff(type: Falloff, t: number, hardness = 0): number {
+export function falloff(type: Falloff, t: number, hardness = 0, curve?: Float32Array | null): number {
   if (t >= 1) return 0;
-  if (t <= 0) return 1;
+  if (t <= 0) return curve && type === 'CUSTOM' ? curve[curve.length - 1] : 1;
   if (hardness > 0) {
-    if (t < hardness) return 1;
+    if (t < hardness) return curve && type === 'CUSTOM' ? curve[curve.length - 1] : 1;
     t = (t - hardness) / (1 - hardness);
   }
   const u = 1 - t;
   switch (type) {
+    case 'CUSTOM':
+      // the curve runs from the rim (x = 0) to the center (x = 1)
+      return curve ? Math.max(0, sampleTable(curve, u)) : u * u * (3 - 2 * u);
+    case 'SMOOTHER':
+      return u * u * u * (u * (u * 6 - 15) + 10);
+    case 'POW4':
+      return u * u * u * u;
     case 'SMOOTH':
       return u * u * (3 - 2 * u);
     case 'SPHERE':
@@ -235,4 +242,99 @@ export function linearToSrgb(x: number): number {
 export function srgbToLinear(x: number): number {
   x = clamp01(x);
   return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+}
+
+// ---------------------------------------------------------------------------
+// curves drawn by the user: falloff (x = 0 at the rim to 1 at the center, y = strength) and pressure
+// response (x = pen pressure, y = factor), as control points in the unit square
+
+export const CURVE_TABLE = 256;
+
+/** Linear lookup in a table spanning x = 0..1. */
+export function sampleTable(t: Float32Array, x: number): number {
+  const f = Math.min(1, Math.max(0, x)) * (t.length - 1);
+  const i = Math.floor(f);
+  const k = f - i;
+  return i >= t.length - 1 ? t[t.length - 1] : t[i] + (t[i + 1] - t[i]) * k;
+}
+
+/** Smooth curve through the control points (monotone cubic, flat beyond the ends), as a table. */
+export function curvePointsTable(points: ArrayLike<ArrayLike<number>>, size = CURVE_TABLE): Float32Array {
+  const pts = Array.from(points, (p) => [p[0], p[1]] as [number, number]).sort((a, b) => a[0] - b[0]);
+  const out = new Float32Array(size);
+  const n = pts.length;
+  if (!n) {
+    for (let i = 0; i < size; i++) out[i] = i / (size - 1);
+    return out;
+  }
+  // slopes (Fritsch–Carlson)
+  const d: number[] = [];
+  for (let i = 0; i + 1 < n; i++) d.push((pts[i + 1][1] - pts[i][1]) / Math.max(1e-9, pts[i + 1][0] - pts[i][0]));
+  const m: number[] = new Array(n).fill(0);
+  for (let i = 1; i + 1 < n; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  if (n > 1) {
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+  }
+  for (let i = 0; i + 1 < n; i++) {
+    if (d[i] === 0) {
+      m[i] = m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i],
+      b = m[i + 1] / d[i];
+    const h = a * a + b * b;
+    if (h > 9) {
+      const tt = 3 / Math.sqrt(h);
+      m[i] = tt * a * d[i];
+      m[i + 1] = tt * b * d[i];
+    }
+  }
+  let seg = 0;
+  for (let k = 0; k < size; k++) {
+    const x = k / (size - 1);
+    if (n === 1 || x <= pts[0][0]) {
+      out[k] = pts[0][1];
+      continue;
+    }
+    if (x >= pts[n - 1][0]) {
+      out[k] = pts[n - 1][1];
+      continue;
+    }
+    while (seg < n - 2 && x > pts[seg + 1][0]) seg++;
+    const [x0, y0] = pts[seg],
+      [x1, y1] = pts[seg + 1];
+    const hgt = x1 - x0;
+    const t = (x - x0) / hgt;
+    const t2 = t * t,
+      t3 = t2 * t;
+    out[k] = (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * hgt * m[seg] + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * hgt * m[seg + 1];
+  }
+  return out;
+}
+
+const tableCache = new WeakMap<object, Float32Array>();
+
+/** Cached table for a list of control points (the list is replaced, not mutated, when edited). */
+export function cachedCurveTable(points: [number, number][] | undefined | null): Float32Array | null {
+  if (!points || points.length < 2) return null;
+  let t = tableCache.get(points);
+  if (!t) tableCache.set(points, (t = curvePointsTable(points)));
+  return t;
+}
+
+/** Control points approximating a falloff preset (to start a custom curve from it). */
+export function falloffPresetPoints(type: Falloff, n = 6): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = i / n;
+    out.push([x, Math.round(falloff(type === 'CUSTOM' ? 'SMOOTH' : type, Math.min(1 - x, 0.9999)) * 1000) / 1000]);
+  }
+  out[0][1] = 0;
+  return out;
+}
+
+/** Strength of a brush at a normalized distance (preset or custom curve, with hardness). */
+export function brushFalloff(b: { falloff: Falloff; hardness?: number; falloff_curve?: [number, number][] }, t: number): number {
+  return falloff(b.falloff, t, b.hardness ?? 0, b.falloff === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null);
 }

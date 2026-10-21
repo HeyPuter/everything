@@ -37,3 +37,32 @@ describe('paint curves', () => {
     expect(p.co).toEqual([co[0] + 5, co[1] + 5]);
   });
 });
+
+import { brushFalloff, curvePointsTable, falloff, falloffPresetPoints, sampleTable } from '../../src/paint/math';
+
+describe('brush falloff curves', () => {
+  it('has the extra presets with the right shape', () => {
+    expect(falloff('SMOOTHER', 0)).toBeCloseTo(1);
+    expect(falloff('SMOOTHER', 0.5)).toBeCloseTo(0.5);
+    expect(falloff('POW4', 0.5)).toBeCloseTo(0.0625);
+    expect(falloff('SMOOTHER', 0.2)).toBeGreaterThan(falloff('SMOOTH', 0.2));
+  });
+  it('builds a smooth table through the control points', () => {
+    const t = curvePointsTable([
+      [0, 0],
+      [0.5, 0.8],
+      [1, 1],
+    ]);
+    expect(sampleTable(t, 0)).toBeCloseTo(0);
+    expect(sampleTable(t, 0.5)).toBeCloseTo(0.8, 2);
+    expect(sampleTable(t, 1)).toBeCloseTo(1);
+    // monotone: no overshoot past the last point
+    for (let i = 1; i < t.length; i++) expect(t[i]).toBeGreaterThanOrEqual(t[i - 1] - 1e-6);
+  });
+  it('a custom curve made from a preset matches the preset', () => {
+    const pts = falloffPresetPoints('SMOOTH', 8);
+    const b = { falloff: 'CUSTOM' as const, falloff_curve: pts, hardness: 0 };
+    for (const d of [0.1, 0.3, 0.6, 0.9]) expect(brushFalloff(b, d)).toBeCloseTo(falloff('SMOOTH', d), 1);
+    expect(brushFalloff(b, 1)).toBe(0);
+  });
+});

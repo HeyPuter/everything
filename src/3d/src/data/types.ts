@@ -1415,7 +1415,8 @@ export interface BrushData {
   mode: 'SCULPT' | 'TEXTURE_PAINT' | 'VERTEX_PAINT' | 'WEIGHT_PAINT';
   strength: number;
   radius: number;
-  falloff: SculptSettings['falloff'];
+  /** falloff preset (src/paint/math.ts), 'CUSTOM' uses the brush's own curve */
+  falloff: import('../paint/math').Falloff;
   direction: 'ADD' | 'SUBTRACT';
   color?: Color;
   blend?: 'MIX' | 'ADD' | 'SUB' | 'MUL' | 'LIGHTEN' | 'DARKEN' | 'ERASE_ALPHA';

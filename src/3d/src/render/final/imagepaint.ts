@@ -6,7 +6,7 @@ import { app, registerOperators } from '../../app/app';
 import type { ImageData as Img } from '../../data/types';
 import { imageCanvas, imageTexture } from '../images';
 import { activeBrush, ensureBrushes, type PaintBrush } from '../../paint/brushes';
-import { blendColor, falloff, linearToSrgb, type BlendMode, type Falloff } from '../../paint/math';
+import { blendColor, cachedCurveTable, falloff, linearToSrgb, type BlendMode, type Falloff } from '../../paint/math';
 import { commitImage } from '../../paint/tpaint';
 import { runStroke, type StrokeView } from '../../paint/stroke';
 import { dabMaskAt, dabTextureColor, dabTextureAt, maskTextureActive, textureActive } from '../../paint/brushtex';
@@ -61,6 +61,8 @@ function flush(w: Work) {
 /** Per-dab extras: brush texture color / strength, clone source, hardness. */
 export interface DabExtras {
   hardness?: number;
+  /** custom falloff curve table */
+  curve?: Float32Array | null;
   /** texture strength factor at an image pixel (mask texture, or the texture for non-paint tools) */
   strengthAt?: ((x: number, y: number) => number) | null;
   /** texture color (display RGBA) at an image pixel, null outside a stencil */
@@ -88,7 +90,7 @@ export function dab(w: Work, tool: string, cx: number, cy: number, r: number, st
     for (let x = x0; x <= x1; x++) {
       const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
       if (d > r) continue;
-      let k = falloff(fall, d / r, hard) * strength;
+      let k = falloff(fall, d / r, hard, ex.curve) * strength;
       if (k <= 0) continue;
       if (ex.strengthAt) k *= ex.strengthAt(x + 0.5, y + 0.5);
       let paint = color;
@@ -298,6 +300,7 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
       const strengthAt = tool === 'DRAW' ? (maskTextureActive(b) ? dabMaskAt(b, place) : null) : dabTextureAt(b, place);
       const ex: DabExtras = {
         hardness: b.hardness ?? 0,
+        curve: b.falloff === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null,
         colorAt: colorAt ? (x, y, out) => colorAt(...toScreen(x, y), x, y, 0, out) : null,
         strengthAt: strengthAt ? (x, y) => strengthAt(...toScreen(x, y), x, y, 0) : null,
         clone: cloneSrc,

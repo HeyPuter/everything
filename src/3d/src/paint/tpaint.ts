@@ -11,7 +11,7 @@ import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } f
 import type { View3D } from '../editors/view3d/view3d';
 import { encodeImage, imageCanvas, imageTexture, touchImage } from '../render/images';
 import { activeBrush, type PaintBrush } from './brushes';
-import { blendColor, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
+import { blendColor, cachedCurveTable, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { activeMeshData, meshSession, type MeshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { runStroke } from './stroke';
@@ -524,7 +524,8 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
       orig = st.orig,
       alpha = st.alpha;
     const fo = b.falloff,
-      hard = b.hardness ?? 0;
+      hard = b.hardness ?? 0,
+      fcurve = b.falloff === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null;
     const out = [0, 0, 0, 1];
     const dst = [0, 0, 0, 1];
     const src = o.tool === 'TEXDRAW' ? data : data.slice(0); // snapshot for soften / smear sampling
@@ -552,7 +553,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
             dy = tmp[1] - cy;
           const d2 = dx * dx + dy * dy;
           if (d2 >= r2) continue;
-          const f = falloff(fo, Math.sqrt(d2) / r, hard);
+          const f = falloff(fo, Math.sqrt(d2) / r, hard, fcurve);
           if (f > best) best = f;
         }
         if (best <= 0) return;

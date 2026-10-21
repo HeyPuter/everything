@@ -54,7 +54,24 @@ export interface PaintBrush extends BrushData, StencilSettings {
   show_cursor?: boolean;
   cursor_color_add?: [number, number, number];
   cursor_color_subtract?: [number, number, number];
-  falloff: Falloff & BrushData['falloff'];
+  falloff: Falloff;
+  /** custom falloff: control points (x = 0 at the rim to 1 at the center, y = strength) */
+  falloff_curve?: [number, number][];
+  /** pen pressure response curves (x = pressure, y = factor) and whether they are used */
+  curve_size?: [number, number][];
+  curve_strength?: [number, number][];
+  use_size_curve?: boolean;
+  use_strength_curve?: boolean;
+  /** random offset of the dabs: fraction of the radius (BRUSH) or pixels (VIEW) */
+  jitter?: number;
+  jitter_absolute?: number;
+  jitter_unit?: 'VIEW' | 'BRUSH';
+  use_pressure_jitter?: boolean;
+  /** pen pressure scales the dab spacing */
+  use_pressure_spacing?: boolean;
+  /** front-face falloff: fade out vertices turning away from the view */
+  use_frontface_falloff?: boolean;
+  falloff_angle?: number;
 }
 
 export type BrushMode = 'SCULPT' | 'VERTEX_PAINT' | 'WEIGHT_PAINT' | 'TEXTURE_PAINT';

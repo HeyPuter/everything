@@ -8,6 +8,7 @@ import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
 import { cursorState } from './cursorstate';
 import { revertToUndoState } from './session';
+import { cachedCurveTable, sampleTable } from './math';
 
 export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT' | 'CURVE';
 
@@ -36,6 +37,18 @@ export interface StrokeSettings {
   rate?: number;
   use_pressure_size?: boolean;
   use_pressure_strength?: boolean;
+  /** pressure response curves (control points), used when the matching flag is on */
+  curve_size?: [number, number][];
+  curve_strength?: [number, number][];
+  use_size_curve?: boolean;
+  use_strength_curve?: boolean;
+  /** random dab offset: fraction of the radius (BRUSH) or pixels (VIEW) */
+  jitter?: number;
+  jitter_absolute?: number;
+  jitter_unit?: 'VIEW' | 'BRUSH';
+  use_pressure_jitter?: boolean;
+  /** pen pressure scales the spacing */
+  use_pressure_spacing?: boolean;
 }
 
 export interface StrokeHandler {
@@ -152,12 +165,30 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
   if (curve) method = 'SPACE';
   const p0 = v.local(e);
   const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? tabletPressure(ev.pressure) : 1);
-  // pressure drives the strength (unless turned off); size pressure scales the dab radius
-  const pressure = (ev: PointerEvent) => (st.use_pressure_strength === false ? 1 : rawPressure(ev));
+  // pressure drives the strength (unless turned off); size pressure scales the dab radius, both
+  // through their response curves when those are on
+  const strengthCurve = st.use_strength_curve ? cachedCurveTable(st.curve_strength) : null;
+  const sizeCurve = st.use_size_curve ? cachedCurveTable(st.curve_size) : null;
+  const pressure = (ev: PointerEvent) => {
+    if (st.use_pressure_strength === false) return 1;
+    const r = rawPressure(ev);
+    return strengthCurve ? Math.max(0, sampleTable(strengthCurve, r)) : r;
+  };
   let lastPressure = pressure(e);
   let lastRaw = rawPressure(e);
   const sizeP = !!st.use_pressure_size;
-  const dabSize = () => (sizeP ? Math.max(0.05, lastRaw) : undefined);
+  const dabSize = () => (sizeP ? Math.max(0.05, sizeCurve ? sampleTable(sizeCurve, lastRaw) : lastRaw) : undefined);
+  // jitter: dabs land at a random offset inside a disk
+  const jitterOn = (st.jitter_unit === 'VIEW' ? (st.jitter_absolute ?? 0) : (st.jitter ?? 0)) > 0;
+  let seed = 0x9e3779b9;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const jitterDab = (d: Dab): Dab => {
+    if (!jitterOn) return d;
+    const amount = (st.jitter_unit === 'VIEW' ? (st.jitter_absolute ?? 0) : (st.jitter ?? 0) * handler.radiusPx()) * (st.use_pressure_jitter ? lastRaw : 1);
+    const a = rand() * Math.PI * 2,
+      r = Math.sqrt(rand()) * amount;
+    return { ...d, x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r };
+  };
   // stabilized brush position
   const pos = { x: p0.x, y: p0.y };
   const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED' && !curve;
@@ -184,7 +215,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     lineState.anchorR = method === 'ANCHORED' ? 1 : 0;
   }
   if (method !== 'LINE' && method !== 'ANCHORED') {
-    handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true, sizeFactor: dabSize() });
+    handler.dab(jitterDab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true, sizeFactor: dabSize() }));
     firstDone = true;
     handler.update?.();
   }
@@ -196,18 +227,18 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
   if (method === 'AIRBRUSH') {
     const ms = Math.max(5, (st.rate ?? 0.1) * 1000);
     airTimer = window.setInterval(() => {
-      handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() });
+      handler.dab(jitterDab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() }));
       handler.update?.();
     }, ms);
   }
   const spaced = (q: { x: number; y: number }, pr: number) => {
     const spacing = handler.spacing();
     if (spacing <= 0 || method === 'DOTS') {
-      if (q.x !== last.x || q.y !== last.y) handler.dab({ x: q.x, y: q.y, pressure: pr, first: false, sizeFactor: dabSize() });
+      if (q.x !== last.x || q.y !== last.y) handler.dab(jitterDab({ x: q.x, y: q.y, pressure: pr, first: false, sizeFactor: dabSize() }));
       last = q;
       return;
     }
-    const step = Math.max(1, (handler.radiusPx() * spacing) / 100);
+    const step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
     const dx = q.x - last.x,
       dy = q.y - last.y;
     const len = Math.hypot(dx, dy);
@@ -215,7 +246,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
     const n = Math.min(200, Math.floor(len / step));
     for (let i = 1; i <= n; i++) {
       const t = (i * step) / len;
-      handler.dab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() });
+      handler.dab(jitterDab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() }));
     }
     const t = (n * step) / len;
     last = { x: last.x + dx * t, y: last.y + dy * t };
@@ -316,7 +347,7 @@ export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler
       if (method === 'AIRBRUSH') {
         // one timed dab per recorded point
         process();
-        handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() });
+        handler.dab(jitterDab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() }));
       }
     }
     up();
