@@ -76,12 +76,12 @@ export function cameraWire(ca: CameraData, aspect: number): Seg {
   for (let i = 0; i < 4; i++) line(out, c[i], c[(i + 1) % 4]);
   if (ca.type !== 'ORTHO') for (let i = 0; i < 4; i++) line(out, [0, 0, 0], c[i]);
   else for (let i = 0; i < 4; i++) line(out, [c[i][0], c[i][1], 0], c[i]);
-  // "up" triangle
-  const ty = h + sy + h * 0.15,
-    th = h * 0.6;
-  line(out, [-w * 0.55 + sx, ty, -d], [w * 0.55 + sx, ty, -d]);
-  line(out, [-w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
-  line(out, [w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
+  // "up" triangle above the frame: base 1.4 and height 0.7 frame half-widths
+  const ty = h + sy + w * 0.1,
+    th = w * 0.7;
+  line(out, [-w * 0.7 + sx, ty, -d], [w * 0.7 + sx, ty, -d]);
+  line(out, [-w * 0.7 + sx, ty, -d], [sx, ty + th, -d]);
+  line(out, [w * 0.7 + sx, ty, -d], [sx, ty + th, -d]);
   return out;
 }
 
@@ -99,9 +99,11 @@ export function cameraTriangle(ca: CameraData, aspect: number): Seg {
     w = half;
     h = w / aspect;
   }
-  const ty = h + h * 0.15,
-    th = h * 0.6;
-  return [-w * 0.55, ty, -s, w * 0.55, ty, -s, 0, ty + th, -s];
+  const sx = ca.shift_x * 2 * Math.max(w, h),
+    sy = ca.shift_y * 2 * Math.max(w, h);
+  const ty = h + sy + w * 0.1,
+    th = w * 0.7;
+  return [-w * 0.7 + sx, ty, -s, w * 0.7 + sx, ty, -s, sx, ty + th, -s];
 }
 
 /** Object-space lines of a light; the screen-facing marker is added by the viewport (editors/view3d/lightdraw.ts). */
