@@ -273,6 +273,7 @@ export function convertBlend(f: BlendFile): BlendImport {
   function convertCurve(cu: BStruct, isFont: boolean, isSurface = false): CurveData {
     const c = newCurve(cu.idName);
     if (isSurface) {
+      c.surface = true;
       c.resolution_v = cu.num('resolv') || 4;
       c.render_resolution_u = cu.num('resolu_ren');
       c.render_resolution_v = cu.num('resolv_ren');

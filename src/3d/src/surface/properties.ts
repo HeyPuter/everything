@@ -80,7 +80,7 @@ function surfaceData(o: ObjectData): Child {
   const cu = o.data ? app.doc.curves[o.data] : undefined;
   if (!cu) return h('div', { class: 'prop-note' }, 'No data');
   return [
-    dataBlockSelector('su', 'surface_data', Object.values(app.doc.curves).filter((c) => c.splines.some((sp) => (sp.point_count_v ?? 0) > 0) || c.id === cu.id), cu.id, (id) => id && ((o.data = id), changed('Assign Surface')), () => {}, { noUnlink: true }),
+    dataBlockSelector('su', 'surface_data', Object.values(app.doc.curves).filter((c) => c.surface || c.id === cu.id), cu.id, (id) => id && ((o.data = id), changed('Assign Surface')), () => {}, { noUnlink: true }),
     shapePanel(cu),
     texSpacePanel('su-texspace', cu, () => app.graph.get(o.id)?.mesh?.positions ?? new Float32Array(0), () => h('div', { class: 'btn-row' }, opButton('curve.match_texture_space', 'Match Texture Space'))),
     inSurfaceEdit() && activeSurface()?.cu === cu ? activeSplinePanel(cu) : null,

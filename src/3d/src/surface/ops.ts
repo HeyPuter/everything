@@ -47,6 +47,7 @@ export function newSurfaceData(name: string, sp: Spline): CurveData {
   cu.resolution_v = 4;
   cu.render_resolution_u = 0;
   cu.render_resolution_v = 0;
+  cu.surface = true;
   cu.splines = [sp];
   return cu;
 }

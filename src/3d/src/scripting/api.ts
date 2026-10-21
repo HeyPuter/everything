@@ -2261,6 +2261,7 @@ class IDCollection extends PropCollection<unknown> {
           type = TABLE_OBTYPE[data.__table];
           did = data.__id;
           if (data.__table === 'curves' && (tableOf(app.doc, 'curves')[did] as { body?: string })?.body !== undefined) type = 'FONT';
+          if (data.__table === 'curves' && (tableOf(app.doc, 'curves')[did] as { surface?: boolean })?.surface) type = 'SURFACE';
         }
         const ob = newObject(name || 'Object', type, did);
         OBJECT_DATA_HOOKS[type]?.(ob, did);
@@ -2304,6 +2305,7 @@ class IDCollection extends PropCollection<unknown> {
       case 'curves': {
         const cu = newCurve(name || 'Curve');
         if (String(rest[0] ?? 'CURVE').toUpperCase() === 'FONT') cu.body = 'Text';
+        if (String(rest[0] ?? 'CURVE').toUpperCase() === 'SURFACE') Object.assign(cu, { surface: true, resolution_u: 4, resolution_v: 4 });
         return this.add(cu);
       }
       case 'armatures':

@@ -20,6 +20,7 @@ import './editmesh/normals';
 import './editmesh/slide';
 import './editmesh/itempanel';
 import './editmesh/edgedata';
+import './editmesh/shapeops';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';

@@ -233,6 +233,8 @@ export interface CurveData {
   eval_time?: number;
   splines: Spline[];
   resolution_u: number;
+  /** data of NURBS surface objects */
+  surface?: boolean;
   /** surfaces: preview resolution along V; render resolutions (0 = use the preview ones) */
   resolution_v?: number;
   render_resolution_u?: number;
