@@ -6,7 +6,7 @@ import { addKeys } from '../app/keymap';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { openMenu, type MenuItem } from '../ui/menu';
-import { numberField } from '../ui/widgets';
+import { numberField, panel } from '../ui/widgets';
 import { registerEditor, type Area } from '../ui/screen';
 import { DopeSheet, DOPESHEET_MODES } from '../animation/dopesheet';
 import { menuButton, hdrToggle, markerMenu, RULER_H } from '../animation/animeditor';
@@ -15,6 +15,9 @@ import { C, drawKey } from '../animation/theme';
 import { playbackFooter } from '../animation/footer';
 import { gpOf, copyDrawing, compactDrawings, sortFrames } from './data';
 import { layerMenu } from './ui';
+import { layerExtraMenu, activeLayerPanels } from './properties';
+
+const layerBtn = (ic: string, tip: string, fn: () => void) => h('button', { class: 'hdr-toggle', 'data-tip': tip, disabled: !gpOf(app.doc, app.activeObject), onclick: fn }, icon(ic));
 import type { GPFrame, GPKeyframeType, GPLayer, GreasePencilData } from './types';
 import type { ObjectData } from '../data/types';
 
@@ -166,6 +169,27 @@ export class GPDopeSheet extends DopeSheet {
       menuButton('Marker', markerMenu),
       menuButton('Channel', layerMenu),
       menuButton('Key', gpKeyMenu),
+      // layer list buttons of the active object
+      h(
+        'div',
+        { key: 'gp-layer-btns', class: 'hdr-group', style: { display: 'flex', gap: '1px', marginLeft: '6px' } },
+        layerBtn('add', 'New Layer\nAdd a layer above the active one', () => app.run('grease_pencil.layer_add', {}, { invoke: false })),
+        layerBtn('remove', 'Remove Layer\nDelete the active layer', () => app.run('grease_pencil.layer_remove')),
+        h(
+          'button',
+          {
+            class: 'hdr-toggle',
+            'data-tip': 'Layer Specials',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openMenu(layerExtraMenu(), e.currentTarget as HTMLElement);
+            },
+          },
+          icon('down_arrow_hlt'),
+        ),
+        layerBtn('triangle_up', 'Move Layer Up', () => app.run('grease_pencil.layer_move', { direction: 'UP' })),
+        layerBtn('triangle_down', 'Move Layer Down', () => app.run('grease_pencil.layer_move', { direction: 'DOWN' })),
+      ),
       h('div', { class: 'hdr-spacer' }),
       hdrToggle(
         'only-sel',
@@ -186,6 +210,12 @@ export class GPDopeSheet extends DopeSheet {
 
   protected footer(): Child | null {
     return playbackFooter();
+  }
+
+  protected sidebarTabs() {
+    if (!this.gpMode()) return super.sidebarTabs();
+    const gp = gpOf(app.doc, app.activeObject);
+    return gp ? [{ id: 'gp-layer', label: 'View', draw: () => panel('gp-ds-layer', 'Layer', () => activeLayerPanels(gp)) }] : [];
   }
 
   protected rowExtra(ch: Channel): Child {

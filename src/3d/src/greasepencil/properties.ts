@@ -140,6 +140,15 @@ function layersPanel(gp: GreasePencilData): Child {
       },
       rows: 4,
     }),
+    activeLayerPanels(gp),
+  ]);
+}
+
+/** Settings of the active layer: blend mode, opacity, lights and the Masks / Transform / Adjustments / Relations / Display sub-panels. */
+export function activeLayerPanels(gp: GreasePencilData): Child {
+  const act = gp.layers[gp.active_layer_index];
+  if (!act) return null;
+  return [
     act
       ? h(
           'div',
@@ -178,11 +187,11 @@ function layersPanel(gp: GreasePencilData): Child {
     act
       ? panel('gp-layer-display', 'Display', () => [channelColor(act)], { sub: true, closed: true })
       : null,
-  ]);
+  ];
 }
 
 /** The ▾ menu of the layer list: layer and group commands. */
-function layerExtraMenu(): import('../ui/menu').MenuItem[] {
+export function layerExtraMenu(): import('../ui/menu').MenuItem[] {
   const ts = app.doc.scene.tool_settings as unknown as { use_autolock_layers?: boolean };
   return [
     { label: 'New Layer Group', icon: 'file_folder', op: 'grease_pencil.layer_group_add' },
