@@ -1,6 +1,33 @@
 import { test, expect } from '@playwright/test';
 import { openApp } from './helpers.js';
 
+test('check spelling suggests corrections and applies the accepted ones', async ({ page }) => {
+  const errors = await openApp(page, '?sample');
+  await page.evaluate(() => {
+    const app = window.bd;
+    const room = app.doc.all('room')[0];
+    app.commit('typo', () => app.doc.update(room.id, { name: 'Livng' }));
+    window.__room = room.id;
+    window.puter = {
+      ...(window.puter || {}),
+      auth: { isSignedIn: () => true, getUser: async () => ({ username: 'me' }) },
+      ai: {
+        chat: async (prompt) => {
+          const list = JSON.parse(prompt.slice(prompt.lastIndexOf('\n\n') + 2));
+          const bad = list.find((x) => x.text === 'Livng');
+          return { message: { content: JSON.stringify(bad ? [{ i: bad.i, corrected: 'Living' }] : []) } };
+        },
+      },
+    };
+    app.run('checkSpelling');
+  });
+  const dialog = page.getByRole('dialog', { name: 'Check Spelling' });
+  await expect(dialog).toContainText('Livng');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  expect(await page.evaluate(() => window.bd.doc.get(window.__room).name)).toBe('Living');
+  expect(errors).toEqual([]);
+});
+
 test('the assistant runs the functions the AI asks for and shows the answer', async ({ page }) => {
   const errors = await openApp(page, '?sample');
   // A stand-in for Puter's AI: first it asks for a door schedule, then it answers.

@@ -164,7 +164,7 @@ export const RIBBON = [
           { cmd: 'groupCreate', size: 'lg', label: 'Detail Group' },
         ],
       },
-      { title: 'Text', items: [{ cmd: 'text', size: 'lg' }, { cmd: 'findReplace', size: 'lg', label: 'Find and Replace' }] },
+      { title: 'Text', items: [{ cmd: 'text', size: 'lg' }, { cmd: 'checkSpelling', size: 'lg' }, { cmd: 'findReplace', size: 'lg', label: 'Find and Replace' }] },
       {
         title: 'Tag',
         items: [
