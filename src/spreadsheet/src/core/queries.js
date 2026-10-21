@@ -1165,7 +1165,9 @@ export function loadResult(wb, query, table, { at = null } = {}) {
       const layout = keep ? [...names, ...table.columns.filter((n) => !names.includes(n))] : table.columns;
       const at = keep ? table.columns.map((n) => layout.indexOf(n)) : null;
       const old = { ...t.range };
-      const next = { r1, c1, r2: r1 + Math.max(1, height), c2: c1 + layout.length - 1 };
+      // A totals row stays the table's last row, under the fresh data: the resize below carries it (and its formulas) along.
+      const foot = t.totalsRow ? 1 : 0;
+      const next = { r1, c1, r2: r1 + Math.max(1, height) + foot, c2: c1 + layout.length - 1 };
       // A table that grows makes room for its new rows and columns, as Excel's refresh inserts cells for new
       // data: what stands beside or below it (a note, a total, another table) moves along instead of being
       // written over. Nothing has changed yet when the cells cannot move, so the refresh stops there.
@@ -1177,15 +1179,22 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         let problem = null;
         if (!wb.resizeTable(sheet.id, t.id, next, { onInvalid: (m) => { problem = m; } })) { result = { error: problem || 'The table could not be resized for the new data.' }; return; }
       }
+      // The rows that held the old data: up to the old last row, less the totals row now at the new last row.
+      const clearData = (cols) => {
+        wb.clearRange(sheet.id, { r1: r1 + 1, r2: Math.min(old.r2, next.r2 - foot), ...cols });
+        if (old.r2 > next.r2) wb.clearRange(sheet.id, { r1: next.r2 + 1, r2: old.r2, ...cols });
+      };
       if (keep) {
         // The query's columns are written afresh; the table's own keep their cells, but for the rows it no longer has.
-        for (const p of at) if (p < names.length) wb.clearRange(sheet.id, { r1: r1 + 1, c1: c1 + p, r2: old.r2, c2: c1 + p });
+        for (const p of at) if (p < names.length) clearData({ c1: c1 + p, c2: c1 + p });
         if (old.r2 > next.r2) own.forEach((mine, p) => { if (mine) wb.clearRange(sheet.id, { r1: next.r2 + 1, c1: c1 + p, r2: old.r2, c2: c1 + p }); });
         // Rows the table gained take its calculated columns' formulas, as rows typed under a table do.
-        for (let r = old.r2 + 1; r <= next.r2; r++) wb._fillCalculatedRow(sheet, wb.tableById(sheet.id, t.id), r);
+        for (let r = old.r2 - foot + 1; r <= next.r2 - foot; r++) wb._fillCalculatedRow(sheet, wb.tableById(sheet.id, t.id), r);
       } else {
-        wb.clearRange(sheet.id, { r1: r1 + 1, c1: old.c1, r2: old.r2, c2: old.c2 });
+        clearData({ c1: old.c1, c2: old.c2 });
         if (next.c2 < old.c2) wb.clearRange(sheet.id, { r1, c1: next.c2 + 1, r2: r1, c2: old.c2 });
+        // Columns the table no longer has did not move with its totals row: their cell on that row's new place is cleared too.
+        if (foot && next.c2 < old.c2 && next.r2 <= old.r2) wb.clearRange(sheet.id, { r1: next.r2, c1: next.c2 + 1, r2: next.r2, c2: old.c2 });
       }
       const { entries, errors } = resultCells(table, r1, c1, at);
       // The cells keep the formatting given to them (a currency, bold, a date format), as Excel's refresh preserves
@@ -1200,10 +1209,10 @@ export function loadResult(wb, query, table, { at = null } = {}) {
         if (!formatted.has(c)) formatted.set(c, []);
         formatted.get(c)[r - r1] = cell.s;
       }
-      const lastRow = old.r2 > r1 ? old.r2 - r1 : null;
+      const lastRow = old.r2 - foot > r1 ? old.r2 - foot - r1 : null;
       if (formatted.size) for (const e of entries) {
         const column = formatted.get(e.c);
-        const kept = column && (column[e.r - r1] || (e.r > old.r2 && lastRow != null ? column[lastRow] : null));
+        const kept = column && (column[e.r - r1] || (e.r > old.r2 - foot && lastRow != null ? column[lastRow] : null));
         if (kept) e.cell.s = e.cell.s && !kept.fmt ? { ...kept, ...e.cell.s } : kept;
       }
       wb.setCells(sheet.id, entries, label);
