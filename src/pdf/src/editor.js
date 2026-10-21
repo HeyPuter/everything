@@ -8226,13 +8226,15 @@ export function createEditor({
         (doc) => {
           for (const index of indices) {
             const page = doc.getPage(index);
-            const box = page.getCropBox();
-            addRedactionMarks(
-              doc,
-              index,
-              [[box.x, box.y, box.x + box.width, box.y + box.height]],
-              redactionStyle,
-            );
+            // The whole page, including what its crop box hides but the file still holds.
+            const boxes = [page.getMediaBox(), page.getCropBox()];
+            const area = [
+              Math.min(...boxes.map((box) => box.x)),
+              Math.min(...boxes.map((box) => box.y)),
+              Math.max(...boxes.map((box) => box.x + box.width)),
+              Math.max(...boxes.map((box) => box.y + box.height)),
+            ];
+            addRedactionMarks(doc, index, [area], redactionStyle);
           }
         },
         `${indices.length === 1 ? 'The page is' : `${indices.length} pages are`} marked for redaction.`,

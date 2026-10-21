@@ -605,6 +605,39 @@ test('Find text and redact removes the matched words from the saved file', async
   expect(text).toContain('Keep this line');
 });
 
+test('Redact pages removes what a cropped page hides outside its crop box', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([500, 500]);
+  sheet.drawText('Shown on the page', { x: 20, y: 100, size: 16, font });
+  sheet.drawText('Cropped away', { x: 300, y: 400, size: 16, font });
+  sheet.setCropBox(0, 0, 250, 250);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Redact pages…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Redact pages' })
+    .getByRole('button', { name: 'Mark pages' })
+    .click();
+  await settled(page);
+  await pane.getByRole('button', { name: 'Apply redactions…' }).click();
+  await page
+    .getByRole('dialog', { name: 'Apply redactions' })
+    .getByRole('button', { name: 'Apply', exact: true })
+    .click();
+  await settled(page);
+  // Uncropped, the page shows nothing that was on it.
+  const redacted = await PDFDocument.load(await downloaded(page));
+  const { width, height } = redacted.getPage(0).getMediaBox();
+  redacted.getPage(0).setCropBox(0, 0, width, height);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const pdf = await pdfjs.getDocument({ data: await redacted.save() }).promise;
+  const { items } = await (await pdf.getPage(1)).getTextContent();
+  expect(items.map((item) => item.str).join('')).toBe('');
+});
+
 test('redaction lists what it could not handle before the file is shared', async ({ page }) => {
   // A transparency effect under the mark whose drawing cannot be read stays as it was.
   const doc = await PDFDocument.create();
