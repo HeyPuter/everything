@@ -463,8 +463,9 @@ body:has(.editor[data-layout='phone']) .toasts {
 
 /* Touch (coarse pointers) ---------------------------------------------------- */
 @media (pointer: coarse) {
+  /* Room for the track icon and four 36px track buttons (lock, hide, mute, options). */
   .editor {
-    --track-header-w: 128px;
+    --track-header-w: 180px;
   }
 
   .icon-btn {
@@ -534,13 +535,46 @@ body:has(.editor[data-layout='phone']) .toasts {
     inset: -11px -8px;
   }
 
-  .tl-header-icon {
-    display: none;
-  }
-
   .tl-header-btns .icon-btn.small {
     width: 40px;
     height: 40px;
+  }
+
+  /* Like the desktop, track headers show the track's name only in rows tall enough for
+     it above the 40px buttons (and the base track's Cover button); shorter rows show the
+     track icon beside the buttons. */
+  .editor:not([data-layout='phone']) .tl-header {
+    container: tl-header / size;
+  }
+
+  .editor:not([data-layout='phone']) .tl-header-btns .icon-btn.small {
+    width: 36px;
+    min-width: 36px;
+  }
+
+  @container tl-header (max-height: 57.98px) {
+    .tl-header-name {
+      display: none;
+    }
+  }
+
+  @container tl-header (max-height: 79.98px) {
+    .tl-header.main .tl-header-name {
+      display: none;
+    }
+  }
+
+  /* With the name showing, the buttons take the next line. */
+  @container tl-header (min-height: 58px) {
+    .tl-header:not(.main) .tl-header-btns {
+      flex-basis: 100%;
+    }
+  }
+
+  @container tl-header (min-height: 80px) {
+    .tl-header.main .tl-header-btns {
+      flex-basis: 100%;
+    }
   }
 
   /* Bigger trim handles on the selected clip; others pass taps to the clip. */
