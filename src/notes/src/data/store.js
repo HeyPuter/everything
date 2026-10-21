@@ -64,8 +64,8 @@ export class Store extends Emitter {
 
   async load({ defaultName = 'My Notebook' } = {}) {
     const [library, trash, listed] = await Promise.all([
-      this.backend.readJSON('library.json'),
-      this.backend.readJSON('trash.json'),
+      this.readDamaged('library.json'),
+      this.readDamaged('trash.json'),
       this.backend.list('notebooks'),
     ]);
     this.library = library && Array.isArray(library.notebooks) ? library : { v: 1, notebooks: [] };
@@ -91,6 +91,19 @@ export class Store extends Emitter {
     if (!this.notebooks.length && !this.unreadable.length) await this.createStarterNotebook(defaultName);
     this.purgeExpiredTrash();
     this.emit('change', { type: 'load' });
+  }
+
+  /**
+   * Reads a file that the app can do without: a damaged (truncated)
+   * library.json or trash.json must not keep every notebook from opening.
+   * The notebooks folder still lists the notebooks; network errors still throw.
+   */
+  readDamaged(path) {
+    return this.backend.readJSON(path).catch((err) => {
+      if (!(err instanceof SyntaxError)) throw err;
+      console.warn(`Ignoring unreadable ${path}`, err);
+      return null;
+    });
   }
 
   async createStarterNotebook(name) {
@@ -1242,7 +1255,7 @@ export class Store extends Emitter {
       try {
         // Another device may have changed Deleted Notes since this session
         // read it: merge rather than write over its entries.
-        if (path === 'trash.json' && (await this.mergeTrash(await this.backend.readJSON(path)))) {
+        if (path === 'trash.json' && (await this.mergeTrash(await this.readDamaged(path)))) {
           snapshot = JSON.parse(JSON.stringify(this.trash));
           this.emit('change', { type: 'trash' });
         }

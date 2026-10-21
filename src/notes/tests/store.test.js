@@ -40,6 +40,26 @@ describe('Store: first run', () => {
     expect(loaded.outlines[0].html).toBe('<p>Milk</p>');
   });
 
+  it('still opens when library.json or trash.json is damaged', async () => {
+    for (const file of ['library.json', 'trash.json']) {
+      const { store, backend } = await freshStore();
+      const nb = store.notebooks[0];
+      const keep = store.createPage([...store.sectionsOf(nb)][0].id, { title: 'Keep me' });
+      store.deletePage(store.createPage([...store.sectionsOf(nb)][0].id, { title: 'Bin' }).id);
+      await store.flush();
+      backend.files.set(file, backend.files.get(file).slice(0, 12));
+      const again = new Store(backend, { saveDelay: 0 });
+      await again.load();
+      expect(again.notebooks.map((n) => n.id)).toEqual([nb.id]);
+      expect(again.findPage(keep.id).meta.title).toBe('Keep me');
+      // The damaged file is replaced by the next save.
+      again.deletePage(keep.id);
+      await again.flush();
+      expect(again.status).toBe('saved');
+      expect(() => JSON.parse(backend.files.get(file))).not.toThrow();
+    }
+  });
+
   it('picks up notebooks missing from library.json', async () => {
     const { store, backend } = await freshStore();
     const other = { id: 'nother', v: 1, name: 'Other device', color: 'blue', created: 'x', modified: 'x', sections: [] };
