@@ -6,9 +6,11 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFRawStream,
   PDFRef,
   PDFStream,
   PDFString,
+  decodePDFRawStream,
 } from 'pdf-lib';
 import { inheritPdfVersion, savePdf } from './version.js';
 import { MAX_PAGES, flattenFonts, validatePdf } from './document.js';
@@ -197,6 +199,116 @@ function sweepOrphans(context) {
   }
   for (const [ref] of context.enumerateIndirectObjects()) if (!live.has(ref)) context.delete(ref);
 }
+/** The resource kinds a content stream names its resources by. */
+const NAMED_RESOURCES = [
+  'XObject',
+  'Font',
+  'ExtGState',
+  'ColorSpace',
+  'Pattern',
+  'Shading',
+  'Properties',
+].map((key) => PDFName.of(key));
+/** Every name a stream's content writes (#-escapes undone), or null when it cannot be read. */
+function contentNames(stream) {
+  let bytes;
+  try {
+    bytes =
+      stream instanceof PDFRawStream
+        ? decodePDFRawStream(stream).decode()
+        : (stream.getUnencodedContents?.() ?? stream.getContents());
+  } catch {
+    return null;
+  }
+  const names = new Set();
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  for (const [, name] of text.matchAll(/\/([^\x00\t\n\f\r ()<>[\]{}/%]*)/g))
+    names.add(
+      name.replace(/#([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16))),
+    );
+  return names;
+}
+/**
+ * Give each copied page only the resources its content names. Writers that share one resource
+ * dictionary among all pages name every page's pictures and fonts in it, so a page copied out
+ * of such a file carried all of them: one extracted page was as large as the whole document,
+ * and a split repeated the whole document in every part. Names are looked for anywhere in the
+ * content, so nothing used is ever dropped; a page whose content cannot be read, or whose forms
+ * and comments may draw with the page's resources, keeps them all.
+ */
+export function pruneCopiedResources(doc, pages) {
+  const { context } = doc;
+  const RESOURCES = PDFName.of('Resources');
+  for (const page of pages) {
+    const resources = page.node.lookup(RESOURCES);
+    if (!(resources instanceof PDFDict)) continue;
+    const contents = page.node.lookup(PDFName.of('Contents'));
+    const streams =
+      contents instanceof PDFArray
+        ? contents.asArray().map((ref) => context.lookup(ref))
+        : [contents];
+    const used = new Set();
+    const read = (stream) => {
+      const names = stream instanceof PDFStream ? contentNames(stream) : null;
+      names?.forEach((name) => used.add(name));
+      return !!names;
+    };
+    if (!streams.every((stream) => stream === undefined || read(stream))) continue;
+    // Appearances written without resources of their own may fall back on the page's.
+    const annots = page.node.lookup(PDFName.of('Annots'));
+    const borrows = (annots instanceof PDFArray ? annots.asArray() : []).some((ref) => {
+      const ap = context.lookup(ref)?.lookup?.(PDFName.of('AP'));
+      if (!(ap instanceof PDFDict)) return false;
+      const pending = ap.values().map((value) => context.lookup(value));
+      while (pending.length) {
+        const value = pending.pop();
+        if (value instanceof PDFStream) {
+          if (!value.dict.has(RESOURCES)) return true;
+        } else if (value instanceof PDFDict)
+          pending.push(...value.values().map((v) => context.lookup(v)));
+      }
+      return false;
+    });
+    if (borrows) continue;
+    // So may forms the page draws; what they name counts too, through forms they draw in turn.
+    const xobjects = resources.lookup(PDFName.of('XObject'));
+    let unreadable = false;
+    const scanned = new Set();
+    for (let grew = true; grew && !unreadable;) {
+      grew = false;
+      if (!(xobjects instanceof PDFDict)) break;
+      for (const [key, value] of xobjects.entries()) {
+        const form = context.lookup(value);
+        if (!used.has(key.decodeText()) || scanned.has(form) || !(form instanceof PDFStream))
+          continue;
+        scanned.add(form);
+        if (
+          form.dict.has(RESOURCES) ||
+          form.dict.lookup(PDFName.of('Subtype')) !== PDFName.of('Form')
+        )
+          continue;
+        const before = used.size;
+        if (!read(form)) unreadable = true;
+        if (used.size !== before) grew = true;
+      }
+    }
+    if (unreadable) continue;
+    const own = resources.clone(context);
+    let removed = false;
+    for (const kind of NAMED_RESOURCES) {
+      const entries = resources.lookup(kind);
+      if (!(entries instanceof PDFDict)) continue;
+      const kept = context.obj({});
+      for (const [key, value] of entries.entries())
+        if (used.has(key.decodeText())) kept.set(key, value);
+        else removed = true;
+      own.set(kind, kept);
+    }
+    if (removed) page.node.set(RESOURCES, own);
+  }
+}
 /** A key marking each source page with its index, copied into every copy the copier makes. */
 export const COPY_INDEX = PDFName.of('PuterCopyPageIndex');
 /**
@@ -361,6 +473,7 @@ export async function copyPagesFrom(source, indices, details) {
       copyPageStandIns(copier, source, out),
     );
     pages.forEach((page) => out.addPage(page));
+    pruneCopiedResources(out, pages);
     const indexToRef = new Map(indices.map((index, position) => [index, pages[position].ref]));
     relinkCopiedPages(out, pages, indexToRef);
   } finally {

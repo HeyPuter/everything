@@ -283,3 +283,102 @@ describe('document settings of extracted pages', () => {
     expect(copy.catalog.has(PDFName.of('ViewerPreferences'))).toBe(false);
   });
 });
+
+describe('pages that share one resource dictionary', () => {
+  // Some writers give every page the same resources, naming every page's pictures.
+  async function sharedLetters() {
+    const doc = await PDFDocument.create();
+    const ctx = doc.context;
+    const picture = (seed) =>
+      ctx.register(
+        ctx.stream(
+          Uint8Array.from(
+            { length: 100 * 1024 },
+            (_, i) => (Math.imul(i + seed * 7919, 2654435761) >>> 13) & 255,
+          ),
+          {
+            Type: 'XObject',
+            Subtype: 'Image',
+            Width: 185,
+            Height: 185,
+            ColorSpace: 'DeviceRGB',
+            BitsPerComponent: 8,
+          },
+        ),
+      );
+    // A form without resources of its own draws with the page's, here the shared logo.
+    const logo = picture(99);
+    const stamp = ctx.register(
+      ctx.stream('q 20 0 0 20 0 0 cm /Logo Do Q', {
+        Type: 'XObject',
+        Subtype: 'Form',
+        BBox: [0, 0, 20, 20],
+      }),
+    );
+    const XObject = { Logo: logo, Stamp: stamp };
+    for (let i = 0; i < 6; i++) XObject[`Im${i}`] = picture(i);
+    const resources = ctx.register(ctx.obj({ XObject, ProcSet: ['PDF', 'ImageC'] }));
+    for (let i = 0; i < 6; i++) {
+      const page = doc.addPage([200, 200]);
+      page.node.set(PDFName.of('Resources'), resources);
+      // A name may be written with #-escapes: /Im#31 is /Im1.
+      const name = i === 1 ? 'Im#31' : `Im${i}`;
+      page.node.set(
+        PDFName.of('Contents'),
+        ctx.register(ctx.stream(`q 200 0 0 200 0 0 cm /${name} Do Q /Stamp Do`)),
+      );
+    }
+    return doc.save();
+  }
+  const kept = (doc, index = 0) =>
+    doc
+      .getPage(index)
+      .node.Resources()
+      .lookup(PDFName.of('XObject'))
+      .keys()
+      .map((key) => key.decodeText())
+      .sort();
+
+  it('extracts and splits pages with only the pictures they draw', async () => {
+    const bytes = await sharedLetters();
+    const extracted = await extractPages(bytes, [1]);
+    expect(extracted.length).toBeLessThan(bytes.length / 3);
+    const doc = await PDFDocument.load(extracted);
+    expect(kept(doc)).toEqual(['Im1', 'Logo', 'Stamp']);
+    expect(doc.getPage(0).node.Resources().lookup(PDFName.of('ProcSet')).size()).toBe(2);
+    const { splitPdf, splitRanges } = await import('../src/core/split.js');
+    const parts = await splitPdf(bytes, splitRanges(6), 'Letters');
+    expect(parts.reduce((sum, part) => sum + part.bytes.length, 0)).toBeLessThan(bytes.length * 2);
+  });
+
+  it('keeps every resource for a page whose comment may draw with them', async () => {
+    const source = await PDFDocument.load(await sharedLetters());
+    const ctx = source.context;
+    const look = ctx.register(
+      ctx.stream('/Im5 Do', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 9, 9] }),
+    );
+    source
+      .getPage(0)
+      .node.set(
+        PDFName.of('Annots'),
+        ctx.obj([
+          ctx.register(
+            ctx.obj({ Type: 'Annot', Subtype: 'Square', Rect: [0, 0, 9, 9], AP: { N: look } }),
+          ),
+        ]),
+      );
+    const doc = await PDFDocument.load(await extractPages(await source.save(), [0]));
+    expect(kept(doc)).toEqual(['Im0', 'Im1', 'Im2', 'Im3', 'Im4', 'Im5', 'Logo', 'Stamp']);
+  });
+
+  it('inserts pages from such a PDF with only the pictures they draw', async () => {
+    const { insertPdfPages } = await import('../src/core/document.js');
+    const bytes = await sharedLetters();
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    await insertPdfPages(doc, bytes, { pages: [3] });
+    const saved = await doc.save();
+    expect(saved.length).toBeLessThan(bytes.length / 3);
+    expect(kept(await PDFDocument.load(saved), 1)).toEqual(['Im3', 'Logo', 'Stamp']);
+  });
+});

@@ -76,7 +76,13 @@ import {
   textValue,
 } from './form-values.js';
 export { choiceOptions } from './form-values.js';
-import { COPY_INDEX, copyPageStandIns, inlineNamedDests, relinkCopiedPages } from './pages.js';
+import {
+  COPY_INDEX,
+  copyPageStandIns,
+  inlineNamedDests,
+  pruneCopiedResources,
+  relinkCopiedPages,
+} from './pages.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import {
   DAMAGED_FORM,
@@ -614,6 +620,7 @@ export async function insertPdfPages(
   const position = Math.min(Math.max(after + 1, 0), doc.getPageCount());
   copied.forEach((page, k) => ownGeometry(doc.insertPage(position + k, page)));
   shiftPageLabels(doc, position, copied.length);
+  pruneCopiedResources(doc, copied);
   const indexToRef = new Map(indices.map((index, k) => [index, copied[k].ref]));
   relinkCopiedPages(doc, copied, indexToRef);
   inheritPdfVersion(doc, source);
