@@ -6,6 +6,7 @@ import { readXlsxExternalWorkbooks } from './xlsx-external-workbooks.js';
 import { bindNativePivotRules } from './native-pivot-rule-bindings.js';
 import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
 import { xmlText } from './xlsx-export-styles.js';
+import { readDocumentProperties, writeDocumentProperties } from './document-properties.js';
 import { readNativeSparklineGroups } from './xlsx-sparklines.js';
 import { importXlsxSlicers } from './xlsx-import-slicers.js';
 import { importNativePivotSlicerCaches } from './native-pivot-slicer-storage.js';
@@ -921,6 +922,7 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
   const book = buildBook(X, wb, { history });
+  writeDocumentProperties(book, wb.documentProperties);
   const data = await completeXlsx(X, wb, book, X.write(book, { bookType: 'xlsx', type: 'array' }), { sourceWorkbook });
   return new Blob([data], { type: XLSX_MIME });
 }
@@ -2802,6 +2804,7 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     scripts: book.bookType === 'xlsx' ? readXlsxScripts(book.files) : meta?.scripts,
     // The app's own record of its named styles, else the file's (another program's custom styles).
     cellStyles: Array.isArray(meta?.cellStyles) ? meta.cellStyles : nativeStyles?.namedStyles,
+    documentProperties: readDocumentProperties(book),
     fontTheme: themePart ? readFontTheme(new TextDecoder().decode(themePart)) : normalizeFontTheme(meta?.fontTheme),
     themeInfo: importedThemeInfo(themePart ? readThemeInfo(new TextDecoder().decode(themePart)) : null, meta?.themeInfo, normalFont) });
   if (modelRels && /\/pivotCacheDefinition["']/.test(new TextDecoder().decode(modelRels)))

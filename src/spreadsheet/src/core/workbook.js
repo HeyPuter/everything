@@ -26,6 +26,7 @@ import { copyConditionalFormats, mapPastedConditionalFormats, replaceConditional
 import { BAR_FORMULAS, SCALE_FORMULAS, ICON_FORMULAS, conditionalThresholdIsFormula, conditionalThresholdFormula, conditionalFormulaFields, mapConditionalFormulas, conditionalPredicateField } from './conditional-scale.js';
 import { NativeDuplicateCounts, duplicateAreaStats, duplicateSourceAreas, duplicateSourceFormula } from './conditional-duplicates.js';
 import { cloneStyle, replaceInheritedStyle } from './style-values.js';
+import { normalizeDocumentProperties } from './document-properties.js';
 import { normalizeNativeNormalStyle } from './native-normal-style.js';
 import { normalizeNativeDefaultCellFormat } from './native-default-cell-format.js';
 import { nativePivotDisplayStyle, hasNativePivotDisplay, nativePivotDisplayIssues } from './native-pivot-display.js';
@@ -1278,6 +1279,8 @@ export class Workbook extends EventTarget {
     this.linkStartup = LINK_STARTUP_MODES.includes(json.linkStartup) ? json.linkStartup : 'ask';
     // Named cell styles this workbook defines, and built-in ones it modified (see custom-cell-styles.js).
     this.cellStyles = normalizeCellStyles(json.cellStyles);
+    // The document properties of the file it was opened from (see document-properties.js), written back with it.
+    this.documentProperties = normalizeDocumentProperties(json.documentProperties);
     this.watches = Array.isArray(json.watches) ? json.watches.filter((w) => w && Number.isInteger(w.r) && Number.isInteger(w.c) && w.sheetId != null).slice(0, 500).map(({ sheetId, r, c }) => ({ sheetId, r, c })) : [];
     this.calcPending = false;
     this.calculationCompatibility = normalizeCalculationCompatibility(json.calculationCompatibility);
@@ -1367,6 +1370,7 @@ export class Workbook extends EventTarget {
       ...(this.queries.length ? { queries: serializeQueries(this) } : {}),
       ...(this.scripts.length ? { scripts: serializeScripts(this) } : {}),
       ...(this.cellStyles.length ? { cellStyles: normalizeCellStyles(this.cellStyles) } : {}),
+      ...(this.documentProperties ? { documentProperties: normalizeDocumentProperties(this.documentProperties) } : {}),
       ...(this.watches.length ? { watches: this.watches.filter((w) => this.sheet(w.sheetId)).map((w) => ({ ...w })) } : {}),
       calculationCompatibility: { ...this.calculationCompatibility },
       ...(this.colorPalette ? { colorPalette: normalizeColorPalette(this.colorPalette) } : {}),
