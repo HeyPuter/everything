@@ -209,6 +209,43 @@ function repeatItems(n: NodeData): RepeatItem[] {
 }
 const SHADER_ITEM_TYPES = new Set(['FLOAT', 'INT', 'BOOLEAN', 'VECTOR', 'RGBA', 'ROTATION']);
 
+/** Bundle and closure node types (shared with geometry nodes), resolved while compiling. */
+const COMBINE_BUNDLE = 'NodeCombineBundle';
+const SEPARATE_BUNDLE = 'NodeSeparateBundle';
+const JOIN_BUNDLE = 'NodeJoinBundle';
+const GET_BUNDLE_ITEM = 'NodeGetBundleItem';
+const STORE_BUNDLE_ITEM = 'NodeStoreBundleItem';
+const CLOSURE_INPUT = 'NodeClosureInput';
+const CLOSURE_OUTPUT = 'NodeClosureOutput';
+const EVALUATE_CLOSURE = 'NodeEvaluateClosure';
+export const SHADER_BUNDLE_NODES = [COMBINE_BUNDLE, SEPARATE_BUNDLE, JOIN_BUNDLE, GET_BUNDLE_ITEM, STORE_BUNDLE_ITEM, CLOSURE_INPUT, CLOSURE_OUTPUT, EVALUATE_CLOSURE];
+
+/** A bundle while compiling: named values (GLSL expressions, or nested bundles). */
+type CgBundle = Map<string, { expr: string; type: GType } | { bundle: CgBundle }>;
+/** A closure while compiling: the zone and the scope it was made in. */
+interface CgClosure {
+  input: NodeData | undefined;
+  output: NodeData;
+  scope: Scope;
+}
+
+function namedItems(n: NodeData | undefined, key: string): RepeatItem[] {
+  if (!n) return [];
+  const raw = n.props[key];
+  if (typeof raw !== 'string' || !raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? (v as RepeatItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+const pathParts = (p: string) =>
+  p
+    .split('/')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
 type Outputs = Map<string, { expr: string; type: GType }>;
 
 /** API handed to per-node generators. */
@@ -265,6 +302,9 @@ export class Codegen {
   private cache = new Map<string, Outputs>();
   private inProgress = new Set<string>();
   private vars = 0;
+  /** bundle / closure values referenced by token expressions */
+  private values = new Map<string, CgBundle | CgClosure>();
+  private closureDepth = 0;
 
   constructor(
     public doc: DocumentData,
@@ -348,6 +388,168 @@ export class Codegen {
     return null;
   }
 
+  private token(v: CgBundle | CgClosure) {
+    const t = `__nd_value_${this.values.size}`;
+    this.values.set(t, v);
+    return t;
+  }
+  /** The bundle linked into an input (empty when none). */
+  private bundleIn(scope: Scope, node: NodeData, id: string): CgBundle {
+    const v = this.values.get(this.inputExpr(scope, node, id, 'float', '0.0'));
+    return v instanceof Map ? v : new Map();
+  }
+  private bundleGet(b: CgBundle, path: string): { expr: string; type: GType } | { bundle: CgBundle } | undefined {
+    const parts = pathParts(path);
+    let cur: CgBundle | undefined = b;
+    for (let i = 0; cur && i < parts.length; i++) {
+      const e: { expr: string; type: GType } | { bundle: CgBundle } | undefined = cur.get(parts[i]);
+      if (!e) return undefined;
+      if (i === parts.length - 1) return e;
+      cur = 'bundle' in e ? e.bundle : undefined;
+    }
+    return undefined;
+  }
+  private bundleWith(b: CgBundle, path: string, e: { expr: string; type: GType } | { bundle: CgBundle }): CgBundle {
+    const [head, ...rest] = pathParts(path);
+    const m: CgBundle = new Map(b);
+    if (!head) return m;
+    if (!rest.length) m.set(head, e);
+    else {
+      const cur = m.get(head);
+      m.set(head, { bundle: this.bundleWith(cur && 'bundle' in cur ? cur.bundle : new Map(), rest.join('/'), e) });
+    }
+    return m;
+  }
+  /** An entry of a bundle as an expression of `type` (defaults when missing or not a value). */
+  private entryExpr(e: { expr: string; type: GType } | { bundle: CgBundle } | undefined, socketType: string): { expr: string; type: GType } {
+    const t = glslType(socketType as SocketType);
+    if (socketType === 'BUNDLE') return { expr: this.token(e && 'bundle' in e ? e.bundle : new Map()), type: 'float' };
+    if (!e || 'bundle' in e) return { expr: literal(t, 0, this.ctx.N), type: t };
+    return { expr: convert(e.expr, e.type, t, this.ctx.N), type: t };
+  }
+
+  /** Bundles and closures: compile-time values passed between nodes by token. */
+  private genBundleNode(scope: Scope, node: NodeData, outs: Outputs) {
+    const sctx = this.socketCtx(scope);
+    const item = (it: RepeatItem) => `Item_${it.id}`;
+    switch (node.type) {
+      case COMBINE_BUNDLE: {
+        let b: CgBundle = new Map();
+        for (const it of namedItems(node, 'bundle_items')) {
+          if (it.socket_type === 'BUNDLE') b.set(it.name, { bundle: this.bundleIn(scope, node, item(it)) });
+          else {
+            const t = glslType(it.socket_type as SocketType);
+            b = new Map(b).set(it.name, { expr: this.declare(t, this.inputExpr(scope, node, item(it), t)), type: t });
+          }
+        }
+        outs.set('Bundle', { expr: this.token(b), type: 'float' });
+        return;
+      }
+      case SEPARATE_BUNDLE: {
+        const b = this.bundleIn(scope, node, 'Bundle');
+        for (const it of namedItems(node, 'bundle_items')) outs.set(item(it), this.entryExpr(b.get(it.name), it.socket_type));
+        return;
+      }
+      case JOIN_BUNDLE: {
+        const joined: CgBundle = new Map();
+        for (const l of scope.tree.links.filter((x) => x.to_node === node.id && x.to_socket === 'Bundle' && !x.is_muted)) {
+          const from = scope.tree.nodes.find((n) => n.id === l.from_node);
+          const v = from ? this.values.get(this.nodeOutputs(scope, from)?.get(l.from_socket)?.expr ?? '') : undefined;
+          if (v instanceof Map) for (const [k, e] of v) if (!joined.has(k)) joined.set(k, e);
+        }
+        outs.set('Bundle', { expr: this.token(joined), type: 'float' });
+        return;
+      }
+      case GET_BUNDLE_ITEM: {
+        const b = this.bundleIn(scope, node, 'Bundle');
+        const path = String(this.staticValue(scope, node, 'Path') ?? '');
+        const e = this.bundleGet(b, path);
+        const type = String(node.props.socket_type ?? 'FLOAT');
+        outs.set('Item', this.entryExpr(e, type));
+        outs.set('Exists', { expr: e ? '1.0' : '0.0', type: 'float' });
+        let rest = b;
+        if (this.staticValue(scope, node, 'Remove')) {
+          const parts = pathParts(path);
+          const parent = parts.length > 1 ? this.bundleGet(b, parts.slice(0, -1).join('/')) : undefined;
+          if (parts.length === 1) {
+            rest = new Map(b);
+            rest.delete(parts[0]);
+          } else if (parent && 'bundle' in parent) {
+            const inner = new Map(parent.bundle);
+            inner.delete(parts[parts.length - 1]);
+            rest = this.bundleWith(b, parts.slice(0, -1).join('/'), { bundle: inner });
+          }
+        }
+        outs.set('Bundle', { expr: this.token(rest), type: 'float' });
+        return;
+      }
+      case STORE_BUNDLE_ITEM: {
+        const b = this.bundleIn(scope, node, 'Bundle');
+        const path = String(this.staticValue(scope, node, 'Path') ?? '');
+        const type = String(node.props.socket_type ?? 'FLOAT');
+        const t = glslType(type as SocketType);
+        const e = type === 'BUNDLE' ? { bundle: this.bundleIn(scope, node, 'Item') } : { expr: this.declare(t, this.inputExpr(scope, node, 'Item', t)), type: t };
+        outs.set('Bundle', { expr: this.token(path.trim() ? this.bundleWith(b, path, e) : b), type: 'float' });
+        return;
+      }
+      case CLOSURE_OUTPUT: {
+        const input = scope.tree.nodes.find((n) => n.type === CLOSURE_INPUT && n.props.paired_output === node.id);
+        outs.set('Closure', { expr: this.token({ input, output: node, scope }), type: 'float' });
+        return;
+      }
+      case CLOSURE_INPUT: {
+        // used outside its zone: the defaults
+        const out = scope.tree.nodes.find((n) => n.id === node.props.paired_output);
+        for (const it of namedItems(out, 'input_items')) outs.set(item(it), this.entryExpr(undefined, it.socket_type));
+        return;
+      }
+      case EVALUATE_CLOSURE: {
+        const c = this.values.get(this.inputExpr(scope, node, 'Closure', 'float', '0.0'));
+        const ins = namedItems(node, 'input_items'),
+          results = namedItems(node, 'output_items');
+        if (!c || c instanceof Map || this.closureDepth > 16) {
+          if (c && !(c instanceof Map)) this.errors.push(`${node.name}: closures call each other too deeply`);
+          for (const it of results) outs.set(item(it), this.entryExpr(undefined, it.socket_type));
+          return;
+        }
+        // the closure body runs where it is evaluated: its inputs become this node's inputs
+        const args = new Map<string, { expr: string; type: GType } | { bundle: CgBundle }>();
+        for (const it of ins) {
+          if (it.socket_type === 'BUNDLE') args.set(it.name, { bundle: this.bundleIn(scope, node, item(it)) });
+          else {
+            const t = glslType(it.socket_type as SocketType);
+            args.set(it.name, { expr: this.declare(t, this.inputExpr(scope, node, item(it), t)), type: t });
+          }
+        }
+        const over: Outputs = new Map();
+        for (const it of namedItems(c.output, 'input_items')) over.set(item(it), this.entryExpr(args.get(it.name), it.socket_type));
+        const overrides = new Map(c.scope.overrides ?? []);
+        if (c.input) overrides.set(c.input.id, over);
+        const body: Scope = { ...c.scope, prefix: `${c.scope.prefix}/clo${this.vars++}`, overrides };
+        const produced = new Map(namedItems(c.output, 'output_items').map((it) => [it.name, it]));
+        this.closureDepth++;
+        try {
+          for (const it of results) {
+            const src = produced.get(it.name);
+            if (!src) {
+              outs.set(item(it), this.entryExpr(undefined, it.socket_type));
+              continue;
+            }
+            const t = glslType(it.socket_type as SocketType);
+            if (it.socket_type === 'BUNDLE') {
+              const v = this.values.get(this.inputExpr(body, c.output, item(src), 'float', '0.0'));
+              outs.set(item(it), { expr: this.token(v instanceof Map ? v : new Map()), type: 'float' });
+            } else outs.set(item(it), { expr: this.declare(t, this.inputExpr(body, c.output, item(src), t)), type: t });
+          }
+        } finally {
+          this.closureDepth--;
+        }
+        void sctx;
+        return;
+      }
+    }
+  }
+
   /** Repeat zone: a loop whose body is generated with the zone input replaced by loop variables. */
   private genRepeat(scope: Scope, output: NodeData, outs: Outputs) {
     const input = scope.tree.nodes.find((n) => n.type === REPEAT_INPUT_TYPE && n.props.paired_output === output.id);
@@ -415,6 +617,8 @@ export class Codegen {
       }
     } else if (def?.dynamicSockets && node.props.node_tree !== undefined) {
       this.genGroup(scope, node, outs);
+    } else if (SHADER_BUNDLE_NODES.includes(node.type)) {
+      this.genBundleNode(scope, node, outs);
     } else if (node.type === REPEAT_OUTPUT_TYPE) {
       this.genRepeat(scope, node, outs);
     } else if (node.type === REPEAT_INPUT_TYPE) {
@@ -453,6 +657,8 @@ export class Codegen {
   }
 
   declare(type: GType | string, expr: string) {
+    // bundle / closure tokens are compile-time values, not GLSL
+    if (this.values.has(expr)) return expr;
     const v = this.newVar('v');
     this.lines.push(`${type} ${v} = ${expr};`);
     return v;

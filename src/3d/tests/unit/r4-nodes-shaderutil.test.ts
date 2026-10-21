@@ -80,3 +80,61 @@ describe('shader utility nodes', () => {
     expect(red.key).not.toBe(blue.key);
   });
 });
+
+describe('shader bundles and closures', () => {
+  const emissionOf = (doc: ReturnType<typeof emptyDocument>, t: ReturnType<typeof newMaterial>['tree'], from: string, socket: string) => {
+    const ctx = ctxOf(doc, t);
+    const em = addNode(t, 'ShaderNodeEmission', [600, 0]);
+    connect(ctx, from, socket, em.id, 'Color');
+    connect(ctx, em.id, 'Emission', activeOutput(t, 'ShaderNodeOutputMaterial')!.id, 'Surface');
+  };
+
+  it('a combined bundle is separated by name while compiling', () => {
+    const doc = emptyDocument();
+    const t = newMaterial('B').tree;
+    const ctx = ctxOf(doc, t);
+    const cb = addNode(t, 'NodeCombineBundle', [0, 0]);
+    cb.props.bundle_items = JSON.stringify([
+      { id: 0, name: 'Tint', socket_type: 'RGBA' },
+      { id: 1, name: 'Amount', socket_type: 'FLOAT' },
+    ]);
+    cb.inputs.Item_0 = [0.25, 0.5, 0.75, 1];
+    const sb = addNode(t, 'NodeSeparateBundle', [200, 0]);
+    sb.props.bundle_items = JSON.stringify([
+      { id: 3, name: 'Tint', socket_type: 'RGBA' },
+      { id: 4, name: 'Missing', socket_type: 'FLOAT' },
+    ]);
+    connect(ctx, cb.id, 'Bundle', sb.id, 'Bundle');
+    emissionOf(doc, t, sb.id, 'Item_3');
+    const ct = compileTree(doc, t, 'MATERIAL');
+    expect(ct.errors).toEqual([]);
+    expect(ct.body).not.toContain('__nd_value');
+    expect(ct.uniforms.some((u) => JSON.stringify(u.value) === JSON.stringify([0.25, 0.5, 0.75, 1]))).toBe(true);
+  });
+
+  it('Evaluate Closure inlines the closure body with its inputs', () => {
+    const doc = emptyDocument();
+    const t = newMaterial('C').tree;
+    const ctx = ctxOf(doc, t);
+    const ci = addNode(t, 'NodeClosureInput', [0, 0]);
+    const co = addNode(t, 'NodeClosureOutput', [300, 0]);
+    ci.props.paired_output = co.id;
+    co.props.input_items = JSON.stringify([{ id: 0, name: 'Value', socket_type: 'FLOAT' }]);
+    co.props.output_items = JSON.stringify([{ id: 1, name: 'Result', socket_type: 'FLOAT' }]);
+    const m = addNode(t, 'ShaderNodeMath', [150, 0], { operation: 'MULTIPLY' });
+    m.inputs.Value_001 = 7.5;
+    connect(ctx, ci.id, 'Item_0', m.id, 'Value');
+    connect(ctx, m.id, 'Value', co.id, 'Item_1');
+    const ev = addNode(t, 'NodeEvaluateClosure', [450, 0]);
+    ev.props.input_items = JSON.stringify([{ id: 0, name: 'Value', socket_type: 'FLOAT' }]);
+    ev.props.output_items = JSON.stringify([{ id: 1, name: 'Result', socket_type: 'FLOAT' }]);
+    ev.inputs.Item_0 = 0.25;
+    connect(ctx, co.id, 'Closure', ev.id, 'Closure');
+    emissionOf(doc, t, ev.id, 'Item_1');
+    const ct = compileTree(doc, t, 'MATERIAL');
+    expect(ct.errors).toEqual([]);
+    expect(ct.body).not.toContain('__nd_value');
+    expect(ct.uniforms.map((u) => u.value)).toEqual(expect.arrayContaining([7.5, 0.25]));
+    expect(ct.body).toMatch(/\*/);
+  });
+});

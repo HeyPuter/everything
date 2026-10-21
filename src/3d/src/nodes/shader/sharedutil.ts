@@ -7,13 +7,13 @@ import { getNodeType } from '../registry';
 import type { NodeData, NodeTreeData } from '../../data/types';
 import type { MenuCategory, MenuEntry, SocketType } from '../types';
 import { SHADER_MENU } from './defs';
-import { registerGenerator, glslType, literal, REPEAT_INPUT_TYPE, REPEAT_OUTPUT_TYPE } from './codegen';
+import { registerGenerator, glslType, literal, REPEAT_INPUT_TYPE, REPEAT_OUTPUT_TYPE, SHADER_BUNDLE_NODES } from './codegen';
 // (Repeat Input used outside its zone passes its values through: see Codegen.nodeOutputs)
 
 const MENU_SWITCH = 'GeometryNodeMenuSwitch';
 const MENU_INPUT = 'FunctionNodeInputMenu';
 const CONVERSION = 'NodeImplicitConversion';
-export const SHADER_SHARED_UTILITIES = [REPEAT_INPUT_TYPE, REPEAT_OUTPUT_TYPE, MENU_SWITCH, MENU_INPUT, CONVERSION];
+export const SHADER_SHARED_UTILITIES = [REPEAT_INPUT_TYPE, REPEAT_OUTPUT_TYPE, MENU_SWITCH, MENU_INPUT, CONVERSION, ...SHADER_BUNDLE_NODES];
 
 /** Value types a shader Menu Switch / Implicit Conversion can carry. */
 const SHADER_DATA_TYPES: [string, string][] = [
@@ -102,6 +102,15 @@ export function shareShaderUtilities() {
   if (util && getNodeType(REPEAT_INPUT_TYPE) && !has(util, REPEAT_INPUT_TYPE)) {
     const extra: MenuCategory['items'] = ['SEPARATOR', { idname: REPEAT_INPUT_TYPE, label: 'Repeat' }, 'SEPARATOR'];
     if (getNodeType(CONVERSION)) extra.push({ idname: CONVERSION });
+    // closures and bundles (resolved while compiling)
+    for (const [id, label] of [
+      ['NodeClosureInput', 'Closure'],
+      ['NodeEvaluateClosure', undefined],
+      ['NodeCombineBundle', undefined],
+      ['NodeSeparateBundle', undefined],
+      ['NodeJoinBundle', undefined],
+    ] as const)
+      if (getNodeType(id)) extra.push(label ? { idname: id, label } : { idname: id });
     if (getNodeType(MENU_SWITCH)) extra.push('SEPARATOR', { idname: MENU_SWITCH, label: 'Menu Switch' });
     util.items.push(...extra);
   }
