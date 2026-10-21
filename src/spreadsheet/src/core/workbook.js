@@ -7640,10 +7640,13 @@ export class Workbook extends EventTarget {
     // The step keeps the lines it hid and showed, not every hidden line: a sheet whose filter hides most of its
     // rows would otherwise hold them all twice over for each group opened.
     const sets = ['hiddenRows', 'hiddenCols', 'filterHidden'];
-    const before = normalizeGroups(sheet.groups);
+    // The outline's lists are kept, not copied group by group: a group is never changed in place, only replaced, so
+    // a step costs the length of the list and Subtotal's thousands of groups, one step each, do not take seconds.
+    const outline = () => ({ rows: [...sheet.groups.rows], cols: [...sheet.groups.cols] });
+    const before = outline();
     const was = sets.map((key) => [...sheet[key]]);
     change();
-    const after = normalizeGroups(sheet.groups);
+    const after = outline();
     const deltas = sets.map((key, i) => {
       const now = sheet[key];
       // Most steps leave most of these sets as they were (grouping hides nothing): told without building one.
@@ -7654,7 +7657,8 @@ export class Workbook extends EventTarget {
     const apply = (undo) => {
       const live = this.sheet(sheet.id);
       if (!live) return;
-      live.groups = normalizeGroups(undo ? before : after);
+      const state = undo ? before : after;
+      live.groups = { rows: [...state.rows], cols: [...state.cols] };
       sets.forEach((key, i) => {
         const set = new Set(live[key]);
         for (const x of undo ? deltas[i].hid : deltas[i].showed) set.delete(x);
@@ -7705,8 +7709,11 @@ export class Workbook extends EventTarget {
     if (!span || this.groupRefusal(sheetId, axis, from, to)) return false;
     const { lo, hi } = span;
     const list = sheet.groups[key];
+    // In sheet order (by first line, the longer first), after any group over the same lines: the list stays sorted.
+    let at = 0;
+    while (at < list.length && (list[at].from < lo || (list[at].from === lo && list[at].to >= hi))) at++;
     this._outlineStep(sheet, axis === 'row' ? 'Group rows' : 'Group columns', () => {
-      sheet.groups = normalizeGroups({ ...sheet.groups, [key]: [...list, { from: lo, to: hi, collapsed: false }] });
+      sheet.groups = { ...sheet.groups, [key]: [...list.slice(0, at), { from: lo, to: hi, collapsed: false }, ...list.slice(at)] };
     });
     return true;
   }
@@ -7739,7 +7746,8 @@ export class Workbook extends EventTarget {
     }
     if (!gone.length) return 0;
     this._outlineStep(sheet, axis === 'row' ? 'Ungroup rows' : 'Ungroup columns', () => {
-      sheet.groups = normalizeGroups({ ...sheet.groups, [key]: list.filter((g) => !gone.includes(g)) });
+      const removed = new Set(gone);
+      sheet.groups = { ...sheet.groups, [key]: list.filter((g) => !removed.has(g)) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       for (const g of gone) {
         if (!g.collapsed) continue;
@@ -7765,7 +7773,7 @@ export class Workbook extends EventTarget {
     if (!group) return;
     const collapse = !group.collapsed;
     this._outlineStep(sheet, collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
-      group.collapsed = collapse;
+      sheet.groups = { ...sheet.groups, [key]: sheet.groups[key].map((g, i) => (i === at ? { ...g, collapsed: collapse } : g)) };
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const held = collapse ? null : this._collapsedLines(sheet, key, group.from, group.to);
       for (let i = group.from; i <= group.to; i++) {
@@ -7786,10 +7794,8 @@ export class Workbook extends EventTarget {
     if (!list.length || list.every((g) => g.collapsed === !!collapsed)) return;
     this._outlineStep(sheet, collapsed ? (axis === 'row' ? 'Collapse all rows' : 'Collapse all columns') : (axis === 'row' ? 'Expand all rows' : 'Expand all columns'), () => {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
-      for (const g of list) {
-        g.collapsed = !!collapsed;
-        for (let i = g.from; i <= g.to; i++) { if (collapsed) hidden.add(i); else hidden.delete(i); }
-      }
+      sheet.groups = { ...sheet.groups, [key]: list.map((g) => ({ ...g, collapsed: !!collapsed })) };
+      for (const g of list) for (let i = g.from; i <= g.to; i++) { if (collapsed) hidden.add(i); else hidden.delete(i); }
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
     });
   }
