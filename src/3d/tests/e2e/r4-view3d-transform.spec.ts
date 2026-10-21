@@ -145,3 +145,44 @@ test('Scale Cage scales from the opposite side of the selection box', async ({ p
   expect(ob.location[0]).toBeCloseTo(ob.scale[0] - 1, 3);
   await expectNoErrors(errors);
 });
+
+test('snapping: face center target and the Affect switches', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await setup(page);
+  await page.evaluate(() => {
+    const ts = (window as any).app.doc.scene.tool_settings; // eslint-disable-line @typescript-eslint/no-explicit-any
+    ts.snap_elements = ['FACE_CENTER'];
+    ts.snap_target = 'CENTER';
+  });
+  const c = await screenOf(page, [0, 0, 0]);
+  await page.mouse.move(c.x, c.y);
+  await page.keyboard.press('g');
+  // the top face of the other cube is centred at (0, 4, 1)
+  const t = await screenOf(page, [0, 4, 1]);
+  await page.mouse.move(t.x + 4, t.y + 3, { steps: 4 });
+  await page.mouse.move(t.x, t.y, { steps: 2 });
+  await page.keyboard.press('Enter');
+  expect(await get<number[]>(page, 'app.activeObject.location.map(v => Math.round(v * 1000) / 1000)')).toEqual([0, 4, 1]);
+  // rotation does not snap unless Affect ▸ Rotate is on
+  await page.evaluate(() => {
+    const ts = (window as any).app.doc.scene.tool_settings; // eslint-disable-line @typescript-eslint/no-explicit-any
+    ts.snap_elements = ['INCREMENT'];
+  });
+  await page.mouse.move(t.x + 80, t.y);
+  await page.keyboard.press('r');
+  await page.keyboard.press('z');
+  await page.mouse.move(t.x + 70, t.y - 37, { steps: 4 });
+  await page.keyboard.press('Enter');
+  const free = await get<number>(page, 'app.activeObject.rotation_euler[2] * 180 / Math.PI');
+  expect(Math.abs(free - Math.round(free / 5) * 5)).toBeGreaterThan(0.01);
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.use_snap_rotate = true)); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.keyboard.press('r');
+  await page.keyboard.press('z');
+  await page.mouse.move(t.x + 50, t.y - 60, { steps: 4 });
+  await page.keyboard.press('Enter');
+  const snapped = (await get<number>(page, 'app.activeObject.rotation_euler[2] * 180 / Math.PI')) - free;
+  expect(Math.abs(snapped)).toBeGreaterThan(1);
+  expect(Math.abs(snapped - Math.round(snapped / 5) * 5)).toBeLessThan(1e-3);
+  await expectNoErrors(errors);
+});

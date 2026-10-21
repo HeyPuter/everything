@@ -1188,7 +1188,15 @@ export interface RenderSettings extends RealtimeRenderSettings {
 
 export interface ToolSettings {
   use_snap: boolean;
-  snap_elements: ('INCREMENT' | 'VERTEX' | 'EDGE' | 'FACE' | 'VOLUME' | 'EDGE_MIDPOINT' | 'GRID')[];
+  snap_elements: ('INCREMENT' | 'VERTEX' | 'EDGE' | 'FACE' | 'VOLUME' | 'EDGE_MIDPOINT' | 'GRID' | 'EDGE_PERPENDICULAR' | 'FACE_CENTER')[];
+  /** snapping skips faces turned away from the view */
+  use_snap_backface_culling?: boolean;
+  /** objects that cannot be selected are not snapped to */
+  use_snap_selectable?: boolean;
+  /** which transforms the snap toggle applies to (Move on, Rotate / Scale off by default) */
+  use_snap_translate?: boolean;
+  use_snap_rotate?: boolean;
+  use_snap_scale?: boolean;
   snap_target: 'CLOSEST' | 'CENTER' | 'MEDIAN' | 'ACTIVE';
   use_snap_align_rotation?: boolean;
   use_snap_grid_absolute?: boolean;

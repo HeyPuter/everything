@@ -64,9 +64,11 @@ const SNAP_ELEMENTS = [
   ['GRID', 'Grid', 'snap_grid'],
   ['VERTEX', 'Vertex', 'snap_vertex'],
   ['EDGE', 'Edge', 'snap_edge'],
-  ['FACE', 'Face Project', 'snap_face'],
+  ['FACE', 'Face', 'snap_face'],
   ['VOLUME', 'Volume', 'snap_volume'],
-  ['EDGE_MIDPOINT', 'Edge Center', 'snap_edge'],
+  ['EDGE_MIDPOINT', 'Edge Center', 'snap_midpoint'],
+  ['EDGE_PERPENDICULAR', 'Edge Perpendicular', 'snap_perpendicular'],
+  ['FACE_CENTER', 'Face Center', 'snap_face_center'],
 ] as const;
 
 function iconDrop(id: string, iconName: string, tip: string, onDown: (el: HTMLElement) => void, extraClass = '') {
@@ -328,17 +330,20 @@ function orientationMenu(): MenuItem[] {
   ];
 }
 
-type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number };
+type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number; use_snap_backface_culling?: boolean; use_snap_selectable?: boolean; use_snap_translate?: boolean; use_snap_rotate?: boolean; use_snap_scale?: boolean };
 
 /** Snapping popover (header snap dropdown, Shift Ctrl Tab). */
 export function snappingPopover(): Child {
   const ts = app.doc.scene.tool_settings;
   const tx = ts as typeof ts & SnapExtras;
   const deg = Math.PI / 180;
+  const flag = (k: keyof SnapExtras, def = false) => (tx[k] as boolean | undefined) ?? def;
   return h(
     'div',
-    { class: 'pop-panel' },
-    h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
+    { class: 'pop-panel snap-pop' },
+    h('div', { class: 'pop-title' }, 'Snap Base'),
+    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    h('div', { class: 'pop-title' }, 'Snap Target'),
     h(
       'div',
       { class: 'pop-list' },
@@ -352,6 +357,7 @@ export function snappingPopover(): Child {
             onclick: (e: MouseEvent) => {
               if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
               else ts.snap_elements = [id];
+              if (!ts.snap_elements.length) ts.snap_elements = ['INCREMENT'];
               app.pushUndo('Snap Element');
               app.changed('ui');
             },
@@ -361,13 +367,30 @@ export function snappingPopover(): Child {
         ),
       ),
     ),
-    ts.snap_elements.includes('INCREMENT') ? checkbox('snap-abs', 'Absolute Grid Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x)) : null,
-    ts.snap_elements.includes('FACE') ? checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x)) : null,
-    h('div', { class: 'pop-title' }, 'Snap With'),
-    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    checkbox('snap-abs', 'Absolute Increment Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x), { disabled: !ts.snap_elements.includes('INCREMENT'), tip: 'Absolute Increment Snap\nIncrements land on the grid instead of stepping from where the move started' }),
+    checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x), { disabled: !ts.snap_elements.includes('FACE'), tip: 'Align Rotation to Target\nTurn the moved objects to the surface they snap to' }),
+    checkbox('snap-cull', 'Backface Culling', flag('use_snap_backface_culling'), (x) => setTool('use_snap_backface_culling', x), { tip: 'Backface Culling\nIgnore faces turned away from the view' }),
+    h('div', { class: 'pop-title' }, 'Target Selection'),
+    h('button', { class: { 'pop-item': true, on: flag('use_snap_selectable') }, 'data-tip': 'Exclude Non-Selectable\nDo not snap to objects that cannot be selected', onclick: () => setTool('use_snap_selectable', !flag('use_snap_selectable')) }, icon('restrict_select_off'), 'Exclude Non-Selectable'),
+    h('div', { class: 'pop-title' }, 'Affect'),
+    h(
+      'div',
+      { class: 'enum-row snap-affect' },
+      (
+        [
+          ['use_snap_translate', 'Move', true],
+          ['use_snap_rotate', 'Rotate', false],
+          ['use_snap_scale', 'Scale', false],
+        ] as const
+      ).map(([k, label, def]) => h('button', { key: k, class: { on: flag(k, def) }, onclick: () => setTool(k, !flag(k, def)) }, label)),
+    ),
     h('div', { class: 'pop-title' }, 'Rotation Increment'),
-    numberField({ id: 'snap-rot', label: 'Angle', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d', x) }),
-    numberField({ id: 'snap-rotp', label: 'Precision', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
+    h(
+      'div',
+      { class: 'ov-scale-row' },
+      numberField({ id: 'snap-rot', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', tip: 'Rotation Increment\nAngle step of rotation snapping', set: (x) => setTool('snap_angle_increment_3d', x) }),
+      numberField({ id: 'snap-rotp', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', tip: 'Precision Rotation Increment\nAngle step while Shift is held', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
+    ),
   );
 }
 

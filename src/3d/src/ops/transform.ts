@@ -844,7 +844,15 @@ export function startTransform(
   /** A: snap points added so far (the target becomes their average with the current one) */
   const addedPoints: Vector3[] = [];
   let lastTarget: Vector3 | null = null;
-  const snapOn = () => snapBase !== snapInvert;
+  // the snap toggle applies to the transforms chosen under Snapping ▸ Affect; Ctrl always inverts
+  const affects = () => {
+    const t = ts as { use_snap_translate?: boolean; use_snap_rotate?: boolean; use_snap_scale?: boolean };
+    if (curMode === 'TRANSLATION') return t.use_snap_translate !== false;
+    if (curMode === 'ROTATION' || curMode === 'TRACKBALL') return !!t.use_snap_rotate;
+    if (curMode === 'RESIZE') return !!t.use_snap_scale;
+    return true;
+  };
+  const snapOn = () => (snapBase && affects()) !== snapInvert;
   let precise = false;
   let propSize = ts.proportional_size;
   /** MMB auto-constraint: active while the middle button is held */
@@ -954,7 +962,7 @@ export function startTransform(
             if (!free[2]) lv.z = 0;
             return lv.applyMatrix3(basis);
           };
-          const target = els.some((e) => e !== 'INCREMENT' && e !== 'GRID') ? findSnapTarget(v, mouse, els) : null;
+          const target = els.some((e) => e !== 'INCREMENT' && e !== 'GRID') ? findSnapTarget(v, mouse, els, false, snapSource(null)) : null;
           lastTarget = target?.point.clone() ?? null;
           if (addedPoints.length) {
             // the target is the average of the added points and the one under the mouse
