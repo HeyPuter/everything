@@ -121,7 +121,7 @@ export function createFormLayer({ onChange, onCommit }) {
       'data-widget-id': widget.id,
       'aria-label': `${label}${widget.buttonValue != null ? `: ${widget.buttonLabel ?? widget.buttonValue}` : ''} (on page)${widget.readOnly ? ' (read only)' : ''}`,
       'aria-required': widget.required,
-      title: `${label}${widget.readOnly ? ' (read only)' : ''}`,
+      title: `${label}${widget.readOnly ? ' (read only)' : widget.required ? ' (required)' : ''}`,
       disabled: widget.readOnly,
     };
     let control;
@@ -253,7 +253,11 @@ export function createFormLayer({ onChange, onCommit }) {
       const layout = formWidgetLayout(widget, viewport.transform);
       if (!layout) continue;
       const control = makeControl(widget);
-      const container = el('div', { class: `form-widget form-${widget.type}` }, control);
+      const container = el(
+        'div',
+        { class: `form-widget form-${widget.type}${widget.required ? ' is-required' : ''}` },
+        control,
+      );
       Object.assign(container.style, {
         width: `${layout.width}px`,
         height: `${layout.height}px`,

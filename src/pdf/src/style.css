@@ -2615,6 +2615,10 @@ kbd {
 .form-widget:focus-within {
   outline: 1.5px solid var(--brand);
 }
+/* Required fields are outlined in red, as Acrobat highlights them. */
+.form-widget.is-required {
+  outline-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
 .form-widget .form-control {
   width: 100%;
   height: 100%;

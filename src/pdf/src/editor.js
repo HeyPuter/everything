@@ -6024,6 +6024,8 @@ export function createEditor({
         });
         control.value = field.value;
       }
+      // Required, not enforced: a form can be saved while it is being filled in.
+      if (field.required) control.setAttribute('aria-required', 'true');
       controls.set(field.name, { control, field, inputOptions });
       form.append(
         el(
@@ -6033,7 +6035,8 @@ export function createEditor({
           el(
             'label',
             { for: id, title: field.tooltip ? field.name : null },
-            (field.tooltip || field.name) + (field.readOnly ? ' (read only)' : ''),
+            (field.tooltip || field.name) +
+              (field.readOnly ? ' (read only)' : field.required ? ' (required)' : ''),
           ),
           control,
         ),

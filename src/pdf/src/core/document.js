@@ -1420,6 +1420,7 @@ export function listFields(doc) {
     const base = {
       name: formFieldName(field),
       readOnly: field.isReadOnly(),
+      ...(field.isRequired() ? { required: true } : {}),
       ...(tooltip ? { tooltip } : {}),
     };
     if (field instanceof PDFTextField) {
