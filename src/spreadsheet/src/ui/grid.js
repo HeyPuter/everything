@@ -3096,6 +3096,11 @@ export function createGrid(opts) {
         const height = parseFloat(listButton.style.height);
         listButton.style.clipPath = `inset(${Math.max(0, topEdge - vy)}px 0 ${Math.max(0, vy + height - view.vh)}px 0)`;
       }
+      if (p.el === promptPop) {
+        // An input message keeps inside the window: under a cell near its right edge (on a phone, most cells) it slides left.
+        const left = frozenCell ? rowHeaderW : view.sl;
+        x = Math.max(left, Math.min(x, left + view.vw - p.el.offsetWidth - 4));
+      }
       p.el.classList.toggle('offscreen', off);
       p.el.style.transform = `translate(${x}px, ${y}px)`;
     }
