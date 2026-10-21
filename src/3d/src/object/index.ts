@@ -15,3 +15,4 @@ import './speaker';
 import './quickfx';
 import './axistarget';
 import './keys';
+import '../editors/view3d/extras';
