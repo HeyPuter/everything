@@ -30,21 +30,33 @@ export interface SlideSize {
   readonly type?: string;
 }
 
+// The size is read from presentation.xml, which lists every slide; callers
+// ask for it per shape, so it is read once per version of the part's bytes
+// (they are replaced, not changed in place, when the part is written).
+const slideSizes = new WeakMap<Uint8Array, SlideSize | null>();
+
 /** Returns the slide canvas size, or `null` if `presentation.xml` omits it. */
 export const getSlideSize = (pres: PresentationData): SlideSize | null => {
   const pkg = pres[INTERNAL_PACKAGE];
   const presPart = pkg.getPart(PRES_PART_NAME);
   if (presPart === null) return null;
-  const root = parseXml(decode(presPart.data)).root;
-  const model = readPresentationPart(root);
-  if (model.slideSize === null) return null;
-  return {
-    width: model.slideSize.cx as Emu,
-    height: model.slideSize.cy as Emu,
-    ...(model.slideSize.type !== undefined
-      ? { type: model.slideSize.type }
-      : {}),
-  };
+  let size = slideSizes.get(presPart.data);
+  if (size === undefined) {
+    const root = parseXml(decode(presPart.data)).root;
+    const model = readPresentationPart(root);
+    size =
+      model.slideSize === null
+        ? null
+        : {
+            width: model.slideSize.cx as Emu,
+            height: model.slideSize.cy as Emu,
+            ...(model.slideSize.type !== undefined
+              ? { type: model.slideSize.type }
+              : {}),
+          };
+    slideSizes.set(presPart.data, size);
+  }
+  return size && { ...size };
 };
 
 const NAME_SLD_SZ_FN = qname("p", "sldSz", NS.pml);

@@ -65,6 +65,17 @@ describe("slide SVG intrinsic dimensions", () => {
     dimensions(renderSlideToSvg(pres, P.getSlides(pres)[0]), 1280, 720);
     expect(part.data).toEqual(before);
   });
+  it("reads the size the deck has now after it changes", () => {
+    const pres = createDeck("blank");
+    const first = P.getSlideSize(pres);
+    first.width = 1;
+    expect(P.getSlideSize(pres).width).toBe(12192000);
+    P.setSlideSize(pres, { width: P.inches(10), height: P.inches(7.5) });
+    expect(P.getSlideSize(pres)).toMatchObject({
+      width: P.inches(10),
+      height: P.inches(7.5),
+    });
+  });
   it("keeps native sizing and geometry through transfer both ways, edit, export and reopen", async () => {
     const { pres, slide, shape } = slideSvgSizeDeck(720, 960),
       original = sizePreview(pres, slide),
