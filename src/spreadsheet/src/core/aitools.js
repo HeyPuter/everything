@@ -41,6 +41,7 @@ export const MAX_READ_CHARS = 40000;
 export const MAX_WRITE_CELLS = 10000;
 const MAX_CELL_TEXT = 300; // a read quotes this much of each cell
 const MAX_FIND = 60;
+const MAX_FIND_SPILLS = 1e6; // spilled values a find looks at on one sheet: an array over the whole sheet spills billions
 const MAX_CALC_CELLS = 400;
 const MAX_CALC_TEXT = 10000; // a single text result, such as a TEXTJOIN of a column
 const MAX_NOTE = 4000; // the most of a note the workbook keeps
@@ -565,14 +566,19 @@ function find(wb, args) {
   const needle = fold(query);
   const sheets = args.sheet ? [sheetNamed(wb, args.sheet, wb.activeSheetId)] : wb.sheets.filter((s) => s.kind !== 'chart');
   const matches = [];
-  let more = false;
+  let more = false, cut = false;
   for (const sheet of sheets) {
     const keys = [...sheet.cells.keys()].filter((key) => holds(sheet.cells.get(key))).map(parseKey);
     // What a formula spills into the cells below and beside it shows on the sheet as a typed value does: a search of
-    // the values that left it out said "No cells match" of text in plain view.
+    // the values that left it out said "No cells match" of text in plain view. They are taken one at a time, and only
+    // so many, since listing every value of an array over the whole sheet ran the tab out of memory.
     if (!args.in_formulas) {
       const own = new Set(keys.map(({ r, c }) => cellKey(r, c)));
-      for (const { r, c } of wb.spillEntries?.(sheet.id) || []) if (!own.has(cellKey(r, c))) keys.push({ r, c });
+      let seen = 0;
+      for (const { r, c } of wb.eachSpill(sheet.id)) {
+        if (++seen > MAX_FIND_SPILLS) { cut = true; break; }
+        if (!own.has(cellKey(r, c))) keys.push({ r, c });
+      }
     }
     keys.sort((a, b) => a.r - b.r || a.c - b.c);
     for (const { r, c } of keys) {
@@ -584,7 +590,12 @@ function find(wb, args) {
     }
     if (more) break;
   }
-  return { matches, ...(more ? { note: `More than ${MAX_FIND} cells match; search a single sheet or a longer text.` } : {}), ...(matches.length ? {} : { note: 'No cells match.' }) };
+  const notes = [
+    ...(more ? [`More than ${MAX_FIND} cells match; search a single sheet or a longer text.`] : []),
+    ...(matches.length ? [] : ['No cells match.']),
+    ...(cut ? [`Only the first ${MAX_FIND_SPILLS.toLocaleString('en-US')} values an array formula spills on a sheet were searched.`] : []),
+  ];
+  return { matches, ...(notes.length ? { note: notes.join(' ') } : {}) };
 }
 
 /* ---------- Writing ---------- */
