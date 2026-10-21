@@ -7,6 +7,7 @@
 import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { showMenu } from './menu.js';
+import { bindingMenu } from './globals.js';
 import { instanceParams, worksetParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../core/props.js';
 import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
@@ -216,6 +217,15 @@ export class PropertiesPanel {
       if (typeof v === 'number') return formatLength(v, units);
       return String(v);
     };
+    // Lengths and numbers stored on the element can follow a global parameter.
+    const bindable = (p.type === 'length' || p.type === 'number') && !p.set && !p.get && !p.action && !ro && items.every((el) => !el.kind.endsWith('Type'));
+    const bound = bindable ? items[0].bindings?.[p.key] : null;
+    const linkBtn = () =>
+      h('button.icon-btn.sm.prow-link', { type: 'button', 'aria-label': `Associate ${p.label} with a global parameter`, 'data-tip': bound ? `Follows ${app.doc.get(bound)?.name}` : 'Associate with a global parameter', 'aria-pressed': bound ? 'true' : 'false', onClick: (e) => bindingMenu(app, e.currentTarget, p, items) }, icon('globalParams', 13));
+    if (bound && items.every((el) => el.bindings?.[p.key] === bound)) {
+      cell.append(h('span.ro-text.bound', { id }, fmtVal(value, p.type === 'length' ? 'length' : 'text'), h('span.file-meta', ` = ${app.doc.get(bound)?.name ?? ''}`)), linkBtn());
+      return h('div.prow', label, cell);
+    }
     if (p.type === 'readonly' || (ro && p.type !== 'bool')) {
       cell.append(h('span.ro-text', { id }, same ? fmtVal(value, p.format || (p.type === 'length' ? 'length' : p.type === 'readonly' ? p.format : 'text')) : 'Varies'));
       return h('div.prow.ro', label, cell);
@@ -261,6 +271,7 @@ export class PropertiesPanel {
         });
         input.addEventListener('change', apply);
         cell.append(input);
+        if (bindable && app.doc.count('globalParam')) cell.append(linkBtn());
         break;
       }
       case 'textarea': {

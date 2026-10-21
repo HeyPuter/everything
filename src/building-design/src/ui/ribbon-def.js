@@ -285,6 +285,7 @@ export const RIBBON = [
           { cmd: 'snaps', size: 'lg' },
           { cmd: 'projectInfo', size: 'lg' },
           { cmd: 'projectParams', size: 'lg' },
+          { cmd: 'globalParams', size: 'lg' },
           { cmd: 'transferStandards', size: 'lg' },
           { cmd: 'purge', size: 'lg' },
           { cmd: 'units', size: 'lg' },

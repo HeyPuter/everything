@@ -51,6 +51,7 @@ import * as links from './ui/links.js';
 import * as dopts from './ui/designopts.js';
 import * as sunui from './ui/sun.js';
 import * as analyze from './ui/analyze.js';
+import * as globalsui from './ui/globals.js';
 import { SpaceTool, placeSpacesAutomatically } from './editor/analyze.js';
 import { sunDirection } from './core/sun.js';
 import { editingOption } from './core/designopts.js';
@@ -379,6 +380,7 @@ export const COMMANDS = {
   addToOption: { label: 'Add to Option', icon: 'designOptions', enabled: hasSel, run: (app) => dopts.addToOption(app), desc: 'Move the selected elements into the design option being edited' },
   viewOptions: { label: 'View Design Options', icon: 'designOptions', run: (app) => dopts.viewOptionsDialog(app), desc: 'Which option of each set the active view shows' },
   finishOption: { label: 'Finish Editing Option', icon: 'check', enabled: () => !!editingOption(), run: (app) => app.editOption(null), desc: 'Go back to editing the main model' },
+  globalParams: { label: 'Global Parameters', icon: 'globalParams', run: (app) => globalsui.globalParamsDialog(app), desc: 'Named project values that element parameters can follow, with formulas' },
   transferStandards: { label: 'Transfer Project Standards', icon: 'transfer', run: (app) => manage.transferStandardsDialog(app), desc: 'Copy types, materials, view templates, filters and more from another project file' },
   startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },
   projectInfo: { label: 'Project Information', icon: 'info', run: (app) => app.projectInfoDialog() },
