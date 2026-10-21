@@ -409,6 +409,69 @@ test("timers and slide-number jumps move past click-sequence media", async ({
   await expect(counter(page)).toHaveText("3 / 3");
 });
 
+test("media that starts by itself stays silent once the show has left its slide", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none" },
+    { effect: "none" },
+    { effect: "none" },
+  ]);
+  // A second of silence, looping, set to start with its slide.
+  const wav = new Uint8Array(44 + 8000);
+  const view = new DataView(wav.buffer);
+  const tag = (at, s) =>
+    [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  tag(0, "RIFF");
+  view.setUint32(4, 36 + 8000, true);
+  tag(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  tag(36, "data");
+  view.setUint32(40, 8000, true);
+  wav.fill(128, 44);
+  P.addSlideMedia(
+    P.getSlides(pres)[1],
+    { kind: "audio", data: wav, contentType: "audio/wav" },
+    { x: 914400, y: 914400, w: 914400, h: 914400 },
+    { start: "automatically", loop: true },
+  );
+  // Every media element asked to play, kept after it leaves the page.
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    window.played = [];
+    HTMLMediaElement.prototype.play = function () {
+      window.played.push(this);
+      return play.call(this);
+    };
+  });
+  const sounding = () =>
+    page.evaluate(() => window.played.filter((m) => !m.paused).length);
+  await load(page, pres);
+  // Passing the slide before its sound starts.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter(page)).toHaveText("3 / 3");
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+  // Staying on it plays it.
+  await page.keyboard.press("ArrowLeft");
+  await page.clock.runFor(200);
+  await expect.poll(sounding).toBe(1);
+  // Ending the show just after reaching the slide.
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("dialog.presenter")).toHaveCount(0);
+  await page.clock.runFor(200);
+  expect(await sounding()).toBe(0);
+});
+
 test("a stroke drawn as the slide advances stays on its own slide", async ({
   page,
 }) => {

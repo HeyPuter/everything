@@ -402,8 +402,12 @@ export function createShowExtras(ctx, show) {
         });
       layer.append(node);
     }
-    // Media that starts by itself waits for the slide's transition.
-    setTimeout(() => autoplay.forEach((p) => p.play()), 50);
+    // Media that starts by itself waits for the slide's transition, unless
+    // the show has moved on or ended by then.
+    const shown = layer;
+    setTimeout(() => {
+      if (layer === shown) autoplay.forEach((p) => p.play());
+    }, 50);
   }
 
   /** The slide to go to instead of `i`; null when the step was used up.
@@ -433,6 +437,7 @@ export function createShowExtras(ctx, show) {
     for (const p of [...playing]) p.stop();
     sound?.pause();
     layer?.remove();
+    layer = null;
     urls.forEach((u) => URL.revokeObjectURL(u));
   }
 
