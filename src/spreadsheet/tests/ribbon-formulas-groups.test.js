@@ -8,6 +8,7 @@ import { parseRange } from '../src/core/cell.js';
 import { closeAllModals } from '../src/ui/modal.js';
 import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
 import { closeMenu } from '../src/ui/menu.js';
+import { borderSnapshot } from '../src/core/border-regions.js';
 
 let view;
 beforeEach(() => {
@@ -235,12 +236,17 @@ it('offers fixed borders and More borders in the Borders menu', async () => {
   const { wb, id } = await mount(); await select('A1:D1');
   button('Borders').click(); await flush();
   menuItem('Bottom double border').click(); await flush();
-  expect(wb.getCell(id, 0, 1).s).toMatchObject({ bb: true, bs: 'double' });
+  // The menu's pens draw each side with its own pen, so read the sides a cell shows rather than its stored style.
+  const pen = (r, c) => {
+    const s = borderSnapshot(wb.styleAt(id, r, c));
+    return Object.fromEntries(['bt', 'bb', 'bl', 'br'].map(k => [k, s[k] ? s[`${k}Border`]?.bs || s.bs || 'thin' : null]));
+  };
+  expect(pen(0, 1)).toMatchObject({ bb: 'double' });
   await select('A2:D4');
   button('Borders').click(); await flush();
   menuItem('Thick outside borders').click(); await flush();
-  expect(wb.getCell(id, 1, 0).s).toMatchObject({ bt: true, bl: true, bs: 'thick' });
-  expect(wb.getCell(id, 2, 1).s?.bt).toBeFalsy();
+  expect(pen(1, 0)).toMatchObject({ bt: 'thick', bl: 'thick' });
+  expect(pen(2, 1).bt).toBeNull();
   button('Borders').click(); await flush();
   menuItem('More borders…').click(); await flush();
   expect(document.querySelector('[role="dialog"] [role="tab"][aria-selected="true"]')?.textContent).toBe('Border');

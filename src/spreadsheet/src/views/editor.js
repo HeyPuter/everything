@@ -1814,7 +1814,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'borders': {
         const kind = arg && typeof arg === 'object' ? arg.kind : arg;
-        const options = arg && typeof arg === 'object' ? { color: arg.color ?? null, style: arg.style ?? 'thin' } : {};
+        // A pen draws only the sides it names, as Excel's do: Thick outside borders around a gridded block, or a
+        // double bottom under a cell with a top line, leaves the other lines in their own style and colour.
+        const options = arg && typeof arg === 'object' ? { color: arg.color ?? null, style: arg.style ?? 'thin', perSide: true } : {};
         // Never truncate border geometry: a clipped range would move its edges.
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotBorders(wb, new Map([[sid, ranges]]), kind,
           { ...options, maxCells: MAX_FORMAT_CELLS }), { cap: false })) {
