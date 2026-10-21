@@ -44,11 +44,29 @@ import { deleteElements } from './core/ops.js';
 import { PlaceGroupTool, GroupMemberTool } from './editor/groups.js';
 import { CurtainGridTool } from './editor/curtain.js';
 import { DemolishTool, RenumberTool } from './editor/manage.js';
+import { FootingTool, WallFootingTool, BeamSystemTool, TopoTool, ByFaceTool } from './editor/site.js';
 import * as manage from './ui/manage.js';
 import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
+
+/** Place a component of a category, starting from a preferred type. */
+const component = (category, preferred) => (app) => {
+  const types = app.doc.all('componentType').filter((t) => t.category === category);
+  const cur = app.doc.get(app.currentTypes.get('component'));
+  const pick = cur?.category === category ? cur : types.find((t) => t.id === preferred) || types[0];
+  if (!pick) return app.toast('This project has no types of that category.', { kind: 'error' });
+  app.setCurrentType('component', pick.id);
+  app.startTool(ComponentTool, { kind: 'component' });
+};
+
+/** A floor tool that starts with a type of a given flag (for example foundation slabs). */
+const floorOfType = (match) => (app) => {
+  const t = app.doc.all('floorType').find(match);
+  if (t) app.setCurrentType('floor', t.id);
+  app.startTool(SketchTool, { kind: 'floor' });
+};
 
 export const COMMANDS = {
   // Files
@@ -131,6 +149,30 @@ export const COMMANDS = {
   groupCancel: { label: 'Cancel', icon: 'cancel', run: (app) => app.finishGroupEdit(false), desc: 'Discard the changes made to the group' },
   openingFace: { label: 'Opening by Face', icon: 'openingFace', run: tool(SketchTool, { kind: 'vopening' }), desc: 'Cut an opening through a floor, roof or ceiling' },
   beam: { label: 'Beam', icon: 'beam', keys: 'BM', run: tool(LineTool, { kind: 'beam' }) },
+  brace: { label: 'Brace', icon: 'brace', keys: 'BR', run: tool(LineTool, { kind: 'brace' }), desc: 'A diagonal member from this level up to the level above' },
+  beamSystem: { label: 'Beam System', icon: 'beamSystem', keys: 'BS', run: tool(BeamSystemTool), desc: 'Fill an area or a floor with parallel beams at a spacing' },
+  footing: { label: 'Isolated', icon: 'footing', run: tool(FootingTool), desc: 'Pad footings, placed one by one or under every column' },
+  wallFooting: { label: 'Wall Foundation', icon: 'wallFooting', keys: 'FT', run: tool(WallFootingTool), desc: 'Strip footings under walls' },
+  slabFoundation: { label: 'Foundation Slab', icon: 'slabFoundation', run: floorOfType((t) => t.foundation), desc: 'A thick slab on grade' },
+  duct: { label: 'Duct', icon: 'duct', keys: 'DT', run: tool(LineTool, { kind: 'duct' }), desc: 'Draw ducts at a height above the level' },
+  pipe: { label: 'Pipe', icon: 'pipe', keys: 'PI', run: tool(LineTool, { kind: 'pipe' }), desc: 'Draw pipes at a height above the level' },
+  cableTray: { label: 'Cable Tray', icon: 'cableTray', keys: 'CT', run: tool(LineTool, { kind: 'cableTray' }) },
+  conduit: { label: 'Conduit', icon: 'conduit', keys: 'CN', run: tool(LineTool, { kind: 'conduit' }) },
+  airTerminal: { label: 'Air Terminal', icon: 'airTerminal', run: component('airTerminals', 'cpt-diffuser'), desc: 'Diffusers and grilles, shown in ceiling plans' },
+  mechEquipment: { label: 'Mechanical Equipment', icon: 'mechEquipment', run: component('mechanical', 'cpt-ahu') },
+  plumbingFixture: { label: 'Plumbing Fixture', icon: 'plumbing', run: component('plumbing', 'cpt-toilet') },
+  lightingFixture: { label: 'Lighting Fixture', icon: 'lightingFixture', run: component('lighting', 'cpt-downlight') },
+  electricalFixture: { label: 'Device', icon: 'device', run: component('electricalFixtures', 'cpt-receptacle'), desc: 'Receptacles and switches' },
+  electricalEquipment: { label: 'Electrical Equipment', icon: 'elecEquipment', run: component('electricalEquipment', 'cpt-panel') },
+  mass: { label: 'In-Place Mass', icon: 'mass', keys: 'MS', run: tool(SketchTool, { kind: 'mass' }), desc: 'A volume to study the form of a building before modeling it' },
+  wallByFace: { label: 'Wall', icon: 'wallByFace', run: tool(ByFaceTool, { what: 'wall' }), desc: 'Walls on every level along the sides of a mass' },
+  floorByFace: { label: 'Floor', icon: 'floorByFace', run: tool(ByFaceTool, { what: 'floor' }), desc: 'Floors at every level a mass crosses' },
+  roofByFace: { label: 'Roof', icon: 'roofByFace', run: tool(ByFaceTool, { what: 'roof' }), desc: 'A flat roof on top of a mass' },
+  curtainByFace: { label: 'Curtain System', icon: 'curtainWall', run: tool(ByFaceTool, { what: 'curtain' }), desc: 'Curtain walls around the sides of a mass' },
+  topo: { label: 'Toposurface', icon: 'topo', run: tool(TopoTool), desc: 'Ground surface through points at their elevations' },
+  propertyLine: { label: 'Property Line', icon: 'propertyLine', run: tool(SketchTool, { kind: 'propertyLine' }) },
+  siteComponent: { label: 'Site Component', icon: 'siteComponent', run: component('site', 'cpt-bench') },
+  parkingComponent: { label: 'Parking Component', icon: 'parking', run: component('parking', 'cpt-parking') },
   floor: { label: 'Floor', icon: 'floor', keys: 'SB', run: tool(SketchTool, { kind: 'floor' }), desc: 'Sketch a floor boundary' },
   ceiling: { label: 'Ceiling', icon: 'ceiling', run: tool(SketchTool, { kind: 'ceiling' }) },
   roof: { label: 'Roof', icon: 'roof', run: tool(SketchTool, { kind: 'roof' }), desc: 'Roof by footprint' },
@@ -264,6 +306,7 @@ export const COMMANDS = {
   signIn: { label: 'Sign In', icon: 'log-in', run: (app) => app.signIn() },
 
   // Actions used by property buttons
+  'topo-points': { label: 'Toposurface Points', icon: 'topo', run: (app) => manage.topoPointsDialog(app) },
   'schedule-fields': { label: 'Schedule Fields', icon: 'sliders', run: (app, args) => app.scheduleFieldsDialog(args?.id) },
   'section-box': { label: 'Section Box', icon: 'sectionBox', run: (app) => app.toggleSectionBox() },
   'toggle-persp': {

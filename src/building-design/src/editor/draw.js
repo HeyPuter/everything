@@ -42,6 +42,7 @@ export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section', 'dr
 import { STAIR_SHAPES } from '../core/stairs.js';
 import { LINE_STYLES } from '../core/props.js';
 import { newRevision } from '../core/revisions.js';
+import { MEP_KINDS, SYSTEMS, mepSize } from '../core/mep.js';
 import { MM_PER_FOOT } from '../core/units.js';
 
 export const REGION_PATTERNS = [
@@ -599,7 +600,7 @@ export class ComponentTool extends Tool {
 
 export class LineTool extends Tool {
   get placingKind() {
-    return this.kind === 'beam' ? 'beam' : null;
+    return this.kind === 'beam' || this.kind === 'brace' || MEP_KINDS.includes(this.kind) ? this.kind : null;
   }
 
   constructor(app, opts) {
@@ -610,7 +611,7 @@ export class LineTool extends Tool {
   }
 
   get title() {
-    return { grid: 'Place Grid', beam: 'Place Beam', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary' }[this.kind];
+    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
   }
 
   get prompt() {
@@ -624,7 +625,7 @@ export class LineTool extends Tool {
   }
 
   get chain() {
-    return ['detailLine', 'roomSeparator', 'beam', 'modelLine', 'areaBoundary'].includes(this.kind);
+    return ['detailLine', 'roomSeparator', 'beam', 'modelLine', 'areaBoundary', ...MEP_KINDS].includes(this.kind);
   }
 
   /** Line kinds that can be drawn by picking existing lines. */
@@ -669,6 +670,25 @@ export class LineTool extends Tool {
       const o = this.app.toolOptions(this.kind, { offset: 0 });
       out.push(lengthField(this, 'Offset from level', o.offset || 0, (v) => (o.offset = v)));
     }
+    if (MEP_KINDS.includes(this.kind)) {
+      const imp = this.doc.units.system === 'imperial';
+      const o = this.app.toolOptions(this.kind, { offset: this.kind === 'duct' ? (imp ? 9 * MM_PER_FOOT : 2800) : this.kind === 'cableTray' ? (imp ? 9.5 * MM_PER_FOOT : 2900) : imp ? 8.5 * MM_PER_FOOT : 2600, system: SYSTEMS[this.kind][0].value });
+      out.push(lengthField(this, 'Middle elevation', o.offset, (v) => (o.offset = v)));
+      const size = mepSize(this.doc, { kind: this.kind, typeId: this.app.currentType(this.kind)?.id, ...o });
+      if (size.round) out.push(lengthField(this, 'Diameter', o.diameter ?? size.w, (v) => (o.diameter = v > 0 ? v : null)));
+      else out.push(lengthField(this, 'Width', o.width ?? size.w, (v) => (o.width = v > 0 ? v : null)), lengthField(this, 'Height', o.height ?? size.h, (v) => (o.height = v > 0 ? v : null)));
+      if (SYSTEMS[this.kind].length > 1) {
+        const s = h('select.input.sm', { 'aria-label': 'System' }, ...SYSTEMS[this.kind].map((x) => h('option', { value: x.value }, x.label)));
+        s.value = o.system;
+        s.addEventListener('change', () => (o.system = s.value));
+        out.push(h('div.ob-group', h('label', 'System'), s));
+      }
+    }
+    if (this.kind === 'brace') {
+      const o = this.app.toolOptions('brace', { baseOffset: 0 });
+      out.push(lengthField(this, 'Start offset', o.baseOffset, (v) => (o.baseOffset = v)));
+      out.push(h('div.ob-group', h('label', 'End'), levelSelect(this.app, o.topLevelId === undefined ? this.doc.levelAbove(this.app.activeLevelId())?.id : o.topLevelId, (v) => (o.topLevelId = v), { none: 'Unconnected (3000)' })));
+    }
     if (this.kind === 'refPlane') {
       const o = this.app.toolOptions('refPlane', { name: '' });
       const inp = h('input.input.sm', { type: 'text', value: o.name, 'aria-label': 'Name', placeholder: 'Optional' });
@@ -698,6 +718,21 @@ export class LineTool extends Tool {
       }
       case 'areaBoundary':
         return { kind: 'areaBoundary', levelId: view.levelId, scheme: view.scheme || 'gross', a, b };
+      case 'duct':
+      case 'pipe':
+      case 'cableTray':
+      case 'conduit': {
+        const o = this.app.toolOptions(this.kind, {});
+        const el = { kind: this.kind, typeId: this.app.currentType(this.kind)?.id, levelId: this.app.activeLevelId(), a, b, offset: o.offset ?? 2700, system: o.system };
+        for (const k of ['width', 'height', 'diameter']) if (o[k] > 0) el[k] = o[k];
+        return el;
+      }
+      case 'brace': {
+        const o = this.app.toolOptions('brace', { baseOffset: 0 });
+        const levelId = this.app.activeLevelId();
+        const top = o.topLevelId === undefined ? this.doc.levelAbove(levelId)?.id ?? null : o.topLevelId || null;
+        return { kind: 'brace', typeId: this.app.currentType('brace')?.id, levelId, a, b, baseOffset: o.baseOffset || 0, topLevelId: top, topOffset: 0, height: 3000 };
+      }
       default:
         return null;
     }
@@ -787,7 +822,7 @@ export class LineTool extends Tool {
 
 export class SketchTool extends Tool {
   get placingKind() {
-    return ['shaft', 'region', 'vopening', 'revisionCloud'].includes(this.kind) ? null : this.kind;
+    return ['shaft', 'region', 'vopening', 'revisionCloud', 'propertyLine', 'mass'].includes(this.kind) ? null : this.kind;
   }
 
   get viewKinds() {
@@ -802,7 +837,8 @@ export class SketchTool extends Tool {
     this.pts = el ? (el.boundary || el.path || []).slice() : [];
     this.closed = !!el && this.kind !== 'railing';
     this.cursor = null;
-    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' || this.kind === 'revisionCloud' ? 'polygon' :this.kind === 'shaft' || this.kind === 'vopening' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
+    const startMode = { railing: 'polygon', region: 'polygon', revisionCloud: 'polygon', propertyLine: 'polygon', shaft: 'rect', vopening: 'rect', mass: 'rect', ceiling: 'pickRoom' }[this.kind] || 'pickWalls';
+    const defaults = { mode: startMode, slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
     this.o = app.toolOptions(`sketch-${this.kind}`, defaults);
     if (this.editId) this.o.mode = 'polygon';
     this.hostId = opts.hostId || null;
@@ -813,6 +849,8 @@ export class SketchTool extends Tool {
     if (this.kind === 'vopening') return 'Opening in Floor, Roof or Ceiling';
     if (this.kind === 'region') return 'Filled Region';
     if (this.kind === 'revisionCloud') return 'Revision Cloud';
+    if (this.kind === 'propertyLine') return 'Property Line';
+    if (this.kind === 'mass') return 'In-Place Mass';
     const n = { floor: 'Floor', ceiling: 'Ceiling', roof: 'Roof', railing: 'Railing' }[this.kind];
     return this.editId ? `Edit ${n} Boundary` : `Create ${n} ${this.kind === 'railing' ? 'Path' : 'Boundary'}`;
   }
@@ -833,7 +871,7 @@ export class SketchTool extends Tool {
     const modes = [{ value: 'polygon', label: 'Lines', icon: 'polygon' }];
     if (this.kind !== 'railing') modes.push({ value: 'rect', label: 'Rectangle', icon: 'rect' });
     if (this.kind === 'floor' || this.kind === 'ceiling' || this.kind === 'region') modes.push({ value: 'pickRoom', label: 'Pick room', icon: 'room' });
-    if (this.kind === 'floor' || this.kind === 'roof') modes.push({ value: 'pickWalls', label: 'Pick walls', icon: 'pickWalls' });
+    if (this.kind === 'floor' || this.kind === 'roof' || this.kind === 'mass') modes.push({ value: 'pickWalls', label: 'Pick walls', icon: 'pickWalls' });
     const out = [
       segmented(
         modes,
@@ -858,6 +896,7 @@ export class SketchTool extends Tool {
       out.push(lengthField(this, 'Overhang', o.overhang, (v) => (o.overhang = v)));
     }
     if (this.kind === 'ceiling') out.push(lengthField(this, 'Height offset', o.offset, (v) => (o.offset = v)));
+    if (this.kind === 'mass') out.push(lengthField(this, 'Height', o.height ?? (this.doc.units.system === 'imperial' ? 40 * MM_PER_FOOT : 12000), (v) => (o.height = Math.max(100, v))));
     if (this.kind === 'region') {
       const s = h('select.input.sm', { 'aria-label': 'Fill pattern' }, ...REGION_PATTERNS.map((p) => h('option', { value: p.value }, p.label)));
       s.value = o.pattern || 'diag';
@@ -1005,6 +1044,15 @@ export class SketchTool extends Tool {
     if (this.kind === 'region') {
       const view = this.vc.view;
       this.app.commit('Filled region', () => this.doc.add({ kind: 'region', viewId: view.id, boundary: pts, holes: [], pattern: this.o.pattern || 'diag', outline: true }));
+      return this.app.cancelTool();
+    }
+    if (this.kind === 'propertyLine') {
+      this.app.commit('Property line', () => this.doc.add({ kind: 'propertyLine', boundary: pts }));
+      return this.app.cancelTool();
+    }
+    if (this.kind === 'mass') {
+      const height = this.o.height ?? (this.doc.units.system === 'imperial' ? 40 * MM_PER_FOOT : 12000);
+      this.app.commit('Mass', () => this.doc.add({ kind: 'mass', levelId: this.app.activeLevelId(), boundary: pts, holes: [], height, baseOffset: 0, name: `Mass ${this.doc.count('mass') + 1}` }));
       return this.app.cancelTool();
     }
     if (this.kind === 'revisionCloud') {

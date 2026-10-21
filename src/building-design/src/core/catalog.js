@@ -34,6 +34,7 @@
  *   group        { typeId, levelId, at, rotation }     (members carry groupId)
  */
 import { MM_PER_FOOT, MM_PER_INCH } from './units.js';
+import { mepTypes } from './mep.js';
 
 const IN = MM_PER_INCH;
 const FT = MM_PER_FOOT;
@@ -60,6 +61,21 @@ export const CATEGORIES = [
   { id: 'equipment', label: 'Appliances', model: true },
   { id: 'planting', label: 'Planting', model: true },
   { id: 'lighting', label: 'Lighting Fixtures', model: true },
+  { id: 'structuralFoundations', label: 'Structural Foundations', model: true },
+  { id: 'braces', label: 'Structural Bracing', model: true },
+  { id: 'ducts', label: 'Ducts', model: true },
+  { id: 'pipes', label: 'Pipes', model: true },
+  { id: 'cableTrays', label: 'Cable Trays', model: true },
+  { id: 'conduits', label: 'Conduits', model: true },
+  { id: 'mechanical', label: 'Mechanical Equipment', model: true },
+  { id: 'airTerminals', label: 'Air Terminals', model: true },
+  { id: 'electricalEquipment', label: 'Electrical Equipment', model: true },
+  { id: 'electricalFixtures', label: 'Electrical Fixtures', model: true },
+  { id: 'topography', label: 'Topography', model: true },
+  { id: 'site', label: 'Site', model: true },
+  { id: 'parking', label: 'Parking', model: true },
+  { id: 'masses', label: 'Mass', model: true },
+  { id: 'propertyLines', label: 'Property Lines', model: false },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
   { id: 'areas', label: 'Areas', model: false },
@@ -115,6 +131,16 @@ const KIND_CATEGORY = {
   symbol: 'genericAnnotations',
   colorLegend: 'colorLegends',
   legendComponent: 'legendComponents',
+  footing: 'structuralFoundations',
+  wallFooting: 'structuralFoundations',
+  brace: 'braces',
+  duct: 'ducts',
+  pipe: 'pipes',
+  cableTray: 'cableTrays',
+  conduit: 'conduits',
+  topo: 'topography',
+  propertyLine: 'propertyLines',
+  mass: 'masses',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -163,6 +189,16 @@ export const KIND_LABEL = {
   symbol: 'Symbol',
   colorLegend: 'Color Fill Legend',
   legendComponent: 'Legend Component',
+  footing: 'Isolated Foundation',
+  wallFooting: 'Wall Foundation',
+  brace: 'Brace',
+  duct: 'Duct',
+  pipe: 'Pipe',
+  cableTray: 'Cable Tray',
+  conduit: 'Conduit',
+  topo: 'Toposurface',
+  propertyLine: 'Property Line',
+  mass: 'Mass',
 };
 
 export const TYPE_KIND = {
@@ -179,6 +215,13 @@ export const TYPE_KIND = {
   component: 'componentType',
   ramp: 'rampType',
   group: 'groupType',
+  footing: 'footingType',
+  wallFooting: 'wallFootingType',
+  brace: 'beamType',
+  duct: 'ductType',
+  pipe: 'pipeType',
+  cableTray: 'cableTrayType',
+  conduit: 'conduitType',
 };
 
 // Materials ----------------------------------------------------------------------
@@ -310,6 +353,7 @@ function floorTypes(imp) {
       layers: [L('mat-timber-floor', t(20, 0.75), 'finish'), L('mat-sheathing', t(18, 0.75), 'substrate'), L('mat-wood-frame', t(235, 9.25), 'structure')],
     },
     { id: 'ft-slab-grade', name: imp ? 'Slab on Grade - 4"' : 'Slab on Grade - 100 mm', layers: [L('mat-concrete', t(100, 4), 'structure')] },
+    { id: 'ft-foundation', name: imp ? 'Foundation Slab - 12"' : 'Foundation Slab - 300 mm', layers: [L('mat-concrete', t(300, 12), 'structure')], foundation: true },
   ].map((x) => ({ ...x, kind: 'floorType' }));
 }
 
@@ -418,6 +462,16 @@ function rampTypes(imp) {
   ].map((x) => ({ ...x, kind: 'rampType', familyName: 'Ramp' }));
 }
 
+function foundationTypes(imp) {
+  const t = (mm, inch) => (imp ? inch * IN : mm);
+  return [
+    { id: 'fdt-pad-1200', kind: 'footingType', familyName: 'Pad Footing', name: imp ? '48" x 48" x 18"' : '1200 x 1200 x 450 mm', width: t(1200, 48), length: t(1200, 48), thickness: t(450, 18), materialId: 'mat-concrete' },
+    { id: 'fdt-pad-1800', kind: 'footingType', familyName: 'Pad Footing', name: imp ? '72" x 72" x 24"' : '1800 x 1800 x 600 mm', width: t(1800, 72), length: t(1800, 72), thickness: t(600, 24), materialId: 'mat-concrete' },
+    { id: 'wft-600', kind: 'wallFootingType', familyName: 'Wall Foundation', name: imp ? 'Bearing Footing - 24" x 12"' : 'Bearing Footing - 600 x 300 mm', width: t(600, 24), thickness: t(300, 12), materialId: 'mat-concrete' },
+    { id: 'wft-900', kind: 'wallFootingType', familyName: 'Wall Foundation', name: imp ? 'Bearing Footing - 36" x 12"' : 'Bearing Footing - 900 x 300 mm', width: t(900, 36), thickness: t(300, 12), materialId: 'mat-concrete' },
+  ];
+}
+
 function railingTypes(imp) {
   const t = (mm, inch) => (imp ? inch * IN : mm);
   return [
@@ -463,6 +517,19 @@ function componentTypes(imp) {
     c('cpt-shrub', 'shrub', 'planting', 'Shrub', imp ? '36"' : '900 mm', t(900, 36), t(900, 36), t(900, 36)),
     c('cpt-pendant', 'pendant', 'lighting', 'Pendant Light', imp ? '16"' : '400 mm', t(400, 16), t(400, 16), t(300, 12), { elevation: t(2100, 84) }),
     c('cpt-floor-lamp', 'floorLamp', 'lighting', 'Floor Lamp', imp ? '18"' : '450 mm', t(450, 18), t(450, 18), t(1600, 64)),
+    c('cpt-downlight', 'downlight', 'lighting', 'Recessed Downlight', imp ? '6"' : '150 mm', t(150, 6), t(150, 6), t(120, 5), { elevation: t(2700, 108) }),
+    c('cpt-diffuser', 'diffuser', 'airTerminals', 'Supply Diffuser', imp ? '24" x 24"' : '600 x 600 mm', t(600, 24), t(600, 24), t(60, 2.5), { elevation: t(2700, 108) }),
+    c('cpt-grille', 'grille', 'airTerminals', 'Return Grille', imp ? '24" x 12"' : '600 x 300 mm', t(600, 24), t(300, 12), t(60, 2.5), { elevation: t(2700, 108) }),
+    c('cpt-ahu', 'mechUnit', 'mechanical', 'Air Handling Unit', imp ? '72" x 36"' : '1800 x 900 mm', t(1800, 72), t(900, 36), t(1500, 60)),
+    c('cpt-fan-coil', 'mechUnit', 'mechanical', 'Fan Coil Unit', imp ? '40" x 24"' : '1000 x 600 mm', t(1000, 40), t(600, 24), t(300, 12), { elevation: t(2700, 108) }),
+    c('cpt-water-heater', 'waterHeater', 'plumbing', 'Water Heater', imp ? '24" Diameter' : '600 mm Diameter', t(600, 24), t(600, 24), t(1500, 60)),
+    c('cpt-panel', 'panel', 'electricalEquipment', 'Distribution Panel', imp ? '20" x 6"' : '500 x 150 mm', t(500, 20), t(150, 6), t(800, 32), { elevation: t(1200, 48) }),
+    c('cpt-receptacle', 'receptacle', 'electricalFixtures', 'Duplex Receptacle', 'Wall Mounted', t(80, 3), t(40, 1.5), t(120, 4.5), { elevation: t(300, 12) }),
+    c('cpt-switch', 'switch', 'electricalFixtures', 'Light Switch', 'Wall Mounted', t(80, 3), t(40, 1.5), t(120, 4.5), { elevation: t(1100, 44) }),
+    c('cpt-bench', 'bench', 'site', 'Bench', imp ? '72"' : '1800 mm', t(1800, 72), t(500, 20), t(450, 18)),
+    c('cpt-bollard', 'bollard', 'site', 'Bollard', imp ? '8" Diameter' : '200 mm Diameter', t(200, 8), t(200, 8), t(900, 36)),
+    c('cpt-parking', 'parking', 'parking', 'Parking Space', imp ? '9\' x 18\'' : '2500 x 5000 mm', t(2500, 108), t(5000, 216), t(10, 0.5)),
+    c('cpt-parking-access', 'parking', 'parking', 'Accessible Parking Space', imp ? '16\' x 18\'' : '3600 x 5000 mm', t(3600, 192), t(5000, 216), t(10, 0.5)),
   ];
 }
 
@@ -481,6 +548,8 @@ export function defaultTypes(system = 'metric') {
     ...rampTypes(imp),
     ...railingTypes(imp),
     ...componentTypes(imp),
+    ...foundationTypes(imp),
+    ...mepTypes(imp),
   ];
 }
 

@@ -88,10 +88,34 @@ export const RIBBON = [
     id: 'struct',
     label: 'Structure',
     panels: [
-      { title: 'Structure', items: [{ cmd: 'beam', size: 'lg' }, { cmd: 'wallStructural', size: 'lg' }, { cmd: 'columnStructural', size: 'lg' }, { cmd: 'floor', size: 'lg' }] },
+      {
+        title: 'Structure',
+        items: [
+          { cmd: 'beam', size: 'lg' },
+          { cmd: 'wallStructural', size: 'lg', label: 'Wall' },
+          { cmd: 'columnStructural', size: 'lg', label: 'Column' },
+          { cmd: 'floor', size: 'lg' },
+          { cmd: 'brace', size: 'lg' },
+          { cmd: 'beamSystem', size: 'lg' },
+        ],
+      },
+      { title: 'Foundation', items: [{ cmd: 'footing', size: 'lg' }, { cmd: 'wallFooting', size: 'lg', label: 'Wall' }, { cmd: 'slabFoundation', size: 'lg', label: 'Slab' }] },
       { title: 'Model', items: [{ cmd: 'modelLine', size: 'lg' }] },
       { title: 'Opening', items: [{ cmd: 'openingFace', size: 'lg' }, { cmd: 'shaft', size: 'lg' }, { cmd: 'opening', size: 'lg' }] },
       { title: 'Datum', items: [{ cmd: 'level', size: 'lg' }, { cmd: 'grid', size: 'lg' }] },
+      { title: 'Work Plane', items: [{ cmd: 'refPlane', size: 'lg' }, { cmd: 'workPlaneGrid', size: 'lg' }] },
+    ],
+  },
+  {
+    id: 'systems',
+    label: 'Systems',
+    panels: [
+      { title: 'HVAC', items: [{ cmd: 'duct', size: 'lg' }, { cmd: 'airTerminal', size: 'lg' }, { cmd: 'mechEquipment', size: 'lg' }] },
+      { title: 'Plumbing & Piping', items: [{ cmd: 'pipe', size: 'lg' }, { cmd: 'plumbingFixture', size: 'lg' }] },
+      {
+        title: 'Electrical',
+        items: [{ cmd: 'cableTray', size: 'lg' }, { cmd: 'conduit', size: 'lg' }, { cmd: 'electricalEquipment', size: 'lg' }, { cmd: 'electricalFixture', size: 'lg' }, { cmd: 'lightingFixture', size: 'lg' }],
+      },
       { title: 'Work Plane', items: [{ cmd: 'refPlane', size: 'lg' }, { cmd: 'workPlaneGrid', size: 'lg' }] },
     ],
   },
@@ -158,6 +182,15 @@ export const RIBBON = [
           { cmd: 'spanDirection', size: 'lg' },
         ],
       },
+    ],
+  },
+  {
+    id: 'massing',
+    label: 'Massing & Site',
+    panels: [
+      { title: 'Conceptual Mass', items: [{ cmd: 'mass', size: 'lg' }] },
+      { title: 'Model by Face', items: [{ cmd: 'curtainByFace', size: 'lg' }, { cmd: 'roofByFace', size: 'lg' }, { cmd: 'wallByFace', size: 'lg' }, { cmd: 'floorByFace', size: 'lg' }] },
+      { title: 'Model Site', items: [{ cmd: 'topo', size: 'lg' }, { cmd: 'siteComponent', size: 'lg' }, { cmd: 'parkingComponent', size: 'lg' }, { cmd: 'propertyLine', size: 'lg' }] },
     ],
   },
   {

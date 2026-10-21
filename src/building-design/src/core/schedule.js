@@ -5,6 +5,7 @@
 import { openingSize, verticalExtent, levelOf, stairLayout, rampLayout } from './model.js';
 import { schemeLabel, AREA_TYPES } from './props.js';
 import { roofGeometry } from './build3d.js';
+import { mepSize, systemOf } from './mep.js';
 import { VIEW_KINDS, VIEW_LABEL } from './doc.js';
 import { scaleLabel } from './units.js';
 import { typeThickness, KIND_LABEL, CATEGORIES, categoryOf } from './catalog.js';
@@ -200,6 +201,44 @@ export const SCHEDULE_CATEGORIES = {
       COUNT,
     ],
     defaults: ['type', 'level', 'offset', 'area'],
+  },
+  duct: {
+    label: 'Ducts',
+    kinds: ['duct'],
+    fields: [
+      F('system', 'System Type', (el) => systemOf(el).label),
+      F('type', 'Type', typeName),
+      F('size', 'Size', (el, c) => {
+        const s = mepSize(c.doc, el);
+        return s.round ? `⌀${Math.round(s.w)}` : `${Math.round(s.w)} x ${Math.round(s.h)}`;
+      }),
+      F('length', 'Length', (el) => dist(el.a, el.b), 'length'),
+      F('level', 'Level', lvlName),
+      COUNT,
+    ],
+    defaults: ['system', 'size', 'length', 'count'],
+    group: true,
+  },
+  pipe: {
+    label: 'Pipes',
+    kinds: ['pipe'],
+    fields: [
+      F('system', 'System Type', (el) => systemOf(el).label),
+      F('type', 'Type', typeName),
+      F('diameter', 'Diameter', (el, c) => mepSize(c.doc, el).w, 'length'),
+      F('length', 'Length', (el) => dist(el.a, el.b), 'length'),
+      F('level', 'Level', lvlName),
+      COUNT,
+    ],
+    defaults: ['system', 'diameter', 'length', 'count'],
+    group: true,
+  },
+  footing: {
+    label: 'Structural Foundations',
+    kinds: ['footing', 'wallFooting'],
+    fields: [F('family', 'Family', famName), F('type', 'Type', typeName), F('level', 'Level', (el, c) => lvlName(el.wallId ? c.doc.get(el.wallId) || el : el, c)), F('mark', 'Mark', (el) => el.mark ?? '', 'text', 'mark'), COUNT],
+    defaults: ['family', 'type', 'level', 'count'],
+    group: true,
   },
   materialTakeoff: {
     label: 'Material Takeoff',

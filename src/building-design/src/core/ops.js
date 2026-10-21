@@ -30,7 +30,7 @@ export function deleteElements(doc, ids, { keepEmptyGroups = false } = {}) {
     const el = doc.get(id);
     for (const other of doc.items.values()) {
       if (gone.has(other.id)) continue;
-      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id || other.groupId === id) queue.push(other.id);
+      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id || other.groupId === id || other.wallId === id) queue.push(other.id);
       else if (el.kind === 'level' && (other.levelId === id || (isView(other) && other.levelId === id))) queue.push(other.id);
     }
   }
@@ -66,6 +66,7 @@ export function transformPatch(el, xf) {
   for (const f of POINT_FIELDS) if (Array.isArray(el[f]) && typeof el[f][0] === 'number') patch[f] = xf.point(el[f]);
   for (const f of POLY_FIELDS) if (Array.isArray(el[f])) patch[f] = el[f].map(xf.point);
   if (Array.isArray(el.holes)) patch.holes = el.holes.map((h) => h.map(xf.point));
+  if (el.kind === 'topo' && Array.isArray(el.points)) patch.points = el.points.map((p) => [...xf.point(p), p[2]]);
   if (el.crop && el.calloutOf) {
     const p = xf.point([el.crop.x0, el.crop.y0]);
     const q = xf.point([el.crop.x1, el.crop.y1]);

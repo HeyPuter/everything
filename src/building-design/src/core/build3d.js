@@ -12,6 +12,8 @@ import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
 import { buildFamily } from './families.js';
 import { stairFlights, flightOutline } from './stairs.js';
+import { mepSize, mepPlan, systemOf } from './mep.js';
+import { delaunay } from './topo.js';
 
 export function materialColor(ctx, id, fallback = '#c8c8c8') {
   const m = id ? ctx.material(id) : null;
@@ -56,9 +58,145 @@ export function build3D(ctx, el) {
       return buildRamp(ctx, el);
     case 'modelLine':
       return buildModelLine(ctx, el);
+    case 'footing':
+      return buildFooting(ctx, el);
+    case 'wallFooting':
+      return buildWallFooting(ctx, el);
+    case 'brace':
+      return buildBrace(ctx, el);
+    case 'duct':
+    case 'pipe':
+    case 'cableTray':
+    case 'conduit':
+      return buildMep(ctx, el);
+    case 'topo':
+      return buildTopo(ctx, el);
+    case 'mass':
+      return buildMass(ctx, el);
     default:
       return null;
   }
+}
+
+// Foundations, bracing, services, site and masses ------------------------------------------------
+
+/** Plan outline of an isolated footing. */
+export function footingOutline(doc, el) {
+  const t = doc.get(el.typeId) || {};
+  const w = +t.width || 1200;
+  const l = +t.length || w;
+  const fr = new Frame(el.at, ((+el.rotation || 0) * Math.PI) / 180);
+  return [
+    [-w / 2, -l / 2],
+    [w / 2, -l / 2],
+    [w / 2, l / 2],
+    [-w / 2, l / 2],
+  ].map((p) => fr.apply(p));
+}
+
+function buildFooting(ctx, el) {
+  const t = ctx.doc.get(el.typeId) || {};
+  const top = levelElevation(ctx.doc, el.levelId) + (+el.offset || 0);
+  const b = new MeshBuilder();
+  b.prism(footingOutline(ctx.doc, el), [], top - (+t.thickness || 450), top, materialColor(ctx, t.materialId || 'mat-concrete'));
+  return b.build();
+}
+
+/** Plan outline of a wall foundation: the strip under its wall, past the free ends. */
+export function wallFootingOutline(doc, el) {
+  const w = doc.get(el.wallId);
+  if (!w) return null;
+  const t = doc.get(el.typeId) || {};
+  const width = +t.width || 600;
+  const ax = wallAxis(doc, w);
+  const ext = width / 2 - ax.half;
+  const a = sub(ax.a, scale(ax.dir, Math.max(0, ext)));
+  const c = add(ax.b, scale(ax.dir, Math.max(0, ext)));
+  const hw = scale(ax.n, width / 2);
+  return [sub(a, hw), sub(c, hw), add(c, hw), add(a, hw)];
+}
+
+function buildWallFooting(ctx, el) {
+  const w = ctx.doc.get(el.wallId);
+  const outline = wallFootingOutline(ctx.doc, el);
+  if (!w || !outline) return null;
+  const t = ctx.doc.get(el.typeId) || {};
+  const { base } = verticalExtent(ctx.doc, w);
+  const b = new MeshBuilder();
+  b.prism(outline, [], base - (+t.thickness || 300), base, materialColor(ctx, t.materialId || 'mat-concrete'));
+  return b.build();
+}
+
+/** End heights of a brace. */
+export function braceHeights(doc, el) {
+  const z0 = levelElevation(doc, el.levelId) + (+el.baseOffset || 0);
+  const z1 = el.topLevelId && doc.get(el.topLevelId) ? levelElevation(doc, el.topLevelId) + (+el.topOffset || 0) : z0 + (+el.height || 3000);
+  return { z0, z1 };
+}
+
+function buildBrace(ctx, el) {
+  const t = ctx.doc.get(el.typeId) || {};
+  const { z0, z1 } = braceHeights(ctx.doc, el);
+  const b = new MeshBuilder();
+  b.beam3([el.a[0], el.a[1], z0], [el.b[0], el.b[1], z1], +t.width || 200, +t.depth || 200, materialColor(ctx, t.materialId || 'mat-steel'));
+  return b.build();
+}
+
+function buildMep(ctx, el) {
+  if (!el.a || !el.b) return null;
+  const { round, w, h } = mepSize(ctx.doc, el);
+  const { a, b: e } = mepPlan(ctx.doc, el);
+  const z = levelElevation(ctx.doc, el.levelId) + (+el.offset || 0);
+  const col = hexToRgba(systemOf(el).color);
+  const b = new MeshBuilder();
+  if (round) b.tube([a[0], a[1], z], [e[0], e[1], z], w / 2, col, { segments: el.kind === 'conduit' ? 8 : 16 });
+  else b.beam3([a[0], a[1], z], [e[0], e[1], z], w, h, col);
+  return b.build();
+}
+
+function buildTopo(ctx, el) {
+  const P = el.points || [];
+  if (P.length < 3) return null;
+  const tris = delaunay(P);
+  if (!tris.length) return null;
+  const col = materialColor(ctx, el.materialId || 'mat-earth');
+  const zMin = Math.min(...P.map((p) => p[2])) - (+el.thickness || 1000);
+  const b = new MeshBuilder();
+  const count = new Map();
+  for (const [i, j, k] of tris) {
+    const A = P[i];
+    const C = P[j];
+    const D = P[k];
+    orientedTri(b, A, C, D, col, true);
+    orientedTri(b, [A[0], A[1], zMin], [C[0], C[1], zMin], [D[0], D[1], zMin], col, false);
+    for (const [u, v] of [
+      [i, j],
+      [j, k],
+      [k, i],
+    ]) {
+      const key = u < v ? `${u},${v}` : `${v},${u}`;
+      count.set(key, (count.get(key) || 0) + 1);
+    }
+  }
+  // Skirt along the outer edges (used by one triangle only).
+  for (const [key, n] of count) {
+    if (n !== 1) continue;
+    const [u, v] = key.split(',').map(Number);
+    const p = P[u];
+    const q = P[v];
+    b.quad([p[0], p[1], zMin], [q[0], q[1], zMin], q, p, col);
+    b.edge(p, q);
+    b.edge([p[0], p[1], zMin], [q[0], q[1], zMin]);
+  }
+  return b.build();
+}
+
+function buildMass(ctx, el) {
+  if (!el.boundary || el.boundary.length < 3) return null;
+  const base = levelElevation(ctx.doc, el.levelId) + (+el.baseOffset || 0);
+  const b = new MeshBuilder();
+  b.prism(el.boundary, el.holes || [], base, base + (+el.height || 10000), [176, 190, 214, 110]);
+  return b.build();
 }
 
 // Ramps and model lines -------------------------------------------------------------------

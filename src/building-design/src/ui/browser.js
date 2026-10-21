@@ -23,6 +23,12 @@ const TYPE_GROUPS = [
   { label: 'Ramps', typeKind: 'rampType', kind: 'ramp' },
   { label: 'Railings', typeKind: 'railingType', kind: 'railing' },
   { label: 'Model Groups', typeKind: 'groupType', kind: 'group' },
+  { label: 'Structural Foundations', typeKind: 'footingType', kind: 'footing' },
+  { label: 'Wall Foundations', typeKind: 'wallFootingType', kind: 'wallFooting' },
+  { label: 'Ducts', typeKind: 'ductType', kind: 'duct', byFamily: true },
+  { label: 'Pipes', typeKind: 'pipeType', kind: 'pipe' },
+  { label: 'Cable Trays', typeKind: 'cableTrayType', kind: 'cableTray' },
+  { label: 'Conduits', typeKind: 'conduitType', kind: 'conduit' },
 ];
 
 export class ProjectBrowser {

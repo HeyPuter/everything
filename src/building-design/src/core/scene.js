@@ -18,12 +18,13 @@ import { hostedBy } from './model.js';
 import { ANNOTATION_KINDS } from './annotate.js';
 import { hiddenByFilters, viewGraphics, restyle, viewFilterItems } from './graphics.js';
 import { cropGraphics } from './crop.js';
+import { MEP_KINDS, connected } from './mep.js';
 import { isView } from './doc.js';
 
-export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'ramp', 'railing', 'component', 'modelLine'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
+export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
-const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'modelLine', 'area', 'areaBoundary']);
+const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
 
 /** 2D views that show only their own annotations. */
 export const DRAWN_ONLY = new Set(['drafting', 'legend']);
@@ -137,7 +138,10 @@ export class Scene {
     } else if (el.hostId) {
       const host = doc.get(el.hostId);
       d.push(host, host && doc.get(host.typeId), host && doc.get(host.levelId), host && doc.get(host.topLevelId));
-    }
+    } else if (el.kind === 'wallFooting') {
+      const w = doc.get(el.wallId);
+      d.push(w, w && doc.get(w.typeId), w && doc.get(w.levelId));
+    } else if (MEP_KINDS.includes(el.kind)) d.push(`${connected(doc, el, el.a)}|${connected(doc, el, el.b)}`);
     return d;
   }
 

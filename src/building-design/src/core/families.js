@@ -311,6 +311,88 @@ const F = {
     plan.loops.push({ pts: ellipse(0, 0, w / 2, w / 2, 24), closed: true });
     plan.loops.push({ pts: ellipse(0, 0, w * 0.1, w * 0.1, 10), closed: true });
   },
+  downlight(t, x, plan) {
+    const { width: w, height: h } = t;
+    x.cyl(0, 0, w / 2, h - 20, h, 'mat-paint-white', { segments: 20 });
+    x.cyl(0, 0, w * 0.38, 0, h - 20, 'mat-aluminum', { segments: 16 });
+    plan.loops.push({ pts: ellipse(0, 0, w / 2, w / 2, 20), closed: true });
+    plan.loops.push({ pts: [[-w * 0.35, -w * 0.35], [w * 0.35, w * 0.35]] }, { pts: [[-w * 0.35, w * 0.35], [w * 0.35, -w * 0.35]] });
+    plan.noFill = true;
+  },
+  diffuser(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, -d / 2, h - 20, w / 2, d / 2, h, 'mat-paint-white');
+    x.box(-w * 0.3, -d * 0.3, 0, w * 0.3, d * 0.3, h - 20, 'mat-aluminum');
+    plan.loops.push({ pts: rect(-w / 2, -d / 2, w / 2, d / 2), closed: true });
+    plan.loops.push({ pts: rect(-w * 0.3, -d * 0.3, w * 0.3, d * 0.3), closed: true });
+    plan.loops.push({ pts: [[-w / 2, -d / 2], [w / 2, d / 2]] }, { pts: [[-w / 2, d / 2], [w / 2, -d / 2]] });
+    plan.noFill = true;
+  },
+  grille(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, -d / 2, h - 20, w / 2, d / 2, h, 'mat-paint-white');
+    plan.loops.push({ pts: rect(-w / 2, -d / 2, w / 2, d / 2), closed: true });
+    for (let i = 1; i < 6; i++) plan.loops.push({ pts: [[-w / 2 + (w * i) / 6, -d / 2], [-w / 2 + (w * i) / 6, d / 2]] });
+    plan.noFill = true;
+  },
+  mechUnit(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, -d / 2, 0, w / 2, d / 2, h, '#b9c2cb');
+    x.cyl(w * 0.22, 0, Math.min(w, d) * 0.3, h, h + 20, 'mat-steel', { segments: 20 });
+    plan.loops.push({ pts: rect(-w / 2, -d / 2, w / 2, d / 2), closed: true });
+    plan.loops.push({ pts: ellipse(w * 0.22, 0, Math.min(w, d) * 0.3, Math.min(w, d) * 0.3, 20), closed: true });
+    plan.loops.push({ pts: [[-w / 2, -d / 2], [w * 0.22 - Math.min(w, d) * 0.3, 0]] }, { pts: [[-w / 2, d / 2], [w * 0.22 - Math.min(w, d) * 0.3, 0]] });
+  },
+  waterHeater(t, x, plan) {
+    const { width: w, height: h } = t;
+    x.cyl(0, 0, w / 2, 0, h, 'mat-paint-white', { segments: 24 });
+    plan.loops.push({ pts: ellipse(0, 0, w / 2, w / 2, 24), closed: true });
+    plan.loops.push({ pts: ellipse(0, 0, w * 0.15, w * 0.15, 12), closed: true });
+  },
+  panel(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, -d / 2, 0, w / 2, d / 2, h, '#8a939c');
+    plan.loops.push({ pts: rect(-w / 2, -d / 2, w / 2, d / 2), closed: true });
+    plan.fillColor = [60, 66, 74, 220];
+  },
+  receptacle(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, d / 2 - 15, 0, w / 2, d / 2, h, 'mat-paint-white');
+    // Plan symbol: a circle with two parallel strokes, drawn at a readable size.
+    const r = 110;
+    plan.loops.push({ pts: ellipse(0, d / 2 - r, r, r, 16), closed: true });
+    plan.loops.push({ pts: [[-r * 1.5, d / 2 - r * 0.6], [r * 1.5, d / 2 - r * 0.6]] }, { pts: [[-r * 1.5, d / 2 - r * 1.4], [r * 1.5, d / 2 - r * 1.4]] });
+    plan.noFill = true;
+  },
+  switch(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    x.box(-w / 2, d / 2 - 15, 0, w / 2, d / 2, h, 'mat-paint-white');
+    const r = 110;
+    plan.loops.push({ pts: ellipse(0, d / 2 - r, r, r, 16), closed: true });
+    plan.loops.push({ pts: [[0, d / 2 - r * 2], [r * 1.4, d / 2 - r * 3]] });
+    plan.noFill = true;
+  },
+  bench(t, x, plan) {
+    const { width: w, depth: d, height: h } = t;
+    for (const sx of [-1, 1]) x.box(sx * (w / 2 - 120) - 40, -d / 2 + 40, 0, sx * (w / 2 - 120) + 40, d / 2 - 40, h - 60, 'mat-steel');
+    x.box(-w / 2, -d / 2, h - 60, w / 2, d / 2, h, 'mat-wood');
+    plan.loops.push({ pts: rect(-w / 2, -d / 2, w / 2, d / 2), closed: true });
+    for (let i = 1; i < 4; i++) plan.loops.push({ pts: [[-w / 2, -d / 2 + (d * i) / 4], [w / 2, -d / 2 + (d * i) / 4]] });
+  },
+  bollard(t, x, plan) {
+    const { width: w, height: h } = t;
+    x.cyl(0, 0, w / 2, 0, h, 'mat-concrete', { segments: 18 });
+    plan.loops.push({ pts: ellipse(0, 0, w / 2, w / 2, 18), closed: true });
+  },
+  parking(t, x, plan) {
+    const { width: w, depth: d } = t;
+    // Painted stripes on the ground: the two sides and the end.
+    const s = 100;
+    x.box(-w / 2, -d / 2, 0, -w / 2 + s, d / 2, 2, 'mat-paint-white');
+    x.box(w / 2 - s, -d / 2, 0, w / 2, d / 2, 2, 'mat-paint-white');
+    plan.loops.push({ pts: [[-w / 2, -d / 2], [-w / 2, d / 2], [w / 2, d / 2], [w / 2, -d / 2]] });
+    plan.noFill = true;
+  },
 };
 
 export const FAMILIES = Object.keys(F);
@@ -325,6 +407,6 @@ export function buildFamily(type, frame, builder, materialOf) {
   const t = { width: +type?.width || 600, depth: +type?.depth || 600, height: +type?.height || 900 };
   fn(t, new FamilyContext(builder, frame, materialOf), plan);
   plan.outline = rect(-t.width / 2, -t.depth / 2, t.width / 2, t.depth / 2);
-  if (type?.family === 'roundTable' || type?.family === 'tree' || type?.family === 'shrub' || type?.family === 'pendant' || type?.family === 'floorLamp') plan.outline = ellipse(0, 0, t.width / 2, t.depth / 2, 24);
+  if (['roundTable', 'tree', 'shrub', 'pendant', 'floorLamp', 'downlight', 'waterHeater', 'bollard'].includes(type?.family)) plan.outline = ellipse(0, 0, t.width / 2, t.depth / 2, 24);
   return plan;
 }

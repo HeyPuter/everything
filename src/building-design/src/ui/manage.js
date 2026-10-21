@@ -11,6 +11,7 @@ import { PARAM_TYPES, PARAM_GROUPS, projectParams } from '../core/params.js';
 import { uniqueName } from '../core/ops.js';
 import { modelWarnings } from '../core/warnings.js';
 import { isView } from '../core/doc.js';
+import { formatLength, parseLength } from '../core/units.js';
 
 function field(label, control) {
   return h('label.field', h('span.field-label', label), control);
@@ -310,6 +311,43 @@ export async function selectById(app) {
   app.select(found);
   if (found.length) app.vc?.zoomExtents?.(true, new Set(found));
   toast(found.length === ids.length ? `Selected ${found.length}.` : `Found ${found.length} of ${ids.length}.`, { kind: found.length ? 'success' : 'error' });
+}
+
+// Topography points --------------------------------------------------------------------------------
+
+export function topoPointsDialog(app, id) {
+  const doc = app.doc;
+  const topo = doc.get(id || [...app.selection].find((x) => doc.get(x)?.kind === 'topo'));
+  if (!topo) return toast('Select a toposurface first.', { kind: 'error' });
+  const pts = topo.points.map((p) => p.slice());
+  const units = doc.units;
+  const tbody = h('tbody');
+  const fmt = (v) => formatLength(v, units);
+  const render = () => {
+    clear(tbody);
+    pts.forEach((p, i) => {
+      const cell = (k) => {
+        const inp = h('input.input.sm', { type: 'text', value: fmt(p[k]), 'aria-label': `${'XYZ'[k]} of point ${i + 1}` });
+        inp.addEventListener('change', () => {
+          const v = parseLength(inp.value, units);
+          if (Number.isFinite(v)) p[k] = v;
+          inp.value = fmt(p[k]);
+        });
+        return h('td', inp);
+      };
+      tbody.append(h('tr', h('td', String(i + 1)), cell(0), cell(1), cell(2), h('td', h('button.icon-btn.sm', { type: 'button', 'aria-label': `Delete point ${i + 1}`, disabled: pts.length <= 3, onClick: () => (pts.splice(i, 1), render()) }, icon('trash', 14)))));
+    });
+  };
+  render();
+  return openDialog({
+    title: 'Toposurface Points',
+    body: h('div.vg-panel', h('table.vg-table', h('thead', h('tr', h('th', '#'), h('th', 'X'), h('th', 'Y'), h('th', 'Elevation'), h('th', h('span.sr-only', 'Delete')))), tbody)),
+    size: 'md',
+    actions: [
+      { label: 'Cancel', value: null },
+      { label: 'OK', primary: true, onClick: () => app.commit('Edit toposurface', () => doc.update(topo.id, { points: pts })) },
+    ],
+  });
 }
 
 // Warnings ----------------------------------------------------------------------------------------

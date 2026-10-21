@@ -15,6 +15,10 @@ import { STAIR_SHAPES } from './stairs.js';
 import { DETAIL_FAMILIES, radialTarget } from './annotate.js';
 import { applyTemplatePatch, templateKindOf } from './graphics.js';
 import { phasesInOrder, phased, PHASE_FILTERS } from './phases.js';
+import { mepSize, systemOf, SYSTEMS } from './mep.js';
+import { braceHeights } from './build3d.js';
+import { topoBoundary } from './topo.js';
+import { massFloorArea } from './massing.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
 
@@ -277,6 +281,44 @@ const INSTANCE = {
   detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
   symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
   colorLegend: [ro('by', 'Colors By', 'Graphics', (el, c) => ROOM_FILL_LABEL[c.doc.get(el.viewId)?.roomFillBy || 'name'], 'text')],
+  footing: [P('levelId', 'Level', 'Constraints', 'level'), len('offset', 'Top Offset From Level', 'Constraints'), P('rotation', 'Rotation', 'Constraints', 'angle'), mark, comments],
+  wallFooting: [ro('wall', 'Wall', 'Constraints', (el, c) => c.doc.get(c.doc.get(el.wallId)?.typeId)?.name ?? '', 'text'), ro('length', 'Length', 'Dimensions', (el, c) => (c.doc.get(el.wallId) ? dist(c.doc.get(el.wallId).a, c.doc.get(el.wallId).b) : 0)), mark, comments],
+  brace: [
+    P('levelId', 'Start Level', 'Constraints', 'level'),
+    len('baseOffset', 'Start Offset', 'Constraints'),
+    P('topLevelId', 'End Level', 'Constraints', 'levelOpt', { none: 'Unconnected' }),
+    len('topOffset', 'End Offset', 'Constraints', { ro: (el) => !el.topLevelId }),
+    len('height', 'Unconnected Rise', 'Constraints', { ro: (el) => !!el.topLevelId }),
+    ro('length', 'Length', 'Dimensions', (el, c) => {
+      const { z0, z1 } = braceHeights(c.doc, el);
+      return Math.hypot(dist(el.a, el.b), z1 - z0);
+    }),
+    mark,
+    comments,
+  ],
+  duct: mepParams('duct'),
+  pipe: mepParams('pipe'),
+  cableTray: mepParams('cableTray'),
+  conduit: mepParams('conduit'),
+  topo: [
+    len('thickness', 'Thickness', 'Dimensions'),
+    len('contour', 'Contour Interval', 'Graphics'),
+    ro('points', 'Points', 'Dimensions', (el) => String(el.points?.length ?? 0), 'text'),
+    ro('area', 'Projected Area', 'Dimensions', (el) => polyArea(topoBoundary(el)), 'area'),
+    P('materialId', 'Material', 'Materials and Finishes', 'material'),
+    P('editPoints', 'Points', 'Other', 'button', { action: 'topo-points', text: 'Edit...' }),
+  ],
+  propertyLine: [ro('area', 'Area', 'Dimensions', (el) => polyArea(el.boundary || []), 'area'), ro('perimeter', 'Perimeter', 'Dimensions', (el) => perimeter(el.boundary || [])), comments],
+  mass: [
+    P('name', 'Name', 'Identity Data', 'text'),
+    P('levelId', 'Level', 'Constraints', 'level'),
+    len('baseOffset', 'Base Offset', 'Constraints'),
+    len('height', 'Height', 'Dimensions'),
+    ro('footprint', 'Footprint Area', 'Dimensions', (el) => polyArea(el.boundary || []), 'area'),
+    ro('gross', 'Gross Floor Area', 'Dimensions', (el, c) => massFloorArea(c.doc, el), 'area'),
+    ro('volume', 'Volume', 'Dimensions', (el) => polyArea(el.boundary || []) * (+el.height || 0), 'volume'),
+    comments,
+  ],
   group: [
     ro('level', 'Reference Level', 'Constraints', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
     P('rotation', 'Rotation', 'Constraints', 'angle', { ro: () => true }),
@@ -287,6 +329,21 @@ const INSTANCE = {
 };
 
 export const LINE_STYLES = ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));
+
+/** Parameters of a duct, pipe, cable tray or conduit run. */
+function mepParams(kind) {
+  const round = (el, c) => mepSize(c.doc, el).round;
+  const out = [P('levelId', 'Reference Level', 'Constraints', 'level'), len('offset', 'Middle Elevation', 'Constraints')];
+  if (SYSTEMS[kind].length > 1) out.push(P('system', 'System Type', 'Identity Data', 'select', { get: (el) => systemOf(el).value, options: () => SYSTEMS[kind] }));
+  if (kind === 'pipe' || kind === 'conduit') out.push(len('diameter', 'Diameter', 'Dimensions', { get: (el, c) => mepSize(c.doc, el).w }));
+  else {
+    out.push(len('width', 'Width', 'Dimensions', { get: (el, c) => mepSize(c.doc, el).w, ro: round }));
+    out.push(len('height', 'Height', 'Dimensions', { get: (el, c) => mepSize(c.doc, el).h, ro: round }));
+    if (kind === 'duct') out.push(len('diameter', 'Diameter', 'Dimensions', { get: (el, c) => mepSize(c.doc, el).w, ro: (el, c) => !round(el, c) }));
+  }
+  out.push(ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)), mark, comments);
+  return out;
+}
 
 const ROOM_FILL_LABEL = { name: 'Name', department: 'Department', occupant: 'Occupant', floorFinish: 'Floor Finish', number: 'Number' };
 
@@ -451,6 +508,23 @@ export const TYPE_PARAMS = {
   ],
   beamType: [len('width', 'Width', 'Dimensions'), len('depth', 'Depth', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
   stairType: [len('maxRiser', 'Maximum Riser Height', 'Dimensions'), len('tread', 'Minimum Tread Depth', 'Dimensions'), len('width', 'Default Width', 'Dimensions'), len('thickness', 'Thickness', 'Construction'), P('monolithic', 'Monolithic', 'Construction', 'bool'), MAT('materialId', 'Material')],
+  footingType: [len('width', 'Width', 'Dimensions'), len('length', 'Length', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
+  wallFootingType: [len('width', 'Width', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
+  ductType: [
+    P('shape', 'Shape', 'Construction', 'select', {
+      options: () => [
+        { value: 'rect', label: 'Rectangular' },
+        { value: 'round', label: 'Round' },
+      ],
+    }),
+    len('width', 'Width', 'Dimensions'),
+    len('height', 'Height', 'Dimensions'),
+    len('diameter', 'Diameter', 'Dimensions'),
+    MAT('materialId', 'Material'),
+  ],
+  pipeType: [len('diameter', 'Diameter', 'Dimensions'), MAT('materialId', 'Material')],
+  cableTrayType: [len('width', 'Width', 'Dimensions'), len('height', 'Height', 'Dimensions'), MAT('materialId', 'Material')],
+  conduitType: [len('diameter', 'Diameter', 'Dimensions'), MAT('materialId', 'Material')],
   rampType: [
     P('slopeRatio', 'Maximum Slope (1 in ...)', 'Dimensions', 'number'),
     len('width', 'Default Width', 'Dimensions'),

@@ -6,6 +6,7 @@
  */
 import { add, sub, scale, dot, dist, norm, closestOnSegment, lineIntersect, len, angleOf, mid } from '../core/geom.js';
 import { wallAxis, rampOutline } from '../core/model.js';
+import { footingOutline } from '../core/build3d.js';
 import { columnOutline } from '../core/plan.js';
 import { buildFamily } from '../core/families.js';
 import { Frame } from '../core/mesh.js';
@@ -63,10 +64,32 @@ export function snapFeatures(scene, el) {
       if (!full) for (const a of [el.a0, el.a1]) P([el.c[0] + Math.cos(a) * el.r, el.c[1] + Math.sin(a) * el.r]);
       break;
     }
+    case 'footing': {
+      const o = footingOutline(doc, el);
+      P(el.at, 'center');
+      o.forEach((p) => P(p));
+      for (let i = 0; i < o.length; i++) Lg(o[i], o[(i + 1) % o.length], 'edge');
+      break;
+    }
+    case 'propertyLine':
+    case 'mass': {
+      const bnd = el.boundary || [];
+      bnd.forEach((p) => P(p));
+      for (let i = 0; i < bnd.length; i++) Lg(bnd[i], bnd[(i + 1) % bnd.length], 'edge');
+      break;
+    }
+    case 'topo':
+      (el.points || []).forEach((p) => P([p[0], p[1]]));
+      break;
     case 'refPlane':
     case 'modelLine':
     case 'areaBoundary':
     case 'insulation':
+    case 'brace':
+    case 'duct':
+    case 'pipe':
+    case 'cableTray':
+    case 'conduit':
       P(el.a);
       P(el.b);
       P(mid(el.a, el.b), 'midpoint');

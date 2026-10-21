@@ -172,10 +172,46 @@ export function gripsFor(app, el, vc) {
         out.push({ at: el.a, shape: 'circle', title: 'Drag start', exclude: [el.id], drag: (p) => doc.update(el.id, { a: p, b: add(p, sub(el.b, el.a)) }) });
         out.push({ at: rampLayout(doc, el).end, shape: 'circle', title: 'Drag to turn the ramp', exclude: [el.id], drag: (p) => doc.update(el.id, { b: p }) });
         break;
+      case 'propertyLine':
+      case 'mass':
+        (el.boundary || []).forEach((v, i) =>
+          out.push({
+            at: v,
+            shape: 'square',
+            title: 'Drag vertex',
+            exclude: [el.id],
+            drag: (p) => {
+              const b = el.boundary.slice();
+              b[i] = p;
+              doc.update(el.id, { boundary: b });
+            },
+          }),
+        );
+        break;
+      case 'topo':
+        (el.points || []).forEach((v, i) =>
+          out.push({
+            at: [v[0], v[1]],
+            shape: 'square',
+            title: `Drag point (elevation ${v[2]})`,
+            exclude: [el.id],
+            drag: (p) => {
+              const pts = el.points.slice();
+              pts[i] = [p[0], p[1], v[2]];
+              doc.update(el.id, { points: pts });
+            },
+          }),
+        );
+        break;
       case 'stair':
       case 'refPlane':
       case 'modelLine':
       case 'areaBoundary':
+      case 'brace':
+      case 'duct':
+      case 'pipe':
+      case 'cableTray':
+      case 'conduit':
         for (const end of ['a', 'b'])
           out.push({
             at: el[end],

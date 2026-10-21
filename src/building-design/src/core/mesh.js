@@ -23,6 +23,14 @@ function cross3(a, b) {
   return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
+function dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function scale3(a, s) {
+  return [a[0] * s, a[1] * s, a[2] * s];
+}
+
 function normalize3(a) {
   const l = Math.hypot(a[0], a[1], a[2]);
   return l > 1e-12 ? [a[0] / l, a[1] / l, a[2] / l] : [0, 0, 1];
@@ -198,6 +206,80 @@ export class MeshBuilder {
     if (edges) {
       if (r1 > 1e-6) this.edgeLoop(hi);
       if (r0 > 1e-6) this.edgeLoop(lo);
+    }
+  }
+
+  /**
+   * Box of width w and height h along the 3D segment a→b (any direction).
+   * Its height runs along `up` projected square to the segment (default +z).
+   */
+  beam3(a, b, w, h, color, { up = [0, 0, 1], edges = true } = {}) {
+    const d = normalize3(sub3(b, a));
+    let u = sub3(up, scale3(d, dot3(up, d)));
+    if (Math.hypot(u[0], u[1], u[2]) < 1e-6) u = Math.abs(d[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+    u = normalize3(u);
+    const s = normalize3(cross3(d, u));
+    const corner = (p, i, j) => [p[0] + s[0] * i * w / 2 + u[0] * j * h / 2, p[1] + s[1] * i * w / 2 + u[1] * j * h / 2, p[2] + s[2] * i * w / 2 + u[2] * j * h / 2];
+    const ring = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ];
+    const A = ring.map(([i, j]) => corner(a, i, j));
+    const B = ring.map(([i, j]) => corner(b, i, j));
+    // Normals: quad(a, b, c, d) faces (b - a) x (d - a); every face points out.
+    for (let k = 0; k < 4; k++) {
+      const k2 = (k + 1) % 4;
+      this.quad(A[k], B[k], B[k2], A[k2], color);
+      if (edges) this.edge(A[k], B[k]);
+    }
+    this.quad(A[0], A[1], A[2], A[3], color);
+    this.quad(B[3], B[2], B[1], B[0], color);
+    if (edges) {
+      this.edgeLoop(A);
+      this.edgeLoop(B);
+    }
+  }
+
+  /** Round tube of radius r along the 3D segment a→b. */
+  tube(a, b, r, color, { segments = 16, edges = true, caps = true } = {}) {
+    const d = normalize3(sub3(b, a));
+    const ref = Math.abs(d[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const u = normalize3(cross3(d, ref));
+    const v = cross3(d, u);
+    const ringAt = (p) => {
+      const out = [];
+      for (let i = 0; i < segments; i++) {
+        const t = (i / segments) * Math.PI * 2;
+        const c = Math.cos(t) * r;
+        const sn = Math.sin(t) * r;
+        out.push([p[0] + u[0] * c + v[0] * sn, p[1] + u[1] * c + v[1] * sn, p[2] + u[2] * c + v[2] * sn]);
+      }
+      return out;
+    };
+    const A = ringAt(a);
+    const B = ringAt(b);
+    for (let i = 0; i < segments; i++) {
+      const j = (i + 1) % segments;
+      const na = normalize3(sub3(A[i], a));
+      const nb = normalize3(sub3(A[j], a));
+      this._v(A[i], na, color);
+      this._v(A[j], nb, color);
+      this._v(B[j], nb, color);
+      this._v(A[i], na, color);
+      this._v(B[j], nb, color);
+      this._v(B[i], na, color);
+    }
+    if (caps) {
+      for (let i = 1; i < segments - 1; i++) {
+        this.tri(A[0], A[i + 1], A[i], color);
+        this.tri(B[0], B[i], B[i + 1], color);
+      }
+    }
+    if (edges) {
+      this.edgeLoop(A);
+      this.edgeLoop(B);
     }
   }
 

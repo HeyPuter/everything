@@ -920,7 +920,7 @@ export class App {
 
   placeType(type, kind) {
     this.setCurrentType(kind, type.id);
-    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', ramp: 'ramp', railing: 'railing', component: 'component', group: 'groupPlace' }[kind];
+    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', ramp: 'ramp', railing: 'railing', component: 'component', group: 'groupPlace', footing: 'footing', wallFooting: 'wallFooting', brace: 'brace', duct: 'duct', pipe: 'pipe', cableTray: 'cableTray', conduit: 'conduit' }[kind];
     if (cmd) this.run(cmd);
   }
 

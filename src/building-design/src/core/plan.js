@@ -8,10 +8,12 @@
  * Colours: null means the theme's ink colour; INK(a) is ink at alpha a;
  * BG is the canvas colour (used to mask what lies underneath).
  */
-import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf } from './geom.js';
+import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf, area as polyArea } from './geom.js';
 import { verticalExtent, openingSize, levelElevation, wallAxis, rampLayout, rampOutline } from './model.js';
 import { axisParam, facePoint, hubsOf } from './walls.js';
-import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid } from './build3d.js';
+import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid, footingOutline, wallFootingOutline } from './build3d.js';
+import { mepSize, mepPlan, systemOf } from './mep.js';
+import { delaunay, contours, topoBoundary } from './topo.js';
 import { stairFlights, flightOutline, flightPoint } from './stairs.js';
 import { buildFamily } from './families.js';
 import { Frame } from './mesh.js';
@@ -214,6 +216,58 @@ export function planGraphics(pc, el) {
     case 'areaPlan':
       if (el.calloutOf === pc.view.id && el.crop) planCalloutMarker(pc, el, b);
       break;
+    case 'footing':
+      if (el.levelId === pc.view.levelId && !pc.ceiling) {
+        const o = footingOutline(pc.doc, el);
+        b.poly(o, true, W.thin, 2);
+        b.pick(o);
+      }
+      break;
+    case 'wallFooting': {
+      const w = pc.doc.get(el.wallId);
+      const o = w && w.levelId === pc.view.levelId && !pc.ceiling ? wallFootingOutline(pc.doc, el) : null;
+      if (o) {
+        b.poly(o, true, W.thin, 2);
+        b.pick(o);
+      }
+      break;
+    }
+    case 'brace':
+      planBrace(pc, el, b);
+      break;
+    case 'duct':
+    case 'pipe':
+    case 'cableTray':
+    case 'conduit':
+      planMep(pc, el, b);
+      break;
+    case 'topo':
+      planTopo(pc, el, b);
+      break;
+    case 'propertyLine':
+      if (el.boundary?.length >= 3 && !pc.ceiling) {
+        b.poly(el.boundary, true, W.medium, 3);
+        const c = el.boundary.reduce((s, p) => [s[0] + p[0] / el.boundary.length, s[1] + p[1] / el.boundary.length], [0, 0]);
+        b.text(c, `Property ${formatArea(polyArea(el.boundary), pc.units)}`, { size: P(pc, 2.2), color: INK(170) });
+        for (let i = 0; i < el.boundary.length; i++) {
+          const p = el.boundary[i];
+          const q = el.boundary[(i + 1) % el.boundary.length];
+          const n = perp(norm(sub(q, p)));
+          const pad = P(pc, 1);
+          b.pick([add(p, scale(n, -pad)), add(q, scale(n, -pad)), add(q, scale(n, pad)), add(p, scale(n, pad))]);
+        }
+      }
+      break;
+    case 'mass': {
+      if (!el.boundary || el.boundary.length < 3) break;
+      const base = levelElevation(pc.doc, el.levelId) + (+el.baseOffset || 0);
+      const top = base + (+el.height || 10000);
+      if (top < pc.bottomZ || base > pc.cutZ) break;
+      if (base <= pc.cutZ && top > pc.cutZ) b.fill(el.boundary, el.holes || [], [176, 190, 214, 70]);
+      b.poly(el.boundary, true, W.light, 0, [90, 110, 150, 255]);
+      b.pick(el.boundary);
+      break;
+    }
     case 'modelLine':
       if (el.levelId === pc.view.levelId) drawDetailLine(el, b);
       break;
@@ -235,6 +289,62 @@ export function planGraphics(pc, el) {
       if (!annotationGraphics(pc, el, b)) return null;
   }
   return b.empty ? null : b;
+}
+
+// Bracing, building services and topography -----------------------------------------------------
+
+function planBrace(pc, el, b) {
+  if (el.levelId !== pc.view.levelId || pc.ceiling || !el.a || !el.b) return;
+  b.line(el.a, el.b, W.light, 2);
+  // A small mark at the low end.
+  const d = norm(sub(el.b, el.a));
+  const n = perp(d);
+  const s = P(pc, 1.2);
+  b.line(add(el.a, scale(n, -s)), add(el.a, scale(n, s)), W.light);
+  const pad = P(pc, 1);
+  b.pick([add(el.a, scale(n, -pad)), add(el.b, scale(n, -pad)), add(el.b, scale(n, pad)), add(el.a, scale(n, pad))]);
+}
+
+function planMep(pc, el, b) {
+  if (el.levelId !== pc.view.levelId || !el.a || !el.b) return;
+  const { round } = mepSize(pc.doc, el);
+  const sys = systemOf(el);
+  const col = tint(sys.color, 255);
+  const g = mepPlan(pc.doc, el);
+  const [p0, p1, p2, p3] = g.outline;
+  if (el.kind === 'pipe' || el.kind === 'conduit') {
+    // Single line at coarse and medium detail, the pipe's width at fine.
+    if (pc.detail === 'fine' && el.kind === 'pipe') {
+      b.line(p0, p1, W.thin, 0, col);
+      b.line(p3, p2, W.thin, 0, col);
+    }
+    b.line(el.a, el.b, el.kind === 'pipe' ? W.medium : W.thin, el.kind === 'conduit' ? 1 : 0, col);
+  } else {
+    b.fill(g.outline, [], tint(sys.color, 28));
+    b.line(p0, p1, W.light, 0, col);
+    b.line(p3, p2, W.light, 0, col);
+    if (round) b.line(g.a, g.b, W.thin, 3, col);
+    if (el.kind === 'cableTray') {
+      // Rungs.
+      const L = dist(g.a, g.b);
+      for (let s = 300; s < L; s += 300) b.line(add(p0, scale(g.d, s)), add(p3, scale(g.d, s)), W.thin, 0, col);
+    }
+  }
+  b.pick(g.outline);
+}
+
+function planTopo(pc, el, b) {
+  const P0 = el.points || [];
+  if (P0.length < 3 || pc.ceiling) return;
+  // Shown in plans of the lowest level (site plans).
+  const lowest = pc.doc.levels()[0];
+  if (lowest && pc.view.levelId !== lowest.id) return;
+  const tris = delaunay(P0);
+  const interval = +el.contour || (pc.units.system === 'imperial' ? 304.8 : 500);
+  for (const c of contours(el, interval, tris)) b.line(c.a, c.b, c.major ? W.light : W.thin, 0, c.major ? INK(200) : INK(120));
+  const hull = topoBoundary(el);
+  b.poly(hull, true, W.thin, 0, INK(150));
+  b.pick(hull);
 }
 
 /** Colours of datum and area annotations. */
@@ -707,7 +817,8 @@ function planComponent(pc, el, b) {
   if (!type) return;
   const z = levelElevation(pc.doc, el.levelId) + (+el.offset || 0) + (+type.elevation || 0);
   if (z < pc.bottomZ - 1 || z >= pc.topZ) return;
-  if (pc.ceiling && type.category !== 'lighting') return;
+  if (pc.ceiling && type.category !== 'lighting' && type.category !== 'airTerminals') return;
+  if (!pc.ceiling && type.category === 'airTerminals') return;
   const frame = new Frame(el.at, ((+el.rotation || 0) * Math.PI) / 180);
   const sym = buildFamily(type, frame, null, () => null);
   const outline = sym.outline.map((p) => frame.apply(p));
