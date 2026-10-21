@@ -123,19 +123,82 @@ function cross(a: number[], b: number[], out: number[]) {
   out[2] = z;
 }
 
-const tubeCache = new WeakMap<EvalMesh, EvalMesh>();
+const tubeCache = new WeakMap<EvalMesh, Map<string, EvalMesh>>();
 
-/** Tubes for an evaluated hair mesh (cached). */
-export function tubesFor(m: EvalMesh): EvalMesh | null {
+/** How strands become render geometry (Render ▸ Curves): cross-section sides and subdivisions. */
+export interface StrandShape {
+  /** 2 = flat ribbon, ≥ 3 = tube */
+  sides: number;
+  /** each segment is split into 2^subdivisions along a smooth curve */
+  subdivisions: number;
+}
+
+/** Points (and radii) of a polyline refined along a Catmull–Rom curve, 2^levels pieces per segment. */
+export function subdivideStrand(points: ArrayLike<number>, radius: ArrayLike<number> | number, levels: number): { points: Float32Array; radius: Float32Array | number } {
+  const k = points.length / 3;
+  const per = 1 << Math.max(0, Math.min(4, Math.round(levels)));
+  if (per === 1 || k < 2) return { points: Float32Array.from(points), radius: typeof radius === 'number' ? radius : Float32Array.from(radius) };
+  const n = (k - 1) * per + 1;
+  const out = new Float32Array(n * 3);
+  const rad = typeof radius === 'number' ? radius : new Float32Array(n);
+  const P = (i: number, c: number) => points[Math.max(0, Math.min(k - 1, i)) * 3 + c];
+  for (let i = 0; i < k - 1; i++) {
+    for (let s = 0; s < per; s++) {
+      const t = s / per,
+        t2 = t * t,
+        t3 = t2 * t;
+      const o = (i * per + s) * 3;
+      for (let c = 0; c < 3; c++) {
+        const p0 = P(i - 1, c),
+          p1 = P(i, c),
+          p2 = P(i + 1, c),
+          p3 = P(i + 2, c);
+        out[o + c] = 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+      }
+      if (typeof rad !== 'number') {
+        const r = radius as ArrayLike<number>;
+        rad[i * per + s] = (r[i] ?? DEFAULT_RADIUS) * (1 - t) + (r[i + 1] ?? DEFAULT_RADIUS) * t;
+      }
+    }
+  }
+  for (let c = 0; c < 3; c++) out[(n - 1) * 3 + c] = points[(k - 1) * 3 + c];
+  if (typeof rad !== 'number') rad[n - 1] = (radius as ArrayLike<number>)[k - 1] ?? DEFAULT_RADIUS;
+  return { points: out, radius: rad };
+}
+
+/** Tubes for an evaluated hair mesh (cached per shape). */
+export function tubesFor(m: EvalMesh, shape: StrandShape = { sides: 3, subdivisions: 0 }): EvalMesh | null {
   if (!m.curves?.length) return null;
-  let t = tubeCache.get(m);
+  let per = tubeCache.get(m);
+  if (!per) tubeCache.set(m, (per = new Map()));
+  const key = `${shape.sides}|${shape.subdivisions}`;
+  let t = per.get(key);
   if (!t) {
     const disp = hairDisplay.get(m);
-    t = strandTubes(m.curves, disp?.radius ?? DEFAULT_RADIUS, 3);
-    tubeCache.set(m, t);
+    const radius = disp?.radius ?? DEFAULT_RADIUS;
+    if (shape.subdivisions > 0) {
+      // refine every curve, carrying its slice of the per-point radii
+      const curves: { points: Float32Array }[] = [];
+      const radii: number[] = [];
+      let pi = 0;
+      for (const c of m.curves) {
+        const k = c.points.length / 3;
+        const r = typeof radius === 'number' ? radius : Array.from({ length: k }, (_, i) => radius[pi + i] ?? DEFAULT_RADIUS);
+        const sd = subdivideStrand(c.points, r, shape.subdivisions);
+        curves.push({ points: sd.points });
+        if (typeof sd.radius === 'number') for (let i = 0; i < sd.points.length / 3; i++) radii.push(sd.radius);
+        else radii.push(...sd.radius);
+        pi += k;
+      }
+      t = strandTubes(curves, radii, shape.sides);
+    } else t = strandTubes(m.curves, radius, shape.sides);
+    per.set(key, t);
   }
   return t;
 }
+
+/** Strand shape of the render settings for an engine (Render ▸ Curves). */
+export const strandShapeHooks: { shape?: (doc: import('../data/types').DocumentData, mode: 'raster' | 'pathtrace') => StrandShape } = {};
 
 const meshes = new WeakMap<RenderScene, Map<string, Mesh>>();
 
@@ -150,7 +213,7 @@ renderSceneHooks.push((rs, appRef, o) => {
     if (ev.ob.type !== 'CURVES' || !ev.mesh || o.hideSurfaces) continue;
     const visible = renderable ? renderable.has(ev.id) : ev.visible && !ev.ob.hide_render && (!o.localView || o.localView.has(ev.id));
     if (!visible) continue;
-    const tubes = tubesFor(ev.mesh);
+    const tubes = tubesFor(ev.mesh, strandShapeHooks.shape?.(doc, rs.mode));
     if (!tubes) continue;
     seen.add(ev.id);
     const geo = meshGeometry(tubes).geometry;

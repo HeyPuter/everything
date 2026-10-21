@@ -20,6 +20,7 @@ import './script';
 import './lightcolor';
 import './worldops';
 import './meshvolume';
+import './curvesettings';
 import '../realtime';
 
 export { renderResult } from './result';

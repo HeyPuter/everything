@@ -142,6 +142,7 @@ function rasterPanels(r: RenderSettings): Child {
     volumesPanel(r),
     bloomPanel(r),
     simplifyPanel(r),
+    curvesPanel(r),
     panel(
       'rs-dof',
       'Depth of Field',
@@ -202,11 +203,45 @@ function motionBlurPanel(r: RenderSettings): Child {
 /** Extra panels appended to the path tracer's Render properties (e.g. Bake). */
 export const pathTraceExtraPanels: ((r: RenderSettings) => Child)[] = [];
 
+function curvesPanel(r: RenderSettings): Child {
+  r.hair_type ??= 'STRAND';
+  r.hair_subdiv ??= 0;
+  return panel(
+    'rs-curves',
+    'Curves',
+    () => [
+      enumProp(r, 'hair_type' as never, 'Shape', [['STRAND', 'Strand'], ['STRIP', 'Strip'], ['CYLINDER', 'Cylinder']], { tip: 'Cross-section of hair strands: flat strips, thin three-sided strands or round cylinders' }),
+      num(r, 'hair_subdiv' as never, 'Additional Subdivision', { int: true, min: 0, max: 3, tip: 'Smooth the strands by splitting each segment (2^n pieces)' }),
+    ],
+    { closed: true },
+  );
+}
+
+function pathTraceCurvesPanel(r: RenderSettings): Child {
+  const c = (r.cycles_curves ??= { shape: 'THICK', subdivisions: 2 });
+  r.hair_type ??= 'STRAND';
+  r.hair_subdiv ??= 0;
+  return panel(
+    'rs-pt-curves',
+    'Curves',
+    () => [
+      enumProp(c, 'shape', 'Shape', [['RIBBONS', 'Rounded Ribbons'], ['THICK', '3D Curves'], ['THICK_LINEAR', 'Linear 3D Curves']], { tip: 'Hair strands as flat ribbons or as round curves (smooth, or straight between the points)' }),
+      num(c, 'subdivisions', 'Curve Subdivisions', { int: true, min: 0, max: 24, disabled: c.shape === 'THICK_LINEAR', tip: 'Smoothness of 3D curves between their points' }),
+      sub('rs-pt-curves-vp', 'Viewport Display', () => [
+        enumProp(r, 'hair_type' as never, 'Shape', [['STRAND', 'Strand'], ['STRIP', 'Strip'], ['CYLINDER', 'Cylinder']]),
+        num(r, 'hair_subdiv' as never, 'Additional Subdivision', { int: true, min: 0, max: 3 }),
+      ], { closed: true }),
+    ],
+    { closed: true },
+  );
+}
+
 function pathTracePanels(r: RenderSettings): Child {
   const main = pathTraceMainPanels(r);
   return [
     main.sampling,
     main.lightPaths,
+    pathTraceCurvesPanel(r),
     simplifyPanel(r),
     motionBlurPanel(r),
     main.film,

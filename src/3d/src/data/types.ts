@@ -1054,6 +1054,11 @@ export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
 export interface RenderSettings extends RealtimeRenderSettings, MultiviewSettings {
   engine: RenderEngine;
+  /** Render ▸ Curves: strand shape in the realtime engine and its subdivisions */
+  hair_type?: 'STRAND' | 'STRIP' | 'CYLINDER';
+  hair_subdiv?: number;
+  /** Render ▸ Curves of the path tracer */
+  cycles_curves?: import('../render/final/curvesettings').CyclesCurves;
   /** path tracer options (src/render/final/ptsettings.ts) */
   cycles?: import('../render/final/ptsettings').PathTraceSettings;
   /** texture baking (src/bake/settings.ts) */

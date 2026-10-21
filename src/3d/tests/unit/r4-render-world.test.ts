@@ -48,3 +48,26 @@ describe('mesh volumes', () => {
     expect(p.data.filter((_, i) => i % 4 === 0).every((x) => x === 255)).toBe(true);
   });
 });
+
+describe('hair render shapes', () => {
+  it('maps the Curves settings to strand cross-sections and subdivisions', async () => {
+    const { strandShape } = await import('../../src/render/final/curvesettings');
+    expect(strandShape({}, 'raster')).toEqual({ sides: 3, subdivisions: 0 });
+    expect(strandShape({ hair_type: 'STRIP', hair_subdiv: 2 }, 'raster')).toEqual({ sides: 2, subdivisions: 2 });
+    expect(strandShape({ hair_type: 'CYLINDER' }, 'raster').sides).toBe(6);
+    expect(strandShape({}, 'pathtrace')).toEqual({ sides: 5, subdivisions: 0 });
+    expect(strandShape({ cycles_curves: { shape: 'RIBBONS', subdivisions: 6 } }, 'pathtrace')).toEqual({ sides: 2, subdivisions: 2 });
+    expect(strandShape({ cycles_curves: { shape: 'THICK_LINEAR', subdivisions: 6 } }, 'pathtrace').subdivisions).toBe(0);
+  });
+
+  it('subdivides strands along a smooth curve through their points', async () => {
+    const { subdivideStrand } = await import('../../src/hair/render');
+    const pts = [0, 0, 0, 1, 0, 0, 2, 1, 0];
+    const s = subdivideStrand(pts, [0.1, 0.2, 0.3], 1);
+    expect(s.points.length / 3).toBe(5);
+    // the original points stay on the curve
+    expect(Array.from(s.points.slice(6, 9))).toEqual([1, 0, 0]);
+    expect(Array.from(s.points.slice(12, 15))).toEqual([2, 1, 0]);
+    expect((s.radius as Float32Array)[1]).toBeCloseTo(0.15);
+  });
+});
