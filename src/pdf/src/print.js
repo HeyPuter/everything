@@ -1,6 +1,48 @@
 import * as pdfjs from 'pdfjs-dist';
 import { el } from './lib/ui.js';
 import { waitFor } from './lib/abort.js';
+import { crc32 } from './lib/crc32.js';
+
+/**
+ * The picture with the resolution it was made at written into it (PNG pHYs, JPEG JFIF density),
+ * so it prints and places at the page's size. Browsers' encoders record none.
+ */
+async function withResolution(blob, dpi) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  const density = Math.max(1, Math.round(dpi));
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) {
+    // A pHYs chunk right after IHDR (8-byte signature, then 25 bytes of IHDR).
+    const chunk = new Uint8Array(21);
+    const out = new DataView(chunk.buffer);
+    out.setUint32(0, 9);
+    chunk.set([0x70, 0x48, 0x59, 0x73], 4);
+    const perMetre = Math.round(density / 0.0254);
+    out.setUint32(8, perMetre);
+    out.setUint32(12, perMetre);
+    chunk[16] = 1;
+    out.setUint32(17, crc32(chunk.subarray(4, 17)));
+    return new Blob([bytes.subarray(0, 33), chunk, bytes.subarray(33)], { type: blob.type });
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    const jfif =
+      bytes[2] === 0xff && bytes[3] === 0xe0 && String.fromCharCode(...bytes.subarray(6, 11));
+    if (jfif === 'JFIF\0') {
+      bytes[13] = 1;
+      view.setUint16(14, density);
+      view.setUint16(16, density);
+      return new Blob([bytes], { type: blob.type });
+    }
+    const app0 = new Uint8Array([
+      0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0,
+    ]);
+    const fields = new DataView(app0.buffer);
+    fields.setUint16(12, density);
+    fields.setUint16(14, density);
+    return new Blob([bytes.subarray(0, 2), app0, bytes.subarray(2)], { type: blob.type });
+  }
+  return blob;
+}
 
 /**
  * Render one page to a PNG or JPEG at `dpi`, with its annotations, for saving as a picture.
@@ -58,7 +100,9 @@ export async function pageImage(
     );
     signal?.throwIfAborted();
     if (!blob) throw new Error('This page could not be turned into a picture.');
-    return blob;
+    const picture = await waitFor(() => withResolution(blob, scale * 72), signal);
+    signal?.throwIfAborted();
+    return picture;
   } finally {
     canvas.width = canvas.height = 0;
   }

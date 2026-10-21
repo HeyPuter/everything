@@ -262,3 +262,42 @@ test('a filename cut beside an emoji exports without replacement characters', as
   expect(entries).toHaveLength(2);
   for (const entry of entries) expect(entry.name).not.toContain('\uFFFD');
 });
+
+/** Dots per inch a PNG (pHYs) or JPEG (JFIF APP0) file records, or null when it has none. */
+function recordedDpi(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes[0] === 0x89) {
+    for (let at = 8; at + 8 <= bytes.length; at += 12 + view.getUint32(at)) {
+      const type = String.fromCharCode(...bytes.subarray(at + 4, at + 8));
+      if (type === 'IDAT') return null;
+      if (type === 'pHYs' && bytes[at + 16] === 1)
+        return [view.getUint32(at + 8), view.getUint32(at + 12)].map((ppm) => ppm * 0.0254);
+    }
+    return null;
+  }
+  const jfif =
+    bytes[2] === 0xff && bytes[3] === 0xe0 && String.fromCharCode(...bytes.subarray(6, 10));
+  if (jfif !== 'JFIF' || bytes[13] !== 1) return null;
+  return [view.getUint16(14), view.getUint16(16)];
+}
+
+for (const [format, label] of [
+  ['image/png', 'PNG'],
+  ['image/jpeg', 'JPEG'],
+])
+  test(`a ${label} page picture records the resolution it was made at`, async ({ page }) => {
+    await mockPuter(page);
+    await page.goto('/#library');
+    const doc = await PDFDocument.create();
+    doc.addPage([200, 100]);
+    await openPdf(page, doc);
+    await menu(page, 'Download pages as images…');
+    const dialog = page.getByRole('dialog', { name: 'Download pages as images' });
+    await dialog.getByLabel('Format').selectOption(format);
+    await dialog.getByLabel('Resolution').selectOption('300');
+    const pending = page.waitForEvent('download');
+    await dialog.getByRole('button', { name: 'Download', exact: true }).click();
+    const bytes = new Uint8Array(await readFile(await (await pending).path()));
+    // Printed or placed in a document, the picture is the page's own size.
+    for (const dpi of recordedDpi(bytes) || [0]) expect(Math.round(dpi)).toBe(300);
+  });
