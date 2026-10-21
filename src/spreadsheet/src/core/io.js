@@ -69,6 +69,7 @@ import { xlsxRowStyleBase, xlsxLineIntersectionCells } from './xlsx-line-interse
 import { MAX_ROW, MAX_COL, shiftFormula, mapFormulaRefs } from './refs.js';
 import { tokenize, isExternalFormulaToken, isWorkbookNameScope } from './formula/tokenizer.js';
 import { parseFormula } from './formula/parser.js';
+import { ARRAY_BUDGET } from './formula/evaluator.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
 import { readXlsxCalculationCompatibility } from './xlsx-calculation-compatibility.js';
 import { normalizeIteration } from './iteration.js';
@@ -403,7 +404,9 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
     if (r > maxR) maxR = r;
     if (c > maxC) maxC = c;
   }
-  for (const { r, c, value } of unlessTooDeep(() => wb.spillEntries(sheet.id), [])) {
+  // An array past the cells any array may hold (a CSE array or a data table over the whole sheet) keeps its anchor
+  // and declared extent, and readers work its results out again: listing each of them never finished saving.
+  for (const { r, c, value } of unlessTooDeep(() => wb.spillEntries(sheet.id, null, { maxCells: ARRAY_BUDGET }), [])) {
     const addr = X.utils.encode_cell({ r, c });
     const style = { ...(lineFormats ? wb._lineStyle(sheet, r, c) : null), ...wb.spillAt(sheet.id, r, c)?.style, ...wb.getCell(sheet.id, r, c)?.s };
     const numFmt = numFmtOf(style);

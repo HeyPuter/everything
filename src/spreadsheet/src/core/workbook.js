@@ -12403,13 +12403,17 @@ export class Workbook extends EventTarget {
     return a ? { r1: a.r, c1: a.c, r2: a.r + a.rows - 1, c2: a.c + a.cols - 1 } : null;
   }
 
-  /** Spilled values as { r, c, value } (anchors excluded), optionally restricted to a rectangle. */
-  spillEntries(sheetId, range = null) {
+  /**
+   * Spilled values as { r, c, value } (anchors excluded), optionally restricted to a rectangle, and to the
+   * arrays of at most `maxCells` cells.
+   */
+  spillEntries(sheetId, range = null, { maxCells = Infinity } = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return [];
     const st = this._ensureSpills(sheet);
     const out = [];
     for (const a of st.anchors.values()) {
+      if (a.rows * a.cols > maxCells) continue;
       const i1 = range ? Math.max(0, range.r1 - a.r) : 0, i2 = range ? Math.min(a.rows, range.r2 - a.r + 1) : a.rows;
       const j1 = range ? Math.max(0, range.c1 - a.c) : 0, j2 = range ? Math.min(a.cols, range.c2 - a.c + 1) : a.cols;
       if (i1 >= i2 || j1 >= j2) continue;
