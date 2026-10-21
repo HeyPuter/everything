@@ -3406,8 +3406,9 @@ export function createGrid(opts) {
       const screenLeft = colX(c) - bandSL(c, view);
       const roomLeft = Math.max(0, screenLeft - (leftBand(c) ? 0 : frozen.w) - 1);
       const roomRight = Math.max(0, view.vw - screenLeft - w - 2);
-      const toLeft = !formula && (st?.align === 'right' || (!st?.align && RTL_LEAD.test(text)));
-      const centred = !formula && st?.align === 'center';
+      // The alignment the box draws its text with decides, so a number given none, edited aligned right, grows left too.
+      const toLeft = !formula && (align === 'right' || (align === 'start' && RTL_LEAD.test(text)));
+      const centred = !formula && align === 'center';
       const maxW = w + (toLeft ? roomLeft : centred ? 2 * Math.min(roomLeft, roomRight) : roomRight);
       const width = clamp(needed, w, maxW);
       editor.style.width = `${width}px`;
