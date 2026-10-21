@@ -338,6 +338,30 @@
 .reader-play:hover {
   background: var(--accent-hover);
 }
+@media print {
+  /* Printing from the reader prints the reader's text, all of it, on paper
+     colours: not its toolbar over the page behind it, one screen per sheet. */
+  body:has(> .reader) > :not(.reader) {
+    display: none !important;
+  }
+  .reader {
+    position: static;
+    display: block;
+    --reader-fg: #000;
+    background: none;
+  }
+  .reader-bar,
+  .reader-foot {
+    display: none;
+  }
+  .reader-scroll {
+    overflow: visible;
+  }
+  .reader-content {
+    padding: 0;
+    outline: none !important;
+  }
+}
 
 /* ---------- shortcuts / help / about / share ---------- */
 .shortcuts {
