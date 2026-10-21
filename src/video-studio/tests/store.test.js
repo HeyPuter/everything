@@ -150,6 +150,25 @@ describe('EditorStore.update', () => {
     expect(store.project.name).toBe('Test');
   });
 
+  it('copies a very big project once per coalesced run, not on every step', () => {
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const copies = (store) => {
+      const json = vi.spyOn(JSON, 'stringify');
+      for (let i = 0; i < 6; i++) {
+        now += 50;
+        store.update('Volume', (p) => void (p.volume = i), { coalesce: 'vol', structural: false });
+      }
+      const n = json.mock.calls.filter(([v]) => v === store.project).length;
+      json.mockRestore();
+      return n;
+    };
+    expect(copies(storeWith())).toBe(5); // small: every merged step can roll back
+    const big = storeWith();
+    big.project.notes = 'x'.repeat(1_200_000);
+    expect(copies(big)).toBe(1);
+  });
+
   it('leaves a grouped overlay in place when a coalesced nudge is blocked', () => {
     const store = storeWith(clip('video', 0, 5), clip('video', 5, 5));
     store.setToggle('ripple', false);
