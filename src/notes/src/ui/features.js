@@ -132,10 +132,12 @@ export function insertPrintout(app, file) {
 
 async function printout(app, file, range) {
   const dismiss = toast(`Inserting printout of ${file.name}...`, { duration: 60000 });
+  let task = null;
   try {
     const [pdfjs, worker] = await Promise.all([import('pdfjs-dist'), import('pdfjs-dist/build/pdf.worker.min.mjs?url')]);
     pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    task = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+    const doc = await task.promise;
     const count = Math.min(doc.numPages, 60);
     if (range) app.editor.lastRange = range;
     app.editor.restoreRange();
@@ -168,6 +170,9 @@ async function printout(app, file, range) {
   } catch (err) {
     dismiss();
     toast(`Couldn't insert the printout: ${err?.message || 'the file could not be read'}`, { kind: 'error' });
+  } finally {
+    // Frees the parsed document and ends its pdf.js worker.
+    task?.destroy().catch(() => {});
   }
 }
 
