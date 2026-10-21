@@ -220,6 +220,7 @@ registerPrefSection({
     panel('pf-an-keys', 'Keyframes', () => [
       pBool('use_keyframe_insert_needed', 'Only Insert Needed', 'Skip keyframes that would not change the curve'),
       pBool('use_insertkey_xyz_to_rgb', 'XYZ to RGB', 'New location, rotation and scale curves are coloured red, green and blue'),
+      pBool('use_auto_keyframe_insert_available', 'Only Insert Available', 'Auto keying only keys channels that already have animation'),
     ]),
     panel('pf-an-fcurves', 'F-Curves', () => [
       pNum('fcurve_unselected_alpha', 'Unselected Opacity', { min: 0.01, max: 1, slider: true, precision: 2, tip: 'Opacity of unselected curves in the Graph Editor' }),

@@ -18,7 +18,7 @@ import { setGizmoCenterHook, gizmoCenterHook } from '../../editors/view3d/gizmo'
 import { frameHooks } from '../../ops/view3d';
 import { Box3 } from 'three';
 import { modeHandlers } from '../../ops/modes';
-import { insertKeyframesForObjects } from '../../anim/keyframes';
+import { autoKeyObjects } from '../../anim/keyframes';
 import { boneVisible, newBoneLike, flipSideName, bonePath, uniqueBoneName as kUniqueBoneName } from './armkernels';
 import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
@@ -352,7 +352,7 @@ transformProviders.push({
         elements: els,
         label: 'Pose',
         finish() {
-          if (app.doc.scene.tool_settings.use_keyframe_insert_auto) insertKeyframesForObjects([a.ob], 'Available');
+          autoKeyObjects([a.ob]);
         },
         cancel() {},
         onUpdate: () => app.changed('doc'),

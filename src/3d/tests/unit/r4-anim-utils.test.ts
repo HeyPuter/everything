@@ -132,3 +132,35 @@ describe('NLA sound clips', () => {
     expect(sp.speaker!.frame_start).toBe(30);
   });
 });
+
+describe('auto keying', () => {
+  it('keys unanimated objects and posed bones; Replace only updates existing keys', async () => {
+    const { autoKeyObjects } = await import('../../src/anim/keyframes');
+    const ts = app.doc.scene.tool_settings;
+    ts.use_keyframe_insert_auto = true;
+    app.doc.scene.frame_current = 5;
+    cube.location = [1, 2, 3];
+    autoKeyObjects([cube]);
+    const act = app.doc.actions[cube.animation_data!.action!];
+    expect(act.fcurves.map((f) => f.data_path)).toEqual(['location', 'location', 'location', 'rotation_euler', 'rotation_euler', 'rotation_euler', 'scale', 'scale', 'scale']);
+    // Replace: no new key at frame 9, the key at 5 changes
+    ts.auto_keying_mode = 'REPLACE_KEYS';
+    app.doc.scene.frame_current = 9;
+    cube.location = [4, 2, 3];
+    autoKeyObjects([cube]);
+    expect(act.fcurves[0].keyframe_points.length).toBe(1);
+    app.doc.scene.frame_current = 5;
+    autoKeyObjects([cube]);
+    expect(act.fcurves[0].keyframe_points[0].co[1]).toBe(4);
+    // bones: selected bones get keys
+    ts.auto_keying_mode = 'ADD_REPLACE_KEYS';
+    app.run('object.armature_add');
+    const arm = app.activeObject!;
+    app.run('object.mode_set', { mode: 'POSE' });
+    arm.pose!['Bone'].select = true;
+    arm.pose!['Bone'].location = [0, 1, 0];
+    autoKeyObjects([arm]);
+    const bact = app.doc.actions[arm.animation_data!.action!];
+    expect(bact.fcurves.some((f) => f.data_path === 'pose.bones["Bone"].location' && f.array_index === 1 && f.keyframe_points[0].co[1] === 1)).toBe(true);
+  });
+});

@@ -79,6 +79,7 @@ function liveCurve(act: ActionData, path: string, index: number, slot: number) {
 
 /** Insert keyframes for a property path (all array elements when index = -1). */
 export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, index = -1, frame = doc.scene.frame_current) {
+  if (keyframeDefaults.replaceOnly) return replaceKeys(doc, ob, path, index, frame);
   const val = getValue(doc, ob, path);
   const { act, slot } = keyingTarget(doc, ob);
   const type = doc.scene.tool_settings.keyframe_type;
@@ -86,6 +87,49 @@ export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, ind
     const arr = val as ArrayLike<number>;
     for (let i = 0; i < arr.length; i++) if ((index < 0 || i === index) && needed(act, slot, path, i, frame, Number(arr[i]))) insertKeyframe(liveCurve(act, path, i, slot), frame, Number(arr[i]), { type });
   } else if ((typeof val === 'number' || typeof val === 'boolean') && needed(act, slot, path, 0, frame, Number(val))) insertKeyframe(liveCurve(act, path, 0, slot), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
+}
+
+/** Replace mode: update only keys that already exist on the frame (no new keys or curves). */
+function replaceKeys(doc: DocumentData, ob: ObjectData, path: string, index: number, frame: number) {
+  for (const fc of objectCurves(doc, ob)) {
+    if (fc.data_path !== path || (index >= 0 && fc.array_index !== index)) continue;
+    const k = fc.keyframe_points.find((x) => Math.abs(x.co[0] - frame) < 0.5);
+    const v = getValue(doc, ob, path, fc.array_index);
+    if (k && (typeof v === 'number' || typeof v === 'boolean')) insertKeyframe(fc, k.co[0], Number(v), { type: k.type });
+  }
+}
+
+/**
+ * Auto keying after a transform or edit: the active keying set when "Only Active Keying Set" is
+ * on, only animated channels with "Only Insert Available", else the default key channels;
+ * in Replace mode only keys that already exist on the current frame change.
+ */
+export function autoKeyObjects(objects: ObjectData[]) {
+  const doc = app.doc;
+  const ts = doc.scene.tool_settings;
+  if (!ts.use_keyframe_insert_auto || !objects.length) return;
+  const was = keyframeDefaults.replaceOnly;
+  keyframeDefaults.replaceOnly = ts.auto_keying_mode === 'REPLACE_KEYS';
+  try {
+    if (ts.use_keyframe_insert_keyingset && doc.scene.keying_set) insertKeyframesForObjects(objects, doc.scene.keying_set as KeyingSet);
+    else if (keyframeDefaults.autoAvailable || keyframeDefaults.replaceOnly) insertKeyframesForObjects(objects, 'Available');
+    else insertKeyframesForObjects(objects, channelsKeyingSet());
+  } finally {
+    keyframeDefaults.replaceOnly = was;
+  }
+}
+
+/** The built-in keying set matching the default key channels preference. */
+function channelsKeyingSet(): KeyingSet {
+  const c = keyframeDefaults.channels;
+  const L = c.includes('LOCATION'),
+    R = c.includes('ROTATION'),
+    S = c.includes('SCALE');
+  if (L && R && S) return 'LocRotScale';
+  if (L && R) return 'LocRot';
+  if (L && S) return 'LocScale';
+  if (R && S) return 'RotScale';
+  return L ? 'Location' : R ? 'Rotation' : S ? 'Scale' : 'LocRotScale';
 }
 
 export function rotationPath(ob: { rotation_mode: string }) {
@@ -143,6 +187,20 @@ function insertBoneKeys(doc: DocumentData, ob: ObjectData, ks: KeyingSet) {
   if (!arm || !ob.pose) return;
   const selected = Object.entries(ob.pose).filter(([, pb]) => pb.select);
   const bones = selected.length ? selected : arm.active_bone && ob.pose[arm.active_bone] ? [[arm.active_bone, ob.pose[arm.active_bone]] as const] : [];
+  if (ks === 'Available') {
+    const curves = objectCurves(doc, ob);
+    for (const [name] of bones) {
+      const base = `pose.bones["${name}"].`;
+      const seen = new Set<string>();
+      for (const fc of [...curves]) {
+        const key = `${fc.data_path}|${fc.array_index}`;
+        if (!fc.data_path.startsWith(base) || seen.has(key)) continue;
+        seen.add(key);
+        keyProperty(doc, ob, fc.data_path, fc.array_index);
+      }
+    }
+    return;
+  }
   for (const [name, pb] of bones) {
     const base = `pose.bones["${name}"]`;
     if (ks.includes('Loc') || ks === 'Location' || ks === 'WholeCharacter') keyProperty(doc, ob, `${base}.location`);

@@ -89,6 +89,17 @@ function keyingPopover(): Child {
       (v) => ((ts.keyframe_type = v as Keyframe['type']), app.pushUndo('Keyframe Type'), app.changed('ui')),
     ),
     h('div', { class: 'opt-head' }, 'Auto Keying'),
+    enumMenu(
+      'anim-ak-mode',
+      [
+        { value: 'ADD_REPLACE_KEYS', label: 'Add & Replace', description: 'Insert new keys and replace existing ones' },
+        { value: 'REPLACE_KEYS', label: 'Replace', description: 'Only change keys that already exist on the current frame' },
+      ],
+      ts.auto_keying_mode ?? 'ADD_REPLACE_KEYS',
+      (v) => ((ts.auto_keying_mode = v as 'REPLACE_KEYS'), app.pushUndo('Auto Keying Mode'), app.changed('ui')),
+    ),
+    checkbox('anim-ak-ks', 'Only Active Keying Set', !!ts.use_keyframe_insert_keyingset, (v) => ((ts.use_keyframe_insert_keyingset = v), app.pushUndo('Only Active Keying Set'), app.changed('ui')), { tip: 'Auto keying keys the channels of the active keying set' }),
+    checkbox('anim-ak-avail', 'Only Insert Available', prefs.use_auto_keyframe_insert_available, (v) => (setPref('use_auto_keyframe_insert_available', v), app.changed('ui')), { tip: 'Auto keying only keys channels that already have animation (also in Preferences ▸ Animation)' }),
     checkbox('anim-only-needed', 'Only Insert Needed', prefs.use_keyframe_insert_needed, (v) => (setPref('use_keyframe_insert_needed', v), app.changed('ui')), { tip: 'Skip keyframes that would not change the curve (also in Preferences ▸ Animation)' }),
   ];
 }

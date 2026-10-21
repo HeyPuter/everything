@@ -12,6 +12,12 @@ export const keyframeDefaults = {
   xyzToRgb: true,
   /** Handle Smoothing of new F-Curves */
   smoothing: 'CONT_ACCEL' as NonNullable<FCurve['auto_smoothing']>,
+  /** auto keying only keys channels that already have animation */
+  autoAvailable: false,
+  /** channels auto keying keys */
+  channels: ['LOCATION', 'ROTATION', 'SCALE'] as string[],
+  /** set while auto keying in Replace mode: only keys that exist on the frame are updated */
+  replaceOnly: false,
 };
 
 export function newKeyframe(frame: number, value: number, interpolation: Keyframe['interpolation'] = keyframeDefaults.interpolation): Keyframe {

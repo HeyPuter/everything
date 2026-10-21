@@ -1299,6 +1299,10 @@ export interface ToolSettings {
   use_mesh_automerge: boolean;
   double_threshold: number;
   use_keyframe_insert_auto: boolean;
+  /** auto keying adds and replaces keys, or only replaces keys that exist on the frame */
+  auto_keying_mode?: 'ADD_REPLACE_KEYS' | 'REPLACE_KEYS';
+  /** auto keying keys the active keying set only */
+  use_keyframe_insert_keyingset?: boolean;
   /** markers can't be selected, moved or deleted */
   lock_markers?: boolean;
   /** proportional editing of keys in the Dope Sheet / Graph Editor */

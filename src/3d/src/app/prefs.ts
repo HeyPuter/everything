@@ -148,6 +148,10 @@ export interface Preferences {
   keyframe_new_handle_type: 'FREE' | 'ALIGNED' | 'VECTOR' | 'AUTO' | 'AUTO_CLAMPED';
   /** Handle Smoothing of new F-Curves */
   fcurve_new_auto_smoothing: 'NONE' | 'CONT_ACCEL';
+  /** auto keying only keys channels that are already animated */
+  use_auto_keyframe_insert_available: boolean;
+  /** channels auto keying (and plain Insert Keyframe without a keying set) keys */
+  key_insert_channels: ('LOCATION' | 'ROTATION' | 'SCALE')[];
   use_negative_frames: boolean;
 
   // --- System
@@ -303,6 +307,8 @@ export const defaultPreferences = (): Preferences => ({
   keyframe_new_interpolation_type: 'BEZIER',
   keyframe_new_handle_type: 'AUTO_CLAMPED',
   fcurve_new_auto_smoothing: 'CONT_ACCEL',
+  use_auto_keyframe_insert_available: false,
+  key_insert_channels: ['LOCATION', 'ROTATION', 'SCALE'],
   use_negative_frames: true,
 
   undo_steps: 64,
