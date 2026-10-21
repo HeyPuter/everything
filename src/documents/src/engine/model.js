@@ -1966,6 +1966,11 @@ export class TextDocument {
         const removals = nearbyRevisionRanges(this.paragraphs, start, end).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
           .map(r => [Math.max(start, r.start), Math.min(end, r.end)]);
         const deletion = deletionRevision = this.newRevision('del');
+        // Deleting next to the author's own deletion from moments ago (Backspace or Delete held down) extends it,
+        // as typing extends an insertion, so it stays one change even when it crosses a clock second.
+        const now = Date.now();
+        const continued = nearbyRevisionRanges(this.paragraphs, start, end).find(r => r.type === 'del' && !r.move && r.author === me && (r.end === start || r.start === end) && now - Date.parse(r.date) < 60000);
+        if (continued) deletion.date = continued.date;
         // A paragraph mark that ends a table cell (or sits before or after a table) cannot be deleted.
         let boundaries;
         const boundary = paragraph => (boundaries ||= new Set(this.paragraphs.filter((p, i) => (p.cellId || '') !== (this.paragraphs[i + 1]?.cellId || '')).map(p => p.id))).has(paragraph.id);

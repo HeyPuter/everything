@@ -128,6 +128,28 @@ describe('tracked changes', () => {
     expect(xml.match(/<w:ins [^>]*w:author="Me"[^>]*>/g)).toHaveLength(1);
     expect(xml.replace(/<\/w:t><\/w:r><w:r><w:t xml:space="preserve">/g, '')).toMatch(/<w:ins [^>]*w:author="Me"[^>]*><w:r><w:t xml:space="preserve"> More<\/w:t><\/w:r><\/w:ins>/);
   });
+  it('keeps Backspace or Delete held down as one deletion across a clock second, but not an old deletion', async () => {
+    const { pkg, model } = await open(trackedDocx());
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-05-01T10:00:00.900Z'));
+      model.select(model.text.indexOf('Second') + 6); model.delete(-1);
+      vi.setSystemTime(new Date('2026-05-01T10:00:01.100Z'));
+      model.delete(-1);
+      expect(summary(model).filter(r => r[1] === 'Me')).toEqual([['del', 'Me', 'nd']]);
+      vi.setSystemTime(new Date('2026-05-01T10:00:01.900Z'));
+      model.select(model.text.indexOf('Second')); model.delete(1);
+      vi.setSystemTime(new Date('2026-05-01T10:00:02.100Z'));
+      model.delete(1);
+      expect(summary(model).filter(r => r[1] === 'Me')).toEqual([['del', 'Me', 'Se'], ['del', 'Me', 'nd']]);
+      // A deletion made minutes later is a change of its own.
+      vi.setSystemTime(new Date('2026-05-01T10:05:00.000Z'));
+      model.delete(1);
+      expect(summary(model).filter(r => r[1] === 'Me')).toEqual([['del', 'Me', 'Se'], ['del', 'Me', 'c'], ['del', 'Me', 'nd']]);
+    } finally { vi.useRealTimers(); }
+    const xml = strFromU8(unzipSync(await save(pkg, model))['word/document.xml']);
+    expect(xml.match(/<w:del [^>]*w:author="Me"[^>]*>/g)).toHaveLength(3);
+  });
   it('accepts and rejects changes, singly and all at once', async () => {
     let { model } = await open(trackedDocx());
     model.select(model.text.indexOf('added') + 1);
