@@ -155,3 +155,21 @@ test('sequencer: moving a strip shows where it snaps', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.snapLines)).toEqual([]);
   await expectNoErrors(errors);
 });
+
+test('sequencer: overlay popover toggles grid, colour tags, retiming, curves and the waveform style', async ({ page }) => {
+  const { errors, tl } = await videoWorkspace(page);
+  await tl.hover();
+  const btn = page.locator('.hdr-icondrop[data-tip="Overlays"]').last();
+  await btn.dispatchEvent('pointerdown');
+  for (const label of ['Grid', 'Color Tags', 'Retiming', 'Animation Curves']) await page.locator('.popup-layer label', { hasText: new RegExp(`^${label}$`) }).first().click();
+  await page.locator('.popup-layer .enum-row button', { hasText: 'Half' }).first().click();
+  await page.locator('.popup-layer .enum-row button', { hasText: /^Off$/ }).first().click();
+  const st = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    return ed.serialize();
+  });
+  expect([st.showGrid, st.showColorTags, st.showRetiming, st.showFcurves]).toEqual([false, false, false, false]);
+  expect([st.waveformType, st.waveformStyle]).toEqual(['NO_WAVEFORMS', 'HALF_WAVEFORMS']);
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

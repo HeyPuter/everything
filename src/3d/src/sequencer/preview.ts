@@ -53,6 +53,8 @@ export class PreviewRegion implements Annotate2DHost {
   opts = { safeAreas: false, cursor: true, outline: true };
   /** Transform tool: show the frame with handles around the selected images */
   transformCage = false;
+  /** draw the scene's annotations over the preview */
+  showAnnotations = true;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
   /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
@@ -333,7 +335,7 @@ export class PreviewRegion implements Annotate2DHost {
     g.lineWidth = 1;
     g.strokeRect(Math.round(L.left) - 0.5, Math.round(L.top) - 0.5, Math.round(fw) + 1, Math.round(fh) + 1);
     if (this.showOverlays && hasEditor()) this.drawOverlays(g);
-    if (this.showOverlays) drawAnnotations2D(this, g);
+    if (this.showOverlays && this.showAnnotations) drawAnnotations2D(this, g);
     if (this.boxRect) {
       const b = this.boxRect;
       g.fillStyle = 'rgba(255, 255, 255,0.06)';

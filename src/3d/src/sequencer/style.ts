@@ -1,6 +1,8 @@
 // Styles for the Video Sequencer editor (injected once).
 const css = /* css */ `
 .seq-proxy-sizes { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.seq-ov-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.seq-ov-cols > div { display: flex; flex-direction: column; min-width: 0; }
 .seq-cmpmod-ng { padding: 2px 8px 4px; }
 .seq-eq-redefine { padding: 2px 8px 4px; gap: 4px; }
 .seq-eq-redefine .btn { flex: 1; min-width: 0; }

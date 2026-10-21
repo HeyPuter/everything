@@ -5,7 +5,7 @@ import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import type { Area, Editor } from '../ui/screen';
 import { openMenu, openPopover, type MenuItem } from '../ui/menu';
-import { checkbox, enumMenu, numberField } from '../ui/widgets';
+import { checkbox, enumMenu, enumRow, numberField } from '../ui/widgets';
 import { menuButton } from '../animation/animeditor';
 import { playbackFooter } from '../animation/footer';
 import { frameStep } from '../animation/view2d';
@@ -98,6 +98,14 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showStripSource = true;
   showStripDuration = true;
   showOffsets = false;
+  /** timeline overlays: grid lines, colour tags, retiming keys, keyframes / fade curves */
+  showGrid = true;
+  showColorTags = true;
+  showRetiming = true;
+  showFcurves = true;
+  /** sound strips: waveforms of all strips, of none, or as each strip says; full or half height */
+  waveformType: 'ALL_WAVEFORMS' | 'NO_WAVEFORMS' | 'DEFAULT_WAVEFORMS' = 'DEFAULT_WAVEFORMS';
+  waveformStyle: 'FULL_WAVEFORMS' | 'HALF_WAVEFORMS' = 'FULL_WAVEFORMS';
   splitRatio = 0.55;
   invalid = new Set<Strip>();
   snapLines: number[] = [];
@@ -178,6 +186,16 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       showWaveforms: this.showWaveforms,
       showThumbnails: this.showThumbnails,
       showOverlays: this.showOverlays,
+      showStripName: this.showStripName,
+      showStripSource: this.showStripSource,
+      showStripDuration: this.showStripDuration,
+      showOffsets: this.showOffsets,
+      showGrid: this.showGrid,
+      showColorTags: this.showColorTags,
+      showRetiming: this.showRetiming,
+      showFcurves: this.showFcurves,
+      waveformType: this.waveformType,
+      waveformStyle: this.waveformStyle,
       splitRatio: this.splitRatio,
       previewSize: this.preview.size,
       previewOverlays: { ...this.preview.opts },
@@ -190,7 +208,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const s = (state ?? {}) as Record<string, unknown>;
     if (s.view === 'PREVIEW' || s.view === 'SEQUENCER_PREVIEW' || s.view === 'SEQUENCER') this.view = s.view;
     for (const k of ['x0', 'ppf', 'cy0', 'chH', 'chWidth', 'splitRatio'] as const) if (typeof s[k] === 'number') (this as Record<string, unknown>)[k] = s[k];
-    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
+    for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted', 'showStripName', 'showStripSource', 'showStripDuration', 'showOffsets', 'showGrid', 'showColorTags', 'showRetiming', 'showFcurves'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
+    if (s.waveformType === 'ALL_WAVEFORMS' || s.waveformType === 'NO_WAVEFORMS' || s.waveformType === 'DEFAULT_WAVEFORMS') this.waveformType = s.waveformType;
+    if (s.waveformStyle === 'HALF_WAVEFORMS' || s.waveformStyle === 'FULL_WAVEFORMS') this.waveformStyle = s.waveformStyle;
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
     if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale', 'transform'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
@@ -459,23 +479,56 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   }
 
   private overlayPopover(): Child {
-    const t = (key: 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets', label: string) =>
-      checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
+    type Flag = 'showStripName' | 'showStripSource' | 'showStripDuration' | 'showWaveforms' | 'showThumbnails' | 'showOffsets' | 'showGrid' | 'showColorTags' | 'showRetiming' | 'showFcurves';
+    const t = (key: Flag, label: string) => checkbox(`seq-ov-${key}`, label, this[key], (v) => ((this[key] = v), this.redraw(), app.changed('ui')));
     const o = this.preview.opts;
     const pt = (key: keyof typeof o, label: string) => checkbox(`seq-pov-${key}`, label, o[key], (v) => ((o[key] = v), this.preview.draw(), app.changed('ui')));
+    const two = (a: Child, b: Child) => h('div', { class: 'seq-ov-cols' }, h('div', null, a), h('div', null, b));
+    const ed = hasEditor() ? seqEditor() : null;
     return h(
       'div',
       { class: 'pop-panel' },
-      this.hasPreview() ? [h('div', { class: 'pop-title' }, 'Preview Overlays'), pt('outline', 'Image Outline'), pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas')] : null,
+      this.hasPreview()
+        ? [
+            h('div', { class: 'pop-title' }, 'Preview Overlays'),
+            two(
+              [
+                pt('outline', 'Image Outline'),
+                ed ? checkbox('seq-pov-frame', 'Frame Overlay', !!ed.show_overlay_frame, (v) => ((ed.show_overlay_frame = v), app.pushUndo('Frame Overlay'), app.changed('doc'))) : null,
+                checkbox('seq-pov-ann', 'Annotations', this.preview.showAnnotations, (v) => ((this.preview.showAnnotations = v), this.preview.draw(), app.changed('ui'))),
+              ],
+              [pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas')],
+            ),
+          ]
+        : null,
       this.hasTimeline()
         ? [
+            h('div', { class: 'pop-title' }, 'Sequencer Overlays'),
+            two(t('showGrid', 'Grid'), null),
             h('div', { class: 'pop-title' }, 'Strips'),
-            t('showStripName', 'Name'),
-            t('showStripSource', 'Source'),
-            t('showStripDuration', 'Duration'),
-            t('showWaveforms', 'Waveforms'),
+            two([t('showStripName', 'Name'), t('showStripSource', 'Source'), t('showStripDuration', 'Duration'), t('showFcurves', 'Animation Curves')], [t('showColorTags', 'Color Tags'), t('showOffsets', 'Offsets'), t('showRetiming', 'Retiming')]),
+            h('div', { class: 'pop-title' }, 'Thumbnails'),
             t('showThumbnails', 'Thumbnails'),
-            t('showOffsets', 'Offsets'),
+            h('div', { class: 'pop-title' }, 'Waveforms'),
+            enumRow(
+              'seq-ov-wtype',
+              [
+                { value: 'ALL_WAVEFORMS', label: 'On', description: 'Show the waveform of every sound strip' },
+                { value: 'DEFAULT_WAVEFORMS', label: 'Strip', description: 'Show waveforms as each strip says' },
+                { value: 'NO_WAVEFORMS', label: 'Off', description: 'Show no waveforms' },
+              ],
+              this.waveformType,
+              (v) => ((this.waveformType = v as 'ALL_WAVEFORMS'), this.redraw(), app.changed('ui')),
+            ),
+            enumRow(
+              'seq-ov-wstyle',
+              [
+                { value: 'FULL_WAVEFORMS', label: 'Full', description: 'The waveform around the middle of the strip' },
+                { value: 'HALF_WAVEFORMS', label: 'Half', description: 'The level of the sound from the bottom of the strip' },
+              ],
+              this.waveformStyle,
+              (v) => ((this.waveformStyle = v as 'FULL_WAVEFORMS'), this.redraw(), app.changed('ui')),
+            ),
           ]
         : null,
     );
@@ -811,7 +864,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     // grid
     const step = frameStep(this.ppf, sceneFps(), 64);
     const first = Math.floor(this.xf(0) / step) * step;
-    g.strokeStyle = T.grid;
+    g.strokeStyle = this.showGrid ? T.grid : 'rgba(0, 0, 0, 0)';
     g.lineWidth = 1;
     g.beginPath();
     for (let f = first; this.fx(f) < W + 1; f += step) {
@@ -970,7 +1023,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       y1 = Math.round(r.y1);
     const w = x1 - x0,
       hgt = y1 - y0;
-    const base = stripColor(s);
+    const base = this.showColorTags ? stripColor(s) : typeColor(s.type);
     const muted = s.mute || !!seqChannels()[s.channel]?.mute;
     g.save();
     if (muted) g.globalAlpha = 0.45;
@@ -1006,10 +1059,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       g.stroke();
       g.lineWidth = 1;
     }
-    this.drawFadeCurve(g, s, x0, y0, w, hgt);
-    if (s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
+    if (this.showFcurves) this.drawFadeCurve(g, s, x0, y0, w, hgt);
+    if (this.showRetiming && s.show_retiming_keys && retimable(s)) this.drawRetiming(g, s, x0, y0 + titleH, w, hgt - titleH);
     // keyframes of animated properties (fades show as a curve)
-    if (s.keys) {
+    if (s.keys && this.showFcurves) {
       const frames = keyFrames(s, KEY_PATHS.filter((p) => p !== 'blend_alpha' && p !== 'volume'));
       const ky = y0 + titleH + 6;
       for (const f of frames) {
@@ -1225,7 +1278,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         g.fillRect(x0, y0, w, h);
         return;
       case 'SOUND': {
-        if (!this.showWaveforms || s.show_waveform === false || !s.media) return;
+        if (!this.showWaveforms || this.waveformType === 'NO_WAVEFORMS' || (this.waveformType === 'DEFAULT_WAVEFORMS' && s.show_waveform === false) || !s.media) return;
         const buf = soundNow(s.media.bytes, () => this.redraw());
         if (!buf) {
           g.fillStyle = 'rgba(0, 0, 0,0.15)';
@@ -1234,8 +1287,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
         }
         const pk = soundPeaks(buf);
         const n = pk.length / 2;
-        const mid = y0 + h / 2;
-        const amp = (h / 2 - 1) * Math.min(4, s.volume ?? 1);
+        const half = this.waveformStyle === 'HALF_WAVEFORMS';
+        // half: the absolute level rises from the bottom of the strip
+        const mid = half ? y0 + h - 1 : y0 + h / 2;
+        const amp = (half ? h - 2 : h / 2 - 1) * Math.min(4, s.volume ?? 1);
         g.fillStyle = T.waveform;
         g.beginPath();
         const xa = Math.max(0, x0),
@@ -1255,8 +1310,13 @@ export class SequencerEditor implements Editor, SeqEditorLike {
             lo = Math.min(lo, pk[b * 2]);
             hi = Math.max(hi, pk[b * 2 + 1]);
           }
-          top.push(mid - hi * amp);
-          bot.push(mid - lo * amp);
+          if (half) {
+            top.push(mid - Math.max(hi, -lo) * amp);
+            bot.push(mid);
+          } else {
+            top.push(mid - hi * amp);
+            bot.push(mid - lo * amp);
+          }
         }
         if (!top.length) return;
         g.moveTo(Math.floor(xa), top[0]);
