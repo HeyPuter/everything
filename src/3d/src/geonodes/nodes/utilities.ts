@@ -5,7 +5,6 @@ import { fnField, ConstField, Field, constOf, type Evaluated } from '../field';
 import { mathFn, vectorFn, booleanFn, compareFloat, blend } from '../mathops';
 import { positionField, idField } from '../inputs';
 import { jhash2, jhash3 } from '../jhash';
-import { noiseTexture, noiseTexture3, type NoiseType } from '../noise';
 import { readCurve, evalCurve } from '../../nodes/curves';
 import { fieldTypeOfEnum, type FieldType } from '../types';
 import type { SocketDef, SocketType } from '../../nodes/types';
@@ -398,14 +397,16 @@ shared('ShaderNodeSeparateXYZ', {
 shared('ShaderNodeFloatCurve', {
   exec: (ctx) => {
     const pts = readCurve(ctx.node.props, 0);
-    const extend = String(ctx.node.props.curve_extend ?? 'HORIZONTAL');
+    const extend = String(ctx.node.props.curve_extend ?? 'EXTRAPOLATED');
     return {
       Value: fnField('FLOAT', [ctx.field('Factor', 'FLOAT'), ctx.field('Value', 'FLOAT')], ([f, v], out, n) => {
         const sf = st(f),
           sv = st(v);
         for (let i = 0; i < n; i++) {
           const x = v.data[i * sv];
-          out[i] = x + (evalCurve(pts, x, extend) - x) * f.data[i * sf];
+          // the curve's result stays inside its clip range [0, 1]
+          const y = Math.max(0, Math.min(1, evalCurve(pts, x, extend)));
+          out[i] = x + (y - x) * f.data[i * sf];
         }
       }),
     };
@@ -663,68 +664,5 @@ gn('FunctionNodeRotationToEuler', 'converter', {
   exec: (ctx) => ({ Euler: ctx.field('Rotation', 'VECTOR') }),
 });
 
-// ---------------------------------------------------------------------------
-// Noise Texture
-
-shared('ShaderNodeTexNoise', {
-  exec: (ctx) => {
-    const dims = sprop(ctx.node, 'noise_dimensions') || '3D';
-    const type = (sprop(ctx.node, 'noise_type') || 'FBM') as NoiseType;
-    const norm = prop(ctx.node, 'normalize') !== false;
-    const ins = [
-      ctx.field('Vector', 'VECTOR'),
-      ctx.field('W', 'FLOAT'),
-      ctx.field('Scale', 'FLOAT'),
-      ctx.field('Detail', 'FLOAT'),
-      ctx.field('Roughness', 'FLOAT'),
-      ctx.field('Lacunarity', 'FLOAT'),
-      ctx.field('Offset', 'FLOAT'),
-      ctx.field('Gain', 'FLOAT'),
-      ctx.field('Distortion', 'FLOAT'),
-    ];
-    const wantColor = ctx.used('Color');
-    const compute = (e: Evaluated[], out4: Float32Array, n: number) => {
-      const s = e.map(st);
-      for (let i = 0; i < n; i++) {
-        const v = (k: number) => e[k].data[i * s[k]];
-        const sc = v(2);
-        const x = e[0].data[i * s[0] * 3] * sc,
-          y = e[0].data[i * s[0] * 3 + 1] * sc,
-          z = e[0].data[i * s[0] * 3 + 2] * sc,
-          w = v(1) * sc;
-        if (dims === '3D' && type === 'FBM') noiseTexture3(x, y, z, v(3), v(4), v(5), v(8), norm, wantColor, out4, i * 4);
-        else {
-          const p = dims === '1D' ? [w] : dims === '2D' ? [x, y] : dims === '4D' ? [x, y, z, w] : [x, y, z];
-          out4.set(noiseTexture(p, v(3), v(4), v(5), v(6), v(7), v(8), type, norm), i * 4);
-        }
-      }
-    };
-    // Factor and Color share one evaluation per context (same evaluated inputs)
-    let cache: { key: Evaluated[]; data: Float32Array } | null = null;
-    const both = (e: Evaluated[], n: number) => {
-      if (cache && cache.data.length === n * 4 && cache.key.every((k, i) => k === e[i])) return cache.data;
-      const data = new Float32Array(n * 4);
-      compute(e, data, n);
-      cache = { key: e, data };
-      return data;
-    };
-    return {
-      Fac: fnField('FLOAT', ins, (e, out, n) => {
-        const d = both(e, n);
-        for (let i = 0; i < n; i++) out[i] = d[i * 4];
-      }),
-      Color: fnField('RGBA', ins, (e, out, n) => {
-        const d = both(e, n);
-        for (let i = 0; i < n; i++) {
-          out[i * 4] = d[i * 4 + 1];
-          out[i * 4 + 1] = d[i * 4 + 2];
-          out[i * 4 + 2] = d[i * 4 + 3];
-          out[i * 4 + 3] = 1;
-        }
-      }),
-    };
-  },
-  implicit: { Vector: positionField },
-});
 
 export { fieldTypeOfEnum, GeometrySet };

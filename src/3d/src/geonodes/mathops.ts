@@ -86,9 +86,10 @@ export function mathFn(op: string): (a: number, b: number, c: number) => number 
     case 'TANGENT':
       return (a) => Math.tan(a);
     case 'ARCSINE':
-      return (a) => (a >= -1 && a <= 1 ? Math.asin(a) : 0);
+      // inputs outside [-1, 1] are clamped
+      return (a) => Math.asin(Math.max(-1, Math.min(1, a)));
     case 'ARCCOSINE':
-      return (a) => (a >= -1 && a <= 1 ? Math.acos(a) : 0);
+      return (a) => Math.acos(Math.max(-1, Math.min(1, a)));
     case 'ARCTANGENT':
       return (a) => Math.atan(a);
     case 'ARCTAN2':
@@ -209,6 +210,8 @@ export function vectorFn(op: string): (a: V, b: V, c: V, s: number, out: V) => n
       return each((x) => Math.floor(x));
     case 'CEIL':
       return each((x) => Math.ceil(x));
+    case 'ROUND':
+      return each((x) => Math.floor(x + 0.5));
     case 'FRACTION':
       return each(fract);
     case 'MODULO':
@@ -306,13 +309,21 @@ export function blend(mode: string, f: number, a: number[], b: number[]): number
     case 'MULTIPLY':
       return per((x, y) => x * y);
     case 'BURN':
-      return per((x, y) => Math.max(0, 1 - (1 - x) / Math.max(y, 1e-6)));
+      // the factor scales the darkening (not a mix afterwards); results stay in [0, 1]
+      return [0, 1, 2].map((i) => {
+        const t = 1 - f + f * b[i];
+        return t <= 0 ? 0 : Math.max(0, Math.min(1, 1 - (1 - a[i]) / t));
+      });
     case 'LIGHTEN':
       return per(Math.max);
     case 'SCREEN':
       return per((x, y) => 1 - (1 - x) * (1 - y));
     case 'DODGE':
-      return per((x, y) => Math.min(1, y >= 1 ? (x > 0 ? 1 : 0) : x / (1 - y)));
+      return [0, 1, 2].map((i) => {
+        if (a[i] === 0) return 0;
+        const t = 1 - f * b[i];
+        return t <= 0 ? 1 : Math.min(1, a[i] / t);
+      });
     case 'ADD':
       return [0, 1, 2].map((i) => a[i] + f * b[i]);
     case 'OVERLAY':

@@ -3,17 +3,30 @@ import type { GlslLib } from './lib';
 
 export const COMMON: GlslLib = {
   nd_hash: {
+    // lookup3 integer mixing of lattice coordinates / float bit patterns (matches nodes/cpu/hash.ts)
     code: `
-uint nd_pcg(uint v) {
-  uint s = v * 747796405u + 2891336453u;
-  uint w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
-  return (w >> 22u) ^ w;
+uint nd_rot(uint x, uint k) { return (x << k) | (x >> (32u - k)); }
+uint nd_final(uint a, uint b, uint c) {
+  c ^= b; c -= nd_rot(b, 14u); a ^= c; a -= nd_rot(c, 11u); b ^= a; b -= nd_rot(a, 25u);
+  c ^= b; c -= nd_rot(b, 16u); a ^= c; a -= nd_rot(c, 4u); b ^= a; b -= nd_rot(a, 14u);
+  c ^= b; c -= nd_rot(b, 24u);
+  return c;
 }
-uint nd_hash_u(uint a) { return nd_pcg(a); }
-uint nd_hash_u(uint a, uint b) { return nd_pcg(a ^ nd_pcg(b + 0x9e3779b9u)); }
-uint nd_hash_u(uint a, uint b, uint c) { return nd_pcg(a ^ nd_pcg(b ^ nd_pcg(c + 0x7f4a7c15u))); }
-uint nd_hash_u(uint a, uint b, uint c, uint d) { return nd_pcg(a ^ nd_pcg(b ^ nd_pcg(c ^ nd_pcg(d + 0x632be5abu)))); }
-float nd_u2f(uint h) { return float(h) * (1.0 / 4294967296.0); }
+uint nd_hash_u(uint a) { uint s = 0xdeadbeefu + 17u; return nd_final(s + a, s, s); }
+uint nd_hash_u(uint a, uint b) { uint s = 0xdeadbeefu + 21u; return nd_final(s + a, s + b, s); }
+uint nd_hash_u(uint a, uint b, uint c) { uint s = 0xdeadbeefu + 25u; return nd_final(s + a, s + b, s + c); }
+uint nd_hash_u(uint x, uint y, uint z, uint w) {
+  uint s = 0xdeadbeefu + 29u;
+  uint a = s + x, b = s + y, c = s + z;
+  a -= c; a ^= nd_rot(c, 4u); c += b;
+  b -= a; b ^= nd_rot(a, 6u); a += c;
+  c -= b; c ^= nd_rot(b, 8u); b += a;
+  a -= c; a ^= nd_rot(c, 16u); c += b;
+  b -= a; b ^= nd_rot(a, 19u); a += c;
+  c -= b; c ^= nd_rot(b, 4u); b += a;
+  return nd_final(a + w, b, c);
+}
+float nd_u2f(uint h) { return float(h) / 4294967295.0; }
 float nd_hash_i(int a) { return nd_u2f(nd_hash_u(uint(a))); }
 float nd_hash_i(ivec2 p) { return nd_u2f(nd_hash_u(uint(p.x), uint(p.y))); }
 float nd_hash_i(ivec3 p) { return nd_u2f(nd_hash_u(uint(p.x), uint(p.y), uint(p.z))); }
@@ -22,10 +35,40 @@ float nd_hash_f(float x) { return nd_u2f(nd_hash_u(floatBitsToUint(x))); }
 float nd_hash_f(vec2 p) { return nd_u2f(nd_hash_u(floatBitsToUint(p.x), floatBitsToUint(p.y))); }
 float nd_hash_f(vec3 p) { return nd_u2f(nd_hash_u(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z))); }
 float nd_hash_f(vec4 p) { return nd_u2f(nd_hash_u(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z), floatBitsToUint(p.w))); }
-vec3 nd_hash3_i(ivec2 p) { uint h = nd_hash_u(uint(p.x), uint(p.y)); return vec3(nd_u2f(h), nd_u2f(nd_pcg(h ^ 0x1u)), nd_u2f(nd_pcg(h ^ 0x2u))); }
-vec3 nd_hash3_i(ivec3 p) { uint h = nd_hash_u(uint(p.x), uint(p.y), uint(p.z)); return vec3(nd_u2f(h), nd_u2f(nd_pcg(h ^ 0x1u)), nd_u2f(nd_pcg(h ^ 0x2u))); }
-vec4 nd_hash4_i(ivec4 p) { uint h = nd_hash_u(uint(p.x), uint(p.y), uint(p.z), uint(p.w)); return vec4(nd_u2f(h), nd_u2f(nd_pcg(h ^ 0x1u)), nd_u2f(nd_pcg(h ^ 0x2u)), nd_u2f(nd_pcg(h ^ 0x3u))); }
-vec3 nd_hash3_f(vec4 p) { uint h = nd_hash_u(floatBitsToUint(p.x), floatBitsToUint(p.y), floatBitsToUint(p.z), floatBitsToUint(p.w)); return vec3(nd_u2f(h), nd_u2f(nd_pcg(h ^ 0x1u)), nd_u2f(nd_pcg(h ^ 0x2u))); }
+vec3 nd_hash3_f(float a) { return vec3(nd_hash_f(a), nd_hash_f(vec2(a, 1.0)), nd_hash_f(vec2(a, 2.0))); }
+vec3 nd_hash3_f(vec2 p) { return vec3(nd_hash_f(p), nd_hash_f(vec3(p, 1.0)), nd_hash_f(vec3(p, 2.0))); }
+vec3 nd_hash3_f(vec3 p) { return vec3(nd_hash_f(p), nd_hash_f(vec4(p, 1.0)), nd_hash_f(vec4(p, 2.0))); }
+vec3 nd_hash3_f(vec4 p) { return vec3(nd_hash_f(p), nd_hash_f(p.zxwy), nd_hash_f(p.wzyx)); }
+// legacy helpers kept for other chunks
+vec3 nd_hash3_i(ivec2 p) { return nd_hash3_f(vec2(p)); }
+vec3 nd_hash3_i(ivec3 p) { return nd_hash3_f(vec3(p)); }
+vec4 nd_hash4_i(ivec4 p) { vec4 q = vec4(p); return vec4(nd_hash_f(q), nd_hash_f(q.zxwy), nd_hash_f(q.wzyx), nd_hash_f(q.yxzw)); }
+// offsets in [100, 200) that decorrelate noise channels
+float nd_off1(float seed) { return 100.0 + nd_hash_f(seed) * 100.0; }
+float nd_offn(float seed, float i) { return 100.0 + nd_hash_f(vec2(seed, i)) * 100.0; }
+// signed-integer PCG hashes of cells (cellular textures)
+uint nd_ash16(uint v) { return v ^ uint(int(v) >> 16); }
+vec2 nd_pcg2(ivec2 c) {
+  uvec2 v = uvec2(c) * 1664525u + 1013904223u;
+  v.x += v.y * 1664525u; v.y += v.x * 1664525u;
+  v.x = nd_ash16(v.x); v.y = nd_ash16(v.y);
+  v.x += v.y * 1664525u; v.y += v.x * 1664525u;
+  return vec2(v & 0x7fffffffu) / 2147483647.0;
+}
+vec3 nd_pcg3(ivec3 c) {
+  uvec3 v = uvec3(c) * 1664525u + 1013904223u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  v.x = nd_ash16(v.x); v.y = nd_ash16(v.y); v.z = nd_ash16(v.z);
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  return vec3(v & 0x7fffffffu) / 2147483647.0;
+}
+vec4 nd_pcg4(ivec4 c) {
+  uvec4 v = uvec4(c) * 1664525u + 1013904223u;
+  v.x += v.y * v.w; v.y += v.z * v.x; v.z += v.x * v.y; v.w += v.y * v.z;
+  v.x = nd_ash16(v.x); v.y = nd_ash16(v.y); v.z = nd_ash16(v.z); v.w = nd_ash16(v.w);
+  v.x += v.y * v.w; v.y += v.z * v.x; v.z += v.x * v.y; v.w += v.y * v.z;
+  return vec4(v & 0x7fffffffu) / 2147483647.0;
+}
 `,
   },
   nd_math: {
@@ -125,10 +168,10 @@ vec3 nd_blend(int mode, float f, vec3 a, vec3 b) {
   if (mode == 0) r = mix(a, b, f);
   else if (mode == 1) r = mix(a, min(a, b), f);
   else if (mode == 2) r = mix(a, a * b, f);
-  else if (mode == 3) { vec3 t = vec3(1.0) - (vec3(1.0) - a) / max(b, vec3(1e-6)); r = mix(a, max(t, vec3(0.0)), f); }
+  else if (mode == 3) { vec3 t = vec3(1.0 - f) + f * b; r = vec3(t.r <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.r) / t.r, 0.0, 1.0), t.g <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.g) / t.g, 0.0, 1.0), t.b <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.b) / t.b, 0.0, 1.0)); }
   else if (mode == 4) r = mix(a, max(a, b), f);
   else if (mode == 5) r = mix(a, vec3(1.0) - (vec3(1.0) - a) * (vec3(1.0) - b), f);
-  else if (mode == 6) { vec3 t = vec3(b.r >= 1.0 ? (a.r > 0.0 ? 1.0 : 0.0) : a.r / (1.0 - b.r), b.g >= 1.0 ? (a.g > 0.0 ? 1.0 : 0.0) : a.g / (1.0 - b.g), b.b >= 1.0 ? (a.b > 0.0 ? 1.0 : 0.0) : a.b / (1.0 - b.b)); r = mix(a, min(t, vec3(1.0)), f); }
+  else if (mode == 6) { vec3 t = vec3(1.0) - f * b; r = vec3(a.r == 0.0 ? 0.0 : (t.r <= 0.0 ? 1.0 : min(a.r / t.r, 1.0)), a.g == 0.0 ? 0.0 : (t.g <= 0.0 ? 1.0 : min(a.g / t.g, 1.0)), a.b == 0.0 ? 0.0 : (t.b <= 0.0 ? 1.0 : min(a.b / t.b, 1.0))); }
   else if (mode == 7) r = a + f * b;
   else if (mode == 8) { vec3 t = mix(2.0 * a * b, vec3(1.0) - 2.0 * (vec3(1.0) - a) * (vec3(1.0) - b), step(vec3(0.5), a)); r = mix(a, t, f); }
   else if (mode == 9) { vec3 scr = vec3(1.0) - (vec3(1.0) - b) * (vec3(1.0) - a); r = mix(a, (vec3(1.0) - a) * b * a + a * scr, f); }
@@ -163,14 +206,14 @@ vec4 nd_wavelength(float l) { return vec4(max(nd_xyz2rgb(nd_cie(l)), vec3(0.0)),
 vec4 nd_blackbody(float T) {
   T = clamp(T, 800.0, 12000.0);
   vec3 acc = vec3(0.0);
-  for (int i = 0; i < 24; i++) {
-    float l = 380.0 + float(i) * 17.0;
+  for (int i = 0; i < 48; i++) {
+    float l = 362.0 + float(i) * 10.0;
     float lm = l * 1e-9;
     float planck = 1.0 / (pow(lm * 1e6, 5.0) * (exp(0.014387769 / (lm * T)) - 1.0));
     acc += nd_cie(l) * planck;
   }
-  vec3 c = max(nd_xyz2rgb(acc), vec3(0.0));
-  return vec4(c / max(max(c.r, c.g), max(c.b, 1e-9)), 1.0);
+  // unit luminance; negative components clipped
+  return vec4(max(nd_xyz2rgb(acc / max(acc.y, 1e-12)), vec3(0.0)), 1.0);
 }
 `,
   },

@@ -432,7 +432,7 @@ export class NodeEditor implements Editor {
     const idname = groupNodeType(this.treeType());
     const groups = compatibleGroupsFor(this.treeType(), this.currentGroupId());
     const items: MenuItem[] = [];
-    if (!swap) items.push({ label: 'New Group', op: 'node.add_empty_group' });
+    items.push(swap ? { label: 'New Group', op: 'node.swap_empty_group' } : { label: 'New Group', op: 'node.add_empty_group' });
     if (this.path.length && !swap) {
       items.push({ separator: true });
       items.push({ label: 'Group Input', action: () => pick('NodeGroupInput', {}) });
@@ -638,7 +638,8 @@ export class NodeEditor implements Editor {
             l,
             tree,
             {
-              active: tree.active_node === n.id,
+              // the active node is highlighted only while it is selected
+              active: tree.active_node === n.id && !!n.select,
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,
@@ -1497,6 +1498,21 @@ export class NodeEditor implements Editor {
 
   /** Zoom to a dragged rectangle (Shift B). */
   startZoomBorder() {
+    this.startBorderDrag((ax0, ay0, ax1, ay1) => {
+      const [ax, ay] = this.toNode(ax0, ay0);
+      const [bx, by] = this.toNode(ax1, ay1);
+      const W = this.el.clientWidth,
+        H = this.el.clientHeight;
+      const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(W / Math.max(1, bx - ax), H / Math.max(1, by - ay))));
+      this.animateTo({ zoom, x: W / 2 - ((ax + bx) / 2) * zoom, y: H / 2 - ((ay + by) / 2) * zoom });
+    });
+  }
+
+  /**
+   * Wait for a press, then drag a rectangle; `done` receives its corners in client coordinates
+   * (min, max). Used by Zoom to Border and the compositor's Viewer Region.
+   */
+  startBorderDrag(done: (x0: number, y0: number, x1: number, y1: number) => void) {
     this.waitForPress('box-pending', (e) => {
       e.preventDefault();
       const r = this.el.getBoundingClientRect();
@@ -1513,12 +1529,7 @@ export class NodeEditor implements Editor {
           this.box = null;
           this.drawOver();
           if (!moved || !b) return;
-          const [ax, ay] = this.toNode(Math.min(b.x0, b.x1) + r.left, Math.min(b.y0, b.y1) + r.top);
-          const [bx, by] = this.toNode(Math.max(b.x0, b.x1) + r.left, Math.max(b.y0, b.y1) + r.top);
-          const W = this.el.clientWidth,
-            H = this.el.clientHeight;
-          const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(W / Math.max(1, bx - ax), H / Math.max(1, by - ay))));
-          this.animateTo({ zoom, x: W / 2 - ((ax + bx) / 2) * zoom, y: H / 2 - ((ay + by) / 2) * zoom });
+          done(Math.min(b.x0, b.x1) + r.left, Math.min(b.y0, b.y1) + r.top, Math.max(b.x0, b.x1) + r.left, Math.max(b.y0, b.y1) + r.top);
         },
         () => {
           this.box = null;

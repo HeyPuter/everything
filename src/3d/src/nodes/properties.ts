@@ -5,14 +5,16 @@ import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { splitRow } from '../ui/props';
+import { panel } from '../ui/widgets';
+import { materialPreviewPanel } from './editor/matpreview';
 import type { MaterialData, NodeData, NodeTreeData, WorldData } from '../data/types';
 import { materialSurfacePanel, worldSurfacePanel } from '../editors/properties/tabs';
-import { getNodeType, nodeSockets, nodeLabel, canConvert, nodeMenu, SOCKET_COLORS } from './registry';
+import { getNodeType, nodeSockets, nodeLabel, canConvert, nodeMenu, nodePanels, SOCKET_COLORS } from './registry';
 import { activeOutput, connect, ctxOf, linkStatus, makeNode, nodeById, removeNodes } from './tree';
 import { socketValueWidget, propWidget, nodeChanged } from './editor/nodeui';
 import { visibleProps } from './editor/layout';
 import { shaderEntryPoll } from './shader/defs';
-import type { MenuCategory, ResolvedSocket, SocketType } from './types';
+import type { MenuCategory, NodePropDef, ResolvedSocket, SocketType } from './types';
 
 const expanded = new Map<string, boolean>();
 
@@ -130,23 +132,21 @@ function socketButton(tree: NodeTreeData, node: NodeData, s: ResolvedSocket, sha
   );
 }
 
+function propRow(tree: NodeTreeData, node: NodeData, p: NodePropDef, key: string): Child {
+  if (p.type === 'BOOLEAN') return splitRow('', propWidget(node, p, key, { tree }));
+  return splitRow(p.name, propWidget(node, { ...p, noLabel: true }, key, { tree, compact: true }));
+}
+
 function inputRows(tree: NodeTreeData, node: NodeData, shaderType: 'OBJECT' | 'WORLD', depth: number, seen: Set<string>): Child[] {
   const rows: Child[] = [];
   const def = getNodeType(node.type);
   const key = `pp:${node.id}`;
-  for (const p of visibleProps(node, def?.props ?? [], 'sidebar')) {
-    if (p.type === 'BOOLEAN') rows.push(splitRow('', propWidget(node, p, key, { tree })));
-    else
-      rows.push(
-        splitRow(
-          p.name,
-          propWidget(node, { ...p, noLabel: true }, key, {
-            tree,
-            compact: true,
-          }),
-        ),
-      );
-  }
+  const ctx = ctxOf(app.doc, tree);
+  // like on the node: props and inputs that belong to a panel are drawn inside it (closed at first)
+  const panels = nodePanels(node, ctx);
+  const inPanel = new Set(panels.flatMap((pn) => [...pn.inputs, ...(pn.props ?? [])]));
+  const props = visibleProps(node, def?.props ?? [], 'sidebar');
+  for (const p of props) if (!inPanel.has(p.id)) rows.push(propRow(tree, node, p, key));
   if (def?.drawBody)
     rows.push(
       h(
@@ -161,9 +161,9 @@ function inputRows(tree: NodeTreeData, node: NodeData, shaderType: 'OBJECT' | 'W
         }),
       ),
     );
-  const ctx = ctxOf(app.doc, tree);
-  for (const s of nodeSockets(node, ctx).inputs) {
-    if (s.type === 'CUSTOM') continue;
+  const inputs = nodeSockets(node, ctx).inputs.filter((s) => s.type !== 'CUSTOM');
+  const socketRow = (s: ResolvedSocket): Child[] => {
+    const out: Child[] = [];
     const link = linkInto(tree, node, s.identifier);
     const label = s.label;
     if (link && linkStatus(ctx, link).valid) {
@@ -172,7 +172,7 @@ function inputRows(tree: NodeTreeData, node: NodeData, shaderType: 'OBJECT' | 'W
       const open = expanded.get(k) ?? true;
       const fromSock = nodeSockets(from, ctx).outputs.find((o) => o.identifier === link.from_socket);
       const name = `${nodeLabel(from)}${fromSock && nodeSockets(from, ctx).outputs.length > 1 ? ` | ${fromSock.label}` : ''}`;
-      rows.push(
+      out.push(
         splitRow(
           label,
           h(
@@ -194,18 +194,40 @@ function inputRows(tree: NodeTreeData, node: NodeData, shaderType: 'OBJECT' | 'W
       );
       if (open && depth < 8 && !seen.has(from.id)) {
         const next = new Set(seen).add(from.id);
-        rows.push(h('div', { class: 'nd-props-sub' }, inputRows(tree, from, shaderType, depth + 1, next)));
+        out.push(h('div', { class: 'nd-props-sub' }, inputRows(tree, from, shaderType, depth + 1, next)));
       }
-      continue;
+      return out;
     }
     if (s.hide_value || s.type === 'SHADER') {
-      rows.push(
-        splitRow(label, h('div', { class: 'nd-props-input' }, socketButton(tree, node, s, shaderType), h('span', { class: 'nd-props-value prop-note' }, s.type === 'SHADER' ? 'None' : 'Default'))),
-      );
-      continue;
+      out.push(splitRow(label, h('div', { class: 'nd-props-input' }, socketButton(tree, node, s, shaderType), h('span', { class: 'nd-props-value nd-props-default' }, s.type === 'SHADER' ? 'None' : 'Default'))));
+      return out;
     }
+    out.push(splitRow(label, h('div', { class: 'nd-props-input' }, socketButton(tree, node, s, shaderType), h('div', { class: 'nd-props-value' }, socketValueWidget(node, s, key, { label: false })))));
+    return out;
+  };
+  for (const s of inputs) if (!inPanel.has(s.identifier)) rows.push(...socketRow(s));
+  for (const pn of panels) {
+    const members = inputs.filter((s) => pn.inputs.includes(s.identifier));
+    const pprops = props.filter((p) => pn.props?.includes(p.id));
+    if (!members.length && !pprops.length) continue;
+    const k = `${node.id}:panel:${pn.name}`;
+    const open = expanded.get(k) ?? false;
     rows.push(
-      splitRow(label, h('div', { class: 'nd-props-input' }, socketButton(tree, node, s, shaderType), h('div', { class: 'nd-props-value' }, socketValueWidget(node, s, key, { label: false })))),
+      h(
+        'div',
+        { class: 'nd-props-panel' },
+        h(
+          'button',
+          {
+            class: 'nd-props-panel-hdr',
+            'aria-expanded': String(open),
+            onclick: () => (expanded.set(k, !open), app.changed('ui')),
+          },
+          icon(open ? 'disclosure_tri_down' : 'disclosure_tri_right'),
+          h('span', {}, pn.name),
+        ),
+        open ? h('div', { class: 'nd-props-panel-body' }, [...pprops.map((p) => propRow(tree, node, p, key)), ...members.flatMap((s) => socketRow(s))]) : null,
+      ),
     );
   }
   return rows;
@@ -245,15 +267,18 @@ export function drawOutputInput(tree: NodeTreeData, outType: string, socket: str
 
 materialSurfacePanel.draw = (ma: MaterialData) => {
   if (!ma.use_nodes) return h('div', { class: 'prop-note' }, 'This material does not use nodes');
-  const tree = ma.tree;
-  const out = activeOutput(tree, 'ShaderNodeOutputMaterial');
-  return [
-    drawOutputInput(tree, 'ShaderNodeOutputMaterial', 'Surface', 'Surface', 'OBJECT'),
-    out ? h('div', { class: 'ui-sep' }) : null,
-    out ? drawOutputInput(tree, 'ShaderNodeOutputMaterial', 'Volume', 'Volume', 'OBJECT') : null,
-    out ? drawOutputInput(tree, 'ShaderNodeOutputMaterial', 'Displacement', 'Displacement', 'OBJECT') : null,
-  ];
+  return drawOutputInput(ma.tree, 'ShaderNodeOutputMaterial', 'Surface', 'Surface', 'OBJECT');
 };
+
+// the other inputs of the Material Output get panels of their own (closed at first)
+materialSurfacePanel.after = (ma: MaterialData) => {
+  if (!ma.use_nodes || !activeOutput(ma.tree, 'ShaderNodeOutputMaterial')) return null;
+  return (['Volume', 'Displacement', 'Thickness'] as const).map((name) =>
+    panel(`ma-node-${name.toLowerCase()}`, name, () => drawOutputInput(ma.tree, 'ShaderNodeOutputMaterial', name, name, 'OBJECT'), { closed: true }),
+  );
+};
+
+materialSurfacePanel.preview = (ma: MaterialData) => materialPreviewPanel(ma);
 
 worldSurfacePanel.draw = (w: WorldData) => {
   if (!w.use_nodes) return null;

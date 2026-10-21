@@ -619,15 +619,15 @@ addKeys('Node Editor', [
     when: () => !!hoverEditor(),
     action: () => openPie('View', [{ label: 'Frame All', op: 'node.view_all' }, { label: 'Frame Selected', op: 'node.view_selected' }, null, null, null, null, null, null], app.pointer.x, app.pointer.y, 'ACCENT_GRAVE'),
   },
-  {
-    key: 'W',
+  ...(['W', 'APP'] as const).map((key) => ({
+    key,
     when: () => inTree(),
     action: () => {
       const ed = hoverEditor()!;
       const any = !!ed.selectedIds().length;
       openMenu(contextMenuItems(ed, any), { x: app.pointer.x, y: app.pointer.y }, { title: any ? 'Node' : 'Node Editor' });
     },
-  },
+  })),
   { key: 'C', ctrl: true, op: 'node.clipboard_copy' },
   { key: 'V', ctrl: true, op: 'node.clipboard_paste' },
   { key: 'F2', op: 'node.rename' },

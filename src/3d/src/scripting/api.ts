@@ -8,6 +8,7 @@
 //
 // All writes mark the document changed; script runs group them into one undo step
 // (see runner.ts).
+import { TEX_MAPPING_NODES, texMapping, setTexMapping } from '../nodes/texmapping';
 import { Matrix4 } from 'three';
 import { app, operators, type OpResult } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
@@ -1441,6 +1442,136 @@ class NodeStruct extends Struct {
   }
   get enum_items() {
     return nodeItemsFor(this.getTree, this.__nid, 'enum_items', `${this.__path}.enum_items`);
+  }
+  // optional node fields (absent until set): exposed with their defaults
+  get hide() {
+    return !!this.node.hide;
+  }
+  set hide(v: boolean) {
+    this.node.hide = !!v;
+    touched();
+  }
+  get mute() {
+    return !!this.node.mute;
+  }
+  set mute(v: boolean) {
+    this.node.mute = !!v;
+    touched();
+  }
+  get select() {
+    return !!this.node.select;
+  }
+  set select(v: boolean) {
+    this.node.select = !!v;
+    touched();
+  }
+  get label() {
+    return this.node.label ?? '';
+  }
+  set label(v: string) {
+    this.node.label = String(v ?? '');
+    touched();
+  }
+  get width() {
+    return this.node.width ?? getNodeType(this.node.type)?.width ?? 140;
+  }
+  set width(v: number) {
+    this.node.width = Number(v);
+    touched();
+  }
+  get use_custom_color() {
+    return !!this.node.use_custom_color;
+  }
+  set use_custom_color(v: boolean) {
+    this.node.use_custom_color = !!v;
+    touched();
+  }
+  get color() {
+    const node = () => this.node;
+    const c = node().color ?? [0.608, 0.608, 0.608];
+    return [c[0], c[1], c[2]];
+  }
+  set color(v: unknown) {
+    const a = Array.from(v as ArrayLike<number>).map(Number);
+    this.node.color = [a[0] ?? 0, a[1] ?? 0, a[2] ?? 0] as never;
+    touched();
+  }
+  get show_options() {
+    return !this.node.hide_options;
+  }
+  set show_options(v: boolean) {
+    this.node.hide_options = !v;
+    touched();
+  }
+  get show_preview() {
+    return !!this.node.show_preview;
+  }
+  set show_preview(v: boolean) {
+    this.node.show_preview = !!v;
+    touched();
+  }
+  get parent(): unknown {
+    const id = this.node.parent;
+    return id && this.getTree()?.nodes.some((n) => n.id === id) ? nodeWrapper(this.getTree, id, this.__path.replace(/\[[^\]]*\]$/, '')) : null;
+  }
+  set parent(v: unknown) {
+    if (v === null || v === undefined) this.node.parent = null;
+    else {
+      const id = (v as { __nid?: string }).__nid;
+      const tree = this.getTree();
+      const target = id ? tree?.nodes.find((n) => n.id === id) : undefined;
+      if (!target || target.type !== 'NodeFrame') throw pyError('TypeError', 'Node.parent: expected a Frame node of the same tree');
+      if (target.id === this.__nid) throw pyError('ValueError', 'Node.parent: a node cannot be its own parent');
+      this.node.parent = target.id;
+    }
+    touched();
+  }
+  /** Texture nodes: coordinate mapping (axis remap and location / rotation / scale). */
+  get texture_mapping(): unknown {
+    if (!TEX_MAPPING_NODES.has(this.node.type)) return undefined;
+    const node = () => this.node;
+    const vecProp = (key: 'translation' | 'rotation' | 'scale') => ({
+      get: () =>
+        new Proxy([...texMapping(node())[key]], {
+          set: (arr, i, v) => {
+            (arr as unknown as Record<string | symbol, unknown>)[i] = v;
+            if (typeof i === 'string' && /^[0-2]$/.test(i)) {
+              setTexMapping(node(), { [key]: arr.map(Number) as [number, number, number] });
+              touched();
+            }
+            return true;
+          },
+        }),
+      set: (v: unknown) => {
+        const a = Array.from(v as ArrayLike<number>).map(Number);
+        if (a.length < 3) throw pyError('ValueError', `TexMapping.${key}: expected 3 items`);
+        setTexMapping(node(), { [key]: [a[0], a[1], a[2]] });
+        touched();
+      },
+      enumerable: true,
+    });
+    const enumProp = (key: 'vector_type' | 'mapping_x' | 'mapping_y' | 'mapping_z', items: string[]) => ({
+      get: () => texMapping(node())[key],
+      set: (v: unknown) => {
+        if (!items.includes(String(v))) throw pyError('TypeError', `bpy_struct: item.${key} = '${v}': enum "${v}" not found in (${items.map((x) => `'${x}'`).join(', ')})`);
+        setTexMapping(node(), { [key]: String(v) } as never);
+        touched();
+      },
+      enumerable: true,
+    });
+    const axes = ['NONE', 'X', 'Y', 'Z'];
+    return Object.defineProperties(
+      { __kind: 'struct', __type: 'TexMapping', toString: () => '<bpy_struct, TexMapping>' },
+      {
+        translation: vecProp('translation'),
+        rotation: vecProp('rotation'),
+        scale: vecProp('scale'),
+        vector_type: enumProp('vector_type', ['POINT', 'TEXTURE', 'VECTOR', 'NORMAL']),
+        mapping_x: enumProp('mapping_x', axes),
+        mapping_y: enumProp('mapping_y', axes),
+        mapping_z: enumProp('mapping_z', axes),
+      },
+    );
   }
   get paired_output(): unknown {
     const id = this.node.props.paired_output;

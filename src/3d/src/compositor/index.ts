@@ -24,6 +24,7 @@ import './ops/crypto';
 import './ops/fileoutput';
 import './ops/fileoutitems';
 import './ops/vecblur';
+import './ops/switches';
 import '../render/final/passesui';
 import './session';
 import './editor';

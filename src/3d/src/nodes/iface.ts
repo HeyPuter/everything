@@ -43,7 +43,7 @@ export function removeInterfacePanel(tree: NodeTreeData, id: string) {
 /** Put an input socket in a panel (or take it out with `panel` undefined); it goes last in the panel. */
 export function setSocketPanel(tree: NodeTreeData, socketId: string, panel: string | undefined) {
   const items = tree.interface ?? [];
-  const it = items.find((i) => i.identifier === socketId);
+  const it = findSocketItem(tree, socketId);
   if (!it || it.in_out !== 'INPUT') return;
   if (panel) it.panel = panel;
   else delete it.panel;
@@ -62,7 +62,7 @@ export function moveInterfaceEntry(tree: NodeTreeData, id: string, dir: -1 | 1):
     return true;
   }
   const items = tree.interface ?? [];
-  const it = items.find((i) => i.identifier === id);
+  const it = findSocketItem(tree, id);
   if (!it) return false;
   const group = (i: Item) => (i.in_out === 'INPUT' && i.panel && panels.some((p) => p.identifier === i.panel) ? i.panel : '');
   const same = items.filter((i) => group(i) === group(it));
@@ -78,7 +78,19 @@ export function moveInterfaceEntry(tree: NodeTreeData, id: string, dir: -1 | 1):
 // ---------------------------------------------------------------------------
 // Items (sockets and panels) by identifier: remove, duplicate, panel toggles
 
-export const findSocketItem = (tree: NodeTreeData, id: string): Item | undefined => (tree.interface ?? []).find((i) => i.identifier === id);
+/**
+ * Key of a socket in the interface list. An input and an output may share an identifier (older
+ * groups use "Geometry" for both), so the key carries the direction.
+ */
+export const socketKey = (it: Pick<Item, 'in_out' | 'identifier'>) => `${it.in_out}:${it.identifier}`;
+
+/** A socket by key ("INPUT:Socket_0") or plain identifier (first match). */
+export function findSocketItem(tree: NodeTreeData, key: string): Item | undefined {
+  const items = tree.interface ?? [];
+  const m = /^(INPUT|OUTPUT):(.*)$/.exec(key);
+  if (m) return items.find((i) => i.in_out === m[1] && i.identifier === m[2]);
+  return items.find((i) => i.identifier === key);
+}
 export const findPanel = (tree: NodeTreeData, id: string): Panel | undefined => (tree.interface_panels ?? []).find((p) => p.identifier === id);
 
 /** Remove a socket (and the links of the group input / output nodes to it) or a panel. */
@@ -90,12 +102,12 @@ export function removeInterfaceItem(tree: NodeTreeData, id: string): boolean {
   const it = findSocketItem(tree, id);
   if (!it) return false;
   tree.interface = (tree.interface ?? []).filter((x) => x !== it);
-  for (const p of tree.interface_panels ?? []) if (p.toggle === id) delete p.toggle;
+  if (it.in_out === 'INPUT') for (const p of tree.interface_panels ?? []) if (p.toggle === it.identifier) delete p.toggle;
   tree.links = tree.links.filter(
     (l) =>
       !(
-        (l.from_socket === it.identifier && tree.nodes.find((n) => n.id === l.from_node)?.type === 'NodeGroupInput') ||
-        (l.to_socket === it.identifier && tree.nodes.find((n) => n.id === l.to_node)?.type === 'NodeGroupOutput')
+        (it.in_out === 'INPUT' && l.from_socket === it.identifier && tree.nodes.find((n) => n.id === l.from_node)?.type === 'NodeGroupInput') ||
+        (it.in_out === 'OUTPUT' && l.to_socket === it.identifier && tree.nodes.find((n) => n.id === l.to_node)?.type === 'NodeGroupOutput')
       ),
   );
   return true;
@@ -119,14 +131,14 @@ export function toggleCandidatePanel(tree: NodeTreeData, socketId: string): Pane
   const it = findSocketItem(tree, socketId);
   if (!it || it.in_out !== 'INPUT' || it.socket_type !== 'NodeSocketBool' || !it.panel) return undefined;
   const p = findPanel(tree, it.panel);
-  return p && p.toggle !== socketId ? p : undefined;
+  return p && p.toggle !== it.identifier ? p : undefined;
 }
 
 /** Make a boolean input of a panel the panel's toggle (drawn as a checkbox in the panel header). */
 export function makePanelToggle(tree: NodeTreeData, socketId: string): boolean {
   const p = toggleCandidatePanel(tree, socketId);
   if (!p) return false;
-  p.toggle = socketId;
+  p.toggle = findSocketItem(tree, socketId)!.identifier;
   return true;
 }
 
@@ -151,4 +163,9 @@ export function unlinkPanelToggle(tree: NodeTreeData, panelId: string): boolean 
 }
 
 /** Panel whose toggle is the given socket. */
-export const panelOfToggle = (tree: NodeTreeData, socketId: string): Panel | undefined => (tree.interface_panels ?? []).find((p) => p.toggle === socketId);
+export const panelOfToggle = (tree: NodeTreeData, socketId: string): Panel | undefined => {
+  const it = findSocketItem(tree, socketId);
+  if (it && it.in_out !== 'INPUT') return undefined;
+  const id = it?.identifier ?? socketId;
+  return (tree.interface_panels ?? []).find((p) => p.toggle === id);
+};

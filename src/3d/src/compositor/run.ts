@@ -1,6 +1,7 @@
 // One compositing run: evaluate the scene's compositing tree on the GPU and read back the
 // composite (render size) and the active Viewer image, plus an 8-bit display copy of the viewer
 // for the node editor backdrop.
+import { viewerRegion, maskToRegion } from './viewregion';
 import type { DocumentData, NodeData, NodeTreeData } from '../data/types';
 import { renderSize } from '../render/final/units';
 import { displayGLSL, VIEW_INDEX, type ViewSettings } from '../render/final/colormanage';
@@ -136,6 +137,8 @@ export function runCompositor(doc: DocumentData, opts: RunOptions): RunResult {
           node: v.id,
           display: opts.view ? displayCanvas(g, t, opts.view) : null,
         };
+        const region = viewerRegion(tree);
+        if (region) maskToRegion(res.viewer, region);
       }
     }
   } catch (e) {

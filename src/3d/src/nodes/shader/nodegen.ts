@@ -1,4 +1,5 @@
 // Per-node GLSL generators for shader nodes (registered into codegen's `nodeGenerators`).
+import { TEX_MAPPING_NODES, texMapping, isIdentityMapping, texMappingTransform } from '../texmapping';
 import { tileGrid } from '../../render/udim';
 import { registerGenerator, fmt, type NodeGen } from './codegen';
 import { readRamp, bakeRamp, bakeCurves, type CurveKind } from '../curves';
@@ -483,7 +484,18 @@ registerGenerator('ShaderNodeMixRGB', (g) => {
 // ---------------------------------------------------------------------------
 // Textures
 
-const texVector = (g: NodeGen) => g.inOr('Vector', 'vec3', g.ctx.orco);
+/** A texture node's coordinates after its Texture Mapping (no code when the mapping is the identity). */
+function mappedVector(g: NodeGen, v: string): string {
+  if (!TEX_MAPPING_NODES.has(g.node.type)) return v;
+  const m = texMapping(g.node);
+  if (isIdentityMapping(m)) return v;
+  const { L, t } = texMappingTransform(m);
+  const col = (c: number) => g.uniform('vec3', [L[c], L[3 + c], L[6 + c]]);
+  const p = g.tmp('vec3', v);
+  const e = `(${col(0)} * ${p}.x + ${col(1)} * ${p}.y + ${col(2)} * ${p}.z + ${g.uniform('vec3', t)})`;
+  return m.vector_type === 'NORMAL' ? `nd_safe_normalize(${e})` : e;
+}
+const texVector = (g: NodeGen) => mappedVector(g, g.inOr('Vector', 'vec3', g.ctx.orco));
 
 registerGenerator('ShaderNodeTexChecker', (g) => {
   g.lib('nd_checker');
@@ -572,8 +584,7 @@ registerGenerator('ShaderNodeTexWave', (g) => {
 registerGenerator('ShaderNodeTexGabor', (g) => {
   g.lib('nd_gabor');
   const is3 = g.str('gabor_type') === '3D';
-  const orient = is3 ? `nd_safe_normalize(${g.in('Orientation 3D', 'vec3')})` : `vec3(cos(${g.in('Orientation 2D', 'float')}), sin(${g.in('Orientation 2D', 'float')}), 0.0)`;
-  const r = g.tmp('vec3', `nd_gabor(${texVector(g)}, ${g.in('Scale', 'float')}, ${g.in('Frequency', 'float')}, clamp(${g.in('Anisotropy', 'float')}, 0.0, 1.0), ${orient}, ${is3})`);
+  const r = g.tmp('vec3', `nd_gabor(${texVector(g)}, ${g.in('Scale', 'float')}, ${g.in('Frequency', 'float')}, ${g.in('Anisotropy', 'float')}, ${is3 ? '0.0' : g.in('Orientation 2D', 'float')}, ${is3 ? g.in('Orientation 3D', 'vec3') : 'vec3(0.0)'}, ${is3})`);
   g.out('Value', 'float', `${r}.x`);
   g.out('Phase', 'float', `${r}.y`);
   g.out('Intensity', 'float', `${r}.z`);
@@ -595,7 +606,7 @@ registerGenerator('ShaderNodeTexImage', (g) => {
     image: img,
     interpolation: g.str('interpolation') || 'Linear',
   });
-  const v = g.tmp('vec3', g.inOr('Vector', 'vec3', g.ctx.uv));
+  const v = g.tmp('vec3', mappedVector(g, g.inOr('Vector', 'vec3', g.ctx.uv)));
   const proj = g.str('projection');
   let c: string;
   if (proj === 'BOX') c = `nd_tex_box(${tex}, ${v}, ${g.ctx.objN}, ${g.uniform('float', num(g.prop('projection_blend'), 0))}, ${interp}, ${ext})`;
@@ -625,7 +636,7 @@ registerGenerator('ShaderNodeTexEnvironment', (g) => {
     image: img,
     interpolation: g.str('interpolation') || 'Linear',
   });
-  const d = g.tmp('vec3', g.inOr('Vector', 'vec3', `(-${g.ctx.I})`));
+  const d = g.tmp('vec3', mappedVector(g, g.inOr('Vector', 'vec3', `(-${g.ctx.I})`)));
   const uv = g.str('projection') === 'MIRROR_BALL' ? `nd_mirrorball_uv(${d})` : `nd_equirect_uv(${d})`;
   const interp = Math.min(2, enumIndex(INTERP, g.str('interpolation')));
   g.out('Color', 'vec4', `vec4(nd_tex_sample(${tex}, ${uv}, ${interp}, 0).rgb, 1.0)`);
@@ -723,8 +734,8 @@ registerGenerator('ShaderNodeMath', (g) => {
     SINE: `sin(${a})`,
     COSINE: `cos(${a})`,
     TANGENT: `tan(${a})`,
-    ARCSINE: `(${a} >= -1.0 && ${a} <= 1.0) ? asin(${a}) : 0.0`,
-    ARCCOSINE: `(${a} >= -1.0 && ${a} <= 1.0) ? acos(${a}) : 0.0`,
+    ARCSINE: `asin(clamp(${a}, -1.0, 1.0))`,
+    ARCCOSINE: `acos(clamp(${a}, -1.0, 1.0))`,
     ARCTANGENT: `atan(${a})`,
     ARCTAN2: `atan(${a}, ${b})`,
     SINH: `sinh(${a})`,
@@ -740,7 +751,7 @@ registerGenerator('ShaderNodeMath', (g) => {
 registerGenerator('ShaderNodeVectorMath', (g) => {
   const op = g.str('operation') || 'ADD';
   const a = g.tmp('vec3', g.in('Vector', 'vec3'));
-  const b = ['NORMALIZE', 'LENGTH', 'ABSOLUTE', 'SIGN', 'FLOOR', 'CEIL', 'FRACTION', 'SINE', 'COSINE', 'TANGENT', 'SCALE'].includes(op) ? 'vec3(0.0)' : g.tmp('vec3', g.in('Vector_001', 'vec3'));
+  const b = ['NORMALIZE', 'LENGTH', 'ABSOLUTE', 'SIGN', 'FLOOR', 'CEIL', 'ROUND', 'FRACTION', 'SINE', 'COSINE', 'TANGENT', 'SCALE'].includes(op) ? 'vec3(0.0)' : g.tmp('vec3', g.in('Vector_001', 'vec3'));
   const c = ['MULTIPLY_ADD', 'FACEFORWARD', 'WRAP'].includes(op) ? g.tmp('vec3', g.in('Vector_002', 'vec3')) : 'vec3(0.0)';
   const s = op === 'SCALE' || op === 'REFRACT' ? g.tmp('float', g.in('Scale', 'float')) : '1.0';
   const vecOps: Record<string, string> = {
@@ -763,6 +774,7 @@ registerGenerator('ShaderNodeVectorMath', (g) => {
     MAXIMUM: `max(${a}, ${b})`,
     FLOOR: `floor(${a})`,
     CEIL: `ceil(${a})`,
+    ROUND: `floor(${a} + 0.5)`,
     FRACTION: `${a} - floor(${a})`,
     MODULO: `nd_fmod(${a}, ${b})`,
     WRAP: `nd_wrap(${a}, ${b}, ${c})`,

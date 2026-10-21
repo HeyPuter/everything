@@ -3,7 +3,7 @@
 // toggle and channels) and the Viewer backdrop drawn behind the nodes (zoom V / Alt V, move
 // Alt + middle mouse, fit).
 import type { NodeGroupData } from '../data/types';
-import { h, type Child } from '../ui/h';
+import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
@@ -17,10 +17,12 @@ import { viewMenu, selectMenu, nodeMenuItems } from '../nodes/editor/menus';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { uid } from '../data/defaults';
 import { cloneShared } from '../data/cow';
-import { addNode, connect, ctxOf } from '../nodes/tree';
+import { addNode, connect, ctxOf, uniqueGroupName } from '../nodes/tree';
 import { nodeSockets } from '../nodes/registry';
 import { compositingGroup, compositorGroups, newCompositingGroup } from './data';
 import { compositorState, onCompositorUpdate, recomposite } from './session';
+import { viewerRegion, setViewerRegion } from './viewregion';
+import { drawShelf } from './shelf';
 import { compositorEntryPoll, setCompositorEntryCheck } from './nodes/defs';
 import { nodeExecs } from './eval/evaluator';
 
@@ -120,6 +122,11 @@ export class CompositorEditor extends NodeEditor {
   backdropX = 0;
   backdropY = 0;
   backdropChannels: BackdropChannels = 'COLOR_ALPHA';
+  /** asset shelf with the built-in effects (bottom of the editor) */
+  showShelf = true;
+  shelfTab = 'All';
+  shelfSearch = '';
+  private shelfEl = document.createElement('div');
   private unsubUpdate: () => void;
 
   constructor(area: Area, state: unknown) {
@@ -135,6 +142,11 @@ export class CompositorEditor extends NodeEditor {
     if (st.backdropOffset) [this.backdropX, this.backdropY] = st.backdropOffset;
     if (st.backdropChannels) this.backdropChannels = st.backdropChannels;
     if ((state as { cmpContext?: string } | null)?.cmpContext === 'SEQUENCER') this.cmpContext = 'SEQUENCER';
+    const sh = state as { showShelf?: boolean; shelfTab?: string } | null;
+    if (sh?.showShelf !== undefined) this.showShelf = sh.showShelf;
+    if (sh?.shelfTab) this.shelfTab = sh.shelfTab;
+    this.shelfEl.className = 'cmp-shelf-host';
+    this.el.append(this.shelfEl);
     this.unsubUpdate = onCompositorUpdate(() => {
       if (this.el.isConnected) {
         this.drawBack();
@@ -222,6 +234,16 @@ export class CompositorEditor extends NodeEditor {
     const un = (c: number) => (a > 0 ? c / a : c);
     // reported bottom-up like image coordinates
     return [px, v.height - 1 - py, un(v.data[i]), un(v.data[i + 1]), un(v.data[i + 2]), a];
+  }
+
+  /** Normalized (y up) viewer image coordinates of a client point. */
+  backdropUV(clientX: number, clientY: number): [number, number] | null {
+    const v = compositorState.viewer;
+    if (!v) return null;
+    const r = this.el.getBoundingClientRect();
+    const x0 = this.el.clientWidth / 2 - (v.width * this.backdropZoom) / 2 + this.backdropX,
+      y0 = this.el.clientHeight / 2 - (v.height * this.backdropZoom) / 2 + this.backdropY;
+    return [(clientX - r.left - x0) / (v.width * this.backdropZoom), 1 - (clientY - r.top - y0) / (v.height * this.backdropZoom)];
   }
 
   sampleBackdrop(e: { clientX: number; clientY: number }) {
@@ -371,16 +393,7 @@ export class CompositorEditor extends NodeEditor {
           },
           () => app.run('node.new_compositing_node_group'),
           {
-            duplicate: group
-              ? () => {
-                  const d = cloneShared(group);
-                  d.id = uid('ng');
-                  d.name = `${group.name}.001`;
-                  doc.node_groups[d.id] = d;
-                  s.compositing_node_group = d.id;
-                  changed('Copy Compositing Node Group');
-                }
-              : undefined,
+            duplicate: group ? () => app.run('node.duplicate_compositing_node_group') : undefined,
           },
         ),
       ),
@@ -465,14 +478,37 @@ export class CompositorEditor extends NodeEditor {
         op: 'node.backimage_fit',
       },
       { separator: true },
+      {
+        label: 'Asset Shelf',
+        checked: this.showShelf,
+        action: () => {
+          this.showShelf = !this.showShelf;
+          app.changed('ui');
+        },
+      },
+      { separator: true },
+      { label: 'Viewer Region', shortcut: 'Ctrl B', op: 'node.viewer_border' },
+      { label: 'Clear Viewer Region', shortcut: 'Ctrl Alt B', op: 'node.clear_viewer_border' },
+      { separator: true },
     ];
     items.splice(at < 0 ? items.length : at, 0, ...bd);
     return items;
   }
 
+  override render() {
+    super.render();
+    // the shelf sits along the bottom, between the toolbar and the sidebar
+    const showing = this.showShelf && this.cmpContext === 'SCENE' && !!this.tree();
+    this.shelfEl.hidden = !showing;
+    this.shelfEl.style.right = this.showSidebar ? '270px' : '0';
+    patch(this.shelfEl, showing ? drawShelf(this) : null);
+  }
+
   serialize() {
     return {
       ...super.serialize(),
+      showShelf: this.showShelf,
+      shelfTab: this.shelfTab,
       backdrop: this.backdrop,
       backdropZoom: this.backdropZoom,
       backdropOffset: [this.backdropX, this.backdropY],
@@ -593,6 +629,14 @@ registerNodeEditorProvider({
     g.imageSmoothingEnabled = e.backdropZoom < 1;
     g.imageSmoothingQuality = 'high';
     g.drawImage(src, x, y, w, hh);
+    const tree = e.tree();
+    const region = tree ? viewerRegion(tree) : null;
+    if (region) {
+      g.setLineDash([4, 4]);
+      g.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+      g.lineWidth = 1;
+      g.strokeRect(Math.round(x + region[0] * w) + 0.5, Math.round(y + (1 - region[3]) * hh) + 0.5, Math.round((region[2] - region[0]) * w), Math.round((region[3] - region[1]) * hh));
+    }
     g.restore();
   },
 });
@@ -624,6 +668,93 @@ registerOperators([
       const ed = compositorEditor(ctx);
       if (ed) ed.path = [];
       app.changed('doc');
+    },
+  },
+  {
+    idname: 'node.duplicate_compositing_node_group',
+    label: 'New Compositing Node Group',
+    description: 'Copy the scene’s compositing node group and use the copy',
+    poll: (ctx) => !!ctx.doc.scene.compositing_node_group && !!ctx.doc.node_groups[ctx.doc.scene.compositing_node_group],
+    exec: (ctx) => {
+      const doc = ctx.doc;
+      const group = doc.node_groups[doc.scene.compositing_node_group!];
+      const d = cloneShared(group);
+      d.id = uid('ng');
+      d.name = uniqueGroupName(doc, group.name);
+      doc.node_groups[d.id] = d;
+      doc.scene.compositing_node_group = d.id;
+      const ed = compositorEditor(ctx);
+      if (ed) ed.path = [];
+      app.changed('doc');
+    },
+  },
+  {
+    idname: 'node.viewer_border',
+    label: 'Viewer Region',
+    description: 'Drag a rectangle on the backdrop: the Viewer node shows only that part of the image',
+    props: [
+      { id: 'xmin', type: 'float', default: 0, hidden: true },
+      { id: 'xmax', type: 'float', default: 0, hidden: true },
+      { id: 'ymin', type: 'float', default: 0, hidden: true },
+      { id: 'ymax', type: 'float', default: 0, hidden: true },
+    ],
+    poll: (ctx) => !!compositorEditor(ctx)?.tree() && !!compositorState.viewer,
+    invoke: (ctx) => {
+      const ed = compositorEditor(ctx)!;
+      ed.startBorderDrag((x0, y0, x1, y1) => {
+        const a = ed.backdropUV(x0, y1),
+          b = ed.backdropUV(x1, y0);
+        if (!a || !b) return;
+        app.run('node.viewer_border', { xmin: a[0], ymin: a[1], xmax: b[0], ymax: b[1] }, { area: ctx.area, invoke: false });
+      });
+      return 'CANCELLED';
+    },
+    exec: (ctx, p) => {
+      const tree = compositorEditor(ctx)?.tree();
+      if (!tree) return 'CANCELLED';
+      const r: [number, number, number, number] = [Number(p.xmin), Number(p.ymin), Number(p.xmax), Number(p.ymax)];
+      if (!(Math.min(r[2], 1) > Math.max(r[0], 0) && Math.min(r[3], 1) > Math.max(r[1], 0))) return 'CANCELLED';
+      setViewerRegion(tree, r);
+      app.changed('doc');
+    },
+  },
+  {
+    idname: 'node.clear_viewer_border',
+    label: 'Clear Viewer Region',
+    description: 'Show the whole image in the Viewer node again',
+    poll: (ctx) => {
+      const tree = compositorEditor(ctx)?.tree();
+      return !!tree && !!viewerRegion(tree);
+    },
+    exec: (ctx) => {
+      setViewerRegion(compositorEditor(ctx)!.tree()!, null);
+      app.changed('doc');
+    },
+  },
+  {
+    idname: 'node.read_viewlayers',
+    label: 'Read View Layers',
+    description: 'Composite again from the view layers of the last render',
+    undo: false,
+    poll: (ctx) => !!compositorEditor(ctx),
+    exec: () => {
+      recomposite(true);
+      app.changed('ui');
+    },
+  },
+  {
+    idname: 'node.render_changed',
+    label: 'Render Changed Layer',
+    description: 'Render the scene again for the view layer of the active Render Layers node',
+    undo: false,
+    poll: (ctx) => {
+      const tree = compositorEditor(ctx)?.tree();
+      const n = tree?.nodes.find((x) => x.id === tree.active_node);
+      return !!n && n.type === 'CompositorNodeRLayers';
+    },
+    exec: () => {
+      if (!app.poll('render.render')) app.report('WARNING', 'A render is already running');
+      else app.run('render.render');
     },
   },
   {
@@ -661,4 +792,8 @@ addKeys('Compositor', [
   { key: 'V', op: 'node.backimage_zoom', props: { factor: 1 / 1.2 } },
   { key: 'V', alt: true, op: 'node.backimage_zoom', props: { factor: 1.2 } },
   { key: 'HOME', alt: true, op: 'node.backimage_fit' },
+  { key: 'R', ctrl: true, op: 'node.read_viewlayers' },
+  { key: 'B', ctrl: true, op: 'node.viewer_border' },
+  { key: 'B', ctrl: true, alt: true, op: 'node.clear_viewer_border' },
+  { key: 'Z', op: 'node.render_changed' },
 ]);

@@ -168,6 +168,8 @@ export interface NodeTypeDef {
   socketLabel?: (node: NodeData, socket: SocketDef, isOutput: boolean) => string | undefined;
   /** dynamic node label shown in the header (e.g. the Math operation) */
   dynamicLabel?: (node: NodeData) => string;
+  /** header color class that depends on the node's settings (e.g. Mix: color, vector or value) */
+  dynamicCategory?: (node: NodeData) => NodeClass;
   /** fully dynamic sockets (group nodes, group input/output) */
   dynamicSockets?: (node: NodeData, ctx: SocketContext) => { inputs: SocketDef[]; outputs: SocketDef[]; panels?: NodePanelDef[] };
   /** initialize props of a newly created node */

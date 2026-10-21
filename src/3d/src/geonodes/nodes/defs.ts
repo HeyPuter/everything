@@ -30,12 +30,13 @@ export function sockFromRaw(r: GnRawSocket): SocketDef {
   return s;
 }
 
-const ID_TYPES = new Set<SocketType>(['OBJECT', 'COLLECTION', 'MATERIAL', 'FONT']);
+const ID_TYPES = new Set<SocketType>(['OBJECT', 'COLLECTION', 'MATERIAL', 'FONT', 'IMAGE']);
 const ID_ICON: Record<string, string> = {
   OBJECT: 'object',
   COLLECTION: 'collection',
   MATERIAL: 'material',
   FONT: 'outliner_ob_font',
+  IMAGE: 'image',
 };
 
 /** Selector rows for unlinked object/collection/material inputs (drawn in the node body). */
@@ -54,7 +55,9 @@ export function idSocketBody(ctx: NodeDrawContext, sockets: SocketDef[]): Child 
             ? Object.values(doc.collections).filter((c) => c.id !== doc.scene.collection)
             : s.type === 'FONT'
               ? Object.values(doc.fonts ?? {})
-              : Object.values(doc.materials);
+              : s.type === 'IMAGE'
+                ? Object.values(doc.images)
+                : Object.values(doc.materials);
       const cur = (node.inputs[s.identifier] as string | null) ?? '';
       return h(
         'div',

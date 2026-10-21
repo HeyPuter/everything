@@ -411,7 +411,7 @@ export function nodeColor(n: NodeData): string {
   // group nodes can take a category color from their group
   const tag = def?.dynamicSockets && typeof n.props.node_tree === 'string' ? app.doc.node_groups[n.props.node_tree]?.tree.color_tag : undefined;
   if (tag && tag in NODE_CLASS_COLORS) return NODE_CLASS_COLORS[tag as keyof typeof NODE_CLASS_COLORS];
-  return NODE_CLASS_COLORS[def?.category ?? 'converter'] ?? '#38393b';
+  return NODE_CLASS_COLORS[def?.dynamicCategory?.(n) ?? def?.category ?? 'converter'] ?? '#38393b';
 }
 
 function rowContent(node: NodeData, row: Row, key: string, tree: NodeTreeData): Child {

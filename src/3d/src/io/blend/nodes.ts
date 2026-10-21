@@ -1,5 +1,6 @@
 // Node tree conversion (material / world / group trees) into NodeTreeData.
 // Node types keep the idnames stored in the file; inputs are keyed by socket identifier.
+import { TEX_MAPPING_NODES, setTexMapping, texMapping, isIdentityMapping } from '../../nodes/texmapping';
 import type { NodeData, NodeTreeData, SocketValue, LinkData } from '../../data/types';
 import { uid } from '../../data/defaults';
 import type { BStruct } from './reader';
@@ -83,8 +84,8 @@ function curveMapping(cm: BStruct, kind: 'RGB' | 'VECTOR' | 'FLOAT', props: Reco
   const n = kind === 'RGB' ? 4 : kind === 'VECTOR' ? 3 : 1;
   props.curve_kind = kind;
   props.curve_active = 0;
-  // flag bit 1<<? for extrapolation is not relied upon: default horizontal
-  props.curve_extend = 'HORIZONTAL';
+  // flag bit 16: extend by extrapolating the end tangents
+  props.curve_extend = cm.num('flag') & 16 ? 'EXTRAPOLATED' : 'HORIZONTAL';
   for (let i = 0; i < n; i++) {
     // RGB curves store C in slot 3 and R,G,B in 0..2
     const map = cm.sub('cm', kind === 'RGB' ? (i === 0 ? 3 : i - 1) : i);
@@ -169,6 +170,21 @@ export function convertNodeTree(nt: BStruct, type: NodeTreeData['type'], ctx: Ct
       // string settings stored by name (attribute / UV map / color layer names)
       if (idname === 'ShaderNodeAttribute' && storage.has('name')) node.props.attribute_name = storage.str('name');
       for (const k of ['uv_map', 'layer_name']) if (storage.has(k)) node.props[k] = storage.str(k);
+      // texture nodes: the coordinate mapping stored with the texture settings
+      const tm = TEX_MAPPING_NODES.has(idname) ? storage.sub('base')?.sub('tex_mapping') : null;
+      if (tm) {
+        const axes = ['NONE', 'X', 'Y', 'Z'] as const;
+        setTexMapping(node, {
+          vector_type: (['POINT', 'TEXTURE', 'VECTOR', 'NORMAL'] as const)[tm.num('type')] ?? 'POINT',
+          translation: tm.nums('loc', 3) as [number, number, number],
+          rotation: tm.nums('rot', 3) as [number, number, number],
+          scale: tm.nums('size', 3) as [number, number, number],
+          mapping_x: axes[tm.num('projx')] ?? 'X',
+          mapping_y: axes[tm.num('projy')] ?? 'Y',
+          mapping_z: axes[tm.num('projz')] ?? 'Z',
+        });
+        if (isIdentityMapping(texMapping(node))) for (const k of Object.keys(node.props)) if (k.startsWith('tm_')) delete node.props[k];
+      }
     } else if (!rules && n.ptr('storage') !== 0 && !idname.match(/^GeometryNode(Repeat|Simulation|ForeachGeometryElement)(Input|Output)$|^GeometryNode(Bake|CaptureAttribute)$/)) unknownStorage.push(idname);
     tree.nodes.push(node);
     byOffset.set(n.offset, node);
