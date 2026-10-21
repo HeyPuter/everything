@@ -41,12 +41,44 @@ export const STYLES = [
 
 const STYLE_CLASSES = STYLES.filter((s) => s.cls).map((s) => s.cls);
 
+const INLINE_COMMANDS = new Set(['bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript', 'fontName', 'foreColor', 'hiliteColor', 'removeFormat', 'unlink']);
+
 function exec(cmd, value = null) {
+  if (INLINE_COMMANDS.has(cmd)) startAfterEmbeds();
   try {
     return document.execCommand(cmd, false, value);
   } catch {
     return false;
   }
+}
+
+/*
+ * Chrome ignores bold, color, Clear Formatting and the other inline
+ * commands when the selection starts right before a non-editable box,
+ * which is where a to-do or other tag sits at the start of a line. Start
+ * the selection after such boxes instead; they carry no text formatting.
+ */
+function startAfterEmbeds() {
+  const sel = document.getSelection();
+  const range = currentRange();
+  if (!range || range.collapsed || range.startContainer.nodeType !== 1) return;
+  let node = range.startContainer;
+  let offset = range.startOffset;
+  let moved = false;
+  for (let guard = 0; guard < 100; guard++) {
+    const child = node.childNodes[offset];
+    if (child?.nodeType === 1 && child.getAttribute('contenteditable') === 'false') {
+      offset++;
+      moved = true;
+    } else if (child?.nodeType === 1 && isBlock(child) && child.firstChild) {
+      node = child;
+      offset = 0;
+    } else break;
+  }
+  if (!moved || range.comparePoint(node, offset) > 0) return;
+  // Keep the direction of a selection made backwards (focus at the start).
+  if (sel.focusNode === range.startContainer && sel.focusOffset === range.startOffset) sel.setBaseAndExtent(range.endContainer, range.endOffset, node, offset);
+  else sel.setBaseAndExtent(node, offset, range.endContainer, range.endOffset);
 }
 
 function withCss(on, fn) {

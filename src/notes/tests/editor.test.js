@@ -3,7 +3,7 @@ import { ensureBlocks, fixNesting, blocksInRange, rangeFromOffsets, textOffset, 
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
-import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles } from '../src/editor/format.js';
+import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles, toggleInline, clearFormatting } from '../src/editor/format.js';
 import { textToHtml, ruleImage, PageEditor, cleanPastedHtml } from '../src/editor/page-editor.js';
 
 function body(html) {
@@ -280,6 +280,30 @@ describe('paragraph formatting', () => {
     expect(document.getSelection().anchorNode).toBe(text);
     expect(document.getSelection().anchorOffset).toBe(3);
     document.head.innerHTML = '';
+  });
+
+  it('starts inline formatting after a tag at the start of the selection', () => {
+    const el = body('<p><span class="nt-tag" data-tag="todo" contenteditable="false"></span>Buy milk</p>');
+    const p = el.firstChild;
+    const seen = [];
+    const original = document.execCommand;
+    document.execCommand = (cmd) => {
+      const r = document.getSelection().getRangeAt(0);
+      seen.push([cmd, r.startContainer, r.startOffset, r.toString()]);
+      return true;
+    };
+    try {
+      document.getSelection().setBaseAndExtent(p, 0, p.lastChild, 8);
+      toggleInline('bold');
+      document.getSelection().setBaseAndExtent(el, 0, el, 1);
+      clearFormatting();
+    } finally {
+      document.execCommand = original;
+    }
+    const bold = seen.find((c) => c[0] === 'bold');
+    expect(bold.slice(1)).toEqual([p, 1, 'Buy milk']);
+    const clear = seen.find((c) => c[0] === 'removeFormat');
+    expect(clear.slice(1, 3)).toEqual([p, 1]);
   });
 
   it('indents plain paragraphs with a margin', () => {
