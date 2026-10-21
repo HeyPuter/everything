@@ -10933,7 +10933,16 @@ export function createEditor({
     stopReading();
     const generation = Symbol('reading');
     reading = { generation, toEnd };
-    const lang = document.documentElement.lang || 'en';
+    // The voice follows the language the PDF says it is written in, not the app's own; an
+    // English voice reading French words mispronounces nearly all of them.
+    let lang = document.documentElement.lang || 'en';
+    try {
+      const { info } = await pdf.getMetadata();
+      lang = Intl.getCanonicalLocales(info.Language.trim())[0] || lang;
+    } catch {
+      // No language, or a malformed one: the app's own language reads it.
+    }
+    if (reading?.generation !== generation || destroyed) return;
     let spoken = false;
     for (let index = pageIndex; index < pageCount; index++) {
       const text = await pageWords(index);

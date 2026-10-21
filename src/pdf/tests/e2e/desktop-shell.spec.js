@@ -435,6 +435,39 @@ test('Read out loud speaks a long page in short pieces and says when a page has 
   expect(await page.evaluate(() => window.spoken.length)).toBe(spoken.length);
 });
 
+test('Read out loud speaks a PDF in the language it is written in', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([600, 800]).drawText('Bonjour tout le monde.', { x: 40, y: 700, size: 14, font });
+  doc.catalog.set(PDFName.of('Lang'), PDFString.of('fr-FR'));
+  await openPdf(page, doc);
+  await page.evaluate(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        paused: false,
+        speak(utterance) {
+          window.spoken.push({ text: utterance.text, lang: utterance.lang });
+          setTimeout(() => utterance.onend?.(), 0);
+        },
+        cancel() {},
+      },
+    });
+  });
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+  await page.getByRole('menuitem', { name: 'Read this page', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.spoken))
+    .toEqual([{ text: 'Bonjour tout le monde.', lang: 'fr-FR' }]);
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
