@@ -70,7 +70,7 @@ describe('Python scripts', () => {
       strip = track.strips.new("Clip", 50, ob.animation_data.action)
       print(d.type, strip.frame_start, strip.frame_end)
     `),
-    ).toBe('2 4\nSCRIPTED 50 60');
+    ).toBe('2 4.0\nSCRIPTED 50.0 60.0');
     app.evaluate();
     expect(obj('Cube').scale[2]).toBeCloseTo(obj('Light').location[2] / 2);
   });

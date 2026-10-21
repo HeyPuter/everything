@@ -16,6 +16,7 @@ import mathutilsPy from './py/mathutils.py?raw';
 import bpyPy from './py/bpy.py?raw';
 import runtimePy from './py/p3d_runtime.py?raw';
 import bpyExtrasPy from './py/bpy_extras.py?raw';
+import floatPropsPy from './py/floatprops.py?raw';
 import { pyModuleFiles, scriptModules } from './jsmodules';
 import { PROJECT_DIR, vfsHooks, vfsList } from '../io/vfs';
 
@@ -178,7 +179,9 @@ export const bridge = {
   /** kind() in one call for live vectors: 'b:<kind>:<size>' (bound vectors keep their size). */
   wrapkind(v: unknown): string {
     if (v instanceof VecBase && (v as unknown as { __bound?: boolean }).__bound) return `b:${v.__kind}:${v.size}`;
-    return bridge.kind(v);
+    const k = bridge.kind(v);
+    // structs carry their type name so Python wrappers are instances of a class of that name
+    return k === 'struct' ? `s:${typeName(v)}` : k;
   },
   components: (v: VecBase) => v.toArray(),
   order: (v: { order?: string }) => v.order ?? 'XYZ',
@@ -397,9 +400,10 @@ export function loadPython(): Promise<PyodideAPI> {
       inst.FS.writeFile('/home/pyodide/p3d/bpy.py', bpyPy);
       inst.FS.writeFile('/home/pyodide/p3d/p3d_runtime.py', runtimePy);
       inst.FS.writeFile('/home/pyodide/p3d/bpy_extras.py', bpyExtrasPy);
+      inst.FS.writeFile('/home/pyodide/p3d/floatprops.py', floatPropsPy);
       for (const [file, src] of Object.entries(pyModuleFiles)) inst.FS.writeFile(`/home/pyodide/p3d/${file}`, src);
       mirrorSessionFiles(inst);
-      inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils");
+      inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils\nsys.modules['bpy_extras.anim_utils'] = bpy_extras.anim_utils");
       runtime = inst.pyimport('p3d_runtime');
       py = inst;
       python.version = String(inst.runPython('import sys; sys.version.split()[0]'));

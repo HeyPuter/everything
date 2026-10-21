@@ -41,6 +41,7 @@ import { getValue } from '../data/rna';
 import { driverAdd, driverRemove } from './driverapi';
 import { uiState } from '../app/prefs';
 import { scriptFile, scriptFileNames } from './files';
+import { NODE_TYPE_ENUM } from './nodetypes.gen';
 import { Matrix, Vector, mathutils } from './mathutils';
 import { allSockets, getNodeType, nodeSockets, nodeTypes, socketDefault } from '../nodes/registry';
 import { ctxOf, makeNode } from '../nodes/tree';
@@ -70,6 +71,8 @@ import {
   structHooks,
   mixin,
   assignField,
+  setRotationMode,
+  scriptOnlyData,
   type Raw,
 } from './rna';
 
@@ -295,6 +298,43 @@ idFactory.wrap = wrapId;
 export class ObjectStruct extends IDStruct {
   private get ob() {
     return this.__raw as unknown as ObjectData;
+  }
+  get rotation_mode() {
+    return this.ob.rotation_mode;
+  }
+  /**
+   * The evaluated geometry as a new mesh (modifiers applied) that is not part of bpy.data;
+   * free it with to_mesh_clear().
+   */
+  to_mesh(_preserve_all_data_layers = false, _depsgraph?: unknown) {
+    ensureEvaluated();
+    const ob = this.ob;
+    const ev = app.graph.get(ob.id)?.mesh;
+    const base = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+    if (!ev && !base) throw pyError('RuntimeError', `Object "${ob.name}" has no geometry`);
+    const src = (ev ?? base)!;
+    const id = `me_tmp${ob.id}`;
+    const me = newMeshData(ob.name, {
+      positions: new Float32Array(src.positions),
+      offsets: new Uint32Array(src.offsets),
+      indices: new Uint32Array(src.indices),
+      uvs: new Float32Array(src.uvs),
+      normals: new Float32Array(src.normals),
+    });
+    me.id = id;
+    if (src.smooth) me.smooth = new Uint8Array(src.smooth);
+    if (src.material_index) me.material_index = new Uint16Array(src.material_index);
+    me.materials = base ? [...base.materials] : [];
+    (scriptOnlyData.meshes ??= {})[id] = me as unknown as Raw;
+    return wrapId('meshes', id);
+  }
+  to_mesh_clear() {
+    const tmp = scriptOnlyData.meshes;
+    if (tmp) delete tmp[`me_tmp${this.ob.id}`];
+  }
+  /** changing the mode converts the rotation into the new representation */
+  set rotation_mode(v: string) {
+    setRotationMode(this.__raw, String(v));
   }
   get type() {
     return this.ob.type;
@@ -1245,7 +1285,7 @@ function nodeLabel(type: string) {
 }
 
 function nodeTypeEnum(bl: string) {
-  return nodeLabel(bl).toUpperCase().replace(/\s+/g, '_');
+  return NODE_TYPE_ENUM[bl] ?? nodeLabel(bl).toUpperCase().replace(/\s+/g, '_');
 }
 
 class NodeTreeStruct extends Struct {
@@ -2784,6 +2824,9 @@ export const opHooks = {
   run: (fn: () => OpResult): OpResult => fn(),
 };
 
+/** Operators whose `modifier` property holds the modifier's id (scripts pass its name). */
+const MODIFIER_BY_ID = new Set(['object.modifier_move_to_index', 'object.modifier_copy', 'object.modifier_copy_to_selected', 'object.modifier_apply']);
+
 /** Run an operator from a script: `{'FINISHED'}` / `{'CANCELLED'}`, raises on poll failure or errors. */
 export function callOperator(idname: string, props: Record<string, unknown> = {}, execContext: ExecContext = 'EXEC_DEFAULT'): 'FINISHED' | 'CANCELLED' | 'RUNNING_MODAL' | 'PASS_THROUGH' {
   const op = operators.get(idname);
@@ -2798,6 +2841,14 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
     const m = /^([A-Z0-9]+)_OT_(\w+)$/.exec(k);
     if (m) parts.push([`${m[1].toLowerCase()}.${m[2]}`, (v ?? {}) as Record<string, unknown>]);
     else plain[k] = toPlain(v);
+  }
+  // scripts name modifiers by their name; these operators keep the modifier's id
+  if (MODIFIER_BY_ID.has(idname) && typeof plain.modifier === 'string') {
+    const ob = app.activeObject;
+    if (ob && !ob.modifiers.some((m) => m.id === plain.modifier)) {
+      const m = ob.modifiers.find((x) => x.name === plain.modifier);
+      if (m) plain.modifier = m.id;
+    }
   }
   // rotation/value props given as Euler etc. are plain arrays now
   const before = app.reports.length;

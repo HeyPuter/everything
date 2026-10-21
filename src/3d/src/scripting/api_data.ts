@@ -20,7 +20,7 @@ import { addKey, hasRetiming, resetRetiming, retimable, setSegmentSpeed, speedAt
 import { allStrips, ensureEditor, findStrip, inputCount, newStrip, uniqueName as uniqueStripName, updateEffectRanges } from '../sequencer/strips';
 import { ID_MIXINS, NEW_DATA, NEW_PARAMS, OBJECT_DATA_HOOKS, ObjectStruct, SceneStruct, addDataCollection, bpyData, uniqueName, viewLayer, wrapId, TABLE_OBTYPE } from './api';
 import { Matrix, Vector } from './mathutils';
-import { PropCollection, Struct, arrayFactories, boundVector, expectId, kwMethod, mixin, proxify, pyError, toPlain, touched, ensureEvaluated, type Raw } from './rna';
+import { PropCollection, Struct, arrayFactories, boundVector, expectId, kwMethod, mixin, proxify, pyError, toPlain, touched, ensureEvaluated, setRotationMode, type Raw } from './rna';
 
 type Any = Record<string, unknown>;
 const q = (s: string) => JSON.stringify(s);
@@ -253,6 +253,14 @@ function poseBoneStruct(obId: string, name: string): unknown {
       },
     },
     constraints: { get: () => new PoseBoneConstraints(obId, name) },
+    rotation_mode: {
+      get: () => (raw() as unknown as PoseBone | undefined)?.rotation_mode ?? 'QUATERNION',
+      // changing the mode converts the rotation into the new representation
+      set: (v: string) => {
+        const pb = raw();
+        if (pb) setRotationMode(pb as unknown as Raw, String(v));
+      },
+    },
   });
   return proxify(s);
 }

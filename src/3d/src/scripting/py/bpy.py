@@ -12,6 +12,14 @@ from pyodide.ffi import JsProxy, JsException, to_js, create_proxy
 import js
 import mathutils
 
+try:
+    from floatprops import FLOAT_ONLY as _FLOAT_ONLY, FLOAT_BY_TYPE as _FLOAT_BY_TYPE
+except ImportError:  # pragma: no cover
+    _FLOAT_ONLY, _FLOAT_BY_TYPE = frozenset(), {}
+
+# methods whose results are floats even when they happen to be whole numbers
+_FLOAT_METHODS = frozenset(("evaluate", "calc_area", "calc_perimeter", "calc_length", "calc_shell_factor"))
+
 __all__ = ("data", "context", "ops", "types", "props", "utils", "app", "path")
 
 _ERRORS = {
@@ -124,7 +132,21 @@ def _wrap(v, kind=None):
         return _Function(v)
     if kind == "opmodule":
         return _OpsModule(_br.getattr(v, "__module"))
+    if kind.startswith("s:"):
+        return _struct_class(kind[2:])(v)
     return _Struct(v)
+
+
+_STRUCT_CLASSES = {}
+
+
+def _struct_class(name):
+    """A _Struct subclass named after the struct type, so ``type(ob).__name__`` reads like the RNA type."""
+    cls = _STRUCT_CLASSES.get(name)
+    if cls is None:
+        cls = type(name if name.isidentifier() else "bpy_struct", (_Struct,), {"__slots__": ()})
+        _STRUCT_CLASSES[name] = cls
+    return cls
 
 
 _METHOD = "\x00method"
@@ -143,6 +165,16 @@ class _Function:
         return "<built-in function>"
 
 
+class _FloatFunction(_Function):
+    """A function attribute whose results are floats (FCurve.evaluate and the like)."""
+
+    __slots__ = ()
+
+    def __call__(self, *args, **kw):
+        v = _Function.__call__(self, *args, **kw)
+        return float(v) if type(v) is int else v
+
+
 class _Method:
     __slots__ = ("_obj", "_name")
 
@@ -150,7 +182,10 @@ class _Method:
         self._obj, self._name = obj, name
 
     def __call__(self, *args, **kw):
-        return _wrap(_call(_br.call, self._obj, self._name, _tojs(list(args)), _kwargs(kw)))
+        v = _wrap(_call(_br.call, self._obj, self._name, _tojs(list(args)), _kwargs(kw)))
+        if type(v) is int and self._name in _FLOAT_METHODS:
+            return float(v)
+        return v
 
     def __repr__(self):
         return "<bpy_func %s>" % self._name
@@ -170,7 +205,13 @@ class _Struct:
         v = _call(_br.attr, self._js, name)
         if v == _METHOD:
             return _Method(self._js, name)
-        return _wrap(v)
+        v = _wrap(v)
+        if isinstance(v, _Function) and name in _FLOAT_METHODS:
+            return _FloatFunction(v._fn)
+        # JavaScript numbers that are whole come back as ints: float properties stay floats
+        if type(v) is int and (name in _FLOAT_ONLY or name in _FLOAT_BY_TYPE.get(type(self).__name__, ())):
+            return float(v)
+        return v
 
     def __setattr__(self, name, value):
         _call(_br.setattr, self._js, name, _tojs(value))
@@ -279,7 +320,8 @@ class _Collection(_Struct):
 
     def find(self, key, *args, **kw):
         r = _call(_br.call, self._js, "find", _tojs([key, *args]), _kwargs(kw))
-        return r if not isinstance(r, (int, float)) else int(r)
+        # an index for name lookups; collections with their own find (FCurves) return an element
+        return int(r) if isinstance(r, (int, float)) and not isinstance(r, bool) else _wrap(r)
 
     def foreach_get(self, attr, seq=None):
         # arrays such as Image.pixels take only the buffer
@@ -1019,6 +1061,15 @@ class _App(_Struct):
     __slots__ = ()
     handlers = handlers
     timers = timers
+
+    @property
+    def version(self):
+        # a tuple, so scripts can compare it with (4, 2, 0) etc.
+        return tuple(int(x) for x in _wrap(_br.getattr(self._js, "version")))
+
+    @property
+    def version_file(self):
+        return self.version
 
     @property
     def driver_namespace(self):

@@ -292,6 +292,18 @@ class AnimDataStruct extends Struct {
   get use_tweak_mode() {
     return !!adOf(this.__obId).tweak;
   }
+  /** the action's slot this object is animated by (actions here have one slot) */
+  get action_slot() {
+    const a = adOf(this.__obId).action;
+    return a && app.doc.actions[a] ? actionSlot(a) : null;
+  }
+  set action_slot(_v: unknown) {
+    /* a single slot per action: nothing to switch */
+  }
+  get action_suitable_slots() {
+    const a = adOf(this.__obId).action;
+    return a && app.doc.actions[a] ? [actionSlot(a)] : [];
+  }
   get use_nla() {
     return true;
   }
@@ -654,9 +666,89 @@ function targetStruct(t: DriverVariable['targets'][number], path: string) {
 // ---------------------------------------------------------------------------
 // actions: F-Curves with keyframe points and modifiers
 
+// Layered actions (scripts written for 4.4+): every action has one slot, one layer with one
+// keyframe strip, and that strip's channelbag for the slot holds the action's F-curves.
+
+/** Slot identifier: ID type code + the name of the first object using the action. */
+function slotIdentifier(actId: string) {
+  const user = Object.values(app.doc.objects).find((o) => o.animation_data?.action === actId || o.animation_data?.nla_tracks.some((t) => t.strips.some((x) => x.action === actId)));
+  return `OB${user?.name ?? 'Slot'}`;
+}
+
+function actionSlot(actId: string) {
+  const ident = () => slotIdentifier(actId);
+  return {
+    __kind: 'struct',
+    __type: 'ActionSlot',
+    get identifier() {
+      return ident();
+    },
+    get name_display() {
+      return ident().slice(2);
+    },
+    target_id_type: 'OBJECT',
+    handle: 1,
+    active: true,
+    select: true,
+    __key: `slot:${actId}`,
+    toString: () => `<bpy_struct, ActionSlot("${ident()}")>`,
+  };
+}
+
+function channelbag(actId: string) {
+  return {
+    __kind: 'struct',
+    __type: 'ActionChannelbag',
+    get fcurves() {
+      return new FCurves(actId);
+    },
+    get groups() {
+      return (wrapId('actions', actId) as { groups: unknown }).groups;
+    },
+    get slot() {
+      return actionSlot(actId);
+    },
+    __key: `channelbag:${actId}`,
+    toString: () => `<bpy_struct, ActionChannelbag>`,
+  };
+}
+
+function actionLayers(actId: string) {
+  const strip = {
+    __kind: 'struct',
+    __type: 'ActionKeyframeStrip',
+    type: 'KEYFRAME',
+    channelbag: (_slot?: unknown, ensure = false) => {
+      void ensure;
+      return channelbag(actId);
+    },
+    get channelbags() {
+      return [channelbag(actId)];
+    },
+    toString: () => '<bpy_struct, ActionKeyframeStrip>',
+  };
+  const layer = { __kind: 'struct', __type: 'ActionLayer', name: 'Layer', influence: 1, mix_mode: 'REPLACE', strips: [strip], toString: () => '<bpy_struct, ActionLayer("Layer")>' };
+  return [layer];
+}
+
 class ActionAnim {
   get fcurves() {
     return new FCurves((this as unknown as ActionStruct).__id);
+  }
+  get slots() {
+    return [actionSlot((this as unknown as ActionStruct).__id)];
+  }
+  get layers() {
+    return actionLayers((this as unknown as ActionStruct).__id);
+  }
+  get is_action_layered() {
+    return true;
+  }
+  get is_action_legacy() {
+    return false;
+  }
+  get is_empty() {
+    return !app.doc.actions[(this as unknown as ActionStruct).__id]?.fcurves.length;
   }
   get id_root() {
     return 'OBJECT';
