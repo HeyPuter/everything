@@ -219,6 +219,23 @@ export class InfoEditor implements Editor {
     return this.visible().filter((e) => selected.has(e));
   }
 
+  /** Select the visible report at `index` (from the oldest); `extend` toggles it into the selection. */
+  selectPick(index: number, extend: boolean) {
+    const vis = this.visible();
+    const e = vis[index];
+    if (!e) return false;
+    if (extend) {
+      if (selected.has(e)) selected.delete(e);
+      else selected.add(e);
+    } else {
+      for (const x of vis) selected.delete(x);
+      selected.add(e);
+    }
+    anchor = e;
+    this.draw();
+    return true;
+  }
+
   update(kinds: Set<ChangeKind>) {
     if (kinds.has('ui') || kinds.has('doc')) this.draw();
   }
@@ -254,6 +271,18 @@ registerOperators([
     props: [{ id: 'action', label: 'Action', type: 'enum', default: 'TOGGLE', items: [['TOGGLE', 'Toggle'], ['SELECT', 'Select'], ['DESELECT', 'Deselect'], ['INVERT', 'Invert']] }],
     poll: (ctx) => !!infoOf(ctx),
     exec: (ctx, p) => infoOf(ctx)!.selectAll(p.action as 'SELECT'),
+  },
+  {
+    idname: 'info.select_pick',
+    label: 'Select Report',
+    description: 'Select a report by its index in the list (extend: toggle it in the selection)',
+    undo: false,
+    props: [
+      { id: 'report_index', label: 'Report', type: 'int', default: 0, min: 0 },
+      { id: 'extend', label: 'Extend', type: 'bool', default: false },
+    ],
+    poll: (ctx) => !!infoOf(ctx),
+    exec: (ctx, p) => (infoOf(ctx)!.selectPick(Number(p.report_index), !!p.extend) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'info.report_copy',
