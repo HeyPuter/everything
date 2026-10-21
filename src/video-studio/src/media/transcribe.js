@@ -464,8 +464,9 @@ function normalizeWords(result) {
 
 /**
  * Timed words for one piece of mono audio. Tries xAI (per-word timestamps)
- * and falls back to the default model, whose segments (or plain text) are
- * spread over the stretches of sound.
+ * and, only when that fails, the default model, whose segments (or plain
+ * text) are spread over the stretches of sound. An answer with no words
+ * (silence, music) is final: asking again would only pay twice.
  */
 export async function transcribePiece(samples, sampleRate, { language = 'auto', testMode = false, signal } = {}) {
   const file = new File([encodeWav([samples], sampleRate)], 'captions.wav', { type: 'audio/wav' });
@@ -479,7 +480,8 @@ export async function transcribePiece(samples, sampleRate, { language = 'auto', 
     if (signal?.aborted) throw abortError();
     const words = normalizeWords(res);
     if (words.length) return words;
-    if (res?.text) return distributeText(res.text, regionsOrAll(samples, sampleRate));
+    const text = typeof res === 'string' ? res : res?.text;
+    return text ? distributeText(text, regionsOrAll(samples, sampleRate)) : [];
   } catch (err) {
     if (err?.name === 'AbortError') throw err;
     firstError = err;
