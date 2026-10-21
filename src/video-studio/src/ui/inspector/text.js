@@ -17,7 +17,7 @@ import { FONTS, TEXT_PRESETS } from '../../model/catalog.js';
 import { DEFAULT_TEXT_STYLE } from '../../model/project.js';
 import { allClips } from '../../model/timeline.js';
 import { setKey, removeKey, keyIndexAt, valueAt } from '../../model/keyframes.js';
-import { caseOf, COLOR_KEYS, hasColorKeys, hexToRgb, rgbToHex, textColorAt } from '../../model/text-style.js';
+import { caseOf, COLOR_KEYS, hasColorKeys, hexToRgb, textColorAt } from '../../model/text-style.js';
 import { rasterizeText } from '../../engine/text.js';
 import { FONT_ACCEPT, importFontFile } from '../../media/fonts.js';
 import { segmented, section, colorField } from '../controls.js';
@@ -376,12 +376,14 @@ function textColorField(view) {
     const has = keyIndexAt(c.keyframes, COLOR_KEYS[0], local, view.tol()) >= 0;
     view.edit(has ? 'Remove keyframe' : 'Add keyframe', (clip) => {
       const base = hexToRgb(clip.style.color);
+      // The color the removed key showed, kept when it was the last one.
+      const keyed = has ? textColorAt(clip, local) : null;
       COLOR_KEYS.forEach((k, i) => {
         if (has) removeKey(clip.keyframes, k, local, view.tol());
         else setKey(clip.keyframes, k, local, valueAt(clip.keyframes, k, local, base[i]), 'linear', view.tol());
       });
       // The last key gone: the color at that moment becomes the base color.
-      if (has && !hasColorKeys(clip)) clip.style.color = rgbToHex(...base);
+      if (has && !hasColorKeys(clip) && keyed) clip.style.color = keyed;
     });
     announce(has ? 'Keyframe removed' : 'Keyframe added');
   });

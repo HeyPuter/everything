@@ -120,6 +120,19 @@ describe('text details', () => {
     expect(normalizeClip(structuredClone(clip())).keyframes[COLOR_KEYS[2]]).toHaveLength(2);
   });
 
+  it('removing the only color key keeps its color', () => {
+    env.store.seek(2 * US);
+    button('Add keyframe for color').click();
+    const hex = field('Color').querySelector('.hex-input');
+    hex.value = '#FF0000';
+    hex.dispatchEvent(new Event('change'));
+    expect(clip().style.color).toBe('#ffffff');
+    button('Remove color keyframe').click();
+    for (const k of COLOR_KEYS) expect(clip().keyframes[k]).toBeUndefined();
+    expect(clip().style.color).toBe('#ff0000');
+    expect(hex.value).toBe('#FF0000');
+  });
+
   it('picks a bubble and a word-art effect', () => {
     tab('Bubble').click();
     expect(env.el.querySelectorAll('.bubble-grid [role=radio]').length).toBeGreaterThanOrEqual(21);
