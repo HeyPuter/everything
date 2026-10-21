@@ -367,6 +367,11 @@
     grid-template-columns: 96px 1fr;
   }
 
+  .export-dest {
+    align-self: stretch;
+    min-width: 0;
+  }
+
   .export-codec-note {
     padding-left: 108px;
   }
