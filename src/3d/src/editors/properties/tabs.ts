@@ -558,7 +558,11 @@ registerTab({
         dataBlockSelector('ar', 'armature_data', Object.values(doc.armatures), arm.id, (id) => id && ((o.data = id), changed('Assign Armature')), () => {}, { noUnlink: true }),
         panel('ar-skeleton', 'Skeleton', () => [enumRow('ar-pose', [{ value: 'POSE', label: 'Pose Position' }, { value: 'REST', label: 'Rest Position' }], arm.pose_position, (v) => ((arm.pose_position = v as 'POSE'), changed('Pose Position')))]),
         ...armatureDataPanels.map((f) => f(o, arm)),
-        panel('ar-display', 'Viewport Display', () => [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')]),
+        panel('ar-display', 'Viewport Display', () => {
+          arm.show_bone_custom_shapes ??= true;
+          arm.show_bone_colors ??= true;
+          return [enumProp(arm, 'display_type', 'Display As', [['OCTAHEDRAL', 'Octahedral'], ['STICK', 'Stick'], ['BBONE', 'B-Bone'], ['ENVELOPE', 'Envelope'], ['WIRE', 'Wire']]), bool(arm, 'show_names', 'Names'), bool(arm, 'show_bone_custom_shapes', 'Shapes'), bool(arm, 'show_bone_colors', 'Bone Colors'), bool(arm, 'show_axes', 'Axes'), bool(arm as never, 'show_in_front' as never, 'In Front')];
+        }),
         panel('ar-bones', 'Bones', () => arm.bones.map((b) => h('div', { key: b.name, class: { 'chip-row': true, on: arm.active_bone === b.name }, onclick: () => ((arm.active_bone = b.name), app.changed('doc')) }, icon('bone_data'), b.name))),
       ];
     }

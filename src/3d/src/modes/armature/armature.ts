@@ -23,6 +23,7 @@ import { boneVisible, newBoneLike, flipSideName, bonePath, uniqueBoneName as kUn
 import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import { objectCurves } from '../../anim/slots';
+import { customShapeWorldSegments } from './customshape';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -66,6 +67,21 @@ export function pickBone(v: View3D, x: number, y: number, posed: boolean): { bon
   let best: { bone: Bone; part: 'HEAD' | 'TAIL' | 'BODY'; d: number } | null = null;
   for (const b of a.arm.bones) {
     if (!boneVisible(a.arm, b)) continue;
+    // a custom shape replaces the bone: pick its wires
+    const shapeSegs = posed ? customShapeWorldSegments(a.ob, b.name) : null;
+    if (shapeSegs) {
+      for (let i = 0; i + 1 < shapeSegs.length; i += 2) {
+        const p = v.project(shapeSegs[i]),
+          q = v.project(shapeSegs[i + 1]);
+        const sx = q.x - p.x,
+          sy = q.y - p.y,
+          s2 = sx * sx + sy * sy || 1;
+        const t = Math.max(0, Math.min(1, ((x - p.x) * sx + (y - p.y) * sy) / s2));
+        const d = Math.hypot(p.x + sx * t - x, p.y + sy * t - y) + 1;
+        if (d < 7 && (!best || d < best.d)) best = { bone: b, part: 'BODY', d };
+      }
+      continue;
+    }
     const [hw, tw] = bonePoints(a.ob, b, posed);
     const hs = v.project(hw),
       ts = v.project(tw);
@@ -144,6 +160,14 @@ function regionSelect(v: View3D, r: SelectRegion, mode: 'SET' | 'ADD' | 'SUB' | 
   const apply = (cur: boolean, hit: boolean) => (mode === 'SET' ? hit : mode === 'ADD' ? cur || hit : mode === 'SUB' ? cur && !hit : mode === 'AND' ? cur && hit : cur !== hit);
   for (const b of a.arm.bones) {
     if (!boneVisible(a.arm, b)) continue;
+    // custom-shaped bones are hit when any point of their shape is inside the region
+    const shapeSegs = posed ? customShapeWorldSegments(a.ob, b.name) : null;
+    if (shapeSegs) {
+      a.ob.pose ??= {};
+      const spb = (a.ob.pose[b.name] ??= defaultPoseBone());
+      spb.select = apply(!!spb.select, shapeSegs.some((p) => inside(v.project(p))));
+      continue;
+    }
     const [hw, tw] = bonePoints(a.ob, b, posed);
     const hi = inside(v.project(hw)),
       ti = inside(v.project(tw));

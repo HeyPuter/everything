@@ -402,6 +402,39 @@ export interface Bone {
   /** B-Bone display size (default: a tenth of the bone length) */
   bbone_x?: number;
   bbone_z?: number;
+  /** location is applied in the bone's own space (false: in the parent's space) */
+  use_local_location?: boolean;
+  /** envelope deformation strength and whether it multiplies vertex group weights */
+  envelope_weight?: number;
+  use_envelope_multiply?: boolean;
+  /** colour of the bone (Edit Mode / rest; pose bones can override it) */
+  color?: BoneColor;
+  // B-Bone shape (rest): curve offsets, roll, scale and ease of the start / end handles
+  bbone_curveinx?: number;
+  bbone_curveinz?: number;
+  bbone_curveoutx?: number;
+  bbone_curveoutz?: number;
+  bbone_rollin?: number;
+  bbone_rollout?: number;
+  use_endroll_as_inroll?: boolean;
+  bbone_scalein?: Vec3;
+  bbone_scaleout?: Vec3;
+  bbone_easein?: number;
+  bbone_easeout?: number;
+  use_scale_easing?: boolean;
+  /** what the B-Bone's start / end handles follow */
+  bbone_handle_type_start?: 'AUTO' | 'ABSOLUTE' | 'RELATIVE' | 'TANGENT';
+  bbone_handle_type_end?: 'AUTO' | 'ABSOLUTE' | 'RELATIVE' | 'TANGENT';
+  bbone_custom_handle_start?: string;
+  bbone_custom_handle_end?: string;
+  /** how vertices map to segments: by projection on the straight bone or on the curve */
+  bbone_mapping_mode?: 'STRAIGHT' | 'CURVED';
+}
+
+/** Bone colour: a theme colour set or custom colours for the normal / selected / active states. */
+export interface BoneColor {
+  palette: string;
+  custom?: { normal: Color; select: Color; active: Color; show_colored_constraints?: boolean };
 }
 
 /** Named group of bones (visibility, selection, organisation). */
@@ -420,6 +453,10 @@ export interface ArmatureData {
   show_names: boolean;
   show_axes: boolean;
   show_in_front?: boolean;
+  /** draw bones in their colours */
+  show_bone_colors?: boolean;
+  /** draw custom shapes instead of the bones (default on) */
+  show_bone_custom_shapes?: boolean;
   active_bone?: string | null;
   users?: number;
   collections?: BoneCollection[];
@@ -437,6 +474,25 @@ export interface PoseBone {
   scale: Vec3;
   constraints: Constraint[];
   custom_shape?: ID | null;
+  /** custom shape placement (relative to the bone) and line width */
+  custom_shape_translation?: Vec3;
+  custom_shape_rotation_euler?: Vec3;
+  custom_shape_scale_xyz?: Vec3;
+  custom_shape_wire_width?: number;
+  use_custom_shape_bone_size?: boolean;
+  /** pose colour (overrides the bone's colour when its palette is not DEFAULT) */
+  color?: BoneColor;
+  // B-Bone shape (pose, added to the rest values)
+  bbone_curveinx?: number;
+  bbone_curveinz?: number;
+  bbone_curveoutx?: number;
+  bbone_curveoutz?: number;
+  bbone_rollin?: number;
+  bbone_rollout?: number;
+  bbone_scalein?: Vec3;
+  bbone_scaleout?: Vec3;
+  bbone_easein?: number;
+  bbone_easeout?: number;
   lock_location?: [boolean, boolean, boolean];
   lock_rotation?: [boolean, boolean, boolean];
   lock_scale?: [boolean, boolean, boolean];

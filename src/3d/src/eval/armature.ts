@@ -88,27 +88,30 @@ export function evaluatePose(doc: DocumentData, ob: ObjectData, arm: ArmatureDat
     if (pb && !restPosition) poseBoneMatrix(pb, local);
     else local.identity();
     const parent = b.parent ? bones.get(b.parent) : undefined;
+    // the bone's frame before its own pose: the parent's pose carried to the bone's rest place
+    let inh: { full: Matrix4; frame: Matrix4; after: Vector3 | null };
     if (parent) {
-      // parent pose * (parent rest^-1 * rest) * local
+      // parent pose * (parent rest^-1 * rest)
       const relRest = parent.restInv.clone().multiply(rest);
-      if (b.use_connect) {
-        // connected bones start at the parent's tail
-        relRest.setPosition(0, parent.length, 0);
-      }
-      let parentPose = parent.pose;
-      if (!b.use_inherit_rotation || b.inherit_scale === 'NONE') {
-        const p = new Vector3(),
-          q = new Quaternion(),
-          s = new Vector3();
-        parent.pose.decompose(p, q, s);
-        const pr = new Vector3(),
-          qr = new Quaternion(),
-          sr = new Vector3();
-        parent.rest.decompose(pr, qr, sr);
-        parentPose = new Matrix4().compose(p, b.use_inherit_rotation ? q : qr, b.inherit_scale === 'NONE' ? new Vector3(1, 1, 1) : s);
-      }
-      ev.pose.multiplyMatrices(parentPose, relRest).multiply(local);
-    } else ev.pose.multiplyMatrices(rest, local);
+      // connected bones start at the parent's tail
+      if (b.use_connect) relRest.setPosition(0, parent.length, 0);
+      inh = inheritedFrame(parent, relRest, b);
+    } else inh = { full: rest.clone(), frame: rest.clone(), after: null };
+    let loc: Vector3 | null = null;
+    if (b.use_local_location === false && (local.elements[12] || local.elements[13] || local.elements[14])) {
+      // location in the parent's (armature's, for roots) axes instead of the bone's own
+      loc = new Vector3().setFromMatrixPosition(local);
+      local.setPosition(0, 0, 0);
+    }
+    ev.pose.multiplyMatrices(inh.frame, local);
+    if (inh.after) ev.pose.scale(inh.after);
+    // the head follows the fully transformed parent (with the bone's own location)
+    const head = new Vector3().setFromMatrixPosition(new Matrix4().multiplyMatrices(inh.full, local));
+    if (loc) {
+      const pf = parent ? parent.pose : new Matrix4();
+      head.add(loc.applyMatrix4(new Matrix4().extractRotation(pf).scale(new Vector3().setFromMatrixScale(pf))));
+    }
+    ev.pose.setPosition(head);
     bones.set(b.name, ev);
     order.push(b.name);
   }
@@ -121,6 +124,75 @@ export function evaluatePose(doc: DocumentData, ob: ObjectData, arm: ArmatureDat
     sig += ev.pose.elements.map((x) => x.toFixed(4)).join(',') + ',' + ev.length.toFixed(4) + ';';
   }
   return { bones, order, signature: hashString(sig) };
+}
+
+/**
+ * How a child bone inherits its parent's pose: the parent's pose carried to the child's rest
+ * placement (`relRest`) gives the "full" frame; `frame` is the one the child's own pose applies
+ * in (rotation / scale inheritance options), `after` an extra scale applied after the child's
+ * own transform (Aligned), and the head always follows the full frame.
+ */
+export function inheritedFrame(parent: { pose: Matrix4; rest: Matrix4 }, relRest: Matrix4, b: Pick<Bone, 'use_inherit_rotation' | 'inherit_scale'>): { full: Matrix4; frame: Matrix4; after: Vector3 | null } {
+  const full = parent.pose.clone().multiply(relRest);
+  const mode = b.inherit_scale ?? 'FULL';
+  const one = new Vector3(1, 1, 1);
+  if (b.use_inherit_rotation !== false && mode === 'FULL') return { full, frame: full, after: null };
+  const p = new Vector3(),
+    q = new Quaternion(),
+    sc = new Vector3();
+  parent.pose.decompose(p, q, sc);
+  if (b.use_inherit_rotation === false) parent.rest.decompose(new Vector3(), q, new Vector3());
+  const relRot = new Matrix4().extractRotation(relRest);
+  switch (mode) {
+    case 'NONE':
+    case 'NONE_LEGACY':
+      return { full, frame: new Matrix4().compose(p, q, one).multiply(relRot), after: null };
+    case 'AVERAGE': {
+      // uniform: the cube root of the parent's volume change
+      const v = Math.cbrt(Math.abs(sc.x * sc.y * sc.z)) || 1;
+      return { full, frame: new Matrix4().compose(p, q, one).multiply(relRot), after: new Vector3(v, v, v) };
+    }
+    case 'ALIGNED':
+      // the parent's X / Y / Z scale along the child's own X / Y / Z axes
+      return { full, frame: new Matrix4().compose(p, q, one).multiply(relRot), after: sc.clone() };
+    case 'FIX_SHEAR':
+      return { full, frame: removeShear(b.use_inherit_rotation === false ? new Matrix4().compose(p, q, sc).multiply(relRest) : full), after: null };
+    default:
+      return { full, frame: new Matrix4().compose(p, q, sc).multiply(relRest), after: null };
+  }
+}
+
+/**
+ * Remove shear around the bone axis: Y stays, X and Z are made perpendicular to it and to each
+ * other symmetrically (the bisector of the pair stays), keeping the volume.
+ */
+export function removeShear(m: Matrix4): Matrix4 {
+  const e = m.elements;
+  const X = new Vector3(e[0], e[1], e[2]),
+    Y = new Vector3(e[4], e[5], e[6]),
+    Z = new Vector3(e[8], e[9], e[10]);
+  const yn = Y.clone().normalize();
+  const xp = X.clone().addScaledVector(yn, -X.dot(yn)),
+    zp = Z.clone().addScaledVector(yn, -Z.dot(yn));
+  const lx = xp.length(),
+    lz = zp.length();
+  if (lx < 1e-12 || lz < 1e-12) return m.clone();
+  const xn = xp.clone().divideScalar(lx),
+    zn = zp.clone().divideScalar(lz);
+  const b1 = xn.clone().add(zn).normalize(),
+    b2 = xn.clone().sub(zn).normalize();
+  const s = Math.SQRT1_2;
+  const xd = b1.clone().add(b2).multiplyScalar(s),
+    zd = b1.clone().sub(b2).multiplyScalar(s);
+  // keep the area of the X/Z pair (sin of their angle) so the volume does not change
+  const k = Math.sqrt(Math.max(1e-12, xp.clone().cross(zp).length() / (lx * lz)));
+  xd.multiplyScalar(lx * k);
+  zd.multiplyScalar(lz * k);
+  const out = m.clone();
+  const o = out.elements;
+  [o[0], o[1], o[2]] = [xd.x, xd.y, xd.z];
+  [o[8], o[9], o[10]] = [zd.x, zd.y, zd.z];
+  return out;
 }
 
 function hashString(s: string) {
