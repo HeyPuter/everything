@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { addText, embedFont, assertSupportedText, fillFields } from '../src/core/document.js';
@@ -94,4 +94,16 @@ it('checks canonical accents before replacing a standard font', async () => {
   );
   expect(result.font.name).toBe('Helvetica');
   expect(result.encoded).toEqual(['<C4>']);
+});
+
+it('names the characters a font cannot draw, so the message says what to change', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  expect(() => assertSupportedText(font, 'Thanks 🎉 and 🎉 again ✓')).toThrow(
+    'This font does not support “🎉” or “✓” in this text.',
+  );
+  // Characters that show nothing are named by their code.
+  expect(() => assertSupportedText(font, `a${String.fromCharCode(7)}b`)).toThrow(
+    'This font does not support U+0007 in this text.',
+  );
 });

@@ -896,15 +896,31 @@ export function assertSupportedText(font, text) {
   let supported = characterSets.get(font);
   if (!supported) characterSets.set(font, (supported = new Set(font.getCharacterSet())));
   const has = (char) => char === '\n' || supported.has(char.codePointAt(0));
-  return [...text.normalize('NFC')]
+  const missing = new Set();
+  const spelled = [...text.normalize('NFC')]
     .map((char) => {
       if (has(char)) return char;
       // Some composed characters lack a glyph although all their canonical components exist.
       const decomposed = char.normalize('NFD');
       if ([...decomposed].every(has)) return decomposed;
-      throw new Error('This font does not support one or more characters in this text.');
+      missing.add(char);
+      return '';
     })
     .join('');
+  if (missing.size) {
+    // Name what to change; a character that shows nothing is named by its code.
+    const names = [...missing]
+      .slice(0, 3)
+      .map((char) =>
+        /^[\p{L}\p{M}\p{N}\p{P}\p{S}]+$/u.test(char)
+          ? `“${char}”`
+          : `U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`,
+      );
+    const list =
+      names.length > 1 ? `${names.slice(0, -1).join(', ')} or ${names.at(-1)}` : names[0];
+    throw new Error(`This font does not support ${list} in this text.`);
+  }
+  return spelled;
 }
 /**
  * The triangle at the tip of an arrow from `from` to `to` drawn with a stroke `width`, in the
