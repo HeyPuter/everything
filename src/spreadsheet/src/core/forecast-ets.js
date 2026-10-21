@@ -109,6 +109,9 @@ export function prepareSeries(points, { completion = 1, aggregation = 1 } = {}) 
     if (y != null) buckets.get(k).push(y);
   }
   const count = maxOf(buckets.keys()) + 1;
+  // Every point without a bucket of its own is missing: a timeline with one far-off date (a year typed as
+  // 20230) is mostly gaps, and is refused before an array of its millions of steps is built.
+  if (count - buckets.size > MAX_MISSING * count) return { error: '#NUM!' };
   const raw = new Array(count).fill(null);
   for (const [k, v] of buckets) if (v.length) raw[k] = AGGREGATES[aggregation](v);
   const missing = raw.filter((v) => v == null).length;
