@@ -1398,7 +1398,20 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
                 )
               : h('span', { class: 'ie-value' }, img.source),
           ),
-          img.filepath ? splitRow('File', h('span', { class: 'ie-value' }, img.filepath)) : null,
+          img.source === 'FILE' && !imageMedia(img)
+            ? splitRow(
+                'File',
+                h(
+                  'div',
+                  { class: 'ie-file-row' },
+                  h('span', { class: 'ie-value', title: img.filepath ?? '' }, img.filepath || '—'),
+                  h('button', { class: 'hdr-toggle', 'data-tip': 'Browse Image\nPick another file for this image', onclick: () => app.run('image.file_browse', {}, { area: this.host.area ?? null }) }, icon('file_folder')),
+                  h('button', { class: 'hdr-toggle', 'data-tip': 'Reload Image (Alt R)', onclick: () => this.reload() }, icon('file_refresh')),
+                ),
+              )
+            : img.filepath
+              ? splitRow('File', h('span', { class: 'ie-value' }, img.filepath))
+              : null,
           splitRow('Size', h('span', { class: 'ie-value' }, isTiled(img) ? `${img.tiles!.length} tile${img.tiles!.length > 1 ? 's' : ''}, RGBA byte` : `${c.width} × ${c.height}, RGBA byte`)),
           splitRow(
             'Color Space',
