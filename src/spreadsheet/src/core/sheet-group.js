@@ -9,11 +9,12 @@
  *
  * Edits reach the other sheets in one of two ways:
  *  - "repeat": structural and range-wide edits (insert or delete rows, column
- *    widths, styles applied to a range, borders, merges, clearing) are made
- *    again with the same arguments on each other sheet, so each sheet works
- *    out its own result (its own formulas move, its own cells keep their other
- *    formatting);
- *  - "replay": cell writes (typing, pasting, filling, changing case) are
+ *    widths, styles applied to a range, borders, merges, clearing, changing
+ *    case, a Paste Special operation) are made again with the same arguments on
+ *    each other sheet, so each sheet works out its own result (its own formulas
+ *    move, its own cells keep their other formatting, its own text changes case,
+ *    its own numbers are added to);
+ *  - "replay": cell writes (typing, pasting, filling) are
  *    recorded as they land on the active sheet, and each changed cell is then
  *    written on the other sheets: new contents where the contents changed, the
  *    changed style properties where the style changed, both where both did.
@@ -26,13 +27,13 @@ import { cellKey, parseKey } from './cell.js';
 export const GROUP_REPEATED = [
   'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'deleteLines', 'insertCells', 'deleteCells',
   'setColWidth', 'setRowHeight', 'mergeCells', 'unmergeCells', 'setHidden', 'groupLines', 'ungroupLines',
-  'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange',
+  'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange', 'transformText', 'pasteOperation',
 ];
 
 /** Cell writes recorded on the active sheet and written again on the others. */
 export const GROUP_REPLAYED = [
   'setInput', 'setCells', 'setCellsWithTableHeaders', 'pasteCells', 'pasteValues', 'pasteLiteralValues', 'pasteStyles',
-  'pasteOperation', 'pasteEntries', 'fill', 'fillInput', 'fillDirection', 'fillSeries', 'formulasToValues', 'transformText',
+  'pasteEntries', 'fill', 'fillInput', 'fillDirection', 'fillSeries', 'formulasToValues',
 ];
 
 /**
