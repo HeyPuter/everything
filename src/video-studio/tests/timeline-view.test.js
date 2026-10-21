@@ -67,6 +67,25 @@ describe('timeline drags', () => {
     tl.dispose();
   });
 
+  it('leaves a pressed clip alone while playback scrolls the view before a drag starts', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const title = clip('text', 0, 1);
+    T.addClip(p, title, { ripple: false });
+    const { store, tl, tracks, scroller, contentAt, node, pointer } = mountTimeline(p);
+    const steps = store.history.undoStack.length;
+    const x0 = 16 + 10;
+    pointer(node(title.id), 'pointerdown', x0);
+    pointer(tracks, 'pointermove', x0 + 1); // a 1 px wobble: not a drag yet
+    contentAt(-tl.pps); // the view follows the playhead
+    scroller.dispatchEvent(new Event('scroll'));
+    expect(node(title.id).classList.contains('dragging')).toBe(false);
+    pointer(tracks, 'pointerup', x0 + 1);
+    expect(T.findClip(store.project, title.id).clip.start).toBe(0);
+    expect(store.history.undoStack.length).toBe(steps);
+    tl.dispose();
+  });
+
   it('trims to where the pointer is after the view scrolled', () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 2));

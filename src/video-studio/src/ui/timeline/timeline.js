@@ -1446,8 +1446,9 @@ export function createTimeline(ctx) {
 
   scroller.addEventListener('scroll', () => {
     drawRulerNow();
-    // Scrolling under a held drag (edge auto-scroll or the wheel) moves it with the view.
-    if (drag?.last) drag.move(drag.last);
+    // Scrolling under a drag (edge auto-scroll or the wheel) moves it with the view. A
+    // press that hasn't started a drag yet stays put while playback scrolls the view.
+    if (drag?.last && drag.cls) drag.move(drag.last);
     queueRender();
     notifyView();
     if (centered) scrollSeek();
