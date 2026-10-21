@@ -1,9 +1,10 @@
-// Side panel widths fit the window: saved widths are kept, shown widths leave room for the player.
+// Editor layout: side panel widths fit the window (saved widths are kept, shown widths leave
+// room for the player), and canvas-drawn chrome follows theme changes.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { Editor, fitPanelWidths } from '../src/ui/editor.js';
-import { prefs, setPref } from '../src/ui/prefs.js';
+import { prefs, setPref, setTheme } from '../src/ui/prefs.js';
 import { fixture, clip, onMain } from './helpers.js';
 
 describe('fitPanelWidths', () => {
@@ -85,5 +86,29 @@ describe('editor panel widths', () => {
     const [l, r] = shown();
     expect(l + r).toBeLessThanOrEqual(1000 - 8 - 280);
     expect(prefs().leftW).toBe(600);
+  });
+});
+
+describe('theme changes', () => {
+  it('redraw the timeline and player rulers, until the editor is closed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    document.body.replaceChildren();
+    const root = document.createElement('div');
+    document.body.append(root);
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const lib = new Library(memoryBackend());
+    await lib.saveProject(p);
+    const editor = new Editor(root, { library: lib, project: p, account: { user: { username: 'sam' } }, onExit() {}, onNewProject() {} });
+    const render = vi.spyOn(editor.ctx.timeline, 'render');
+    const relayout = vi.spyOn(editor.ctx.playerView, 'relayout');
+    setTheme('light');
+    expect(render).toHaveBeenCalledWith(true);
+    expect(relayout).toHaveBeenCalled();
+    editor.dispose();
+    render.mockClear();
+    setTheme('dark');
+    expect(render).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
   });
 });

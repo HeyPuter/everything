@@ -30,7 +30,7 @@ import { createHistoryPanel } from './history-panel.js';
 import { createReviewPanel } from './review/review-panel.js';
 import { createAiPanel } from './ai-panel.js';
 import { openPreferences, pref, onPrefsChange } from './preferences-dialog.js';
-import { prefs, setPref } from './prefs.js';
+import { prefs, setPref, onThemeChange } from './prefs.js';
 
 // Side panel width limits, and the narrowest player kept between them (the grid's minmax in editor.css).
 const PANEL_LIMITS = { left: [240, 720], right: [260, 640] };
@@ -171,6 +171,11 @@ export class Editor {
     this._fitObserver = new ResizeObserver(() => this.fitPanels());
     this._fitObserver.observe(this._workspace);
     this.fitPanels();
+    // Rulers are drawn on canvases in theme colors, so redraw them when the theme changes.
+    this._offTheme = onThemeChange(() => {
+      ctx.timeline.render?.(true);
+      ctx.playerView.relayout?.();
+    });
     installTooltips();
 
     this._onKey = (e) => this.onKey(e);
@@ -490,6 +495,7 @@ export class Editor {
   dispose() {
     this._disposed = true;
     this._fitObserver?.disconnect();
+    this._offTheme?.();
     this._offPrefs?.();
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
