@@ -198,6 +198,8 @@ function animationMenu(): MenuItem[] {
     { separator: true },
     { label: 'Bake Action…', op: 'nla.bake' },
     { label: 'Bake Object Transform to Grease Pencil…', op: 'grease_pencil.bake_grease_pencil_animation' },
+    { label: 'Replace Action', op: 'anim.replace_action' },
+    { label: 'Replace with New Action', op: 'anim.replace_action_new' },
   ];
 }
 

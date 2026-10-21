@@ -1062,6 +1062,8 @@ function animationMenu(): MenuItem[] {
     { label: 'Change Keying Set…', op: 'anim.keying_set_active_set', shortcut: 'Shift K' },
     { separator: true },
     { label: 'Bake Action…', op: 'nla.bake' },
+    { label: 'Replace Action', op: 'anim.replace_action' },
+    { label: 'Replace with New Action', op: 'anim.replace_action_new' },
   ];
 }
 
