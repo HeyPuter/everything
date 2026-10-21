@@ -17,6 +17,8 @@ import { domainButtons } from './editmenus';
 import { SCULPT_TOOLS, activeSculptTool, curvesBrush, startCurvesStroke, pixelsToWorld } from './sculpt';
 import { curveCount, curveSelection, getAttr, pointSelection, rng, setAttr, setSelection } from './data';
 import type { CurvesBrush } from './types';
+import { playStroke } from '../paint/stroke';
+import { strokePoints } from '../paint/strokemath';
 
 const refresh = () => app.changed('ui');
 const field = (w: number, c: Child) => h('div', { style: { width: `${w}px`, flex: 'none' } }, c);
@@ -350,11 +352,28 @@ registerOperators([
   {
     idname: 'sculpt_curves.brush_stroke',
     label: 'Stroke Curves Sculpt',
-    description: 'Sculpt curves with the active brush (drag in the viewport)',
-    props: [{ id: 'mode', label: 'Stroke Mode', type: 'enum', default: 'NORMAL', items: [['NORMAL', 'Regular'], ['INVERT', 'Invert'], ['SMOOTH', 'Smooth']] }],
+    description: 'Sculpt curves with the active brush along a stroke (a list of points), or drag in the viewport',
+    props: [
+      { id: 'stroke', label: 'Stroke', type: 'string', default: '', hidden: true },
+      { id: 'mode', label: 'Stroke Mode', type: 'enum', default: 'NORMAL', items: [['NORMAL', 'Regular'], ['INVERT', 'Invert'], ['SMOOTH', 'Smooth']] },
+      { id: 'brush_toggle', label: 'Temporary Brush Toggle', type: 'enum', default: 'None', items: [['None', 'None'], ['SMOOTH', 'Smooth']] },
+      { id: 'pen_flip', label: 'Pen Flip', type: 'bool', default: false, hidden: true },
+    ],
     poll: inSculptCurves,
-    internal: true,
-    invoke: () => 'CANCELLED',
+    // the stroke pushes its own undo step
+    undo: false,
+    exec: (ctx, p) => {
+      const v = (ctx.area?.editor as View3D | undefined)?.camera ? (ctx.area!.editor as View3D) : activeView3D();
+      if (!v) return 'CANCELLED';
+      const raw = typeof p.stroke === 'string' ? (p.stroke ? JSON.parse(p.stroke) : []) : p.stroke;
+      v.camera.updateMatrixWorld();
+      const pts = strokePoints(Array.isArray(raw) ? raw : [], v.height, (loc) => v.project(new Vector3(loc[0], loc[1], loc[2])));
+      if (!pts.length) return 'CANCELLED';
+      const smooth = p.mode === 'SMOOTH' || p.brush_toggle === 'SMOOTH';
+      const invert = p.mode === 'INVERT' || !!p.pen_flip;
+      const tool = smooth ? 'builtin_brush.Smooth' : activeSculptTool();
+      playStroke(v, pts, (e) => (startCurvesStroke(v, e, { tool, invert }), true), { ctrl: invert, shift: smooth });
+    },
   },
 ]);
 
