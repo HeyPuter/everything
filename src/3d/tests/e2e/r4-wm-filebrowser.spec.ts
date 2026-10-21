@@ -56,3 +56,40 @@ test('File Browser: column sorting, pointer select, bookmarks', async ({ page })
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.showHidden)).toBe(!hid);
   await expectNoErrors(errors);
 });
+
+test('File Browser: recursions list folders below; nested folders open in place', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of (root as any).entries()) await root.removeEntry(name, { recursive: true });
+    const write = async (d: FileSystemDirectoryHandle, n: string) => {
+      const w = await (await d.getFileHandle(n, { create: true })).createWritable();
+      await w.write(n);
+      await w.close();
+    };
+    await write(root, 'a.txt');
+    const sub = await root.getDirectoryHandle('sub', { create: true });
+    await write(sub, 'b.txt');
+    const deep = await sub.getDirectoryHandle('deep', { create: true });
+    await write(deep, 'c.txt');
+  });
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').boundingBox())!;
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('FILE_BROWSER'));
+  const fb = page.locator('.area[data-editor="FILE_BROWSER"]');
+  await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
+  const names = () => fb.locator('.fb-item .fb-name').allTextContents();
+  await expect.poll(names).toEqual(['sub', 'a.txt']);
+  await page.evaluate(() => (window as any).app.hoverArea.editor.setRecursion(1));
+  await expect.poll(async () => (await names()).sort()).toEqual(['a.txt', 'sub', 'sub/b.txt', 'sub/deep'].sort());
+  await page.evaluate(() => (window as any).app.hoverArea.editor.setRecursion(2));
+  await expect.poll(names).toContain('sub/deep/c.txt');
+  // a nested folder opens with the path through its parents
+  await fb.locator('.fb-item', { hasText: /^sub\/deep$/ }).dblclick();
+  await expect(fb.locator('.fb-path')).toHaveText('Browser Storage / sub / deep');
+  // the context menu offers the recursion levels
+  await fb.locator('.fb-item').first().click({ button: 'right' });
+  await expect(page.locator('.menu .menu-item', { hasText: 'Recursions' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});

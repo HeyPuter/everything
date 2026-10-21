@@ -64,7 +64,17 @@ interface Item {
   handle?: FileHandle;
   size?: number;
   mtime?: number;
+  /** folders between the browsed folder and this entry (listed through Recursions) */
+  via?: DirHandle[];
 }
+
+/** File ▸ Recursions: how many folder levels below the browsed one are listed too. */
+const RECURSIONS: [number, string, string][] = [
+  [0, 'None', 'Only the browsed folder'],
+  [1, 'One Level', 'Also list the contents of its folders'],
+  [2, 'Two Levels', 'Also list two levels of folders'],
+  [3, 'Three Levels', 'Also list three levels of folders'],
+];
 
 type View = 'LIST_VERTICAL' | 'LIST_HORIZONTAL' | 'THUMBNAIL';
 const SIZES: [number, string][] = [
@@ -151,6 +161,8 @@ export class FileBrowser implements Editor {
   private loose: File[] = [];
   view: View = 'THUMBNAIL';
   thumbSize = 96;
+  /** folder levels listed below the browsed one */
+  recursion = 0;
   sortBy: SortBy = 'ALPHA';
   sortReverse = false;
   filter = '';
@@ -171,7 +183,8 @@ export class FileBrowser implements Editor {
     public area: Area,
     state?: unknown,
   ) {
-    const st = (state ?? {}) as Partial<{ view: string; size: number; sort: SortBy; reverse: boolean; hidden: boolean; sidebar: boolean; categories: Category[] | null }>;
+    const st = (state ?? {}) as Partial<{ view: string; size: number; sort: SortBy; reverse: boolean; hidden: boolean; sidebar: boolean; categories: Category[] | null; recursion: number }>;
+    if (typeof st.recursion === 'number') this.recursion = Math.max(0, Math.min(3, Math.round(st.recursion)));
     if (st.view === 'LIST' || st.view === 'LIST_VERTICAL') this.view = 'LIST_VERTICAL';
     else if (st.view === 'LIST_HORIZONTAL' || st.view === 'THUMBNAIL') this.view = st.view;
     if (st.size) this.thumbSize = st.size;
@@ -217,7 +230,7 @@ export class FileBrowser implements Editor {
   }
 
   serialize() {
-    return { view: this.view, size: this.thumbSize, sort: this.sortBy, reverse: this.sortReverse, hidden: this.showHidden, sidebar: this.showSidebar, categories: this.categories ? [...this.categories] : null };
+    return { view: this.view, size: this.thumbSize, sort: this.sortBy, reverse: this.sortReverse, hidden: this.showHidden, sidebar: this.showSidebar, categories: this.categories ? [...this.categories] : null, recursion: this.recursion || undefined };
   }
 
   get dir(): DirHandle | null {
@@ -305,6 +318,7 @@ export class FileBrowser implements Editor {
           })),
         ],
       },
+      { label: 'Recursions', submenu: () => RECURSIONS.map(([n, l, d]) => ({ label: l, description: d, active: this.recursion === n, action: () => this.setRecursion(n) })) },
       { label: 'Show Hidden', shortcut: 'H', checked: this.showHidden, op: 'file.hidden_toggle' },
       { separator: true },
       { label: 'Sidebar', shortcut: 'T', checked: this.showSidebar, op: 'file.sidebar_toggle' },
@@ -330,6 +344,11 @@ export class FileBrowser implements Editor {
     const first = one[0];
     const writable = !!this.dir?.removeEntry;
     return [
+      { label: 'Back', icon: 'back', shortcut: 'Alt ←', disabled: !this.history.length, op: 'file.previous' },
+      { label: 'Forward', icon: 'forward', shortcut: 'Alt →', disabled: !this.future.length, op: 'file.next' },
+      { label: 'Go to Parent', icon: 'file_parent', shortcut: 'P', op: 'file.parent' },
+      { label: 'Refresh', icon: 'file_refresh', shortcut: 'R', disabled: !this.dir, op: 'file.refresh' },
+      { separator: true },
       { label: first?.kind === 'dir' ? 'Open Folder' : first && category(first.name) === 'model' ? 'Import' : 'Open', shortcut: 'Enter', disabled: !first, op: 'file.execute' },
       ...(one.length === 1 && first?.kind === 'file' && /\.(p3d|blend\d*)$/i.test(first.name) ? [{ label: 'Link…', icon: 'link', disabled: !app.poll('wm.link'), action: () => this.linkFrom(first, true) }, { label: 'Append…', icon: 'append_blend', disabled: !app.poll('wm.append'), action: () => this.linkFrom(first, false) }] : []),
       { separator: true },
@@ -339,7 +358,14 @@ export class FileBrowser implements Editor {
       { label: 'Save Project Here…', icon: 'file_3d', disabled: !this.dir?.getDirectoryHandle, op: 'file.save_project_here' },
       { separator: true },
       { label: 'Add Bookmark', shortcut: 'Ctrl B', disabled: !this.dir, op: 'file.bookmark_add' },
-      { label: 'Refresh', shortcut: 'R', disabled: !this.dir, op: 'file.refresh' },
+      { separator: true },
+      { label: 'Display Mode', submenu: () => [
+        { label: 'Vertical List', icon: 'listview', active: this.view === 'LIST_VERTICAL', action: () => this.setView('LIST_VERTICAL') },
+        { label: 'Horizontal List', icon: 'hlistview', active: this.view === 'LIST_HORIZONTAL', action: () => this.setView('LIST_HORIZONTAL') },
+        { label: 'Thumbnails', icon: 'imgdisplay', active: this.view === 'THUMBNAIL', action: () => this.setView('THUMBNAIL') },
+      ] },
+      { label: 'Recursions', submenu: () => RECURSIONS.map(([n, l, d]) => ({ label: l, description: d, active: this.recursion === n, action: () => this.setRecursion(n) })) },
+      { label: 'Sort By', submenu: () => (['ALPHA', 'EXTENSION', 'TIME', 'SIZE'] as SortBy[]).map((x) => ({ label: { ALPHA: 'Name', EXTENSION: 'Extension', TIME: 'Modified Date', SIZE: 'Size' }[x], active: this.sortBy === x, action: () => this.setSort(x) })) },
       { separator: true },
       { label: 'Select All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } },
     ];
@@ -486,10 +512,21 @@ export class FileBrowser implements Editor {
     this.status = 'Reading folder…';
     this.draw();
     const items: Item[] = [];
-    try {
-      for await (const entry of dir.values()) items.push(entry.kind === 'directory' ? { name: entry.name, kind: 'dir', dir: entry } : { name: entry.name, kind: 'file', handle: entry as FileHandle });
-    } catch (e) {
-      app.report('ERROR', `Cannot read folder: ${e instanceof Error ? e.message : e}`);
+    // the browsed folder, then (Recursions) the folders below it, level by level
+    const queue: { d: DirHandle; prefix: string; via: DirHandle[]; depth: number }[] = [{ d: dir, prefix: '', via: [], depth: 0 }];
+    while (queue.length && items.length < 20000) {
+      const { d, prefix, via, depth } = queue.shift()!;
+      try {
+        for await (const entry of d.values()) {
+          const name = prefix + entry.name;
+          if (entry.kind === 'directory') {
+            items.push({ name, kind: 'dir', dir: entry, via: via.length ? via : undefined });
+            if (depth < this.recursion && !entry.name.startsWith('.')) queue.push({ d: entry, prefix: `${name}/`, via: [...via, entry], depth: depth + 1 });
+          } else items.push({ name, kind: 'file', handle: entry as FileHandle, via: via.length ? via : undefined });
+        }
+      } catch (e) {
+        if (!depth) app.report('ERROR', `Cannot read folder: ${e instanceof Error ? e.message : e}`);
+      }
     }
     this.items = items;
     this.status = '';
@@ -552,8 +589,14 @@ export class FileBrowser implements Editor {
   }
 
   /** Double-click / Enter: open projects, import models, load images and texts, enter folders. */
+  /** Show folder levels below the browsed one too (0: none). */
+  setRecursion(n: number) {
+    this.recursion = Math.max(0, Math.min(3, Math.round(n)));
+    this.refresh();
+  }
+
   async activate(it: Item) {
-    if (it.kind === 'dir' && it.dir) return this.enter([...this.path, it.dir]);
+    if (it.kind === 'dir' && it.dir) return this.enter([...this.path, ...(it.via ?? []), it.dir]);
     const file = await this.fileOf(it);
     if (!file) return;
     if (!recentFiles.includes(file)) recentFiles.unshift(file);
@@ -759,7 +802,10 @@ export class FileBrowser implements Editor {
     let n = 0;
     for (const it of sel) {
       try {
-        await d.removeEntry(it.name, { recursive: true });
+        // entries listed from a folder below are removed from that folder
+        const owner = it.via?.length ? it.via[it.via.length - 1] : d;
+        if (!owner.removeEntry) throw new Error('the folder is read-only');
+        await owner.removeEntry(it.name.slice(it.name.lastIndexOf('/') + 1), { recursive: true });
         n++;
       } catch (e) {
         app.report('ERROR', `Cannot delete "${it.name}": ${e instanceof Error ? e.message : e}`);
@@ -774,6 +820,10 @@ export class FileBrowser implements Editor {
   async rename(it: Item, to: string): Promise<boolean> {
     const d = await this.writable();
     if (!d || !to || to === it.name) return false;
+    if (it.via?.length) {
+      app.report('WARNING', 'Rename items of a folder below from inside that folder');
+      return false;
+    }
     if (/[/\\]/.test(to) || this.items.some((x) => x.name.toLowerCase() === to.toLowerCase() && x !== it)) {
       app.report('ERROR', `Cannot rename to "${to}": the name is invalid or taken`);
       return false;
