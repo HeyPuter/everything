@@ -133,14 +133,24 @@ export class Store extends Emitter {
     let changed = false;
     // A trash.json saved here while it was read is newer than what was
     // read: merging that would drop what was just deleted here.
-    if (await this.mergeTrash(this.trashWrites === trashWrites ? remoteTrash : null)) {
-      changed = true;
-      // A notebook deleted on another device leaves this one too, unless it
-      // has changes here that are not saved yet.
-      for (const entry of this.trash) {
-        const i = entry.kind === 'notebook' ? this.notebooks.findIndex((n) => n.id === entry.notebook.id) : -1;
-        if (i >= 0 && !this.timers.has(`notebooks/${entry.notebook.id}.json`)) this.notebooks.splice(i, 1);
+    if (await this.mergeTrash(this.trashWrites === trashWrites ? remoteTrash : null)) changed = true;
+    // A notebook deleted on another device leaves this one too, unless it
+    // has changes here: unsaved, or made after the copy that was deleted
+    // (restoring that copy would undo them). Its Deleted Notes entry may
+    // have arrived with an earlier merge (when this device saved trash.json),
+    // and library.json saved here since may list it again: save it without.
+    let dropped = false;
+    for (const entry of this.trash) {
+      const i = entry.kind === 'notebook' ? this.notebooks.findIndex((n) => n.id === entry.notebook.id) : -1;
+      if (i >= 0 && !this.timers.has(`notebooks/${entry.notebook.id}.json`) && String(this.notebooks[i].modified || '') <= String(entry.notebook.modified || '')) {
+        this.notebooks.splice(i, 1);
+        dropped = true;
       }
+    }
+    if (dropped) {
+      changed = true;
+      this.syncLibraryOrder();
+      this.scheduleLibrary();
     }
     // Read the manifests in parallel (one round trip, not one per notebook),
     // then apply them in library order. Notebooks with unsaved changes here

@@ -454,6 +454,46 @@ describe('Store: Deleted Notes on two devices', () => {
     expect(c.trash.some((t) => t.kind === 'notebook' && t.notebook.id === nb.id)).toBe(true);
   });
 
+  it('drops a notebook deleted on another device when a Deleted Notes save here saw it first', async () => {
+    const { backend, a, b } = await twoDevices();
+    const nb = a.createNotebook('Trip');
+    await a.flush();
+    await later();
+    await b.refresh();
+    a.deleteNotebook(nb.id);
+    await a.flush();
+    await later();
+    // b deletes a page before refreshing: its trash.json save merges a's entry.
+    const section = [...b.sectionsOf(b.notebooks[0])][0];
+    b.deletePage(b.createPage(section.id, { title: 'Scrap' }).id);
+    await b.flush();
+    expect(b.trash.some((t) => t.kind === 'notebook' && t.notebook.id === nb.id)).toBe(true);
+    expect(await b.refresh()).toBe(true);
+    expect(b.notebook(nb.id)).toBeNull();
+    // b's page delete saved a library.json that still listed it.
+    await b.flush();
+    const c = new Store(backend, { saveDelay: 0 });
+    await c.load();
+    expect(c.notebook(nb.id)).toBeNull();
+  });
+
+  it('keeps a notebook deleted on another device that was changed here since', async () => {
+    const { a, b } = await twoDevices();
+    const nb = a.createNotebook('Trip');
+    await a.flush();
+    await later();
+    await b.refresh();
+    a.deleteNotebook(nb.id);
+    await a.flush();
+    await later();
+    b.renameNotebook(nb.id, 'Trip 2026');
+    const section = [...b.sectionsOf(b.notebooks[0])][0];
+    b.deletePage(b.createPage(section.id, { title: 'Scrap' }).id);
+    await b.flush();
+    await b.refresh();
+    expect(b.notebook(nb.id)?.name).toBe('Trip 2026');
+  });
+
   it('never purges or duplicates a page that is live again', async () => {
     const { a, one } = await twoDevices();
     const entry = a.deletePage(one.id);
