@@ -122,19 +122,44 @@ export function emptyWire(ob: ObjectData): Seg {
   const s = ob.empty_display_size;
   switch (ob.empty_display_type) {
     case 'ARROWS':
-      line(out, [0, 0, 0], [s, 0, 0]);
-      line(out, [0, 0, 0], [0, s, 0]);
-      line(out, [0, 0, 0], [0, 0, s]);
+      // three axes with small arrow heads (their letters are drawn screen-facing by the viewport)
+      for (const ax of [0, 1, 2]) {
+        const tip = [0, 0, 0];
+        tip[ax] = s;
+        line(out, [0, 0, 0], tip);
+        const u = (ax + 1) % 3,
+          w = (ax + 2) % 3;
+        for (const [du, dw] of [
+          [1, 0],
+          [0, 1],
+          [-1, 0],
+          [0, -1],
+        ]) {
+          const b = [0, 0, 0];
+          b[ax] = s * 0.94;
+          b[u] = du * s * 0.025;
+          b[w] = dw * s * 0.025;
+          line(out, tip, b);
+        }
+      }
       break;
-    case 'SINGLE_ARROW':
+    case 'SINGLE_ARROW': {
+      // shaft along Z with a cone tip
       line(out, [0, 0, 0], [0, 0, s]);
-      line(out, [0, 0, s], [s * 0.08, 0, s * 0.85]);
-      line(out, [0, 0, s], [-s * 0.08, 0, s * 0.85]);
-      line(out, [0, 0, s], [0, s * 0.08, s * 0.85]);
-      line(out, [0, 0, s], [0, -s * 0.08, s * 0.85]);
+      const n = 8,
+        r = s * 0.035,
+        z = s * 0.75;
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2,
+          a1 = ((i + 1) / n) * Math.PI * 2;
+        line(out, [Math.cos(a0) * r, Math.sin(a0) * r, z], [Math.cos(a1) * r, Math.sin(a1) * r, z]);
+        if (i % 2 === 0) line(out, [Math.cos(a0) * r, Math.sin(a0) * r, z], [0, 0, s]);
+      }
       break;
+    }
     case 'CIRCLE':
-      circle(out, s, 32, 'xy');
+      // stands in the XZ plane (faces the front view)
+      circle(out, s, 32, 'xz');
       break;
     case 'CUBE': {
       const c = [-s, s];
@@ -152,9 +177,10 @@ export function emptyWire(ob: ObjectData): Seg {
       circle(out, s, 32, 'yz');
       break;
     case 'CONE': {
-      circle(out, s, 16, 'xz');
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2;
+      // octagonal base in the XZ plane, apex along +Y
+      circle(out, s, 8, 'xz');
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
         line(out, [Math.cos(a) * s, 0, Math.sin(a) * s], [0, 2 * s, 0]);
       }
       break;

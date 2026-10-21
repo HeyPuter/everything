@@ -151,3 +151,23 @@ export function spotSilhouette(eye: [number, number, number], z: number, r: numb
   for (const th of [phi + da, phi - da]) line(out, [0, 0, 0], [Math.cos(th) * r, Math.sin(th) * r, z]);
   return out;
 }
+
+/** Axis letter (X, Y or Z) as line segments, centred, `size` pixels tall. */
+export function axisLetterShape(letter: 'X' | 'Y' | 'Z', size = 9): Seg {
+  const w = size * 0.35,
+    hh = size / 2;
+  const out: Seg = [];
+  if (letter === 'X') {
+    line(out, [-w, -hh, 0], [w, hh, 0]);
+    line(out, [-w, hh, 0], [w, -hh, 0]);
+  } else if (letter === 'Y') {
+    line(out, [-w, hh, 0], [0, 0, 0]);
+    line(out, [w, hh, 0], [0, 0, 0]);
+    line(out, [0, 0, 0], [0, -hh, 0]);
+  } else {
+    line(out, [-w, hh, 0], [w, hh, 0]);
+    line(out, [w, hh, 0], [-w, -hh, 0]);
+    line(out, [-w, -hh, 0], [w, -hh, 0]);
+  }
+  return out;
+}

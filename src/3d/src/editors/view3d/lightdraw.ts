@@ -1,4 +1,5 @@
-// Screen-facing parts of light objects: the centre marker (constant pixel size), the light
+// Screen-facing parts of light objects and the axis letters of Arrows empties.
+// Lights: the centre marker (constant pixel size), the light
 // radius circle and the spot cone's silhouette lines. They are children of the light's helper
 // lines so they share its visibility, colour and selection id.
 import { BufferGeometry, Float32BufferAttribute, LineSegments, Matrix4, OrthographicCamera, PerspectiveCamera, Vector3, type Camera, type Material } from 'three';
@@ -6,7 +7,7 @@ import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
 import { sceneSyncHooks, type SyncedObject } from '../../render/scene';
 import { drawHooks, type DrawView } from './draw';
-import { lightMarkerShape, spotCircle, spotSilhouette, unitCircle } from './lightshapes';
+import { axisLetterShape, lightMarkerShape, spotCircle, spotSilhouette, unitCircle } from './lightshapes';
 import type { LightData } from '../../data/types';
 
 interface LightParts {
@@ -50,6 +51,18 @@ sceneSyncHooks.push((doc, ev, so) => {
   const cone = la.type === 'SPOT' ? child(geom([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]), h) : null;
   h.userData[PARTS] = { marker, radius, cone } satisfies LightParts;
   h.userData.lightPartsKey = key;
+});
+
+// Arrows empties: X / Y / Z letters beyond the axis tips
+const LETTERS = 'axisLetters';
+const letterGeo = (['X', 'Y', 'Z'] as const).map((l) => geom(axisLetterShape(l, 11)));
+
+sceneSyncHooks.push((_doc, ev, so) => {
+  const h = so.helper;
+  if (ev.ob.type !== 'EMPTY' || !h) return;
+  const want = ev.ob.empty_display_type === 'ARROWS';
+  if (!want || h.userData[LETTERS]) return;
+  h.userData[LETTERS] = letterGeo.map((g) => child(g, h));
 });
 
 const tmp = new Vector3();
@@ -110,10 +123,39 @@ function update(so: SyncedObject, view: DrawView, camera: Camera) {
   }
 }
 
+function updateLetters(so: SyncedObject, view: DrawView, camera: Camera) {
+  const h = so.helper!;
+  const letters = h.userData[LETTERS] as LineSegments[];
+  const s = so.ev.ob.empty_display_size;
+  camera.updateMatrixWorld();
+  right.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  up.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+  back.setFromMatrixColumn(camera.matrixWorld, 2).normalize();
+  letters.forEach((l, i) => {
+    const tip = new Vector3(i === 0 ? s : 0, i === 1 ? s : 0, i === 2 ? s : 0).applyMatrix4(so.ev.world);
+    const origin = new Vector3().setFromMatrixPosition(so.ev.world);
+    const px = pixelSize(view, camera, tip);
+    // a little beyond the tip, along the axis as seen on screen
+    const dir = tip.clone().sub(origin);
+    const sd = new Vector3(dir.dot(right), dir.dot(up), 0);
+    // an axis pointing straight at the viewer has no room for its letter
+    l.visible = sd.length() / px > 3;
+    sd.normalize().multiplyScalar(px * 10);
+    const pos = tip.clone().addScaledVector(right, sd.x).addScaledVector(up, sd.y);
+    l.matrixWorld.makeBasis(right.clone().multiplyScalar(px), up.clone().multiplyScalar(px), back.clone().multiplyScalar(px)).setPosition(pos);
+    l.material = h.material;
+  });
+}
+
 drawHooks.passes.push((pass, view, camera) => {
   if (pass === 'SCENE' || !renderContext) return;
   const touched: SyncedObject[] = [];
   for (const so of renderContext.sync.objects.values()) {
+    if (so.helper?.userData[LETTERS]) {
+      updateLetters(so, view, camera);
+      touched.push(so);
+      continue;
+    }
     if (so.ev.ob.type !== 'LIGHT' || !so.helper?.userData[PARTS]) continue;
     update(so, view, camera);
     touched.push(so);
@@ -122,9 +164,7 @@ drawHooks.passes.push((pass, view, camera) => {
   // the ID pass swaps the helper's material; put the children back on its own one afterwards
   return () => {
     for (const so of touched) {
-      const parts = so.helper?.userData[PARTS] as LightParts | undefined;
-      if (!parts) continue;
-      for (const p of [parts.marker, parts.radius, parts.cone]) if (p) p.material = p.userData.base as Material;
+      for (const p of so.helper?.children ?? []) (p as LineSegments).material = p.userData.base as Material;
     }
   };
 });
