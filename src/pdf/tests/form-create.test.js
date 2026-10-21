@@ -7,8 +7,11 @@ import {
   PDFHexString,
   PDFName,
   StandardFonts,
+  concatTransformationMatrix,
   decodePDFRawStream,
   degrees,
+  popGraphicsState,
+  pushGraphicsState,
   rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -970,6 +973,53 @@ it('takes header and footer rules and marks outside the page for no fields', asy
     'Name',
     'Signature of applicant',
   ]);
+});
+
+it('detects the fields of a form that reads upright on a turned page', async () => {
+  const found = {};
+  for (const rotation of [0, 90, 180, 270]) {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    page.setRotation(degrees(rotation));
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    // Shown on screen, the page is `width` wide; `shown` maps its points to the page's own.
+    const height = rotation % 180 ? 612 : 792;
+    const shown = {
+      0: [1, 0, 0, 1, 0, 0],
+      90: [0, 1, -1, 0, 612, 0],
+      180: [-1, 0, 0, -1, 612, 792],
+      270: [0, -1, 1, 0, 0, 792],
+    }[rotation];
+    page.pushOperators(pushGraphicsState(), concatTransformationMatrix(...shown));
+    page.drawText('First name: ____________________', { x: 50, y: height - 100, size: 11, font });
+    page.drawText('City', { x: 50, y: height - 160, size: 11, font });
+    page.drawLine({
+      start: { x: 80, y: height - 162 },
+      end: { x: 300, y: height - 162 },
+      thickness: 1,
+    });
+    page.pushOperators(popGraphicsState());
+    const bytes = await doc.save();
+    const textContent = await withPdfjs(bytes, (p) => p.getTextContent());
+    for (const options of [{}, { textContent }]) {
+      const fields = detectFormFields(await PDFDocument.load(bytes), 0, options);
+      expect(fields.map((field) => field.name)).toEqual(['First name', 'City']);
+      // The City line, from 80 to 300 across the shown page, as the page itself places it.
+      const city = fields[1].rect;
+      const ends = [80, 300].map((x) => [
+        shown[0] * x + shown[2] * (height - 162) + shown[4],
+        shown[1] * x + shown[3] * (height - 162) + shown[5],
+      ]);
+      const [x0, x1] = [ends[0][0], ends[1][0]].sort((a, b) => a - b);
+      const [y0, y1] = [ends[0][1], ends[1][1]].sort((a, b) => a - b);
+      expect(city.x).toBeLessThanOrEqual(x0 + 2);
+      expect(city.x + city.width).toBeGreaterThanOrEqual(x1 - 2);
+      expect(city.y).toBeLessThanOrEqual(y0 + 2);
+      expect(city.y + city.height).toBeGreaterThanOrEqual(y1 - 2);
+      found[rotation] = fields.length;
+    }
+  }
+  expect(found).toEqual({ 0: 2, 90: 2, 180: 2, 270: 2 });
 });
 
 it('fills created fields with the existing fill tool', async () => {
