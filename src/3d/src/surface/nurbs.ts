@@ -50,12 +50,13 @@ function clamped(m: number, order: number): number[] {
 function bezierClamped(m: number, order: number): number[] {
   const k = new Array(order).fill(0);
   let v = 0;
-  while (k.length < m) {
+  // whole Bézier segments only: points left over after the last whole segment are not reached
+  while (k.length + (order - 1) <= m) {
     v++;
     for (let r = 0; r < order - 1; r++) k.push(v);
   }
-  k.length = m;
-  const last = k[m - 1] + 1;
+  const last = v + 1;
+  while (k.length < m) k.push(last);
   for (let r = 0; r < order; r++) k.push(last);
   return k;
 }
@@ -96,9 +97,11 @@ export function knotSpec(d: Pick<DirSpec, 'n' | 'order' | 'cyclic' | 'endpoint' 
 export function basisAt(ks: KnotSpec, t: number, out: Float64Array): number {
   const { knots, order } = ks;
   const m = ks.ctrl.length;
-  // the span: knots[span] <= t < knots[span + 1], within the valid range
+  // the span: knots[span] <= t < knots[span + 1], within the valid range (the end of the range belongs
+  // to the last non-empty span)
   let span = order - 1;
   while (span < m - 1 && t >= knots[span + 1]) span++;
+  while (span > order - 1 && knots[span] >= knots[span + 1]) span--;
   out.fill(0);
   out[0] = 1;
   const left = new Float64Array(order),

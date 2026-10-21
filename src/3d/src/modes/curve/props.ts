@@ -16,6 +16,7 @@ curveDataPanels.push((ob, cu) => {
     const nurbs = sp.type === 'NURBS';
     return [
       bool(sp, 'use_cyclic_u', 'Cyclic U'),
+      nurbs ? bool(sp as never, 'use_bezier_u' as never, 'Bézier U') : null,
       nurbs ? bool(sp as never, 'use_endpoint_u' as never, 'Endpoint U') : null,
       nurbs ? num(sp, 'order_u', 'Order U', { int: true, min: 2, max: Math.max(2, Math.min(6, K.pointCount(sp))) }) : null,
       sp.type !== 'POLY' ? num(sp, 'resolution_u', 'Resolution U', { int: true, min: 1, max: 1024 }) : null,

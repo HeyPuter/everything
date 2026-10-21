@@ -5,6 +5,7 @@ import type { EvalMesh } from './types';
 import { buildMesh, type PolyFace } from '../mesh/mesh';
 import { ShapeUtils, Vector2 } from 'three';
 import { textToCurves } from './text';
+import { knotSpec, basisAt, samples as nurbsSamples } from '../surface/nurbs';
 
 export interface SampledSpline {
   points: Vec3[];
@@ -63,39 +64,35 @@ export function sampleSpline(s: Spline, resolution: number): SampledSpline {
       tilt.push(p.tilt);
     }
   } else {
-    // NURBS: uniform B-spline evaluation with weights (endpoint optional)
+    // NURBS: rational B-spline over the spline's knot vector (uniform, endpoint or Bézier knots),
+    // `resolution` points per knot span
     const cps = s.points,
-      order = Math.max(2, Math.min(s.order_u || 4, cps.length));
-    const n = cps.length;
+      n = cps.length;
     if (n >= 2) {
       const cyclic = s.use_cyclic_u;
-      const ctrl = cyclic ? [...cps, ...cps.slice(0, order - 1)] : cps;
-      const m = ctrl.length;
-      const knots: number[] = [];
-      const endpoint = !!s.use_endpoint_u && !cyclic;
-      for (let i = 0; i < m + order; i++) {
-        if (endpoint) knots.push(i < order ? 0 : i >= m ? m - order + 1 : i - order + 1);
-        else knots.push(i);
-      }
-      const t0 = knots[order - 1],
-        t1 = knots[m];
-      const steps = res * (cyclic ? n : n - 1);
-      for (let k = 0; k <= steps; k++) {
-        if (cyclic && k === steps) break;
-        const t = t0 + ((t1 - t0) * k) / steps - (k === steps ? 1e-9 : 0);
+      const ks = knotSpec({ n, order: s.order_u || 4, cyclic, endpoint: !!s.use_endpoint_u, bezier: !!s.use_bezier_u });
+      let spans = 0;
+      for (let i = ks.order - 1; i < ks.ctrl.length; i++) if (ks.knots[i + 1] > ks.knots[i]) spans++;
+      const count = res * Math.max(1, spans) + (cyclic ? 0 : 1);
+      const tmp = new Float64Array(ks.order);
+      for (const t of nurbsSamples(ks, count, cyclic)) {
+        const span = basisAt(ks, t, tmp);
         let x = 0,
           y = 0,
           z = 0,
           w = 0,
           r = 0,
           tl = 0;
-        for (let i = 0; i < m; i++) {
-          const b = basis(i, order, t, knots) * (ctrl[i].co[3] || 1);
-          x += ctrl[i].co[0] * b;
-          y += ctrl[i].co[1] * b;
-          z += ctrl[i].co[2] * b;
-          r += ctrl[i].radius * b;
-          tl += ctrl[i].tilt * b;
+        for (let k = 0; k < ks.order; k++) {
+          const ci = span - ks.order + 1 + k;
+          if (ci < 0 || ci >= ks.ctrl.length || !tmp[k]) continue;
+          const c = cps[ks.ctrl[ci]];
+          const b = tmp[k] * (c.co[3] || 1);
+          x += c.co[0] * b;
+          y += c.co[1] * b;
+          z += c.co[2] * b;
+          r += c.radius * b;
+          tl += c.tilt * b;
           w += b;
         }
         if (w > 0) {
@@ -107,17 +104,6 @@ export function sampleSpline(s: Spline, resolution: number): SampledSpline {
     }
   }
   return { points: pts, tangents: tans, radius: rad, tilt, cyclic: s.use_cyclic_u, material: s.material_index, smooth: s.use_smooth };
-}
-
-function basis(i: number, k: number, t: number, knots: number[]): number {
-  if (k === 1) return knots[i] <= t && t < knots[i + 1] ? 1 : 0;
-  let a = 0,
-    b = 0;
-  const d1 = knots[i + k - 1] - knots[i],
-    d2 = knots[i + k] - knots[i + 1];
-  if (d1 > 0) a = ((t - knots[i]) / d1) * basis(i, k - 1, t, knots);
-  if (d2 > 0) b = ((knots[i + k] - t) / d2) * basis(i + 1, k - 1, t, knots);
-  return a + b;
 }
 
 /**
