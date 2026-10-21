@@ -469,7 +469,7 @@ export class PageEditor extends Emitter {
       else this.clearImageSelection();
     }
     // Plain typing adds no styled elements; skip the bookkeeping for it.
-    if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText') {
+    if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText' && !e.isComposing) {
       const added = this.takeAdded();
       if (e.isTrusted && added.size) dropRedundantStyles(added);
     }
@@ -579,6 +579,9 @@ export class PageEditor extends Emitter {
       return;
     }
     if (this.readOnly) return;
+    // Keys pressed while an input method is composing (Escape cancels a
+    // candidate, Tab and arrows move between them) belong to the IME.
+    if (e.isComposing || e.keyCode === 229) return;
     const inBody = e.target.closest?.('.outline-body');
     const mod = modKey(e);
     if (mod && !e.altKey && e.code === 'KeyZ') {

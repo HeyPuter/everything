@@ -383,3 +383,31 @@ describe('page editor setup', () => {
     expect(calls).toContainEqual(['defaultParagraphSeparator', false, 'p']);
   });
 });
+
+describe('page editor keys', () => {
+  it('leaves keys to an input method while it is composing', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>にほん</p>' }], ink: [] });
+    const bodyEl = host.querySelector('.outline-body');
+    bodyEl.focus();
+    caretIn(bodyEl.querySelector('p').firstChild, 3);
+    const key = (init) => {
+      const e = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
+      bodyEl.dispatchEvent(e);
+      return e;
+    };
+    // Escape cancels the IME candidate; it must not leave the note.
+    expect(key({ key: 'Escape', isComposing: true }).defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(bodyEl);
+    expect(ed.selectedOutlines.size).toBe(0);
+    expect(key({ key: 'Tab', isComposing: true }).defaultPrevented).toBe(false);
+    expect(bodyEl.innerHTML).toBe('<p>にほん</p>');
+    // Outside composition Escape still selects the container.
+    key({ key: 'Escape' });
+    expect(ed.selectedOutlines.size).toBe(1);
+    ed.destroy();
+    host.remove();
+  });
+});
