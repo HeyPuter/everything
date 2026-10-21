@@ -9,6 +9,7 @@ import { activeBrush, isBrushMode, setBrushRadius, setBrushStrength, type BrushM
 import { meshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
+import { brushFalloff } from './math';
 import { textureActive } from './brushtex';
 import { sculptHooks } from './sculpt';
 
@@ -136,12 +137,24 @@ function brushCursorVNode(v: View3D): VNode | null {
   const css = (c: number[]) => `rgba(${c.map((k) => Math.round(k * 255)).join(',')},0.9)`;
   const tint = app.doc.mode === 'SCULPT' ? css(sub ? b.cursor_color_subtract ?? [0.43, 0.55, 1] : b.cursor_color_add ?? [1, 0.47, 0.47]) : 'rgba(255, 255, 255,0.9)';
   const hit = cursorState.hit;
+  // falloff shading: a radial gradient following the brush curve
+  const shade = b.use_cursor_overlay ? Math.max(0, Math.min(100, b.cursor_overlay_alpha ?? 33)) / 100 : 0;
+  const grad = shade
+    ? (h(
+        'radialGradient',
+        { id: 'paint-cursor-falloff', cx: '50%', cy: '50%', r: '50%' },
+        ...Array.from({ length: 9 }, (_, i) => h('stop', { offset: `${(i / 8) * 100}%`, 'stop-color': '#ffffff', 'stop-opacity': (brushFalloff(b, i / 8) * shade).toFixed(3) })),
+      ) as VNode)
+    : null;
+  const fill = shade ? 'url(#paint-cursor-falloff)' : 'none';
   if (hit && app.doc.mode === 'SCULPT') {
     const d = ringPath(v, hit.point, hit.normal, hit.radius);
     const inner = ringPath(v, hit.point, hit.normal, hit.radius * Math.max(0.05, Math.min(1, b.strength)) * 0.999);
     return h(
       'g',
       { key: 'paint-cursor', class: 'paint-cursor', 'pointer-events': 'none' },
+      grad ? h('defs', null, grad) : null,
+      shade ? h('path', { d, fill, stroke: 'none' }) : null,
       h('path', {
         d,
         fill: 'none',
@@ -168,11 +181,12 @@ function brushCursorVNode(v: View3D): VNode | null {
   return h(
     'g',
     { key: 'paint-cursor', class: 'paint-cursor', 'pointer-events': 'none' },
+    grad ? h('defs', null, grad) : null,
     h('circle', {
       cx: x,
       cy: y,
       r,
-      fill: 'none',
+      fill,
       stroke: 'rgba(0, 0, 0,0.35)',
       'stroke-width': 3,
     }),

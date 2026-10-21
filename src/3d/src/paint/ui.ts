@@ -846,6 +846,14 @@ function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           DIRECTIONAL.has(b.sculpt_tool) ? row('Subtract Color', colorSwatch(`${p}-csub`, b.cursor_color_subtract ?? [0.43, 0.55, 1], (c) => ((b.cursor_color_subtract = [c[0], c[1], c[2]]), changed()), { linear: false })) : null,
         ]
       : null,
+    b.show_cursor !== false
+      ? h(
+          'div',
+          { class: 'paint-pressure-row' },
+          numberField({ id: `${p}-fov`, label: 'Falloff Opacity', value: b.cursor_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the falloff shading inside the brush cursor', set: (x) => ((b.cursor_overlay_alpha = Math.round(x)), changed()) }),
+          h('button', { key: `${p}-fov-on`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!b.use_cursor_overlay }, 'data-tip': 'Show the falloff inside the cursor', onclick: () => ((b.use_cursor_overlay = !b.use_cursor_overlay), changed()) }, icon(b.use_cursor_overlay ? 'hide_off' : 'hide_on')),
+        )
+      : null,
     textureActive(b) ? numberField({ id: `${p}-tov`, label: 'Texture Opacity', value: b.texture_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the texture overlay (stencils) in the viewport', set: (x) => ((b.texture_overlay_alpha = Math.round(x)), changed()) }) : null,
     maskTextureActive(b) ? numberField({ id: `${p}-mov`, label: 'Mask Texture Opacity', value: b.mask_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the mask texture overlay (stencils) in the viewport', set: (x) => ((b.mask_overlay_alpha = Math.round(x)), changed()) }) : null,
   ];

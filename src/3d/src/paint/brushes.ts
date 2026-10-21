@@ -52,6 +52,9 @@ export interface PaintBrush extends BrushData, StencilSettings {
   mask_overlay_alpha?: number;
   /** brush cursor display */
   show_cursor?: boolean;
+  /** falloff shading inside the cursor (opacity in percent) */
+  use_cursor_overlay?: boolean;
+  cursor_overlay_alpha?: number;
   cursor_color_add?: [number, number, number];
   cursor_color_subtract?: [number, number, number];
   falloff: Falloff;
