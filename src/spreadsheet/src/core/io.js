@@ -1851,12 +1851,19 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     if (c > usedC) usedC = c;
   }
   // What-If data tables: Excel keeps {=TABLE(row input, column input)} as a dataTable formula naming its input cells.
+  let stored;
   for (const { range, formula } of partXml ? readDataTables(partXml) : []) {
     const anchor = cellKey(range.r1, range.c1);
-    for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) {
-      const key = cellKey(r, c), cell = cells[key];
-      if (key === anchor) cells[key] = { ...(cell || {}), v: null, f: formula, array: { rows: range.r2 - range.r1 + 1, cols: range.c2 - range.c1 + 1 } };
-      else if (cell) { cell.v = null; cell.f = null; }
+    cells[anchor] = { ...(cells[anchor] || {}), v: null, f: formula, array: { rows: range.r2 - range.r1 + 1, cols: range.c2 - range.c1 + 1 } };
+    // The other results are the table's: the cells stored there lose their own contents. Whichever is fewer is
+    // walked, the table's cells or the sheet's, so a table a file stretches over the whole sheet does not visit
+    // its seventeen billion coordinates.
+    const clear = (key) => { const cell = cells[key]; if (key !== anchor && cell) { cell.v = null; cell.f = null; } };
+    stored ??= Object.keys(cells);
+    if ((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1) <= stored.length) {
+      for (let r = range.r1; r <= range.r2; r++) for (let c = range.c1; c <= range.c2; c++) clear(cellKey(r, c));
+    } else {
+      for (const key of stored) { const { r, c } = parseKey(key); if (r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2) clear(key); }
     }
     usedR = Math.max(usedR, range.r2); usedC = Math.max(usedC, range.c2);
   }

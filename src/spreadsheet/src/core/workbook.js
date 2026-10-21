@@ -13429,6 +13429,8 @@ export class Workbook extends EventTarget {
     const top = r0 - 1, left = c0 - 1;
     const local = (ref) => !ref || !ref.sheet || sameSheetName(ref.sheet, sheet.name);
     if (top < 0 || left < 0 || !local(rowInput) || !local(colInput)) return err('#REF!');
+    // Past the cells any array may hold, as for a formula's: a file's table over the whole sheet ran the tab out of memory.
+    if (size.rows * size.cols > ARRAY_BUDGET) return err('#NUM!');
     const read = (r, c) => scalar(this._compute(sheet, r, c));
     const values = Array.from({ length: size.rows }, () => new Array(size.cols).fill(0));
     const runs = [];
