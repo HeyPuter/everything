@@ -510,8 +510,9 @@ export function pasteClips(project, clips, t, opts = {}) {
   if (!clips.length) return [];
   const first = Math.min(...clips.map((c) => c.start));
   const copies = regroup(clips.filter((src) => !src.assetId || project.assets[src.assetId]).map((src) => ({ src, ...structuredClone(src) })));
-  const fresh = ({ src, _main, ...c }) => ({ ...c, id: uid('c') });
-  const isBase = (copy) => copy.src._main && (copy.type === 'video' || copy.type === 'image');
+  const fresh = ({ src, _main, _track, ...c }) => ({ ...c, id: uid('c') });
+  // Copied from the base track (video, image, compound, avatar): back onto the base track.
+  const isBase = (copy) => copy.src._main && TRACK_KIND_FOR[copy.type] === 'video';
   const want = (copy) => Math.max(0, t + (copy.src.start - first));
   const placed = new Map();
   const bases = copies.filter(isBase).sort((a, b) => a.src.start - b.src.start);
@@ -531,7 +532,8 @@ export function pasteClips(project, clips, t, opts = {}) {
     const audio = TRACK_KIND_FOR[c.type] === 'audio';
     const host = bases.find((b) => copy.src.start >= b.src.start && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000));
     c.start = host ? placed.get(host).start + (copy.src.start - host.src.start) : Math.max(0, want(copy) + shift);
-    placed.set(copy, addClip(project, c, { ...opts, main: false }).clip);
+    // opts.keepTracks (duplicate): each copy on the track it was copied from, where there is room.
+    placed.set(copy, addClip(project, c, { ...opts, main: false, ...(opts.keepTracks && copy.src._track ? { trackId: copy.src._track } : {}) }).clip);
   }
   return copies.map((copy) => placed.get(copy));
 }

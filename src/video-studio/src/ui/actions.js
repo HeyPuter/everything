@@ -27,7 +27,7 @@ function clipBoard(project, ids) {
   return ids
     .map((id) => T.findClip(project, id))
     .filter(Boolean)
-    .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main) }));
+    .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main), _track: track.id }));
 }
 
 export function createActions(ctx) {
@@ -449,7 +449,7 @@ export function createActions(ctx) {
           const board = clipBoard(p, ids);
           const base = board.filter((c) => c._main);
           const end = Math.max(...(base.length ? base : board).map((c) => T.clipEnd(c)));
-          made.push(...T.pasteClips(p, board, end, store.opts).map((c) => c.id));
+          made.push(...T.pasteClips(p, board, end, { ...store.opts, keepTracks: true }).map((c) => c.id));
         } else {
           const c = T.duplicateClip(p, ids[0], store.opts);
           if (c) made.push(c.id);

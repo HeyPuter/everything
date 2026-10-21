@@ -4,6 +4,7 @@ import { createActions } from '../src/ui/actions.js';
 import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 import { fixture, clip, onMain, spans, kinds, trackOf, s } from './helpers.js';
+import { createCompound } from '../src/model/compound.js';
 
 vi.mock('../src/media/reverse.js', () => ({ reverseFile: async () => new File(['x'], 'clip (reversed).mp4', { type: 'video/mp4' }) }));
 
@@ -102,6 +103,25 @@ describe('clipboard actions', () => {
     expect(store.selectedIds).toHaveLength(1);
     expect(store.selectedIds[0]).toBe(main().clips[1].id);
     expect(main().clips[1].assetId).toBe(a.assetId);
+  });
+
+  it('duplicates several clips onto the tracks they came from', () => {
+    const { store, actions, main } = setup(clip('video', 0, 5), clip('video', 5, 5));
+    store.update('Nest', (p) => void createCompound(p, [mainTrack(p).clips[0].id], { ripple: true }));
+    const comp = main().clips[0];
+    const title = actions.addText('plain', { start: s(1), duration: s(2) });
+    store.select([comp.id, title.id]);
+    actions.duplicate();
+    const copy = store.selectedIds.map((id) => findClip(store.project, id)).find((f) => f.clip.type === 'compound');
+    expect(copy.track.main).toBe(true);
+    // Titles on two stacked text tracks keep their tracks, so the one on top stays on top.
+    const textTrack = (id, text) => ({ id, kind: 'text', main: false, locked: false, hidden: false, muted: false, clips: [clip('text', 20, 2, { text })] });
+    store.update('Tracks', (p) => void p.tracks.unshift(textTrack('up', 'TOP'), textTrack('low', 'BOTTOM')));
+    const [top, bottom] = ['up', 'low'].map((id) => store.project.tracks.find((t) => t.id === id).clips[0]);
+    store.select([bottom.id, top.id]);
+    actions.duplicate();
+    const made = store.selectedIds.map((id) => findClip(store.project, id));
+    expect(made.map((f) => [f.clip.text, f.track.id]).sort()).toEqual([['BOTTOM', 'low'], ['TOP', 'up']]);
   });
 
   it('duplicates a group (base clip and its title) as a new group after it', () => {
