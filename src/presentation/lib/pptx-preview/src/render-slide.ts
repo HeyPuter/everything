@@ -4214,6 +4214,20 @@ const chartAxisLabelPosition = (
   return { offset, bottom: offset + (side < 0 ? above : below) };
 };
 
+// Native linear axes fit at most 500 major intervals across the domain, as
+// they do minor ones: a tinier authored c:majorUnit is drawn as span / 500
+// and stays authored in the document. Without the cap a unit of 0.0001 on a
+// 0–5 axis drew 50,000 labels and gridlines (a 22 MB slide image).
+const MAX_MAJOR_INTERVALS = 500;
+const fittedMajorUnit = (
+  min: number,
+  max: number,
+  majorUnit: number | undefined,
+): number | undefined =>
+  majorUnit === undefined || !Number.isFinite(majorUnit) || majorUnit <= 0
+    ? majorUnit
+    : Math.max(majorUnit, (max - min) / MAX_MAJOR_INTERVALS);
+
 const axisTicks = (
   min: number,
   max: number,
@@ -4226,7 +4240,13 @@ const axisTicks = (
     return niceTicks(min, max);
   // c:majorUnit intervals begin at the axis minimum, including when it is
   // fractional or negative. A unit exceeding the span leaves just that tick.
-  return linearTickValues(min, max, majorUnit, intervalCount);
+  const unit = fittedMajorUnit(min, max, majorUnit)!;
+  return linearTickValues(
+    min,
+    max,
+    unit,
+    unit === majorUnit ? intervalCount : undefined,
+  );
 };
 
 // Use the same authored value direction for data, ticks, grids and crossings.
@@ -5270,6 +5290,12 @@ const renderValueAxis = (
   ctx: LayoutCtx,
   paint: ChartPaintLayers,
 ): void => {
+  // Ticks, gridlines and the minor lattice all step by the fitted unit.
+  const fittedUnit = fittedMajorUnit(axis.min, axis.max, axis.majorUnit);
+  if (fittedUnit !== undefined && fittedUnit !== axis.majorUnit) {
+    const { intervalCount: _authored, ...rest } = axis;
+    axis = { ...rest, majorUnit: fittedUnit };
+  }
   axis = {
     ...axis,
     placement: paint.axisLayouts?.[axis.role]?.placement ?? axis.placement,

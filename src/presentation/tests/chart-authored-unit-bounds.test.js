@@ -181,6 +181,17 @@ describe("automatic chart bounds with authored major units", () => {
       });
     });
 
+  // As with minor units, an authored major unit too small for the span is
+  // drawn at 500 intervals rather than one label and gridline per unit.
+  for (const kind of ["column", "bar", "line", "area"])
+    it(`${kind} draws at most 500 major intervals for a tiny authored unit`, () => {
+      check(
+        fixture(kind, range(1, 4), { min: 0, max: 5, majorUnit: 0.0001 }),
+        0,
+        5,
+        0.01,
+      );
+    });
   it("scales positive and negative stacked totals before rounding automatic ends", () => {
     const f = fixture(
       "column",
