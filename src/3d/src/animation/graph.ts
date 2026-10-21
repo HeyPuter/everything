@@ -29,6 +29,8 @@ export class GraphEditor extends AnimEditor {
   prefix = 'graph' as const;
   protected rowScroll = false;
   normalize = false;
+  /** Auto Normalization: recompute the normalization as curves change */
+  autoNormalize = true;
   showHandles = true;
   onlySelectedHandles = true;
   /** curves continue past their first and last keys (View ▸ Show Extrapolation) */
@@ -165,6 +167,14 @@ export class GraphEditor extends AnimEditor {
         icon('graph'),
         'Normalize',
       ),
+      this.normalize
+        ? hdrToggle('auto-norm', 'file_refresh', this.autoNormalize, 'Auto Normalization\nRecalculate the normalization while editing (off: keep the current factors)', () => {
+            this.autoNormalize = !this.autoNormalize;
+            if (this.autoNormalize) this.normCache.clear();
+            this.draw();
+            app.changed('ui');
+          })
+        : null,
       h('div', { class: 'hdr-spacer' }),
       hdrToggle(
         'only-sel',
@@ -386,7 +396,8 @@ export class GraphEditor extends AnimEditor {
   }
 
   refresh() {
-    if (!app.modal) this.normCache.clear();
+    // with Auto Normalization off the factors stay as they were when it was turned off
+    if (!app.modal && this.autoNormalize) this.normCache.clear();
     super.refresh();
   }
 
