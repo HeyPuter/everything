@@ -709,8 +709,15 @@ export class App {
       toast('Unlock the protected section first to restore this page.', { kind: 'error' });
       return false;
     }
+    const kind = this.store.trash.find((t) => t.id === trashId)?.kind;
     const r = this.store.restore(trashId);
-    if (r?.pageId) this.openPage(r.pageId);
+    if (!r) {
+      // Nothing was restored: the section it goes back to is locked, or
+      // there is no notebook left to put it in.
+      toast(kind === 'page' && this.store.notebooks.length ? 'Unlock the protected section first to restore this page.' : "Couldn't restore this. Create a notebook first, then try again.", { kind: 'error' });
+      return false;
+    }
+    if (r.pageId) this.openPage(r.pageId);
     else if (r?.sectionId) this.selectSection(r.sectionId, { focus: false });
     else if (r?.notebookId) this.selectNotebook(r.notebookId);
     else this.ensureSelection();
