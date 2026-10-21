@@ -397,6 +397,7 @@ export class AutoSaver extends Emitter {
       })
       .catch((err) => {
         console.error(err);
+        this.error = err;
         this._set('error', err);
         clearTimeout(this.timer);
         this.timer = setTimeout(() => this.save(), 8000);
@@ -407,9 +408,14 @@ export class AutoSaver extends Emitter {
     return this.saving;
   }
 
+  /**
+   * Save pending edits now. Rejects when they could not be saved, so callers
+   * leaving the editor can warn first (the retry keeps going meanwhile).
+   */
   async flush() {
     if (this.timer || this.store.dirty) await this.save();
     else if (this.saving) await this.saving;
+    if (this.status === 'error' && this.store.dirty) throw this.error || new Error("Couldn't save your changes.");
   }
 
   dispose() {

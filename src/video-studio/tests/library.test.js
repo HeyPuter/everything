@@ -210,6 +210,28 @@ describe('AutoSaver', () => {
     expect(store.dirty).toBe(false);
   });
 
+  it('flush() rejects when the edits could not be saved, and the retry keeps going', async () => {
+    quiet();
+    edit('before leaving');
+    backend.failNext = 1;
+    await expect(saver.flush()).rejects.toThrow('Simulated network failure');
+    expect(store.dirty).toBe(true);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(saved()).toBe('before leaving');
+    await expect(saver.flush()).resolves.toBeUndefined();
+  });
+
+  it('flush() retries a failed save at once instead of waiting for the next retry', async () => {
+    quiet();
+    backend.failNext = 1;
+    edit('retry now');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(saver.status).toBe('error');
+    await saver.flush();
+    expect(saved()).toBe('retry now');
+    expect(saver.status).toBe('saved');
+  });
+
   it('saves again when edits arrive while a save is running', async () => {
     edit('first');
     await vi.advanceTimersByTimeAsync(1000);

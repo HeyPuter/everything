@@ -131,7 +131,8 @@ async function startSignedIn(env) {
     env,
     picture: await profilePicture(),
     onSignOut: env === 'app' ? null : async () => {
-      await view?.saver?.flush?.();
+      // Unsaved edits or uploads: ask before signing out drops them.
+      if (view?.prepareToLeave && !(await view.prepareToLeave({ waitForUploads: true }))) return;
       await puter.auth.signOut();
       location.hash = '';
       location.reload();

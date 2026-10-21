@@ -24,7 +24,7 @@ import { createMobileChrome } from './mobile.js';
 import { openExportDialog } from './export-dialog.js';
 import { openVoiceoverDialog } from './voiceover-dialog.js';
 import { openProjectSettings } from './project-settings.js';
-import { openDialog, toast, installTooltips } from './dialog.js';
+import { openDialog, confirmDialog, toast, installTooltips } from './dialog.js';
 import { openShortcutsDialog } from './shortcuts-dialog.js';
 import { createHistoryPanel } from './history-panel.js';
 import { createReviewPanel } from './review/review-panel.js';
@@ -87,7 +87,8 @@ export class Editor {
       snapshotToMedia: () => this.exportStill({ toMedia: true }),
       saveNow: async () => {
         await this.saver.save();
-        announce('Saved');
+        if (this.saver.status === 'error') toast("Couldn't save. Retrying...", { kind: 'error' });
+        else announce('Saved');
       },
     };
     this.ctx = ctx;
@@ -158,9 +159,7 @@ export class Editor {
     // Inside the Puter desktop, save before the window closes.
     if (typeof puter !== 'undefined' && puter.env === 'app' && puter.ui?.onWindowClose) {
       puter.ui.onWindowClose(async () => {
-        await this.saver.flush().catch(() => {});
-        await library.flushUploads().catch(() => {});
-        puter.exit();
+        if (this._disposed || (await this.prepareToLeave({ waitForUploads: true }))) puter.exit();
       });
     }
     ctx.playerView.mounted?.();
@@ -376,17 +375,55 @@ export class Editor {
     ];
   }
 
+  /**
+   * Save before the editor closes. When the edits can't be saved, ask whether
+   * to leave anyway; resolves false to stay (autosave keeps retrying).
+   * waitForUploads: also wait for media uploads (the page is going away).
+   */
+  prepareToLeave({ waitForUploads = false } = {}) {
+    // Asked twice (a double click, the window closing while asking): one question.
+    this._leaving ||= (async () => {
+      this.ctx.player?.pause();
+      let saved = true;
+      try {
+        await this.saver.flush();
+      } catch {
+        saved = false;
+      }
+      if (waitForUploads) await this.library.flushUploads().catch(() => {});
+      if (saved) return true;
+      const where = this.library.backend.kind === 'local' ? 'in this browser' : 'to your Puter cloud';
+      return confirmDialog({
+        title: "Couldn't save your changes",
+        message: `Your latest changes couldn't be saved ${where}. If you leave now, they will be lost. Stay to keep trying.`,
+        confirm: 'Leave anyway',
+        cancel: 'Stay',
+        danger: true,
+      });
+    })().finally(() => (this._leaving = null));
+    return this._leaving;
+  }
+
+  /** Leave for the home screen (or another project). Resolves false when the user chose to stay. */
   async exit(opts = {}) {
-    this.ctx.player?.pause();
-    await this.saver.flush().catch(() => {});
-    await this.saveCover();
-    this.dispose();
+    // One exit at a time: a second click while leaving does nothing.
+    if (this._disposed || this._exiting) return false;
+    this._exiting = true;
+    try {
+      if (!(await this.prepareToLeave()) || this._disposed) return false;
+      await this.saveCover();
+      this.dispose();
+    } finally {
+      this._exiting = false;
+    }
     if (opts.open) this.onOpenProject?.(opts.open);
     else if (opts.create) this.onNewProject?.();
     else this.onExit?.();
+    return true;
   }
 
   dispose() {
+    this._disposed = true;
     this._offPrefs?.();
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
