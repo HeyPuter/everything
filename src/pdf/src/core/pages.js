@@ -17,6 +17,7 @@ import { MAX_PAGES, flattenFonts, validatePdf } from './document.js';
 import { flattenFields, requireFlattenedPages } from './flatten.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import { mapPageDestinations } from './page-actions.js';
+import { tokenize } from './content-filter.js';
 
 /**
  * Parse a print-style page list such as "1-3, 5" into zero-based indices for a PDF with
@@ -309,6 +310,72 @@ export function pruneCopiedResources(doc, pages) {
     if (removed) page.node.set(RESOURCES, own);
   }
 }
+const latin1 = (bytes) => {
+  let text = '';
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return text;
+};
+/**
+ * Take the marked-content IDs off a copied page's content. They name the original page's
+ * place in the tag tree, which the copy has no part in, so screen readers skipped the copy's
+ * content as tagged by nobody and autotagging could not tag it either. The marked content
+ * stays, with its other properties; only the IDs go, leaving the copy cleanly untagged.
+ */
+function untagCopiedContent(doc, page) {
+  const CONTENTS = PDFName.of('Contents');
+  const contents = page.node.lookup(CONTENTS);
+  const refs =
+    contents instanceof PDFArray ? contents.asArray() : contents ? [page.node.get(CONTENTS)] : [];
+  let changed = false;
+  const replaced = refs.map((ref) => {
+    const stream = doc.context.lookup(ref);
+    if (!(stream instanceof PDFStream)) return ref;
+    let source;
+    try {
+      source = latin1(
+        stream instanceof PDFRawStream
+          ? decodePDFRawStream(stream).decode()
+          : (stream.getUnencodedContents?.() ?? stream.getContents()),
+      );
+    } catch {
+      return ref;
+    }
+    if (!source.includes('MCID')) return ref;
+    let commands;
+    try {
+      commands = tokenize(source);
+    } catch {
+      return ref;
+    }
+    let out = '',
+      at = 0;
+    for (const command of commands) {
+      const [tag, properties] = command.args || [];
+      if (command.op !== 'BDC' || tag?.type !== 'name' || properties?.type !== 'dict') continue;
+      const keys = properties.value.filter((_, i) => i % 2 === 0).map((key) => key.value);
+      if (!keys.includes('MCID')) continue;
+      const text = source.slice(command.start, command.end);
+      // A property list of the ID alone leaves a plain tag; any other properties stay.
+      const plain =
+        keys.length === 1 &&
+        /^(\s*\/[^\x00\t\n\f\r ()<>[\]{}/%]*)\s*<<[\s\S]*>>\s*BDC\s*$/.exec(text);
+      const replacement = plain
+        ? `${plain[1]} BMC`
+        : text.replace(/\/MCID[\x00\t\n\f\r ]+[-+]?\d+/, '');
+      out += source.slice(at, command.start) + replacement;
+      at = command.end;
+    }
+    if (!at) return ref;
+    changed = true;
+    return doc.context.register(
+      doc.context.flateStream(Uint8Array.from(out + source.slice(at), (c) => c.charCodeAt(0))),
+    );
+  });
+  if (!changed) return;
+  if (contents instanceof PDFArray) page.node.set(CONTENTS, doc.context.obj(replaced));
+  else page.node.set(CONTENTS, replaced[0]);
+}
 /** A key marking each source page with its index, copied into every copy the copier makes. */
 export const COPY_INDEX = PDFName.of('PuterCopyPageIndex');
 /**
@@ -409,6 +476,7 @@ export function relinkCopiedPages(doc, pages, indexToRef) {
     // Article threads (ISO 32000-1, 12.4.3) stay behind too. The copy's beads would run on
     // to pages that were not copied, keeping the copier's stand-ins for them in the file.
     page.node.delete(PDFName.of('B'));
+    untagCopiedContent(doc, page);
     const annots = doc.context.lookup(page.node.get(PDFName.of('Annots')));
     if (!(annots instanceof PDFArray)) continue;
     for (const ref of annots.asArray()) {
