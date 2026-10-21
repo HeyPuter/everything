@@ -147,3 +147,17 @@ describe('exported lists', () => {
   });
 });
 
+
+describe('hidden text', () => {
+  const doc = () => {
+    const d = blankDoc();
+    d.replace('Answer: 42 (teacher only)');
+    d.select(10, 25); d.setRunFormat({ vanish: true });
+    return d;
+  };
+  it('is left out of every format, as it is left off the page', () => {
+    expect(body(documentHtml(doc()))).toBe('<p>Answer: 42</p>');
+    expect(documentMarkdown(doc())).toBe('Answer: 42\n');
+    expect(documentPlainText(doc())).toBe('Answer: 42\n');
+  });
+});

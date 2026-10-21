@@ -2,14 +2,15 @@
  * Export the body of a document model as a web page, Markdown or plain text — the File > Export
  * formats besides .docx and PDF. These are readable approximations: headings, paragraphs, lists,
  * tables, links and bold/italic/underline/strike/super/subscript survive; page layout, pictures,
- * fields, headers and footers, notes and comments do not.
+ * fields, headers and footers, notes, comments and hidden text do not.
  */
 import { documentBlocks } from '../engine/tables.js';
 import { listKind, listMarkers } from '../engine/numbering.js';
 
 const OBJECT = '￼';
 const escapeHtml = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const runText = run => String(run.text || '').replace(new RegExp(OBJECT, 'g'), '');
+// Hidden text is neither shown nor printed, so a downloaded or published copy leaves it out too.
+const runText = run => run.vanish ? '' : String(run.text || '').replace(new RegExp(OBJECT, 'g'), '');
 
 /** A heading level 1–6 from a paragraph's style, or 0. */
 export function headingLevel(p, styles) {

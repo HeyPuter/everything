@@ -95,4 +95,10 @@ describe('email messages', () => {
     expect(emlName(3, 'a b@c.d')).toBe('003 a_b@c.d.eml');
     expect(EMAIL_PATTERN.test('a@b.co')).toBe(true); expect(EMAIL_PATTERN.test('a@b')).toBe(false);
   });
+  it('leaves hidden text out of both bodies', () => {
+    const d = new TextDocument([paragraph('Dear Rosa, (VIP list)')]);
+    d.select(10, 21); d.setRunFormat({ vanish: true });
+    expect(plainText(d)).toBe('Dear Rosa,\n');
+    expect(documentHtml(d)).toContain('<p>Dear Rosa,</p>');
+  });
 });

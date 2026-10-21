@@ -5,7 +5,8 @@
  */
 
 const escape = text => String(text ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const paragraphText = p => p.runs.map(r => r.text).join('');
+// Hidden text is neither shown nor printed, so a merged message leaves it out too.
+const paragraphText = p => p.runs.map(r => r.vanish ? '' : r.text).join('');
 
 /** Plain text of a model: line breaks as newlines, objects dropped. */
 export function plainText(model) {
@@ -13,7 +14,7 @@ export function plainText(model) {
 }
 
 function runHtml(run) {
-  if (!run.text || run.image) return '';
+  if (!run.text || run.image || run.vanish) return '';
   let text = escape(run.text.replace(/￼/g, '')).replace(/\v/g, '<br>').replace(/\t/g, '&emsp;');
   if (!text) return '';
   const style = [];
