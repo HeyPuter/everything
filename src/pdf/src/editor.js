@@ -8451,7 +8451,9 @@ export function createEditor({
     const includeCurrent = el('input', { type: 'checkbox', id: 'combine-current', checked: true });
     const list = el('ol', { class: 'combine-list', 'aria-label': 'Files to combine' });
     const empty = el('p', { class: 'muted' }, 'Add PDFs or pictures to combine them.');
-    const render = () => {
+    // Rows are drawn again after each change; `focus` names the row and button ([up, down,
+    // remove]) that takes the keyboard focus, so it is not lost with the pressed button.
+    const render = (focus) => {
       empty.hidden = entries.length > 0;
       list.replaceChildren(
         ...entries.map((entry, i) =>
@@ -8474,17 +8476,22 @@ export function createEditor({
             }),
             iconButton(`Remove ${entry.name}`, 'Trash2', () => {
               entries.splice(i, 1);
-              render();
+              render({ row: Math.min(i, entries.length - 1), button: 2 });
             }),
           ),
         ),
       );
+      if (!focus) return;
+      const buttons = list.querySelectorAll('.combine-row')[focus.row]?.querySelectorAll('button');
+      if (!buttons) return addButton.focus();
+      // A move button that has reached the end of the list gives way to the other one.
+      const target = buttons[focus.button];
+      (target.disabled ? buttons[1 - focus.button] : target).focus();
     };
     const move = (i, step) => {
       const [entry] = entries.splice(i, 1);
       entries.splice(i + step, 0, entry);
-      render();
-      list.querySelectorAll('.combine-row')[i + step]?.querySelector('button')?.focus();
+      render({ row: i + step, button: step < 0 ? 0 : 1 });
     };
     const addFiles = safe(async () => {
       const input = el('input', {
@@ -8565,6 +8572,7 @@ export function createEditor({
       }
     });
     const combineButton = button('Combine', 'Files', combine, 'btn primary');
+    const addButton = button('Add files…', 'Plus', addFiles, 'btn');
     const d = modal(
       'Combine files',
       el(
@@ -8576,7 +8584,7 @@ export function createEditor({
           el('span', {}, `Start with ${name}`),
           includeCurrent,
         ),
-        button('Add files…', 'Plus', addFiles, 'btn'),
+        addButton,
         empty,
         list,
         el(

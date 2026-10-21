@@ -653,6 +653,56 @@ for (const [languages, expected] of [
     expect(combined.catalog.lookup(PDFName.of('Lang'))?.decodeText() ?? null).toBe(expected);
   });
 
+test('the Combine files list keeps the keyboard focus on the button that was pressed', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Combine files', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Combine files' });
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: /Add files/ }).click();
+  const files = [];
+  for (const [name, count] of [
+    ['a.pdf', 1],
+    ['b.pdf', 2],
+    ['c.pdf', 3],
+  ])
+    files.push({
+      name,
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await (await numberedPdf(count)).save()),
+    });
+  await (await chooser).setFiles(files);
+  const rows = dialog.locator('.combine-name');
+  await expect(rows).toHaveText(['a.pdf', 'b.pdf', 'c.pdf']);
+  // Down twice takes a.pdf to the end; at the end, the focus moves to its other move button.
+  await dialog.getByRole('button', { name: 'Move a.pdf down' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveText(['b.pdf', 'a.pdf', 'c.pdf']);
+  await expect(dialog.getByRole('button', { name: 'Move a.pdf down' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveText(['b.pdf', 'c.pdf', 'a.pdf']);
+  await expect(dialog.getByRole('button', { name: 'Move a.pdf up' })).toBeFocused();
+  await dialog.getByRole('button', { name: 'Move c.pdf up' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveText(['c.pdf', 'b.pdf', 'a.pdf']);
+  await expect(dialog.getByRole('button', { name: 'Move c.pdf down' })).toBeFocused();
+  // Removing a file hands the focus to the file that takes its place, or the one before it.
+  await dialog.getByRole('button', { name: 'Remove b.pdf' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveText(['c.pdf', 'a.pdf']);
+  await expect(dialog.getByRole('button', { name: 'Remove a.pdf' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('button', { name: 'Remove c.pdf' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(rows).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: /Add files/ })).toBeFocused();
+});
+
 test('Bates numbering stamps padded numbers across the chosen pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
