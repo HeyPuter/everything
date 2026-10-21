@@ -18,6 +18,17 @@ const fold = (value) =>
     .normalize('NFC');
 
 export const searchQuery = (value) => fold(normalize(value).trim());
+// A page repeats a few hundred distinct characters; folding each one once keeps indexing a
+// page of a hundred thousand characters, which every redraw of it does, from pausing the view.
+const foldedChars = new Map();
+function foldChar(char) {
+  let folded = foldedChars.get(char);
+  if (folded === undefined) {
+    folded = fold(char);
+    if (foldedChars.size < 10000) foldedChars.set(char, folded);
+  }
+  return folded;
+}
 
 /**
  * Keep PDF.js text item offsets while preserving actual spaces and line breaks.
@@ -46,7 +57,7 @@ export function indexPageText(items) {
       } else {
         // Fold whole code points, then map each UTF-16 unit used by string search and DOM
         // ranges. Expanded lowercase forms still point back to their one source character.
-        const folded = fold(char);
+        const folded = foldChar(char);
         chunk += folded;
         for (let k = 0; k < folded.length; k++) origin.push(start + Math.min(k, char.length - 1));
       }

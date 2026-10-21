@@ -133,3 +133,25 @@ it('matches straight quotes typed in a query to typographic quotes on the page',
   expect(index.text.indexOf(searchQuery('"never"'))).toBe(10);
   expect(index.origins[0].length).toBe(index.text.length);
 });
+
+it('folds each distinct character of a huge page once, not every time it appears', () => {
+  const items = Array.from({ length: 2000 }, (_, i) => ({
+    str: 'Lorem ipsum dolor sit amet, café',
+    hasEOL: i % 3 === 0,
+  }));
+  const normalize = String.prototype.normalize;
+  let calls = 0;
+  String.prototype.normalize = function (...args) {
+    calls++;
+    return normalize.apply(this, args);
+  };
+  try {
+    const index = indexPageText(items);
+    expect(index.text.length).toBeGreaterThan(60000);
+    expect(index.text.slice(0, 33)).toBe('lorem ipsum dolor sit amet, cafe ');
+  } finally {
+    String.prototype.normalize = normalize;
+  }
+  // Two normalizations for each of the page's few distinct characters, at most.
+  expect(calls).toBeLessThan(100);
+});
