@@ -37,6 +37,11 @@ export const BORDER_STYLES = [
 const BORDER_LINES = { hair: ['1px', 'dotted'], dashDot: ['1px', 'dashed'], dashDotDot: ['1px', 'dashed'], mediumDashed: ['2px', 'dashed'],
   mediumDashDot: ['2px', 'dashed'], mediumDashDotDot: ['2px', 'dashed'], slantDashDot: ['2px', 'dashed'] };
 export const XLSX_BORDER_STYLES = [...BORDER_STYLES.map(([value]) => value), ...Object.keys(BORDER_LINES)];
+/** Every line a border can be drawn with, as Format Cells lists them: the light lines, then the medium and heavy ones. */
+export const BORDER_LINE_CHOICES = [
+  ['thin', 'Thin'], ['hair', 'Hair'], ['dotted', 'Dotted'], ['dashed', 'Dashed'], ['dashDot', 'Dash-dot'], ['dashDotDot', 'Dash-dot-dot'], ['double', 'Double'],
+  ['medium', 'Medium'], ['mediumDashed', 'Medium dashed'], ['mediumDashDot', 'Medium dash-dot'], ['mediumDashDotDot', 'Medium dash-dot-dot'], ['slantDashDot', 'Slanted dash-dot'], ['thick', 'Thick'],
+];
 
 /** CSS pieces for a cell's border style: { width, style, color }; color is null for the default ink. */
 export function borderCss(st) {

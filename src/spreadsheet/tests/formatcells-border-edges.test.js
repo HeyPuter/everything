@@ -118,15 +118,16 @@ it('draws the line styles as a single-choice group walked with the arrow keys', 
   const group = field('Line style');
   expect(group.getAttribute('role')).toBe('radiogroup');
   const radios = [...group.querySelectorAll('[role="radio"]')];
-  expect(radios.map(r => r.dataset.value)).toEqual(['thin', 'medium', 'thick', 'dashed', 'dotted', 'double']);
+  expect(radios.map(r => r.dataset.value)).toEqual(['thin', 'hair', 'dotted', 'dashed', 'dashDot', 'dashDotDot', 'double',
+    'medium', 'mediumDashed', 'mediumDashDot', 'mediumDashDotDot', 'slantDashDot', 'thick']);
   expect(radios.every(r => r.querySelector('svg'))).toBe(true);
   expect(radios.filter(r => r.tabIndex === 0)).toHaveLength(1);
   radios[0].focus();
   radios[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  expect(group.value).toBe('medium'); expect(document.activeElement).toBe(radios[1]);
+  expect(group.value).toBe('hair'); expect(document.activeElement).toBe(radios[1]);
   group.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true }));
-  expect(group.value).toBe('double'); expect(radios[5].getAttribute('aria-checked')).toBe('true');
-  radios[2].click(); expect(group.value).toBe('thick');
+  expect(group.value).toBe('thick'); expect(radios[12].getAttribute('aria-checked')).toBe('true');
+  radios[12].click(); expect(group.value).toBe('thick');
   preset('Inside').click(); apply();
   expect(run.mock.calls[0][1].borders).toEqual([{ kind: 'horizontal', style: 'thick', color: null, perSide: true }, { kind: 'vertical', style: 'thick', color: null, perSide: true }]);
 });

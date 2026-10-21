@@ -4,7 +4,7 @@
  */
 
 import { el } from './dom.js';
-import { BORDER_STYLES } from '../core/format.js';
+import { BORDER_LINE_CHOICES } from '../core/format.js';
 
 /** One line style drawn as the stroke it paints, in the current text colour. */
 export function lineSample(style, width = 88) {
@@ -13,7 +13,10 @@ export function lineSample(style, width = 88) {
   const body = {
     thin: line(0, 1), medium: line(0, 2), thick: line(0, 3),
     dashed: line(0, 1, ' stroke-dasharray="6 3"'), dotted: line(0, 1.2, ' stroke-dasharray="1.2 2.4"'),
-    double: line(-2, 1) + line(2, 1),
+    double: line(-2, 1) + line(2, 1), hair: line(0, 1, ' stroke-dasharray="1 1"'),
+    dashDot: line(0, 1, ' stroke-dasharray="6 2 2 2"'), dashDotDot: line(0, 1, ' stroke-dasharray="6 2 2 2 2 2"'),
+    mediumDashed: line(0, 2, ' stroke-dasharray="7 3"'), mediumDashDot: line(0, 2, ' stroke-dasharray="7 2.5 2 2.5"'),
+    mediumDashDotDot: line(0, 2, ' stroke-dasharray="7 2.5 2 2.5 2 2.5"'), slantDashDot: line(0, 2.5, ' stroke-dasharray="8 1.5 2.5 1.5"'),
   }[style] || line(0, 1);
   return `<svg viewBox="0 0 ${width} 12" width="${width}" height="12" aria-hidden="true" focusable="false">${body}</svg>`;
 }
@@ -40,19 +43,21 @@ export function presetGlyph(kind, size = 30) {
 }
 
 /**
- * The line styles as a single-choice group of drawn lines, walked with the arrow keys like a list.
+ * The line styles as a single-choice group of drawn lines in two columns, as Excel's Line box has them, walked
+ * with the arrow keys: up and down through the list, left and right across to the other column.
  * It reads and sets like a select: `.value` is the chosen style, and a `change` event dispatched on it
  * by a script reports `.value` through `onChange` as a click does.
  */
 export function lineStylePicker({ label = 'Line style', value = 'thin', onChange }) {
   const group = el('div.line-styles', { role: 'radiogroup', 'aria-label': label });
-  const buttons = BORDER_STYLES.map(([key, name]) => el('button.line-style', {
+  const rows = Math.ceil(BORDER_LINE_CHOICES.length / 2);
+  const buttons = BORDER_LINE_CHOICES.map(([key, name]) => el('button.line-style', {
     type: 'button', role: 'radio', 'aria-label': name, title: name, dataset: { value: key },
-    html: lineSample(key), onclick: () => choose(key, true),
+    html: lineSample(key, 60), onclick: () => choose(key, true),
   }));
   group.append(...buttons);
   function choose(key, notify) {
-    if (!BORDER_STYLES.some(([k]) => k === key)) return;
+    if (!BORDER_LINE_CHOICES.some(([k]) => k === key)) return;
     value = key;
     for (const b of buttons) {
       const on = b.dataset.value === key;
@@ -64,7 +69,7 @@ export function lineStylePicker({ label = 'Line style', value = 'thin', onChange
   group.addEventListener('keydown', (e) => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     const at = buttons.findIndex((b) => b.dataset.value === value);
-    const next = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: buttons.length - 1 }[e.key];
+    const next = { ArrowDown: at + 1, ArrowRight: at + rows, ArrowUp: at - 1, ArrowLeft: at - rows, Home: 0, End: buttons.length - 1 }[e.key];
     if (next == null) return;
     e.preventDefault();
     e.stopPropagation();
