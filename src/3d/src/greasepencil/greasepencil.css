@@ -93,9 +93,8 @@
   cursor: pointer;
   min-width: 0;
 }
-.gp-bp-tile svg {
-  width: 26px;
-  height: 26px;
+.gp-bp-tile img {
+  border-radius: 4px;
 }
 .gp-bp-tile span {
   max-width: 100%;

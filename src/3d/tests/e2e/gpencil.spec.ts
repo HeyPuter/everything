@@ -135,7 +135,8 @@ test('draw mode tools: curve primitive with handles, trim, box erase, eyedropper
   await run(page, 'object.mode_set', { mode: 'PAINT_GREASE_PENCIL' });
   await run(page, 'view3d.view_axis', { type: 'FRONT' });
   const c = await hoverViewport(page);
-  const tool = (id: string) => page.locator(`.v3d-toolbar [data-tool="${id}"]`).dispatchEvent('pointerdown');
+  // primitives share one toolbar slot: pick the tools by id
+  const tool = (id: string) => run(page, 'wm.tool_set_by_id', { name: id });
   // Curve: drag out, move a handle, confirm with Enter
   await tool('builtin.curve');
   await page.mouse.move(c.x - 150, c.y + 50);
