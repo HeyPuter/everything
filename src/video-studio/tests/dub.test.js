@@ -137,4 +137,41 @@ describe('dub dialog', () => {
     expect(track.clips[0].assetId).toBe('sp0');
     expect(store.history.undoLabel).toBe('Dub into Spanish');
   });
+
+  it('stops dubbing when the dialog is closed with Escape, the close button or the backdrop', async () => {
+    for (const how of ['escape', 'x', 'backdrop', 'while adding']) {
+      document.body.replaceChildren();
+      const p = fixture();
+      onMain(p, clip('video', 0, 10));
+      for (let i = 0; i < 4; i++) addClip(p, clip('text', i * 2, 1.5, { text: `Line ${i}.`, caption: true }), { ripple: false, linkOverlays: false });
+      const store = new EditorStore(p);
+      let adding = null;
+      const actions = {
+        importFiles: (files) => new Promise((r) => (adding = () => r(files.map((f, i) => ({ id: `sp${i}`, kind: 'audio', name: f.name, duration: s(1), hasAudio: true }))))),
+      };
+      let spoken = 0;
+      let speaking = null;
+      const speak = () => new Promise((r) => (speaking = () => (spoken++, r(new Blob(['x'], { type: 'audio/mpeg' })))));
+      const d = openDubDialog({ store, actions }, { translate: async (lines) => lines.map(() => 'Hola.'), speak });
+      [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Dub').click();
+      await vi.waitFor(() => expect(speaking).toBeTypeOf('function'));
+      if (how === 'while adding') {
+        while (!adding) {
+          speaking();
+          await new Promise((r) => setTimeout(r, 0));
+        }
+      }
+      if (how === 'escape' || how === 'while adding') d.el.dispatchEvent(new Event('cancel', { cancelable: true }));
+      else if (how === 'x') d.el.querySelector('.dialog-close').click();
+      else d.el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      expect(d.el.isConnected).toBe(false);
+      const before = spoken;
+      speaking();
+      adding?.();
+      await new Promise((r) => setTimeout(r, 20));
+      expect(spoken - before).toBeLessThanOrEqual(1); // the line being spoken, and no more
+      expect(store.project.tracks.some((t) => t.name?.startsWith('Dub - '))).toBe(false);
+      expect(store.history.canUndo()).toBe(false);
+    }
+  });
 });

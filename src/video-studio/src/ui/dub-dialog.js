@@ -106,12 +106,10 @@ export function openDubDialog(ctx, { translate = translateLines, speak = synthes
     lang.el, voice.el,
     h('div.field', h('span.field-label', 'Original sound'), orig.el),
     caps.el, bar, status);
-  const d = openDialog({ title: 'Dub into another language', body, actions: [cancel, go], className: 'small' });
   let abort = null;
-  cancel.addEventListener('click', () => {
-    abort?.abort();
-    d.close();
-  });
+  // Closing the dialog any way (Cancel, Escape, the close button, the backdrop) stops the dub.
+  const d = openDialog({ title: 'Dub into another language', body, actions: [cancel, go], className: 'small', onClose: () => abort?.abort() });
+  cancel.addEventListener('click', () => d.close());
   const progress = (f) => {
     bar.hidden = false;
     bar.style.setProperty('--pct', `${Math.round(f * 100)}%`);
@@ -121,20 +119,26 @@ export function openDubDialog(ctx, { translate = translateLines, speak = synthes
   go.addEventListener('click', async () => {
     if (abort) return;
     abort = new AbortController();
+    const { signal } = abort;
+    const stopped = () => {
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    };
     go.disabled = true;
     setPref('dub', { ...opts });
     const language = targets.find((l) => l.value === opts.to)?.label || opts.to;
     try {
       progress(0);
       const dub = await makeDub(cues, {
-        translate: (lines) => translate(lines, language, { signal: abort.signal }),
+        translate: (lines) => translate(lines, language, { signal }),
         speak: (text) => speak(text, opts.voice),
-        signal: abort.signal,
+        signal,
         onProgress: progress,
       });
+      stopped();
       status.textContent = 'Adding to the timeline...';
       const made = dub.speech.map((s, i) => (s.blob ? { i, file: speechFile(s.blob, s.text) } : null)).filter(Boolean);
       const assets = await ctx.actions.importFiles(made.map((m) => m.file));
+      stopped();
       if (assets.length !== made.length) throw new Error("Couldn't add all of the speech.");
       const durations = dub.segments.map(() => 0);
       made.forEach((m, k) => (durations[m.i] = (assets[k].duration || 0) / 1e6));
