@@ -521,6 +521,9 @@ export class Doc extends EventTarget {
    * edits wait for Save.
    */
   reconnected() {
+    // A shared workbook's changes go to the room as the room comes back (see collab/client.js resume); the owner's
+    // file is written when a write of it is due, not the whole workbook uploaded each time the connection returns.
+    if (this.collab) return this._sharedFileDue ? this.save({ auto: true }) : Promise.resolve(false);
     const failed = this._timerIsRetry && (this.status === 'offline' || this.status === 'error');
     if (!autoSaveEnabled() && !failed) return Promise.resolve(false);
     return this.save({ auto: true });
