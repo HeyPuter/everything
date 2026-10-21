@@ -18,10 +18,13 @@ export class History {
   /** Records a new state; returns false when nothing changed. */
   push(snapshot, caret = null) {
     const current = this.stack[this.index];
-    if (current && current.snapshot === snapshot) {
+    if (current && sameSnapshot(current.snapshot, snapshot)) {
       current.caret = caret;
       return false;
     }
+    // Ink rarely changes while typing: share the previous entry's copy
+    // instead of keeping one per entry (it can be megabytes).
+    if (current && typeof snapshot === 'object' && current.snapshot?.ink === snapshot.ink) snapshot = { ...snapshot, ink: current.snapshot.ink };
     this.stack.length = this.index + 1;
     this.stack.push({ snapshot, caret });
     if (this.stack.length > this.limit) this.stack.shift();
@@ -52,16 +55,24 @@ export class History {
   }
 }
 
-/** The parts of a page that undo restores. */
+function sameSnapshot(a, b) {
+  if (a === b) return true;
+  return typeof a === 'object' && typeof b === 'object' && a !== null && b !== null && a.doc === b.doc && a.ink === b.ink;
+}
+
+/** The parts of a page that undo restores: page text and settings, and ink, kept apart. */
 export function snapshotOf(page) {
-  return JSON.stringify({ title: page.title, outlines: page.outlines, ink: page.ink, color: page.color, rules: page.rules, ruleColor: page.ruleColor });
+  return {
+    doc: JSON.stringify({ title: page.title, outlines: page.outlines, color: page.color, rules: page.rules, ruleColor: page.ruleColor }),
+    ink: JSON.stringify(page.ink),
+  };
 }
 
 export function applySnapshot(page, snapshot) {
-  const s = JSON.parse(snapshot);
+  const s = JSON.parse(snapshot.doc);
   page.title = s.title;
   page.outlines = s.outlines;
-  page.ink = s.ink;
+  page.ink = JSON.parse(snapshot.ink);
   page.color = s.color;
   page.rules = s.rules;
   page.ruleColor = s.ruleColor;

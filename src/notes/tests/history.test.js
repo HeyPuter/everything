@@ -42,3 +42,25 @@ describe('History', () => {
     expect(page.created).toBe('c');
   });
 });
+
+describe('History with ink', () => {
+  it('keeps ink apart from page text and restores both', () => {
+    const page = { title: 'T', outlines: [{ id: 'o', html: 'a' }], ink: [{ id: 'i', type: 'stroke', points: [[1, 2, 0.5]] }] };
+    const h = new History();
+    h.reset(snapshotOf(page));
+    page.outlines[0].html = 'ab';
+    expect(h.push(snapshotOf(page))).toBe(true);
+    page.outlines[0].html = 'abc';
+    h.push(snapshotOf(page));
+    // Ink is kept apart from the page text (string identity isn't observable
+    // from JS; the memory saving was measured in the browser).
+    expect(h.stack[2].snapshot.ink).toBe(h.stack[0].snapshot.ink);
+    expect(h.stack[2].snapshot.doc).not.toBe(h.stack[0].snapshot.doc);
+    page.ink = [];
+    h.push(snapshotOf(page));
+    applySnapshot(page, h.undo().snapshot);
+    expect(page.ink).toHaveLength(1);
+    expect(page.outlines[0].html).toBe('abc');
+    expect(h.push(snapshotOf(page))).toBe(false);
+  });
+});
