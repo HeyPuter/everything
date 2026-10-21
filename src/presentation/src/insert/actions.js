@@ -346,6 +346,18 @@ export function createActionFeatures(ctx) {
     );
     const hover = panel("hover", current.hover);
     hover.node.hidden = true;
+    const ids = ["click", "hover"];
+    // The tabs are one stop for Tab; the arrow keys move between them.
+    const select = (id, focus = false) => {
+      click.node.hidden = id !== "click";
+      hover.node.hidden = id !== "hover";
+      for (const other of ids) {
+        const t = body.querySelector(`#action-tab-${other}`);
+        t.setAttribute("aria-selected", String(other === id));
+        t.tabIndex = other === id ? 0 : -1;
+        if (other === id && focus) t.focus();
+      }
+    };
     const tab = (id, label, selected) =>
       el(
         "button",
@@ -356,14 +368,22 @@ export function createActionFeatures(ctx) {
           id: `action-tab-${id}`,
           "aria-controls": `action-panel-${id}`,
           "aria-selected": String(selected),
-          onclick: (e) => {
-            click.node.hidden = id !== "click";
-            hover.node.hidden = id !== "hover";
-            e.currentTarget.parentElement
-              .querySelectorAll(".hf-tab")
-              .forEach((t) =>
-                t.setAttribute("aria-selected", String(t === e.currentTarget)),
-              );
+          tabindex: selected ? 0 : -1,
+          onclick: () => select(id),
+          onkeydown: (e) => {
+            const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+            const at = ids.indexOf(id);
+            const next =
+              e.key === "Home"
+                ? 0
+                : e.key === "End"
+                  ? ids.length - 1
+                  : step
+                    ? (at + step + ids.length) % ids.length
+                    : null;
+            if (next === null) return;
+            e.preventDefault();
+            select(ids[next], true);
           },
         },
         label,

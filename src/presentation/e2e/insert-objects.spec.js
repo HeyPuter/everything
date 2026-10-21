@@ -620,7 +620,14 @@ test("action buttons get a default action and action settings", async ({
       .getByLabel("Hyperlink to", { exact: true }),
   ).toHaveValue("lastSlide");
   await dialog.locator("#action-panel-click").getByLabel("Play sound:").check();
-  await dialog.getByRole("tab", { name: "Mouse Over" }).click();
+  // The tabs are one Tab stop, and the arrow keys move between them.
+  const over = dialog.getByRole("tab", { name: "Mouse Over" });
+  await expect(over).toHaveAttribute("tabindex", "-1");
+  await dialog.getByRole("tab", { name: "Mouse Click" }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(over).toBeFocused();
+  await expect(over).toHaveAttribute("aria-selected", "true");
+  await expect(dialog.locator("#action-panel-hover")).toBeVisible();
   await dialog.locator("#action-panel-hover").getByLabel("Play sound:").check();
   await dialog.getByRole("button", { name: "OK" }).click();
   const saved = await download(page);
