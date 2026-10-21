@@ -30,6 +30,7 @@ import { locInvoke } from './uvops-select';
 import { uvLayers, uvEditPoll, ctxUVEditor, uvCursor, uvChanged, inUVEditor, type EditLayer } from './uvcontext';
 import { startUVTransform, nudgeSelection } from './uvtransform';
 import { packRegion, selectionBounds, regionSettings, type PackSource } from './uvregion';
+import { startStitch } from './uvstitch';
 import type { ImageData } from '../../data/types';
 
 type Sel = (c: number) => boolean;
@@ -253,6 +254,7 @@ registerOperators([
       { id: 'mode', label: 'Operation Mode', type: 'enum', default: 'VERTEX', items: [['VERTEX', 'Vertex'], ['EDGE', 'Edge']] },
     ],
     poll: (ctx) => uvEditPoll() && !app.doc.scene.tool_settings.use_uv_select_sync && !!ctx,
+    invoke: (ctx, p) => (ctxUVEditor(ctx) ? startStitch(ctx, p) : app.run('uv.stitch', p, { invoke: false, area: ctx.area })),
     exec: (_ctx, p) => {
       let groups = 0;
       editUVs((t, uvs, sel, layer) => {

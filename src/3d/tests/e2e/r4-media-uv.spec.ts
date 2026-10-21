@@ -245,3 +245,24 @@ test('UV editor: the Annotate tool draws notes over the UVs', async ({ page }) =
   expect(n).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('UV editor: Stitch previews the result, toggles options with keys and confirms into an adjustable operation', async ({ page }) => {
+  const { errors } = await uvWorkspace(page);
+  const before = await meshUVs(page);
+  await page.keyboard.press('Alt+v');
+  const pv = await page.evaluate(() => (window as any).app.hoverArea.editor.stitchPreview);
+  expect(pv.groups).toBeGreaterThan(0);
+  expect(pv.polys.length).toBeGreaterThan(0);
+  // nothing changes before confirming
+  expect(await meshUVs(page)).toEqual(before);
+  await page.keyboard.press('m');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(50);
+  const after = await meshUVs(page);
+  expect(after).not.toEqual(before);
+  const last = await page.evaluate(() => (window as any).app.lastOp);
+  expect(last.idname).toBe('uv.stitch');
+  expect(last.props.midpoint_snap).toBe(true);
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.stitchPreview)).toBe(null);
+  await expectNoErrors(errors);
+});

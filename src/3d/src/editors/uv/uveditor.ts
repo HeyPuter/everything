@@ -30,6 +30,7 @@ import './uvicons';
 import './uvstyle';
 import './uvsculpt';
 import { drawCustomRegion } from './uvregion';
+import type { StitchPreview } from './uvstitch';
 import { ANNOTATE_TOOLS, annotatePointerDown, annotateKeyHeld, annotateModeOf, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 
 export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'transform' | 'rip_region' | 'grab' | 'relax' | 'pinch' | AnnotateTool;
@@ -156,6 +157,8 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
   /** transforms land on pixel corners / centres; transforms keep UVs in the 0–1 square */
   pixelRoundMode: 'DISABLED' | 'CORNER' | 'CENTER' = 'DISABLED';
   lockBounds = false;
+  /** faces moved by a running Stitch (drawn as a preview) */
+  stitchPreview: StitchPreview | null = null;
   /** rectangle being dragged by Set User Region (screen pixels) */
   regionDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   /** a running drag drawn as an overlay (box / lasso from tools) */
@@ -984,6 +987,27 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
     if (this.showOverlays) this.drawTransformFrame(g);
     if (this.showOverlays || this.regionDrag) drawCustomRegion(g, (u, v) => this.toPx(u, v), this.regionDrag);
     if (this.showOverlays) drawAnnotations2D(this, g);
+    if (this.stitchPreview) this.drawStitchPreview(g, this.stitchPreview);
+  }
+
+  /** Stitch preview: where the moved faces end up. */
+  private drawStitchPreview(g: CanvasRenderingContext2D, pv: StitchPreview) {
+    g.save();
+    g.fillStyle = 'rgba(80, 220, 120, 0.25)';
+    g.strokeStyle = 'rgba(120, 255, 160, 0.9)';
+    g.lineWidth = 1.2;
+    for (const poly of pv.polys) {
+      g.beginPath();
+      for (let i = 0; i < poly.length; i += 2) {
+        const p = this.toPx(poly[i], poly[i + 1]);
+        if (i) g.lineTo(p.x, p.y);
+        else g.moveTo(p.x, p.y);
+      }
+      g.closePath();
+      g.fill();
+      g.stroke();
+    }
+    g.restore();
   }
 
   /** Modified Edges: UV edges of the evaluated meshes (after modifiers), faint under the editable UVs. */
