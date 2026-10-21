@@ -1292,3 +1292,8 @@ button.sb-item:hover {
     top: 96px;
   }
 }
+
+.sb-opt.active {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}

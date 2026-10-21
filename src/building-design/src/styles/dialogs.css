@@ -827,3 +827,70 @@
 .vg-table td.muted {
   color: var(--fg-muted);
 }
+
+/* Design options ----------------------------------------------------------------- */
+
+.dopt-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 14px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.dopt-set {
+  margin-bottom: 14px;
+}
+
+.dopt-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.dopt-head .dlg-sub {
+  margin: 0;
+}
+
+.dopt-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.dopt-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.dopt-item + .dopt-item {
+  border-top: 1px solid var(--border);
+}
+
+.dopt-item.editing {
+  background: var(--accent-soft);
+}
+
+.dopt-name {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dopt-name .badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-group);
+  color: var(--fg-muted);
+  font-size: var(--fs-xs);
+}

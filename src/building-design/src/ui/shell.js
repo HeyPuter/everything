@@ -94,7 +94,9 @@ export function buildShell(app) {
   const wsSelect = h('select.sb-select', { 'aria-label': 'Active workset', onChange: (e) => app.setActiveWorkset(e.target.value) });
   const wsWrap = h('label.sb-item.sb-ws', { hidden: true, 'data-tip': 'Active workset', 'data-tip-desc': 'New elements go into this workset' }, icon('worksets', 14), wsSelect);
   const selOpts = h('button.sb-item', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Selection options', 'data-tip': 'Selection options', 'data-tip-desc': 'Whether pinned elements can be selected, and whether a click starts a drag', onClick: (e) => app.selectionOptionsMenu(e.currentTarget) }, icon('pointer', 14));
-  const statusbar = h('footer.statusbar', prompt, selInfo, wsWrap, syncBtn, selOpts, snapBtn, coords);
+  const optSelect = h('select.sb-select', { 'aria-label': 'Design option being edited', onChange: (e) => app.editOption(e.target.value || null) });
+  const optWrap = h('label.sb-item.sb-opt', { hidden: true, 'data-tip': 'Design option', 'data-tip-desc': 'The option you are editing. New elements go into it, and every view shows it.' }, icon('designOptions', 14), optSelect);
+  const statusbar = h('footer.statusbar', prompt, selInfo, optWrap, wsWrap, syncBtn, selOpts, snapBtn, coords);
 
   const phonebar = h('nav.phonebar', { 'aria-label': 'Tools' });
   const root = h('div.app-root', titlebar, h('div.ribbon-slot', { style: { display: 'contents' } }), optionsbar, main, statusbar, phonebar);
@@ -109,6 +111,7 @@ export function buildShell(app) {
     optionsbar,
     syncBtn,
     wsSelect,
+    optSelect,
     dock,
     dockSplit,
     dockResize,

@@ -48,6 +48,8 @@ import { FootingTool, WallFootingTool, BeamSystemTool, TopoTool, ByFaceTool } fr
 import * as manage from './ui/manage.js';
 import * as collab from './ui/collab.js';
 import * as links from './ui/links.js';
+import * as dopts from './ui/designopts.js';
+import { editingOption } from './core/designopts.js';
 import { worksharingOn } from './core/worksets.js';
 import { confirmDialog } from './ui/dialog.js';
 import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
@@ -343,6 +345,10 @@ export const COMMANDS = {
   selectionIds: { label: 'IDs of Selection', icon: 'selectionIds', enabled: hasSel, run: (app) => manage.idsOfSelection(app) },
   selectById: { label: 'Select by ID', icon: 'selectById', run: (app) => manage.selectById(app) },
   warnings: { label: 'Warnings', icon: 'warning', run: (app) => manage.warningsDialog(app), desc: 'Problems in the model: overlapping walls, unenclosed rooms, duplicate marks' },
+  designOptions: { label: 'Design Options', icon: 'designOptions', keys: 'DO', run: (app) => dopts.designOptionsDialog(app), desc: 'Explore alternatives for part of the design in one project' },
+  addToOption: { label: 'Add to Option', icon: 'designOptions', enabled: hasSel, run: (app) => dopts.addToOption(app), desc: 'Move the selected elements into the design option being edited' },
+  viewOptions: { label: 'View Design Options', icon: 'designOptions', run: (app) => dopts.viewOptionsDialog(app), desc: 'Which option of each set the active view shows' },
+  finishOption: { label: 'Finish Editing Option', icon: 'check', enabled: () => !!editingOption(), run: (app) => app.editOption(null), desc: 'Go back to editing the main model' },
   transferStandards: { label: 'Transfer Project Standards', icon: 'transfer', run: (app) => manage.transferStandardsDialog(app), desc: 'Copy types, materials, view templates, filters and more from another project file' },
   startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },
   projectInfo: { label: 'Project Information', icon: 'info', run: (app) => app.projectInfoDialog() },

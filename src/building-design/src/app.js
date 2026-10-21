@@ -56,6 +56,7 @@ import { renderHome } from './ui/home.js';
 import { Settings } from './settings.js';
 import { SyncManager } from './io/sync.js';
 import { worksharingOn, worksetable, worksets, defaultWorkset, DATUM_KINDS } from './core/worksets.js';
+import { setEditingOption, editingOption, optionable, optionLabel, optionSets, optionsOf } from './core/designopts.js';
 
 const PLAN_KINDS = new Set(PLAN_VIEW_KINDS);
 
@@ -165,6 +166,8 @@ export class App {
     doc.addHooks = [
       (item) => (!item.phaseId && phased(item) && this.activeView?.phaseId ? { phaseId: this.activeView.phaseId } : null),
       // ...and to the active workset of whoever draws them.
+      // ...and to the design option being edited.
+      (item) => (!item.optionId && editingOption() && doc.has(editingOption()) && optionable(doc, item) ? { optionId: editingOption() } : null),
       (item) => (!item.worksetId && worksharingOn(doc) && worksetable(doc, item) ? { worksetId: DATUM_KINDS.has(item.kind) ? worksets(doc).find((w) => w.shared)?.id ?? this.activeWorkset()?.id : this.activeWorkset()?.id } : null),
     ];
     this.doc = doc;
@@ -190,6 +193,7 @@ export class App {
     this.setPrompt('Ready');
     files.scheduleRecovery(this);
     this.activeWorksetId = null;
+    setEditingOption(null);
     this.sync.attach(null, null, doc.modified);
     this.renderCollab();
   }
@@ -204,6 +208,17 @@ export class App {
   setActiveWorkset(id) {
     this.activeWorksetId = id;
     this.renderCollab();
+  }
+
+  /** Edit a design option (null: the main model). Every view shows the option being edited. */
+  editOption(id) {
+    setEditingOption(id && this.doc.has(id) ? id : null);
+    this.scene.version++;
+    this.flagsVersion++;
+    this.renderCollab();
+    this.ribbon.refresh();
+    this.requestRender();
+    this.setPrompt(id ? `Editing ${optionLabel(this.doc, id)}. New elements go into this option.` : 'Editing the main model.');
   }
 
   /** Synchronizing needs the project in the cloud; offer to put it there. */
@@ -225,6 +240,16 @@ export class App {
     sb.append(icon(st === 'offline' ? 'cloud-off' : st === 'syncing' ? 'refresh' : 'cloud', 14), h('span', label));
     sb.dataset.state = st;
     sb.setAttribute('data-tip-desc', st === 'pending' ? 'Click to synchronize: bring in others\' changes and share yours' : 'Changes others save appear automatically. Click to synchronize now.');
+    const opt = this.shell.optSelect;
+    const sets = optionSets(this.doc);
+    opt.parentElement.hidden = !sets.length;
+    if (sets.length) {
+      clear(opt);
+      opt.append(h('option', { value: '' }, 'Main Model'));
+      for (const set of sets) opt.append(h('optgroup', { label: set.name }, optionsOf(this.doc, set.id).map((o) => h('option', { value: o.id }, `${o.name}${o.primary ? ' (primary)' : ''}`))));
+      opt.value = editingOption() && this.doc.has(editingOption()) ? editingOption() : '';
+      opt.parentElement.classList.toggle('active', !!opt.value);
+    }
     const ws = this.shell.wsSelect;
     const on = worksharingOn(this.doc);
     ws.parentElement.hidden = !on;
@@ -237,7 +262,7 @@ export class App {
 
   docChanged(ev) {
     if (!ev.preview && this.sync.active && !ev.remote && this.sync.state === 'synced') this.sync.setState('pending');
-    if (!ev.preview && [...ev.ids].some((id) => this.doc.get(id)?.kind === 'workset' || !this.doc.has(id))) this.renderCollab();
+    if (!ev.preview && [...ev.ids].some((id) => ['workset', 'optionSet', 'designOption'].includes(this.doc.get(id)?.kind) || !this.doc.has(id))) this.renderCollab();
     // Selection may refer to deleted items.
     let selChanged = false;
     for (const id of [...this.selection])

@@ -278,6 +278,7 @@ export const RIBBON = [
       },
       { title: 'Project', items: [{ cmd: 'levels', size: 'lg' }, { cmd: 'types', size: 'lg' }, { cmd: 'startingView', size: 'lg' }] },
       { title: 'Phasing', items: [{ cmd: 'phases', size: 'lg' }] },
+      { title: 'Design Options', items: [{ cmd: 'designOptions', size: 'lg' }, { cmd: 'addToOption' }, { cmd: 'viewOptions' }, { cmd: 'finishOption' }] },
       { title: 'Selection', items: [{ cmd: 'selectionSave', size: 'lg', label: 'Save' }, { cmd: 'selectionLoad', size: 'lg', label: 'Load' }] },
       { title: 'Inquiry', items: [{ cmd: 'selectionIds', size: 'lg' }, { cmd: 'selectById', size: 'lg' }, { cmd: 'warnings', size: 'lg' }] },
       { title: 'Help', items: [{ cmd: 'shortcuts', size: 'lg' }, { cmd: 'help', size: 'lg' }] },

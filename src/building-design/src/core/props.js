@@ -20,6 +20,7 @@ import { braceHeights } from './build3d.js';
 import { topoBoundary } from './topo.js';
 import { massFloorArea } from './massing.js';
 import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
+import { optionable, optionLabel } from './designopts.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
 
@@ -578,9 +579,11 @@ const WS_VIEWS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevatio
 
 /** Workset of an element, and per-view workset settings, once worksets are on. */
 export function worksetParams(doc, el) {
-  if (!worksharingOn(doc)) return [];
+  const out = optionParams(doc, el);
+  if (!worksharingOn(doc)) return out;
   if (WS_VIEWS.has(el.kind))
     return [
+      ...out,
       P('worksets', 'Worksets', 'Graphics', 'button', { action: 'viewWorksets', text: 'Edit...' }),
       P('wsDisplay', 'Worksharing Display', 'Graphics', 'select', {
         get: (v) => v.wsDisplay || 'off',
@@ -590,8 +593,16 @@ export function worksetParams(doc, el) {
         ],
       }),
     ];
-  if (!worksetable(doc, el)) return [];
-  return [P('worksetId', 'Workset', 'Identity Data', 'select', { get: (e, c) => worksetOf(c.doc, e)?.id ?? '', options: (c) => worksets(c.doc).map((w) => ({ value: w.id, label: w.name })) })];
+  if (!worksetable(doc, el)) return out;
+  return [...out, P('worksetId', 'Workset', 'Identity Data', 'select', { get: (e, c) => worksetOf(c.doc, e)?.id ?? '', options: (c) => worksets(c.doc).map((w) => ({ value: w.id, label: w.name })) })];
+}
+
+/** Design option of an element, and the options a view shows, once there are option sets. */
+function optionParams(doc, el) {
+  if (!doc.count('optionSet')) return [];
+  if (WS_VIEWS.has(el.kind)) return [P('designOptions', 'Design Options', 'Graphics', 'button', { action: 'viewOptions', text: 'Edit...' })];
+  if (!optionable(doc, el)) return [];
+  return [ro('optionId', 'Design Option', 'Identity Data', (e, c) => optionLabel(c.doc, e.optionId), 'text')];
 }
 
 export function paramValue(d, el, ctx) {
