@@ -128,9 +128,11 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
   const numberNotes = () => numberedParagraphs(source, { footnote: notes?.numbers || new Map(), endnote: endnotes?.numbers || new Map() });
   if (notes || endnotes) paragraphs = numberNotes();
   for (let attempt = 0; attempt < MAX_PAGES; attempt++) {
+    // Page counts reach the body only through the header and footer heights they produce.
+    const storyHeights = totals ? new Map() : undefined;
     const flow = () => notes
-      ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts, noteReserve }), measureBase, numbering, storyOptions)
-      : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts });
+      ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts, storyHeights, noteReserve }), measureBase, numbering, storyOptions)
+      : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...counts, storyHeights });
     placed = flow();
     // Footnotes numbered per page (§17.11.19 eachPage) need their pages first; renumber once and lay out again.
     if (notes?.restart === 'eachPage') {
@@ -147,6 +149,9 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
     for (const regions of placed.pageRegions) for (const section of new Set((regions || []).map(r => r.section))) sectionCounts[section] = (sectionCounts[section] || 0) + 1;
     const next = { pageCount: placed.pageCount, sectionCounts };
     if (JSON.stringify(next) === JSON.stringify(counts)) return aligned();
+    // When the new counts leave every header and footer this layout measured at the same height,
+    // laying out again with them would place everything exactly as it is now.
+    if ([...storyHeights.values()].every(story => story.measure(next) === story.height)) return aligned();
     counts = next;
   }
   throw new Error('Header/footer page-count fields did not converge during pagination.');

@@ -16,12 +16,16 @@ export function sectionStoryBounds(page, definition, sectionIndex, section, meas
       const hasPage = story.paragraphs.some(p => p.runs.some(r => r.field?.type === 'PAGE'));
       const key = `${kind}/${path}/${hasPage ? pageNumber : ''}`;
       if (!heights.has(key)) {
-        try {
-          const { placed, trim } = measurePageStory(story, { ...page, storyKind: kind }, measure, numbering,
-            { pageNumber, pageCount: options.pageCount || 1, sectionPageCount: options.sectionCounts?.[sectionIndex] || 1, pageNumbering: definition.sections[sectionIndex].pageNumbering },
-            { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined });
-          heights.set(key, placed.endY - trim);
-        } catch (error) { if (!options.bestEffort) throw error; heights.set(key, 0); }
+        const height = counts => {
+          try {
+            const { placed, trim } = measurePageStory(story, { ...page, storyKind: kind }, measure, numbering,
+              { pageNumber, pageCount: counts.pageCount || 1, sectionPageCount: counts.sectionCounts?.[sectionIndex] || 1, pageNumbering: definition.sections[sectionIndex].pageNumbering },
+              { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined });
+            return placed.endY - trim;
+          } catch (error) { if (!options.bestEffort) throw error; return 0; }
+        };
+        heights.set(key, height(options));
+        options.storyHeights?.set(`${sectionIndex}/${key}`, { height: heights.get(key), measure: height });
       }
       if (kind === 'header') top = Math.max(top, (page.header || 0) + heights.get(key));
       else bottom = Math.min(bottom, page.height - (page.footer || 0) - heights.get(key));
