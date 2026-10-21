@@ -239,3 +239,59 @@ test('image editor: navigation buttons zoom and pan; Ctrl ` hides them', async (
   await expect(page.locator('.ie-root .nav2d')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('image editor: an image sequence shows the frame of the scene frame; start, offset, cyclic and Match Movie Length', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const M = await import(U('/src/render/final/imagemedia.ts'));
+    const colors = ['#ff0000', '#00ff00', '#0000ff'];
+    const files: File[] = [];
+    for (let i = 0; i < colors.length; i++) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 8;
+      const g = c.getContext('2d')!;
+      g.fillStyle = colors[i];
+      g.fillRect(0, 0, 8, 8);
+      const blob = await new Promise<Blob>((r) => c.toBlob((b) => r(b!), 'image/png'));
+      files.push(new File([blob], `frame_${String(i + 1).padStart(4, '0')}.png`, { type: 'image/png' }));
+    }
+    const id = await M.openMediaFiles(files);
+    const area = shell.screen.areas.find((a: any) => a.type === 'VIEW_3D');
+    area.setType('IMAGE_EDITOR');
+    area.editor.showImage(id);
+    (window as any).__ie = area.editor;
+  });
+  const colorAt = async (frame: number) => {
+    await page.evaluate((f) => (window as any).app.setFrame(f), frame);
+    // decoding is asynchronous
+    await page.waitForTimeout(150);
+    return page.evaluate(() => {
+      const ed = (window as any).__ie;
+      ed.draw();
+      const c = ed.displayCanvas();
+      const p = c.getContext('2d').getImageData(4, 4, 1, 1).data;
+      return [p[0], p[1], p[2], p[3]];
+    });
+  };
+  expect(await colorAt(1)).toEqual([255, 0, 0, 255]);
+  expect(await colorAt(2)).toEqual([0, 255, 0, 255]);
+  expect(await colorAt(3)).toEqual([0, 0, 255, 255]);
+  // past the end: nothing shown; cyclic wraps around
+  expect((await colorAt(4))[3]).toBe(0);
+  await page.evaluate(() => ((window as any).__ie.image.media.use_cyclic = true));
+  expect(await colorAt(4)).toEqual([255, 0, 0, 255]);
+  // start at frame 10 with an offset of 1
+  await page.evaluate(() => {
+    const m = (window as any).__ie.image.media;
+    m.use_cyclic = false;
+    m.frame_start = 10;
+    m.frame_offset = 1;
+    m.frame_duration = 1;
+  });
+  expect(await colorAt(10)).toEqual([0, 255, 0, 255]);
+  await page.evaluate(() => (window as any).app.run('image.match_movie_length', {}, { area: (window as any).__ie.host.area }));
+  expect(await page.evaluate(() => (window as any).__ie.image.media.frame_duration)).toBe(2);
+  await expectNoErrors(errors);
+});

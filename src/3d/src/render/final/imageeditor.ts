@@ -33,6 +33,8 @@ import { drawMask, drawMaskMatte, hostMask, type MaskHost, type MaskDisplayType 
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar, maskProportionalHeader } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
 import './imageextra';
+import { imageMedia, mediaReady, mediaSource, mediaFrameIndex, openMediaFiles } from './imagemedia';
+import { pickFiles } from '../../sequencer/add';
 import { navGizmo2D } from './navgizmo2d';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, drawMaskStrip, maskStripRect, maskStripFrame, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
@@ -324,6 +326,12 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     }
     const img = this.image;
     if (!img) return '';
+    const m = imageMedia(img);
+    if (m) {
+      const idx = mediaFrameIndex(m, app.doc.scene.frame_current);
+      const src = mediaReady(m);
+      return `M${img.id}|${idx}|${src && idx !== null && src.peek(idx) ? 1 : 0}|${this.channel}`;
+    }
     const tex = imageTexture(img);
     return `I${img.id}|${img.revision ?? 0}|${tex.version}|${img.width}x${img.height}|${this.channel}|${img.generated_type}|${img.generated_color?.join(',')}`;
   }
@@ -346,7 +354,9 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       canvas.getContext('2d')!.putImageData(new ImageData(px as Uint8ClampedArray<ArrayBuffer>, r.width, r.height), 0, 0);
     } else {
       const img = this.image!;
-      const src = imageCanvas(img);
+      const m = imageMedia(img);
+      const src = m ? this.mediaFrameCanvas(img.id, m) : imageCanvas(img);
+      if (!src) return null;
       if (this.channel === 'COLOR_ALPHA') canvas = src;
       else {
         canvas = document.createElement('canvas');
@@ -368,6 +378,31 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
 
   scopeKey() {
     return this.sourceKey();
+  }
+
+  private mediaCanvas: HTMLCanvasElement | null = null;
+
+  /** The decoded frame of a movie / sequence image for the current scene frame (decodes it when needed). */
+  private mediaFrameCanvas(id: string, m: NonNullable<ReturnType<typeof imageMedia>>): HTMLCanvasElement | null {
+    const src = mediaReady(m);
+    const idx = mediaFrameIndex(m, app.doc.scene.frame_current);
+    const c = (this.mediaCanvas ??= document.createElement('canvas'));
+    if (!src) {
+      void mediaSource(m)?.then(() => this.draw());
+      return null;
+    }
+    c.width = src.width;
+    c.height = src.height;
+    const g = c.getContext('2d')!;
+    g.clearRect(0, 0, c.width, c.height);
+    if (idx === null) return c; // outside the frames shown: transparent
+    const bmp = src.peek(idx);
+    if (bmp) g.drawImage(bmp, 0, 0);
+    else
+      void src.get(idx).then(() => {
+        if (this.imageId === id) this.draw();
+      });
+    return c;
   }
 
   /** Canvas with the pixels as displayed (for scopes). */
@@ -547,6 +582,9 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       }
     }
     if (this.overlays.show_overlays && !this.host.close) drawAnnotations2D(this, ctx);
+    // movies and sequences: the frames shown, along the bottom
+    const media = imageMedia(shownImg);
+    if (media && !this.maskEditing() && !this.paintMode()) drawMaskStrip(ctx, this.mediaRange(media), this.maskStrip(), app.doc.scene.frame_current);
     // sample cross-hair
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,
@@ -592,6 +630,11 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const [cx, cy] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
     draw2DCursor(ctx, cx, cy);
     if (m) drawMaskStrip(ctx, m, this.maskStrip(), app.doc.scene.frame_current);
+  }
+
+  /** Frame range of a movie / sequence image as a strip range. */
+  private mediaRange(m: NonNullable<ReturnType<typeof imageMedia>>) {
+    return { frame_start: m.frame_start, frame_end: m.frame_start + Math.max(1, m.frame_duration) - 1, layers: [] as { shape_keys: { frame: number }[] }[] };
   }
 
   /** The mask frame strip along the bottom of the view (between the toolbar and the sidebar). */
@@ -1036,6 +1079,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     return [
       { label: 'New', icon: 'add', shortcut: 'Alt N', action: () => this.newDialog() },
       { label: 'Open…', icon: 'file_folder', shortcut: 'Alt O', action: () => this.open() },
+      { label: 'Open Image Sequence…', action: () => void this.openSequence() },
       { label: 'Open Cached Render', op: 'image.read_viewlayers', shortcut: 'Ctrl R' },
       ...(img
         ? [
@@ -1049,6 +1093,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       { label: 'Save As…', shortcut: 'Shift Alt S', disabled: !hasPixels, action: () => this.saveAsDialog() },
       { label: 'Save a Copy…', disabled: !hasPixels, action: () => this.saveAsDialog() },
       { label: 'Save All Images', op: 'image.save_all_modified' },
+      ...(imageMedia(img) ? [{ label: 'Save Sequence', op: 'image.save_sequence' }, { label: 'Match Movie Length', op: 'image.match_movie_length' }] : []),
       ...(img
         ? [
             { separator: true },
@@ -1113,13 +1158,29 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,.hdr,.exr';
+    input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp,.hdr,.exr,video/*,.mp4,.m4v,.mov,.webm,.mkv';
     input.onchange = async () => {
-      const ids = await openImageFiles(Array.from(input.files ?? []));
+      const files = Array.from(input.files ?? []);
+      const video = (f: File) => f.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv)$/i.test(f.name);
+      const ids: string[] = [];
+      // movies open as moving images, still images as images (or UDIM tiles)
+      for (const f of files.filter(video)) {
+        const id = await openMediaFiles([f]);
+        if (id) ids.push(id);
+      }
+      ids.push(...(await openImageFiles(files.filter((f) => !video(f)))));
       this.seenLastImage = lastImage;
       if (ids[0]) this.setImage(ids[0]);
     };
     input.click();
+  }
+
+  /** Open several images as one image sequence (frames in name order). */
+  async openSequence() {
+    const files = await pickFiles('image/*,.png,.jpg,.jpeg,.webp,.bmp', true);
+    if (!files.length) return;
+    const id = await openMediaFiles(files);
+    if (id) this.setImage(id);
   }
 
   reload() {
@@ -1318,7 +1379,9 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
         panel('ie-image', 'Image', () => [
           splitRow(
             'Source',
-            img.source === 'FILE' || img.source === 'GENERATED' || img.source === 'TILED'
+            imageMedia(img)
+              ? h('span', { class: 'ie-value' }, imageMedia(img)!.kind === 'MOVIE' ? 'Movie' : 'Image Sequence')
+              : img.source === 'FILE' || img.source === 'GENERATED' || img.source === 'TILED'
               ? enumMenu(
                   `ie-src-${img.id}`,
                   [
@@ -1352,6 +1415,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
           ),
         ]),
         isTiled(img) ? this.udimPanel(img) : null,
+        imageMedia(img) ? this.mediaPanel(img) : null,
         this.imageMetadata().length
           ? panel('ie-file-meta', 'Metadata', () => this.imageMetadata().map(([k, v]) => h('div', { key: k }, splitRow(k, h('span', { class: 'ie-value', title: v }, v)))), { closed: true })
           : null,
@@ -1389,6 +1453,20 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
         tabs.map((t) => h('button', { key: t, class: { 'sb-tab': true, on: t === tab }, onclick: () => ((this.sidebarTab = t), this.drawUI()) }, t)),
       ),
     );
+  }
+
+  /** Frames of a movie / sequence image (the editor's image user). */
+  private mediaPanel(img: Img): Child {
+    const m = imageMedia(img)!;
+    const set = (label: string) => (app.pushUndo(label), app.changed('doc'), this.draw());
+    return panel('ie-media', 'Frames', () => [
+      splitRow('Length', h('span', { class: 'ie-value' }, `${m.frames} frames${m.kind === 'MOVIE' ? ` at ${Math.round(m.fps * 100) / 100} fps` : ''}`)),
+      splitRow('Frames', numberField({ id: `ie-md-dur-${img.id}`, value: m.frame_duration, int: true, min: 1, max: 1048574, set: (v, f) => ((m.frame_duration = v), f ? set('Frames') : this.draw()) })),
+      splitRow('Start Frame', numberField({ id: `ie-md-start-${img.id}`, value: m.frame_start, int: true, set: (v, f) => ((m.frame_start = v), f ? set('Start Frame') : this.draw()) })),
+      splitRow('Offset', numberField({ id: `ie-md-off-${img.id}`, value: m.frame_offset, int: true, set: (v, f) => ((m.frame_offset = v), f ? set('Offset') : this.draw()) })),
+      splitRow('', checkbox(`ie-md-cyc-${img.id}`, 'Cyclic', m.use_cyclic, (v) => ((m.use_cyclic = v), set('Cyclic')))),
+      h('div', { class: 'btn-col' }, button('ie-md-match', 'Match Movie Length', () => app.run('image.match_movie_length', {}, { area: this.host.area ?? null }))),
+    ]);
   }
 
   /** Text entries stored in the shown PNG file. */
@@ -1648,6 +1726,23 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
         annotatePointerDown(this, e, e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW');
         return;
       }
+      const media = imageMedia(this.image);
+      if (e.button === 0 && media && !this.paintMode() && !this.maskEditing() && !this.host.close) {
+        const r = this.maskStrip();
+        if (start.y >= r.y - 2 && start.x >= r.x0 && start.x <= r.x1) {
+          // drag along the frame strip to change the frame
+          const range = this.mediaRange(media);
+          const go = (ev: { clientX: number; clientY: number }) => {
+            const f = maskStripFrame(range, r, this.local(ev).x);
+            if (f !== app.doc.scene.frame_current) app.run('image.change_frame', { frame: f }, { area: this.host.area ?? null });
+          };
+          go(e);
+          const up = () => (removeEventListener('pointermove', go), removeEventListener('pointerup', up));
+          addEventListener('pointermove', go);
+          addEventListener('pointerup', up);
+          return;
+        }
+      }
       if (e.button === 0 && !this.paintMode() && !this.maskEditing() && isAnnotateTool(this.viewTool) && !this.host.close) {
         annotatePointerDown(this, e, annotateModeOf(this.viewTool));
         return;
@@ -1727,7 +1822,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     if (kinds.has('doc') || kinds.has('ui')) {
       this.draw();
       this.drawUI();
-    } else if (kinds.has('frame') && this.maskEditing()) this.draw();
+    } else if (kinds.has('frame') && (this.maskEditing() || imageMedia(this.image))) this.draw();
   }
 
   resize() {
