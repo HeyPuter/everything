@@ -116,21 +116,46 @@ function fieldPanels(ob: ObjectPhysics): Child[] {
       t !== 'MAGNET' ? num(f, 'flow', 'Flow', { min: 0, max: 10 }) : null,
       ...noiseSeed,
     ];
+  // options shared by the pushing fields
+  const pushing = t === 'FORCE' || t === 'WIND' || t === 'VORTEX' || t === 'TURBULENCE' || t === 'MAGNET' || t === 'HARMONIC' || t === 'LENNARDJ';
+  const extras: Child[] = pushing
+    ? [
+        bool(f as never, 'apply_to_location', 'Affect Location', { tip: 'The field pushes objects and particles' }),
+        t === 'FORCE' ? bool(f as never, 'use_gravity_falloff', 'Gravitation', { tip: 'Fall off with the square of the distance' }) : null,
+        t === 'TURBULENCE' ? bool(f as never, 'use_global_coords', 'Global', { tip: 'Keep the noise pattern fixed in the world (else it moves with the field object)' }) : null,
+        bool(f as never, 'use_absorption', 'Absorption', { tip: 'Collision objects between the field and a point block the field' }),
+        num(f as never, 'wind_factor', 'Wind Factor', { min: 0, max: 1, slider: true, tip: 'Surfaces (cloth, soft bodies) only catch the part of the force across them' }),
+      ]
+    : [];
   return [
     panel('ph-field', 'Force Fields', () => [
       enumProp(f, 'type', 'Type', FIELD_TYPES.map(([v, l]) => [v, l] as [string, string])),
-      t !== 'GUIDE' && t !== 'WIND' ? enumProp(f, 'shape', 'Shape', shapes) : null,
+      t !== 'GUIDE' ? enumProp(f, 'shape', 'Shape', shapes) : null,
       t === 'GUIDE' && ob.type !== 'CURVE' ? note('Curve guides follow the object\'s curve: use a curve object', 'error') : null,
       subHeading('Settings'),
       settings,
+      extras,
     ]),
     panel('ph-field-falloff', 'Falloff', () => [
       enumProp(f, 'falloff_type', 'Shape', [['SPHERE', 'Sphere'], ['TUBE', 'Tube'], ['CONE', 'Cone']]),
-      num(f, 'falloff_power', 'Power', { min: 0, max: 10 }),
+      enumProp(f as never, 'z_direction', 'Z Direction', [['BOTH', 'Both Z'], ['POSITIVE', '+Z'], ['NEGATIVE', '-Z']]),
+      num(f, 'falloff_power', 'Power', { min: 0, max: 10, disabled: !!f.use_gravity_falloff }),
       h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, 'Min Distance'), h('div', { class: 'sr-value row-aligned' }, headerCheck(`ff-min-${ob.id}`, f as never, 'use_min_distance', 'Min Distance')), h('span', { class: 'decorator-space' })),
       f.use_min_distance ? num(f, 'distance_min', 'Distance', { min: 0, unit: 'distance' }) : null,
       h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, 'Max Distance'), h('div', { class: 'sr-value row-aligned' }, headerCheck(`ff-max-${ob.id}`, f as never, 'use_max_distance', 'Max Distance')), h('span', { class: 'decorator-space' })),
       f.use_max_distance ? num(f, 'distance_max', 'Distance', { min: 0, unit: 'distance' }) : null,
+      f.falloff_type === 'TUBE' || f.falloff_type === 'CONE'
+        ? panel(f.falloff_type === 'TUBE' ? 'ph-field-radial' : 'ph-field-angular', f.falloff_type === 'TUBE' ? 'Radial' : 'Angular', () => {
+            const cone = f.falloff_type === 'CONE';
+            return [
+              num(f as never, 'radial_falloff', 'Power', { min: 0, max: 10 }),
+              bool(f as never, 'use_radial_min', cone ? 'Use Min Angle' : 'Use Minimum'),
+              f.use_radial_min ? num(f as never, 'radial_min', cone ? 'Min Angle' : 'Min Distance', cone ? { min: 0, max: 180 } : { min: 0, unit: 'distance' }) : null,
+              bool(f as never, 'use_radial_max', cone ? 'Use Max Angle' : 'Use Maximum'),
+              f.use_radial_max ? num(f as never, 'radial_max', cone ? 'Max Angle' : 'Max Distance', cone ? { min: 0, max: 180 } : { min: 0, unit: 'distance' }) : null,
+            ];
+          }, { sub: true })
+        : null,
     ], { closed: true }),
   ];
 }

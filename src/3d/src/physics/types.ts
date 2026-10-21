@@ -78,6 +78,22 @@ export interface ForceFieldX extends ForceField {
   distance_min?: number;
   /** wind/force: apply to particles/cloth/soft bodies/rigid bodies */
   apply_to_location?: boolean;
+  /** only the positive / negative Z side of the field acts */
+  z_direction?: 'BOTH' | 'POSITIVE' | 'NEGATIVE';
+  /** inverse square falloff (gravitation) */
+  use_gravity_falloff?: boolean;
+  /** collision objects block the field */
+  use_absorption?: boolean;
+  /** how much surfaces only catch the part of the force across them */
+  wind_factor?: number;
+  /** tube / cone falloff across the axis (distance, or angle in degrees for cones) */
+  radial_falloff?: number;
+  use_radial_min?: boolean;
+  radial_min?: number;
+  use_radial_max?: boolean;
+  radial_max?: number;
+  /** turbulence noise fixed in world space */
+  use_global_coords?: boolean;
 }
 
 export interface CollisionSettingsX extends CollisionSettings {
@@ -525,6 +541,17 @@ export function defaultField(type: ForceFieldX['type']): ForceFieldX {
     guide_free: 0.1,
     use_guide_path_add: false,
     guide_clump_amount: 0,
+    apply_to_location: true,
+    z_direction: 'BOTH',
+    use_gravity_falloff: false,
+    use_absorption: false,
+    wind_factor: 1,
+    radial_falloff: 0,
+    use_radial_min: false,
+    radial_min: 0,
+    use_radial_max: false,
+    radial_max: 0,
+    use_global_coords: false,
   };
 }
 

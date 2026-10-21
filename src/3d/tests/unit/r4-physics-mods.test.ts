@@ -133,3 +133,28 @@ describe('multiple point caches', () => {
     expect((holder.point_cache as { frame_end: number }).frame_end).toBe(50);
   });
 });
+
+describe('force field options', () => {
+  it('Z direction, tube radial limits, gravitation and Affect Location', async () => {
+    const { effectorForce } = await import('../../src/physics/fields');
+    const { defaultField } = await import('../../src/physics/types');
+    const { Matrix4 } = await import('three');
+    const eff = (over: Record<string, unknown>) => [{ id: 'f', field: { ...defaultField('FORCE'), ...over } as never, px: 0, py: 0, pz: 0, ax: 0, ay: 0, az: 1, inv: new Matrix4(), scale: 1, world: new Matrix4() }];
+    const force = (over: Record<string, unknown>, p: [number, number, number]) => {
+      const out = [0, 0, 0];
+      effectorForce(eff(over), p[0], p[1], p[2], 0, 0, 0, 1, out);
+      return out;
+    };
+    expect(force({}, [0, 0, 1])[2]).toBeGreaterThan(0);
+    expect(force({ z_direction: 'NEGATIVE' }, [0, 0, 1])[2]).toBe(0);
+    expect(force({ z_direction: 'NEGATIVE' }, [0, 0, -1])[2]).toBeLessThan(0);
+    // tube with a radial maximum: nothing beyond 0.5 from the axis
+    expect(force({ falloff_type: 'TUBE', use_radial_max: true, radial_max: 0.5 }, [1, 0, 0.1])[0]).toBe(0);
+    expect(force({ falloff_type: 'TUBE', use_radial_max: true, radial_max: 0.5 }, [0.3, 0, 0.1])[0]).toBeGreaterThan(0);
+    // gravitation: four times weaker at twice the distance
+    const near = force({ use_gravity_falloff: true }, [1, 0, 0])[0],
+      far = force({ use_gravity_falloff: true }, [2, 0, 0])[0];
+    expect(near / far).toBeCloseTo(4, 3);
+    expect(force({ apply_to_location: false }, [1, 0, 0])[0]).toBe(0);
+  });
+});

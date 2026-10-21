@@ -448,7 +448,8 @@ export function stepFrame(
   const lambda = new Float64Array(topo.a.length);
   const normals = new Float64Array(x.length);
   const f = new Float64Array(3);
-  const useNormals = effectors.some((e) => e.field.type === 'WIND') || !!(P.aero && P.aero.factor > 0);
+  // surfaces catch forces with a wind factor (wind fields by default)
+  const useNormals = effectors.some((e) => ((e.field as { wind_factor?: number }).wind_factor ?? (e.field.type === 'WIND' ? 1 : 0)) > 0) || !!(P.aero && P.aero.factor > 0);
   if (useNormals) vertexNormals(x, topo.tris, normals);
   const nrm: [number, number, number] = [0, 0, 1];
   const thick = P.collision?.distance ?? 0;
