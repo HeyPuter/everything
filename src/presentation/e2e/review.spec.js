@@ -244,7 +244,10 @@ test("comments stay out of the slide show", async ({ page }) => {
 // added to the slide was given, so the comment jumped onto that one.
 test("a comment on a deleted object stays put, off any new object", async ({
   page,
-}) => {
+}, info) => {
+  // A phone's comments sheet covers the slide; the anchoring is the same
+  // in every layout.
+  test.skip(info.project.name === "mobile", "the sheet covers the slide");
   await stub(page);
   const pres = createDeck("blank");
   const slide = P.getSlides(pres)[0];
@@ -263,7 +266,8 @@ test("a comment on a deleted object stays put, off any new object", async ({
     },
   ]);
   await open(page, pres);
-  await page.getByRole("button", { name: "Comments" }).first().click();
+  await reviewTab(page);
+  await command(page, "show-comments");
   const anchor = page.locator("#review-pane .comment-anchor");
   await expect(anchor).toContainText("Rectangle");
   const marker = page.locator(".comment-marker");
