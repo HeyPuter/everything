@@ -9,6 +9,9 @@ import { authorize, refuseCredential } from './auth.js';
 export const WORKER_KEY = 'spreadsheet-collab-worker-v1';
 export const WORKER_BUNDLE = 'worker/spreadsheet-worker.js';
 
+/** Why a request never reached the worker, as the status shows it. */
+export const UNREACHABLE = 'Could not reach the shared workbook. Check your connection; your changes are kept and sent when it returns.';
+
 export class CollabError extends Error {
   constructor(message, status = 0) {
     super(message);
@@ -40,7 +43,7 @@ export async function call(puter, server, input) {
         controller.signal.throwIfAborted();
         return await puter.workers.exec(`${server}/api`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body, signal: controller.signal, redirect: 'error' });
       } catch {
-        throw new CollabError('Could not reach the shared workbook. Check your connection; your changes are kept and sent when it returns.');
+        throw new CollabError(UNREACHABLE);
       }
     };
     let res = await send();
