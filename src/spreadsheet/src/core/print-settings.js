@@ -35,6 +35,11 @@ export function normalizePrintSettings(raw) {
       .filter(key => typeof raw[key] === 'string').map(key => [key, nativeText(raw[key])])),
     ...(typeof raw.title === 'boolean' ? { title: raw.title } : {}),
     ...(typeof raw.repeatFrozen === 'boolean' ? { repeatFrozen: raw.repeatFrozen } : {}),
+    // Excel's Page Setup ▸ Sheet options this app keeps for the file without printing by them; only a setting
+    // other than Excel's default is held, so a sheet that sets none compares and saves as before.
+    ...(raw.blackAndWhite === true ? { blackAndWhite: true } : {}), ...(raw.draft === true ? { draft: true } : {}),
+    ...(['asDisplayed', 'atEnd'].includes(raw.cellComments) ? { cellComments: raw.cellComments } : {}),
+    ...(['blank', 'dash', 'NA'].includes(raw.errors) ? { errors: raw.errors } : {}),
     ...pageBreakFields(raw) };
 }
 

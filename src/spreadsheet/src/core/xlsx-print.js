@@ -75,6 +75,8 @@ export function readXlsxPrint(xml, names, sheetName, sheetIndex) {
   return normalizePrintSettings({ areas, ...(!chart ? titles : {}), orientation: chart && !['portrait', 'landscape'].includes(orientation) ? 'landscape' : orientation, paperSize: numeric(setup, 'paperSize'),
     pageOrder: xlsxAttr(setup, 'pageOrder')?.trim(), scale: numeric(setup, 'scale'), fitToPage: bool(page, 'fitToPage'), fitWidth: numeric(setup, 'fitToWidth'), fitHeight: numeric(setup, 'fitToHeight'),
     firstPageNumber: numeric(setup, 'firstPageNumber'), useFirstPageNumber: bool(setup, 'useFirstPageNumber'),
+    ...(!chart ? { blackAndWhite: bool(setup, 'blackAndWhite'), draft: bool(setup, 'draft'),
+      cellComments: xlsxAttr(setup, 'cellComments')?.trim(), errors: xlsxAttr(setup, 'errors')?.trim() } : {}),
     margins: Object.fromEntries(['left', 'right', 'top', 'bottom', 'header', 'footer'].map(k => [k, numeric(margins, k)])),
     horizontalCentered: bool(options, 'horizontalCentered'), verticalCentered: bool(options, 'verticalCentered'),
     gridlines: bool(options, 'gridLines'), headings: bool(options, 'headings'),

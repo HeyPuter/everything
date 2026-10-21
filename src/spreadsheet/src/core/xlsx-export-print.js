@@ -33,7 +33,8 @@ export function writeXlsxPrint(xml, settings) {
     list.map(id => xmlTag('brk', { id, max, man: 1 })).join('')) : '';
   const body = xmlTag('printOptions', { horizontalCentered: Number(p.horizontalCentered), verticalCentered: Number(p.verticalCentered),
     gridLines: Number(p.gridlines), headings: Number(p.headings) }) + xmlTag('pageMargins', p.margins)
-    + xmlTag('pageSetup', { paperSize: p.paperSize, orientation: p.orientation, pageOrder: p.pageOrder, scale: p.scale, fitToWidth: p.fitWidth, fitToHeight: p.fitHeight, ...numbering })
+    + xmlTag('pageSetup', { paperSize: p.paperSize, orientation: p.orientation, pageOrder: p.pageOrder, scale: p.scale, fitToWidth: p.fitWidth, fitToHeight: p.fitHeight, ...numbering,
+      blackAndWhite: p.blackAndWhite ? 1 : null, draft: p.draft ? 1 : null, cellComments: p.cellComments, errors: p.errors })
     + headerFooter + breaks('rowBreaks', p.rowBreaks, MAX_COL) + breaks('colBreaks', p.colBreaks, MAX_ROW);
   return xml.replace(new RegExp(`<(?:headerFooter|rowBreaks|colBreaks|customProperties|cellWatches|ignoredErrors|smartTags|drawing|legacyDrawing|picture|oleObjects|controls|webPublishItems|tableParts)\\b|${WORKSHEET_EXTLST}|<\\/worksheet>`), match => body + match);
 }
