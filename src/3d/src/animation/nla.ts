@@ -5,7 +5,7 @@ import { icon } from '../ui/icons';
 import { app, registerOperators, type ModalHandler, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { registerEditor } from '../ui/screen';
-import { openMenu, type MenuItem } from '../ui/menu';
+import { promptText, openMenu, type MenuItem } from '../ui/menu';
 import { numberField, enumMenu, checkbox, textField, panel, button } from '../ui/widgets';
 import type { AnimData, NlaStrip, NlaTrack, ObjectData } from '../data/types';
 import { findSlot, isSlotted, stripSlot } from '../anim/slots';
@@ -373,20 +373,33 @@ export class NlaEditor extends AnimEditor {
   }
 
   protected mainContextMenu(): MenuItem[] {
+    const ref = this.activeStripRef();
     return [
       { heading: 'NLA' },
       ...this.tweakItems(),
       { separator: true },
+      {
+        label: 'Rename…',
+        disabled: !ref,
+        action: () =>
+          ref &&
+          promptText('Rename Strip', ref.strip.name, (v) => {
+            if (!v.trim()) return;
+            ref.strip.name = v.trim();
+            app.pushUndo('Rename Strip');
+            app.changed('doc');
+          }),
+      },
       { label: 'Duplicate', op: 'nla.duplicate_move', shortcut: 'Alt D' },
-      { label: 'Linked Duplicate', op: 'nla.duplicate_linked_move', shortcut: 'Shift D' },
+      { label: 'Duplicate Linked', op: 'nla.duplicate_linked_move', shortcut: 'Shift D' },
       { separator: true },
-      { label: 'Split', op: 'nla.split', shortcut: 'Y' },
-      { label: 'Delete', op: 'nla.delete', shortcut: 'X' },
+      { label: 'Split Strips', op: 'nla.split', shortcut: 'Y' },
+      { label: 'Delete Strips', op: 'nla.delete', shortcut: 'X' },
       { separator: true },
-      { label: 'Make Meta', op: 'nla.meta_add', shortcut: 'Ctrl G' },
-      { label: 'Remove Meta', op: 'nla.meta_remove', shortcut: 'Ctrl Alt G' },
+      { label: 'Add Meta-Strips', op: 'nla.meta_add', shortcut: 'Ctrl G' },
+      { label: 'Remove Meta-Strips', op: 'nla.meta_remove', shortcut: 'Ctrl Alt G' },
       { separator: true },
-      { label: 'Swap', op: 'nla.swap', shortcut: 'Alt F' },
+      { label: 'Swap Strips', op: 'nla.swap', shortcut: 'Alt F' },
       { separator: true },
       { label: 'Snap', submenu: snapItems },
     ];
