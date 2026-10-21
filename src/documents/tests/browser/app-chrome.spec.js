@@ -396,3 +396,25 @@ test('AutoSave off waits for Save; Comments opens the review pane; the page coun
   await page.locator('.ed-page-count').click();
   await expect(page.getByRole('dialog', { name: /Go To/i })).toBeVisible();
 });
+
+test('on a phone, panes open together stay within reach below the page', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/mock.html#/new');
+  await expect(text(page)).toBeEditable();
+  const open = async (tab, name) => {
+    await page.locator(`#ribbon-tab-${tab}`).click();
+    const button = page.locator(`#ribbon-panel-${tab}`).getByRole('button', { name, exact: true });
+    await button.scrollIntoViewIfNeeded();
+    await button.click();
+  };
+  await open('home', 'Styles Pane');
+  await open('view', 'Navigation Pane');
+  const styles = page.getByRole('complementary', { name: 'Styles pane' });
+  await expect(styles).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Navigation' })).toBeVisible();
+  // Together they are taller than the room under the page: a swipe over them brings the last one into view.
+  await styles.getByRole('heading', { name: 'Styles' }).hover();
+  await page.mouse.wheel(0, 2000);
+  const bottoms = () => page.evaluate(() => [document.querySelector('.styles-pane'), document.querySelector('.canvas-editor-content')].map(node => Math.round(node.getBoundingClientRect().bottom)));
+  await expect.poll(async () => { const [pane, column] = await bottoms(); return pane <= column; }).toBe(true);
+});

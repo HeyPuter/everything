@@ -198,7 +198,9 @@
 
 @media (max-width: 700px) {
   .canvas-editor-body { flex-direction: column; }
-  .canvas-editor-content { flex-direction: column; }
+  /* Panes stack under the page here, and two or more open at once can be taller than the window:
+     the column scrolls rather than cutting the last of them off below the status bar. */
+  .canvas-editor-content { flex-direction: column; overflow-y: auto; overscroll-behavior: contain; }
   .canvas-navigation { flex: none; flex-direction: row; justify-content: flex-start; gap: 4px; padding: 4px 8px; border-right: 0; border-bottom: 1px solid var(--hairline); }
   .canvas-navigation .canvas-tool { flex-direction: row; width: auto; min-width: 44px; min-height: 44px; gap: 8px; padding: 8px 12px; font-size: 12px; }
   .canvas-document-surface { order: 0; min-height: 130px; }
