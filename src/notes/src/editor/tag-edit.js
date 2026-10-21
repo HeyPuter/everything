@@ -1,6 +1,6 @@
 import { TAG_BY_ID, TAGS } from '../data/tags.js';
 import { iconMarkup } from '../lib/icons.js';
-import { blocksInRange, currentRange, editableRoot, ensureBlocks } from './selection.js';
+import { blocksInRange, currentRange, editableRoot, ensureBlocks, selectRange } from './selection.js';
 
 /** Builds the tag span stored at the start of a tagged block. */
 export function tagSpan(id, done = false) {
@@ -79,6 +79,19 @@ export function toggleTag(id, { cycle = false } = {}) {
       if (tags.length) tags[tags.length - 1].after(span);
       else b.prepend(span);
     });
+    // A caret at the very start of the line (always so on an empty one)
+    // stays in front of the new tag, and typing would go before it: put
+    // it after the line's tags.
+    const range = currentRange();
+    if (range?.collapsed) {
+      const block = blocks.find((b) => b.contains(range.startContainer));
+      const last = block && tagsOf(block).at(-1);
+      if (last) {
+        const after = document.createRange();
+        after.setStartAfter(last);
+        if (range.compareBoundaryPoints(Range.START_TO_START, after) < 0) selectRange(after);
+      }
+    }
     result = 'added';
   }
   root.dispatchEvent(new Event('input', { bubbles: true }));

@@ -90,6 +90,27 @@ describe('tags', () => {
     expect(el.querySelector('.nt-tag')).toBeNull();
   });
 
+  it('leaves the caret after the tags it adds, so typing follows them', () => {
+    el = body('<p>Call Sam</p><p><br></p>');
+    const empty = el.children[1];
+    caretIn(empty, 0);
+    toggleTag('todo');
+    toggleTag('important');
+    const sel = document.getSelection();
+    expect(sel.anchorNode).toBe(empty);
+    expect(sel.anchorOffset).toBe(2);
+    // A caret already inside the text stays where it is.
+    caretIn(el.children[0].firstChild, 4);
+    toggleTag('question');
+    expect(sel.anchorNode).toBe(el.children[0].lastChild);
+    expect(sel.anchorOffset).toBe(4);
+    // At the start of a line's text, the caret is already after the tag.
+    caretIn(el.children[0], 0);
+    toggleTag('idea');
+    expect(sel.anchorNode).toBe(el.children[0]);
+    expect(sel.anchorOffset).toBe(2);
+  });
+
   it('tags every selected paragraph', () => {
     const r = document.createRange();
     r.setStart(el.children[0].firstChild, 0);
