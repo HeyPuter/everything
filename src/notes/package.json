@@ -4,6 +4,7 @@
   "description": "Notes: a free-form digital notebook on Puter. Notebooks, sections, pages, tags, ink and search, stored in your own cloud.",
   "type": "module",
   "private": true,
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
