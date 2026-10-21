@@ -674,7 +674,7 @@ registerOperators([
         const a = ed.backdropUV(x0, y1),
           b = ed.backdropUV(x1, y0);
         if (!a || !b) return;
-        app.run('node.viewer_border', { xmin: a[0], ymin: a[1], xmax: b[0], ymax: b[1] }, { area: ctx.area });
+        app.run('node.viewer_border', { xmin: a[0], ymin: a[1], xmax: b[0], ymax: b[1] }, { area: ctx.area, invoke: false });
       });
       return 'CANCELLED';
     },
