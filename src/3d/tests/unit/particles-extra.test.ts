@@ -153,7 +153,7 @@ describe('hair dynamics', () => {
     const doc = emptyDocument();
     const ob = addMesh(doc, 'Head', plane(1), [0, 0, 1]);
     // slightly tilted strands (perfectly upright ones would balance)
-    const { m } = emitter(doc, ob, { type: 'HAIR', count: 20, hair_length: 0.5, hair_step: 5, render_type: 'PATH', normal_factor: 1, object_align_factor: [0.3, 0, 0] });
+    const { m } = emitter(doc, ob, { type: 'HAIR', count: 20, hair_length: 0.5, hair_step: 5, display_step: 0, render_type: 'PATH', normal_factor: 1, object_align_factor: [0.3, 0, 0] });
     const g = new Depsgraph(doc);
     const tips = () => {
       const d = [...particleDrawValues()].find((x) => x.objectId === ob.id)!;
