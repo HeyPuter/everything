@@ -1,5 +1,6 @@
 import { groupTextRuns } from './text-group.js';
 import { paragraphVector } from './paragraph-data.js';
+import { hasRightToLeft } from './bidi.js';
 
 const parts = (line) => line.parts || [line];
 const pathKey = (run) => run.path.map((call) => call.start).join(':');
@@ -128,6 +129,10 @@ export function groupTextParagraphs(lines) {
       parts(previous).at(-1).barrier === parts(line)[0].barrier &&
       pathKey(parts(previous)[0]) === pathKey(parts(line)[0]) &&
       !/^\s*(?:[•*\-]|\d+[.)])\s/.test(line.text) &&
+      // Each line of right-to-left text is drawn in its own visual order, so the lines are
+      // reordered for editing one by one and stay separate.
+      !hasRightToLeft(previous.text) &&
+      !hasRightToLeft(line.text) &&
       block.text.length + line.text.length + 1 < 5000
     ) {
       const a = previous.transform,

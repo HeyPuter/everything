@@ -7,6 +7,7 @@ import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
 import { draftText, textLineInput } from './text-line-input.js';
 import { groupTextParagraphs } from './core/text-paragraph.js';
+import { readingOrder, reorderSegments, reorderText } from './core/bidi.js';
 import { textPositionControls } from './text-position.js';
 import { placeTextCaret } from './text-caret.js';
 import { textWidthControls } from './text-width.js';
@@ -2175,14 +2176,19 @@ export function createEditor({
   editorRoot.addEventListener('contextmenu', (event) => {
     if (!access().copy && event.target.matches('canvas, img')) event.preventDefault();
   });
+  // A draft of right-to-left text is edited in reading order; the PDF draws it in visual order.
+  const drawnText = (edit, text) => (edit.direction ? reorderText(text, edit.direction) : text);
+  const drawnSegments = (edit, segments) =>
+    edit.direction && segments ? reorderSegments(segments, edit.direction) : segments;
   function pendingTextEdit() {
     return Boolean(
       textEdit &&
       (textEdit.positionControl?.pending ||
         textEdit.widthControl?.pending ||
-        textEdit.input.value !== (textEdit.run?.text || '') ||
+        drawnText(textEdit, textEdit.input.value) !== (textEdit.run?.text || '') ||
         (textEdit.run?.parts &&
-          JSON.stringify(textEdit.input.segments()) !== JSON.stringify(textEdit.run.segments)) ||
+          JSON.stringify(drawnSegments(textEdit, textEdit.input.segments())) !==
+            JSON.stringify(textEdit.run.segments)) ||
         (textEdit.run &&
           (styleChanged(textEdit) ||
             decorationChanged(textEdit) ||
@@ -4550,7 +4556,7 @@ export function createEditor({
     const focusedHandle = edit.handles.contains(document.activeElement)
       ? document.activeElement.getAttribute('aria-label')
       : null;
-    const text = edit.input.value.replace(/\s/g, '');
+    const text = drawnText(edit, edit.input.value).replace(/\s/g, '');
     const anchor = edit.run
       ? [edit.run.transform[4] + edit.offset[0], edit.run.transform[5] + edit.offset[1]]
       : [edit.point.x, edit.point.y];
@@ -4657,7 +4663,7 @@ export function createEditor({
       const target = el('button', {
         class: 'text-target',
         type: 'button',
-        'aria-label': `Edit text: ${run.text}`,
+        'aria-label': `Edit text: ${readingOrder(run.text)?.text ?? run.text}`,
         title: 'Edit text',
         onclick: safe(async (e) => {
           if (tool !== 'text' && e.detail) return;
@@ -4748,8 +4754,8 @@ export function createEditor({
         layoutTextEdit();
       }
     }
-    let value = edit.input.value;
-    let segments = edit.input.segments?.();
+    let value = drawnText(edit, edit.input.value);
+    let segments = drawnSegments(edit, edit.input.segments?.());
     const paragraphChanged =
       edit.run?.paragraph &&
       (value !== edit.run.text ||
@@ -4766,8 +4772,8 @@ export function createEditor({
       : undefined;
     const flow = apply && paragraphChanged ? edit.input.exportLayout() : null;
     if (flow) {
-      value = flow.text;
-      segments = flow.segments;
+      value = drawnText(edit, flow.text);
+      segments = drawnSegments(edit, flow.segments);
     }
     const lineOffsets =
       flow?.lineOffsets ??
@@ -4903,8 +4909,9 @@ export function createEditor({
           height: textSize * zoom * 1.35,
           transform: 'none',
         };
+    const reading = run && readingOrder(run.text, run.segments);
     const input = run?.parts
-      ? textLineInput(run)
+      ? textLineInput(reading ? { ...run, text: reading.text, segments: reading.segments } : run)
       : el('textarea', {
           class: 'page-text-input',
           rows: 1,
@@ -4914,8 +4921,13 @@ export function createEditor({
           spellcheck: true,
           wrap: 'off',
         });
+    if (reading) {
+      // Lay the line out in its own direction, still starting where the PDF's glyphs start.
+      input.dir = reading.direction;
+      input.style.textAlign = 'left';
+    }
     if (!run?.parts) {
-      input.value = run?.text || '';
+      input.value = reading?.text ?? (run?.text || '');
       // Tabs from a copied table have no glyph in the text fonts; they paste as spaces.
       input.addEventListener('paste', (e) => {
         const text = e.clipboardData?.getData('text/plain') ?? '';
@@ -4976,6 +4988,7 @@ export function createEditor({
       panel,
       error,
       run,
+      direction: reading?.direction,
       editing,
       offset: [0, 0],
       page: pageIndex,

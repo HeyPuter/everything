@@ -24,6 +24,7 @@ export function placeTextCaret(input, { clientX, clientY }) {
       pointerEvents: 'auto',
     });
     mirror.setAttribute('aria-hidden', 'true');
+    mirror.dir = input.dir;
     mirror.textContent = input.value + '\u200b';
     input.after(mirror);
     mirror.scrollTop = input.scrollTop;
