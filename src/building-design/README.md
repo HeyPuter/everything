@@ -20,7 +20,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Floors and ceilings from a picked room or building outline, a rectangle, or a sketched boundary. Footprint roofs with a slope per edge: hips, gables and shed roofs come out of the same model.
 - Walls can attach their tops to a roof and follow it when the roof changes.
 - Shaft openings that cut floors, ceilings and roofs through a range of levels.
-- Columns (architectural and structural), beams, braces, beam systems that fill a bay, straight, L-shaped and U-shaped stairs with automatic riser counts, landings and handrails, ramps and railings.
+- Columns (architectural and structural), beams, braces, beam systems that fill a bay, straight, L-shaped, U-shaped and spiral stairs with automatic riser counts, landings and handrails, ramps and railings. Any element can be painted with a material.
 - Openings by face in floors, roofs and ceilings, curtain grids placed per wall, model lines, reference planes and work planes.
 - Foundations: isolated footings (one by one or under every column), wall foundations and foundation slabs. Trusses (Pratt, Howe, Warren, Fink, king post) between two points.
 - Model text: 3D lettering, standing or flat. Your own families, made from masses, that stretch to their type's size.
