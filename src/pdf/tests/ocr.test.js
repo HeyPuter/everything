@@ -14,6 +14,7 @@ import {
 } from '../src/core/ocr.js';
 import { pageSource, setPageSource } from '../src/core/text-edit.js';
 import { createOcrEngine } from '../src/ocr-engine.js';
+import { autotagDocument } from '../src/core/autotag.js';
 
 const fontFile = new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url);
 const langPath = fileURLToPath(
@@ -267,6 +268,22 @@ describe('replacing and removing the layer', () => {
     const reopened = await PDFDocument.load(await doc.save());
     await addOcrTextLayer(reopened, 0, result);
     expect(await strings(reopened)).toEqual(['Visible', 'Only', 'once']);
+  });
+
+  it('tags text recognized again with marked-content IDs the old tags do not hold', async () => {
+    const doc = await pageWithText();
+    await addOcrTextLayer(doc, 0, result);
+    const tagged = await PDFDocument.load(await doc.save());
+    autotagDocument(tagged);
+    // Recognizing again replaces the tagged layer; its tags still name the old IDs.
+    await addOcrTextLayer(tagged, 0, synthetic(612, 792, [[word('Again', 100, 100, 160, 124)]]));
+    const retagged = await PDFDocument.load(await tagged.save());
+    autotagDocument(retagged);
+    const pdf = await open(await retagged.save());
+    const tree = JSON.stringify(await (await pdf.getPage(1)).getStructTree());
+    const claims = [...tree.matchAll(/"id":"(p\d+R_mc\d+)"/g)].map((m) => m[1]);
+    expect(claims.length).toBeGreaterThan(0);
+    expect(new Set(claims).size).toBe(claims.length);
   });
 
   it('removes the layer and leaves the page as it was', async () => {

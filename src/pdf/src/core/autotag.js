@@ -514,6 +514,19 @@ export function autotagDocument(doc, { lang } = {}) {
     ? readNumberTree(doc, structure.root.get(N('ParentTree')))
     : new Map();
   const pageKeys = new Map();
+  // MCIDs the tag tree still gives to a page whose content has since lost them (a text layer
+  // recognized again) are not handed out again, or their old elements would read the new text.
+  const claimedEnd = new Map();
+  for (const element of structure?.elements || [])
+    for (const { page, mcid, stream } of element.mcids)
+      if (!stream && page !== undefined)
+        claimedEnd.set(page, Math.max(claimedEnd.get(page) ?? 0, mcid + 1));
+  const parentArrayLength = (page) => {
+    const key = page.node.lookup(N('StructParents'));
+    const value =
+      key instanceof PDFNumber ? doc.context.lookup(parentEntries.get(key.asNumber())) : null;
+    return value instanceof PDFArray ? value.size() : 0;
+  };
   let changedPages = 0;
   pages.forEach((page, index) => {
     const data = pageData[index];
@@ -585,7 +598,9 @@ export function autotagDocument(doc, { lang } = {}) {
     }
     close();
     if (!sequences.length) return;
-    let mcid = incremental ? scan.maxMcid + 1 : 0;
+    let mcid = incremental
+      ? Math.max(scan.maxMcid + 1, claimedEnd.get(index) ?? 0, parentArrayLength(page))
+      : 0;
     const parents = [];
     const edits = [];
     for (const sequence of sequences) {
