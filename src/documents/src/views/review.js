@@ -95,7 +95,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
 
   // Keys typed in a comment stay in the comment: the document's chords must not act on it.
   layer.addEventListener('keydown', e => {
-    const save = (e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 's';
+    const save = (e.metaKey || e.ctrlKey) && !e.altKey && shortcutCode(e) === 'KeyS';
     if (!save) e.stopPropagation();
   });
   layer.addEventListener('pointerdown', e => e.stopPropagation());

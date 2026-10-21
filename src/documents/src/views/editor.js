@@ -110,7 +110,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const printAbort = new AbortController();
   let printing = false;
   window.addEventListener('keydown', e => {
-    if (!e.defaultPrevented && !isComposing(e) && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'p' && engine) {
+    if (!e.defaultPrevented && !isComposing(e) && (e.ctrlKey || e.metaKey) && !e.altKey && shortcutCode(e) === 'KeyP' && engine) {
       e.preventDefault(); printDocument();
     }
   }, {signal:printAbort.signal});
@@ -1229,8 +1229,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     focusFont: () => fontFamily.click(), focusSize: () => { fontSize.focus(); fontSize.select(); } }), true);
   root.addEventListener('keydown', e => {
     if (e.defaultPrevented || isComposing(e)) return;
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
-    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f' && engine) { e.preventDefault(); openSearch(); return; }
+    // By the letter the layout types, or the physical key where it types another script (Cyrillic ы, а), so the
+    // browser's own Save page and Find bar do not take these chords.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && shortcutCode(e) === 'KeyS') { e.preventDefault(); save(); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && shortcutCode(e) === 'KeyF' && engine) { e.preventDefault(); openSearch(); return; }
     // Find and replace: the conventional Ctrl+H; Cmd+H hides the app on a Mac, so there it is Cmd+Shift+H.
     if (shortcutCode(e) === 'KeyH' && !e.altKey && engine && (MOD_KEY === 'Cmd' ? e.metaKey && e.shiftKey : e.ctrlKey && !e.shiftKey)) { e.preventDefault(); openFind(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === '/') { e.preventDefault(); editorCommands.openShortcuts(); return; }

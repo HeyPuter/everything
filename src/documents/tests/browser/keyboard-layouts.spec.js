@@ -90,3 +90,20 @@ test('Alt+Shift+D still inserts the date where Alt types no character', async ({
   expect(await chords(input, [{ key: 'D', code: 'KeyD', altKey: true, shiftKey: true }])).toEqual(['D:true']);
   await expect.poll(() => input.inputValue()).not.toBe('Dated');
 });
+
+test('Save, Find and Print take their chords from another script\'s layout, outside the document too', async ({ page }) => {
+  await page.addInitScript(() => { window.print = () => { window.printCalls = (window.printCalls || 0) + 1; }; });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Alpha');
+  // Cyrillic types а on the F key: the editor's search opens rather than the browser's Find bar.
+  expect(await press(input, { key: 'а', code: 'KeyF', ...MOD })).toBe(true);
+  await expect(page.getByRole('complementary', { name: 'Navigation' })).toBeVisible();
+  // Cyrillic ы on the S key, pressed on the ribbon: the document is saved, not the web page.
+  const bold = page.getByRole('button', { name: 'Bold', exact: true });
+  expect(await press(bold, { key: 'ы', code: 'KeyS', ...MOD })).toBe(true);
+  // Cyrillic з on the P key prints the pages, not the web page.
+  expect(await press(input, { key: 'з', code: 'KeyP', ...MOD })).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.printCalls)).toBe(1);
+});
