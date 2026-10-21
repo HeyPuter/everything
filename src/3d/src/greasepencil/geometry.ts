@@ -23,8 +23,8 @@ export interface StrokeStyle {
   holdoutFill?: boolean;
 }
 
-/** Gradient coordinates of fill points: the fill's plane, normalized to its bounds, then moved / turned / scaled. */
-export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullable<StrokeStyle['gradient']>): Map<number, [number, number]> {
+/** Plane of a fill: unit normal and two in-plane axes (u, v) from the loops' Newell normal. */
+export function fillPlane(P: ArrayLike<number>, loops: number[][]): { N: number[]; U: number[]; V: number[] } {
   const n = [0, 0, 0];
   for (const l of loops) newell(P, l, n);
   const len = Math.hypot(n[0], n[1], n[2]) || 1;
@@ -35,6 +35,12 @@ export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullab
   const ul = Math.hypot(u[0], u[1], u[2]) || 1;
   const U = [u[0] / ul, u[1] / ul, u[2] / ul];
   const V = [N[1] * U[2] - N[2] * U[1], N[2] * U[0] - N[0] * U[2], N[0] * U[1] - N[1] * U[0]];
+  return { N, U, V };
+}
+
+/** Gradient coordinates of fill points: the fill's plane, normalized to its bounds, then moved / turned / scaled. */
+export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullable<StrokeStyle['gradient']>): Map<number, [number, number]> {
+  const { U, V } = fillPlane(P, loops);
   const pts = new Map<number, [number, number]>();
   let x0 = Infinity,
     y0 = Infinity,
@@ -57,6 +63,39 @@ export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullab
     [a, b] = [(a * c - b * s) / (g.scale[0] || 1), (a * s + b * c) / (g.scale[1] || 1)];
     pts.set(i, [a + 0.5, b + 0.5]);
   }
+  return pts;
+}
+
+/** Whether stroke s has its own fill texture transform (set with the Gradient tool). */
+export function hasStrokeUV(d: GPDrawing, s: number): boolean {
+  const n = d.offsets.length - 1;
+  if (!d.uv_translation || !d.uv_rotation || !d.uv_scale || d.uv_rotation.length !== n) return false;
+  return d.uv_translation[s * 2] !== 0 || d.uv_translation[s * 2 + 1] !== 0 || d.uv_rotation[s] !== 0 || d.uv_scale[s * 2] !== 1 || d.uv_scale[s * 2 + 1] !== 1;
+}
+
+/**
+ * Gradient coordinates from a stroke's own transform: in the fill plane, the gradient starts at
+ * `uv_translation`, runs along `uv_rotation` and spans `uv_scale` (linear: u 0 → 1; radial: the
+ * distance from the start, 0 → 1).
+ */
+export function strokeUV(P: ArrayLike<number>, loops: number[][], d: GPDrawing, s: number, radial: boolean): Map<number, [number, number]> {
+  const { U, V } = fillPlane(P, loops);
+  const tx = d.uv_translation![s * 2],
+    ty = d.uv_translation![s * 2 + 1],
+    r = d.uv_rotation![s];
+  const sx = d.uv_scale![s * 2] || 1,
+    sy = d.uv_scale![s * 2 + 1] || 1;
+  const c = Math.cos(-r),
+    sn = Math.sin(-r);
+  const pts = new Map<number, [number, number]>();
+  for (const l of loops)
+    for (const i of l) {
+      const x = P[i * 3] * U[0] + P[i * 3 + 1] * U[1] + P[i * 3 + 2] * U[2] - tx;
+      const y = P[i * 3] * V[0] + P[i * 3 + 1] * V[1] + P[i * 3 + 2] * V[2] - ty;
+      const u = (x * c - y * sn) / sx,
+        v = (x * sn + y * c) / sy;
+      pts.set(i, radial ? [0.5 + u * 0.5, 0.5 + v * 0.5] : [u, v]);
+    }
   return pts;
 }
 
@@ -248,7 +287,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         if (tris.length) {
           const fc = fillColorOf(d, s, st.fillColor);
           const g = st.gradient;
-          const uv = g ? gradientUV(P, loops, g) : null;
+          const uv = g ? (hasStrokeUV(d, s) ? strokeUV(P, loops, d, s, g.type === 'RADIAL') : gradientUV(P, loops, g)) : null;
           let ca2 = fc as number[],
             cb2 = fc as number[];
           if (g) {

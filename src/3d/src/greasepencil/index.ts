@@ -37,6 +37,7 @@ import './segmentops';
 import './annotations';
 import './curveedit';
 import './pen';
+import './texgrad';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [
