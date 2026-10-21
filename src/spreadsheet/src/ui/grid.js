@@ -2757,12 +2757,24 @@ export function createGrid(opts) {
     if (rowHeaderW !== before) invalidateOffsets();
   }
 
+  /**
+   * How a column's (axis 'col') or row's heading marks the selection: 'sel' when a range of it takes the line
+   * whole (one added with Ctrl/Cmd+click too), 'hl' when one only crosses it, null otherwise.
+   */
+  function headerMark(axis, i, range) {
+    let mark = null;
+    for (const rg of [...extras, range]) {
+      if (axis === 'col' ? i < rg.c1 || i > rg.c2 : i < rg.r1 || i > rg.r2) continue;
+      if (wholeLines(rg, axis)) return 'sel';
+      mark = 'hl';
+    }
+    return mark;
+  }
+
   function renderHeaders(vr, view = viewMetrics()) {
     fitRowDigits(vr.r1);
     const range = S.selRange(sel, true);
     const s = sheet();
-    const wholeCols = wholeLines(range, 'col');
-    const wholeRows = wholeLines(range, 'row');
     // Zoomed far out the lines are narrower than their letters and numbers (drawn no smaller than 6px,
     // chrome.css), which ran together into a smear: a label that does not fit its line shows on every
     // k-th line only, k the first of 1, 2, 5, 10, 20, 50… lines of the sheet's size that holds it.
@@ -2800,8 +2812,8 @@ export function createGrid(opts) {
       const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { c } }, colLabel(c));
       h.style.left = `${colX(c)}px`;
       h.style.width = `${colW(c)}px`;
-      if (c >= range.c1 && c <= range.c2) h.classList.add(wholeCols ? 'sel' : 'hl');
-      else if (extras.some((x) => c >= x.c1 && c <= x.c2)) h.classList.add('hl');
+      const mark = headerMark('col', c, range);
+      if (mark) h.classList.add(mark);
       if (c > 0 && s.hiddenCols.has(c - 1)) h.classList.add('after-hidden');
       if (s.hiddenCols.has(c + 1)) h.classList.add('before-hidden');
       h.append(resizer('col', c, colW(c)));
@@ -2811,8 +2823,8 @@ export function createGrid(opts) {
       const h = el('div.hcell', { 'aria-hidden': 'true', dataset: { r } }, rowLabel(r));
       h.style.top = `${rowY(r)}px`;
       h.style.height = `${rowH(r)}px`;
-      if (r >= range.r1 && r <= range.r2) h.classList.add(wholeRows ? 'sel' : 'hl');
-      else if (extras.some((x) => r >= x.r1 && r <= x.r2)) h.classList.add('hl');
+      const mark = headerMark('row', r, range);
+      if (mark) h.classList.add(mark);
       if (r > 0 && s.hiddenRows.has(r - 1)) h.classList.add('after-hidden');
       if (s.hiddenRows.has(r + 1)) h.classList.add('before-hidden');
       if (wb.filtersForSheet(s.id).some(f => r > f.range.r1 && r <= f.range.r2 && Object.keys(f.criteria).length)) h.classList.add('filtered');
@@ -2917,24 +2929,14 @@ export function createGrid(opts) {
   /** The selection's marks on the row and column headers, set on the existing header cells. */
   function highlightHeaders() {
     const range = S.selRange(sel, true);
-    const wholeCols = wholeLines(range, 'col');
-    const wholeRows = wholeLines(range, 'row');
-    for (const head of [colHead, colHeadFrozen]) {
-      for (const h of head.children) {
-        if (!h.classList.contains('hcell')) continue;
-        const c = Number(h.dataset.c);
-        const inSel = c >= range.c1 && c <= range.c2;
-        h.classList.toggle('sel', inSel && wholeCols);
-        h.classList.toggle('hl', (inSel && !wholeCols) || (!inSel && extras.some((x) => c >= x.c1 && c <= x.c2)));
-      }
-    }
-    for (const head of [rowHead, rowHeadFrozen]) {
-      for (const h of head.children) {
-        if (!h.classList.contains('hcell')) continue;
-        const r = Number(h.dataset.r);
-        const inSel = r >= range.r1 && r <= range.r2;
-        h.classList.toggle('sel', inSel && wholeRows);
-        h.classList.toggle('hl', (inSel && !wholeRows) || (!inSel && extras.some((x) => r >= x.r1 && r <= x.r2)));
+    for (const [axis, heads] of [['col', [colHead, colHeadFrozen]], ['row', [rowHead, rowHeadFrozen]]]) {
+      for (const head of heads) {
+        for (const h of head.children) {
+          if (!h.classList.contains('hcell')) continue;
+          const mark = headerMark(axis, Number(axis === 'col' ? h.dataset.c : h.dataset.r), range);
+          h.classList.toggle('sel', mark === 'sel');
+          h.classList.toggle('hl', mark === 'hl');
+        }
       }
     }
   }
