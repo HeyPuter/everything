@@ -311,6 +311,44 @@ test("a failed request says what to do and can be tried again", async ({
   await expect(panel.getByText("Hi there.")).toBeVisible();
 });
 
+test("changes made before a failure keep their Undo when tried again", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "one layout covers the flow");
+  // The request after the tool call fails once.
+  await page.evaluate(() => {
+    const chat = window.puter.ai.chat;
+    let calls = 0;
+    window.puter.ai.chat = async (...args) => {
+      if (++calls === 2)
+        throw { error: { message: "Too many requests", code: "rate_limited" } };
+      return chat(...args);
+    };
+  });
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  const panel = page.locator("#ai-panel");
+  const box = page.getByRole("textbox", { name: "Message the assistant" });
+  await reply(
+    page,
+    [toolCall("add_text", { text: "Kept", x: 1, y: 1, w: 4, h: 1 })],
+    [{ type: "text", text: "Added it." }],
+  );
+  await box.fill("Add a box");
+  await box.press("Enter");
+  const alert = panel.getByRole("alert");
+  await expect(alert).toContainText("The AI service is busy.");
+  await expect(panel.getByText("1 change made")).toBeVisible();
+  await alert.getByRole("button", { name: "Try again" }).click();
+  await expect(panel.getByText("Added it.")).toBeVisible();
+  await expect(alert).toHaveCount(0);
+  await expect(box).toBeFocused();
+  await expect(panel.getByText("1 change made")).toBeVisible();
+  const object = page.locator('.object-hit[aria-label^="Kept"]');
+  await expect(object).toHaveCount(1);
+  await panel.getByRole("button", { name: "Undo" }).click();
+  await expect(object).toHaveCount(0);
+});
+
 test("the assistant fits beside or over the slide on every screen", async ({
   page,
 }, info) => {

@@ -776,8 +776,13 @@ export function createAssistantPanel(env) {
             {
               type: "button",
               class: "btn ai-btn-sm",
-              onclick: () => {
-                reply.foot.hidden = true;
+              onclick: (e) => {
+                // The error goes; the reply's changes keep their Undo, and
+                // the keyboard moves to the message box.
+                const hadFocus = e.currentTarget === document.activeElement;
+                e.currentTarget.closest(".ai-error").remove();
+                reply.foot.hidden = !reply.foot.childElementCount;
+                if (hadFocus) input.focus({ preventScroll: true });
                 retry();
               },
             },
