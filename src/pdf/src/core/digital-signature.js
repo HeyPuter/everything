@@ -1093,10 +1093,13 @@ async function revisionChanges(data, finalDoc, end) {
     } catch {
       // A damaged page tree is reported through the page objects' changes.
     }
+    const root = (doc) => String(doc.context.trailerInfo.Root);
     return {
       changes,
       oldDoc,
       pagesChanged: oldPages.join() !== newPages.join(),
+      // Pointing the trailer at another catalog swaps every document setting at once.
+      rootChanged: root(oldDoc) !== root(finalDoc),
     };
   })();
   perFile.set(end, promise);
@@ -1200,7 +1203,7 @@ function formChanges(oldDoc, finalDoc, note, { formOk, otherOk }) {
  * restrictions of its own (form filling, signing and annotations allowed, as in Acrobat).
  */
 function classifyChanges(
-  { changes, oldDoc, pagesChanged },
+  { changes, oldDoc, pagesChanged, rootChanged },
   finalDoc,
   { level, locks, ownSigNumber },
 ) {
@@ -1213,6 +1216,7 @@ function classifyChanges(
     if (!list.includes(text)) list.push(text);
   };
   if (pagesChanged) note(false, 'Pages were added, removed or reordered.');
+  if (rootChanged) note(false, 'The document catalog was replaced.');
   const fieldLocked = (fieldName) => {
     if (!fieldName) return false;
     for (const lock of locks) {
@@ -1257,6 +1261,7 @@ function classifyChanges(
       continue;
     }
     if (roles.has('catalog')) {
+      if (rootChanged) continue;
       const keys =
         before instanceof PDFDict && after instanceof PDFDict
           ? changedKeys(before, after)

@@ -301,6 +301,33 @@ describe('signing and validating', () => {
     );
   });
 
+  it('flags a later revision that points the file at another catalog', async () => {
+    // The signed file holds a second, unused catalog that hides a layer of the page.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const layer = doc.context.register(doc.context.obj({ Type: 'OCG', Name: 'Terms' }));
+    page.node.set(PDFName.of('Resources'), doc.context.obj({ Properties: { L1: layer } }));
+    const content = '/OC /L1 BDC 0 0 1 rg 72 600 200 50 re f EMC';
+    page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.stream(content)));
+    const showing = { OCGs: [layer], D: { ON: [layer], Order: [layer] } };
+    doc.catalog.set(PDFName.of('OCProperties'), doc.context.obj(showing));
+    const hiding = { OCGs: [layer], D: { OFF: [layer], Order: [layer] } };
+    const pages = doc.catalog.get(PDFName.of('Pages'));
+    const shadow = doc.context.register(
+      doc.context.obj({ Type: 'Catalog', Pages: pages, OCProperties: hiding }),
+    );
+    const signed = await signPdf(await doc.save({ useObjectStreams: false }), rsa, {});
+    const swapped = await appendUpdate(signed, (doc) => {
+      doc.context.trailerInfo.Root = shadow;
+    });
+    const pdf = await pdfjs.getDocument({ data: swapped.slice(), isEvalSupported: false }).promise;
+    const layers = [...(await pdf.getOptionalContentConfig())];
+    expect(layers.map(([, group]) => group.visible)).toEqual([false]);
+    const [result] = await verifySignatures(swapped);
+    expect(result.status).toBe('modified');
+    expect(result.modifications.disallowed).toEqual(['The document catalog was replaced.']);
+  });
+
   it('signs twice without breaking the first signature', async () => {
     const once = await signPdf(await makePdf(), rsa, {
       page: 0,
