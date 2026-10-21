@@ -182,6 +182,40 @@ test('pages already in view are drawn again at a new zoom', async ({ page }) => 
   await expect.poll(async () => (await sharp()).every(([, ok]) => ok)).toBe(true);
 });
 
+for (const display of ['Scrolling', 'Single page'])
+  test(`${display}: a page left behind by a jump lets its picture go`, async ({ page }) => {
+    await openPdf(page, await numberedPdf(24));
+    if (display !== 'Scrolling') {
+      await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Page display' }).click();
+      await page.getByRole('menuitemcheckbox', { name: display, exact: true }).click();
+      await settled(page);
+    }
+    // Pictures far from the view, or of pages not shown, hold no pixels.
+    const held = () =>
+      page.evaluate(() => {
+        const view = document.querySelector('.workspace').getBoundingClientRect();
+        return [...document.querySelectorAll('.page-slot:not(:has(.paper))')]
+          .filter((slot) => {
+            const box = slot.getBoundingClientRect();
+            const far =
+              box.bottom < view.top - 3 * view.height || box.top > view.bottom + 3 * view.height;
+            const image = slot.querySelector('.page-image');
+            return (slot.hidden || far) && image.width * image.height > 300 * 150;
+          })
+          .map((slot) => slot.dataset.page);
+      });
+    for (const number of ['24', '1', '12']) {
+      await page.getByLabel('Page number').fill(number);
+      await page.getByLabel('Page number').press('Enter');
+      await expect(page.locator('.page-caption')).toHaveText(`Page ${number} of 24`);
+      await settled(page);
+    }
+    await page.waitForTimeout(300);
+    expect(await held()).toEqual([]);
+    await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
+  });
+
 test('single page display shows one page at a time', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
   await page.getByRole('menuitem', { name: 'View', exact: true }).click();

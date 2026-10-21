@@ -126,6 +126,13 @@ export function createPageStack({
     container.style.setProperty('--page-gap', `${GAP}px`);
   }
 
+  /** Whether a slot lies within the keep observer's margin of the view. */
+  function nearView(slot) {
+    const view = workspace.getBoundingClientRect();
+    const box = slot.getBoundingClientRect();
+    return box.bottom >= view.top - 3 * view.height && box.top <= view.bottom + 3 * view.height;
+  }
+
   /** Put the interactive page into its slot, leaving a picture of it in the slot it leaves. */
   function place(node, index) {
     paper = node;
@@ -136,7 +143,10 @@ export function createPageStack({
     }
     if (node.parentNode === slot) return layout();
     const previous = node.parentNode?.classList?.contains('page-slot') ? node.parentNode : null;
-    if (previous) {
+    // A page left by a jump is already out of the keep margin, whose observer passed it over
+    // while it held the interactive page, so its picture would never be released.
+    if (previous && !nearView(previous)) release(previous);
+    else if (previous) {
       const source = node.querySelector(':scope > canvas');
       const target = previous.querySelector('.page-image');
       if (source?.width && target) {
