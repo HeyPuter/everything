@@ -16,6 +16,13 @@ const AX = [
   { v: new Vector3(0, 0, -1), label: '', color: '#398efc', view: 'BOTTOM' as ViewName },
 ];
 
+/** A darker shade of a #rrggbb colour (the letters on the axis bubbles). */
+function shade(hex: string, k: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((x) => Math.round(x * k));
+  return `rgb(${c.join(',')})`;
+}
+
 export function navGizmo(v: View3D): Child {
   // nav.rot is valid before the first draw; the scene camera is only set while looking through it
   const q = (v.sceneCamera ? v.sceneCamera.quaternion : v.nav.rot).clone().invert();
@@ -73,8 +80,9 @@ export function navGizmo(v: View3D): Child {
           'g',
           { key: it.i, 'data-axis': it.i, class: 'ng-axis' },
           it.label ? h('line', { x1: 40, y1: 40, x2: it.x, y2: it.y, stroke: it.color, 'stroke-width': 2, opacity: it.z < 0 ? 0.55 : 1 }) : null,
-          h('circle', { cx: it.x, cy: it.y, r: it.label ? 8 : 7, fill: it.label ? it.color : 'none', stroke: it.color, 'stroke-width': it.label ? 0 : 1.6, opacity: it.z < 0 ? (it.label ? 0.75 : 0.6) : 1, class: it.label ? '' : 'neg' }),
-          it.label ? h('text', { x: it.x, y: it.y + 3.6, 'text-anchor': 'middle', class: 'ng-label' }, it.label) : null,
+          // negative axes: a tinted disc inside a coloured ring
+          h('circle', { cx: it.x, cy: it.y, r: it.label ? 8 : 7, fill: it.color, 'fill-opacity': it.label ? 1 : 0.28, stroke: it.color, 'stroke-width': it.label ? 0 : 1.6, opacity: it.z < 0 ? (it.label ? 0.75 : 0.6) : 1, class: it.label ? '' : 'neg' }),
+          it.label ? h('text', { x: it.x, y: it.y + 3.6, 'text-anchor': 'middle', class: 'ng-label', style: `fill: ${shade(it.color, 0.38)}` }, it.label) : null,
         ),
       ),
     ),

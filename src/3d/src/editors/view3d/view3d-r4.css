@@ -45,3 +45,9 @@
   flex: 1;
   min-width: 0;
 }
+/* navigation buttons sit on a faint rounded strip */
+.nav-buttons {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.045);
+  border-radius: 15px;
+  padding: 3px 1px;
+}
