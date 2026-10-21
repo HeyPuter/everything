@@ -493,7 +493,18 @@ registerOperators([
     exec: (ctx) => {
       const b = selectionBox();
       if (b.isEmpty()) return 'CANCELLED';
-      const c = selectionMedian() ?? b.getCenter(new Vector3());
+      // the Bounding Box Center pivot snaps to the middle of the selection's bounds, otherwise its median
+      let bounds = b;
+      if (ctx.doc.mode === 'OBJECT') {
+        // in Object Mode the bounds are those of the object origins
+        bounds = new Box3();
+        for (const ob of app.selectedObjects()) {
+          const ev = app.graph.get(ob.id);
+          if (ev) bounds.expandByPoint(new Vector3().setFromMatrixPosition(ev.world));
+        }
+        if (bounds.isEmpty()) bounds = b;
+      }
+      const c = ctx.doc.scene.tool_settings.transform_pivot_point === 'BOUNDING_BOX_CENTER' ? bounds.getCenter(new Vector3()) : selectionMedian() ?? bounds.getCenter(new Vector3());
       ctx.doc.scene.cursor.location = [c.x, c.y, c.z];
     },
   },

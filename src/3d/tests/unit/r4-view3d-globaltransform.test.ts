@@ -156,3 +156,26 @@ describe('convert to mesh', () => {
     expect(me.loose_edges!.length / 2).toBe(48);
   });
 });
+
+describe('snap cursor to selected', () => {
+  it('uses the median, or the bounds of the origins with the bounding box pivot', async () => {
+    await import('../../src/ops/view3d');
+    for (const o of Object.values(app.doc.objects)) o.select = false;
+    const obs = [
+      [1, 0, 0],
+      [2, 2, 0],
+      [6, 1, 3],
+    ].map((loc) => {
+      const e = newObject('E', 'EMPTY', null);
+      addObjectToScene(app.doc, e, { location: loc });
+      return e;
+    });
+    select(...obs);
+    app.doc.scene.tool_settings.transform_pivot_point = 'MEDIAN_POINT';
+    run('view3d.snap_cursor_to_selected');
+    expect(app.doc.scene.cursor.location.map((v) => +v.toFixed(4))).toEqual([3, 1, 1]);
+    app.doc.scene.tool_settings.transform_pivot_point = 'BOUNDING_BOX_CENTER';
+    run('view3d.snap_cursor_to_selected');
+    expect(app.doc.scene.cursor.location.map((v) => +v.toFixed(4))).toEqual([3.5, 1, 1.5]);
+  });
+});
