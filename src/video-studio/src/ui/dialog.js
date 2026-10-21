@@ -112,8 +112,16 @@ export function toast(message, { kind = 'info', action, duration = 3800 } = {}) 
   return { remove };
 }
 
-/* Tooltips: any element with data-tip gets a hover/focus tooltip. */
-export function installTooltips(root = document) {
+/*
+ * Tooltips: any element with data-tip gets a hover/focus tooltip. Installed once on the
+ * document, so the home screen, the editor and dialogs all get them.
+ */
+let tooltipsInstalled = false;
+
+export function installTooltips() {
+  if (tooltipsInstalled) return;
+  tooltipsInstalled = true;
+  const root = document;
   let tip = null;
   let timer = null;
   let current = null;
@@ -130,7 +138,8 @@ export function installTooltips(root = document) {
     current = el;
     const kbd = el.getAttribute('data-tip-key');
     tip = h('div.tooltip', { role: 'tooltip' }, text, kbd ? h('span.tooltip-key', kbd) : null);
-    document.body.append(tip);
+    // A modal dialog is in the top layer, above anything in the page: put the tooltip in it.
+    (el.closest('dialog[open]') || document.body).append(tip);
     const r = el.getBoundingClientRect();
     const t = tip.getBoundingClientRect();
     let x = r.left + r.width / 2 - t.width / 2;

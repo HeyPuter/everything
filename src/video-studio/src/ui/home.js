@@ -184,7 +184,7 @@ export class Home {
     this.installDrop(page);
     this.root.replaceChildren(page);
     this.root.removeAttribute('aria-busy');
-    installTooltips(page);
+    installTooltips();
     this.renderNav();
   }
 

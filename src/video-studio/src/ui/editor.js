@@ -171,7 +171,7 @@ export class Editor {
     this._fitObserver = new ResizeObserver(() => this.fitPanels());
     this._fitObserver.observe(this._workspace);
     this.fitPanels();
-    installTooltips(this.el);
+    installTooltips();
 
     this._onKey = (e) => this.onKey(e);
     document.addEventListener('keydown', this._onKey);
