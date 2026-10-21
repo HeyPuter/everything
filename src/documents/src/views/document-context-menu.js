@@ -100,7 +100,9 @@ export function openDocumentMenu({ event, behind, selectBehind, engine, pkg, w, 
 
   const rect = engine.input.getBoundingClientRect();
   // A right-click or long press opens with no item chosen; the ContextMenu key and Shift+F10 start on the first.
-  const pointer = !!event.pointerType || event.button === 2;
+  // Chrome reports the keys' menu as a mouse pointer event, with no button pressed (-1).
+  const keyboard = event.button === -1 && (!event.pointerType || event.pointerType === 'mouse');
+  const pointer = !keyboard && (!!event.pointerType || event.button === 2);
   const label = has('image') ? 'Image menu' : has('shape') ? 'Shape menu' : 'Document menu';
   return openMenu({ anchor: engine.input, x: event.clientX || rect.left, y: event.clientY || rect.bottom, label, items: tidyMenu(items), pointer, onClose: () => engine.focus() });
 }

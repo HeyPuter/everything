@@ -35,6 +35,23 @@ test('a right-click opens the document menu with no item chosen until the keyboa
   await expect(menu).toHaveCount(0);
 });
 
+test('the ContextMenu key opens the document menu on its first item', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Opened from the keyboard');
+  await input(page).focus();
+  await page.keyboard.press('ContextMenu');
+  const menu = page.getByRole('menu', { name: 'Document menu' });
+  const undo = menu.getByRole('menuitem', { name: 'Undo', exact: true });
+  await expect(undo).toBeFocused();
+  expect(await undo.evaluate(el => getComputedStyle(el).outlineStyle)).toBe('solid');
+  await page.keyboard.press('ArrowDown');
+  await expect(undo).not.toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(input(page)).toBeFocused();
+});
+
 test('a right-click in a table offers its row and column commands', async ({ page }) => {
   await page.goto('/mock.html#/new');
   await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
