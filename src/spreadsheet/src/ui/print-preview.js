@@ -396,8 +396,17 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       if (text) {
         // With no alignment of its own, as the print sets it: logical values and errors centred, text written right to left at the right.
         const align = st.align || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
+        // Text runs on over the empty cells beside it, as it prints: rightward from the left, leftward from the right, both
+        // ways from the centre. A number, a merged block, wrapped or clipped text keeps to its own cell.
+        let jl = j, jr = j;
+        if (!span && typeof value === 'string' && !st.wrap && !st.clip && !st.shrink && !st.rot) {
+          const empty = (jj) => jj >= 0 && jj < cols.length && !spans.has(`${i},${jj}`) && (looks[i][jj].value == null || looks[i][jj].value === '');
+          if (align !== 'right') while (empty(jr + 1)) jr++;
+          if (align !== 'left') while (empty(jl - 1)) jl--;
+        }
         g.save();
-        g.beginPath(); g.rect(cx, cy, cw, ch); g.clip();
+        const clipX = jl === j ? cx : xs[jl], clipEnd = jr === j ? cx + cw : xs[jr + 1];
+        g.beginPath(); g.rect(clipX, cy, clipEnd - clipX, ch); g.clip();
         g.fillStyle = fontColorCss(cf?.color || st.color) || '#000000';
         g.font = `${st.italic ? 'italic ' : ''}${st.bold ? '700' : '400'} ${Math.max(2, (st.size || 13) * s)}px ${fontStack(st.font) || 'sans-serif'}`;
         g.textAlign = align;
