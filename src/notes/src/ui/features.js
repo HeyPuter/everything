@@ -936,7 +936,7 @@ export async function exportPage(app, format) {
   const name = safeName(page.title);
   if (format === 'txt') return download(`${name}.txt`, new Blob([pageText(page)], { type: 'text/plain' }));
   if (format === 'md') {
-    const md = [`# ${page.title || 'Untitled Page'}`, '', ...[...page.outlines].sort((a, b) => a.y - b.y || a.x - b.x).map((o) => htmlToMarkdown(o.html))].join('\n\n');
+    const md = [`# ${page.title || 'Untitled Page'}`, ...[...page.outlines].sort((a, b) => a.y - b.y || a.x - b.x).map((o) => htmlToMarkdown(o.html)).filter((md) => md.trim())].join('\n\n');
     return download(`${name}.md`, new Blob([md + '\n'], { type: 'text/markdown' }));
   }
   const html = await pageHtmlDocument(app, [page]);

@@ -136,4 +136,27 @@ describe('export', () => {
       URL.createObjectURL = orig;
     }
   });
+
+  it('exports Markdown with one blank line between the title and each container', async () => {
+    await mount();
+    const page = app.editor.page;
+    page.title = 'Trip';
+    page.outlines = [
+      { id: 'a', x: 40, y: 100, w: 300, html: '<p>Pack</p>' },
+      { id: 'b', x: 40, y: 300, w: 300, html: '<p></p>' },
+      { id: 'c', x: 40, y: 500, w: 300, html: '<p>Go</p>' },
+    ];
+    let blob = null;
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = (b) => {
+      blob = b;
+      return 'blob:test';
+    };
+    try {
+      await app.exportPage('md');
+    } finally {
+      URL.createObjectURL = orig;
+    }
+    expect(await blob.text()).toBe('# Trip\n\nPack\n\nGo\n');
+  });
 });
