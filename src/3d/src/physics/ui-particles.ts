@@ -73,6 +73,8 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
             num(s, 'drag_factor', 'Drag', { min: 0, max: 1, slider: true, disabled: d }),
             num(s, 'damping', 'Damp', { min: 0, max: 1, slider: true, disabled: d }),
             subHeading('Integration'),
+            enumProp(s, 'integrator', 'Integrator', [['EULER', 'Euler'], ['VERLET', 'Verlet'], ['MIDPOINT', 'Midpoint'], ['RK4', 'RK4']], { disabled: d, tip: 'How motion is advanced each step: Euler is the simplest, RK4 the most accurate under changing forces' }),
+            num(s, 'timestep', 'Timestep', { min: 0.0001, max: 100, softMax: 1, precision: 3, disabled: d, tip: 'Seconds of simulation per frame' }),
             num(s, 'timestep_substeps', 'Substeps', { int: true, min: 1, max: 20, disabled: d }),
             bool(s, 'use_collision', 'Collide with Collision Objects', { disabled: d }),
             subHeading('Deflection'),

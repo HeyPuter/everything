@@ -70,6 +70,8 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'damping',
   'physics_type',
   'timestep_substeps',
+  'timestep',
+  'integrator',
   'use_collision',
   'seed',
   'boids',
@@ -262,7 +264,8 @@ function spawn(L: PLive, s: ParticleSettingsX, seed: number, i: number, A: Matri
 /** Advance the emitter from frame k-1 to k. */
 export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: number, A: Matrix4, B: Matrix4, ctx: SimContext, ob: ObjectData, timeScale = 1, psys?: ParticleSystemX) {
   const n = L.state.length;
-  const fpsv = fps(ctx.doc);
+  // particle time runs at `timestep` seconds per frame (independent of the frame rate)
+  const fpsv = s.timestep && s.timestep > 0 ? 1 / s.timestep : fps(ctx.doc);
   const sub = Math.max(1, Math.round(s.timestep_substeps ?? 1));
   const dtf = 1 / sub; // frames per substep
   const dt = (dtf / fpsv) * timeScale;
@@ -270,6 +273,22 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
   const effs = collectEffectors(ctx, k - 1, ob.id);
   const cols = s.use_collision !== false && s.physics_type !== 'NO' ? buildColliders(ctx, k, ob.id, 0.05, s.collision_collection ?? null) : [];
   const invMass = 1 / Math.max(1e-4, s.mass);
+  const integrator = s.integrator ?? 'MIDPOINT';
+  const fTypes = (s as { effector_weights_types?: Record<string, number> }).effector_weights_types ?? null;
+  const fa = [0, 0, 0];
+  /** position / velocity dependent accelerations: force fields and air drag */
+  const accelAt = (x: number, y: number, z: number, u: number, v: number, w: number, t: number) => {
+    fa[0] = fa[1] = fa[2] = 0;
+    if (effs.length) effectorForce(effs, x, y, z, u, v, w, t, fa, s.effector_weights_all ?? 1, null, fTypes);
+    const out = [fa[0] * invMass, fa[1] * invMass, fa[2] * invMass];
+    if (s.drag_factor) {
+      const sp = Math.hypot(u, v, w);
+      out[0] -= u * sp * s.drag_factor;
+      out[1] -= v * sp * s.drag_factor;
+      out[2] -= w * sp * s.drag_factor;
+    }
+    return out;
+  };
   const f = [0, 0, 0];
   const damp = Math.pow(1 - Math.min(1, Math.max(0, s.damping ?? 0)), dtf);
   const boids = s.physics_type === 'BOIDS' ? ({ ...defaultBoidSettings(), ...(s.boids ?? {}) } as BoidSettings) : null;
@@ -394,9 +413,45 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         ay += (rand01(seed, i, L.step, 41) * 2 - 1) * bf;
         az += (rand01(seed, i, L.step, 42) * 2 - 1) * bf;
       }
-      vx = (vx + ax * h) * damp;
-      vy = (vy + ay * h) * damp;
-      vz = (vz + az * h) * damp;
+      const v0x = vx,
+        v0y = vy,
+        v0z = vz;
+      // the position change over the step, by integrator
+      let dpx: number, dpy: number, dpz: number;
+      if (integrator === 'RK4' && !boids && (effs.length || s.drag_factor)) {
+        // fourth order: forces sampled at the start, twice in the middle and at the end of the step
+        const a0 = accelAt(px, py, pz, v0x, v0y, v0z, t1);
+        // the part of the acceleration that does not depend on position or velocity
+        const constA = [ax - a0[0], ay - a0[1], az - a0[2]];
+        const acc = (x: number, y: number, z: number, u: number, v: number, w: number) => {
+          const a = accelAt(x, y, z, u, v, w, t1);
+          return [a[0] + constA[0], a[1] + constA[1], a[2] + constA[2]];
+        };
+        const k1v = [ax, ay, az],
+          k1x = [v0x, v0y, v0z];
+        const k2x = [v0x + (k1v[0] * h) / 2, v0y + (k1v[1] * h) / 2, v0z + (k1v[2] * h) / 2];
+        const k2v = acc(px + (k1x[0] * h) / 2, py + (k1x[1] * h) / 2, pz + (k1x[2] * h) / 2, k2x[0], k2x[1], k2x[2]);
+        const k3x = [v0x + (k2v[0] * h) / 2, v0y + (k2v[1] * h) / 2, v0z + (k2v[2] * h) / 2];
+        const k3v = acc(px + (k2x[0] * h) / 2, py + (k2x[1] * h) / 2, pz + (k2x[2] * h) / 2, k3x[0], k3x[1], k3x[2]);
+        const k4x = [v0x + k3v[0] * h, v0y + k3v[1] * h, v0z + k3v[2] * h];
+        const k4v = acc(px + k3x[0] * h, py + k3x[1] * h, pz + k3x[2] * h, k4x[0], k4x[1], k4x[2]);
+        vx = (v0x + ((k1v[0] + 2 * k2v[0] + 2 * k3v[0] + k4v[0]) * h) / 6) * damp;
+        vy = (v0y + ((k1v[1] + 2 * k2v[1] + 2 * k3v[1] + k4v[1]) * h) / 6) * damp;
+        vz = (v0z + ((k1v[2] + 2 * k2v[2] + 2 * k3v[2] + k4v[2]) * h) / 6) * damp;
+        dpx = ((k1x[0] + 2 * k2x[0] + 2 * k3x[0] + k4x[0]) * h) / 6;
+        dpy = ((k1x[1] + 2 * k2x[1] + 2 * k3x[1] + k4x[1]) * h) / 6;
+        dpz = ((k1x[2] + 2 * k2x[2] + 2 * k3x[2] + k4x[2]) * h) / 6;
+      } else {
+        vx = (vx + ax * h) * damp;
+        vy = (vy + ay * h) * damp;
+        vz = (vz + az * h) * damp;
+        // Euler moves with the old velocity, Midpoint (and RK4 under constant forces) with the
+        // average, Verlet with the new one
+        const wOld = integrator === 'EULER' ? 1 : integrator === 'VERLET' ? 0 : 0.5;
+        dpx = (v0x * wOld + vx * (1 - wOld)) * h;
+        dpy = (v0y * wOld + vy * (1 - wOld)) * h;
+        dpz = (v0z * wOld + vz * (1 - wOld)) * h;
+      }
       if (boids) {
         const sp = Math.hypot(vx, vy, vz);
         const onLand = !!L.land?.[i];
@@ -408,9 +463,9 @@ export function stepParticles(L: PLive, s: ParticleSettingsX, seed: number, k: n
         vy *= t;
         vz *= t;
       }
-      let nx = px + vx * h,
-        ny = py + vy * h,
-        nz = pz + vz * h;
+      let nx = px + (boids ? vx * h : dpx),
+        ny = py + (boids ? vy * h : dpy),
+        nz = pz + (boids ? vz * h : dpz);
       // collisions: bounce off the first surface crossed during the step
       for (let bounce = 0; bounce < 2 && cols.length; bounce++) {
         // size deflection: the particle's radius keeps it off the surface

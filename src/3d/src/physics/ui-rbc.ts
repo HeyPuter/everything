@@ -2,7 +2,7 @@
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
 import { panel, checkbox, numberField } from '../ui/widgets';
-import { num, splitRow } from '../ui/props';
+import { num, splitRow, enumProp } from '../ui/props';
 import type { RigidBodyConstraintData } from './types';
 import { rbcDefaults } from './rbjoints';
 
@@ -73,6 +73,7 @@ export function rbcTypePanels(c: RigidBodyConstraintData, id: string): Child {
   if (c.type === 'GENERIC_SPRING')
     out.push(
       panel(`ph-rbc-spr-${id}`, 'Springs', () => [
+        enumProp(r, 'spring_type', 'Type', [['SPRING1', 'Legacy'], ['SPRING2', 'Standard']], { tip: 'Legacy reads the damping as a share of critical damping (at most 1); Standard uses it as the damping coefficient' }),
         panel(`ph-rbc-sprl-${id}`, 'Linear', () => KEYS.map((a) => springRows(r, 'lin', a)), { sub: true }),
         panel(`ph-rbc-spra-${id}`, 'Angular', () => KEYS.map((a) => springRows(r, 'ang', a)), { sub: true }),
       ], { sub: true }),

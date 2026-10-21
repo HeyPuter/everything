@@ -37,6 +37,8 @@ export function rbcDefaults(): Partial<RigidBodyConstraintData> {
     motor_lin_max_impulse: 1,
     motor_ang_max_impulse: 1,
     spring_type: 'SPRING2',
+    use_override_solver_iterations: false,
+    solver_iterations: 10,
   };
   for (const a of KEYS) {
     out[`use_limit_lin_${a}`] = false;
@@ -103,6 +105,15 @@ export function jointLimits(c: RigidBodyConstraintData): Map<number, [number, nu
  * Create the joint between two bodies. `anchor`/`rotation` give the constraint object's world placement.
  * `dt` is the simulation step (motor impulses become forces).
  */
+/**
+ * Damping coefficient of a spring: the legacy model reads the damping as a share (at most 1) of
+ * critical damping; the standard model uses it directly.
+ */
+export function springDamping(c: RigidBodyConstraintData, stiffness: number, damping: number): number {
+  const d = Math.max(0, damping);
+  return c.spring_type === 'SPRING1' ? Math.min(1, d) * 2 * Math.sqrt(stiffness) : d;
+}
+
 export function createJoint(R: Rapier, world: RAPIERNS.World, c: RigidBodyConstraintData, b1: JointBody, b2: JointBody, anchor: Vector3, rotation: Quaternion, dt: number): RAPIERNS.ImpulseJoint {
   const local = (b: JointBody) => {
     const t = b.body.translation(),
@@ -136,12 +147,14 @@ export function createJoint(R: Rapier, world: RAPIERNS.World, c: RigidBodyConstr
     for (let i = 0; i < 3; i++) {
       const a = KEYS[i];
       if (cc[`use_spring_${a}`]) {
+        const k = Math.max(0, Number(cc[`spring_stiffness_${a}`] ?? 10));
         raw.jointConfigureMotorModel(h, LIN[i] as never, 1 as never);
-        raw.jointConfigureMotorPosition(h, LIN[i] as never, 0, Math.max(0, Number(cc[`spring_stiffness_${a}`] ?? 10)), Math.max(0, Number(cc[`spring_damping_${a}`] ?? 0.5)));
+        raw.jointConfigureMotorPosition(h, LIN[i] as never, 0, k, springDamping(c, k, Number(cc[`spring_damping_${a}`] ?? 0.5)));
       }
       if (cc[`use_spring_ang_${a}`]) {
+        const k = Math.max(0, Number(cc[`spring_stiffness_ang_${a}`] ?? 10));
         raw.jointConfigureMotorModel(h, ANG[i] as never, 1 as never);
-        raw.jointConfigureMotorPosition(h, ANG[i] as never, 0, Math.max(0, Number(cc[`spring_stiffness_ang_${a}`] ?? 10)), Math.max(0, Number(cc[`spring_damping_ang_${a}`] ?? 0.5)));
+        raw.jointConfigureMotorPosition(h, ANG[i] as never, 0, k, springDamping(c, k, Number(cc[`spring_damping_ang_${a}`] ?? 0.5)));
       }
     }
   if (c.type === 'MOTOR') {

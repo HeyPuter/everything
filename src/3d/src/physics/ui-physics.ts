@@ -326,6 +326,12 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
       panel('ph-rb-col', 'Collisions', () => [
         enumProp(rb, 'collision_shape', 'Shape', SHAPES, { disabled: d }),
         rb.type === 'ACTIVE' && rb.collision_shape === 'MESH' ? note('Moving mesh shapes collide using their convex hull') : null,
+        rb.collision_shape === 'MESH' || rb.collision_shape === 'CONVEX_HULL'
+          ? [
+              enumProp(rb as never, 'mesh_source', 'Source', [['BASE', 'Base'], ['DEFORM', 'Deform'], ['FINAL', 'Final']], { disabled: d, tip: 'The mesh the shape is made from: without modifiers, after deforming modifiers, or fully evaluated' }),
+              (rb.mesh_source ?? 'DEFORM') !== 'BASE' ? bool(rb as never, 'use_deform', 'Deforming', { disabled: d, tip: 'The shape follows the mesh as it deforms during the simulation' }) : null,
+            ]
+          : null,
         subHeading('Surface Response'),
         num(rb, 'friction', 'Friction', { min: 0, max: 1, slider: true, disabled: d }),
         num(rb, 'restitution', 'Bounciness', { min: 0, max: 1, slider: true, disabled: d }),
@@ -344,8 +350,11 @@ function rigidBodyPanels(ob: ObjectPhysics): Child[] {
             subHeading('Damping'),
             num(rb, 'linear_damping', 'Translation', { min: 0, max: 1, slider: true, disabled: d }),
             num(rb, 'angular_damping', 'Rotation', { min: 0, max: 1, slider: true, disabled: d }),
-            bool(rb, 'use_deactivation', 'Deactivation', { disabled: d, tip: 'Let resting bodies go to sleep' }),
-            bool(rb as never, 'use_start_deactivated', 'Start Deactivated', { disabled: d || !rb.use_deactivation, tip: 'Asleep until something touches it' }),
+            panel('ph-rb-deact', 'Deactivation', () => [
+              bool(rb as never, 'use_start_deactivated', 'Start Deactivated', { disabled: d || !rb.use_deactivation, tip: 'Asleep until something touches it' }),
+              num(rb as never, 'deactivate_linear_velocity', 'Velocity Linear', { min: 0, max: 1000, softMax: 10, disabled: d || !rb.use_deactivation, tip: 'Bodies moving slower than this go to sleep' }),
+              num(rb as never, 'deactivate_angular_velocity', 'Angular', { min: 0, max: 1000, softMax: 10, disabled: d || !rb.use_deactivation, tip: 'Bodies turning slower than this (radians per second) go to sleep' }),
+            ], { sub: true, header: headerCheck(`rb-deact-${ob.id}`, rb as never, 'use_deactivation', 'Deactivation', d) }),
           ], { sub: true, closed: true })
         : null,
     ]),
@@ -367,6 +376,11 @@ function rbConstraintPanels(ob: ObjectPhysics): Child[] {
         bool(c as never, 'use_breaking', 'Breakable'),
         c.use_breaking ? num(c as never, 'breaking_threshold', 'Threshold', { min: 0, max: 1000, softMax: 100, tip: 'Impulse (in one step) that breaks the constraint' }) : null,
       ], { sub: true }),
+      panel('ph-rbc-iter', 'Override Iterations', () => [num(c as never, 'solver_iterations', 'Iterations', { int: true, min: 1, max: 1000, disabled: !c.use_override_solver_iterations, tip: 'Solver iterations for this constraint (more: stiffer)' })], {
+        sub: true,
+        closed: true,
+        header: headerCheck(`rbc-iter-${ob.id}`, c as never, 'use_override_solver_iterations', 'Override Iterations'),
+      }),
       panel('ph-rbc-objects', 'Objects', () => [
         objectRow(`rbc1-${ob.id}`, c as never, 'object1', 'First', (o) => !!o.rigid_body),
         objectRow(`rbc2-${ob.id}`, c as never, 'object2', 'Second', (o) => !!o.rigid_body),

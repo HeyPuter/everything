@@ -25,6 +25,12 @@ export interface RigidBodyX extends RigidBodyData {
   collision_collections?: boolean[];
   /** start the simulation asleep (needs deactivation) */
   use_start_deactivated?: boolean;
+  /** speeds below which a body goes to sleep */
+  deactivate_linear_velocity?: number;
+  deactivate_angular_velocity?: number;
+  /** mesh the collision shape comes from, and whether it follows the deforming mesh */
+  mesh_source?: 'BASE' | 'DEFORM' | 'FINAL';
+  use_deform?: boolean;
 }
 
 export interface RigidBodyConstraintData {
@@ -45,6 +51,9 @@ export interface RigidBodyConstraintData {
   /** the joint breaks when its bodies receive more than this impulse in one step */
   use_breaking?: boolean;
   breaking_threshold?: number;
+  /** solve this constraint with more iterations than the world uses */
+  use_override_solver_iterations?: boolean;
+  solver_iterations?: number;
   [key: string]: unknown;
 }
 
@@ -236,6 +245,10 @@ export interface ParticleSettingsX extends ParticleSettings {
   use_scale_instance?: boolean;
   child_radius?: number;
   timestep_substeps?: number;
+  /** seconds of simulation per frame */
+  timestep?: number;
+  /** how positions and velocities are advanced each step */
+  integrator?: 'EULER' | 'VERLET' | 'MIDPOINT' | 'RK4';
   effector_weights_all?: number;
   use_collision?: boolean;
 }
@@ -323,6 +336,10 @@ export function defaultRigidBody(type: 'ACTIVE' | 'PASSIVE'): RigidBodyX {
     linear_damping: 0.04,
     angular_damping: 0.1,
     use_deactivation: false,
+    deactivate_linear_velocity: 0.4,
+    deactivate_angular_velocity: 0.5,
+    mesh_source: 'DEFORM',
+    use_deform: false,
   };
 }
 
@@ -524,6 +541,8 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     roughness_1: 0,
     physics_type: 'NEWTON',
     timestep_substeps: 2,
+    timestep: 0.04,
+    integrator: 'MIDPOINT',
     use_collision: true,
     users: 1,
     display_percentage: 100,
