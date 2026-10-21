@@ -1,7 +1,8 @@
-// Popup menus: submenu and context menu placement, focus return from submenus.
+// Popup menus: submenu placement, focus return from submenus and point-anchored context menus.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { showMenu, closeMenus } from '../src/ui/menu.js';
 
+const frame = () => new Promise((r) => setTimeout(r, 5));
 const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 
 let restoreRect;
@@ -82,6 +83,30 @@ describe('submenus', () => {
 });
 
 describe('context menus at a point', () => {
+  it('return focus to the element that was focused when they opened', async () => {
+    const clip = document.createElement('div');
+    clip.tabIndex = 0;
+    document.body.append(clip);
+    clip.focus();
+    const handle = showMenu({ x: 40, y: 50 }, [{ label: 'Copy', onSelect() {} }]);
+    await frame();
+    expect(handle.el.contains(document.activeElement)).toBe(true);
+    key(document.activeElement, 'Escape');
+    expect(document.activeElement).toBe(clip);
+  });
+
+  it('do not pull focus back when it already moved elsewhere', () => {
+    const clip = document.createElement('div');
+    clip.tabIndex = 0;
+    const other = document.createElement('input');
+    document.body.append(clip, other);
+    clip.focus();
+    const handle = showMenu({ x: 40, y: 50 }, [{ label: 'Copy', onSelect() {} }], { focus: false });
+    other.focus();
+    handle.close();
+    expect(document.activeElement).toBe(other);
+  });
+
   it('still place themselves at the point', () => {
     const handle = showMenu({ x: 40, y: 50 }, [{ label: 'Copy', onSelect() {} }]);
     expect(handle.el.style.left).toBe('40px');

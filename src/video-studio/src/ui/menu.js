@@ -39,19 +39,24 @@ export function showMenu(anchor, items, opts = {}) {
   const menu = h('div.menu', { role: 'menu', tabindex: '-1', 'aria-label': opts.label || null });
   const entries = [];
   let child = null;
-  // Where focus goes back to on close: the menu button, or the item that opened a submenu.
-  const returnTo = anchor instanceof Element ? anchor : opts.opener || null;
+  // Where focus goes back to on close: the menu button, the item that opened a submenu, or
+  // for a context menu at a point (right click, Shift+F10) whatever had focus when it opened.
+  const byElement = anchor instanceof Element || Boolean(opts.opener);
+  const returnTo = anchor instanceof Element ? anchor : opts.opener || (document.activeElement !== document.body ? document.activeElement : null);
   const handle = {
     el: menu,
     close(returnFocus = true) {
       child?.close(false);
+      const hadFocus = menu.contains(document.activeElement);
       menu.remove();
       document.removeEventListener('pointerdown', onOutside, true);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', onBlur);
       if (anchor instanceof Element) anchor.setAttribute('aria-expanded', 'false');
       if (openMenu === handle) openMenu = null;
-      if (returnFocus && returnTo && document.contains(returnTo)) returnTo.focus({ preventScroll: true });
+      // A context menu only takes focus back if it still had it (focus may have moved on).
+      const lost = hadFocus || !document.activeElement || document.activeElement === document.body;
+      if (returnFocus && returnTo && document.contains(returnTo) && (byElement || lost)) returnTo.focus({ preventScroll: true });
       opts.onClose?.();
     },
   };
