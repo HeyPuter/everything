@@ -121,7 +121,8 @@ export function customTableStyleAt(table, r, c, ordinal) {
   return out;
 }
 
-const NAME_RE = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+// Letters of any script, as Excel's table names (テーブル1, Données) and this app's defined names take them.
+export const TABLE_NAME_RE = /^[\p{L}_][\p{L}\p{M}\p{N}_.]*$/u;
 const CELL_LIKE = /^[A-Za-z]{1,3}\d{1,7}$/;
 
 export const MAX_TABLE_NAME_LENGTH = 255;
@@ -130,8 +131,8 @@ export const MAX_TABLE_NAME_LENGTH = 255;
 export function validateTableName(name, taken = []) {
   const t = String(name ?? '').trim();
   if (!t) return 'Enter a name';
-  if (!NAME_RE.test(t)) return 'Names start with a letter or underscore and use only letters, digits, underscores, and periods';
-  if (CELL_LIKE.test(t) || /^R\d*C\d*$/i.test(t)) return 'That looks like a cell reference';
+  if (!TABLE_NAME_RE.test(t)) return 'Names start with a letter or underscore and use only letters, digits, underscores, and periods';
+  if (CELL_LIKE.test(t) || /^R\d*C\d*$/i.test(t) || /^[RC]$/i.test(t)) return 'That looks like a cell reference';
   if (t.length > MAX_TABLE_NAME_LENGTH) return 'That name is too long';
   if (taken.some((n) => n.toLowerCase() === t.toLowerCase())) return 'That name is already used';
   return null;

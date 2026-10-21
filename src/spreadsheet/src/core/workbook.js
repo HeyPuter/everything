@@ -86,7 +86,7 @@ import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForInsertedLines, insertMap, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
-import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs, shiftTableColumns } from './tables.js';
+import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, TABLE_NAME_RE, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs, shiftTableColumns } from './tables.js';
 import { tokenize, upperName, isWorkbookNameScope, isExternalFormulaToken } from './formula/tokenizer.js';
 import { adjustLineRules, adjustBlockRules } from './rule-refs.js';
 import { adjustFilterForEdit, filterFormulaReader, filterFormulaRules, compileFilterFormula, mapFilterFormula } from './filter-formulas.js';
@@ -9693,7 +9693,7 @@ export class Workbook extends EventTarget {
     if (!sheet) return null;
     const named = this.namedRef(t);
     if (named) { const target = this.sheetByName(named.sheet); return target ? { sheetId: target.id, range: { r1: named.r1, c1: named.c1, r2: named.r2, c2: named.c2 } } : null; }
-    const found = /^[A-Za-z_][A-Za-z0-9_.]*$/.test(t) ? this.tableByName(t) : null;
+    const found = TABLE_NAME_RE.test(t) ? this.tableByName(t) : null;
     // A bare table name stands for its header and data: the totals row is never data, so a chart, a pivot or
     // a rule given the name does not take the Total row for a row of it. Table[#All] still names every row.
     if (found) return { sheetId: found.sheet.id, range: { ...found.table.range, r2: tableRows(found.table).dataEnd } };
