@@ -168,10 +168,10 @@ vec3 nd_blend(int mode, float f, vec3 a, vec3 b) {
   if (mode == 0) r = mix(a, b, f);
   else if (mode == 1) r = mix(a, min(a, b), f);
   else if (mode == 2) r = mix(a, a * b, f);
-  else if (mode == 3) { vec3 t = vec3(1.0) - (vec3(1.0) - a) / max(b, vec3(1e-6)); r = mix(a, max(t, vec3(0.0)), f); }
+  else if (mode == 3) { vec3 t = vec3(1.0 - f) + f * b; r = vec3(t.r <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.r) / t.r, 0.0, 1.0), t.g <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.g) / t.g, 0.0, 1.0), t.b <= 0.0 ? 0.0 : clamp(1.0 - (1.0 - a.b) / t.b, 0.0, 1.0)); }
   else if (mode == 4) r = mix(a, max(a, b), f);
   else if (mode == 5) r = mix(a, vec3(1.0) - (vec3(1.0) - a) * (vec3(1.0) - b), f);
-  else if (mode == 6) { vec3 t = vec3(b.r >= 1.0 ? (a.r > 0.0 ? 1.0 : 0.0) : a.r / (1.0 - b.r), b.g >= 1.0 ? (a.g > 0.0 ? 1.0 : 0.0) : a.g / (1.0 - b.g), b.b >= 1.0 ? (a.b > 0.0 ? 1.0 : 0.0) : a.b / (1.0 - b.b)); r = mix(a, min(t, vec3(1.0)), f); }
+  else if (mode == 6) { vec3 t = vec3(1.0) - f * b; r = vec3(a.r == 0.0 ? 0.0 : (t.r <= 0.0 ? 1.0 : min(a.r / t.r, 1.0)), a.g == 0.0 ? 0.0 : (t.g <= 0.0 ? 1.0 : min(a.g / t.g, 1.0)), a.b == 0.0 ? 0.0 : (t.b <= 0.0 ? 1.0 : min(a.b / t.b, 1.0))); }
   else if (mode == 7) r = a + f * b;
   else if (mode == 8) { vec3 t = mix(2.0 * a * b, vec3(1.0) - 2.0 * (vec3(1.0) - a) * (vec3(1.0) - b), step(vec3(0.5), a)); r = mix(a, t, f); }
   else if (mode == 9) { vec3 scr = vec3(1.0) - (vec3(1.0) - b) * (vec3(1.0) - a); r = mix(a, (vec3(1.0) - a) * b * a + a * scr, f); }

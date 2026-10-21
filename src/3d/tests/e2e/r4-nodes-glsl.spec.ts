@@ -174,6 +174,18 @@ void main() { vec4 p = texelFetch(pts, ivec2(int(gl_FragCoord.x), 0), 0); outCol
         glsl: `vec4(clamp(nd_gradient(p.xyz * 0.3, ${i}), 0.0, 1.0))`,
         cpu: (p) => [X.gradientTexture(f(p[0] * 0.3), f(p[1] * 0.3), f(p[2] * 0.3), t as never)],
       });
+    // color blend modes of the Mix node
+    const M = await import('/src/geonodes/mathops.ts');
+    const BLENDS = ['MIX', 'DARKEN', 'MULTIPLY', 'BURN', 'LIGHTEN', 'SCREEN', 'DODGE', 'ADD', 'OVERLAY', 'SOFT_LIGHT', 'LINEAR_LIGHT', 'DIFFERENCE', 'EXCLUSION', 'SUBTRACT', 'DIVIDE', 'HUE', 'SATURATION', 'COLOR', 'VALUE'];
+    BLENDS.forEach((mode, i) =>
+      cases.push({
+        name: `mix ${mode}`,
+        chunks: ['nd_mix_blend'],
+        glsl: `vec4(nd_blend(${i}, 0.7, abs(p.xyz) * 0.4, vec3(0.9, 0.3, 0.55)), 0.0)`,
+        cpu: (p) => M.blend(mode, 0.7, [f(Math.abs(p[0]) * 0.4), f(Math.abs(p[1]) * 0.4), f(Math.abs(p[2]) * 0.4)], [0.9, 0.3, 0.55]),
+        tol: 2e-3,
+      }),
+    );
     const fails: string[] = [];
     let compared = 0;
     for (const c of cases) {

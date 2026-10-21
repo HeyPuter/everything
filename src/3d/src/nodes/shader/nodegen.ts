@@ -722,8 +722,8 @@ registerGenerator('ShaderNodeMath', (g) => {
     SINE: `sin(${a})`,
     COSINE: `cos(${a})`,
     TANGENT: `tan(${a})`,
-    ARCSINE: `(${a} >= -1.0 && ${a} <= 1.0) ? asin(${a}) : 0.0`,
-    ARCCOSINE: `(${a} >= -1.0 && ${a} <= 1.0) ? acos(${a}) : 0.0`,
+    ARCSINE: `asin(clamp(${a}, -1.0, 1.0))`,
+    ARCCOSINE: `acos(clamp(${a}, -1.0, 1.0))`,
     ARCTANGENT: `atan(${a})`,
     ARCTAN2: `atan(${a}, ${b})`,
     SINH: `sinh(${a})`,
@@ -739,7 +739,7 @@ registerGenerator('ShaderNodeMath', (g) => {
 registerGenerator('ShaderNodeVectorMath', (g) => {
   const op = g.str('operation') || 'ADD';
   const a = g.tmp('vec3', g.in('Vector', 'vec3'));
-  const b = ['NORMALIZE', 'LENGTH', 'ABSOLUTE', 'SIGN', 'FLOOR', 'CEIL', 'FRACTION', 'SINE', 'COSINE', 'TANGENT', 'SCALE'].includes(op) ? 'vec3(0.0)' : g.tmp('vec3', g.in('Vector_001', 'vec3'));
+  const b = ['NORMALIZE', 'LENGTH', 'ABSOLUTE', 'SIGN', 'FLOOR', 'CEIL', 'ROUND', 'FRACTION', 'SINE', 'COSINE', 'TANGENT', 'SCALE'].includes(op) ? 'vec3(0.0)' : g.tmp('vec3', g.in('Vector_001', 'vec3'));
   const c = ['MULTIPLY_ADD', 'FACEFORWARD', 'WRAP'].includes(op) ? g.tmp('vec3', g.in('Vector_002', 'vec3')) : 'vec3(0.0)';
   const s = op === 'SCALE' || op === 'REFRACT' ? g.tmp('float', g.in('Scale', 'float')) : '1.0';
   const vecOps: Record<string, string> = {
@@ -762,6 +762,7 @@ registerGenerator('ShaderNodeVectorMath', (g) => {
     MAXIMUM: `max(${a}, ${b})`,
     FLOOR: `floor(${a})`,
     CEIL: `ceil(${a})`,
+    ROUND: `floor(${a} + 0.5)`,
     FRACTION: `${a} - floor(${a})`,
     MODULO: `nd_fmod(${a}, ${b})`,
     WRAP: `nd_wrap(${a}, ${b}, ${c})`,
