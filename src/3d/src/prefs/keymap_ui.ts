@@ -14,6 +14,8 @@ import type { Edit, ItemFields } from './keyconfig_core';
 /** Parent keymap of each nested keymap (the tree shown in the editor). */
 const PARENT: Record<string, string> = {
   Frames: 'Screen',
+  'Screen Editing': 'Screen',
+  'Toolbar Popup': 'Window',
   'Object Mode': '3D View',
   'Object Non-modal': '3D View',
   Mesh: '3D View',
@@ -46,7 +48,7 @@ const PARENT: Record<string, string> = {
   'Clip Graph Editor': 'Clip',
   'Clip Dopesheet Editor': 'Clip',
 };
-const TOP_ORDER = ['Window', 'Screen', 'User Interface', '3D View', 'Image', 'Node Editor', 'Animation', 'Sequencer', 'Clip', 'Text', 'Console', 'Info', 'Outliner', 'Property Editor', 'File Browser'];
+const TOP_ORDER = ['Window', 'Screen', 'View2D', 'View2D Buttons List', 'User Interface', '3D View', 'Image', 'Node Editor', 'Animation', 'Sequencer', 'Clip', 'Text', 'Console', 'Info', 'Outliner', 'Property Editor', 'File Browser'];
 
 const VALUES: EnumItem[] = [
   { value: 'PRESS', label: 'Press', description: 'Runs when the key goes down' },
