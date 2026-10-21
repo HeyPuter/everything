@@ -11,6 +11,7 @@ import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } f
 import type { View3D } from '../editors/view3d/view3d';
 import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
 import { renderContext } from '../render/context';
+import { download } from '../io/native';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { activeMeshData, meshSession, type MeshSession } from './session';
@@ -917,6 +918,9 @@ function projectImage(v: View3D, src: Img): string | null {
   return null;
 }
 
+/** The image Quick Edit made (Apply projects it back). */
+export const quickEdit = { image: null as string | null };
+
 /** The 3D view as it is shown (overlays hidden), cropped from the shared canvas. */
 function viewPixels(v: View3D): globalThis.ImageData | null {
   const engine = renderContext?.engine;
@@ -968,6 +972,30 @@ registerOperators([
       void commitImage(img, null);
       app.report('INFO', `Made the image "${name}" (${px.width}×${px.height}) from the view`);
     },
+  },
+  {
+    idname: 'image.project_edit',
+    label: 'Quick Edit',
+    description: 'Save a snapshot of the view as an image to edit in another program; Apply projects the edited image back',
+    poll: () => app.doc.mode === 'TEXTURE_PAINT' && !!activeView3D(),
+    exec: (ctx) => {
+      if (app.run('paint.image_from_view', {}, { invoke: false }) !== 'FINISHED') return 'CANCELLED';
+      const img = Object.values(ctx.doc.images).at(-1)!;
+      quickEdit.image = img.id;
+      void pendingImageSaves().then(() => {
+        const live = app.doc.images[img.id];
+        if (live?.bytes) download(live.bytes, `${live.name}.png`, 'image/png');
+        app.report('INFO', `Edit "${live?.name}" elsewhere, load it back with Image ▸ Replace, then use Apply`);
+      });
+    },
+  },
+  {
+    idname: 'image.project_apply',
+    label: 'Project Apply',
+    description: 'Project the image made by Quick Edit (after editing it) back onto the texture from the current view',
+    poll: () => app.doc.mode === 'TEXTURE_PAINT' && !!quickEdit.image && !!app.doc.images[quickEdit.image],
+    exec: () => (app.run('paint.project_image', { image: quickEdit.image }, { invoke: false }) === 'FINISHED' ? undefined : 'CANCELLED'),
+    undo: false,
   },
   {
     idname: 'paint.project_image',

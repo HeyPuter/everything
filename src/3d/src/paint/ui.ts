@@ -1022,9 +1022,13 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-tp-opts', 'Options', () => [
         numberField({ id: 'pt-bleed', label: 'Bleed', value: imagePaintOptions.seam_bleed, min: 0, max: 32, int: true, unit: 'pixel', tip: 'Paint this many pixels past the UV island borders to hide seams', set: (x) => ((imagePaintOptions.seam_bleed = Math.round(x)), changed()) }),
-        h('div', { class: 'pop-sub' }, 'Mask'),
-        ...stencilMaskRows(),
+        panel('pt-tp-ext', 'External', () => [
+          opButton('image.project_edit', 'Quick Edit', {}, { tip: 'Save a snapshot of the view to edit in another program' }),
+          opButton('image.project_apply', 'Apply', {}, { tip: 'Project the edited snapshot back onto the texture' }),
+          opButton('paint.project_image', 'Apply Camera Image', {}, { tip: 'Project an image onto the texture from the current view' }),
+        ], { sub: true, closed: true }),
       ], { closed: true }),
+      panel('pt-tp-mask', 'Masking', () => [panel('pt-tp-stencil', 'Stencil Mask', () => stencilMaskRows(), { sub: true })], { closed: true }),
     );
   if (mode === 'TEXTURE_PAINT') {
     const am = activeMeshData();
