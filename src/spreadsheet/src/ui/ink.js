@@ -8,6 +8,7 @@ import { el } from './dom.js';
 import { openMenu } from './menu.js';
 import { icon } from './icons.js';
 import { customColorRows } from './colorpicker.js';
+import { appOption } from '../lib/app-options.js';
 import {
   buildStroke, buildShape, recognizeShape, isInk, inkLines, touchesLines, sweep, insideLasso, nextName, penLabel, normalizePen, penStyle,
   DEFAULT_PENS, MAX_PENS, PEN_WIDTHS, HIGHLIGHTER_WIDTHS, PEN_COLORS, HIGHLIGHTER_COLORS, PEN_KINDS, SHAPE_NAMES, MM_PX,
@@ -51,7 +52,8 @@ export function createInk({ wb, grid, notify = () => {}, subscribe = null, refus
   const sheet = () => wb.sheet(grid.sheetId);
   const canvas = () => grid.viewport.querySelector('.grid-canvas');
   const boxOf = id => grid.el.querySelector(`.chart-box[data-chart="${attr(id)}"]`);
-  const inkObjects = () => (sheet()?.charts || []).filter(isInk);
+  // Only the strokes shown: one hidden in the Selection Pane, or with every object hidden in Options, is out of the eraser's and lasso's reach.
+  const inkObjects = () => (appOption('showObjects') ? sheet()?.charts || [] : []).filter(o => isInk(o) && !o.hidden);
 
   function setTool(next) {
     const wanted = next === 'select' ? null : next;
