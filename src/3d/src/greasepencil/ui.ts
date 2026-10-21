@@ -297,7 +297,30 @@ function drawHeader(): Child {
     pressureToggle(b, 'use_pressure_size', 'gp-ps'),
     field(120, strengthField(b, 'gp-str')),
     pressureToggle(b, 'use_pressure_strength', 'gp-pst'),
+    popoverButton('gp-hdr-stroke', 'Stroke', 'Stroke\nHardness, stabilizer, post-processing and randomness of new strokes', () => [
+      num(b, 'hardness', 'gp-hp-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
+      drawStrokePanels(b),
+    ]),
   ];
+}
+
+/** A header button opening a popover of tool options. */
+function popoverButton(key: string, label: string, tip: string, body: () => Child): Child {
+  return h(
+    'button',
+    {
+      key,
+      class: 'hdr-menu',
+      'data-tip': tip,
+      onpointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        const pop = openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, body()), { width: 260 });
+        void pop;
+      },
+    },
+    label,
+    icon('down_arrow_hlt', 'tiny'),
+  );
 }
 
 const ERASE_MODES = [
