@@ -32,6 +32,24 @@ import { createAiPanel } from './ai-panel.js';
 import { openPreferences, pref, onPrefsChange } from './preferences-dialog.js';
 import { prefs, setPref } from './prefs.js';
 
+// Side panel width limits, and the narrowest player kept between them (the grid's minmax in editor.css).
+const PANEL_LIMITS = { left: [240, 720], right: [260, 640] };
+const MIN_PLAYER = 280;
+const RESIZERS = 8;
+
+/**
+ * Side panel widths that fit in `room` px together. Wider panels give up their
+ * extra width in proportion; neither goes below its minimum.
+ */
+export function fitPanelWidths(left, right, room) {
+  const over = left + right - room;
+  if (!(over > 0)) return [left, right];
+  const spareL = Math.max(0, left - PANEL_LIMITS.left[0]);
+  const spareR = Math.max(0, right - PANEL_LIMITS.right[0]);
+  const k = spareL + spareR ? Math.min(1, over / (spareL + spareR)) : 0;
+  return [Math.round(left - spareL * k), Math.round(right - spareR * k)];
+}
+
 export class Editor {
   constructor(root, { library, project, claim, account, onExit, onNewProject, onOpenProject }) {
     this.root = root;
@@ -147,6 +165,12 @@ export class Editor {
     body.append(ctx.assistant.rail, ctx.assistant.el);
     root.replaceChildren(this.el);
     root.removeAttribute('aria-busy');
+    // The saved panel widths are kept; the ones shown are fitted to the space there is.
+    this._panelW = { left: p.leftW, right: p.rightW };
+    this._workspace = body.querySelector('.workspace');
+    this._fitObserver = new ResizeObserver(() => this.fitPanels());
+    this._fitObserver.observe(this._workspace);
+    this.fitPanels();
     installTooltips(this.el);
 
     this._onKey = (e) => this.onKey(e);
@@ -181,30 +205,31 @@ export class Editor {
     const label = which === 'upper' ? 'Resize timeline' : which === 'left' ? 'Resize media panel' : 'Resize details panel';
     // A focusable separator needs a value: panel width in pixels, or the timeline's share of the height in percent.
     const p = prefs();
-    const [min, max, now] = which === 'left' ? [240, 720, p.leftW] : which === 'right' ? [260, 640, p.rightW] : [20, 75, Math.round((1 - p.upperH) * 100)];
+    const [min, max, now] = which === 'left' ? [...PANEL_LIMITS.left, p.leftW] : which === 'right' ? [...PANEL_LIMITS.right, p.rightW] : [20, 75, Math.round((1 - p.upperH) * 100)];
     const el = h(`div.resizer.${dir}`, { role: 'separator', tabindex: '0', 'aria-label': label, 'aria-orientation': dir === 'v' ? 'vertical' : 'horizontal', 'aria-valuemin': min, 'aria-valuemax': max, 'aria-valuenow': now });
+    if (which !== 'upper') (this._panelResizers ||= {})[which] = el;
     const apply = (delta) => {
-      const s = this.el.style;
-      if (which === 'left') {
-        const w = clamp((parseFloat(s.getPropertyValue('--left-w')) || 440) + delta, 240, 720);
-        s.setProperty('--left-w', `${w}px`);
-        setPref('leftW', w);
-        el.setAttribute('aria-valuenow', String(Math.round(w)));
-      } else if (which === 'right') {
-        const w = clamp((parseFloat(s.getPropertyValue('--right-w')) || 340) - delta, 260, 640);
-        s.setProperty('--right-w', `${w}px`);
-        setPref('rightW', w);
-        el.setAttribute('aria-valuenow', String(Math.round(w)));
-      } else {
-        const ws = this.el.querySelector('.workspace').getBoundingClientRect();
-        const cur = parseFloat(s.getPropertyValue('--upper')) || 0.56;
-        const v = clamp(cur + delta / ws.height, 0.25, 0.8);
-        s.setProperty('--upper', String(v));
-        setPref('upperH', v);
-        el.setAttribute('aria-valuenow', String(Math.round((1 - v) * 100)));
+      if (which === 'left' || which === 'right') {
+        // Resize from what is shown, never past the room left by the other panel and the player.
+        const room = this._panelRoom();
+        const [left, right] = this.shownPanelWidths(room);
+        const [w, other] = which === 'left' ? [left + delta, right] : [right - delta, left];
+        const [lo, hi] = PANEL_LIMITS[which];
+        const next = clamp(w, lo, Math.max(lo, Math.min(hi, room - other)));
+        this._panelW = which === 'left' ? { left: next, right } : { left, right: next };
+        setPref('leftW', this._panelW.left);
+        setPref('rightW', this._panelW.right);
+        this.fitPanels();
+        return;
       }
+      const s = this.el.style;
+      const ws = this.el.querySelector('.workspace').getBoundingClientRect();
+      const cur = parseFloat(s.getPropertyValue('--upper')) || 0.56;
+      const v = clamp(cur + delta / ws.height, 0.25, 0.8);
+      s.setProperty('--upper', String(v));
+      setPref('upperH', v);
+      el.setAttribute('aria-valuenow', String(Math.round((1 - v) * 100)));
       this.ctx.playerView.relayout?.();
-      if (which === 'left') this.ctx.assets.relayout?.();
     };
     el.addEventListener('pointerdown', (e) => {
       e.preventDefault();
@@ -303,19 +328,14 @@ export class Editor {
   applyLayout(id) {
     const l = LAYOUTS.find((x) => x.id === id) || LAYOUTS[0];
     const st = this.el.style;
-    st.setProperty('--left-w', `${l.leftW}px`);
-    st.setProperty('--right-w', `${l.rightW}px`);
+    this._panelW = { left: l.leftW, right: l.rightW };
     st.setProperty('--upper', String(l.upperH));
     setPref('leftW', l.leftW);
     setPref('rightW', l.rightW);
     setPref('upperH', l.upperH);
     setPref('layout', l.id);
-    for (const r of this.el.querySelectorAll('.resizer')) {
-      const label = r.getAttribute('aria-label');
-      if (label === 'Resize media panel') r.setAttribute('aria-valuenow', String(l.leftW));
-      else if (label === 'Resize details panel') r.setAttribute('aria-valuenow', String(l.rightW));
-      else r.setAttribute('aria-valuenow', String(Math.round((1 - l.upperH) * 100)));
-    }
+    this.el.querySelector('.resizer.h')?.setAttribute('aria-valuenow', String(Math.round((1 - l.upperH) * 100)));
+    this.fitPanels({ relayout: false });
     this.ctx.playerView.relayout?.();
     this.ctx.assets.relayout?.();
     this.ctx.timeline.render?.(true);
@@ -433,8 +453,43 @@ export class Editor {
     return true;
   }
 
+  /** Width the side panels can share: the workspace less the resizers and the narrowest player (Infinity off desktop or unknown). */
+  _panelRoom() {
+    const ws = this._workspace;
+    if (!ws || (this.el.dataset.layout && this.el.dataset.layout !== 'desktop')) return Infinity;
+    const cs = getComputedStyle(ws);
+    const width = ws.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    return width > 0 ? width - RESIZERS - MIN_PLAYER : Infinity;
+  }
+
+  /** The side panel widths on screen: the saved ones, narrowed to fit the window. */
+  shownPanelWidths(room = this._panelRoom()) {
+    return fitPanelWidths(this._panelW.left, this._panelW.right, room);
+  }
+
+  /** Show the side panels at widths that fit (after a resize, a layout preset or a drag). */
+  fitPanels({ relayout = true } = {}) {
+    if (!this._panelW) return;
+    const room = this._panelRoom();
+    const [left, right] = this.shownPanelWidths(room);
+    const st = this.el.style;
+    const changed = st.getPropertyValue('--left-w') !== `${left}px` || st.getPropertyValue('--right-w') !== `${right}px`;
+    st.setProperty('--left-w', `${left}px`);
+    st.setProperty('--right-w', `${right}px`);
+    for (const [which, w, other] of [['left', left, right], ['right', right, left]]) {
+      const [lo, hi] = PANEL_LIMITS[which];
+      this._panelResizers[which].setAttribute('aria-valuenow', String(Math.round(w)));
+      this._panelResizers[which].setAttribute('aria-valuemax', String(Math.round(Math.max(lo, Math.min(hi, room - other)))));
+    }
+    if (changed && relayout) {
+      this.ctx.playerView.relayout?.();
+      this.ctx.assets.relayout?.();
+    }
+  }
+
   dispose() {
     this._disposed = true;
+    this._fitObserver?.disconnect();
     this._offPrefs?.();
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
