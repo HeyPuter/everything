@@ -75,7 +75,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   /** transform handles shown whatever tool is active (Object Gizmos) */
   objectGizmos = { translate: false, rotate: false, scale: false };
   /** gizmos of the active object's data (lights, cameras, image empties; editors/view3d/datagizmos.ts) */
-  dataGizmos = { activeObject: true, light_size: true, light_look_at: true, camera_lens: true, camera_focus_distance: true, empty_image: true };
+  dataGizmos = { activeObject: true, light_size: true, light_look_at: true, camera_lens: true, camera_focus_distance: true, empty_image: true, empty_force_field: true };
   showNavGizmo = true;
   sidebarTab = 'Item';
   overlapHeader = true;

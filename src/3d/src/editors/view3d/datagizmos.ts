@@ -189,7 +189,18 @@ function imageCorners(ob: ObjectData) {
   return { w, h: hh, corners: [new Vector3(x0, y0, 0), new Vector3(x0 + w, y0, 0), new Vector3(x0 + w, y0 + hh, 0), new Vector3(x0, y0 + hh, 0)] };
 }
 
-function emptyHandles(ob: ObjectData, s: DataGizmoSettings): { handles: Handle[]; extras: VNode[] } {
+/** Distance of the force field strength handle from the origin (strength 0 sits at 1). */
+const fieldHandleDistance = (strength: number) => Math.max(0.15, 1 + strength * 0.25);
+
+function emptyHandles(v: View3D, ob: ObjectData, s: DataGizmoSettings): { handles: Handle[]; extras: VNode[] } {
+  if (s.empty_force_field && ob.field && ob.field.type !== 'NONE') {
+    const f = frameOf(ob);
+    const at = f.pos.clone().addScaledVector(f.z, fieldHandleDistance(ob.field.strength) * Math.max(f.scale.z, 1e-6));
+    const p0 = v.project(f.pos),
+      p1 = v.project(at);
+    const extras = p1.z < 1 ? [h('line', { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: HANDLE, 'stroke-width': 1, opacity: 0.6 })] : [];
+    return { handles: [{ id: 'field_strength', at, color: HANDLE, tip: 'Strength: drag along the field axis' }], extras };
+  }
   if (!s.empty_image || ob.empty_display_type !== 'IMAGE') return { handles: [], extras: [] };
   const f = frameOf(ob);
   const { corners } = imageCorners(ob);
@@ -200,7 +211,7 @@ function handlesFor(v: View3D, ob: ObjectData) {
   const s = dataGizmoSettings(v);
   if (ob.type === 'LIGHT' && ob.data && app.doc.lights[ob.data]) return lightHandles(v, ob, app.doc.lights[ob.data], s);
   if (ob.type === 'CAMERA' && ob.data && app.doc.cameras[ob.data]) return cameraHandles(v, ob, app.doc.cameras[ob.data], s);
-  if (ob.type === 'EMPTY') return emptyHandles(ob, s);
+  if (ob.type === 'EMPTY') return emptyHandles(v, ob, s);
   return { handles: [], extras: [] };
 }
 
@@ -235,6 +246,7 @@ editModeHooks.svg.push((v) => {
 function snapshot(ob: ObjectData) {
   const data = ob.type === 'LIGHT' && ob.data ? app.doc.lights[ob.data] : ob.type === 'CAMERA' && ob.data ? app.doc.cameras[ob.data] : null;
   return {
+    field: ob.field ? { ...ob.field } : null,
     ob: { location: [...ob.location], rotation_euler: [...ob.rotation_euler], rotation_quaternion: [...ob.rotation_quaternion], rotation_axis_angle: [...ob.rotation_axis_angle], scale: [...ob.scale], empty_display_size: ob.empty_display_size, empty_image_offset: ob.empty_image_offset ? [...ob.empty_image_offset] : undefined },
     data: data ? structuredClone(data) : null,
   };
@@ -242,6 +254,7 @@ function snapshot(ob: ObjectData) {
 
 function restore(ob: ObjectData, snap: ReturnType<typeof snapshot>) {
   Object.assign(ob, structuredClone(snap.ob));
+  if (snap.field) ob.field = { ...snap.field };
   if (snap.data) {
     const table = ob.type === 'LIGHT' ? app.doc.lights : app.doc.cameras;
     if (ob.data) Object.assign(table[ob.data] as object, structuredClone(snap.data));
@@ -320,6 +333,18 @@ export function dragHandle(v: View3D, ob: ObjectData, id: string, x: number, y: 
       const t = (b * e - dd) / den;
       ca.dof.focus_distance = Math.max(0, t);
     }
+  } else if (ob.type === 'EMPTY' && id === 'field_strength' && ob.field) {
+    // closest point on the field axis to the pointer ray
+    const { origin, dir } = v.ray(x, y);
+    const a = f.z.clone();
+    const w = f.pos.clone().sub(origin);
+    const b = a.dot(dir),
+      dd = a.dot(w),
+      e = dir.dot(w);
+    const den = 1 - b * b;
+    if (Math.abs(den) < 1e-6) return;
+    const t = (b * e - dd) / den / Math.max(f.scale.z, 1e-6);
+    ob.field = { ...ob.field, strength: Math.round(((t - 1) / 0.25) * 1000) / 1000 };
   } else if (ob.type === 'EMPTY' && id.startsWith('image:')) {
     const i = Number(id.slice(6));
     const p = onPlane(v, x, y, f.pos, f.z);
@@ -352,6 +377,7 @@ const LABELS: Record<string, string> = {
   area_y: 'Area Light Size',
   lens: 'Camera Lens',
   focus: 'Focus Distance',
+  field_strength: 'Field Strength',
 };
 
 function headerFor(ob: ObjectData, id: string): string {
@@ -363,6 +389,7 @@ function headerFor(ob: ObjectData, id: string): string {
     if (id.startsWith('area')) return `Size: ${la.size.toFixed(3)} m × ${la.size_y.toFixed(3)} m`;
     return 'Look At: point at a surface';
   }
+  if (id === 'field_strength') return `Strength: ${(ob.field?.strength ?? 0).toFixed(3)}`;
   if (ob.type === 'CAMERA' && ob.data) {
     const ca = app.doc.cameras[ob.data];
     if (id === 'focus') return `Focus Distance: ${ca.dof.focus_distance.toFixed(3)} m`;

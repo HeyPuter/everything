@@ -93,3 +93,14 @@ test('Gizmos popover hides the object data gizmos', async ({ page }) => {
   await expect(page.locator('.v3d-svg [data-ogz]')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('force field strength gizmo', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await addActive(page, 'object.effector_add', { type: 'WIND', location: [0, 0, 0] });
+  const s0 = await get<number>(page, 'app.activeObject.field.strength');
+  await drag(page, 'field_strength', 0, -60);
+  const s1 = await get<number>(page, 'app.activeObject.field.strength');
+  expect(s1).toBeGreaterThan(s0 + 0.2);
+  await expectNoErrors(errors);
+});

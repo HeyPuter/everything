@@ -308,6 +308,7 @@ function dataGizmoRows(v: View3D): Child[] {
   return [
     h('div', { class: { 'pop-title': true, disabled: off } }, 'Empty'),
     row('empty_image', 'Image'),
+    row('empty_force_field', 'Force Field'),
     h('div', { class: { 'pop-title': true, disabled: off } }, 'Light'),
     row('light_size', 'Size'),
     row('light_look_at', 'Look At'),
