@@ -305,3 +305,31 @@ describe('fluid display', () => {
     expect(L.noise.size).toBe(1);
   });
 });
+
+describe('adaptive domain', () => {
+  it('simulates only the region around the gas, with similar results', async () => {
+    const { activeBox } = await import('../../src/physics/fluid');
+    const g = newGrid(10, 10, 10);
+    g.density[5 + 5 * 10 + 5 * 100] = 1;
+    expect(activeBox(g, [], 0.01, 2)).toEqual([3, 3, 3, 8, 8, 8]);
+    expect(activeBox(newGrid(4, 4, 4), [], 0.01, 2)).toBeNull();
+    const run = (adaptive: boolean) => {
+      const { doc, domain, dm, key } = smokeScene();
+      dm.domain_settings.use_adaptive_domain = adaptive;
+      const gr = new Depsgraph(doc);
+      doc.scene.frame_current = 12;
+      gr.evaluate(doc);
+      const d = smokeDraw.get(key)!;
+      let sum = 0;
+      for (let i = 0; i < d.data.length; i += 2) sum += d.data[i];
+      void domain;
+      return { sum, window: d.window };
+    };
+    const full = run(false),
+      adapt = run(true);
+    expect(adapt.window).toBeTruthy();
+    expect(full.window).toBeFalsy();
+    expect(adapt.sum).toBeGreaterThan(full.sum * 0.5);
+    expect(adapt.sum).toBeLessThan(full.sum * 1.5);
+  });
+});

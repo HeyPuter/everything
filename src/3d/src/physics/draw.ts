@@ -230,6 +230,15 @@ interface VolumeEntry {
   data: SmokeDraw;
   mesh: Mesh;
   tex: Data3DTexture;
+  /** wire box of the adaptive domain region */
+  box?: LineSegments;
+}
+
+/** Edges of an axis-aligned box. */
+function boxEdges(a: number[], b: number[]): Float32Array {
+  const c = (i: number) => [i & 1 ? b[0] : a[0], i & 2 ? b[1] : a[1], i & 4 ? b[2] : a[2]];
+  const e = [0, 1, 2, 3, 4, 5, 6, 7, 0, 2, 1, 3, 4, 6, 5, 7, 0, 4, 1, 5, 2, 6, 3, 7];
+  return new Float32Array(e.flatMap((i) => c(i)));
 }
 const volumes = new Map<string, VolumeEntry>();
 const _cam = new Vector3();
@@ -242,6 +251,7 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     seen.add(key);
     let e = volumes.get(key);
     if (e && (e.data.nx !== d.nx || e.data.ny !== d.ny || e.data.nz !== d.nz || e.data.bmin.join() !== d.bmin.join() || e.data.bmax.join() !== d.bmax.join())) {
+      if (e.box) scene.remove(e.box);
       scene.remove(e.mesh);
       e.mesh.geometry.dispose();
       e.tex.dispose();
@@ -298,16 +308,35 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     mat.depthTest = !inside;
     // a slice or color-ramp view of the domain replaces the smoke volume
     e.mesh.visible = !replacesVolume(d.settings);
+    // adaptive domains show the region being simulated
+    if (d.window && d.coarse) {
+      const [i0, j0, k0, i1, j1, k1] = d.window;
+      const cs = [0, 1, 2].map((a) => (d.bmax[a] - d.bmin[a]) / d.coarse![a]);
+      const pts = boxEdges([d.bmin[0] + i0 * cs[0], d.bmin[1] + j0 * cs[1], d.bmin[2] + k0 * cs[2]], [d.bmin[0] + i1 * cs[0], d.bmin[1] + j1 * cs[1], d.bmin[2] + k1 * cs[2]]);
+      if (!e.box) {
+        e.box = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: 0xe0802a }));
+        e.box.matrixAutoUpdate = false;
+        e.box.frustumCulled = false;
+        scene.add(e.box);
+      }
+      e.box.geometry.setAttribute('position', new BufferAttribute(pts, 3));
+      e.box.matrixWorld.copy(ev.world);
+      e.box.visible = true;
+    } else if (e.box) e.box.visible = false;
   }
   for (const [key, e] of volumes)
     if (!seen.has(key)) {
       if (!smokeDraw.has(key)) {
         scene.remove(e.mesh);
+        if (e.box) scene.remove(e.box);
         e.mesh.geometry.dispose();
         e.tex.dispose();
         (e.mesh.material as ShaderMaterial).dispose();
         volumes.delete(key);
-      } else e.mesh.visible = false;
+      } else {
+        e.mesh.visible = false;
+        if (e.box) e.box.visible = false;
+      }
     }
 }
 

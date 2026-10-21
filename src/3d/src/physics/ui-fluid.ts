@@ -162,6 +162,13 @@ function domainPanels(ob: ObjectData, m: FluidModifier): Child[] {
       modular && s.use_guide && (s.guide_source ?? 'DOMAIN') === 'EFFECTOR' && !layerBaked(s, 'guide') ? note('Unbaked guides are computed while baking the data (bake them first to reuse them)') : null,
       modular ? layerButtons(ob, m, 'data') : null,
       panel('ph-fl-border', 'Border Collisions', () => (['front', 'back', 'right', 'left', 'top', 'bottom'] as const).map((k) => bool(s, `use_collision_border_${k}`, k[0].toUpperCase() + k.slice(1), { disabled: d })), { sub: true, closed: true }),
+      gas
+        ? panel('ph-fl-adaptive', 'Adaptive Domain', () => [
+            num(s, 'additional_res', 'Add Resolution', { int: true, min: 0, max: 512, disabled: d || !s.use_adaptive_domain, tip: 'Extra resolution divisions (affordable since only the gas region is simulated)' }),
+            num(s, 'adapt_margin', 'Margin', { int: true, min: 2, max: 24, disabled: d || !s.use_adaptive_domain, tip: 'Cells kept around the gas' }),
+            num(s, 'adapt_threshold', 'Threshold', { min: 0, max: 1, precision: 4, disabled: d || !s.use_adaptive_domain, tip: 'Density below which a cell counts as empty' }),
+          ], { sub: true, closed: true, header: headerCheck(`fl-adapt-${m.id}`, s, 'use_adaptive_domain', 'Adaptive Domain', d) })
+        : null,
     ], { sub: true }),
   );
   if (gas)

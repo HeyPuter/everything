@@ -437,6 +437,8 @@ export interface SmokeDraw {
   frame?: FluidFrame;
   coarse?: [number, number, number];
   settings?: FluidDomainSettings;
+  /** adaptive domain region (coarse cells) */
+  window?: [number, number, number, number, number, number] | null;
 }
 
 /** Latest evaluated smoke grids per `${object id}:${modifier id}` (viewport evaluation only). */
@@ -747,9 +749,13 @@ export interface FluidFrame {
   velScale?: number;
   /** obstacle cells */
   solid?: Uint8Array;
+  /** adaptive domain region of this frame (cells) */
+  window?: [number, number, number, number, number, number] | null;
 }
 
 export interface FluidLive {
+  /** adaptive domain: the simulated region (cells, inclusive min / exclusive max) */
+  window?: [number, number, number, number, number, number] | null;
   grid: GasGrid;
   G: GridFrame;
   bmin: [number, number, number];
@@ -928,6 +934,64 @@ export function flowEmission(ctx: SimContext, fl: { ob: ObjectData; m: FluidModi
   return { fs, vx, coord };
 }
 
+/** Cells holding gas (or being emitted into), grown by the margin: [i0, j0, k0, i1, j1, k1), or null when empty. */
+export function activeBox(g: GasGrid, emitters: Float32Array[], threshold: number, margin: number): [number, number, number, number, number, number] | null {
+  const { nx, ny, nz } = g;
+  let i0 = nx,
+    j0 = ny,
+    k0 = nz,
+    i1 = -1,
+    j1 = -1,
+    k1 = -1;
+  for (let k = 0, o = 0; k < nz; k++)
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++, o++) {
+        const on = g.density[o] > threshold || g.heat[o] > threshold || g.fuel[o] > threshold || g.flame[o] > threshold || emitters.some((w) => w[o] > 0);
+        if (!on) continue;
+        if (i < i0) i0 = i;
+        if (j < j0) j0 = j;
+        if (k < k0) k0 = k;
+        if (i > i1) i1 = i;
+        if (j > j1) j1 = j;
+        if (k > k1) k1 = k;
+      }
+  if (i1 < 0) return null;
+  return [Math.max(0, i0 - margin), Math.max(0, j0 - margin), Math.max(0, k0 - margin), Math.min(nx, i1 + 1 + margin), Math.min(ny, j1 + 1 + margin), Math.min(nz, k1 + 1 + margin)];
+}
+
+const windowGrids = new WeakMap<GasGrid, GasGrid>();
+const FIELDS = ['density', 'fuel', 'flame', 'heat', 'u', 'v', 'w'] as const;
+
+/** Step only a box of the grid: copied into a smaller grid, solved, copied back (outside stays still). */
+function stepWindow(g: GasGrid, P: GasParams, b: [number, number, number, number, number, number]) {
+  const [i0, j0, k0, i1, j1, k1] = b;
+  const wx = i1 - i0,
+    wy = j1 - j0,
+    wz = k1 - k0;
+  let sub = windowGrids.get(g);
+  if (!sub || sub.nx !== wx || sub.ny !== wy || sub.nz !== wz) {
+    sub = newGrid(wx, wy, wz);
+    windowGrids.set(g, sub);
+  }
+  const copy = (back: boolean) => {
+    for (let k = 0; k < wz; k++)
+      for (let j = 0; j < wy; j++) {
+        const so = j * wx + k * wx * wy,
+          go = i0 + (j + j0) * g.nx + (k + k0) * g.nx * g.ny;
+        for (const f of FIELDS) {
+          if (back) g[f].set(sub![f].subarray(so, so + wx), go);
+          else sub![f].set(g[f].subarray(go, go + wx), so);
+        }
+        if (!back) sub!.solid.set(g.solid.subarray(go, go + wx), so);
+      }
+  };
+  copy(false);
+  // borders of the box that lie on the domain border keep their collision setting; inner ones are open
+  const c = P.closed;
+  stepGas(sub, { ...P, closed: [i0 === 0 && c[0], i1 === g.nx && c[1], j0 === 0 && c[2], j1 === g.ny && c[3], k0 === 0 && c[4], k1 === g.nz && c[5]] });
+  copy(true);
+}
+
 /** Number of solver steps for a frame from the CFL condition (cells moved per step). */
 export function timeSteps(s: FluidDomainSettings, vmax: number, dtFrame: number): number {
   const lo = Math.max(1, Math.round(s.timesteps_min ?? 1)),
@@ -1072,7 +1136,15 @@ function stepDomain(ctx: SimContext, ob: ObjectData, m: FluidModifier, L: FluidL
       }
     }
     if (guide) applyGuides(g.u, g.v, g.w, guide, s.guide_alpha ?? 2, s.guide_vel_factor ?? 2, dt);
-    stepGas(g, P);
+    if (s.use_adaptive_domain) {
+      // adaptive domain: only the region holding gas (plus a margin) is simulated
+      const box = activeBox(g, emit.map((e) => e.vx.w), Math.max(0, s.adapt_threshold ?? 0.002), Math.max(2, Math.round(s.adapt_margin ?? 4)));
+      L.window = box;
+      if (box) stepWindow(g, P, box);
+    } else {
+      L.window = null;
+      stepGas(g, P);
+    }
   }
   // smoke inside obstacles (moving effectors) is removed when asked
   if (s.delete_in_obstacle)
@@ -1157,7 +1229,9 @@ export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
   if (!cache.frames.has(f) && mayStepData(key, m) && !(pc.is_baked && !replay)) {
     if (!cache.live || cache.last < pc.frame_start) {
       const s = { ...defaultDomainSettings(), ...m.domain_settings };
-      const { G, bmin, bmax } = gridFrame(sctx, ob, mesh, Math.min(256, Math.max(8, s.resolution_max)), pc.frame_start);
+      // adaptive domains can afford extra resolution (only the gas region is simulated)
+      const res = s.resolution_max + (s.use_adaptive_domain ? Math.max(0, s.additional_res ?? 0) : 0);
+      const { G, bmin, bmax } = gridFrame(sctx, ob, mesh, Math.min(256, Math.max(8, res)), pc.frame_start);
       cache.frames.clear();
       cache.live = { grid: newGrid(G.nx, G.ny, G.nz), G, bmin, bmax, color: [0.7, 0.7, 0.7], fire: false };
       cache.frames.set(pc.frame_start, gasFrame(cache.live.grid));
@@ -1167,7 +1241,7 @@ export function evaluateDomain(ob: ObjectData, m: FluidModifier, mesh: EvalMesh,
       if (cache.last > pc.frame_start && outOfTime()) break;
       const k = cache.last + 1;
       stepDomain(sctx, ob, m, cache.live!, k);
-      cache.frames.set(k, gasFrame(cache.live!.grid));
+      cache.frames.set(k, { ...gasFrame(cache.live!.grid), window: cache.live!.window ?? null });
       cache.last = k;
     }
   }
@@ -1223,6 +1297,7 @@ function fluidApply(mesh: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
         frame: r.frame,
         coarse: [r.live.grid.nx, r.live.grid.ny, r.live.grid.nz],
         settings: s,
+        window: s.use_adaptive_domain ? (r.frame.window ?? null) : null,
       });
     } else smokeDraw.delete(key);
     syncOverlay(ctx, m, key, s, r ? { nx: r.live.grid.nx, ny: r.live.grid.ny, nz: r.live.grid.nz, bmin: r.live.bmin, bmax: r.live.bmax, G: r.live.G, f: r.f, color: r.live.color, density: r.frame.data, heat: r.frame.heat, vel: r.frame.vel, velScale: r.frame.velScale } : null);
