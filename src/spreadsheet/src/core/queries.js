@@ -1140,7 +1140,20 @@ export function loadResult(wb, query, table, { at = null } = {}) {
   const existing = loadedTable(wb, query);
   let result = null;
   const label = existing ? 'Refresh' : 'Load query';
-  wb.transaction(label, () => {
+  // What the query records of its table (the columns it loaded, which tell them from columns added by hand, and the
+  // rows) goes back and forth with the step, so a refresh undone leaves no record of columns the table no longer has.
+  // It goes first among the step's entries: those after a structural one are not replayed (see Workbook.transaction).
+  const record = (q) => ({ load: { ...q.load }, rowCount: q.rowCount, errorCount: q.errorCount });
+  const restore = (state) => {
+    const live = queryById(wb, query.id);
+    if (!live) return;
+    live.load = { ...state.load };
+    for (const key of ['rowCount', 'errorCount']) if (state[key] === undefined) delete live[key]; else live[key] = state[key];
+    wb._announce?.('queries', null);
+  };
+  const before = record(query);
+  let after = before;
+  const write = () => {
     if (existing) {
       const { sheet } = existing;
       let t = existing.table;
@@ -1248,11 +1261,15 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     if (!tableId) { result = { error: 'A table could not be created there.' }; return; }
     query.load = { kind: 'table', table: name, sheet: wb.sheet(sheetId).name, tableId, columns: [...table.columns] };
     result = { sheetId, tableId, rows: height, errors };
+  };
+  wb.transaction(label, () => {
+    write();
+    if (result && !result.error) wb._group.unshift({ label, undo: () => restore(before), redo: () => restore(after) });
   });
   if (result && !result.error) {
     query.refreshed = Date.now(); query.rowCount = height;
     if (result.errors) query.errorCount = result.errors; else delete query.errorCount;
-    saveQuery(wb, query);
+    after = record(saveQuery(wb, query));
   }
   return result || { error: 'Nothing was loaded.' };
 }
