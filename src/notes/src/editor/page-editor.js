@@ -742,8 +742,82 @@ export class PageEditor extends Emitter {
       const el = this.createOutlineAt(48, this.nextFreeY());
       el.querySelector('.outline-body').focus();
     } else e.preventDefault();
-    if (html) insertHtml(cleanPastedHtml(html));
+    if (html) await this.pasteHtml(cleanPastedHtml(html));
     else if (text) insertHtml(textToHtml(text));
+  }
+
+  /**
+   * Inserts (sanitized) pasted HTML at the caret with its equations,
+   * attachments and pictures working at once, not only after a reload.
+   */
+  async pasteHtml(html) {
+    // Chrome's insertHTML splits the paragraph at a non-editable span, so
+    // equations and attachments go in as plain placeholders and are put
+    // back afterwards.
+    const tpl = document.implementation.createHTMLDocument('').createElement('div');
+    tpl.innerHTML = html;
+    const embeds = [...tpl.querySelectorAll('span.nt-file, span.nt-math')];
+    embeds.forEach((el, i) => {
+      const ph = tpl.ownerDocument.createElement('img');
+      ph.setAttribute('data-nt-embed', String(i));
+      el.replaceWith(ph);
+    });
+    const body = editableRoot(currentRange()?.commonAncestorContainer);
+    const before = new Set(body?.querySelectorAll('[data-asset]') || []);
+    insertHtml(tpl.innerHTML);
+    if (!body?.classList.contains('outline-body') || !body.isConnected) return;
+    for (const ph of body.querySelectorAll('img[data-nt-embed]')) {
+      const el = embeds[Number(ph.dataset.ntEmbed)];
+      if (!el) {
+        ph.remove();
+        continue;
+      }
+      // An embed's look comes from the app; drop styles a copy froze on it.
+      const embed = document.importNode(el, true);
+      embed.removeAttribute('style');
+      ph.replaceWith(embed);
+    }
+    const outline = body.closest('.outline');
+    this.dirty.add(outline);
+    const added = [...body.querySelectorAll('[data-asset]')].filter((el) => !before.has(el));
+    await hydrate(body, this.store);
+    if (added.length && (await this.adoptAssets(added))) await hydrate(body, this.store);
+    this.dirty.add(outline);
+    this.commit();
+  }
+
+  /**
+   * Gives pasted pictures and attachments their own copy of the file, saved
+   * for this page's section (sealed when it is protected): a shared file
+   * would break the other page's copy when either is re-encrypted. Files
+   * that can't be read (a locked section's, or deleted ones) are replaced
+   * by their name, with a message. Returns whether anything changed.
+   */
+  async adoptAssets(elements) {
+    const sectionId = this.store.findPage?.(this.page?.id)?.section.id;
+    const ids = [...new Set(elements.map((el) => el.dataset.asset))];
+    let changed = false;
+    for (const id of ids) {
+      const els = elements.filter((el) => el.dataset.asset === id && el.isConnected);
+      if (!els.length) continue;
+      const blob = await Promise.resolve(this.store.assetBlob?.(id)).catch(() => null);
+      if (blob) {
+        const ext = id.endsWith('.sealed') ? id.split('.').at(-2) : id.split('.').pop();
+        const fresh = await this.store.saveAsset(blob instanceof Blob ? blob : new Blob([blob]), `x.${ext}`, { sectionId }).catch(() => null);
+        if (!fresh) continue;
+        for (const el of els) {
+          el.dataset.asset = fresh;
+          if (el.tagName === 'IMG') el.removeAttribute('src');
+          else delete el.dataset.hydrated;
+        }
+      } else {
+        const name = els[0].dataset.name || els[0].getAttribute('alt') || 'picture';
+        for (const el of els) el.replaceWith(document.createTextNode(el.tagName === 'IMG' ? el.getAttribute('alt') || '' : `[${el.dataset.name || 'attachment'}]`));
+        this.emit('insert-failed', { file: { name }, err: new Error("it is in a locked section or was deleted") });
+      }
+      changed = true;
+    }
+    return changed;
   }
 
   async onDrop(e) {

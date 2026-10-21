@@ -571,3 +571,68 @@ describe('ribbon round trips', () => {
     host.remove();
   });
 });
+
+describe('copying and pasting embeds', () => {
+  async function setup(html, store = {}) {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const saved = [];
+    const st = {
+      pageChanged() {},
+      assetUrl: async () => null,
+      findPage: () => ({ section: { id: 'sec1' } }),
+      assetBlob: async (id) => (id.includes('gone') ? null : new Blob([`bytes of ${id}`])),
+      saveAsset: async (blob, name, opts) => {
+        saved.push({ text: await blob.text(), name, opts });
+        return `new${saved.length}.${name.split('.').pop()}`;
+      },
+      ...store,
+    };
+    const ed = new PageEditor({ store: st, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html }], ink: [] });
+    return { ed, host, saved, body: host.querySelector('.outline-body') };
+  }
+
+  // jsdom has no editing commands: insertHTML puts the fragment at the caret.
+  function fakeInsertHtml(fn) {
+    const original = document.execCommand;
+    document.execCommand = (cmd, ui, value) => {
+      if (cmd !== 'insertHTML') return false;
+      const r = document.getSelection().getRangeAt(0);
+      r.deleteContents();
+      const frag = r.createContextualFragment(value);
+      const last = frag.lastChild;
+      r.insertNode(frag);
+      if (last) {
+        r.setStartAfter(last);
+        r.collapse(true);
+      }
+      return true;
+    };
+    return Promise.resolve(fn()).finally(() => {
+      document.execCommand = original;
+    });
+  }
+
+  it('pastes equations and attachments working, with their own copy of the file', async () => {
+    const { ed, body, saved, host } = await setup('<p>A </p>');
+    caretIn(body.querySelector('p').firstChild, 2);
+    const failed = [];
+    ed.on('insert-failed', (e) => failed.push(e.file.name));
+    await fakeInsertHtml(() => ed.pasteHtml('Eq <span class="nt-math" data-tex="x^2" contenteditable="false"></span> and <span class="nt-file" data-asset="a1.txt" data-name="n.txt" data-kind="file" contenteditable="false"></span> <span class="nt-file" data-asset="gone1.txt" data-name="lost.txt" data-kind="file" contenteditable="false"></span><img data-asset="a2.png" alt="pic">'));
+    const p = body.querySelector('p');
+    expect(p.querySelector('.nt-math').getAttribute('role')).toBe('img');
+    const file = p.querySelector('.nt-file');
+    expect(file.dataset.asset).toBe('new1.txt');
+    expect(file.querySelector('.nt-file-name').textContent).toBe('n.txt');
+    expect(p.querySelector('img').dataset.asset).toBe('new2.png');
+    expect(saved.map((s) => [s.text, s.opts.sectionId])).toEqual([['bytes of a1.txt', 'sec1'], ['bytes of a2.png', 'sec1']]);
+    // A file that can't be read (a locked section's) becomes its name.
+    expect(p.textContent).toContain('[lost.txt]');
+    expect(failed).toEqual(['lost.txt']);
+    expect(ed.page.outlines[0].html).toContain('data-asset="new1.txt"');
+    expect(ed.page.outlines[0].html).not.toContain('gone1');
+    ed.destroy();
+    host.remove();
+  });
+});
