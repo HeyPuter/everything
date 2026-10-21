@@ -7,6 +7,9 @@ import { num, splitRow } from '../ui/props';
 import { icon } from '../ui/icons';
 import type { ObjectData } from '../data/types';
 import { caches } from './common';
+import { uiList } from '../editors/properties/uilist';
+import { cacheOwners } from './ops';
+import { switchCache } from './ptcaches';
 import { FIELD_TYPES } from './types';
 
 /** Register a properties tab right after another one (keeps the default tab order). */
@@ -81,7 +84,36 @@ export function cachePanel(id: string, key: string, pc: { frame_start: number; f
       if (c) for (const f of c.frames.values()) bytes += byteSize(f);
       const mem = bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(bytes > 1024 * 1024 * 10 ? 0 : 1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
       const status = pc.is_baked ? `${frames} frames baked (${mem})` : frames ? `${frames} frames in memory (${mem})` : 'Not cached yet: play from the start frame';
+      const owner = cacheOwners(app.doc).find((o) => o.key === key);
+      const holder = owner?.holder;
+      const list = holder ? ((holder.point_caches as { name?: string }[] | undefined) ?? [{ name: (pc as { name?: string }).name ?? 'Cache' }]) : null;
+      const ai = holder ? Math.min((holder.point_cache_index as number) ?? 0, (list?.length ?? 1) - 1) : 0;
       return [
+        holder && list
+          ? h(
+              'div',
+              { style: { padding: '4px 0' } },
+              uiList(
+                `ptc-${key}`,
+                list.map((c, i) => ({ key: `${i}`, label: (i === ai ? (pc as { name?: string }).name : c.name) ?? 'Cache', icon: 'physics' })),
+                ai,
+                (i) => {
+                  switchCache(owner!, i);
+                  changed('Set Active Cache');
+                },
+                {
+                  add: () => app.run('ptcache.add', { cache: key }),
+                  remove: () => app.run('ptcache.remove', { cache: key }),
+                  rename: (i, name) => {
+                    if (i === ai) (pc as { name?: string }).name = name;
+                    else list[i].name = name;
+                    changed('Rename Cache');
+                  },
+                  rows: 2,
+                },
+              ),
+            )
+          : null,
         num(pc, 'frame_start', 'Simulation Start', { int: true, disabled: pc.is_baked }),
         num(pc, 'frame_end', 'End', { int: true, min: pc.frame_start, disabled: pc.is_baked }),
         h('div', { class: 'prop-note' }, status),

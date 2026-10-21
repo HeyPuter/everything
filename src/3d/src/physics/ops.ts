@@ -50,6 +50,8 @@ export type CacheOwner = {
   pc: { frame_start: number; frame_end: number; is_baked: boolean };
   /** fluid domains with Modular / All caches bake through the fluid operators only */
   ownBake?: boolean;
+  /** the object holding `point_cache` (and its list of alternative caches) */
+  holder?: Record<string, unknown>;
 };
 
 /** All point caches in the document (rigid body world, cloth/soft body modifiers, particle systems). */
@@ -61,19 +63,19 @@ export function cacheOwners(doc: DocumentData): CacheOwner[] {
     const ob = doc.objects[id];
     if (!ob) continue;
     for (const m of ob.modifiers) {
-      if ((m.type === 'CLOTH' || m.type === 'SOFT_BODY') && m.point_cache) out.push({ key: meshSimKey(m.type, ob, m), label: `${ob.name} ▸ ${m.name}`, pc: m.point_cache as PointCacheSettings });
+      if ((m.type === 'CLOTH' || m.type === 'SOFT_BODY') && m.point_cache) out.push({ key: meshSimKey(m.type, ob, m), label: `${ob.name} ▸ ${m.name}`, pc: m.point_cache as PointCacheSettings, holder: m as unknown as Record<string, unknown> });
       if (m.type === 'FLUID' && m.fluid_type === 'DOMAIN' && m.point_cache) out.push({ key: fluidCacheKey(ob, m), label: `${ob.name} ▸ ${m.name}`, pc: m.point_cache as PointCacheSettings, ownBake: ((m.domain_settings as { cache_type?: string } | undefined)?.cache_type ?? 'REPLAY') !== 'REPLAY' });
       if (m.type === 'DYNAMIC_PAINT' && m.ui_type === 'CANVAS')
-        for (const sf of (m as DynamicPaintModifier).canvas_settings?.canvas_surfaces ?? []) if (sf.is_active) out.push({ key: dpCacheKey(ob, m, sf), label: `${ob.name} ▸ ${sf.name}`, pc: sf.point_cache });
+        for (const sf of (m as DynamicPaintModifier).canvas_settings?.canvas_surfaces ?? []) if (sf.is_active) out.push({ key: dpCacheKey(ob, m, sf), label: `${ob.name} ▸ ${sf.name}`, pc: sf.point_cache, holder: sf as unknown as Record<string, unknown> });
       if (m.type === 'PARTICLE_SYSTEM') {
         const ps = systemOf(ob, m);
         const s = ps ? doc.particles[ps.settings] : undefined;
         if (ps && s && s.type !== 'HAIR') {
           ps.point_cache ??= defaultPointCache();
-          out.push({ key: particleCacheKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache });
+          out.push({ key: particleCacheKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache, holder: ps as unknown as Record<string, unknown> });
         } else if (ps && s && ps.use_hair_dynamics) {
           ps.point_cache ??= defaultPointCache();
-          out.push({ key: hairDynKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache });
+          out.push({ key: hairDynKey(ob, m), label: `${ob.name} ▸ ${ps.name}`, pc: ps.point_cache, holder: ps as unknown as Record<string, unknown> });
         }
       }
     }

@@ -109,3 +109,27 @@ describe('soft body settings', () => {
     expect(st.params.choke).toBeCloseTo(0.2, 5);
   });
 });
+
+describe('multiple point caches', () => {
+  it('switching caches swaps their frames and settings', async () => {
+    const { switchCache, cacheList } = await import('../../src/physics/ptcaches');
+    const { getCache } = await import('../../src/physics/common');
+    const holder: Record<string, unknown> = { point_cache: { frame_start: 1, frame_end: 50, is_baked: false } };
+    const c = getCache<Float32Array, unknown>('TEST:cache');
+    c.hash = 'h1';
+    c.frames.set(1, new Float32Array([1]));
+    c.frames.set(2, new Float32Array([2]));
+    c.last = 2;
+    const owner = { key: 'TEST:cache', label: 'T', pc: holder.point_cache as never, holder };
+    const list = cacheList(holder);
+    list.push({ frame_start: 10, frame_end: 20, is_baked: false, name: 'Cache.001' });
+    switchCache(owner, 1);
+    expect(holder.point_cache_index).toBe(1);
+    expect((holder.point_cache as { frame_start: number }).frame_start).toBe(10);
+    expect(c.frames.size).toBe(0);
+    switchCache(owner, 0);
+    expect(c.frames.size).toBe(2);
+    expect(c.hash).toBe('h1');
+    expect((holder.point_cache as { frame_end: number }).frame_end).toBe(50);
+  });
+});

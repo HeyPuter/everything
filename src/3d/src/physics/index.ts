@@ -15,6 +15,7 @@ import './draw';
 import './timelinecache';
 import './fluiddraw';
 import './particleops';
+import './ptcaches';
 import './oceanbake';
 import './dpbake';
 
