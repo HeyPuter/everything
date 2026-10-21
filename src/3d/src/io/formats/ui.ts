@@ -152,22 +152,8 @@ export function optionsDialog(
   if (!options.length && !selection) return Promise.resolve(values);
   return new Promise((resolve, reject) => {
     const parts = dialog(title, () => reject(new AbortError()));
-    if (selection) {
-      values.__selection = selection.value;
-      const row = document.createElement('label');
-      row.className = 'io-selection';
-      row.style.cssText = 'display:flex;align-items:center;gap:12px;min-height:var(--row);';
-      row.title = 'Only export the objects that are selected';
-      const cb = document.createElement('input');
-      cb.type = 'checkbox';
-      cb.checked = selection.value;
-      cb.setAttribute('aria-label', selection.label);
-      cb.onchange = () => (values.__selection = cb.checked);
-      const name = document.createElement('span');
-      name.textContent = selection.label;
-      row.append(cb, name);
-      parts.body.append(row);
-    } else if (intro) {
+    if (selection) values.__selection = selection.value;
+    if (intro && !selection) {
       const p = document.createElement('div');
       p.style.cssText = 'color:var(--c-text-dim);margin-bottom:4px;';
       p.textContent = intro;
@@ -187,7 +173,8 @@ export function optionsDialog(
       const el = f(key, values, sync);
       if (el) parts.body.append(el);
     }
-    for (const o of options) {
+    const shown: FormatOption[] = selection ? [{ id: '__selection', label: selection.label, type: 'bool', default: false, description: 'Only export the objects that are selected' }, ...options] : options;
+    for (const o of shown) {
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--row);';
       if (o.description) row.title = o.description;
