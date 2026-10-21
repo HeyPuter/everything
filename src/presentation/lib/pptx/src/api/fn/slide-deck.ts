@@ -173,6 +173,37 @@ const allocateSlideN = (pkg: OpcPackage): number => {
   return next;
 };
 
+// Copies the notes part the new slide's `target` names, pointing the copy
+// back at that slide; returns the slide's target for the copy.
+const copyNotesSlide = (
+  pkg: OpcPackage,
+  slide: PartName,
+  target: string,
+): string => {
+  const source = resolveTarget(slide, target);
+  const part = pkg.getPart(source);
+  if (!part) return target;
+  let next = 1;
+  for (const p of pkg.parts) {
+    const m = p.name.match(/^\/ppt\/notesSlides\/notesSlide(\d+)\.xml$/);
+    if (m?.[1] !== undefined) next = Math.max(next, Number(m[1]) + 1);
+  }
+  const name = partName(`/ppt/notesSlides/notesSlide${next}.xml`);
+  pkg.addPart(name, part.contentType, new Uint8Array(part.data));
+  const rels = pkg.getRels(source);
+  if (rels)
+    pkg.setRels(name, {
+      items: rels.items.map((r) =>
+        r.targetMode === "External"
+          ? r
+          : r.type === REL_TYPES.slide
+            ? { ...r, target: `../slides/${slide.split("/").pop()}` }
+            : { ...r, target: resolveTarget(source, r.target) },
+      ),
+    });
+  return `../notesSlides/notesSlide${next}.xml`;
+};
+
 const requirePresentationDoc = (pkg: OpcPackage): XmlDocument => {
   const presPart = pkg.getPart(PRES_PART_NAME);
   if (!presPart) throw new Error("presentation.xml is missing");
@@ -648,6 +679,14 @@ const duplicateSlideUnchecked = (
       target: charts.get(r.id)?.target ?? r.target,
     }));
   pkg.addPart(newSlidePartName, sourcePart.contentType, new Uint8Array(body));
+
+  // The copy's speaker notes are its own: a shared notes part would make
+  // notes typed for the copy replace the original's.
+  const notesRel = copiedRels?.items.find(
+    (r) => r.type === REL_TYPES.notesSlide && r.targetMode !== "External",
+  );
+  if (notesRel)
+    notesRel.target = copyNotesSlide(pkg, newSlidePartName, notesRel.target);
 
   if (copiedRels) pkg.setRels(newSlidePartName, copiedRels);
 

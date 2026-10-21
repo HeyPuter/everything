@@ -5,10 +5,12 @@ import {
   addSlideShape,
   addSlideTextBox,
   createPresentation,
+  duplicateSlide,
   getShapeActionSettings,
   getShapeClickAction,
   getShapeRunClickAction,
   getSlidePartName,
+  getSlideNotes,
   getSlideShapes,
   getSlides,
   inches,
@@ -17,10 +19,36 @@ import {
   savePresentation,
   setShapeActionSettings,
   setShapeClickAction,
+  setSlideNotes,
 } from "../index.ts";
 
 const SLIDE_REL =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
+
+describe("duplicateSlide", () => {
+  it("gives the copy speaker notes of its own", async () => {
+    const pres = createPresentation();
+    const original = addBlankSlide(pres);
+    setSlideNotes(original, "Original notes");
+    const copy = duplicateSlide(pres, original);
+    expect(getSlideNotes(copy)).toBe("Original notes");
+    setSlideNotes(copy, "Notes for the copy");
+    expect(getSlideNotes(original)).toBe("Original notes");
+    const files = unzipSync(await savePresentation(pres));
+    const copyName = getSlidePartName(copy).split("/").pop();
+    const copyRels = strFromU8(files[`ppt/slides/_rels/${copyName}.rels`]!);
+    const notes = /notesSlides\/(notesSlide\d+\.xml)/.exec(copyRels)?.[1];
+    expect(notes).toBe("notesSlide2.xml");
+    expect(strFromU8(files[`ppt/notesSlides/_rels/${notes}.rels`]!)).toContain(
+      `Target="../slides/${copyName}"`,
+    );
+    const back = await loadPresentation(await savePresentation(pres));
+    expect(getSlides(back).map(getSlideNotes)).toEqual([
+      "Original notes",
+      "Notes for the copy",
+    ]);
+  });
+});
 
 describe("removeSlide", () => {
   it("drops the other slides' links to the removed slide", async () => {
