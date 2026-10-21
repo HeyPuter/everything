@@ -63,6 +63,7 @@ export class PageEditor extends Emitter {
   async open(page) {
     this.flush();
     this.page = page;
+    this.removedEmpty = null;
     this.dirty.clear();
     this.activeOutline = null;
     this.selectedOutlines.clear();
@@ -399,6 +400,7 @@ export class PageEditor extends Emitter {
         const model = this.outlineModel(outline);
         this.page.outlines = this.page.outlines.filter((o) => o.id !== outline.dataset.id);
         outline.remove();
+        if (model) this.removedEmpty = { x: model.x, y: model.y };
         this.dirty.delete(outline);
         // A container that never held anything was never saved: no edit to record.
         if (model?.html) this.changed({ structural: true });
@@ -714,7 +716,11 @@ export class PageEditor extends Emitter {
         return this.lastRange;
       }
     }
-    const el = this.createOutlineAt(48, this.nextFreeY());
+    // A click on the page made an empty container that closed when focus
+    // moved to the ribbon or a dialog: bring it back where it was.
+    // (Removing it left the saved caret in the containers' parent.)
+    const at = this.removedEmpty && this.lastRange?.commonAncestorContainer === this.outlinesEl ? this.removedEmpty : null;
+    const el = at ? this.createOutlineAt(at.x, at.y + 12) : this.createOutlineAt(48, this.nextFreeY());
     return currentRange() || (el && currentRange());
   }
 

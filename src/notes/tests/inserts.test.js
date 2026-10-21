@@ -51,3 +51,34 @@ describe('picture selection', () => {
     expect(app.editor.selectedImage).toBeNull();
   });
 });
+
+describe('inserting from a dialog', () => {
+  const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+
+  it('inserts an equation where the page was clicked after the empty container closed', async () => {
+    const ed = app.editor;
+    ed.createOutlineAt(300, 400);
+    app.equationDialog();
+    await tick(10);
+    // Focus moved into the dialog, so the empty container closed.
+    expect(ed.page.outlines.length).toBe(0);
+    document.getElementById('eq-input').value = 'x^2';
+    document.querySelector('dialog .btn.primary').click();
+    await tick(50);
+    expect(ed.page.outlines.length).toBe(1);
+    const o = ed.page.outlines[0];
+    expect(o.html).toContain('data-tex="x^2"');
+    expect([o.x, o.y]).toEqual([300, 388]);
+  });
+
+  it('inserts a link on a page with no containers', async () => {
+    const ed = app.editor;
+    app.linkDialog();
+    await tick(10);
+    document.getElementById('link-address').value = 'example.com';
+    document.querySelector('dialog .btn.primary').click();
+    await tick(10);
+    // jsdom has no insertHTML: the link insertion itself is checked in the browser.
+    expect(ed.page.outlines.length).toBe(1);
+  });
+});

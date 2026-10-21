@@ -404,7 +404,7 @@ export function linkDialog(app) {
       }
       return () => {
         if (range) app.editor.lastRange = range;
-        app.editor.restoreRange();
+        if (!app.editor.restoreRange()) app.editor.ensureCaret();
         const external = !href.startsWith('#');
         insertHtml(`<a href="${escapeHtml(href)}"${external ? ' target="_blank" rel="noopener noreferrer"' : ''}>${escapeHtml(label)}</a>&nbsp;`);
         app.editor.markActiveDirty();
@@ -478,7 +478,7 @@ export function equationDialog(app, span) {
         }
         return async () => {
           if (range) app.editor.lastRange = range;
-          app.editor.restoreRange();
+          if (!app.editor.restoreRange()) app.editor.ensureCaret();
           insertNode(mathSpan(tex));
           const body = app.editor.activeOutline?.querySelector('.outline-body');
           if (body) await hydrate(body, app.store);
