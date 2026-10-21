@@ -193,6 +193,40 @@ test("the assistant asks before deleting and keeps a declined change out", async
   await expect(panel.getByRole("button", { name: "Undo" })).toBeEnabled();
 });
 
+test("a question to allow a change leaves the next message being typed alone", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "one layout covers the flow");
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  const panel = page.locator("#ai-panel");
+  const box = page.getByRole("textbox", { name: "Message the assistant" });
+  await reply(
+    page,
+    [
+      { type: "gate" },
+      toolCall("add_slide", { layout: "blank" }),
+      toolCall("delete_slides", { slides: [1] }),
+    ],
+    [{ type: "text", text: "Left as it was." }],
+  );
+  await box.fill("Start over");
+  await box.press("Enter");
+  // The user writes their next message while the assistant works.
+  await box.pressSequentially("and then make ");
+  await page.evaluate(() => window.__gate());
+  const card = panel.getByRole("group", { name: "Allow this change?" });
+  await expect(card).toBeVisible();
+  await expect(box).toBeFocused();
+  // A space typed there is theirs, not an Allow.
+  await box.pressSequentially("the title bigger");
+  await expect(box).toHaveValue("and then make the title bigger");
+  await expect(card).toBeVisible();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+  await card.getByRole("button", { name: "Don’t allow" }).click();
+  await expect(panel.getByText("Left as it was.")).toBeVisible();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+});
+
 test("a reply's Undo turns off once the user edits after it", async ({
   page,
 }, info) => {

@@ -680,10 +680,13 @@ export function createAssistantPanel(env) {
     });
     lastCard = card;
     // The question takes the focus only from within the panel: it never
-    // pulls the keyboard off text being typed on the slide.
-    if (root.contains(document.activeElement))
+    // pulls the keyboard off text being typed, on the slide or in the
+    // message box, where the next space typed would press Allow.
+    const writing = () =>
+      document.activeElement === input && input.value.length > 0;
+    if (root.contains(document.activeElement) && !writing())
       requestAnimationFrame(() => {
-        if (card.isConnected) allow.focus();
+        if (card.isConnected && !writing()) allow.focus();
       });
     return card;
   }
