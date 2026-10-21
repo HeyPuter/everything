@@ -329,6 +329,9 @@ export class App {
       this.renderNav();
     });
     this.store.on('status', (s) => this.updateSync(s));
+    this.store.on('assets-renamed', ({ id, map }) => {
+      if (this.editor.page?.id === id) this.editor.renameAssets(map);
+    });
     this.store.on('page-replaced', async ({ id }) => {
       if (id === this.state.pageId) await this.editor.open(await this.store.loadPage(id));
     });

@@ -1109,6 +1109,8 @@ export class Store extends Emitter {
         const ext = sealedFor ? assetId.split('.').at(-2) : assetId.split('.').pop();
         const newId = await this.saveAsset(blob, `x.${ext}`, { sectionId: wantSection });
         o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${newId}"`);
+        // An open editor still shows (and would save back) the old id.
+        this.emit('assets-renamed', { id: page.id, map: { [assetId]: newId } });
         this.staleAssets.set(page.id, [...(this.staleAssets.get(page.id) || []), assetId]);
         changed = true;
       }

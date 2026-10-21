@@ -314,3 +314,33 @@ describe('Unlocking a damaged protected section', () => {
     expect(await done).toBe(false);
   });
 });
+
+describe('Protecting the section of the open page', () => {
+  it('keeps typing and undo pointing at the re-encrypted pictures', async () => {
+    const { app, store, backend } = await mount();
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png');
+    const meta = store.createPage(app.state.sectionId, { title: 'Pic', outlines: [{ id: 'o1', x: 40, y: 120, w: null, html: `<p>Hello</p><p><img data-asset="${asset}" alt=""></p>` }] });
+    await app.openPage(meta.id);
+    const body = () => app.editor.outlinesEl.querySelector('.outline-body');
+    const type = (text) => {
+      body().querySelector('p').textContent = text;
+      app.editor.dirty.add(body().closest('.outline'));
+      app.editor.commit();
+    };
+    type('Hello there');
+    await store.protectSection(app.state.sectionId, 'pw');
+    await store.flush();
+    expect(backend.files.has(`assets/${asset}`)).toBe(false);
+    const ids = () => [...app.editor.page.outlines[0].html.matchAll(/data-asset="([^"]+)"/g)].map((m) => m[1]);
+    const stored = () => ids().every((id) => backend.files.has(`assets/${id}`));
+    type('Hello there!');
+    await store.flush();
+    expect(ids()).toHaveLength(1);
+    expect(stored()).toBe(true);
+    await app.editor.undo();
+    await app.editor.undo();
+    await store.flush();
+    expect(app.editor.page.outlines[0].html).toContain('<p>Hello</p>');
+    expect(stored()).toBe(true);
+  });
+});

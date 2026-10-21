@@ -945,6 +945,21 @@ export class PageEditor extends Emitter {
     this.emit('change', {});
   }
 
+  /**
+   * Follows assets the store re-saved under new ids (re-encrypted when a
+   * section is protected or a page moves): the page on screen and its undo
+   * history must not bring the old, deleted ids back.
+   */
+  renameAssets(map) {
+    for (const [from, to] of Object.entries(map)) {
+      for (const el of this.outlinesEl.querySelectorAll(`[data-asset="${CSS.escape(from)}"]`)) el.dataset.asset = to;
+      for (const entry of this.history.stack) {
+        const doc = entry.snapshot?.doc;
+        if (typeof doc === 'string' && doc.includes(from)) entry.snapshot = { ...entry.snapshot, doc: doc.split(`data-asset=\\"${from}\\"`).join(`data-asset=\\"${to}\\"`) };
+      }
+    }
+  }
+
   /** Records a structural change (move, delete, ink, page settings). */
   changed({ structural = true, quiet = false } = {}) {
     this.commit({ structural });
