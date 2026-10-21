@@ -47,6 +47,15 @@ export function environment() {
       files.delete(path);
       fileInfo.delete(path);
     },
+    async rename(path, name) {
+      if (!files.has(path)) throw new Error(`Missing file: ${path}`);
+      const to = `${path.slice(0, path.lastIndexOf('/') + 1)}${name}`;
+      files.set(to, files.get(path));
+      fileInfo.set(to, fileInfo.get(path));
+      files.delete(path);
+      fileInfo.delete(path);
+      return { path: to, name };
+    },
     async stat(path) {
       if (!files.has(path)) throw new Error(`Missing file: ${path}`);
       const value = files.get(path);

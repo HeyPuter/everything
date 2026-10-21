@@ -777,6 +777,9 @@ export class Doc extends EventTarget {
       return P.failureText(e, 'Could not rename the file');
     }
     await this._adoptPath(target, clean);
+    // The room writes a shared workbook's file where its owner's browser last said the file was, which saving says:
+    // until then, a save by anyone else would write a new file under the old name.
+    if (this.collab) await this._saveShared({ auto: true });
     return null;
   }
 
