@@ -716,6 +716,11 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null,
       meta.sheets[sheet.name].groups = sheet.groups;
       any = true;
     }
+    // What-If scenarios: an .xlsx keeps them in the worksheet's <scenarios> (scenarios.js); an .ods writer has no place for them.
+    if (ods && sheet.scenarios) {
+      meta.sheets[sheet.name].scenarios = sheet.scenarios;
+      any = true;
+    }
     // An Advanced Filter run in place, for Data ▸ Clear and Reapply once the file is opened again (a file keeps
     // only the rows it hid). Criteria on another sheet name it, as the ids of a book are its own.
     if (sheet.advancedFilter) {
@@ -2076,7 +2081,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     rules: !partXml && !own && ws?.['!odsConditionalFormats'] ? readXlsxConditionalFormats(ws['!odsConditionalFormats'].xml, { dxfs: ws['!odsConditionalFormats'].dxfs }, null, definedNames, { dateTargets })
       : readXlsxConditionalFormats(partXml, nativeStyles, nativeStyles?.colors || themes, definedNames, { priorities: pivotPriorities, dateTargets }),
     protectedRanges: meta?.sheets?.[name]?.protectedRanges || [],
-    scenarios: parseScenariosXml(partXml),
+    scenarios: partXml ? parseScenariosXml(partXml) : own?.scenarios,
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
