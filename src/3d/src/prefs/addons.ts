@@ -193,7 +193,7 @@ function addonRow(a: Addon, redraw: () => void): Child {
   const open = expanded.has(a.id);
   return h(
     'div',
-    { key: a.id, class: { 'ad-item': true, open, error: !!a.error } },
+    { key: a.id, class: { 'ad-item': true, open, error: !!a.error, off: !a.enabled } },
     h(
       'div',
       { class: 'ad-row' },
