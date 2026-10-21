@@ -3237,6 +3237,9 @@ export function createGrid(opts) {
     const cell = wb.getCell(sheetId, r, c);
     let msg = `${cellName(r, c)}${text ? `, ${text}` : ', empty'}`;
     if (cell?.f != null) msg += `, formula`;
+    // A validation rule's input message is read with the cell it is shown beside.
+    const rule = sheet().validations.length ? wb.validationAt(sheetId, r, c) : null;
+    if (rule?.showInputMessage !== false && (rule?.prompt || rule?.promptTitle)) msg += `. ${[rule.promptTitle, rule.prompt].filter(Boolean).join(': ')}`;
     if (!S.isSingle(sel)) msg = `${rangeName(range)} selected. ${msg}`;
     if (extras.length) msg = `${extras.length + 1} ranges selected. ${msg}`;
     opts.announce(msg);
