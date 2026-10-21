@@ -9233,7 +9233,8 @@ export class Workbook extends EventTarget {
         }
       }
     }
-    for (const { r, c, value } of this.spillEntries(sheet.id)) {
+    // Only the results spilled into the range: an array over the whole sheet spills more than any list holds.
+    for (const { r, c, value } of this.spillEntries(sheet.id, range)) {
       if (inside(r, c)) yield value;
     }
   }
