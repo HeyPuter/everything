@@ -261,6 +261,9 @@ export interface GPBrush {
   direction?: 'ADD' | 'SUBTRACT';
   /** Draw: edge hardness of new strokes (1 = hard; lower values give soft edges) */
   hardness?: number;
+  /** Draw: pen nib — strokes running along `angle` (screen, radians) get thinner by up to `angle_factor` */
+  angle?: number;
+  angle_factor?: number;
 }
 
 /** A visual effect applied to a grease pencil object's rendered image. */

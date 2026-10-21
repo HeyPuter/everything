@@ -323,3 +323,13 @@ describe('texture mapping modifier', () => {
     expect(b.uv[(segVerts - 1) * 2 + 1]).toBeCloseTo((1 + 0.25) * 2);
   });
 });
+
+describe('pen nib', () => {
+  it('thins strokes running along the nib angle', async () => {
+    const { nibFactor } = await import('../../src/greasepencil/drawproc');
+    expect(nibFactor(0, 0, 0.8)).toBeCloseTo(0.2);
+    expect(nibFactor(Math.PI / 2, 0, 0.8)).toBeCloseTo(1);
+    expect(nibFactor(Math.PI, 0, 0.5)).toBeCloseTo(0.5);
+    expect(nibFactor(0.3, 0.3, 0)).toBe(1);
+  });
+});

@@ -65,3 +65,8 @@ export function noise(seed: number, i: number): number {
   h ^= h >>> 16;
   return ((h >>> 0) / 4294967295) * 2 - 1;
 }
+
+/** Radius factor of a pen nib: 1 - factor where the direction runs along the nib angle, 1 across it. */
+export function nibFactor(dir: number, angle: number, factor: number): number {
+  return Math.max(0.01, 1 - Math.max(0, Math.min(1, factor)) * Math.abs(Math.cos(dir - angle)));
+}

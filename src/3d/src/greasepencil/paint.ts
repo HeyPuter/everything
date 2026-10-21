@@ -16,7 +16,7 @@ import { eraseHard, eraseSoft, eraseStrokes, type ScreenFn } from './erase';
 import { Placement } from './placement';
 import { setStrokePreview, layerMatrix } from './render';
 import { smoothPoints, simplifyPoints, subdivideStroke } from './strokeops';
-import { stabilize, trimEnds, noise, type Sample } from './drawproc';
+import { stabilize, trimEnds, noise, nibFactor, type Sample } from './drawproc';
 import { startSculpt } from './sculpt';
 import { guideSettings, guideCenter, guideConstraint } from './guides';
 import { fillRegion, extensionPreview } from './fill';
@@ -121,6 +121,14 @@ export function samplesToPoints(pl: Placement, samples: Sample[], b: GPBrush, br
     const pr = pressureOf(b, s.pressure);
     let radius = ((b.size / 2) * pr.size * pl.pixelSize(w)) / sc;
     let opacity = b.strength * pr.strength;
+    if (b.angle_factor) {
+      // pen nib: thinner where the stroke runs along the nib angle (screen space, y up)
+      const a = samples[Math.max(0, i - 1)],
+        c = samples[Math.min(samples.length - 1, i + 1)];
+      const dx = c.x - a.x,
+        dy = a.y - c.y;
+      if (dx || dy) radius *= nibFactor(Math.atan2(dy, dx), b.angle ?? 0, b.angle_factor);
+    }
     if (rnd) {
       radius *= Math.max(0.05, 1 + (b.random_pressure ?? 0) * noise(seed, i * 3 + 1));
       opacity *= Math.max(0, 1 + (b.random_strength ?? 0) * noise(seed, i * 3 + 2));

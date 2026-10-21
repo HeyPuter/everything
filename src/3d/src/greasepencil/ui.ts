@@ -297,11 +297,30 @@ function drawHeader(): Child {
     pressureToggle(b, 'use_pressure_size', 'gp-ps'),
     field(120, strengthField(b, 'gp-str')),
     pressureToggle(b, 'use_pressure_strength', 'gp-pst'),
-    popoverButton('gp-hdr-stroke', 'Stroke', 'Stroke\nHardness, stabilizer, post-processing and randomness of new strokes', () => [
-      num(b, 'hardness', 'gp-hp-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
-      drawStrokePanels(b),
+    popoverButton('gp-hdr-adv', 'Advanced', 'Advanced\nPen nib angle and edge hardness of new strokes', () => [
+      num(b, 'hardness', 'gp-ha-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
+      angleField(b),
+      num(b, 'angle_factor', 'gp-ha-af', 'Factor', { min: 0, max: 1, slider: true, def: 0, tip: 'How much thinner the stroke gets when it runs along the angle' }),
     ]),
+    popoverButton('gp-hdr-stroke', 'Stroke', 'Stroke\nStabilizer, post-processing and randomness of new strokes', () => [drawStrokePanels(b)]),
   ];
+}
+
+/** The pen nib angle in degrees (stored in radians). */
+function angleField(b: GPBrush): Child {
+  return row(
+    '',
+    numberField({
+      id: 'gp-ha-angle',
+      label: 'Angle',
+      value: ((b.angle ?? 0) * 180) / Math.PI,
+      min: -90,
+      max: 90,
+      precision: 1,
+      tip: 'Direction (degrees) along which the stroke is thinnest',
+      set: (x) => ((b.angle = (x * Math.PI) / 180), refresh()),
+    }),
+  );
 }
 
 /** A header button opening a popover of tool options. */
@@ -811,7 +830,18 @@ export function gpToolPanels(): Child {
       row('', strengthField(b, 'gp-sb-str')),
       checkbox('gp-sb-ps', 'Use Pressure for Size', !!b.use_pressure_size, (x) => ((b.use_pressure_size = x), refresh())),
       checkbox('gp-sb-pst', 'Use Pressure for Strength', !!b.use_pressure_strength, (x) => ((b.use_pressure_strength = x), refresh())),
-      tool === 'builtin.brush.Draw' ? num(b, 'hardness', 'gp-sb-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }) : null,
+      tool === 'builtin.brush.Draw'
+        ? panel(
+            'gp-sb-adv',
+            'Advanced',
+            () => [
+              num(b, 'hardness', 'gp-sb-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
+              angleField(b),
+              num(b, 'angle_factor', 'gp-sb-af', 'Angle Factor', { min: 0, max: 1, slider: true, def: 0, tip: 'How much thinner the stroke gets when it runs along the angle' }),
+            ],
+            { sub: true, closed: true },
+          )
+        : null,
       tool === 'builtin.brush.Draw' ? drawStrokePanels(b) : null,
       tool === 'builtin.brush.Erase'
         ? row(
