@@ -64,3 +64,13 @@ it("writes the file where its owner last saved it when someone else saves the sh
   mine.close();
   theirs.close();
 });
+
+// The room keeps the name the workbook had when sharing started: the owner opening the renamed file saw that old name
+// in the title bar, as if the rename had been undone, while saving went to the file under its new one.
+it("shows the owner a shared workbook under its file's name now, after the file was renamed", async () => {
+  const { join } = await renamedRoom();
+  const client = await join(owner);
+  const doc = Doc.forRoom(client, { path: after, uid: 'u1' });
+  expect(doc.name).toBe('Budget 2026');
+  client.close();
+});

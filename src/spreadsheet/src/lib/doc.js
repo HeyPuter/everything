@@ -936,8 +936,11 @@ export class Doc extends EventTarget {
    */
   static forRoom(client, { path = null, uid = null } = {}) {
     const owner = client.user?.uuid === client.owner;
-    // The file as it was opened: the room names it as it was when sharing started, before any rename or move.
-    const doc = new Doc({ wb: client.wb, name: client.name || UNTITLED, path: path ?? client.file?.path ?? null, uid: uid ?? client.file?.uid ?? null, trusted: owner || !usesExternalContent(client.wb) });
+    // The file as it was opened: the room names it as it was when sharing started, before any rename or move, and the
+    // owner sees it under the file's name now.
+    const file = path ?? client.file?.path ?? null;
+    const name = (owner && file ? Doc.nameFor(file) : client.name) || UNTITLED;
+    const doc = new Doc({ wb: client.wb, name, path: file, uid: uid ?? client.file?.uid ?? null, trusted: owner || !usesExternalContent(client.wb) });
     doc.collab = client;
     doc._onRoomStatus = () => doc._sharedChanged('room');
     client.addEventListener('status', doc._onRoomStatus);
