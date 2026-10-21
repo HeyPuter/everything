@@ -1178,8 +1178,8 @@ export function createEditor({
       renderHighlightTargets();
     },
     onChange: () => updateStatus(),
-    onCommit: (entry, change) =>
-      mutate(
+    onCommit: async (entry, change) => {
+      await mutate(
         (doc) =>
           change.replacement
             ? replaceImage(doc, pageIndex, entry, change.replacement, change.transform)
@@ -1192,7 +1192,12 @@ export function createEditor({
         null,
         'edit',
         { retainScale: !change.remove },
-      ),
+      );
+      // The deleted object's handle or Delete button held the focus; keep it on the page, as
+      // deleting text or a comment does.
+      if (change.remove && !destroyed && document.activeElement === document.body)
+        overlay.focus({ preventScroll: true });
+    },
     preparePreview: prepareImagePreview,
   });
   // Hidden until the first page has its size: an unsized canvas would show as a small blank

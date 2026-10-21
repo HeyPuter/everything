@@ -101,3 +101,48 @@ for (const kind of ['image', 'shape'])
           await verifyExport(edited);
         }
       });
+
+for (const kind of ['image', 'shape'])
+  for (const how of ['Delete key', 'Delete button'])
+    test(`deleting a ${kind} with the ${how} keeps the keyboard focus on the page`, async ({
+      page,
+    }) => {
+      await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+      await page.goto('/#library');
+      const doc = await PDFDocument.create();
+      const sheet = doc.addPage([400, 500]);
+      if (kind === 'image') {
+        const image = await doc.embedPng(
+          Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=',
+            'base64',
+          ),
+        );
+        sheet.drawImage(image, { x: 40, y: 220, width: 80, height: 60 });
+      } else sheet.drawRectangle({ x: 40, y: 220, width: 80, height: 60 });
+      const chooser = page.waitForEvent('filechooser');
+      await page.keyboard.press('ControlOrMeta+o');
+      await (
+        await chooser
+      ).setFiles({
+        name: 'object-delete.pdf',
+        mimeType: 'application/pdf',
+        buffer: Buffer.from(await doc.save()),
+      });
+      await page.getByRole('button', { name: `Select ${kind} 1`, exact: true }).press('Enter');
+      if (how === 'Delete key')
+        await page
+          .getByRole('button', { name: `Move selected ${kind}`, exact: true })
+          .press('Delete');
+      else await page.getByRole('button', { name: `Delete ${kind}`, exact: true }).click();
+      await expect(page.getByRole('button', { name: `Select ${kind} 1`, exact: true })).toHaveCount(
+        0,
+      );
+      await expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
+      // The focus stays on the page, so the keyboard carries on there: Undo brings it back.
+      await expect(page.locator('.drawing-overlay')).toBeFocused();
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(page.getByRole('button', { name: `Select ${kind} 1`, exact: true })).toHaveCount(
+        1,
+      );
+    });
