@@ -50,6 +50,7 @@ export class Store extends Emitter {
     this.pendingWrites = new Map();
     this.failed = new Set();
     this.versionState = new Map();
+    this.versionJobs = new Map();
     this.loadedSnapshots = new Map();
     this.status = 'saved';
     // Keys of unlocked password-protected sections, by section id. Never stored.
@@ -677,8 +678,10 @@ export class Store extends Emitter {
     const before = this.loadedSnapshots.get(page.id);
     if (!before) return;
     this.versionState.set(page.id, { busy: true, last: Date.now() });
-    (async () => {
+    const job = (async () => {
       const list = (await this.backend.readJSON(`versions/${page.id}.json`).catch(() => null)) || [];
+      // The section may have been protected while the list was read.
+      if (this.protectionOf(page.id)) return;
       const newest = list[0] ? Date.parse(list[0].at) : 0;
       if (Date.now() - newest >= VERSION_INTERVAL && before.modified !== list[0]?.page.modified) {
         list.unshift({ at: this.now(), page: before });
@@ -686,8 +689,11 @@ export class Store extends Emitter {
         await this.backend.writeJSON(`versions/${page.id}.json`, list);
       }
       this.loadedSnapshots.set(page.id, structuredClone(this.pages.get(page.id) || page));
+    })().catch(() => {}).finally(() => {
       this.versionState.set(page.id, { busy: false, last: Date.now() });
-    })().catch(() => this.versionState.set(page.id, { busy: false, last: Date.now() }));
+      if (this.versionJobs.get(page.id) === job) this.versionJobs.delete(page.id);
+    });
+    this.versionJobs.set(page.id, job);
   }
 
   async addVersion(pageId, snapshot) {
@@ -872,6 +878,8 @@ export class Store extends Emitter {
     for (const page of pages) {
       await this.rekeyAssets(page, { from: oldKey, sectionId: id, force: Boolean(oldKey) });
       this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
+      // A version being written right now would land after the removal.
+      await this.versionJobs.get(page.id);
       this.loadedSnapshots.delete(page.id);
       await this.backend.remove(`versions/${page.id}.json`).catch(() => {});
     }

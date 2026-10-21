@@ -188,6 +188,25 @@ describe('password-protected sections: saving while offline', () => {
   });
 });
 
+describe('password-protected sections: page versions', () => {
+  it('leaves no plaintext version behind when a page is protected right after an edit', async () => {
+    const { backend, section, meta } = await setup();
+    // A new session, so the first edit keeps the loaded page as a version.
+    const store = new Store(backend, { saveDelay: 0 });
+    await store.load();
+    const page = await store.loadPage(meta.id);
+    backend.delay = 300;
+    page.outlines[0].html = '<p>moved to the cave</p>';
+    store.pageChanged(page);
+    await store.protectSection(section.id, 'pw');
+    backend.delay = 0;
+    await new Promise((r) => setTimeout(r, 400));
+    await store.flush();
+    expect(allText(backend)).not.toContain('treasure');
+    expect(allText(backend)).not.toContain('cave');
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');
