@@ -127,6 +127,9 @@ export class ClipEditor implements Editor {
   dopesheetScroll = 0;
   /** Annotation toolbar tool in use (left button draws notes instead of editing markers) */
   annotateTool: AnnotateTool | null = null;
+  /** graph: only the selected tracks' curves; graph / dope sheet: also hidden tracks */
+  graphOnlySelected = true;
+  showHiddenTracks = false;
   /** graph / dope sheet: keep the current frame centred while it changes */
   lockTimeCursor = false;
   boxPending = false;
@@ -179,7 +182,9 @@ export class ClipEditor implements Editor {
     if (st.lock) this.lockSelection = st.lock;
     if (st.mode === 'MASK') this.mode = 'MASK';
     if (st.mask !== undefined) this.maskId = st.mask;
-    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT'; lockTime?: boolean } | undefined;
+    const ext = state as { cursor?: [number, number]; pivot?: 'MEDIAN_POINT'; lockTime?: boolean; onlySelected?: boolean; showHidden?: boolean } | undefined;
+    if (ext?.onlySelected === false) this.graphOnlySelected = false;
+    if (ext?.showHidden) this.showHiddenTracks = true;
     if (ext?.lockTime) this.lockTimeCursor = true;
     if (ext?.cursor) this.cursor = ext.cursor;
     if (ext?.pivot) this.pivot = ext.pivot;
@@ -1394,6 +1399,29 @@ export class ClipEditor implements Editor {
             { tip: 'Sort Method\nMethod to be used to sort channels in dopesheet view' },
           )
         : null,
+      this.view !== 'CLIP'
+        ? h(
+            'div',
+            { class: 'hdr-group', key: 'clip-graph-filter' },
+            this.view === 'GRAPH'
+              ? h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow the curves of selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off'))
+              : null,
+            h('button', { class: { 'hdr-toggle': true, on: this.showHiddenTracks }, 'data-tip': 'Show Hidden\nInclude hidden tracks', onclick: () => ((this.showHiddenTracks = !this.showHiddenTracks), this.draw(), this.area.drawHeader()) }, icon(this.showHiddenTracks ? 'hide_off' : 'hide_on')),
+          )
+        : null,
+      this.view === 'GRAPH'
+        ? h(
+            'div',
+            { class: 'hdr-group', key: 'clip-graph-show' },
+            (
+              [
+                ['motion', 'Show Motion\nThe track errors and motion curves', 'graph'],
+                ['speed_x', 'Show X Speed\nThe horizontal speed of the selected tracks', 'clip_speed_x'],
+                ['speed_y', 'Show Y Speed\nThe vertical speed of the selected tracks', 'clip_speed_y'],
+              ] as const
+            ).map(([k, tip, ic]) => h('button', { key: k, class: { 'hdr-toggle': true, on: this.graphShow[k] }, 'data-tip': tip, onclick: () => ((this.graphShow[k] = !this.graphShow[k]), this.draw(), this.area.drawHeader()) }, icon(ic))),
+          )
+        : null,
       this.view === 'DOPESHEET' ? h('button', { class: { 'hdr-toggle': true, on: this.dopesheetInvert }, 'data-tip': 'Invert Dopesheet Sort\nInvert sort order of dopesheet channels', onclick: () => ((this.dopesheetInvert = !this.dopesheetInvert), this.draw(), this.area.drawHeader()) }, icon('sort')) : null,
       this.view === 'CLIP'
         ? h('button', { class: { 'hdr-toggle': true, on: this.lockSelection }, 'data-tip': 'Lock to Selection (L)\nLock viewport to selected markers during playback', onclick: () => app.run('clip.lock_selection_toggle', {}, { area: this.area }) }, icon(this.lockSelection ? 'locked' : 'unlocked'))
@@ -1522,7 +1550,7 @@ export class ClipEditor implements Editor {
   }
 
   serialize() {
-    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, lockTime: this.lockTimeCursor, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
+    return { clip: this.clipId, view: this.view, zoom: this.zoom, off: [this.offX, this.offY], toolbar: this.showToolbar, sidebar: this.showSidebar, sidebarTab: this.sidebarTab, overlays: this.overlays, lock: this.lockSelection, lockTime: this.lockTimeCursor, onlySelected: this.graphOnlySelected, showHidden: this.showHiddenTracks, mode: this.mode, mask: this.maskId, cursor: this.cursor, pivot: this.pivot, proxy: this.proxyRenderSize };
   }
 
   dispose() {

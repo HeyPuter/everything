@@ -19,6 +19,11 @@ function clipRange(c: MovieClipData): [number, number] {
 
 /** Selected curve points (knots) of the graph view: "track|frame|axis" (UI state per editor). */
 const knotSel = new WeakMap<ClipEditor, Set<string>>();
+/** Tracks shown in the graph and dope sheet views (header: Only Show Selected, Show Hidden). */
+export function shownIn(ed: ClipEditor, t: MovieTrackingTrack): boolean {
+  return (!t.hide || ed.showHiddenTracks) && (t.select || !ed.graphOnlySelected);
+}
+
 export function graphSelection(ed: ClipEditor): Set<string> {
   let s = knotSel.get(ed);
   if (!s) knotSel.set(ed, (s = new Set()));
@@ -34,7 +39,7 @@ export function graphKnotAt(ed: ClipEditor, x: number, y: number, radius = 7): {
   let best: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y' } | null = null,
     bd = radius;
   for (const t of tobj(c).tracks) {
-    if (!t.select || t.hide) continue;
+    if (!shownIn(ed, t)) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
         for (const axis of ['x', 'y'] as const) {
@@ -53,7 +58,7 @@ export function graphKnots(ed: ClipEditor): { track: MovieTrackingTrack; frame: 
   const v = ed.v2;
   const out: { track: MovieTrackingTrack; frame: number; axis: 'x' | 'y'; x: number; y: number }[] = [];
   for (const t of tobj(c).tracks) {
-    if (!t.select || t.hide) continue;
+    if (!shownIn(ed, t)) continue;
     for (const seg of speeds(c, t))
       for (const s of seg)
         for (const axis of ['x', 'y'] as const) if ((axis === 'x' ? ed.graphShow.speed_x : ed.graphShow.speed_y) && ed.graphShow.motion) out.push({ track: t, frame: s.m, axis, x: v.fx(s.f), y: v.vy(s[axis]) + 24 });
@@ -144,7 +149,7 @@ export function frameGraphAll(ed: ClipEditor) {
   let lo = Infinity,
     hi = -Infinity;
   for (const t of tobj(c).tracks)
-    if (t.select && !t.hide)
+    if (shownIn(ed, t))
       for (const seg of speeds(c, t))
         for (const s of seg) {
           if (ed.graphShow.speed_x) ((lo = Math.min(lo, s.x)), (hi = Math.max(hi, s.x)));
@@ -193,7 +198,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.clip();
     ctx.translate(0, top);
     for (const t of tobj(c).tracks) {
-      if (!t.select || t.hide) continue;
+      if (!shownIn(ed, t)) continue;
       const segs = speeds(c, t);
       for (const [on, key, col] of [
         [ed.graphShow.speed_x && ed.graphShow.motion, 'x', SPEED_X],
@@ -227,7 +232,7 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.fillText('X speed (px/frame)', w - 10, top + 16);
     ctx.fillStyle = SPEED_Y;
     ctx.fillText('Y speed (px/frame)', w - 10, top + 30);
-    if (!tobj(c).tracks.some((t) => t.select && !t.hide)) {
+    if (!tobj(c).tracks.some((t) => shownIn(ed, t))) {
       ctx.fillStyle = TEXT;
       ctx.textAlign = 'center';
       ctx.fillText('Select tracks to show their motion curves', w / 2, top + (h - top) / 2);
@@ -290,7 +295,7 @@ export function graphPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y:
     let best: MovieTrackingTrack | null = null,
       bd = 7;
     for (const t of tobj(c).tracks) {
-      if (!t.select || t.hide) continue;
+      if (!shownIn(ed, t)) continue;
       for (const seg of speeds(c, t))
         for (const s of seg)
           for (const val of [ed.graphShow.speed_x ? s.x : null, ed.graphShow.speed_y ? s.y : null]) {
@@ -340,7 +345,7 @@ function segments(t: MovieTrackingTrack): [number, number][] {
 export function sortedTracks(ed: ClipEditor): MovieTrackingTrack[] {
   const c = ed.clip;
   if (!c) return [];
-  const list = tobj(c).tracks.filter((t) => !t.hide);
+  const list = tobj(c).tracks.filter((t) => !t.hide || ed.showHiddenTracks);
   const longest = (t: MovieTrackingTrack) => Math.max(0, ...segments(t).map(([a, b]) => b - a + 1));
   const total = (t: MovieTrackingTrack) => segments(t).reduce((s, [a, b]) => s + b - a + 1, 0);
   if (ed.dopesheetSort === 'NAME') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));

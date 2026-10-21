@@ -110,3 +110,43 @@ test('clip: dragging along the frame strip at the bottom scrubs frames', async (
   void box;
   await expectNoErrors(errors);
 });
+
+test('clip: graph header filters curves to the selected tracks and can include hidden ones', async ({ page }) => {
+  const { errors, box } = await trackingWorkspace(page);
+  const knots = () => page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const G = await import(U('/src/tracking/graphs.ts'));
+    const ed = (window as any).app.hoverArea.editor;
+    return new Set(G.graphKnots(ed).map((k: any) => k.track.name)).size;
+  });
+  await page.evaluate(async () => {
+    const app = (window as any).app;
+    const ed = app.hoverArea.editor;
+    const T = ed.clip.tracking.tracks;
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const TT = await import(U('/src/tracking/types.ts'));
+    const t2 = TT.newTrack(ed.clip.tracking, 'B');
+    for (let f = 1; f <= 30; f++) t2.markers.push(TT.newMarker(f, [0.6, 0.4 + f * 0.003], ed.clip.size, 21, 71));
+    T.push(t2);
+    for (const t of T) t.select = t.name === 'A';
+    ed.setView('GRAPH');
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 1);
+  expect(await knots()).toBe(1);
+  const toggle = (tip: string) =>
+    page.evaluate((tip) => {
+      const area = (window as any).app.hoverArea;
+      const b = [...area.el.querySelectorAll('.hdr-toggle')].find((x: any) => (x.getAttribute('data-tip') ?? '').startsWith(tip)) as HTMLElement;
+      b.click();
+    }, tip);
+  await toggle('Only Show Selected');
+  expect(await knots()).toBe(2);
+  await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.clip.tracking.tracks.find((t: any) => t.name === 'B').hide = true;
+  });
+  expect(await knots()).toBe(1);
+  await toggle('Show Hidden');
+  expect(await knots()).toBe(2);
+  await expectNoErrors(errors);
+});
