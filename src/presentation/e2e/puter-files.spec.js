@@ -649,6 +649,39 @@ test("files dropped from the Puter desktop open, and folders explain themselves"
   await expect(title(page)).toHaveText("Dropped");
 });
 
+test("pictures dropped from the Puter desktop go on the slide, or say which kinds can", async ({
+  page,
+}) => {
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==";
+  const gif = "R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==";
+  await mockDrive(page, {
+    seed: { "~/Pictures/Dot.png": png, "~/Pictures/Dot.gif": gif },
+  });
+  await expect(title(page)).toHaveText("Untitled presentation");
+  const drop = (items) =>
+    page.evaluate((items) => {
+      document.body.dispatchEvent(
+        new CustomEvent("drop", {
+          bubbles: true,
+          cancelable: true,
+          detail: { items },
+        }),
+      );
+    }, items);
+  const pictures = page.locator(".object-hit");
+  const before = await pictures.count();
+  await drop([{ name: "Dot.png", path: "/test/Pictures/Dot.png" }]);
+  await expect(pictures).toHaveCount(before + 1);
+  for (const name of ["Dot.gif", "Logo.svg", "Photo.webp"]) {
+    await drop([{ name, path: `/test/Pictures/${name}` }]);
+    await expect(page.locator("#toast")).toHaveText(
+      `“${name}” can't be opened here. Choose a PowerPoint (.pptx) file or a PNG or JPEG picture.`,
+    );
+  }
+  await expect(pictures).toHaveCount(before + 1);
+});
+
 test("inside Puter, exports and copies go through Puter's Save dialog", async ({
   page,
 }) => {

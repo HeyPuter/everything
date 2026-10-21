@@ -16885,14 +16885,12 @@ window.addEventListener("offline", () => {
 // Files on the drive handed to the app by the Puter desktop: the one it was
 // launched with (a double-click, "Open with"), or those dragged onto the
 // window. A presentation opens where it lives, so its edits go back to it;
-// an image goes on the current slide, as one dropped from the device does.
+// a picture goes on the current slide, as one dropped from the device does,
+// in the kinds Insert > Picture takes.
 const DRIVE_IMAGE_TYPES = {
   png: "image/png",
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
 };
 function openDriveItems(items) {
   const item = items.find((it) => it?.path && !cloud.isDirItem(it));
@@ -16923,7 +16921,7 @@ function openDriveItems(items) {
     return;
   }
   toast(
-    `“${name}” can't be opened here. Choose a PowerPoint (.pptx) file${view === "editor" ? " or an image" : ""}.`,
+    `“${name}” can't be opened here. Choose a PowerPoint (.pptx) file${view === "editor" ? " or a PNG or JPEG picture" : ""}.`,
   );
 }
 // The presentation the app was launched with is the first screen, in place
