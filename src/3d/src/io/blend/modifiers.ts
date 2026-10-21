@@ -22,7 +22,8 @@ function fieldOf(d: BStruct, path: string): { s: BStruct; name: string } | null 
   const parts = path.split('.');
   let s: BStruct | null = d;
   for (const p of parts.slice(0, -1)) {
-    s = s?.sub(p) ?? null;
+    // embedded structs, or structs behind a pointer (a strip's data and effect settings)
+    s = s?.sub(p) ?? s?.ref(p) ?? null;
     if (!s) return null;
   }
   return s && s.has(parts[parts.length - 1]) ? { s, name: parts[parts.length - 1] } : null;

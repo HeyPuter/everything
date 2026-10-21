@@ -7,6 +7,7 @@ import { activateScene, ensureSceneIds } from '../../scenes/scenes';
 import { convertHairCurves, convertPointCloud, convertVolume } from './geometry';
 import { convertFreestyle, convertLineRender } from './lines';
 import { convertGPStyle, convertGreasePencil } from './greasepencil';
+import { convertSequencer, type SceneRefs } from './sequencer';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -768,6 +769,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     }
   }
 
+  const sceneRefs: SceneRefs = { sceneId: () => null };
   /** View layers and settings of a scene, written into the active scene record (doc.scene). */
   function applySceneSettings(sc: BStruct) {
     // ---------------------------------------------------------------- view layer
@@ -884,23 +886,26 @@ export function convertBlend(f: BlendFile): BlendImport {
     if (wo && wo.type === 'World') s.world = convertWorld(wo);
     else s.world = defaultWorld;
     if (sc.ref('rigidbody_world')) warn.add('Rigid body world not imported');
-    const ed = sc.ref('ed');
-    if (ed && (ed.list('seqbase', 1).length || ed.list('strips', 1).length)) warn.add('Video sequencer strips not imported');
+    const seq = convertSequencer(sc, ctx, sceneRefs);
+    if (seq) doc.scene.sequence_editor = seq;
     if ((sc.num('use_nodes') && sc.ref('nodetree')) || sc.ref('compositing_node_group')) warn.add('Compositor node tree not imported');
     if (sc.ref('adt')) warn.add('Scene animation not imported');
   }
 
   // inactive scenes first (each is activated while its settings are written), then the main one
-  if (otherRecords.length) {
-    ensureSceneIds(doc);
-    const mainId = doc.scene.id!;
-    for (const { st, scene } of otherRecords) {
-      scene.id = uid('sc');
-      (doc.scenes ??= {})[scene.id] = { ...scene, master_collection: masters.get(scene.collection) };
-      activateScene(doc, scene.id);
-      applySceneSettings(st);
-      activateScene(doc, mainId);
-    }
+  ensureSceneIds(doc);
+  const mainId = doc.scene.id!;
+  const sceneIds = new Map<number, ID>([[sc.offset, mainId]]);
+  for (const r of otherRecords) {
+    r.scene.id = uid('sc');
+    sceneIds.set(r.st.offset, r.scene.id);
+  }
+  sceneRefs.sceneId = (x) => (x ? sceneIds.get(x.offset) ?? null : null);
+  for (const { st, scene } of otherRecords) {
+    (doc.scenes ??= {})[scene.id!] = { ...scene, master_collection: masters.get(scene.collection) };
+    activateScene(doc, scene.id!);
+    applySceneSettings(st);
+    activateScene(doc, mainId);
   }
   applySceneSettings(sc);
   // the default world goes when no scene uses it

@@ -11,7 +11,7 @@ import { BlendFile, type BStruct } from '../../src/io/blend/reader';
 const SRC = process.env.MODPROPS_BLEND ?? '';
 const OUT = process.env.MODPROPS_OUT ?? '';
 
-type Kind = 'MOD' | 'CON' | 'LINESET' | 'LINESTYLE' | 'FREESTYLE' | 'VIEWLAYER' | 'GPLAYER' | 'GPMAT';
+type Kind = 'MOD' | 'CON' | 'LINESET' | 'LINESTYLE' | 'FREESTYLE' | 'VIEWLAYER' | 'GPLAYER' | 'GPMAT' | 'STRIP';
 interface Rec {
   kind: Kind;
   rna: string;
@@ -81,7 +81,13 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
     if (root) walkGp(root);
   }
   const mats = new Map(file.ids('MA').map((m) => [m.idName, m]));
+  // sequencer strips of the probe scene, by name (stored with a two-letter prefix)
+  const strips = new Map<string, BStruct>();
+  const probeScene = file.ids('SC').find((x) => x.idName === 'Probe');
+  const sed = probeScene?.ref('ed');
+  for (const st of sed ? (sed.has('seqbase') ? sed.list('seqbase', 100000) : sed.list('strips', 100000)) : []) strips.set(st.str('name').slice(2), st);
   const dataOf = (name: string, kind: Kind): BStruct | null => {
+    if (kind === 'STRIP') return strips.get(name) ?? null;
     if (kind === 'GPLAYER') return gpLayers.get(name) ?? null;
     if (kind === 'GPMAT') return mats.get(name)?.ref('gp_style') ?? null;
     if (kind === 'LINESET') return layers[0]?.sub('freestyle_config')?.list('linesets', 10000).find((l) => l.str('name') === name) ?? null;
@@ -96,11 +102,30 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
   // baselines per kind + rna type
   const base = new Map<string, { flat: Flat; dna: string }>();
   const groups = new Map<string, { name: string; rec: Rec }[]>();
+  /** strips keep settings behind pointers: their data block, its transform / crop, and the effect data */
+  const flatOf = (d: BStruct, kind: Kind): Flat => {
+    const fl = flatten(d);
+    if (kind !== 'STRIP') return fl;
+    // each probe strip sits at its own frame: placement fields are not settings
+    for (const k of ['start', 'startdisp', 'enddisp']) fl.delete(k);
+    const sd = d.ref('strip') ?? d.ref('data');
+    const field = d.has('strip') ? 'strip' : 'data';
+    if (sd) {
+      flatten(sd, `${field}.`, 1, fl);
+      for (const p of ['transform', 'crop']) {
+        const x = sd.ref(p);
+        if (x) flatten(x, `${field}.${p}.`, 1, fl);
+      }
+    }
+    const eff = d.ref('effectdata');
+    if (eff) flatten(eff, 'effectdata.', 1, fl);
+    return fl;
+  };
   for (const [name, rec] of Object.entries(recs)) {
     const key = `${rec.kind}:${rec.rna}`;
     if (rec.prop === null) {
       const d = dataOf(name, rec.kind);
-      if (d) base.set(key, { flat: flatten(d), dna: d.type });
+      if (d) base.set(key, { flat: flatOf(d, rec.kind), dna: rec.kind === 'STRIP' ? `${d.type}:${rec.rna}` : d.type });
       continue;
     }
     const g = `${key}:${rec.prop}`;
@@ -112,7 +137,7 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
     const b = base.get(`${kind}:${rna}`);
     if (!b) continue;
     const entry = (out[b.dna] ??= { rna, kind, props: {} });
-    const flats = list.map((x) => ({ rec: x.rec, flat: (() => { const d = dataOf(x.name, kind as Kind); return d ? flatten(d) : null; })() })).filter((x) => x.flat);
+    const flats = list.map((x) => ({ rec: x.rec, flat: (() => { const d = dataOf(x.name, kind as Kind); return d ? flatOf(d, kind as Kind) : null; })() })).filter((x) => x.flat);
     if (!flats.length) continue;
     const t = list[0].rec.type;
     const changed = (f: Flat) => [...f.keys()].filter((k) => !eq(f.get(k), b.flat.get(k), 0) && JSON.stringify(f.get(k)) !== JSON.stringify(b.flat.get(k)));
@@ -251,7 +276,7 @@ it.skipIf(!SRC || !OUT)('derive modifier / constraint / line rendering DNA rules
   ];
   for (const dna of Object.keys(out).sort()) {
     const e = out[dna];
-    lines.push(`  ${dna}: {`, `    rna: ${JSON.stringify(e.rna)},`, `    kind: ${JSON.stringify(e.kind)},`, '    props: {');
+    lines.push(`  ${/^\w+$/.test(dna) ? dna : JSON.stringify(dna)}: {`, `    rna: ${JSON.stringify(e.rna)},`, `    kind: ${JSON.stringify(e.kind)},`, '    props: {');
     for (const p of Object.keys(e.props).sort()) lines.push(`      ${/^[a-z_][a-z0-9_]*$/i.test(p) ? p : JSON.stringify(p)}: ${JSON.stringify(e.props[p]).replace(/"(\w+)":/g, '$1: ')},`);
     lines.push('    },', '  },');
   }
