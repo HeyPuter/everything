@@ -31,7 +31,7 @@ it('keeps an input message inside the window', async () => {
   view.goTo('B3'); await vi.advanceTimersByTimeAsync(50);
   expect(pop.hidden).toBe(false);
   const b = left();
-  view.goTo('K3'); await vi.advanceTimersByTimeAsync(50);
+  view.goTo('G3'); await vi.advanceTimersByTimeAsync(50);
   expect(left()).toBeGreaterThan(b);
   expect(left() + 280).toBeLessThanOrEqual(800);
 });

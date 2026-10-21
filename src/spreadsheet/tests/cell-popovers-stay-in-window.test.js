@@ -74,3 +74,14 @@ it('puts a note under the cell where it fits on neither side, below the link sho
   [x, y] = at(pop('note-pop'));
   expect(y).toBe(cell.top + cell.height + 4 + 36 + 4);
 });
+
+// Kept inside the window, the popovers stayed there once their cell was scrolled out of sight, over other cells.
+it('goes out of sight with its cell when the sheet is scrolled away from it', async () => {
+  const { pop } = await mount();
+  view.doc.wb.addValidation(view.doc.wb.activeSheetId, { range: { r1: 2, c1: 1, r2: 2, c2: 1 }, type: 'whole', min: 1, max: 9, prompt: 'One to nine' });
+  view.goTo('B3'); await vi.advanceTimersByTimeAsync(50);
+  const viewport = view.el.querySelector('.grid-viewport');
+  viewport.scrollLeft = 3000; viewport.dispatchEvent(new Event('scroll')); await vi.advanceTimersByTimeAsync(50);
+  expect(viewport.scrollLeft).toBe(3000);
+  for (const name of ['note-pop', 'prompt-pop']) expect(at(pop(name))[0]).toBeLessThan(1000);
+});

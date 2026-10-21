@@ -3104,14 +3104,17 @@ export function createGrid(opts) {
         // An input message, a link's address and a note keep inside the window: under (or beside) a cell near its
         // right edge (on a phone, most cells) they slide left. A note that does not fit beside the cell goes to its
         // left, or with no room there either, under it (below an input message or link shown there), so it does
-        // not cover the cell.
+        // not cover the cell. A cell scrolled out of sight takes them with it, rather than leaving them over others.
         const left = frozenCell ? rowHeaderW : view.sl;
         const right = left + view.vw - p.el.offsetWidth - 4;
-        if (p.el === notePop && x > right) {
-          if (x - p.dx - p.el.offsetWidth - 6 >= left) x -= p.dx + p.el.offsetWidth + 6;
-          else y += p.box.height + 4 + [promptPop, linkPop].filter((pop) => !pop.hidden).reduce((h, pop) => h + pop.offsetHeight + 4, 0);
+        const cellLeft = x - p.dx;
+        if (cellLeft + p.box.width > left && cellLeft < left + view.vw) {
+          if (p.el === notePop && x > right) {
+            if (cellLeft - p.el.offsetWidth - 6 >= left) x = cellLeft - p.el.offsetWidth - 6;
+            else y += p.box.height + 4 + [promptPop, linkPop].filter((pop) => !pop.hidden).reduce((h, pop) => h + pop.offsetHeight + 4, 0);
+          }
+          x = Math.max(left, Math.min(x, right));
         }
-        x = Math.max(left, Math.min(x, right));
       }
       p.el.classList.toggle('offscreen', off);
       p.el.style.transform = `translate(${x}px, ${y}px)`;
