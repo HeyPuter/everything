@@ -359,7 +359,10 @@ export class App {
       try {
         if (await this.store.refresh()) this.ensureSelection();
         const id = this.state.pageId;
-        if (id && !this.editor.dirty.size && !this.editor.commitSoon.pending() && (await this.store.refreshPage(id))) toast('This page was updated on another device.');
+        // Edits still only in the editor (typed, or a stroke being drawn)
+        // count as unsaved, also when they start while the copy is read.
+        const busy = () => this.editor.page?.id === id && Boolean(this.editor.dirty.size || this.editor.commitSoon.pending() || this.editor.ink.active);
+        if (id && !busy() && (await this.store.refreshPage(id, { busy }))) toast('This page was updated on another device.');
       } catch {
         /* offline */
       }

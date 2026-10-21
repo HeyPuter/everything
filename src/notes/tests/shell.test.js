@@ -423,6 +423,69 @@ describe('App shell', () => {
   });
 });
 
+describe('changes from another device while typing', () => {
+  // The open page has two containers; another device saved a newer copy
+  // that changes both. Its copy is read slowly, and typing starts meanwhile.
+  async function setup({ saveDelay, skew }) {
+    document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+    localStorage.clear();
+    const backend = memoryBackend();
+    const store = new Store(backend, { saveDelay });
+    await store.load({});
+    const app = new App(document.getElementById('app'), { store, user: { username: 'sam' }, env: 'web', onSignOut: () => {} });
+    await app.start();
+    const meta = store.createPage(app.state.sectionId, { title: 'Shared', outlines: [{ id: 'o1', x: 48, y: 140, w: 400, html: '<p>one</p>' }, { id: 'o2', x: 48, y: 400, w: 400, html: '<p>two</p>' }] });
+    await app.openPage(meta.id);
+    await store.flush();
+    await tick(5);
+    // A clock running ahead on the other device makes its copy look newer than edits made here after it.
+    const other = new Store(backend, { saveDelay: 0, now: () => new Date(Date.now() + skew).toISOString() });
+    await other.load();
+    const copy = await other.loadPage(meta.id);
+    copy.outlines[0].html = '<p>phone one</p>';
+    copy.outlines[1].html = '<p>phone two</p>';
+    other.pageChanged(copy);
+    await other.flush();
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === `pages/${meta.id}.json`) await tick(60);
+      return read(path);
+    };
+    return { app, store, meta };
+  }
+
+  async function typeDuringRefresh(app, { commit }) {
+    app.refreshFromCloud();
+    app.refreshFromCloud.flush();
+    await tick(20);
+    const body = app.editor.outlinesEl.querySelector('.outline-body');
+    body.focus();
+    body.innerHTML = '<p>typed here</p>';
+    body.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'e' }));
+    if (commit) app.editor.flush();
+    await tick(150);
+    return body;
+  }
+
+  it('keeps typing that is not saved yet, and the caret with it', async () => {
+    const { app, store, meta } = await setup({ saveDelay: 0, skew: 0 });
+    const body = await typeDuringRefresh(app, { commit: false });
+    expect(document.activeElement).toBe(body);
+    app.editor.flush();
+    expect((await store.loadPage(meta.id)).outlines.map((o) => o.html)).toEqual(['<p>typed here</p>', '<p>two</p>']);
+    app.destroy();
+  });
+
+  it('keeps edits waiting to be saved', async () => {
+    const { app, store, meta } = await setup({ saveDelay: 5000, skew: 60000 });
+    await typeDuringRefresh(app, { commit: true });
+    expect((await store.loadPage(meta.id)).outlines[0].html).toBe('<p>typed here</p>');
+    expect(app.editor.outlinesEl.querySelector('.outline-body').textContent).toBe('typed here');
+    store.cancel(`pages/${meta.id}.json`);
+    app.destroy();
+  });
+});
+
 describe('search folding', () => {
   it('maps folded matches back to the text when folding changes its length', () => {
     const text = '오늘 회의는 café';

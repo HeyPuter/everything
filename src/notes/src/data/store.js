@@ -209,16 +209,22 @@ export class Store extends Emitter {
 
   /**
    * Reloads an open page if another device saved a newer copy and nothing
-   * is waiting to be saved here. Returns true when the page changed.
+   * is waiting to be saved here, before the read or after it. busy() tells
+   * of edits not yet handed to the store. Returns true when the page changed.
    */
-  async refreshPage(id) {
+  async refreshPage(id, { busy = () => false } = {}) {
+    const path = `pages/${id}.json`;
     const local = this.pages.get(id);
-    if (!local || this.timers.has(`pages/${id}.json`) || this.pendingWrites.has(`pages/${id}.json`)) return false;
-    let remote = await this.backend.readJSON(`pages/${id}.json`).catch(() => null);
+    const unsaved = () => this.pages.get(id) !== local || this.timers.has(path) || this.pendingWrites.has(path) || busy();
+    if (!local || unsaved()) return false;
+    const modified = local.modified;
+    let remote = await this.backend.readJSON(path).catch(() => null);
     if (remote?.sealed) {
       const key = this.keys.get(this.findPage(id)?.section.id);
       remote = key ? await openJSON(key, remote.sealed).catch(() => null) : null;
     }
+    // Edits made while the copy was read win: never replace them.
+    if (unsaved() || local.modified !== modified) return false;
     if (!remote?.modified || remote.modified <= local.modified) return false;
     for (const k of Object.keys(local)) delete local[k];
     Object.assign(local, remote, { id });
