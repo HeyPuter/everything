@@ -83,10 +83,54 @@ export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, ind
   const val = getValue(doc, ob, path);
   const { act, slot } = keyingTarget(doc, ob);
   const type = doc.scene.tool_settings.keyframe_type;
+  const cycleAware = keyingContext.cycleAware && !!doc.scene.tool_settings.use_keyframe_cycle_aware;
+  const put = (i: number, v: number, opts: Parameters<typeof insertKeyframe>[3]) => {
+    const existing = act.fcurves.find((f) => f.data_path === path && f.array_index === i && (!isSlotted(act) || curveSlot(act, f) === slot));
+    const frames = cycleAware && existing ? cycleFrames(existing, frame) : [frame];
+    if (!needed(act, slot, path, i, frames[0], v)) return;
+    const fc = liveCurve(act, path, i, slot);
+    for (const f of frames) insertKeyframe(fc, f, v, opts);
+  };
   if (Array.isArray(val) || ArrayBuffer.isView(val)) {
     const arr = val as ArrayLike<number>;
-    for (let i = 0; i < arr.length; i++) if ((index < 0 || i === index) && needed(act, slot, path, i, frame, Number(arr[i]))) insertKeyframe(liveCurve(act, path, i, slot), frame, Number(arr[i]), { type });
-  } else if ((typeof val === 'number' || typeof val === 'boolean') && needed(act, slot, path, 0, frame, Number(val))) insertKeyframe(liveCurve(act, path, 0, slot), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
+    for (let i = 0; i < arr.length; i++) if (index < 0 || i === index) put(i, Number(arr[i]), { type });
+  } else if (typeof val === 'number' || typeof val === 'boolean') put(0, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
+}
+
+/** Keys inserted from the interface (not by scripts) follow Cycle-Aware Keying. */
+export const keyingContext = { cycleAware: false };
+
+/** Run an interface keying action with Cycle-Aware Keying in effect. */
+export function withCycleAware<T>(fn: () => T): T {
+  const was = keyingContext.cycleAware;
+  keyingContext.cycleAware = true;
+  try {
+    return fn();
+  } finally {
+    keyingContext.cycleAware = was;
+  }
+}
+
+/** The cycle of a curve whose first modifier repeats it unrestricted: [first key frame, last key frame]. */
+export function curveCycle(fc: FCurve): [number, number] | null {
+  const m = fc.modifiers[0];
+  if (!m || m.type !== 'CYCLES' || m.mute || m.use_restricted_range || m.use_influence) return null;
+  if ((m.mode_before ?? 'REPEAT') !== 'REPEAT' || (m.mode_after ?? 'REPEAT') !== 'REPEAT') return null;
+  const k = fc.keyframe_points;
+  if (k.length < 2) return null;
+  const a = k[0].co[0],
+    b = k[k.length - 1].co[0];
+  return b - a > 1e-6 ? [a, b] : null;
+}
+
+/** Where a key for `frame` goes with Cycle-Aware Keying: inside the cycle, and on both ends at its start. */
+export function cycleFrames(fc: FCurve, frame: number): number[] {
+  const cyc = curveCycle(fc);
+  if (!cyc) return [frame];
+  const [a, b] = cyc;
+  const p = b - a;
+  const f = a + ((((frame - a) % p) + p) % p);
+  return Math.abs(f - a) < 1e-4 || Math.abs(f - b) < 1e-4 ? [a, b] : [f];
 }
 
 /** Replace mode: update only keys that already exist on the frame (no new keys or curves). */
@@ -108,14 +152,17 @@ export function autoKeyObjects(objects: ObjectData[]) {
   const doc = app.doc;
   const ts = doc.scene.tool_settings;
   if (!ts.use_keyframe_insert_auto || !objects.length) return;
-  const was = keyframeDefaults.replaceOnly;
+  const was = keyframeDefaults.replaceOnly,
+    wasCycle = keyingContext.cycleAware;
   keyframeDefaults.replaceOnly = ts.auto_keying_mode === 'REPLACE_KEYS';
+  keyingContext.cycleAware = true;
   try {
     if (ts.use_keyframe_insert_keyingset && doc.scene.keying_set) insertKeyframesForObjects(objects, doc.scene.keying_set as KeyingSet);
     else if (keyframeDefaults.autoAvailable || keyframeDefaults.replaceOnly) insertKeyframesForObjects(objects, 'Available');
     else insertKeyframesForObjects(objects, channelsKeyingSet());
   } finally {
     keyframeDefaults.replaceOnly = was;
+    keyingContext.cycleAware = wasCycle;
   }
 }
 

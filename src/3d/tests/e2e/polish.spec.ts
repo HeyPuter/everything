@@ -96,7 +96,7 @@ test('timeline header: keying options under the auto keying dropdown, joined fra
   const tl = page.locator('.area[data-editor="TIMELINE"] .area-header');
   await expect(tl.locator('.hdr-menu', { hasText: 'Playback' })).toBeVisible();
   await tl.locator('.keying-drop').dispatchEvent('pointerdown');
-  await expect(page.locator('.popover')).toContainText('New Keyframe Type');
+  await expect(page.locator('.popover')).toContainText('Only Active Keying Set');
   await page.keyboard.press('Escape');
   await expect(tl.locator('.tl-range .tl-preview')).toHaveCount(1);
   await expect(tl.locator('.tl-range .num-field')).toHaveCount(2);

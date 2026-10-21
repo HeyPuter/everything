@@ -44,3 +44,14 @@
 .anim-ch-rows .anim-ch-row.muted .anim-ch-name {
   opacity: 1;
 }
+
+/* Keying popover: keying set menu with insert / delete key buttons beside it */
+.anim-ks-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.anim-ks-row > .enum-menu {
+  flex: 1;
+  min-width: 0;
+}

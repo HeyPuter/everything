@@ -898,6 +898,64 @@ export abstract class AnimEditor implements Editor {
     );
   }
 
+  /** Pin of object and group rows: keeps them listed while unselected with Only Show Selected. */
+  protected pinToggle(ch: Channel): Child {
+    const ob = ch.ob;
+    let on: boolean;
+    let flip: () => void;
+    if (ch.kind === 'OBJECT' && ob?.animation_data) {
+      const ad = ob.animation_data;
+      on = !!ad.use_pin;
+      flip = () => (ad.use_pin = !on);
+    } else if (ch.kind === 'GROUP' && ch.action && ch.group) {
+      const act = ch.action,
+        g = ch.group;
+      on = !!act.pinned_groups?.includes(g);
+      flip = () => (act.pinned_groups = on ? (act.pinned_groups ?? []).filter((x) => x !== g) : [...(act.pinned_groups ?? []), g]);
+    } else return null;
+    return h(
+      'button',
+      {
+        key: 'pin',
+        class: { 'anim-tg': true, on, off: !on },
+        'data-tip': 'Pin\nKeep the channel listed in the Graph Editor while it is not selected (Only Show Selected)',
+        onpointerdown: (e: PointerEvent) => {
+          e.stopPropagation();
+          if (e.button !== 0) return;
+          flip();
+          app.pushUndo('Toggle Pin');
+          app.changed('doc');
+        },
+      },
+      icon(on ? 'pinned' : 'unpinned'),
+    );
+  }
+
+  /** Modifiers on / off of curve and group rows (dimmed on curves without modifiers). */
+  protected modifierToggle(ch: Channel): Child {
+    const fcs = channelCurves(ch);
+    if (!fcs.length || (ch.kind !== 'FCURVE' && ch.kind !== 'GROUP')) return null;
+    const withMods = fcs.filter((f) => f.modifiers.length);
+    const modsOff = !withMods.length ? ch.kind === 'FCURVE' : withMods.every((f) => f.modifiers.every((m) => m.mute));
+    return h(
+      'button',
+      {
+        key: 'mods',
+        class: { 'anim-tg': true, off: modsOff },
+        'data-tip': 'Modifiers\nEnable/disable F-Curve modifiers',
+        onpointerdown: (e: PointerEvent) => {
+          e.stopPropagation();
+          if (e.button !== 0 || !withMods.length) return;
+          const allMuted = withMods.every((f) => f.modifiers.every((m) => m.mute));
+          for (const f of withMods) f.modifiers.forEach((m) => (m.mute = !allMuted));
+          app.pushUndo('Toggle Modifiers');
+          app.changed('doc');
+        },
+      },
+      icon(modsOff ? 'modifier_off' : 'modifier_on'),
+    );
+  }
+
   /** whether a row without an expander keeps its place (indentation) */
   protected expanderSpace(_ch: Channel): boolean {
     return true;

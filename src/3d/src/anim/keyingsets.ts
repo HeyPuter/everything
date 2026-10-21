@@ -9,7 +9,7 @@ import { openMenu, type MenuItem } from '../ui/menu';
 import { uiList } from '../editors/properties/uilist';
 import { sceneKeyingPanel } from '../editors/properties/tabs';
 import { propertyAnimMenuHook } from '../ui/props';
-import { keyProperty, keyState } from './keyframes';
+import { keyProperty, keyState, withCycleAware } from './keyframes';
 import { objectCurves } from './slots';
 
 export const BUILTIN_KEYING_SETS: [string, string][] = [
@@ -155,7 +155,7 @@ const ops: Operator[] = [
     exec: (ctx, p) => {
       const t = target(p);
       if (!t) return 'CANCELLED';
-      keyProperty(ctx.doc, t.ob, t.path, t.index);
+      withCycleAware(() => keyProperty(ctx.doc, t.ob, t.path, t.index));
     },
   },
   {

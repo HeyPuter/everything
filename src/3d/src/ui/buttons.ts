@@ -7,7 +7,7 @@ import { addKeys, keymaps, keyInputHooks, keyName, keyLabel, type KeyItem } from
 import { openMenu, tooltipHooks, menuSettings, type MenuItem } from './menu';
 import { bindingAt, bindingValue, buttonHooks, getBinding, type PropBinding } from './binding';
 import { animTarget, fullDataPath, locateOwner, relDataPath, type OwnerLoc } from './rnapath';
-import { keyProperty, keyState } from '../anim/keyframes';
+import { keyProperty, keyState, withCycleAware } from '../anim/keyframes';
 import { tokenize, resolve, getValue } from '../data/rna';
 import { parseNumber, linearToSrgb, srgbToLinear } from './widgets';
 import { emptyDocument, newObject, newLight, newCamera, newMaterial, newWorld, newCurve, newCollection, newArmature, newLattice } from '../data/defaults';
@@ -564,7 +564,7 @@ registerOperators([
     redo: false,
     props: [{ id: 'all', label: 'All', type: 'bool', default: true }],
     poll,
-    exec: (_c, p) => (insertKey(targetButton()!, !!p.all) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_c, p) => (withCycleAware(() => insertKey(targetButton()!, !!p.all)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'anim.keyframe_delete_button',

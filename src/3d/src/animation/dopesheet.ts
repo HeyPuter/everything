@@ -216,7 +216,7 @@ export class DopeSheet extends AnimEditor {
   }
 
   protected footer(): Child | null {
-    return playbackFooter();
+    return playbackFooter(null, true);
   }
 
   // ---------------------------------------------------------------- channels
@@ -244,7 +244,12 @@ export class DopeSheet extends AnimEditor {
   }
 
   protected rowToggles(ch: Channel): Child {
-    return this.muteLockToggles(ch);
+    return [this.modifierToggle(ch), this.muteLockToggles(ch)];
+  }
+
+  /** group rows carry the pin (object rows do not, here) */
+  protected rowPrefix(ch: Channel): Child {
+    return ch.kind === 'GROUP' ? this.pinToggle(ch) : null;
   }
 
   channelContextMenu(): MenuItem[] {

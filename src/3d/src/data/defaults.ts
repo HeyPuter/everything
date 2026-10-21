@@ -185,6 +185,7 @@ export function defaultToolSettings(): ToolSettings {
     use_mesh_automerge: false,
     double_threshold: 0.001,
     use_keyframe_insert_auto: false,
+    use_keyframe_cycle_aware: false,
     keyframe_type: 'KEYFRAME',
     use_uv_select_sync: false,
     uv_select_mode: 'VERTEX',

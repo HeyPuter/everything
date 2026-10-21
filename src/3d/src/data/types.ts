@@ -1307,6 +1307,8 @@ export interface ToolSettings {
   auto_keying_mode?: 'ADD_REPLACE_KEYS' | 'REPLACE_KEYS';
   /** auto keying keys the active keying set only */
   use_keyframe_insert_keyingset?: boolean;
+  /** keys inserted on curves with a Cycles modifier land inside the cycle (and keep both ends equal) */
+  use_keyframe_cycle_aware?: boolean;
   /** markers can't be selected, moved or deleted */
   lock_markers?: boolean;
   /** proportional editing of keys in the Dope Sheet / Graph Editor */
