@@ -55,6 +55,9 @@ export function openConditionalFormatting(ctx) {
   const sheetId = ctx.sheetId();
   const list = el('div.cf-list', { role: 'list', 'aria-label': 'Rules' });
   let editingId = null;
+  // The edited rule's style beyond the fill, colour and bold the form offers (a number format, italic, a struck
+  // line, an underline, borders, as an Excel file's rule may carry), handed back with whatever the form sets.
+  let keptStyle = {};
   let nativeDuplicates = false;
   let nativeBar = false, extendedBar = false, nativeIcons = false;
   // Keys the rule being edited leaves out, each with the value the form shows in its place. A rule
@@ -323,6 +326,7 @@ export function openConditionalFormatting(ctx) {
   function resetForm() {
     clearError();
     editingId = null;
+    keptStyle = {};
     nativeDuplicates = false; nativeBar = extendedBar = nativeIcons = false;
     duplicateSource.value = '';
     loadThresholds(barInputs, barTypes, BAR_FORMULAS);
@@ -389,6 +393,9 @@ export function openConditionalFormatting(ctx) {
     fill = rule.style?.bg ?? null;
     color = rule.style?.color ?? null;
     boldInput.checked = !!rule.style?.bold;
+    // Not bold is kept as the rule says it (a rule may take bold off the cells it matches) unless the box is ticked.
+    const { bg: _bg, color: _color, bold, ...rest } = rule.style || {};
+    keptStyle = { ...rest, ...(bold === false ? { bold } : {}) };
     from = rule.from || '#ffffff';
     mid = rule.mid || '#fef3c7';
     to = rule.to || '#4a8dff';
@@ -515,7 +522,7 @@ export function openConditionalFormatting(ctx) {
       value: t.date ? dateSelect.value : t.args >= 1 ? (t.numeric ? n1 : ['eq', 'neq'].includes(t.value) ? equalValueOf(value1.value) : value1.value) : undefined,
       value2: t.args >= 2 ? n2 : undefined,
       percent: percent || undefined,
-      style: t.scale || t.bands || t.databar || t.icons ? {} : { ...(fill ? { bg: fill } : {}), ...(color ? { color } : {}), ...(boldInput.checked ? { bold: true } : {}) },
+      style: t.scale || t.bands || t.databar || t.icons ? {} : { ...keptStyle, ...(fill ? { bg: fill } : {}), ...(color ? { color } : {}), ...(boldInput.checked ? { bold: true } : {}) },
       ...(t.icons ? { ...(nativeIcons ? { iconSet: nativeIconSelect.value, ...thresholds,
         iconReverse: nativeIconReverse.checked || undefined, iconCustom: nativeIconCustom.checked || undefined, iconActiveFormula: activation.iconActiveFormula,
         ...iconChoices,
