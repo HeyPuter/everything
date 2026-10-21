@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { ensureBlocks, fixNesting, blocksInRange, rangeFromOffsets, textOffset, isEmptyBody, selectRange } from '../src/editor/selection.js';
+import { ensureBlocks, fixNesting, blocksInRange, blockOf, rangeFromOffsets, textOffset, isEmptyBody, selectRange } from '../src/editor/selection.js';
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
@@ -433,6 +433,68 @@ describe('page editor keys', () => {
     expect(ed.selectedOutlines.size).toBe(1);
     ed.destroy();
     host.remove();
+  });
+});
+
+describe('blocksInRange', () => {
+  // The straightforward definition, with Range.intersectsNode (slow in Chrome).
+  function reference(range, root) {
+    const found = new Set();
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
+      acceptNode(node) {
+        if (node.nodeType === 1 && node.tagName !== 'BR' && node.tagName !== 'IMG' && !node.classList.contains('nt-tag')) return NodeFilter.FILTER_SKIP;
+        return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+      },
+    });
+    let n;
+    while ((n = walker.nextNode())) {
+      if (n.nodeType === 3 && !n.nodeValue.length) continue;
+      if (n === range.endContainer && range.endOffset === 0 && n.nodeType === 3) continue;
+      const b = blockOf(n, root);
+      if (b) found.add(b);
+    }
+    if (!found.size) {
+      const b = blockOf(range.startContainer, root);
+      if (b) found.add(b);
+    }
+    return [...found].filter((b) => ![...found].some((o) => o !== b && b.contains(o)));
+  }
+
+  it('matches the intersectsNode definition for every pair of boundary points', () => {
+    const el = body('<p>ab<b>cd</b></p><ul><li><p>one</p><ul><li>two<br>x</li></ul></li><li>three</li></ul>'
+      + '<p><span class="nt-tag" data-tag="todo"></span>tag</p><table><tbody><tr><td>c1</td><td><img>c2</td></tr></tbody></table><p><br></p><h2>end</h2>');
+    const points = [];
+    (function collect(n) {
+      const len = n.nodeType === 3 ? n.nodeValue.length : n.childNodes.length;
+      for (let i = 0; i <= len; i++) points.push([n, i]);
+      if (n.nodeType === 1) for (const c of n.childNodes) collect(c);
+    })(el);
+    let checked = 0;
+    for (let i = 0; i < points.length; i += 3) {
+      for (let j = 0; j < points.length; j += 2) {
+        const r = document.createRange();
+        try {
+          r.setStart(...points[i]);
+          r.setEnd(...points[j]);
+        } catch {
+          continue;
+        }
+        if (r.collapsed) continue;
+        expect(blocksInRange(r, el)).toEqual(reference(r, el));
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(500);
+  });
+
+  it('stays fast when a long page is selected', () => {
+    const el = body('<p>x <b>y</b></p>'.repeat(4000));
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    const t0 = performance.now();
+    expect(blocksInRange(r, el)).toHaveLength(4000);
+    // The intersectsNode walk took about 4 s here.
+    expect(performance.now() - t0).toBeLessThan(1500);
   });
 });
 

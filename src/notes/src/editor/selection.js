@@ -99,18 +99,24 @@ export function blocksInRange(range, root) {
     const b = blockOf(range.startContainer, root);
     return b ? [b] : [];
   }
+  // Walk the nodes from the start boundary to the end one. Range.intersectsNode
+  // costs a pass over a block's siblings in Chrome, which made selecting a
+  // long page quadratic (3 s for 10,000 paragraphs on every ribbon update).
+  const after = (node) => {
+    while (node && node !== root && !node.nextSibling) node = node.parentNode;
+    return node && node !== root ? node.nextSibling : null;
+  };
+  const { startContainer: sc, startOffset: so, endContainer: ec, endOffset: eo } = range;
+  const first = sc.nodeType === 3 ? sc : sc.childNodes[so] || after(sc);
+  let stop;
+  if (ec.nodeType === 3) stop = eo === 0 ? ec : after(ec);
+  else stop = ec.childNodes[eo] || after(ec);
   const found = new Set();
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, {
-    acceptNode(node) {
-      if (node.nodeType === 1 && node.tagName !== 'BR' && node.tagName !== 'IMG' && !node.classList.contains('nt-tag')) return NodeFilter.FILTER_SKIP;
-      return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-    },
-  });
-  let n;
-  while ((n = walker.nextNode())) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = first; n && n !== stop; n = walker.nextNode()) {
+    walker.currentNode = n;
+    if (n.nodeType === 1 && n.tagName !== 'BR' && n.tagName !== 'IMG' && !n.classList.contains('nt-tag')) continue;
     if (n.nodeType === 3 && !n.nodeValue.length) continue;
-    // A selection that ends at offset 0 of the next block does not include it.
-    if (n === range.endContainer && range.endOffset === 0 && n.nodeType === 3) continue;
     const b = blockOf(n, root);
     if (b) found.add(b);
   }
@@ -119,7 +125,12 @@ export function blocksInRange(range, root) {
     if (b) found.add(b);
   }
   // Drop blocks that contain another found block (an <li> holding a <p>).
-  return [...found].filter((b) => ![...found].some((o) => o !== b && b.contains(o)));
+  // Walking up from each block keeps this linear on long selections.
+  const outer = new Set();
+  for (const b of found) {
+    for (let n = b.parentNode; n && n !== root; n = n.parentNode) if (found.has(n)) outer.add(n);
+  }
+  return [...found].filter((b) => !outer.has(b));
 }
 
 /** Character offset of (node, offset) from the start of root. */
