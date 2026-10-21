@@ -15463,10 +15463,11 @@ test("ungrouping a mirrored group keeps its children where they were shown", asy
   });
   await expect(page.locator(".object-hit")).toHaveCount(3);
   // The mirrored group shows its first child on the right, its second on
-  // the left and turned the other way.
+  // the left and turned the other way. The group frames the turned child
+  // as the slide shows it, from 1 inch to 4.18.
   await expect(page.locator('[data-object="1"]')).toHaveAttribute(
     "style",
-    /left: 22\.5/,
+    /left: 23\.8/,
   );
   await expect(page.locator('[data-object="2"]')).toHaveAttribute(
     "style",
@@ -15494,8 +15495,8 @@ test("ungrouping a mirrored group keeps its children where they were shown", asy
     [b.x, b.y, b.w, b.h].map((v) => Math.round((v / 914400) * 100) / 100);
   const shapes = P.getSlideShapes(P.getSlides(loaded)[0]);
   expect(shapes.map((s) => inches(P.getShapeBounds(s)))).toEqual([
-    [3, 1, 1, 1],
-    [1, 1, 1, 1],
+    [3.18, 1, 1, 1],
+    [1.18, 1, 1, 1],
   ]);
   expect(shapes.map((s) => P.getShapeRotation(s) || 0)).toEqual([0, 330]);
   expect(shapes.map((s) => !!P.getShapeFlip(s)?.horizontal)).toEqual([

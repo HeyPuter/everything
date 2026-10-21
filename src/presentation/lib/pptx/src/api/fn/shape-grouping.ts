@@ -13,6 +13,7 @@
 
 import {
   readPosition,
+  readRotation,
   readSize,
   setPosition as writePosition,
   setSize as writeSize,
@@ -40,7 +41,8 @@ import { getGroupTransform } from "./shape-read-base.ts";
 /**
  * Groups two or more top-level shapes into a single `<p:grpSp>`,
  * returning the new group as a `SlideShapeData`. The group's
- * slide-space bounds are the union of its members' bounds; the members
+ * slide-space bounds are the union of its members' bounds, a turned
+ * member's as the slide shows it; the members
  * keep their own relative position/size (nothing is rescaled). The
  * target slide is taken from the first shape — every shape must belong
  * to the same slide.
@@ -101,10 +103,19 @@ export const groupShapes = (
       );
     }
     elements.push(el);
-    minX = Math.min(minX, pos.x);
-    minY = Math.min(minY, pos.y);
-    maxX = Math.max(maxX, pos.x + size.w);
-    maxY = Math.max(maxY, pos.y + size.h);
+    // A turned member takes the room the slide shows it in, as it does in
+    // PowerPoint; its own box turns about its center.
+    const rad = (readRotation(el, kind) * Math.PI) / 180;
+    const cos = Math.abs(Math.cos(rad)),
+      sin = Math.abs(Math.sin(rad));
+    const w = size.w * cos + size.h * sin,
+      h = size.w * sin + size.h * cos;
+    const x = pos.x + (size.w - w) / 2,
+      y = pos.y + (size.h - h) / 2;
+    minX = Math.min(minX, Math.round(x));
+    minY = Math.min(minY, Math.round(y));
+    maxX = Math.max(maxX, Math.round(x + w));
+    maxY = Math.max(maxY, Math.round(y + h));
   }
 
   // Build the group element before touching `spTree.children` — it

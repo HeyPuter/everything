@@ -909,6 +909,32 @@ describe("grouped shapes", () => {
     const saved = await parseDeck(await P.savePresentation(pres));
     expect(P.validatePresentation(saved)).toEqual([]);
   });
+  // A group took a turned member's upright box, so a bar turned a quarter
+  // turn stood far out of its group's outline, handles, and alignment.
+  it("frames a turned member as the slide shows it when grouping", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const square = shape(slide, 1, 3, 1, 1, "#ff0000");
+    const bar = shape(slide, 5, 3, 4, 0.5, "#0000ff");
+    P.setShapeRotation(bar, 90);
+    const before = P.getShapeBounds(bar);
+    const group = P.groupShapes([square, bar]);
+    // The bar shows 0.5 inches wide from 6.75 and 4 tall from 1.25.
+    expect(P.getShapeBounds(group)).toEqual({
+      x: P.inches(1),
+      y: P.inches(1.25),
+      w: P.inches(6.25),
+      h: P.inches(4),
+    });
+    const fresh = P.findShapeById(slide, P.getShapeId(bar));
+    expect(slideBounds(pres, fresh)).toEqual(before);
+    expect(slideRotation(fresh)).toBe(90);
+    // Nothing moves when the group goes again.
+    P.ungroupShapes(P.findShapeById(slide, P.getShapeId(group)));
+    expect(P.getShapeBounds(P.findShapeById(slide, P.getShapeId(bar)))).toEqual(
+      before,
+    );
+  });
 });
 it("adapts added template slides to an imported 4:3 canvas", () => {
   const pres = P.createPresentation({ size: "4:3" });
