@@ -1,10 +1,10 @@
 import { normalizeFontColor } from './font-color.js';
 import { normalizeFillColor } from './fill-color.js';
-import { fontStack } from './format.js';
+import { fontStack, XLSX_BORDER_STYLES } from './format.js';
 
 const fail = () => { throw new Error('Invalid stored slicer paint'); };
 const color = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
-const borderStyles = ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'];
+const borderStyles = XLSX_BORDER_STYLES;
 const finite = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
 const paint = source => {
   if (!source || typeof source !== 'object' || Array.isArray(source)) fail();

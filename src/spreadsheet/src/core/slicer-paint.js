@@ -1,6 +1,7 @@
 import { modelChildren, parseModelXml, standaloneModelXml } from './data-model-metadata.js';
 import { readXlsxDifferentialStyle, xlsxColor } from './xlsx-styles.js';
 import { builtInSlicerStyle } from './slicer-builtin-styles.js';
+import { XLSX_BORDER_STYLES } from './format.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const children = (node, name) => modelChildren(node, name, MAIN);
@@ -60,7 +61,7 @@ export function readSlicerPaint(xml, themes) {
   const border = single(root, 'border');
   for (const side of ['left', 'right', 'top', 'bottom']) {
     const edge = single(border, side), style = edge?.getAttribute('style');
-    if (style && !['none', 'thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(style)) throw new Error(`Slicer border ${style} rendering is not implemented yet`);
+    if (style && style !== 'none' && !XLSX_BORDER_STYLES.includes(style)) throw new Error(`Slicer border ${style} rendering is not implemented yet`);
   }
   for (const direction of ['diagonalUp', 'diagonalDown']) if (border && ['1', 'true'].includes(border.getAttribute(direction))) throw new Error('Slicer diagonal borders are not implemented yet');
   const fill = single(root, 'fill'), gradient = single(fill, 'gradientFill'), pattern = single(fill, 'patternFill');

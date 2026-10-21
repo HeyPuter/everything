@@ -60,4 +60,4 @@ it('does not invent unsupported patterns or unknown built-in definitions', () =>
 it('does not interpret a foreign namespace or extension as formatting', () => {
   expect(readSlicerPaint(`<dxf xmlns="${ns}" xmlns:x="urn:other"><x:font><x:b/><x:color rgb="FFFF0000"/></x:font><extLst><ext><font><b/></font></ext></extLst></dxf>`)).toEqual({});
 });
-it.each(['<border><left style="dashDot"/></border>', '<font><outline/></font>', '<font><u val="singleAccounting"/></font>'])('explicitly rejects unimplemented paint %s', body => { expect(() => read(body)).toThrow(/not implemented/); });
+it.each(['<border><left style="wavy"/></border>', '<font><outline/></font>', '<font><u val="singleAccounting"/></font>'])('explicitly rejects unimplemented paint %s', body => { expect(() => read(body)).toThrow(/not implemented/); });
