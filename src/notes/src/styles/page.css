@@ -25,6 +25,19 @@
 .page.surface-light {
   --note-text: #1b1b1b;
 }
+/* A light page in the dark theme (Switch Background, printing) keeps the
+   light theme's page chrome, so the date, container frame and find
+   marks stay readable on white. */
+:root[data-theme-resolved="dark"] .page.surface-light {
+  --page-meta: #6e6e6e;
+  --page-title-line: #a0a0a0;
+  --outline-line: #c6c6c6;
+  --outline-bar: #ededed;
+  --text-3: #6e6e6e;
+  --bg-hover: rgba(0, 0, 0, 0.05);
+  --find-hit: #ffe36e;
+  --find-current: #ff9f2e;
+}
 .canvas-scroll.surface-light {
   --page-bg-default: #ffffff;
 }
