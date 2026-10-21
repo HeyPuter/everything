@@ -49,7 +49,8 @@ export function openSubtotalDialog(ctx, range) {
       const { r, c } = parseKey(key);
       if (inside(r, c)) count(r, c, wb.getValue(sheetId, r, c));
     }
-    for (const { r, c, value } of wb.spillEntries(sheetId)) if (inside(r, c)) count(r, c, value);
+    // Only the results spilled into the range: an array over the whole sheet spills more than any list holds.
+    for (const { r, c, value } of wb.spillEntries(sheetId, { r1: start, c1: range.c1, r2: range.r2, c2: range.c2 })) if (inside(r, c)) count(r, c, value);
   }
   const numeric = (c) => {
     const stats = counts.get(c);
