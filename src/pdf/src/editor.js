@@ -4984,7 +4984,8 @@ export function createEditor({
       : el('textarea', {
           class: 'page-text-input',
           rows: 1,
-          maxlength: 5000,
+          // No maxlength: a browser cuts a long paste short without a word; saving says why
+          // text is too long and keeps the whole draft for shortening.
           'aria-label': run ? 'Edit text' : 'Text to add',
           placeholder: run ? '' : 'Type your text',
           spellcheck: true,

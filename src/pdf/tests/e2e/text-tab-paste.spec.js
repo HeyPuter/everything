@@ -101,3 +101,47 @@ test('text pasted with tabs is added and edited with spaces in their place', asy
   expect(text).toMatch(/Hello world\s+A\s+B/);
   expect(text).toMatch(/Mixed\s+bold\s+C/);
 });
+
+// A browser cuts a paste short at a field's length limit without a word. Text too long to keep
+// must be refused with a reason, with the draft left whole for shortening.
+test('text pasted beyond the length limit is not cut short without a word', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([612, 792]).drawText('Hello world', { x: 60, y: 600, size: 20, font });
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'long-paste.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  const long = 'word '.repeat(1200);
+  // An existing line, then new text.
+  await page.getByRole('button', { name: 'Edit text: Hello world', exact: true }).dblclick();
+  const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  await input.press('ControlOrMeta+a');
+  await paste(page, long);
+  await expect.poll(() => input.evaluate((node) => node.value.length)).toBe(long.length);
+  await clickAway(page);
+  await expect(page.locator('.text-edit-error')).toHaveText(
+    'Keep text edits under 5,000 characters.',
+  );
+  await input.press('Escape');
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.locator('.drawing-overlay').click({ position: { x: 60, y: 300 } });
+  const added = page.getByRole('textbox', { name: 'Text to add', exact: true });
+  await expect(added).toBeFocused();
+  await paste(page, long);
+  await expect.poll(() => added.evaluate((node) => node.value.length)).toBe(long.length);
+  await clickAway(page);
+  await expect(page.locator('.text-edit-error')).toHaveText(
+    'Keep text edits under 5,000 characters.',
+  );
+  expect(await added.evaluate((node) => node.value.length)).toBe(long.length);
+});

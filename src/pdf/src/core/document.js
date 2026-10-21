@@ -804,6 +804,7 @@ export async function addText(
   },
 ) {
   if (!text.trim()) throw new Error('Enter some text.');
+  if (text.length > 5000) throw new Error('Keep text edits under 5,000 characters.');
   const font = await embedFont(doc, variant, text);
   assertSupportedText(font, text);
   const page = doc.getPage(index);
