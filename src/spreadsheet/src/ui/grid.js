@@ -998,6 +998,15 @@ export function createGrid(opts) {
   const rowEnd = (r) => { ensureOffsets(); return rowOffsets.end(r); };
   // Commands and keys treat every sheet as Excel's whole grid (A1:XFD1048576); the canvas holds the part reached so far.
   const bounds = () => { const s = sheet(); return { rows: Math.max(s.rows, MAX_ROWS), cols: Math.max(s.cols, MAX_COLS) }; };
+  /**
+   * Does a range take whole columns (axis 'col') or whole rows: picked by their headings, or running the
+   * grid's whole height or width? A block that merely ends on the last line laid out so far does not.
+   */
+  const wholeLines = (rg, axis) => {
+    const b = bounds();
+    return axis === 'col' ? rg.scope === 'columns' || rg.scope === 'sheet' || (rg.r1 === 0 && rg.r2 >= b.rows - 1)
+      : rg.scope === 'rows' || rg.scope === 'sheet' || (rg.c1 === 0 && rg.c2 >= b.cols - 1);
+  };
 
   function cellAtPoint(clientX, clientY) {
     ensureOffsets();
@@ -2750,10 +2759,10 @@ export function createGrid(opts) {
 
   function renderHeaders(vr, view = viewMetrics()) {
     fitRowDigits(vr.r1);
-    const range = S.selRange(sel);
+    const range = S.selRange(sel, true);
     const s = sheet();
-    const wholeCols = range.r1 === 0 && range.r2 >= s.rows - 1;
-    const wholeRows = range.c1 === 0 && range.c2 >= s.cols - 1;
+    const wholeCols = wholeLines(range, 'col');
+    const wholeRows = wholeLines(range, 'row');
     // Zoomed far out the lines are narrower than their letters and numbers (drawn no smaller than 6px,
     // chrome.css), which ran together into a smear: a label that does not fit its line shows on every
     // k-th line only, k the first of 1, 2, 5, 10, 20, 50… lines of the sheet's size that holds it.
@@ -2907,10 +2916,9 @@ export function createGrid(opts) {
 
   /** The selection's marks on the row and column headers, set on the existing header cells. */
   function highlightHeaders() {
-    const s = sheet();
-    const range = S.selRange(sel);
-    const wholeCols = range.r1 === 0 && range.r2 >= s.rows - 1;
-    const wholeRows = range.c1 === 0 && range.c2 >= s.cols - 1;
+    const range = S.selRange(sel, true);
+    const wholeCols = wholeLines(range, 'col');
+    const wholeRows = wholeLines(range, 'row');
     for (const head of [colHead, colHeadFrozen]) {
       for (const h of head.children) {
         if (!h.classList.contains('hcell')) continue;
@@ -4736,10 +4744,9 @@ export function createGrid(opts) {
     // Pressing on a header inside a whole-row or whole-column selection
     // starts a reorder drag; a plain click on it still selects that line.
     // With Ctrl/Cmd held it is an addition to the selection, as below.
-    const range = S.selRange(sel);
-    const s = sheet();
-    const wholeCols = range.r1 === 0 && range.r2 >= s.rows - 1;
-    const wholeRows = range.c1 === 0 && range.c2 >= s.cols - 1;
+    const range = S.selRange(sel, true);
+    const wholeCols = wholeLines(range, 'col');
+    const wholeRows = wholeLines(range, 'row');
     const insideSel = axis === 'col' ? wholeCols && idx >= range.c1 && idx <= range.c2 : wholeRows && idx >= range.r1 && idx <= range.r2;
     if (insideSel && !e.shiftKey && !isMod(e) && e.pointerType !== 'touch') {
       drag = { kind: axis === 'col' ? 'colmove' : 'rowmove', idx, from: axis === 'col' ? range.c1 : range.r1, count: axis === 'col' ? range.c2 - range.c1 + 1 : range.r2 - range.r1 + 1, startPos: axis === 'col' ? e.clientX : e.clientY, to: null };
@@ -4871,9 +4878,7 @@ export function createGrid(opts) {
    * range and of any range added with Ctrl/Cmd+click. Null when the line is not one of several.
    */
   function selectedLines(axis, idx) {
-    const s = sheet();
-    const whole = (rg) => (axis === 'col' ? rg.r1 === 0 && rg.r2 >= s.rows - 1 : rg.c1 === 0 && rg.c2 >= s.cols - 1);
-    const runs = [...extras, S.selRange(sel)].filter(whole).map((rg) => (axis === 'col' ? [rg.c1, rg.c2] : [rg.r1, rg.r2])).sort((a, b) => a[0] - b[0]);
+    const runs = [...extras, S.selRange(sel, true)].filter((rg) => wholeLines(rg, axis)).map((rg) => (axis === 'col' ? [rg.c1, rg.c2] : [rg.r1, rg.r2])).sort((a, b) => a[0] - b[0]);
     if (!runs.some(([from, to]) => idx >= from && idx <= to)) return null;
     const merged = [];
     for (const run of runs) {
