@@ -260,6 +260,33 @@ describe('a tracked edit that joins two characters into one', () => {
   });
 });
 
+describe('a tracked deletion across a field\'s start or end', () => {
+  const setup = () => {
+    const pkg = createDocx([paragraph('Date: ')]);
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables);
+    doc.select(6); insertBodyField(doc, 'DATE', '2026-10-21'); doc.select(doc.text.length); doc.replace(' end');
+    doc.trackChanges = true; doc.revisionAuthor = 'Me';
+    return doc;
+  };
+  const results = doc => bodyFieldRanges(doc.paragraphs).map(r => doc.text.slice(r.start, r.end));
+  it.each([['start', 3, 10, 'Dat-10-21 end', '-10-21'], ['end', 12, 19, 'Date: 2026-1d', '2026-1']])('is accepted, leaving the rest of the result (across its %s)', (side, start, end, text, result) => {
+    const doc = setup();
+    doc.select(start, end); expect(doc.replace('')).toBe(true);
+    // Accepting it threw, and so did Accept All for every other change in the document.
+    expect(doc.resolveRevisions(true)).toBe(true);
+    expect(doc.text).toBe(text);
+    expect(results(doc)).toEqual([result]);
+    expect(doc.revisions).toEqual([]);
+  });
+  it('is rejected, leaving the field as it was', () => {
+    const doc = setup();
+    doc.select(3, 10); doc.replace('');
+    expect(doc.resolveRevisions(false)).toBe(true);
+    expect(doc.text).toBe('Date: 2026-10-21 end');
+    expect(results(doc)).toEqual(['2026-10-21']);
+  });
+});
+
 describe('fields inserted over a selection with Track Changes on', () => {
   it('Insert Field wraps exactly the new result, after the struck-out selection', () => {
     const pkg = createDocx([paragraph('Due OLD today')]);

@@ -2131,10 +2131,16 @@ export class TextDocument {
             continue;
           }
           // A removed paragraph mark merges its paragraph with the next one.
-          const limit = documentLength(this.paragraphs);
-          this.selection = { anchor: r.start, focus: Math.min(r.end, limit) };
+          const limit = documentLength(this.paragraphs), last = Math.min(r.end, limit);
           if (r.end > limit) for (const p of this.paragraphs.slice(-1)) delete p.markRevision;
-          if (r.start < Math.min(r.end, limit)) this.replaceUntracked('', { checkpoint: false });
+          // A change can cross a field's start or end (deleting part of a field's result with Track Changes
+          // on). The text on either side goes separately, and the field keeps the rest of its result.
+          const cuts = this.hasBodyFields ? bodyFieldRanges(this.paragraphs).flatMap(f => f.start < r.start || f.end > last ? [f.start, f.end].filter(at => r.start < at && at < last) : []) : [];
+          const points = [...new Set([r.start, ...cuts.sort((a, b) => a - b), last])];
+          for (let i = points.length - 1; i > 0; i--) {
+            this.selection = { anchor: points[i - 1], focus: points[i] };
+            if (points[i - 1] < points[i]) this.replaceUntracked('', { checkpoint: false });
+          }
         }
       }
     } finally { this.trackingInternal = false; }
