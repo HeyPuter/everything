@@ -685,8 +685,18 @@ export class Store extends Emitter {
         section = [...this.sectionsOf(nb)][0] || this.createSection(nb.id, { name: entry.sectionName || 'Restored Pages', silent: true });
       }
       if (this.isLocked(section.id)) return null;
-      section.pages.splice(Math.min(entry.index, section.pages.length), 0, ...entry.pages.filter((p) => !this.findPage(p.id)));
+      const restored = entry.pages.filter((p) => !this.findPage(p.id));
+      section.pages.splice(Math.min(entry.index, section.pages.length), 0, ...restored);
       normalizeLevels(section.pages);
+      // Saved for the section they left; re-save them encrypted (or not) for this one.
+      if ((entry.lockedSection || null) !== (section.locked ? section.id : null)) {
+        for (const m of restored) {
+          this.loadPage(m.id).then(async (page) => {
+            await this.rekeyAssets(page);
+            this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
+          }).catch(() => {});
+        }
+      }
       this.touchNotebook(this.findNode(section.id).notebook);
       result = { sectionId: section.id, pageId: entry.pages[0]?.id };
     }

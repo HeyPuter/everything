@@ -270,6 +270,41 @@ describe('password-protected sections: removing the password', () => {
   });
 });
 
+describe('password-protected sections: restoring deleted pages', () => {
+  it('encrypts a page restored into a section protected since it was deleted', async () => {
+    const { backend, store, section, meta } = await setup();
+    const entry = store.deletePage(meta.id);
+    await store.protectSection(section.id, 'pw');
+    store.restore(entry.id);
+    await new Promise((r) => setTimeout(r, 10));
+    await store.flush();
+    expect(allText(backend)).not.toContain('treasure');
+    await store.lockSection(section.id);
+    expect(await store.unlockSection(section.id, 'pw')).toBe(true);
+    expect((await store.loadPage(meta.id)).outlines[0].html).toContain('treasure');
+  });
+
+  it('keeps a page readable when its protected section was deleted and it lands elsewhere', async () => {
+    const { backend, store, section, meta } = await setup();
+    const other = store.createSection(store.notebooks[0].id, { name: 'Journal' });
+    await store.protectSection(section.id, 'one');
+    await store.protectSection(other.id, 'two');
+    const entry = store.deletePage(meta.id);
+    store.deleteNode(section.id);
+    for (const s of [...store.sectionsOf(store.notebooks[0])]) if (s.id !== other.id) store.deleteNode(s.id);
+    expect(await store.openTrash(entry.id)).toBe(true);
+    expect(store.restore(entry.id).sectionId).toBe(other.id);
+    await new Promise((r) => setTimeout(r, 10));
+    await store.flush();
+    await store.lockAll();
+    expect(allText(backend)).not.toContain('treasure');
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(other.id, 'two')).toBe(true);
+    expect((await fresh.loadPage(meta.id)).outlines[0].html).toContain('treasure');
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');
