@@ -224,7 +224,7 @@ test('dyntopo refines the mesh under the brush', async ({ page }) => {
   const errors = await openApp(page);
   await setup(page, 'SCULPT', 'mesh.primitive_uv_sphere_add', { segments: 32, ring_count: 16, radius: 4 });
   const c = await viewportCenter(page);
-  await page.locator('.tool-header button.hdr-toggle[data-tip^="Dyntopo"]').click();
+  await page.locator('.tool-header .th-dyntopo').getByText('Dyntopo').click();
   const nf0 = await page.evaluate(() => {
     const a = (window as unknown as W).app;
     a.doc.scene.tool_settings.sculpt.detail_size = 4;

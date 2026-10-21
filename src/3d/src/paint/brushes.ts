@@ -3,14 +3,21 @@
 import type { BrushData, DocumentData, Mode } from '../data/types';
 import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
+import { defaultBrushes } from '../data/defaults';
 import type { Falloff } from './math';
+import type { StencilSettings } from './brushtex';
+import type { GradientSettings } from './gradient';
 
 /** Brush settings beyond the core BrushData fields (stored on the same data-block). */
-export interface PaintBrush extends BrushData {
+export interface PaintBrush extends BrushData, StencilSettings, GradientSettings {
   falloff_shape?: 'SPHERE' | 'PROJECTED';
   use_frontface?: boolean;
   /** clay/flatten/fill/scrape plane offset (fraction of the radius) */
   plane_offset?: number;
+  /** grab brush: leave the far side of thin parts in place */
+  use_grab_silhouette?: boolean;
+  /** layer brush: measure the layer height from the persistent base (kept between strokes) */
+  use_persistent?: boolean;
   /** crease/blob pinch amount */
   crease_pinch_factor?: number;
   /** keep accumulating within a stroke instead of limiting to the brush strength */
@@ -21,7 +28,9 @@ export interface PaintBrush extends BrushData {
   /** sculpt mask brush: draw or smooth the mask */
   mask_tool?: 'DRAW' | 'SMOOTH';
   /** how dabs are placed along the stroke */
-  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT' | 'CURVE';
+  /** paint curve the Curve stroke method follows */
+  paint_curve?: string | null;
   use_smooth_stroke?: boolean;
   smooth_stroke_radius?: number;
   smooth_stroke_factor?: number;
@@ -39,11 +48,38 @@ export interface PaintBrush extends BrushData {
   boundary_deform_type?: 'GRAB' | 'EXPAND' | 'INFLATE';
   /** texture modulating the strength */
   texture_slot?: import('./brushtex').BrushTexture;
+  /** texture scaling only the strength (Texture Paint) */
+  mask_texture_slot?: import('./brushtex').BrushTexture;
+  /** opacity (percent) of the texture / mask texture overlay in the viewport */
+  texture_overlay_alpha?: number;
+  mask_overlay_alpha?: number;
   /** brush cursor display */
   show_cursor?: boolean;
+  /** falloff shading inside the cursor (opacity in percent) */
+  use_cursor_overlay?: boolean;
+  cursor_overlay_alpha?: number;
   cursor_color_add?: [number, number, number];
   cursor_color_subtract?: [number, number, number];
-  falloff: Falloff & BrushData['falloff'];
+  falloff: Falloff;
+  /** custom falloff: control points (x = 0 at the rim to 1 at the center, y = strength) */
+  falloff_curve?: [number, number][];
+  /** pen pressure response curves (x = pressure, y = factor) and whether they are used */
+  curve_size?: [number, number][];
+  curve_strength?: [number, number][];
+  use_size_curve?: boolean;
+  use_strength_curve?: boolean;
+  /** random offset of the dabs: fraction of the radius (BRUSH) or pixels (VIEW) */
+  jitter?: number;
+  jitter_absolute?: number;
+  jitter_unit?: 'VIEW' | 'BRUSH';
+  use_pressure_jitter?: boolean;
+  /** pen pressure scales the dab spacing */
+  use_pressure_spacing?: boolean;
+  /** pointer samples averaged per stroke point */
+  input_samples?: number;
+  /** front-face falloff: fade out vertices turning away from the view */
+  use_frontface_falloff?: boolean;
+  falloff_angle?: number;
 }
 
 export type BrushMode = 'SCULPT' | 'VERTEX_PAINT' | 'WEIGHT_PAINT' | 'TEXTURE_PAINT';
@@ -116,8 +152,9 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_texpaint', 'Paint', 'TEXDRAW', 'brush_paint_draw', 'Paints into the active image texture'),
     S('brush_tex_soften', 'Soften', 'SOFTEN', 'brush_paint_blur', 'Blurs the image under the brush'),
     S('brush_tex_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the image along the stroke'),
-    S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
     S('brush_tex_clone', 'Clone', 'CLONE', 'brush_paint_clone', 'Copies the texture from a source point (Ctrl+click to set it) or from another image'),
+    S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
+    S('brush_tex_mask', 'Mask', 'MASK', 'brush_sculpt_mask', 'Paints the stencil mask that limits where the other brushes paint (Ctrl: erase the mask)'),
   ],
 };
 
@@ -197,7 +234,19 @@ function extraBrushes(): PaintBrush[] {
       strength: 1,
       blend: 'MIX',
     }),
+    base('brush_tex_mask', 'Mask', 'MASK', 'TEXTURE_PAINT', {
+      strength: 1,
+      blend: 'MIX',
+    }),
   ];
+}
+
+/** Factory settings of a built-in brush (null for other brushes). */
+export function factoryBrush(id: string): PaintBrush | null {
+  const b = (defaultBrushes()[id] as PaintBrush | undefined) ?? extraBrushes().find((x) => x.id === id);
+  if (!b) return null;
+  fillDefaults(b);
+  return b;
 }
 
 /** Settings each brush should have even when loaded from an older document. */
@@ -242,6 +291,48 @@ const DEFAULT_TOOL: Record<BrushMode, string> = {
   TEXTURE_PAINT: 'brush_texpaint',
 };
 
+/** Unified paint settings: one size / strength shared by every brush when turned on. */
+export interface UnifiedFlags {
+  size: number;
+  strength: number;
+  use_unified_size?: boolean;
+  use_unified_strength?: boolean;
+}
+const unified = () => app.doc.scene.tool_settings.unified_paint as unknown as UnifiedFlags;
+
+/** Give a brush the shared size / strength when those are unified. */
+function applyUnified(b: PaintBrush) {
+  const u = unified();
+  if (u.use_unified_size && u.size > 0) b.radius = u.size;
+  if (u.use_unified_strength) b.strength = u.strength;
+}
+
+/** Set a brush's radius (pixels); the shared size follows when sizes are unified. */
+export function setBrushRadius(b: PaintBrush, r: number) {
+  b.radius = r;
+  const u = unified();
+  if (u.use_unified_size) u.size = r;
+}
+
+/** Set a brush's strength; the shared strength follows when strengths are unified. */
+export function setBrushStrength(b: PaintBrush, s: number) {
+  b.strength = s;
+  const u = unified();
+  if (u.use_unified_strength) u.strength = s;
+}
+
+/** Turn unified size / strength on or off (on: start from the given brush's value). */
+export function setUnified(kind: 'size' | 'strength', on: boolean, from: PaintBrush | null) {
+  const u = unified();
+  if (kind === 'size') {
+    u.use_unified_size = on;
+    if (on && from) u.size = from.radius;
+  } else {
+    u.use_unified_strength = on;
+    if (on && from) u.strength = from.strength;
+  }
+}
+
 /** Active brush of a mode (the active toolbar tool when it is a brush). */
 export function activeBrush(mode: BrushMode = app.doc.mode as BrushMode): PaintBrush | null {
   const doc = app.doc;
@@ -249,7 +340,10 @@ export function activeBrush(mode: BrushMode = app.doc.mode as BrushMode): PaintB
   let b = id ? (doc.brushes[id] as PaintBrush | undefined) : undefined;
   if (!b && mode === 'SCULPT' && !id?.startsWith('builtin.')) b = doc.brushes[doc.scene.tool_settings.sculpt.brush] as PaintBrush | undefined;
   if (!b && !id?.startsWith('builtin.')) b = doc.brushes[DEFAULT_TOOL[mode]] as PaintBrush | undefined;
-  if (b) fillDefaults(b);
+  if (b) {
+    fillDefaults(b);
+    applyUnified(b);
+  }
   return b ?? null;
 }
 

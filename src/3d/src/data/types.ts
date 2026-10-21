@@ -1397,6 +1397,10 @@ export interface DocumentData {
   pointclouds?: Record<ID, import('../pointcloud/types').PointCloudData>;
   /** Library files this file links data-blocks from (src/library); absent in older files */
   libraries?: Record<ID, import('../library/types').LibraryData>;
+  /** Color palettes of the paint modes (src/paint/palette.ts); absent in older files */
+  palettes?: Record<ID, import('../paint/palettemath').PaletteData>;
+  /** Paint curves the Curve stroke method follows (src/paint/paintcurve.ts); absent in older files */
+  paint_curves?: Record<ID, import('../paint/strokemath').PaintCurveData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */
@@ -1411,7 +1415,8 @@ export interface BrushData {
   mode: 'SCULPT' | 'TEXTURE_PAINT' | 'VERTEX_PAINT' | 'WEIGHT_PAINT';
   strength: number;
   radius: number;
-  falloff: SculptSettings['falloff'];
+  /** falloff preset (src/paint/math.ts), 'CUSTOM' uses the brush's own curve */
+  falloff: import('../paint/math').Falloff;
   direction: 'ADD' | 'SUBTRACT';
   color?: Color;
   blend?: 'MIX' | 'ADD' | 'SUB' | 'MUL' | 'LIGHTEN' | 'DARKEN' | 'ERASE_ALPHA';

@@ -8,8 +8,9 @@ import type { View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
 import { cursorState } from './cursorstate';
 import { revertToUndoState } from './session';
+import { cachedCurveTable, sampleTable } from './math';
 
-export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT' | 'CURVE';
 
 export interface Dab {
   x: number;
@@ -36,6 +37,20 @@ export interface StrokeSettings {
   rate?: number;
   use_pressure_size?: boolean;
   use_pressure_strength?: boolean;
+  /** pressure response curves (control points), used when the matching flag is on */
+  curve_size?: [number, number][];
+  curve_strength?: [number, number][];
+  use_size_curve?: boolean;
+  use_strength_curve?: boolean;
+  /** random dab offset: fraction of the radius (BRUSH) or pixels (VIEW) */
+  jitter?: number;
+  jitter_absolute?: number;
+  jitter_unit?: 'VIEW' | 'BRUSH';
+  use_pressure_jitter?: boolean;
+  /** pen pressure scales the spacing */
+  use_pressure_spacing?: boolean;
+  /** average this many pointer samples to steady the stroke */
+  input_samples?: number;
 }
 
 export interface StrokeHandler {
@@ -54,14 +69,71 @@ export interface StrokeHandler {
   canRestore?: boolean;
 }
 
-let active: { handler: StrokeHandler; view: View3D } | null = null;
+/** What a stroke needs from the editor it runs in (the 3D Viewport, the Image Editor). */
+export interface StrokeView {
+  el: HTMLElement;
+  /** pointer position in the editor's pixels (top-left origin) */
+  local(e: { clientX: number; clientY: number }): { x: number; y: number };
+  /** redraw overlays (line / anchored previews) */
+  drawSvg(): void;
+}
+
+let active: { handler: StrokeHandler; view: StrokeView } | null = null;
+
+/** A recorded stroke point in viewport pixels (top-left origin). */
+export interface StrokePoint {
+  x: number;
+  y: number;
+  /** pen pressure 0..1 (1 when not given) */
+  pressure?: number;
+}
+
+/** Points of a scripted stroke: the next `runStroke` plays them back synchronously. */
+let replay: StrokePoint[] | null = null;
+
+/** Synthetic pointer event at a viewport position (client coordinates are derived from the view). */
+export function strokeEvent(v: StrokeView, p: StrokePoint, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): PointerEvent {
+  const r = v.el.getBoundingClientRect();
+  const pr = p.pressure ?? 1;
+  return {
+    clientX: r.left + p.x,
+    clientY: r.top + p.y,
+    pointerId: -1,
+    pointerType: pr !== 1 ? 'pen' : 'mouse',
+    pressure: pr,
+    button: 0,
+    buttons: 1,
+    ctrlKey: !!mods.ctrl,
+    metaKey: false,
+    shiftKey: !!mods.shift,
+    altKey: !!mods.alt,
+    target: v.el,
+    preventDefault() {},
+    stopPropagation() {},
+  } as unknown as PointerEvent;
+}
+
+/**
+ * Run a stroke from recorded points instead of live pointer input: `start` receives a synthetic
+ * press at the first point and starts the stroke as a pointer press would (it calls `runStroke`),
+ * the remaining points are then played back and the stroke ends. Returns false when nothing started.
+ */
+export function playStroke(v: StrokeView, points: StrokePoint[], start: (e: PointerEvent) => boolean, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): boolean {
+  if (!points.length || active) return false;
+  replay = points.slice(1);
+  try {
+    return start(strokeEvent(v, points[0], mods)) !== false;
+  } finally {
+    replay = null;
+  }
+}
 
 export function strokeActive() {
   return !!active;
 }
 
 /** Straight line of a Line stroke, drawn while dragging. */
-const lineState = { view: null as View3D | null, a: null as { x: number; y: number } | null, b: null as { x: number; y: number } | null, anchorR: 0 };
+const lineState = { view: null as StrokeView | null, a: null as { x: number; y: number } | null, b: null as { x: number; y: number } | null, anchorR: 0 };
 
 editModeHooks.svg.push((v) => {
   if (lineState.view !== v || !lineState.a || !lineState.b) return null;
@@ -76,28 +148,52 @@ editModeHooks.svg.push((v) => {
   return h('g', { key: 'stroke-line' }, ...parts) as VNode;
 });
 
-export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
+export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler) {
   const el = v.el;
-  try {
-    el.setPointerCapture(e.pointerId);
-  } catch {
-    // ignore (synthetic events)
-  }
+  const scripted = replay;
+  replay = null;
+  if (!scripted)
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore (synthetic events)
+    }
   active = { handler, view: v };
   const st = handler.settings?.() ?? {};
   let method: StrokeMethod = st.stroke_method ?? 'SPACE';
   if ((method === 'ANCHORED' || method === 'DRAG_DOT') && !handler.canRestore) method = 'SPACE';
+  // a curve stroke is played back along the curve: plain spacing
+  const curve = method === 'CURVE';
+  if (curve) method = 'SPACE';
   const p0 = v.local(e);
   const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? tabletPressure(ev.pressure) : 1);
-  // pressure drives the strength (unless turned off); size pressure scales the dab radius
-  const pressure = (ev: PointerEvent) => (st.use_pressure_strength === false ? 1 : rawPressure(ev));
+  // pressure drives the strength (unless turned off); size pressure scales the dab radius, both
+  // through their response curves when those are on
+  const strengthCurve = st.use_strength_curve ? cachedCurveTable(st.curve_strength) : null;
+  const sizeCurve = st.use_size_curve ? cachedCurveTable(st.curve_size) : null;
+  const pressure = (ev: PointerEvent) => {
+    if (st.use_pressure_strength === false) return 1;
+    const r = rawPressure(ev);
+    return strengthCurve ? Math.max(0, sampleTable(strengthCurve, r)) : r;
+  };
   let lastPressure = pressure(e);
   let lastRaw = rawPressure(e);
   const sizeP = !!st.use_pressure_size;
-  const dabSize = () => (sizeP ? Math.max(0.05, lastRaw) : undefined);
+  const dabSize = () => (sizeP ? Math.max(0.05, sizeCurve ? sampleTable(sizeCurve, lastRaw) : lastRaw) : undefined);
+  // jitter: dabs land at a random offset inside a disk
+  const jitterOn = (st.jitter_unit === 'VIEW' ? (st.jitter_absolute ?? 0) : (st.jitter ?? 0)) > 0;
+  let seed = 0x9e3779b9;
+  const rand = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
+  const jitterDab = (d: Dab): Dab => {
+    if (!jitterOn) return d;
+    const amount = (st.jitter_unit === 'VIEW' ? (st.jitter_absolute ?? 0) : (st.jitter ?? 0) * handler.radiusPx()) * (st.use_pressure_jitter ? lastRaw : 1);
+    const a = rand() * Math.PI * 2,
+      r = Math.sqrt(rand()) * amount;
+    return { ...d, x: d.x + Math.cos(a) * r, y: d.y + Math.sin(a) * r };
+  };
   // stabilized brush position
   const pos = { x: p0.x, y: p0.y };
-  const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED';
+  const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED' && !curve;
   const smoothR = st.smooth_stroke_radius ?? 75,
     smoothF = Math.min(0.99, Math.max(0, st.smooth_stroke_factor ?? 0.9));
   const follow = (q: { x: number; y: number }) => {
@@ -113,6 +209,21 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     return { ...pos };
   };
   let last = { x: p0.x, y: p0.y };
+  // input samples: the stroke follows the mean of the last few pointer positions
+  const nSamples = Math.max(1, Math.min(64, Math.round(st.input_samples ?? 1)));
+  const recent: { x: number; y: number }[] = [{ x: p0.x, y: p0.y }];
+  const average = (q: { x: number; y: number }) => {
+    if (nSamples <= 1) return q;
+    recent.push({ x: q.x, y: q.y });
+    if (recent.length > nSamples) recent.shift();
+    let x = 0,
+      y = 0;
+    for (const r of recent) {
+      x += r.x;
+      y += r.y;
+    }
+    return { x: x / recent.length, y: y / recent.length };
+  };
   let firstDone = false;
   if (method === 'LINE' || method === 'ANCHORED') {
     lineState.view = v;
@@ -121,7 +232,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     lineState.anchorR = method === 'ANCHORED' ? 1 : 0;
   }
   if (method !== 'LINE' && method !== 'ANCHORED') {
-    handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true, sizeFactor: dabSize() });
+    handler.dab(jitterDab({ x: p0.x, y: p0.y, pressure: lastPressure, first: true, sizeFactor: dabSize() }));
     firstDone = true;
     handler.update?.();
   }
@@ -133,18 +244,18 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   if (method === 'AIRBRUSH') {
     const ms = Math.max(5, (st.rate ?? 0.1) * 1000);
     airTimer = window.setInterval(() => {
-      handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() });
+      handler.dab(jitterDab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() }));
       handler.update?.();
     }, ms);
   }
   const spaced = (q: { x: number; y: number }, pr: number) => {
     const spacing = handler.spacing();
     if (spacing <= 0 || method === 'DOTS') {
-      if (q.x !== last.x || q.y !== last.y) handler.dab({ x: q.x, y: q.y, pressure: pr, first: false, sizeFactor: dabSize() });
+      if (q.x !== last.x || q.y !== last.y) handler.dab(jitterDab({ x: q.x, y: q.y, pressure: pr, first: false, sizeFactor: dabSize() }));
       last = q;
       return;
     }
-    const step = Math.max(1, (handler.radiusPx() * spacing) / 100);
+    const step = Math.max(1, ((handler.radiusPx() * spacing) / 100) * (st.use_pressure_spacing ? Math.max(0.1, lastRaw) : 1));
     const dx = q.x - last.x,
       dy = q.y - last.y;
     const len = Math.hypot(dx, dy);
@@ -152,7 +263,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     const n = Math.min(200, Math.floor(len / step));
     for (let i = 1; i <= n; i++) {
       const t = (i * step) / len;
-      handler.dab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() });
+      handler.dab(jitterDab({ x: last.x + dx * t, y: last.y + dy * t, pressure: pr, first: false, sizeFactor: dabSize() }));
     }
     const t = (n * step) / len;
     last = { x: last.x + dx * t, y: last.y + dy * t };
@@ -181,7 +292,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
         last = q;
         continue;
       }
-      spaced(follow(q), lastPressure);
+      spaced(follow(average(q)), lastPressure);
     }
     if (method === 'ANCHORED' && lineState.b) {
       handler.dab({ x: p0.x, y: p0.y, pressure: lastPressure, first: !firstDone, radiusPx: lineState.anchorR, restore: firstDone });
@@ -242,6 +353,23 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     renderContext?.engine.requestDraw();
     v.drawSvg();
   };
+  if (scripted) {
+    // recorded stroke: every point at once, then finish
+    if (airTimer) clearInterval(airTimer);
+    airTimer = 0;
+    const mods = { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey };
+    for (const p of scripted) {
+      const ev = { ...strokeEvent(v, p), ...mods };
+      pending.push(ev);
+      if (method === 'AIRBRUSH') {
+        // one timed dab per recorded point
+        process();
+        handler.dab(jitterDab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() }));
+      }
+    }
+    up();
+    return;
+  }
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', up, true);

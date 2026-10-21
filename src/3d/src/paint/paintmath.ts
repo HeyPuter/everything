@@ -104,3 +104,47 @@ export function mirrorVertexMap(P: ArrayLike<number>, eps = 1e-4): Int32Array {
   }
   return out;
 }
+
+/** Randomize Color: how far each dab's color may stray from the brush color (HSV, 0..1). */
+export interface ColorJitter {
+  use_color_jitter?: boolean;
+  hue_jitter?: number;
+  saturation_jitter?: number;
+  value_jitter?: number;
+  /** pick the random offset once per stroke instead of per dab */
+  use_stroke_random_hue?: boolean;
+  use_stroke_random_sat?: boolean;
+  use_stroke_random_val?: boolean;
+  /** scale the jitter by the pen pressure */
+  use_random_press_hue?: boolean;
+  use_random_press_sat?: boolean;
+  use_random_press_val?: boolean;
+}
+
+export const colorJitterOn = (j: ColorJitter | null | undefined) => !!j?.use_color_jitter && ((j.hue_jitter ?? 0) > 0 || (j.saturation_jitter ?? 0) > 0 || (j.value_jitter ?? 0) > 0);
+
+/**
+ * A per-stroke color randomizer: call it for every dab with that dab's pen pressure. Random
+ * offsets come from `rand` (0..1); stroke-wide offsets are drawn once, up front.
+ */
+export function colorJitterer(j: ColorJitter, rand: () => number): (rgb: ArrayLike<number>, pressure: number) => [number, number, number] {
+  const once = [rand(), rand(), rand()];
+  return (rgb, pressure) => {
+    const [h, s, v] = rgbToHsv(rgb[0], rgb[1], rgb[2]);
+    const pick = (i: number, stroke?: boolean) => (stroke ? once[i] : rand()) * 2 - 1;
+    const dh = (j.hue_jitter ?? 0) * pick(0, j.use_stroke_random_hue) * (j.use_random_press_hue ? pressure : 1);
+    const ds = (j.saturation_jitter ?? 0) * pick(1, j.use_stroke_random_sat) * (j.use_random_press_sat ? pressure : 1);
+    const dv = (j.value_jitter ?? 0) * pick(2, j.use_stroke_random_val) * (j.use_random_press_val ? pressure : 1);
+    const hh = (((h + dh * 0.5) % 1) + 1) % 1;
+    return hsvToRgb(hh, clamp01(s + ds), clamp01(v + dv));
+  };
+}
+
+/** Small seeded random generator (deterministic strokes for scripts and tests). */
+export function seededRandom(seed: number): () => number {
+  let x = seed >>> 0 || 1;
+  return () => {
+    x = (x * 1664525 + 1013904223) >>> 0;
+    return x / 4294967296;
+  };
+}

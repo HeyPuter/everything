@@ -7,7 +7,7 @@ import { cow, own } from '../data/cow';
 import type { MeshData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeBrush, brushById, type PaintBrush } from './brushes';
-import { falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
+import { brushFalloff, cachedCurveTable, falloff, laplacianSmooth, mirror, symmetryPasses } from './math';
 import { beginGeometryStroke, meshSession, reevaluate, revertToUndoState, type Hit, type MeshSession } from './session';
 import { runStroke, type Dab } from './stroke';
 import { hasMask, invalidatePaintAttributes, maskChanged, writeCornerValues } from './display';
@@ -18,6 +18,13 @@ import { boundaryVerts } from './fsdata';
 import { geodesicDistances } from './expandmath';
 
 type Sign = [number, number, number];
+
+/** Layer brush base stored with "Set Persistent Base" (object space positions / normals, and the layer height per vertex). */
+export interface PersistentBase {
+  sculpt_persistent_co?: Float32Array;
+  sculpt_persistent_no?: Float32Array;
+  sculpt_persistent_disp?: Float32Array;
+}
 
 interface AnchorPass {
   sign: Sign;
@@ -70,6 +77,8 @@ export interface StrokeState {
   /** brush texture of the current dab (identity symmetry pass only) */
   texFn?: ((vi: number) => number) | null;
   texCur?: ((vi: number) => number) | null;
+  /** front-face falloff: view direction of the current dab pass (object space) */
+  ffDir?: Vector3 | null;
   /** normal auto-masking: start normal and the current view direction (object space) */
   startNormal?: Vector3 | null;
   viewDir?: Vector3 | null;
@@ -118,6 +127,7 @@ function gather(st: StrokeState, c: Vector3, radius: number, viewDir: Vector3 | 
   let n = 0;
   const nv = s.nv;
   const ff = !!st.brush.use_frontface && viewDir;
+  st.ffDir = ff && st.brush.use_frontface_falloff ? viewDir : null;
   const hid = s.hiddenV;
   for (let v = 0; v < nv; v++) {
     if (hid && hid[v]) continue;
@@ -145,16 +155,25 @@ function factors(st: StrokeState, n: number, strength: number, applyMask = true)
     gd = s.gd,
     gv = s.gv;
   const fo = b.falloff,
-    hard = b.hardness ?? 0;
+    hard = b.hardness ?? 0,
+    fc = fo === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null;
   const mask = applyMask ? st.mask : undefined;
   const am = applyMask ? st.automask : null;
   const ts = (app as typeof app | undefined)?.doc?.scene.tool_settings.sculpt;
   const sn = applyMask && ts?.use_automasking_start_normal ? st.startNormal : null;
   const vd = applyMask && ts?.use_automasking_view_normal ? st.viewDir : null;
   const vn = s.vn;
+  // front-face falloff: full strength up to the angle, fading out toward 90°
+  const ffd = st.ffDir;
+  const ffA = Math.min(Math.PI / 2 - 1e-3, Math.max(0, b.falloff_angle ?? 0));
   for (let k = 0; k < n; k++) {
-    let f = falloff(fo, gd[k], hard) * strength;
+    let f = falloff(fo, gd[k], hard, fc) * strength;
     const v = gv[k];
+    if (ffd) {
+      const facing = -(vn[v * 3] * ffd.x + vn[v * 3 + 1] * ffd.y + vn[v * 3 + 2] * ffd.z);
+      const ang = Math.acos(Math.max(-1, Math.min(1, facing)));
+      if (ang > ffA) f *= Math.max(0, (Math.PI / 2 - ang) / (Math.PI / 2 - ffA));
+    }
     if (mask) f *= 1 - mask[v];
     if (am) f *= am[v];
     if (applyMask && st.texCur) f *= st.texCur(v);
@@ -302,6 +321,29 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
       break;
     }
     case 'LAYER': {
+      const me = st.me as MeshData & PersistentBase;
+      const persistent = !!st.brush.use_persistent && !!me.sculpt_persistent_co && me.sculpt_persistent_co.length === s.nv * 3;
+      if (persistent) {
+        // layer height relative to the stored base, kept between strokes
+        if (!st.layer) st.layer = cow(me, 'sculpt_persistent_disp') ?? (me.sculpt_persistent_disp = own(new Float32Array(s.nv)));
+        if (!st.layer || st.layer.length !== s.nv) st.layer = me.sculpt_persistent_disp = own(new Float32Array(s.nv));
+        const L = st.layer,
+          O = me.sculpt_persistent_co!,
+          ON = me.sculpt_persistent_no ?? s.vn;
+        const hgt = R * 0.3;
+        for (let i = 0; i < n; i++) {
+          const vi = gv[i],
+            v = vi * 3;
+          L[vi] = Math.max(-1, Math.min(1, L[vi] + gf[i] * 0.5 * sign));
+          const m = st.mask ? 1 - st.mask[vi] : 1;
+          const d = L[vi] * hgt * m;
+          P[v] = O[v] + ON[v] * d;
+          P[v + 1] = O[v + 1] + ON[v + 1] * d;
+          P[v + 2] = O[v + 2] + ON[v + 2] * d;
+          touch(st, vi);
+        }
+        break;
+      }
       if (!st.layer) st.layer = new Float32Array(s.nv);
       if (!st.origN) st.origN = s.vn.slice();
       const L = st.layer,
@@ -531,7 +573,7 @@ function clothDab(st: StrokeState, c: Vector3, dir: Vector3, R: number, strength
     const d = s.gd[k] * (reach / R);
     if (d >= 1) continue;
     const v = s.gv[k] * 3;
-    const f = falloff(st.brush.falloff, d, st.brush.hardness ?? 0) * strength * free[k];
+    const f = brushFalloff(st.brush, d) * strength * free[k];
     P[v] += dir.x * f;
     P[v + 1] += dir.y * f;
     P[v + 2] += dir.z * f;
@@ -688,6 +730,17 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         const n = gather(st, c, st.radiusLocal, mirrorVec(viewDir, sg));
         factors(st, n, tool === 'ROTATE' ? Math.min(1, strength * 2) : Math.min(1, strength * 1.5));
         const area = areaPlane(st, n, b.normal_radius_factor ?? 0.5, new Vector3(...mirror(hit.normal.toArray(), sg)), c);
+        if (tool === 'GRAB' && b.use_grab_silhouette) {
+          // silhouette: only the side of the surface facing like the grabbed point moves
+          const hn = mirrorVec(hit.normal, sg);
+          const vn = s.vn;
+          for (let k = 0; k < n; k++) {
+            const vi = s.gv[k] * 3;
+            const dt = vn[vi] * hn.x + vn[vi + 1] * hn.y + vn[vi + 2] * hn.z;
+            const u = Math.max(0, Math.min(1, (dt + 0.1) / 0.4));
+            s.gf[k] *= u * u * (3 - 2 * u);
+          }
+        }
         passes.push({
           sign: sg,
           verts: s.gv.slice(0, n),
@@ -890,7 +943,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         }
       }
     } else {
-      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs);
+      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs, { center: hit.point, normal: hit.normal, radius: R });
       surfaceDab(st, tool, hit.point, hit.normal, viewDir, R, strokeDir, strength);
       st.texFn = st.texCur = null;
     }

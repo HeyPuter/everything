@@ -110,7 +110,10 @@ export function sculptMenu(): MenuItem[] {
     { label: 'Set Pivot', submenu: pivotMenu },
     sep,
     op('Rebuild BVH', 'sculpt.optimize'),
+    has('sculpt.dynamic_topology_toggle') ? { label: 'Dynamic Topology', op: 'sculpt.dynamic_topology_toggle', checked: !!app.doc.scene.tool_settings.sculpt.use_dyntopo } : null,
     op('Voxel Remesh', 'object.voxel_remesh'),
+    sep,
+    op('Transfer Sculpt Mode', 'object.transfer_mode'),
   ]);
 }
 

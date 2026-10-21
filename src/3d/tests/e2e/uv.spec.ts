@@ -265,7 +265,8 @@ test('Image editor: Paint mode in Texture Paint shows the brushes and paints on 
     a.run('paint.add_texture_paint_slot', {}, { invoke: false });
     a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
   });
-  await expect(page.locator('.ie-toolbar .tb-tool')).toHaveCount(5);
+  // Paint, Soften, Smear, Fill, Clone and Mask
+  await expect(page.locator('.ie-toolbar .tb-tool')).toHaveCount(6);
   await expect(page.locator('.ie-toolhdr')).toBeVisible();
   const ie = (await page.locator('.ie-root').first().boundingBox())!;
   const cx = ie.x + ie.width / 2,

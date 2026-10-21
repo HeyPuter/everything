@@ -9,13 +9,19 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
 import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
-import { encodeImage, imageCanvas, imageTexture, touchImage } from '../render/images';
+import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
+import { renderContext } from '../render/context';
+import { download } from '../io/native';
 import { activeBrush, type PaintBrush } from './brushes';
-import { blendColor, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
+import { blendColor, cachedCurveTable, falloff, linearToSrgb, sampleTable, srgbToLinear, symmetryPasses, type BlendMode } from './math';
+import { cavityValues } from './maskmath';
+import { fillGradientT, gradientAt, strokeGradientT, usesGradient } from './gradient';
 import { activeMeshData, meshSession, type MeshSession } from './session';
-import { brushRadiusPx } from './vgather';
+import { brushRadiusPx, normalAngleOf } from './vgather';
 import { runStroke } from './stroke';
 import { paintDisplay } from './display';
+import { dabMaskAt, dabTextureAt, dabTextureColor } from './brushtex';
+import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from './paintmath';
 import { materialSlots } from '../editors/view3d/draw';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +51,50 @@ export function paintImage(ob: ObjectData | null = app.activeObject): Img | null
   return node ? (app.doc.images[node.props.image as string] ?? null) : null;
 }
 
-paintDisplay.resolve = () => paintImage()?.id ?? null;
+/** Texture Paint settings stored on the scene (tool_settings.image_paint). */
+export interface ImagePaintSettings {
+  palette?: string | null;
+  /** cavity mask: paint lands in the dips of the surface (curve maps cavity to strength) */
+  use_cavity?: boolean;
+  cavity_curve?: [number, number][];
+  /** normal falloff: faces turning away from the view get less paint */
+  use_normal_falloff?: boolean;
+  normal_angle?: number;
+  /** a grayscale image over the UVs limits where paint lands */
+  use_stencil_layer?: boolean;
+  stencil_image?: string | null;
+  invert_stencil?: boolean;
+}
+export function imagePaintSettings(): ImagePaintSettings {
+  const ts = app.doc.scene.tool_settings as unknown as { image_paint?: ImagePaintSettings };
+  return (ts.image_paint ??= {});
+}
+
+/** The stencil mask image (null when the mask is off or missing). */
+export function stencilMaskImage(): Img | null {
+  const st = imagePaintSettings();
+  return (st.use_stencil_layer && st.stencil_image && app.doc.images[st.stencil_image]) || null;
+}
+
+/** The Mask tool paints into the stencil mask: it is shown instead of the texture while active. */
+const maskToolActive = () => app.doc.mode === 'TEXTURE_PAINT' && activeBrush('TEXTURE_PAINT')?.sculpt_tool === 'MASK';
+paintDisplay.resolve = () => {
+  const st = maskToolActive() ? imagePaintSettings().stencil_image : null;
+  return (st && app.doc.images[st] ? st : null) ?? paintImage()?.id ?? null;
+};
+
+/** Make (or reuse) the stencil mask image, white (paint everywhere) at the size of the paint image. */
+export function ensureStencilImage(): Img {
+  const st = imagePaintSettings();
+  const cur = st.stencil_image ? app.doc.images[st.stencil_image] : null;
+  if (cur) return cur;
+  const ref = paintImage();
+  const img = newImage('Stencil Mask', ref?.width ?? 1024, ref?.height ?? 1024, 'BLANK', [1, 1, 1, 1]);
+  app.doc.images[img.id] = img;
+  st.stencil_image = img.id;
+  st.use_stencil_layer = true;
+  return img;
+}
 
 export function meshHasUVs(me: MeshData): boolean {
   if (me.uvs.length !== me.indices.length * 2 || !me.uvs.length) return false;
@@ -185,7 +234,8 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     app.report('ERROR', 'Missing UVs: unwrap the mesh before texture painting');
     return true;
   }
-  let img = paintImage(ob);
+  const maskTool = b.sculpt_tool === 'MASK';
+  let img = maskTool ? ensureStencilImage() : paintImage(ob);
   if (!img) {
     app.report('ERROR', 'Missing texture: add a paint slot (Texture Slots panel)');
     return true;
@@ -208,7 +258,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   };
   const ts = app.doc.scene.tool_settings;
   const invert = e.ctrlKey || e.metaKey;
-  const tool = e.shiftKey ? 'SOFTEN' : b.sculpt_tool;
+  const tool = e.shiftKey && b.sculpt_tool !== 'MASK' ? 'SOFTEN' : b.sculpt_tool === 'MASK' ? 'TEXDRAW' : b.sculpt_tool;
   let clone: DabOpts['clone'];
   if (tool === 'CLONE') {
     const p0 = v.local(e);
@@ -242,21 +292,72 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     }
     clone = { data, W: sw, H: sh, du: cloneSource.uv[0] - startUV[0], dv: cloneSource.uv[1] - startUV[1] };
   }
-  const colLin = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
+  const colLin = maskTool ? (invert ? [0, 0, 0] : [1, 1, 1]) : invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
   const color = [linearToSrgb(colLin[0]), linearToSrgb(colLin[1]), linearToSrgb(colLin[2])];
+  // Randomize Color: a new color per dab (or per stroke)
+  const jit = !maskTool && colorJitterOn(ts.unified_paint as ColorJitter) ? colorJitterer(ts.unified_paint as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
+  const dabColor = (pressure: number) => {
+    if (!jit) return color;
+    const c = jit(colLin, pressure);
+    return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+  };
+  // cavity mask: per-vertex concavity (0 flat or bumps .. 1 deepest dip), through the curve
+  let cavity: Float32Array | null = null;
+  if (!maskTool && imagePaintSettings().use_cavity) {
+    const nb = s.neighbors;
+    const cav = cavityValues(s.positions, s.vn, nb.offsets, nb.neighbors);
+    let mx = 0;
+    for (const c of cav) mx = Math.max(mx, c);
+    const curve = cachedCurveTable(imagePaintSettings().cavity_curve);
+    cavity = new Float32Array(cav.length);
+    for (let v = 0; v < cav.length; v++) {
+      const c = Math.max(0, Math.min(1, mx > 0 ? cav[v] / mx : 0));
+      cavity[v] = curve ? Math.max(0, Math.min(1, sampleTable(curve, c))) : c;
+    }
+  }
+  // the stencil mask limits every other tool (white: paint lands, black: blocked; or inverted)
+  let stencil: DabOpts['stencil'] = null;
+  const sm = !maskTool ? stencilMaskImage() : null;
+  if (sm) {
+    const c2 = imageCanvas(sm);
+    const x2 = c2.getContext('2d', { willReadFrequently: true });
+    if (x2) stencil = { data: x2.getImageData(0, 0, c2.width, c2.height).data, W: c2.width, H: c2.height, invert: !!imagePaintSettings().invert_stencil };
+  }
   const mode = (b.blend ?? 'MIX') as BlendMode;
   let lastUV: [number, number] | null = null;
   let filled = false;
+  // gradient colors: the Paint brush by pressure / stroke distance, the Fill brush along a line
+  const gradDraw = !maskTool && usesGradient(b) && tool === 'TEXDRAW';
+  const gradFill = !maskTool && usesGradient(b) && tool === 'FILL';
+  let fillLine: { ax: number; ay: number; bx: number; by: number } | null = null;
+  let strokeDist = 0;
+  let lastDab: { x: number; y: number } | null = null;
+  const gradientColor = (pressure: number) => {
+    const c = gradientAt(b, strokeGradientT(b, pressure, strokeDist));
+    return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+  };
+  let dabCount = 0;
   runStroke(v, e, {
     spacing: () => (tool === 'FILL' ? 0 : Math.max(1, b.spacing || 10)),
     radiusPx: () => b.radius,
-    settings: () => (tool === 'FILL' ? {} : b),
+    // a gradient fill is dragged as a line (start to end of the ramp)
+    settings: () => (tool === 'FILL' ? (gradFill ? { stroke_method: 'LINE' } : {}) : b),
     dab: (d) => {
       if (tool === 'FILL') {
+        if (gradFill) {
+          if (d.first || !fillLine) fillLine = { ax: d.x, ay: d.y, bx: d.x, by: d.y };
+          else {
+            fillLine.bx = d.x;
+            fillLine.by = d.y;
+          }
+          return;
+        }
         if (!filled) fillAll(s, me, st, color, mode, b.strength);
         filled = true;
         return;
       }
+      if (lastDab) strokeDist += Math.hypot(d.x - lastDab.x, d.y - lastDab.y);
+      lastDab = { x: d.x, y: d.y };
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) {
         lastUV = null;
@@ -270,11 +371,14 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         hitLocal: hit.point,
         strength: Math.max(0, b.strength) * d.pressure,
         tool,
-        color,
+        color: gradDraw ? gradientColor(d.pressure) : dabColor(d.pressure),
         mode,
         uvDelta: delta,
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
         clone,
+        index: dabCount++,
+        stencil,
+        cavity,
       });
       lastUV = uv;
     },
@@ -286,6 +390,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
       flushCanvas(st);
     },
     end: () => {
+      if (gradFill && fillLine) fillGradient(s, v, me, st, b, fillLine, mode);
       flushCanvas(st);
       void commitImage(st.img, 'Texture Paint');
     },
@@ -348,6 +453,12 @@ interface DabOpts {
   radius: number;
   /** clone: source pixels and the texel offset from the painted texel to its source */
   clone?: { data: Uint8ClampedArray; W: number; H: number; du: number; dv: number };
+  /** dab number in the stroke (random texture mapping) */
+  index?: number;
+  /** cavity mask factor per vertex */
+  cavity?: Float32Array | null;
+  /** stencil mask pixels (luminance limits the paint) */
+  stencil?: { data: Uint8ClampedArray; W: number; H: number; invert: boolean } | null;
 }
 
 /** Clone source picked with Ctrl+click (UV of the paint texture, plus the world point for the marker). */
@@ -425,6 +536,8 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
   const viewDir0 = new Vector3(0, 0, -1).transformDirection(v.camera.matrixWorld).transformDirection(s.world().clone().invert());
   // symmetry: paint the mirrored mesh from the same viewpoint (a mirrored camera in object space)
   const passes = symmetryPasses(sym.use_symmetry_x, sym.use_symmetry_y, sym.use_symmetry_z);
+  const na = normalAngleOf(imagePaintSettings());
+  const cosNA = na > 0 ? Math.cos(na) : -2;
   for (const sg of o.tool === 'SMEAR' ? passes.slice(0, 1) : passes) {
     const M = M0.clone().multiply(new Matrix4().makeScale(sg[0], sg[1], sg[2])).elements;
     const camPosLocal = new Vector3(camPos0.x * sg[0], camPos0.y * sg[1], camPos0.z * sg[2]);
@@ -433,6 +546,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const ntri = s.tris.length / 3;
     const sp = new Float32Array(9);
     const cand: number[] = [];
+    const triFactor: number[] = [];
     const projected: Float32Array[] = [];
     const allowedF = s.paintFaces;
     for (let t = 0; t < ntri; t++) {
@@ -469,6 +583,31 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
         const d = ortho ? -(nx * viewDirLocal.x + ny * viewDirLocal.y + nz * viewDirLocal.z) : nx * (camPosLocal.x - P[vi]) + ny * (camPosLocal.y - P[vi + 1]) + nz * (camPosLocal.z - P[vi + 2]);
         if (d <= 0) continue;
       }
+      // normal falloff: faces turning away from the view get less paint
+      let nf = 1;
+      if (cosNA > -1) {
+        const f = s.triFace[t];
+        const nx = s.fn[f * 3],
+          ny = s.fn[f * 3 + 1],
+          nz = s.fn[f * 3 + 2];
+        const vi = s.tris[t * 3] * 3;
+        let tx = -viewDirLocal.x,
+          ty = -viewDirLocal.y,
+          tz = -viewDirLocal.z;
+        if (!ortho) {
+          tx = camPosLocal.x - P[vi];
+          ty = camPosLocal.y - P[vi + 1];
+          tz = camPosLocal.z - P[vi + 2];
+          const l = Math.hypot(tx, ty, tz) || 1;
+          tx /= l;
+          ty /= l;
+          tz /= l;
+        }
+        const d = (nx * tx + ny * ty + nz * tz) / (Math.hypot(nx, ny, nz) || 1);
+        if (d <= cosNA) continue;
+        nf = Math.min(1, ((d - cosNA) / Math.max(1e-6, 1 - cosNA)) * 2);
+      }
+      triFactor.push(nf);
       cand.push(t);
       projected.push(sp.slice());
     }
@@ -519,13 +658,25 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
       orig = st.orig,
       alpha = st.alpha;
     const fo = b.falloff,
-      hard = b.hardness ?? 0;
+      hard = b.hardness ?? 0,
+      fcurve = b.falloff === 'CUSTOM' ? cachedCurveTable(b.falloff_curve) : null;
     const out = [0, 0, 0, 1];
     const dst = [0, 0, 0, 1];
     const src = o.tool === 'TEXDRAW' ? data : data.slice(0); // snapshot for soften / smear sampling
     const r2 = r * r;
     const accumulate = !!b.use_accumulate;
-    for (const t of cand) {
+    // brush texture: colors what the Paint brush lays down (and the mask texture scales it); other
+    // tools only take its strength
+    const place = { cx: o.x, cy: o.y, radiusPx: r, index: o.index ?? 0, viewH: Hv };
+    const texCol = o.tool === 'TEXDRAW' ? dabTextureColor(b, place) : null;
+    const texF = o.tool === 'TEXDRAW' ? dabMaskAt(b, place) : dabTextureAt(b, place);
+    const trgba = [1, 1, 1, 1];
+    const sten = o.stencil;
+    const cav = o.cavity;
+    const tcol = [0, 0, 0];
+    for (let ci = 0; ci < cand.length; ci++) {
+      const t = cand[ci],
+        tf = triFactor[ci];
       const i0 = s.tris[t * 3] * 3,
         i1 = s.tris[t * 3 + 1] * 3,
         i2 = s.tris[t * 3 + 2] * 3;
@@ -540,7 +691,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
             dy = tmp[1] - cy;
           const d2 = dx * dx + dy * dy;
           if (d2 >= r2) continue;
-          const f = falloff(fo, Math.sqrt(d2) / r, hard);
+          const f = falloff(fo, Math.sqrt(d2) / r, hard, fcurve);
           if (f > best) best = f;
         }
         if (best <= 0) return;
@@ -552,7 +703,24 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
             if (dz !== Infinity && tmp[2] > dz + 2e-4 + Math.abs(dz) * 1e-4) return;
           }
         }
-        const a = best * o.strength;
+        let a = best * o.strength * tf;
+        if (cav) a *= cav[i0 / 3] * b0 + cav[i1 / 3] * b1 + cav[i2 / 3] * b2;
+        if (texF) a *= texF(tmp[0], tmp[1], lx, ly, lz);
+        if (sten) {
+          const q = (Math.min(sten.H - 1, Math.floor((y * sten.H) / st.H)) * sten.W + Math.min(sten.W - 1, Math.floor((x * sten.W) / st.W))) * 4;
+          const m = ((sten.data[q] * 0.2126 + sten.data[q + 1] * 0.7152 + sten.data[q + 2] * 0.0722) / 255) * (sten.data[q + 3] / 255);
+          a *= sten.invert ? 1 - m : m;
+        }
+        let col = o.color;
+        if (texCol) {
+          if (!texCol(tmp[0], tmp[1], lx, ly, lz, trgba)) return;
+          a *= trgba[3];
+          tcol[0] = o.color[0] * trgba[0];
+          tcol[1] = o.color[1] * trgba[1];
+          tcol[2] = o.color[2] * trgba[2];
+          col = tcol;
+        }
+        if (a <= 0) return;
         const p = ti * 4;
         if (o.tool === 'TEXDRAW') {
           const sa = accumulate ? Math.min(1, alpha[ti] + a) : Math.max(alpha[ti], a);
@@ -562,7 +730,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
           dst[1] = orig[p + 1] / 255;
           dst[2] = orig[p + 2] / 255;
           dst[3] = orig[p + 3] / 255;
-          blendColor(o.mode, dst, o.color, sa, out);
+          blendColor(o.mode, dst, col, sa, out);
         } else if (o.tool === 'SOFTEN') {
           const W = st.W,
             H = st.H;
@@ -616,6 +784,41 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
         markDirty(st, x, y);
       });
     }
+  }
+}
+
+/** Gradient fill: every visible texel gets the ramp color for its place along the dragged line. */
+function fillGradient(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: PaintBrush, line: { ax: number; ay: number; bx: number; by: number }, mode: BlendMode) {
+  const M = screenMatrix(s, v).elements;
+  const Wv = v.width,
+    Hv = v.height;
+  const P = s.positions;
+  const data = st.work.data,
+    orig = st.orig;
+  const dst = [0, 0, 0, 1],
+    out = [0, 0, 0, 1],
+    tmp = [0, 0, 0];
+  const fm = b.gradient_fill_mode ?? 'LINEAR';
+  const strength = Math.min(1, Math.max(0, b.strength));
+  const ntri = s.tris.length / 3;
+  for (let t = 0; t < ntri; t++) {
+    if (s.paintFaces && !s.paintFaces[s.triFace[t]]) continue;
+    const i0 = s.tris[t * 3] * 3,
+      i1 = s.tris[t * 3 + 1] * 3,
+      i2 = s.tris[t * 3 + 2] * 3;
+    rasterTri(st, me, s, t, (ti, x, y, b0, b1, b2) => {
+      const lx = P[i0] * b0 + P[i1] * b1 + P[i2] * b2,
+        ly = P[i0 + 1] * b0 + P[i1 + 1] * b1 + P[i2 + 1] * b2,
+        lz = P[i0 + 2] * b0 + P[i1 + 2] * b1 + P[i2 + 2] * b2;
+      if (!proj(M, lx, ly, lz, Wv, Hv, tmp)) return;
+      const c = gradientAt(b, fillGradientT(fm, line.ax, line.ay, line.bx, line.by, tmp[0], tmp[1]));
+      const col = [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+      const p = ti * 4;
+      for (let k = 0; k < 4; k++) dst[k] = orig[p + k] / 255;
+      blendColor(mode, dst, col, strength * (c[3] ?? 1), out);
+      for (let k = 0; k < 4; k++) data[p + k] = Math.round(out[k] * 255);
+      markDirty(st, x, y);
+    });
   }
 }
 
@@ -796,7 +999,85 @@ function projectImage(v: View3D, src: Img): string | null {
   return null;
 }
 
+/** The image Quick Edit made (Apply projects it back). */
+export const quickEdit = { image: null as string | null };
+
+/** The 3D view as it is shown (overlays hidden), cropped from the shared canvas. */
+function viewPixels(v: View3D): globalThis.ImageData | null {
+  const engine = renderContext?.engine;
+  if (!engine) return null;
+  const ov = v.overlay as { show_overlays: boolean };
+  const had = ov.show_overlays;
+  ov.show_overlays = false;
+  try {
+    engine.drawAll();
+    const base = engine.canvas.getBoundingClientRect();
+    const r = v.el.getBoundingClientRect();
+    const dpr = engine.dpr;
+    const W = Math.max(1, Math.round(r.width * dpr)),
+      H = Math.max(1, Math.round(r.height * dpr));
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) return null;
+    g.drawImage(engine.canvas, (r.left - base.left) * dpr, (r.top - base.top) * dpr, W, H, 0, 0, W, H);
+    return g.getImageData(0, 0, W, H);
+  } finally {
+    ov.show_overlays = had;
+    engine.requestDraw();
+  }
+}
+
 registerOperators([
+  {
+    idname: 'paint.image_from_view',
+    label: 'Image from View',
+    description: 'Make a new image of the 3D view as shown (without overlays), e.g. to edit it elsewhere and project it back with Project Image',
+    props: [{ id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true }],
+    poll: () => !!activeView3D(),
+    exec: (ctx) => {
+      const v = activeView3D()!;
+      const px = viewPixels(v);
+      if (!px) {
+        app.report('ERROR', 'The view could not be captured');
+        return 'CANCELLED';
+      }
+      const names = new Set(Object.values(ctx.doc.images).map((i) => i.name));
+      let name = 'View';
+      for (let i = 1; names.has(name); i++) name = `View.${String(i).padStart(3, '0')}`;
+      const img = newImage(name, px.width, px.height);
+      img.source = 'FILE';
+      ctx.doc.images[img.id] = img;
+      primeImage(img, px);
+      void commitImage(img, null);
+      app.report('INFO', `Made the image "${name}" (${px.width}×${px.height}) from the view`);
+    },
+  },
+  {
+    idname: 'image.project_edit',
+    label: 'Quick Edit',
+    description: 'Save a snapshot of the view as an image to edit in another program; Apply projects the edited image back',
+    poll: () => app.doc.mode === 'TEXTURE_PAINT' && !!activeView3D(),
+    exec: (ctx) => {
+      if (app.run('paint.image_from_view', {}, { invoke: false }) !== 'FINISHED') return 'CANCELLED';
+      const img = Object.values(ctx.doc.images).at(-1)!;
+      quickEdit.image = img.id;
+      void pendingImageSaves().then(() => {
+        const live = app.doc.images[img.id];
+        if (live?.bytes) download(live.bytes, `${live.name}.png`, 'image/png');
+        app.report('INFO', `Edit "${live?.name}" elsewhere, load it back with Image ▸ Replace, then use Apply`);
+      });
+    },
+  },
+  {
+    idname: 'image.project_apply',
+    label: 'Project Apply',
+    description: 'Project the image made by Quick Edit (after editing it) back onto the texture from the current view',
+    poll: () => app.doc.mode === 'TEXTURE_PAINT' && !!quickEdit.image && !!app.doc.images[quickEdit.image],
+    exec: () => (app.run('paint.project_image', { image: quickEdit.image }, { invoke: false }) === 'FINISHED' ? undefined : 'CANCELLED'),
+    undo: false,
+  },
   {
     idname: 'paint.project_image',
     label: 'Project Image',

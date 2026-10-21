@@ -13,7 +13,7 @@ import { extraToolLists, toolSettingsRenderers, setActiveTool, type ToolDef } fr
 import { sidebarTabs } from '../editors/view3d/sidebar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, setBrushRadius, setBrushStrength, setUnified, type BrushMode, type PaintBrush, type UnifiedFlags } from './brushes';
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
 import { faceSetStroke } from './facesetbrush';
@@ -26,16 +26,28 @@ import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks
 import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
-import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions } from './tpaint';
+import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions, imagePaintSettings, ensureStencilImage } from './tpaint';
 import { strokeActive } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
-import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
-import { hsvToRgb, rgbToHsv } from './paintmath';
+import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from './math';
+import { curveWidget } from '../render/final/props/curvewidget';
+import { hsvToRgb, rgbToHsv, type ColorJitter } from './paintmath';
 import { brushThumb } from './brushthumbs';
-import { sampleTex, setImageCanvasSource, TEX_SOURCES, type BrushTexture } from './brushtex';
-import { imageCanvas } from '../render/images';
+import { gradientProps, usesGradient } from './gradient';
+import { drawRamp } from '../nodes/editor/rampui';
+import type { NodeDrawContext } from '../nodes/types';
+import type { NodeData } from '../data/types';
+import { NORMAL_ANGLE, type NormalFalloff } from './vgather';
+import { paintHooks } from './painthooks';
+import { paintCurvesOf } from './paintcurve';
+import { brushOriginNote, brushSpecialsMenu } from './brushassets';
+import { mapModes, maskTextureActive, sampleTex, sampleTexRGBA, setImageCanvasSource, textureActive, TEX_SOURCES, type BrushTexture } from './brushtex';
+import { imageCanvas, imageReady } from '../render/images';
+import { paletteTemplate, palettesOf, paletteUsers } from './palette';
+import { dataBlockSelector } from '../editors/properties/tabs';
 import { Vector3 } from 'three';
+import { renderContext } from '../render/context';
 
 // ---------------------------------------------------------------------------
 // toolbar
@@ -112,13 +124,16 @@ toolSettingsRenderers['builtin.gradient'] = () => {
 const DIRECTIONAL = new Set(['DRAW', 'DRAW_SHARP', 'CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'LAYER', 'INFLATE', 'BLOB', 'CREASE', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE', 'PINCH', 'MASK']);
 const PLANE_TOOLS = new Set(['CLAY', 'CLAY_STRIPS', 'CLAY_THUMB', 'FLATTEN', 'FILL', 'SCRAPE', 'MULTIPLANE_SCRAPE']);
 const FALLOFFS: [string, string][] = [
+  ['CUSTOM', 'Custom'],
   ['SMOOTH', 'Smooth'],
+  ['SMOOTHER', 'Smoother'],
   ['SPHERE', 'Sphere'],
   ['ROOT', 'Root'],
   ['SHARP', 'Sharp'],
   ['LINEAR', 'Linear'],
-  ['CONSTANT', 'Constant'],
+  ['POW4', 'Sharper'],
   ['INVERSE_SQUARE', 'Inverse Square'],
+  ['CONSTANT', 'Constant'],
 ];
 const BLENDS: [string, string][] = [
   ['MIX', 'Mix'],
@@ -143,17 +158,169 @@ function changed() {
   if (v) v.drawSvg();
 }
 
-function radiusField(b: PaintBrush, id: string, label = 'Radius') {
+/** Texture Paint stencil mask settings (Options ▸ Mask). */
+function stencilMaskRows(): Child[] {
+  const st = imagePaintSettings();
+  const imgs = Object.values(app.doc.images);
+  return [
+    checkbox('pt-stl', 'Stencil Mask', !!st.use_stencil_layer, (x) => ((st.use_stencil_layer = x), x && ensureStencilImage(), app.pushUndo('Stencil Mask'), changed()), { tip: 'Limit painting with a grayscale image over the UVs (paint it with the Mask brush)' }),
+    st.use_stencil_layer
+      ? [
+          row('Stencil Image', enumMenu('pt-sti', imgs.map((im) => ({ value: im.id, label: im.name, icon: 'image' })), st.stencil_image ?? '', (x) => ((st.stencil_image = x), app.pushUndo('Stencil Image'), changed()), { tip: 'White: paint lands · black: blocked' })),
+          checkbox('pt-stinv', 'Invert', !!st.invert_stencil, (x) => ((st.invert_stencil = x), changed()), { tip: 'Paint where the stencil is black instead' }),
+        ]
+      : null,
+  ];
+}
+
+/** Randomize Color rows: hue / saturation / value jitter with per-stroke and pressure toggles. */
+function colorJitterRows(p: string): Child[] {
+  const j = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & ColorJitter;
+  const toggle = (key: keyof ColorJitter, ic: string, tip: string) =>
+    h('button', { key: `${p}-${key}`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!j[key] }, 'data-tip': tip, onclick: () => (((j[key] as boolean) = !j[key]), changed()) }, icon(ic));
+  const rowFor = (amount: 'hue_jitter' | 'saturation_jitter' | 'value_jitter', label: string, stroke: keyof ColorJitter, press: keyof ColorJitter) =>
+    h(
+      'div',
+      { key: `${p}-${amount}`, class: 'paint-pressure-row' },
+      numberField({ id: `${p}-${amount}`, label, value: j[amount] ?? 0, min: 0, max: 1, slider: true, tip: `How far the ${label.toLowerCase()} may vary`, set: (x) => ((j[amount] = x), changed()) }),
+      toggle(stroke, 'paint_stroke_once', 'Pick one random value for the whole stroke'),
+      toggle(press, 'pressure', 'Scale the variation by the pen pressure'),
+    );
+  return [
+    checkbox(`${p}-on`, 'Randomize Color', !!j.use_color_jitter, (x) => ((j.use_color_jitter = x), changed()), { tip: 'Vary the color of each dab around the brush color' }),
+    j.use_color_jitter
+      ? [rowFor('hue_jitter', 'Hue', 'use_stroke_random_hue', 'use_random_press_hue'), rowFor('saturation_jitter', 'Saturation', 'use_stroke_random_sat', 'use_random_press_sat'), rowFor('value_jitter', 'Value', 'use_stroke_random_val', 'use_random_press_val')]
+      : null,
+  ];
+}
+
+/** Texture Paint cavity mask: on/off and the curve from cavity to strength. */
+function cavityRows(): Child[] {
+  const st = imagePaintSettings();
+  return [
+    checkbox('pt-cav', 'Cavity Mask', !!st.use_cavity, (x) => ((st.use_cavity = x), changed()), { tip: 'Paint mostly into the dips of the surface' }),
+    st.use_cavity
+      ? curveWidget(
+          'pt-cav-curve',
+          () =>
+            st.cavity_curve ?? [
+              [0, 0],
+              [1, 1],
+            ],
+          (pts) => ((st.cavity_curve = pts), changed()),
+          'Cavity (left: flat, right: deepest dip) to paint strength',
+        )
+      : null,
+  ];
+}
+
+interface ImageEditorLike {
+  el: HTMLElement;
+  image: { id: string } | null;
+  toImage(sx: number, sy: number): [number, number];
+}
+
+/** Brush color from the image pixel under the pointer in the Image Editor. */
+function sampleImageEditor(ed: ImageEditorLike, ev?: { x: number; y: number }): boolean {
+  const img = ed.image ? app.doc.images[ed.image.id] : null;
+  if (!img) return false;
+  const r = ed.el.getBoundingClientRect();
+  const [ix, iy] = ed.toImage((ev?.x ?? app.pointer.x) - r.left, (ev?.y ?? app.pointer.y) - r.top);
+  const c = imageCanvas(img);
+  if (ix < 0 || iy < 0 || ix >= c.width || iy >= c.height) return false;
+  const d = c.getContext('2d', { willReadFrequently: true })?.getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data;
+  if (!d) return false;
+  app.doc.scene.tool_settings.unified_paint.color = [srgbToLinear(d[0] / 255), srgbToLinear(d[1] / 255), srgbToLinear(d[2] / 255)];
+  return true;
+}
+
+/** Brush color from what the 3D view shows under (x, y). */
+function sampleScreen(v: View3D, x: number, y: number): boolean {
+  const engine = renderContext?.engine;
+  if (!engine) return false;
+  engine.drawAll();
+  const base = engine.canvas.getBoundingClientRect();
+  const r = v.el.getBoundingClientRect();
+  const dpr = engine.dpr;
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return false;
+  g.drawImage(engine.canvas, (r.left - base.left + x) * dpr, (r.top - base.top + y) * dpr, 1, 1, 0, 0, 1, 1);
+  const d = g.getImageData(0, 0, 1, 1).data;
+  app.doc.scene.tool_settings.unified_paint.color = [srgbToLinear(d[0] / 255), srgbToLinear(d[1] / 255), srgbToLinear(d[2] / 255)];
+  return true;
+}
+
+/** Color / Gradient switch of the Texture Paint brushes. */
+function colorTypeRow(b: PaintBrush): Child {
+  return enumRow(
+    'pt-ctype',
+    [
+      { value: 'COLOR', label: 'Color', description: 'Paint with the brush color' },
+      { value: 'GRADIENT', label: 'Gradient', description: 'Paint with colors from a gradient (by pressure or along the stroke; the Fill brush fills along a dragged line)' },
+    ],
+    b.color_type ?? 'COLOR',
+    (x) => ((b.color_type = x as 'COLOR'), app.pushUndo('Color Type'), changed()),
+  );
+}
+
+/** Gradient editor and how the brushes walk through it. */
+function gradientRows(b: PaintBrush): Child[] {
+  const node = { props: gradientProps(b) } as unknown as NodeData;
+  const ctx = { node, tree: null, where: 'properties', key: `pt-grad-${b.id}`, changed: (label: string, final = true) => (final ? app.pushUndo(label) : null, changed()) } as unknown as NodeDrawContext;
+  return [
+    drawRamp(ctx),
+    b.sculpt_tool === 'FILL'
+      ? row(
+          'Gradient Type',
+          enumMenu(
+            'pt-gfill',
+            [
+              { value: 'LINEAR', label: 'Linear' },
+              { value: 'RADIAL', label: 'Radial' },
+            ],
+            b.gradient_fill_mode ?? 'LINEAR',
+            (x) => ((b.gradient_fill_mode = x as 'LINEAR'), changed()),
+            { tip: 'Drag a line: the gradient runs along it (linear) or around its start (radial)' },
+          ),
+        )
+      : [
+          row(
+            'Mode',
+            enumMenu(
+              'pt-gmode',
+              [
+                { value: 'PRESSURE', label: 'Pressure', description: 'Pen pressure picks the color' },
+                { value: 'SPACING_REPEAT', label: 'Repeat', description: 'The stroke runs through the gradient and starts over' },
+                { value: 'SPACING_CLAMP', label: 'Clamp', description: 'The stroke runs through the gradient once, then keeps its last color' },
+              ],
+              b.gradient_stroke_mode ?? 'PRESSURE',
+              (x) => ((b.gradient_stroke_mode = x as 'PRESSURE'), changed()),
+            ),
+          ),
+          (b.gradient_stroke_mode ?? 'PRESSURE') !== 'PRESSURE'
+            ? numberField({ id: 'pt-gsp', label: 'Gradient Spacing', value: b.grad_spacing ?? 100, min: 1, max: 10000, int: true, unit: 'pixel', tip: 'Stroke length for one pass through the gradient', set: (x) => ((b.grad_spacing = Math.round(x)), changed()) })
+            : null,
+        ],
+  ];
+}
+
+/** Weight Paint settings beyond the shared tool settings. */
+const wpOpts = () => ((app.doc.scene.tool_settings as unknown as { weight_paint?: { use_group_restrict?: boolean } }).weight_paint ??= {});
+
+/** Brush size field: the diameter in pixels (the brush stores its radius). */
+function radiusField(b: PaintBrush, id: string, label = 'Size') {
   return numberField({
     id,
     label,
-    value: b.radius,
-    min: 1,
-    max: 2000,
-    int: true,
-    unit: 'none',
-    tip: 'Radius of the brush in pixels (F)',
-    set: (x) => ((b.radius = Math.round(x)), changed()),
+    value: b.radius * 2,
+    min: 2,
+    max: 4000,
+    step: 2,
+    unit: 'pixel',
+    tip: 'Diameter of the brush in pixels (F)',
+    set: (x) => (setBrushRadius(b, Math.max(1, Math.round(x / 2))), changed()),
   });
 }
 function strengthField(b: PaintBrush, id: string) {
@@ -167,7 +334,7 @@ function strengthField(b: PaintBrush, id: string) {
     slider: true,
     precision: 3,
     tip: 'How powerful the effect of the brush is when applied (Shift F)',
-    set: (x) => ((b.strength = x), changed()),
+    set: (x) => (setBrushStrength(b, x), changed()),
   });
 }
 function weightField(id: string) {
@@ -209,7 +376,12 @@ function falloffMenu(b: PaintBrush, id: string) {
     id,
     FALLOFFS.map(([value, label]) => ({ value, label })),
     b.falloff,
-    (x) => ((b.falloff = x as PaintBrush['falloff']), changed()),
+    (x) => {
+      // a custom curve starts from the preset it replaces
+      if (x === 'CUSTOM' && !b.falloff_curve) b.falloff_curve = falloffPresetPoints(b.falloff);
+      b.falloff = x as PaintBrush['falloff'];
+      changed();
+    },
     { tip: 'Falloff curve preset' },
   );
 }
@@ -332,12 +504,12 @@ export function toolHeaderSettings(mode: BrushMode): Child {
     parts.push(field(110, blendMenu(b, 'th-blend', mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   }
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(140, weightField('th-w')));
-  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(150, sizeField(b, 'th-r')));
-  parts.push(field(150, strengthRow(b, 'th-s')));
+  if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) parts.push(field(176, sizeField(b, 'th-r')));
+  parts.push(field(176, strengthRow(b, 'th-s')));
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
   parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
-  if (mode !== 'TEXTURE_PAINT') parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => textureRows(b, 'thp')));
+  parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => [...textureRows(b, 'thp', mode), ...(mode === 'TEXTURE_PAINT' ? [h('div', { class: 'pop-sub' }, 'Texture Mask'), ...textureRows(b, 'thpm', mode, true)] : [])]));
   parts.push(popButton('th-p-stroke', 'Stroke', 'Stroke', () => strokeRows(b, mode, 'thp')));
   parts.push(popButton('th-p-falloff', 'Falloff', 'Falloff', () => falloffRows(b, mode, 'thp')));
   parts.push(popButton('th-p-cursor', 'Cursor', 'Cursor', () => cursorRows(b, mode, 'thp')));
@@ -351,20 +523,13 @@ export function toolHeaderSettings(mode: BrushMode): Child {
   parts.push(symmetryToggles('th'));
   if (mode === 'SCULPT') {
     const ts = app.doc.scene.tool_settings.sculpt;
+    // Dyntopo: on/off, settings in the popover next to it
     parts.push(
       h(
-        'button',
-        {
-          key: 'th-dyntopo',
-          class: { 'hdr-toggle': true, on: !!ts.use_dyntopo },
-          'data-tip': 'Dyntopo\nAdd and remove triangles under the brush (click to toggle, right-click for settings)',
-          onclick: () => app.run('sculpt.dynamic_topology_toggle'),
-          oncontextmenu: (e: MouseEvent) => {
-            e.preventDefault();
-            openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, h('div', { class: 'pop-title' }, 'Dyntopo'), ...dyntopoSettings('pop-dt')), { width: 240 });
-          },
-        },
-        icon('dyntopo'),
+        'div',
+        { key: 'th-dyntopo', class: 'th-dyntopo', style: { display: 'flex', alignItems: 'center', flex: 'none' } },
+        checkbox('th-dt-on', 'Dyntopo', !!ts.use_dyntopo, () => app.run('sculpt.dynamic_topology_toggle'), { tip: 'Dyntopo\nAdd and remove triangles under the brush as you sculpt' }),
+        popButton('th-p-dyntopo', '', 'Dyntopo', () => dyntopoSettings('pop-dt'), 240),
       ),
     );
     parts.push(popButton('th-p-remesh', 'Remesh', 'Remesh', () => remeshRows()));
@@ -383,7 +548,7 @@ function falloffPreview(b: PaintBrush): VNode {
   let d = '';
   for (let i = 0; i <= 40; i++) {
     const t = i / 40;
-    const y = falloffFn(b.falloff, t, b.hardness ?? 0);
+    const y = brushFalloff(b, t);
     d += `${i ? 'L' : 'M'}${(t * W).toFixed(1)} ${(H - 2 - y * (H - 6)).toFixed(1)}`;
   }
   return h(
@@ -436,13 +601,30 @@ function sizeField(b: PaintBrush, id: string) {
     'div',
     { key: id, class: 'paint-pressure-row' },
     scene
-      ? numberField({ id, label: 'Radius', value: b.unprojected_radius ?? 0.1, min: 0.0001, max: 100, unit: 'distance', precision: 3, tip: 'Radius of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x), changed()) })
+      ? numberField({ id, label: 'Size', value: (b.unprojected_radius ?? 0.1) * 2, min: 0.0002, max: 200, unit: 'distance', precision: 3, tip: 'Diameter of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x / 2), changed()) })
       : radiusField(b, id),
+    scene ? null : unifiedToggle('size', b, `${id}-u`),
     pressureToggle(b, 'use_pressure_size', `${id}-p`),
   );
 }
 function strengthRow(b: PaintBrush, id: string) {
-  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), unifiedToggle('strength', b, `${id}-u`), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+}
+
+/** Share the size / strength between all brushes. */
+function unifiedToggle(kind: 'size' | 'strength', b: PaintBrush, id: string) {
+  const u = app.doc.scene.tool_settings.unified_paint as unknown as UnifiedFlags;
+  const on = kind === 'size' ? !!u.use_unified_size : !!u.use_unified_strength;
+  return h(
+    'button',
+    {
+      key: id,
+      class: { 'hdr-toggle': true, 'pressure-toggle': true, on },
+      'data-tip': `Use the same ${kind} for all brushes`,
+      onclick: () => (setUnified(kind, !on, b), app.pushUndo(`Unified ${kind === 'size' ? 'Size' : 'Strength'}`), changed()),
+    },
+    icon('paint_unified'),
+  );
 }
 
 /** Switch the radius between screen pixels and scene units, keeping the current size on screen. */
@@ -454,7 +636,7 @@ function setSizeUnit(b: PaintBrush, unit: 'VIEW' | 'SCENE') {
     const at = cursorState.hit?.point ?? new Vector3().setFromMatrixPosition(s.world());
     const perPx = s.pixelsToLocal(v, at, 1) * s.scale();
     if (unit === 'SCENE') b.unprojected_radius = Math.max(1e-4, b.radius * perPx);
-    else b.radius = Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx)));
+    else setBrushRadius(b, Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx))));
   }
   b.use_locked_size = unit;
   changed();
@@ -464,8 +646,8 @@ function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   const rows: Child[] = [];
   if (paintsColor(mode, b)) rows.push(row('Blend', blendMenu(b, `${p}-blend`, mode === 'TEXTURE_PAINT' ? TEX_BLENDS : BLENDS)));
   if (mode === 'WEIGHT_PAINT') {
-    rows.push(weightField(`${p}-w`));
     if (b.sculpt_tool === 'DRAW') rows.push(row('Blend', blendMenu(b, `${p}-wblend`, BLENDS)));
+    rows.push(weightField(`${p}-w`));
   }
   if (!(mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'FILL')) {
     rows.push(sizeField(b, `${p}-r`));
@@ -485,6 +667,7 @@ function mainRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
     );
   }
   rows.push(strengthRow(b, `${p}-s`));
+  rows.push(...pressureCurveRows(b, p));
   if (mode === 'TEXTURE_PAINT' && b.sculpt_tool === 'CLONE') {
     const imgs = Object.values(app.doc.images);
     rows.push(
@@ -541,6 +724,12 @@ function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         ),
       );
+    if (b.sculpt_tool === 'GRAB') rows.push(checkbox(`${p}-gsil`, 'Grab Silhouette', !!b.use_grab_silhouette, (x) => ((b.use_grab_silhouette = x), changed()), { tip: 'Only move the side facing like the grabbed point, keeping the outline of thin parts' }));
+    if (b.sculpt_tool === 'LAYER')
+      rows.push(
+        checkbox(`${p}-persist`, 'Persistent', !!b.use_persistent, (x) => ((b.use_persistent = x), changed()), { tip: 'Measure the layer height from a stored base shape, so strokes build on the same layer' }),
+        b.use_persistent ? opButton('sculpt.set_persistent_base', 'Set Persistent Base', {}, { tip: 'Store the current shape as the base of the layer' }) : null,
+      );
     if (b.sculpt_tool === 'CREASE') rows.push(numberField({ id: `${p}-pinch`, label: 'Pinch', value: b.crease_pinch_factor ?? 0.5, min: 0, max: 1, slider: true, set: (x) => ((b.crease_pinch_factor = x), changed()) }));
   } else rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
   rows.push(checkbox(`${p}-ff`, 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));
@@ -556,8 +745,45 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   const m = b.stroke_method ?? 'SPACE';
   return [
     row('Stroke Method', enumMenu(`${p}-sm`, strokeMethods(mode).map(([value, label]) => ({ value, label })), m, (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
-    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH'
+    m === 'CURVE'
+      ? [
+          dataBlockSelector(`${p}-pc`, 'curve_draw', Object.values(paintCurvesOf()), b.paint_curve ?? null, (id) => ((b.paint_curve = id), app.pushUndo('Paint Curve'), changed()), () => app.run('paintcurve.new'), {}),
+          opButton('paintcurve.draw', 'Draw Curve', {}, { icon: 'brush_paint_draw', tip: 'Paint along the curve (Enter, or click away from the curve)' }),
+          h('div', { class: 'sb-label' }, 'Ctrl+click adds points · drag moves them · right-click selects'),
+        ]
+      : null,
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH' || m === 'CURVE'
       ? numberField({ id: `${p}-sp`, label: 'Spacing', value: b.spacing ?? 10, min: 1, max: 1000, int: true, unit: 'percentage', tip: 'Spacing between dabs as a percentage of the brush radius', set: (x) => ((b.spacing = Math.round(x)), changed()) })
+      : null,
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH' || m === 'CURVE'
+      ? checkbox(`${p}-psp`, 'Pressure Spacing', !!b.use_pressure_spacing, (x) => ((b.use_pressure_spacing = x), changed()), { tip: 'Light pen pressure places the dabs closer together' })
+      : null,
+    m !== 'LINE' && m !== 'ANCHORED' && m !== 'DRAG_DOT'
+      ? [
+          h(
+            'div',
+            { class: 'paint-pressure-row' },
+            (b.jitter_unit ?? 'BRUSH') === 'VIEW'
+              ? numberField({ id: `${p}-jit`, label: 'Jitter', value: b.jitter_absolute ?? 0, min: 0, max: 1000, int: true, unit: 'pixel', tip: 'Random offset of the dabs (pixels)', set: (x) => ((b.jitter_absolute = Math.round(x)), changed()) })
+              : numberField({ id: `${p}-jit`, label: 'Jitter', value: b.jitter ?? 0, min: 0, max: 2, slider: true, tip: 'Random offset of the dabs (fraction of the radius)', set: (x) => ((b.jitter = x), changed()) }),
+            h('button', { key: `${p}-jitp`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!b.use_pressure_jitter }, 'data-tip': 'Use pen pressure for the jitter', onclick: () => ((b.use_pressure_jitter = !b.use_pressure_jitter), changed()) }, icon('pressure')),
+          ),
+          row(
+            'Jitter Unit',
+            enumRow(
+              `${p}-jitu`,
+              [
+                { value: 'VIEW', label: 'View', description: 'Jitter in screen pixels' },
+                { value: 'BRUSH', label: 'Brush', description: 'Jitter relative to the brush radius' },
+              ],
+              b.jitter_unit ?? 'BRUSH',
+              (x) => ((b.jitter_unit = x as 'VIEW'), changed()),
+            ),
+          ),
+        ]
+      : null,
+    m !== 'LINE' && m !== 'ANCHORED' && m !== 'CURVE'
+      ? numberField({ id: `${p}-isamp`, label: 'Input Samples', value: b.input_samples ?? 1, min: 1, max: 64, int: true, tip: 'Average this many pointer positions to steady the stroke', set: (x) => ((b.input_samples = Math.round(x)), changed()) })
       : null,
     m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
     m !== 'LINE' && m !== 'ANCHORED' ? checkbox(`${p}-stab`, 'Stabilize Stroke', !!b.use_smooth_stroke, (x) => ((b.use_smooth_stroke = x), changed()), { tip: 'Let the brush trail behind the pointer for smoother lines (Shift S)' }) : null,
@@ -573,7 +799,9 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
 function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   return [
     row('Preset', falloffMenu(b, `${p}-fo`)),
-    falloffPreview(b),
+    b.falloff === 'CUSTOM'
+      ? curveWidget(`${p}-focurve`, () => b.falloff_curve ?? falloffPresetPoints('SMOOTH'), (pts) => ((b.falloff_curve = pts), changed()), 'Falloff curve: strength from the rim (left) to the center (right)')
+      : falloffPreview(b),
     mode !== 'TEXTURE_PAINT'
       ? row(
           'Shape',
@@ -589,18 +817,65 @@ function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         )
       : null,
+    mode !== 'SCULPT' ? normalFalloffRows(mode, p) : null,
+    mode === 'SCULPT'
+      ? [
+          checkbox(`${p}-fff`, 'Front-Face Falloff', !!b.use_frontface_falloff, (x) => ((b.use_frontface_falloff = x), (b.use_frontface ||= x), changed()), { tip: 'Fade the brush out on surfaces turning away from the view' }),
+          b.use_frontface_falloff ? numberField({ id: `${p}-ffa`, label: 'Angle', value: b.falloff_angle ?? 0, min: 0, max: Math.PI / 2, unit: 'angle', tip: 'Surfaces up to this angle from the view get full strength', set: (x) => ((b.falloff_angle = x), changed()) }) : null,
+        ]
+      : null,
   ];
 }
 
-function textureRows(b: PaintBrush, p: string): Child[] {
-  const t: BrushTexture = b.texture_slot ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
+/** Normal falloff of the paint modes: less paint on surfaces turning away from the view. */
+function normalFalloffRows(mode: BrushMode, p: string): Child[] {
+  const ts = app.doc.scene.tool_settings as unknown as Record<string, NormalFalloff | undefined>;
+  const key = mode === 'VERTEX_PAINT' ? 'vertex_paint' : mode === 'WEIGHT_PAINT' ? 'weight_paint' : 'image_paint';
+  const st = (ts[key] ??= {});
+  const on = st.use_normal_falloff !== false;
+  return [
+    checkbox(`${p}-nfo`, 'Normal Falloff', on, (x) => ((st.use_normal_falloff = x), changed()), { tip: 'Paint less on surfaces turning away from the view' }),
+    on ? numberField({ id: `${p}-nfa`, label: 'Angle', value: st.normal_angle ?? NORMAL_ANGLE, min: 0, max: Math.PI / 2, unit: 'angle', tip: 'Surfaces turned further than this get no paint', set: (x) => ((st.normal_angle = x), changed()) }) : null,
+  ];
+}
+
+/** Pressure response curve rows (shown under the size / strength fields when turned on). */
+function pressureCurveRows(b: PaintBrush, p: string): Child[] {
+  const out: Child[] = [];
+  for (const [flag, key, label] of [
+    ['use_size_curve', 'curve_size', 'Size'],
+    ['use_strength_curve', 'curve_strength', 'Strength'],
+  ] as const) {
+    const pressureOn = key === 'curve_size' ? !!b.use_pressure_size : b.use_pressure_strength !== false;
+    if (!pressureOn) continue;
+    out.push(checkbox(`${p}-${key}-on`, `${label} Pressure Curve`, !!b[flag], (x) => ((b[flag] = x), changed()), { tip: `Shape how pen pressure maps to the ${label.toLowerCase()}` }));
+    if (b[flag])
+      out.push(
+        curveWidget(
+          `${p}-${key}`,
+          () =>
+            b[key] ?? [
+              [0, 0],
+              [1, 1],
+            ],
+          (pts) => ((b[key] = pts), changed()),
+          `${label} pressure: pen pressure (left to right) to ${label.toLowerCase()}`,
+        ),
+      );
+  }
+  return out;
+}
+
+function textureRows(b: PaintBrush, p: string, mode: BrushMode = app.doc.mode as BrushMode, mask = false): Child[] {
+  const key = mask ? 'mask_texture_slot' : 'texture_slot';
+  const t: BrushTexture = b[key] ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
   const set = (patch: Partial<BrushTexture>) => {
-    b.texture_slot = { ...t, ...patch };
+    b[key] = { ...t, ...patch };
     changed();
   };
   const images = Object.values(app.doc.images);
   const rows: Child[] = [
-    row('Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: 'Pattern that modulates the brush strength' })),
+    row(mask ? 'Mask' : 'Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: mask ? 'Pattern that scales the brush strength' : 'Pattern that modulates the brush (in Texture Paint: its colors are painted)' })),
   ];
   if (t.source === 'IMAGE')
     rows.push(
@@ -609,6 +884,8 @@ function textureRows(b: PaintBrush, p: string): Child[] {
         : h('div', { class: 'sb-label' }, 'No images in the file: open one in the Image Editor first'),
     );
   if (t.source === 'NONE') return rows;
+  const modes = mapModes(mode, mask);
+  const stencil = t.map_mode === 'STENCIL';
   rows.push(
     h('canvas', {
       key: `${p}-tprev-${t.source}-${t.image}-${t.angle}-${t.scale}`,
@@ -621,13 +898,17 @@ function textureRows(b: PaintBrush, p: string): Child[] {
         const img = ctx.createImageData(96, 96);
         const cos = Math.cos(-t.angle),
           sin = Math.sin(-t.angle);
+        const px = [0, 0, 0, 0];
         for (let y = 0; y < 96; y++)
           for (let x = 0; x < 96; x++) {
             const dx = (x / 48 - 1) / t.scale,
               dy = (1 - y / 48) / t.scale;
-            const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
             const i = (y * 96 + x) * 4;
-            img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            sampleTexRGBA(t, dx * cos - dy * sin, dx * sin + dy * cos, px);
+            if (mask || t.source !== 'IMAGE') {
+              const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
+              img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            } else for (let k = 0; k < 3; k++) img.data[i + k] = Math.round(px[k] * px[3] * 255);
             img.data[i + 3] = 255;
           }
         ctx.putImageData(img, 0, 0);
@@ -637,21 +918,58 @@ function textureRows(b: PaintBrush, p: string): Child[] {
       'Mapping',
       enumMenu(
         `${p}-tmap`,
-        [
-          { value: 'VIEW_PLANE', label: 'View Plane' },
-          { value: 'TILED', label: 'Tiled' },
-          { value: 'RANDOM', label: 'Random' },
-        ],
-        t.map_mode,
-        (x) => set({ map_mode: x as BrushTexture['map_mode'] }),
-        { tip: 'View Plane: follows the brush · Tiled: fixed on the screen · Random: new rotation and offset per dab' },
+        modes.map(([value, label, description]) => ({ value, label, description })),
+        modes.some((m) => m[0] === t.map_mode) ? t.map_mode : 'VIEW_PLANE',
+        (x) => {
+          set({ map_mode: x as BrushTexture['map_mode'] });
+          if (x === 'STENCIL') centerStencil(b, mask);
+        },
+        { tip: 'How the texture is placed over the brush' },
       ),
     ),
-    numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }),
+  );
+  if (stencil)
+    rows.push(
+      h('div', { class: 'sb-label' }, 'Right-drag moves the stencil · Shift: scale · Ctrl: rotate' + (mask ? ' (hold Alt for the mask)' : '')),
+      h(
+        'div',
+        { class: 'row-split' },
+        opButton('brush.stencil_fit_image_aspect', 'Image Aspect', { mask }, { tip: 'Give the stencil the proportions of its image' }),
+        opButton('brush.stencil_reset_transform', 'Reset Transform', { mask }, { tip: 'Put the stencil back to its default place, size and angle' }),
+      ),
+    );
+  if (t.map_mode === 'RANDOM' || t.map_mode === 'VIEW_PLANE' || t.map_mode === 'AREA_PLANE' || stencil) {
+    rows.push(numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }));
+    if (!stencil && t.map_mode !== 'RANDOM')
+      rows.push(
+        checkbox(`${p}-trnd`, 'Random', !!t.use_random, (x) => set({ use_random: x }), { tip: 'Rotate the texture by a random angle for each dab' }),
+        t.use_random ? numberField({ id: `${p}-trnda`, label: 'Random Angle', value: t.random_angle ?? Math.PI * 2, min: 0, max: Math.PI * 2, unit: 'angle', set: (x) => set({ random_angle: x }) }) : null,
+      );
+  }
+  const off = t.offset ?? [0, 0, 0];
+  rows.push(
     numberField({ id: `${p}-tscale`, label: 'Size', value: t.scale, min: 0.01, max: 100, softMax: 4, set: (x) => set({ scale: x }) }),
-    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the strength', set: (x) => set({ strength: x }) }),
+    numberField({ id: `${p}-toffx`, label: 'Offset X', value: off[0], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [x, off[1], off[2]] }) }),
+    numberField({ id: `${p}-toffy`, label: 'Y', value: off[1], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [off[0], x, off[2]] }) }),
+    t.map_mode === '3D' ? numberField({ id: `${p}-toffz`, label: 'Z', value: off[2], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [off[0], off[1], x] }) }) : null,
+    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the brush', set: (x) => set({ strength: x }) }),
   );
   return rows;
+}
+
+/** Put a new stencil in the middle of the active viewport. */
+function centerStencil(b: PaintBrush, mask: boolean) {
+  const v = activeView3D();
+  if (!v) return;
+  if (mask ? b.mask_stencil_pos : b.stencil_pos) return;
+  const s = Math.round(Math.min(v.width, v.height) * 0.35);
+  if (mask) {
+    b.mask_stencil_pos = [Math.round(v.width / 2), Math.round(v.height / 2)];
+    b.mask_stencil_dimension ??= [s, s];
+  } else {
+    b.stencil_pos = [Math.round(v.width / 2), Math.round(v.height / 2)];
+    b.stencil_dimension ??= [s, s];
+  }
 }
 
 function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
@@ -663,6 +981,16 @@ function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           DIRECTIONAL.has(b.sculpt_tool) ? row('Subtract Color', colorSwatch(`${p}-csub`, b.cursor_color_subtract ?? [0.43, 0.55, 1], (c) => ((b.cursor_color_subtract = [c[0], c[1], c[2]]), changed()), { linear: false })) : null,
         ]
       : null,
+    b.show_cursor !== false
+      ? h(
+          'div',
+          { class: 'paint-pressure-row' },
+          numberField({ id: `${p}-fov`, label: 'Falloff Opacity', value: b.cursor_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the falloff shading inside the brush cursor', set: (x) => ((b.cursor_overlay_alpha = Math.round(x)), changed()) }),
+          h('button', { key: `${p}-fov-on`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!b.use_cursor_overlay }, 'data-tip': 'Show the falloff inside the cursor', onclick: () => ((b.use_cursor_overlay = !b.use_cursor_overlay), changed()) }, icon(b.use_cursor_overlay ? 'hide_off' : 'hide_on')),
+        )
+      : null,
+    textureActive(b) ? numberField({ id: `${p}-tov`, label: 'Texture Opacity', value: b.texture_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the texture overlay (stencils) in the viewport', set: (x) => ((b.texture_overlay_alpha = Math.round(x)), changed()) }) : null,
+    maskTextureActive(b) ? numberField({ id: `${p}-mov`, label: 'Mask Texture Opacity', value: b.mask_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the mask texture overlay (stencils) in the viewport', set: (x) => ((b.mask_overlay_alpha = Math.round(x)), changed()) }) : null,
   ];
 }
 
@@ -700,14 +1028,32 @@ function sculptOptionRows(): Child[] {
 
 function brushTile(b: PaintBrush, mode: BrushMode): Child {
   const info = brushInfo(b.id);
+  const preview = (b as PaintBrush & { asset_data?: { preview?: string } }).asset_data?.preview;
+  const note = brushOriginNote(b);
   return h(
     'div',
     { class: 'paint-brush-tile' },
-    h('img', { src: brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
+    h('img', { src: preview || brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
     h(
       'div',
       { class: 'pbt-side' },
-      h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+      h(
+        'div',
+        { class: 'pbt-head' },
+        h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+        h(
+          'button',
+          {
+            class: 'pbt-menu',
+            'data-tip': 'Brush Specials',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openMenu(brushSpecialsMenu(), e.currentTarget as HTMLElement);
+            },
+          },
+          icon('down_arrow_hlt'),
+        ),
+      ),
       enumMenu(
         'pt-brush',
         BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
@@ -715,9 +1061,14 @@ function brushTile(b: PaintBrush, mode: BrushMode): Child {
         (id) => (setActiveTool(id), changed()),
         { tip: 'Active brush (Space: brush shelf)' },
       ),
-      info ? h('div', { class: 'pbt-desc' }, info.description) : null,
+      info ? h('div', { class: 'pbt-desc' }, info.description) : note ? h('div', { class: 'pbt-desc' }, note) : null,
     ),
   );
+}
+
+/** The brush panels of a paint mode (Tool tabs of the 3D View, the Properties and the Image Editor). */
+export function paintToolPanels(mode: BrushMode): Child[] {
+  return brushPanels(mode);
 }
 
 function brushPanels(mode: BrushMode): Child[] {
@@ -733,14 +1084,15 @@ function brushPanels(mode: BrushMode): Child[] {
         ...mainRows(b, mode, 'pt'),
         panel(`pt-adv-${mode}`, 'Advanced', () => advancedRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-stroke-${mode}`, 'Stroke', () => strokeRows(b, mode, 'pt'), { sub: true, closed: true }),
-        mode !== 'TEXTURE_PAINT' ? panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt'), { sub: true, closed: true }) : null,
+        panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt', mode), { sub: true, closed: true }),
+        mode === 'TEXTURE_PAINT' ? panel(`pt-texmask-${mode}`, 'Texture Mask', () => textureRows(b, 'ptm', mode, true), { sub: true, closed: true }) : null,
         panel(`pt-falloff-${mode}`, 'Falloff', () => falloffRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
     );
     if (paintsColor(mode, b)) {
-      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
-      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows('pt-pal'), { closed: true }));
+      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => [mode === 'TEXTURE_PAINT' ? colorTypeRow(b) : null, mode === 'TEXTURE_PAINT' && usesGradient(b) ? gradientRows(b) : colorPicker('pt-cp'), panel(`pt-cjit-${mode}`, 'Randomize Color', () => colorJitterRows('pt-cj'), { sub: true, closed: true })]));
+      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows(mode, 'pt-pal'), { closed: true }));
     }
   } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
   if (mode === 'WEIGHT_PAINT') {
@@ -748,6 +1100,7 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-wp-opts', 'Options', () => [
         checkbox('pt-an', 'Auto Normalize', !!ts.use_auto_normalize, (x) => ((ts.use_auto_normalize = x), changed()), { tip: 'Ensure all deform vertex groups sum to 1 while painting' }),
+        checkbox('pt-restrict', 'Restrict', !!wpOpts().use_group_restrict, (x) => ((wpOpts().use_group_restrict = x), changed()), { tip: 'Only paint vertices that already belong to the active group' }),
         am
           ? row(
               'Group',
@@ -790,7 +1143,13 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-tp-opts', 'Options', () => [
         numberField({ id: 'pt-bleed', label: 'Bleed', value: imagePaintOptions.seam_bleed, min: 0, max: 32, int: true, unit: 'pixel', tip: 'Paint this many pixels past the UV island borders to hide seams', set: (x) => ((imagePaintOptions.seam_bleed = Math.round(x)), changed()) }),
+        panel('pt-tp-ext', 'External', () => [
+          opButton('image.project_edit', 'Quick Edit', {}, { tip: 'Save a snapshot of the view to edit in another program' }),
+          opButton('image.project_apply', 'Apply', {}, { tip: 'Project the edited snapshot back onto the texture' }),
+          opButton('paint.project_image', 'Apply Camera Image', {}, { tip: 'Project an image onto the texture from the current view' }),
+        ], { sub: true, closed: true }),
       ], { closed: true }),
+      panel('pt-tp-mask', 'Masking', () => [panel('pt-tp-stencil', 'Stencil Mask', () => stencilMaskRows(), { sub: true }), panel('pt-tp-cavity', 'Cavity Mask', () => cavityRows(), { sub: true, closed: true })], { closed: true }),
     );
   if (mode === 'TEXTURE_PAINT') {
     const am = activeMeshData();
@@ -926,42 +1285,10 @@ function colorPicker(p: string): Child {
   );
 }
 
-function paletteRows(p: string): Child {
-  const up = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & { palette?: [number, number, number][] };
-  const pal = up.palette ?? [];
-  const same = (a: number[], b: number[]) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4);
-  return h(
-    'div',
-    { class: 'paint-palette' },
-    pal.map((c, i) =>
-      h('button', {
-        key: `${p}-${i}`,
-        class: { 'pp-swatch': true, on: same(c, up.color) },
-        style: { background: `rgb(${c.map((x) => Math.round(linearToSrgb(x) * 255)).join(',')})` },
-        'data-tip': 'Click: use this color · Ctrl+click: remove it',
-        onclick: (e: MouseEvent) => {
-          if (e.ctrlKey || e.metaKey) up.palette = pal.filter((_, j) => j !== i);
-          else up.color = [c[0], c[1], c[2]];
-          app.pushUndo('Palette');
-          changed();
-        },
-      }),
-    ),
-    h(
-      'button',
-      {
-        key: `${p}-add`,
-        class: 'pp-add',
-        'data-tip': 'Add the brush color to the palette',
-        onclick: () => {
-          if (!pal.some((c) => same(c, up.color))) up.palette = [...pal, [up.color[0], up.color[1], up.color[2]]];
-          app.pushUndo('Palette');
-          changed();
-        },
-      },
-      icon('add'),
-    ),
-  );
+function paletteRows(mode: BrushMode, p: string): Child {
+  const owner = mode === 'WEIGHT_PAINT' ? null : mode;
+  if (!owner) return null;
+  return paletteTemplate(owner, p, (cur, set, create) => dataBlockSelector(`${p}-ids`, 'paint_palette', Object.values(palettesOf()), cur?.id ?? null, set, create, { users: cur ? paletteUsers(app.doc, cur.id) : 0 }));
 }
 
 // Properties editor ▸ Tool tab: the same brush panels in the paint modes
@@ -1061,6 +1388,22 @@ const wpMenu = (): MenuItem[] => [
 modeMenus.WEIGHT_PAINT = {
   ...modeMenus.WEIGHT_PAINT,
   header: () => [['Weights', wpMenu]],
+  // the vertex group being painted
+  headerExtra: () => {
+    const am = activeMeshData();
+    if (!am || !am.me.vertex_groups.length) return null;
+    return h(
+      'div',
+      { key: 'wp-group', style: { width: '130px', flex: 'none', marginLeft: '8px' } },
+      enumMenu(
+        'hdr-wp-group',
+        am.me.vertex_groups.map((g, i) => ({ value: String(i), label: g.name, icon: 'group_vertex' })),
+        String(am.ob.vertex_group_active_index ?? 0),
+        (x) => ((am.ob.vertex_group_active_index = Number(x)), invalidatePaintAttributes(), app.pushUndo('Active Vertex Group'), app.changed('doc')),
+        { tip: 'Vertex group to paint' },
+      ),
+    );
+  },
 };
 
 modeMenus.TEXTURE_PAINT = {
@@ -1071,6 +1414,7 @@ modeMenus.TEXTURE_PAINT = {
       () => [
         { label: 'Add Texture Paint Slot', op: 'paint.add_texture_paint_slot' },
         { label: 'Add Simple UVs', op: 'paint.add_simple_uvs' },
+        { label: 'Image from View', op: 'paint.image_from_view' },
         { label: 'Project Image', op: 'paint.project_image' },
         { separator: true },
         {
@@ -1138,13 +1482,24 @@ registerOperators([
     idname: 'paint.sample_color',
     label: 'Sample Color',
     description: 'Use the color under the cursor as the brush color',
+    props: [
+      { id: 'merged', label: 'Sample Merged', type: 'bool', default: false },
+      { id: 'palette', label: 'Add to Palette', type: 'bool', default: false },
+    ],
     undo: false,
-    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D(),
-    exec: (ctx) => {
-      const v = activeView3D()!;
-      const p = pointerIn(v, ctx.event);
-      const ok = app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, p.x, p.y) : sampleVertexColor(v, p.x, p.y);
+    poll: (ctx) =>
+      ctx.area?.type === 'IMAGE_EDITOR' || ((app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D()),
+    exec: (ctx, p) => {
+      let ok = false;
+      if (ctx.area?.type === 'IMAGE_EDITOR') ok = sampleImageEditor(ctx.area.editor as ImageEditorLike, ctx.event);
+      else {
+        const v = activeView3D()!;
+        const q = pointerIn(v, ctx.event);
+        // merged: the color as shown in the view (lighting and all), else the painted data
+        ok = p.merged ? sampleScreen(v, q.x, q.y) : app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, q.x, q.y) : sampleVertexColor(v, q.x, q.y);
+      }
       if (!ok) return 'CANCELLED';
+      if (p.palette && app.poll('palette.color_add', ctx.area as never)) app.run('palette.color_add', {}, { invoke: false, area: ctx.area });
       changed();
     },
   },
@@ -1224,7 +1579,7 @@ addKeys('Sculpt', [
 ]);
 addKeys('Vertex Paint', [
   ...common([
-    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color', props: { merged: true } },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
     { key: 'X', ctrl: true, op: 'paint.vertex_color_set' },
@@ -1248,7 +1603,7 @@ addKeys('Weight Paint', [
 ]);
 addKeys('Image Paint', [
   ...common([
-    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color', props: { merged: true } },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
   ]),
@@ -1328,7 +1683,8 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
   if (!isBrushMode(mode)) return false;
   const name = keyName(e);
   if (e.repeat && name !== 'LEFT_BRACKET' && name !== 'RIGHT_BRACKET') return BLOCKED.has(name);
-  for (const k of keymaps[KEYMAP_OF[mode]] ?? []) {
+  const first = paintHooks.priorityKeymaps.filter((k) => k.active()).flatMap((k) => keymaps[k.name] ?? []);
+  for (const k of [...first, ...(keymaps[KEYMAP_OF[mode]] ?? [])]) {
     if (!matchKey(k, name, e)) continue;
     if (k.when && !k.when()) continue;
     if (k.menu) {
@@ -1345,6 +1701,25 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
   }
   // swallow plain object-mode keys (transform, select tools) that would act on the object
   return !e.ctrlKey && !e.metaKey && !e.altKey && BLOCKED.has(name);
+}
+
+/** Keys of the Texture Paint keymap in the Image Editor's Paint mode. */
+export function imagePaintKey(e: KeyboardEvent): boolean {
+  if (e.type !== 'keydown') return false;
+  const name = keyName(e);
+  for (const k of keymaps['Image Paint'] ?? []) {
+    if (k.inactive || !matchKey(k, name, e)) continue;
+    if (k.when && !k.when()) continue;
+    if (k.menu) {
+      const items = k.menu();
+      if (items.length) openMenu(items, { x: app.pointer.x, y: app.pointer.y }, { title: k.menuTitle });
+      return true;
+    }
+    if (!k.op || !app.poll(k.op)) continue;
+    app.run(k.op, k.props ?? {}, { event: { x: app.pointer.x, y: app.pointer.y } });
+    return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1382,12 +1757,25 @@ editModeHooks.pointer.push((v, e) => {
     // Shift+Ctrl+drag: lasso mask (with Alt: unmask)
     return startGesture(v, { op: 'paint.mask_lasso_gesture', kind: 'LASSO', props: { value: e.altKey ? 0 : 1 }, label: 'Lasso Mask' }, e);
   }
+  return brushStroke(v, e);
+});
+
+
+
+/**
+ * Start a stroke of the active brush of the current paint mode at a pointer press (Ctrl inverts,
+ * Shift smooths / blurs, Alt masks in Sculpt Mode). Returns true when the press was used.
+ */
+export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
+  const mode = app.doc.mode;
+  lastStrokeStarted = false;
+  if (live) for (const f of paintHooks.brushPointer) if (f(v, e)) return true;
   if (mode === 'SCULPT' && e.altKey) {
     // Alt: temporary Mask brush (keeps the current radius); Ctrl+Alt removes mask
     const mb = brushById('brush_mask');
     const cur = activeBrush('SCULPT');
     if (mb) {
-      sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      lastStrokeStarted = sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
       return true;
     }
   }
@@ -1398,20 +1786,24 @@ editModeHooks.pointer.push((v, e) => {
       v.shading.color_type = 'VERTEX';
       app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
     }
-    vertexPaintStroke(v, e, sb);
-  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
-  else if (mode === 'SCULPT') sculptStroke(v, e);
-  else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);
+    lastStrokeStarted = vertexPaintStroke(v, e, sb);
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') lastStrokeStarted = faceSetStroke(v, e, activeBrush('SCULPT')!) !== false;
+  else if (mode === 'SCULPT') lastStrokeStarted = sculptStroke(v, e);
+  else if (mode === 'VERTEX_PAINT') lastStrokeStarted = vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
     if (am && !am.me.vertex_groups.length) {
       ensureActiveGroup(am.ob, am.me);
       invalidatePaintAttributes();
     }
-    weightPaintStroke(v, e);
-  } else texturePaintStroke(v, e);
+    lastStrokeStarted = weightPaintStroke(v, e);
+  } else lastStrokeStarted = texturePaintStroke(v, e);
   return true;
-});
+}
+
+/** Whether the last `brushStroke` call actually started a stroke (it hit the mesh). */
+export let lastStrokeStarted = false;
+paintHooks.startStroke = (v, e) => brushStroke(v, e, false) && lastStrokeStarted;
 
 // clone source marker
 editModeHooks.svg.push((v) => {
@@ -1523,6 +1915,7 @@ export function strokeMethods(mode: BrushMode): [string, string][] {
     ['AIRBRUSH', 'Airbrush'],
     ['ANCHORED', 'Anchored'],
     ['LINE', 'Line'],
+    ['CURVE', 'Curve'],
   ];
   return mode === 'SCULPT' ? all : all.filter(([m]) => m !== 'ANCHORED' && m !== 'DRAG_DOT');
 }
@@ -1532,7 +1925,7 @@ registerOperators([
     idname: 'paint.brush_stroke_method_set',
     label: 'Set Stroke Method',
     description: 'Choose how the dabs of the active brush are placed along the stroke',
-    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line']] }],
+    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line'], ['CURVE', 'Curve']] }],
     undo: false,
     poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
     exec: (_c, p) => {
@@ -1568,4 +1961,7 @@ for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
     { key: 'S', shift: true, op: 'paint.brush_smooth_stroke_toggle', when: () => isBrushMode(app.doc.mode) },
   ]);
 
-setImageCanvasSource(imageCanvas);
+setImageCanvasSource((img) => {
+  const c = imageCanvas(img);
+  return imageReady(img) ? c : null;
+});

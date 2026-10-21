@@ -344,6 +344,14 @@ function buildBrushes(doc: DocumentData) {
   brush('Crisp Crease', 'SCULPT', 'CREASE', 'Brushes/Sculpt', 'A narrow, hard crease for panel lines and folds.', ['crease', 'detail'], { strength: 0.7, radius: 25, falloff: 'SHARP' });
   brush('Red Airbrush', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'A wide, soft red spray for texture painting.', ['paint', 'soft'], { strength: 0.25, radius: 80, color: [0.8, 0.05, 0.04], hardness: 0 });
   brush('Yellow Marker', 'VERTEX_PAINT', 'DRAW', 'Brushes/Paint', 'A small, firm yellow marker for vertex colors.', ['paint', 'marker'], { strength: 1, radius: 18, color: [1, 0.8, 0.05], hardness: 0.9 });
+  // paint presets built from the stroke and falloff options
+  const x = (o: Record<string, unknown>) => o as Partial<BrushData>;
+  brush('Airbrush', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'Builds up color while held still, like a spray can.', ['paint', 'spray', 'soft'], x({ strength: 0.08, radius: 60, falloff: 'SMOOTHER', stroke_method: 'AIRBRUSH', rate: 0.05, use_accumulate: true }));
+  brush('Pencil', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'A tiny, solid tip for line work.', ['paint', 'line', 'hard'], x({ strength: 1, radius: 2, falloff: 'CONSTANT', spacing: 5 }));
+  brush('Paint Soft Pressure', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'A soft round brush whose size follows pen pressure.', ['paint', 'pressure'], x({ strength: 0.6, radius: 40, falloff: 'SMOOTH', use_pressure_size: true }));
+  brush('Speckle', 'TEXTURE_PAINT', 'TEXDRAW', 'Brushes/Paint', 'Scattered dots around the stroke.', ['paint', 'scatter'], x({ strength: 1, radius: 6, falloff: 'SHARP', spacing: 150, jitter: 4, jitter_unit: 'BRUSH' }));
+  brush('Noise Detail', 'SCULPT', 'DRAW', 'Brushes/Sculpt', 'Draw modulated by a noise texture, for skin and stone breakup.', ['detail', 'texture'], x({ strength: 0.3, radius: 60, texture_slot: { source: 'NOISE', map_mode: '3D', angle: 0, scale: 0.15, strength: 1 } }));
+  brush('Steady Line', 'SCULPT', 'CREASE', 'Brushes/Sculpt', 'A stabilized crease for long, clean lines.', ['crease', 'line'], x({ strength: 0.5, radius: 20, use_smooth_stroke: true, smooth_stroke_radius: 60, smooth_stroke_factor: 0.9 }));
 }
 
 /** Replace the random ids of the library's data-blocks with fixed ones. */
