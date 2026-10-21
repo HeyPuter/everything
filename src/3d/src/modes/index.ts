@@ -30,6 +30,7 @@ import './armature/menus';
 import './armature/scripting';
 import './armature/posetools';
 import './lattice/lattice';
+import './lattice/latticeprops';
 import './curve/curve';
 import './curve/ops-more';
 import './curve/menus';

@@ -94,6 +94,15 @@ export function resizeLattice(lt: LatticeSel, U: number, V: number, W: number) {
         pts[p + 1] = v + o[1];
         pts[p + 2] = w + o[2];
       }
+  // vertex group weights follow the nearest old point
+  const [U0, V0, W0] = [lt.points_u, lt.points_v, lt.points_w];
+  const near = (i: number, n: number, n0: number) => (n0 > 1 && n > 1 ? Math.round((i / (n - 1)) * (n0 - 1)) : 0);
+  if (lt.weights?.length)
+    lt.weights = lt.weights.map((w) => {
+      const out = new Float32Array(U * V * W);
+      for (let k = 0; k < W; k++) for (let j = 0; j < V; j++) for (let i = 0; i < U; i++) out[(k * V + j) * U + i] = w[(near(k, W, W0) * V0 + near(j, V, V0)) * U0 + near(i, U, U0)] ?? 0;
+      return out;
+    });
   lt.points_u = U;
   lt.points_v = V;
   lt.points_w = W;
@@ -416,6 +425,7 @@ function latticeSelectMenu(): MenuItem[] {
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
     { separator: true },
     { label: 'Select Mirror', op: 'lattice.select_mirror' },
+    { label: 'Ungrouped Vertices', op: 'lattice.select_ungrouped' },
     { label: 'Select Random', op: 'lattice.select_random' },
     { separator: true },
     { label: 'More', op: 'lattice.select_more', shortcut: 'Ctrl Numpad +' },

@@ -517,8 +517,22 @@ export interface LatticeData {
   /** deformed point positions (u*v*w*3), in lattice local space ±0.5 */
   points: Float32Array;
   interpolation: 'KEY_LINEAR' | 'KEY_BSPLINE';
+  /** interpolation per axis (default: `interpolation`) */
+  interpolation_type_u?: LatticeInterpolation;
+  interpolation_type_v?: LatticeInterpolation;
+  interpolation_type_w?: LatticeInterpolation;
+  /** only the outer points deform; inner points follow them */
+  use_outside?: boolean;
+  /** vertex group whose weights scale each point's influence */
+  vertex_group?: string;
+  /** lattice vertex groups and their weights per point */
+  vertex_groups?: { name: string }[];
+  weights?: Float32Array[];
+  active_vertex_group_index?: number;
   users?: number;
 }
+
+export type LatticeInterpolation = 'KEY_LINEAR' | 'KEY_CARDINAL' | 'KEY_CATMULL_ROM' | 'KEY_BSPLINE';
 
 // ---------------------------------------------------------------------------
 // Node trees (shader, geometry, compositor, world)

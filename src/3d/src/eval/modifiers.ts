@@ -1642,6 +1642,43 @@ export function latticeWeights(t: number, type: string, out: number[]) {
   }
 }
 
+/**
+ * The point positions a lattice deforms with: with Outside, inner points follow the outer ones (each
+ * axis interpolates between the two outer points of its line, the three are averaged); points of the
+ * lattice's vertex group scale their offset by their weight.
+ */
+export function latticeEffectivePoints(lat: import('../data/types').LatticeData): Float32Array {
+  const { points_u: U, points_v: V, points_w: W } = lat;
+  const src = lat.points;
+  const rest = (i: number, n: number) => (n > 1 ? i / (n - 1) - 0.5 : 0);
+  const gi = lat.vertex_group ? (lat.vertex_groups ?? []).findIndex((g) => g.name === lat.vertex_group) : -1;
+  const wts = gi >= 0 ? lat.weights?.[gi] : undefined;
+  if (!lat.use_outside && !wts) return src;
+  const idx = (i: number, j: number, k: number) => (k * V + j) * U + i;
+  const disp = (p: number, i: number, j: number, k: number): [number, number, number] => [src[p * 3] - rest(i, U), src[p * 3 + 1] - rest(j, V), src[p * 3 + 2] - rest(k, W)];
+  const out = new Float32Array(src.length);
+  for (let k = 0; k < W; k++)
+    for (let j = 0; j < V; j++)
+      for (let i = 0; i < U; i++) {
+        const p = idx(i, j, k);
+        let d = disp(p, i, j, k);
+        const inner = i > 0 && i < U - 1 && j > 0 && j < V - 1 && k > 0 && k < W - 1;
+        if (lat.use_outside && inner) {
+          const lines: [number, number, number][] = [];
+          const lerp = (a: [number, number, number], b: [number, number, number], t: number) => [0, 1, 2].map((c) => a[c] + (b[c] - a[c]) * t) as [number, number, number];
+          lines.push(lerp(disp(idx(0, j, k), 0, j, k), disp(idx(U - 1, j, k), U - 1, j, k), i / (U - 1)));
+          lines.push(lerp(disp(idx(i, 0, k), i, 0, k), disp(idx(i, V - 1, k), i, V - 1, k), j / (V - 1)));
+          lines.push(lerp(disp(idx(i, j, 0), i, j, 0), disp(idx(i, j, W - 1), i, j, W - 1), k / (W - 1)));
+          d = [0, 1, 2].map((c) => (lines[0][c] + lines[1][c] + lines[2][c]) / 3) as [number, number, number];
+        }
+        const f = wts ? (wts[p] ?? 0) : 1;
+        out[p * 3] = rest(i, U) + d[0] * f;
+        out[p * 3 + 1] = rest(j, V) + d[1] * f;
+        out[p * 3 + 2] = rest(k, W) + d[2] * f;
+      }
+  return out;
+}
+
 function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const lt = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   const lat = lt?.ob.data ? ctx.doc.lattices[lt.ob.data] : undefined;
@@ -1649,14 +1686,16 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const toLat = lt.world.clone().invert().multiply(own);
   const back = toLat.clone().invert();
-  const { points_u: U, points_v: V, points_w: W, points } = lat;
+  const { points_u: U, points_v: V, points_w: W } = lat;
+  const points = latticeEffectivePoints(lat);
   const rest = (i: number, n: number) => (n > 1 ? i / (n - 1) - 0.5 : 0);
   const strength = num(mod, 'strength', 1);
-  const type = lat.interpolation ?? 'KEY_BSPLINE';
+  const base = lat.interpolation ?? 'KEY_BSPLINE';
+  const types = [lat.interpolation_type_u ?? base, lat.interpolation_type_v ?? base, lat.interpolation_type_w ?? base];
   const wu = [0, 0, 0, 0],
     wv = [0, 0, 0, 0],
     ww = [0, 0, 0, 0];
-  const setup = (x: number, n: number, w: number[]): number => {
+  const setup = (x: number, n: number, w: number[], axis: number): number => {
     if (n <= 1) {
       w.fill(0);
       w[1] = 1;
@@ -1664,15 +1703,15 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     }
     const u = (x + 0.5) * (n - 1);
     const i = Math.floor(u);
-    latticeWeights(u - i, type, w);
+    latticeWeights(u - i, types[axis], w);
     return i;
   };
   const clampI = (i: number, n: number) => Math.max(0, Math.min(n - 1, i));
   return deform(m, mod, (p) => {
     p.applyMatrix4(toLat);
-    const iu = setup(p.x, U, wu),
-      iv = setup(p.y, V, wv),
-      iw = setup(p.z, W, ww);
+    const iu = setup(p.x, U, wu, 0),
+      iv = setup(p.y, V, wv, 1),
+      iw = setup(p.z, W, ww, 2);
     let dx = 0,
       dy = 0,
       dz = 0;
