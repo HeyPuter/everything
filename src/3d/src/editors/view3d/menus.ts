@@ -34,8 +34,8 @@ export function viewMenu(): MenuItem[] {
     { separator: true },
     { label: 'Play Animation', op: 'screen.animation_play', shortcut: 'Space' },
     { separator: true },
-    { label: 'Render Viewport Image', op: 'render.opengl' },
-    { label: 'Viewport Render Animation', op: 'render.opengl_animation' },
+    { label: 'Render Viewport Preview', icon: 'render', op: 'render.opengl' },
+    { label: 'Render Playblast', op: 'render.opengl_animation' },
     { separator: true },
     { label: 'Area', submenu: () => areaMenu() },
   ];
