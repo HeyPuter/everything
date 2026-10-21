@@ -33,3 +33,14 @@ it('starts each grouped sheet’s series from its own first cell', () => {
   expect(column(a, 0, 4)).toEqual([100, 102, 104, 106]);
   expect(column(b, 0, 4)).toEqual([5, 7, 9, 11]);
 });
+
+it('fits each grouped sheet’s Series ▸ Trend to its own values', async () => {
+  const { fillSeriesLines } = await import('../src/core/autofill-options.js');
+  const { wb, a, b, column } = book();
+  wb.setInput(a, 1, 0, '110'); wb.setInput(b, 1, 0, '6');
+  wb.clearHistory();
+  fillSeriesLines(wb, a, { r1: 0, c1: 0, r2: 3, c2: 0 }, { type: 'linear', trend: true, direction: 'down' });
+  expect(column(a, 0, 4)).toEqual([100, 110, 120, 130]);
+  expect(column(b, 0, 4)).toEqual([5, 6, 7, 8]);
+  expect(wb.undoLabels()).toHaveLength(1);
+});

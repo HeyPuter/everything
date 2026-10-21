@@ -231,6 +231,20 @@ export function trendFit(ys, growth = false) {
  * the values it starts with. Returns how many cells were written.
  */
 export function fillSeriesLines(wb, sheetId, range, { type = 'linear', step = 1, stop = null, unit = 'day', direction = 'down', trend = false } = {}) {
+  // With sheets grouped, each sheet's lines run from its own cells, as Fill Series does on its own (see sheet-group.js),
+  // and a protected sheet among them refuses the step for all of them.
+  const others = wb._groupTargets?.(sheetId);
+  if (others) {
+    const locked = others.map((id) => wb.sheet(id)).find((sheet) => sheet?.protected);
+    if (locked) { wb._locked(locked); return 0; }
+    let count = 0;
+    const options = { type, step, stop, unit, direction, trend };
+    wb.transaction(type === 'autofill' ? 'Fill (grouped sheets)' : 'Fill series (grouped sheets)', () => wb._withoutGroup(() => {
+      count = fillSeriesLines(wb, sheetId, range, options);
+      for (const id of others) fillSeriesLines(wb, id, range, options);
+    }));
+    return count;
+  }
   const n = normalizeRange(range);
   const single = n.r1 === n.r2 && n.c1 === n.c2;
   let count = 0;
