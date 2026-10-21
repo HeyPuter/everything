@@ -4,7 +4,7 @@ import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { closeMenu } from '../src/ui/menu.js';
 
-// Add Watch, Circle Invalid Data, Zoom to Selection, Split, Tab Color and Move sheet left/right act on the sheet in
+// Add Watch, Circle Invalid Data, Zoom to Selection, Split, Headings, Tab Color and Move sheet left/right act on the sheet in
 // view, but did not finish an entry first, as Freeze Panes and the other commands on lines do: with a formula showing
 // another sheet to pick references on, they acted on that sheet (or, for Split, on a mix of the two) and left the
 // formula open. The entry now goes in first, and its own sheet is the one acted on.
@@ -105,4 +105,12 @@ it('Move sheet right moves the formula\'s sheet', async () => {
   await view.run('moveSheet', 'right');
   entered(wb, home);
   expect(wb.sheets.map((s) => s.id)).toEqual([other, home]);
+});
+
+it('Headings hides the headings of the formula\'s sheet', async () => {
+  const { wb, home, other } = await pointingAway();
+  await view.run('toggleHeaders');
+  entered(wb, home);
+  expect(wb.sheet(other).headers).not.toBe(false);
+  expect(wb.sheet(home).headers).toBe(false);
 });

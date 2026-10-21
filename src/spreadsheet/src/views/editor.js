@@ -3154,6 +3154,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       case 'toggleHeaders':
+        // The entry goes in first, as for Gridlines: a formula showing another sheet hid that sheet's headings.
+        if (!committed()) return;
         grid.setShowHeaders(!grid.showHeaders);
         keepFocus();
         return;
