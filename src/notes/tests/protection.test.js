@@ -207,6 +207,22 @@ describe('password-protected sections: page versions', () => {
   });
 });
 
+describe('password-protected sections: Deleted Notes', () => {
+  it('locks a section that was deleted while unlocked', async () => {
+    const { store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const entry = store.deleteNode(section.id);
+    await store.lockAll();
+    expect(store.keys.size).toBe(0);
+    expect(store.pages.has(meta.id)).toBe(false);
+    store.restore(entry.id);
+    expect(store.isLocked(section.id)).toBe(true);
+    expect(store.section(section.id).pages).toEqual([]);
+    expect(await store.unlockSection(section.id, 'pw')).toBe(true);
+    expect(store.section(section.id).pages.map((p) => p.title)).toEqual(['Secret plans']);
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');

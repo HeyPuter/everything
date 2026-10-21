@@ -804,9 +804,10 @@ export class Store extends Emitter {
 
   /** Locks a section again: writes pending changes sealed, then forgets the key and the pages. */
   async lockSection(id) {
-    const f = this.findNode(id);
-    if (!f?.node.locked || !this.keys.has(id)) return;
-    const pageIds = f.node.pages.map((p) => p.id);
+    // A section deleted while unlocked sits in Deleted Notes and locks too.
+    const node = this.findNode(id)?.node || this.trashedSection(id);
+    if (!node?.locked || !this.keys.has(id)) return;
+    const pageIds = node.pages.map((p) => p.id);
     await this.flush();
     const key = this.keys.get(id);
     // A save that failed (offline) is retried after the key is gone, when it
@@ -826,19 +827,29 @@ export class Store extends Emitter {
         entry.sectionName = '';
       }
     }
-    f.node.sealed = await sealJSON(key, f.node.pages);
+    node.sealed = await sealJSON(key, node.pages);
     this.keys.delete(id);
-    f.node.pages = [];
-    for (const pid of pageIds) {
+    node.pages = [];
+    for (const pid of [...pageIds, ...trashed]) {
       this.pages.delete(pid);
       this.textCache.delete(pid);
-      const url = [...this.assetUrls.keys()].filter((a) => a.startsWith(`${id}.`));
-      for (const a of url) {
-        URL.revokeObjectURL(this.assetUrls.get(a));
-        this.assetUrls.delete(a);
-      }
+    }
+    for (const a of [...this.assetUrls.keys()].filter((a) => a.startsWith(`${id}.`))) {
+      URL.revokeObjectURL(this.assetUrls.get(a));
+      this.assetUrls.delete(a);
     }
     this.emit('change', { type: 'lock', id });
+  }
+
+  /** A section inside a Deleted Notes entry (deleted itself or with its group or notebook). */
+  trashedSection(id) {
+    for (const entry of this.trash) {
+      const root = entry.node || entry.notebook;
+      if (!root) continue;
+      const found = findIn(root.sections || [root], id, null);
+      if (found?.node.type === 'section') return found.node;
+    }
+    return null;
   }
 
   async lockAll() {

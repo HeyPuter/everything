@@ -551,8 +551,6 @@ export class App {
 
   /** Locks a protected section and closes its page if it is open. */
   async lockSection(id) {
-    const f = this.store.findNode(id);
-    if (!f) return;
     if (this.state.sectionId === id) {
       this.editor.flush();
       this.showEmpty('locked');
