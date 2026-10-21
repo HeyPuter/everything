@@ -53,6 +53,11 @@ export const EXPORT_FORMATS = [
   ["pptx", "PowerPoint (.pptx)", ".pptx"],
 ];
 
+// A file name typed with the extension an export adds ("Q3 review.pdf")
+// names the file, not a "Q3 review.pdf.pdf".
+const EXPORT_EXTENSION =
+  /\.(pdf|png|jpe?g|zip|mp4|webm|gif|rtf|txt|potx|pptx)\s*$/i;
+
 export function createFileTools(ctx) {
   const { P } = ctx;
 
@@ -579,7 +584,9 @@ export function createFileTools(ctx) {
       if (ctx.doc() !== target) return modal.close(null);
       const format = formatList.value();
       const fileBase =
-        ctx.cleanName(name.input.value, { maxLength: Infinity }) || baseName();
+        ctx.cleanName(name.input.value.replace(EXPORT_EXTENSION, ""), {
+          maxLength: Infinity,
+        }) || baseName();
       let slides;
       try {
         slides = ["pdf", "png", "jpeg", "video", "gif"].includes(format)

@@ -126,6 +126,30 @@ test("exports a PDF of the visible slides, at the slide's size, with bookmarks",
   expect(text).toContain("/Filter /DCTDecode");
 });
 
+test("takes a typed extension as the file's own, not part of its name", async ({
+  page,
+}) => {
+  await start(page);
+  const named = (name) => async (dialog) =>
+    dialog.getByRole("textbox", { name: "File name" }).fill(name);
+  const pdf = await exportAs(page, "PDF document", named("Q3 review.PDF"));
+  expect(pdf.name).toBe("Q3 review.pdf");
+  const jpeg = await exportAs(page, "JPEG pictures", async (dialog) => {
+    await named("Cover.jpeg")(dialog);
+    await dialog.getByRole("radio", { name: "Current slide" }).check();
+  });
+  expect(jpeg.name).toBe("Cover - Slide 1.jpg");
+  const template = await exportAs(
+    page,
+    "Template (.potx)",
+    named("Brand.potx"),
+  );
+  expect(template.name).toBe("Brand.potx");
+  // A name that only looks like it has an extension keeps it.
+  const kept = await exportAs(page, "PDF document", named("Version 2.5"));
+  expect(kept.name).toBe("Version 2.5.pdf");
+});
+
 test("exports handouts and notes pages as PDF on paper", async ({ page }) => {
   await start(page);
   const handouts = await exportAs(page, "PDF document", async (dialog) => {
