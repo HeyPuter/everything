@@ -21949,13 +21949,18 @@ Supported subset:
   Enter record insertions; Delete/Backspace/selection replacement record deletions; deleting your
   own pending insertion removes it outright.
 - Accept/Reject this change, and move to next, all changes, and all changes and stop tracking.
+  Accepting a deletion that crosses a field's begin or end (§17.16.18) removes the text on either
+  side of the boundary separately; the field keeps the rest of its result.
+- Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
+  `endnoteReference`) records the reference run as an insertion, written inside `w:ins`.
+- Replace All records each replacement as a deletion of the found text and an insertion.
 - All Markup (inline colour, underline and strikethrough with left-margin change bars), Simple
   Markup and No Markup (deleted text hidden), and Original (inserted text hidden).
 - Unchanged documents save byte for byte; revisions survive untracked edits and round trips.
 
 Formatting revisions (`rPrChange`, `pPrChange`, including in the paragraph mark) are retained, listed with change bars and can be accepted; rejecting them is reported as not supported and keeps them. Gaps: table row/cell revisions, and revisions in
 headers, footers and drawing text still open read-only. Moves are not distinguished from
-insertions/deletions after an edit. Replace All in Find and Replace is not tracked. Balloons for
+insertions/deletions after an edit. An equation inserted with tracking on is not tracked. Balloons for
 deletions are not drawn. Tests: `tests/tracked-changes.test.js`.
 
 ## Generated table of contents (2026-10-09)
