@@ -2485,7 +2485,8 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
     other = { count: 0, value: 0 };
     for (const i of bySize.slice(budget - 1)) { other.count++; other.value += values[i]; values[i] = 0; }
   }
-  const out = [], labelOut = [], pie = bounds ? chart.appearance.pie : null;
+  const out = [], labelOut = [], outsideLabels = [], pie = bounds ? chart.appearance.pie : null;
+  const pieLabel = ({ x, y, lines, st, anchor, leader, rim }) => `${leader ? `<path d="M ${f(rim[0])} ${f(rim[1])} L ${f(x)} ${f(y)}" fill="none" stroke="${esc(st.color)}"/>` : ''}<text class="chart-data-label" x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(st.font))}" font-size="${st.size}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''} fill="${esc(st.color)}" data-el="dataLabels" data-series="0">${lines.map((line, j) => `<tspan x="${f(x)}" dy="${f(j ? st.size * 1.2 : st.size * .35 - (lines.length - 1) * st.size * .6)}">${esc(line)}</tspan>`).join('')}</text>`;
   const colors = new Map((chart.appearance?.pointColors?.[0] || []).map(p => [p.index, p.color]));
   const pointLabels = new Map((pie?.labels.points || []).map(p => [p.index, p]));
   const pointBorders = new Map((pie?.points || []).map(p => [p.index, p]));
@@ -2527,12 +2528,17 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
       const value = l.content ? l.content.map(c => c.kind === 'text' ? c.text : fields[c.kind]).join('')
         : ['series', 'category', 'value', 'percent'].filter(k => l[k]).map(k => fields[k]).join(l.separator);
       if (!l.hidden && value) {
-        const mid = (angle + a2) / 2, outside = l.position === 'outEnd';
-        const lr = outside ? r + st.size : l.position === 'inEnd' ? r - st.size : inner ? (r + inner) / 2 : r * .68;
+        const mid = (angle + a2) / 2, lines = value.split(/\r?\n/);
+        // Best Fit sets a label in its slice where it fits there, and outside it, on a leader line, where it does not.
+        const centre = inner ? (r + inner) / 2 : r * .68, width = maxOf(lines.map(line => axisTextWidth(line, st))), height = lines.length * st.size * 1.2;
+        const fits = (a2 - angle) * centre >= width + 4 && (inner ? r - inner : r) >= height + 2;
+        const outside = l.position === 'outEnd' || l.position === 'bestFit' && !fits;
+        const lr = outside ? r + st.size : l.position === 'inEnd' ? r - st.size : centre;
         const x = cx + dxe + lr * Math.cos(mid) + (l.dx || 0) * bounds.W, y = cy + dye + lr * Math.sin(mid) + (l.dy || 0) * bounds.H;
-        const lines = value.split(/\r?\n/), anchor = outside ? Math.cos(mid) >= 0 ? 'start' : 'end' : 'middle';
-        if (outside && l.leaderLines) labelOut.push(`<path d="M ${f(cx + r * Math.cos(mid))} ${f(cy + r * Math.sin(mid))} L ${f(x)} ${f(y)}" fill="none" stroke="${esc(st.color)}"/>`);
-        labelOut.push(`<text class="chart-data-label" x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" font-family="${esc(fontStack(st.font))}" font-size="${st.size}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''} fill="${esc(st.color)}" data-el="dataLabels" data-series="0">${lines.map((line, j) => `<tspan x="${f(x)}" dy="${f(j ? st.size * 1.2 : st.size * .35 - (lines.length - 1) * st.size * .6)}">${esc(line)}</tspan>`).join('')}</text>`);
+        const label = { x, y, mid, lines, st, height, anchor: outside ? Math.cos(mid) >= 0 ? 'start' : 'end' : 'middle', leader: outside && l.leaderLines,
+          rim: [cx + dxe + r * Math.cos(mid), cy + dye + r * Math.sin(mid)] };
+        // Labels outside the pie are spaced apart below; one placed by hand stays where it was put.
+        if (outside && !l.dx && !l.dy) outsideLabels.push(label); else labelOut.push(pieLabel(label));
       }
     } else if (!pie && frac >= 0.06) {
       const mid = (angle + a2) / 2;
@@ -2545,6 +2551,23 @@ function renderPie(data, chart, right, top, bottom, bounds = null, opts = {}) {
   // The Other slice of a pie of pie takes the next colour after the slices of the main pie.
   values.forEach((v, i) => { if (v) slice(v, pie ? piePaint(chart, at(i), colors) : seriesPaint(chart, at(i)), () => `${data.categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, style))}`, i); });
   if (other) slice(other.value, 'var(--ink-3)', (v) => `Other (${other.count.toLocaleString('en-US')} slices)${Number.isFinite(v * scale) ? `: ${(v * scale).toLocaleString('en-US')}` : ''}`);
+  // Labels outside the pie stand in a column down each side: each moved down past the one above it where they
+  // would overlap (the first kept below the top of the plot), the column moved back up where it runs past the
+  // foot, and each set just clear of the pie at the height it ends at, its leader line running to it.
+  const head = bounds ? bounds.y : top, foot = bounds ? bounds.y + bounds.h : bottom;
+  for (const side of [1, -1]) {
+    const column = outsideLabels.filter(l => (Math.cos(l.mid) >= 0 ? 1 : -1) === side).sort((p, q) => p.y - q.y);
+    column.forEach((l, k) => { l.y = Math.max(l.y, k ? column[k - 1].y + (column[k - 1].height + l.height) / 2 : head + l.height / 2); });
+    for (let k = column.length - 1; k >= 0; k--) {
+      const limit = k === column.length - 1 ? foot - column[k].height / 2 : column[k + 1].y - (column[k].height + column[k + 1].height) / 2;
+      if (column[k].y > limit) column[k].y = limit;
+    }
+    for (const l of column) {
+      const reach = r + l.st.size, rise = l.y - (l.rim[1] - r * Math.sin(l.mid));
+      l.x = l.rim[0] - r * Math.cos(l.mid) + side * (Math.sqrt(Math.max(0, reach * reach - rise * rise)) + 2);
+      labelOut.push(pieLabel(l));
+    }
+  }
   return out.join('') + labelOut.join('');
 }
 
