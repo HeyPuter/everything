@@ -3,7 +3,9 @@ import { readDataModelArchive } from './data-model-archive.js';
 
 const ENGINE = 'http://schemas.microsoft.com/analysisservices/2003/engine';
 const MAX_XML = 16 * 1024 * 1024;
-const parser = new DOMParser({ onError: (_level, message) => { throw new Error(message); } });
+// Malformed markup refuses the part. A U+FFFD in it is well-formed text (a font name another program mangled,
+// say), which the parser only warns about: refusing it refused the whole file.
+const parser = new DOMParser({ onError: (level, message) => { if (level !== 'warning' || !/replacement character/i.test(message)) throw new Error(message); } });
 const serializer = new XMLSerializer();
 export function standaloneModelXml(node) {
   if (!node) return '';
