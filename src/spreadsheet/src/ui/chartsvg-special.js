@@ -249,6 +249,18 @@ function valueAxis(fr, chart, scale, style, { side = 'left', grid = true, format
   } };
 }
 
+/** Vertical gridlines between `n` category slots across `plot` (Add Chart Element ▸ Gridlines ▸ Vertical), behind the marks. */
+function categoryGridlines(fr, n, plot) {
+  const { a } = fr;
+  if (!a?.xGridlines || !n) return '';
+  const style = a.gridlineStyles?.x, color = style?.color && style.color !== 'none' ? style.color : '#d9d9d9', out = [];
+  for (let i = 0; i <= n; i++) {
+    const x = plot.x + plot.w * i / n;
+    out.push(`<line class="chart-gridline chart-gridline-x" x1="${f(x)}" y1="${f(plot.y)}" x2="${f(x)}" y2="${f(plot.y + plot.h)}" stroke="${esc(color)}" stroke-width="${style?.width ?? 1}"/>`);
+  }
+  return out.join('');
+}
+
 /** Category labels under slots across `plot`, every k-th where they would collide. */
 function categoryAxis(fr, categories, plot, slot) {
   const { a, st } = fr;
@@ -287,6 +299,7 @@ function renderBoxWhisker(data, chart, width, height) {
   const y = v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
   parts.push(axis.draw(plot, y));
   const n = grouped.categories.length, slot = plot.w / Math.max(1, n), count = grouped.series.length;
+  parts.push(categoryGridlines(fr, n, plot));
   const gap = Math.max(0, opts.gapWidth ?? 100) / 100, boxW = slot / (count + gap), clip = `box-${Math.random().toString(36).slice(2, 8)}`;
   parts.push(`<clipPath id="${clip}"><rect x="${f(plot.x)}" y="${f(plot.y - 2)}" width="${f(plot.w)}" height="${f(plot.h + 4)}"/></clipPath><g clip-path="url(#${clip})">`);
   const labels = [];
@@ -404,6 +417,7 @@ function renderStock(data, chart, width, height) {
   parts.push(left.draw(plot, volume ? yv : yp));
   if (right) parts.push(right.draw(plot, yp));
   const slot = plot.w / Math.max(1, n), budget = n <= MARK_BUDGET, labels = [];
+  parts.push(categoryGridlines(fr, n, plot));
   // Volume columns and up/down bars leave 150% of their width between periods.
   const barW = Math.max(1, slot / 2.5);
   for (let i = 0; i < n; i++) {
