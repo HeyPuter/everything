@@ -467,7 +467,13 @@ export function pinCall(name, args, env) {
   if (args && typeof args === "object") {
     const current = env.slideIndex() + 1;
     if ("slide" in properties && args.slide == null) args.slide = current;
-    if (name === "set_slide_properties" && args.slides == null && !args.all)
+    // No slides, or an empty list of them, is the current slide.
+    if (
+      name === "set_slide_properties" &&
+      !args.all &&
+      (args.slides == null ||
+        (Array.isArray(args.slides) && !args.slides.length))
+    )
       args.slides = [current];
     if (name === "add_slide" && args.position == null)
       args.position = current + 1;
