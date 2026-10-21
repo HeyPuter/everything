@@ -1538,6 +1538,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'fitRows': {
         // The rows of every selected range (Ctrl/Cmd+click adds ranges), as one undo step, as Fit columns to content does.
+        // The entry goes in first, as for the other commands on lines: a formula picking references on another sheet
+        // fitted the rows picked there.
+        if (!committed()) return;
         // Whole columns stop at the last row holding anything or a height of its own, not at row 1,048,576.
         const sheet = wb.sheet(sheetId);
         let last = wb.usedRange(sheetId)?.r2 ?? -1;
@@ -2684,7 +2687,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'autofit': {
-        // The columns of every selected range, as one undo step.
+        // The columns of every selected range, as one undo step, once the entry has gone in (as for fitRows).
+        if (!committed()) return;
         let fitted = false;
         wb.transaction('Fit columns', () => { for (const { from, to } of lineRuns(grid.ranges, 'col')) if (autofitColumns(from, to)) fitted = true; });
         if (!fitted) toast('Nothing to fit: the selected columns are empty', { icon: 'info' });
@@ -3516,6 +3520,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'showPageBreaks': {
         // View ▸ Page Breaks: Normal view's dashed lines where the pages break, kept with the sheet.
+        if (!committed()) return;
         const sheet = wb.sheet(grid.sheetId);
         if (!sheet || sheet.kind === 'chart') return;
         const on = arg == null ? !pageBreakLinesOn(grid.sheetId) : !!arg;
