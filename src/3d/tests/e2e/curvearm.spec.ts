@@ -458,6 +458,9 @@ test('bevel object gives a curve its cross-section', async ({ page }) => {
   await run(page, 'object.select_all', { action: 'DESELECT' });
   await run(page, 'curve.primitive_bezier_curve_add');
   await page.locator('.rail-tab[data-tab="DATA"]').first().click();
+  // the Geometry panel starts closed
+  const geo = page.locator('[data-panel="cu-geometry"]').first();
+  if (!(await geo.evaluate((el) => el.classList.contains('open')))) await geo.locator('.panel-header').first().click();
   await expect(page.locator('.sr-label', { hasText: 'Taper Object' })).toBeVisible();
   const faces = await page.evaluate((id) => {
     const a = (window as any).app;
