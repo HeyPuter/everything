@@ -156,7 +156,7 @@ import * as P from '../lib/puter.js';
 import { trackEvent } from '../lib/analytics.js';
 import { VIEW_ONLY, autoSaveEnabled } from '../lib/doc.js';
 import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef, parseKey } from '../core/cell.js';
-import { parseRefText, MAX_ROW, MAX_COL } from '../core/refs.js';
+import { parseRefText, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
 import { stepCodeDecimals } from '../core/numfmt.js';
 import { maxLineWidth, cellLayoutText, tabularDigits } from '../core/textfit.js';
@@ -3534,7 +3534,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const current = sheet.printSettings || normalizePrintSettings({});
         const next = moveAreaEdge(area, arg.edge, arg.to);
         wb.setPrintSettings(grid.sheetId, { ...current, areas: [next, ...current.areas.slice(1)] }, 'Print area');
-        statusBar?.announce(`Print area set to ${rangeName(next)}`);
+        statusBar?.announce(`Print area set to ${selectionName(next)}`);
         refreshPageView(true);
         notify(); keepFocus();
         return;
@@ -3563,7 +3563,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         } else {
           const areas = arg === 'add' ? [...current.areas, ...grid.ranges] : [...grid.ranges];
           wb.setPrintSettings(sheetId, { ...current, areas });
-          toast(`Print area ${arg === 'add' ? 'extended to' : 'set to'} ${areas.map(rangeName).join(', ')}`, { icon: 'printer', duration: 2400 });
+          toast(`Print area ${arg === 'add' ? 'extended to' : 'set to'} ${areas.map(selectionName).join(', ')}`, { icon: 'printer', duration: 2400 });
         }
         notify();
         keepFocus();
@@ -3626,7 +3626,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed() || refusedByProtection('add conditional formatting') || !oneRange('add conditional formatting')) return;
         if (typeof arg === 'string') { openQuickRuleDialog(ctx, arg, grid.range); return; }
         const rule = presetRule(grid.range, arg || {});
-        if (rule && wb.addRule(sheetId, rule)) toast(`${{ databar: 'Data bars', scale: 'Color scale', icons: 'Icon set' }[arg.kind]} added to ${rangeName(grid.range)}`, { icon: 'highlighter', duration: 1800 });
+        if (rule && wb.addRule(sheetId, rule)) toast(`${{ databar: 'Data bars', scale: 'Color scale', icons: 'Icon set' }[arg.kind]} added to ${selectionName(grid.range)}`, { icon: 'highlighter', duration: 1800 });
         keepFocus();
         return;
       }
@@ -4091,7 +4091,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         let truncated = false;
         const ranges = scopes.flatMap((scope) => { const found = wb.specialCells(sheetId, scope, arg, 500, grid.active); truncated ||= !!found.truncated; return found; });
         const label = (SPECIAL_KINDS[arg] || arg).toLowerCase();
-        if (!ranges.length) { toast(`No ${label} ${anywhere ? 'on this sheet' : `in ${scopes.length === 1 ? rangeName(scopes[0]) : 'the selection'}`}`, { icon: 'info' }); return; }
+        if (!ranges.length) { toast(`No ${label} ${anywhere ? 'on this sheet' : `in ${scopes.length === 1 ? selectionName(scopes[0]) : 'the selection'}`}`, { icon: 'info' }); return; }
         grid.setRanges(ranges);
         const n = ranges.reduce((sum, rg) => sum + (rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1), 0);
         // The workbook stops after a few hundred blocks and marks the list; the count is then a first helping, not the whole.
@@ -4167,7 +4167,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!doc.path) { toast('Save the spreadsheet first, then copy a link to it', { icon: 'info', duration: 3500 }); return; }
         const rg = grid.range;
         const url = rangeLink(location, doc.path, wb.sheet(grid.sheetId).name, rg);
-        const what = rg.r1 === rg.r2 && rg.c1 === rg.c2 ? cellName(rg.r1, rg.c1) : rangeName(rg);
+        const what = selectionName(rg);
         try {
           await navigator.clipboard.writeText(url);
           toast(`Link to ${what} copied`, { icon: 'link', duration: 2200 });
@@ -4653,7 +4653,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     e.preventDefault();
     e.clipboardData.setData('text/plain', c.text);
     e.clipboardData.setData('text/html', c.html);
-    statusBar?.announce(`${cut ? 'Cut' : 'Copied'} ${c.multi ? `${c.rows.length} × ${c.cols.length} cells from ${grid.ranges.length} ranges` : rangeName(c.range)}${c.visibleOnly ? ' (visible cells only)' : ''}`);
+    statusBar?.announce(`${cut ? 'Cut' : 'Copied'} ${c.multi ? `${c.rows.length} × ${c.cols.length} cells from ${grid.ranges.length} ranges` : selectionName(c.range)}${c.visibleOnly ? ' (visible cells only)' : ''}`);
     if (c.visibleOnly) toast(`${cut ? 'Cut' : 'Copied'} the visible cells only; hidden rows and columns were skipped`, { icon: 'info', duration: 2500 });
   }
 

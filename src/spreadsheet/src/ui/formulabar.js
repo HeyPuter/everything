@@ -8,10 +8,10 @@ import { isComposing, el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
 import { toast } from './toast.js';
-import { cellName, rangeName, parseRange } from '../core/cell.js';
+import { cellName, parseRange } from '../core/cell.js';
 import { editText } from '../core/format.js';
 import { isSingle } from '../core/selection.js';
-import { refToText, MAX_ROW, MAX_COL } from '../core/refs.js';
+import { selectionName } from '../core/refs.js';
 
 export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   // Both fields follow their text's own direction, as the cell and its in-cell editor do: a named range or
@@ -127,12 +127,6 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     return ctx.wb.namesForSheet(sheetId).filter(n => !n.hidden).find(same)?.name || null;
   }
 
-  // Whole columns read C:C and whole rows 3:5, as Excel writes them: C1:C1048576 did not fit in the box.
-  function lineName(range) {
-    const cols = range.r1 === 0 && range.r2 >= MAX_ROW, rows = range.c1 === 0 && range.c2 >= MAX_COL;
-    return cols === rows ? null : refToText({ kind: cols ? 'cols' : 'rows', ...range });
-  }
-
   function refresh() {
     const chartSheet = ctx.wb.sheet(ctx.sheetId())?.kind === 'chart';
     root.hidden = chartSheet;
@@ -149,7 +143,8 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     const range = ctx.grid.range;
     const table = (ctx.wb.tablesOn?.(ctx.sheetId()) || []).find((t) => t.range.r1 === range.r1 && t.range.c1 === range.c1 && t.range.r2 === range.r2 && t.range.c2 === range.c2);
     const named = nameOf(range) || table?.name;
-    if (document.activeElement !== nameBox) nameBox.value = named || (isSingle(sel) ? cellName(sel.active.r, sel.active.c) : lineName(range) || rangeName(range));
+    // Whole columns read C:C and whole rows 3:5, as Excel writes them: C1:C1048576 did not fit in the box.
+    if (document.activeElement !== nameBox) nameBox.value = named || (isSingle(sel) ? cellName(sel.active.r, sel.active.c) : selectionName(range));
     const state = ctx.grid.editState;
     input.classList.remove('spilled');
     editActions.hidden = !fixedActions && !state;

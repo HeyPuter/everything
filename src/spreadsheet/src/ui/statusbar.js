@@ -8,8 +8,9 @@ import { sheetFilters } from '../core/sheet-filters.js';
 import { el } from './dom.js';
 import { icon } from './icons.js';
 import { openMenu } from './menu.js';
-import { rangeName, cellName, cellKey } from '../core/cell.js';
+import { cellName, cellKey } from '../core/cell.js';
 import { isSingle } from '../core/selection.js';
+import { selectionName } from '../core/refs.js';
 import { formatGeneral, formatValue, errorHelp } from '../core/format.js';
 import { isError } from '../core/formula/functions.js';
 import { meanFromSum, sumFromTotal } from '../core/numeric.js';
@@ -309,7 +310,7 @@ export function createStatusBar(ctx) {
     const out = {
       mode: cellMode(ctx.grid.editState),
       a11y: a11yEl.querySelector('.status-a11y-text').textContent.replace(/^Accessibility: /, ''),
-      address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : rangeName(ctx.grid.range)) : `${ranges.length} ranges`,
+      address: ranges.length === 1 ? (isSingle(ctx.grid.selection) ? cellName(ctx.grid.selection.active.r, ctx.grid.selection.active.c) : selectionName(ctx.grid.range)) : `${ranges.length} ranges`,
       size: sheet && sheet.kind !== 'chart' ? `${sheet.rows.toLocaleString()} × ${sheet.cols.toLocaleString()}` : '',
       zoom: `${Math.round(ctx.grid.zoom * 100)}%`,
     };
@@ -389,7 +390,8 @@ export function createStatusBar(ctx) {
       right.replaceChildren(el('span.status-item.muted.status-size', {}, `${sheet.rows.toLocaleString()} rows, ${sheet.cols.toLocaleString()} columns`));
       return;
     }
-    const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? rangeName(range) : ranges.length <= 3 ? ranges.map(rangeName).join(', ') : `${ranges.length} ranges`)];
+    // Whole columns read C:C and whole rows 3:5, as the Name Box reads them, rather than C1:C1048576.
+    const items = [el('span.status-item.status-address', {}, ranges.length === 1 ? selectionName(range) : ranges.length <= 3 ? ranges.map(selectionName).join(', ') : `${ranges.length} ranges`)];
     // The statistics stand at the right, in this order: Average, Count, Numerical Count, Minimum, Maximum, Sum.
     const stats = [];
     const stat = (label, value, extra = '') => el(`span.status-item.status-stat${extra}`, {}, el('span.muted', {}, `${label}: `), value);

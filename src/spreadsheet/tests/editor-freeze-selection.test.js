@@ -62,7 +62,7 @@ it('freezes rows up to the active cell when whole columns are selected', async (
   await select('C3');
   key(' ', { ctrlKey: true }); // select the column, the active cell staying at C3
   await vi.advanceTimersByTimeAsync(1);
-  expect(view.el.querySelector('.status-left .status-item').textContent).toBe('C1:C1048576'); // the whole column
+  expect(view.el.querySelector('.status-left .status-item').textContent).toBe('C:C'); // the whole column
   await freeze('Rows up to the selection');
   expect(wb.sheet(id).frozenRows).toBe(3);
   expect(toast).toHaveBeenCalledWith('Frozen 3 rows', expect.anything());
@@ -73,7 +73,7 @@ it('freezes columns up to the active cell when whole rows are selected', async (
   await select('C3');
   key(' ', { shiftKey: true }); // select the row
   await vi.advanceTimersByTimeAsync(1);
-  expect(view.el.querySelector('.status-left .status-item').textContent).toMatch(/^A3:[A-Z]+3$/);
+  expect(view.el.querySelector('.status-left .status-item').textContent).toBe('3:3');
   await freeze('Columns up to the selection');
   expect(wb.sheet(id).frozenCols).toBe(3);
   expect(toast).toHaveBeenCalledWith('Frozen 3 columns', expect.anything());

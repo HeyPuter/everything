@@ -90,7 +90,7 @@ it('records nothing for a press on a header that never moved', { timeout: 20000 
   wb.setInput(id, 5, 0, 'later'); // an ordinary step to undo
   await vi.advanceTimersByTimeAsync(1);
   await dragHeader(2, null); // pressed and released on C's header: a click, not a move
-  expect(selected()).toMatch(/^C1:C/);
+  expect(selected()).toBe('C:C');
   expect(column(wb, id, 0)).toEqual(['A1', 'A2', 'A3']); // nothing moved
   await menu('edit', 'Undo');
   // Undoing the cell edit shows the cell it changed, as any cell step does; no selection was kept for the click.

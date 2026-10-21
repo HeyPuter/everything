@@ -13,7 +13,7 @@
  * shift along it.
  */
 
-import { colIndex, colName } from './cell.js';
+import { colIndex, colName, rangeName } from './cell.js';
 import { tokenize } from './formula/tokenizer.js';
 import { freeNameTokens } from './formula/names.js';
 
@@ -141,6 +141,15 @@ export function quoteSheet(name) {
   // Letters of any script, digits, underscores and periods need no quotes: Übersicht!A1 — unless
   // the name would read as a cell or R1C1 reference or a boolean, which is quoted: 'A1'!A2, 'R1C1'!A1, 'TRUE'!A1.
   return /^[\p{L}_][\p{L}\p{M}\p{N}_.]*$/u.test(name) && !readsAsOther(name) ? name : `'${name.replace(/'/g, "''")}'`;
+}
+
+/**
+ * A selected range as Excel names it to people: whole columns C:C (B:D), whole rows 3:5, any other range A1:B2.
+ * The whole sheet keeps its cells, A1:XFD1048576.
+ */
+export function selectionName(range) {
+  const cols = range.r1 === 0 && range.r2 >= MAX_ROW, rows = range.c1 === 0 && range.c2 >= MAX_COL;
+  return cols === rows ? rangeName(range) : refToText({ kind: cols ? 'cols' : 'rows', ...range });
 }
 
 export function refToText(ref) {
