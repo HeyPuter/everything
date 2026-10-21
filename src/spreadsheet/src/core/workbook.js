@@ -106,6 +106,7 @@ import { normalizeQueries, serializeQueries } from './queries.js';
 import { normalizeScripts, serializeScripts } from './scripts.js';
 import { installSheetGroups } from './sheet-group.js';
 import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-history.js';
+import { eachStoredCell } from './sparse-range.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 function objectNoun(obj) {
@@ -3025,12 +3026,11 @@ export class Workbook extends EventTarget {
     const beforeAt = (r, c) => this._lineStyle(before, r, c);
     const paint = (st, r, c) => paintedBorder(st, area, r, c, kind, options, { wholeCols, wholeRows });
     const candidates = [];
-    for (const [key, cell] of sheet.cells) {
-      const { r, c } = parseKey(key);
-      if (r < area.r1 || r > area.r2 || c < area.c1 || c > area.c2) continue;
+    // A few cells framed on a sheet of thousands visit those cells, not every cell the sheet holds.
+    eachStoredCell(sheet, area, (r, c, cell) => {
       const border = paint({ ...beforeAt(r, c), ...cell.s }, r, c);
       if (border) candidates.push({ r, c, cell: { ...cell, s: { ...cell.s, ...border } }, border });
-    }
+    });
     this.transaction('Borders', () => {
       for (const axis of wholeSheet ? ['col', 'row'] : lines ? [lines.axis] : []) {
         // Group equal patches so a sheet-wide pen creates one undoable line
