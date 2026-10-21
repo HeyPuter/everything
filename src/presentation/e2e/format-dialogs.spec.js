@@ -66,6 +66,21 @@ test("the Font dialog sets the face, underline, effects and character spacing", 
   expect(fmt.baseline).toBeCloseTo(0.2, 5);
 });
 
+test("the Font dialog's sample can be read in a dark window", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await start(page);
+  await addTextBox(page);
+  await menu(page, "Format", "Font…");
+  await expect(page.getByRole("dialog", { name: "Font" })).toBeVisible();
+  const axe = await new AxeBuilder({ page })
+    .include(".fmt-font-preview")
+    .withRules(["color-contrast"])
+    .analyze();
+  expect(axe.violations).toEqual([]);
+});
+
 test("the Paragraph and Tabs dialogs set alignment, indents, spacing and tab stops", async ({
   page,
 }) => {
