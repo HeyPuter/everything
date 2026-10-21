@@ -185,15 +185,35 @@ function shapeSegments(s) {
   }
 }
 
-/** Whether point (x, y) is within r of the item's ink. */
-export function hitTest(item, x, y, r) {
+function cross(ox, oy, ax, ay, bx, by) {
+  return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+}
+
+/** Shortest distance between segments AB and CD (0 when they cross). */
+function segmentDist(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d1 = cross(cx, cy, dx, dy, ax, ay);
+  const d2 = cross(cx, cy, dx, dy, bx, by);
+  const d3 = cross(ax, ay, bx, by, cx, cy);
+  const d4 = cross(ax, ay, bx, by, dx, dy);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return 0;
+  return Math.min(distToSegment(ax, ay, cx, cy, dx, dy), distToSegment(bx, by, cx, cy, dx, dy), distToSegment(cx, cy, ax, ay, bx, by), distToSegment(dx, dy, ax, ay, bx, by));
+}
+
+/**
+ * Whether point (x, y) is within r of the item's ink. With `from`, tests
+ * the whole segment from that point to (x, y), so a fast eraser swipe
+ * also hits ink it passed over between two pointer events.
+ */
+export function hitTest(item, x, y, r, from = null) {
+  const [fx, fy] = from || [x, y];
   const b = bounds(item);
-  if (x < b.x - r || x > b.x + b.w + r || y < b.y - r || y > b.y + b.h + r) return false;
+  if (Math.max(x, fx) < b.x - r || Math.min(x, fx) > b.x + b.w + r || Math.max(y, fy) < b.y - r || Math.min(y, fy) > b.y + b.h + r) return false;
   const reach = r + item.width / 2;
-  if (item.type === 'shape') return shapeSegments(item).some(([ax, ay, bx, by]) => distToSegment(x, y, ax, ay, bx, by) <= reach);
+  const near = (ax, ay, bx, by) => segmentDist(fx, fy, x, y, ax, ay, bx, by) <= reach;
+  if (item.type === 'shape') return shapeSegments(item).some(([ax, ay, bx, by]) => near(ax, ay, bx, by));
   const pts = item.points;
-  if (pts.length === 1) return Math.hypot(x - pts[0][0], y - pts[0][1]) <= reach;
-  for (let i = 1; i < pts.length; i++) if (distToSegment(x, y, pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) <= reach) return true;
+  if (pts.length === 1) return near(pts[0][0], pts[0][1], pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) if (near(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1])) return true;
   return false;
 }
 

@@ -22,6 +22,17 @@ describe('ink geometry', () => {
     expect(hitTest(s, 50, 20, 2)).toBe(false);
   });
 
+  it('hit-tests the path an eraser swept between two pointer events', () => {
+    const s = stroke([[50, 0], [50, 100]]);
+    // Neither sample is near the stroke, but the swipe between them crosses it.
+    expect(hitTest(s, 80, 50, 2)).toBe(false);
+    expect(hitTest(s, 80, 50, 2, [20, 50])).toBe(true);
+    expect(hitTest(s, 80, 150, 2, [20, 150])).toBe(false);
+    const rect = { type: 'shape', kind: 'rect', x1: 0, y1: 0, x2: 100, y2: 100, width: 2 };
+    expect(hitTest(rect, 120, 50, 2, [-20, 50])).toBe(true);
+    expect(hitTest(rect, 60, 50, 2, [40, 50])).toBe(false);
+  });
+
   it('hit-tests shape outlines, not their insides', () => {
     const rect = { type: 'shape', kind: 'rect', x1: 0, y1: 0, x2: 100, y2: 100, width: 2 };
     expect(hitTest(rect, 0, 50, 2)).toBe(true);

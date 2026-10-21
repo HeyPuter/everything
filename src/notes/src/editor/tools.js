@@ -183,11 +183,14 @@ export class InkTools {
   erase(e) {
     const r = 6 / this.editor.zoom;
     let removed = false;
+    let last = null;
     const at = (ev) => {
       const [x, y] = this.point(ev);
+      const from = last;
+      last = [x, y];
       const before = this.page.ink.length;
       this.page.ink = this.page.ink.filter((item) => {
-        if (!hitTest(item, x, y, r)) return true;
+        if (!hitTest(item, x, y, r, from)) return true;
         this.layer.querySelector(`[data-id="${item.id}"]`)?.remove();
         return false;
       });
