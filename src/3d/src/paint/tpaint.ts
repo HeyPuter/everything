@@ -47,7 +47,44 @@ export function paintImage(ob: ObjectData | null = app.activeObject): Img | null
   return node ? (app.doc.images[node.props.image as string] ?? null) : null;
 }
 
-paintDisplay.resolve = () => paintImage()?.id ?? null;
+/** Texture Paint settings stored on the scene (tool_settings.image_paint). */
+export interface ImagePaintSettings {
+  palette?: string | null;
+  /** a grayscale image over the UVs limits where paint lands */
+  use_stencil_layer?: boolean;
+  stencil_image?: string | null;
+  invert_stencil?: boolean;
+}
+export function imagePaintSettings(): ImagePaintSettings {
+  const ts = app.doc.scene.tool_settings as unknown as { image_paint?: ImagePaintSettings };
+  return (ts.image_paint ??= {});
+}
+
+/** The stencil mask image (null when the mask is off or missing). */
+export function stencilMaskImage(): Img | null {
+  const st = imagePaintSettings();
+  return (st.use_stencil_layer && st.stencil_image && app.doc.images[st.stencil_image]) || null;
+}
+
+/** The Mask tool paints into the stencil mask: it is shown instead of the texture while active. */
+const maskToolActive = () => app.doc.mode === 'TEXTURE_PAINT' && activeBrush('TEXTURE_PAINT')?.sculpt_tool === 'MASK';
+paintDisplay.resolve = () => {
+  const st = maskToolActive() ? imagePaintSettings().stencil_image : null;
+  return (st && app.doc.images[st] ? st : null) ?? paintImage()?.id ?? null;
+};
+
+/** Make (or reuse) the stencil mask image, white (paint everywhere) at the size of the paint image. */
+export function ensureStencilImage(): Img {
+  const st = imagePaintSettings();
+  const cur = st.stencil_image ? app.doc.images[st.stencil_image] : null;
+  if (cur) return cur;
+  const ref = paintImage();
+  const img = newImage('Stencil Mask', ref?.width ?? 1024, ref?.height ?? 1024, 'BLANK', [1, 1, 1, 1]);
+  app.doc.images[img.id] = img;
+  st.stencil_image = img.id;
+  st.use_stencil_layer = true;
+  return img;
+}
 
 export function meshHasUVs(me: MeshData): boolean {
   if (me.uvs.length !== me.indices.length * 2 || !me.uvs.length) return false;
@@ -187,7 +224,8 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     app.report('ERROR', 'Missing UVs: unwrap the mesh before texture painting');
     return true;
   }
-  let img = paintImage(ob);
+  const maskTool = b.sculpt_tool === 'MASK';
+  let img = maskTool ? ensureStencilImage() : paintImage(ob);
   if (!img) {
     app.report('ERROR', 'Missing texture: add a paint slot (Texture Slots panel)');
     return true;
@@ -210,7 +248,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   };
   const ts = app.doc.scene.tool_settings;
   const invert = e.ctrlKey || e.metaKey;
-  const tool = e.shiftKey ? 'SOFTEN' : b.sculpt_tool;
+  const tool = e.shiftKey && b.sculpt_tool !== 'MASK' ? 'SOFTEN' : b.sculpt_tool === 'MASK' ? 'TEXDRAW' : b.sculpt_tool;
   let clone: DabOpts['clone'];
   if (tool === 'CLONE') {
     const p0 = v.local(e);
@@ -244,8 +282,16 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     }
     clone = { data, W: sw, H: sh, du: cloneSource.uv[0] - startUV[0], dv: cloneSource.uv[1] - startUV[1] };
   }
-  const colLin = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
+  const colLin = maskTool ? (invert ? [0, 0, 0] : [1, 1, 1]) : invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
   const color = [linearToSrgb(colLin[0]), linearToSrgb(colLin[1]), linearToSrgb(colLin[2])];
+  // the stencil mask limits every other tool (white: paint lands, black: blocked; or inverted)
+  let stencil: DabOpts['stencil'] = null;
+  const sm = !maskTool ? stencilMaskImage() : null;
+  if (sm) {
+    const c2 = imageCanvas(sm);
+    const x2 = c2.getContext('2d', { willReadFrequently: true });
+    if (x2) stencil = { data: x2.getImageData(0, 0, c2.width, c2.height).data, W: c2.width, H: c2.height, invert: !!imagePaintSettings().invert_stencil };
+  }
   const mode = (b.blend ?? 'MIX') as BlendMode;
   let lastUV: [number, number] | null = null;
   let filled = false;
@@ -279,6 +325,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
         clone,
         index: dabCount++,
+        stencil,
       });
       lastUV = uv;
     },
@@ -354,6 +401,8 @@ interface DabOpts {
   clone?: { data: Uint8ClampedArray; W: number; H: number; du: number; dv: number };
   /** dab number in the stroke (random texture mapping) */
   index?: number;
+  /** stencil mask pixels (luminance limits the paint) */
+  stencil?: { data: Uint8ClampedArray; W: number; H: number; invert: boolean } | null;
 }
 
 /** Clone source picked with Ctrl+click (UV of the paint texture, plus the world point for the marker). */
@@ -538,6 +587,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const texCol = o.tool === 'TEXDRAW' ? dabTextureColor(b, place) : null;
     const texF = o.tool === 'TEXDRAW' ? dabMaskAt(b, place) : dabTextureAt(b, place);
     const trgba = [1, 1, 1, 1];
+    const sten = o.stencil;
     const tcol = [0, 0, 0];
     for (const t of cand) {
       const i0 = s.tris[t * 3] * 3,
@@ -568,6 +618,11 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
         }
         let a = best * o.strength;
         if (texF) a *= texF(tmp[0], tmp[1], lx, ly, lz);
+        if (sten) {
+          const q = (Math.min(sten.H - 1, Math.floor((y * sten.H) / st.H)) * sten.W + Math.min(sten.W - 1, Math.floor((x * sten.W) / st.W))) * 4;
+          const m = ((sten.data[q] * 0.2126 + sten.data[q + 1] * 0.7152 + sten.data[q + 2] * 0.0722) / 255) * (sten.data[q + 3] / 255);
+          a *= sten.invert ? 1 - m : m;
+        }
         let col = o.color;
         if (texCol) {
           if (!texCol(tmp[0], tmp[1], lx, ly, lz, trgba)) return;

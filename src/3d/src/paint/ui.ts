@@ -26,7 +26,7 @@ import { gestureToolPointer, gestureTools, registerToolSettings, sculptToolHooks
 import { operators } from '../app/app';
 import { vertexPaintStroke, sampleVertexColor } from './vpaint';
 import { weightPaintStroke, sampleWeight, ensureActiveGroup } from './wpaint';
-import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions } from './tpaint';
+import { texturePaintStroke, sampleImageColor, paintImage, meshHasUVs, cloneSource, imagePaintOptions, imagePaintSettings, ensureStencilImage } from './tpaint';
 import { strokeActive } from './stroke';
 import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
@@ -150,6 +150,21 @@ function changed() {
   app.changed('ui');
   const v = activeView3D();
   if (v) v.drawSvg();
+}
+
+/** Texture Paint stencil mask settings (Options ▸ Mask). */
+function stencilMaskRows(): Child[] {
+  const st = imagePaintSettings();
+  const imgs = Object.values(app.doc.images);
+  return [
+    checkbox('pt-stl', 'Stencil Mask', !!st.use_stencil_layer, (x) => ((st.use_stencil_layer = x), x && ensureStencilImage(), app.pushUndo('Stencil Mask'), changed()), { tip: 'Limit painting with a grayscale image over the UVs (paint it with the Mask brush)' }),
+    st.use_stencil_layer
+      ? [
+          row('Stencil Image', enumMenu('pt-sti', imgs.map((im) => ({ value: im.id, label: im.name, icon: 'image' })), st.stencil_image ?? '', (x) => ((st.stencil_image = x), app.pushUndo('Stencil Image'), changed()), { tip: 'White: paint lands · black: blocked' })),
+          checkbox('pt-stinv', 'Invert', !!st.invert_stencil, (x) => ((st.invert_stencil = x), changed()), { tip: 'Paint where the stencil is black instead' }),
+        ]
+      : null,
+  ];
 }
 
 /** Weight Paint settings beyond the shared tool settings. */
@@ -949,6 +964,8 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-tp-opts', 'Options', () => [
         numberField({ id: 'pt-bleed', label: 'Bleed', value: imagePaintOptions.seam_bleed, min: 0, max: 32, int: true, unit: 'pixel', tip: 'Paint this many pixels past the UV island borders to hide seams', set: (x) => ((imagePaintOptions.seam_bleed = Math.round(x)), changed()) }),
+        h('div', { class: 'pop-sub' }, 'Mask'),
+        ...stencilMaskRows(),
       ], { closed: true }),
     );
   if (mode === 'TEXTURE_PAINT') {
