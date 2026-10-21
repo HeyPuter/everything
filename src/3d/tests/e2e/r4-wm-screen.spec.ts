@@ -178,3 +178,18 @@ test('scripts read and change the active workspace', async ({ page }) => {
   await expect(page.locator('.ws-tab.on')).toHaveText('Main');
   await expectNoErrors(errors);
 });
+
+test('side regions of other editors resize from their inner edge too', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('FILE_BROWSER'));
+  const side = page.locator('.area[data-editor="FILE_BROWSER"] .fb-side');
+  const b = (await side.boundingBox())!;
+  await page.mouse.move(b.x + b.width - 1, b.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width + 60, b.y + 200, { steps: 3 });
+  await page.mouse.up();
+  expect((await side.boundingBox())!.width).toBeCloseTo(b.width + 61, -1);
+  await expectNoErrors(errors);
+});

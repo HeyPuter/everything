@@ -28,7 +28,7 @@ export const sideRegions: SideRegion[] = [
   { sel: '.nd-sidebar', side: 'right', width: 270, hide: hideUi },
   { sel: '.te-sidebar', side: 'right', width: 250, hide: (area) => app.run('text.toggle_sidebar', {}, { area }) },
   { sel: '.clip-sidebar', side: 'right', width: 270, hide: hideUi },
-  { sel: '.fb-side', side: 'left', width: 180, min: 100, hide: (area) => app.run('file.sidebar_toggle', {}, { area }) },
+  { sel: '.fb-side', side: 'left', width: 150, min: 100, hide: (area) => app.run('file.sidebar_toggle', {}, { area }) },
 ];
 
 /** Width below which a dragged region closes. */
