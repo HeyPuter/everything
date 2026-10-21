@@ -220,6 +220,18 @@ export function installSheetGroups(Workbook) {
     };
   }
 
+  // Asked before a grouped edit (the editor checking a cell before it types or pastes there), a cell is locked when it
+  // is locked on any grouped sheet: the edit lands on the same cell of each, and a protected sheet refusing it alone
+  // would leave the sheets out of line. Inside the edit each sheet answers for itself.
+  for (const name of ['lockedAt', 'lockedIn']) {
+    const original = proto[name];
+    proto[name] = function (sheetId, ...rest) {
+      if (original.call(this, sheetId, ...rest)) return true;
+      const others = this._groupTargets(sheetId);
+      return !!others && others.some((id) => original.call(this, id, ...rest));
+    };
+  }
+
   // Undo and redo replay recorded steps; nothing they do is carried to the group a second time.
   for (const name of ['undo', 'redo']) {
     const original = proto[name];
