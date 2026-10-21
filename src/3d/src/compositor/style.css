@@ -83,3 +83,98 @@
 .cmp-body-row button {
   height: 20px;
 }
+
+/* asset shelf with the built-in effects */
+.cmp-shelf-host {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+}
+.cmp-shelf-host[hidden] {
+  display: none;
+}
+.cmp-shelf {
+  display: flex;
+  flex-direction: column;
+  background: rgb(from var(--g-24, #1d1d1f) r g b / 0.94);
+  border-top: 1px solid var(--g-16, #121315);
+}
+.cmp-shelf-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+}
+.cmp-shelf-tab {
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cmp-shelf-tab.on {
+  background: var(--w-regular);
+}
+.cmp-shelf-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--w-field);
+}
+.cmp-shelf-search input {
+  width: 120px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.cmp-shelf-tiles {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  overflow-x: auto;
+}
+.cmp-shelf-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 104px;
+  flex: none;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--c-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cmp-shelf-tile:hover {
+  background: var(--w-regular);
+}
+.cmp-shelf-tile img,
+.cmp-shelf-noimg {
+  width: 96px;
+  height: 64px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.25);
+}
+.cmp-shelf-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

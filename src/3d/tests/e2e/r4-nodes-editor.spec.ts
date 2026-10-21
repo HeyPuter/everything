@@ -178,3 +178,47 @@ test('texture nodes in a geometry node tree displace a grid', async ({ page }) =
   expect(r.max).toBeGreaterThan(r.min + 0.1);
   await expectNoErrors(errors);
 });
+
+test('compositor asset shelf: effect thumbnails, adding an effect group, effects change images', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as unknown as { app: { run(id: string): void } }).app.run('node.new_compositing_node_group'));
+  const box = await editorArea(page, 'COMPOSITOR');
+  const tiles = page.locator('.cmp-shelf-tile');
+  await expect(tiles).toHaveCount(8);
+  await expect(page.locator('.cmp-shelf-tile img').first()).toBeVisible();
+  // the Creative tab narrows the list; search filters by name
+  await page.locator('.cmp-shelf-tab', { hasText: 'Creative' }).click();
+  await expect(tiles).toHaveCount(2);
+  await page.locator('.cmp-shelf-tab', { hasText: 'All' }).click();
+  await page.locator('.cmp-shelf-search input').fill('vign');
+  await expect(tiles).toHaveCount(1);
+  await tiles.first().click();
+  await page.mouse.move(box.x + box.width / 2, box.y + 120, { steps: 4 });
+  await page.mouse.click(box.x + box.width / 2, box.y + 120);
+  const added = await withTree<{ group: string | null; reuse: number }>(page, '(ed, t) => { const n = t.nodes.find((x) => x.type === "CompositorNodeGroup"); const g = n && app.doc.node_groups[n.props.node_tree]; return { group: g ? g.name : null, reuse: Object.values(app.doc.node_groups).filter((x) => x.effect_id === "vignette").length }; }');
+  expect(added).toEqual({ group: 'Vignette', reuse: 1 });
+  // every effect runs and changes a test image
+  const changed = await page.evaluate(async () => {
+    const { EFFECTS, effectPreviewGroup } = await import('/src/compositor/effects.ts');
+    const { runCompositorGroup } = await import('/src/compositor/run.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const W = 32,
+      H = 24;
+    const data = new Float32Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) data.set([0.2 + (i % W) / W * 0.6, 0.4, 0.3 + Math.floor(i / W) / H * 0.5, 1], i * 4);
+    const out: Record<string, number> = {};
+    for (const fx of EFFECTS) {
+      const r = runCompositorGroup(a.doc, effectPreviewGroup(a.doc, fx), { data, width: W, height: H });
+      let diff = 0;
+      if (r) for (let i = 0; i < data.length; i++) diff = Math.max(diff, Math.abs(r.data[i] - data[i]));
+      out[fx.id] = r ? diff : -1;
+    }
+    return out;
+  });
+  for (const [id, d] of Object.entries(changed)) {
+    // Tune Image is neutral at its defaults
+    if (id === 'tune_image') expect(d, id).toBeLessThan(0.01);
+    else expect(d, id).toBeGreaterThan(0.005);
+  }
+  await expectNoErrors(errors);
+});

@@ -696,7 +696,7 @@
   cursor: pointer;
 }
 .nd-props-panel-hdr:hover {
-  color: var(--text-hi, #fff);
+  color: var(--c-text-hi);
 }
 .nd-props-panel-body {
   margin-left: 12px;

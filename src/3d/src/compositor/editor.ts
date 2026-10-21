@@ -3,7 +3,7 @@
 // toggle and channels) and the Viewer backdrop drawn behind the nodes (zoom V / Alt V, move
 // Alt + middle mouse, fit).
 import type { NodeGroupData } from '../data/types';
-import { h, type Child } from '../ui/h';
+import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, registerOperators, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
@@ -22,6 +22,7 @@ import { nodeSockets } from '../nodes/registry';
 import { compositingGroup, compositorGroups, newCompositingGroup } from './data';
 import { compositorState, onCompositorUpdate, recomposite } from './session';
 import { viewerRegion, setViewerRegion } from './viewregion';
+import { drawShelf } from './shelf';
 import { compositorEntryPoll, setCompositorEntryCheck } from './nodes/defs';
 import { nodeExecs } from './eval/evaluator';
 
@@ -121,6 +122,11 @@ export class CompositorEditor extends NodeEditor {
   backdropX = 0;
   backdropY = 0;
   backdropChannels: BackdropChannels = 'COLOR_ALPHA';
+  /** asset shelf with the built-in effects (bottom of the editor) */
+  showShelf = true;
+  shelfTab = 'All';
+  shelfSearch = '';
+  private shelfEl = document.createElement('div');
   private unsubUpdate: () => void;
 
   constructor(area: Area, state: unknown) {
@@ -136,6 +142,11 @@ export class CompositorEditor extends NodeEditor {
     if (st.backdropOffset) [this.backdropX, this.backdropY] = st.backdropOffset;
     if (st.backdropChannels) this.backdropChannels = st.backdropChannels;
     if ((state as { cmpContext?: string } | null)?.cmpContext === 'SEQUENCER') this.cmpContext = 'SEQUENCER';
+    const sh = state as { showShelf?: boolean; shelfTab?: string } | null;
+    if (sh?.showShelf !== undefined) this.showShelf = sh.showShelf;
+    if (sh?.shelfTab) this.shelfTab = sh.shelfTab;
+    this.shelfEl.className = 'cmp-shelf-host';
+    this.el.append(this.shelfEl);
     this.unsubUpdate = onCompositorUpdate(() => {
       if (this.el.isConnected) {
         this.drawBack();
@@ -467,6 +478,15 @@ export class CompositorEditor extends NodeEditor {
         op: 'node.backimage_fit',
       },
       { separator: true },
+      {
+        label: 'Asset Shelf',
+        checked: this.showShelf,
+        action: () => {
+          this.showShelf = !this.showShelf;
+          app.changed('ui');
+        },
+      },
+      { separator: true },
       { label: 'Viewer Region', shortcut: 'Ctrl B', op: 'node.viewer_border' },
       { label: 'Clear Viewer Region', shortcut: 'Ctrl Alt B', op: 'node.clear_viewer_border' },
       { separator: true },
@@ -475,9 +495,20 @@ export class CompositorEditor extends NodeEditor {
     return items;
   }
 
+  override render() {
+    super.render();
+    // the shelf sits along the bottom, between the toolbar and the sidebar
+    const showing = this.showShelf && this.cmpContext === 'SCENE' && !!this.tree();
+    this.shelfEl.hidden = !showing;
+    this.shelfEl.style.right = this.showSidebar ? '270px' : '0';
+    patch(this.shelfEl, showing ? drawShelf(this) : null);
+  }
+
   serialize() {
     return {
       ...super.serialize(),
+      showShelf: this.showShelf,
+      shelfTab: this.shelfTab,
       backdrop: this.backdrop,
       backdropZoom: this.backdropZoom,
       backdropOffset: [this.backdropX, this.backdropY],
