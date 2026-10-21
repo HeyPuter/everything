@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import {
   PDFArray,
@@ -29,6 +30,7 @@ const assets = new URL('../node_modules/pdfjs-dist/', import.meta.url);
 const loadAsset = async (path) => new Uint8Array(readFileSync(new URL(path, assets)));
 const standardFontDataUrl = new URL('standard_fonts/', assets).pathname;
 const name = PDFName.of;
+afterEach(() => vi.restoreAllMocks());
 const ids = (report) => report.issues.map((issue) => issue.id);
 const errors = (issues) => issues.filter((issue) => issue.severity === 'error');
 
@@ -341,6 +343,50 @@ describe('Save as PDF/A', () => {
     expect(acro.has(name('XFA'))).toBe(false);
     expect(errors(preflightPdfA(reopened, { part: 2, conformance: 'b' }).issues)).toEqual([]);
     expect((await render(saved)).pixels.some((v, i) => i % 4 === 0 && v < 100)).toBe(true);
+  });
+
+  it('draws form fields in Polish, Cyrillic, or Korean with a bundled face', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async (url) =>
+        new Response(
+          await readFile(
+            new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url),
+          ),
+        ),
+    );
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([300, 300]);
+    const form = doc.getForm();
+    const values = { city: 'Łódź', name: 'Иван', greeting: '안녕하세요' };
+    Object.entries(values).forEach(([key, value], i) => {
+      const field = form.createTextField(key);
+      field.addToPage(page, { x: 20, y: 40 + 60 * i, width: 200, height: 30 });
+      field.acroField.setValue(PDFHexString.fromText(value));
+    });
+    form.acroForm.dict.set(name('NeedAppearances'), doc.context.obj(true));
+    const loaded = await PDFDocument.load(await doc.save({ updateFieldAppearances: false }));
+    const report = await convertToPdfA(loaded, { part: 2, conformance: 'b', loadAsset });
+    expect(errors(report.remaining)).toEqual([]);
+    const saved = await loaded.save(pdfaSaveOptions(2));
+    const reopened = await PDFDocument.load(saved);
+    expect(reopened.catalog.lookup(name('AcroForm'), PDFDict).has(name('NeedAppearances'))).toBe(
+      false,
+    );
+    expect(errors(preflightPdfA(reopened, { part: 2, conformance: 'b' }).issues)).toEqual([]);
+    // Each field is drawn with the bundled face its text needs.
+    const faces = Object.keys(values).map((key) => {
+      const widget = reopened.getForm().getTextField(key).acroField.getWidgets()[0];
+      const stream = reopened.context.lookup(widget.getNormalAppearance());
+      const fonts = stream.dict.lookup(name('Resources')).lookup(name('Font'));
+      return fonts
+        .values()
+        .map((ref) => reopened.context.lookup(ref).get(name('BaseFont')).decodeText());
+    });
+    expect(faces).toEqual([
+      [expect.stringMatching(/^NotoSans-/)],
+      [expect.stringMatching(/^NotoSans-/)],
+      [expect.stringMatching(/^NotoSansKR-/)],
+    ]);
   });
 
   it('removes embedded files for PDF/A-2 and describes them for PDF/A-3', async () => {

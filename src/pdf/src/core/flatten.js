@@ -253,20 +253,23 @@ export function redrawnFieldTexts(doc) {
   const regenerate = doc.getForm().acroForm.dict.lookup(name('NeedAppearances')) === PDFBool.True;
   return fields.flatMap((field) => {
     try {
-      if (!redrawn(field, field.acroField.getWidgets(), regenerate)) return [];
-      if (field instanceof PDFTextField) return field.isPassword() ? [] : [textValue(field)];
-      if (field instanceof PDFOptionList) return choiceOptions(field).map(({ label }) => label);
-      if (field instanceof PDFDropdown) {
-        const options = choiceOptions(field);
-        return selectedChoices(field, options).map(
-          ({ key, index }) => options[index]?.label ?? key,
-        );
-      }
+      return redrawn(field, field.acroField.getWidgets(), regenerate) ? drawnFieldTexts(field) : [];
     } catch {
       // A field that cannot be read is kept as it is.
+      return [];
     }
-    return [];
   });
+}
+
+/** The texts a field's drawing shows: its value, or a list's options (passwords are masked). */
+export function drawnFieldTexts(field) {
+  if (field instanceof PDFTextField) return field.isPassword() ? [] : [textValue(field)];
+  if (field instanceof PDFOptionList) return choiceOptions(field).map(({ label }) => label);
+  if (field instanceof PDFDropdown) {
+    const options = choiceOptions(field);
+    return selectedChoices(field, options).map(({ key, index }) => options[index]?.label ?? key);
+  }
+  return [];
 }
 
 /**

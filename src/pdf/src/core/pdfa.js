@@ -37,7 +37,9 @@ import { decode, pageSource } from './text-edit.js';
 import { annotationList, annotationsOf, formFields } from './structure.js';
 import { ensureNoteAppearance } from './notes.js';
 import { ensureMarkupAppearance } from './highlight.js';
-import { updateFieldAppearance } from './form-appearance.js';
+import { appearanceRollback, updateFieldAppearance } from './form-appearance.js';
+import { drawnFieldTexts } from './flatten.js';
+import { textFonts } from './document.js';
 import { withoutCryptFilter } from './stream-filters.js';
 import { removeStructReferences } from './redact.js';
 import { STANDARD_ENCODING, SYMBOL_ENCODING, WIN_ANSI_ENCODING } from './pdfa-font-tables.js';
@@ -1802,26 +1804,50 @@ export async function convertToPdfA(doc, options = {}) {
       fixed('Removed the XFA form; the AcroForm fields remain.');
     }
     const regenerate = get(acroForm, 'NeedAppearances') === PDFBool.True;
-    const fields = formFields(doc) || [];
     let font,
       drawn = 0,
       failed = 0;
-    for (const field of fields) {
-      let needed = false;
+    const needed = (formFields(doc) || []).filter((field) => {
       try {
         const widgets = field.acroField.getWidgets();
         const variable =
           field instanceof PDFTextField ||
           field instanceof PDFDropdown ||
           field instanceof PDFOptionList;
-        needed =
+        return (
           (regenerate && variable) ||
-          widgets.some((w) => !w.getAppearances()?.normal && !zeroRect(w.dict));
-        if (!needed) continue;
-        updateFieldAppearance(field, doc.getForm(), (font ??= doc.getForm().getDefaultFont()));
+          widgets.some((w) => !w.getAppearances()?.normal && !zeroRect(w.dict))
+        );
+      } catch {
+        return false;
+      }
+    });
+    // Text the standard font cannot write (Polish, Cyrillic, Korean) is drawn with a bundled
+    // face, which is embedded like any other.
+    const texts = needed.flatMap((field) => {
+      try {
+        return drawnFieldTexts(field);
+      } catch {
+        return [];
+      }
+    });
+    const fonts = await textFonts(doc, texts);
+    for (const field of needed) {
+      const faces = [(font ??= doc.getForm().getDefaultFont()), ...fonts];
+      let restore;
+      try {
+        restore = appearanceRollback(field, field.acroField.getWidgets());
+        for (const [i, face] of faces.entries())
+          try {
+            updateFieldAppearance(field, doc.getForm(), face);
+            break;
+          } catch (error) {
+            restore();
+            if (i === faces.length - 1) throw error;
+          }
         drawn++;
       } catch {
-        if (needed) failed++;
+        failed++;
       }
     }
     if (drawn) fixed('Drew form field appearances.', drawn);

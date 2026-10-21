@@ -853,8 +853,11 @@ export async function addText(
  * cannot write, such as Polish, Cyrillic, or Korean values in a form that leaves its drawing to
  * the viewer. Pass them to flattenDocument.
  */
-export async function flattenFonts(doc) {
-  const texts = redrawnFieldTexts(doc);
+export function flattenFonts(doc) {
+  return textFonts(doc, redrawnFieldTexts(doc));
+}
+/** The bundled faces for those of `texts` the standard font cannot write. */
+export async function textFonts(doc, texts) {
   if (!texts.length) return [];
   const standard = doc.getForm().getDefaultFont();
   const fonts = new Set();
