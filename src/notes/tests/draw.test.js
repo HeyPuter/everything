@@ -158,3 +158,19 @@ describe('restyling selected ink', () => {
     expect(ed.page.ink[0].color).toBe('#ffe500');
   });
 });
+
+describe('page size', () => {
+  it('shrinks the page again after erasing the ink that grew it', () => {
+    const ed = app.editor;
+    ed.page.ink.push({ id: 'far', type: 'stroke', color: '#000', width: 3, highlighter: false, points: [[100, 2000, 0.5], [100, 2100, 0.5]] });
+    ink.render();
+    ed.layout();
+    expect(parseFloat(ed.pageEl.style.height)).toBeGreaterThan(2100);
+    app.setTool('eraser');
+    pointer('pointerdown', 1, 'mouse', 80, 2050);
+    pointer('pointermove', 1, 'mouse', 120, 2050);
+    pointer('pointerup', 1, 'mouse', 120, 2050);
+    expect(ed.page.ink).toHaveLength(0);
+    expect(parseFloat(ed.pageEl.style.height)).toBeLessThan(1000);
+  });
+});

@@ -271,7 +271,10 @@ export class InkTools {
     };
     at(e);
     this.track(e, at, () => {
-      if (removed) this.editor.changed();
+      if (!removed) return;
+      // The page shrinks back once the ink that grew it is gone, as drawing grows it.
+      this.editor.layout();
+      this.editor.changed();
     }, () => {
       if (!removed) return;
       this.page.ink = start;
