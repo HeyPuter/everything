@@ -9679,9 +9679,13 @@ export function createEditor({
         disabled: !accepts('width'),
         onchange: () => apply({ width: Number(width.value) }),
       },
-      ...[0.5, 1, 2, 3, 4, 6, 8].map((n) =>
-        el('option', { value: n, selected: Math.abs((entry.width ?? 1) - n) < 0.01 }, `${n} pt`),
-      ),
+      // A width from another editor is listed too, so the field shows the width it has.
+      ...[0.5, 1, 2, 3, 4, 6, 8, Math.round((entry.width ?? 1) * 100) / 100]
+        .filter((n, i, all) => all.findIndex((m) => Math.abs(m - n) < 0.01) === i)
+        .sort((a, b) => a - b)
+        .map((n) =>
+          el('option', { value: n, selected: Math.abs((entry.width ?? 1) - n) < 0.01 }, `${n} pt`),
+        ),
     );
     const opacity = el('input', {
       type: 'range',

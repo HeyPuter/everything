@@ -70,3 +70,47 @@ test('the properties panel offers only the changes a comment can take', async ({
   await expect(page.locator('#toast')).not.toContainText('read-only');
   expect(await fixed.evaluate((node) => node.style.transform)).toBe('');
 });
+
+// A line width the list does not offer, as other editors write, is shown as it is.
+test('the Line width field shows a comment’s own width', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) => route.abort());
+  const doc = await PDFDocument.create();
+  doc.addPage([400, 500]);
+  addShapeAnnotation(doc, 0, {
+    kind: 'square',
+    rect: { x: 100, y: 200, width: 80, height: 60 },
+    width: 5,
+    text: 'Wide',
+  });
+  await page.goto('/#library');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /^Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'comment-width.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await settled(page);
+  await page.getByRole('button', { name: 'Select', exact: true }).click();
+  await page.getByRole('button', { name: 'Rectangle: Wide', exact: true }).click();
+  const props = page.getByRole('complementary', { name: 'Selection properties' });
+  const width = props.getByLabel('Line width', { exact: true });
+  await expect(width).toHaveValue('5');
+  await expect(width.locator('option')).toHaveText([
+    '0.5 pt',
+    '1 pt',
+    '2 pt',
+    '3 pt',
+    '4 pt',
+    '5 pt',
+    '6 pt',
+    '8 pt',
+  ]);
+  // A width from the list takes its place.
+  await width.selectOption('2');
+  await settled(page);
+  await expect(props.getByLabel('Line width', { exact: true })).toHaveValue('2');
+});
