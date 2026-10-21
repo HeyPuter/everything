@@ -1,4 +1,4 @@
-// Annotations in the 2D editors (node editors, Image Editor): hold D and drag to draw (Alt: a
+// Annotations in the 2D editors (node editors, Image Editor, Movie Clip Editor): hold D and drag to draw (Alt: a
 // straight line, Shift Alt: a poly line), hold D and right drag to erase. Strokes are stored with
 // the edited data — the node tree, or the image (the Render Result's notes live on the scene) — in
 // that data's own coordinates, so they follow panning and zooming. An overlay per editor draws them.
@@ -51,6 +51,18 @@ function hostOf(type: string, ed: AnyEditor): Host2D | null {
           hh = Math.max(1, e.el.clientHeight);
         return [(x - s[0] / 2 + e.offX) * e.zoom + w / 2, (y - s[1] / 2 + e.offY) * e.zoom + hh / 2];
       },
+    };
+  }
+  if (type === 'CLIP_EDITOR' && typeof ed.toImage === 'function' && typeof ed.toScreen === 'function') {
+    // footage pixels: notes stay on the footage (also when stabilized or undistorted)
+    const e = ed as AnyEditor & { toImage(x: number, y: number): [number, number]; toScreen(x: number, y: number): [number, number]; clip: Record<string, unknown> | null };
+    return {
+      owner: () => e.clip,
+      toData: (cx, cy) => {
+        const r = e.el.getBoundingClientRect();
+        return e.toImage(cx - r.left, cy - r.top);
+      },
+      toView: (x, y) => e.toScreen(x, y),
     };
   }
   return null;
