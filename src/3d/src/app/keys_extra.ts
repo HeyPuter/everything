@@ -2,10 +2,10 @@
 // subdivision levels, pies for orientation / falloff, toolbar popup, local view removal, …).
 import { Vector3 } from 'three';
 import { app, registerOperators } from './app';
-import { addKeys } from './keymap';
+import { addKeys, keymaps, keyLabel } from './keymap';
 import { activeTools } from './prefs';
 import { editorTypes, type EditorTypeId } from '../ui/screen';
-import { openMenu, openPie, promptText, type MenuItem, type PieItem } from '../ui/menu';
+import { openMenu, openPie, promptText, closeMenus, type MenuItem, type PieItem } from '../ui/menu';
 import { currentOrientation, customOrientations, setOrientation } from '../ops/orientations';
 import { BUILTIN_ORIENTATIONS } from '../ops/orientation_list';
 import { activeView3D } from '../editors/view3d/view3d';
@@ -93,10 +93,25 @@ registerOperators([
     poll: () => !!activeView3D(),
     invoke: () => {
       const tools = toolsFor(app.doc.mode).filter(Boolean) as { id: string; label: string; icon: string; shortcut?: string }[];
+      // inside the popup, single keys pick tools (the Toolbar Popup keymap)
+      const popupKey = (id: string) => (keymaps['Toolbar Popup'] ?? []).find((k) => !k.inactive && k.op === 'wm.tool_set_by_id' && k.props?.name === id);
       openMenu(
-        tools.map((t) => ({ label: t.label, icon: t.icon, shortcut: t.shortcut, active: activeTools[app.doc.mode] === t.id, action: () => setActiveTool(t.id) })),
+        tools.map((t) => {
+          const k = popupKey(t.id);
+          return { label: t.label, icon: t.icon, shortcut: k ? keyLabel(k) : t.shortcut, active: activeTools[app.doc.mode] === t.id, action: () => setActiveTool(t.id) };
+        }),
         { x: app.pointer.x, y: app.pointer.y },
-        { title: 'Toolbar' },
+        {
+          title: 'Toolbar',
+          typeSpace: true,
+          onType: (ch) => {
+            const key = ch === ' ' ? 'SPACE' : ch.toUpperCase();
+            const k = (keymaps['Toolbar Popup'] ?? []).find((x) => !x.inactive && x.key === key && !x.ctrl && !x.alt && !!x.shift === (ch !== ch.toLowerCase() && ch !== ' '));
+            if (!k?.op || !app.poll(k.op)) return;
+            closeMenus();
+            app.run(k.op, k.props ?? {});
+          },
+        },
       );
       return 'CANCELLED';
     },
@@ -246,6 +261,15 @@ export function falloffPie() {
 }
 
 
+// keys that pick a tool while the toolbar popup is open
+addKeys('Toolbar Popup', [
+  { key: 'SPACE', op: 'wm.tool_set_by_id', props: { name: 'builtin.cursor' } },
+  { key: 'W', op: 'wm.tool_set_by_id', props: { name: 'builtin.select' } },
+  { key: 'L', op: 'wm.tool_set_by_id', props: { name: 'builtin.select_lasso' } },
+  { key: 'T', op: 'wm.tool_set_by_id', props: { name: 'builtin.transform' } },
+  { key: 'M', op: 'wm.tool_set_by_id', props: { name: 'builtin.measure' } },
+]);
+
 addKeys('Window', [
   ...Object.keys(SPACE_KEYS).map((k) => ({ key: k, shift: true, op: 'screen.space_type_set_or_cycle', props: { key: k } })),
   { key: 'SPACE', shift: true, op: 'wm.toolbar' },
@@ -257,6 +281,11 @@ addKeys('Window', [
 addKeys('Frames', [
   { key: 'RIGHT_ARROW', ctrl: true, op: 'screen.time_jump', props: { backward: false } },
   { key: 'LEFT_ARROW', ctrl: true, op: 'screen.time_jump', props: { backward: true } },
+  // media keys of keyboards that have them
+  { key: 'MEDIA_PLAY', op: 'screen.animation_play' },
+  { key: 'MEDIA_STOP', op: 'screen.animation_cancel' },
+  { key: 'MEDIA_LAST', op: 'screen.keyframe_jump', props: { next: true } },
+  { key: 'MEDIA_FIRST', op: 'screen.keyframe_jump', props: { next: false } },
 ]);
 
 addKeys('3D View', [

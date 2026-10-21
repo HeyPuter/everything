@@ -53,6 +53,8 @@ interface OpenMenu {
   owner?: HTMLElement;
   /** typing a character hands it to this (e.g. to start a search) instead of jumping to an item */
   onType?: (ch: string) => void;
+  /** Space is typed into onType too (instead of activating the highlighted entry) */
+  typeSpace?: boolean;
 }
 
 const stack: OpenMenu[] = [];
@@ -394,7 +396,7 @@ export function captureMenuItems(open: () => void): MenuItem[] {
 }
 
 /** Open a popup menu at a screen position (or below an element). */
-export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void; search?: boolean } = {}) {
+export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLElement, opts: { title?: string; under?: boolean; onType?: (ch: string) => void; typeSpace?: boolean; search?: boolean } = {}) {
   if (capturing) {
     capturing.push(items);
     return null;
@@ -414,7 +416,10 @@ export function openMenu(items: MenuItem[], at: { x: number; y: number } | HTMLE
   const searchRow: MenuItem[] = opts.search ? [{ search: true }, { separator: true }] : [];
   const withTitle = opts.title ? [{ heading: opts.title, title: true }, ...searchRow, ...items] : [...searchRow, ...items];
   const m = createMenu(withTitle, x, y, undefined, opts.title);
-  if (opts.onType) m.onType = opts.onType;
+  if (opts.onType) {
+    m.onType = opts.onType;
+    m.typeSpace = !!opts.typeSpace;
+  }
   else if (opts.search) m.onType = (ch) => openMenuSearch(m, ch);
   openPress = at instanceof HTMLElement ? null : { presses: pressCount, x: at.x, y: at.y };
   // context menus open with the pointer over the first actionable item
@@ -860,7 +865,7 @@ export function menuKey(e: KeyboardEvent): boolean {
   }
   let root = m;
   while (root.parent) root = root.parent;
-  if (root.onType && e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  if (root.onType && e.key.length === 1 && (e.key !== ' ' || root.typeSpace) && !e.ctrlKey && !e.metaKey && !e.altKey) {
     const fn = root.onType;
     closeMenus();
     fn(e.key);
