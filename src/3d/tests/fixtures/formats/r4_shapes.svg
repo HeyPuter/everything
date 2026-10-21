@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100">
+  <g id="grp" transform="translate(10,0)">
+    <path id="tri" d="M 10 10 L 90 10 L 50 80 Z" fill="#ff0000"/>
+    <path id="wave" d="M 100 50 C 120 0, 140 100, 160 50 S 190 0, 190 50" fill="none" stroke="#0000ff"/>
+  </g>
+  <rect id="box" x="20" y="60" width="40" height="30" fill="#00ff00"/>
+  <circle cx="150" cy="80" r="10" fill="#00ff00"/>
+</svg>

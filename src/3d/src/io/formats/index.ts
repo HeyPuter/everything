@@ -6,5 +6,6 @@ import './usd/index';
 import './mesh-formats'; // Wavefront OBJ, Stanford PLY, STL
 import './fbx/index';
 import './bvh-format'; // Motion Capture
+import './svgcurves-format'; // SVG as Curves
 import './gltf/index';
 import '../blend/index';
