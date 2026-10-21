@@ -177,6 +177,7 @@ export function stripExtension(name) {
 
 /* ---------- Export ---------- */
 
+const UNDERLINE_KINDS = { 2: 'double', 0x21: 'singleAccounting', 0x22: 'doubleAccounting' };
 const META_ENUMS = { scheme: ['major', 'minor', 'none'], align: HORIZONTAL_ALIGNS, valign: ['top', 'middle', 'bottom'] };
 const META_NUMBERS = ['size', 'indent', 'dec', 'rot'];
 /** Metadata colors are hex or validated native references; alignments, sizes
@@ -1553,6 +1554,8 @@ function fileCellStyles(styles, native, includeDefaults = true) {
     // Another font record is complete, not a patch on Normal. Its absent
     // flags must suppress a bold/italic/etc. workbook default.
     for (const key of ['bold', 'italic', 'underline', 'strike']) if (font[key] || base[key]) s[key] = !!font[key];
+    // The reader numbers <u val>: a double or accounting underline keeps its name, as a rich-text run's does.
+    if (UNDERLINE_KINDS[font.underline]) s.underline = UNDERLINE_KINDS[font.underline];
     if (typeof font.sz === 'number' && font.sz > 0 && font.sz !== base.sz) s.size = font.sz * 4 / 3;
     const color = colorOf(font, i);
     if (color && !sameFontColor(color, baseColor) && (color !== '#000000' || baseColor)) s.color = color;

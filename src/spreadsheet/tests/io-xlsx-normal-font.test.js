@@ -79,7 +79,7 @@ it.each([0, 2])('keeps Normal font properties in Excel-compatible order at font 
   const wb = await workbookFromFile(source({ name: 'Arial', size: 11, fontId, extra: '<b/><i/><strike/><condense/><extend/><outline/><shadow/><u val="double"/><vertAlign val="superscript"/><color rgb="FF123456"/><family val="2"/><charset val="128"/>' }), 'properties.xlsx');
   const font = (await exported(wb)).text('/xl/styles.xml').match(/<fonts[^>]*>(<font>[\s\S]*?<\/font>)/)[1];
   expect(font).toBe('<font><b/><i/><strike/><condense/><extend/><outline/><shadow/><u val="double"/><vertAlign val="superscript"/><sz val="11"/><color rgb="FF123456"/><name val="Arial"/><family val="2"/><charset val="128"/></font>');
-  expect(wb.getCell(wb.activeSheetId, 1, 1).s).toMatchObject({ bold: true, italic: true, underline: true, strike: true, color: '#123456' });
+  expect(wb.getCell(wb.activeSheetId, 1, 1).s).toMatchObject({ bold: true, italic: true, underline: 'double', strike: true, color: '#123456' });
 });
 
 it('copies cell fonts in both directions without changing either workbook Normal font or column geometry', async () => {

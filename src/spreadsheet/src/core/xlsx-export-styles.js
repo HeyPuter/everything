@@ -31,6 +31,7 @@ export const WORKSHEET_EXTLST = String.raw`<extLst\b(?=(?:(?!<extLst\b)[^])*<\/e
 export const worksheetExtension = (xml, ext) => (/<\/extLst>\s*<\/worksheet>/.test(xml)
   ? xml.replace(/<\/extLst>(\s*<\/worksheet>)/, (_, end) => `${ext}</extLst>${end}`)
   : xml.replace('</worksheet>', () => `<extLst>${ext}</extLst></worksheet>`));
+const UNDERLINE_KINDS = ['double', 'singleAccounting', 'doubleAccounting'];
 const rgb = value => xlsxSolidColor(value) ? `FF${value.slice(1).toUpperCase()}` : null;
 const color = value => rgb(value) ? xmlTag('color', { rgb: rgb(value) }) : '';
 const table = (name, entries) => xmlTag(name, { count: entries.length }, entries.join(''));
@@ -60,7 +61,8 @@ function fontXml(s, differential = false, defaultColor = '', palette = null, fon
   // permits a choice. This applies to ordinary and differential fonts alike.
   // https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/5b4f9876-7379-4354-819c-8c169e5d37ae
   for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['strike', 'strike'], ['underline', 'u']]) {
-    if (s[key]) body += xmlTag(tag);
+    // A double or accounting underline is named; a single one is the bare element.
+    if (s[key]) body += xmlTag(tag, key === 'underline' && UNDERLINE_KINDS.includes(s[key]) ? { val: s[key] } : {});
     else if (differential && s[key] === false) body += xmlTag(tag, { val: tag === 'u' ? 'none' : 0 });
   }
   if (!differential || s.size) body += xmlTag('sz', { val: xlsxFontSize(s.size) });

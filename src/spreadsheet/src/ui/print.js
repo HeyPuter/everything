@@ -935,6 +935,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
         if (st.italic) td.style.fontStyle = 'italic';
         const deco = [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ');
         if (deco) td.style.textDecoration = deco;
+        if (/^double/.test(st.underline)) td.style.textDecorationStyle = 'double';
         const formatColor = st.fmt === 'custom' ? codeColor(value, st.code, wb.colorPalette) : null;
         const ink = cf?.color || formatColor || st.color;
         if (ink) td.style.color = fontColorCss(ink);

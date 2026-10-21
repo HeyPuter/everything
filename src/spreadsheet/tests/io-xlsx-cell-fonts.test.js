@@ -39,7 +39,7 @@ it('reads the fonts another program gave its cells, and keeps them through a sav
   expect(wb.getCell(id, 0, 4).s).toEqual({ valign: 'bottom', scheme: 'minor', font: 'calibri', size: 16, color: DEFAULT_FONT_COLOR });
   expect(wb.getCell(id, 0, 5)).toEqual({ v: null, f: 'B1+1', s: { valign: 'bottom', scheme: 'none', font: 'calibri', bold: true, size: 56 / 3, color: '#ff0000' } });
   expect(wb.getCell(id, 0, 6)).toEqual({ v: null, f: null, s: { valign: 'bottom', scheme: 'none', font: 'calibri', bold: true, size: 56 / 3, color: '#ff0000' } });
-  expect(wb.getCell(id, 0, 7).s).toEqual({ scheme: 'none', underline: true, color: 'windowtext', valign: 'bottom' }); // attribute order in the file does not matter
+  expect(wb.getCell(id, 0, 7).s).toEqual({ scheme: 'none', underline: 'double', color: 'windowtext', valign: 'bottom' }); // attribute order in the file does not matter
   const back = await workbookFromFile(await workbookToXlsx(wb), 'report.xlsx');
   expect(back.getCell(back.activeSheetId, 0, 0).s).toEqual({ valign: 'bottom', scheme: 'none', font: 'calibri', bold: true, size: 56 / 3, color: '#ff0000' });
   expect(back.getCell(back.activeSheetId, 0, 3).s).toMatchObject({ size: 32 / 3, color: '#0000ff', fmt: 'number' });

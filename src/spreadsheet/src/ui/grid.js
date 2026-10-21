@@ -1536,6 +1536,7 @@ export function createGrid(opts) {
       if (st.italic) node.classList.add('i');
       if (st.underline) node.classList.add('u');
       if (st.underline === false || st.strike === false) node.style.textDecoration = [st.underline && 'underline', st.strike && 'line-through'].filter(Boolean).join(' ') || 'none';
+      if (/^double/.test(st.underline)) node.style.textDecorationStyle = 'double';
       if (st.strike) node.classList.add('s');
       if (st.wrap && !picture && !checkbox) node.classList.add('wrap'); // wrapping lays text out; a picture or box stays centred
       // A format code's numeric or text section color wins over the font color.
