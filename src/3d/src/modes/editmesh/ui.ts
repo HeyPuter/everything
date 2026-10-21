@@ -454,6 +454,7 @@ function selectMenuEdit(): MenuItem[] {
     { separator: true },
     { label: 'Sharp Edges', op: 'mesh.edges_select_sharp' },
     { label: 'Side of Active', op: 'mesh.select_axis' },
+    { label: 'By Attribute', op: 'mesh.select_by_attribute' },
   ];
 }
 

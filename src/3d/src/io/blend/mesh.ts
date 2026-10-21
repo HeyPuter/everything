@@ -1,6 +1,7 @@
 // Mesh conversion. Reads geometry from generic attributes (Blender 5.x AttributeStorage, or
 // 3.x/4.x CustomData layers) with a fallback to the legacy MVert/MEdge/MPoly/MLoop structs.
-import type { ColorAttribute, MeshData, ShapeKey } from '../../data/types';
+import type { AttributeType, ColorAttribute, MeshAttribute, MeshData, ShapeKey } from '../../data/types';
+import { attrWidth, makeAttrArray } from '../../mesh/attributes';
 import { newMeshData } from '../../data/defaults';
 import { polyNormal } from '../../mesh/mesh';
 import type { BStruct } from './reader';
@@ -359,6 +360,8 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   const uvAttrs = attrs.filter((a) => a.kind === 'float2' && a.domain === 'CORNER' && !a.name.startsWith('.'));
   const activeUvName = me.cstr('active_uv_map_attribute') || me.cstr('default_uv_map_attribute');
   let uvs = new Float32Array(totloop * 2);
+  const extraUVs: { name: string; data: Float32Array }[] = [];
+  let uvActiveIndex = 0;
   let uvName = 'UVMap';
   const uvChoice = uvAttrs.find((a) => a.name === activeUvName) ?? uvAttrs[0];
   if (uvChoice) {
@@ -366,8 +369,13 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
     if (v) uvs = Float32Array.from(v);
     uvName = uvChoice.name;
     for (const a of uvAttrs) used.add(a);
-    const others = uvAttrs.filter((a) => a !== uvChoice).map((a) => a.name);
-    if (others.length) ctx.warn.add('Additional UV maps dropped (only the active UV map is kept)', `${name}: ${others.join(', ')}`);
+    // the other maps, in their order, around the active one
+    for (const a of uvAttrs) {
+      if (a === uvChoice) continue;
+      const v = reader.read(a);
+      if (v && v.length === totloop * 2) extraUVs.push({ name: a.name, data: Float32Array.from(v) });
+    }
+    uvActiveIndex = uvAttrs.indexOf(uvChoice);
   } else {
     const uvLayers = legacy.structs.filter((s) => s.type === 'MLoopUV');
     if (uvLayers.length) {
@@ -390,6 +398,12 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
 
   const mesh = newMeshData(name, { positions, offsets, indices, uvs, normals, smooth, material_index });
   mesh.uv_map_name = uvName;
+  if (extraUVs.length) {
+    mesh.uv_layers_extra = extraUVs;
+    mesh.uv_active_index = uvActiveIndex;
+    const render = me.cstr('default_uv_map_attribute');
+    if (render) mesh.uv_render_name = render;
+  }
   if (seams) mesh.seams = Uint32Array.from(seams);
   if (sharp) mesh.sharp = Uint32Array.from(sharp);
   if (creases) mesh.creases = Float32Array.from(creases);
@@ -464,12 +478,34 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   const vs = me.num('remesh_voxel_size');
   if (vs > 0) mesh.remesh_voxel_size = vs;
 
-  // unmapped generic attributes
+  // the other generic attributes (colors and UV maps were taken above)
+  const GENERIC: Partial<Record<Kind, AttributeType>> = { bool: 'BOOLEAN', int8: 'INT8', int32: 'INT', int2: 'INT32_2D', float: 'FLOAT', float2: 'FLOAT2', float3: 'FLOAT_VECTOR', quat: 'QUATERNION', float4x4: 'FLOAT4X4' };
+  const generic: MeshAttribute[] = [];
   for (const a of attrs) {
     if (used.has(a) || a.name.startsWith('.')) continue;
-    if (['position', 'material_index', 'sharp_edge', 'uv_seam', 'crease_edge', 'crease_vert', 'bevel_weight_edge', 'bevel_weight_vert'].includes(a.name) && used.has(a)) continue;
-    ctx.warn.add('Generic mesh attributes not imported', `${name}.${a.name}`);
+    if (['position', 'material_index', 'sharp_edge', 'uv_seam', 'crease_edge', 'crease_vert', 'bevel_weight_edge', 'bevel_weight_vert'].includes(a.name)) continue;
+    const type = GENERIC[a.kind];
+    const vals = type ? take(a) : null;
+    if (!type || !vals || (a.domain === 'EDGE' && !cornerEdge)) {
+      ctx.warn.add('Generic mesh attributes not imported', `${name}.${a.name}`);
+      continue;
+    }
+    const w = attrWidth(type);
+    let data: MeshAttribute['data'];
+    if (a.domain === 'EDGE') {
+      // stored per face corner: the value of the edge that starts at the corner
+      data = makeAttrArray(type, totloop * w);
+      for (let c = 0; c < totloop; c++) {
+        const e = cornerEdge![c];
+        if (e >= 0) for (let k = 0; k < w; k++) data[c * w + k] = vals[e * w + k];
+      }
+    } else {
+      data = makeAttrArray(type, vals.length);
+      for (let i = 0; i < vals.length; i++) data[i] = vals[i];
+    }
+    generic.push({ name: a.name, domain: a.domain, data_type: type, data });
   }
+  if (generic.length) mesh.attributes = generic;
   return mesh;
 }
 

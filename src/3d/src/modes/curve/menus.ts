@@ -84,10 +84,11 @@ const radiusItem: MenuItem = { label: 'Radius', op: 'transform.transform', props
 
 function curveMenu(): MenuItem[] {
   return [
-    transformSubmenu([radiusItem]),
+    transformSubmenu([radiusItem], true),
     mirrorSubmenu(),
     snapSubmenu(),
     { separator: true },
+    { label: 'Spin', op: 'curve.spin' },
     { label: 'Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
     { separator: true },
     { label: 'Split', op: 'curve.split', shortcut: 'Y' },

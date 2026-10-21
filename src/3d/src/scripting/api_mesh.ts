@@ -7,7 +7,8 @@
 // then the mesh's loose edges). Edge flags (seam, sharp, crease) live on the face corners
 // whose edge starts there, so reading or writing an edge goes through those corners.
 import { app } from '../app/app';
-import type { ColorAttribute, MeshData } from '../data/types';
+import type { AttributeType, ColorAttribute, MeshData } from '../data/types';
+import { validAttributes, attrWidth, newAttribute, ATTRIBUTE_TYPES } from '../mesh/attributes';
 import { buildMesh, cornerNormals, edgeTopology, faceCenter, faceVerts, polyNormal, triangulatePoly, type PolyFace } from '../mesh/mesh';
 import { cow } from '../data/cow';
 import { Vector } from './mathutils';
@@ -933,6 +934,48 @@ function builtinAttributes(me: MeshData): AttrDef[] {
   if (me.sculpt_mask) out.push({ name: '.sculpt_mask', domain: 'POINT', data_type: 'FLOAT', width: 1, read: (m) => m.sculpt_mask ?? [], write: (m, v) => (m.sculpt_mask = Float32Array.from(v)), remove: (m) => delete m.sculpt_mask, is_internal: true });
   if (me.custom_normals) out.push({ name: 'custom_normal', domain: 'CORNER', data_type: 'FLOAT_VECTOR', width: 3, read: (m) => m.custom_normals ?? [], write: (m, v) => (m.custom_normals = Float32Array.from(v)), remove: (m) => delete m.custom_normals });
   if (me.uvs.length && me.uvs.length === me.indices.length * 2) out.push({ name: me.uv_map_name || 'UVMap', domain: 'CORNER', data_type: 'FLOAT2', width: 2, read: (m) => m.uvs, write: (m, v) => (m.uvs = Float32Array.from(v)) });
+  for (const g of validAttributes(me)) {
+    out.push({
+      name: g.name,
+      domain: g.domain,
+      data_type: g.data_type,
+      width: attrWidth(g.data_type),
+      // EDGE values are stored per corner: read / write them per edge
+      read: (m) => {
+        const cur = validAttributes(m).find((x) => x.name === g.name);
+        if (!cur) return [];
+        if (cur.domain !== 'EDGE') return cur.data;
+        const info = edgeInfo(m);
+        const w = attrWidth(cur.data_type);
+        const nc = m.indices.length;
+        const ne = info.verts.length / 2;
+        const out: number[] = [];
+        for (let e = 0; e < ne; e++) {
+          const c = e < info.faceEdges ? info.edgeCorners[info.edgeCornerOffsets[e]] : nc + (e - info.faceEdges);
+          for (let k = 0; k < w; k++) out.push(cur.data[c * w + k] ?? 0);
+        }
+        return out;
+      },
+      write: (m, v) => {
+        const cur = validAttributes(m).find((x) => x.name === g.name);
+        if (!cur) return;
+        const data = cur.data.slice();
+        const w = attrWidth(cur.data_type);
+        if (cur.domain !== 'EDGE') data.set(v.slice(0, data.length));
+        else {
+          const info = edgeInfo(m);
+          const nc = m.indices.length;
+          for (let e = 0; e < info.verts.length / 2; e++) {
+            const vals = v.slice(e * w, (e + 1) * w);
+            if (e < info.faceEdges) for (let k = info.edgeCornerOffsets[e]; k < info.edgeCornerOffsets[e + 1]; k++) data.set(vals, info.edgeCorners[k] * w);
+            else data.set(vals, (nc + e - info.faceEdges) * w);
+          }
+        }
+        m.attributes = validAttributes(m).map((x) => (x === cur ? { ...cur, data } : x));
+      },
+      remove: (m) => (m.attributes = validAttributes(m).filter((x) => x.name !== g.name)),
+    });
+  }
   for (const c of me.color_attributes) {
     out.push({
       name: c.name,
@@ -1102,6 +1145,7 @@ export class MeshAttributes extends PropCollection<unknown> {
     else if ((n === 'bevel_weight_vert' || n === 'crease_vert') && dom === 'POINT') me[n] = new Float32Array(nVerts(me));
     else if (n === '.hide_poly' && dom === 'FACE') me.hide_poly = new Uint8Array(nFaces(me));
     else if ((n === '.select_vert' || n === '.hide_vert') && dom === 'POINT') me[n === '.select_vert' ? 'select_vert' : 'hide_vert'] = new Uint8Array(nVerts(me));
+    else if (!n.startsWith('.') && ATTRIBUTE_TYPES.some(([x]) => x === t) && ['POINT', 'EDGE', 'FACE', 'CORNER'].includes(dom)) me.attributes = [...validAttributes(me), newAttribute(me, n, dom, t as AttributeType)];
     else throw pyError('RuntimeError', `Error: meshes here store color attributes (FLOAT_COLOR/BYTE_COLOR on POINT or CORNER), one UV map (FLOAT2 on CORNER) and the built-in attributes (.sculpt_face_set, .sculpt_mask, custom_normal, sharp_face, sharp_edge, crease_edge, crease_vert, bevel_weight_edge, bevel_weight_vert, material_index); "${n}" (${t} on ${dom}) can't be stored`);
     touched('geometry');
     return this.getItem(n);

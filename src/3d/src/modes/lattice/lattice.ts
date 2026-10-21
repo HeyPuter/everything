@@ -391,7 +391,7 @@ function flipMenu(): MenuItem[] {
 
 function latticeMenu(): MenuItem[] {
   return [
-    transformSubmenu(),
+    transformSubmenu([], true),
     mirrorSubmenu(),
     snapSubmenu(),
     { label: 'Flip (Distortion)', submenu: flipMenu, shortcut: 'Alt F' },

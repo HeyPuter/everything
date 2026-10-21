@@ -1,4 +1,5 @@
 // Properties tabs: scene, world, collection, object, data, material.
+import { uvMaps, setActiveUV, renameUV } from '../../mesh/uvmaps';
 import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { h, type Child } from '../../ui/h';
@@ -441,7 +442,40 @@ function meshData(o: ObjectData, me: MeshData): Child {
           : null,
       me.shape_keys.length ? [bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'), bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode')] : null,
     ]),
-    panel('me-uvmaps', 'UV Maps', () => [uiList('uv', [{ key: me.uv_map_name, label: me.uv_map_name, icon: 'uv' }], 0, () => {}, { rename: (_i, name) => ((me.uv_map_name = name), changed('Rename UV Map')) })]),
+    panel('me-uvmaps', 'UV Maps', () => {
+      const rows = uvMaps(me);
+      return [
+        uiList(
+          'uv',
+          rows.map((r) => ({
+            key: r.name,
+            label: r.name,
+            icon: 'uv',
+            rightSize: 'compact' as const,
+            right: h(
+              'button',
+              {
+                class: { 'icon-btn': true, on: r.render },
+                'data-tip': 'Use this UV map for rendering',
+                onclick: (e: MouseEvent) => {
+                  e.stopPropagation();
+                  me.uv_render_name = r.name;
+                  changed('Set Render UV Map');
+                },
+              },
+              icon(r.render ? 'restrict_render_off' : 'restrict_render_on'),
+            ),
+          })),
+          rows.findIndex((r) => r.active),
+          (i) => setActiveUV(me, i) && changed('Set Active UV Map'),
+          {
+            add: () => app.run('mesh.uv_texture_add'),
+            remove: () => app.run('mesh.uv_texture_remove'),
+            rename: (i, name) => renameUV(me, i, name) && changed('Rename UV Map'),
+          },
+        ),
+      ];
+    }),
     panel('me-colors', 'Color Attributes', () => [
       uiList(
         'ca',

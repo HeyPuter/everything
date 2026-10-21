@@ -1,8 +1,9 @@
 // Conversion between the depsgraph's evaluated meshes (EvalMesh) and geometry sets.
+import { attrWidth, attrDomainSize } from '../mesh/attributes';
 import type { EvalMesh, GeometryInstance } from '../eval/types';
 import type { CurveData, DocumentData, MeshData, ObjectData } from '../data/types';
 import { sampleSpline } from '../eval/curve';
-import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, adaptDomain, type AttrMap, type InstancesComponent } from './geometry';
+import { CurvesComponent, GeometrySet, MeshComponent, PointsComponent, mulMat, isIdentity, adaptDomain, type AttrMap, type Attribute, type InstancesComponent } from './geometry';
 import { cornerNormals, edgeAttrToCorners, faceNormals, smoothFlags } from './meshutil';
 import { curveObjectToCurves, evaluatedCurves } from './curves/curvedata';
 import { curvesWithGreasePencil } from './curves/gpdata';
@@ -93,6 +94,23 @@ export function evalMeshToGeometry(m: EvalMesh, source?: MeshData | null): Geome
           data: c.data,
         });
     });
+    // the other UV maps and generic attributes of the original mesh (same topology)
+    if (sameTopo) for (const u of source.uv_layers_extra ?? []) if (u.data.length === nc * 2 && !attrs.has(u.name)) attrs.set(u.name, { domain: 'CORNER', type: 'FLOAT2', data: u.data });
+    if (sameTopo)
+      for (const a of source.attributes ?? []) {
+        const w = attrWidth(a.data_type);
+        if (a.data.length !== attrDomainSize(source, a.domain) * w || attrs.has(a.name)) continue;
+        const type = (a.data_type === 'INT32_2D' ? 'FLOAT2' : a.data_type) as Attribute['type'];
+        if (a.domain !== 'EDGE') {
+          attrs.set(a.name, { domain: a.domain, type, data: type === 'FLOAT2' && a.data_type === 'INT32_2D' ? Float32Array.from(a.data) : a.data });
+          continue;
+        }
+        // edge values live on the corners (then loose edges); gather them per edge
+        const topo = mesh.topology();
+        const data = type === 'BOOLEAN' ? new Uint8Array(topo.edgeCount * w) : type === 'INT' || type === 'INT8' ? new Int32Array(topo.edgeCount * w) : new Float32Array(topo.edgeCount * w);
+        for (let c = 0; c < nc; c++) for (let k = 0; k < w; k++) data[topo.cornerEdge[c] * w + k] = a.data[c * w + k];
+        attrs.set(a.name, { domain: 'EDGE', type, data });
+      }
   } else if (m.colors && m.colors.length === nc * 4)
     attrs.set('Color', {
       domain: 'CORNER',

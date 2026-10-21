@@ -1,12 +1,13 @@
 // Mesh data tab: Attributes (the mesh's named data layers) and Texture Space panels.
 import { h, type Child } from '../../../ui/h';
-import { icon } from '../../../ui/icons';
 import { app } from '../../../app/app';
 import { panel } from '../../../ui/widgets';
 import { bool, vecProp } from '../../../ui/props';
 import type { MeshData, CurveData } from '../../../data/types';
 import { boundsTexSpace } from '../../../render/texspace';
 import { extendTab, insertPanels } from './insert';
+import { uiList } from '../uilist';
+import { validAttributes, ATTRIBUTE_TYPES } from '../../../mesh/attributes';
 
 interface AttrRow {
   name: string;
@@ -29,18 +30,39 @@ export function meshAttributes(me: MeshData): AttrRow[] {
   return rows.filter((r) => !r.name.startsWith('.'));
 }
 
+const DOMAIN_LABEL: Record<string, string> = { POINT: 'Vertex', EDGE: 'Edge', FACE: 'Face', CORNER: 'Face Corner' };
+const TYPE_LABEL: Record<string, string> = Object.fromEntries(ATTRIBUTE_TYPES.map(([v, l]) => [v, l]));
+
 function attributesPanel(me: MeshData): Child {
-  return panel(
-    'me-attributes',
-    'Attributes',
-    () =>
-      h(
-        'div',
-        { class: 'attr-table' },
-        meshAttributes(me).map((a) => h('div', { key: a.name, class: 'attr-row' }, icon(a.icon), h('span', { class: 'attr-name' }, a.name), h('span', { class: 'attr-meta' }, a.domain), h('span', { class: 'attr-meta' }, a.type))),
-      ),
-    { closed: true },
-  );
+  return panel('me-attributes', 'Attributes', () => {
+    const generic = validAttributes(me);
+    const builtin = meshAttributes(me).filter((r) => !generic.some((g) => g.name === r.name));
+    const rows = [
+      ...builtin.map((r) => ({ name: r.name, domain: r.domain, type: r.type, icon: r.icon, generic: false })),
+      ...generic.map((g) => ({ name: g.name, domain: DOMAIN_LABEL[g.domain], type: TYPE_LABEL[g.data_type] ?? g.data_type, icon: g.domain === 'POINT' ? 'snap_vertex' : g.domain === 'EDGE' ? 'snap_edge' : g.domain === 'FACE' ? 'snap_face' : 'snap_face', generic: true })),
+    ];
+    const active = Math.max(0, rows.findIndex((r) => r.name === me.active_attribute));
+    return uiList(
+      'attrs',
+      rows.map((r) => ({ key: r.name, label: r.name, icon: r.icon, rightSize: 'wide' as const, right: h('span', { class: 'ul-meta attr-meta' }, h('span', null, r.domain), h('span', null, r.type)) })),
+      me.active_attribute ? active : -1,
+      (i) => ((me.active_attribute = rows[i]?.name), app.changed('ui')),
+      {
+        add: () => app.run('geometry.attribute_add'),
+        remove: () => app.run('geometry.attribute_remove'),
+        rename: (i, name) => {
+          const g = generic.find((x) => x.name === rows[i]?.name);
+          name = name.trim();
+          if (!g || !name || rows.some((r, j) => j !== i && r.name === name)) return;
+          g.name = name;
+          me.active_attribute = name;
+          app.pushUndo('Rename Attribute');
+          app.changed('doc');
+        },
+        specials: () => [{ label: 'Convert Attribute', op: 'geometry.attribute_convert' }],
+      },
+    );
+  }, { closed: true });
 }
 
 /** Texture Space panel shared by meshes and curves. */

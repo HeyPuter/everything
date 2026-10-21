@@ -83,6 +83,17 @@ export interface ColorAttribute {
   data: Float32Array;
 }
 
+/** Data types of generic mesh attributes (colors live in color_attributes, the UV map in uvs). */
+export type AttributeType = 'FLOAT' | 'INT' | 'INT8' | 'BOOLEAN' | 'FLOAT2' | 'INT32_2D' | 'FLOAT_VECTOR' | 'QUATERNION' | 'FLOAT4X4';
+
+/** A named data layer on one domain. EDGE values are stored per face corner (the edge starting there), then per loose edge. */
+export interface MeshAttribute {
+  name: string;
+  domain: 'POINT' | 'EDGE' | 'FACE' | 'CORNER';
+  data_type: AttributeType;
+  data: Float32Array | Int32Array | Uint8Array;
+}
+
 export interface MeshData {
   id: ID;
   name: string;
@@ -131,7 +142,17 @@ export interface MeshData {
   use_shape_key_edit_mode?: boolean;
   color_attributes: ColorAttribute[];
   active_color_index: number;
+  /** generic attributes (Attributes panel, geometry nodes Named Attribute, scripts) */
+  attributes?: MeshAttribute[];
+  /** name of the active attribute of the Attributes list */
+  active_attribute?: string;
   uv_map_name: string;
+  /** the other UV maps (per corner u, v), in list order with the active map left out */
+  uv_layers_extra?: { name: string; data: Float32Array }[];
+  /** position of the active map (uvs / uv_map_name) in the UV Maps list */
+  uv_active_index?: number;
+  /** name of the UV map used for rendering (default: the first map) */
+  uv_render_name?: string;
   /** Material slots (material ids or null for empty slot). */
   materials: (ID | null)[];
   /** Auto smooth by angle (radians); undefined = off. */
