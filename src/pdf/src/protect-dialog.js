@@ -15,6 +15,9 @@ const PERMISSIONS = [
 export function protectDialog(current, { signal } = {}) {
   return new Promise((resolve) => {
     let result;
+    // A file opened with its permissions password keeps an open password that is not known
+    // here; leaving the fields empty keeps it.
+    const unknownOpen = current?.open === null && (current.openFrom || current.original);
     const passwordField = (id, label, value = '') => {
       const input = el('input', {
         class: 'input',
@@ -23,11 +26,21 @@ export function protectDialog(current, { signal } = {}) {
         autocomplete: 'new-password',
         maxlength: 127,
         value,
+        ...(unknownOpen && id !== 'protect-owner' && { placeholder: 'Unchanged' }),
       });
       return { input, row: el('div', { class: 'field' }, el('label', { for: id }, label), input) };
     };
     const open = passwordField('protect-open', 'Password to open', current?.open || '');
     const confirm = passwordField('protect-confirm', 'Confirm password', current?.open || '');
+    if (unknownOpen) {
+      const hint = el(
+        'p',
+        { class: 'muted field-hint', id: 'protect-open-hint' },
+        'Leave empty to keep the current password to open.',
+      );
+      open.row.append(hint);
+      open.input.setAttribute('aria-describedby', hint.id);
+    }
     const owner = passwordField(
       'protect-owner',
       'Permissions password',
@@ -108,7 +121,8 @@ export function protectDialog(current, { signal } = {}) {
     const apply = () => {
       const openValue = open.input.value;
       const ownerValue = restrict.checked ? owner.input.value : '';
-      if (!openValue && !restrict.checked)
+      const keepOpen = unknownOpen && !openValue && !confirm.input.value;
+      if (!openValue && !restrict.checked && !keepOpen)
         return fail(
           'Enter a password to open the PDF, or restrict what readers can do.',
           open.input,
@@ -130,7 +144,9 @@ export function protectDialog(current, { signal } = {}) {
       const allow = Object.fromEntries(
         allowances.map(({ key, box }) => [key, restrict.checked ? box.checked : true]),
       );
-      result = { open: openValue, permissions: ownerValue, allow };
+      result = keepOpen
+        ? { open: null, permissions: ownerValue, allow, openFrom: unknownOpen }
+        : { open: openValue, permissions: ownerValue, allow };
       dialog.close();
     };
     form.onsubmit = (e) => {

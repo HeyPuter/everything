@@ -253,7 +253,9 @@ describe('protecting PDFs', () => {
         const protection = openedProtection(opened, password);
         expect(protection.original).toBe(opened.encryption);
         expect(protection[opened.owner ? 'permissions' : 'open']).toBe(password);
-        expect(protection[opened.owner ? 'open' : 'permissions']).toBeNull();
+        // The open password of older revisions follows from the permissions password.
+        const other = opened.owner && opened.encryption.security.R < 5 ? 'user' : null;
+        expect(protection[opened.owner ? 'open' : 'permissions']).toBe(other);
         // An edit in between, as the working copy is plain and re-saved by pdf-lib.
         const doc = await PDFDocument.load(opened.bytes);
         doc.setSubject('Edited');
@@ -292,6 +294,35 @@ describe('protecting PDFs', () => {
     await expect(unlockPdf(changed, '')).rejects.toBeInstanceOf(PasswordError);
     await expectUnlocked((await unlockPdf(changed, 'new')).bytes);
   });
+  it('keeps the open password of a file opened with its permissions password', async () => {
+    for (const [name, password, ownerPassword = 'owner'] of [
+      ...names.map((name) => [name, 'user']),
+      ['rc4-40-r3', 'abc', 'own'],
+      ['rc4-latin1-password', 'pässwörd'],
+      ['unicode-password', 'pässwörd'],
+    ]) {
+      const original = await fixture(name);
+      const opened = await unlockPdf(original, ownerPassword);
+      const protection = openedProtection(opened, ownerPassword);
+      const modern = opened.encryption.security.R >= 5;
+      // Older revisions derive it from the permissions password; AES-256 keeps its checks.
+      expect(protection.open).toBe(modern ? null : password);
+      const allow = { print: false };
+      const changed = await protectPdf(opened.bytes, {
+        open: protection.open,
+        permissions: 'boss',
+        allow,
+        openFrom: protection.original,
+      });
+      await expect(unlockPdf(changed, '')).rejects.toBeInstanceOf(PasswordError);
+      expect((await unlockPdf(changed, password)).owner, name).toBe(false);
+      expect((await unlockPdf(changed, 'boss')).owner).toBe(true);
+      const seen = await inspect(changed, password);
+      expect(seen.pages).toEqual((await inspect(original, password)).pages);
+      expect(seen.permissions).not.toContain(pdfjs.PermissionFlag.PRINT);
+    }
+  }, 60000);
+
   it('protects a PDF with many object types and reopens it byte-for-byte in content', async () => {
     const doc = await PDFDocument.create();
     const page = doc.addPage([300, 300]);

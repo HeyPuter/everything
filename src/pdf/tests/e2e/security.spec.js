@@ -228,6 +228,32 @@ for (const [password, label] of [
     expect((await unlockPdf(bytes, 'owner')).owner).toBe(true);
   });
 
+for (const name of ['aes-256', 'aes-256-r5', 'rc4-128'])
+  test(`changing the restrictions of a ${name} PDF opened with its permissions password keeps its open password`, async ({
+    page,
+  }) => {
+    await mockPuter(page);
+    await page.goto('/#library');
+    await chooseFile(page, await fixture(name));
+    const dialog = passwordDialog(page);
+    await dialog.getByLabel('Password', { exact: true }).fill('owner');
+    await dialog.getByRole('button', { name: 'Open', exact: true }).click();
+    await expect(page.locator('.page-caption')).toHaveText('Page 1 of 2');
+    await badge(page).click();
+    const change = page.getByRole('dialog', { name: 'Change password' });
+    await expect(change.getByLabel('Permissions password', { exact: true })).toHaveValue('owner');
+    await change.getByLabel('Print', { exact: true }).uncheck();
+    await change.getByRole('button', { name: 'Update', exact: true }).click();
+    await expect(change).toBeHidden();
+    const bytes = await downloaded(page);
+    // The reader password nobody typed here still guards the file.
+    await expect(unlockPdf(bytes, '')).rejects.toBeInstanceOf(PasswordError);
+    const reader = await unlockPdf(bytes, 'user');
+    expect(reader.owner).toBe(false);
+    expect(reader.encryption.security.P & 0x4).toBe(0);
+    expect((await unlockPdf(bytes, 'owner')).owner).toBe(true);
+  });
+
 test('protects a PDF with an open password, marks it unsaved, and removes the password again', async ({
   page,
 }) => {
