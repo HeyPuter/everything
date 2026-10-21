@@ -283,6 +283,48 @@ const DEFAULT_TOOL: Record<BrushMode, string> = {
   TEXTURE_PAINT: 'brush_texpaint',
 };
 
+/** Unified paint settings: one size / strength shared by every brush when turned on. */
+export interface UnifiedFlags {
+  size: number;
+  strength: number;
+  use_unified_size?: boolean;
+  use_unified_strength?: boolean;
+}
+const unified = () => app.doc.scene.tool_settings.unified_paint as unknown as UnifiedFlags;
+
+/** Give a brush the shared size / strength when those are unified. */
+function applyUnified(b: PaintBrush) {
+  const u = unified();
+  if (u.use_unified_size && u.size > 0) b.radius = u.size;
+  if (u.use_unified_strength) b.strength = u.strength;
+}
+
+/** Set a brush's radius (pixels); the shared size follows when sizes are unified. */
+export function setBrushRadius(b: PaintBrush, r: number) {
+  b.radius = r;
+  const u = unified();
+  if (u.use_unified_size) u.size = r;
+}
+
+/** Set a brush's strength; the shared strength follows when strengths are unified. */
+export function setBrushStrength(b: PaintBrush, s: number) {
+  b.strength = s;
+  const u = unified();
+  if (u.use_unified_strength) u.strength = s;
+}
+
+/** Turn unified size / strength on or off (on: start from the given brush's value). */
+export function setUnified(kind: 'size' | 'strength', on: boolean, from: PaintBrush | null) {
+  const u = unified();
+  if (kind === 'size') {
+    u.use_unified_size = on;
+    if (on && from) u.size = from.radius;
+  } else {
+    u.use_unified_strength = on;
+    if (on && from) u.strength = from.strength;
+  }
+}
+
 /** Active brush of a mode (the active toolbar tool when it is a brush). */
 export function activeBrush(mode: BrushMode = app.doc.mode as BrushMode): PaintBrush | null {
   const doc = app.doc;
@@ -290,7 +332,10 @@ export function activeBrush(mode: BrushMode = app.doc.mode as BrushMode): PaintB
   let b = id ? (doc.brushes[id] as PaintBrush | undefined) : undefined;
   if (!b && mode === 'SCULPT' && !id?.startsWith('builtin.')) b = doc.brushes[doc.scene.tool_settings.sculpt.brush] as PaintBrush | undefined;
   if (!b && !id?.startsWith('builtin.')) b = doc.brushes[DEFAULT_TOOL[mode]] as PaintBrush | undefined;
-  if (b) fillDefaults(b);
+  if (b) {
+    fillDefaults(b);
+    applyUnified(b);
+  }
   return b ?? null;
 }
 

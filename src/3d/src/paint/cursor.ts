@@ -5,7 +5,7 @@ import { h, patch, type VNode } from '../ui/h';
 import { app, registerOperators } from '../app/app';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, isBrushMode, type BrushMode } from './brushes';
+import { activeBrush, isBrushMode, setBrushRadius, setBrushStrength, type BrushMode } from './brushes';
 import { meshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
@@ -256,8 +256,8 @@ function radialSet(data: 'size' | 'strength' | 'weight' | 'angle', value: number
       if (b.use_locked_size === 'SCENE' && cursorState.radiusPx) {
         b.unprojected_radius = (b.unprojected_radius ?? 0.1) * (value / cursorState.radiusPx);
         cursorState.radiusPx = value;
-      } else b.radius = value;
-    } else b.strength = value;
+      } else setBrushRadius(b, value);
+    } else setBrushStrength(b, value);
   }
 }
 
@@ -361,7 +361,7 @@ registerOperators([
       let r = b.radius * s;
       // always change by at least one pixel
       if (Math.round(r) === Math.round(b.radius)) r = b.radius + (s > 1 ? 1 : -1);
-      b.radius = Math.max(1, Math.min(2000, Math.round(r)));
+      setBrushRadius(b, Math.max(1, Math.min(2000, Math.round(r))));
       const v = activeView3D();
       if (v) updateCursor(v, cursorState.x, cursorState.y);
     },

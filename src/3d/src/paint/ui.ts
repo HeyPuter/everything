@@ -13,7 +13,7 @@ import { extraToolLists, toolSettingsRenderers, setActiveTool, type ToolDef } fr
 import { sidebarTabs } from '../editors/view3d/sidebar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
+import { activeBrush, brushById, BRUSH_LISTS, brushInfo, isBrushMode, setBrushRadius, setBrushStrength, setUnified, type BrushMode, type PaintBrush, type UnifiedFlags } from './brushes';
 import { startGesture } from './gesture';
 import { startGradient } from './paintops';
 import { faceSetStroke } from './facesetbrush';
@@ -202,7 +202,7 @@ function radiusField(b: PaintBrush, id: string, label = 'Size') {
     step: 2,
     unit: 'pixel',
     tip: 'Diameter of the brush in pixels (F)',
-    set: (x) => ((b.radius = Math.max(1, Math.round(x / 2))), changed()),
+    set: (x) => (setBrushRadius(b, Math.max(1, Math.round(x / 2))), changed()),
   });
 }
 function strengthField(b: PaintBrush, id: string) {
@@ -216,7 +216,7 @@ function strengthField(b: PaintBrush, id: string) {
     slider: true,
     precision: 3,
     tip: 'How powerful the effect of the brush is when applied (Shift F)',
-    set: (x) => ((b.strength = x), changed()),
+    set: (x) => (setBrushStrength(b, x), changed()),
   });
 }
 function weightField(id: string) {
@@ -485,11 +485,28 @@ function sizeField(b: PaintBrush, id: string) {
     scene
       ? numberField({ id, label: 'Size', value: (b.unprojected_radius ?? 0.1) * 2, min: 0.0002, max: 200, unit: 'distance', precision: 3, tip: 'Diameter of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x / 2), changed()) })
       : radiusField(b, id),
+    scene ? null : unifiedToggle('size', b, `${id}-u`),
     pressureToggle(b, 'use_pressure_size', `${id}-p`),
   );
 }
 function strengthRow(b: PaintBrush, id: string) {
-  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+  return h('div', { key: id, class: 'paint-pressure-row' }, strengthField(b, id), unifiedToggle('strength', b, `${id}-u`), pressureToggle(b, 'use_pressure_strength', `${id}-p`));
+}
+
+/** Share the size / strength between all brushes. */
+function unifiedToggle(kind: 'size' | 'strength', b: PaintBrush, id: string) {
+  const u = app.doc.scene.tool_settings.unified_paint as unknown as UnifiedFlags;
+  const on = kind === 'size' ? !!u.use_unified_size : !!u.use_unified_strength;
+  return h(
+    'button',
+    {
+      key: id,
+      class: { 'hdr-toggle': true, 'pressure-toggle': true, on },
+      'data-tip': `Use the same ${kind} for all brushes`,
+      onclick: () => (setUnified(kind, !on, b), app.pushUndo(`Unified ${kind === 'size' ? 'Size' : 'Strength'}`), changed()),
+    },
+    icon('paint_unified'),
+  );
 }
 
 /** Switch the radius between screen pixels and scene units, keeping the current size on screen. */
@@ -501,7 +518,7 @@ function setSizeUnit(b: PaintBrush, unit: 'VIEW' | 'SCENE') {
     const at = cursorState.hit?.point ?? new Vector3().setFromMatrixPosition(s.world());
     const perPx = s.pixelsToLocal(v, at, 1) * s.scale();
     if (unit === 'SCENE') b.unprojected_radius = Math.max(1e-4, b.radius * perPx);
-    else b.radius = Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx)));
+    else setBrushRadius(b, Math.max(1, Math.min(2000, Math.round((b.unprojected_radius ?? 0.1) / perPx))));
   }
   b.use_locked_size = unit;
   changed();

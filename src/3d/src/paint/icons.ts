@@ -137,3 +137,8 @@ registerIcons({
   // one random pick for a whole stroke: a wavy stroke with a single dot above it
   paint_stroke_once: '<path class="s" d="M2 11c2-3 4 2 6-1s4 2 6-1" fill="none" stroke-width="1.4" stroke-linecap="round"/><circle class="f" cx="8" cy="4.5" r="1.8"/>',
 });
+
+registerIcons({
+  // one value shared by all brushes: three brush tips joined by a bar
+  paint_unified: '<circle class="f" cx="3.5" cy="11" r="2"/><circle class="f" cx="8" cy="11" r="2"/><circle class="f" cx="12.5" cy="11" r="2"/><path class="s" d="M3.5 8V4.5h9V8M8 4.5V8" fill="none" stroke-width="1.3" stroke-linejoin="round"/>',
+});
