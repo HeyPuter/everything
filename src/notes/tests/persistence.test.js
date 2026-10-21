@@ -9,7 +9,9 @@ import { closeAllMenus } from '../src/ui/menu.js';
 let mounted = [];
 
 async function mount() {
-  document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
+  // Keep the toast host: toast.js creates it once and reuses it.
+  for (const el of [...document.body.children]) if (!el.matches('.toasts')) el.remove();
+  document.body.insertAdjacentHTML('afterbegin', '<div id="app"></div><div id="live-region"></div>');
   localStorage.clear();
   const backend = memoryBackend();
   const store = new Store(backend, { saveDelay: 0 });
@@ -65,5 +67,15 @@ describe('Share', () => {
     expect(status.textContent).toMatch(/Sharing stopped/);
     expect(backend.files.has(`published/${page.id}.json`)).toBe(false);
     expect(page.published).toBeUndefined();
+  });
+});
+
+describe('Pictures and files', () => {
+  it('reports a pasted or dropped picture that could not be saved', async () => {
+    const { app, backend } = await mount();
+    backend.failNext = 1;
+    await app.editor.insertFiles([new File(['x'], 'photo.png', { type: 'image/png' })]);
+    expect(toasts().some((t) => t.startsWith("Couldn't insert photo.png"))).toBe(true);
+    expect(app.editor.page.outlines.some((o) => o.html.includes('data-asset'))).toBe(false);
   });
 });

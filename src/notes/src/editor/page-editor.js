@@ -741,10 +741,16 @@ export class PageEditor extends Emitter {
     return true;
   }
 
+  /** Pasted or dropped files. A failed upload is reported, not dropped silently. */
   async insertFiles(files) {
     for (const file of files) {
-      if (file.type.startsWith('image/')) await this.insertImage(file);
-      else await this.insertAttachment(file);
+      try {
+        if (file.type.startsWith('image/')) await this.insertImage(file);
+        else await this.insertAttachment(file);
+      } catch (err) {
+        console.error(err);
+        this.emit('insert-failed', { file, err });
+      }
     }
   }
 

@@ -900,6 +900,7 @@ export class App {
       this.updateTitle();
       this.updateFormatSoon();
     });
+    ed.on('insert-failed', ({ file, err }) => toast(`Couldn't insert ${file.name || 'the file'}: ${err?.message || 'upload failed'}`, { kind: 'error' }));
     ed.on('title-input', (title) => {
       if (this.state.pageId) this.nav.updatePageTitle(this.state.pageId, title);
     });
