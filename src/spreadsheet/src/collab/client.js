@@ -93,7 +93,14 @@ export class RoomClient extends EventTarget {
 
   /** Join the room and open its workbook: resolves to the Workbook, kept in step with the room from then on. */
   async open() {
-    const res = await this.request({ op: 'join', ...(this.o.token ? { token: this.o.token } : {}) });
+    let res;
+    try {
+      res = await this.request({ op: 'join', ...(this.o.token ? { token: this.o.token } : {}) });
+    } catch (error) {
+      // Closed, the room never takes what this browser kept to send it, whoever's it was.
+      if (error instanceof CollabError && error.status === 410) await this.o.store?.sweep((r) => r?.room === this.room).catch(() => {});
+      throw error;
+    }
     this.role = res.role;
     this.user = res.user;
     this.owner = res.owner;
@@ -460,9 +467,9 @@ export class RoomClient extends EventTarget {
       if (error.status === 410 || error.status === 404 || error.status === 403) {
         // The room is gone for this person: it is said once, and the room is not asked again.
         this.halt();
-        // Closed or deleted, it is gone for everyone, and what this browser kept to send it with it (access removed
-        // may be given back, and the changes with it).
-        if (error.status !== 403) { this.gone = true; this.persist().catch(() => {}); }
+        // Closed, it is gone for everyone, and what this browser kept to send it with it (access removed may be given
+        // back, and the changes with it; a room not found may be a worker out of reach for a while).
+        if (error.status === 410) { this.gone = true; this.persist().catch(() => {}); }
         this.dispatchEvent(new CustomEvent('closed', { detail: { message: error.message } }));
       }
       return;

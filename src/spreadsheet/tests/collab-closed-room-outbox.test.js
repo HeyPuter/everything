@@ -35,3 +35,26 @@ it('lets go of the unsent changes kept for a room that was closed', async () => 
   await new Promise((r) => setTimeout(r, 50));
   expect(await store.get(bob.outboxKey)).toBe(null);
 });
+
+// Closed while this browser was away, the room refuses the next opening outright: the record stayed as well.
+it('lets go of the unsent changes kept for a room found closed when opening it again', async () => {
+  const env = environment();
+  const wb = new Workbook({ sheets: [{ name: 'Plan' }] });
+  const room = await RoomClient.create({ puter: env.sdk(owner), server: SERVER, wb, name: 'Plan' });
+  const token = (await call(env.sdk(owner), SERVER, { op: 'invite', room, role: 'editor' })).token;
+  const store = memoryOutbox();
+  const bob = new RoomClient({ puter: env.sdk(editor), server: SERVER, room, token, store, poll: 60_000, noPeers: true });
+  await bob.open();
+  env.offlineUsers.add(editor.uuid);
+  bob.wb.setInput(bob.wb.sheets[0].id, 0, 0, 'offline edit');
+  await until(async () => (await store.get(bob.outboxKey))?.pending.length === 1, 4000, 'the change to be kept');
+  bob.close(); // the tab closes while offline
+  // Another room's record stays.
+  await store.put('someone:else', { room: 'other', user: 'someone', rev: 0, pending: [{ id: 'x', ops: [] }] });
+  await call(env.sdk(owner), SERVER, { op: 'stop', room });
+  env.offlineUsers.delete(editor.uuid);
+  const again = new RoomClient({ puter: env.sdk(editor), server: SERVER, room, store, poll: 60_000, noPeers: true });
+  await expect(again.open()).rejects.toMatchObject({ status: 410 });
+  expect(await store.get(bob.outboxKey)).toBe(null);
+  expect(await store.get('someone:else')).not.toBe(null);
+});
