@@ -4009,8 +4009,9 @@ export class Workbook extends EventTarget {
         : planPasteMerges(remainingPasteMerges(sheet.merges, checkOnly ? clearMerges : []), merges);
       if (plan.error) { this._emit('merge-paste', sheetId, { reason: plan.error }); return false; }
       // Keep destination merges that survive the paste, but let source styles
-      // reach cells under merges replaced by the incoming geometry.
-      const writable = e => !plan.retainedBody(e.r, e.c) && !plan.remaining.some(m => e.r >= m.r1 && e.r <= m.r2 && e.c >= m.c1 && e.c <= m.c2
+      // reach cells under merges replaced by the incoming geometry. The merges near each cell's row are the only
+      // ones asked: a block of thousands of merged rows pasted beside thousands more asked every one per cell.
+      const writable = e => !plan.retainedBody(e.r, e.c) && !rectCandidates(plan.remaining, e.r, ownRect).some(m => e.r >= m.r1 && e.r <= m.r2 && e.c >= m.c1 && e.c <= m.c2
         && (e.r !== m.r1 || e.c !== m.c1));
       let mergeLosses = 0;
       if (!formatRange) {
