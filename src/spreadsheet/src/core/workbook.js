@@ -4433,6 +4433,10 @@ export class Workbook extends EventTarget {
   }
 
   placeMoved(sheetId, r0, c0, cells, from) {
+    // Moving cells takes them out of their place and puts them in another, on the sheets named: with sheets grouped, the
+    // clearing and writing were carried to the others as typing is, erasing their own cells there and writing this
+    // sheet's in their place.
+    if (this._groupTargets(sheetId) || this._groupTargets(from?.sheetId)) return this._withoutGroup(() => this.placeMoved(sheetId, r0, c0, cells, from));
     const sheet = this.sheet(sheetId);
     const source = this.sheet(from?.sheetId);
     if (!sheet || !source || !cells.length || !cells[0].length) return null;

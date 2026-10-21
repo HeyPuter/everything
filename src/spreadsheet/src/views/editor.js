@@ -4514,7 +4514,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!wb.pasteCells(sheetId, cells, r, c, clip.origin, null,
       { checkOnly: true, merges: clip.merges, clearEntries: sheetId === from.sheetId ? clearEntries : [],
         clearMerges: [...sourceMerges, ...destinationMerges] })) return null;
-    return wb.transaction('Move cells', () => {
+    // As placeMoved, on these sheets alone: carried to grouped sheets, the clearing would erase their own cells.
+    return wb._withoutGroup(() => wb.transaction('Move cells', () => {
       const carried = wb.preparePackedMoveCells(from.sheetId, sheetId, from.rows, from.cols, r, c, cells);
       wb.moveConditionalFormatsFromCells(from.sheetId, sheetId, from.rows, from.cols, r, c);
       wb.setCells(from.sheetId, clearEntries, 'Move cells');
@@ -4524,7 +4525,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       wb.pasteCells(sheetId, carried, r, c, null, null, { notes: clip.notes, merges: clip.merges });
       wb.moveNativeSparklinesFromCells(from.sheetId, sheetId, from.rows, from.cols, r, c);
       return dst;
-    });
+    }));
   }
 
   /**
