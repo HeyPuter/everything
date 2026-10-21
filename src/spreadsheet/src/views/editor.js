@@ -1506,6 +1506,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       sheetId = grid.sheetId;
       return true;
     };
+    // The sheets a sheet's own setting goes to: every grouped worksheet, as Excel's Page Setup and View ▸ Gridlines
+    // and Headings change each sheet of a group.
+    const settingSheets = () => (wb.sheetGroup || [sheetId]).filter((id) => id === sheetId || wb.sheet(id)?.kind !== 'chart');
     // A command that would change a great many cells asks first, when the options say to (Editing ▸ Long operations).
     if (LONG_COMMANDS.has(cmd) && !grid.editing && appOption('longOperationAlert')) {
       const cells = affectedCells(cmd);
@@ -3122,13 +3125,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'gridlines':
+      case 'gridlines': {
         // The entry goes in first, as for Freeze Panes: a formula showing another sheet changed that sheet.
         if (!committed()) return;
-        wb.setGridlines(sheetId, wb.sheet(sheetId).gridlines === false);
+        const on = wb.sheet(sheetId).gridlines === false;
+        wb.transaction('Gridlines', () => { for (const id of settingSheets()) wb.setGridlines(id, on); });
         grid.refresh();
         keepFocus();
         return;
+      }
       case 'zeros':
         if (!committed()) return;
         wb.setZeros(sheetId, wb.sheet(sheetId).zeros === false);
@@ -3153,12 +3158,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         notify();
         keepFocus();
         return;
-      case 'toggleHeaders':
+      case 'toggleHeaders': {
         // The entry goes in first, as for Gridlines: a formula showing another sheet hid that sheet's headings.
         if (!committed()) return;
-        grid.setShowHeaders(!grid.showHeaders);
+        const on = wb.sheet(sheetId).headers === false;
+        wb.transaction('Row and column headers', () => { for (const id of settingSheets()) wb.setHeaders(id, on); });
         keepFocus();
         return;
+      }
       case 'spelling':
         if (!committed()) return;
         await openSpellingDialog(ctx);
@@ -3473,10 +3480,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'pageSetup': {
         // Page Layout choices are stored with the sheet and saved in the file's page setup.
+        // Each grouped sheet takes the choice over its own page setup, as in Excel.
         if (!committed() || !arg || typeof arg !== 'object') return;
-        const sheet = wb.sheet(sheetId);
-        const current = sheet.printSettings || normalizePrintSettings({});
-        wb.setPrintSettings(sheetId, { ...current, ...arg, margins: { ...current.margins, ...(arg.margins || {}) } });
+        wb.transaction('Page setup', () => {
+          for (const id of settingSheets()) {
+            const current = wb.sheet(id).printSettings || normalizePrintSettings({});
+            wb.setPrintSettings(id, { ...current, ...arg, margins: { ...current.margins, ...(arg.margins || {}) } });
+          }
+        });
         notify();
         keepFocus();
         return;
