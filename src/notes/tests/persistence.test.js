@@ -159,3 +159,33 @@ describe('Tags Summary', () => {
     expect(done).toEqual(['Call mom']);
   });
 });
+
+describe('Importing a notebook backup', () => {
+  const backup = (pictures) => ({
+    format: 'notes-backup',
+    v: 1,
+    notebook: { id: 'nOld', name: 'Trip', color: 'blue', sections: [{ type: 'section', id: 'sOld', name: 'Photos', color: 'green', pages: [{ id: 'pOld', title: 'Day 1', level: 0 }] }] },
+    pages: { pOld: { id: 'pOld', title: 'Day 1', outlines: [{ id: 'o', x: 40, y: 120, w: null, html: pictures.map((a) => `<p><img data-asset="${a}" alt=""></p>`).join('') }], ink: [] } },
+    assets: Object.fromEntries(pictures.map((a) => [a, 'data:image/png;base64,iVBORw0KGgo='])),
+  });
+
+  it('imports the pages and pictures', async () => {
+    const { app, store } = await mount();
+    const { importBackup } = await import('../src/ui/features.js');
+    const nb = await importBackup(app, backup(['aold1.png']));
+    await store.flush();
+    const section = [...store.sectionsOf(nb)][0];
+    const page = await store.loadPage(section.pages[0].id);
+    const id = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(id).not.toBe('aold1.png');
+    expect(await store.assetBlob(id)).toBeTruthy();
+  });
+
+  it('says how many pictures could not be saved', async () => {
+    const { app, backend } = await mount();
+    const { importBackup } = await import('../src/ui/features.js');
+    backend.failNext = 1;
+    await importBackup(app, backup(['aold1.png', 'aold2.png']));
+    expect(toasts()).toContain("1 picture or file couldn't be imported. Check your connection and import the backup again.");
+  });
+});

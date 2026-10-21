@@ -993,15 +993,23 @@ export async function importBackup(app, backup) {
     return idMap.get(old);
   };
   const assetMap = new Map();
+  let failed = 0;
   for (const [oldId, dataUrl] of Object.entries(backup.assets || {})) {
+    let blob;
     try {
-      const blob = await (await fetch(dataUrl)).blob();
+      blob = await (await fetch(dataUrl)).blob();
+    } catch {
+      continue; // a broken entry in the file
+    }
+    try {
       const ext = oldId.replace(/\.sealed$/, '').split('.').pop();
       assetMap.set(oldId, await store.saveAsset(blob, `asset.${ext}`));
-    } catch {
-      /* skip broken asset */
+    } catch (err) {
+      console.error(err);
+      failed++;
     }
   }
+  if (failed) toast(`${failed} ${failed === 1 ? 'picture or file' : 'pictures or files'} couldn't be imported. Check your connection and import the backup again.`, { kind: 'error' });
   const nb = store.createNotebook(store.notebooks.some((n) => n.name === backup.notebook.name) ? `${backup.notebook.name} (imported)` : backup.notebook.name, { color: backup.notebook.color, silent: true });
   const cloneNodes = (nodes) => nodes.map((n) => (n.type === 'group'
     ? { ...n, id: fresh(n.id, 'g'), children: cloneNodes(n.children || []) }
