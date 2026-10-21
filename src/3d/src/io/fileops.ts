@@ -15,6 +15,8 @@ import { imageSize, sniffMime } from './formats/common';
 import { ASSET_TABLES, assetsOf, type AssetTable } from '../assets/types';
 import { renderPreview } from '../assets/preview';
 import { ensureLibrary, saveLibrary, userLibraries } from '../assets/library';
+// Report / Find Missing Files and Unpack Resources
+import './externaldata';
 
 declare module '../data/types' {
   interface DocumentData {

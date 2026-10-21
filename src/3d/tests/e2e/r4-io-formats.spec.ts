@@ -96,3 +96,18 @@ test('File menu has Data Previews and Export All Collections', async ({ page }) 
   await expect(page.locator('.popup-layer .menu .mi-label', { hasText: 'Export All Collections' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('File ▸ External Data entries all have working operators', async ({ page }) => {
+  const errors = await openApp(page);
+  const missing = await page.evaluate(() => {
+    const a = (window as unknown as { app: { poll(id: string): boolean } }).app;
+    // operators without a context requirement (registered and runnable in a fresh file)
+    const ops = ['file.autopack_toggle', 'file.pack_all', 'file.make_paths_relative', 'file.make_paths_absolute', 'file.report_missing_files', 'wm.previews_ensure', 'wm.previews_clear', 'wm.previews_batch_generate', 'wm.previews_batch_clear'];
+    return ops.filter((id) => !a.poll(id));
+  });
+  expect(missing).toEqual([]);
+  await fileMenu(page, 'External Data');
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^Automatically Pack Resources$/ }).click();
+  expect(await page.evaluate(() => (window as unknown as { app: { doc: { use_autopack?: boolean } } }).app.doc.use_autopack)).toBe(true);
+  await expectNoErrors(errors);
+});
