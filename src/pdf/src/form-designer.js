@@ -145,9 +145,9 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
                 refocus = neighbor ? keyOf(neighbor) : null;
                 refocusFrom = keyOf(field);
                 onDelete(field);
-              } else if (e.key.startsWith('Arrow')) {
+              } else if (e.key.startsWith('Arrow') && !e.altKey && !e.ctrlKey && !e.metaKey) {
                 // Arrow keys nudge a point at a time in the direction they point on screen,
-                // also on turned pages; Shift moves ten.
+                // also on turned pages; Shift moves ten. Alt with an arrow turns the page.
                 e.preventDefault();
                 const step = e.shiftKey ? 10 : 1;
                 const { x, y, width, height } = field.rect;

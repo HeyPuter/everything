@@ -173,6 +173,22 @@ test('a field nudged with the arrow keys keeps the keyboard focus', async ({ pag
   expect(saved.acroField.getWidgets()[0].getRectangle()).toEqual({ ...start, x: start.x + 30 });
 });
 
+test('Alt with an arrow key turns the page without moving the field in focus', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const note = doc.getForm().createTextField('Note');
+  note.addToPage(doc.addPage([600, 400]), { x: 100, y: 100, width: 120, height: 24 });
+  doc.addPage([600, 400]);
+  const start = note.acroField.getWidgets()[0].getRectangle();
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Note#0').focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+  await settled(page);
+  const saved = (await PDFDocument.load(await downloaded(page))).getForm().getTextField('Note');
+  expect(saved.acroField.getWidgets()[0].getRectangle()).toEqual(start);
+});
+
 test('Tab order by rows or by columns is the order Tab follows on the page', async ({ page }) => {
   const doc = await PDFDocument.create();
   const sheet = doc.addPage([600, 500]);
