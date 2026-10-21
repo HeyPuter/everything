@@ -2055,6 +2055,8 @@ export class TextDocument {
     const at = this.range[1], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = footnoteReferenceRun(this.typingRun(at), id, kind);
     if (custom) run.noteMark.custom = true;
+    // With Track Changes on the reference is an insertion like typed text, so rejecting it removes the note.
+    if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
     for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset || marker.offset === location.offset && marker.edge === 'end' && marker.comment) marker.offset++;
     this.hasNoteMarks = true;
