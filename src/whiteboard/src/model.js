@@ -34,6 +34,16 @@ export const COLORS = [
   "#f3d6c8",
   "#ffffff",
 ];
+// Inks for new drawings, each at least 3:1 against the light and the dark
+// board and the pale fills, so no black: it would vanish on the dark board.
+export const PEN_COLORS = [
+  "#687169",
+  "#d03a3a",
+  "#2f6fd6",
+  "#26894a",
+  "#c86b0a",
+  "#8a5bd6",
+];
 export const uid = () => crypto.randomUUID();
 // The first `limit` code units of text, never ending between the two halves
 // of a surrogate pair, which would store an ill-formed string.

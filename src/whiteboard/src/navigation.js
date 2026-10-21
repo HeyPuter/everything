@@ -289,7 +289,7 @@ export function createCanvasNavigation(api) {
     // After a pen, a still finger or palm does nothing; one that moves on
     // pans, and two still pinch.
     if (penMode()) session.kind = "still";
-    else if (["pen", "arrow", "region"].includes(current.tool)) {
+    else if (["pen", "eraser", "arrow", "region"].includes(current.tool)) {
       session.kind = "direct";
       settle();
       api.begin(e);

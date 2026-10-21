@@ -42403,6 +42403,167 @@ test("the sticky note tool shows its colours beside the rail, and new notes take
   }
 });
 
+test("the Draw tool shows its inks beside the rail, and new drawings take the one chosen", async () => {
+  const app = await setup();
+  const { doc, click, tick } = app;
+  try {
+    await click('[data-action="new"]');
+    doc.querySelector("#canvas").getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      width: 1000,
+      height: 800,
+    });
+    const stroke = (y) => {
+      const move = (type, x) =>
+        canvasPointer(app, type, 1, x, y, { pointerType: "mouse" });
+      move("pointerdown", 300);
+      for (let x = 310; x <= 400; x += 10) move("pointermove", x);
+      move("pointerup", 400);
+    };
+    await click('[data-action="tool-pen"]');
+    const palette = doc.querySelector("#pen-colors");
+    assert.equal(palette.hidden, false);
+    assert.equal(palette.getAttribute("role"), "group");
+    assert.equal(palette.getAttribute("aria-label"), "Drawing color");
+    assert.equal(doc.querySelector("#note-colors")?.hidden ?? true, true);
+    const swatches = palette.querySelectorAll("[data-pen-color]");
+    assert.equal(swatches.length, 6);
+    assert.equal(swatches[0].getAttribute("aria-label"), "Graphite color");
+    assert.equal(swatches[0].getAttribute("aria-pressed"), "true");
+    stroke(200);
+    const red = swatches[1].dataset.penColor;
+    await click(`#pen-colors [data-pen-color="${red}"]`);
+    const chosen = doc.querySelector(`#pen-colors [data-pen-color="${red}"]`);
+    assert.equal(chosen.getAttribute("aria-pressed"), "true");
+    assert.equal(doc.activeElement, chosen, "Focus stays on the ink chosen");
+    // Switching ink mid-lesson needs no selecting and recolouring.
+    stroke(300);
+    await tick();
+    const pens = allClipboard(app)
+      .filter((i) => i.type === "pen")
+      .sort((a, b) => a.y - b.y);
+    assert.deepEqual(
+      pens.map((i) => i.color),
+      [swatches[0].dataset.penColor, red],
+    );
+    await click('[data-action="tool-select"]');
+    assert.equal(doc.querySelector("#pen-colors").hidden, true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("a drawing is recoloured from the inks, and new drawings take its ink", async () => {
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    await rotationFixture(app, [
+      item("pen", 0, 0, {
+        w: 100,
+        h: 0,
+        points: [
+          [0, 0],
+          [100, 0],
+        ],
+      }),
+    ]);
+    const id = doc.querySelector("#board-outline [data-id]").dataset.id;
+    await click(`#board-outline [data-id="${id}"]`);
+    await click("#fill-options");
+    const swatches = [...doc.querySelectorAll("#fill-popover [data-color]")];
+    assert.deepEqual(
+      swatches.map((b) => b.getAttribute("aria-label")),
+      [
+        "Graphite color",
+        "Red color",
+        "Blue color",
+        "Green color",
+        "Orange color",
+        "Purple color",
+      ],
+    );
+    const blue = swatches[2].dataset.color;
+    await click(`#fill-popover [data-color="${blue}"]`);
+    assert.equal(selectedClipboard(app)[0].color, blue);
+    await click('[data-action="tool-pen"]');
+    assert.equal(
+      doc
+        .querySelector(`#pen-colors [data-pen-color="${blue}"]`)
+        .getAttribute("aria-pressed"),
+      "true",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("the Eraser tool rubs out drawings under a mouse or finger in one undo step", async () => {
+  const app = await setup();
+  const { doc, click } = app;
+  try {
+    const stroke = (x) =>
+      item("pen", x, 0, {
+        w: 10,
+        h: 200,
+        points: [
+          [0, 0],
+          [10, 200],
+        ],
+      });
+    const note = item("note", 300, 0, { text: "Kept" });
+    const { canvas, pointer, key } = await rotationFixture(app, [
+      stroke(0),
+      stroke(100),
+      stroke(200),
+      note,
+    ]);
+    const placed = selectedClipboard(app);
+    const at = (id) => {
+      const i = placed.find((i) => i.id === id);
+      return { x: i.x + 5, y: i.y + 100 };
+    };
+    const pens = placed.filter((i) => i.type === "pen"),
+      kept = placed.find((i) => i.type === "note");
+    const outline = () =>
+      doc.querySelectorAll("#board-outline [data-id]").length;
+    // E chooses the eraser, as P chooses Draw.
+    canvas.focus();
+    key("e", { code: "KeyE", cancelable: true });
+    await app.tick();
+    const button = doc.querySelector('[data-action="tool-eraser"]');
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    assert.equal(
+      doc.querySelector("#tool-hint").textContent,
+      "Drag across drawings to erase them",
+    );
+    pointer("pointerdown", at(pens[0].id), { pointerType: "mouse" });
+    pointer("pointermove", at(pens[1].id), {
+      pointerType: "mouse",
+      buttons: 1,
+    });
+    pointer("pointermove", at(kept.id), { pointerType: "mouse", buttons: 1 });
+    pointer("pointerup", at(kept.id), { pointerType: "mouse" });
+    await app.tick();
+    assert.equal(outline(), 2, "Two strokes are erased, the note stays");
+    assert.ok(doc.querySelector(`#board-outline [data-id="${pens[2].id}"]`));
+    assert.equal(button.getAttribute("aria-pressed"), "true");
+    await click('[data-action="undo"]');
+    assert.equal(outline(), 4, "One undo step brings both strokes back");
+    // A finger erases at once rather than waiting to see if it pans.
+    pointer("pointerdown", at(pens[2].id), { pointerType: "touch" });
+    pointer("pointerup", at(pens[2].id), { pointerType: "touch" });
+    await app.tick();
+    assert.equal(outline(), 3);
+    assert.equal(
+      doc.querySelector(`#board-outline [data-id="${pens[2].id}"]`),
+      null,
+    );
+  } finally {
+    await app.close();
+  }
+});
+
 test("the frame tool offers slide, page and screen sizes, and new frames take the one chosen", async () => {
   const app = await setup();
   const { doc, w, click, tick } = app;
@@ -49641,11 +49802,16 @@ test("a remembered look is read back only when it is valid", async () => {
       JSON.stringify({
         note: { color: "#123456" },
         rect: { color: "red" },
+        pen: { color: "#d03a3a" },
         arrow: { lineStyle: "wavy", lineWidth: 40, endCap: "circle" },
         frame: { color: "#ffffff" },
       }),
     ),
-    { note: { color: "#123456" }, arrow: { endCap: "circle" } },
+    {
+      note: { color: "#123456" },
+      pen: { color: "#d03a3a" },
+      arrow: { endCap: "circle" },
+    },
   );
   // A frame format is kept only when it is one the app offers.
   assert.deepEqual(readLastStyle(JSON.stringify({ frame: { format: "a4" } })), {

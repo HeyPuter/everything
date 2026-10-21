@@ -66,6 +66,7 @@ export const TIPS = {
   arrow:
     "Tip: start the arrow on an object and end it on another to connect them.",
   pen: "Tip: drawings can be selected, moved, and recolored like any other object.",
+  eraser: "Tip: the eraser removes whole drawings. Undo brings them back.",
   comment:
     "Tip: click an object to pin a comment to it, or empty space for a board comment.",
   text: "Tip: text grows as you type. Select words to format them or add links.",
@@ -305,6 +306,8 @@ addTranslations({
     "Astuce : commencez la flèche sur un objet et terminez-la sur un autre pour les relier.",
   "Tip: drawings can be selected, moved, and recolored like any other object.":
     "Astuce : les dessins peuvent être sélectionnés, déplacés et recolorés comme tout autre objet.",
+  "Tip: the eraser removes whole drawings. Undo brings them back.":
+    "Astuce : la gomme efface des dessins entiers. Annuler les fait revenir.",
   "Tip: click an object to pin a comment to it, or empty space for a board comment.":
     "Astuce : cliquez sur un objet pour y épingler un commentaire, ou sur un espace vide pour un commentaire du tableau.",
   "Tip: text grows as you type. Select words to format them or add links.":

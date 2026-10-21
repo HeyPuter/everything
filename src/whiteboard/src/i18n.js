@@ -1128,7 +1128,7 @@ const pairs = {
   "Ctrl or Cmd + [ / ]": "Ctrl ou Cmd + [ / ]",
   "Ctrl or Cmd + Shift + [ / ]": "Ctrl ou Cmd + Maj + [ / ]",
   "Page Down / Page Up": "Page suivante / Page précédente",
-  "A or L / P / F": "A ou L / P / F",
+  "A or L / P / E / F": "A ou L / P / E / F",
   "Ctrl/Cmd + Backspace": "Ctrl/Cmd + Retour arrière",
   "Delete / Backspace": "Suppr / Retour arrière",
   Find: "Rechercher",
@@ -1263,6 +1263,7 @@ const pairs = {
   Ellipse: "Ellipse",
   Arrow: "Flèche",
   Draw: "Dessiner",
+  Eraser: "Gomme",
   Frame: "Cadre",
   "Add image": "Ajouter une image",
   "Personal board": "Tableau personnel",
@@ -1286,6 +1287,12 @@ const pairs = {
   "Lilac color": "Couleur lilas",
   "Peach color": "Couleur pêche",
   "White color": "Couleur blanche",
+  "Drawing color": "Couleur du dessin",
+  "Graphite color": "Couleur graphite",
+  "Red color": "Couleur rouge",
+  "Green color": "Couleur verte",
+  "Orange color": "Couleur orange",
+  "Purple color": "Couleur violette",
   "Edit selected object": "Modifier l’objet sélectionné",
   "Duplicate selection": "Dupliquer la sélection",
   "Duplicate left": "Dupliquer à gauche",
@@ -1307,6 +1314,8 @@ const pairs = {
   "Drag to move around your board":
     "Faites glisser pour vous déplacer dans le tableau",
   "Draw freely on the canvas": "Dessinez librement sur le tableau",
+  "Drag across drawings to erase them":
+    "Faites glisser sur les dessins pour les effacer",
   "This drawing is full. Draw again to continue.":
     "Ce dessin est plein. Dessinez de nouveau pour continuer.",
   "Click to add a sticky note · Drag to draw one at a size":
@@ -1663,7 +1672,7 @@ const pairs = {
   "Select / pan": "Sélectionner / naviguer",
   "Sticky note / text": "Note adhésive / texte",
   "Rectangle / ellipse": "Rectangle / ellipse",
-  "Arrow / draw / frame": "Flèche / dessin / cadre",
+  "Arrow / draw / eraser / frame": "Flèche / dessin / gomme / cadre",
   "Move around the canvas": "Naviguer dans le tableau",
   "Zoom toward the pointer": "Zoomer vers le pointeur",
   "Select multiple objects": "Sélectionner plusieurs objets",

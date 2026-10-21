@@ -292,8 +292,9 @@ export function applyObjectStyle(i, patch) {
   }
 }
 
-// The look new sticky notes, shapes and lines take: the last one given to
-// each kind on this device, as in Miro, and the format new frames take.
+// The look new sticky notes, shapes, lines and drawings take: the last one
+// given to each kind on this device, as in Miro, and the format new frames
+// take.
 // Anything else in storage is ignored.
 export const LAST_STYLE_KEY = "whiteboard-last-style";
 const LINE_CHOICES = {
@@ -307,7 +308,7 @@ export function readLastStyle(value) {
   try {
     const saved = typeof value === "string" ? JSON.parse(value) : null;
     if (!saved || typeof saved !== "object") return result;
-    for (const type of ["note", "rect", "ellipse"])
+    for (const type of ["note", "rect", "ellipse", "pen"])
       if (color(saved[type]?.color))
         result[type] = { color: saved[type].color };
     const line = saved.arrow;

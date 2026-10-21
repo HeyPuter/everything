@@ -7399,8 +7399,9 @@ dialog::backdrop {
     color: var(--muted);
   }
 }
-/* Colours for new sticky notes, beside the tool rail while its tool is on. */
-.note-colors {
+/* Colours for new sticky notes or drawings, beside the tool rail while
+   their tool is on. */
+.tool-colors {
   position: absolute;
   z-index: 3;
   display: grid;
@@ -7409,17 +7410,17 @@ dialog::backdrop {
   padding: 10px;
   border-radius: 14px;
 }
-.note-colors .swatch {
+.tool-colors .swatch {
   width: 28px;
   height: 28px;
   border-radius: 8px;
 }
-.note-colors .swatch[aria-pressed="true"] {
+.tool-colors .swatch[aria-pressed="true"] {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 @media (max-width: 760px) {
-  .note-colors {
+  .tool-colors {
     display: none;
   }
 }

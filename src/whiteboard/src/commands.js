@@ -249,6 +249,14 @@ export function commandEntries({
       create,
     );
     add(
+      "tool-eraser",
+      "Eraser",
+      "Create",
+      "erase rubber delete drawing gomme effacer",
+      "E",
+      create,
+    );
+    add(
       "comments",
       "Comments",
       "Board",

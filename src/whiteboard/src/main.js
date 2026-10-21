@@ -430,6 +430,7 @@ import {
   startDrawing,
   escape,
   COLORS,
+  PEN_COLORS,
   History,
   bounds,
   zoomAt,
@@ -4165,6 +4166,7 @@ const tools = [
   ["ellipse", "circle", "Ellipse", "O"],
   ["arrow", "move-up-right", "Arrow", "A"],
   ["pen", "pencil", "Draw", "P"],
+  ["eraser", "eraser", "Eraser", "E"],
   ["frame", "scan", "Frame", "F"],
   ["comment", "message-square", "Comment", "C"],
 ];
@@ -4183,6 +4185,7 @@ const TOOL_HINTS = {
   ellipse: "Click to add an ellipse · Drag to draw one at a size",
   arrow: "Drag between objects to connect · Alt/Option for a free endpoint",
   pen: "Draw freely on the canvas",
+  eraser: "Drag across drawings to erase them",
   frame: "Click to add a frame · Drag to draw one around objects",
   comment: "Click the canvas to add a comment",
   region: "Drag across the board to choose the area to export",
@@ -4206,7 +4209,7 @@ function observeChrome() {
     if (!heading.isConnected) return chromeObserver?.disconnect();
     editorEl.style.setProperty("--heading-width", `${heading.offsetWidth}px`);
     editorEl.style.setProperty("--actions-width", `${actions.offsetWidth}px`);
-    placeNoteColors();
+    placeToolColors();
     placeFrameFormats();
     if (!nav) return;
     const shown = [...nav.children].filter((b) => !b.hidden);
@@ -5789,6 +5792,7 @@ function renderSelectionTools(locked, resizeBox, anchor) {
       ? button("git-branch-plus", "Add child node", "mind-child") +
         button("list-plus", "Add sibling node", "mind-sibling")
       : "";
+  const fills = fillChoices(chosen.filter(paintsColor));
   const filterItem =
     chosen.length > 1
       ? item(
@@ -5918,7 +5922,7 @@ function renderSelectionTools(locked, resizeBox, anchor) {
             // Text, frames and images have no fill to colour. The swatches
             // open from one button showing the current colour.
             chosen.some(paintsColor)
-              ? `<button id="fill-options" class="icon-btn fill-options" type="button" aria-label="Fill color" title="Fill color" aria-expanded="false" aria-controls="fill-popover" data-popover="fill-popover" style="--swatch:${chosen.find(paintsColor).color || COLORS[0]}"><span class="fill-chip" aria-hidden="true"></span></button><div id="fill-popover" class="selection-popover fill-popover" role="group" aria-label="Fill color" hidden>${COLORS.map((c, n) => `<button class="swatch" style="--swatch:${c}" data-color="${c}" aria-label="${["Butter", "Sage", "Blue", "Lilac", "Peach", "White"][n]} color" aria-pressed="${chosen.filter(paintsColor).every((i) => (i.color || COLORS[0]) === c)}"></button>`).join("")}<label class="color-control" title="Custom color"><span class="sr-only">Custom color</span><input id="fill-color" type="color" value="${chosen.find(paintsColor).color || COLORS[0]}"></label></div>`
+              ? `<button id="fill-options" class="icon-btn fill-options" type="button" aria-label="Fill color" title="Fill color" aria-expanded="false" aria-controls="fill-popover" data-popover="fill-popover" style="--swatch:${chosen.find(paintsColor).color || COLORS[0]}"><span class="fill-chip" aria-hidden="true"></span></button><div id="fill-popover" class="selection-popover fill-popover" role="group" aria-label="Fill color" hidden>${fills.colors.map((c, n) => `<button class="swatch" style="--swatch:${c}" data-color="${c}" aria-label="${fills.names[n]} color" aria-pressed="${chosen.filter(paintsColor).every((i) => (i.color || COLORS[0]) === c)}"></button>`).join("")}<label class="color-control" title="Custom color"><span class="sr-only">Custom color</span><input id="fill-color" type="color" value="${chosen.find(paintsColor).color || COLORS[0]}"></label></div>`
               : ""
           }${
             // A shape's border can be dashed or dotted, as for a boundary,
@@ -6503,6 +6507,11 @@ function clearSelectionContent() {
 }
 // Text, frames and images draw no fill, so a colour would change nothing.
 const paintsColor = (i) => !["text", "frame", "image"].includes(i.type);
+// Drawings are recoloured from the inks, everything else from the fills.
+const fillChoices = (items) =>
+  items.length && items.every((i) => i.type === "pen")
+    ? { colors: PEN_COLORS, names: PEN_COLOR_NAMES }
+    : { colors: COLORS, names: COLOR_NAMES };
 function fillSelection(color) {
   if (!canEditSelection()) return;
   const chosen = current.items.filter(
@@ -6512,7 +6521,7 @@ function fillSelection(color) {
   if (chosen.every((i) => i.color === color)) return;
   mutate(() => chosen.forEach((i) => (i.color = color)));
   for (const type of new Set(chosen.map((i) => i.type)))
-    if (["note", "rect", "ellipse", "arrow"].includes(type))
+    if (["note", "rect", "ellipse", "arrow", "pen"].includes(type))
       rememberStyle(type, { color });
 }
 function formatSelection(key, value, fontLoaded = false) {
@@ -7465,7 +7474,7 @@ function showTool() {
     );
   document.querySelector("#canvas").style.cursor = toolCursor();
   showToolHint();
-  renderNoteColors();
+  renderToolColors();
   renderFrameFormats();
 }
 // Someone who may only view or comment is not told to edit by double-click.
@@ -7488,57 +7497,74 @@ function showToolHint() {
   );
   if (hint.textContent !== text) hint.textContent = text;
 }
-// While the sticky note tool is on, its colours stand beside the tool rail;
-// the one chosen is the colour new sticky notes take.
+// While the sticky note or Draw tool is on, its colours stand beside the
+// tool rail; the one chosen is the colour new notes or drawings take.
 const COLOR_NAMES = ["Butter", "Sage", "Blue", "Lilac", "Peach", "White"];
-function renderNoteColors() {
+const PEN_COLOR_NAMES = [
+  "Graphite",
+  "Red",
+  "Blue",
+  "Green",
+  "Orange",
+  "Purple",
+];
+const TOOL_COLORS = {
+  note: { colors: COLORS, names: COLOR_NAMES, label: "Sticky note color" },
+  pen: { colors: PEN_COLORS, names: PEN_COLOR_NAMES, label: "Drawing color" },
+};
+function renderToolColors() {
   const wrap = document.querySelector(".canvas-wrap");
   if (!wrap) return;
-  let palette = wrap.querySelector("#note-colors");
-  if (tool !== "note" || isSharedReadOnly()) {
-    if (palette) palette.hidden = true;
-    return;
+  for (const [type, { colors, names, label }] of Object.entries(TOOL_COLORS)) {
+    let palette = wrap.querySelector(`#${type}-colors`);
+    if (tool !== type || isSharedReadOnly()) {
+      if (palette) palette.hidden = true;
+      continue;
+    }
+    if (!palette) {
+      palette = document.createElement("div");
+      palette.id = `${type}-colors`;
+      palette.className = "tool-colors panel";
+      palette.setAttribute("role", "group");
+      palette.setAttribute("aria-label", t(label));
+      wrap.append(palette);
+    }
+    const chosen = lastStyle[type]?.color || colors[0];
+    palette.innerHTML = colors
+      .map(
+        (c, n) =>
+          `<button type="button" class="swatch" style="--swatch:${c}" data-${type}-color="${c}" aria-label="${t(`${names[n]} color`)}" aria-pressed="${c === chosen}"></button>`,
+      )
+      .join("");
+    for (const swatch of palette.querySelectorAll(`[data-${type}-color]`))
+      swatch.onclick = () => {
+        const color = swatch.getAttribute(`data-${type}-color`);
+        rememberStyle(type, { color });
+        renderToolColors();
+        palette
+          .querySelector(`[data-${type}-color="${color}"]`)
+          ?.focus({ preventScroll: true });
+      };
+    placeToolColors();
+    palette.hidden = false;
   }
-  if (!palette) {
-    palette = document.createElement("div");
-    palette.id = "note-colors";
-    palette.className = "note-colors panel";
-    palette.setAttribute("role", "group");
-    palette.setAttribute("aria-label", t("Sticky note color"));
-    wrap.append(palette);
-  }
-  const chosen = lastStyle.note?.color || COLORS[0];
-  palette.innerHTML = COLORS.map(
-    (c, n) =>
-      `<button type="button" class="swatch" style="--swatch:${c}" data-note-color="${c}" aria-label="${t(`${COLOR_NAMES[n]} color`)}" aria-pressed="${c === chosen}"></button>`,
-  ).join("");
-  for (const swatch of palette.querySelectorAll("[data-note-color]"))
-    swatch.onclick = () => {
-      rememberStyle("note", { color: swatch.dataset.noteColor });
-      renderNoteColors();
-      palette
-        .querySelector(`[data-note-color="${swatch.dataset.noteColor}"]`)
-        ?.focus({ preventScroll: true });
-    };
-  placeNoteColors();
-  palette.hidden = false;
 }
-// The palette sits beside the Sticky note button, clear of the rail, which
+// The palette sits beside its tool's button, clear of the rail, which
 // wraps into two columns in a short window.
-function placeNoteColors() {
+function placeToolColors() {
   const wrap = document.querySelector(".canvas-wrap"),
-    palette = wrap?.querySelector("#note-colors");
-  if (!palette || tool !== "note") return;
+    palette = TOOL_COLORS[tool] && wrap?.querySelector(`#${tool}-colors`);
+  if (!palette) return;
   const rail = wrap.querySelector(".left-rail")?.getBoundingClientRect(),
-    note = wrap
-      .querySelector('[data-action="tool-note"]')
+    button = wrap
+      .querySelector(`[data-action="tool-${tool}"]`)
       ?.getBoundingClientRect(),
     box = wrap.getBoundingClientRect();
   palette.style.left = rail?.width
     ? `${Math.round(rail.right - box.left + 8)}px`
     : "";
-  palette.style.top = note?.height
-    ? `${Math.round(note.top - box.top - 4)}px`
+  palette.style.top = button?.height
+    ? `${Math.round(button.top - box.top - 4)}px`
     : "";
 }
 // While the frame tool is on, the formats stand beside the tool rail, as in
@@ -7979,7 +8005,7 @@ function openBoardSearch(query) {
   framesPanel.close(false);
   boardSearch.open({ query });
 }
-// Removes the drawings under the stylus eraser, each once per gesture.
+// Removes the drawings under the eraser, each once per gesture.
 function eraseAt(p) {
   for (;;) {
     const hit = hitTest(
@@ -8136,8 +8162,9 @@ function pointerDown(
   }
   const p = canvasPoint(e);
   // The eraser end of a stylus, or its eraser button, rubs out drawings
-  // whatever the tool, as it does on paper.
-  if (eraser) {
+  // whatever the tool, as it does on paper; the Eraser tool does so for
+  // a mouse, finger or pen tip.
+  if (eraser || tool === "eraser") {
     if (isSharedReadOnly()) return toast(sharedReadOnlyReason());
     if (tableEditor.isOpen()) tableEditor.close();
     drag = {
@@ -8469,7 +8496,8 @@ function pointerDown(
     const start =
       tool === "arrow" && !target ? snapGridPoint(p, activeGridStep(e)) : p;
     const i = item(tool, start.x, start.y, {
-      ...(tool === "arrow" ? lastStyle.arrow : {}),
+      // The look last given to a line, or the ink last chosen for drawing.
+      ...lastStyle[tool],
       w: 0,
       h: 0,
       ...(tool === "pen" ? { points: startDrawing() } : {}),
@@ -13044,7 +13072,7 @@ function help() {
       ["Shift + N", "Bulk sticky notes"],
       ["R / O", "Rectangle / ellipse"],
       ["S", "Shapes"],
-      ["A or L / P / F", "Arrow / draw / frame"],
+      ["A or L / P / E / F", "Arrow / draw / eraser / frame"],
       ["Space / right / middle + drag", "Move around the canvas"],
       ["Right-click / Shift + F10", "Open the menu of the selection or board"],
       ["Ctrl or Cmd + scroll", "Zoom toward the pointer"],
