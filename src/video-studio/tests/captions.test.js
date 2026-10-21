@@ -180,6 +180,15 @@ describe('buildCaptionClips', () => {
     }
   });
 
+  it('shows cues that start together as one caption instead of a one-frame flash', () => {
+    const clips = buildCaptionClips([
+      { start: 1, end: 2, text: 'Speaker A' },
+      { start: 1, end: 2.5, text: 'Speaker B says more' },
+      { start: 3, end: 4, text: 'Next' },
+    ], { lineChars: 12 });
+    expect(clips.map((c) => [c.start / 1e6, c.duration / 1e6, c.text])).toEqual([[1, 1.5, 'Speaker A\nSpeaker B\nsays more'], [3, 1, 'Next']]);
+  });
+
   it('applies an offset and wraps long lines', () => {
     const [c] = buildCaptionClips([{ start: 0, end: 1, text: 'one two three four' }], { offset: 2, lineChars: 8 });
     expect(c.start).toBe(2_000_000);

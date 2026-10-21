@@ -286,7 +286,16 @@ export function lineCharsFor(preset, width) {
  */
 export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bottom', lineChars = 0, offset = 0 } = {}) {
   const preset = TEXT_PRESETS.find((p) => p.id === presetId) || TEXT_PRESETS.find((p) => p.id === 'subtitle');
-  const sorted = [...cues].filter((c) => String(c.text).trim()).sort((a, b) => a.start - b.start);
+  const wrap = (t) => (lineChars ? wrapCaption(t, lineChars) : String(t).trim());
+  // Cues that start together (two speakers in a subtitle file) share one caption, one under the other.
+  const sorted = [];
+  for (const c of [...cues].filter((x) => String(x.text).trim()).sort((a, b) => a.start - b.start)) {
+    const last = sorted.at(-1);
+    if (last && (c.start - last.start) * US < MIN_CLIP) {
+      last.end = Math.max(last.end, c.end);
+      last.text += `\n${wrap(c.text)}`;
+    } else sorted.push({ start: c.start, end: c.end, text: wrap(c.text) });
+  }
   const clips = [];
   let prevEnd = 0;
   for (let i = 0; i < sorted.length; i++) {
@@ -297,11 +306,10 @@ export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bot
     let end = Math.max(Math.round((c.end + offset) * US), start + 400_000);
     end = Math.min(end, Math.max(nextStart, start + MIN_CLIP));
     if (end - start < MIN_CLIP) continue;
-    const text = lineChars ? wrapCaption(c.text, lineChars) : String(c.text).trim();
     const clip = makeClip('text', {
       start,
       duration: end - start,
-      text,
+      text: c.text,
       style: { ...DEFAULT_TEXT_STYLE, ...preset.style },
       preset: preset.id,
       caption: true,
