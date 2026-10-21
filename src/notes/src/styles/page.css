@@ -318,7 +318,9 @@
   height: 16px;
   margin: 0 5px 0 -2px;
   vertical-align: -3px;
-  background: var(--tag-color, #2f6fd0);
+  /* A gradient, not background-color: Chrome carries an inline element's
+     background color into text typed after deleting it. */
+  background-image: linear-gradient(var(--tag-color, #2f6fd0), var(--tag-color, #2f6fd0));
   mask: var(--tag-icon) center / 16px 16px no-repeat;
   -webkit-mask: var(--tag-icon) center / 16px 16px no-repeat;
   user-select: none;
