@@ -599,4 +599,34 @@ describe('Store: changes from another device', () => {
     expect(await a.refreshPage(meta.id)).toBe(false);
     a.cancel(`pages/${meta.id}.json`);
   });
+
+  it("keeps a page just deleted here when a refresh's older read of Deleted Notes arrives late", async () => {
+    const backend = memoryBackend();
+    const store = new Store(backend, { saveDelay: 10000 });
+    await store.load();
+    const section = [...store.sectionsOf(store.notebooks[0])][0];
+    const earlier = store.createPage(section.id, { title: 'Earlier' });
+    const page = store.createPage(section.id, { title: 'Just deleted' });
+    store.deletePage(earlier.id);
+    await store.flush();
+    const entry = store.deletePage(page.id);
+    // The refresh reads trash.json before this delete is saved, but its
+    // reads come back only after the save.
+    const read = backend.readJSON;
+    let late = true;
+    backend.readJSON = async (path) => {
+      if (path !== 'trash.json' && path !== 'library.json') return read(path);
+      const value = await read(path);
+      const slow = path === 'library.json' || late;
+      if (path === 'trash.json') late = false;
+      if (slow) await new Promise((r) => setTimeout(r, 50));
+      return value;
+    };
+    const refreshing = store.refresh();
+    await new Promise((r) => setTimeout(r, 5));
+    await store.flush();
+    await refreshing;
+    backend.readJSON = read;
+    expect(store.trash.map((t) => t.id)).toContain(entry.id);
+  });
 });

@@ -43,6 +43,8 @@ export class Store extends Emitter {
     this.trash = [];
     // Ids in trash.json as last read or written, to merge other devices' changes.
     this.trashBase = new Set();
+    // trash.json writes made by this session, so a read that a write overtook is ignored.
+    this.trashWrites = 0;
     this.pages = new Map();
     this.pageLoads = new Map();
     this.textCache = new Map();
@@ -122,13 +124,16 @@ export class Store extends Emitter {
 
   /** Re-reads manifests changed on another device. Open dirty notebooks win. */
   async refresh() {
+    const trashWrites = this.trashWrites;
     const [library, remoteTrash] = await Promise.all([
       this.backend.readJSON('library.json').catch(() => null),
       this.backend.readJSON('trash.json').catch(() => null),
     ]);
     if (!library) return false;
     let changed = false;
-    if (await this.mergeTrash(remoteTrash)) {
+    // A trash.json saved here while it was read is newer than what was
+    // read: merging that would drop what was just deleted here.
+    if (await this.mergeTrash(this.trashWrites === trashWrites ? remoteTrash : null)) {
       changed = true;
       // A notebook deleted on another device leaves this one too, unless it
       // has changes here that are not saved yet.
@@ -1328,7 +1333,10 @@ export class Store extends Emitter {
           await this.backend.writeJSON(path, snapshot);
           if (path.startsWith('pages/')) await this.dropStaleAssets(plain);
         }
-        if (path === 'trash.json' && snapshot) this.trashBase = new Set(snapshot.map((t) => t.id));
+        if (path === 'trash.json' && snapshot) {
+          this.trashBase = new Set(snapshot.map((t) => t.id));
+          this.trashWrites++;
+        }
         this.failed.delete(path);
       } catch (err) {
         console.warn('Save failed', path, err);
