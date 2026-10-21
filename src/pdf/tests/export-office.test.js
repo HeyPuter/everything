@@ -1011,3 +1011,51 @@ it('reads right-to-left words drawn one at a time from the rightmost', async () 
     await loading.destroy();
   }
 });
+
+it('keeps the numbers of an HTML list after a nested list and across pages', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const pages = [
+    [
+      [0, '1.', 'First step of the process'],
+      [1, '•', 'A detail of the first step'],
+      [1, '•', 'Another detail of it'],
+      [0, '2.', 'Second step of the process'],
+      [0, '3.', 'Third step of the process'],
+    ],
+    [[0, '4.', 'Fourth step of the process']],
+  ];
+  for (const items of pages) {
+    const page = doc.addPage([612, 792]);
+    items.forEach(([level, marker, line], k) => {
+      const x = 80 + level * 24;
+      page.drawText(marker, { x, y: 700 - k * 15, size: 11, font });
+      page.drawText(line, { x: x + 16, y: 700 - k * 15, size: 11, font });
+    });
+  }
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const html = text((await exportDocument(await loading.promise, bytes, 'html')).bytes);
+    const parsed = new DOMParser().parseFromString(
+      html.slice(html.indexOf('<body>'), html.indexOf('</body>') + 7),
+      'text/html',
+    );
+    const [first, second] = elements(parsed, 'section');
+    // One numbered list on the first page holds all three steps, the bullets nested in it.
+    const lists = elements(first, 'ol');
+    expect(lists).toHaveLength(1);
+    expect(
+      Array.from(lists[0].childNodes).map((item) => item.firstChild.textContent.trim()),
+    ).toEqual([
+      'First step of the process',
+      'Second step of the process',
+      'Third step of the process',
+    ]);
+    expect(elements(lists[0], 'ul')).toHaveLength(1);
+    // The list goes on at 4 on the next page.
+    expect(elements(second, 'ol')[0].getAttribute('start')).toBe('4');
+  } finally {
+    await loading.destroy();
+  }
+});

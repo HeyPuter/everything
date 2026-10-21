@@ -200,22 +200,27 @@ export function writeHtml(model, { title = '' } = {}) {
       if (block.type === 'paragraph' && block.list) {
         const level = block.list.level || 0;
         const tag = block.list.kind === 'bullet' ? 'ul' : 'ol';
-        const top = stack.at(-1);
-        if (top && top.level === level && top.tag === tag && top.instance === block.list.instance)
+        // Back from a nested list, the list it sits in carries on with its numbering.
+        closeTo(level + 1);
+        const current = stack.at(-1);
+        if (
+          current &&
+          current.level === level &&
+          current.tag === tag &&
+          current.instance === block.list.instance
+        )
           html += '</li>';
         else {
-          closeTo(level + (top && top.level < level ? 1 : 0));
-          const current = stack.at(-1);
-          if (current && current.level === level) {
-            html += `</li></${stack.pop().tag}>`;
-          }
+          if (current && current.level === level) html += `</li></${stack.pop().tag}>`;
           const type = {
             lowerLetter: 'a',
             upperLetter: 'A',
             lowerRoman: 'i',
             upperRoman: 'I',
           }[block.list.kind];
-          const start = tag === 'ol' && block.list.start > 1 ? ` start="${block.list.start}"` : '';
+          // A list carried on from the page before starts at the number its item shows.
+          const first = block.list.value > 1 ? block.list.value : block.list.start;
+          const start = tag === 'ol' && first > 1 ? ` start="${first}"` : '';
           html += `<${tag}${type ? ` type="${type}"` : ''}${start}>`;
           stack.push({ tag, level, instance: block.list.instance });
         }
