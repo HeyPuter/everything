@@ -36,7 +36,7 @@ function recordStruct(type: string, rec: () => Rec, keys: string[], v: View3D, s
   return s;
 }
 
-const SHADING_KEYS = ['type', 'light', 'color_type', 'wireframe_color_type', 'single_color', 'background_type', 'background_color', 'show_xray', 'xray_alpha', 'show_xray_wireframe', 'xray_alpha_wireframe', 'show_backface_culling', 'show_specular_highlight', 'show_object_outline', 'object_outline_color', 'use_scene_lights', 'use_scene_world', 'use_scene_lights_render', 'use_scene_world_render', 'studiolight_intensity', 'studiolight_rotate_z', 'studiolight_background_alpha', 'studio_light'];
+const SHADING_KEYS = ['type', 'light', 'color_type', 'wireframe_color_type', 'single_color', 'background_type', 'background_color', 'show_xray', 'xray_alpha', 'show_xray_wireframe', 'xray_alpha_wireframe', 'show_backface_culling', 'show_specular_highlight', 'show_object_outline', 'object_outline_color', 'use_scene_lights', 'use_scene_world', 'use_scene_lights_render', 'use_scene_world_render', 'studiolight_intensity', 'studiolight_rotate_z', 'studiolight_background_alpha', 'studio_light', 'studio_matcap', 'use_world_space_lighting', 'show_cavity', 'cavity_ridge_factor', 'cavity_valley_factor', 'show_shadows', 'shadow_intensity'];
 const OVERLAY_KEYS = ['show_overlays', 'show_floor', 'show_ortho_grid', 'show_axis_x', 'show_axis_y', 'show_axis_z', 'grid_scale', 'grid_subdivisions', 'show_cursor', 'show_annotation', 'show_text', 'show_stats', 'show_extras', 'show_light_colors', 'show_bones', 'show_motion_paths', 'show_relationship_lines', 'show_outline_selected', 'show_object_origins', 'show_object_origins_all', 'show_wireframes', 'wireframe_threshold', 'wireframe_opacity', 'show_face_orientation'];
 
 function region3d(v: View3D) {
