@@ -66,3 +66,13 @@ describe('brush falloff curves', () => {
     expect(brushFalloff(b, 1)).toBe(0);
   });
 });
+
+import { segmentDistance2D } from '../../src/paint/wpbones';
+
+describe('bone picking in weight paint', () => {
+  it('measures the distance to a bone drawn on screen', () => {
+    expect(segmentDistance2D(5, 3, 0, 0, 10, 0)).toBeCloseTo(3);
+    expect(segmentDistance2D(-4, 3, 0, 0, 10, 0)).toBeCloseTo(5);
+    expect(segmentDistance2D(1, 1, 1, 1, 1, 1)).toBe(0);
+  });
+});

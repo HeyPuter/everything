@@ -30,6 +30,7 @@ import './paintcurve';
 import './selloop';
 import './brushassets';
 import './inputs';
+import './wpbones';
 import './scripting';
 import './selmask';
 import './sculptmenus';
