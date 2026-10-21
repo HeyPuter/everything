@@ -31,7 +31,7 @@ function position(menu, anchorRect, { align = 'start', side = 'bottom' } = {}) {
 }
 
 /**
- * Show a menu. anchor is an element (menu button) or a {x, y} point.
+ * Show a menu. anchor is an element (menu button), a rect or a {x, y} point.
  * Returns a handle with close().
  */
 export function showMenu(anchor, items, opts = {}) {
@@ -162,7 +162,8 @@ export function showMenu(anchor, items, opts = {}) {
     }
   });
   document.body.append(menu);
-  const rect = anchor instanceof Element ? anchor.getBoundingClientRect() : anchor.getBoundingClientRect ? anchor : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
+  // An element, a rect ({left, right, top, bottom}, e.g. a DOMRect) or a {x, y} point.
+  const rect = anchor instanceof Element ? anchor.getBoundingClientRect() : 'right' in anchor ? anchor : { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y };
   position(menu, rect, opts);
   if (anchor instanceof Element) anchor.setAttribute('aria-expanded', 'true');
   const onOutside = (e) => {
