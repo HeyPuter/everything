@@ -13,7 +13,9 @@ async function stubOpen(page) { await page.addInitScript(() => { window.linkOpen
 
 test('edits shared external links with undo, retains formatting, removes a link and reopens the downloaded DOCX', async ({ page }, info) => {
   await stubOpen(page); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/hyperlinks.docx');
-  const input = page.getByRole('textbox', { name: 'Document text' }), button = (await onTab(page, 'insert')).getByRole('button', { name: 'Insert or edit link', exact: true }); await expect(input).toHaveValue(/^External hyperlinks/); const text = await input.inputValue();
+  // Opening the document brings the Home tab to the front: choose Insert once it has opened.
+  const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^External hyperlinks/);
+  const button = (await onTab(page, 'insert')).getByRole('button', { name: 'Insert or edit link', exact: true }); const text = await input.inputValue();
   await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true'); await choose(input, 'Read the guide', true); const range = await input.evaluate(el => [el.selectionStart, el.selectionEnd]);
   await dialog(page, input); await expect(page.getByRole('textbox', { name: 'Link address', exact: true })).toHaveValue(TARGET); await page.getByRole('textbox', { name: 'Link address', exact: true }).fill('https://example.com/edited#new');
   await page.getByRole('dialog').screenshot({ path: info.outputPath('hyperlink-dialog.png'), animations: 'disabled' }); await apply(page); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(range);

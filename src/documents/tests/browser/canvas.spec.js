@@ -240,7 +240,7 @@ test('page setup and explicit breaks preserve selection, undo, mixed formatting 
   await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/page-settings.docx');
   const input = page.getByRole('textbox', { name: 'Document text' });
   const canvases = page.locator('canvas.canvas-page');
-  const setup = (await onTab(page, 'layout')).getByRole('button', { name: 'Page setup', exact: true });
+  const setup = page.getByRole('button', { name: 'Page setup', exact: true });
   const apply = page.getByRole('button', { name: 'Apply', exact: true });
   const undo = page.getByRole('button', { name: 'Undo', exact: true });
   const redo = page.getByRole('button', { name: 'Redo', exact: true });
@@ -250,7 +250,8 @@ test('page setup and explicit breaks preserve selection, undo, mixed formatting 
   expect(box.width).toBeCloseTo(16838 / 15, 0); expect(box.height).toBeCloseTo(11906 / 15, 0);
   await input.press('ControlOrMeta+Home'); await input.press('Shift+End');
   const selection = await input.evaluate(el => [el.selectionStart, el.selectionEnd]);
-  await setup.click();
+  // Opening the document brings the Home tab to the front: choose Layout once it has opened.
+  await onTab(page, 'layout'); await setup.click();
   await expect(page.getByRole('combobox', { name: 'Paper size' })).toHaveValue('A4');
   await expect(page.getByRole('combobox', { name: 'Page orientation' })).toHaveValue('landscape');
   await apply.click(); await expect(undo).toBeDisabled(); // Opening and applying unchanged fields is lossless.
