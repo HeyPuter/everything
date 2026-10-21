@@ -144,8 +144,8 @@ export const BRUSH_LISTS: Record<BrushMode, (BrushInfo | null)[]> = {
     S('brush_texpaint', 'Paint', 'TEXDRAW', 'brush_paint_draw', 'Paints into the active image texture'),
     S('brush_tex_soften', 'Soften', 'SOFTEN', 'brush_paint_blur', 'Blurs the image under the brush'),
     S('brush_tex_smear', 'Smear', 'SMEAR', 'brush_paint_smear', 'Smears the image along the stroke'),
-    S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
     S('brush_tex_clone', 'Clone', 'CLONE', 'brush_paint_clone', 'Copies the texture from a source point (Ctrl+click to set it) or from another image'),
+    S('brush_tex_fill', 'Fill', 'FILL', 'brush_paint_fill', 'Fills every face of the object with the color'),
     S('brush_tex_mask', 'Mask', 'MASK', 'brush_sculpt_mask', 'Paints the stencil mask that limits where the other brushes paint (Ctrl: erase the mask)'),
   ],
 };
