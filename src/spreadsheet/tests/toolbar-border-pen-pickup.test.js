@@ -25,3 +25,18 @@ it('takes up the pen of a side drawn with its own pen', () => {
   [...document.querySelectorAll('.menu-item')].find((b) => b.textContent.startsWith('Bottom border')).click();
   expect(run).toHaveBeenCalledWith('borders', { kind: 'bottom', color: '#c22a2a', style: 'thick' });
 });
+
+it('sends only the colour or the line picked to restyle the selection', () => {
+  const wb = new Workbook();
+  const run = vi.fn();
+  const toolbar = createToolbar({
+    wb, run, activeCell: () => ({}), style: () => ({ bt: true, bs: 'thick' }), active: () => ({ r: 0, c: 0 }),
+    range: () => ({ r1: 0, c1: 0, r2: 0, c2: 0 }), sheetId: () => wb.activeSheetId, grid: { editing: false }, subscribe: () => () => {},
+  });
+  document.body.append(toolbar.el);
+  toolbar.refresh();
+  toolbar.el.querySelector('[aria-label="Borders"]').click();
+  [...document.querySelectorAll('.menu-item')].find((b) => b.textContent.includes('Border color')).click();
+  document.querySelector('.menu .swatch:not(.none)').click();
+  expect(run).toHaveBeenLastCalledWith('borders', { kind: 'restyle', color: expect.any(String) });
+});

@@ -42,3 +42,22 @@ it('draws only the sides a border command names, in its pen', async () => {
   expect(pen(wb, id, 5, 5)).toEqual({ bt: 'thin', bb: 'double', bl: null, br: null });
   expect(borderSnapshot(wb.styleAt(id, 5, 5)).btBorder?.bc ?? null).toBeNull();
 });
+
+// Picking a colour under Borders ▸ Border color restyled the selection's lines in the pen's line style too, so
+// colouring a gridded block with a thick outline turned its thin inner lines thick (and picking a line style
+// reset their colours). A colour now changes only colours, and a line style only line styles.
+it('restyles only the colour or only the line picked', async () => {
+  const doc = new Doc({ name: 'Restyle' }); const wb = doc.wb; const id = wb.activeSheetId;
+  view = editorView({ doc, goHome: vi.fn(), openPath: vi.fn(), newDoc: vi.fn(), templateDoc: vi.fn(), importFile: vi.fn() });
+  document.body.append(view.el); await vi.advanceTimersByTimeAsync(1);
+  view.goTo('B2:D4');
+  view.run('borders', { kind: 'all', style: 'thin', color: null });
+  view.run('borders', { kind: 'outer', style: 'thick', color: null });
+  view.run('borders', { kind: 'restyle', color: '#ff0000' });
+  expect(pen(wb, id, 1, 1)).toEqual({ bt: 'thick', bb: 'thin', bl: 'thick', br: 'thin' });
+  expect(pen(wb, id, 2, 2)).toEqual({ bt: 'thin', bb: 'thin', bl: 'thin', br: 'thin' });
+  expect(borderSnapshot(wb.styleAt(id, 2, 2)).btBorder.bc).toBe('#ff0000');
+  view.run('borders', { kind: 'restyle', style: 'dashed' });
+  expect(pen(wb, id, 1, 1)).toEqual({ bt: 'dashed', bb: 'dashed', bl: 'dashed', br: 'dashed' });
+  expect(borderSnapshot(wb.styleAt(id, 1, 1)).btBorder.bc).toBe('#ff0000');
+});

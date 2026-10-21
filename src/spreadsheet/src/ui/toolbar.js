@@ -224,19 +224,20 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
   const fillApply = applyColorBtn('bg');
 
   // The border "pen": the color and style the next border command draws with.
+  // Picking a colour or a line also restyles the selection's lines in that alone: a colour keeps each line's style.
   const pen = { color: null, style: 'thin' };
   const borderArg = (kind) => ({ kind, color: pen.color, style: pen.style });
   function borderColorMenu(anchor) {
     const swatches = el('div.swatches', { role: 'group', 'aria-label': 'Border colors', 'data-cols': 6 },
       el('button.swatch.none', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(!pen.color), 'aria-label': 'Default color', title: 'Default',
-        onclick: () => { menu.close(); pen.color = null; ctx.run('borders', borderArg('restyle')); },
+        onclick: () => { menu.close(); pen.color = null; ctx.run('borders', { kind: 'restyle', color: null }); },
       }),
       ...TEXT_COLORS.map((hex) => el('button.swatch', {
         type: 'button', role: 'menuitemradio', 'aria-checked': String(pen.color === hex), 'aria-label': colorLabel(hex), title: colorLabel(hex),
-        style: { background: hex }, onclick: () => { menu.close(); pen.color = hex; ctx.run('borders', borderArg('restyle')); },
+        style: { background: hex }, onclick: () => { menu.close(); pen.color = hex; ctx.run('borders', { kind: 'restyle', color: hex }); },
       })));
-    const extra = customColorRows({ current: pen.color, label: 'border color', onPick: (hex) => { menu.close(); pen.color = hex; ctx.run('borders', borderArg('restyle')); } });
+    const extra = customColorRows({ current: pen.color, label: 'border color', onPick: (hex) => { menu.close(); pen.color = hex; ctx.run('borders', { kind: 'restyle', color: hex }); } });
     const menu = openMenu({ anchor, label: 'Border color', items: [{ custom: swatches }, ...extra.map((custom) => ({ custom }))] });
     (swatches.querySelector('[aria-checked="true"]') || swatches.querySelector('button'))?.focus();
   }
@@ -274,7 +275,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
             anchor, label: 'Border style', minWidth: 180, focusChecked: true,
             items: BORDER_STYLES.map(([key, label]) => ({
               label, checked: pen.style === key, radio: true, style: { borderBottom: `${borderCss({ bs: key }).width} ${borderCss({ bs: key }).style} currentColor`, paddingBottom: '2px' },
-              onSelect: () => { pen.style = key; ctx.run('borders', borderArg('restyle')); },
+              onSelect: () => { pen.style = key; ctx.run('borders', { kind: 'restyle', style: key }); },
             })),
           }) },
           { separator: true },

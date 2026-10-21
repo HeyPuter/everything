@@ -1827,7 +1827,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const kind = arg && typeof arg === 'object' ? arg.kind : arg;
         // A pen draws only the sides it names, as Excel's do: Thick outside borders around a gridded block, or a
         // double bottom under a cell with a top line, leaves the other lines in their own style and colour.
-        const options = arg && typeof arg === 'object' ? { color: arg.color ?? null, style: arg.style ?? 'thin', perSide: true } : {};
+        const options = arg && typeof arg === 'object' ? kind === 'restyle'
+          // A restyle changes what it names, a colour or a line, and leaves the other as each side has it.
+          ? { ...(Object.hasOwn(arg, 'color') ? { color: arg.color ?? null } : {}), ...(Object.hasOwn(arg, 'style') ? { style: arg.style ?? 'thin' } : {}) }
+          : { color: arg.color ?? null, style: arg.style ?? 'thin', perSide: true } : {};
         // Never truncate border geometry: a clipped range would move its edges.
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotBorders(wb, new Map([[sid, ranges]]), kind,
           { ...options, maxCells: MAX_FORMAT_CELLS }), { cap: false })) {
