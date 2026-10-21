@@ -453,6 +453,9 @@ const KEEP_FRAMES = 240;
 export class TextCache {
   constructor({ onFontLoaded } = {}) {
     this.entries = new Map();
+    // Versions count across the whole cache: a raster made again after being forgotten never
+    // repeats a version the compositor may still hold a texture for.
+    this.versions = 0;
     this.frame = 0;
     this.onFontLoaded = onFontLoaded;
     this.pendingFonts = new Set();
@@ -498,7 +501,7 @@ export class TextCache {
       const r = clip.type === 'text'
         ? rasterizeText(clip, layer.reveal, bucket, false, { anim: layer.textAnim, color: layer.textColor })
         : rasterizeSticker(clip, bucket, frame / STICKER_ANIM_FPS, frame ? e?.canvas : null);
-      e = { sig, base, version: (e?.version || 0) + 1, ...r };
+      e = { sig, base, version: ++this.versions, ...r };
       this.entries.set(clip.id, e);
     }
     e.used = this.frame;
@@ -515,7 +518,7 @@ export class TextCache {
     if (!e || e.sig !== sig) {
       // Poses change every frame while it talks: draw into the same canvas.
       const r = rasterizeAvatar(layer, k, e?.canvas || null);
-      e = { sig, version: (e?.version || 0) + 1, ...r };
+      e = { sig, version: ++this.versions, ...r };
       this.entries.set(clip.id, e);
     }
     e.used = this.frame;

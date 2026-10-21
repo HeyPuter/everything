@@ -397,4 +397,20 @@ describe('text raster cache', () => {
       spy.mockRestore();
     }
   });
+
+  it('never repeats a version for a raster made again after it was dropped', () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => mockContext());
+    try {
+      const cache = new TextCache();
+      const title = makeClip('text', { text: 'Title', start: 0, duration: s(1) });
+      const layer = (clip) => ({ kind: 'text', clip, scale: 1, reveal: 1 });
+      const first = cache.get(layer(title), 0.5).version;
+      cache.drop(title.id);
+      // Changed while it was off screen: the compositor must see a new version, not the old one again.
+      title.style = { ...title.style, color: '#00ff00' };
+      expect(cache.get(layer(title), 0.5).version).not.toBe(first);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
