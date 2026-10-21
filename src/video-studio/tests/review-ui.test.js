@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterEach, vi } from 'vitest';
 import { setup, publish, invite, USERS } from './review-helpers.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 import { EditorStore } from '../src/model/store.js';
+import { addTimeline } from '../src/model/timelines.js';
 import { createThreadList } from '../src/ui/review/threads.js';
 import { ReviewPage, cleanReviewHash } from '../src/ui/review/review-page.js';
 import { createReviewPanel, reviewMarkers } from '../src/ui/review/review-panel.js';
@@ -459,6 +460,43 @@ describe('editor review panel', () => {
     expect(panel.session.polling).toBe(true);
     panel.toggle(false);
     expect(panel.session.polling).toBe(false);
+    panel.dispose();
+  });
+
+  it('opens the timeline a version was shared from before seeking or adding markers', async () => {
+    const env = await setup();
+    const store = new EditorStore(projectWithClips());
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    let short;
+    store.update('New timeline', (p) => {
+      short = addTimeline(p, { name: 'Short' });
+    });
+    const main = store.project.timelineId;
+    const v1 = await shareForReview({ puter: env.sdk.alice, project: store.project, library: null, title: 'Main', deps });
+    store.openTimeline(short);
+    store.update('clip', (p) => onMain(p, clip('video', 0, 6)));
+    store.update('range', (p) => (p.range = { in: s(2), out: s(5) }));
+    const v2 = await shareForReview({ puter: env.sdk.alice, project: store.project, library: null, scope: 'range', title: 'Short', deps });
+    expect(v2.review.id).toBe(v1.review.id);
+    expect(v2.review.versions.map((v) => v.timelineId)).toEqual([main, short]);
+    // Reviewers never see it.
+    await env.as('bob')('join', { review: v1.review.id, token: await invite(env, v1.review.id) });
+    expect((await env.as('bob')('review.get', { review: v1.review.id })).review.versions.some((v) => 'timelineId' in v)).toBe(false);
+    await env.as('bob')('comment.add', { review: v1.review.id, version: 2, id: 'c_short001', text: 'Tighter', t: s(1) });
+
+    store.openTimeline(main);
+    const panel = createReviewPanel({ store, library: { backend: { kind: 'puter' } }, puter: env.sdk.alice, account: {} }, { deps: { interval: 60_000 } });
+    document.body.append(panel.el);
+    panel.toggle(true);
+    await until(() => panel.el.querySelector('.rv-thread'));
+    panel.el.querySelector('.rv-time').click();
+    expect([store.project.timelineId, store.time]).toEqual([short, s(3)]);
+    store.openTimeline(main);
+    btn(panel.el, 'Add as markers').click();
+    expect(store.project.timelineId).toBe(short);
+    expect(store.project.markers.map((m) => m.time)).toEqual([s(3)]);
+    store.openTimeline(main);
+    expect(store.project.markers || []).toEqual([]);
     panel.dispose();
   });
 

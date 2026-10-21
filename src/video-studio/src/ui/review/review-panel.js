@@ -2,13 +2,16 @@
  * Review panel in the editor: the comments on this project's review, per
  * version, kept current while the panel is open (polling, plus Refresh).
  * Clicking a comment's time moves the playhead there, through the range the
- * version was rendered from. Comments can also be added as timeline markers.
+ * version was rendered from, on the timeline it was shared from (opened
+ * first when another one is open). Comments can also be added as timeline
+ * markers there.
  */
 import '../../styles/review.css';
 import { h, announce } from '../../lib/dom.js';
 import { icon } from '../../lib/icons.js';
 import { uid } from '../../lib/ids.js';
 import { MARKER_COLORS } from '../../model/project.js';
+import { activeTimeline } from '../../model/timelines.js';
 import { ensureWorker as ensureWorkerDefault, call as callDefault } from '../../review/api.js';
 import { ReviewSession } from '../../review/session.js';
 import { threadsFor, threadCounts } from '../../review/comments.js';
@@ -52,11 +55,19 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   const markersBtn = h('button.rv-action', { type: 'button' }, icon('bookmark', 14), 'Add as markers');
   const status = h('p.rv-sync', { role: 'status' });
   const counts = h('span.rv-panel-counts');
+  /** Open the timeline version v was shared from, when it still exists and another is open. Returns its name or null. */
+  function openVersionTimeline(v) {
+    const id = v?.timelineId;
+    if (!id || id === store.project.timelineId || !store.project.timelines?.some((t) => t.id === id)) return null;
+    return store.openTimeline(id) ? activeTimeline(store.project).name : null;
+  }
+
   const list = createThreadList({
     onSeek: (t) => {
       const v = session.version(t.version);
+      const opened = openVersionTimeline(v);
       store.seek(toEditorTime(t.t, v));
-      announce('Playhead moved to the comment');
+      announce(opened ? `Opened ${opened} and moved the playhead to the comment` : 'Playhead moved to the comment');
     },
     onReply: (t, text) => session.addComment({ version: t.version, parent: t.id, text }),
     onResolve: (t, resolved) => session.resolve(t.id, resolved).catch((err) => toast(err.message, { kind: 'error' })),
@@ -86,6 +97,7 @@ export function createReviewPanel(ctx, { deps = {} } = {}) {
   markersBtn.addEventListener('click', () => {
     const v = session?.version(version);
     if (!v) return;
+    openVersionTimeline(v);
     const add = reviewMarkers(threadsFor(session.comments, version, { showResolved }), v, store.project.markers || []);
     if (!add.length) {
       toast('These comments are already markers.', { kind: 'info' });

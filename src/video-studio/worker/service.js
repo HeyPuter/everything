@@ -9,7 +9,7 @@
  *   vsr:pub:<clientId>               { review, version } of a finished publish (retries)
  *   vsr:r:<rid>                      { id, title, projectId, owner, created, updated }
  *   vsr:r:<rid>:vseq                 version counter
- *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, title, created }
+ *   vsr:r:<rid>:v:<n>                { n, path, size, mime, width, height, fps, duration, range, timelineId?, title, created }
  *   vsr:r:<rid>:url:<n>              { url, expires } read link for version n's video
  *   vsr:r:<rid>:m:<uuid>             { uuid, username, role, joined, invite, removed? }
  *   vsr:r:<rid>:mseq / :mi:<n>       join order -> uuid (the member list)
@@ -71,7 +71,9 @@ export function validateVideo(video) {
     if (!(a >= 0 && b > a)) fail(400, 'Invalid range.');
     r = { in: a, out: b };
   }
-  return { path, mime, fps, duration, width, height, range: r };
+  // The editor timeline it was made from (optional: older apps don't send it).
+  const timelineId = typeof video.timelineId === 'string' && ID.test(video.timelineId) ? { timelineId: video.timelineId } : {};
+  return { path, mime, fps, duration, width, height, range: r, ...timelineId };
 }
 
 export class ReviewService {
@@ -136,13 +138,13 @@ export class ReviewService {
     return (await this.many(range(1, count).map((n) => `vsr:r:${rid}:v:${n}`))).filter(Boolean);
   }
 
-  /** What a member sees of a review. Paths stay with the worker; ranges only go to the owner. */
+  /** What a member sees of a review. Paths stay with the worker; ranges and timelines only go to the owner. */
   async view(rid, role, user, meta = null) {
     meta ||= await this.kv.get(`vsr:r:${rid}`);
     const owner = await this.owner();
     const versions = (await this.versions(rid)).map((v) => ({
       n: v.n, title: v.title, created: v.created, fps: v.fps, duration: v.duration, width: v.width, height: v.height, size: v.size, mime: v.mime,
-      ...(role === 'owner' ? { range: v.range } : {}),
+      ...(role === 'owner' ? { range: v.range, ...(v.timelineId ? { timelineId: v.timelineId } : {}) } : {}),
     }));
     return {
       id: rid, title: meta.title, created: meta.created, updated: meta.updated, owner: { username: owner.username },

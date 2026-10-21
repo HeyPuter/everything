@@ -71,6 +71,8 @@ export async function shareForReview({ puter, project, library, scope = 'all', t
     }
     onPhase('publish');
     const video = { path: item.path, mime: CONTAINERS[settings.format]?.mime || 'video/mp4', fps: settings.fps, duration: result.duration, width: result.width, height: result.height, range };
+    // Which of the project's timelines it shows, so the editor maps comments onto that one.
+    if (project.timelineId) video.timelineId = project.timelineId;
     const input = { op: 'review.publish', clientId, projectId: project.id, title: cleanTitle(title || project.name), video };
     let published;
     try {
