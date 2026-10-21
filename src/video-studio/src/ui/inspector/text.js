@@ -471,7 +471,7 @@ function basicPanel(view) {
       x.style.grad3 = v ? x.style.grad2 : '';
     }),
   });
-  const angle = slider(view, { label: 'Angle', min: -180, max: 180, unit: '°', get: (x) => Math.round(x.style.gradAngle), set: styleSetter(view, 'Gradient angle', 'gradAngle') });
+  const angle = slider(view, { label: 'Angle', min: -180, max: 180, hardMin: -360, hardMax: 360, unit: '°', get: (x) => Math.round(x.style.gradAngle), set: styleSetter(view, 'Gradient angle', 'gradAngle') });
   const fillOpacity = slider(view, { label: 'Fill opacity', min: 0, max: 100, unit: '%', get: (x) => Math.round((x.style.fillOpacity ?? 1) * 100), set: styleSetter(view, 'Fill opacity', 'fillOpacity', (v) => v / 100) });
   const thirdRow = row('Colors', third);
   view.bind(() => {
@@ -663,7 +663,7 @@ function basicPanel(view) {
     slider(view, { label: 'Opacity', min: 0, max: 100, unit: '%', get: (x) => Math.round(x.style.shadowOpacity * 100), set: styleSetter(view, 'Shadow opacity', 'shadowOpacity', (v) => v / 100) }).el,
     slider(view, { label: 'Blur', min: 0, max: 100, get: (x) => Math.round(x.style.shadowBlur), set: styleSetter(view, 'Shadow blur', 'shadowBlur') }).el,
     slider(view, { label: 'Distance', min: 0, max: 100, get: (x) => Math.round(x.style.shadowDistance), set: styleSetter(view, 'Shadow distance', 'shadowDistance') }).el,
-    slider(view, { label: 'Angle', min: -180, max: 180, unit: '°', get: (x) => Math.round(((x.style.shadowAngle + 180) % 360 + 360) % 360 - 180), set: styleSetter(view, 'Shadow angle', 'shadowAngle') }).el,
+    slider(view, { label: 'Angle', min: -180, max: 180, hardMin: -360, hardMax: 360, unit: '°', get: (x) => Math.round(((x.style.shadowAngle + 180) % 360 + 360) % 360 - 180), set: styleSetter(view, 'Shadow angle', 'shadowAngle') }).el,
   ]);
   const depth = toggledSection(view, '3D depth', {
     keys: ['extrudeColor', 'extrudeDepth', 'extrudeAngle'],
@@ -676,7 +676,7 @@ function basicPanel(view) {
   }, [
     color(view, { label: 'Depth color', get: (x) => x.style.extrudeColor, set: styleSetter(view, 'Depth color', 'extrudeColor') }).el,
     slider(view, { label: 'Depth', min: 0, max: 60, get: (x) => Math.round(x.style.extrudeDepth), set: styleSetter(view, 'Depth', 'extrudeDepth') }).el,
-    slider(view, { label: 'Angle', min: -180, max: 180, unit: '°', get: (x) => Math.round(((x.style.extrudeAngle + 180) % 360 + 360) % 360 - 180), set: styleSetter(view, 'Depth angle', 'extrudeAngle') }).el,
+    slider(view, { label: 'Angle', min: -180, max: 180, hardMin: -360, hardMax: 360, unit: '°', get: (x) => Math.round(((x.style.extrudeAngle + 180) % 360 + 360) % 360 - 180), set: styleSetter(view, 'Depth angle', 'extrudeAngle') }).el,
   ]);
   const split = toggledSection(view, 'Color split', {
     keys: ['glitch', 'glitchColorA', 'glitchColorB'],

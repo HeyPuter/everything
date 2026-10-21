@@ -19,9 +19,12 @@ function pct(input) {
 /**
  * Slider + number box.
  *  onInput(value, final)  final is true on change/commit (end of drag, Enter)
+ *  read() -> the value now stored, shown after a typed or stepped value
+ *    (the setter may limit it further)
  *  keyframe: { onToggle, onPrev, onNext } shows the diamond button group
+ * The number box keeps to the slider's range unless setLimits() widens it.
  */
-export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, unit = '', decimals, onInput, keyframe, resetTo, wide = false }) {
+export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, unit = '', decimals, onInput, read, keyframe, resetTo, wide = false }) {
   const id = nextId('sl');
   const dec = decimals ?? (step < 1 ? Math.max(0, -Math.floor(Math.log10(step))) : 0);
   const range = h('input', { type: 'range', id, min, max, step, value, 'aria-label': label });
@@ -39,18 +42,30 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     emit(Number(range.value), false);
   });
   range.addEventListener('change', () => emit(Number(range.value), true));
+  // The slider's current range (it can change), or the wider limits from setLimits().
+  const limit = (v) => Math.min(Number(range.dataset.hardMax ?? range.max), Math.max(Number(range.dataset.hardMin ?? range.min), v));
+  const show = (v) => {
+    num.value = fmt(v);
+    range.value = String(v);
+    pct(range);
+  };
+  /** Commit a value from the number box, then show what was stored. */
+  const commit = (v) => {
+    show(v);
+    emit(v, true);
+    const stored = read?.();
+    if (Number.isFinite(stored)) {
+      last = stored;
+      show(stored);
+    }
+  };
   const commitNum = () => {
     const raw = parseFloat(num.value);
     if (!Number.isFinite(raw)) {
       num.value = fmt(last);
       return;
     }
-    // The number box accepts values outside the slider range where meaningful.
-    const v = Math.min(Number(range.dataset.hardMax ?? Infinity), Math.max(Number(range.dataset.hardMin ?? -Infinity), raw));
-    num.value = fmt(v);
-    range.value = String(v);
-    pct(range);
-    emit(v, true);
+    commit(limit(raw));
   };
   num.addEventListener('change', commitNum);
   num.addEventListener('keydown', (e) => {
@@ -60,11 +75,7 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault();
       const delta = (e.key === 'ArrowUp' ? 1 : -1) * Number(step) * (e.shiftKey ? 10 : 1);
-      const v = Math.min(max, Math.max(min, last + delta));
-      num.value = fmt(v);
-      range.value = String(v);
-      pct(range);
-      emit(v, true);
+      commit(limit(Number((last + delta).toFixed(Math.max(dec, 6)))));
     }
   });
   let kf = null;

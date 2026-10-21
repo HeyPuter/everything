@@ -194,6 +194,7 @@ function constantPanel(view) {
     }
     commit(raw, true);
     paint(view.clip.speed);
+    num.value = fmt(view.clip.speed);
   };
   num.addEventListener('change', commitNum);
   num.addEventListener('keydown', (e) => {

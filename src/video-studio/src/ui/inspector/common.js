@@ -143,6 +143,7 @@ export function slider(view, { label, min, max, step = 1, unit = '', decimals, g
     decimals,
     value: get(c),
     onInput: (v, final) => set(v, final),
+    read: () => (view.clip ? get(view.clip) : undefined),
     keyframe: prop
       ? {
         onToggle: () => view.actions.toggleKeyframe(view.id, prop),

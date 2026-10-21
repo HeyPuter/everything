@@ -516,3 +516,91 @@ describe('video basic extras', () => {
     expect(clip(env.img.id).canvas).toMatchObject({ on: true, type: 'gradient' });
   });
 });
+
+describe('number boxes', () => {
+  /** Type into a slider's number box and press Enter, keeping focus there. */
+  function typeEnter(label, v) {
+    const num = field(label).querySelector('.num-input');
+    num.focus();
+    num.value = String(v);
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return num;
+  }
+  const arrow = (num, key) => num.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+
+  it('limits typed values to the slider range and shows what was stored', () => {
+    env.store.select(env.v1.id);
+    tab('Color').click();
+    let num = typeEnter('Exposure', 300);
+    expect(clip(env.v1.id).adjust.exposure).toBe(100);
+    expect(num.value).toBe('100');
+    typeEnter('Exposure', -1e9);
+    expect(clip(env.v1.id).adjust.exposure).toBe(-100);
+    tab('Video').click();
+    num = typeEnter('Opacity', 500);
+    expect(clip(env.v1.id).opacity).toBe(1);
+    expect(num.value).toBe('100');
+    num.blur();
+    expect(num.value).toBe('100');
+    typeEnter('Opacity', -50);
+    expect(clip(env.v1.id).opacity).toBe(0);
+  });
+
+  it('shows the stored value when the clip limits what was typed', () => {
+    env.store.select(env.aud.id);
+    const num = typeEnter('Volume', 100);
+    expect(clip(env.aud.id).volume).toBe(10);
+    expect(num.value).toBe('20.0');
+  });
+
+  it('keeps animation durations positive', () => {
+    env.store.select(env.v1.id);
+    env.ctx.actions.applyAnimation('in', 'fade-in', 500_000);
+    tab('Animation').click();
+    typeEnter('Duration', -3);
+    expect(clip(env.v1.id).animIn.duration).toBe(0.1 * US);
+  });
+
+  it('still takes values past the slider where the clip allows them', () => {
+    env.store.select(env.v1.id);
+    typeEnter('Scale', 1000);
+    expect(clip(env.v1.id).transform.scale).toBe(10);
+    typeEnter('Rotate', 720);
+    expect(clip(env.v1.id).transform.rotation).toBe(720);
+    env.store.select(env.text.id);
+    env.el.querySelectorAll('.section-toggle[aria-expanded=false]').forEach((b) => b.click());
+    typeEnter('Size', 500);
+    expect(clip(env.text.id).style.size).toBe(500);
+  });
+
+  it('limits multi-selection values to the range', () => {
+    env.store.select([env.v1.id, env.img.id]);
+    const num = typeEnter('Opacity', 500);
+    expect(clip(env.v1.id).opacity).toBe(1);
+    expect(clip(env.img.id).opacity).toBe(1);
+    expect(num.value).toBe('100');
+    typeEnter('Opacity', -50);
+    expect(clip(env.v1.id).opacity).toBe(0);
+  });
+
+  it('shows the speed that was set', () => {
+    env.store.select(env.v1.id);
+    tab('Speed').click();
+    const num = env.el.querySelector('[aria-label="Speed value"]');
+    num.focus();
+    num.value = '1e3';
+    num.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(clip(env.v1.id).speed).toBe(100);
+    expect(num.value).toBe('100');
+  });
+
+  it('arrow keys keep values typed past the slider', () => {
+    env.store.select(env.v1.id);
+    const num = typeEnter('Scale', 1000);
+    arrow(num, 'ArrowUp');
+    expect(clip(env.v1.id).transform.scale).toBeCloseTo(10.01);
+    typeEnter('Rotate', 720);
+    arrow(field('Rotate').querySelector('.num-input'), 'ArrowDown');
+    expect(clip(env.v1.id).transform.rotation).toBe(719);
+  });
+});

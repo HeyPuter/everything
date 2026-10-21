@@ -221,6 +221,8 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
       actions.setSpeed(id, v);
       seg.set(v);
     } });
+    // The box takes any speed the clip allows, past the slider's 10x.
+    slider.setLimits(0.1, 100);
     const seg = segmented({ label: 'Speed presets', className: 'm-speed-presets', options: SPEEDS.map((v) => ({ value: v, label: `${v}x` })), value: c.speed || 1, onChange: (v) => {
       actions.setSpeed(id, v);
       slider.set(v);
@@ -236,6 +238,7 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
     const slider = sliderField({ label: 'Volume', min: 0, max: 200, step: 1, value: Math.round((c.volume ?? 1) * 100), unit: '%', onInput: (v) => {
       actions.setAnimatable(id, 'volume', v / 100, { label: 'Volume', coalesce: `vol:${id}` });
     } });
+    slider.setLimits(0, 1000);
     const mute = h('button.btn.m-mute', { type: 'button', 'aria-pressed': String(Boolean(c.muted)) }, icon(c.muted ? 'mute' : 'volume', 16), h('span', c.muted ? 'Unmute clip' : 'Mute clip'));
     mute.addEventListener('click', () => {
       actions.toggleClipMute(id);
