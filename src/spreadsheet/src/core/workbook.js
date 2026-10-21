@@ -7157,19 +7157,26 @@ export class Workbook extends EventTarget {
       sheet.merges = sheet.merges.map(mapRange);
       mapPrintAreas(sheet, moveRect, axis);
       // A group a line is taken out of shrinks, and one lines land inside grows, as when they are deleted and
-      // inserted; the rest of the outline stays. (Two nested groups made the same by the move are one.)
+      // inserted; the rest of the outline stays. (Two nested groups made the same by the move are one; lines
+      // grouped twice over before it stay two levels deep.)
       const groupKey = axis === 'row' ? 'rows' : 'cols';
       const lineLo = axis === 'row' ? 'r1' : 'c1', lineHi = axis === 'row' ? 'r2' : 'c2';
-      const keptGroups = new Set();
-      sheet.groups[groupKey] = sheet.groups[groupKey]
-        .map((g) => {
-          const span = mapSpan(g.from, g.to);
-          if (span.contiguous) return { ...g, from: span.lo, to: span.hi };
-          const cut = adjustRefForDelete({ r1: g.from, r2: g.to, c1: g.from, c2: g.to }, axis, from, count);
-          const moved = cut && adjustRefForInsert(cut, axis, landing, count);
-          return moved ? { ...g, from: moved[lineLo], to: moved[lineHi] } : null;
-        })
-        .filter((g) => g && g.to >= g.from && !keptGroups.has(`${g.from}:${g.to}`) && keptGroups.add(`${g.from}:${g.to}`))
+      const spanKey = (g) => `${g.from}:${g.to}`;
+      const twins = new Map();
+      for (const g of sheet.groups[groupKey]) twins.set(spanKey(g), (twins.get(spanKey(g)) || 0) + 1);
+      const movedGroups = sheet.groups[groupKey].map((g) => {
+        const span = mapSpan(g.from, g.to);
+        if (span.contiguous) return { group: { ...g, from: span.lo, to: span.hi }, twins: twins.get(spanKey(g)) };
+        const cut = adjustRefForDelete({ r1: g.from, r2: g.to, c1: g.from, c2: g.to }, axis, from, count);
+        const moved = cut && adjustRefForInsert(cut, axis, landing, count);
+        return moved ? { group: { ...g, from: moved[lineLo], to: moved[lineHi] }, twins: twins.get(spanKey(g)) } : null;
+      }).filter((m) => m && m.group.to >= m.group.from);
+      const room = new Map();
+      for (const { group, twins: n } of movedGroups) room.set(spanKey(group), Math.max(room.get(spanKey(group)) || 0, n));
+      const keptGroups = new Map();
+      sheet.groups[groupKey] = movedGroups
+        .filter(({ group }) => { const k = spanKey(group); keptGroups.set(k, (keptGroups.get(k) || 0) + 1); return keptGroups.get(k) <= room.get(k); })
+        .map(({ group }) => group)
         .sort((a, b) => a.from - b.from || b.to - a.to); // in sheet order, as a file and grouping keep them
       const renumber = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
         const target = ref.sheet ?? ownerSheet;
