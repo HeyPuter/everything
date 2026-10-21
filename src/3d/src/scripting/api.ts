@@ -8,6 +8,7 @@
 //
 // All writes mark the document changed; script runs group them into one undo step
 // (see runner.ts).
+import { uvMaps, setActiveUV, addUVMap, removeActiveUV, renameUV, hasActiveUV } from '../mesh/uvmaps';
 import { Matrix4 } from 'three';
 import { app, operators, type OpResult } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
@@ -1007,48 +1008,82 @@ kwMethod(MeshStruct.prototype, 'normals_split_custom_set', ['normals']);
 kwMethod(MeshStruct.prototype, 'normals_split_custom_set_from_vertices', ['normals']);
 const output_warn = (msg: string) => app.report('WARNING', msg);
 
-const hasUVs = (me: MeshData) => me.indices.length > 0 && me.uvs.length === me.indices.length * 2;
 
 /**
- * A mesh's UV maps. Meshes here have one, stored per face corner (loop):
- * uv_layers.active.data[loop_index].uv, or all at once with
- * foreach_get / foreach_set('uv', flat). new() gives the one map a name.
+ * A mesh's UV maps, stored per face corner (loop): uv_layers.active.data[loop_index].uv, or all at once
+ * with foreach_get / foreach_set('uv', flat). new() adds a map (a copy of the active one), remove()
+ * deletes one, active / active_index pick the map that editing and display use.
  */
 class MeshUVLayers extends PropCollection<unknown> {
   constructor(readonly meId: string) {
     super(`bpy.data.meshes[${JSON.stringify(tableOf(app.doc, 'meshes')[meId]?.name)}].uv_layers`);
   }
   list() {
-    return hasUVs(meshOf(this.meId)) ? [this.layer()] : [];
+    return uvMaps(meshOf(this.meId)).map((r) => this.layer(r.name));
   }
   nameOf(x: unknown) {
     return (x as { name: string }).name;
   }
   get active() {
-    return hasUVs(meshOf(this.meId)) ? this.layer() : null;
+    const r = uvMaps(meshOf(this.meId)).find((x) => x.active);
+    return r ? this.layer(r.name) : null;
   }
-  set active(_v: unknown) {
-    /* there is only one */
+  set active(v: unknown) {
+    const name = (v as { name?: string })?.name;
+    const me = meshOf(this.meId);
+    const i = uvMaps(me).findIndex((r) => r.name === name);
+    if (i >= 0 && setActiveUV(me, i)) touched('geometry');
   }
-  /** The mesh's UV map, made (all corners at 0, 0) if it has none; a mesh holds one, so a second new() returns it renamed. */
+  get active_index() {
+    return uvMaps(meshOf(this.meId)).findIndex((r) => r.active);
+  }
+  set active_index(i: number) {
+    if (setActiveUV(meshOf(this.meId), Number(i))) touched('geometry');
+  }
+  /** Add a UV map (a copy of the active one; all corners at 0, 0 without do_init); the active map stays. */
   new(name = 'UVMap', do_init = true) {
-    void do_init;
     const me = meshOf(this.meId);
     if (!me.indices.length) throw pyError('RuntimeError', 'Error: a mesh without faces has no UV map; build its faces first');
-    if (!hasUVs(me)) me.uvs = new Float32Array(me.indices.length * 2);
-    me.uv_map_name = String(name || 'UVMap');
+    // a mesh built from data starts with an empty (all zero) placeholder map: the first new() names it
+    if (uvMaps(me).length === 1 && hasActiveUV(me) && me.uvs.every((x) => x === 0)) {
+      me.uv_map_name = String(name || 'UVMap');
+      touched('geometry');
+      return this.layer(me.uv_map_name);
+    }
+    const before = uvMaps(me).findIndex((r) => r.active);
+    const made = addUVMap(me, String(name || 'UVMap'));
+    if (!do_init) me.uvs = new Float32Array(me.indices.length * 2);
+    if (before >= 0) setActiveUV(me, before);
     touched('geometry');
-    return this.layer();
+    return this.layer(made);
   }
-  remove(_layer: unknown) {
-    throw pyError('RuntimeError', 'Error: this app keeps one UV map per mesh; it cannot be removed');
+  remove(layer: unknown) {
+    const me = meshOf(this.meId);
+    const name = (layer as { name?: string })?.name;
+    const rows = uvMaps(me);
+    const i = rows.findIndex((r) => r.name === name);
+    if (i < 0) throw pyError('ValueError', `UV map "${name}" not found`);
+    if (rows[i].active) removeActiveUV(me);
+    else me.uv_layers_extra = (me.uv_layers_extra ?? []).filter((u) => u.name !== name);
+    touched('geometry');
   }
-  private layer() {
+  private layer(initialName: string) {
     const id = this.meId;
-    const path = `${this.__path}[${JSON.stringify(meshOf(id).uv_map_name || 'UVMap')}]`;
+    let name = initialName;
+    const path = () => `${this.__path}[${JSON.stringify(name)}]`;
+    const isActive = () => (meshOf(id).uv_map_name || 'UVMap') === name && hasActiveUV(meshOf(id));
+    const extra = () => (meshOf(id).uv_layers_extra ?? []).find((u) => u.name === name);
+    const arr = (): Float32Array => (isActive() ? meshOf(id).uvs : (extra()?.data ?? new Float32Array(0)));
+    const writable = (): Float32Array => {
+      if (isActive()) return cow(meshOf(id), 'uvs');
+      const u = extra();
+      if (!u) return new Float32Array(0);
+      u.data = u.data.slice();
+      return u.data;
+    };
     const n = () => meshOf(id).indices.length;
     const write = (i: number, u: number, v: number) => {
-      const uvs = cow(meshOf(id), 'uvs');
+      const uvs = writable();
       uvs[i * 2] = u;
       uvs[i * 2 + 1] = v;
       touched('geometry');
@@ -1059,9 +1094,9 @@ class MeshUVLayers extends PropCollection<unknown> {
       get uv() {
         return boundVector(
           'VECTOR',
-          () => meshOf(id).uvs.subarray(i * 2, i * 2 + 2),
+          () => arr().subarray(i * 2, i * 2 + 2),
           (k, x) => {
-            cow(meshOf(id), 'uvs')[i * 2 + k] = x;
+            writable()[i * 2 + k] = x;
             touched('geometry');
           },
         );
@@ -1070,8 +1105,26 @@ class MeshUVLayers extends PropCollection<unknown> {
         const a = toPlain(v) as number[];
         write(i, Number(a?.[0]), Number(a?.[1]));
       },
-      toString: () => `<bpy_struct, MeshUVLoop at ${path}.data[${i}]>`,
+      toString: () => `<bpy_struct, MeshUVLoop at ${path()}.data[${i}]>`,
     });
+    const uvForeachGet = (attr: string, seq?: unknown) => {
+      if (attr !== 'uv') throw pyError('TypeError', `foreach_get: unsupported attribute "${attr}" (supported: uv)`);
+      const out = Array.from(arr());
+      if (Array.isArray(seq)) for (let i = 0; i < out.length && i < seq.length; i++) seq[i] = out[i];
+      return out;
+    };
+    const uvForeachSet = (attr: string, seq: unknown) => {
+      if (attr !== 'uv') throw pyError('TypeError', `foreach_set: unsupported attribute "${attr}" (supported: uv)`);
+      const a = (toPlain(seq) as unknown[]).flat() as number[];
+      const me = meshOf(id);
+      if (a.length !== me.indices.length * 2) throw pyError('ValueError', `foreach_set: expected ${me.indices.length * 2} values (u, v per loop), got ${a.length}`);
+      if (isActive()) me.uvs = Float32Array.from(a, Number);
+      else {
+        const u = extra();
+        if (u) u.data = Float32Array.from(a, Number);
+      }
+      touched('geometry');
+    };
     const data = new (class extends PropCollection<unknown> {
       override get length() {
         return n();
@@ -1094,37 +1147,39 @@ class MeshUVLayers extends PropCollection<unknown> {
       foreach_set(attr: string, seq: unknown) {
         uvForeachSet(attr, seq);
       }
-    })(`${path}.data`);
-    const uvForeachGet = (attr: string, seq?: unknown) => {
-      if (attr !== 'uv') throw pyError('TypeError', `foreach_get: unsupported attribute "${attr}" (supported: uv)`);
-      const out = Array.from(meshOf(id).uvs);
-      if (Array.isArray(seq)) for (let i = 0; i < out.length && i < seq.length; i++) seq[i] = out[i];
-      return out;
-    };
-    const uvForeachSet = (attr: string, seq: unknown) => {
-      if (attr !== 'uv') throw pyError('TypeError', `foreach_set: unsupported attribute "${attr}" (supported: uv)`);
-      const a = (toPlain(seq) as unknown[]).flat() as number[];
-      const me = meshOf(id);
-      if (a.length !== me.indices.length * 2) throw pyError('ValueError', `foreach_set: expected ${me.indices.length * 2} values (u, v per loop), got ${a.length}`);
-      me.uvs = Float32Array.from(a, Number);
-      touched('geometry');
-    };
+    })(`${path()}.data`);
+    const me0 = () => meshOf(id);
     return {
       __kind: 'struct',
       __type: 'MeshUVLoopLayer',
       get name() {
-        return meshOf(id).uv_map_name || 'UVMap';
+        return name;
       },
       set name(v: string) {
-        meshOf(id).uv_map_name = String(v || 'UVMap');
+        const rows = uvMaps(me0());
+        const i = rows.findIndex((r) => r.name === name);
+        if (i >= 0 && renameUV(me0(), i, String(v || 'UVMap'))) name = String(v || 'UVMap').trim();
         touched();
       },
-      active: true,
-      active_render: true,
+      get active() {
+        return isActive();
+      },
+      set active(v: boolean) {
+        if (!v) return;
+        const i = uvMaps(me0()).findIndex((r) => r.name === name);
+        if (i >= 0 && setActiveUV(me0(), i)) touched('geometry');
+      },
+      get active_render() {
+        return uvMaps(me0()).find((r) => r.name === name)?.render ?? false;
+      },
+      set active_render(v: boolean) {
+        if (v) me0().uv_render_name = name;
+        touched();
+      },
       data,
       foreach_get: uvForeachGet,
       foreach_set: uvForeachSet,
-      toString: () => `<bpy_struct, MeshUVLoopLayer("${meshOf(id).uv_map_name || 'UVMap'}") at ${path}>`,
+      toString: () => `<bpy_struct, MeshUVLoopLayer("${name}") at ${path()}>`,
     };
   }
 }
