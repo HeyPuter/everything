@@ -161,3 +161,14 @@ describe('hidden text', () => {
     expect(documentPlainText(doc())).toBe('Answer: 42\n');
   });
 });
+
+describe('paragraph alignment', () => {
+  it('is kept in a web page', () => {
+    const doc = new TextDocument([paragraph('Title'), paragraph('Body'), paragraph('Signed'), paragraph('Left')]);
+    for (const [i, alignment] of [[0, 'center'], [1, 'both'], [2, 'right']]) {
+      const at = doc.paragraphs.slice(0, i).reduce((n, p) => n + p.runs[0].text.length + 1, 0);
+      doc.select(at); doc.setParagraphFormat({ alignment });
+    }
+    expect(body(documentHtml(doc))).toBe('<p style="text-align:center">Title</p><p style="text-align:justify">Body</p><p style="text-align:right">Signed</p><p>Left</p>');
+  });
+});

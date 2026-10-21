@@ -108,7 +108,8 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
     }
     const level = headingLevel(p, model.styles);
     const inner = p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
-    const align = ['center', 'right', 'both'].includes(p.alignment) ? ` style="text-align:${p.alignment === 'both' ? 'justify' : p.alignment}"` : '';
+    const alignment = p.format?.alignment;
+    const align = ['center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
     html += tag ? `<li${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
   closeLists();
