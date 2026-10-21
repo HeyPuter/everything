@@ -34,7 +34,7 @@ import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar, maskPro
 import { maskTable } from '../../mask/types';
 import './imageextra';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
-import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
+import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, drawMaskStrip, maskStripRect, maskStripFrame, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
 
 export const RENDER_RESULT = '__render_result__';
 
@@ -588,6 +588,13 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const [W, H] = this.frameSize();
     const [cx, cy] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
     draw2DCursor(ctx, cx, cy);
+    if (m) drawMaskStrip(ctx, m, this.maskStrip(), app.doc.scene.frame_current);
+  }
+
+  /** The mask frame strip along the bottom of the view (between the toolbar and the sidebar). */
+  private maskStrip() {
+    const { w, h: hh } = this.viewSize();
+    return maskStripRect(w, hh, this.showToolbar ? 48 : 0, this.showSidebar ? 270 : 0);
   }
 
   /** UDIM tiles: outline each tile's cell, label it, and mark the active one. */
@@ -1618,6 +1625,20 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       }
       if (e.button === 0 && this.maskEditing()) {
         e.preventDefault();
+        const m = hostMask(this);
+        const r = this.maskStrip();
+        if (m && this.overlays.show_overlays && start.y >= r.y - 2 && start.x >= r.x0 && start.x <= r.x1) {
+          // drag along the frame strip to change the frame
+          const go = (ev: { clientX: number; clientY: number }) => {
+            const f = maskStripFrame(m, r, this.local(ev).x);
+            if (f !== app.doc.scene.frame_current) app.setFrame(f);
+          };
+          go(e);
+          const up = () => (removeEventListener('pointermove', go), removeEventListener('pointerup', up));
+          addEventListener('pointermove', go);
+          addEventListener('pointerup', up);
+          return;
+        }
         imageMaskPointerDown(this, e);
         return;
       }
@@ -1670,7 +1691,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     if (kinds.has('doc') || kinds.has('ui')) {
       this.draw();
       this.drawUI();
-    }
+    } else if (kinds.has('frame') && this.maskEditing()) this.draw();
   }
 
   resize() {

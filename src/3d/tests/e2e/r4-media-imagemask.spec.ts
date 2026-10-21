@@ -165,3 +165,27 @@ test('mask: proportional editing (O) moves nearby points by a falloff; the redo 
   expect(dx.filter((d: number) => d === 0).length).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('mask: the frame strip of the Mask mode scrubs frames', async ({ page }) => {
+  const { errors } = await imageEditor(page);
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const e = app.hoverArea.editor;
+    e.setMode('MASK');
+    app.run('mask.new');
+    const m = app.doc.masks[e.maskId];
+    m.frame_start = 1;
+    m.frame_end = 100;
+    e.showToolbar = false;
+    e.drawUI();
+    e.draw();
+    const b = e.el.getBoundingClientRect();
+    return { x: b.left, y: b.top, w: b.width, h: b.height };
+  });
+  await page.mouse.move(r.x + r.w * 0.25, r.y + r.h - 4);
+  await page.mouse.down();
+  await page.mouse.move(r.x + r.w * 0.5 + 1, r.y + r.h - 4, { steps: 3 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => (window as any).app.doc.scene.frame_current)).toBe(51);
+  await expectNoErrors(errors);
+});

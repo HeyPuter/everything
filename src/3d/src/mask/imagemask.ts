@@ -236,3 +236,35 @@ export function draw2DCursor(ctx: CanvasRenderingContext2D, x: number, y: number
   ctx.stroke();
   ctx.restore();
 }
+
+/** Mask frame strip (bottom of the image editor in Mask mode): the mask's frame range, shape keys and the current frame. */
+export function maskStripRect(w: number, hh: number, left: number, right: number) {
+  return { x0: left, x1: Math.max(left + 10, w - right), y: hh - 10, h: 10 };
+}
+
+export function drawMaskStrip(ctx: CanvasRenderingContext2D, m: { frame_start: number; frame_end: number; layers: { shape_keys: { frame: number }[] }[] }, r: { x0: number; x1: number; y: number; h: number }, frame: number) {
+  const a = m.frame_start,
+    b = Math.max(m.frame_start + 1, m.frame_end);
+  const fx = (f: number) => r.x0 + ((f - a) / (b - a + 1)) * (r.x1 - r.x0);
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.fillRect(r.x0, r.y, r.x1 - r.x0, r.h);
+  ctx.fillStyle = 'rgba(110, 105, 206, 0.55)';
+  ctx.fillRect(r.x0, r.y + r.h - 3, r.x1 - r.x0, 3);
+  const keys = new Set<number>();
+  for (const l of m.layers) for (const k of l.shape_keys) keys.add(k.frame);
+  ctx.fillStyle = '#f0c419';
+  for (const k of keys) if (k >= a && k <= b) ctx.fillRect(Math.round(fx(k)), r.y + 1, Math.max(2, fx(k + 1) - fx(k)), r.h - 4);
+  if (frame >= a && frame <= b) {
+    ctx.fillStyle = '#4b70b5';
+    ctx.fillRect(Math.round(fx(frame)), r.y - 2, Math.max(2, fx(frame + 1) - fx(frame)), r.h + 2);
+  }
+  ctx.restore();
+}
+
+/** Frame under x on the mask strip. */
+export function maskStripFrame(m: { frame_start: number; frame_end: number }, r: { x0: number; x1: number }, x: number) {
+  const a = m.frame_start,
+    b = Math.max(m.frame_start + 1, m.frame_end);
+  return Math.max(a, Math.min(b, Math.floor(a + ((x - r.x0) / Math.max(1, r.x1 - r.x0)) * (b - a + 1))));
+}
