@@ -196,3 +196,44 @@ test('annotations in a node editor: D drag draws in node space, D right drag era
   await expect(page.locator('.menu')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('multi-frame editing with falloff moves far keyframes less', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'STROKE' });
+  // a second keyframe at frame 11 holding a copy of frame 1
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const g = a.doc.grease_pencils[a.activeObject.data];
+    for (const l of g.layers) {
+      const f = l.frames[0];
+      if (!f) continue;
+      g.drawings.push(g.drawings[f.drawing]);
+      l.frames.push({ frame_number: 11, drawing: g.drawings.length - 1, keyframe_type: 'KEYFRAME', select: true });
+      f.select = true;
+    }
+    a.pushUndo('Test Keys');
+  });
+  await run(page, 'object.mode_set', { mode: 'EDIT' });
+  const firstX = (f: number) =>
+    get(
+      page,
+      `(() => { const l = ${gp}.layers.find((x) => x.frames.length > 1); const fr = l.frames.find((x) => x.frame_number === ${f}); return ${gp}.drawings[fr.drawing].position[0]; })()`,
+    ) as Promise<number>;
+  const before = await firstX(1);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const ts = a.doc.scene.tool_settings;
+    ts.use_grease_pencil_multi_frame_editing = true;
+    ts.use_multiframe_falloff = true;
+  });
+  await run(page, 'grease_pencil.select_all', { action: 'SELECT' });
+  await run(page, 'transform.translate', { value: [1, 0, 0] });
+  const d1 = (await firstX(1)) - before,
+    d11 = (await firstX(11)) - before;
+  expect(d1).toBeCloseTo(1, 3);
+  expect(d11).toBeGreaterThan(0.01);
+  expect(d11).toBeLessThan(0.9);
+  await expectNoErrors(errors);
+});

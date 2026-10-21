@@ -6,7 +6,8 @@ import { addKeys } from '../app/keymap';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { numberField, enumMenu, colorSwatch, panel, checkbox, row } from '../ui/widgets';
-import { openMenu, type MenuItem } from '../ui/menu';
+import { openMenu, openPopover, type MenuItem } from '../ui/menu';
+import { curveWidget } from '../editors/properties/modui/kit';
 import { extraToolLists, toolSettingsRenderers, toolsByMode, COMMON_TOOLS, setActiveTool, type ToolDef } from '../editors/view3d/toolbar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { sidebarTabs } from '../editors/view3d/sidebar';
@@ -18,6 +19,32 @@ import { drawMenu, sculptMenu } from './menus';
 import { guideButton } from './guides';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
+
+// ---------------------------------------------------------------------------
+// multi-frame falloff popover
+
+type MFSettings = { use_multiframe_falloff?: boolean; multiframe_falloff_curve?: unknown };
+const mfHolder = {
+  id: 'gp-multiframe',
+  get multiframe_falloff_curve() {
+    const ts = gpTS(app.doc) as unknown as MFSettings;
+    return (ts.multiframe_falloff_curve ??= { curve_kind: 'FLOAT', curve_extend: 'HORIZONTAL', curve_active: 0, curve_0: [0, 0, 0, 0.5, 0.75, 0, 1, 1, 0] });
+  },
+  set multiframe_falloff_curve(v: unknown) {
+    (gpTS(app.doc) as unknown as MFSettings).multiframe_falloff_curve = v;
+  },
+};
+
+function multiFramePanel(redraw: () => void): Child {
+  const ts = gpTS(app.doc) as unknown as MFSettings;
+  return h(
+    'div',
+    { class: 'pop-panel' },
+    h('div', { class: 'pop-sub' }, 'Multi Frame'),
+    checkbox('gp-mf-falloff', 'Use Falloff', !!ts.use_multiframe_falloff, (x) => ((ts.use_multiframe_falloff = x), redraw(), app.changed('ui'))),
+    ts.use_multiframe_falloff ? curveWidget(mfHolder as unknown as Parameters<typeof curveWidget>[0], 'multiframe_falloff_curve') : null,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // toolbars
@@ -620,6 +647,21 @@ export function placementControls(): Child {
             onclick: () => ((ts.use_grease_pencil_multi_frame_editing = !ts.use_grease_pencil_multi_frame_editing), app.changed('doc')),
           },
           icon('gp_multiframe'),
+        )
+      : null,
+    app.doc.mode === 'EDIT'
+      ? h(
+          'button',
+          {
+            key: 'gp-mf-pop',
+            class: 'hdr-toggle',
+            'data-tip': 'Multi Frame\nFalloff of the edits on the keyframes away from the current frame',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              const pop = openPopover(e.currentTarget as HTMLElement, () => multiFramePanel(() => pop.redraw()), { width: 240 });
+            },
+          },
+          icon('down_arrow_hlt', 'tiny'),
         )
       : null,
     v

@@ -6,6 +6,8 @@ import { app, registerOperators } from '../app/app';
 import { editModeHooks, viewportExtensions } from '../editors/view3d/hooks';
 import { transformProviders, type TElement } from '../ops/transform';
 import { falloffWeight, seededRandom } from '../ops/transform_math';
+import { curvePoints } from '../eval/mods/common';
+import { evalCurve } from '../nodes/curves';
 import { gpOverlay } from './overlays';
 import { setGizmoCenterHook, gizmoCenterHook } from '../editors/view3d/gizmo';
 import { frameHooks } from '../ops/view3d';
@@ -31,6 +33,8 @@ export interface EditTarget {
   /** drawing index */
   idx: number;
   world: Matrix4;
+  /** frame number of the keyframe the drawing belongs to */
+  frame?: number;
 }
 
 /** Drawings editable in Edit Mode: the active keyframe of each visible, unlocked layer (plus selected keyframes with multi-frame editing). */
@@ -44,11 +48,11 @@ export function editTargets(): EditTarget[] {
   c.gp.layers.forEach((layer, li) => {
     if (layer.hide || layer.lock) return;
     const world = obWorld.clone().multiply(layerMatrix(layer));
-    const seen = new Set<number>();
+    const seen = new Map<number, number>();
     const cur = frameAt(layer, frame);
-    if (cur) seen.add(cur.drawing);
-    if (multi) for (const f of layer.frames) if (f.select) seen.add(f.drawing);
-    for (const idx of seen) if (c.gp.drawings[idx]) out.push({ layer, layerIndex: li, idx, world });
+    if (cur) seen.set(cur.drawing, frame);
+    if (multi) for (const f of layer.frames) if (f.select && !seen.has(f.drawing)) seen.set(f.drawing, f.frame_number);
+    for (const [idx, fn] of seen) if (c.gp.drawings[idx]) out.push({ layer, layerIndex: li, idx, world, frame: fn });
   });
   return out;
 }
@@ -347,7 +351,10 @@ transformProviders.unshift({
     const restores: (() => void)[] = [];
     const live: { t: EditTarget; d: GPDrawing }[] = [];
     const scaleThickness = (gpTS(app.doc) as unknown as { use_scale_thickness?: boolean }).use_scale_thickness !== false;
+    const frameWeight = multiFrameFalloff();
     for (const t of editTargets()) {
+      const fw = frameWeight(t);
+      if (fw <= 0) continue;
       const d0 = drawing(t);
       const bez = hasBezier(d0);
       const handleSel = bez && (d0.select_handle_left!.some((x) => x) || d0.select_handle_right!.some((x) => x));
@@ -374,7 +381,7 @@ transformProviders.unshift({
       };
       const restoreTo = (a: Float32Array, b: Float32Array, i: number) => a.set(b.subarray(i * 3, i * 3 + 3), i * 3);
       for (let i = 0; i < d.select!.length; i++) {
-        const w = d.select![i] ? 1 : (pw?.[i] ?? 0);
+        const w = (d.select![i] ? 1 : (pw?.[i] ?? 0)) * fw;
         const q = new Vector3();
         if (w <= 0) {
           // handles moved on their own (their point stays)
@@ -477,6 +484,25 @@ transformProviders.unshift({
     };
   },
 });
+
+/**
+ * Multi-frame editing with falloff: keyframes away from the current frame follow transforms less,
+ * shaped by the falloff curve (x = 1 at the current frame, toward 0 at the farthest edited key).
+ */
+export function multiFrameFalloff(): (t: EditTarget) => number {
+  const ts = gpTS(app.doc) as unknown as { use_grease_pencil_multi_frame_editing?: boolean; use_multiframe_falloff?: boolean; multiframe_falloff_curve?: unknown };
+  if (!ts.use_grease_pencil_multi_frame_editing || !ts.use_multiframe_falloff) return () => 1;
+  const cur = app.doc.scene.frame_current;
+  const all = editTargets();
+  const maxDist = Math.max(0, ...all.map((t) => Math.abs((t.frame ?? cur) - cur)));
+  const pts = curvePoints(ts.multiframe_falloff_curve);
+  return (t) => {
+    const dist = Math.abs((t.frame ?? cur) - cur);
+    if (!dist) return 1;
+    const x = 1 - dist / (maxDist + 1);
+    return Math.max(0, Math.min(1, pts ? evalCurve(pts, x) : x));
+  };
+}
 
 /** Falloff weights of unselected points for proportional editing (per edit target). */
 function proportionalWeights(connected: boolean): Map<number, Float32Array> {
