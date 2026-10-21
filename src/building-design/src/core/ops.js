@@ -30,7 +30,7 @@ export function deleteElements(doc, ids, { keepEmptyGroups = false } = {}) {
     const el = doc.get(id);
     for (const other of doc.items.values()) {
       if (gone.has(other.id)) continue;
-      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id || other.groupId === id || other.wallId === id) queue.push(other.id);
+      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id || other.groupId === id || other.wallId === id || other.stairId === id) queue.push(other.id);
       else if (el.kind === 'level' && (other.levelId === id || (isView(other) && other.levelId === id))) queue.push(other.id);
     }
   }

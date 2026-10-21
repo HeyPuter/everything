@@ -147,6 +147,7 @@ const KIND_CATEGORY = {
   mass: 'masses',
   link: 'links',
   space: 'spaces',
+  treadNumbers: 'tags',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -207,6 +208,7 @@ export const KIND_LABEL = {
   propertyLine: 'Property Line',
   mass: 'Mass',
   link: 'Linked Project',
+  treadNumbers: 'Tread Numbers',
   space: 'Space',
   zone: 'Zone',
 };

@@ -7,6 +7,10 @@
  *
  * Editing one instance and finishing rebuilds the definition from it and
  * re-creates the members of every other instance of the type.
+ *
+ * Detail groups work the same way for view-specific elements (detail lines,
+ * regions, text, detail components): the instance and its members belong to
+ * one view.
  */
 import { transformPatch, rotation, translation, deleteElements } from './ops.js';
 import { isView } from './doc.js';
@@ -14,6 +18,12 @@ import { bbox } from './geom.js';
 
 const BASE = '$base';
 const ABOVE = '$above';
+const VIEW = '$view';
+
+/** View-specific elements that can be in a detail group (not ones that point at model elements). */
+export function detailGroupable(el) {
+  return !!el && !!el.viewId && !isView(el) && !['dimension', 'tag', 'spot', 'radialDim', 'angularDim', 'colorLegend', 'group', 'viewport', 'image'].includes(el.kind);
+}
 
 /** Elements that can belong to a model group. */
 export function groupable(el) {
@@ -50,6 +60,7 @@ export function definitionOf(doc, group) {
     const out = { ...rest, ...local, localId: id };
     if (out.levelId === group.levelId) out.levelId = BASE;
     if (out.topLevelId && out.topLevelId === above) out.topLevelId = ABOVE;
+    if (out.viewId && out.viewId === group.viewId) out.viewId = VIEW;
     if (out.hostId) out.hostId = `@${out.hostId}`;
     return out;
   });
@@ -68,6 +79,7 @@ export function instantiate(doc, group, def) {
     const item = { ...rest, ...(m.hostId ? {} : transformPatch(m, xf)), groupId: group.id };
     if (item.levelId === BASE) item.levelId = group.levelId;
     if (item.topLevelId === ABOVE) item.topLevelId = above;
+    if (item.viewId === VIEW) item.viewId = group.viewId;
     if (item.hostId) {
       const host = map.get(item.hostId.slice(1));
       if (!host) continue;
@@ -87,7 +99,17 @@ export function instantiate(doc, group, def) {
 export function createGroup(doc, ids, { name, levelId }) {
   const set = new Set(ids);
   for (const el of doc.items.values()) if (el.hostId && set.has(el.hostId)) set.add(el.id);
-  const members = [...set].map((id) => doc.get(id)).filter((el) => groupable(el) && !el.groupId);
+  const all = [...set].map((id) => doc.get(id)).filter((el) => el && !el.groupId);
+  let members = all.filter(groupable);
+  // Only view-specific elements, all in one view: a detail group.
+  let viewId = null;
+  if (!members.length) {
+    const detail = all.filter(detailGroupable);
+    if (detail.length && detail.every((el) => el.viewId === detail[0].viewId)) {
+      members = detail;
+      viewId = detail[0].viewId;
+    }
+  }
   if (!members.length) return null;
   const pts = [];
   for (const el of members) for (const f of ['a', 'b', 'at']) if (Array.isArray(el[f])) pts.push(el[f]);
@@ -97,16 +119,16 @@ export function createGroup(doc, ids, { name, levelId }) {
   const counts = new Map();
   for (const el of members) if (el.levelId) counts.set(el.levelId, (counts.get(el.levelId) || 0) + 1);
   const lv = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] || levelId;
-  const type = doc.add({ kind: 'groupType', name, familyName: 'Model Group', members: [] });
-  const group = doc.add({ kind: 'group', typeId: type.id, levelId: lv, at, rotation: 0 });
+  const type = doc.add({ kind: 'groupType', name, familyName: viewId ? 'Detail Group' : 'Model Group', detail: !!viewId, members: [] });
+  const group = doc.add({ kind: 'group', typeId: type.id, levelId: lv, at, rotation: 0, ...(viewId ? { viewId } : {}) });
   for (const el of members) doc.update(el.id, { groupId: group.id });
   doc.update(type.id, { members: definitionOf(doc, doc.get(group.id)) });
   return doc.get(group.id);
 }
 
 /** Place a new instance of a group type. */
-export function placeGroup(doc, type, at, rotationDeg, levelId) {
-  const group = doc.add({ kind: 'group', typeId: type.id, levelId, at, rotation: rotationDeg || 0 });
+export function placeGroup(doc, type, at, rotationDeg, levelId, viewId = null) {
+  const group = doc.add({ kind: 'group', typeId: type.id, levelId, at, rotation: rotationDeg || 0, ...(type.detail && viewId ? { viewId } : {}) });
   instantiate(doc, group, type.members || []);
   return group;
 }

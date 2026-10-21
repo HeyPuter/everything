@@ -155,12 +155,61 @@ function norm2pi(a) {
 
 // Radial and diameter dimensions ---------------------------------------------------------------
 
-export class RadialDimTool extends AnnotationTool {
+/** Number the treads of a stair in the active plan. */
+export class TreadNumberTool extends AnnotationTool {
   get title() {
-    return this.opts.diameter ? 'Diameter Dimension' : 'Radial Dimension';
+    return 'Tread Number';
+  }
+
+  get viewKinds() {
+    return PLAN_VIEW_KINDS;
   }
 
   get prompt() {
+    return 'Click a stair to number its treads. Space switches the side.';
+  }
+
+  stairAt(ev) {
+    for (const id of this.vc.hitTest(ev.x, ev.y, 6)) if (this.doc.get(id)?.kind === 'stair') return this.doc.get(id);
+    return null;
+  }
+
+  move(ev) {
+    this.app.setHover(this.stairAt(ev)?.id ?? null);
+  }
+
+  key(e) {
+    if (e.key === ' ') {
+      const o = this.app.toolOptions('treadNumbers', { side: 'right' });
+      o.side = o.side === 'left' ? 'right' : 'left';
+      this.app.setPrompt(`Numbers on the ${o.side} of the walk line.`);
+      return true;
+    }
+    return false;
+  }
+
+  down(ev) {
+    const s = this.stairAt(ev);
+    if (!s) return;
+    const view = this.vc.view;
+    if (this.doc.all('treadNumbers').some((t) => t.viewId === view.id && t.stairId === s.id)) return this.app.toast('This stair is already numbered in this view.');
+    const o = this.app.toolOptions('treadNumbers', { side: 'right' });
+    this.place(this.title, { kind: 'treadNumbers', stairId: s.id, side: o.side, start: 1 });
+  }
+
+  options() {
+    const o = this.app.toolOptions('treadNumbers', { side: 'right' });
+    return [select('Side', [{ value: 'right', label: 'Right of the walk line' }, { value: 'left', label: 'Left of the walk line' }], o.side, (v) => (o.side = v))];
+  }
+}
+
+export class RadialDimTool extends AnnotationTool {
+  get title() {
+    return this.opts.arcLength ? 'Arc Length Dimension' : this.opts.diameter ? 'Diameter Dimension' : 'Radial Dimension';
+  }
+
+  get prompt() {
+    if (this.opts.arcLength) return this.target ? 'Click to place the dimension arc' : 'Click an arc';
     return this.target ? 'Click to place the dimension' : 'Click a circle, an arc or a round column';
   }
 
@@ -168,6 +217,7 @@ export class RadialDimTool extends AnnotationTool {
     for (const id of this.vc.hitTest(ev.x, ev.y, 8)) {
       const el = this.doc.get(id);
       if (el?.kind === 'detailArc' && el.viewId === this.vc.view.id) return el;
+      if (this.opts.arcLength) continue;
       if (el?.kind === 'column' && this.doc.get(el.typeId)?.shape === 'round') return el;
     }
     return null;
@@ -176,6 +226,7 @@ export class RadialDimTool extends AnnotationTool {
   make(p) {
     const t = this.target;
     const { c, r } = radialTarget(this.doc, { targetId: t.id });
+    if (this.opts.arcLength) return { kind: 'radialDim', targetId: t.id, c, r, arcLength: true, offset: dist(p, c) - r, angle: 0 };
     return { kind: 'radialDim', targetId: t.id, c, r, angle: angleOf(sub(p, c)), diameter: !!this.opts.diameter };
   }
 

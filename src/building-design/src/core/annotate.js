@@ -210,7 +210,7 @@ function drawAngular(pc, el, b) {
 /** Centre and radius of what a radial dimension measures (it follows its target). */
 export function radialTarget(doc, el) {
   const t = el.targetId ? doc.get(el.targetId) : null;
-  if (t?.kind === 'detailArc') return { c: t.c, r: t.r };
+  if (t?.kind === 'detailArc') return { c: t.c, r: t.r, a0: t.a0 ?? 0, a1: t.a1 ?? Math.PI * 2 };
   if (t?.kind === 'column') {
     const type = doc.get(t.typeId);
     if (type?.shape === 'round') return { c: t.at, r: (+type.width || 450) / 2 };
@@ -218,8 +218,34 @@ export function radialTarget(doc, el) {
   return { c: el.c, r: el.r };
 }
 
+/** Arc length: a dimension arc concentric with the measured arc, its length written along it. */
+function drawArcLength(pc, el, b, { c, r, a0, a1 }) {
+  const R = Math.max(r * 0.2, r + (+el.offset || P(pc, 8)));
+  const sweep = Math.abs(a1 - a0) || Math.PI * 2;
+  const start = Math.min(a0, a1);
+  const pts = arcPoints(c, R, start, start + sweep, Math.PI / 48);
+  b.poly(pts, false, W.thin);
+  const tick = P(pc, 1.4);
+  for (const a of [start, start + sweep]) {
+    const u = [Math.cos(a), Math.sin(a)];
+    // Extension line from the arc out past the dimension arc, and a slash tick.
+    b.line(add(c, scale(u, r + Math.sign(R - r) * P(pc, 1.5))), add(c, scale(u, R + Math.sign(R - r) * P(pc, 2))), W.thin);
+    const q = add(c, scale(u, R));
+    const t = [-u[1], u[0]];
+    const diag = norm(add(u, t));
+    b.line(add(q, scale(diag, -tick)), add(q, scale(diag, tick)), W.medium);
+  }
+  const am = start + sweep / 2;
+  const um = [Math.cos(am), Math.sin(am)];
+  const ang = readableAngle(am - Math.PI / 2);
+  b.text(add(c, scale(um, R + P(pc, 2.2))), `? ${formatDimension(r * sweep, pc.units)}`, { size: P(pc, 2.5), rot: ang, mask: true });
+  for (let i = 0; i + 1 < pts.length; i++) pickBand(b, pts[i], pts[i + 1], P(pc, 2));
+}
+
 function drawRadial(pc, el, b) {
-  const { c, r } = radialTarget(pc.doc, el);
+  const target = radialTarget(pc.doc, el);
+  if (el.arcLength && target.a0 != null) return drawArcLength(pc, el, b, target);
+  const { c, r } = target;
   const u = [Math.cos(el.angle || 0), Math.sin(el.angle || 0)];
   const tip = add(c, scale(u, r));
   const tail = el.diameter ? sub(c, scale(u, r)) : c;

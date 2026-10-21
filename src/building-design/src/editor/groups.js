@@ -35,7 +35,7 @@ export class PlaceGroupTool extends Tool {
     const p = this.snap(ev);
     if (!p) return;
     let g = null;
-    this.app.commit('Place group', () => (g = placeGroup(this.doc, type, p, this.rot, this.app.activeLevelId())));
+    this.app.commit('Place group', () => (g = placeGroup(this.doc, type, p, this.rot, this.app.activeLevelId(), this.vc?.view?.id)));
     if (g) this.app.setPrompt(`Placed ${type.name}. Click to place another, Esc to stop.`);
   }
 

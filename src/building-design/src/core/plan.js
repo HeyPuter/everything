@@ -195,6 +195,9 @@ export function planGraphics(pc, el) {
     case 'tag':
       if (el.viewId === pc.view.id) drawTag(pc, el, b);
       break;
+    case 'treadNumbers':
+      if (el.viewId === pc.view.id) drawTreadNumbers(pc, el, b);
+      break;
     case 'detailLine':
       if (el.viewId === pc.view.id) drawDetailLine(el, b);
       break;
@@ -797,6 +800,26 @@ function planStair(pc, el, b) {
     b.poly([add(add(tip, scale(d, -ah)), scale(n2, ah * 0.45)), tip, add(add(tip, scale(d, -ah)), scale(n2, -ah * 0.45))], false, W.thin);
     const f0 = g.flights[0];
     b.text(add(walk[0], scale(f0.dir, -P(pc, 3))), atBase ? 'UP' : 'DN', { size: P(pc, 2.2), rot: readableAngle(angleOf(f0.dir) - Math.PI / 2) });
+  }
+}
+
+/** Numbers on the treads of a stair, counted from the bottom, on one side of the walk line. */
+function drawTreadNumbers(pc, el, b) {
+  const stair = pc.doc.get(el.stairId);
+  if (!stair) return;
+  const g = stairFlights(pc.doc, stair);
+  const { tread: td, width: Wd } = g;
+  const w = el.side === 'left' ? Wd * 0.78 : Wd * 0.22;
+  const sz = P(pc, 1.8);
+  let n = +el.start || 1;
+  for (const f of g.flights) {
+    // Risers are numbered; the last riser of a flight lands on the landing or floor.
+    for (let i = 0; i < f.risers - 1; i++) {
+      const p = flightPoint(f, Wd, (i + 0.5) * td, w);
+      b.text(p, String(n++), { size: sz, rot: readableAngle(angleOf(f.dir)), mask: true });
+      b.pick([add(p, [-sz, -sz]), add(p, [sz, -sz]), add(p, [sz, sz]), add(p, [-sz, sz])]);
+    }
+    n++;
   }
 }
 

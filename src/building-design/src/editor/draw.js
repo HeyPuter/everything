@@ -24,7 +24,7 @@ import {
   closestOnSegment,
   area as polyArea,
 } from '../core/geom.js';
-import { typeThickness } from '../core/catalog.js';
+import { typeThickness, CATEGORIES, categoryOf } from '../core/catalog.js';
 import { wallAxis, openingSize, hostedBy, stairLayout, rampLayout } from '../core/model.js';
 import { planGraphics, planContext, tagAnchor, sectionFrame } from '../core/plan.js';
 import { nextMark, nextRoomNumber, nextGridName, uniqueName } from '../core/ops.js';
@@ -1807,6 +1807,7 @@ export const TAG_SHOW = [
   { value: 'name', label: 'Name' },
 ];
 
+const MODEL_CATS = new Set(CATEGORIES.filter((c) => c.model).map((c) => c.id));
 const TAGGABLE = ['door', 'window', 'wall', 'component', 'column', 'floor', 'roof', 'ceiling', 'beam', 'stair', 'ramp', 'railing', 'room', 'area'];
 
 export class TagTool extends Tool {
@@ -1843,7 +1844,7 @@ export class TagTool extends Tool {
   target(ev) {
     for (const id of this.vc.hitTest(ev.x, ev.y)) {
       const el = this.doc.get(id);
-      if (el && TAGGABLE.includes(el.kind)) return el;
+      if (el && (TAGGABLE.includes(el.kind) || (this.opts.any && MODEL_CATS.has(categoryOf(el, this.doc)) && !el.viewId))) return el;
     }
     return null;
   }

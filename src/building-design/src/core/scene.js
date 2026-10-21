@@ -25,7 +25,7 @@ import { upgradeDoc } from './template.js';
 import { linkFrame, linkedLevel, appendPlan, combineMeshes } from './links.js';
 
 export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass', 'link'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'space', 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'space', 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'treadNumbers', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'space', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
 
@@ -208,6 +208,7 @@ export class Scene {
       const t = doc.get(el.targetId);
       d.push(t, t && doc.get(t.hostId), t && doc.get(t.typeId), t?.kind === 'room' ? this.rooms.room(t) : t?.kind === 'area' ? this.areas.area(t) : null);
     } else if (el.kind === 'stair') d.push(doc.levelAbove(el.levelId));
+    else if (el.kind === 'treadNumbers') d.push(doc.get(el.stairId), doc.get(doc.get(el.stairId)?.typeId), doc.get(doc.get(el.stairId)?.topLevelId));
     else if (el.kind === 'radialDim') d.push(doc.get(el.targetId), doc.get(doc.get(el.targetId)?.typeId));
     else if (el.kind === 'revisionCloud') d.push(doc.get(el.revisionId));
     // These read other elements of the model: redraw them after any change.

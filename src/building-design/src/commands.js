@@ -56,7 +56,7 @@ import { sunDirection } from './core/sun.js';
 import { editingOption } from './core/designopts.js';
 import { worksharingOn } from './core/worksets.js';
 import { confirmDialog } from './ui/dialog.js';
-import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
+import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool, TreadNumberTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
@@ -262,6 +262,9 @@ export const COMMANDS = {
   revisions: { label: 'Revisions', icon: 'revisions', run: (app) => app.revisionsDialog(), desc: 'Number, date and issue the revisions of the drawings' },
   insulation: { label: 'Insulation', icon: 'insulation', run: tool(InsulationTool), desc: 'Batt insulation symbol along a line' },
   tag: { label: 'Tag by Category', icon: 'tag', keys: 'TG', run: tool(TagTool) },
+  tagMulti: { label: 'Multi-Category Tag', icon: 'tagMulti', run: tool(TagTool, { any: true }), desc: 'Tag an element of any model category with its mark' },
+  treadNumber: { label: 'Tread Number', icon: 'treadNumber', run: tool(TreadNumberTool), desc: 'Number the treads of a stair in a plan' },
+  dimArcLength: { label: 'Arc Length Dimension', icon: 'dimArc', run: tool(RadialDimTool, { arcLength: true }), desc: 'The length along an arc' },
   tagAll: { label: 'Tag All Not Tagged', icon: 'tagAll', run: (app) => tagAll(app) },
   tagMaterial: { label: 'Material Tag', icon: 'materialTag', run: tool(TagTool, { show: 'material' }), desc: 'Label the material of a wall, floor, roof or other element' },
   keynote: { label: 'Keynote', icon: 'keynote', run: tool(TagTool, { show: 'keynote' }), desc: 'Tag elements with the keynote of their type' },
