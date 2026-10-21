@@ -21,7 +21,7 @@ import { VOLUME_MARCH_GLSL, volumeTexture } from './display';
 import { gridsSignature } from './eval';
 
 /** One renderable volume: packed data, shading and placement. */
-interface Source {
+export interface Source {
   key: string;
   objectId: string;
   packed: PackedVolume;
@@ -77,10 +77,14 @@ function smokeShader(d: SmokeDraw): VolumeShader {
   return s;
 }
 
+/** More volumes from other modules (e.g. meshes with a volume-only material: render/final/meshvolume.ts). */
+export const extraVolumeSources: ((app: App, visible: (id: string) => boolean) => Source[])[] = [];
+
 /** Every volume to render (visible according to the build options). */
 function collect(app: App, visible: (id: string) => boolean): Source[] {
   const doc = app.doc;
   const out: Source[] = [];
+  for (const f of extraVolumeSources) out.push(...f(app, visible));
   for (const ev of app.graph.objects.values()) {
     const grids = ev.mesh?.volume;
     if (!grids?.length || !visible(ev.id)) continue;

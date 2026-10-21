@@ -19,6 +19,7 @@ import './renderops';
 import './script';
 import './lightcolor';
 import './worldops';
+import './meshvolume';
 import '../realtime';
 
 export { renderResult } from './result';
