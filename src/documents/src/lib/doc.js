@@ -203,8 +203,11 @@ export class Doc extends EventTarget {
     return true;
   }
 
-  /** Save now. Resolves true when the file was written. */
-  async save({ auto = false } = {}) {
+  /**
+   * Save now. Resolves true when the file was written. `now` (with `auto`): the page is going to the
+   * background, where the usual pause may never end, so edits made during a save in flight go right after it.
+   */
+  async save({ auto = false, now = false } = {}) {
     clearTimeout(this._timer);
     this._timer = null;
     if (this._deleted || this.writes === false) return true;
@@ -229,7 +232,7 @@ export class Doc extends EventTarget {
       if (!this.dirty && this.path) { this._settled(); return true; }
       // Edits landed during that save. An autosave waits for the usual pause
       // rather than writing twice in a row; an explicit save goes now.
-      if (auto) { this._schedule(this.autosaveDelay); return false; }
+      if (auto && !now) { this._schedule(this.autosaveDelay); return false; }
     }
     // Nothing to write, a clean template included: saving one again would only make a copy of it.
     if (!this.dirty && this.path) { this._settled(); return true; }
@@ -240,6 +243,9 @@ export class Doc extends EventTarget {
       if (auto) return false;
       throw new Error(SIGN_IN_TO_SAVE);
     }
+    // The save that held the file may have planned another for these edits: this is it.
+    clearTimeout(this._timer);
+    this._timer = null;
     this._lockHolder = 'save';
     this._saving = this._doSave(auto).finally(() => { this._saving = null; });
     return this._saving;

@@ -453,7 +453,7 @@ function setupUnloadGuard() {
     e.preventDefault();
     e.returnValue = '';
   });
-  const saveInBackground = () => { const d = doc(); if (d?.dirty) d.save({ auto: true }).catch(() => {}); };
+  const saveInBackground = () => { const d = doc(); if (d?.dirty) d.save({ auto: true, now: true }).catch(() => {}); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveInBackground(); });
   window.addEventListener('pagehide', saveInBackground);
 }

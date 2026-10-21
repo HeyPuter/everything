@@ -233,3 +233,20 @@ test('Open Recent says when the documents could not be listed', async ({ page })
   await page.getByRole('menuitem', { name: 'Open Recent', exact: true }).click();
   await expect(page.locator('.menu-note')).toHaveText('Could not load recent documents. Check your connection and try again.');
 });
+
+test('hiding the page writes edits typed during a save as soon as that save ends', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Draft');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  // A slow write: the pause before the next autosave grows with it, to several seconds.
+  await page.evaluate(() => window.__puterFaults.push({ op: 'write', path: '^Documents/[^/]+\\.docx$', delay: 1500, times: 1 }));
+  await text(page).press('End'); await page.keyboard.type(' one');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saving…');
+  await page.keyboard.type(' two');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete document.visibilityState;
+  });
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.doc.dirty), { timeout: 3000 }).toBe(false);
+});

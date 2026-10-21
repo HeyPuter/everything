@@ -199,6 +199,29 @@ describe('Doc', () => {
     expect(doc.dirty).toBe(false);
   });
 
+  it('writes edits made during a save right after it when the page goes to the background', async () => {
+    const doc = new Doc({ name: 'A', path: 'Documents/A.docx' });
+    P.__fs.set(doc.path, blob('original'));
+    let release;
+    P.writeFile.mockImplementationOnce(async (path, b) => { await new Promise((r) => { release = r; }); P.__fs.set(path, b); return { path }; });
+    doc.attach(async () => blob(`version ${doc.version}`));
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 5);
+    expect(doc.status).toBe('saving');
+    doc.changed(); // typed while the write is in flight
+    const hidden = doc.save({ auto: true, now: true });
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await hidden).toBe(true);
+    expect(P.writeFile).toHaveBeenCalledTimes(2);
+    expect(await P.__fs.get(doc.path).text()).toBe('version 2');
+    expect(doc.dirty).toBe(false);
+    // No second write was left planned for those edits.
+    await vi.advanceTimersByTimeAsync(MAX_AUTOSAVE_MS);
+    expect(P.writeFile).toHaveBeenCalledTimes(2);
+    doc.destroy();
+  });
+
   it('serializes multiple save requests waiting for an earlier save', async () => {
     const doc = new Doc({ name: 'A', path: 'Documents/A.docx' });
     const exports = [];
