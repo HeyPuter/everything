@@ -24,6 +24,7 @@ import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
 import { objectCurves } from '../../anim/slots';
 import { customShapeWorldSegments } from './customshape';
+import { poseOptions, mirrorTwin, mirrorPose, mirrorPoseRelative, autoIKChain, solveAutoIK } from './poseoptions';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -312,16 +313,66 @@ transformProviders.push({
         return false;
       };
       const els: TElement[] = [];
+      const opts = poseOptions(a.ob);
+      const startBones = ev.pose.bones;
+      const moved = new Set<string>();
+      // X-Axis Mirror: the opposite-side twin follows each transformed bone
+      const mirrorOf = (name: string, pb: PoseBone, before: PoseBone) => {
+        const twin = mirrorTwin(a.ob, name, selNames);
+        if (!twin) return null;
+        moved.add(twin);
+        const tpb = a.ob.pose![twin];
+        const tBefore = structuredClone(tpb);
+        return {
+          update() {
+            Object.assign(tpb, structuredClone(tBefore));
+            if (opts.use_mirror_relative) mirrorPoseRelative(before, pb, tBefore, tpb);
+            else mirrorPose(pb, tpb);
+          },
+          restore: () => Object.assign(tpb, structuredClone(tBefore)),
+        };
+      };
       for (const [name, pb] of selected) {
         if (hasSelAncestor(name)) continue;
         const be = ev.pose.bones.get(name);
         if (!be) continue;
         const bone = byName.get(name)!;
+        const chain = opts.use_auto_ik ? autoIKChain(a.arm, name) : [];
+        if (chain.length) {
+          // Auto IK: the bone's tail is the element; the chain bends to follow it
+          const tailArm = new Vector3(0, be.length, 0).applyMatrix4(be.pose);
+          const tailWorld = tailArm.clone().applyMatrix4(w);
+          const wInv = w.clone().invert();
+          const befores = new Map(chain.map((n) => [n, structuredClone(a.ob.pose![n])]));
+          for (const n of chain) moved.add(n);
+          const mirrors = chain.map((n) => mirrorOf(n, a.ob.pose![n], befores.get(n)!)).filter((m) => !!m);
+          els.push({
+            center: tailWorld.clone(),
+            basis: new Matrix3().setFromMatrix4(new Matrix4().extractRotation(w.clone().multiply(be.pose))),
+            weight: 1,
+            apply(m: Matrix4) {
+              const target = tailWorld.clone().applyMatrix4(m).applyMatrix4(wInv);
+              const rots = solveAutoIK(a.ob, startBones, chain, target);
+              for (const n of chain) {
+                const p = a.ob.pose![n];
+                Object.assign(p, structuredClone(befores.get(n)!));
+                setRotationFromQuaternion(p as never, rots.get(n)!);
+              }
+              for (const mi of mirrors) mi.update();
+            },
+            restore() {
+              for (const n of chain) Object.assign(a.ob.pose![n], structuredClone(befores.get(n)!));
+              for (const mi of mirrors) mi.restore();
+            },
+          });
+          continue;
+        }
         const poseWorld = w.clone().multiply(be.pose);
         // parent space of the bone (pose matrix without its own local transform)
         const parentSpace = w.clone().multiply(be.pose).multiply(localPoseMatrix(pb).invert());
         const parentInv = parentSpace.clone().invert();
         const before = structuredClone(pb);
+        const mirror = mirrorOf(name, pb, before);
         const p = new Vector3(),
           q = new Quaternion(),
           s = new Vector3();
@@ -341,9 +392,11 @@ transformProviders.push({
             if (!bone.use_connect) pb.location = [lp.x, lp.y, lp.z];
             pb.scale = [ls.x, ls.y, ls.z];
             setRotationFromQuaternion(pb as never, lq);
+            mirror?.update();
           },
           restore() {
             Object.assign(pb, structuredClone(before));
+            mirror?.restore();
           },
         });
       }
@@ -352,7 +405,14 @@ transformProviders.push({
         elements: els,
         label: 'Pose',
         finish() {
-          autoKeyObjects([a.ob]);
+          // bones moved along (Auto IK chains, mirrored twins) are keyed with the selection
+          const extra = [...moved].filter((n) => a.ob.pose?.[n] && !a.ob.pose[n].select);
+          for (const n of extra) a.ob.pose![n].select = true;
+          try {
+            autoKeyObjects([a.ob]);
+          } finally {
+            for (const n of extra) a.ob.pose![n].select = false;
+          }
         },
         cancel() {},
         onUpdate: () => app.changed('doc'),
