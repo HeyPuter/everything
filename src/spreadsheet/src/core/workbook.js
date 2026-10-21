@@ -6258,6 +6258,8 @@ export class Workbook extends EventTarget {
       });
       sheet.tables = sheet.tables.map((t) => {
         if (!touchesBand(t.range)) return t;
+        // A table without its Header Row keeps its column names on itself: the columns whose cells are deleted take theirs along.
+        if (remove && axis === 'col' && t.headerRow === false) t = headerlessDeleteColumns(t, (c) => c >= at && c < at + n);
         const range = adjust(t.range);
         if (range.r2 < range.r1 || range.c2 < range.c1) return null;
         const origin = t.calcRow ?? tableRows(t).dataStart;
@@ -6312,6 +6314,9 @@ export class Workbook extends EventTarget {
         ) });
       }
       this.names = this.names.map((nm) => ({ ...nm, ref: follow(nm.ref, nm.sheet || null, nm.relative === true) }));
+      // Cells shifted right across a table's rows make new columns of it, named as columns inserted inside it are, so its
+      // references keep reading the columns they name.
+      if (!remove && axis === 'col') for (const t of sheet.tables) if (insideBand(t.range) && t.range.c1 < at && at + n - 1 <= t.range.c2) this._nameInsertedTableColumns(sheet, t, at, n);
       // A row inserted among a table's data rows by shifting its cells down is a new table row, and
       // gets the calculated columns as one inserted with the row tools does. The templates were
       // adjusted above, so the shift is not applied to the fresh formulas a second time.
@@ -6639,22 +6644,7 @@ export class Workbook extends EventTarget {
           ...(axis === 'row' ? { calcRow: move(origin) } : {}) };
       });
       // Columns inserted inside a table get header names of their own, so no two columns share one.
-      if (axis === 'col') {
-        for (const t of sheet.tables) {
-          if (!(t.range.c1 < at && at + n - 1 <= t.range.c2)) continue;
-          this._invalidate(); // header displays are read at their moved positions
-          const others = this.tableColumns(sheet.id, t).filter((_, i) => t.range.c1 + i < at || t.range.c1 + i >= at + n);
-          // A table whose Header Row is off keeps its names on itself: the new columns are named there.
-          if (t.headerRow === false) { headerlessInsertColumns(t, at - t.range.c1, n, (taken, i) => this._freeColumnName(taken, i)); continue; }
-          for (let c = at; c < at + n; c++) {
-            const name = this._freeColumnName(others, c - t.range.c1);
-            others.push(name);
-            // The header cell keeps the formatting it inherited from the column to its left.
-            const inherited = sheet.cells.get(cellKey(t.range.r1, c))?.s;
-            sheet.cells.set(cellKey(t.range.r1, c), { v: name, f: null, ...(inherited ? { s: inherited } : {}) });
-          }
-        }
-      }
+      if (axis === 'col') for (const t of sheet.tables) if (t.range.c1 < at && at + n - 1 <= t.range.c2) this._nameInsertedTableColumns(sheet, t, at, n);
       // A table's filter reaches its last data row, including rows inserted under a table that had none.
       if (axis === 'row') mapSheetFilters(sheet, f => {
         const owner = sheet.tables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
@@ -6691,6 +6681,24 @@ export class Workbook extends EventTarget {
       if (axis === 'row' && sheet.filterHidden?.size) for (const { start, n } of blocks) for (let i = start; i < start + n; i++) sheet.filterHidden.delete(i);
     });
     return true;
+  }
+
+  /**
+   * Name the `n` columns just inserted at `at` inside table `t` (whose range already takes them in), inside a structural
+   * step: each gets a free ColumnN name in its header cell, or among the names a table without its Header Row keeps.
+   */
+  _nameInsertedTableColumns(sheet, t, at, n) {
+    this._invalidate(); // header displays are read at their moved positions
+    const others = this.tableColumns(sheet.id, t).filter((_, i) => t.range.c1 + i < at || t.range.c1 + i >= at + n);
+    // A table whose Header Row is off keeps its names on itself: the new columns are named there.
+    if (t.headerRow === false) { headerlessInsertColumns(t, at - t.range.c1, n, (taken, i) => this._freeColumnName(taken, i)); return; }
+    for (let c = at; c < at + n; c++) {
+      const name = this._freeColumnName(others, c - t.range.c1);
+      others.push(name);
+      // The header cell keeps the formatting it inherited from the column to its left.
+      const inherited = sheet.cells.get(cellKey(t.range.r1, c))?.s;
+      sheet.cells.set(cellKey(t.range.r1, c), { v: name, f: null, ...(inherited ? { s: inherited } : {}) });
+    }
   }
 
   _deleteLines(sheetId, axis, asked, label = null) {
