@@ -177,6 +177,14 @@ function startLocal(env) {
 
 /** A review link (#review=...): the focused review screen, for reviewers and the owner alike. */
 async function openReview(link) {
+  // A review link pasted over the editor: save first, and stay if the user wants to after a failed save.
+  if (view?.prepareToLeave) {
+    if (!(await view.prepareToLeave())) {
+      history.replaceState(null, '', `#project=${encodeURIComponent(view.store.project.id)}`);
+      return;
+    }
+    await view.saveCover?.();
+  }
   view?.dispose?.();
   loading('Opening review...');
   const { ReviewPage } = await import('./ui/review/review-page.js');
