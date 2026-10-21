@@ -8089,21 +8089,23 @@ export function createEditor({
   }
   async function deletePageAt(index) {
     requireAccess('assemble');
+    // A declined deletion says so, as deletePages does, so Organize pages keeps its choice.
     if (
-      await confirmAction(
+      !(await confirmAction(
         'Delete this page?',
         `Remove page ${index + 1}? Bookmarks and links to it will go to the ${index + 1 < pdf.numPages ? 'next' : 'previous'} page. You can undo this while the PDF is open.`,
         'Delete page',
-      )
+      ))
     )
-      await mutate(
-        (doc) => {
-          deletePage(doc, index);
-          if (index < pageIndex) pageIndex--;
-        },
-        null,
-        'assemble',
-      );
+      return false;
+    await mutate(
+      (doc) => {
+        deletePage(doc, index);
+        if (index < pageIndex) pageIndex--;
+      },
+      null,
+      'assemble',
+    );
   }
   /** Add a page per chosen picture after the given page, each fitted to a sheet of paper. */
   function insertPicturePages(after = pageIndex) {

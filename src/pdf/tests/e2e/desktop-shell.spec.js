@@ -612,6 +612,24 @@ test('duplicating or deleting from the tools pane keeps the grid on the right pa
   await expect(grid.locator('[aria-selected="true"]')).toHaveCount(0);
 });
 
+test('cancelling the deletion of one page in Organize pages keeps it chosen', async ({ page }) => {
+  await openPdf(page, await numberedPdf(3));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await toolbar.getByRole('button', { name: 'Delete pages', exact: true }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete this page?' });
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(grid.locator('[aria-selected="true"]')).toHaveText(['2']);
+  await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
+});
+
 test('Organize pages drops a page dragged into the gap between two pages there', async ({
   page,
 }) => {
