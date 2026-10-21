@@ -48,6 +48,10 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     previewHost);
   previewNode.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); closePreview(); } });
 
+  // The document's first save, a rename or a copy gives it another file, with that file's history.
+  const onPath = () => { if (pane.isOpen) load(); };
+  doc.addEventListener?.('path', onPath);
+
   async function load() {
     status.textContent = '';
     if (!doc.path) { list.replaceChildren(el('p.rv-empty', {}, 'Versions are kept once the document is saved to Puter.')); saveNow.disabled = true; return; }
@@ -185,6 +189,6 @@ export function createVersionHistory({ editor, pkg, doc, error, author, live = (
     restore,
     get isOpen() { return pane.isOpen; },
     refresh() { if (preview?.engine) fit(preview.engine); },
-    destroy() { closePreview(); pane.destroy(); },
+    destroy() { doc.removeEventListener?.('path', onPath); closePreview(); pane.destroy(); },
   };
 }

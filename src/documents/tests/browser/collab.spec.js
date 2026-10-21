@@ -165,3 +165,18 @@ test('the Assistant rewrites the selection as one undoable change', async ({ pag
   await pane.getByRole('textbox', { name: 'Message the assistant' }).press('Enter');
   await expect(pane.getByText(/offline assistant read/)).toBeVisible();
 });
+
+test('Version History opened before the first save lists the versions once the document is saved', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('.ed-menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Browse Version History', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Version History pane' });
+  await expect(pane).toContainText('Versions are kept once the document is saved');
+  await expect(pane.getByRole('button', { name: 'Save a Version Now' })).toBeDisabled();
+  await text(page).fill('First words.');
+  await expect(page.locator('.canvas-save-status')).toHaveAttribute('aria-label', 'Saved to Puter');
+  await expect(pane.getByRole('button', { name: 'Save a Version Now' })).toBeEnabled();
+  await expect(pane).not.toContainText('Versions are kept once the document is saved');
+});
