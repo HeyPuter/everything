@@ -11112,15 +11112,22 @@ test("slides are reordered by dragging their thumbnails along the navigator", as
   const horizontal = third.x > first.x + first.width / 2;
   // Drag the first slide past the third; a drop line shows on the way. The
   // press is above the slide's options button, which a phone always shows.
+  // The release follows the last step at once: on a phone the third slide
+  // lies at the row's end, where a held pointer scrolls the row on.
+  const second = await thumbs.nth(1).boundingBox();
   await page.mouse.move(first.x + first.width / 2, first.y + first.height / 4);
   await page.mouse.down();
   await page.mouse.move(
-    horizontal ? third.x + third.width * 0.9 : third.x + third.width / 2,
-    horizontal ? third.y + third.height / 2 : third.y + third.height * 0.9,
+    second.x + second.width / 2,
+    second.y + second.height / 2,
     { steps: 8 },
   );
   await expect(page.locator(".slide-drop")).toHaveCount(1);
   await expect(page.locator(".slide-item.dragging")).toHaveCount(1);
+  await page.mouse.move(
+    horizontal ? third.x + third.width * 0.9 : third.x + third.width / 2,
+    horizontal ? third.y + third.height / 2 : third.y + third.height * 0.9,
+  );
   await page.mouse.up();
   await expect(page.locator(".slide-drop")).toHaveCount(0);
   await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
@@ -13851,6 +13858,70 @@ test("a slide flicked along the navigator in one movement still moves", async ({
   await expect(page.locator(".slide-drop")).toHaveCount(0);
   await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
   await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+});
+
+// The navigator stood still under a slide dragged to its end, so a slide
+// could only travel as far as the thumbnails already in view.
+test("a slide dragged to the navigator's end scrolls it on to later slides", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("story");
+  const originals = P.getSlides(pres);
+  while (P.getSlides(pres).length < 12)
+    P.duplicateSlide(pres, originals[P.getSlides(pres).length % 5]);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Twelve.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  await expect(page.locator("#slide-count")).toHaveText("12");
+  // The distant thumbnails are drawn first, so the drag has the page to
+  // itself.
+  await expect(page.locator(".slide-thumb img:not([src])")).toHaveCount(0, {
+    timeout: 20000,
+  });
+  const list = page.locator("#slide-list");
+  const thumbs = page.locator(".slide-thumb");
+  const first = await thumbs.nth(0).boundingBox();
+  const second = await thumbs.nth(1).boundingBox();
+  const horizontal = second.x > first.x + first.width / 2;
+  const area = await list.boundingBox();
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 4);
+  await page.mouse.down();
+  // Held just inside the list's far end, the list scrolls on to its end.
+  const end = horizontal
+    ? [area.x + area.width - 4, first.y + first.height / 2]
+    : [first.x + first.width / 2, area.y + area.height - 4];
+  await page.mouse.move(...end, { steps: 8 });
+  await expect
+    .poll(() => list.evaluate((node) => node.scrollTop + node.scrollLeft), {
+      timeout: 15000,
+    })
+    .toBeGreaterThan(200);
+  await expect
+    .poll(
+      () =>
+        list.evaluate((node) =>
+          Math.max(
+            node.scrollHeight - node.clientHeight - node.scrollTop,
+            node.scrollWidth - node.clientWidth - node.scrollLeft,
+          ),
+        ),
+      { timeout: 15000 },
+    )
+    .toBeLessThanOrEqual(1);
+  await page.mouse.up();
+  // The slide lands among the last ones and stays current.
+  await expect(page.locator("#slide-position")).toHaveText(
+    /^Slide 1[12] of 12$/,
+  );
+  await expect(page.locator(".slide-drop")).toHaveCount(0);
 });
 
 // On a Mac, Ctrl-click opens the context menu; the modifier that adds a

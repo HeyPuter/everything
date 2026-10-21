@@ -8623,6 +8623,45 @@ function startSlideDrag(e, target) {
       indicator.style.width = `${r.width}px`;
     }
   }
+  // Held near the navigator's top or bottom (its ends, on a phone), or past
+  // them, for a moment, the list scrolls on, faster the closer the pointer
+  // comes, so a slide can travel past the thumbnails in view. A drop made
+  // at once beside the last thumbnail in view lands before the list moves.
+  let pointer = null,
+    scrolling = 0,
+    heldSince = 0,
+    scrolledAt = 0;
+  function autoScroll(now = performance.now()) {
+    scrolling = 0;
+    if (!dragging || !pointer) return;
+    const r = list.getBoundingClientRect();
+    const [at, from, to] = horizontal
+      ? [pointer.clientX, r.left, r.right]
+      : [pointer.clientY, r.top, r.bottom];
+    const edge = Math.min(48, (to - from) / 4);
+    const reach =
+      at < from + edge ? at - from - edge : at > to - edge ? at - to + edge : 0;
+    if (!reach) {
+      heldSince = 0;
+      return;
+    }
+    if (!heldSince) heldSince = scrolledAt = now;
+    if (now - heldSince >= 250) {
+      // Up to about a thousand pixels a second, however often frames come.
+      const elapsed = Math.min(250, now - scrolledAt);
+      const step = Math.max(
+        1,
+        (Math.min(edge, Math.abs(reach)) * elapsed) / 48,
+      );
+      const axis = horizontal ? "scrollLeft" : "scrollTop";
+      const before = list[axis];
+      list[axis] += Math.sign(reach) * Math.round(step);
+      if (list[axis] === before) return;
+      place(pointer);
+    }
+    scrolledAt = now;
+    scrolling = requestAnimationFrame(autoScroll);
+  }
   // The page hears the press's movements, as a quick flick can leave the
   // thumbnail before the first of them arrives.
   function move(ev) {
@@ -8645,7 +8684,9 @@ function startSlideDrag(e, target) {
       });
       list.append(indicator);
     }
-    place(ev);
+    pointer = { clientX: ev.clientX, clientY: ev.clientY };
+    place(pointer);
+    if (!scrolling) autoScroll();
   }
   function finish(apply) {
     if (slideDragCancel === cancel) slideDragCancel = null;
@@ -8653,6 +8694,8 @@ function startSlideDrag(e, target) {
     document.removeEventListener("pointerup", end);
     document.removeEventListener("pointercancel", cancel);
     document.removeEventListener("keydown", escape, true);
+    cancelAnimationFrame(scrolling);
+    scrolling = 0;
     if (!dragging) return;
     if (thumb.hasPointerCapture(e.pointerId))
       thumb.releasePointerCapture(e.pointerId);
