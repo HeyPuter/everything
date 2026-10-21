@@ -93,7 +93,8 @@ const autoSumMenu = () => [
 ];
 /** Names a formula can use here: workbook names and this sheet's own, then tables. */
 const useInFormula = dyn('Use in Formula', 'tag', (menus, ctx) => {
-  const sheet = ctx.wb.sheet(ctx.sheetId())?.name;
+  // Mid-entry, the entry's own sheet: another may be showing to pick references on.
+  const sheet = ctx.wb.sheet(ctx.grid?.editState?.sheetId ?? ctx.sheetId())?.name;
   const names = (ctx.wb.names || []).filter(n => !n.hidden && (!n.sheet || n.sheet === sheet)).map(n => n.name);
   const tables = (ctx.wb.sheets || []).flatMap(sh => sh.tables || []).map(t => t.name).filter(Boolean);
   const items = [...new Set([...names, ...tables])].slice(0, 200).map(name => ({ label: name, cmd: 'useName', arg: name }));

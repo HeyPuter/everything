@@ -3380,8 +3380,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'pasteNameMenu': {
-        // F3: Paste Name. The workbook's names (and this sheet's own), then its tables, at the active cell.
-        const sheetName = wb.sheet(sheetId)?.name;
+        // F3: Paste Name. The workbook's names (and this sheet's own), then its tables, at the active cell. Mid-entry
+        // the sheet is the entry's own, whatever sheet is showing to pick references on.
+        const sheetName = wb.sheet(grid.editing ? grid.editState.sheetId : sheetId)?.name;
         const names = [...new Set([
           ...wb.names.filter((n) => !n.hidden && (!n.sheet || n.sheet === sheetName)).map((n) => n.name),
           ...wb.sheets.flatMap((sh) => sh.tables || []).map((t) => t.name).filter(Boolean),
