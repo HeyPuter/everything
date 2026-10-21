@@ -408,13 +408,46 @@ const F = {
 export const FAMILIES = Object.keys(F);
 
 /**
+ * A family made in the project: solids ({ loop, z0, z1, materialId }) around
+ * the insertion point, stretched to the type's width, depth and height.
+ */
+function buildCustom(type, t, x, plan) {
+  const sx = t.width / (+type.baseWidth || t.width);
+  const sy = t.depth / (+type.baseDepth || t.depth);
+  const sz = t.height / (+type.baseHeight || t.height);
+  for (const s of type.solids || []) {
+    const loop = s.loop.map(([px, py]) => [px * sx, py * sy]);
+    x.prism(loop, s.z0 * sz, s.z1 * sz, s.materialId || 'mat-default');
+    plan.loops.push({ pts: loop, closed: true });
+  }
+  plan.outline = rect(-t.width / 2, -t.depth / 2, t.width / 2, t.depth / 2);
+  return plan;
+}
+
+/** Solids of a custom family from masses: relative to their combined centre and lowest base. */
+export function solidsFromMasses(masses, baseOf) {
+  const pts = masses.flatMap((m) => m.boundary);
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+  const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const z0 = Math.min(...masses.map(baseOf));
+  const solids = masses.map((m) => ({ loop: m.boundary.map((p) => [p[0] - cx, p[1] - cy]), z0: baseOf(m) - z0, z1: baseOf(m) - z0 + (+m.height || 1000), materialId: m.materialId || 'mat-default' }));
+  const width = Math.max(...xs) - Math.min(...xs);
+  const depth = Math.max(...ys) - Math.min(...ys);
+  const height = Math.max(...solids.map((s) => s.z1));
+  return { solids, center: [cx, cy], base: z0, width, depth, height };
+}
+
+/**
  * Build a component: emits 3D geometry into `builder` (may be null) and
  * returns its plan symbol in local coordinates.
  */
 export function buildFamily(type, frame, builder, materialOf) {
   const plan = { loops: [], noFill: false, fillColor: null };
-  const fn = F[type?.family] || F.cabinet;
   const t = { width: +type?.width || 600, depth: +type?.depth || 600, height: +type?.height || 900 };
+  if (type?.family === 'custom') return buildCustom(type, t, new FamilyContext(builder, frame, materialOf), plan);
+  const fn = F[type?.family] || F.cabinet;
   fn(t, new FamilyContext(builder, frame, materialOf), plan);
   plan.outline = rect(-t.width / 2, -t.depth / 2, t.width / 2, t.depth / 2);
   if (['roundTable', 'tree', 'shrub', 'pendant', 'floorLamp', 'downlight', 'waterHeater', 'bollard', 'sprinkler'].includes(type?.family)) plan.outline = ellipse(0, 0, t.width / 2, t.depth / 2, 24);

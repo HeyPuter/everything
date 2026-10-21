@@ -130,7 +130,7 @@ export const RIBBON = [
     panels: [
       { title: 'Link', items: [{ cmd: 'linkProject', size: 'lg' }, { cmd: 'linkIFC', size: 'lg' }, { cmd: 'manageLinks', size: 'lg' }] },
       { title: 'Import', items: [{ cmd: 'importDxf', size: 'lg' }, { cmd: 'importImage', size: 'lg' }] },
-      { title: 'Load from Library', items: [{ cmd: 'transferStandards', size: 'lg', label: 'Load from Project' }, { cmd: 'loadAsGroup', size: 'lg' }, { cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
+      { title: 'Load from Library', items: [{ cmd: 'transferStandards', size: 'lg', label: 'Load from Project' }, { cmd: 'loadAsGroup', size: 'lg' }, { cmd: 'createFamily', size: 'lg' }, { cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
       { title: 'Project', items: [{ cmd: 'open', size: 'lg' }, { cmd: 'sample', size: 'lg' }] },
     ],
   },
@@ -208,7 +208,7 @@ export const RIBBON = [
     id: 'massing',
     label: 'Massing & Site',
     panels: [
-      { title: 'Conceptual Mass', items: [{ cmd: 'mass', size: 'lg' }] },
+      { title: 'Conceptual Mass', items: [{ cmd: 'mass', size: 'lg' }, { cmd: 'createFamily', size: 'lg' }] },
       { title: 'Model by Face', items: [{ cmd: 'curtainByFace', size: 'lg', label: 'Curtain System' }, { cmd: 'roofByFace', size: 'lg', label: 'Roof' }, { cmd: 'wallByFace', size: 'lg', label: 'Wall' }, { cmd: 'floorByFace', size: 'lg', label: 'Floor' }] },
       { title: 'Model Site', items: [{ cmd: 'topo', size: 'lg' }, { cmd: 'siteComponent', size: 'lg' }, { cmd: 'parkingComponent', size: 'lg' }, { cmd: 'propertyLine', size: 'lg' }] },
     ],

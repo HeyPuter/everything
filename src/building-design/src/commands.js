@@ -52,6 +52,7 @@ import * as dopts from './ui/designopts.js';
 import { WallSweepTool } from './editor/sweep.js';
 import * as curtainedit from './ui/curtainedit.js';
 import * as renderui from './ui/render.js';
+import * as familyui from './ui/family.js';
 import { ScopeBoxTool } from './editor/scopebox.js';
 import { ModelTextTool } from './editor/modeltext.js';
 import * as sunui from './ui/sun.js';
@@ -97,6 +98,7 @@ export const COMMANDS = {
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
   linkProject: { label: 'Link Project', icon: 'linkProject', run: (app) => links.linkProject(app), desc: 'Show another project in this one, read-only, to coordinate with it' },
+  createFamily: { label: 'Create Family', icon: 'createFamily', run: (app) => familyui.createFamilyDialog(app), desc: 'Turn selected masses into a component type you can place again' },
   modelText: { label: 'Model Text', icon: 'modelText', run: tool(ModelTextTool), desc: '3D lettering for signs and markings' },
   linkIFC: { label: 'Link IFC', icon: 'linkIfc', run: (app) => links.linkIFC(app), desc: 'Show a model from other BIM software (IFC file), read-only, to coordinate with it' },
   loadAsGroup: { label: 'Load as Group', icon: 'groupPlace', run: (app) => links.loadAsGroup(app), desc: 'Bring the first level of another project in as a model group and place it' },
