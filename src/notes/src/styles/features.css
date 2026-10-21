@@ -408,6 +408,10 @@
 .shared-view {
   display: flex;
   flex-direction: column;
+  /* The only item of the app grid: fill it, and let the canvas scroll
+     instead of growing the view to the page's width. */
+  grid-row: 1 / -1;
+  min-width: 0;
   height: 100dvh;
 }
 .shared-view .main {
