@@ -66,3 +66,58 @@ test('sequencer: Slip (S) clamps by default, C toggles clamping, Shift slows it 
   expect((await clip(page)).start).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('sequencer preview: Transform tool moves from inside the frame and scales from a corner', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    const app = (window as any).app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 40 }, { invoke: false });
+    const s = app.doc.scene.sequence_editor.strips[0];
+    s.transform.scale_x = s.transform.scale_y = 0.5;
+    s.select = true;
+    app.doc.scene.sequence_editor.active_strip = s.name;
+    app.pushUndo('setup');
+    app.changed('doc');
+    const ed = shell.screen.areas.find((a: any) => a.type === 'SEQUENCE_EDITOR' && a.editor.hasPreview())?.editor;
+    ed.pvTool = 'transform';
+    ed.drawToolbars();
+  });
+  await page.waitForTimeout(300);
+  const tf = () => page.evaluate(() => ({ ...(window as any).app.doc.scene.sequence_editor.strips[0].transform }));
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const box = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    const r = ed.preview.cageRect();
+    const b = ed.preview.el.getBoundingClientRect();
+    return { x0: b.left + r.x0, y0: b.top + r.y0, x1: b.left + r.x1, y1: b.top + r.y1 };
+  });
+  // inside: move
+  await page.mouse.move((box.x0 + box.x1) / 2, (box.y0 + box.y1) / 2);
+  await page.mouse.down();
+  await page.mouse.move((box.x0 + box.x1) / 2 + 20, (box.y0 + box.y1) / 2, { steps: 3 });
+  await page.mouse.move((box.x0 + box.x1) / 2 + 40, (box.y0 + box.y1) / 2, { steps: 3 });
+  await page.mouse.up();
+  const t1 = await tf();
+  expect(t1.offset_x).toBeGreaterThan(10);
+  expect(t1.scale_x).toBeCloseTo(0.5, 3);
+  // corner: scale up
+  const b2 = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    const r = ed.preview.cageRect();
+    const b = ed.preview.el.getBoundingClientRect();
+    return { x: b.left + r.x1, y: b.top + r.y1 };
+  });
+  await page.mouse.move(b2.x, b2.y);
+  await page.mouse.down();
+  await page.mouse.move(b2.x + 20, b2.y + 15, { steps: 3 });
+  await page.mouse.move(b2.x + 40, b2.y + 30, { steps: 3 });
+  await page.mouse.up();
+  const t2 = await tf();
+  expect(t2.scale_x).toBeGreaterThan(0.55);
+  await expectNoErrors(errors);
+});

@@ -51,6 +51,8 @@ export class PreviewRegion implements Annotate2DHost {
   private frameStamp = 0;
   /** preview overlay options */
   opts = { safeAreas: false, cursor: true, outline: true };
+  /** Transform tool: show the frame with handles around the selected images */
+  transformCage = false;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
   /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
@@ -392,10 +394,51 @@ export class PreviewRegion implements Annotate2DHost {
     g.restore();
   }
 
+  /** Screen rectangle around the selected strips' images (Transform tool), or null. */
+  cageRect(): { x0: number; y0: number; x1: number; y1: number } | null {
+    const [W, H] = this.res();
+    const pts = previewStrips(app.doc.scene.frame_current)
+      .filter((s) => s.select)
+      .flatMap((s) => stripImageCorners(s, W, H).map(([x, y]) => this.toLocal(x, y)));
+    if (!pts.length) return null;
+    const xs = pts.map((p) => p[0]),
+      ys = pts.map((p) => p[1]);
+    return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) };
+  }
+
+  /** Part of the Transform cage under an editor-local point. */
+  cagePart(x: number, y: number): 'MOVE' | 'SCALE' | 'ROTATE' | null {
+    const r = this.cageRect();
+    if (!r) return null;
+    const near = (px: number, py: number) => Math.abs(x - px) <= 7 && Math.abs(y - py) <= 7;
+    if (near(r.x0, r.y0) || near(r.x1, r.y0) || near(r.x0, r.y1) || near(r.x1, r.y1)) return 'SCALE';
+    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return 'MOVE';
+    return 'ROTATE';
+  }
+
+  private drawCage(g: CanvasRenderingContext2D) {
+    const r = this.cageRect();
+    if (!r) return;
+    g.save();
+    g.setLineDash([5, 4]);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    g.lineWidth = 1;
+    g.strokeRect(Math.round(r.x0) + 0.5, Math.round(r.y0) + 0.5, Math.round(r.x1 - r.x0), Math.round(r.y1 - r.y0));
+    g.setLineDash([]);
+    for (const [x, y] of [[r.x0, r.y0], [r.x1, r.y0], [r.x0, r.y1], [r.x1, r.y1]]) {
+      g.fillStyle = '#ffffff';
+      g.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+      g.fillRect(Math.round(x) - 4, Math.round(y) - 4, 8, 8);
+      g.strokeRect(Math.round(x) - 4.5, Math.round(y) - 4.5, 9, 9);
+    }
+    g.restore();
+  }
+
   private drawOverlays(g: CanvasRenderingContext2D) {
     const [W, H] = this.res();
     const act = activeStrip();
     const editing = editedText();
+    if (this.transformCage && !app.modal) this.drawCage(g);
     if (this.opts.safeAreas) this.drawSafeAreas(g);
     if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
     if (this.opts.cursor) this.drawCursor(g);

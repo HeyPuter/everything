@@ -44,7 +44,7 @@ export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
 type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale' | AnnotateTool;
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale' | 'transform' | AnnotateTool;
 
 /** Variants of the select tool slot (box / circle / lasso). */
 const SELECT_VARIANTS = [
@@ -192,7 +192,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
-    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
+    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale', 'transform'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
     if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
@@ -483,6 +483,10 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   // ------------------------------------------------------------------ toolbars, channels, sidebar
 
   private drawToolbars() {
+    if (this.preview.transformCage !== (this.pvTool === 'transform')) {
+      this.preview.transformCage = this.pvTool === 'transform';
+      this.preview.draw();
+    }
     const tb = (key: string, ic: string, on: boolean, tip: string, set: () => void) => h('button', { key, class: { 'tb-tool': true, on }, 'data-tip': tip, onclick: () => (set(), this.drawToolbars(), app.changed('ui')) }, icon(ic));
     // the select slot shows its current variant; right click, double click or a long press picks another
     const selectSlot = (key: string, cur: string, setTool: (v: SelectVariant) => void) => {
@@ -530,6 +534,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       tb('pmove', 'transform_move', this.pvTool === 'move', 'Move\nMove the selected strips’ images', () => (this.pvTool = 'move')),
       tb('prot', 'transform_rotate', this.pvTool === 'rotate', 'Rotate\nRotate the selected strips’ images', () => (this.pvTool = 'rotate')),
       tb('pscale', 'transform_scale', this.pvTool === 'scale', 'Scale\nScale the selected strips’ images', () => (this.pvTool = 'scale')),
+      tb('ptransform', 'transform', this.pvTool === 'transform', 'Transform\nDrag inside the frame around the selected images to move them, a corner to scale, outside to rotate', () => (this.pvTool = 'transform')),
       h('div', { key: 'sep2', class: 'tb-sep' }),
       tb('psample', 'eyedropper', this.pvTool === 'sample', 'Sample\nShow the colour of the pixel under the pointer while the button is held', () => (this.pvTool = 'sample')),
       h('div', { key: 'sep3', class: 'tb-sep' }),
@@ -1374,7 +1379,14 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     );
     // preview
     const pv = this.preview.el;
-    pv.addEventListener('pointermove', () => (this.hover = 'preview'));
+    pv.addEventListener('pointermove', (e) => {
+      this.hover = 'preview';
+      if (this.pvTool === 'transform' && !app.modal) {
+        const r = pv.getBoundingClientRect();
+        const part = this.preview.cagePart(e.clientX - r.left, e.clientY - r.top);
+        pv.style.cursor = part === 'MOVE' ? 'move' : part === 'SCALE' ? 'nwse-resize' : part === 'ROTATE' ? 'alias' : '';
+      } else if (pv.style.cursor) pv.style.cursor = '';
+    });
     this.pvToolbar.addEventListener('pointermove', () => (this.hover = 'toolbar'));
     pv.addEventListener('pointerdown', (e) => this.onPreviewDown(e));
     pv.addEventListener('wheel', (e) => this.onPreviewWheel(e), { passive: false });
@@ -2159,6 +2171,19 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', up);
+      return;
+    }
+    if (this.pvTool === 'transform') {
+      const r = this.preview.el.getBoundingClientRect();
+      const part = this.preview.cagePart(x0 - r.left, y0 - r.top);
+      if (!part) {
+        // nothing selected yet: a click selects
+        if (hit) selectStrip(hit, { extend: e.shiftKey });
+        app.pushUndo('Select');
+        app.changed('select');
+        return;
+      }
+      startPreviewTransform(this, part === 'MOVE' ? 'TRANSLATE' : part === 'SCALE' ? 'RESIZE' : 'ROTATE', x0, y0, true);
       return;
     }
     if (this.pvTool !== 'select') {
