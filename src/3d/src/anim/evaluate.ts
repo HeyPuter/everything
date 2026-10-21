@@ -60,15 +60,16 @@ function applyStripModifiers(mods: FModifier[], frame: number, value: number) {
   return applyModifiersToValue(mods, frame, value);
 }
 
-type Accum = Map<string, { path: string; index: number; value: unknown }>;
+type Accum = Map<string, { path: string; index: number; value: unknown; fc?: FCurve }>;
 
-type Values = Map<string, { path: string; index: number; value: number }>;
+type Values = Map<string, { path: string; index: number; value: number; fc?: FCurve }>;
 
 /** Raw channel values of an action's curves (one slot of it) at a frame. */
 function actionValues(curves: FCurve[], frame: number, out: Values = new Map()): Values {
   for (const fc of curves) {
-    if (fc.mute || !hasCurveData(fc)) continue;
-    out.set(`${fc.data_path}|${fc.array_index}`, { path: fc.data_path, index: fc.array_index, value: evaluateFCurve(fc, frame) });
+    // disabled curves (their property could not be found) are skipped until revived
+    if (fc.mute || fc.disabled || !hasCurveData(fc)) continue;
+    out.set(`${fc.data_path}|${fc.array_index}`, { path: fc.data_path, index: fc.array_index, value: evaluateFCurve(fc, frame), fc });
   }
   return out;
 }
@@ -115,7 +116,7 @@ function blendValues(doc: DocumentData, ob: ObjectData, acc: Accum, values: Valu
     const v = e.value;
     const prev = acc.get(key);
     if (blend === 'REPLACE' && influence >= 1) {
-      acc.set(key, { path: e.path, index: e.index, value: v });
+      acc.set(key, { path: e.path, index: e.index, value: v, fc: e.fc });
       continue;
     }
     let cur: number;
@@ -123,7 +124,7 @@ function blendValues(doc: DocumentData, ob: ObjectData, acc: Accum, values: Valu
     else {
       const raw = getValue(doc, ob, e.path, e.index);
       if (typeof raw !== 'number' && typeof raw !== 'boolean') {
-        acc.set(key, { path: e.path, index: e.index, value: v });
+        acc.set(key, { path: e.path, index: e.index, value: v, fc: e.fc });
         continue;
       }
       cur = restValue(e.path, e.index, Number(raw));
@@ -134,7 +135,7 @@ function blendValues(doc: DocumentData, ob: ObjectData, acc: Accum, values: Valu
     else if (blend === 'COMBINE') target = tail === 'scale' ? cur * v : cur + v;
     else if (blend === 'SUBTRACT') target = cur - v;
     else if (blend === 'MULTIPLY') target = cur * v;
-    acc.set(key, { path: e.path, index: e.index, value: cur + (target - cur) * influence });
+    acc.set(key, { path: e.path, index: e.index, value: cur + (target - cur) * influence, fc: e.fc });
   }
 }
 
@@ -184,7 +185,16 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
       const cur = getValue(doc, ob, e.path, e.index);
       if (typeof cur === 'number' && Math.abs(cur - e.value) > 1e-9) continue;
     }
-    setValue(doc, ob, e.path, e.index, e.value);
+    if (!setValue(doc, ob, e.path, e.index, e.value)) {
+      // the property is gone (renamed bone, removed modifier, …): disable the curve
+      if (e.fc && !e.fc.disabled)
+        try {
+          e.fc.disabled = true;
+        } catch {
+          /* read-only (linked) curve */
+        }
+      continue;
+    }
     if (typeof e.value === 'number') lastWritten.set(k, { frame, anim: e.value });
   }
 }

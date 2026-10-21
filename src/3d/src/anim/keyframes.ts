@@ -66,6 +66,13 @@ function needed(act: ActionData, slot: number, path: string, index: number, fram
   return Math.abs(evaluateFCurve(fc, frame) - value) > 1e-6 * Math.max(1, Math.abs(value));
 }
 
+/** The curve keys go into; the property was just read, so a disabled curve works again. */
+function liveCurve(act: ActionData, path: string, index: number, slot: number) {
+  const fc = ensureFCurve(act, path, index, slot);
+  if (fc.disabled) delete fc.disabled;
+  return fc;
+}
+
 /** Insert keyframes for a property path (all array elements when index = -1). */
 export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, index = -1, frame = doc.scene.frame_current) {
   const val = getValue(doc, ob, path);
@@ -73,8 +80,8 @@ export function keyProperty(doc: DocumentData, ob: ObjectData, path: string, ind
   const type = doc.scene.tool_settings.keyframe_type;
   if (Array.isArray(val) || ArrayBuffer.isView(val)) {
     const arr = val as ArrayLike<number>;
-    for (let i = 0; i < arr.length; i++) if ((index < 0 || i === index) && needed(act, slot, path, i, frame, Number(arr[i]))) insertKeyframe(ensureFCurve(act, path, i, slot), frame, Number(arr[i]), { type });
-  } else if ((typeof val === 'number' || typeof val === 'boolean') && needed(act, slot, path, 0, frame, Number(val))) insertKeyframe(ensureFCurve(act, path, 0, slot), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
+    for (let i = 0; i < arr.length; i++) if ((index < 0 || i === index) && needed(act, slot, path, i, frame, Number(arr[i]))) insertKeyframe(liveCurve(act, path, i, slot), frame, Number(arr[i]), { type });
+  } else if ((typeof val === 'number' || typeof val === 'boolean') && needed(act, slot, path, 0, frame, Number(val))) insertKeyframe(liveCurve(act, path, 0, slot), frame, Number(val), { type, interpolation: typeof val === 'boolean' ? 'CONSTANT' : keyframeDefaults.interpolation });
 }
 
 export function rotationPath(ob: { rotation_mode: string }) {

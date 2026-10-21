@@ -343,7 +343,7 @@ export class DopeSheet extends AnimEditor {
     return best === null ? null : { ch, frame: best };
   }
 
-  private keysAt(ch: Channel, frame: number) {
+  keysAt(ch: Channel, frame: number) {
     const out = [];
     for (const r of ch.curves) for (const k of r.fc.keyframe_points) if (Math.abs(k.co[0] - frame) < 1e-3) out.push(k);
     return out;

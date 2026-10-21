@@ -199,6 +199,7 @@ export class NlaEditor extends AnimEditor {
         label: 'Transform',
         submenu: () => [
           { label: 'Move', op: 'nla.transform', props: { mode: 'TRANSLATION' }, shortcut: 'G' },
+          { label: 'Extend', op: 'nla.transform', props: { mode: 'TIME_EXTEND' }, shortcut: 'E' },
           { label: 'Scale', op: 'nla.transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
           { separator: true },
           { label: 'Swap', op: 'nla.swap', shortcut: 'Alt F' },
@@ -588,9 +589,14 @@ export class NlaEditor extends AnimEditor {
     app.changed('doc');
   }
 
-  /** Interactive move (TRANSLATION) or scale (RESIZE) of the selected strips. */
-  startTransform(mode: 'TRANSLATION' | 'RESIZE', start: { x: number; y: number }, releaseConfirm = false, onCancel?: () => void): boolean {
-    const sel = this.selectedStrips();
+  /**
+   * Interactive move (TRANSLATION), scale (RESIZE) or extend (TIME_EXTEND: only the selected
+   * strips on the mouse's side of the current frame move) of the selected strips.
+   */
+  startTransform(mode: 'TRANSLATION' | 'RESIZE' | 'TIME_EXTEND', start: { x: number; y: number }, releaseConfirm = false, onCancel?: () => void): boolean {
+    let sel = this.selectedStrips();
+    const side = this.view.xf(this.local({ clientX: start.x, clientY: start.y }).x) >= app.doc.scene.frame_current ? 'RIGHT' : 'LEFT';
+    if (mode === 'TIME_EXTEND') sel = extendStrips(sel, side, app.doc.scene.frame_current);
     if (!sel.length) return false;
     const orig = sel.map((r) => ({
       s: r.strip,
@@ -606,7 +612,7 @@ export class NlaEditor extends AnimEditor {
     const apply = (mx: number) => {
       const snap = this.autoSnap !== snapToggle;
       const num = numeric && numeric !== '-' ? Number(numeric) : NaN;
-      if (mode === 'TRANSLATION') {
+      if (mode === 'TRANSLATION' || mode === 'TIME_EXTEND') {
         let d = Number.isFinite(num) ? num : (mx - start.x) / this.view.ppf;
         const st = this.snapTo();
         const perStrip = snap && !Number.isFinite(num) && (st.absolute || st.mode === 'MARKER');
@@ -639,9 +645,9 @@ export class NlaEditor extends AnimEditor {
     };
     let lastX = start.x;
     const handler: ModalHandler = {
-      label: mode === 'TRANSLATION' ? 'Move' : 'Scale',
+      label: mode === 'TRANSLATION' ? 'Move' : mode === 'TIME_EXTEND' ? 'Extend' : 'Scale',
       cursor: 'ew-resize',
-      header: () => (mode === 'TRANSLATION' ? `Delta: ${value.toFixed(2)}` : `Scale: ${value.toFixed(3)}`) + (numeric ? ` [${numeric}|]` : ''),
+      header: () => (mode !== 'RESIZE' ? `Delta: ${value.toFixed(2)}` : `Scale: ${value.toFixed(3)}`) + (numeric ? ` [${numeric}|]` : ''),
       status: () => [
         ['LMB', 'Confirm'],
         ['RMB/Esc', 'Cancel'],
@@ -673,7 +679,7 @@ export class NlaEditor extends AnimEditor {
       },
       finish: () => {
         resolveOverlaps(sel);
-        handler.redoOp = { idname: 'nla.transform', props: { mode, value } };
+        handler.redoOp = { idname: 'nla.transform', props: { mode, value, side } };
       },
     };
     app.startModal(handler);
@@ -710,6 +716,7 @@ export class NlaEditor extends AnimEditor {
     return [
       { id: 'strip', label: 'Strip', draw: () => this.stripTab() },
       { id: 'action', label: 'Edited Action', draw: () => this.actionTab() },
+      ...nlaSidebarTabs.map((t) => ({ id: t.id, label: t.label, draw: () => t.draw(this) })),
     ];
   }
 
@@ -977,6 +984,14 @@ export class NlaEditor extends AnimEditor {
   }
 }
 
+/** Strips that Extend moves: the selected ones on one side of the current frame. */
+function extendStrips(sel: StripRef[], side: 'LEFT' | 'RIGHT', frame: number) {
+  return sel.filter((r) => (side === 'RIGHT' ? r.strip.frame_start >= frame - 1e-6 : r.strip.frame_end <= frame + 1e-6));
+}
+
+/** Extra sidebar tabs of the NLA editor (e.g. strip Modifiers, nlamods.ts). */
+export const nlaSidebarTabs: { id: string; label: string; draw: (ed: NlaEditor) => Child }[] = [];
+
 /** Strips that overlap others in their track move to the track above (created when needed). */
 export function resolveOverlaps(refs: StripRef[]) {
   for (const r of refs) {
@@ -1115,20 +1130,22 @@ registerOperators([
         default: 'TRANSLATION',
         items: [
           ['TRANSLATION', 'Move'],
+          ['TIME_EXTEND', 'Extend'],
           ['RESIZE', 'Scale'],
         ],
       },
       { id: 'value', label: 'Value', type: 'float', default: 0 },
+      { id: 'side', label: 'Side', type: 'enum', default: 'RIGHT', items: [['LEFT', 'Left'], ['RIGHT', 'Right']], showIf: (p) => p.mode === 'TIME_EXTEND' },
     ],
     poll: pollSel,
     invoke: (ctx, p) => (nlaEd(ctx)!.startTransform(p.mode as 'TRANSLATION', { ...app.pointer }) ? 'RUNNING_MODAL' : 'CANCELLED'),
     exec: (ctx, p) => {
       const ed = nlaEd(ctx)!;
-      const sel = ed.selectedStrips();
       const v = p.value as number;
       const c = ctx.doc.scene.frame_current;
+      const sel = p.mode === 'TIME_EXTEND' ? extendStrips(ed.selectedStrips(), p.side as 'LEFT', c) : ed.selectedStrips();
       for (const r of sel) {
-        if (p.mode === 'TRANSLATION') {
+        if (p.mode === 'TRANSLATION' || p.mode === 'TIME_EXTEND') {
           r.strip.frame_start += v;
           r.strip.frame_end += v;
         } else if (v > 0) {
@@ -1433,6 +1450,7 @@ addKeys('NLA Editor', [
     when: overMain,
   },
   { key: 'S', op: 'nla.transform', props: { mode: 'RESIZE' }, when: overMain },
+  { key: 'E', op: 'nla.transform', props: { mode: 'TIME_EXTEND' }, when: overMain },
   { key: 'D', shift: true, op: 'nla.duplicate_linked_move', when: overMain },
   { key: 'X', op: 'nla.delete', when: overMain },
   { key: 'DEL', op: 'nla.delete', when: overMain },

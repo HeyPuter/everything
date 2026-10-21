@@ -313,6 +313,8 @@ export function channelMenu(p: Prefix): MenuItem[] {
     { separator: true },
     { label: 'Move Channels', submenu: moveChannelsMenu },
     { separator: true },
+    { label: 'Revive Disabled F-Curves', op: 'anim.channels_fcurves_enable' },
+    { separator: true },
     { label: 'Bake Channels', op: 'anim.channels_bake' },
     ...(graph
       ? [

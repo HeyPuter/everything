@@ -15,3 +15,6 @@ import '../anim/keyingsets';
 import './miscops';
 import './driverops';
 import './slotops';
+import './nlamods';
+import './clickops';
+import './animutils';

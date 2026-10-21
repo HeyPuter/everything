@@ -372,7 +372,7 @@ export function keyingSetsPanel(): Child {
                     : null,
                 ]
               : null,
-            h('div', { class: 'btn-row' }, opButton('anim.keyframe_insert', 'Insert Keyframes')),
+            h('div', { class: 'btn-row' }, opButton('anim.keyframe_insert', 'Insert Keyframes'), opButton('anim.keying_set_export', 'Export Keying Set')),
           ];
         })
       : null,

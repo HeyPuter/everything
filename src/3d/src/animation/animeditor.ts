@@ -347,7 +347,7 @@ export abstract class AnimEditor implements Editor {
       showHidden: this.showHidden,
       search: this.search,
       onlyErrors: this.onlyErrors,
-      curveError: (ob, fc) => fc.data_path !== '' && getValue(app.doc, ob, fc.data_path, fc.array_index) === undefined,
+      curveError: (ob, fc) => !!fc.disabled || (fc.data_path !== '' && getValue(app.doc, ob, fc.data_path, fc.array_index) === undefined),
       isVisible: (ob: ObjectData) => app.isVisible(ob.id),
       activeObject: app.activeObject,
     };

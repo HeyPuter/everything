@@ -606,7 +606,7 @@ export class GraphEditor extends AnimEditor {
     });
   }
 
-  private setActive(r: CurveRef, k?: Keyframe) {
+  setActive(r: CurveRef, k?: Keyframe) {
     for (const c of this.list.curves) c.fc.select = false;
     r.fc.select = true;
     this.activeKey = curveId(r);
