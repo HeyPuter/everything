@@ -238,9 +238,22 @@ registerOperators([
     props: [
       { id: 'method', label: 'Method', type: 'enum', default: 'AUTO', items: [['AUTO', 'Auto'], ['EDGE', 'Edge'], ['GEOMETRY', 'Geometry']] },
       { id: 'axis', label: 'Axis', type: 'enum', default: 'X', items: [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']], showIf: (p) => p.method === 'GEOMETRY' },
+      { id: 'correct_aspect', label: 'Correct Aspect', type: 'bool', default: false },
     ],
     poll: uvEditPoll,
-    exec: (_ctx, p) => (editUVs((t, uvs, sel) => alignRotation(t, uvs, sel, p.method as 'AUTO', p.axis as 'X')) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => {
+      // with Correct Aspect, rotate in the image's pixel proportions
+      const [w, h] = imageSize(ctx);
+      const k = p.correct_aspect ? w / h : 1;
+      return editUVs((t, uvs, sel) => {
+        if (k !== 1) for (let i = 0; i < uvs.length; i += 2) uvs[i] *= k;
+        const n = alignRotation(t, uvs, sel, p.method as 'AUTO', p.axis as 'X');
+        if (k !== 1) for (let i = 0; i < uvs.length; i += 2) uvs[i] /= k;
+        return n;
+      })
+        ? 'FINISHED'
+        : 'CANCELLED';
+    },
   },
   {
     idname: 'uv.stitch',
