@@ -249,7 +249,7 @@ function themesBody(redraw: () => void): Child {
   ];
 }
 
-registerPrefSection({ id: 'THEMES', label: 'Themes', group: 0, draw: (c) => themesBody(c.redraw) });
+registerPrefSection({ id: 'THEMES', label: 'Themes', group: 1, draw: (c) => themesBody(c.redraw) });
 
 registerOperators([
   {

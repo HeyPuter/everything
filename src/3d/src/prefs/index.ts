@@ -20,12 +20,15 @@ import './sections';
 import './theme_ui';
 import './lights_ui';
 import './addons';
+import './extensions';
 import './ndof';
 import './filepaths';
 import './fonts';
 import './miniaxes';
 import './autorun';
 import './ops';
+import './prefops';
+import './pathlists';
 import { startKeyconfig } from './keyconfig';
 import { applyPreferences } from './store';
 

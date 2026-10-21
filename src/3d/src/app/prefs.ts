@@ -169,6 +169,8 @@ export interface Preferences {
   show_hidden_files_datablocks: boolean;
   use_filter_files: boolean;
   use_scripts_auto_execute: boolean;
+  /** project name patterns (* wildcards) whose registered scripts never run automatically */
+  autoexec_paths: string[];
 
   // --- File Paths
   render_output_directory: string;
@@ -319,6 +321,7 @@ export const defaultPreferences = (): Preferences => ({
   show_hidden_files_datablocks: false,
   use_filter_files: true,
   use_scripts_auto_execute: false,
+  autoexec_paths: [],
 
   render_output_directory: '//render/',
 });

@@ -32,7 +32,7 @@ export function registerPrefSection(s: PrefSection) {
   else prefSections.push(s);
 }
 
-const ORDER = ['INTERFACE', 'THEMES', 'VIEWPORT', 'LIGHTS', 'EDITING', 'ANIMATION', 'ADDONS', 'INPUT', 'NAVIGATION', 'KEYMAP', 'SYSTEM', 'SAVE_LOAD', 'FILE_PATHS'];
+const ORDER = ['INTERFACE', 'VIEWPORT', 'LIGHTS', 'EDITING', 'ANIMATION', 'EXTENSIONS', 'ADDONS', 'THEMES', 'ASSET_LIBRARIES', 'INPUT', 'NAVIGATION', 'KEYMAP', 'SYSTEM', 'SAVE_LOAD', 'FILE_PATHS'];
 export type Section = string;
 
 function sections() {

@@ -19,7 +19,7 @@ const uid = () => `u${Date.now().toString(36)}${Math.random().toString(36).slice
 // ---------------------------------------------------------------------------
 // persistence
 
-function saveStudioLights() {
+export function saveStudioLights() {
   try {
     localStorage.setItem(STUDIO_KEY, JSON.stringify(library.studio.filter((s) => !s.builtin)));
   } catch {
@@ -197,7 +197,7 @@ export async function installHdri(file: File) {
   return id;
 }
 
-async function removeEntry(kind: 'matcap' | 'hdri', id: string) {
+export async function removeEntry(kind: 'matcap' | 'hdri', id: string) {
   if (kind === 'matcap') {
     library.matcaps = library.matcaps.filter((m) => m.id !== id);
     dropMatcapTexture(id);
@@ -214,11 +214,13 @@ async function removeEntry(kind: 'matcap' | 'hdri', id: string) {
 // studio light editing
 
 let selectedStudio = 'default';
+/** The studio light selected for editing in Preferences ▸ Lights. */
+export const studioSelection = { get id() { return selectedStudio; }, set id(v: string) { selectedStudio = v; } };
 let activeLight = 0;
 let selectedMatcap = '';
 let selectedHdri = '';
 
-function newStudioLight(from: StudioLightDef, name: string): StudioLightDef {
+export function newStudioLight(from: StudioLightDef, name: string): StudioLightDef {
   const c = JSON.parse(JSON.stringify({ ...from, id: uid(), name, builtin: undefined, standard: undefined })) as StudioLightDef;
   delete c.builtin;
   delete c.standard;
@@ -228,7 +230,7 @@ function newStudioLight(from: StudioLightDef, name: string): StudioLightDef {
   return c;
 }
 
-function changed(s: StudioLightDef) {
+export function studioLightChanged(s: StudioLightDef) {
   saveStudioLights();
   dropStudioPreview(s.id);
   libraryChanged();
@@ -286,7 +288,7 @@ function studioEditor(s: StudioLightDef, redraw: () => void): Child {
   const ro = !!s.builtin;
   const setL = (i: number, patch: Partial<SolidLight>) => {
     Object.assign(s.lights[i], patch);
-    changed(s);
+    studioLightChanged(s);
     redraw();
   };
   return h(
@@ -320,7 +322,7 @@ function studioEditor(s: StudioLightDef, redraw: () => void): Child {
           const up = () => {
             removeEventListener('pointermove', aim);
             removeEventListener('pointerup', up);
-            changed(s);
+            studioLightChanged(s);
             redraw();
           };
           addEventListener('pointermove', aim);
@@ -335,7 +337,7 @@ function studioEditor(s: StudioLightDef, redraw: () => void): Child {
       splitRow('Ambient', colorSwatch(`sl-amb-${s.id}`, s.ambient, (v, f) => {
         if (ro) return;
         s.ambient = [v[0], v[1], v[2]];
-        if (f) changed(s);
+        if (f) studioLightChanged(s);
         redraw();
       }, { linear: true })),
       s.lights.map((l, i) =>
@@ -389,7 +391,7 @@ function studioPanel(redraw: () => void): Child {
       h('button', { class: 'btn', disabled: !!sel.builtin, 'data-tip': 'Rename\nRename the selected studio light', onclick: (e: MouseEvent) => promptText('Studio Light Name', sel.name, (n) => {
         if (!n.trim()) return;
         sel.name = n.trim();
-        changed(sel);
+        studioLightChanged(sel);
         redraw();
       }, { x: e.clientX, y: e.clientY }) }, 'Rename'),
       h('button', { class: 'btn', disabled: !!sel.builtin, 'data-tip': 'Remove\nDelete the selected studio light', onclick: () => {
