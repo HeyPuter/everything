@@ -423,6 +423,26 @@ it('changes only the selected text size and color, retaining the next text state
   after.transform.forEach((n, i) => expect(n).toBeCloseTo(before.transform[i], 5));
 });
 
+it('reads a kerning gap before a real space as one space, and leaves an untouched line alone', async () => {
+  const bytes = await fixture('BT /F 18 Tf 40 300 Td [(Hello) -300 ( world) -300 (again)] TJ ET');
+  // Loading a PDF stamps it with the time, so the two copies compared below are loaded at the
+  // same moment.
+  vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 0, 1) });
+  let parsed;
+  try {
+    parsed = await read(bytes);
+    expect(parsed.runs[0].text).toBe('Hello world again');
+    // Saving the line as it is changes nothing in the file.
+    expect(await replaceText(parsed.doc, 0, parsed.runs[0], 'Hello world again')).toBe(false);
+    expect(await parsed.doc.save()).toEqual(await (await PDFDocument.load(bytes)).save());
+  } finally {
+    vi.useRealTimers();
+  }
+  await replaceText(parsed.doc, 0, parsed.runs[0], 'Hello world again!');
+  const result = await read(await parsed.doc.save());
+  expect(result.content.map((item) => item.str).join('')).toBe('Hello world again!');
+});
+
 it('keeps a line in its own typeface when only its color or size changes', async () => {
   // A subset font with no space glyph spaces its words by kerning, as many producers write it.
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {

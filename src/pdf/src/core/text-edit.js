@@ -479,13 +479,17 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
               }
             });
           let advance = 0,
-            text = '';
+            text = '',
+            gap = false;
           for (const g of glyphs) {
             if (typeof g === 'number') {
               advance -= (g * s.size) / 1000;
-              // TJ uses large negative adjustments to represent word spaces.
-              if (g < -150 && text && !text.endsWith(' ')) text += ' ';
+              // TJ uses large negative adjustments to represent word spaces, unless the next
+              // string starts with a space of its own.
+              if (g < -150 && text && !text.endsWith(' ')) gap = true;
             } else {
+              if (gap && !/^\s/.test(g.unicode)) text += ' ';
+              gap = false;
               text += g.unicode;
               advance +=
                 g.width * s.size * (font.fontMatrix?.[0] || 0.001) +
@@ -493,6 +497,7 @@ export async function inspectText(doc, index, pdfPage, OPS, layers) {
                 (g.isSpace ? s.wordSpacing : 0);
             }
           }
+          if (gap) text += ' ';
           const transform = matrix(
             matrix(s.ctm, s.tm),
             matrix(translation(s.x, s.y + s.rise), [s.size * s.hScale, 0, 0, s.size, 0, 0]),
