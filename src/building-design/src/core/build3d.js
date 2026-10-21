@@ -10,6 +10,7 @@ import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wal
 import { cutFace, segmentInside, segmentOutside } from './roofcut.js';
 import { buildSweep } from './sweeps.js';
 import { buildTruss } from './truss.js';
+import { buildImported } from './imported.js';
 import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
@@ -41,6 +42,8 @@ export function build3D(ctx, el) {
       return buildSweep(ctx, el);
     case 'truss':
       return buildTruss(ctx, el);
+    case 'importedModel':
+      return buildImported(el);
     case 'floor':
       return buildSlab(ctx, el, 'floor');
     case 'ceiling':

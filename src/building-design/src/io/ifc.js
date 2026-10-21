@@ -96,8 +96,9 @@ export function writeIFC(app) {
     const t = doc.get(el.typeId) || {};
     return { width: +t.width || 900, height: +t.height || 2100 };
   } };
+  const styles = new Map();
   for (const k of MODEL_KINDS)
-    for (const el of k === 'link' ? [] : doc.all(k)) {
+    for (const el of k === 'link' || k === 'importedModel' ? [] : doc.all(k)) {
       const m = scene.mesh(el);
       if (!m || !m.pos.length) continue;
       const n = m.pos.length / 3;
@@ -123,6 +124,31 @@ export function writeIFC(app) {
       if (!tris.length) continue;
       const pl = add(`IFCCARTESIANPOINTLIST3D((${pts.join(',')}),$)`);
       const fs = add(`IFCTRIANGULATEDFACESET(${pl},$,.F.,(${tris.join(',')}),$)`);
+      // The element's main colour as a surface style, so other tools show it too.
+      const counts = new Map();
+      for (let i = 0; i < n; i += 3) {
+        const key = `${m.col[i * 4]},${m.col[i * 4 + 1]},${m.col[i * 4 + 2]},${m.col[i * 4 + 3]}`;
+        // Weighted by area, and upward faces count double (roofs show their top).
+        const P = (k) => [m.pos[(i + k) * 3], m.pos[(i + k) * 3 + 1], m.pos[(i + k) * 3 + 2]];
+        const [a, b2, c] = [P(0), P(1), P(2)];
+        const u = [b2[0] - a[0], b2[1] - a[1], b2[2] - a[2]];
+        const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        const cx = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        const area = Math.hypot(...cx) / 2;
+        counts.set(key, (counts.get(key) || 0) + area * (cx[2] > 0.5 * Math.hypot(...cx) ? 2 : 1));
+      }
+      const main = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+      if (main) {
+        let style = styles.get(main);
+        if (!style) {
+          const [r, g, b2, a] = main.split(',').map(Number);
+          const rgb = add(`IFCCOLOURRGB($,${num(r / 255)},${num(g / 255)},${num(b2 / 255)})`);
+          const shading = add(`IFCSURFACESTYLESHADING(${rgb},${num(1 - a / 255)})`);
+          style = add(`IFCSURFACESTYLE($,.BOTH.,(${shading}))`);
+          styles.set(main, style);
+        }
+        add(`IFCSTYLEDITEM(${fs},(${style}),$)`);
+      }
       const sr = add(`IFCSHAPEREPRESENTATION(${body},'Body','Tessellation',(${fs}))`);
       const pds = add(`IFCPRODUCTDEFINITIONSHAPE($,$,(${sr}))`);
       const type = doc.get(el.typeId);

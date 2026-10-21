@@ -158,6 +158,7 @@ const KIND_CATEGORY = {
   scopeBox: 'scopeBoxes',
   truss: 'trusses',
   wire: 'wires',
+  importedModel: 'links',
   wallSweep: 'wallSweeps',
 };
 
@@ -224,6 +225,7 @@ export const KIND_LABEL = {
   scopeBox: 'Scope Box',
   truss: 'Truss',
   wire: 'Wire',
+  importedModel: 'Imported Model',
   wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',

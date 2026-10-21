@@ -336,6 +336,14 @@ const INSTANCE = {
     len('e', 'E/W (easting here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
     len('elevation', 'Elevation', 'Constraints'),
   ],
+  importedModel: [
+    P('name', 'Name', 'Identity Data', 'text'),
+    len('z', 'Elevation Offset', 'Constraints'),
+    P('rotation', 'Rotation', 'Constraints', 'angle'),
+    ro('source', 'Source', 'Identity Data', (el) => el.source || '', 'text'),
+    ro('count', 'Elements', 'Identity Data', (el) => String(el.count || 0), 'text'),
+    ro('types', 'Contents', 'Identity Data', (el) => Object.entries(el.types || {}).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${v} ${k.toLowerCase()}`).join(', '), 'text'),
+  ],
   link: [
     P('name', 'Name', 'Identity Data', 'text'),
     len('z', 'Elevation Offset', 'Constraints'),

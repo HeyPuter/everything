@@ -12,6 +12,7 @@ import { linkData } from '../core/links.js';
 import { upgradeDoc } from '../core/template.js';
 import { MODEL_KINDS } from '../core/scene.js';
 import { groupFromProject } from '../core/groups.js';
+import { packParts } from '../core/imported.js';
 
 function modelCount(doc) {
   let n = 0;
@@ -126,6 +127,31 @@ export async function loadAsGroup(app) {
   if (!type) return toast('That project has no model elements on its first level.', { kind: 'error' });
   app.placeType(type, 'group');
   toast(`Loaded ${type.name} as a group (${type.members.length} elements). Click to place it.`, { kind: 'success' });
+}
+
+/** Show an IFC file from another tool in this project, read-only. */
+export async function linkIFC(app) {
+  const input = h('input', { type: 'file', accept: '.ifc' });
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    app.setPrompt(`Reading ${file.name}...`);
+    let read;
+    try {
+      const { readIFC } = await import('../io/ifcread.js');
+      read = readIFC(await file.text());
+    } catch (err) {
+      console.error(err);
+      return toast(`Could not read ${file.name}: ${err.message || err}`, { kind: 'error' });
+    }
+    if (!read.parts.length) return toast('No geometry this app can read was found in that file.', { kind: 'error' });
+    const packed = packParts(read);
+    let el;
+    app.commit('Link IFC', () => (el = app.doc.add({ kind: 'importedModel', name: read.name || file.name, source: file.name, at: [0, 0], rotation: 0, z: 0, ...packed })));
+    app.select([el.id]);
+    toast(`Placed ${packed.count} elements from ${file.name}, origin to origin. Move or rotate the model into place.`, { kind: 'success' });
+  });
+  input.click();
 }
 
 export function manageLinksDialog(app) {

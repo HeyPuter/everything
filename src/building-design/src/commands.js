@@ -96,6 +96,7 @@ export const COMMANDS = {
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
   linkProject: { label: 'Link Project', icon: 'linkProject', run: (app) => links.linkProject(app), desc: 'Show another project in this one, read-only, to coordinate with it' },
+  linkIFC: { label: 'Link IFC', icon: 'linkIfc', run: (app) => links.linkIFC(app), desc: 'Show a model from other BIM software (IFC file), read-only, to coordinate with it' },
   loadAsGroup: { label: 'Load as Group', icon: 'groupPlace', run: (app) => links.loadAsGroup(app), desc: 'Bring the first level of another project in as a model group and place it' },
   manageLinks: { label: 'Manage Links', icon: 'linkProject', run: (app) => links.manageLinksDialog(app), desc: 'Reload or remove linked projects' },
   reloadLinkFrom: { label: 'Reload Link From', icon: 'refresh', run: (app) => { const id = [...app.selection].find((x) => app.doc.get(x)?.kind === 'link'); if (id) links.reloadLink(app, id, true); } },
