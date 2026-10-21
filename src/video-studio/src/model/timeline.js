@@ -235,6 +235,19 @@ function withRipple(project, opts, fn) {
   return result;
 }
 
+/**
+ * Call before changing a clip's length in place; the returned function then
+ * closes or opens the gap on the base track with ripple, overlays following.
+ */
+export function rippleResize(project, id, opts = {}) {
+  if (!opts.ripple || !findClip(project, id)?.track.main) return () => {};
+  const relink = opts.linkOverlays ? captureLinks(project) : null;
+  return () => {
+    compactMain(project);
+    relink?.();
+  };
+}
+
 /** Base-track index where a clip dropped at time t is inserted (nearest boundary). */
 export function mainInsertIndex(project, t, excludeId) {
   const clips = mainTrack(project).clips.filter((c) => c.id !== excludeId);

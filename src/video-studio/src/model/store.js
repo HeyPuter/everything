@@ -14,7 +14,7 @@
  */
 import { Emitter } from '../lib/emitter.js';
 import { History } from './history.js';
-import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength } from './timeline.js';
+import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength, rippleResize } from './timeline.js';
 import { switchTimeline } from './timelines.js';
 
 /** Fields a compound clip being edited has of its own; the rest (name, media, settings...) is the project's. */
@@ -101,11 +101,13 @@ export class EditorStore extends Emitter {
       this.update('Edit compound clip', (p) => {
         const cc = findClip(p, frame.id)?.clip;
         if (!cc) return false;
+        const ripple = rippleResize(p, frame.id, this.opts);
         cc.sequence = { tracks: structuredClone(inner.tracks) };
         adoptProjectFields(p, inner);
         const len = sequenceLength(cc.sequence);
         cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
         cc.duration = Math.max(MIN_CLIP, Math.min(cc.duration, len - cc.in));
+        ripple();
       });
     }
     this._afterSwap(t);

@@ -210,6 +210,37 @@ describe('project fields while a compound clip is open', () => {
   });
 });
 
+describe('closing a compound clip that got shorter', () => {
+  const setup = (toggles) => {
+    const p = fixture();
+    const [, x] = onMain(p, clip('video', 0, 5), clip('video', 5, 4), clip('video', 9, 5));
+    const title = clip('text', 10, 1); // over the last clip
+    addClip(p, title, FREE);
+    const comp = createCompound(p, [x.id], RIPPLE);
+    const store = new EditorStore(p, { toggles });
+    store.openCompound(comp.id);
+    const inner = mainTrack(store.project).clips[0];
+    store.update('Trim', (pp) => trimClip(pp, inner.id, 'end', s(2), store.opts));
+    store.closeCompound();
+    return { store, title };
+  };
+  const spansOf = (store) => mainTrack(store.project).clips.map((c) => [c.start / 1e6, c.duration / 1e6]);
+
+  it('closes the gap on the rippled base track, moving overlays with their clips', () => {
+    const { store, title } = setup({});
+    expect(spansOf(store)).toEqual([[0, 5], [5, 2], [7, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(8));
+    store.undo();
+    expect(spansOf(store)).toEqual([[0, 5], [5, 4], [9, 5]]);
+  });
+
+  it('leaves the gap with ripple off', () => {
+    const { store, title } = setup({ ripple: false });
+    expect(spansOf(store)).toEqual([[0, 5], [5, 2], [9, 5]]);
+    expect(findClip(store.project, title.id).clip.start).toBe(s(10));
+  });
+});
+
 describe('nested compound clips', () => {
   it('applies the inner compound transform before the outer one', () => {
     const p = fixture();
