@@ -1240,9 +1240,11 @@ export class App {
         this.runCommand(c.id);
         return;
       }
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape') this.ribbon.closePeek();
+      // Escape in a box or list (Search, Tell Me, a pane's options) belongs
+      // to that control; it doesn't also reset the pen or the view.
+      if (e.key === 'Escape' && !inField) {
         if (this.state.fullPage && !e.target.closest?.('.outline-body')) this.toggleFullPage();
-        this.ribbon.closePeek();
         if (this.painter) this.toggleFormatPainter(false);
         if (this.editor.ink.tool !== 'type' && !e.target.closest?.('.outline-body')) this.setTool('type');
       }

@@ -304,6 +304,19 @@ describe('App shell', () => {
     expect(document.activeElement.dataset.id).toBe(secret.id);
   });
 
+  it('keeps the pen when Escape is pressed in the Search box or Tell Me', () => {
+    app.setPen(app.editor.ink.pen);
+    app.setRailView('search', { focus: true });
+    app.search.input.value = 'x';
+    keydown(app.search.input, 'Escape');
+    expect(app.editor.ink.tool).toBe('pen');
+    app.tellMeInput.focus();
+    keydown(app.tellMeInput, 'Escape');
+    expect(app.editor.ink.tool).toBe('pen');
+    keydown(document.body, 'Escape');
+    expect(app.editor.ink.tool).toBe('type');
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
