@@ -384,7 +384,9 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
     const start = el('input.input', { type: 'number', value: '0', 'aria-label': 'Starting Index' });
     const inc = el('input.input', { type: 'number', value: '1', 'aria-label': 'Increment' });
     formDialog({ title: 'Add Index Column', fields: [field('Starting Index', start), field('Increment', inc)], submit: () => {
-      const s = Number(start.value), i = Number(inc.value);
+      // An emptied box is no number (Number('') is 0, which made every index the same).
+      const read = (input) => (input.value.trim() === '' ? NaN : Number(input.value));
+      const s = read(start), i = read(inc);
       if (!Number.isFinite(s)) return { field: start, message: 'Enter a number' };
       if (!Number.isFinite(i)) return { field: inc, message: 'Enter a number' };
       addIndex(s, i);
