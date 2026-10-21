@@ -136,66 +136,71 @@ export const unoise = (p: ArrayLike<number>, n = p.length) => 0.5 * snoise(p, n)
 
 export type NoiseType = 'MULTIFRACTAL' | 'RIDGED_MULTIFRACTAL' | 'HYBRID_MULTIFRACTAL' | 'FBM' | 'HETERO_TERRAIN';
 
-function scaled(p: ArrayLike<number>, n: number, s: number, out: number[]) {
-  for (let i = 0; i < n; i++) out[i] = p[i] * s;
-  return out;
+/** Signed noise of `p` scaled by `s` (no allocation). */
+function sn(p: ArrayLike<number>, n: number, s: number): number {
+  switch (n) {
+    case 1:
+      return perlin1(p[0] * s);
+    case 2:
+      return perlin2(p[0] * s, p[1] * s);
+    case 3:
+      return perlin3(p[0] * s, p[1] * s, p[2] * s);
+    default:
+      return perlin4(p[0] * s, p[1] * s, p[2] * s, p[3] * s);
+  }
 }
 
 export function fbm(p: ArrayLike<number>, n: number, detail: number, rough: number, lac: number, norm: boolean): number {
-  const q: number[] = [0, 0, 0, 0];
   let fs = 1,
     amp = 1,
     maxAmp = 0,
     sum = 0;
   const oct = Math.floor(detail);
   for (let i = 0; i <= oct; i++) {
-    sum += snoise(scaled(p, n, fs, q), n) * amp;
+    sum += sn(p, n, fs) * amp;
     maxAmp += amp;
     amp *= rough;
     fs *= lac;
   }
   const rmd = detail - oct;
   if (rmd !== 0) {
-    const sum2 = sum + snoise(scaled(p, n, fs, q), n) * amp;
+    const sum2 = sum + sn(p, n, fs) * amp;
     return norm ? mix((0.5 * sum) / maxAmp + 0.5, (0.5 * sum2) / (maxAmp + amp) + 0.5, rmd) : mix(sum, sum2, rmd);
   }
   return norm ? (0.5 * sum) / maxAmp + 0.5 : sum;
 }
 
 function multifractal(p: ArrayLike<number>, n: number, detail: number, rough: number, lac: number) {
-  const q: number[] = [0, 0, 0, 0];
   let v = 1,
     pwr = 1,
     fs = 1;
   const oct = Math.floor(detail);
   for (let i = 0; i <= oct; i++) {
-    v *= pwr * snoise(scaled(p, n, fs, q), n) + 1;
+    v *= pwr * sn(p, n, fs) + 1;
     pwr *= rough;
     fs *= lac;
   }
   const rmd = detail - oct;
-  if (rmd !== 0) v *= rmd * pwr * snoise(scaled(p, n, fs, q), n) + 1;
+  if (rmd !== 0) v *= rmd * pwr * sn(p, n, fs) + 1;
   return v;
 }
 
 function hetero(p: ArrayLike<number>, n: number, detail: number, rough: number, lac: number, offset: number) {
-  const q: number[] = [0, 0, 0, 0];
   let pwr = rough,
     fs = lac;
-  let v = offset + snoise(scaled(p, n, 1, q), n);
+  let v = offset + sn(p, n, 1);
   const oct = Math.floor(detail);
   for (let i = 1; i <= oct; i++) {
-    v += (snoise(scaled(p, n, fs, q), n) + offset) * pwr * v;
+    v += (sn(p, n, fs) + offset) * pwr * v;
     pwr *= rough;
     fs *= lac;
   }
   const rmd = detail - oct;
-  if (rmd !== 0) v += rmd * ((snoise(scaled(p, n, fs, q), n) + offset) * pwr * v);
+  if (rmd !== 0) v += rmd * ((sn(p, n, fs) + offset) * pwr * v);
   return v;
 }
 
 function hybrid(p: ArrayLike<number>, n: number, detail: number, rough: number, lac: number, offset: number, gain: number) {
-  const q: number[] = [0, 0, 0, 0];
   let pwr = 1,
     v = 0,
     weight = 1,
@@ -203,7 +208,7 @@ function hybrid(p: ArrayLike<number>, n: number, detail: number, rough: number, 
   const oct = Math.floor(detail);
   for (let i = 0; weight > 0.001 && i <= oct; i++) {
     if (weight > 1) weight = 1;
-    const signal = (snoise(scaled(p, n, fs, q), n) + offset) * pwr;
+    const signal = (sn(p, n, fs) + offset) * pwr;
     pwr *= rough;
     v += weight * signal;
     weight *= gain * signal;
@@ -212,23 +217,22 @@ function hybrid(p: ArrayLike<number>, n: number, detail: number, rough: number, 
   const rmd = detail - oct;
   if (rmd !== 0 && weight > 0.001) {
     if (weight > 1) weight = 1;
-    v += rmd * weight * ((snoise(scaled(p, n, fs, q), n) + offset) * pwr);
+    v += rmd * weight * ((sn(p, n, fs) + offset) * pwr);
   }
   return v;
 }
 
 function ridged(p: ArrayLike<number>, n: number, detail: number, rough: number, lac: number, offset: number, gain: number) {
-  const q: number[] = [0, 0, 0, 0];
   let pwr = rough,
     fs = 1;
-  let signal = offset - Math.abs(snoise(scaled(p, n, 1, q), n));
+  let signal = offset - Math.abs(sn(p, n, 1));
   signal *= signal;
   let v = signal;
   const oct = Math.floor(detail);
   for (let i = 1; i <= oct; i++) {
     fs *= lac;
     const weight = Math.max(0, Math.min(1, signal * gain));
-    signal = offset - Math.abs(snoise(scaled(p, n, fs, q), n));
+    signal = offset - Math.abs(sn(p, n, fs));
     signal *= signal;
     signal *= weight;
     v += signal * pwr;
@@ -265,38 +269,45 @@ export interface NoiseParams {
   normalize: boolean;
 }
 
-/** Offset vector for seed `s` in `n` dimensions. */
-function offsetVec(seed: number, n: number, out: number[]) {
-  if (n === 1) out[0] = offset1(seed);
-  else for (let i = 0; i < n; i++) out[i] = offsetN(seed, i);
-  return out;
+/** Offset vectors per dimension count: seed → [n components] (cached). */
+const offsetCache: number[][][] = [[], [], [], [], []];
+function offsetVec(seed: number, n: number): number[] {
+  const c = offsetCache[n];
+  let v = c[seed];
+  if (!v) {
+    v = n === 1 ? [offset1(seed)] : Array.from({ length: n }, (_, i) => offsetN(seed, i));
+    c[seed] = v;
+  }
+  return v;
 }
+
+const q4 = [0, 0, 0, 0],
+  t4 = [0, 0, 0, 0],
+  d4 = [0, 0, 0, 0];
 
 /**
  * Noise Texture: `p` holds `n` (1–4) already scaled coordinates. Writes [factor, r, g, b] to `out`
  * (color channels only when `color` is set).
  */
 export function noiseTexture(p: ArrayLike<number>, n: number, o: NoiseParams, color: boolean, out: number[] | Float32Array, at = 0) {
-  const q = [p[0], p[1] ?? 0, p[2] ?? 0, p[3] ?? 0];
-  const t: number[] = [0, 0, 0, 0];
-  const off: number[] = [0, 0, 0, 0];
+  const q = q4;
+  for (let i = 0; i < 4; i++) q[i] = p[i] ?? 0;
   if (o.distortion !== 0) {
-    const d: number[] = [0, 0, 0, 0];
     for (let a = 0; a < n; a++) {
-      offsetVec(a, n, off);
-      for (let i = 0; i < n; i++) t[i] = q[i] + off[i];
-      d[a] = snoise(t, n) * o.distortion;
+      const off = offsetVec(a, n);
+      for (let i = 0; i < n; i++) t4[i] = q[i] + off[i];
+      d4[a] = snoise(t4, n) * o.distortion;
     }
-    for (let a = 0; a < n; a++) q[a] += d[a];
+    for (let a = 0; a < n; a++) q[a] += d4[a];
   }
   const f = fractal(o.type, q, n, o.detail, o.roughness, o.lacunarity, o.offset, o.gain, o.normalize);
   out[at] = f;
   if (color) {
     out[at + 1] = f;
     for (let c = 0; c < 2; c++) {
-      offsetVec(n + c, n, off);
-      for (let i = 0; i < n; i++) t[i] = q[i] + off[i];
-      out[at + 2 + c] = fractal(o.type, t, n, o.detail, o.roughness, o.lacunarity, o.offset, o.gain, o.normalize);
+      const off = offsetVec(n + c, n);
+      for (let i = 0; i < n; i++) t4[i] = q[i] + off[i];
+      out[at + 2 + c] = fractal(o.type, t4, n, o.detail, o.roughness, o.lacunarity, o.offset, o.gain, o.normalize);
     }
   }
   return out;
