@@ -16433,6 +16433,22 @@ function write_ws_xml_protection(sp)/*:string*/ {
 	return writextag('sheetProtection', null, o);
 }
 
+/* Puter Spreadsheet local patch: the cells a sheet holds, counted, and those in a range given a link (see below). */
+function hlink_stored_count(s, dense) {
+	var n = 0;
+	if(dense) (s["!data"] || []).forEach(function(row) { if(row) row.forEach(function(cell) { if(cell) ++n; }); });
+	else for(var k in s) if(k.charAt(0) !== "!") ++n;
+	return n;
+}
+function hlink_stored_cells(s, dense, rng, val) {
+	if(dense) (s["!data"] || []).forEach(function(row, R) {
+		if(row && R >= rng.s.r && R <= rng.e.r) row.forEach(function(cell, C) { if(cell && C >= rng.s.c && C <= rng.e.c) cell.l = val; });
+	});
+	else for(var k in s) if(k.charAt(0) !== "!") {
+		var at = decode_cell(k);
+		if(at.r >= rng.s.r && at.r <= rng.e.r && at.c >= rng.s.c && at.c <= rng.e.c) s[k].l = val;
+	}
+}
 function parse_ws_xml_hlinks(s, data/*:Array<string>*/, rels, guess, opts) {
 	var dense = s["!data"] != null;
 	var fullrange = null;
@@ -16450,6 +16466,17 @@ function parse_ws_xml_hlinks(s, data/*:Array<string>*/, rels, guess, opts) {
 			val.Target = "#" + unescapexml(val.location);
 			rel = {Target: val.Target, TargetMode: 'Internal'};
 		} else continue;
+		if(val.tooltip) { val.Tooltip = val.tooltip; delete val.tooltip; }
+		/* Puter Spreadsheet local patch: a link over more than 65,536 coordinates, and more than the sheet has cells
+		 * (a file can stretch one over whole columns or the whole sheet), goes on the cells it holds there, rather than
+		 * a cell made for each coordinate: seventeen billion of them never finished. Smaller ranges link their empty
+		 * cells too. */
+		var area = (rng.e.r - rng.s.r + 1) * (rng.e.c - rng.s.c + 1);
+		if(area > 65536 && area > hlink_stored_count(s, dense)) {
+			val.Rel = rel;
+			hlink_stored_cells(s, dense, rng, val);
+			continue;
+		}
 		if(!fullrange) fullrange = dup(rng);
 		else {
 			fullrange.s.r = Math.min(fullrange.s.r, rng.s.r); fullrange.s.c = Math.min(fullrange.s.c, rng.s.c);
@@ -16461,7 +16488,6 @@ function parse_ws_xml_hlinks(s, data/*:Array<string>*/, rels, guess, opts) {
 		guess.s.r = Math.min(guess.s.r, rng.s.r); guess.s.c = Math.min(guess.s.c, rng.s.c);
 		guess.e.r = Math.max(guess.e.r, rng.e.r); guess.e.c = Math.max(guess.e.c, rng.e.c);
 		val.Rel = rel;
-		if(val.tooltip) { val.Tooltip = val.tooltip; delete val.tooltip; }
 		for(var R=rng.s.r;R<=rng.e.r;++R) for(var C=rng.s.c;C<=rng.e.c;++C) {
 			var addr = encode_col(C) + encode_row(R);
 			if(dense) {
