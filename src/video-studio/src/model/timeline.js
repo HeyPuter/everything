@@ -54,7 +54,8 @@ export function sequenceLength(seq) {
 export function projectDuration(project) {
   let end = 0;
   for (const t of project.tracks) for (const c of t.clips) end = Math.max(end, clipEnd(c));
-  return end;
+  // An export slice (model/slice.js) stops where its range did, though clips may run on.
+  return project.end != null ? Math.min(end, project.end) : end;
 }
 
 /** Longest duration the clip can have given its source media and speed. */

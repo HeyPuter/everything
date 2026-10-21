@@ -9,7 +9,7 @@ import {
   sourceToMask, clipLine, pointInPolygon,
 } from '../src/engine/mask-shapes.js';
 import { maskSignature, maskResolution, blurAlpha, featherSigma } from '../src/engine/mask-raster.js';
-import { baseValue, setBaseValue, valueAt } from '../src/model/keyframes.js';
+import { baseValue, setBaseValue } from '../src/model/keyframes.js';
 import { createProject, makeClip, normalizeClip, normalizeProject } from '../src/model/project.js';
 import { evaluate } from '../src/engine/scene.js';
 import * as T from '../src/model/timeline.js';
@@ -248,8 +248,8 @@ describe('mask keyframes', () => {
     expect(evaluate(p, 0.5 * US)[0].masks[1].w).toBeCloseTo(0.3);
     // Slicing (export ranges) shifts keys the same way.
     const sliced = sliceProject(p, 0.25 * US, 5 * US);
-    const first = sliced.tracks.flatMap((t) => t.clips).find((x) => x.masks);
-    expect(valueAt(first.keyframes, 'mask1.w', 0, 0)).toBeCloseTo(0.25);
+    expect(evaluate(sliced, 0)[0].masks[1].w).toBeCloseTo(evaluate(p, 0.25 * US)[0].masks[1].w);
+    expect(evaluate(sliced, 0)[0].masks[1].w).toBeCloseTo(0.25);
   });
 
   it('feeds masks and non-uniform scale to the layer', () => {

@@ -327,7 +327,16 @@ export function buildCaptionClips(cues, { presetId = 'subtitle', position = 'bot
 /** Cues (seconds) for the caption clips in a project, in time order. */
 export function captionCues(project) {
   const out = [];
-  for (const t of project.tracks) for (const c of t.clips) if (c.type === 'text' && c.caption) out.push({ start: c.start / US, end: clipEnd(c) / US, text: c.text });
+  // An export slice (model/slice.js) keeps captions that cross its edges whole; cut them there.
+  const stop = project.end ?? Infinity;
+  for (const t of project.tracks) {
+    for (const c of t.clips) {
+      if (c.type !== 'text' || !c.caption) continue;
+      const start = Math.max(0, c.start);
+      const end = Math.min(clipEnd(c), stop);
+      if (end > start) out.push({ start: start / US, end: end / US, text: c.text });
+    }
+  }
   return out.sort((a, b) => a.start - b.start);
 }
 

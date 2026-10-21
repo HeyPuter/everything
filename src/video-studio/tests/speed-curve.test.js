@@ -317,7 +317,7 @@ describe('clips with a speed curve', () => {
     const hi = Math.round(c.duration * 0.8);
     const cut = sliceProject(p, lo, hi);
     const k = T.mainTrack(cut).clips[0];
-    expect(k.duration).toBe(hi - lo);
+    expect(T.projectDuration(cut)).toBe(hi - lo);
     for (let x = 0; x <= hi - lo; x += s(0.05)) expect(Math.abs(T.sourceTimeAt(k, x) - T.sourceTimeAt(c, x + lo))).toBeLessThan(2);
   });
 

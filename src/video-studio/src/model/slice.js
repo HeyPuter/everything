@@ -1,7 +1,8 @@
 /**
  * Cut a project down to a time range (and optionally a set of clips) so it
- * can be exported on its own: clips outside the range go, clips that cross
- * its edges are trimmed, and everything moves so the range starts at 0.
+ * can be exported on its own: clips outside the range go and everything
+ * moves so the range starts at 0. trimTo cuts single clips (compound and
+ * multi-camera clips, highlights).
  */
 import { clipEnd, MIN_CLIP, windowSource } from './timeline.js';
 import { shiftKeyframes } from './keyframes.js';
@@ -30,6 +31,12 @@ export function trimTo(clip, start, end) {
  * A copy of the project holding [start, end) shifted to 0. keep (a Set of
  * clip ids) limits it to those clips; effect, filter and color layer clips
  * are kept when they overlap a kept clip so the look matches.
+ *
+ * Clips that cross the range edges are kept whole (starting before 0 or
+ * ending after the range), and project.end marks where the slice stops
+ * (see projectDuration), so fades, animations and transitions cut by the
+ * range look and sound exactly as on the timeline. The partner of a
+ * transition that runs into the range is kept for the same reason.
  */
 export function sliceProject(project, start, end, { keep = null } = {}) {
   const p = structuredClone(project);
@@ -37,34 +44,36 @@ export function sliceProject(project, start, end, { keep = null } = {}) {
   const hi = Math.max(lo + MIN_CLIP, Math.round(end));
   const kept = keep ? project.tracks.flatMap((t) => t.clips.filter((c) => keep.has(c.id))) : null;
   const overlapsKept = (c) => kept.some((k) => k.start < clipEnd(c) && clipEnd(k) > c.start);
+  const inRange = (a, b) => a < hi && b > lo;
   for (const track of p.tracks) {
+    const clips = track.clips;
+    const wanted = clips.map((c) => inRange(c.start, clipEnd(c)));
+    clips.forEach((a, i) => {
+      const b = clips[i + 1];
+      if (!a.transition || !b || Math.abs(b.start - clipEnd(a)) > 2000) return;
+      const cut = clipEnd(a);
+      const half = a.transition.duration / 2;
+      if (inRange(cut - half, cut + half)) wanted[i] = wanted[i + 1] = true;
+    });
     const out = [];
-    for (const c of track.clips) {
+    clips.forEach((c, i) => {
+      if (!wanted[i]) return;
       if (keep && !keep.has(c.id)) {
         const look = track.kind === 'effect' || track.kind === 'filter' || track.kind === 'adjust';
-        if (!look || !overlapsKept(c)) continue;
+        if (!look || !overlapsKept(c)) return;
       }
-      if (clipEnd(c) <= lo || c.start >= hi) continue;
-      const crossesEnd = clipEnd(c) > hi;
-      const t = trimTo(c, lo, hi);
-      if (!t) continue;
-      if (crossesEnd) {
-        t.fadeOut &&= Math.min(t.fadeOut, t.duration);
-        if (t.animOut) t.animOut = null;
-        if (t.transition) t.transition = null;
-      }
-      t.start -= lo;
-      out.push(t);
-    }
+      c.start -= lo;
+      out.push(c);
+    });
     // Transitions need their partner clip right after.
     out.forEach((c, i) => {
       if (!c.transition) return;
       const next = out[i + 1];
       if (!next || Math.abs(next.start - clipEnd(c)) > 2000) c.transition = null;
-      else c.transition.duration = Math.min(c.transition.duration, c.duration, next.duration);
     });
     track.clips = out;
   }
+  p.end = hi - lo;
   p.markers = (p.markers || []).filter((m) => m.time >= lo && m.time < hi).map((m) => ({ ...m, time: m.time - lo }));
   delete p.range;
   if (p.cover) p.cover = null;

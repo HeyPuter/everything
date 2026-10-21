@@ -3,6 +3,7 @@ import { setup, publish, invite, USERS } from './review-helpers.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 import { EditorStore } from '../src/model/store.js';
 import { addTimeline } from '../src/model/timelines.js';
+import { projectDuration } from '../src/model/timeline.js';
 import { createThreadList } from '../src/ui/review/threads.js';
 import { ReviewPage, cleanReviewHash } from '../src/ui/review/review-page.js';
 import { createReviewPanel, reviewMarkers } from '../src/ui/review/review-panel.js';
@@ -72,7 +73,7 @@ const fakeExport = (calls = []) => async (project, library, settings, opts) => {
   calls.push({ project, settings });
   opts.onProgress?.({ fraction: 0.5 });
   opts.onProgress?.({ fraction: 1 });
-  const dur = project.tracks.flatMap((t) => t.clips).reduce((m, c) => Math.max(m, c.start + c.duration), 0);
+  const dur = projectDuration(project);
   return { blob: new Blob([new Uint8Array(2048)], { type: 'video/mp4' }), duration: dur, width: 1280, height: 720, release: () => calls.push('released') };
 };
 const caps = async () => ({ video: ['avc'], audio: ['aac'], audioFormats: ['wav'] });
@@ -169,7 +170,7 @@ describe('share for review (owner flow)', () => {
     p.range = { in: s(2), out: s(6) };
     const r = reviewSource(p, 'range');
     expect(r.range).toEqual({ in: s(2), out: s(6) });
-    expect(r.project.tracks.flatMap((t) => t.clips)[0].duration).toBe(s(4));
+    expect(projectDuration(r.project)).toBe(s(4));
     expect(reviewSource(p, 'all').range).toBe(null);
   });
 
