@@ -110,3 +110,27 @@ describe('Decimate collapse: symmetry and vertex group', () => {
     expect(pos).toBeLessThan(20);
   });
 });
+
+describe('Screw: Calculate Order (recorded orientations)', () => {
+  const V = [1, 0, 0, 1.5, 0, 0.5, 1.2, 0, 1, 1, 0, 1.5];
+  const outward = (E: number[], calc: boolean, flip: boolean) => {
+    const m = { ...buildMesh(V, []), looseEdges: Uint32Array.from(E) } as unknown as EvalMesh;
+    const t = modifierTypes.SCREW;
+    const out = t.apply(m, { ...t.defaults(), steps: 8, use_normal_calculate: calc, use_normal_flip: flip } as never, {} as ModifierContext);
+    let sum = 0;
+    for (let f = 0; f + 1 < out.offsets.length; f++) {
+      const s = out.offsets[f];
+      const c = [0, 1, 2].map((k) => { let x = 0; for (let i = s; i < out.offsets[f + 1]; i++) x += out.positions[out.indices[i] * 3 + k]; return x / (out.offsets[f + 1] - s); });
+      sum += Math.sign(out.normals[s * 3] * c[0] + out.normals[s * 3 + 1] * c[1]);
+    }
+    return sum;
+  };
+  it.each([
+    [[0, 1, 1, 2, 2, 3], false, false, -24],
+    [[0, 1, 1, 2, 2, 3], true, false, 24],
+    [[1, 0, 2, 1, 3, 2], false, false, 24],
+    [[0, 1, 2, 1, 2, 3], false, false, -8],
+    [[0, 1, 2, 1, 2, 3], true, false, 24],
+    [[0, 1, 2, 1, 2, 3], true, true, -24],
+  ] as [number[], boolean, boolean, number][])('edges %j calc %s flip %s', (E, calc, flip, want) => expect(outward(E, calc, flip)).toBe(want));
+});

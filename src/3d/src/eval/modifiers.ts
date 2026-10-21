@@ -1026,6 +1026,7 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     ids.push(row);
   }
   const smooth = bool(mod, 'use_smooth_shade', true) ? 1 : 0;
+  if (bool(mod, 'use_normal_calculate') && pairs.length) pairs = orientProfile(pairs, P, pivot, ax, angle);
   const flip = bool(mod, 'use_normal_flip') || bool(mod, 'use_flip'); // (older files used use_flip)
   const su = bool(mod, 'use_stretch_u'),
     sv = bool(mod, 'use_stretch_v');
@@ -1046,6 +1047,61 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     }
   let out = b.build();
   if (bool(mod, 'use_merge_vertices')) out = weld(out, num(mod, 'merge_threshold', 0.01));
+  return out;
+}
+
+/**
+ * Screw "Calculate Order": direct the profile edges along their chains, then turn each connected
+ * chain so the swept faces face away from the axis.
+ */
+function orientProfile(pairs: number[], P: ArrayLike<number>, pivot: Vector3, ax: Vector3, angle: number): number[] {
+  const ne = pairs.length / 2;
+  const byVert = new Map<number, number[]>();
+  for (let e = 0; e < ne; e++) for (const v of [pairs[e * 2], pairs[e * 2 + 1]]) (byVert.get(v) ?? byVert.set(v, []).get(v)!).push(e);
+  const out = pairs.slice();
+  const done = new Uint8Array(ne);
+  const comp = new Int32Array(ne).fill(-1);
+  let nc = 0;
+  for (let s = 0; s < ne; s++) {
+    if (done[s]) continue;
+    // walk the component, each edge leaving the vertex the previous one arrived at
+    const stack = [s];
+    done[s] = 1;
+    comp[s] = nc;
+    while (stack.length) {
+      const e = stack.pop()!;
+      const [a, b] = [out[e * 2], out[e * 2 + 1]];
+      for (const [v, outgoing] of [
+        [b, true],
+        [a, false],
+      ] as [number, boolean][])
+        for (const f of byVert.get(v) ?? []) {
+          if (done[f]) continue;
+          done[f] = 1;
+          comp[f] = nc;
+          // continuing from b: f starts at b; reaching back from a: f ends at a
+          const starts = out[f * 2] === v;
+          if (starts !== outgoing) [out[f * 2], out[f * 2 + 1]] = [out[f * 2 + 1], out[f * 2]];
+          stack.push(f);
+        }
+    }
+    nc++;
+  }
+  // face direction of each component: (q - p) x (sweep direction at p) against the radial direction
+  const score = new Float64Array(nc);
+  const p = new Vector3(),
+    q = new Vector3(),
+    t = new Vector3(),
+    r = new Vector3();
+  for (let e = 0; e < ne; e++) {
+    p.set(P[out[e * 2] * 3], P[out[e * 2] * 3 + 1], P[out[e * 2] * 3 + 2]).sub(pivot);
+    q.set(P[out[e * 2 + 1] * 3], P[out[e * 2 + 1] * 3 + 1], P[out[e * 2 + 1] * 3 + 2]).sub(pivot);
+    r.copy(p).add(q).multiplyScalar(0.5);
+    r.addScaledVector(ax, -r.dot(ax));
+    t.copy(ax).cross(r).multiplyScalar(Math.sign(angle) || 1);
+    score[comp[e]] += q.clone().sub(p).cross(t).dot(r);
+  }
+  for (let e = 0; e < ne; e++) if (score[comp[e]] < 0) [out[e * 2], out[e * 2 + 1]] = [out[e * 2 + 1], out[e * 2]];
   return out;
 }
 
@@ -2221,7 +2277,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     supportsEditMode: true,
     apply: mirrorMesh,
   },
-  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', object: null, use_object_screw_offset: false, use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_normal_flip: false, use_stretch_u: false, use_stretch_v: false }), deps: (m) => [m.object as string], apply: screw },
+  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', object: null, use_object_screw_offset: false, use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_normal_flip: false, use_normal_calculate: false, use_stretch_u: false, use_stretch_v: false }), deps: (m) => [m.object as string], apply: screw },
   SOLIDIFY: {
     type: 'SOLIDIFY',
     label: 'Solidify',

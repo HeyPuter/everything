@@ -65,6 +65,7 @@ export const modifierFields: Record<string, Field[]> = {
     ['merge_threshold', 'Distance', 'dist'],
     ['heading', 'Normals', 'heading'],
     ['use_smooth_shade', 'Smooth Shading', 'bool'],
+    ['use_normal_calculate', 'Calculate Order', 'bool'],
     ['use_normal_flip', 'Flip', 'bool'],
     ['heading', 'Texture Coordinates', 'heading'],
     ['use_stretch_u', 'Stretch U', 'bool'],
