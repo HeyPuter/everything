@@ -117,7 +117,19 @@ export function createMediaFeatures(ctx) {
       };
       urls.set(key, entry);
     }
+    entry.pres = ctx.pres();
     return entry.url;
+  }
+  // URLs made for an earlier presentation (another one opened since, or
+  // this one restored by undo) give their bytes back once nothing plays them.
+  function releaseUrls() {
+    const pres = ctx.pres();
+    const playing = new Set([...players.values()].map((p) => p.element.src));
+    for (const [key, entry] of urls)
+      if (entry.pres !== pres && !playing.has(entry.url)) {
+        URL.revokeObjectURL(entry.url);
+        urls.delete(key);
+      }
   }
 
   async function insertMediaFile(file, kindWanted) {
@@ -666,6 +678,7 @@ export function createMediaFeatures(ctx) {
         p.surface?.remove();
         players.delete(key);
       }
+    releaseUrls();
   }
 
   function mediaBar(obj, selected) {

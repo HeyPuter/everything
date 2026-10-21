@@ -290,6 +290,41 @@ test("video plays on the canvas and in the slide show, with its playback setting
   await expect(page.locator(".presenter-end")).toBeHidden();
 });
 
+test("a video's bytes are let go once another presentation opens", async ({
+  page,
+}) => {
+  await start(page);
+  const video = await webm(page);
+  await choose(page, () => command(page, "video"), {
+    name: "clip.webm",
+    mimeType: "video/webm",
+    buffer: video,
+  });
+  await page
+    .locator(".media-bar")
+    .getByRole("button", { name: "Play" })
+    .click();
+  const src = await page
+    .locator("video.media-surface")
+    .evaluate((v) => (v.pause(), v.src));
+  const read = (url) =>
+    page.evaluate(
+      (u) =>
+        fetch(u).then(
+          (r) => r.arrayBuffer().then((b) => b.byteLength),
+          () => null,
+        ),
+      url,
+    );
+  expect(await read(src)).toBe(video.length);
+  await page.getByRole("button", { name: "Back to presentations" }).click();
+  await page
+    .getByRole("button", { name: "New presentation", exact: true })
+    .click();
+  await expect(page.locator(".object-hit")).toHaveCount(0);
+  await expect.poll(() => read(src)).toBeNull();
+});
+
 test("audio from a file and from a recording is saved as media", async ({
   page,
 }) => {
