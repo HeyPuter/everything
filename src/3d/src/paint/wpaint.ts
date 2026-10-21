@@ -89,6 +89,7 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
   let lastEval = 0;
   const touched: number[] = [];
   let dabCount = 0;
+  const restrict = !!(ts as unknown as { weight_paint?: { use_group_restrict?: boolean } }).weight_paint?.use_group_restrict;
   runStroke(v, e, {
     spacing: () => Math.max(1, b.spacing || 10),
     radiusPx: () => b.radius,
@@ -116,6 +117,8 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
       const w = W[gi];
       const weight = ts.unified_paint.weight;
       touched.length = 0;
+      // Restrict: only vertices already in the group (weight above zero when the stroke began)
+      if (restrict) for (let k = 0; k < n; k++) if (!(orig[s.gv[k]] > 0)) s.gf[k] = 0;
       if (tool === 'DRAW') {
         for (let k = 0; k < n; k++) {
           const vi = s.gv[k];

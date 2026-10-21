@@ -152,6 +152,9 @@ function changed() {
   if (v) v.drawSvg();
 }
 
+/** Weight Paint settings beyond the shared tool settings. */
+const wpOpts = () => ((app.doc.scene.tool_settings as unknown as { weight_paint?: { use_group_restrict?: boolean } }).weight_paint ??= {});
+
 /** Brush size field: the diameter in pixels (the brush stores its radius). */
 function radiusField(b: PaintBrush, id: string, label = 'Size') {
   return numberField({
@@ -903,6 +906,7 @@ function brushPanels(mode: BrushMode): Child[] {
     out.push(
       panel('pt-wp-opts', 'Options', () => [
         checkbox('pt-an', 'Auto Normalize', !!ts.use_auto_normalize, (x) => ((ts.use_auto_normalize = x), changed()), { tip: 'Ensure all deform vertex groups sum to 1 while painting' }),
+        checkbox('pt-restrict', 'Restrict', !!wpOpts().use_group_restrict, (x) => ((wpOpts().use_group_restrict = x), changed()), { tip: 'Only paint vertices that already belong to the active group' }),
         am
           ? row(
               'Group',
