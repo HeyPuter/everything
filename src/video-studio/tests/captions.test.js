@@ -136,6 +136,16 @@ describe('subtitle files', () => {
     ]);
   });
 
+  it('keeps text that only looks like markup, and drops real tags', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:02,000\nif a < b and c > d\n\n2\n00:00:03,000 --> 00:00:04,000\n<font color="#ff0">One</font> <00:00:03.500><c.loud>two</c> <b>3</b> <3\n';
+    expect(parseSubtitles(srt).map((c) => c.text)).toEqual(['if a < b and c > d', 'One two 3 <3']);
+  });
+
+  it('round-trips captions with blank lines in them', () => {
+    const cues = [{ start: 1, end: 2, text: 'First line\n\n  \nafter blank' }, { start: 3, end: 4, text: 'Second' }];
+    expect(parseSubtitles(toSrt(cues))).toEqual([{ start: 1, end: 2, text: 'First line\nafter blank' }, { start: 3, end: 4, text: 'Second' }]);
+  });
+
   it('skips broken cues', () => {
     expect(parseSubtitles('1\n00:00:02,000 --> 00:00:01,000\nbackwards\n\n2\nno timing\n\n3\n00:00:01,000 --> 00:00:02,000\n\n')).toEqual([]);
   });

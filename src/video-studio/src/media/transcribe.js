@@ -213,10 +213,14 @@ function parseTime(s) {
   return Number(hh || 0) * 3600 + Number(mm) * 60 + Number(ss) + Number(frac.padEnd(3, '0')) / 1000;
 }
 
+// Formatting tags of SubRip and WebVTT cues, and WebVTT karaoke timestamps. Anything
+// else between < and > is text ("if a < b and c > d").
+const CUE_TAG = /<\/?(?:b|i|u|s|c|v|font|ruby|rt|lang)(?=[\s.>])[^>]*>|<(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}>/gi;
+
 function cleanCueText(lines) {
   return lines
     .join('\n')
-    .replace(/<[^>]*>/g, '')
+    .replace(CUE_TAG, '')
     .replace(/\{\\[^}]*\}/g, '')
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
@@ -259,7 +263,8 @@ function srtTime(sec) {
 export function toSrt(cues) {
   return cues
     .filter((c) => String(c.text).trim())
-    .map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${String(c.text).trim()}\n`)
+    // A blank line ends a cue in SubRip, so blank lines inside the text are dropped.
+    .map((c, i) => `${i + 1}\n${srtTime(c.start)} --> ${srtTime(c.end)}\n${String(c.text).trim().replace(/\n\s*\n/g, '\n')}\n`)
     .join('\n');
 }
 
