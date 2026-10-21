@@ -17,6 +17,15 @@ import { History } from './history.js';
 import { projectDuration, findClip, pruneTracks, cleanupTransitions, resolveOverlaps, MIN_CLIP, sequenceLength } from './timeline.js';
 import { switchTimeline } from './timelines.js';
 
+/** Fields a compound clip being edited has of its own; the rest (name, media, settings...) is the project's. */
+const NEST_FIELDS = new Set(['tracks', 'markers', 'range', 'transcript', 'guides']);
+
+/** Copy the project-wide fields of from onto to (a compound clip's edits to media, name or settings). */
+function adoptProjectFields(to, from) {
+  for (const k of Object.keys(to)) if (!NEST_FIELDS.has(k) && !Object.hasOwn(from, k)) delete to[k];
+  for (const k of Object.keys(from)) if (!NEST_FIELDS.has(k)) to[k] = structuredClone(from[k]);
+}
+
 export class EditorStore extends Emitter {
   constructor(project, { toggles } = {}) {
     super();
@@ -60,7 +69,8 @@ export class EditorStore extends Emitter {
 
   /**
    * Edit a compound clip's own timeline: the editor switches to its tracks
-   * (sharing the project's media and settings) with a history of its own.
+   * with a history of its own. It gets a copy of the project's media and
+   * settings; changes to them go back to the project when it closes.
    */
   openCompound(id) {
     const f = findClip(this.project, id);
@@ -68,10 +78,9 @@ export class EditorStore extends Emitter {
     const outer = this.project;
     const c = f.clip;
     this.nest.push({ outer, history: this.history, id, time: this.time });
-    this.project = { ...outer, tracks: structuredClone(c.sequence.tracks), markers: [], range: undefined, transcript: undefined, guides: undefined };
-    delete this.project.range;
-    delete this.project.transcript;
-    delete this.project.guides;
+    const inner = { tracks: structuredClone(c.sequence.tracks), markers: [] };
+    adoptProjectFields(inner, outer);
+    this.project = inner;
     this.history = new History();
     this._afterSwap(Math.max(0, this.time - c.start + c.in));
     return true;
@@ -93,6 +102,7 @@ export class EditorStore extends Emitter {
         const cc = findClip(p, frame.id)?.clip;
         if (!cc) return false;
         cc.sequence = { tracks: structuredClone(inner.tracks) };
+        adoptProjectFields(p, inner);
         const len = sequenceLength(cc.sequence);
         cc.in = Math.min(cc.in, Math.max(0, len - MIN_CLIP));
         cc.duration = Math.max(MIN_CLIP, Math.min(cc.duration, len - cc.in));
@@ -110,6 +120,7 @@ export class EditorStore extends Emitter {
       const outer = structuredClone(this.nest[i].outer);
       const c = findClip(outer, this.nest[i].id)?.clip;
       if (c) c.sequence = { tracks: structuredClone(inner.tracks) };
+      adoptProjectFields(outer, inner);
       inner = outer;
     }
     return inner;

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createCompound, breakApart, composeTransform, compoundClips } from '../src/model/compound.js';
 import { addClip, mainTrack, findClip, allClips, splitClip, trimClip, maxDuration, sequenceLength } from '../src/model/timeline.js';
-import { normalizeProject } from '../src/model/project.js';
+import { normalizeProject, makeClip } from '../src/model/project.js';
 import { fixture, clip, onMain, s } from './helpers.js';
 
 const RIPPLE = { ripple: true, linkOverlays: true };
@@ -154,6 +154,59 @@ describe('rendering compound clips', () => {
     expect(c.sequence.tracks.find((t) => t.main).clips[0].name).toBe('Inner');
     store.undo();
     expect(store.project.tracks.find((t) => t.main).clips[0].sequence.tracks.find((t) => t.main).clips[0].name).not.toBe('Inner');
+  });
+});
+
+describe('project fields while a compound clip is open', () => {
+  function open() {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { assetId: 'silent' }));
+    const comp = createCompound(p, [b.id], RIPPLE);
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    return { store, comp };
+  }
+  const assetIds = (p) => Object.keys(p.assets).sort();
+
+  it('keeps a project rename made inside', () => {
+    const { store } = open();
+    store.update('Rename project', (x) => void (x.name = 'New name'), { structural: false });
+    expect(store.projectForSave().name).toBe('New name');
+    store.closeCompound();
+    expect(store.project.name).toBe('New name');
+    expect(store.projectForSave().name).toBe('New name');
+    // The edits inside are one undo step out here, the rename included.
+    store.undo();
+    expect(store.project.name).toBe('Test');
+  });
+
+  it('keeps media imported inside after a cancelled edit or an undo', () => {
+    const { store, comp } = open();
+    store.update('Split', () => false); // cancelled
+    store.update('Trim', (x) => void (x.name = 'tmp'), { structural: false });
+    store.undo();
+    const asset = { ...store.project.assets.vid, id: 'newvid', name: 'new.mp4' };
+    store.update('Import new.mp4', (x) => void (x.assets.newvid = asset), { structural: false });
+    store.update('Add new.mp4', (x) => addClip(x, makeClip('video', { assetId: 'newvid', start: s(5), duration: s(3) }), { ...store.opts, main: true }));
+    expect(store.projectForSave().assets.newvid).toBeTruthy();
+    store.closeCompound();
+    const saved = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(saved.assets.newvid).toBeTruthy();
+    expect(findClip(saved, comp.id).clip.sequence.tracks.some((t) => t.clips.some((c) => c.assetId === 'newvid'))).toBe(true);
+  });
+
+  it('does not change the outer project before the compound clip is closed', () => {
+    const { store } = open();
+    const outer = store.nest[0].outer;
+    store.update('Rename project', (x) => void (x.name = 'Inner name'), { structural: false });
+    store.update('Drop media', (x) => void delete x.assets.aud, { structural: false });
+    expect(outer.name).toBe('Test');
+    expect(outer.assets.aud).toBeTruthy();
+    store.undo();
+    store.undo();
+    store.closeCompound();
+    expect(store.project.name).toBe('Test');
+    expect(assetIds(store.project)).toEqual(['aud', 'img', 'silent', 'vid']);
   });
 });
 
