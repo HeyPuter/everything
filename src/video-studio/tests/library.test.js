@@ -102,6 +102,49 @@ describe('Library projects', () => {
   });
 });
 
+describe('Library in two tabs', () => {
+  it('keeps a project created in another tab in the index', async () => {
+    const backend = memoryBackend();
+    const tabA = new Library(backend);
+    const tabB = new Library(backend);
+    const a = await tabA.createProject({ name: 'A' });
+    const b = await tabB.createProject({ name: 'B' });
+    a.name = 'A edited';
+    await tabA.saveProject(a);
+    const list = await new Library(backend).listProjects();
+    expect(list.map((p) => p.name).sort()).toEqual(['A edited', 'B']);
+    expect(list.some((p) => p.id === b.id)).toBe(true);
+  });
+
+  it('does not bring back a project deleted in another tab', async () => {
+    const backend = memoryBackend();
+    const tabA = new Library(backend);
+    const tabB = new Library(backend);
+    const a = await tabA.createProject({ name: 'A' });
+    const gone = await tabA.createProject({ name: 'Gone' });
+    await tabB.listProjects();
+    await tabB.trashProject(gone.id);
+    await tabB.deleteProject(gone.id);
+    await tabA.saveProject(a);
+    expect((await new Library(backend).listProjects()).map((p) => p.name)).toEqual(['A']);
+  });
+
+  it('falls back to the index it knows when the index cannot be read', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend);
+    const a = await lib.createProject({ name: 'A' });
+    await lib.createProject({ name: 'B' });
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      if (path === 'index.json') throw new Error('Simulated network failure');
+      return read(path);
+    };
+    await lib.saveProject(a);
+    backend.readJSON = read;
+    expect((await lib.listProjects()).map((p) => p.name).sort()).toEqual(['A', 'B']);
+  });
+});
+
 describe('Library media', () => {
   it('imports a file, stores it once by content and serves it back', async () => {
     const backend = memoryBackend();

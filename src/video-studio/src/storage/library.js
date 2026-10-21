@@ -78,7 +78,10 @@ export class Library extends Emitter {
   }
 
   async _updateIndex(fn) {
-    const index = this.index || (await this._readIndex());
+    // Read it again: another tab or device may have changed it since. If it
+    // can't be read, keep working from the list this tab knows.
+    let index = await this.backend.readJSON('index.json').catch(() => undefined);
+    if (!Array.isArray(index)) index = this.index || (await this._readIndex());
     const next = fn([...index]);
     this.index = next;
     await this.backend.writeJSON('index.json', next);
