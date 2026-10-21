@@ -13,8 +13,10 @@ import {
 import { svgToPng } from "./util.js";
 
 let lucide = null;
+// The whole set comes from its own module: importing "lucide" here as well
+// as for the interface's icons put all of them in the startup bundle.
 const loadIcons = async () =>
-  (lucide ??= import("lucide").then((m) => {
+  (lucide ??= import("lucide/dist/esm/iconsAndAliases.mjs").then((m) => {
     const out = {};
     for (const [name, value] of Object.entries(m))
       if (Array.isArray(value) && /^[A-Z]/.test(name)) out[name] = value;
