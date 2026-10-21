@@ -414,7 +414,9 @@ export class Store extends Emitter {
     if (this.pages.has(id)) return this.pages.get(id);
     if (this.pageLoads.has(id)) return this.pageLoads.get(id);
     const job = (async () => {
-      let raw = await this.backend.readJSON(`pages/${id}.json`);
+      // A sealed save still waiting to be retried is newer than the file.
+      const queued = this.timers.get(`pages/${id}.json`)?.getter();
+      let raw = typeof queued?.sealed === 'string' ? queued : await this.backend.readJSON(`pages/${id}.json`);
       const found = this.findPage(id);
       if (raw?.sealed) {
         // The page may have just moved, so its current section's key is
@@ -739,6 +741,7 @@ export class Store extends Emitter {
 
   async seal(path, value) {
     if (path.startsWith('pages/')) {
+      if (typeof value?.sealed === 'string') return value;
       const sectionId = this.protectionOf(value?.id);
       if (!sectionId) return value;
       const key = this.keys.get(sectionId);
@@ -800,6 +803,16 @@ export class Store extends Emitter {
     const pageIds = f.node.pages.map((p) => p.id);
     await this.flush();
     const key = this.keys.get(id);
+    // A save that failed (offline) is retried after the key is gone, when it
+    // could no longer be encrypted: seal what it will write now instead.
+    const trashed = this.trash.filter((e) => e.kind === 'page' && e.lockedSection === id).flatMap((e) => e.pages.map((p) => p.id));
+    for (const pid of [...pageIds, ...trashed]) {
+      const pending = this.timers.get(`pages/${pid}.json`);
+      const page = this.pages.get(pid);
+      if (!pending || !page) continue;
+      const sealed = { id: pid, sealed: await sealJSON(key, page) };
+      pending.getter = () => sealed;
+    }
     for (const entry of this.trash) {
       if (entry.kind === 'page' && entry.lockedSection === id && entry.pages.length) {
         entry.sealedPages = await sealJSON(key, entry.pages);

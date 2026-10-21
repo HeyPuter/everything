@@ -163,6 +163,31 @@ describe('password-protected sections: edge cases', () => {
   });
 });
 
+describe('password-protected sections: saving while offline', () => {
+  it('keeps an edit whose save failed when the section locks', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.protectSection(section.id, 'pw');
+    const page = await store.loadPage(meta.id);
+    page.outlines[0].html = '<p>written offline</p>';
+    store.pageChanged(page);
+    backend.failNext = 1000;
+    await store.lockSection(section.id);
+    expect(store.status).toBe('error');
+    backend.failNext = 0;
+    // Unlocking before the retry ran opens the edit, not the stale file.
+    expect(await store.unlockSection(section.id, 'pw')).toBe(true);
+    expect((await store.loadPage(meta.id)).outlines[0].html).toContain('written offline');
+    await store.lockSection(section.id);
+    await store.flush();
+    expect(store.status).toBe('saved');
+    expect(allText(backend)).not.toContain('written offline');
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    await fresh.unlockSection(section.id, 'pw');
+    expect((await fresh.loadPage(meta.id)).outlines[0].html).toContain('written offline');
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');
