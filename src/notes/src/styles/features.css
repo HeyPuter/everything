@@ -208,6 +208,9 @@
   color: var(--text-3);
   font-size: 12px;
 }
+.template-card:hover .template-desc {
+  color: var(--text-2);
+}
 
 /* ---------- deleted notes ---------- */
 .trash-list {

@@ -815,6 +815,10 @@
   color: var(--text-3);
   font-style: italic;
 }
+/* --text-3 is under 4.5:1 on the selected grey (also .result-path below). */
+.row[aria-selected="true"] .row-label.untitled {
+  color: var(--text-2);
+}
 .row-meta {
   color: var(--text-3);
   font-size: 11px;
@@ -982,6 +986,9 @@
 }
 .result[aria-current="true"] {
   background: var(--bg-selected);
+}
+.result[aria-current="true"] .result-path {
+  color: var(--text-2);
 }
 .result-title {
   font-weight: 600;
