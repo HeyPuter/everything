@@ -95,7 +95,7 @@ export function fragmentHtml(fragment) {
 
 /* ---------- HTML from this editor or another application ---------- */
 
-const BLOCKS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TR', 'TABLE', 'UL', 'OL', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'MAIN', 'ADDRESS', 'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD', 'HR', 'TBODY', 'THEAD', 'TFOOT', 'BODY']);
+const BLOCKS = new Set(['P', 'DIV', 'CENTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TR', 'TABLE', 'UL', 'OL', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'MAIN', 'ADDRESS', 'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD', 'HR', 'TBODY', 'THEAD', 'TFOOT', 'BODY']);
 const SKIPPED = new Set(['SCRIPT', 'STYLE', 'HEAD', 'TITLE', 'META', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'IFRAME', 'OBJECT', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 const NAMED_COLORS = { black: '000000', white: 'FFFFFF', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00', gray: '808080', grey: '808080', orange: 'FFA500', purple: '800080' };
 
@@ -182,6 +182,11 @@ function fromForeignHtml(body) {
     const ctx = { ...context };
     if (tag === 'A' && /^(https?:|mailto:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
     if (tag === 'PRE') ctx.pre = true;
+    // Alignment is inherited, as on a page: from text-align, the align attribute READMEs center
+    // blocks with or <center>. A table's align attribute centers the table, not its text, and the
+    // cells of a table centered by its container (as Word writes one) keep their own alignment.
+    const align = node.style?.textAlign || (tag !== 'TABLE' && node.getAttribute('align')) || (tag === 'CENTER' && 'center');
+    if (align || tag === 'TABLE') ctx.align = { center: 'center', right: 'right', justify: 'both' }[align && align.toLowerCase()] || null;
     if (tag === 'UL' || tag === 'OL') ctx.list = { kind: tag === 'UL' ? 'bullet' : 'number', level: context.list ? Math.min(8, context.list.level + 1) : 0 };
     if ((tag === 'TD' || tag === 'TH') && current?.text && !/\t$/.test(current.text)) {
       const last = current.runs.at(-1); last.text = last.text.replace(/ +$/, ''); current.text = current.text.replace(/ +$/, '');
@@ -194,8 +199,7 @@ function fromForeignHtml(body) {
       end();
       if (!['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'DL', 'BODY'].includes(tag)) {
         const heading = /^H([1-6])$/.exec(tag)?.[1];
-        const align = { center: 'center', right: 'right', justify: 'both' }[node.style?.textAlign];
-        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: align || null, list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : wordListItem(node) });
+        start({ styleName: heading ? `Heading ${heading}` : 'Normal', alignment: ctx.align || null, list: tag === 'LI' ? ctx.list || { kind: 'bullet', level: 0 } : wordListItem(node) });
       }
     }
     if (tag === 'LI') ctx.item = current;

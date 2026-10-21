@@ -15,3 +15,13 @@ it('keeps the text of HTML in a Markdown file, but none of its scripts or styles
   const readme = '<p align="center">\n  A fast, private word processor.\n</p>\n\n# Install\n\n<details>\n<summary>Advanced options</summary>\nSet the port with PORT.\n</details>\n\nPress <kbd>Ctrl</kbd>+<kbd>S</kbd> to save.<br>Done.\n\n<script>alert(1)</script>\n<style>p { color: red }</style>\n\nEnd';
   expect(open(readme)).toEqual(['A fast, private word processor.', 'Install', 'Advanced options Set the port with PORT.', 'Press Ctrl+S to save.\vDone.', 'End']);
 });
+
+it('keeps the alignment that align attributes and <center> give blocks', () => {
+  const doc = new TextDocument([paragraph()]);
+  const fragment = htmlFragment(markdownHtml('<h1 align="center">Documents</h1>\n\n<p align="right">A fast word processor.</p>\n\n<div align="center">\n\nLogo line\n\n</div>\n\n<center>Old style</center>\n\n<table align="center"><tr><td>Cell</td></tr></table>\n\n<div align="center"><table><tr><td>Centered table</td></tr></table></div>\n\nBody'));
+  for (const p of fragment.paragraphs) p.mark = true;
+  pasteFragment(doc, fragment);
+  expect(doc.paragraphs.map(p => [p.runs.map(r => r.text).join(''), p.format?.alignment ?? 'left'])).toEqual([
+    ['Documents', 'center'], ['A fast word processor.', 'right'], ['Logo line', 'center'], ['Old style', 'center'], ['Cell', 'left'], ['Centered table', 'left'], ['Body', 'left'],
+  ]);
+});
