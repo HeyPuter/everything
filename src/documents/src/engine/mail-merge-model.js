@@ -4,7 +4,7 @@
 // the reader builds them, so they save as ordinary MERGEFIELD, ADDRESSBLOCK,
 // GREETINGLINE and rule fields (complex fields, with nested operands kept in
 // the instruction).
-import { bodyFieldRanges } from './body-fields.js';
+import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { bodyFieldInstruction } from './docx-body-fields.js';
 import { pageFieldSegments } from './docx-page-fields.js';
 import { paragraph } from './model.js';
@@ -53,7 +53,8 @@ export function insertMergeField(model, instruction, text = null) {
   const { index, offset } = paragraphAt(model.paragraphs, at);
   const p = model.paragraphs[index];
   for (const marker of p.fieldMarkers || []) if (marker.type === 'end' && empty.has(marker.field.id)) marker.offset = offset;
-  (p.fieldMarkers ||= []).push({ type: 'start', field, offset, order: order++ }, { type: 'end', field, offset: offset + shown.length, order: order++ });
+  const startOrder = order++, endOrder = order++;
+  (p.fieldMarkers ||= []).push({ type: 'start', field, offset, order: startOrder }, { type: 'end', field, offset: offset + shown.length, order: shown ? newFieldEndOrder(p, offset + shown.length, endOrder) : endOrder });
   model.hasBodyFields = true;
   bodyFieldRanges(model.paragraphs);
   model.select(at + shown.length);

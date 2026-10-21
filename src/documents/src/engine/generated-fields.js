@@ -3,7 +3,7 @@
 // paragraphs between its begin and end delimiters; an inline field (CITATION)
 // owns a span of one paragraph. Results are ordinary runs between zero-width
 // field markers, so the DOCX writer emits begin/instr/separate/result/end.
-import { bodyFieldRanges, ENTRY_FIELDS } from './body-fields.js';
+import { bodyFieldRanges, ENTRY_FIELDS, newFieldEndOrder } from './body-fields.js';
 import { bodyFieldInstruction } from './docx-body-fields.js';
 import { pageFieldSegments } from './docx-page-fields.js';
 import { hyperlinkId } from './hyperlinks.js';
@@ -172,7 +172,8 @@ export function writeInlineField(doc, { field, existing = null, runs }) {
     doc.select(start);
     doc.replaceUntracked(text, { checkpoint: false });
     const index = paragraphIndexAt(doc, start), base = paragraphOffset(doc, index);
-    (doc.paragraphs[index].fieldMarkers ||= []).push({ type: 'start', field, offset: start - base, order: nextMarkerOrder() }, { type: 'end', field, offset: start - base + text.length, order: nextMarkerOrder() });
+    const startOrder = nextMarkerOrder(), endOrder = nextMarkerOrder(), p = doc.paragraphs[index];
+    (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start - base, order: startOrder }, { type: 'end', field, offset: start - base + text.length, order: newFieldEndOrder(p, start - base + text.length, endOrder) });
     doc.hasBodyFields = true;
   }
   let offset = start;

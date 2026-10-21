@@ -148,6 +148,16 @@ describe('editing merge fields in the model', () => {
     const pkg = await DocxPackage.open(new Uint8Array(await blank.export().arrayBuffer()));
     return { pkg, d: model(pkg) };
   };
+  it('inserts a merge field just before another field, beside it', async () => {
+    const pkg = await DocxPackage.open(fixture('letter.docx')), d = model(pkg);
+    const before = bodyFieldRanges(d.paragraphs), target = before[3];
+    d.select(target.start); insertMergeField(d, ' MERGEFIELD Title ');
+    const after = bodyFieldRanges(d.paragraphs), added = after.find(r => r.field.instruction === ' MERGEFIELD Title ');
+    expect(added.parentId).toBeUndefined();
+    expect(after.find(r => r.field.id === target.field.id).start).toBe(added.end);
+    const again = model(await DocxPackage.open(await save(pkg, d)));
+    expect(bodyFieldRanges(again.paragraphs).map(r => r.field.instruction)).toEqual(after.map(r => r.field.instruction));
+  });
   it('inserts fields that save as complex fields and preview record values', async () => {
     const { pkg, d } = await blankModel();
     d.select(6); insertMergeField(d, ' MERGEFIELD "First Name" ');

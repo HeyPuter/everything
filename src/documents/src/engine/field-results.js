@@ -7,7 +7,7 @@
 import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { newBodyField } from './toc.js';
-import { bodyFieldRanges } from './body-fields.js';
+import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -177,13 +177,18 @@ export function insertBodyField(model, instruction, result) {
   const text = String(result ?? '').replace(/[\n\f\v]/g, ' ');
   const field = newBodyField(instruction);
   if (field.type === 'HYPERLINK' || field.type === 'TOC') throw new Error('Insert that field from its own command.');
+  // Text typed at an empty field result fills it; a new field beside it leaves it empty.
+  const [from, to] = model.range;
+  const empty = from === to && model.hasBodyFields ? new Set(bodyFieldRanges(model.paragraphs).filter(r => r.start === from && r.end === from).map(r => r.field.id)) : new Set();
   model.replace(text);
   // With Track Changes on, the result follows the struck-out selection: it ends at the caret.
   const start = model.selection.focus - text.length;
   let at = 0, index = 0;
   while (index < model.paragraphs.length - 1 && at + model.paragraphs[index].runs.reduce((n, r) => n + r.text.length, 0) < start) at += model.paragraphs[index++].runs.reduce((n, r) => n + r.text.length, 0) + 1;
   const p = model.paragraphs[index], order = Math.max(0, ...model.paragraphs.flatMap(q => (q.fieldMarkers || []).map(m => m.order ?? 0))) + 1;
-  (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start - at, order }, { type: 'end', field, offset: start - at + text.length, order: order + 1 });
+  for (const marker of p.fieldMarkers || []) if (marker.type === 'end' && empty.has(marker.field.id)) marker.offset = start - at;
+  const end = start - at + text.length, endOrder = text ? newFieldEndOrder(p, end, order + 1) : order + 1;
+  (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start - at, order }, { type: 'end', field, offset: end, order: endOrder });
   model.hasBodyFields = true;
   bodyFieldRanges(model.paragraphs);
   model.select(start + text.length);

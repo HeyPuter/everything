@@ -98,6 +98,13 @@ export function placeBodyFields(paragraphs, ranges) {
   return output;
 }
 
+/**
+ * The order of a new field's end marker at `offset` in paragraph p, after its result was inserted: before
+ * the field markers already there. Those were at the insertion point and moved past the new result (the
+ * start of a field the new one was inserted before), or end an empty field the result filled.
+ */
+export const newFieldEndOrder = (p, offset, order) => Math.min(order, ...(p.fieldMarkers || []).filter(m => m.offset === offset).map(m => (m.order ?? 0) - 1));
+
 // Whole-cell/row deletion removes its field markers with the owned paragraphs.
 // New blank cells must never inherit those markers from a formatting template.
 

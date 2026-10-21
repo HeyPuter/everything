@@ -1,7 +1,7 @@
 // Captions and cross-references as DOCX fields express them: a caption is a paragraph
 // "<Label> <SEQ Label>" (§17.16.5.56); a cross-reference is a REF, PAGEREF or NOTEREF
 // field (§17.16.5.51, §17.16.5.45, §17.16.5.40) pointing at a hidden _Ref bookmark.
-import { bodyFieldRanges } from './body-fields.js';
+import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
 import { bookmarkEntries, newBookmarkMarkers } from './bookmarks.js';
 import { outlineEntries } from './outline.js';
 import { hyperlinkId } from './hyperlinks.js';
@@ -19,7 +19,8 @@ const paragraphAt = (doc, position) => { let i = 0, pos = 0; while (i < doc.para
 export const sequenceId = label => label.trim().replace(/\s+/g, '_');
 
 function addFieldMarkers(p, field, start, end, link) {
-  (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start, order: nextMarkerOrder(), ...(link ? { link } : {}) }, { type: 'end', field, offset: end, order: nextMarkerOrder(), ...(link ? { link } : {}) });
+  const startOrder = nextMarkerOrder(), endOrder = nextMarkerOrder();
+  (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start, order: startOrder, ...(link ? { link } : {}) }, { type: 'end', field, offset: end, order: end > start ? newFieldEndOrder(p, end, endOrder) : endOrder, ...(link ? { link } : {}) });
 }
 
 /** Labels in use: the built-in ones, `custom` labels and every SEQ identifier already in the document. */
