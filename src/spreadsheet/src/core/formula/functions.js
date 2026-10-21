@@ -1613,12 +1613,15 @@ export const FUNCTIONS = {
   PRODUCT: { refArgs: true, fn: num(product) }, // nothing to multiply is 0
   MEDIAN: {
     refArgs: true, // a referenced text or boolean cell is skipped, whether the reference is one cell or a range
-    fn: num((l) => {
-      if (!l.length) return err('#NUM!');
-      const s = [...l].sort((a, b) => a - b);
+    fn: (args) => {
+      // A column measured against its median, =B2-MEDIAN($B$2:$B$5000) filled down, sorts the range once
+      // for every row, as LARGE and RANK do, rather than once per row.
+      const s = args.length === 1 ? sortedNumbers(args[0]) : num((l) => l.sort((a, b) => a - b))(args);
+      if (isError(s)) return s;
+      if (!s.length) return err('#NUM!');
       const mid = s.length >> 1;
       return s.length % 2 ? s[mid] : midpoint(s[mid - 1], s[mid]);
-    }),
+    },
   },
   STDEV: {
     refArgs: true, // a referenced text or boolean cell is skipped, whether the reference is one cell or a range
