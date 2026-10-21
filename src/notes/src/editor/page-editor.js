@@ -237,6 +237,20 @@ export class PageEditor extends Emitter {
       }
     };
     document.addEventListener('selectionchange', this.onSelectionChange);
+    // Paper is white: print a dark page as a light one (light text, ink
+    // and headings would barely show), then put it back.
+    this.onBeforePrint = () => {
+      if (this.surface === 'light') return;
+      this.surfaceBeforePrint = this.surface;
+      this.setSurface('light');
+    };
+    this.onAfterPrint = () => {
+      if (this.surfaceBeforePrint === undefined) return;
+      this.setSurface(this.surfaceBeforePrint);
+      this.surfaceBeforePrint = undefined;
+    };
+    window.addEventListener('beforeprint', this.onBeforePrint);
+    window.addEventListener('afterprint', this.onAfterPrint);
   }
 
   pagePoint(e) {
@@ -962,6 +976,8 @@ export class PageEditor extends Emitter {
   destroy() {
     this.flush();
     document.removeEventListener('selectionchange', this.onSelectionChange);
+    window.removeEventListener('beforeprint', this.onBeforePrint);
+    window.removeEventListener('afterprint', this.onAfterPrint);
     this.resizeObserver.disconnect();
     this.scroller.remove();
   }
