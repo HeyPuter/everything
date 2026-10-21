@@ -12530,6 +12530,24 @@ export class Workbook extends EventTarget {
     return out;
   }
 
+  /**
+   * How many values spillEntries lists for the rectangle, counted without listing them: an array declared over
+   * the whole sheet spills seventeen billion, which no list holds.
+   */
+  spillCount(sheetId, range) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return 0;
+    let n = 0;
+    for (const a of this._ensureSpills(sheet).anchors.values()) {
+      const rows = Math.min(a.r + a.rows - 1, range.r2) - Math.max(a.r, range.r1) + 1;
+      const cols = Math.min(a.c + a.cols - 1, range.c2) - Math.max(a.c, range.c1) + 1;
+      if (rows <= 0 || cols <= 0) continue;
+      const anchorIn = a.r >= range.r1 && a.r <= range.r2 && a.c >= range.c1 && a.c <= range.c2;
+      n += rows * cols - (anchorIn ? 1 : 0);
+    }
+    return n;
+  }
+
   /* ---------- Evaluation ---------- */
 
   getValue(sheetId, r, c) {

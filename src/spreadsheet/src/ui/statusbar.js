@@ -61,7 +61,6 @@ function* selectedNumbers(wb, sheetId, ranges) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return;
   const hidden = sheet.filterHidden || null;
-  const spills = wb.spillEntries(sheetId);
   for (const range of ranges) {
     const values = [];
     eachStored(sheet, range, (r, c, cell) => {
@@ -71,7 +70,7 @@ function* selectedNumbers(wb, sheetId, ranges) {
       if (typeof v === 'number') values.push(v);
     });
     yield* values;
-    for (const { r, c, value: v } of spills) {
+    for (const { r, c, value: v } of wb.spillEntries(sheetId, range)) {
       if (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2 || hidden?.has(r)) continue;
       if (typeof v === 'number') yield v;
     }
@@ -85,9 +84,11 @@ function rawSummary(wb, sheetId, range) {
   if (!sheet) return null;
   // The scan walks the selection cell by cell, or the sheet's cells (and spilled
   // values) when there are fewer of those: selecting the whole sheet costs what
-  // the sheet holds, not its area, so Ctrl+A still gets its Sum and Count.
-  const spills = wb.spillEntries(sheetId);
-  if (Math.min(total, sheet.cells.size + spills.length) > MAX_SUMMARY_CELLS) return null;
+  // the sheet holds, not its area, so Ctrl+A still gets its Sum and Count. Only the
+  // values spilled into the selection are listed, once they are known to be few: an
+  // array over the whole sheet spills more than any list holds.
+  if (Math.min(total, sheet.cells.size + wb.spillCount(sheetId, range)) > MAX_SUMMARY_CELLS) return null;
+  const spills = wb.spillEntries(sheetId, range);
   let sum = 0;
   let nums = 0;
   let count = 0;
