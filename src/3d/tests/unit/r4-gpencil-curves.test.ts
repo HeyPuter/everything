@@ -374,3 +374,31 @@ describe('dot placement', () => {
     expect(radii.size).toBeGreaterThan(3);
   });
 });
+
+describe('handle placement matches the reference results', () => {
+  // control points and handles recorded from the reference app (Set Curve Type on a fitted stroke)
+  const P = [
+    [-1.281, 0, -0.315],
+    [-0.653, 0, 0.27],
+    [-0.306, 0, 0.294],
+    [-0.365, 0, -0.29],
+  ];
+  const stroke = () => newStroke(P.map((p) => newPoint(p as [number, number, number])));
+  it('Catmull-Rom → Bézier', () => {
+    const b = setCurveType(setCurveType(stroke(), GP_CATMULL_ROM, false), GP_BEZIER, true);
+    const near = (a: number[] | undefined, e: number[]) => e.forEach((x, k) => expect(a![k]).toBeCloseTo(x, 3));
+    near(b.points[0].handle_left, [-1.3857, 0, -0.4125]);
+    near(b.points[0].handle_right, [-1.1763, 0, -0.2175]);
+    near(b.points[1].handle_left, [-0.8155, 0, 0.1685]);
+    near(b.points[1].handle_right, [-0.4905, 0, 0.3715]);
+  });
+  it('poly → Bézier (vector handles)', () => {
+    const d = withDerived(fromStrokes([setCurveType(stroke(), GP_BEZIER, false)]));
+    const at = (a: Float32Array, i: number) => [a[i * 3], a[i * 3 + 1], a[i * 3 + 2]];
+    const near = (a: number[], e: number[]) => e.forEach((x, k) => expect(a[k]).toBeCloseTo(x, 3));
+    near(at(d.handle_left!, 0), [-1.4903, 0, -0.51]);
+    near(at(d.handle_right!, 0), [-1.0717, 0, -0.12]);
+    near(at(d.handle_left!, 1), [-0.8623, 0, 0.075]);
+    near(at(d.handle_right!, 1), [-0.5373, 0, 0.278]);
+  });
+});
