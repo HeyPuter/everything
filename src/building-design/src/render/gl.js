@@ -37,7 +37,7 @@ export function createProgram(gl, vs, fs, name = 'program') {
  * Per-element flags in an R8UI texture (one texel per element index):
  * 1 selected, 2 hovered, 4 hidden, 8 halftone, 16 isolated-out.
  */
-export const FLAG = { selected: 1, hover: 2, hidden: 4, halftone: 8, dim: 16 };
+export const FLAG = { selected: 1, hover: 2, hidden: 4, halftone: 8, dim: 16, color: 32, transparent: 64 };
 
 export class StateTexture {
   constructor(gl, width = 1024) {
@@ -45,7 +45,10 @@ export class StateTexture {
     this.width = width;
     this.rows = 1;
     this.data = new Uint8Array(width);
+    // Per-element colour override (rgb) and opacity (a), for 3D views.
+    this.rgba = new Uint8Array(width * 4);
     this.tex = gl.createTexture();
+    this.ctex = gl.createTexture();
     this.dirty = true;
     this.alloc();
   }
@@ -69,18 +72,27 @@ export class StateTexture {
       const d = new Uint8Array(this.width * rows);
       d.set(this.data);
       this.data = d;
+      const c = new Uint8Array(this.width * rows * 4);
+      c.set(this.rgba);
+      this.rgba = c;
       this.rows = rows;
       this.dirty = true;
     }
   }
 
-  /** Replace all flags: map of element index -> flags. */
+  /** Replace all flags: [element index, flags, rgba?] entries. */
   setAll(entries) {
     this.data.fill(0);
     let max = 0;
     for (const [i] of entries) if (i > max) max = i;
     this.ensure(max);
-    for (const [i, f] of entries) this.data[i] = f;
+    this.rgba.fill(255);
+    this.anySeeThrough = false;
+    for (const [i, f, c] of entries) {
+      this.data[i] = f;
+      if (f & 64) this.anySeeThrough = true;
+      if (c) this.rgba.set(c, i * 4);
+    }
     this.dirty = true;
   }
 
@@ -91,12 +103,26 @@ export class StateTexture {
     if (this.dirty) {
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, this.width, this.rows, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, this.data);
+      gl.bindTexture(gl.TEXTURE_2D, this.ctex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, this.width, this.rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.rgba);
+      gl.bindTexture(gl.TEXTURE_2D, this.tex);
       this.dirty = false;
     }
   }
 
+  /** Bind the colour override texture (after bind(), which uploads it). */
+  bindColors(unit) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, this.ctex);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
   dispose() {
     this.gl.deleteTexture(this.tex);
+    this.gl.deleteTexture(this.ctex);
   }
 }
 

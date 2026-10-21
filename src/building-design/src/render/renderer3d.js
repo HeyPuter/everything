@@ -19,6 +19,7 @@ layout(location=2) in vec4 aCol;
 layout(location=3) in uint aElem;
 uniform mat4 uVP;
 uniform vec3 uOrigin;
+uniform sampler2D uOverride;
 ${STATE_GLSL}
 out vec3 vN;
 out vec4 vCol;
@@ -31,6 +32,12 @@ void main() {
   vW = aPos + uOrigin;
   vN = aNrm;
   vCol = aCol;
+  if ((vFlags & 96u) != 0u) {
+    int i = int(aElem);
+    vec4 ov = texelFetch(uOverride, ivec2(i % uStateW, i / uStateW), 0);
+    if ((vFlags & 32u) != 0u) vCol.rgb = ov.rgb;
+    if ((vFlags & 64u) != 0u) vCol.a = min(vCol.a, ov.a);
+  }
   gl_Position = uVP * vec4(aPos, 1.0);
   if ((vFlags & 4u) != 0u) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }`;
@@ -66,6 +73,7 @@ uniform int uShadowOn;
 uniform mat4 uLightVP;
 uniform highp sampler2DShadow uShadow;
 uniform float uShadowTexel;
+uniform int uPass;
 ${CLIP_GLSL}
 out vec4 o;
 // 1 where the sun reaches the point, 0 in shadow (filtered over a few texels).
@@ -83,6 +91,10 @@ float sunlit(vec3 n) {
 }
 void main() {
   if (clipped(vW)) discard;
+  // Elements made see-through by an override draw with the transparent pass.
+  bool seeThrough = (vFlags & 64u) != 0u;
+  if (uPass == 0 && seeThrough) discard;
+  if (uPass == 2 && !seeThrough) discard;
   vec3 n = normalize(vN);
   if (!gl_FrontFacing) n = -n;
   vec3 base = vCol.rgb;
@@ -121,7 +133,7 @@ flat in uint vFlags;
 flat in uint vElem;
 ${CLIP_GLSL}
 void main() {
-  if (clipped(vW)) discard;
+  if (clipped(vW) || (vFlags & 64u) != 0u) discard;
 }`;
 
 const SHADOW_SIZE = 2048;
@@ -429,6 +441,7 @@ export class Renderer3D {
       gl.uniform1i(p.u.uState, 0);
       gl.uniform1i(p.u.uStateW, this.state.width);
     }
+    if (p.u.uOverride) gl.uniform1i(p.u.uOverride, 2);
     if (p.u.uClip) {
       const arr = new Float32Array(32);
       clip.slice(0, 8).forEach((c, i) => arr.set(c, i * 4));
@@ -448,16 +461,19 @@ export class Renderer3D {
     const clip = opts.clip || [];
     cam.vpF32 = this.relativeVP(cam.vp);
     this.state.bind(0);
+    this.state.bindColors(2);
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
     const shadows = !!opts.sun && opts.sun[2] > 0.01 && style !== STYLE.wireframe && style !== STYLE.hidden && this.renderShadows(opts.sun, clip, cam);
     this.state.bind(0);
+    this.state.bindColors(2);
     if (style !== STYLE.wireframe) {
       const p = this.mesh;
       this.setUniformsCommon(p, cam, clip);
       gl.uniform1i(p.u.uStyle, style);
       gl.uniform1i(p.u.uShadowOn, shadows ? 1 : 0);
+      gl.uniform1i(p.u.uPass, 0);
       gl.uniform1i(p.u.uShadow, 1);
       if (shadows) {
         gl.uniformMatrix4fv(p.u.uLightVP, false, this.shadow.vp);
@@ -513,10 +529,20 @@ export class Renderer3D {
       gl.enable(gl.BLEND);
       gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
+      gl.uniform1i(p.u.uPass, 1);
       for (const c of this.chunks) {
         if (!c.transparent) continue;
         gl.bindVertexArray(c.vao);
         gl.drawArrays(gl.TRIANGLES, c.opaque, c.transparent);
+      }
+      // Opaque geometry that an override makes see-through.
+      if (this.state.anySeeThrough) {
+        gl.uniform1i(p.u.uPass, 2);
+        for (const c of this.chunks) {
+          if (!c.opaque) continue;
+          gl.bindVertexArray(c.vao);
+          gl.drawArrays(gl.TRIANGLES, 0, c.opaque);
+        }
       }
     }
     gl.depthMask(true);
@@ -571,6 +597,7 @@ export class Renderer3D {
       gl.uniform1i(p.u.uState, 0);
       gl.uniform1i(p.u.uStateW, this.state.width);
     }
+    if (p.u.uOverride) gl.uniform1i(p.u.uOverride, 2);
     if (p.u.uClip) {
       const arr = new Float32Array(32);
       clip.slice(0, 8).forEach((cl, i) => arr.set(cl, i * 4));

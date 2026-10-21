@@ -346,7 +346,10 @@ function overrideCells(ov, label, onChange) {
   weight.addEventListener('change', () => ((ov.weight = weight.value ? +weight.value : null), onChange()));
   const half = h('input', { type: 'checkbox', checked: !!ov.halftone, 'aria-label': `${label} halftone` });
   half.addEventListener('change', () => ((ov.halftone = half.checked), onChange()));
-  return [h('td', colorWrap), h('td', weight), h('td.center', half)];
+  const trans = h('select.input.sm', { 'aria-label': `${label} transparency` }, [0, 25, 50, 75, 90].map((v) => h('option', { value: String(v) }, v ? `${v}%` : 'None')));
+  trans.value = String(ov.transparency || 0);
+  trans.addEventListener('change', () => ((ov.transparency = +trans.value || null), onChange()));
+  return [h('td', colorWrap), h('td', weight), h('td.center', half), h('td', trans)];
 }
 
 /** Override the graphics of the selected elements in the active view. */
@@ -371,7 +374,7 @@ export function elementOverrideDialog(app) {
     size: 'md',
     body: h(
       'div',
-      h('table.vg-table', h('thead', h('tr', h('th', 'Selection'), h('th', 'Lines'), h('th', 'Weight'), h('th.center', 'Halftone'))), h('tbody', row)),
+      h('table.vg-table', h('thead', h('tr', h('th', 'Selection'), h('th', 'Color'), h('th', 'Weight'), h('th.center', 'Halftone'), h('th', 'Transparency'))), h('tbody', row)),
       h('p.field-hint', 'These settings apply in this view only and win over category and filter settings.'),
     ),
     actions: [
@@ -388,6 +391,7 @@ function cleanOverride(o) {
   if (o.color) out.color = o.color;
   if (o.weight) out.weight = o.weight;
   if (o.halftone) out.halftone = true;
+  if (o.transparency) out.transparency = +o.transparency;
   return Object.keys(out).length ? out : null;
 }
 
@@ -417,7 +421,7 @@ export function graphicsDialog(app, target) {
       const ov = overrides[c.id] || (overrides[c.id] = {});
       tbody.append(h('tr', h('td.center', vis), h('td', c.label), ...overrideCells(ov, c.label, () => {})));
     }
-    return h('table.vg-table', h('thead', h('tr', h('th', 'Visible'), h('th', 'Category'), h('th', 'Line color'), h('th', 'Line weight'), h('th', 'Halftone'))), tbody);
+    return h('table.vg-table', h('thead', h('tr', h('th', 'Visible'), h('th', 'Category'), h('th', 'Color'), h('th', 'Line weight'), h('th', 'Halftone'), h('th', 'Transparency'))), tbody);
   };
   const filterTab = () => {
     const wrap = h('div');
@@ -445,7 +449,7 @@ export function graphicsDialog(app, target) {
       filters.push({ id: add.value, visible: true, override: {} });
       render();
     });
-    if (filters.length) wrap.append(h('table.vg-table', h('thead', h('tr', h('th', 'Filter'), h('th', 'Visible'), h('th', 'Line color'), h('th', 'Line weight'), h('th', 'Halftone'), h('th', h('span.sr-only', 'Remove')))), tbody));
+    if (filters.length) wrap.append(h('table.vg-table', h('thead', h('tr', h('th', 'Filter'), h('th', 'Visible'), h('th', 'Color'), h('th', 'Line weight'), h('th', 'Halftone'), h('th', 'Transparency'), h('th', h('span.sr-only', 'Remove')))), tbody));
     else wrap.append(h('p.props-empty', 'No filters in this view. Filters show, hide or restyle elements that match rules, such as walls whose type name contains "Fire".'));
     wrap.append(
       h('div.inline', { style: { marginTop: '8px', gap: '8px' } }, available.length ? add : null, h('button.btn.sm', { type: 'button', onClick: () => filtersDialog(app).then(() => render()) }, icon('filter', 14), 'Edit filters...')),
@@ -469,7 +473,7 @@ export function graphicsDialog(app, target) {
     cb.addEventListener('change', () => (clearIds = cb.checked));
     body.append(h('label.check', { style: { marginTop: '10px' } }, cb, `Show the ${hiddenIds.length} element${hiddenIds.length === 1 ? '' : 's'} hidden individually in this view`));
   }
-  body.append(h('p.field-hint', 'Line colors and weights apply to plans and to annotations; halftone and filters apply in every view.'));
+  body.append(h('p.field-hint', 'Colors and weights restyle lines in plans and annotations; in 3D views colors tint surfaces and transparency makes them see-through. Halftone and filters apply in every view.'));
   return openDialog({
     title: `Visibility/Graphics: ${target.name}`,
     body,

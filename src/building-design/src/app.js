@@ -26,7 +26,7 @@ import { temporaryDimensions } from './editor/tempdims.js';
 import { drawTempDim } from './views/overlay.js';
 import { deleteElements, moveElements, uniqueName, expandGroups } from './core/ops.js';
 import { groupable, createGroup, propagateGroup, ungroup } from './core/groups.js';
-import { viewGraphics, hiddenByFilters, templateSettings, templateKindOf } from './core/graphics.js';
+import { viewGraphics, hiddenByFilters, templateSettings, templateKindOf, hasGraphics } from './core/graphics.js';
 import { phaseLook, phased } from './core/phases.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
@@ -722,7 +722,7 @@ export class App {
       const el = this.doc.get(id);
       const reveal = this.reveal.has(view.id);
       if (el && this.hiddenInView(view, el)) f |= reveal ? FLAG.halftone : FLAG.hidden;
-      else if (el && (view.overrides || view.filters?.length) && viewGraphics(this.doc, view, el).halftone) f |= FLAG.halftone;
+      else if (el && hasGraphics(this.doc, view) && viewGraphics(this.doc, view, el).halftone) f |= FLAG.halftone;
       if (el && this.phaseCount > 1 && phased(el)) {
         const look = phaseLook(this.doc, view, el);
         if (look === 'hidden') f |= reveal ? FLAG.halftone : FLAG.hidden;
@@ -759,10 +759,24 @@ export class App {
     const entries = [];
     const scene = this.scene;
     if (!scene) return;
+    // 3D views show colour and transparency overrides on surfaces.
+    const view = this.activeView;
+    const surfaces = view && !isPlanView(view) && view.kind !== 'drafting' && view.kind !== 'legend' && !!(view.overrides || view.filters?.length || view.elOverrides);
     for (let i = 0; i < scene.ids.length; i++) {
       const id = scene.ids[i];
-      const f = this.flagsOf(id);
-      if (f) entries.push([i + 1, f]);
+      let f = this.flagsOf(id);
+      let rgba = null;
+      if (surfaces && !(f & FLAG.hidden)) {
+        const el = this.doc.get(id);
+        const g = el ? viewGraphics(this.doc, view, el, { surfaces: true }) : null;
+        if (g?.color || g?.transparency) {
+          const n = parseInt(String(g.color || '#ffffff').slice(1, 7), 16) || 0;
+          rgba = [(n >> 16) & 255, (n >> 8) & 255, n & 255, Math.round(255 * (1 - Math.min(0.95, (+g.transparency || 0) / 100)))];
+          if (g.color) f |= FLAG.color;
+          if (g.transparency) f |= FLAG.transparent;
+        }
+      }
+      if (f) entries.push([i + 1, f, rgba]);
     }
     this.viewport.state.setAll(entries);
   }

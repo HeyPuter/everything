@@ -123,12 +123,13 @@ export function filterMatches(doc, filter, el) {
  * Graphics of an element in a view: { hidden, color, weight, halftone }.
  * Category overrides first, then filters in order (later ones win).
  */
-export function viewGraphics(doc, view, el) {
-  const out = { hidden: false, color: null, weight: null, halftone: false };
+export function viewGraphics(doc, view, el, { surfaces = false } = {}) {
+  const out = { hidden: false, color: null, weight: null, halftone: false, transparency: 0 };
   if (!view || !el) return out;
   const cat = categoryOf(el, doc);
   // Object styles set the project-wide look of a category; views override it.
-  const os = cat ? doc.get('project')?.objectStyles?.[cat] : null;
+  // (They style lines; 3D surfaces only take a view's own overrides.)
+  const os = cat && !surfaces ? doc.get('project')?.objectStyles?.[cat] : null;
   if (os) merge(out, { color: os.color, weight: os.weight });
   const co = cat ? view.overrides?.[cat] : null;
   if (co) merge(out, co);
@@ -148,6 +149,12 @@ function merge(out, o) {
   if (o.color) out.color = o.color;
   if (o.weight) out.weight = +o.weight;
   if (o.halftone) out.halftone = true;
+  if (o.transparency) out.transparency = +o.transparency;
+}
+
+/** Does a view change any element's graphics (so they need computing per element)? */
+export function hasGraphics(doc, view) {
+  return !!(view?.overrides || view?.filters?.length || view?.elOverrides || doc.get('project')?.objectStyles);
 }
 
 /** True when a view's filters hide the element. */
