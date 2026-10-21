@@ -6153,7 +6153,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     mentionPeople: () => mentionNotifier.candidates(),
     onMentioned: (posted) => { mentionNotifier.notify(posted).catch((e) => console.error(e)); } });
   const mentionAlerts = createMentionAlerts({
-    wb, me: () => session.user, fileKey: () => doc.uid || doc.path,
+    // Someone a shared workbook was shared with has no file of it: what they have seen is kept by the room.
+    wb, me: () => session.user, fileKey: () => doc.uid || doc.path || (room ? `room:${room.room}` : null),
     goTo: (sheetId, r, c) => { if (destroyed) return; if (selectLocation(sheetId, { r1: r, c1: c, r2: r, c2: c })) comments.run('showComment'); },
   });
   mentionAlerts.start();
