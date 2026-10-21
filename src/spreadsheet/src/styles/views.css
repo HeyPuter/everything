@@ -429,7 +429,8 @@
 .shortcut-what { flex: 1 1 auto; min-width: 0; font-size: 13px; line-height: 1.4; color: var(--ink); }
 
 .shortcut-keys {
-  flex: 0 1 auto;
+  /* The description wraps first; the keys wrap only past half the row, and then between alternatives. */
+  flex: 0 0 auto;
   max-width: 52%;
   display: flex;
   flex-wrap: wrap;
@@ -442,6 +443,7 @@
 }
 
 .shortcut-keys .kbd { white-space: nowrap; }
+.shortcut-chord { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .shortcut-join { color: var(--ink-3); }
 .shortcut-gesture { color: var(--ink-2); font-size: 12.5px; }
 

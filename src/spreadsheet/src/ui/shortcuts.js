@@ -126,12 +126,24 @@ const KEY_CAP_MAX = 16;
 /**
  * A shortcut string as nodes: each key in a cap, with the "+", "/", and "or"
  * between them as text ("Tab / Shift + Tab" is three caps and two joiners).
+ * The keys pressed together are kept in one unbroken chord, so a narrow
+ * column wraps between the alternatives and never leaves "Shift +" at the
+ * end of one line with its key on the next.
  */
 export function renderKeys(keys) {
   const parts = keys.split(/( \+ | \/ | or )/);
   // A sentence ("Click, then Shift + click, while…") stays one piece of text rather than half caps, half words.
   if (parts.some((part, i) => i % 2 === 0 && part.length > KEY_CAP_MAX)) return [el('span.shortcut-gesture', {}, keys)];
-  return parts.map((part, i) => (i % 2 ? el('span.shortcut-join', {}, part.trim()) : el('span.kbd', {}, part)));
+  const out = [];
+  let chord = null;
+  parts.forEach((part, i) => {
+    if (i % 2 === 0) {
+      if (!chord) out.push(chord = el('span.shortcut-chord'));
+      chord.append(el('span.kbd', {}, part));
+    } else if (part.trim() === '+') chord.append(el('span.shortcut-join', {}, '+'));
+    else { out.push(el('span.shortcut-join', {}, part.trim())); chord = null; }
+  });
+  return out;
 }
 
 export function openShortcuts() {

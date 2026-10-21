@@ -9,15 +9,16 @@ const text = (nodes) => nodes.map((n) => n.textContent).join('|');
 describe('keyboard shortcuts panel', () => {
   it('draws keys as caps with the joiners between them as text', () => {
     const tab = renderKeys('Tab / Shift + Tab');
-    expect(tab.map((n) => n.className)).toEqual(['kbd', 'shortcut-join', 'kbd', 'shortcut-join', 'kbd']);
-    expect(text(tab)).toBe('Tab|/|Shift|+|Tab');
+    expect(tab.map((n) => n.className)).toEqual(['shortcut-chord', 'shortcut-join', 'shortcut-chord']);
+    expect([...tab[2].children].map((n) => n.className)).toEqual(['kbd', 'shortcut-join', 'kbd']);
+    expect(text(tab)).toBe('Tab|/|Shift+Tab');
     const or = renderKeys('F2 or double-click');
-    expect(or.map((n) => n.className)).toEqual(['kbd', 'shortcut-join', 'kbd']);
+    expect(or.map((n) => n.className)).toEqual(['shortcut-chord', 'shortcut-join', 'shortcut-chord']);
     expect(text(or)).toBe('F2|or|double-click');
     // A gesture described in words is not a key cap.
     const drag = renderKeys('Drag the bar at the corner of the headers');
     expect(drag.map((n) => n.className)).toEqual(['shortcut-gesture']);
-    expect(renderKeys('Arrow keys').map((n) => n.className)).toEqual(['kbd']);
+    expect(renderKeys('Arrow keys').map((n) => n.className)).toEqual(['shortcut-chord']);
     // …even when it contains a "+" or an "or" of its own.
     const mixed = renderKeys('Click, then Shift + click, while a formula wants a reference');
     expect(mixed.map((n) => n.className)).toEqual(['shortcut-gesture']);
