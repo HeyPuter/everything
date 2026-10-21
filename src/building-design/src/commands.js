@@ -80,6 +80,7 @@ export const COMMANDS = {
   sample: { label: 'Open Sample Project', icon: 'house', run: (app) => app.startProject('sample') },
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
+  importImage: { label: 'Image', icon: 'imageImport', run: (app) => app.importImage(), desc: 'Place a picture, such as a scanned drawing or site photo, in the active view' },
   sharedWithMe: { label: 'Shared With Me', icon: 'users', run: (app) => app.openDialog('shared') },
 
   // Edit
@@ -290,6 +291,7 @@ export const COMMANDS = {
   selectionIds: { label: 'IDs of Selection', icon: 'selectionIds', enabled: hasSel, run: (app) => manage.idsOfSelection(app) },
   selectById: { label: 'Select by ID', icon: 'selectById', run: (app) => manage.selectById(app) },
   warnings: { label: 'Warnings', icon: 'warning', run: (app) => manage.warningsDialog(app), desc: 'Problems in the model: overlapping walls, unenclosed rooms, duplicate marks' },
+  transferStandards: { label: 'Transfer Project Standards', icon: 'transfer', run: (app) => manage.transferStandardsDialog(app), desc: 'Copy types, materials, view templates, filters and more from another project file' },
   startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },
   projectInfo: { label: 'Project Information', icon: 'info', run: (app) => app.projectInfoDialog() },
   units: { label: 'Project Units', icon: 'units', keys: 'UN', run: (app) => app.unitsDialog() },

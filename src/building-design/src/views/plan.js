@@ -218,6 +218,11 @@ export class PlanController {
     if (!this.cam) this.zoomExtents(false);
     const view = this.view;
     const scale = +view?.scale || 100;
+    const images = this.app.doc.all('image').filter((i) => i.viewId === view.id);
+    if (images.length) {
+      const { cx, cy, zoom } = this.cam;
+      vp.images.draw(images, viewMatrix2D(cx, cy, zoom, vp.width, vp.height), vp.theme, (id) => this.app.flagsOf(id));
+    }
     this.vp.r2.draw(this.layer, this.camera(), vp.theme, { dashScale: scale, spacing: scale * 1.6, thin: this.app.settings.thinLines });
   }
 

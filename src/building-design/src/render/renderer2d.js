@@ -18,6 +18,7 @@ const LAYERS = 26;
 /** Draw layer per element kind. Fills use 2z, lines 2z + 1. */
 export const KIND_Z = {
   topo: 0,
+  image: 0,
   floor: 0,
   ceiling: 0,
   footing: 1,

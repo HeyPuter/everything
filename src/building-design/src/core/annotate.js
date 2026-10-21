@@ -25,7 +25,7 @@ import { levelElevation } from './model.js';
 
 const P = (pc, mm) => mm * pc.scale;
 
-export const ANNOTATION_KINDS = ['angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend', 'legendComponent'];
+export const ANNOTATION_KINDS = ['image', 'angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend', 'legendComponent'];
 
 /** Draw an annotation; returns false when the kind is not one of these. */
 export function annotationGraphics(pc, el, b) {
@@ -61,6 +61,19 @@ export function annotationGraphics(pc, el, b) {
     case 'legendComponent':
       drawLegendComponent(pc, el, b);
       return true;
+    case 'image': {
+      // The picture itself is drawn by the image renderer; this is its outline and pick area.
+      const rot = ((+el.rotation || 0) * Math.PI) / 180;
+      const box = [
+        [0, 0],
+        [+el.w || 1000, 0],
+        [+el.w || 1000, +el.h || 1000],
+        [0, +el.h || 1000],
+      ].map((p) => add(el.at, rotate(p, rot)));
+      b.poly(box, true, W.thin, 0, INK(35));
+      b.pick(box);
+      return true;
+    }
     default:
       return false;
   }

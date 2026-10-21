@@ -55,6 +55,18 @@ function annotationGrips(doc, el, out) {
       end('a');
       end('b');
       break;
+    case 'image': {
+      // The far corner scales the picture, keeping its proportions.
+      const rot = ((+el.rotation || 0) * Math.PI) / 180;
+      const w = +el.w || 1000;
+      const hh = +el.h || 1000;
+      const corner = add(el.at, [w * Math.cos(rot) - hh * Math.sin(rot), w * Math.sin(rot) + hh * Math.cos(rot)]);
+      out.push({ at: corner, shape: 'square', title: 'Drag to resize', exclude: [el.id], drag: (p) => {
+        const k = dist(p, el.at) / Math.hypot(w, hh);
+        if (k > 0.01) doc.update(el.id, { w: w * k, h: hh * k });
+      } });
+      break;
+    }
     case 'angularDim': {
       let a1 = el.a1;
       while (a1 < el.a0) a1 += Math.PI * 2;

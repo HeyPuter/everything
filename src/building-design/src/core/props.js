@@ -280,6 +280,13 @@ const INSTANCE = {
   ],
   detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
   symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
+  image: [
+    P('name', 'Name', 'Identity Data', 'text'),
+    len('w', 'Width', 'Dimensions', { set: (el, v) => ({ w: +v, h: (+v * (+el.h || 1)) / (+el.w || 1) }) }),
+    len('h', 'Height', 'Dimensions', { set: (el, v) => ({ h: +v, w: (+v * (+el.w || 1)) / (+el.h || 1) }) }),
+    P('rotation', 'Rotation', 'Graphics', 'angle'),
+    P('opacity', 'Opacity (0 to 1)', 'Graphics', 'number', { get: (el) => el.opacity ?? 1, set: (el, v) => ({ opacity: Math.max(0.05, Math.min(1, +v)) }) }),
+  ],
   colorLegend: [ro('by', 'Colors By', 'Graphics', (el, c) => ROOM_FILL_LABEL[c.doc.get(el.viewId)?.roomFillBy || 'name'], 'text')],
   footing: [P('levelId', 'Level', 'Constraints', 'level'), len('offset', 'Top Offset From Level', 'Constraints'), P('rotation', 'Rotation', 'Constraints', 'angle'), mark, comments],
   wallFooting: [ro('wall', 'Wall', 'Constraints', (el, c) => c.doc.get(c.doc.get(el.wallId)?.typeId)?.name ?? '', 'text'), ro('length', 'Length', 'Dimensions', (el, c) => (c.doc.get(el.wallId) ? dist(c.doc.get(el.wallId).a, c.doc.get(el.wallId).b) : 0)), mark, comments],

@@ -92,6 +92,7 @@ export const CATEGORIES = [
   { id: 'genericAnnotations', label: 'Symbols', model: false },
   { id: 'colorLegends', label: 'Color Fill Legends', model: false },
   { id: 'legendComponents', label: 'Legend Components', model: false },
+  { id: 'rasterImages', label: 'Raster Images', model: false },
   { id: 'markers', label: 'View Markers', model: false },
 ];
 
@@ -131,6 +132,7 @@ const KIND_CATEGORY = {
   symbol: 'genericAnnotations',
   colorLegend: 'colorLegends',
   legendComponent: 'legendComponents',
+  image: 'rasterImages',
   footing: 'structuralFoundations',
   wallFooting: 'structuralFoundations',
   brace: 'braces',
@@ -189,6 +191,7 @@ export const KIND_LABEL = {
   symbol: 'Symbol',
   colorLegend: 'Color Fill Legend',
   legendComponent: 'Legend Component',
+  image: 'Raster Image',
   footing: 'Isolated Foundation',
   wallFooting: 'Wall Foundation',
   brace: 'Brace',

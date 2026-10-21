@@ -123,9 +123,9 @@ export const RIBBON = [
     id: 'insert',
     label: 'Insert',
     panels: [
-      { title: 'Import', items: [{ cmd: 'importDxf', size: 'lg' }] },
+      { title: 'Import', items: [{ cmd: 'importDxf', size: 'lg' }, { cmd: 'importImage', size: 'lg' }] },
+      { title: 'Load from Library', items: [{ cmd: 'transferStandards', size: 'lg', label: 'Load from Project' }, { cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
       { title: 'Project', items: [{ cmd: 'open', size: 'lg' }, { cmd: 'sample', size: 'lg' }] },
-      { title: 'Library', items: [{ cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
     ],
   },
   {
@@ -268,6 +268,7 @@ export const RIBBON = [
           { cmd: 'snaps', size: 'lg' },
           { cmd: 'projectInfo', size: 'lg' },
           { cmd: 'projectParams', size: 'lg' },
+          { cmd: 'transferStandards', size: 'lg' },
           { cmd: 'purge', size: 'lg' },
           { cmd: 'units', size: 'lg' },
           { cmd: 'renumber', size: 'lg', label: 'Numbering' },

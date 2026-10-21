@@ -469,6 +469,41 @@ export class App {
     if (copy) this.openView(copy.id);
   }
 
+  /** Place a raster image (PNG, JPEG, SVG...) in the active 2D view, to trace over or show. */
+  importImage() {
+    const v = this.activeView;
+    const c = this.vc;
+    if (!v || !c?.is2D || v.kind === 'sheet') return this.toast('Open a plan, drafting view or legend to place an image.', { kind: 'error' });
+    const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/gif,image/webp,image/svg+xml', hidden: true });
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return;
+      if (file.size > 12e6) return this.toast('That image is larger than 12 MB. Please use a smaller one.', { kind: 'error' });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const src = String(reader.result);
+        const img = new Image();
+        img.onload = () => {
+          // Half the visible width, centred in the view.
+          const viewW = this.viewport.width / c.cam.zoom;
+          const w = viewW * 0.5;
+          const hh = (w * img.naturalHeight) / Math.max(1, img.naturalWidth);
+          const at = [c.cam.cx - w / 2, c.cam.cy - hh / 2];
+          let el;
+          this.commit('Import image', () => (el = this.doc.add({ kind: 'image', viewId: v.id, at, w, h: hh, rotation: 0, opacity: 1, src, name: file.name })));
+          this.select([el.id]);
+          this.setPrompt('Image placed. Drag it to move, and drag its corner to scale it.');
+        };
+        img.onerror = () => this.toast('That file could not be read as an image.', { kind: 'error' });
+        img.src = src;
+      };
+      reader.readAsDataURL(file);
+    });
+    document.body.append(input);
+    input.click();
+  }
+
   newFlatView(kind) {
     return dialogs.newFlatViewDialog(this, kind);
   }

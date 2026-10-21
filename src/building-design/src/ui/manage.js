@@ -12,6 +12,8 @@ import { uniqueName } from '../core/ops.js';
 import { modelWarnings } from '../core/warnings.js';
 import { isView } from '../core/doc.js';
 import { formatLength, parseLength } from '../core/units.js';
+import { decodeProject } from '../io/native.js';
+import { STANDARD_GROUPS, standardCounts, transferStandards } from '../core/transfer.js';
 
 function field(label, control) {
   return h('label.field', h('span.field-label', label), control);
@@ -311,6 +313,45 @@ export async function selectById(app) {
   app.select(found);
   if (found.length) app.vc?.zoomExtents?.(true, new Set(found));
   toast(found.length === ids.length ? `Selected ${found.length}.` : `Found ${found.length} of ${ids.length}.`, { kind: found.length ? 'success' : 'error' });
+}
+
+// Transfer project standards ------------------------------------------------------------------------
+
+/** Pick a project file, then choose what to copy from it. */
+export function transferStandardsDialog(app) {
+  const input = h('input', { type: 'file', accept: '.bdp,application/json', hidden: true });
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    let src;
+    try {
+      src = await decodeProject(await file.arrayBuffer());
+    } catch (err) {
+      return toast(err.message || 'That file could not be read.', { kind: 'error' });
+    }
+    const counts = standardCounts(src);
+    const checks = STANDARD_GROUPS.map((g) => ({ g, cb: h('input', { type: 'checkbox', checked: counts[g.id] > 0 && g.id !== 'objectStyles', disabled: !counts[g.id] }) }));
+    const ok = await openDialog({
+      title: `Transfer Project Standards from ${file.name}`,
+      body: h(
+        'div',
+        h('div.filter-sel', checks.map(({ g, cb }) => h('label.check', cb, h('span.grow', g.label), h('span.file-meta', String(counts[g.id]))))),
+        h('p.field-hint', 'Items that already exist unchanged are skipped. Items whose name is taken by something different come in as copies marked "(transferred)".'),
+      ),
+      size: 'md',
+      actions: [
+        { label: 'Cancel', value: null },
+        { label: 'Transfer', primary: true, value: true },
+      ],
+    });
+    if (!ok) return;
+    let r;
+    app.commit('Transfer project standards', () => (r = transferStandards(src, app.doc, checks.filter((c) => c.cb.checked).map((c) => c.g.id))));
+    if (r) toast(`Transferred ${r.added} item${r.added === 1 ? '' : 's'}${r.skipped ? `; ${r.skipped} were already here` : ''}.`, { kind: 'success' });
+  });
+  document.body.append(input);
+  input.click();
 }
 
 // Topography points --------------------------------------------------------------------------------

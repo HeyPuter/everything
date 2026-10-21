@@ -273,6 +273,7 @@ const BIM = {
   propertyLine: [DASH('M3 5l15-2 3 15-17 3z', '5 2 1 2')],
   siteComponent: [P('M3 13h18v3H3z', 'a'), P('M3 13h18v3H3zM5 16v4M19 16v4M4 10h16', ''), C(12, 5, 2)],
   parking: [P('M5 3v18M19 3v18M5 21h14', ''), P('M9 8h3.5a2.5 2.5 0 0 1 0 5H9V8zM9 13v4', 'thick-a')],
+  transfer: [R(2, 4, 8, 10, 's', 1), R(2, 4, 8, 10, '', 1), R(14, 10, 8, 10, 'a', 1), R(14, 10, 8, 10, '', 1), P('M10 9h4l-2-2M14 15h-4l2 2', 'thin')],
 };
 
 const LUCIDE = {
@@ -449,6 +450,7 @@ export const KIND_ICON = {
   drafting: 'draftingView',
   legend: 'legend',
   legendComponent: 'legendComponent',
+  image: 'imageImport',
   view3d: 'view3d',
   elevation: 'elevation',
   section: 'section',

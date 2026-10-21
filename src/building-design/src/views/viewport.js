@@ -7,6 +7,7 @@
 import { StateTexture, cssColor } from '../render/gl.js';
 import { Renderer2D } from '../render/renderer2d.js';
 import { Renderer3D } from '../render/renderer3d.js';
+import { ImageRenderer } from '../render/images.js';
 
 export class Viewport {
   constructor(app, wrap, glCanvas, overlay) {
@@ -21,6 +22,7 @@ export class Viewport {
     this.state = new StateTexture(gl);
     this.r2 = new Renderer2D(gl, this.state);
     this.r3 = new Renderer3D(gl, this.state);
+    this.images = new ImageRenderer(gl, () => this.requestRender());
     this.controller = null;
     this.width = 1;
     this.height = 1;
