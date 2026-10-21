@@ -865,7 +865,7 @@ export abstract class AnimEditor implements Editor {
               style: {
                 top: `${i * this.rowH}px`,
                 height: `${this.rowH}px`,
-                paddingLeft: `${4 + ch.depth * 14}px`,
+                paddingLeft: `${4 + ch.depth * 8}px`,
               },
               onpointerdown: (e: PointerEvent) => this.channelDown(e, ch),
               ondblclick: (e: MouseEvent) => this.channelDblClick(e, ch),
@@ -884,9 +884,11 @@ export abstract class AnimEditor implements Editor {
                   },
                   icon(ch.expanded ? 'disclosure_tri_down' : 'disclosure_tri_right'),
                 )
-              : h('span', { class: 'anim-exp-space' }),
-            this.rowPrefix(ch, i),
+              : this.expanderSpace(ch)
+                ? h('span', { class: 'anim-exp-space' })
+                : null,
             ch.icon ? icon(ch.icon) : null,
+            this.rowPrefix(ch, i),
             h('span', { class: 'anim-ch-name' }, ch.label),
             this.rowExtra(ch),
             h('span', { class: 'anim-ch-tgs' }, this.rowToggles(ch)),
@@ -894,6 +896,11 @@ export abstract class AnimEditor implements Editor {
         }),
       ),
     );
+  }
+
+  /** whether a row without an expander keeps its place (indentation) */
+  protected expanderSpace(_ch: Channel): boolean {
+    return true;
   }
 
   /** standard mute/lock toggles */

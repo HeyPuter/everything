@@ -822,6 +822,8 @@ export interface ActionData {
   last_slot_handle?: number;
   /** handle of the slot shown as active in the Action Editor */
   active_slot?: number;
+  /** groups pinned in the Graph Editor (listed while their bone is unselected) */
+  pinned_groups?: string[];
 }
 
 export interface NlaStrip {
@@ -875,6 +877,8 @@ export interface AnimData {
   slot_action?: ID | null;
   /** identifier of the slot last assigned, used to find a slot again when another action is assigned */
   last_slot_identifier?: string;
+  /** Graph Editor: channels stay listed while the owner is unselected ("Only Show Selected") */
+  use_pin?: boolean;
 }
 
 export type DriverIdType = 'OBJECT' | 'SCENE' | 'MESH' | 'CURVE' | 'LIGHT' | 'CAMERA' | 'ARMATURE' | 'LATTICE' | 'MATERIAL' | 'WORLD' | 'IMAGE' | 'ACTION' | 'NODETREE' | 'TEXT' | 'COLLECTION' | 'PARTICLE';

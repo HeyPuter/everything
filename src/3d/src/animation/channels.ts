@@ -55,6 +55,8 @@ export interface ChannelFilter {
   /** the Dope Sheet's Summary row */
   noSummary?: boolean;
   onlyErrors?: boolean;
+  /** pinned objects and groups stay listed with Only Show Selected (Graph Editor) */
+  usePins?: boolean;
   isVisible: (ob: ObjectData) => boolean;
   activeObject: ObjectData | null;
   /** F-Curves whose property can't be found ("Only Show Errors", error highlight) */
@@ -136,10 +138,10 @@ export function curveCategory(path: string): string {
   return 'OTHER';
 }
 
-function curveVisibleForFilter(doc: DocumentData, ob: ObjectData, fc: FCurve, f: ChannelFilter) {
+function curveVisibleForFilter(doc: DocumentData, ob: ObjectData, fc: FCurve, f: ChannelFilter, act?: ActionData) {
   if (f.hiddenTypes?.size && f.hiddenTypes.has(curveCategory(fc.data_path))) return false;
   if (f.onlyErrors && f.curveError && !f.curveError(ob, fc)) return false;
-  if (f.onlySelected && doc.mode === 'POSE' && ob.pose) {
+  if (f.onlySelected && doc.mode === 'POSE' && ob.pose && !(f.usePins && fc.group && act?.pinned_groups?.includes(fc.group))) {
     const bone = boneOf(fc.data_path);
     if (bone && ob.pose[bone] && !ob.pose[bone].select) return false;
   }
@@ -159,7 +161,7 @@ export function searchMatches(f: Pick<ChannelFilter, 'search' | 'multiWord'>, ..
 function filteredObjects(doc: DocumentData, f: ChannelFilter): ObjectData[] {
   const list = doc.object_order
     .map((id) => doc.objects[id])
-    .filter((ob) => ob && (f.showHidden || f.isVisible(ob)) && (!f.onlySelected || ob.select) && (!f.collection || f.collection.has(ob.id)) && !f.hiddenTypes?.has(ob.type));
+    .filter((ob) => ob && (f.showHidden || f.isVisible(ob)) && (!f.onlySelected || ob.select || (f.usePins && !!ob.animation_data?.use_pin)) && (!f.collection || f.collection.has(ob.id)) && !f.hiddenTypes?.has(ob.type));
   return f.sortByName ? list.sort((a, b) => a.name.localeCompare(b.name)) : list;
 }
 
@@ -179,7 +181,7 @@ export function collectionObjects(doc: DocumentData, id: string): Set<string> {
 
 /** Rows for the groups and F-Curves of an action (the given curves of it: one slot). */
 function actionRows(doc: DocumentData, ob: ObjectData, action: ActionData, source: FCurve[], depth: number, f: ChannelFilter, rows: Channel[], visible: boolean, curvesOut: CurveRef[]) {
-  const curves = source.filter((fc) => curveVisibleForFilter(doc, ob, fc, f));
+  const curves = source.filter((fc) => curveVisibleForFilter(doc, ob, fc, f, action));
   const refs = curves.map((fc) => ({ ob, action, fc }));
   curvesOut.push(...refs);
   if (!visible) return refs;
@@ -231,6 +233,7 @@ export interface ChannelList {
 }
 
 export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFilter): ChannelList {
+  if (space === 'GRAPH' && f.usePins === undefined) f = { ...f, usePins: true };
   const rows: Channel[] = [];
   const curves: CurveRef[] = [];
   if (space === 'ACTION') {

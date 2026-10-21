@@ -175,6 +175,12 @@ class ChannelGroups extends PropCollection<unknown> {
           .filter((f) => f.group === name)
           .map((f) => fcurveWrapper(actId, f));
       },
+      get use_pin() {
+        return !!actOf(actId).pinned_groups?.includes(name);
+      },
+      set use_pin(v: boolean) {
+        setGroupPin(actOf(actId), name, !!v);
+      },
       toString: () => `<bpy_struct, ActionGroup("${name}")>`,
     };
   }
@@ -365,4 +371,11 @@ stripStructHooks.push((s: Struct, st: NlaStrip, obId: string) => {
     },
   });
 });
+
+/** Pin a group in the Graph Editor (kept listed while its bone is unselected). */
+export function setGroupPin(act: ActionData, name: string, on: boolean) {
+  const list = (act.pinned_groups ?? []).filter((g) => g !== name);
+  act.pinned_groups = on ? [...list, name] : list;
+  touched();
+}
 

@@ -14,3 +14,33 @@
   align-items: center;
   gap: 1px;
 }
+
+/* Channel rows: the row colour comes from the channel type; selection shows in the name colour. */
+.anim-ch-rows .anim-ch-row {
+  color: #b8b8b8;
+}
+.anim-ch-rows .anim-ch-row.k-object {
+  background: rgb(24, 79, 129);
+}
+.anim-ch-rows .anim-ch-row.k-action,
+.anim-ch-rows .anim-ch-row.k-drivers {
+  background: rgb(15, 44, 76);
+}
+.anim-ch-rows .anim-ch-row.k-group,
+.anim-ch-rows .anim-ch-row.k-group.sel {
+  background: rgb(25, 51, 45);
+}
+.anim-ch-rows .anim-ch-row.k-fcurve,
+.anim-ch-rows .anim-ch-row.k-fcurve.sel,
+.anim-ch-rows .anim-ch-row.k-shapekey,
+.anim-ch-rows .anim-ch-row.k-shapekey.sel,
+.anim-ch-rows .anim-ch-row.k-driver,
+.anim-ch-rows .anim-ch-row.k-driver.sel {
+  background: rgb(18, 18, 18);
+}
+.anim-ch-rows .anim-ch-row.sel {
+  color: rgb(255, 175, 37);
+}
+.anim-ch-rows .anim-ch-row.muted .anim-ch-name {
+  opacity: 1;
+}

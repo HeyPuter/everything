@@ -261,7 +261,7 @@ export class AnimDataStruct extends Struct {
     super('AnimData', () => app.doc.objects[__obId]?.animation_data as unknown as Raw, `${obPath(__obId)}.animation_data`);
   }
   override __hidden() {
-    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action', 'action_slot_handle', 'slot_action', 'last_slot_identifier']);
+    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action', 'action_slot_handle', 'slot_action', 'last_slot_identifier', 'use_pin']);
   }
   get action() {
     const a = adOf(this.__obId).action;
@@ -294,6 +294,13 @@ export class AnimDataStruct extends Struct {
   }
   get use_tweak_mode() {
     return !!adOf(this.__obId).tweak;
+  }
+  get use_pin() {
+    return !!adOf(this.__obId).use_pin;
+  }
+  set use_pin(v: boolean) {
+    adOf(this.__obId).use_pin = !!v;
+    touched();
   }
   get use_nla() {
     return true;
@@ -672,7 +679,7 @@ class ActionAnim {
     const actId = (this as unknown as ActionStruct).__id;
     const act = app.doc.actions[actId];
     const names = [...new Set(act.fcurves.map((f) => f.group).filter(Boolean))] as string[];
-    return names.map((name) => ({ __kind: 'struct', __type: 'ActionGroup', name, channels: act.fcurves.filter((f) => f.group === name).map((f) => fcurveWrapper(actId, f)) }));
+    return names.map((name) => groupStruct(actId, name));
   }
 }
 mixin(ActionStruct, ActionAnim, true);
@@ -739,6 +746,30 @@ kwMethod(FCurves.prototype, 'ensure', ['data_path', 'index', 'group_name']);
 kwMethod(FCurves.prototype, 'find', ['data_path', 'index']);
 
 const fcCache = new WeakMap<FCurve, unknown>();
+/** An action group (`fcurve.group`, `action.groups[...]`). */
+export function groupStruct(actId: string, name: string) {
+  const act = () => app.doc.actions[actId];
+  return {
+    __kind: 'struct',
+    __type: 'ActionGroup',
+    name,
+    get channels() {
+      return (act()?.fcurves ?? []).filter((f) => f.group === name).map((f) => fcurveWrapper(actId, f));
+    },
+    get use_pin() {
+      return !!act()?.pinned_groups?.includes(name);
+    },
+    set use_pin(v: boolean) {
+      const a = act();
+      if (!a) return;
+      const list = (a.pinned_groups ?? []).filter((g) => g !== name);
+      a.pinned_groups = v ? [...list, name] : list;
+      touched();
+    },
+    toString: () => `<bpy_struct, ActionGroup("${name}")>`,
+  };
+}
+
 export function fcurveWrapper(actId: string, fc: FCurve): unknown {
   let w = fcCache.get(fc);
   if (w) return w;
@@ -760,6 +791,15 @@ export function fcurveWrapper(actId: string, fc: FCurve): unknown {
   Object.defineProperty(s, 'range', { value: () => new Vector(fc.keyframe_points.length ? [fc.keyframe_points[0].co[0], fc.keyframe_points[fc.keyframe_points.length - 1].co[0]] : [0, 0]) });
   Object.defineProperty(s, 'is_valid', { get: alive });
   Object.defineProperty(s, 'driver', { value: null });
+  // the group is an ActionGroup (assigned from a group, or by name)
+  Object.defineProperty(s, 'group', {
+    get: () => (fc.group ? groupStruct(actId, fc.group) : null),
+    set: (v: unknown) => {
+      fc.group = v === null || v === undefined ? undefined : typeof v === 'string' ? v : String((v as { name?: unknown }).name ?? '');
+      if (!fc.group) delete fc.group;
+      touched();
+    },
+  });
   w = proxify(s);
   fcCache.set(fc, w);
   return w;
