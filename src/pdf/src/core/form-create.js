@@ -646,11 +646,20 @@ async function refreshAppearances(doc, field) {
   const current = daFont(doc, field.acroField.dict);
   let font = formFont(doc, FORM_FONTS[current.font] ? current.font : 'Helvetica');
   const text = appearanceTexts(field).join('\n');
-  if (!encodable(font, text)) {
-    font = await embedFont(doc, 'regular', text);
-    resourceFonts(doc).set(name(font.name), font.ref);
+  const embedded = !encodable(font, text);
+  if (embedded) font = await embedFont(doc, 'regular', text);
+  // A face of the form's own that is not a standard one (an Arial from another tool) stays
+  // the field's font for viewers that redraw it; the drawing stands in for it. A bundled face
+  // drawn with before is a subset of that text's characters, so it gives way.
+  const entry = current.key ? resourceFonts(doc).lookup(name(current.key)) : undefined;
+  const own =
+    !current.font &&
+    entry instanceof PDFDict &&
+    !/^(?:[A-Z]{6}\+)?NotoSans(?:KR)?-/.test(entry.lookup(name('BaseFont'))?.decodeText?.() ?? '');
+  if (!own) {
+    if (embedded) resourceFonts(doc).set(name(font.name), font.ref);
+    writeDA(doc, field.acroField.dict, { font });
   }
-  writeDA(doc, field.acroField.dict, { font });
   updateFieldAppearance(field, doc.getForm(), font);
 }
 

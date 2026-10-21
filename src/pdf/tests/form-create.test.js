@@ -791,6 +791,30 @@ it('runs as editor operations and draws text a standard font cannot', async () =
   expect((await PDFDocument.load(session.bytes)).getForm().getFields()).toHaveLength(0);
 });
 
+it('keeps the font of a field made by another tool when it is moved or changed', async () => {
+  await mockTextFont();
+  const source = await blank();
+  const form = source.getForm();
+  const arial = source.context.register(
+    source.context.obj({ Type: 'Font', Subtype: 'TrueType', BaseFont: 'Arial' }),
+  );
+  form.acroForm.dict.set(name('DR'), source.context.obj({ Font: { Arial: arial } }));
+  const field = form.createTextField('Name');
+  field.setText('Hello');
+  field.addToPage(source.getPage(0), { x: 50, y: 600, width: 200, height: 24 });
+  field.acroField.setDefaultAppearance('/Arial 11 Tf 0 0 1 rg');
+  const doc = await PDFDocument.load(await source.save({ updateFieldAppearances: false }));
+  await updateFormField(doc, 'Name', { tooltip: 'Your name' });
+  await moveFormWidget(doc, 'Name', 0, rect(60, 600, 200, 24));
+  const saved = await PDFDocument.load(await doc.save());
+  expect(saved.getForm().getTextField('Name').acroField.getDefaultAppearance()).toBe(
+    '/Arial 11 Tf 0 0 1 rg',
+  );
+  // The drawing stands in for the font, which the PDF does not carry.
+  const { ink } = await rendered(await doc.save());
+  expect(ink(rect(60, 600, 200, 24), 2).count).toBeGreaterThan(50);
+});
+
 it('lists fields made by other tools', async () => {
   const doc = await blank();
   const form = doc.getForm();
