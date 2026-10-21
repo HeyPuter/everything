@@ -488,18 +488,17 @@ export function createIconFeatures(ctx) {
                 icon: "shapeFill",
                 title: "Graphics Fill",
                 description: "Fill the icon's enclosed areas.",
-                menu: () => [
-                  ...colorMenuItems({
+                menu: () =>
+                  colorMenuItems({
                     theme: theme(),
-                    none: "No Fill",
+                    none: {
+                      label: "No Fill",
+                      icon: "Ban",
+                      onSelect: () => restyle({ fill: "none" }).catch(ctx.fail),
+                    },
                     onPick: (value, hex) =>
                       restyle({ fill: hex || value }).catch(ctx.fail),
                   }),
-                  {
-                    label: "No Fill",
-                    onSelect: () => restyle({ fill: "none" }).catch(ctx.fail),
-                  },
-                ],
               },
               {
                 type: "small",

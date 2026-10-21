@@ -202,6 +202,15 @@ test("icons are inserted as SVG pictures, restyled, and converted to shapes", as
     })
     .toBe(true);
 
+  // Every entry of the fill menu has a name, and No Fill is there once.
+  await commandMenu(page, "graphics-fill", "Graphics Fill");
+  const entries = await page
+    .locator(".menu > .menu-item")
+    .evaluateAll((nodes) => nodes.map((n) => n.textContent.trim()));
+  expect(entries).not.toContain("");
+  expect(entries.filter((n) => n === "No Fill")).toHaveLength(1);
+  await page.keyboard.press("Escape");
+
   await command(page, "graphics-convert");
   await expect(page.getByRole("tab", { name: "Graphics Format" })).toBeHidden();
   saved = await download(page);
