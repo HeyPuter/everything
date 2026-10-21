@@ -7809,7 +7809,12 @@ function besselISeries(n, x) {
     term *= h2 / (k * (n + k));
     sum += term;
     if (term <= sum * 1e-17) break;
-    if (sum > 1e250) { sum *= 1e-250; term *= 1e-250; offset += 250 * Math.LN10; }
+    if (sum > 1e250) {
+      sum *= 1e-250; term *= 1e-250; offset += 250 * Math.LN10;
+      // The terms only add up: once the sum is past the doubles it stays there, and the half a
+      // billion terms of BESSELI(1E10,0) would only confirm it, for half a minute.
+      if (offset + Math.log(sum) > 710) return Infinity;
+    }
   }
   return offset ? Math.exp(offset + Math.log(sum)) : sum;
 }
