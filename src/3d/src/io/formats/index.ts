@@ -9,3 +9,6 @@ import './bvh-format'; // Motion Capture
 import './svgcurves-format'; // SVG as Curves
 import './gltf/index';
 import '../blend/index';
+// File-level operators of the io area (External Data, Data Previews, collection exporters)
+import '../fileops';
+import '../collectionexport';

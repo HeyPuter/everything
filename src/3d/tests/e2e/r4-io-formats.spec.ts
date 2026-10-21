@@ -67,3 +67,32 @@ test('dropping a model file imports it with its format operator', async ({ page 
   await expect.poll(() => objectNames(page)).toContain('Dropped');
   await expectNoErrors(errors);
 });
+
+test('Collection ▸ Exporters: add an exporter, edit it and export the collection', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="COLLECTION"]').click();
+  const head = page.getByText('Exporters', { exact: true }).first();
+  await head.click();
+  const list = page.locator('.uilist[data-list^="colex-"]');
+  await expect(list).toBeVisible();
+  await list.locator('.ul-side .icon-btn').first().click();
+  await page.locator('.popup-layer .menu .mi-label', { hasText: /^STL$/ }).click();
+  await expect(list.locator('.ul-label')).toHaveText(['STL']);
+  // the exporter's settings are shown below the list
+  await expect(page.getByText('ASCII', { exact: true })).toBeVisible();
+  const dl = page.waitForEvent('download');
+  await page.locator('button', { hasText: 'Export All' }).click();
+  expect((await dl).suggestedFilename()).toBe('Collection.stl');
+  await expectNoErrors(errors);
+});
+
+test('File menu has Data Previews and Export All Collections', async ({ page }) => {
+  const errors = await openApp(page);
+  await fileMenu(page, 'Data Previews');
+  await expect(page.locator('.popup-layer .menu .mi-label', { hasText: 'Refresh Data-Block Previews' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('.topbar .tb-menu', { hasText: /^File$/ }).dispatchEvent('pointerdown');
+  await expect(page.locator('.popup-layer .menu .mi-label', { hasText: 'Export All Collections' })).toBeVisible();
+  await expectNoErrors(errors);
+});
