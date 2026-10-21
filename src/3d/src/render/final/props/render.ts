@@ -119,7 +119,10 @@ function rasterPanels(r: RenderSettings): Child {
   ensureRealtimeDefaults(r);
   return [
     panel('rs-sampling', 'Sampling', () => [
-      sub('rs-samp-vp', 'Viewport', () => [num(r, 'preview_raster_samples', 'Samples', { int: true, min: 1, max: 1024, tip: 'Anti-aliasing samples accumulated in the Rendered viewport while the view is still' })]),
+      sub('rs-samp-vp', 'Viewport', () => [
+        num(r, 'preview_raster_samples', 'Samples', { int: true, min: 1, max: 1024, tip: 'Anti-aliasing samples accumulated in the Rendered viewport while the view is still' }),
+        bool(r, 'use_shadow_jitter_viewport', 'Jittered Shadows', { tip: 'Soften shadows of lights with Jitter enabled in the viewport too (always on in final renders)' }),
+      ]),
       sub('rs-samp-render', 'Render', () => [num(r, 'raster_samples', 'Samples', { int: true, min: 1, max: 4096, tip: 'Anti-aliasing samples averaged for final renders (also used for depth of field and motion blur)' })]),
       samplingShadowsPanel(r),
       samplingAdvancedPanel(r),
@@ -144,8 +147,8 @@ function rasterPanels(r: RenderSettings): Child {
     raytracingPanel(r),
     volumesPanel(r),
     bloomPanel(r),
-    simplifyPanel(r),
     curvesPanel(r),
+    simplifyPanel(r),
     panel(
       'rs-dof',
       'Depth of Field',
