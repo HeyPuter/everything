@@ -635,4 +635,27 @@ describe('copying and pasting embeds', () => {
     ed.destroy();
     host.remove();
   });
+
+  it('copies attachments and equations in their stored form', async () => {
+    const { ed, body, host } = await setup('<p>Eq <span class="nt-math" data-tex="x^2" contenteditable="false"></span> <span class="nt-file" data-asset="a1.txt" data-name="n.txt" data-kind="file" contenteditable="false"></span></p>');
+    const r = document.createRange();
+    r.selectNodeContents(body.querySelector('p'));
+    selectRange(r);
+    const data = {};
+    const ev = new Event('copy', { bubbles: true, cancelable: true });
+    ev.clipboardData = { setData: (t, v) => (data[t] = v) };
+    body.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(data['text/html']).toBe('Eq <span class="nt-math" data-tex="x^2" contenteditable="false"></span> <span class="nt-file" data-asset="a1.txt" data-name="n.txt" data-kind="file" contenteditable="false"></span>');
+    expect(data['text/plain']).toBe('Eq x^2 n.txt');
+    // Plain text keeps the browser's own copy.
+    r.setEnd(body.querySelector('p').firstChild, 2);
+    selectRange(r);
+    const plain = new Event('copy', { bubbles: true, cancelable: true });
+    plain.clipboardData = { setData() {} };
+    body.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(false);
+    ed.destroy();
+    host.remove();
+  });
 });

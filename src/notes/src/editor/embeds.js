@@ -103,11 +103,14 @@ function fixUnknownDuration(media) {
   }, { once: true });
 }
 
-/** Stored HTML for an outline body element. */
-export function serialize(body) {
+/**
+ * Stored HTML for an outline body element. keepSrc keeps pictures' current
+ * URLs (for the clipboard, where other apps need them).
+ */
+export function serialize(body, { keepSrc = false } = {}) {
   const clone = body.cloneNode(true);
   for (const img of clone.querySelectorAll('img')) {
-    if (img.dataset.asset) img.removeAttribute('src');
+    if (img.dataset.asset && !keepSrc) img.removeAttribute('src');
     img.classList.remove('nt-selected');
     if (!img.getAttribute('class')) img.removeAttribute('class');
   }

@@ -1,6 +1,6 @@
 import { h, debounce, clamp, announce } from '../lib/dom.js';
 import { uid } from '../lib/ids.js';
-import { sanitizeHtml, safeUrl } from '../lib/sanitize.js';
+import { sanitizeHtml, safeUrl, htmlToText } from '../lib/sanitize.js';
 import { formatPageDate, formatPageTime } from '../lib/dates.js';
 import { Emitter } from '../lib/emitter.js';
 import { modKey } from '../lib/platform.js';
@@ -245,6 +245,8 @@ export class PageEditor extends Emitter {
     s.addEventListener('focusin', (e) => this.onFocusIn(e));
     s.addEventListener('focusout', (e) => this.onFocusOut(e));
     s.addEventListener('paste', (e) => this.onPaste(e));
+    s.addEventListener('copy', (e) => this.onCopy(e));
+    s.addEventListener('cut', (e) => this.onCopy(e, { cut: true }));
     s.addEventListener('drop', (e) => this.onDrop(e));
     s.addEventListener('dragover', (e) => {
       if (!this.readOnly && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault();
@@ -719,6 +721,35 @@ export class PageEditor extends Emitter {
   }
 
   // ------------------------------------------------------------ paste/drop
+
+  /**
+   * Chrome leaves attachments out of a copy (they can't be selected as
+   * text) and copies equations without their TeX, so a selection holding
+   * either is put on the clipboard in the stored form, which paste
+   * rebuilds. Other copies keep the browser's own HTML.
+   */
+  onCopy(e, { cut = false } = {}) {
+    const range = currentRange();
+    if (!range || range.collapsed || !e.clipboardData) return;
+    const root = editableRoot(range.commonAncestorContainer);
+    if (!root?.classList.contains('outline-body') || !this.scroller.contains(root)) return;
+    let content = range.cloneContents();
+    if (!content.querySelector('.nt-file, .nt-math')) return;
+    // Items or cells copied without their list or table keep it.
+    for (let n = range.commonAncestorContainer; n && n !== root; n = n.parentNode) {
+      if (n.nodeType !== 1 || !['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TR'].includes(n.tagName)) continue;
+      const wrap = n.cloneNode(false);
+      wrap.append(content);
+      content = wrap;
+    }
+    const holder = document.createElement('div');
+    holder.append(content);
+    const html = serialize(holder, { keepSrc: true });
+    e.preventDefault();
+    e.clipboardData.setData('text/html', html);
+    e.clipboardData.setData('text/plain', htmlToText(html));
+    if (cut && !this.readOnly) document.execCommand('delete');
+  }
 
   async onPaste(e) {
     if (this.readOnly) return;
