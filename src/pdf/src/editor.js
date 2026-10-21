@@ -8524,33 +8524,37 @@ export function createEditor({
         accept: '.pdf,application/pdf,image/png,image/jpeg',
       });
       input.onchange = safe(async () => {
-        for (const file of input.files) {
-          if (!d.open) return;
-          if (/^image\/(png|jpeg)$/.test(file.type)) {
-            if (file.size > MAX_IMAGE_SIZE) throw new Error(`${file.name} is larger than 20 MB.`);
-            entries.push({ kind: 'image', name: file.name, file });
-            continue;
-          }
-          if (file.size > MAX_FILE_SIZE) throw new Error(`${file.name} is larger than 100 MB.`);
-          let bytes = new Uint8Array(await file.arrayBuffer());
-          let source = await validatePdf(bytes).catch((error) => {
-            if (error.code !== 'encrypted') throw error;
-            return null;
-          });
-          if (!source) {
-            const unlocked = await promptUnlock(bytes, file.name, dialogOptions);
-            if (!unlocked || !d.open) continue;
-            if (!documentAccess(unlocked.protection).copy) {
-              const owner = await promptOwner(unlocked.protection, dialogOptions);
-              if (!owner || !d.open) continue;
-              requireDocumentAccess(owner, 'copy');
+        // A file that cannot be added stops the rest, but those already added are listed.
+        try {
+          for (const file of input.files) {
+            if (!d.open) return;
+            if (/^image\/(png|jpeg)$/.test(file.type)) {
+              if (file.size > MAX_IMAGE_SIZE) throw new Error(`${file.name} is larger than 20 MB.`);
+              entries.push({ kind: 'image', name: file.name, file });
+              continue;
             }
-            bytes = unlocked.bytes;
-            source = await PDFDocument.load(bytes, { updateMetadata: false });
+            if (file.size > MAX_FILE_SIZE) throw new Error(`${file.name} is larger than 100 MB.`);
+            let bytes = new Uint8Array(await file.arrayBuffer());
+            let source = await validatePdf(bytes).catch((error) => {
+              if (error.code !== 'encrypted') throw error;
+              return null;
+            });
+            if (!source) {
+              const unlocked = await promptUnlock(bytes, file.name, dialogOptions);
+              if (!unlocked || !d.open) continue;
+              if (!documentAccess(unlocked.protection).copy) {
+                const owner = await promptOwner(unlocked.protection, dialogOptions);
+                if (!owner || !d.open) continue;
+                requireDocumentAccess(owner, 'copy');
+              }
+              bytes = unlocked.bytes;
+              source = await PDFDocument.load(bytes, { updateMetadata: false });
+            }
+            entries.push({ kind: 'pdf', name: file.name, bytes, pages: source.getPageCount() });
           }
-          entries.push({ kind: 'pdf', name: file.name, bytes, pages: source.getPageCount() });
+        } finally {
+          render();
         }
-        render();
       });
       input.click();
     });

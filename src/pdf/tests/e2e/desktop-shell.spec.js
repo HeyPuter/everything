@@ -857,6 +857,33 @@ test('the Combine files list keeps the keyboard focus on the button that was pre
   await expect(dialog.getByRole('button', { name: /Add files/ })).toBeFocused();
 });
 
+test('the Combine files list shows the files added before one that could not be', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Combine files', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Combine files' });
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: /Add files/ }).click();
+  await (
+    await chooser
+  ).setFiles([
+    {
+      name: 'good.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from(await (await numberedPdf(2)).save()),
+    },
+    { name: 'broken.pdf', mimeType: 'application/pdf', buffer: Buffer.from('not a pdf') },
+  ]);
+  await expect(dialog.locator('.dialog-error')).toContainText('not a PDF');
+  // What will be combined is what the list shows.
+  await expect(dialog.locator('.combine-name')).toHaveText(['good.pdf']);
+});
+
 test('Bates numbering asks for a start number instead of starting at zero', async ({ page }) => {
   await openPdf(page, await numberedPdf(2));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
