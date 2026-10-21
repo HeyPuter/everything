@@ -29,6 +29,8 @@ import { ripKeep } from './uvselect';
 import { locInvoke } from './uvops-select';
 import { uvLayers, uvEditPoll, ctxUVEditor, uvCursor, uvChanged, inUVEditor, type EditLayer } from './uvcontext';
 import { startUVTransform, nudgeSelection } from './uvtransform';
+import { packRegion, selectionBounds, regionSettings, type PackSource } from './uvregion';
+import type { ImageData } from '../../data/types';
 
 type Sel = (c: number) => boolean;
 
@@ -347,9 +349,27 @@ registerOperators([
       { id: 'rotate_method', label: 'Rotation Method', type: 'enum', default: 'ANY', items: [['ANY', 'Any'], ['CARDINAL', 'Cardinal'], ['AXIS_ALIGNED', 'Axis-aligned'], ['AXIS_ALIGNED_X', 'Axis-aligned (Horizontal)'], ['AXIS_ALIGNED_Y', 'Axis-aligned (Vertical)']], showIf: (p) => !!p.rotate },
       { id: 'scale', label: 'Scale', type: 'bool', default: true },
       { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, precision: 3 },
+      {
+        id: 'udim_source',
+        label: 'Pack to',
+        type: 'enum',
+        default: 'CLOSEST_UDIM',
+        items: [
+          ['CLOSEST_UDIM', 'Closest UDIM', 'The UDIM tile nearest to the selection'],
+          ['ACTIVE_UDIM', 'Active UDIM', 'The active tile of the shown UDIM image'],
+          ['ORIGINAL_AABB', 'Original bounding box', 'The bounds of the selected islands before packing'],
+          ['CUSTOM_REGION', 'Custom Region', 'The user region (Set User Region, Ctrl B)'],
+        ],
+      },
     ],
     poll: uvEditPoll,
-    exec: (ctx, p) => (editUVs((t, uvs, sel) => packIslandsUV(t, uvs, opIslands(ctx, t, sel), p as unknown as PackOptions), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => {
+      const layers = opLayers(ctx);
+      const view = ctxUVEditor(ctx) as unknown as { image?(): ImageData | null } | null;
+      const region = packRegion(p.udim_source as PackSource, selectionBounds(layers), view?.image?.() ?? null, regionSettings().uv_custom_region);
+      const o: PackOptions = { margin: p.margin as number, rotate: !!p.rotate, rotateMethod: p.rotate_method as PackOptions['rotateMethod'], scale: !!p.scale, region };
+      return editUVs((t, uvs, sel) => packIslandsUV(t, uvs, opIslands(ctx, t, sel), o), layers) ? 'FINISHED' : 'CANCELLED';
+    },
   },
   {
     idname: 'uv.average_islands_scale',

@@ -604,11 +604,17 @@ export interface PackOptions {
   rotateMethod?: 'ANY' | 'CARDINAL' | 'AXIS_ALIGNED' | 'AXIS_ALIGNED_X' | 'AXIS_ALIGNED_Y';
   /** scale the islands to fill the unit square (else keep their size) */
   scale: boolean;
+  /** target rectangle [x, y, width, height] in UV space (default: the 0–1 square) */
+  region?: [number, number, number, number];
 }
 
 /** Pack islands into the 0–1 UV square keeping their relative sizes. */
 export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][], o: PackOptions): boolean {
   if (!islands.length) return false;
+  // pack in a space where the target region is the unit square, then map back
+  const [RX, RY, RW0, RH0] = o.region ?? [0, 0, 1, 1];
+  const RW = Math.max(RW0, 1e-9),
+    RH = Math.max(RH0, 1e-9);
   const boxes: Box[] = islands.map((faces) => {
     const corners = islandCorners(t, faces);
     if (o.rotate) {
@@ -635,7 +641,7 @@ export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][],
       }
     }
     const b = cornersBounds(uvs, corners);
-    return { corners, w: Math.max(b[2] - b[0], 1e-9), h: Math.max(b[3] - b[1], 1e-9), x0: b[0], y0: b[1] };
+    return { corners, w: Math.max(b[2] - b[0], 1e-9) / RW, h: Math.max(b[3] - b[1], 1e-9) / RH, x0: b[0], y0: b[1] };
   });
   const order = boxes.map((_, i) => i).sort((a, b) => boxes[b].h - boxes[a].h || boxes[b].w - boxes[a].w);
   const pos: V2[] = [];
@@ -669,8 +675,8 @@ export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][],
     const b = boxes[bi];
     const [x, y] = pos[j];
     for (const c of b.corners) {
-      uvs[c * 2] = m + x + (uvs[c * 2] - b.x0) * k;
-      uvs[c * 2 + 1] = m + y + (uvs[c * 2 + 1] - b.y0) * k;
+      uvs[c * 2] = RX + (m + x) * RW + (uvs[c * 2] - b.x0) * k;
+      uvs[c * 2 + 1] = RY + (m + y) * RH + (uvs[c * 2 + 1] - b.y0) * k;
     }
   });
   return true;

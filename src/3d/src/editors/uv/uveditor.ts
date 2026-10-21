@@ -5,7 +5,7 @@ import { h, patch, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app, registerOperators, type ChangeKind } from '../../app/app';
 import { registerEditor, type Area, type Editor } from '../../ui/screen';
-import { openMenu, type MenuItem } from '../../ui/menu';
+import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { enumMenu, enumRow, panel, numberField, checkbox } from '../../ui/widgets';
 import { splitRow } from '../../ui/props';
 import { lastOpPanel } from '../../ui/redo';
@@ -29,8 +29,9 @@ import './uvexport';
 import './uvicons';
 import './uvstyle';
 import './uvsculpt';
+import { drawCustomRegion } from './uvregion';
 
-export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'rip_region' | 'grab' | 'relax' | 'pinch';
+export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'transform' | 'rip_region' | 'grab' | 'relax' | 'pinch';
 
 interface ToolDef {
   id: UVTool;
@@ -52,6 +53,7 @@ const TOOLS: (ToolDef | null)[] = [
   { id: 'move', label: 'Move', icon: 'transform_move', shortcut: 'G', description: 'Drag to move the selected UVs' },
   { id: 'rotate', label: 'Rotate', icon: 'transform_rotate', shortcut: 'R', description: 'Drag to rotate the selected UVs' },
   { id: 'scale', label: 'Scale', icon: 'transform_scale', shortcut: 'S', description: 'Drag to scale the selected UVs' },
+  { id: 'transform', label: 'Transform', icon: 'transform', description: 'Drag inside the selection frame to move, its corners to scale, its sides to scale along one axis, outside it to rotate' },
   null,
   { id: 'rip_region', label: 'Rip Region', icon: 'rip', description: 'Drag to tear the selected UVs off their neighbours' },
   null,
@@ -136,6 +138,16 @@ export class UVEditor implements Editor, UVView, View2D {
   /** overlay opacity of the UV edges, and whether faces get a fill */
   uvOpacity = 1;
   showFaces = true;
+  /** Overlays: master switch, edge style, stretch opacity and the background grid */
+  showOverlays = true;
+  edgeDisplay: 'OUTLINE' | 'DASH' | 'BLACK' | 'WHITE' = 'OUTLINE';
+  stretchOpacity = 0.9;
+  showGrid = true;
+  /** transforms land on pixel corners / centres; transforms keep UVs in the 0–1 square */
+  pixelRoundMode: 'DISABLED' | 'CORNER' | 'CENTER' = 'DISABLED';
+  lockBounds = false;
+  /** rectangle being dragged by Set User Region (screen pixels) */
+  regionDrag: { x0: number; y0: number; x1: number; y1: number } | null = null;
   /** a running drag drawn as an overlay (box / lasso from tools) */
   private drag: { kind: 'BOX' | 'LASSO'; pts: { x: number; y: number }[] } | null = null;
   private hover: { x: number; y: number } | null = null;
@@ -155,7 +167,14 @@ export class UVEditor implements Editor, UVView, View2D {
     this.ui = document.createElement('div');
     this.ui.className = 'v3d-ui uv-ui';
     this.el.append(this.canvas, this.ui);
-    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; stretchType: string; opacity: number; faces: boolean; mode: string }>;
+    const st = (state ?? {}) as Partial<{ zoom: number; pan: { x: number; y: number }; image: string | null; pivot: UVPivot; tool: UVTool; toolbar: boolean; sidebar: boolean; tab: string; stretch: boolean; stretchType: string; opacity: number; faces: boolean; mode: string; overlays: boolean; edges: string; stretchOpacity: number; grid: boolean }>;
+    if (st.overlays === false) this.showOverlays = false;
+    if (st.edges === 'DASH' || st.edges === 'BLACK' || st.edges === 'WHITE') this.edgeDisplay = st.edges;
+    if (typeof st.stretchOpacity === 'number') this.stretchOpacity = st.stretchOpacity;
+    if (st.grid === false) this.showGrid = false;
+    const ex = state as { pixelRound?: string; lockBounds?: boolean } | undefined;
+    if (ex?.pixelRound === 'CORNER' || ex?.pixelRound === 'CENTER') this.pixelRoundMode = ex.pixelRound;
+    if (ex?.lockBounds) this.lockBounds = true;
     if (st.zoom) this.zoom = st.zoom;
     if (st.pan) this.pan = { ...st.pan };
     if (st.image !== undefined) this.imageId = st.image;
@@ -172,6 +191,10 @@ export class UVEditor implements Editor, UVView, View2D {
     this.canvas.addEventListener('pointermove', (e) => {
       this.hover = this.local(e);
       if (isSculpt(this.tool)) this.draw();
+      if (this.tool === 'transform' && !app.modal) {
+        const part = this.transformPart(this.hover);
+        this.canvas.style.cursor = part === 'MOVE' ? 'move' : part === 'SCALE' ? 'nwse-resize' : part === 'SIDE_X' ? 'ew-resize' : part === 'SIDE_Y' ? 'ns-resize' : part === 'ROTATE' ? 'alias' : '';
+      } else if (this.canvas.style.cursor) this.canvas.style.cursor = '';
     });
     this.canvas.addEventListener('pointerleave', () => {
       this.hover = null;
@@ -428,6 +451,67 @@ export class UVEditor implements Editor, UVView, View2D {
         { iconOnly: true, tip: 'Snap To\nWhat moving UVs snap to', title: 'Snap To' },
       ),
       h('button', { class: { 'hdr-toggle': true, on: ts.use_proportional_edit }, 'data-tip': 'Proportional Editing (O)\nMove nearby UVs too, with a falloff', onclick: () => setTs('use_proportional_edit', !ts.use_proportional_edit, 'Proportional Editing') }, icon(ts.use_proportional_edit ? 'prop_on' : 'prop_off')),
+      h('div', { class: 'hdr-sep' }),
+      h(
+        'div',
+        { class: 'hdr-group', key: 'uv-overlay' },
+        h('button', { class: { 'hdr-toggle': true, on: this.showOverlays }, 'data-tip': 'Show Overlays (Shift Alt Z)', onclick: () => this.toggleOverlays() }, icon('overlay')),
+        h(
+          'button',
+          {
+            class: 'hdr-icondrop uv-overlays',
+            'data-tip': 'Overlays',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openPopover(e.currentTarget as HTMLElement, () => this.overlayPopover(), { width: 250 });
+            },
+          },
+          icon('down_arrow_hlt', 'tiny'),
+        ),
+      ),
+    );
+  }
+
+  toggleOverlays() {
+    this.showOverlays = !this.showOverlays;
+    this.draw();
+    this.area.drawHeader();
+  }
+
+  /** Header ▸ Overlays: guides, UV geometry display and stretch. */
+  private overlayPopover(): Child {
+    const redraw = () => (this.draw(), this.drawUI(), app.changed('ui'));
+    return h(
+      'div',
+      { class: 'pop-panel' },
+      h('div', { class: 'pop-title' }, 'Guides'),
+      checkbox('uv-ov-grid', 'Grid', this.showGrid, (v) => ((this.showGrid = v), redraw()), { tip: 'Show the grid over the UV square (it is always shown without an image)' }),
+      h('div', { class: 'pop-title' }, 'Geometry'),
+      numberField({ id: 'uv-ov-opacity', label: 'UV Opacity', value: this.uvOpacity, min: 0, max: 1, slider: true, unit: 'factor', set: (v) => ((this.uvOpacity = v), this.draw()) }),
+      enumRow(
+        'uv-ov-edges',
+        [
+          { value: 'OUTLINE', label: 'Outline', description: 'Light edges with a dark border' },
+          { value: 'DASH', label: 'Dash', description: 'Dashed black and white edges' },
+          { value: 'BLACK', label: 'Black', description: 'Thin black edges' },
+          { value: 'WHITE', label: 'White', description: 'Thin white edges' },
+        ],
+        this.edgeDisplay,
+        (v) => ((this.edgeDisplay = v as 'OUTLINE'), redraw()),
+      ),
+      checkbox('uv-ov-faces', 'Faces', this.showFaces, (v) => ((this.showFaces = v), redraw())),
+      h('div', { class: 'pop-title' }, 'UV Stretch'),
+      checkbox('uv-ov-stretch', 'Display Stretch', this.showStretch, (v) => ((this.showStretch = v), redraw())),
+      enumRow(
+        'uv-ov-stype',
+        [
+          { value: 'ANGLE', label: 'Angle', description: 'Colour faces by how much their UV angles differ from the 3D angles' },
+          { value: 'AREA', label: 'Area', description: 'Colour faces by how much their UV area differs from the 3D area' },
+        ],
+        this.stretchType,
+        (v) => ((this.stretchType = v as 'AREA'), redraw()),
+      ),
+      numberField({ id: 'uv-ov-sop', label: 'Opacity', value: this.stretchOpacity, min: 0, max: 1, slider: true, unit: 'factor', set: (v) => ((this.stretchOpacity = v), this.draw()) }),
     );
   }
 
@@ -766,7 +850,7 @@ export class UVEditor implements Editor, UVView, View2D {
       g.fillStyle = canvasGrey(0x3a);
       g.fillRect(t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
     }
-    this.drawGrid(g, !!img);
+    if (this.showGrid || !img) this.drawGrid(g, !!img);
     const layers = uvLayers();
     if (!layers.length || layers.every((l) => !l.faces.length)) {
       g.fillStyle = canvasTextGrey(0x88);
@@ -774,8 +858,18 @@ export class UVEditor implements Editor, UVView, View2D {
       g.textAlign = 'center';
       g.fillText(app.doc.mode === 'EDIT' ? 'Select faces in the 3D Viewport to edit their UVs' : 'Enter Edit Mode on a mesh to edit its UVs', W / 2, 24);
     }
+    if (this.showOverlays) this.drawUVs(g, layers);
+    this.drawOverlays(g);
+    if (this.showOverlays) this.drawTransformFrame(g);
+    if (this.showOverlays || this.regionDrag) drawCustomRegion(g, (u, v) => this.toPx(u, v), this.regionDrag);
+  }
+
+  /** UV faces, edges and vertices of the edited meshes (with stretch colours). */
+  private drawUVs(g: CanvasRenderingContext2D, layers: ReturnType<typeof uvLayers>) {
     const mode = uvSelectMode();
     const stretch = this.showStretch ? layers.map((l) => (this.stretchType === 'ANGLE' ? angleStretch(new UVTopo(l)) : areaStretch(new UVTopo(l)))) : null;
+    const SEL = '#ff9a1f';
+    const plainColor = this.edgeDisplay === 'BLACK' ? '#000000' : this.edgeDisplay === 'WHITE' ? '#ffffff' : '#c6c7c8';
     layers.forEach((layer, li) => {
       const me = layer.me;
       const sel = selReader(layer);
@@ -801,54 +895,90 @@ export class UVEditor implements Editor, UVView, View2D {
         g.closePath();
         if (stretch) {
           const v = stretch[li].get(f) ?? 0;
-          g.fillStyle = `hsla(${240 * (1 - v)}, 85%, 50%, 0.55)`;
+          g.fillStyle = `hsla(${240 * (1 - v)}, 85%, 50%, ${0.6 * this.stretchOpacity})`;
           g.fill();
         }
         if (!this.showFaces) continue;
         if (all) {
-          g.fillStyle = 'rgba(245, 142, 4,0.22)';
+          g.fillStyle = 'rgba(255, 154, 31, 0.24)';
           g.fill();
         } else if (!stretch) {
-          g.fillStyle = 'rgba(255, 255, 255,0.05)';
+          g.fillStyle = 'rgba(255, 255, 255, 0.1)';
           g.fill();
         }
       }
-      // edges: unselected first, then seams, then selected on top
-      const pass = (want: 'plain' | 'seam' | 'sel') => {
-        g.beginPath();
-        for (const f of layer.faces) {
-          const s = me.offsets[f],
-            e = me.offsets[f + 1];
-          for (let k = s; k < e; k++) {
-            const k2 = k + 1 < e ? k + 1 : s;
-            const isSel = sel(k) && sel(k2);
-            const isSeam = !!me.seams?.[k];
-            const kind = isSel ? 'sel' : isSeam ? 'seam' : 'plain';
-            if (kind !== want) continue;
-            g.moveTo(px[k * 2], px[k * 2 + 1]);
-            g.lineTo(px[k2 * 2], px[k2 * 2 + 1]);
-          }
+      // edges: plain, seams, edges with one selected end (a gradient), selected
+      const paths = { plain: new Path2D(), seam: new Path2D(), sel: new Path2D() };
+      const partial: [number, number, boolean][] = [];
+      for (const f of layer.faces) {
+        const s = me.offsets[f],
+          e = me.offsets[f + 1];
+        for (let k = s; k < e; k++) {
+          const k2 = k + 1 < e ? k + 1 : s;
+          const a = sel(k),
+            b = sel(k2);
+          const path = a && b ? paths.sel : me.seams?.[k] ? paths.seam : paths.plain;
+          path.moveTo(px[k * 2], px[k * 2 + 1]);
+          path.lineTo(px[k2 * 2], px[k2 * 2 + 1]);
+          if (a !== b && mode === 'VERTEX') partial.push([k, k2, a]);
         }
-        g.strokeStyle = want === 'sel' ? '#f58e04' : want === 'seam' ? '#d83a20' : '#bebfc0';
-        g.lineWidth = want === 'plain' ? 1 : 1.6;
-        g.stroke();
-      };
+      }
       g.lineJoin = 'round';
+      g.lineCap = 'round';
       g.globalAlpha = this.uvOpacity;
-      pass('plain');
-      pass('seam');
-      pass('sel');
+      const outline = this.edgeDisplay === 'OUTLINE';
+      if (outline) {
+        // a dark border under every edge keeps them readable over any image
+        g.strokeStyle = 'rgba(0, 0, 0, 0.85)';
+        g.lineWidth = 3.6;
+        for (const p of [paths.plain, paths.seam, paths.sel]) g.stroke(p);
+      }
+      if (this.edgeDisplay === 'DASH') {
+        g.lineWidth = 1;
+        g.strokeStyle = '#000000';
+        g.stroke(paths.plain);
+        g.setLineDash([4, 4]);
+        g.strokeStyle = '#ffffff';
+        g.stroke(paths.plain);
+        g.setLineDash([]);
+      } else {
+        g.lineWidth = outline ? 1.6 : 1;
+        g.strokeStyle = plainColor;
+        g.stroke(paths.plain);
+      }
+      g.lineWidth = outline ? 1.6 : 1.5;
+      g.strokeStyle = '#e8432c';
+      g.stroke(paths.seam);
+      for (const [k, k2, aSel] of partial) {
+        const x0 = px[k * 2],
+          y0 = px[k * 2 + 1],
+          x1 = px[k2 * 2],
+          y1 = px[k2 * 2 + 1];
+        const gr = g.createLinearGradient(x0, y0, x1, y1);
+        gr.addColorStop(0, aSel ? SEL : plainColor);
+        gr.addColorStop(1, aSel ? plainColor : SEL);
+        g.strokeStyle = gr;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.lineTo(x1, y1);
+        g.stroke();
+      }
+      g.strokeStyle = SEL;
+      g.stroke(paths.sel);
       g.globalAlpha = 1;
-      // vertices
+      // vertices (round dots), pinned UVs in red; faces get a centre dot in face mode
+      const dot = (x: number, y: number, r: number, color: string) => {
+        g.fillStyle = color;
+        g.beginPath();
+        g.arc(x, y, r, 0, Math.PI * 2);
+        g.fill();
+      };
       if (mode === 'VERTEX' || mode === 'EDGE') {
-        const sz = mode === 'VERTEX' ? 4 : 0;
         for (const f of layer.faces)
           for (let k = me.offsets[f]; k < me.offsets[f + 1]; k++) {
             const pinned = isPinned(me, k);
-            if (!sz && !pinned) continue;
-            g.fillStyle = pinned ? '#fc261b' : sel(k) ? '#f58e04' : '#0d0e10';
-            const q = pinned ? 6 : sz;
-            g.fillRect(px[k * 2] - q / 2, px[k * 2 + 1] - q / 2, q, q);
+            if (pinned) dot(px[k * 2], px[k * 2 + 1], 3.5, '#fc261b');
+            else if (mode === 'VERTEX') dot(px[k * 2], px[k * 2 + 1], 3, sel(k) ? SEL : '#0d0e10');
           }
       } else {
         for (const f of layer.faces) {
@@ -861,17 +991,13 @@ export class UVEditor implements Editor, UVView, View2D {
             u += px[k * 2] / (e - s);
             v += px[k * 2 + 1] / (e - s);
             if (!sel(k)) all = false;
-            if (isPinned(me, k)) {
-              g.fillStyle = '#fc261b';
-              g.fillRect(px[k * 2] - 3, px[k * 2 + 1] - 3, 6, 6);
-            }
+            if (isPinned(me, k)) dot(px[k * 2], px[k * 2 + 1], 3.5, '#fc261b');
           }
-          g.fillStyle = all ? '#f58e04' : '#0d0e10';
+          g.fillStyle = all ? SEL : '#0d0e10';
           g.fillRect(u - 2, v - 2, 4, 4);
         }
       }
     });
-    this.drawOverlays(g);
   }
 
   /** UDIM images: every tile in its UV square, outlined and numbered. */
@@ -930,6 +1056,7 @@ export class UVEditor implements Editor, UVView, View2D {
   private drawOverlays(g: CanvasRenderingContext2D) {
     // 2D cursor
     const cur = this.toPx(uvCursor.u, uvCursor.v);
+    if (!this.showOverlays) cur.x = cur.y = -100;
     g.lineWidth = 1.5;
     for (let i = 0; i < 8; i++) {
       g.strokeStyle = i % 2 ? '#ffffff' : '#ea0f04';
@@ -1100,6 +1227,14 @@ export class UVEditor implements Editor, UVView, View2D {
   private startDrag(e: PointerEvent, event: { x: number; y: number; shift: boolean; ctrl: boolean; alt: boolean }): boolean {
     if (!uvEditPoll()) return false;
     const area = this.area;
+    if (this.tool === 'transform') {
+      const part = this.transformPart(this.local(e));
+      if (!part) return false;
+      const props: Record<string, unknown> = { release_confirm: true };
+      if (part === 'SIDE_X' || part === 'SIDE_Y') props.constraint_axis = [part === 'SIDE_X', part === 'SIDE_Y'];
+      const op = part === 'MOVE' ? 'uv.translate' : part === 'ROTATE' ? 'uv.rotate' : 'uv.resize';
+      return app.run(op, props, { area, event }) === 'RUNNING_MODAL';
+    }
     if (this.tool === 'move' || this.tool === 'rotate' || this.tool === 'scale' || this.tool === 'rip_region') {
       if (this.tool === 'rip_region') return app.run('uv.rip_move', { release_confirm: true }, { area, event }) === 'RUNNING_MODAL';
       const op = this.tool === 'move' ? 'uv.translate' : this.tool === 'rotate' ? 'uv.rotate' : 'uv.resize';
@@ -1116,6 +1251,69 @@ export class UVEditor implements Editor, UVView, View2D {
       return startUVTransform('TRANSLATE', app.context(area, event), { release_confirm: true }) === 'RUNNING_MODAL';
     }
     return false;
+  }
+
+  /** Screen rectangle around the selected UVs (Transform tool frame), or null. */
+  selectionFrame(): { x0: number; y0: number; x1: number; y1: number } | null {
+    let a = Infinity,
+      b = Infinity,
+      c = -Infinity,
+      d = -Infinity;
+    for (const layer of uvLayers()) {
+      const bb = selBounds(new UVTopo(layer), layer.me.uvs as Float32Array, selReader(layer));
+      if (!bb) continue;
+      a = Math.min(a, bb[0]);
+      b = Math.min(b, bb[1]);
+      c = Math.max(c, bb[2]);
+      d = Math.max(d, bb[3]);
+    }
+    if (a > c) return null;
+    const p0 = this.toPx(a, d),
+      p1 = this.toPx(c, b);
+    // keep a usable frame around a single vertex or a straight line of UVs
+    const pad = 10;
+    return { x0: Math.min(p0.x, p1.x) - pad, y0: Math.min(p0.y, p1.y) - pad, x1: Math.max(p0.x, p1.x) + pad, y1: Math.max(p0.y, p1.y) + pad };
+  }
+
+  /** Which part of the Transform tool frame a point is on. */
+  transformPart(q: { x: number; y: number }): 'MOVE' | 'ROTATE' | 'SCALE' | 'SIDE_X' | 'SIDE_Y' | null {
+    const f = this.selectionFrame();
+    if (!f) return null;
+    const near = (x: number, y: number) => Math.abs(q.x - x) <= 7 && Math.abs(q.y - y) <= 7;
+    if (near(f.x0, f.y0) || near(f.x1, f.y0) || near(f.x0, f.y1) || near(f.x1, f.y1)) return 'SCALE';
+    const mx = (f.x0 + f.x1) / 2,
+      my = (f.y0 + f.y1) / 2;
+    if (near(f.x0, my) || near(f.x1, my)) return 'SIDE_X';
+    if (near(mx, f.y0) || near(mx, f.y1)) return 'SIDE_Y';
+    if (q.x >= f.x0 && q.x <= f.x1 && q.y >= f.y0 && q.y <= f.y1) return 'MOVE';
+    return 'ROTATE';
+  }
+
+  /** Transform tool: the frame around the selection with its handles. */
+  private drawTransformFrame(g: CanvasRenderingContext2D) {
+    if (this.tool !== 'transform' || app.doc.mode !== 'EDIT' || app.modal) return;
+    const f = this.selectionFrame();
+    if (!f) return;
+    g.save();
+    g.setLineDash([5, 4]);
+    g.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    g.lineWidth = 1;
+    g.strokeRect(Math.round(f.x0) + 0.5, Math.round(f.y0) + 0.5, Math.round(f.x1 - f.x0), Math.round(f.y1 - f.y0));
+    g.setLineDash([]);
+    const mx = (f.x0 + f.x1) / 2,
+      my = (f.y0 + f.y1) / 2;
+    const handle = (x: number, y: number, color: string) => {
+      g.fillStyle = color;
+      g.strokeStyle = 'rgba(0, 0, 0, 0.8)';
+      g.fillRect(Math.round(x) - 4, Math.round(y) - 4, 8, 8);
+      g.strokeRect(Math.round(x) - 4.5, Math.round(y) - 4.5, 9, 9);
+    };
+    for (const [x, y] of [[f.x0, f.y0], [f.x1, f.y0], [f.x0, f.y1], [f.x1, f.y1]]) handle(x, y, '#ffffff');
+    handle(f.x0, my, '#ff5a5a');
+    handle(f.x1, my, '#ff5a5a');
+    handle(mx, f.y0, '#8ce36b');
+    handle(mx, f.y1, '#8ce36b');
+    g.restore();
   }
 
   /** Click with a select or transform tool. */
@@ -1149,6 +1347,7 @@ export class UVEditor implements Editor, UVView, View2D {
   onKey(e: KeyboardEvent): boolean {
     if (e.type !== 'keydown') return false;
     const ctrl = e.ctrlKey || e.metaKey;
+    if (e.code === 'KeyZ' && !ctrl && e.altKey && e.shiftKey) return this.toggleOverlays(), true;
     if (!ctrl && !e.altKey && !e.shiftKey) {
       if (e.code === 'KeyT') return this.toggleToolbar(), true;
       if (e.code === 'KeyN') return this.toggleSidebar(), true;
@@ -1162,7 +1361,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   serialize() {
-    return { zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces };
+    return { pixelRound: this.pixelRoundMode, lockBounds: this.lockBounds, zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces, overlays: this.showOverlays, edges: this.edgeDisplay, stretchOpacity: this.stretchOpacity, grid: this.showGrid };
   }
 
   resize() {
