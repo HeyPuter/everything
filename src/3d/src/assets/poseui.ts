@@ -26,7 +26,8 @@ function poseAssets(): AssetEntry[] {
 
 const inPose = () => app.doc.mode === 'POSE' && app.activeObject?.type === 'ARMATURE';
 
-function poseLibrary(): Child {
+/** Pose library contents (sidebar panel and the asset shelf popover). */
+export function poseLibraryContent(): Child {
   const list = poseAssets();
   return [
     h(
@@ -93,5 +94,5 @@ sidebarTabs.push({
   id: 'Animation',
   label: 'Animation',
   poll: inPose,
-  draw: () => [panel('sb-pose-library', 'Pose Library', poseLibrary)],
+  draw: () => [panel('sb-pose-library', 'Pose Library', poseLibraryContent)],
 });

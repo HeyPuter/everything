@@ -527,6 +527,8 @@ export class AssetBrowser implements Editor, AssetBrowserLike {
     if (sel.length) items.push({ label: 'Copy to Library…', icon: 'asset_library', op: 'asset.bundle_install' });
     if (user) items.push({ separator: true }, { label: 'Remove from Library', icon: 'trash', op: 'asset.library_remove_assets' });
     if (act && act.library !== LOCAL) items.push({ label: 'Open Library File', icon: 'file_3d', op: 'asset.open_containing_blend_file' });
+    if (act && this.library === ALL) items.push({ label: 'Show in Library', icon: 'asset_library', op: 'asset.browse_containing_blend_file' });
+    if (act?.table === 'actions') items.push({ label: 'Assign Action', icon: 'action', op: 'asset.assign_action' });
     if (act && this.editable(act) && this.catalogs().length) items.push({ separator: true }, { label: 'Move to Catalog', submenu: () => this.catalogPickMenu() });
     items.push({ separator: true }, { label: 'Refresh', shortcut: 'R', op: 'asset.library_refresh' }, { label: 'Select All', shortcut: 'A', op: 'file.select_all', props: { action: 'SELECT' } });
     return items;

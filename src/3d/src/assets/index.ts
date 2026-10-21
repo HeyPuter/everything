@@ -10,6 +10,7 @@ import './poselib';
 import './browser';
 import './menus';
 import './poseui';
+import './singleops';
 import { browserOf } from './state';
 import { idAssetHooks } from '../scripting/api';
 import { markAsset, clearAsset } from './ops';

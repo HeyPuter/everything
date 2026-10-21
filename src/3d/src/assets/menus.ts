@@ -54,9 +54,9 @@ idSelectorMenuHooks.push((id) => {
   const targets = encodeTarget(table, id);
   const marked = !!blockOf(app.doc, table, id)?.asset_data;
   return [
-    { label: 'Mark as Asset', icon: 'asset_mark', op: 'asset.mark', props: { targets }, disabled: marked },
-    { label: 'Clear Asset', op: 'asset.clear', props: { targets, set_fake_user: false }, disabled: !marked },
-    { label: 'Clear Asset (Set Fake User)', op: 'asset.clear', props: { targets, set_fake_user: true }, disabled: !marked },
+    { label: 'Mark as Asset', icon: 'asset_mark', op: 'asset.mark_single', props: { targets }, disabled: marked },
+    { label: 'Clear Asset', op: 'asset.clear_single', props: { targets, set_fake_user: false }, disabled: !marked },
+    { label: 'Clear Asset (Set Fake User)', op: 'asset.clear_single', props: { targets, set_fake_user: true }, disabled: !marked },
   ];
 });
 
