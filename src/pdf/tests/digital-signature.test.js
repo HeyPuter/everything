@@ -34,8 +34,28 @@ import {
 } from '../src/core/pdf-incremental.js';
 import { protectPdf } from '../src/core/security.js';
 import { createSignedData } from '../src/core/cms.js';
-import { digest, signingHash } from '../src/core/pki-crypto.js';
-import { decodeDer, toPem } from '../src/core/asn1.js';
+import {
+  digest,
+  signData,
+  signatureAlgorithmFor,
+  signingHash,
+  subtle,
+} from '../src/core/pki-crypto.js';
+import {
+  OID,
+  bitString,
+  boolean,
+  decodeDer,
+  explicit,
+  integer,
+  octetString,
+  oid,
+  sequence,
+  set,
+  toPem,
+  utcTime,
+  utf8String,
+} from '../src/core/asn1.js';
 
 const hasOpenssl = spawnSync('openssl', ['version']).status === 0;
 const hasPdfsig = spawnSync('pdfsig', ['-v']).status === 0;
@@ -155,6 +175,44 @@ function tinyPng() {
       chunk('IEND', Buffer.alloc(0)),
     ]),
   );
+}
+
+/** A certificate for `name`, signed by `issuer` (or itself), a CA or an end entity. */
+async function issueCertificate(name, { issuer = null, ca = false } = {}) {
+  const keys = await subtle().generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  );
+  const spki = new Uint8Array(await subtle().exportKey('spki', keys.publicKey));
+  const subject = sequence(set(sequence(oid(OID.commonName), utf8String(name))));
+  const signer = issuer || { privateKey: keys.privateKey, subject };
+  const algorithm = signatureAlgorithmFor(signer.privateKey);
+  const extension = (id, value) => sequence(oid(id), boolean(true), octetString(value));
+  const usage = ca ? Uint8Array.of(0x06) : Uint8Array.of(0xc0); // keyCertSign + cRLSign
+  const tbs = sequence(
+    explicit(0, integer(2)),
+    integer(Uint8Array.of(0x40, ...globalThis.crypto.getRandomValues(new Uint8Array(8)))),
+    algorithm,
+    signer.subject,
+    sequence(utcTime(new Date('2026-01-01T00:00:00Z')), utcTime(new Date('2036-01-01T00:00:00Z'))),
+    subject,
+    spki,
+    explicit(
+      3,
+      sequence(
+        extension(OID.basicConstraints, sequence(ca ? boolean(true) : null)),
+        extension(OID.keyUsage, bitString(usage, ca ? 1 : 6)),
+      ),
+    ),
+  );
+  const certificate = sequence(tbs, algorithm, bitString(await signData(signer.privateKey, tbs)));
+  return { privateKey: keys.privateKey, certificate, subject };
 }
 
 let rsa;
@@ -319,6 +377,33 @@ describe('signing and validating', () => {
     expect(modified.modifications.disallowed.join(' ')).toMatch(
       /Page properties were changed \(Contents\)/,
     );
+  });
+
+  it('trusts only chains whose issuers are certificate authorities', async () => {
+    // A signer with an ordinary certificate from a trusted authority must not be able to vouch
+    // for a certificate of their own making in someone else's name.
+    const root = await issueCertificate('Trusted Root', { ca: true });
+    const mallory = await issueCertificate('Mallory', { issuer: root });
+    const forged = await issueCertificate('Bob', { issuer: mallory });
+    const honest = await issueCertificate('Alice', { issuer: root });
+    const trustedCertificates = [root.certificate];
+    const signedBy = async (signer, chain) => {
+      const signed = await signPdf(
+        await makePdf(),
+        { ...signer, chain },
+        {
+          signingTime: new Date('2026-06-01T00:00:00Z'),
+        },
+      );
+      return (await verifySignatures(signed, { trustedCertificates }))[0];
+    };
+    const alice = await signedBy(honest, [root.certificate]);
+    expect(alice.status).toBe('valid');
+    expect(alice.chain.map((cert) => cert.commonName)).toEqual(['Alice', 'Trusted Root']);
+    const bob = await signedBy(forged, [mallory.certificate, root.certificate]);
+    expect(bob.signer.name).toBe('Bob');
+    expect(bob.trusted).toBe(false);
+    expect(bob.status).toBe('valid-unknown-identity');
   });
 
   it('flags a later revision that points the file at another catalog', async () => {

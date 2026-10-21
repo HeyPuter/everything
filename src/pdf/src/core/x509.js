@@ -251,8 +251,17 @@ export function certificateSummary(cert) {
   };
 }
 
+/**
+ * Whether a certificate may sign others: a certificate authority whose key usage, if stated,
+ * includes certificate signing. Certificates older than version 3 have no such extensions.
+ */
+function mayIssue(cert) {
+  const { basicConstraints, keyUsage } = cert.extensions;
+  if (!basicConstraints) return cert.version < 3;
+  return basicConstraints.ca && (!keyUsage || keyUsage.includes('keyCertSign'));
+}
 const isIssuerOf = (candidate, cert) => {
-  if (!bytesEqual(candidate.subject.der, cert.issuer.der)) return false;
+  if (!bytesEqual(candidate.subject.der, cert.issuer.der) || !mayIssue(candidate)) return false;
   const aki = cert.extensions.authorityKeyIdentifier;
   const ski = candidate.extensions.subjectKeyIdentifier;
   return !aki || !ski || bytesEqual(aki, ski);
