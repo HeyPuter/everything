@@ -281,7 +281,10 @@ const worksheetSum = (values) => values.reduce((total, value) => total + value, 
  */
 const RANGE_PARENTS = new WeakMap(); // values array → the array whose leading rows it repeats
 const RANGE_TOTALS = new WeakMap(); // values array → { sums, errorRow, error }: sums[k] is the total of rows 0..k-1
-export function noteRangeRows(values, parent) { RANGE_PARENTS.set(values, parent); }
+// Each array is noted against the first of its family, not the one it was built from: a column of running totals
+// builds one array per row, each from the one before, and a chain of them held every array alive while its last
+// was, the rows of 10,000 running totals taking 600 MB (and 20,000 more than a browser tab has).
+export function noteRangeRows(values, parent) { RANGE_PARENTS.set(values, RANGE_PARENTS.get(parent) ?? parent); }
 function rangeTotal(values) {
   let run = RANGE_TOTALS.get(values);
   if (!run) {
