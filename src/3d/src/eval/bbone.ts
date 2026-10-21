@@ -142,10 +142,28 @@ export function bboneFrames(s: BBoneShape): Matrix4[] {
  * Deformation of a point (armature rest space) by a B-Bone: the joint deform matrices
  * (pose joint · rest joint⁻¹) are interpolated by the point's position along the rest bone.
  */
-export function bboneDeformAt(deforms: Matrix4[], restInv: Matrix4, length: number, p: Vector3, out = new Matrix4()): Matrix4 {
+export function bboneDeformAt(deforms: Matrix4[], restInv: Matrix4, length: number, p: Vector3, out = new Matrix4(), curved?: Vector3[]): Matrix4 {
   const n = deforms.length - 1;
-  const y = p.clone().applyMatrix4(restInv).y;
-  const f = Math.max(0, Math.min(1, length > 0 ? y / length : 0)) * n;
+  let f: number;
+  if (curved && curved.length === n + 1) {
+    // Curved mapping: the nearest point on the rest curve (through the joints)
+    let best = Infinity;
+    f = 0;
+    for (let k = 0; k < n; k++) {
+      const a = curved[k],
+        ab = curved[k + 1].clone().sub(a);
+      const l2 = ab.lengthSq();
+      const t = l2 > 0 ? Math.max(0, Math.min(1, p.clone().sub(a).dot(ab) / l2)) : 0;
+      const d = a.clone().addScaledVector(ab, t).distanceToSquared(p);
+      if (d < best) {
+        best = d;
+        f = k + t;
+      }
+    }
+  } else {
+    const y = p.clone().applyMatrix4(restInv).y;
+    f = Math.max(0, Math.min(1, length > 0 ? y / length : 0)) * n;
+  }
   const k = Math.min(n - 1, Math.floor(f)),
     w = f - k;
   const a = deforms[k].elements,

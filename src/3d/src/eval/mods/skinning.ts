@@ -76,10 +76,10 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
   const groupBone: (string | null)[] = (groups ?? []).map((g) => (mats.has(g.name) ? g.name : null));
   const boneByName = new Map(deformBones.map((b) => [b.name, b]));
   // bending B-Bones deform each point by the segment it lies along
-  const bbones = new Map<string, { deform: Matrix4[]; restInv: Matrix4; length: number }>();
+  const bbones = new Map<string, { deform: Matrix4[]; restInv: Matrix4; length: number; curved?: Vector3[] }>();
   for (const b of deformBones) {
     const ev = pose.bones.get(b.name)!;
-    if (ev.bbone) bbones.set(b.name, { deform: ev.bbone.deform, restInv: ev.restInv, length: ev.length });
+    if (ev.bbone) bbones.set(b.name, { deform: ev.bbone.deform, restInv: ev.restInv, length: ev.length, curved: b.bbone_mapping_mode === 'CURVED' ? ev.bbone.rest.map((m) => new Vector3().setFromMatrixPosition(m)) : undefined });
   }
   const segMat = new Matrix4();
   const armPt = new Vector3();
@@ -87,7 +87,7 @@ export function armatureDeform(positions: Float32Array, groups: { name: string }
   const matFor = (name: string): Matrix4 => {
     const bb = bbones.get(name);
     if (!bb) return mats.get(name)!;
-    bboneDeformAt(bb.deform, bb.restInv, bb.length, armPt, segMat);
+    bboneDeformAt(bb.deform, bb.restInv, bb.length, armPt, segMat, bb.curved);
     return armToMesh.clone().multiply(segMat).multiply(meshToArm);
   };
   const v = new Vector3(),
