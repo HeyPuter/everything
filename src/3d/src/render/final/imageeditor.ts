@@ -25,7 +25,7 @@ import { makeTiled, makeSingle, openImageFiles, saveTiles } from './udimops';
 import { drawPaintOverlay, imagePaintRightDown, imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
-import { toolHeaderSettings } from '../../paint/ui';
+import { paintToolPanels, toolHeaderSettings } from '../../paint/ui';
 import { activeTools } from '../../app/prefs';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
@@ -1108,11 +1108,13 @@ export class ImageEditor implements Editor, View2D {
       );
     } else body.push(h('div', { class: 'sb-empty' }, 'No image'));
     const tabs = r ? ['Image', 'View', 'Scopes', 'Metadata'] : ['Image', 'View', 'Scopes'];
+    // Paint mode: the brush settings in a Tool tab
+    if (this.paintMode()) tabs.unshift('Tool');
     const tab = tabs.includes(this.sidebarTab) ? this.sidebarTab : 'Image';
     return h(
       'div',
       { key: 'sidebar', class: 'v3d-sidebar ie-sidebar' },
-      h('div', { class: 'sb-body' }, tab === 'Scopes' ? scopesPanel(this) : tab === 'View' ? this.viewTab() : tab === 'Metadata' && r ? this.metadataTab(r) : body),
+      h('div', { class: 'sb-body' }, tab === 'Tool' ? paintToolPanels('TEXTURE_PAINT') : tab === 'Scopes' ? scopesPanel(this) : tab === 'View' ? this.viewTab() : tab === 'Metadata' && r ? this.metadataTab(r) : body),
       h(
         'div',
         { class: 'sb-tabs' },

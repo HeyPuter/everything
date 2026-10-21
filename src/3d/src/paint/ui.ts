@@ -906,6 +906,11 @@ function brushTile(b: PaintBrush, mode: BrushMode): Child {
   );
 }
 
+/** The brush panels of a paint mode (Tool tabs of the 3D View, the Properties and the Image Editor). */
+export function paintToolPanels(mode: BrushMode): Child[] {
+  return brushPanels(mode);
+}
+
 function brushPanels(mode: BrushMode): Child[] {
   const b = activeBrush(mode);
   const ts = app.doc.scene.tool_settings;
