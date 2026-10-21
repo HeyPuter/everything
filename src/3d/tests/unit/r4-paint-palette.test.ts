@@ -93,3 +93,32 @@ describe('scripted stroke points', () => {
     ]);
   });
 });
+
+import { colorJitterOn, colorJitterer, seededRandom } from '../../src/paint/paintmath';
+
+describe('randomize color', () => {
+  it('is off without amounts and varies the color within its limits', () => {
+    expect(colorJitterOn({ use_color_jitter: true })).toBe(false);
+    const j = { use_color_jitter: true, value_jitter: 0.2 };
+    expect(colorJitterOn(j)).toBe(true);
+    const f = colorJitterer(j, seededRandom(7));
+    const seen = new Set<number>();
+    for (let i = 0; i < 20; i++) {
+      const c = f([0.5, 0.25, 0.25], 1);
+      // value only: hue and saturation are kept
+      expect(c[1] / c[0]).toBeCloseTo(0.5, 5);
+      expect(c[0]).toBeGreaterThanOrEqual(0.3 - 1e-6);
+      expect(c[0]).toBeLessThanOrEqual(0.7 + 1e-6);
+      seen.add(Math.round(c[0] * 1000));
+    }
+    expect(seen.size).toBeGreaterThan(5);
+  });
+  it('a per-stroke pick stays the same for every dab, pressure scales it', () => {
+    const f = colorJitterer({ use_color_jitter: true, hue_jitter: 0.5, use_stroke_random_hue: true }, seededRandom(3));
+    const a = f([1, 0, 0], 1),
+      b = f([1, 0, 0], 1);
+    expect(a).toEqual(b);
+    const g = colorJitterer({ use_color_jitter: true, value_jitter: 1, use_random_press_val: true }, seededRandom(3));
+    expect(g([0.5, 0.5, 0.5], 0)).toEqual([0.5, 0.5, 0.5]);
+  });
+});

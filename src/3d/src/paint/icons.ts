@@ -132,3 +132,8 @@ registerIcons({
   paint_palette:
     '<path class="s" d="M8 1.8C4.2 1.8 1.5 4.4 1.5 7.6c0 3.4 2.9 6.6 6.4 6.6 1.3 0 1.8-.9 1.4-1.9-.4-.9 0-1.9 1.1-1.9h1.6c1.6 0 2.6-1.1 2.6-2.8C14.6 4.4 11.8 1.8 8 1.8z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><circle class="f" cx="5" cy="6.5" r="1.1"/><circle class="f" cx="8" cy="4.6" r="1.1"/><circle class="f" cx="11" cy="6.2" r="1.1"/><circle class="s" cx="5.3" cy="10.2" r="1.1" fill="none" stroke-width="1"/>',
 });
+
+registerIcons({
+  // one random pick for a whole stroke: a wavy stroke with a single dot above it
+  paint_stroke_once: '<path class="s" d="M2 11c2-3 4 2 6-1s4 2 6-1" fill="none" stroke-width="1.4" stroke-linecap="round"/><circle class="f" cx="8" cy="4.5" r="1.8"/>',
+});

@@ -8,6 +8,7 @@ import { imageCanvas, imageTexture } from '../images';
 import { activeBrush, ensureBrushes, type PaintBrush } from '../../paint/brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, type BlendMode, type Falloff } from '../../paint/math';
 import { commitImage } from '../../paint/tpaint';
+import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from '../../paint/paintmath';
 import { runStroke, type StrokeView } from '../../paint/stroke';
 import { dabMaskAt, dabTextureColor, dabTextureAt, maskTextureActive, textureActive } from '../../paint/brushtex';
 import { modifiedImages } from './imageops';
@@ -241,6 +242,12 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
   const tool = e.shiftKey ? 'SOFTEN' : b.sculpt_tool === 'TEXDRAW' ? 'DRAW' : b.sculpt_tool;
   const lin = invert && tool !== 'CLONE' ? up.secondary_color : up.color;
   const color = [linearToSrgb(lin[0]), linearToSrgb(lin[1]), linearToSrgb(lin[2])];
+  const jit = colorJitterOn(up as ColorJitter) ? colorJitterer(up as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
+  const dabColor = (pressure: number) => {
+    if (!jit) return color;
+    const c = jit(lin, pressure);
+    return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+  };
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const r = host.el.getBoundingClientRect();
   const at = (ev: { clientX: number; clientY: number }) => host.toImage(ev.clientX - r.left, ev.clientY - r.top);
@@ -305,7 +312,7 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
         strengthAt: strengthAt ? (x, y) => strengthAt(...toScreen(x, y), x, y, 0) : null,
         clone: cloneSrc,
       };
-      dab(w, tool, ix, iy, radius, strength * d.pressure, fall, color, mode, last ?? undefined, ex);
+      dab(w, tool, ix, iy, radius, strength * d.pressure, fall, dabColor(d.pressure), mode, last ?? undefined, ex);
       last = [ix, iy];
     },
     update: () => {

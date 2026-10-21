@@ -18,6 +18,7 @@ import { brushRadiusPx } from './vgather';
 import { runStroke } from './stroke';
 import { paintDisplay } from './display';
 import { dabMaskAt, dabTextureAt, dabTextureColor } from './brushtex';
+import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from './paintmath';
 import { materialSlots } from '../editors/view3d/draw';
 
 // ---------------------------------------------------------------------------
@@ -284,6 +285,13 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   }
   const colLin = maskTool ? (invert ? [0, 0, 0] : [1, 1, 1]) : invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
   const color = [linearToSrgb(colLin[0]), linearToSrgb(colLin[1]), linearToSrgb(colLin[2])];
+  // Randomize Color: a new color per dab (or per stroke)
+  const jit = !maskTool && colorJitterOn(ts.unified_paint as ColorJitter) ? colorJitterer(ts.unified_paint as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
+  const dabColor = (pressure: number) => {
+    if (!jit) return color;
+    const c = jit(colLin, pressure);
+    return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+  };
   // the stencil mask limits every other tool (white: paint lands, black: blocked; or inverted)
   let stencil: DabOpts['stencil'] = null;
   const sm = !maskTool ? stencilMaskImage() : null;
@@ -319,7 +327,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         hitLocal: hit.point,
         strength: Math.max(0, b.strength) * d.pressure,
         tool,
-        color,
+        color: dabColor(d.pressure),
         mode,
         uvDelta: delta,
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),

@@ -11,6 +11,7 @@ import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type Mesh
 import { runStroke } from './stroke';
 import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
 import { dabTexture } from './brushtex';
+import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from './paintmath';
 import { paintFilter } from './fsdata';
 
 /** Make sure the mesh has an active color attribute (point domain 'Color', white). */
@@ -80,7 +81,10 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
   const tool = e.shiftKey ? 'BLUR' : b.sculpt_tool === 'PAINT' ? 'DRAW' : b.sculpt_tool;
   const sMask = sculpt && me.sculpt_mask && me.sculpt_mask.length === s.nv ? me.sculpt_mask : null;
   const sHidden = sculpt ? s.hiddenV : null;
-  const color = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
+  const baseColor = invert ? ts.unified_paint.secondary_color : ts.unified_paint.color;
+  let color: ArrayLike<number> = baseColor;
+  // Randomize Color: a new color per dab (or per stroke)
+  const jit = colorJitterOn(ts.unified_paint as ColorJitter) ? colorJitterer(ts.unified_paint as ColorJitter, seededRandom((Date.now() ^ (Math.random() * 1e9)) >>> 0)) : null;
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const orig = vertexColors(me, oldData === a.data ? { ...a, data: a.data.slice() } : { ...a, data: oldData });
   const cur = vertexColors(me, a);
@@ -120,6 +124,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
           else if (sMask) s.gf[k] *= 1 - sMask[vi];
         }
       const gpu = gpuColors(s);
+      if (jit) color = jit(baseColor, d.pressure);
       if (tool === 'DRAW') {
         for (let k = 0; k < n; k++) {
           const vi = s.gv[k];

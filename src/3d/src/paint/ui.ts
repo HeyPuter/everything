@@ -32,7 +32,7 @@ import { activeMeshData, meshSession } from './session';
 import { invalidatePaintAttributes } from './display';
 import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from './math';
 import { curveWidget } from '../render/final/props/curvewidget';
-import { hsvToRgb, rgbToHsv } from './paintmath';
+import { hsvToRgb, rgbToHsv, type ColorJitter } from './paintmath';
 import { brushThumb } from './brushthumbs';
 import { paintHooks } from './painthooks';
 import { paintCurvesOf } from './paintcurve';
@@ -163,6 +163,27 @@ function stencilMaskRows(): Child[] {
           row('Stencil Image', enumMenu('pt-sti', imgs.map((im) => ({ value: im.id, label: im.name, icon: 'image' })), st.stencil_image ?? '', (x) => ((st.stencil_image = x), app.pushUndo('Stencil Image'), changed()), { tip: 'White: paint lands · black: blocked' })),
           checkbox('pt-stinv', 'Invert', !!st.invert_stencil, (x) => ((st.invert_stencil = x), changed()), { tip: 'Paint where the stencil is black instead' }),
         ]
+      : null,
+  ];
+}
+
+/** Randomize Color rows: hue / saturation / value jitter with per-stroke and pressure toggles. */
+function colorJitterRows(p: string): Child[] {
+  const j = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & ColorJitter;
+  const toggle = (key: keyof ColorJitter, ic: string, tip: string) =>
+    h('button', { key: `${p}-${key}`, class: { 'hdr-toggle': true, 'pressure-toggle': true, on: !!j[key] }, 'data-tip': tip, onclick: () => (((j[key] as boolean) = !j[key]), changed()) }, icon(ic));
+  const rowFor = (amount: 'hue_jitter' | 'saturation_jitter' | 'value_jitter', label: string, stroke: keyof ColorJitter, press: keyof ColorJitter) =>
+    h(
+      'div',
+      { key: `${p}-${amount}`, class: 'paint-pressure-row' },
+      numberField({ id: `${p}-${amount}`, label, value: j[amount] ?? 0, min: 0, max: 1, slider: true, tip: `How far the ${label.toLowerCase()} may vary`, set: (x) => ((j[amount] = x), changed()) }),
+      toggle(stroke, 'paint_stroke_once', 'Pick one random value for the whole stroke'),
+      toggle(press, 'pressure', 'Scale the variation by the pen pressure'),
+    );
+  return [
+    checkbox(`${p}-on`, 'Randomize Color', !!j.use_color_jitter, (x) => ((j.use_color_jitter = x), changed()), { tip: 'Vary the color of each dab around the brush color' }),
+    j.use_color_jitter
+      ? [rowFor('hue_jitter', 'Hue', 'use_stroke_random_hue', 'use_random_press_hue'), rowFor('saturation_jitter', 'Saturation', 'use_stroke_random_sat', 'use_random_press_sat'), rowFor('value_jitter', 'Value', 'use_stroke_random_val', 'use_random_press_val')]
       : null,
   ];
 }
@@ -905,7 +926,7 @@ function brushPanels(mode: BrushMode): Child[] {
       ]),
     );
     if (paintsColor(mode, b)) {
-      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
+      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => [colorPicker('pt-cp'), panel(`pt-cjit-${mode}`, 'Randomize Color', () => colorJitterRows('pt-cj'), { sub: true, closed: true })]));
       out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows(mode, 'pt-pal'), { closed: true }));
     }
   } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
