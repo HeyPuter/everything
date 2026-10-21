@@ -12,6 +12,7 @@ import { curveColor } from './theme';
 import { INTERPOLATION_ITEMS, HANDLE_ITEMS, EASING_ITEMS } from './menus';
 import type { GraphEditor } from './graph';
 import { MOD_TYPES, newModifier } from './graph';
+import { curveUnit } from './units';
 
 function row(label: string, content: Child): Child {
   return h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, label), h('div', { class: 'sr-value' }, content), h('span', { class: 'decorator-space' }));
@@ -95,6 +96,8 @@ export function drawFCurveSidebar(ed: GraphEditor, opts: { driver?: boolean } = 
 }
 
 function keyframePanel(fc: FCurve, k: Keyframe): Child {
+  // values show in the property's unit (degrees for rotations, metres for locations)
+  const valueUnit = curveUnit(fc.data_path, fc.array_index);
   const interp = INTERPOLATION_ITEMS.flatMap((s) => s.items).map(([value, label]) => ({ value, label }));
   const easing = !['CONSTANT', 'LINEAR', 'BEZIER'].includes(k.interpolation);
   const handleItems = HANDLE_ITEMS.map(([value, label]) => ({ value, label }));
@@ -186,6 +189,7 @@ function keyframePanel(fc: FCurve, k: Keyframe): Child {
       'Value',
       numberField({
         id: 'g-kv',
+        unit: valueUnit,
         value: k.co[1],
         precision: 3,
         set: (v, f) => move(1, v, f),
@@ -211,6 +215,7 @@ function keyframePanel(fc: FCurve, k: Keyframe): Child {
             'Value',
             numberField({
               id: 'g-hly',
+        unit: valueUnit,
               value: k.handle_left[1],
               precision: 3,
               set: (v, f) => editHandle('left', 1, v, f),
@@ -234,6 +239,7 @@ function keyframePanel(fc: FCurve, k: Keyframe): Child {
             'Value',
             numberField({
               id: 'g-hry',
+        unit: valueUnit,
               value: k.handle_right[1],
               precision: 3,
               set: (v, f) => editHandle('right', 1, v, f),

@@ -12,6 +12,7 @@ import { C, curveColor, HANDLE_COLORS } from './theme';
 import { valueStep, formatValue, animSettings } from './view2d';
 import { evaluateFCurve } from '../anim/fcurve';
 import { lassoGesture } from './selecttools';
+import { curveDisplayFactor } from './units';
 import { setKeySelected, selectAll, selectColumns, keyBounds, isAnySelected } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
 import { proportionalOf, proportionalHeader } from './proportional';
@@ -114,11 +115,14 @@ export class GraphEditor extends AnimEditor {
     }
     return n;
   }
+  /** stored value → displayed value (normalized, or in display units such as degrees) */
   toDisp(fc: FCurve, v: number) {
+    if (!this.normalize) return v * curveDisplayFactor(app.doc, fc);
     const n = this.norm(fc);
     return (v + n.offset) * n.factor;
   }
   fromDisp(fc: FCurve, d: number) {
+    if (!this.normalize) return d / curveDisplayFactor(app.doc, fc);
     const n = this.norm(fc);
     return d / n.factor - n.offset;
   }

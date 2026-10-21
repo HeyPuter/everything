@@ -68,8 +68,11 @@ function needed(act: ActionData, slot: number, path: string, index: number, fram
 
 /** The curve keys go into; the property was just read, so a disabled curve works again. */
 function liveCurve(act: ActionData, path: string, index: number, slot: number) {
+  const n = act.fcurves.length;
   const fc = ensureFCurve(act, path, index, slot);
   if (fc.disabled) delete fc.disabled;
+  // curves made by keying start selected (the Graph Editor shows the first one as active)
+  if (act.fcurves.length > n) fc.select = true;
   return fc;
 }
 
