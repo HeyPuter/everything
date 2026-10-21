@@ -19,7 +19,7 @@ function tilesFor(tab) {
       ['Color Scale', 'palette', 'quickRule', { kind: 'scale', from: '#63be7b', mid: '#ffeb84', to: '#f8696b' }],
       ['Icon Set', 'sparkle', 'quickRule', { kind: 'icons', set: firstIcons }],
       ['Greater Than', 'highlighter', 'quickRule', 'gt'],
-      ['Top 10%', 'sortDesc', 'quickRule', 'top'],
+      ['Top 10%', 'sortDesc', 'quickRule', 'topPercent'],
       ['Clear Format', 'eraser', 'clearRules', 'selection'],
     ];
     case 'Charts': return [

@@ -919,6 +919,7 @@
 .cf-values { display: flex; gap: 8px; }
 .cf-values .input[hidden] { display: none; }
 .cf-values[hidden] { display: none; }
+.cf-values .find-option { flex: none; white-space: nowrap; }
 .cf-style[hidden] { display: none; }
 .cf-swatches { padding: 2px 0 0; grid-template-columns: repeat(auto-fill, 28px); }
 .cf-form .field { margin-bottom: 12px; }

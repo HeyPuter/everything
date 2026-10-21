@@ -154,7 +154,11 @@ export function openConditionalFormatting(ctx) {
       el('label.field', {}, el('span.field-label', {}, 'Bottom icon below (%)'), loInput)),
     el('label.find-option', { for: iconOnlyId }, iconOnlyInput, el('span', {}, 'Show the icon only, not the value')));
   const dateSelect = el('select.select', { 'aria-label': 'Period', hidden: true }, DATE_PERIODS.map((p) => el('option', { value: p.value }, p.label)));
-  const valueRow = el('div.cf-values', {}, value1, value2, dateSelect);
+  // Top and Bottom rank a count of values, or with this a percentage of them (Excel's Top 10%).
+  const percentId = fieldId('cf');
+  const percentInput = el('input', { type: 'checkbox', id: percentId });
+  const percentField = el('label.find-option', { for: percentId, hidden: true }, percentInput, el('span', {}, '% of the values'));
+  const valueRow = el('div.cf-values', {}, value1, value2, dateSelect, percentField);
   const styleBlock = el('div.cf-style', {},
     el('div.field', {}, el('span.field-label', {}, 'Fill'), fillSwatches),
     el('div.field', {}, el('span.field-label', {}, 'Text color'), colorSwatches),
@@ -296,6 +300,7 @@ export function openConditionalFormatting(ctx) {
     value1.hidden = t.args < 1 || !!t.date;
     value2.hidden = t.args < 2;
     dateSelect.hidden = !t.date;
+    percentField.hidden = t.value !== 'top' && t.value !== 'bottom';
     valueRow.hidden = t.args === 0;
     styleBlock.hidden = !!t.scale || !!t.bands || !!t.databar || !!t.icons;
     scaleBlock.hidden = !t.scale;
@@ -329,6 +334,7 @@ export function openConditionalFormatting(ctx) {
     typeSelect.value = 'gt';
     value1.value = '';
     value2.value = '';
+    percentInput.checked = false;
     fill = '#fef3c7'; color = null; from = '#ffffff'; mid = '#fef3c7'; to = '#4a8dff';
     band1 = '#f2f1ee'; band2 = '#ffffff'; bandHeader = '#e0ecff';
     boldInput.checked = false;
@@ -379,6 +385,7 @@ export function openConditionalFormatting(ctx) {
     value1.value = rule.type === 'date' ? '' : rule.type === 'formula' ? `=${String(rule.value ?? '').trim().replace(/^=/, '')}` : (ruleValueText(rule.value, ctx.wb, sheetId, rule) ?? '');
     value2.value = ruleValueText(rule.value2, ctx.wb, sheetId, rule) ?? '';
     if (rule.type === 'date') dateSelect.value = rule.value || 'today';
+    percentInput.checked = !!rule.percent;
     fill = rule.style?.bg ?? null;
     color = rule.style?.color ?? null;
     boldInput.checked = !!rule.style?.bold;
@@ -429,7 +436,9 @@ export function openConditionalFormatting(ctx) {
     const n1 = t.numeric ? numberOf(value1.value) : null;
     const n2 = t.args >= 2 ? numberOf(value2.value) : null;
     if (t.numeric && (n1 == null || (t.args === 2 && n2 == null))) return refuse(n1 == null ? value1 : value2, 'This condition needs numbers');
-    if ((t.value === 'top' || t.value === 'bottom') && (!Number.isInteger(n1) || n1 < 1)) return refuse(value1, 'Enter how many values, as a whole number of at least 1');
+    const ranked = t.value === 'top' || t.value === 'bottom', percent = ranked && percentInput.checked;
+    if (ranked && (!Number.isInteger(n1) || n1 < 1)) return refuse(value1, 'Enter how many values, as a whole number of at least 1');
+    if (percent && n1 > 100) return refuse(value1, 'Enter a percentage from 1 to 100');
     if (t.formula && !value1.value.trim().startsWith('=')) return refuse(value1, 'A custom formula starts with =');
     const formulaProblem = t.formula ? customFormulaProblem(ctx.wb, sheetId, range, value1.value.trim()) : null;
     if (formulaProblem) return refuse(value1, formulaProblem);
@@ -505,6 +514,7 @@ export function openConditionalFormatting(ctx) {
         ...Object.fromEntries(Object.keys(barControls).map(key => [key, undefined])) } : {}),
       value: t.date ? dateSelect.value : t.args >= 1 ? (t.numeric ? n1 : ['eq', 'neq'].includes(t.value) ? equalValueOf(value1.value) : value1.value) : undefined,
       value2: t.args >= 2 ? n2 : undefined,
+      percent: percent || undefined,
       style: t.scale || t.bands || t.databar || t.icons ? {} : { ...(fill ? { bg: fill } : {}), ...(color ? { color } : {}), ...(boldInput.checked ? { bold: true } : {}) },
       ...(t.icons ? { ...(nativeIcons ? { iconSet: nativeIconSelect.value, ...thresholds,
         iconReverse: nativeIconReverse.checked || undefined, iconCustom: nativeIconCustom.checked || undefined, iconActiveFormula: activation.iconActiveFormula,

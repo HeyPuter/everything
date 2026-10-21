@@ -36,6 +36,8 @@ export const QUICK_RULES = {
   dup: { title: 'Duplicate Values', prompt: 'Format cells that contain:', type: 'dup', args: 0, choice: [['dup', 'Duplicate'], ['unique', 'Unique']] },
   top: { title: 'Top 10 Items', prompt: 'Format cells that rank in the TOP:', type: 'top', args: 1, numeric: true, count: true },
   bottom: { title: 'Bottom 10 Items', prompt: 'Format cells that rank in the BOTTOM:', type: 'bottom', args: 1, numeric: true, count: true },
+  topPercent: { title: 'Top 10%', prompt: 'Format cells that rank in the TOP (percent of the values):', type: 'top', args: 1, numeric: true, count: true, percent: true },
+  bottomPercent: { title: 'Bottom 10%', prompt: 'Format cells that rank in the BOTTOM (percent of the values):', type: 'bottom', args: 1, numeric: true, count: true, percent: true },
   above: { title: 'Above Average', prompt: 'Format cells that are ABOVE the average for the selected range:', type: 'formula', args: 0, average: '>' },
   below: { title: 'Below Average', prompt: 'Format cells that are BELOW the average for the selected range:', type: 'formula', args: 0, average: '<' },
 };
@@ -53,7 +55,7 @@ export function conditionalFormattingItems(run) {
   const quick = key => ({ label: `${QUICK_RULES[key].title}…`, onSelect: () => run('quickRule', key) });
   return [
     { label: 'Highlight Cells Rules', icon: 'highlighter', submenu: ['gt', 'lt', 'between', 'eq', 'contains', 'date', 'dup'].map(quick) },
-    { label: 'Top/Bottom Rules', icon: 'sortDesc', submenu: ['top', 'bottom', 'above', 'below'].map(quick) },
+    { label: 'Top/Bottom Rules', icon: 'sortDesc', submenu: ['top', 'topPercent', 'bottom', 'bottomPercent', 'above', 'below'].map(quick) },
     { label: 'Data Bars', icon: 'chartBar', submenu: BAR_COLORS.map(([label, color]) => ({ label: `${label} data bar`, swatch: color, onSelect: () => run('quickRule', { kind: 'databar', barColor: color }) })) },
     { label: 'Color Scales', icon: 'palette', submenu: SCALES.map(([label, from, mid, to]) => ({ label, swatch: from, onSelect: () => run('quickRule', { kind: 'scale', from, mid, to }) })) },
     { label: 'Icon Sets', icon: 'sparkle', submenu: Object.entries(ICON_SETS).map(([set, def]) => ({ label: `${def.label}  ${def.glyphs.join(' ')}`, onSelect: () => run('quickRule', { kind: 'icons', set }) })) },
@@ -92,6 +94,7 @@ export function quickRule(range, key, { value = '', value2 = '', choice = null, 
   const number = v => (def.numeric ? Number(v) : v);
   return {
     range, type, style,
+    ...(def.percent ? { percent: true } : {}),
     ...(def.args >= 1 || def.date ? { value: def.date ? value : number(value) } : {}),
     ...(def.args >= 2 ? { value2: number(value2) } : {}),
   };
@@ -132,7 +135,8 @@ export function openQuickRuleDialog(ctx, key, range) {
     if (def.args >= 1 && !value1.value.trim()) return refuse(value1, 'Enter a value');
     const n1 = def.numeric && def.args >= 1 ? numberOf(value1.value) : null, n2 = def.args >= 2 ? numberOf(value2.value) : null;
     if (def.numeric && def.args >= 1 && n1 == null) return refuse(value1, 'Enter a number');
-    if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= 1000)) return refuse(value1, 'Enter a whole number from 1 to 1000');
+    const most = def.percent ? 100 : 1000;
+    if (def.count && !(Number.isInteger(n1) && n1 >= 1 && n1 <= most)) return refuse(value1, `Enter a whole number from 1 to ${most}`);
     if (def.args >= 2 && n2 == null) return refuse(value2, 'Enter a number');
     const style = QUICK_STYLES.find(([k]) => k === format.value)[2]();
     const value = def.date ? period.value : def.numeric ? n1 : def.type === 'eq' ? equalValueOf(value1.value) : value1.value.trim();
@@ -140,7 +144,7 @@ export function openQuickRuleDialog(ctx, key, range) {
     if (!wb.addRule(sheetId, rule)) return refuse(def.args ? value1 : format, wb.isProtected(sheetId) ? 'This sheet is protected' : 'The rule could not be added');
     modal.close();
   };
-  const fields = def.date ? [period] : def.choice ? [choice] : def.args >= 2 ? [value1, el('span.cfq-and', {}, 'and'), value2] : def.args ? [value1] : [];
+  const fields = def.date ? [period] : def.choice ? [choice] : def.args >= 2 ? [value1, el('span.cfq-and', {}, 'and'), value2] : def.percent ? [value1, el('span.cfq-and', {}, '%')] : def.args ? [value1] : [];
   const content = el('form.cfq', { onsubmit: submit },
     el('p.cfq-prompt', {}, def.prompt),
     el('div.cfq-row', {}, ...fields, el('span.cfq-with', {}, def.choice ? 'values with' : 'with'), el('div.select-wrap', {}, format)),
