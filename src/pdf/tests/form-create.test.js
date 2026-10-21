@@ -4,6 +4,7 @@ import {
   PDFArray,
   PDFDict,
   PDFDocument,
+  PDFHexString,
   PDFName,
   StandardFonts,
   decodePDFRawStream,
@@ -503,6 +504,48 @@ it('takes only numbers in number and percent fields', async () => {
   await fillFields(doc, { Amount: '-1234.5', Rate: '0,25', Note: 'twelve' });
   await fillFields(doc, { Amount: '' });
   expect(listFields(doc).map((field) => field.value)).toEqual(['', '0,25', 'twelve']);
+});
+
+it('shows number and percent fields as their formats do, keeping the value typed', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  const formats = {
+    Amount: { format: 'number', decimals: 2 },
+    Count: { format: 'number', decimals: 0 },
+    Rate: { format: 'percent', decimals: 1 },
+  };
+  for (const [i, [fieldName, props]] of Object.entries(formats).entries())
+    await addFormField(doc, 0, {
+      type: 'text',
+      name: fieldName,
+      rect: rect(50, 600 - 60 * i, 200, 24),
+      ...props,
+    });
+  // Another tool's currency format, with negative amounts in parentheses.
+  await addFormField(doc, 0, { type: 'text', name: 'Price', rect: rect(50, 400, 200, 24) });
+  const actions = doc.getForm().getTextField('Price').acroField.dict;
+  actions.set(
+    name('AA'),
+    doc.context.obj({
+      F: {
+        S: 'JavaScript',
+        JS: PDFHexString.fromText('AFNumber_Format(2, 2, 2, 0, " \\u20AC", false);'),
+      },
+    }),
+  );
+  await fillFields(doc, { Amount: '1234567.5', Count: '-42', Rate: '0.125', Price: '-1234,5' });
+  expect(listFields(doc).map((field) => field.value)).toEqual([
+    '1234567.5',
+    '-42',
+    '0.125',
+    '-1234,5',
+  ]);
+  flattenDocument(doc);
+  const text = await withPdfjs(await doc.save(), async (page) =>
+    (await page.getTextContent()).items.map((item) => item.str).join(' '),
+  );
+  for (const shown of ['1,234,567.50', '-42', '12.5%', '(1.234,50 €)'])
+    expect(text).toContain(shown);
 });
 
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {

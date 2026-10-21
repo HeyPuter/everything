@@ -22,6 +22,7 @@ import {
 } from './appearance-providers.js';
 import { choiceOptions, selectedChoices, textValue } from './form-values.js';
 import { listAppearance } from './list-appearance.js';
+import { formattedNumber, numberFormat } from './form-format.js';
 import { retainCryptFilter, withoutCryptFilter } from './stream-filters.js';
 
 const preservedAppearances = new WeakMap();
@@ -55,7 +56,10 @@ export function choiceAppearanceProvider(field, options = choiceOptions(field), 
 function textAppearanceProvider(source, widget, font) {
   const display = Object.create(source);
   const value = textValue(source);
-  let text = source.isPassword() ? '*'.repeat(Array.from(value).length) : value;
+  // A number or percent field shows its value as its format does (1,234.50, 25.0%).
+  let text = source.isPassword()
+    ? '*'.repeat(Array.from(value).length)
+    : formattedNumber(value, numberFormat(source));
   if (source.isCombed()) {
     // pdf-lib fills comb cells from the first one. Centered and right-aligned combs start
     // further along by whole cells, as Acrobat and PDF.js draw them; blank cells stay empty.
