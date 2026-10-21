@@ -396,7 +396,7 @@ export abstract class AnimEditor implements Editor {
 
   layout() {
     this.chEl.style.width = `${this.chWidth}px`;
-    this.chEl.hidden = !this.showChannels;
+    this.chEl.style.display = this.showChannels ? '' : 'none';
     this.sbEl.hidden = !this.showSidebar || !this.sidebarTabs().length;
   }
 
