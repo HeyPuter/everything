@@ -143,6 +143,8 @@ export class UVEditor implements Editor, UVView, View2D {
   edgeDisplay: 'OUTLINE' | 'DASH' | 'BLACK' | 'WHITE' = 'OUTLINE';
   stretchOpacity = 0.9;
   showGrid = true;
+  /** UDIM tile grid shown without a tiled image (columns, rows) */
+  tileGrid: [number, number] = [1, 1];
   /** transforms land on pixel corners / centres; transforms keep UVs in the 0–1 square */
   pixelRoundMode: 'DISABLED' | 'CORNER' | 'CENTER' = 'DISABLED';
   lockBounds = false;
@@ -172,7 +174,8 @@ export class UVEditor implements Editor, UVView, View2D {
     if (st.edges === 'DASH' || st.edges === 'BLACK' || st.edges === 'WHITE') this.edgeDisplay = st.edges;
     if (typeof st.stretchOpacity === 'number') this.stretchOpacity = st.stretchOpacity;
     if (st.grid === false) this.showGrid = false;
-    const ex = state as { pixelRound?: string; lockBounds?: boolean } | undefined;
+    const ex = state as { pixelRound?: string; lockBounds?: boolean; tiles?: [number, number] } | undefined;
+    if (Array.isArray(ex?.tiles)) this.tileGrid = [Math.max(1, Math.min(10, ex.tiles[0] | 0)), Math.max(1, Math.min(100, ex.tiles[1] | 0))];
     if (ex?.pixelRound === 'CORNER' || ex?.pixelRound === 'CENTER') this.pixelRoundMode = ex.pixelRound;
     if (ex?.lockBounds) this.lockBounds = true;
     if (st.zoom) this.zoom = st.zoom;
@@ -486,6 +489,12 @@ export class UVEditor implements Editor, UVView, View2D {
       { class: 'pop-panel' },
       h('div', { class: 'pop-title' }, 'Guides'),
       checkbox('uv-ov-grid', 'Grid', this.showGrid, (v) => ((this.showGrid = v), redraw()), { tip: 'Show the grid over the UV square (it is always shown without an image)' }),
+      h(
+        'div',
+        { style: 'display: flex; gap: 4px' },
+        numberField({ id: 'uv-ov-tiles-x', label: 'Tiles X', value: this.tileGrid[0], int: true, min: 1, max: 10, set: (v) => ((this.tileGrid = [v, this.tileGrid[1]]), this.draw()) }),
+        numberField({ id: 'uv-ov-tiles-y', label: 'Y', value: this.tileGrid[1], int: true, min: 1, max: 100, set: (v) => ((this.tileGrid = [this.tileGrid[0], v]), this.draw()) }),
+      ),
       h('div', { class: 'pop-title' }, 'Geometry'),
       numberField({ id: 'uv-ov-opacity', label: 'UV Opacity', value: this.uvOpacity, min: 0, max: 1, slider: true, unit: 'factor', set: (v) => ((this.uvOpacity = v), this.draw()) }),
       enumRow(
@@ -1051,6 +1060,23 @@ export class UVEditor implements Editor, UVView, View2D {
       t1 = this.toPx(1, 0);
     g.strokeStyle = 'rgba(255, 255, 255,0.3)';
     g.strokeRect(t0.x, t0.y, t1.x - t0.x, t1.y - t0.y);
+    // more UDIM tiles: their outlines and numbers
+    const [cols, rows] = this.tileGrid;
+    if (cols * rows > 1 && !isTiled(this.image())) {
+      g.save();
+      g.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+      g.fillStyle = 'rgba(255, 255, 255, 0.45)';
+      g.font = '11px Inter, sans-serif';
+      g.textBaseline = 'top';
+      for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+          const a = this.toPx(c, r + 1),
+            b = this.toPx(c + 1, r);
+          if (c || r) g.strokeRect(Math.round(a.x) + 0.5, Math.round(a.y) + 0.5, Math.round(b.x - a.x), Math.round(b.y - a.y));
+          g.fillText(String(1001 + c + 10 * r), a.x + 5, a.y + 5);
+        }
+      g.restore();
+    }
   }
 
   private drawOverlays(g: CanvasRenderingContext2D) {
@@ -1361,7 +1387,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   serialize() {
-    return { pixelRound: this.pixelRoundMode, lockBounds: this.lockBounds, zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces, overlays: this.showOverlays, edges: this.edgeDisplay, stretchOpacity: this.stretchOpacity, grid: this.showGrid };
+    return { tiles: this.tileGrid, pixelRound: this.pixelRoundMode, lockBounds: this.lockBounds, zoom: this.zoom, pan: this.pan, image: this.imageId, pivot: this.pivot, tool: this.tool, toolbar: this.showToolbar, sidebar: this.showSidebar, tab: this.sidebarTab, stretch: this.showStretch, stretchType: this.stretchType, opacity: this.uvOpacity, faces: this.showFaces, overlays: this.showOverlays, edges: this.edgeDisplay, stretchOpacity: this.stretchOpacity, grid: this.showGrid };
   }
 
   resize() {
