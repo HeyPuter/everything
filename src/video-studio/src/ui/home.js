@@ -96,6 +96,7 @@ export class Home {
     this.trash = [];
     this.loaded = false;
     this.coverUrls = new Map();
+    this.noCover = new Set(); // projects without a cover, so redraws (search) don't ask again
     this.view = viewFromHash();
     this.onHash = () => {
       const v = viewFromHash();
@@ -385,8 +386,12 @@ export class Home {
   async loadCover(id, el) {
     let url = this.coverUrls.get(id);
     if (!url) {
+      if (this.noCover.has(id)) return;
       const blob = await this.library.coverBlob(id);
-      if (!blob) return;
+      if (!blob) {
+        this.noCover.add(id);
+        return;
+      }
       url = URL.createObjectURL(blob);
       this.coverUrls.set(id, url);
     }
