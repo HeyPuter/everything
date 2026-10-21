@@ -18,6 +18,7 @@ import { barSpacing } from '../core/chart-subtypes.js';
 const PANE_TITLES = { chartArea: 'Format Chart Area', plotArea: 'Format Plot Area', title: 'Format Chart Title', legend: 'Format Legend',
   xAxis: 'Format Axis', yAxis: 'Format Axis', y2Axis: 'Format Axis', xTitle: 'Format Axis Title', yTitle: 'Format Axis Title',
   'gridlines-x': 'Format Gridlines', 'gridlines-y': 'Format Gridlines' };
+const AXIS_PLOTS = new Set(['line', 'area', 'column', 'bar', 'combo', 'scatter', 'bubble', 'histogram']);
 export const paneTitle = key => PANE_TITLES[key] || (/^series:/.test(key) ? 'Format Data Series' : /^point:/.test(key) ? 'Format Data Point' : /^dataLabels:/.test(key) ? 'Format Data Labels' : 'Format');
 
 /** The element key a press on an SVG node names, given the element selected before it (a second press on a series picks its point). */
@@ -328,6 +329,9 @@ export function createChartUi(ctx) {
 
   function options(chart, key) {
     const a = chart.appearance;
+    // The axis scale, order, label place and display units are drawn on the plots of series against axes; the
+    // newer types draw their own axes (bounds, unit, number format and text), so the pane offers only those there.
+    const full = !!a && AXIS_PLOTS.has(chart.type);
     const out = [];
     if (key === 'title') {
       out.push(section('Title Options', text('Text', chartTitles(ctx.wb, ctx.sheetId(), chart).title ?? chart.title, v => apply({ title: v.trim(), titleRef: undefined }, 'Edit chart title'))), textOptions(chart, 'titleStyle'));
@@ -349,17 +353,17 @@ export function createChartUi(ctx) {
         number('Maximum', get(maxKey), v => { const min = get(minKey); if (v == null || min == null || v > min) setBound(maxKey, v); }),
         a ? el('h3.chart-pane-sub', {}, 'Units') : null,
         a ? number('Major', a[stepKey], v => { if (v == null || v > 0) apply({ appearance: { ...a, [stepKey]: v } }); }) : null,
-        a ? choice('Display units', units, [['none', 'None'], ...Object.keys(CHART_DISPLAY_UNITS).map(u => [u, u.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())])],
+        full ? choice('Display units', units, [['none', 'None'], ...Object.keys(CHART_DISPLAY_UNITS).map(u => [u, u.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())])],
           v => { const next = { ...a }; const k = value ? 'yUnits' : 'xUnits'; if (v === 'none') delete next[k]; else next[k] = { builtIn: v, divisor: CHART_DISPLAY_UNITS[v], label: '', style: a.yStyle, layout: null, rotation: 0 }; apply({ appearance: next }); }) : null,
-        a && !chart.stack100 ? checkbox('Logarithmic scale', (value ? a.yLogBase : a.xLogBase) > 1, on => { const next = { ...a }; const k = value ? 'yLogBase' : 'xLogBase'; if (on) next[k] = 10; else delete next[k]; apply({ appearance: next }); }) : null,
-        a && (value ? a.yLogBase : a.xLogBase) > 1 ? number('Base', value ? a.yLogBase : a.xLogBase, v => { if (v >= 2 && v <= 1000) apply({ appearance: { ...a, [value ? 'yLogBase' : 'xLogBase']: v } }); }, { min: 2, max: 1000, step: 1, placeholder: '10' }) : null,
-        a ? checkbox('Values in reverse order', value ? a.reverseValues : a.reverseCategories, on => apply({ appearance: { ...a, [value ? 'reverseValues' : 'reverseCategories']: on } })) : null,
-        a ? choice('Label Position', (value ? a.yLabelPosition : a.xLabelPosition) || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']],
+        full && !chart.stack100 ? checkbox('Logarithmic scale', (value ? a.yLogBase : a.xLogBase) > 1, on => { const next = { ...a }; const k = value ? 'yLogBase' : 'xLogBase'; if (on) next[k] = 10; else delete next[k]; apply({ appearance: next }); }) : null,
+        full && (value ? a.yLogBase : a.xLogBase) > 1 ? number('Base', value ? a.yLogBase : a.xLogBase, v => { if (v >= 2 && v <= 1000) apply({ appearance: { ...a, [value ? 'yLogBase' : 'xLogBase']: v } }); }, { min: 2, max: 1000, step: 1, placeholder: '10' }) : null,
+        full ? checkbox('Values in reverse order', value ? a.reverseValues : a.reverseCategories, on => apply({ appearance: { ...a, [value ? 'reverseValues' : 'reverseCategories']: on } })) : null,
+        full ? choice('Label Position', (value ? a.yLabelPosition : a.xLabelPosition) || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']],
           v => apply({ appearance: { ...a, [value ? 'yLabelPosition' : 'xLabelPosition']: v } })) : null),
       a ? section('Number', text('Format Code', (value ? a.yFormat : a.xFormat) || '', v => apply({ appearance: { ...a, [value ? 'yFormat' : 'xFormat']: v.trim().slice(0, 255) } }))) : null,
       textOptions(chart, value ? 'yStyle' : 'xStyle'));
     } else if (key === 'xAxis') {
-      out.push(a ? section('Axis Options',
+      out.push(full ? section('Axis Options',
         checkbox('Categories in reverse order', a.reverseCategories, on => apply({ appearance: { ...a, reverseCategories: on } })),
         choice('Label Position', a.xLabelPosition || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']], v => apply({ appearance: { ...a, xLabelPosition: v } })),
         number('Custom angle (°)', a.xRotationAuto === false || a.xRotation ? a.xRotation : null, v => apply({ appearance: { ...a, xRotation: v ?? 0, xRotationAuto: v == null } }), { min: -90, max: 90, step: 1 })) : null,
