@@ -236,10 +236,13 @@ export function smoothKeys(curves: CurveRef[]): number {
     const keys = segKeys(seg);
     if (keys.length < 3) continue;
     const ys = keys.map((k) => k.co[1]);
-    const at = (i: number) => ys[Math.max(0, Math.min(ys.length - 1, i))];
-    for (let i = 1; i < keys.length - 1; i++) {
-      let v = 0;
-      for (let j = -2; j <= 2; j++) v += w[j + 2] * at(i + j);
+    const last = ys.length - 1;
+    // the run's first and last keys stay; the outer neighbours fall back to the inner ones near the
+    // ends (the key two before must lie after the run's first key; the one two after may be its last)
+    for (let i = 1; i < last; i++) {
+      const before2 = i - 2 > 0 ? ys[i - 2] : ys[i - 1],
+        after2 = i + 2 <= last ? ys[i + 2] : ys[i + 1];
+      const v = w[0] * before2 + w[1] * ys[i - 1] + w[2] * ys[i] + w[3] * ys[i + 1] + w[4] * after2;
       setKeyValue(keys[i], v);
       n++;
     }

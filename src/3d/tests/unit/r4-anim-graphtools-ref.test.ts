@@ -3,6 +3,7 @@ import type { FCurve } from '../../src/data/types';
 import { calcHandles, insertKeyframe } from '../../src/anim/fcurve';
 import * as T from '../../src/animation/fcurvetools';
 import { cleanKeys, finalizeCurve, setKeySelected } from '../../src/animation/keyedit';
+import impulses from '../fixtures/anim/smooth_impulses.json';
 import expected from '../fixtures/anim/graph_tools.json';
 
 const VALS = [0, 0.1, 0.25, 1.2, 1.0, 0.9, 2.5, 2.4, 2.6, 0.3, -0.5, 0.0, 0.05, 1.5, 1.6];
@@ -37,8 +38,8 @@ const RUN: Record<string, (r: ReturnType<typeof setup>['refs']) => void> = {
   scale_from_neighbor: (r) => T.applyBlend(r, 'SCALE_FROM_NEIGHBOR', 0.5),
 };
 
-/** Tools whose results still differ: curve-fitting decimation and one boundary key of the legacy smoothing. */
-const KNOWN_DIFFERENT = new Set(['decimate_ratio', 'decimate_error', 'smooth']);
+/** Tools whose results still differ: curve-fitting decimation. */
+const KNOWN_DIFFERENT = new Set(['decimate_ratio', 'decimate_error']);
 
 describe('Graph Editor key tools match the reference', () => {
   for (const [name, res] of Object.entries(expected as Record<string, { keys: number[][] }>)) {
@@ -79,3 +80,20 @@ describe('ease shapes', () => {
     expect(easeCurve(0.25, 0.8, 2)).toBeCloseTo(0.66363, 5);
   });
 });
+
+describe('legacy smooth', () => {
+  it('matches the recorded impulse responses (selection runs of different extents)', async () => {
+    const T = await import('../../src/animation/fcurvetools');
+    const { setKeySelected } = await import('../../src/animation/keyedit');
+    const sels: Record<string, (i: number) => boolean> = { inner: (i) => i > 0 && i < 14, all: () => true, mid: (i) => i >= 3 && i <= 10 };
+    for (const [name, out] of Object.entries(impulses as Record<string, number[]>)) {
+      const [sel, p] = name.split('_');
+      const fc: FCurve = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [], auto_smoothing: 'CONT_ACCEL' };
+      for (let i = 0; i < 15; i++) insertKeyframe(fc, 1 + 2 * i, i === Number(p) ? 1 : 0);
+      fc.keyframe_points.forEach((k, i) => setKeySelected(k, sels[sel](i)));
+      T.smoothKeys([{ ob: {} as never, action: { id: 'a', name: 'a', fcurves: [fc] }, fc }]);
+      fc.keyframe_points.forEach((k, i) => expect(k.co[1], `${name} key ${i}`).toBeCloseTo(out[i], 5));
+    }
+  });
+});
+
