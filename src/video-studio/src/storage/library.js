@@ -26,6 +26,8 @@ import { opfsBackend, opfsAvailable } from './backends.js';
 const DAY = 24 * 60 * 60 * 1000;
 /** A failed media upload is tried again after 5 s, then less and less often, up to every 2 minutes. */
 const UPLOAD_RETRY = [5_000, 15_000, 30_000, 60_000, 120_000];
+/** A listing of the media folder is reused this long (a batch of imports lists it once). */
+const MEDIA_LIST_AGE = 30_000;
 /** Projects in the Trash are deleted for good after this many days. */
 export const TRASH_DAYS = 30;
 
@@ -37,6 +39,7 @@ export class Library extends Emitter {
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
+    this.stored = null; // { at, files: Promise<Map(name -> size)> }: recent listing of the media folder
     this.uploads = new Map(); // hash -> Promise
     this.failed = new Map(); // hash -> { asset, blob, tries, timer }: uploads that failed, tried again later
     this.index = null;
@@ -326,9 +329,12 @@ export class Library extends Emitter {
     const path = this.mediaPath(asset);
     const job = (async () => {
       // Same content imported before: nothing to upload.
-      const existing = await this.backend.list('media').catch(() => []);
-      if (!existing.some((f) => f.name === `${asset.hash}.${asset.ext}` && (!f.size || f.size === blob.size))) {
+      const name = `${asset.hash}.${asset.ext}`;
+      const stored = await this._storedMedia();
+      const size = stored.get(name);
+      if (size === undefined || (size && size !== blob.size)) {
         await this.backend.writeBlob(path, blob);
+        stored.set(name, blob.size);
       }
       if (this.cache) await this.cache.writeBlob(path, blob).catch(() => {});
     })();
@@ -349,6 +355,18 @@ export class Library extends Emitter {
       },
     );
     return job;
+  }
+
+  /** Names and sizes of the files in the media folder, listed at most every MEDIA_LIST_AGE. */
+  _storedMedia(fresh = false) {
+    const now = Date.now();
+    if (fresh || !this.stored || now - this.stored.at > MEDIA_LIST_AGE) {
+      const files = this.backend.list('media').then((list) => new Map(list.filter((f) => !f.isDir).map((f) => [f.name, f.size || 0])));
+      this.stored = { at: now, files };
+      // A failed listing is not kept: the next upload lists again (and this one uploads).
+      files.catch(() => this.stored?.files === files && (this.stored = null));
+    }
+    return this.stored.files.catch(() => new Map());
   }
 
   _emitUploads(error) {
@@ -380,7 +398,8 @@ export class Library extends Emitter {
    * media folder. Files still being uploaded (or retried) are not missing.
    */
   async missingMedia(assets) {
-    const stored = new Set((await this.backend.list('media')).filter((f) => !f.isDir).map((f) => f.name));
+    this._storedMedia(true);
+    const stored = await this.stored.files;
     return assets.filter((a) => !stored.has(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
   }
 

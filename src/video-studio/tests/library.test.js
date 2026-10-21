@@ -240,6 +240,27 @@ describe('Library media', () => {
     expect(await lib.mediaBlob(asset)).toBe(file);
   });
 
+  it('lists the media folder once for a batch of imports, not once per file', async () => {
+    const backend = memoryBackend();
+    let lists = 0;
+    const list = backend.list;
+    backend.list = async (d) => {
+      if (d === 'media') lists++;
+      return list(d);
+    };
+    const lib = new Library(backend);
+    const first = new File([new Uint8Array([0])], 'c0.mp4', { type: 'video/mp4' });
+    for (let i = 0; i < 10; i++) await lib.importFile(i ? new File([new Uint8Array([i])], `c${i}.mp4`, { type: 'video/mp4' }) : first);
+    await lib.flushUploads();
+    expect(lists).toBe(1);
+    expect([...backend.files.keys()].filter((k) => k.startsWith('media/'))).toHaveLength(10);
+    // The same file again in this batch is still not uploaded twice.
+    const writes = backend.writes;
+    await lib.importFile(first);
+    await lib.flushUploads();
+    expect(backend.writes).toBe(writes);
+  });
+
   it('rejects files that are not media', async () => {
     const lib = new Library(memoryBackend());
     await expect(lib.importFile(new File(['hi'], 'notes.txt'))).rejects.toThrow(/not a video/);
