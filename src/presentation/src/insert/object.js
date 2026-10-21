@@ -10,10 +10,14 @@ const esc = (s) =>
 
 /** An icon for an embedded file: a page with its type and name below. */
 export function objectIconSvg(name) {
-  const ext = (name.includes(".") ? name.split(".").pop() : "file")
-    .slice(0, 5)
-    .toUpperCase();
-  const label = name.length > 22 ? `${name.slice(0, 19)}…` : name;
+  // Shortened by characters, not UTF-16 units: half an emoji would make the
+  // drawing unreadable (and its data URL impossible to write).
+  const chars = (text, n) => [...text].slice(0, n).join("");
+  const ext = chars(
+    name.includes(".") ? name.split(".").pop() : "file",
+    5,
+  ).toUpperCase();
+  const label = [...name].length > 22 ? `${chars(name, 19)}…` : name;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="200" viewBox="0 0 240 200"><path d="M84 8h52l28 28v100a8 8 0 0 1-8 8H84a8 8 0 0 1-8-8V16a8 8 0 0 1 8-8z" fill="#F8FAFC" stroke="#64748B" stroke-width="4"/><path d="M136 8v28h28" fill="#E2E8F0" stroke="#64748B" stroke-width="4" stroke-linejoin="round"/><rect x="70" y="84" width="76" height="34" rx="6" fill="#2563EB"/><text x="108" y="108" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#FFFFFF">${esc(ext)}</text><text x="120" y="182" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#1F2937">${esc(label)}</text></svg>`;
 }
 

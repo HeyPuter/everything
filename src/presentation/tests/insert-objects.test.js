@@ -10,6 +10,7 @@ import {
   writeCfb,
   writeOlePackage,
 } from "../lib/pptx/src/internal/opc/cfb.ts";
+import { objectIconSvg } from "../src/insert/object.js";
 
 const PNG = Uint8Array.from(
   atob(
@@ -229,6 +230,17 @@ describe("compound files and embedded objects", () => {
     expect(object.file.name).toBe("data.csv");
     expect(new TextDecoder().decode(object.file.data)).toBe("hello, résumé");
     expect(P.getShapeEmbeddedObjectPreview(frame)).toEqual(PNG);
+  });
+
+  it("names a file with emoji in its icon without splitting a character", () => {
+    const short = `${"😀".repeat(12)}.pdf`;
+    expect(objectIconSvg(short)).toContain(`>${short}<`);
+    const long = objectIconSvg(`${"😀".repeat(30)}.pdf`);
+    expect(long).toContain(`>${"😀".repeat(19)}…<`);
+    expect(() => encodeURIComponent(long)).not.toThrow();
+    expect(objectIconSvg(`notes.${"😀".repeat(6)}`)).toContain(
+      `>${"😀".repeat(5)}<`,
+    );
   });
 });
 
