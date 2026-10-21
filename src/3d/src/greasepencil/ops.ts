@@ -338,6 +338,8 @@ registerOperators([
       const { gp } = activeGP()!;
       if (!gp.layers[p.layer as number]) return 'CANCELLED';
       gp.active_layer_index = p.layer as number;
+      // Autolock Layers: only the active layer stays editable
+      if ((app.doc.scene.tool_settings as unknown as { use_autolock_layers?: boolean }).use_autolock_layers) gp.layers.forEach((l, i) => (l.lock = i !== gp.active_layer_index));
     },
     redo: false,
   },
@@ -619,6 +621,66 @@ wrap('object.material_slot_remove', {
     }
     ob.active_material_index = Math.max(0, i - 1);
     void ctx;
+  },
+});
+/** Renumber the material slot of every stroke with `map[old] → new` (missing → slot 0). */
+function remapStrokeSlots(gp: GreasePencilData, map: (i: number) => number) {
+  gp.drawings.forEach((d, k) => {
+    if (!d) return;
+    const mi = d.material_index.slice();
+    for (let s = 0; s < mi.length; s++) mi[s] = Math.max(0, map(mi[s]));
+    gp.drawings[k] = { ...d, material_index: mi };
+  });
+}
+
+/** Slots used by some stroke of the object. */
+function usedGPSlots(gp: GreasePencilData): Set<number> {
+  const used = new Set<number>();
+  for (const d of gp.drawings) if (d) for (const m of d.material_index) used.add(m);
+  return used;
+}
+
+wrap('object.material_slot_move', {
+  poll: () => (activeGP()?.gp.materials.length ?? 0) > 1,
+  exec: (_ctx, p) => {
+    const { ob, gp } = activeGP()!;
+    const i = ob.active_material_index;
+    const j = p.direction === 'UP' ? i - 1 : i + 1;
+    if (j < 0 || j >= gp.materials.length) return 'CANCELLED';
+    const mats = gp.materials.slice();
+    [mats[i], mats[j]] = [mats[j], mats[i]];
+    gp.materials = mats;
+    remapStrokeSlots(gp, (k) => (k === i ? j : k === j ? i : k));
+    ob.active_material_index = j;
+  },
+});
+wrap('object.material_slot_remove_unused', {
+  poll: () => (activeGP()?.gp.materials.length ?? 0) > 0,
+  exec: () => {
+    const { ob, gp } = activeGP()!;
+    const used = usedGPSlots(gp);
+    const keep = gp.materials.map((_, i) => used.has(i));
+    const n = keep.filter((x) => !x).length;
+    if (!n) {
+      app.report('INFO', 'No unused material slots');
+      return 'CANCELLED';
+    }
+    const newIndex: number[] = [];
+    let k = 0;
+    keep.forEach((x, i) => (newIndex[i] = x ? k++ : -1));
+    gp.materials = gp.materials.filter((_, i) => keep[i]);
+    remapStrokeSlots(gp, (i) => newIndex[i] ?? 0);
+    ob.active_material_index = Math.max(0, Math.min(gp.materials.length - 1, newIndex[ob.active_material_index] ?? 0));
+    app.report('INFO', `Removed ${n} unused material slot${n > 1 ? 's' : ''}`);
+  },
+});
+wrap('object.material_slot_remove_all', {
+  poll: () => (activeGP()?.gp.materials.length ?? 0) > 0,
+  exec: () => {
+    const { ob, gp } = activeGP()!;
+    gp.materials = [];
+    remapStrokeSlots(gp, () => 0);
+    ob.active_material_index = 0;
   },
 });
 wrap('material.new', {
