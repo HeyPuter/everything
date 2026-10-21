@@ -373,6 +373,30 @@ export function outlineSettingsOf(sheet) {
   return { summaryBelow: s.summaryBelow !== false, summaryRight: s.summaryRight !== false, autoStyles: s.autoStyles === true };
 }
 
+/**
+ * Each group's nesting level (1 = outermost): how many groups hold it, counting, of groups over the same lines
+ * (grouped twice), those listed before it. Groups in sheet order (by first line, the longer first) are walked with
+ * a stack of the groups holding the current one, so an outline of thousands of groups (a Subtotal's) is not compared
+ * pair by pair on every redraw; a list out of that order, or with groups crossing (only a damaged file has them),
+ * is counted pair by pair.
+ */
+function outlineLevels(list) {
+  const levels = [], stack = [];
+  for (let i = 0; i < list.length; i++) {
+    const g = list[i], prev = list[i - 1];
+    if (prev && (prev.from > g.from || (prev.from === g.from && prev.to < g.to))) return pairwiseLevels(list);
+    while (stack.length && stack.at(-1).to < g.to) {
+      if (stack.at(-1).to >= g.from) return pairwiseLevels(list);
+      stack.pop();
+    }
+    levels.push(stack.length + 1);
+    stack.push(g);
+  }
+  return levels;
+}
+
+const pairwiseLevels = (list) => list.map((g, i) => list.filter((o, j) => o.from <= g.from && o.to >= g.to && (j <= i || o.from !== g.from || o.to !== g.to)).length);
+
 /** Outline groups: { rows: [{ from, to, collapsed }], cols: [...] }, sorted, sane. */
 function normalizeGroups(raw) {
   // Collapsing and expanding iterate every line. File metadata must never
@@ -7821,7 +7845,8 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet) return [];
     const list = sheet.groups[axis === 'row' ? 'rows' : 'cols'];
-    return list.map((g, i) => ({ ...g, level: list.filter((o, j) => o.from <= g.from && o.to >= g.to && (j <= i || o.from !== g.from || o.to !== g.to)).length }));
+    const levels = outlineLevels(list);
+    return list.map((g, i) => ({ ...g, level: levels[i] }));
   }
 
   /** Show or hide the faint lines between cells on a sheet (a view setting that is saved). Undoable. */
