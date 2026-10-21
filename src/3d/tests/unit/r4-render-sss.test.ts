@@ -70,3 +70,27 @@ describe('realtime subsurface scattering', () => {
     expect(sceneHasSss(scene)).toBe(false);
   });
 });
+
+describe('realtime area light shadows', () => {
+  it('area lights find the shadow slot of their proxy spot light', async () => {
+    const { influenceArrays } = await import('../../src/render/realtime/lightinfluence');
+    const { fxUniforms } = await import('../../src/render/realtime/fxshader');
+    const spot = { visible: true, castShadow: true, isSpotLight: true, userData: {} };
+    const proxy = { visible: true, castShadow: true, isSpotLight: true, userData: {} };
+    const unshadowed = { visible: true, castShadow: false, isSpotLight: true, userData: {} };
+    const area = { visible: true, isRectAreaLight: true, userData: { shadowProxy: proxy } };
+    const plain = { visible: true, isRectAreaLight: true, userData: {} };
+    influenceArrays([unshadowed, spot, plain, area, proxy] as never);
+    const slots = fxUniforms.ndRectShadow.value;
+    // packing: shadow casters first (spot, proxy), so the proxy is shadow slot 1
+    expect(slots[0]).toBe(-1);
+    expect(slots[1]).toBe(1);
+  });
+
+  it('the area shadow lookup is part of the realtime shader', () => {
+    const shader = { fragmentShader: ShaderLib.physical.fragmentShader, vertexShader: ShaderLib.physical.vertexShader, uniforms: {} as Record<string, unknown> } as never as Parameters<typeof patchFx>[0];
+    patchFx(shader);
+    expect(shader.fragmentShader).toContain('float ndAreaShadowAt( int k )');
+    expect(shader.fragmentShader.indexOf('ndAreaShadowAt( int k )')).toBeGreaterThan(shader.fragmentShader.indexOf('#include <shadowmap_pars_fragment>'));
+  });
+});

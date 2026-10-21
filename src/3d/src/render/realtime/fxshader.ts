@@ -50,6 +50,8 @@ export const fxUniforms = {
   ndFogRange: new Uniform(new Vector4(0, 1e9, 0, 0)),
   /** x: maximum brightness of each light's contribution, y: of indirect light (0 = no clamp) */
   ndClamp: new Uniform(new Vector4(0, 0, 0, 0)),
+  /** per area light (packing order): spot shadow slot of its shadow proxy, -1 for none */
+  ndRectShadow: new Uniform(new Float32Array(MAX_LIGHTS).fill(-1)),
 };
 
 /** Volume Scatter factors per light type (same packing as the influence factors). */
@@ -297,6 +299,41 @@ sheenSpecularDirect = ndLiH0 + ( sheenSpecularDirect - ndLiH0 ) * ndF.y;
 #endif
 }`;
 
+/** Area lights: shadow from their proxy spot light's shadow map (render/final/renderscene.ts). */
+const RECT_SHADOW = `
+{ // the shadow map sees from the light's centre: surfaces turned away from it fade to unshadowed
+float ndNL = dot( geometryNormal, normalize( rectAreaLight.position - geometryPosition ) );
+float ndAS = mix( 1.0, ndAreaShadowAt( int( ndRectShadow[ i ] ) ), smoothstep( 0.0, 0.3, ndNL ) );
+reflectedLight.directDiffuse = ndLiD0 + ( reflectedLight.directDiffuse - ndLiD0 ) * ndAS;
+reflectedLight.directSpecular = ndLiS0 + ( reflectedLight.directSpecular - ndLiS0 ) * ndAS; }
+`;
+
+/** Area light shadow proxies whose shadow maps can be read (spot shadow slots). */
+export const AREA_SHADOW_SLOTS = 8;
+
+/** Shadow of spot shadow slot `k` (constant-index lookups, as sampler arrays require). */
+function areaShadowGLSL(): string {
+  let cases = '';
+  for (let j = 0; j < AREA_SHADOW_SLOTS; j++)
+    cases += `#if NUM_SPOT_LIGHT_SHADOWS > ${j}
+  if ( k == ${j} ) { s = spotLightShadows[ ${j} ]; return getShadow( spotShadowMap[ ${j} ], s.shadowMapSize, s.shadowIntensity, s.shadowBias, s.shadowRadius, vSpotLightCoord[ ${j} ] ); }
+#endif
+`;
+  return `
+#if NUM_RECT_AREA_LIGHTS > 0
+uniform float ndRectShadow[ NUM_RECT_AREA_LIGHTS ];
+#endif
+float ndAreaShadowAt( int k ) {
+#if defined( USE_SHADOWMAP ) && NUM_SPOT_LIGHT_SHADOWS > 0
+  if ( k < 0 || ! receiveShadow ) return 1.0;
+  SpotLightShadow s;
+${cases}#endif
+  return 1.0;
+}
+`;
+}
+export const AREA_SHADOW_PARS = areaShadowGLSL();
+
 /** The lights loop chunk with per-light influence factors and irradiance-volume weighting. */
 export function patchLightsBegin(src: string): string {
   let out = src;
@@ -305,7 +342,7 @@ export function patchLightsBegin(src: string): string {
     if (at < 0) continue;
     const end = out.indexOf('#pragma unroll_loop_end', at);
     if (end < 0) continue;
-    const seg = out.slice(at, end).replace(/(RE_Direct(?:_RectArea)?\s*\([^;]*\);)/, (m) => `${LI_SAVE}${m}\n${liApply(arr)}`);
+    const seg = out.slice(at, end).replace(/(RE_Direct(?:_RectArea)?\s*\([^;]*\);)/, (m) => `${LI_SAVE}${m}\n${liApply(arr)}${count === 'NUM_RECT_AREA_LIGHTS' ? RECT_SHADOW : ''}`);
     out = out.slice(0, at) + seg + out.slice(end);
   }
   const decl = `vec3 ndLiD0 = vec3( 0.0 ), ndLiS0 = vec3( 0.0 );
@@ -388,6 +425,7 @@ export function patchFx(shader: WebGLProgramParametersWithUniforms) {
   if (!f.includes('#include <lights_fragment_begin>') || !f.includes('#include <lights_physical_pars_fragment>')) return;
   f = f
     .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS}\n${SSS_PARS}`)
+    .replace('#include <shadowmap_pars_fragment>', `#include <shadowmap_pars_fragment>\n${AREA_SHADOW_PARS}`)
     .replace('#include <lights_fragment_begin>', lightsBegin)
     .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FX_MAPS}`)
     .replace('#include <alphahash_fragment>', ALPHA_HASH_TEMPORAL)
