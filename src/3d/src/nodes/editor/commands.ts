@@ -305,6 +305,29 @@ const ops: Operator[] = [
     },
   },
   {
+    idname: 'node.swap_empty_group',
+    label: 'Swap Empty Group',
+    description: 'Replace the selected nodes with group nodes using a new, empty node group',
+    props: [{ id: 'settings', type: 'string', default: '{}', hidden: true }],
+    poll: (ctx) => !!treeOf(ctx) && selected(treeOf(ctx)!.tree).some((n) => !isFrame(n)),
+    exec: (ctx) => {
+      const ed = editorOf(ctx)!;
+      const kind = ed.treeType() === 'WORLD' ? 'SHADER' : ed.treeType();
+      const tree: NodeTreeData = { type: kind, nodes: [], links: [], interface: [] };
+      tree.nodes.push(makeNode(tree, 'NodeGroupInput', [-200, 0]), makeNode(tree, 'NodeGroupOutput', [200, 0]));
+      const g = { id: uid('ng'), name: uniqueGroupName(app.doc, 'NodeGroup'), tree };
+      app.doc.node_groups[g.id] = g;
+      const parent = ed.tree()!;
+      const sctx = ctxOf(app.doc, parent);
+      let n = 0;
+      for (const node of selected(parent)) if (!isFrame(node) && swapNode(sctx, node, groupIdnameFor(ed.treeType()), { node_tree: g.id })) n++;
+      if (!n) {
+        delete app.doc.node_groups[g.id];
+        return 'CANCELLED';
+      }
+    },
+  },
+  {
     idname: 'node.default_group_width_set',
     label: 'Set Default Group Node Width',
     description: 'Use the width of the group node being edited for new nodes of this group',

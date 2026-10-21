@@ -7,6 +7,8 @@ import { openMenu } from '../../ui/menu';
 import type { NodeData } from '../../data/types';
 import { getNodeType } from '../../nodes/registry';
 import { nodeChanged } from '../../nodes/editor/nodeui';
+import { nodeEditorOf } from '../../nodes/editor/ops';
+import { app, registerOperators, type OpContext } from '../../app/app';
 import { registerExec, type NodeCtx } from '../eval/evaluator';
 import { Result, IDENTITY, type Domain, type Xform } from '../eval/result';
 import { cryptoId, latestCryptoManifest, type CryptoLayer } from '../../render/final/idpasses';
@@ -113,8 +115,15 @@ registerExec('CompositorNodeCryptomatteV2', (x) => {
   run(x, texs, d);
 });
 
+/** Socket identifiers of the pass inputs of a legacy Cryptomatte node ("Crypto 00", …). */
+export function cryptoInputIds(n: NodeData): string[] {
+  const count = Math.max(1, Math.min(99, Math.round(Number(n.props.num_inputs ?? 3)) || 3));
+  return Array.from({ length: count }, (_, i) => `Crypto ${String(i).padStart(2, '0')}`);
+}
+
 registerExec('CompositorNodeCryptomatte', (x) => {
-  const inputs = ['Crypto 00', 'Crypto 01', 'Crypto 02'].map((id) => x.input(id));
+  const ids = cryptoInputIds(x.node);
+  const inputs = ids.map((id) => x.input(id));
   const d = inputs.find((r) => r.domain)?.domain ?? x.input('Image').domain;
   if (!d) {
     x.out('Image', x.input('Image'));
@@ -123,7 +132,7 @@ registerExec('CompositorNodeCryptomatte', (x) => {
   }
   run(
     x,
-    inputs.filter((r) => x.linked(['Crypto 00', 'Crypto 01', 'Crypto 02'][inputs.indexOf(r)])).map((r) => x.ev.realize(r, d)),
+    inputs.filter((_, i) => x.linked(ids[i])).map((r) => x.ev.realize(r, d)),
     d,
   );
 });
@@ -170,3 +179,68 @@ for (const id of ['CompositorNodeCryptomatteV2', 'CompositorNodeCryptomatte']) {
   d.bodyHeight = () => 48;
   d.drawBody = (ctx) => body(ctx.node);
 }
+
+// legacy node: a variable number of pass inputs
+{
+  const d = getNodeType('CompositorNodeCryptomatte');
+  if (d) {
+    const base = d.inputs;
+    d.dynamicSockets = (n) => ({
+      inputs: [...base.filter((s) => !/^Crypto \d+$/.test(s.identifier)), ...cryptoInputIds(n).map((id) => ({ name: id, identifier: id, type: 'RGBA' as const, default: [0, 0, 0, 1], hide_value: true }))],
+      outputs: d.outputs,
+    });
+    d.drawOptions = (ctx) =>
+      h(
+        'div',
+        { class: 'cmp-body-row' },
+        h('button', { class: 'btn', 'data-tip': 'Add Cryptomatte Socket\nAdd another pass input', onclick: () => app.run('node.cryptomatte_layer_add', { node: ctx.node.id }) }, icon('add'), 'Add Crypto Layer'),
+        h('button', { class: 'btn', 'data-tip': 'Remove Cryptomatte Socket\nRemove the last pass input', onclick: () => app.run('node.cryptomatte_layer_remove', { node: ctx.node.id }) }, icon('remove'), 'Remove Crypto Layer'),
+      );
+  }
+}
+
+const nodeEditorTree = (ctx: OpContext) => nodeEditorOf(ctx)?.tree() ?? null;
+
+function legacyCryptoNode(ctx: OpContext, id: unknown): NodeData | null {
+  const tree = nodeEditorTree(ctx);
+  if (!tree) return null;
+  const n = tree.nodes.find((x) => x.id === (String(id || '') || tree.active_node));
+  return n && n.type === 'CompositorNodeCryptomatte' ? n : null;
+}
+
+registerOperators([
+  {
+    idname: 'node.cryptomatte_layer_add',
+    label: 'Add Cryptomatte Socket',
+    description: 'Give the Cryptomatte (Legacy) node another pass input',
+    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
+    poll: (ctx) => !!legacyCryptoNode(ctx, ''),
+    exec: (ctx, p) => {
+      const n = legacyCryptoNode(ctx, p.node);
+      if (!n) return 'CANCELLED';
+      n.props.num_inputs = cryptoInputIds(n).length + 1;
+      app.changed('doc');
+    },
+  },
+  {
+    idname: 'node.cryptomatte_layer_remove',
+    label: 'Remove Cryptomatte Socket',
+    description: 'Remove the last pass input of the Cryptomatte (Legacy) node',
+    props: [{ id: 'node', type: 'string', default: '', hidden: true }],
+    poll: (ctx) => {
+      const n = legacyCryptoNode(ctx, '');
+      return !!n && cryptoInputIds(n).length > 1;
+    },
+    exec: (ctx, p) => {
+      const n = legacyCryptoNode(ctx, p.node);
+      const ids = n ? cryptoInputIds(n) : [];
+      if (!n || ids.length <= 1) return 'CANCELLED';
+      const tree = nodeEditorTree(ctx)!;
+      const last = ids[ids.length - 1];
+      tree.links = tree.links.filter((l) => !(l.to_node === n.id && l.to_socket === last));
+      delete n.inputs[last];
+      n.props.num_inputs = ids.length - 1;
+      app.changed('doc');
+    },
+  },
+]);
