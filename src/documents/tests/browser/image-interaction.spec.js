@@ -92,3 +92,14 @@ test('requested teacher card permits clicking, typing and selecting message text
   await page.evaluate(()=>window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.print-stage')).toHaveCount(0);
 });
+test('in Viewing mode the arrow keys move the caret off a selected floating picture instead of being swallowed',async({page})=>{
+  await load(page,source);const canvas=await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.keyboard.down('Alt');await page.mouse.click(canvas.x+110,canvas.y+110);await page.keyboard.up('Alt');
+  await expect(page.getByRole('button',{name:'Move selected image',exact:true})).toBeVisible();
+  const input=page.getByRole('textbox',{name:'Document text'});
+  await page.getByRole('button',{name:/^Editing mode/}).click();await page.getByRole('menuitemradio',{name:/^Viewing/}).click();
+  const state=()=>input.evaluate(el=>({start:el.selectionStart,end:el.selectionEnd}));
+  const before=await state();expect(before.end).toBeGreaterThan(before.start);
+  await input.focus();await input.press('ArrowRight');
+  expect(await state()).toEqual({start:before.end,end:before.end});
+});

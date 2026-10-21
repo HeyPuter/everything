@@ -502,7 +502,7 @@ export function createImageInteraction(editor) {
       return false;
     }
     if (e.key === 'Escape' && extras.length) { setExtras([]); return false; }
-    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.metaKey || editor.readOnly || editor.session.path !== null) return false;
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key) || e.metaKey || editor.readOnly || editor.viewOnly || editor.session.path !== null) return false;
     const f = frame(); if (!f?.floating) return false;
     e.preventDefault();
     const step = e.shiftKey ? 10 : e.ctrlKey || e.altKey ? .1 : 1;
