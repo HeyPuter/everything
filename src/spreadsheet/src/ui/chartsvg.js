@@ -2170,7 +2170,7 @@ function renderNativeRadar(data, chart, width, height) {
         `${s.name} · ${categories[i]}: ${tipText(s.values[i], chartPointStyle(s, i, data.valueStyle))}`, 'chart-radar-marker');
     });
     if (chart.labels && n * series.length <= MARK_BUDGET) points.forEach((p,i) => {
-      const labels = a.valueLabels[si], override = labels?.points?.find(v=>v.index===i);
+      const labels = a.valueLabels?.[si], override = labels?.points?.find(v=>v.index===i);
       if (!p || !Number.isFinite(s.values[i]) || s.values[i] < scale.min || s.values[i] > scale.max || override?.hidden || labels?.hidden.includes(i) || (override?.show ?? labels?.show) === false) return;
       const style = override?.style ? { ...labels.style, ...override.style } : labels?.style || a.yStyle;
       const code = override?.numberFormat ?? labels?.numberFormat;
