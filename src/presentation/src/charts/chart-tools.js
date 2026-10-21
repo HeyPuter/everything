@@ -592,6 +592,7 @@ export function createChartTools(h) {
       class: "chart-menu-grid",
       role: "group",
       "aria-label": label,
+      "data-arrow-keys": "",
       style: `grid-template-columns:repeat(${columns}, auto)`,
     });
     for (const c of choices)

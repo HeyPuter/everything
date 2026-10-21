@@ -204,8 +204,6 @@ export function colorMenuItems({
       ArrowUp: [0, -1],
     }[e.key];
     if (!dir) return;
-    e.preventDefault();
-    e.stopPropagation();
     let bestScore = Infinity;
     rects.forEach((r, i) => {
       const dx = r.left - here.left,
@@ -220,7 +218,11 @@ export function colorMenuItems({
         best = all[i];
       }
     });
-    best?.focus();
+    // Past the edge the menu moves on, beyond the palette.
+    if (!best) return;
+    e.preventDefault();
+    e.stopPropagation();
+    best.focus();
   });
   const picker = () => {
     const input = el("input", { type: "color", class: "palette-picker" });

@@ -285,6 +285,25 @@ test("the colour palettes write theme colours as lumMod/lumOff tints", async ({
   expect(slideXml()).toMatch(/<a:ln w="38100"/);
 });
 
+test("the arrow keys move through a colour palette as the grid it shows", async ({
+  page,
+}) => {
+  await start(page);
+  await rectangle(page, [100, 100], [300, 200]);
+  await reveal(page, "format-shape-fill");
+  await page.getByRole("button", { name: "Fill colors", exact: true }).click();
+  const swatch = (name) => page.getByRole("menuitem", { name, exact: true });
+  await swatch("Text 1").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(swatch("Text 1, Lighter 90%")).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(swatch("Text 1")).toBeFocused();
+  // Below the last row the menu moves on, past the palette.
+  await swatch("Purple").focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("menuitem", { name: "No Fill" })).toBeFocused();
+});
+
 test("Shape Styles, Shape Effects and Format Painter restyle shapes", async ({
   page,
 }) => {
