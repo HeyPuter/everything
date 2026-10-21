@@ -128,7 +128,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   );
 
   fillerBtn.addEventListener('click', async () => {
-    const idx = findFillers(words(), { language: store.project.transcript?.language === 'auto' ? 'en' : store.project.transcript?.language, soft });
+    const idx = findFillers(words(), { language: store.project.transcript?.language, soft });
     if (!idx.length) {
       toast('No filler words found.', { kind: 'info' });
       return;
@@ -254,7 +254,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   function render() {
     const w = words();
     const q = search.value.trim().toLowerCase();
-    const fillers = new Set(showFillers ? findFillers(w, { language: store.project.transcript?.language === 'auto' ? 'en' : store.project.transcript?.language, soft }) : []);
+    const fillers = new Set(showFillers ? findFillers(w, { language: store.project.transcript?.language, soft }) : []);
     const pauses = showPauses ? findPauses(w, { minGap: pauseMin * US }) : [];
     const pauseAfter = new Map();
     for (const p of pauses) {
@@ -273,7 +273,7 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
       return el;
     });
     body.replaceChildren(...nodes);
-    const nf = findFillers(w, { language: store.project.transcript?.language === 'auto' ? 'en' : store.project.transcript?.language, soft }).length;
+    const nf = findFillers(w, { language: store.project.transcript?.language, soft }).length;
     fillerBtn.replaceChildren(icon('wand', 14), `Remove fillers (${nf})`);
     fillerBtn.disabled = !nf;
     const np = findPauses(w, { minGap: pauseMin * US }).length;

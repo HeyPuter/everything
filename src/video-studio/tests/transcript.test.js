@@ -17,6 +17,22 @@ describe('transcript helpers', () => {
     expect(findFillers(words, { soft: true })).toEqual([1, 4, 5, 6]);
   });
 
+  it('never cuts real words as fillers', () => {
+    const say = (text) => text.split(' ').map((t, i) => ({ text: t, start: i, end: i + 0.5 }));
+    const found = (text, language, soft = false) => {
+      const w = say(text);
+      return findFillers(w, { language, soft }).map((i) => w[i].text);
+    };
+    expect(found('Este video es muy bueno, eh, pues este es el mejor', 'es')).toEqual(['eh,']);
+    expect(found('Este video es muy bueno, pues este', 'es', true)).toEqual(['Este', 'pues', 'este']);
+    expect(found('O filme é muito bom, hum, é um tipo de filme', 'pt')).toEqual(['hum,']);
+    expect(found('Il film è bello, cioè molto bello', 'it')).toEqual([]);
+    expect(found('Er ist um acht Uhr, äh, gekommen', 'de')).toEqual(['äh,']);
+    // Spoken language not chosen: English fillers only when it reads as English.
+    expect(found('Er ist um acht Uhr, hmm, gekommen', 'auto')).toEqual(['hmm,']);
+    expect(found('So um this is what we do, er, with the tool', 'auto')).toEqual(['um', 'er,']);
+  });
+
   it('finds long pauses and leaves breathing room', () => {
     const p = findPauses(words, { minGap: s(1.2), pad: s(0.2) });
     expect(p).toEqual([{ start: s(1.3), end: s(3) }]);

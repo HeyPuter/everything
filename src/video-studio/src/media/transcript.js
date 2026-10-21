@@ -85,26 +85,52 @@ export function transcriptWords(project) {
   return clean;
 }
 
-/** Hesitation sounds per language (lowercase, without punctuation). */
+/**
+ * Hesitation sounds per language (lowercase, without punctuation). Only
+ * sounds that are never real words in that language, since they are cut.
+ */
 export const FILLERS = {
   en: ['um', 'umm', 'uh', 'uhh', 'uhm', 'er', 'erm', 'ah', 'ahh', 'hmm', 'hm', 'mm', 'mhm', 'eh'],
-  es: ['eh', 'em', 'este', 'pues', 'mmm'],
-  fr: ['euh', 'heu', 'bah', 'ben', 'hum'],
+  es: ['eh', 'em', 'mmm'],
+  fr: ['euh', 'heu', 'bah', 'hum'],
   de: ['äh', 'ähm', 'öh', 'hm', 'hmm'],
-  it: ['ehm', 'eh', 'cioè', 'mmm'],
-  pt: ['é', 'hum', 'ahn', 'tipo'],
+  it: ['ehm', 'eh', 'mmm'],
+  pt: ['hum', 'ahn'],
 };
 
-/** Phrases some people want gone too; only removed when asked. */
-export const SOFT_FILLERS = { en: ['like', 'you know', 'i mean', 'sort of', 'kind of', 'basically', 'actually', 'literally'] };
+/** Hesitations that are not words in any language above: used for every language. */
+const COMMON_FILLERS = ['uh', 'uhh', 'uhm', 'umm', 'erm', 'hmm', 'hm', 'mm', 'mhm'];
+
+/** Words that are also fillers in some sentences; only removed when asked. */
+export const SOFT_FILLERS = {
+  en: ['like', 'you know', 'i mean', 'sort of', 'kind of', 'basically', 'actually', 'literally'],
+  es: ['este', 'pues'],
+  fr: ['ben'],
+  it: ['cioè'],
+  pt: ['tipo'],
+};
 
 const clean = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}'\s]+/gu, '').trim();
 
-/** Indices of filler words (and multi-word soft fillers when soft is on). */
+// Common English words that are not words in the other languages above.
+const ENGLISH = new Set(['the', 'and', 'is', 'to', 'of', 'you', 'that', 'it', 'this', 'we', 'what', 'for', 'with', 'are', 'have', 'they', 'be', 'not', 'just', 'my']);
+
+/** Whether a transcript in an unknown language reads as English. */
+function looksEnglish(words) {
+  const n = Math.min(words.length, 500);
+  let hits = 0;
+  for (let i = 0; i < n; i++) if (ENGLISH.has(clean(words[i].text))) hits++;
+  return n > 0 && hits / n >= 0.15;
+}
+
+/**
+ * Indices of filler words (and multi-word soft fillers when soft is on).
+ * language 'auto' uses English fillers only when the words read as English.
+ */
 export function findFillers(words, { language = 'en', soft = false } = {}) {
-  const lang = FILLERS[language] ? language : 'en';
-  const hard = new Set([...FILLERS[lang], ...(lang === 'en' ? [] : FILLERS.en)]);
-  const phrases = soft ? (SOFT_FILLERS[lang] || []).map((p) => p.split(' ')) : [];
+  const lang = language === 'auto' ? (looksEnglish(words) ? 'en' : null) : FILLERS[language] ? language : null;
+  const hard = new Set([...COMMON_FILLERS, ...(lang ? FILLERS[lang] : [])]);
+  const phrases = soft && lang ? (SOFT_FILLERS[lang] || []).map((p) => p.split(' ')) : [];
   const out = new Set();
   for (let i = 0; i < words.length; i++) {
     const w = clean(words[i].text);
