@@ -3435,7 +3435,12 @@ export function createEditor({
               quadRects(selection.quads),
               redactionStyle,
             )
-          : addHighlight(doc, pageIndex, { ...selection, hex: color, kind: markupKind.value }),
+          : addHighlight(doc, pageIndex, {
+              ...selection,
+              hex: color,
+              kind: markupKind.value,
+              author: getUser()?.username || '',
+            }),
       null,
       markupKind.value === 'redact' ? 'edit' : 'annotate',
     );
@@ -5301,7 +5306,8 @@ export function createEditor({
   }
   /** Draw a mark, or, for the Redact tool's area marks, add a redaction mark over it. */
   async function drawOrRedact(doc, page, mark) {
-    if (mark.type !== 'highlight' || mark.kind !== 'redact') return drawMark(doc, page, mark);
+    if (mark.type !== 'highlight' || mark.kind !== 'redact')
+      return drawMark(doc, page, { ...mark, author: getUser()?.username || '' });
     const { x, y, width, height } = mark.rect;
     const { addRedactionMarks } = await loadRedaction();
     return addRedactionMarks(doc, page, [[x, y, x + width, y + height]], redactionStyle);

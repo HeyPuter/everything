@@ -1,4 +1,4 @@
-import { PDFDict, PDFName, PDFNumber, PDFHexString } from 'pdf-lib';
+import { PDFDict, PDFName, PDFNumber, PDFHexString, PDFString } from 'pdf-lib';
 import {
   annotationForEdit,
   annotationList,
@@ -138,21 +138,34 @@ function annotationName() {
   ].join('-');
 }
 
-/** Add a highlight, underline, or strikethrough (`kind`) over the given quads. */
+/** PDF dates look like D:20260914120000Z. */
+function pdfDate(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `D:${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}Z`;
+}
+
+/**
+ * Add a highlight, underline, or strikethrough (`kind`) over the given quads, recording its
+ * author and when it was made, as for every other comment.
+ */
 export function addHighlight(
   doc,
   index,
-  { quads, hex = '#f2c438', text = '', kind = 'highlight' },
+  { quads, hex = '#f2c438', text = '', kind = 'highlight', author = '' },
 ) {
   if (!MARKUP_KINDS[kind]) throw new Error('Choose a highlight, underline, or strikethrough.');
   const page = doc.getPage(index);
+  const date = pdfDate();
   const dict = doc.context.obj({
     Type: 'Annot',
     Subtype: MARKUP_KINDS[kind].subtype,
     P: page.ref,
     F: 4,
     NM: PDFHexString.fromText(annotationName()),
+    T: PDFHexString.fromText(String(author ?? '')),
     Contents: PDFHexString.fromText(text),
+    M: PDFString.of(date),
+    CreationDate: PDFString.of(date),
   });
   appearance(doc, dict, quads, hex, kind);
   annotationList(page).push(doc.context.register(dict));

@@ -886,6 +886,7 @@ export function drawMark(doc, index, mark) {
       quads: [rectQuad(mark.rect)],
       hex: mark.hex,
       kind: mark.kind || 'highlight',
+      author: mark.author,
     });
   const page = doc.getPage(index);
   if (mark.type === 'ink') {
