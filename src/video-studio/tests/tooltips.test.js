@@ -44,3 +44,44 @@ describe('tooltips', () => {
     expect(document.querySelector('.tooltip').parentNode).toBe(document.body);
   });
 });
+
+describe('tooltip shortcuts', () => {
+  it('show the key bound to a command when the tooltip opens, not when the button was made', async () => {
+    vi.useRealTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { Library } = await import('../src/storage/library.js');
+    const { memoryBackend } = await import('../src/storage/backends.js');
+    const { Editor } = await import('../src/ui/editor.js');
+    const { shortcutLabel } = await import('../src/lib/platform.js');
+    const { fixture, clip, onMain } = await import('./helpers.js');
+    const root = h('div');
+    document.body.append(root);
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const lib = new Library(memoryBackend());
+    await lib.saveProject(p);
+    const editor = new Editor(root, { library: lib, project: p, account: { user: { username: 'sam' } }, onExit() {}, onNewProject() {} });
+    const { commands } = editor.ctx;
+    vi.useFakeTimers();
+    const tipFor = (el) => {
+      hover(el);
+      vi.advanceTimersByTime(500);
+      const text = document.querySelector('.tooltip .tooltip-key')?.textContent;
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      return text;
+    };
+    try {
+      const exportBtn = root.querySelector('.export-btn');
+      expect(tipFor(exportBtn)).toBe(shortcutLabel(commands.keyFor('export')));
+      const split = root.querySelector('.tl-toolbar [aria-label="Split"]');
+      commands.setLayout('track');
+      expect(commands.keyFor('split')).not.toBe('Mod+B');
+      expect(tipFor(split)).toBe(shortcutLabel(commands.keyFor('split')));
+      commands.setKeys('assistant', ['Mod+Shift+J']);
+      expect(tipFor(root.querySelector('.ai-btn'))).toBe(shortcutLabel('Mod+Shift+J'));
+    } finally {
+      commands.setLayout('default', { keepCustom: false });
+      editor.dispose();
+    }
+  });
+});

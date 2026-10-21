@@ -114,9 +114,19 @@ export function toast(message, { kind = 'info', action, duration = 3800 } = {}) 
 
 /*
  * Tooltips: any element with data-tip gets a hover/focus tooltip. Installed once on the
- * document, so the home screen, the editor and dialogs all get them.
+ * document, so the home screen, the editor and dialogs all get them. data-tip-key shows a
+ * fixed key; data-tip-cmd shows the key bound to that command when the tooltip opens.
  */
 let tooltipsInstalled = false;
+let tipShortcut = null;
+
+/** Set how data-tip-cmd command ids become key labels; returns a function that unsets it. */
+export function setTooltipShortcuts(fn) {
+  tipShortcut = fn;
+  return () => {
+    if (tipShortcut === fn) tipShortcut = null;
+  };
+}
 
 export function installTooltips() {
   if (tooltipsInstalled) return;
@@ -136,7 +146,8 @@ export function installTooltips() {
     if (!text) return;
     hide();
     current = el;
-    const kbd = el.getAttribute('data-tip-key');
+    const cmd = el.getAttribute('data-tip-cmd');
+    const kbd = (cmd && tipShortcut?.(cmd)) || el.getAttribute('data-tip-key');
     tip = h('div.tooltip', { role: 'tooltip' }, text, kbd ? h('span.tooltip-key', kbd) : null);
     // A modal dialog is in the top layer, above anything in the page: put the tooltip in it.
     (el.closest('dialog[open]') || document.body).append(tip);

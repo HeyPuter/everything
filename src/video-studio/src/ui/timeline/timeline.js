@@ -75,8 +75,7 @@ export function createTimeline(ctx) {
 
   // ---- Toolbar -----------------------------------------------------------
   const tb = (iconName, label, cmd, extra = {}) => {
-    const key = cmd ? ctx.commands.keyFor(cmd) : '';
-    const b = h('button.icon-btn', { type: 'button', 'aria-label': label, 'data-tip': label, 'data-tip-key': key ? shortcutLabel(key) : null, 'data-cmd': cmd || null, 'data-icon': iconName, ...extra }, icon(iconName, 18));
+    const b = h('button.icon-btn', { type: 'button', 'aria-label': label, 'data-tip': label, 'data-tip-cmd': cmd || null, 'data-cmd': cmd || null, 'data-icon': iconName, ...extra }, icon(iconName, 18));
     if (cmd) b.addEventListener('click', () => ctx.commands.run(cmd));
     return b;
   };

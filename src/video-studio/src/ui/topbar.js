@@ -3,7 +3,6 @@
  * account and Export buttons.
  */
 import { h } from '../lib/dom.js';
-import { shortcutLabel } from '../lib/platform.js';
 import { icon, appIcon } from '../lib/icons.js';
 import { menuButton } from './menu.js';
 import { getTheme, setTheme, prefs } from './prefs.js';
@@ -211,12 +210,12 @@ export function createTopbar(ctx) {
   const layoutBtn = h('button.icon-btn.layout-btn', { type: 'button', 'aria-label': 'Layout', 'data-tip': 'Layout' }, icon('layout', 18), icon('chevronDown', 12));
   menuButton(layoutBtn, layoutItems, { align: 'end', label: 'Layout' });
 
-  const exportBtn = h('button.btn.primary.export-btn', { type: 'button', 'data-tip': 'Export', 'data-tip-key': 'Ctrl+E' }, icon('export', 16), h('span', 'Export'));
+  const exportBtn = h('button.btn.primary.export-btn', { type: 'button', 'data-tip': 'Export', 'data-tip-cmd': 'export' }, icon('export', 16), h('span', 'Export'));
   exportBtn.addEventListener('click', () => ctx.openExport());
   const shareBtn = h('button.btn.share-btn', { type: 'button', 'data-tip': 'Share for review' }, icon('shareReview', 16), h('span', 'Share'));
   shareBtn.addEventListener('click', () => commands.run('shareReview'));
   const shortcutsBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Keyboard shortcuts', 'data-tip': 'Keyboard shortcuts' }, icon('keyboard', 18));
-  const aiBtn = h('button.icon-btn.ai-btn', { type: 'button', 'aria-label': 'AI assistant', 'aria-controls': 'ai-panel', 'data-tip': 'AI assistant', 'data-tip-key': shortcutLabel(commands.get('assistant')?.keys[0] || 'Mod+K') }, icon('effects', 18));
+  const aiBtn = h('button.icon-btn.ai-btn', { type: 'button', 'aria-label': 'AI assistant', 'aria-controls': 'ai-panel', 'data-tip': 'AI assistant', 'data-tip-cmd': 'assistant' }, icon('effects', 18));
   aiBtn.addEventListener('click', () => commands.run('assistant'));
   shortcutsBtn.addEventListener('click', () => ctx.openShortcuts());
 

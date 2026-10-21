@@ -53,7 +53,7 @@ export function createPlayerView(ctx) {
 
   const cur = h('span.tc-current', '00:00:00:00');
   const total = h('span.tc-total', '00:00:00:00');
-  const playBtn = h('button.icon-btn.play-btn', { type: 'button', 'aria-label': 'Play', 'data-tip': 'Play', 'data-tip-key': 'Space', 'data-space-plays': '' }, icon('play', 20));
+  const playBtn = h('button.icon-btn.play-btn', { type: 'button', 'aria-label': 'Play', 'data-tip': 'Play', 'data-tip-cmd': 'play', 'data-space-plays': '' }, icon('play', 20));
   playBtn.addEventListener('click', () => player.toggle());
   const ratioBtn = h('button.btn.small.ghost.ratio-btn', { type: 'button', 'data-tip': 'Aspect ratio' }, icon('ratio', 14), h('span.ratio-label', 'Ratio'));
   menuButton(ratioBtn, () => [

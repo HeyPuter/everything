@@ -4,6 +4,7 @@
  */
 import { h, announce, clamp } from '../lib/dom.js';
 import { appIcon } from '../lib/icons.js';
+import { shortcutLabel } from '../lib/platform.js';
 import { timecode } from '../lib/time.js';
 import { EditorStore } from '../model/store.js';
 import { AutoSaver } from '../storage/library.js';
@@ -24,7 +25,7 @@ import { createMobileChrome } from './mobile.js';
 import { openExportDialog } from './export-dialog.js';
 import { openVoiceoverDialog } from './voiceover-dialog.js';
 import { openProjectSettings } from './project-settings.js';
-import { openDialog, confirmDialog, toast, installTooltips } from './dialog.js';
+import { openDialog, confirmDialog, toast, installTooltips, setTooltipShortcuts } from './dialog.js';
 import { openShortcutsDialog } from './shortcuts-dialog.js';
 import { createHistoryPanel } from './history-panel.js';
 import { createReviewPanel } from './review/review-panel.js';
@@ -177,6 +178,10 @@ export class Editor {
       ctx.playerView.relayout?.();
     });
     installTooltips();
+    this._offTipKeys = setTooltipShortcuts((id) => {
+      const key = ctx.commands.keyFor(id);
+      return key ? shortcutLabel(key) : '';
+    });
 
     this._onKey = (e) => this.onKey(e);
     document.addEventListener('keydown', this._onKey);
@@ -496,6 +501,7 @@ export class Editor {
     this._disposed = true;
     this._fitObserver?.disconnect();
     this._offTheme?.();
+    this._offTipKeys?.();
     this._offPrefs?.();
     this.ctx.history?.dispose?.();
     this.ctx.review?.dispose?.();
