@@ -549,6 +549,7 @@ setProp(nodeDef('ShaderNodeClamp'), 'clamp_type', { noLabel: true });
 {
   const d = def('ShaderNodeMapRange', 'converter');
   const vec = (n: NodeData) => p(n, 'data_type') === 'FLOAT_VECTOR';
+  d.dynamicCategory = (n) => (vec(n) ? 'vector' : 'converter');
   d.available = (n, s, out) => {
     const v = s.identifier.endsWith('_FLOAT3') || s.identifier === 'Vector';
     if (out) return s.identifier === 'Vector' ? vec(n) : !vec(n);
@@ -591,6 +592,8 @@ setProp(nodeDef('ShaderNodeClamp'), 'clamp_type', { noLabel: true });
     visible: (n) => p(n, 'data_type') === 'RGBA',
   });
   setProp(d, 'clamp_result', { visible: (n) => p(n, 'data_type') === 'RGBA' });
+  // header color follows what is mixed: values, vectors or colors
+  d.dynamicCategory = (n) => (p(n, 'data_type') === 'RGBA' ? 'color' : p(n, 'data_type') === 'VECTOR' ? 'vector' : 'converter');
   // the node body lists Clamp Result above Clamp Factor
   const cr = d.props.findIndex((q) => q.id === 'clamp_result'),
     cf = d.props.findIndex((q) => q.id === 'clamp_factor');
