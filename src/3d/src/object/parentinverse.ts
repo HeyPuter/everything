@@ -1,9 +1,12 @@
 // Object properties additions: Transform ▸ Parent Inverse Transform (the parent inverse matrix as
-// a 4×4 grid of fields with a button that clears it) and Viewport Display ▸ Bounds.
+// a 4×4 grid of fields with a button that clears it) and Viewport Display ▸ Bounds; the sidebar
+// Item tab's Properties panel (custom properties of the active object).
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
 import { checkbox, enumMenu, numberField, opButton, panel } from '../ui/widgets';
 import { splitRow } from '../ui/props';
+import { itemPanels } from '../editors/view3d/sidebar';
+import { customPropsPanelBody } from '../ui/customprops';
 import type { ObjectData } from '../data/types';
 
 export function parentInversePanel(o: ObjectData): Child {
@@ -59,3 +62,12 @@ export function boundsRow(o: ObjectData): Child {
     ),
   );
 }
+
+// sidebar ▸ Item ▸ Properties: the active object's custom properties (Object Mode, when it has some)
+itemPanels.push(() => {
+  const ob = app.activeObject;
+  if (app.doc.mode !== 'OBJECT' || !ob) return null;
+  const custom = (ob as unknown as { custom?: Record<string, unknown> }).custom;
+  if (!custom || !Object.keys(custom).some((k) => !k.startsWith('_'))) return null;
+  return panel('sb-ob-props', 'Properties', () => customPropsPanelBody(ob as unknown as Record<string, unknown>, 'object'), { closed: true });
+});
