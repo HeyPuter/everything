@@ -10,10 +10,10 @@
  * Edits reach the other sheets in one of two ways:
  *  - "repeat": structural and range-wide edits (insert or delete rows, column
  *    widths, styles applied to a range, borders, merges, clearing, changing
- *    case, a Paste Special operation) are made again with the same arguments on
- *    each other sheet, so each sheet works out its own result (its own formulas
- *    move, its own cells keep their other formatting, its own text changes case,
- *    its own numbers are added to);
+ *    case, a Paste Special operation, removing a link) are made again with the
+ *    same arguments on each other sheet, so each sheet works out its own result
+ *    (its own formulas move, its own cells keep their other formatting, its own
+ *    text changes case, its own numbers are added to, its own link goes);
  *  - "replay": cell writes (typing, pasting, filling) are
  *    recorded as they land on the active sheet, and each changed cell is then
  *    written on the other sheets: new contents where the contents changed, the
@@ -27,7 +27,7 @@ import { cellKey, parseKey } from './cell.js';
 export const GROUP_REPEATED = [
   'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'deleteLines', 'insertCells', 'deleteCells',
   'setColWidth', 'setRowHeight', 'mergeCells', 'unmergeCells', 'setHidden', 'groupLines', 'ungroupLines',
-  'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange', 'transformText', 'pasteOperation',
+  'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange', 'transformText', 'pasteOperation', 'removeLink',
 ];
 
 /** Cell writes recorded on the active sheet and written again on the others. */
@@ -269,7 +269,7 @@ export function installSheetGroups(Workbook) {
 const LABELS = {
   insertRows: 'Insert rows', insertCols: 'Insert columns', deleteRows: 'Delete rows', deleteCols: 'Delete columns', deleteLines: 'Delete',
   insertCells: 'Insert cells', deleteCells: 'Delete cells', setColWidth: 'Resize columns', setRowHeight: 'Resize rows', mergeCells: 'Merge cells', unmergeCells: 'Unmerge cells',
-  setHidden: 'Hide', groupLines: 'Group', ungroupLines: 'Ungroup', applyStyle: 'Format', applyBorders: 'Borders', toggleStyle: 'Format', clearRange: 'Clear',
+  setHidden: 'Hide', groupLines: 'Group', ungroupLines: 'Ungroup', applyStyle: 'Format', applyBorders: 'Borders', toggleStyle: 'Format', clearRange: 'Clear', removeLink: 'Remove link',
   setInput: 'Edit cell', pasteCells: 'Paste', pasteValues: 'Paste', pasteLiteralValues: 'Paste', pasteStyles: 'Paste formatting', pasteOperation: 'Paste',
   pasteEntries: 'Paste', fill: 'Fill', fillInput: 'Fill', fillDirection: 'Fill', fillSeries: 'Fill series', formulasToValues: 'Formulas to values', transformText: 'Change text',
 };

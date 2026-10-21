@@ -33,3 +33,24 @@ describe('grouped sheets', () => {
     expect([wb.getValue(a, 1, 0), wb.getValue(b, 1, 0)]).toEqual([10, 20]);
   });
 });
+
+// Clear Hyperlinks (Remove link) on Jan, grouped with Feb, was carried to Feb as typing is: the cell Jan kept,
+// "Acme" without its link, was written over Feb's own "Other".
+describe('removing a link on grouped sheets', () => {
+  it('takes each sheet’s own link off and keeps every sheet’s text', () => {
+    const wb = new Workbook({ sheets: [{ name: 'Jan' }, { name: 'Feb' }] });
+    const [a, b] = wb.sheets.map((s) => s.id);
+    wb.setLink(a, 0, 0, 'https://acme.example', 'Acme');
+    wb.setLink(b, 1, 0, 'https://feb.example', 'Feb site');
+    wb.setInput(b, 0, 0, 'Other');
+    wb.groupSheets([b]);
+    wb.clearHistory();
+    wb.removeLink(a, 0, 0);
+    expect(wb.getCell(a, 0, 0)).toMatchObject({ v: 'Acme' });
+    expect(wb.linkAt(a, 0, 0)).toBeNull();
+    expect(wb.getValue(b, 0, 0)).toBe('Other');
+    wb.removeLink(a, 1, 0);
+    expect(wb.linkAt(b, 1, 0)).toBeNull();
+    expect(wb.getValue(b, 1, 0)).toBe('Feb site');
+  });
+});
