@@ -128,3 +128,19 @@ test('Info: select a report by index, extend toggles', async ({ page }) => {
   await expect(info.locator('.info-row.sel')).toHaveCount(1);
   await expectNoErrors(errors);
 });
+
+test('Text Editor Live Edit runs the script again after edits', async ({ page }) => {
+  const errors = await openApp(page);
+  await scripting(page, 'TEXT');
+  await run(page, 'text.new');
+  await page.waitForTimeout(100);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const ed = a.hoverArea.editor;
+    ed.text.language = 'javascript';
+    ed.liveEdit = true;
+  });
+  await run(page, 'text.insert', { text: 'window.__live = (window.__live || 0) + 1;' });
+  await expect.poll(() => page.evaluate(() => (window as any).__live ?? 0), { timeout: 4000 }).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});

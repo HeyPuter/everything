@@ -95,6 +95,9 @@ export class TextEditor implements Editor {
   replaceText = '';
   /** typing replaces the character after the caret (Insert) */
   overwrite = false;
+  /** run the script again a moment after each edit (Text ▸ Live Edit) */
+  liveEdit = false;
+  private liveTimer = 0;
   /** the file on disk changed since it was opened or saved */
   conflict = false;
   private acEl: HTMLElement;
@@ -126,7 +129,8 @@ export class TextEditor implements Editor {
     public area: Area,
     state?: unknown,
   ) {
-    const st = (state ?? {}) as Partial<{ text: string; lineNumbers: boolean; wrap: boolean; syntax: boolean; sidebar: boolean }>;
+    const st = (state ?? {}) as Partial<{ text: string; lineNumbers: boolean; wrap: boolean; syntax: boolean; sidebar: boolean; liveEdit: boolean }>;
+    this.liveEdit = !!st.liveEdit;
     this.textId = st.text ?? null;
     if (st.lineNumbers !== undefined) this.showLineNumbers = st.lineNumbers;
     if (st.wrap !== undefined) this.wordWrap = st.wrap;
@@ -363,6 +367,7 @@ export class TextEditor implements Editor {
       },
       { separator: true },
       { label: 'Run Script', icon: 'play', shortcut: 'Alt P', op: 'text.run_script', disabled: !t },
+      { label: 'Live Edit', checked: this.liveEdit, disabled: !t, description: 'Run the script again a moment after each edit', action: () => ((this.liveEdit = !this.liveEdit), this.area.drawHeader()) },
       {
         label: 'Register',
         checked: !!t?.use_module,
@@ -528,6 +533,21 @@ export class TextEditor implements Editor {
     this.errorLine = null;
     app.dirty = true;
     this.queueRender();
+    if (this.liveEdit && t.language !== 'text') {
+      clearTimeout(this.liveTimer);
+      this.liveTimer = window.setTimeout(() => void this.liveRun(), 500);
+    }
+  }
+
+  /** Live Edit: run the script without moving the caret to an error. */
+  private async liveRun() {
+    const t = this.text;
+    if (!t || !this.liveEdit) return;
+    t.body = this.ta.value;
+    this.commitUndo();
+    const res = await runText(t);
+    this.errorLine = res.ok ? null : res.line ?? null;
+    this.render();
   }
 
   /** Push one global undo step for typing done since the last push (on blur / before runs). */
@@ -1494,7 +1514,7 @@ export class TextEditor implements Editor {
   }
 
   serialize() {
-    return { text: this.textId, lineNumbers: this.showLineNumbers, wrap: this.wordWrap, syntax: this.syntax, sidebar: this.showSidebar };
+    return { text: this.textId, lineNumbers: this.showLineNumbers, wrap: this.wordWrap, syntax: this.syntax, sidebar: this.showSidebar, liveEdit: this.liveEdit || undefined };
   }
 
   resize() {
@@ -1502,6 +1522,7 @@ export class TextEditor implements Editor {
   }
 
   dispose() {
+    clearTimeout(this.liveTimer);
     this.commitUndo();
     this.resizeObs.disconnect();
     document.removeEventListener('selectionchange', this.onSelectionChange);
