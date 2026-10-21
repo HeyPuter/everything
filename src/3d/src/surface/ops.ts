@@ -4,7 +4,7 @@
 // branch; the others are surface-only.
 import { Euler, Matrix4, Vector3 } from 'three';
 import { app, onAppReady, operators, registerOperator, registerOperators, type OpContext, type OpResult, type PropDef, type Operator } from '../app/app';
-import type { CurveData, Spline, Vec3 } from '../data/types';
+import type { CurveData, Spline, SplinePoint, Vec3 } from '../data/types';
 import { newCurve, newObject } from '../data/defaults';
 import { addObjectToScene, uniqueName } from '../ops/object';
 import { startTransform } from '../ops/transform';
@@ -401,3 +401,39 @@ surfaceOp('curve.spin', {
     changed();
   },
 });
+
+surfaceOp('curve.select_similar', {
+  poll: selPoll,
+  exec: (_c, p) => {
+    const { cu } = surf();
+    const pts = cu.splines.flatMap((sp) => sp.points.map((q) => ({ q, sp })));
+    const value = (x: { q: SplinePoint; sp: Spline }) => (p.type === 'RADIUS' ? x.q.radius : p.type === 'WEIGHT' ? x.q.co[3] : p.type === 'TYPE' ? (x.sp.order_u ?? 0) * 1000 + (x.sp.order_v ?? 0) : 0);
+    const ref = pts.filter((x) => x.q.select && !x.q.hide).map(value);
+    if (!ref.length) return 'CANCELLED';
+    const th = p.threshold as number;
+    for (const x of pts) {
+      if (x.q.hide) continue;
+      const v = value(x);
+      const hit = ref.some((r) => (p.compare === 'GREATER' ? v >= r - th : p.compare === 'LESS' ? v <= r + th : Math.abs(v - r) <= th));
+      if (hit) x.q.select = true;
+    }
+  },
+});
+
+surfaceOp('curve.select_nth', {
+  poll: selPoll,
+  exec: (_c, p) => {
+    // checker pattern over the grid: runs of `nth` selected, `skip` deselected, counted along U + V
+    const skip = Math.max(1, p.skip as number),
+      nth = Math.max(1, p.nth as number),
+      off = (p.offset as number) | 0;
+    for (const sp of surf().cu.splines)
+      sp.points.forEach((q, i) => {
+        if (!q.select || q.hide) return;
+        const [u, v] = G.guv(sp, i);
+        const k = (((u + v + off) % (skip + nth)) + skip + nth) % (skip + nth);
+        if (k >= nth) q.select = false;
+      });
+  },
+});
+

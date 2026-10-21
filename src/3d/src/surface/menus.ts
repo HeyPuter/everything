@@ -69,11 +69,23 @@ function selectMenu(): MenuItem[] {
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
     { separator: true },
     { label: 'Select Random', op: 'curve.select_random' },
+    { label: 'Checker Deselect', op: 'curve.select_nth' },
     { separator: true },
     { label: 'More', op: 'curve.select_more', shortcut: 'Ctrl Numpad +' },
     { label: 'Less', op: 'curve.select_less', shortcut: 'Ctrl Numpad -' },
     { separator: true },
     { label: 'Select Linked', op: 'curve.select_linked', shortcut: 'Ctrl L' },
+    {
+      label: 'Select Similar',
+      shortcut: 'Shift G',
+      submenu: () => (
+        [
+          ['TYPE', 'Type'],
+          ['RADIUS', 'Radius'],
+          ['WEIGHT', 'Weight'],
+        ] as const
+      ).map(([t, l]) => ({ label: l, op: 'curve.select_similar', props: { type: t } })),
+    },
     { separator: true },
     { label: 'Control Point Row', op: 'curve.select_row', shortcut: 'Shift Ctrl R' },
   ];
@@ -125,6 +137,13 @@ addKeys('Curve', [
   { key: 'NUMPAD_PLUS', ctrl: true, op: 'curve.select_more', when: w },
   { key: 'NUMPAD_MINUS', ctrl: true, op: 'curve.select_less', when: w },
   { key: 'L', ctrl: true, op: 'curve.select_linked', when: w },
+  {
+    key: 'G',
+    shift: true,
+    menu: () => (['TYPE', 'RADIUS', 'WEIGHT'] as const).map((t) => ({ label: t[0] + t.slice(1).toLowerCase(), op: 'curve.select_similar', props: { type: t } })),
+    menuTitle: 'Select Similar',
+    when: w,
+  },
   { key: 'L', op: 'curve.select_linked_pick', props: { deselect: false }, when: w },
   { key: 'L', shift: true, op: 'curve.select_linked_pick', props: { deselect: true }, when: w },
   { key: 'P', op: 'curve.separate', when: w },
