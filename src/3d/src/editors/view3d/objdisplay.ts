@@ -1,6 +1,6 @@
 // Object ▸ Viewport Display extras: the object's name next to its origin, its local axes, and
-// its bounds (box, sphere, cylinder, cone or capsule around the geometry).
-import { Box3, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineSegments, Vector3 } from 'three';
+// its bounds (box, sphere, cylinder, cone or capsule around the geometry) and its texture space.
+import { Box3, BufferGeometry, Float32BufferAttribute, LineBasicMaterial, LineDashedMaterial, LineSegments, Vector3 } from 'three';
 import { h, type VNode } from '../../ui/h';
 import { app } from '../../app/app';
 import { renderContext } from '../../render/context';
@@ -10,7 +10,7 @@ import { editModeHooks } from './hooks';
 import type { ObjectData } from '../../data/types';
 
 export type BoundsType = 'BOX' | 'SPHERE' | 'CYLINDER' | 'CONE' | 'CAPSULE';
-type ObExt = ObjectData & { show_bounds?: boolean; display_bounds_type?: BoundsType };
+type ObExt = ObjectData & { show_bounds?: boolean; display_bounds_type?: BoundsType; show_texture_space?: boolean };
 
 const AXIS_COLORS = ['#ff3352', '#8bdc00', '#2890ff'];
 
@@ -86,6 +86,19 @@ export function boundsShape(type: BoundsType, min: [number, number, number], max
 }
 
 const BOUNDS = 'boundsLines';
+const TEXSPACE = 'texspaceLines';
+
+/** Texture space box of an object's data (its own settings, or the geometry bounds when automatic). */
+function texspaceBox(ob: ObjectData, P: ArrayLike<number> | undefined): Box3 | null {
+  const data = ob.data ? ((app.doc.meshes[ob.data] ?? app.doc.curves[ob.data]) as { use_auto_texspace?: boolean; texspace_location?: number[]; texspace_size?: number[] } | undefined) : undefined;
+  if (data && data.use_auto_texspace === false && data.texspace_location && data.texspace_size) {
+    const c = new Vector3(...data.texspace_location),
+      sz = new Vector3(...data.texspace_size);
+    return new Box3(c.clone().sub(sz), c.clone().add(sz));
+  }
+  if (!P || !P.length) return null;
+  return new Box3().setFromArray(P as unknown as number[]);
+}
 
 sceneSyncHooks.push((_doc, ev, so) => {
   const ob = ev.ob as ObExt;
@@ -116,11 +129,39 @@ sceneSyncHooks.push((_doc, ev, so) => {
   so.root.userData[BOUNDS] = l;
 });
 
+sceneSyncHooks.push((_doc, ev, so) => {
+  const ob = ev.ob as ObExt;
+  const old = so.root.userData[TEXSPACE] as LineSegments | undefined;
+  const box = ob.show_texture_space ? texspaceBox(ob, ev.mesh?.positions) : null;
+  const key = box ? `${box.min.toArray().join(',')}|${box.max.toArray().join(',')}` : '';
+  if (old && old.userData.key === key) return;
+  if (old) {
+    so.root.remove(old);
+    old.geometry.dispose();
+    delete so.root.userData[TEXSPACE];
+  }
+  if (!box) return;
+  const g = new BufferGeometry();
+  g.setAttribute('position', new Float32BufferAttribute(boundsShape('BOX', box.min.toArray() as [number, number, number], box.max.toArray() as [number, number, number]), 3));
+  const l = new LineSegments(g, new LineDashedMaterial({ color: 0x000000, dashSize: 0.08, gapSize: 0.06 }));
+  l.computeLineDistances();
+  l.matrixAutoUpdate = false;
+  l.visible = false;
+  l.userData.key = key;
+  so.root.add(l);
+  so.root.userData[TEXSPACE] = l;
+});
+
 // bounds draw in the overlay pass only, in the object's wire colour
 drawHooks.passes.push((pass, view) => {
   if (!renderContext) return;
   const shown: LineSegments[] = [];
   for (const so of renderContext.sync.objects.values()) {
+    const t = so.root.userData[TEXSPACE] as LineSegments | undefined;
+    if (t) {
+      t.visible = pass === 'OVERLAY' && view.overlay.show_overlays;
+      shown.push(t);
+    }
     const l = so.root.userData[BOUNDS] as LineSegments | undefined;
     if (!l) continue;
     l.visible = pass === 'OVERLAY' && view.overlay.show_overlays;
