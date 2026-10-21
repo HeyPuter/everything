@@ -208,7 +208,9 @@ export class RoomClient extends EventTarget {
     this.flushing = this.serial(async () => {
       let limit = MAX_BATCH;
       let answered = false; // the room was reached: only then does this say anything of the connection
-      for (let round = 0; round < 50 && !this.closed;) {
+      let stalled = false; // the room took nothing, and had nothing new to rebase on
+      for (let round = 0; !this.closed; ) {
+        if (round >= 50) { stalled = true; break; }
         this.flushAgain = false;
         const changes = batch(this.replica.outgoing(), limit);
         if (!changes.length) break;
@@ -242,10 +244,16 @@ export class RoomClient extends EventTarget {
         if (res.accepted) {
           this.announce(res);
           if (!this.flushAgain && !this.replica.pending.length) break;
-        } else round++;
+        } else if (!res.records.length) { stalled = true; break; } else round++;
       }
       // Nothing to send says nothing of the connection: an offline status stands until the room answers.
-      if (answered) { this.retryDelay = 1000; this.setStatus('connected'); } else this.setStatus();
+      if (answered) { if (!stalled) this.retryDelay = 1000; this.setStatus('connected'); } else this.setStatus();
+      // The room's next place in the log is held by a commit not written yet (one that failed half way is given up after a
+      // while), or others kept getting there first: the changes are sent again shortly, not at once nor only with the next edit.
+      if (stalled && this.replica.pending.length && !this.closed) {
+        this.retryTimer = setTimeout(() => this.flush(), this.retryDelay);
+        this.retryDelay = Math.min(30_000, this.retryDelay * 2);
+      }
       this.maybeCheckpoint();
     }).catch((error) => {
       this.failed(error);
