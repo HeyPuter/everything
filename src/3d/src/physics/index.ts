@@ -15,7 +15,6 @@ import './draw';
 import './timelinecache';
 import './fluiddraw';
 import './particleops';
-import './hairrender';
 import './oceanbake';
 import './dpbake';
 
@@ -75,3 +74,5 @@ import './dpops';
 import './quickliquid';
 import './ui-rbworld';
 import './quickexplode';
+// render-engine hooks for particle hair load on their own (they pull in the render modules)
+void import('./hairrender');

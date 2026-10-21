@@ -238,7 +238,7 @@ export interface ParticleSettingsX extends ParticleSettings {
   /** only objects in this collection deflect the particles */
   collision_collection?: string | null;
   object_factor?: number;
-  display_method?: 'RENDER' | 'DOT' | 'NONE';
+  display_method?: 'RENDER' | 'DOT' | 'CIRC' | 'CROSS' | 'AXIS' | 'NONE';
   display_size?: number;
   use_dead?: boolean;
   material_slot?: number;
@@ -300,6 +300,9 @@ export interface ParticleSettingsX extends ParticleSettings {
   path_start?: number;
   path_end?: number;
   length_random?: number;
+  /** instances keep their object's world offset / rotation */
+  use_global_instance?: boolean;
+  use_rotation_instance?: boolean;
   // --- hair shape (strand thickness in renders)
   root_radius?: number;
   tip_radius?: number;
@@ -667,6 +670,8 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     path_start: 0,
     path_end: 1,
     length_random: 0,
+    use_global_instance: false,
+    use_rotation_instance: false,
     root_radius: 1,
     tip_radius: 0,
     radius_scale: 0.01,

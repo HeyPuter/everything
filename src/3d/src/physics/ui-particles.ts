@@ -112,16 +112,21 @@ function renderPanel(ob: ObjectPhysics, s: ParticleSettingsX): Child {
           ),
           bool(s, 'use_whole_collection', 'Whole Collection'),
           !s.use_whole_collection ? bool(s, 'use_collection_pick_random', 'Pick Random') : null,
+          bool(s, 'use_global_instance', 'Global Coordinates', { tip: "Keep the objects' offsets from the world origin" }),
+          bool(s, 'use_rotation_instance', 'Object Rotation', { tip: "Keep the objects' rotations" }),
           bool(s, 'use_scale_instance', 'Object Scale'),
           !s.use_whole_collection ? useCountPanel(s) : null,
         ], { sub: true })
       : null,
-    !hair ? bool(s, 'use_dead', 'Show Dead') : null,
+    renderExtra(s),
+    hair && s.render_type === 'PATH' ? renderTiming(s) : null,
     bool(s, 'use_render_emitter', 'Show Emitter', { tip: 'Render the emitter object itself (it always shows in the viewport)' }),
     s.render_type === 'OBJECT'
       ? panel('pa-render-obj', 'Object', () => [
           objectRow(`pa-inst-${s.id}`, s as never, 'instance_object', 'Instance Object', (o) => o.id !== ob.id && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT')),
-          bool(s, 'use_scale_instance', 'Scale'),
+          bool(s, 'use_global_instance', 'Global Coordinates', { tip: "Keep the instance object's offset from the world origin" }),
+          bool(s, 'use_rotation_instance', 'Object Rotation', { tip: "Keep the instance object's rotation" }),
+          bool(s, 'use_scale_instance', 'Object Scale'),
         ], { sub: true })
       : null,
   ]);
@@ -155,11 +160,36 @@ function useCountPanel(s: ParticleSettingsX): Child {
 }
 
 function displayPanel(s: ParticleSettingsX): Child {
+  const hair = s.type === 'HAIR';
+  const marker = s.display_method === 'DOT' || s.display_method === 'CIRC' || s.display_method === 'CROSS' || s.display_method === 'AXIS';
   return panel('pa-display', 'Viewport Display', () => [
-    enumProp(s, 'display_method', 'Display As', [['RENDER', 'Rendered'], ['DOT', 'Point'], ['NONE', 'None']]),
+    enumProp(s, 'display_method', 'Display As', hair ? [['RENDER', 'Rendered'], ['DOT', 'Point'], ['NONE', 'None']] : [['RENDER', 'Rendered'], ['DOT', 'Point'], ['CIRC', 'Circle'], ['CROSS', 'Cross'], ['AXIS', 'Axis'], ['NONE', 'None']]),
+    !hair ? enumProp(s, 'display_color', 'Color', [['NONE', 'None'], ['MATERIAL', 'Material'], ['VELOCITY', 'Velocity'], ['ACCELERATION', 'Acceleration']]) : null,
+    !hair && (s.display_color === 'VELOCITY' || s.display_color === 'ACCELERATION') ? num(s, 'color_maximum', 'Max', { min: 0.01, max: 100, tip: 'Speed (or acceleration) shown in full red, in tens of metres per second' }) : null,
     num(s, 'display_percentage', 'Amount', { int: true, min: 0, max: 100, slider: true, tip: 'Percentage of the particles shown in the viewport' }),
-    s.display_method === 'DOT' && s.type !== 'HAIR' ? num(s, 'display_size', 'Size', { min: 0.001, max: 10, unit: 'distance' }) : null,
+    marker && !hair ? num(s, 'display_size', 'Size', { min: 0.001, max: 10, unit: 'distance' }) : null,
   ], { closed: true });
+}
+
+/** Render ▸ Extra: parents, unborn and dead particles. */
+function renderExtra(s: ParticleSettingsX): Child {
+  const hair = s.type === 'HAIR';
+  return panel('pa-render-extra', 'Extra', () => [
+    hair ? bool(s, 'use_parent_particles', 'Parent Particles', { tip: 'Render the parent strands along with their children', disabled: (s.child_type ?? 'NONE') === 'NONE' }) : null,
+    !hair ? bool(s, 'show_unborn', 'Unborn', { tip: 'Show particles before they are born (at their emission point)' }) : null,
+    !hair ? bool(s, 'use_dead', 'Dead', { tip: 'Show particles after they die' }) : null,
+  ], { sub: true, closed: true });
+}
+
+/** Render ▸ Timing (hair paths): show part of every strand. */
+function renderTiming(s: ParticleSettingsX): Child {
+  const abs = !!s.use_absolute_path_time;
+  return panel('pa-render-timing', 'Timing', () => [
+    bool(s, 'use_absolute_path_time', 'Absolute Path Time', { tip: 'Start and end are frames (else shares of the strand length)' }),
+    num(s, 'path_start', 'Start', abs ? { min: -100000, max: 100000 } : { min: 0, max: 1, slider: true }),
+    num(s, 'path_end', 'End', abs ? { min: -100000, max: 100000 } : { min: 0, max: 1, slider: true }),
+    num(s, 'length_random', 'Random', { min: 0, max: 1, slider: true, tip: 'Shorten strands at random' }),
+  ], { sub: true, closed: true });
 }
 
 function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX, m?: ModifierBase): Child[] {

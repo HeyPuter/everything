@@ -32,21 +32,35 @@ import { replacesVolume } from './fluidoverlay';
 
 const pointMaterial = () =>
   new ShaderMaterial({
-    uniforms: { uColor: { value: new Color(1, 1, 1) }, uHalfH: { value: 400 } },
+    uniforms: { uColor: { value: new Color(1, 1, 1) }, uHalfH: { value: 400 }, uShape: { value: 0 }, uUseColors: { value: 0 } },
     vertexShader: /* glsl */ `
       attribute float psize;
+      attribute vec3 pcolor;
       uniform float uHalfH;
+      varying vec3 vColor;
       void main() {
+        vColor = pcolor;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mv;
         gl_PointSize = clamp(psize * projectionMatrix[1][1] * uHalfH / max(gl_Position.w, 1e-4), 2.0, 64.0);
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor;
+      uniform float uShape, uUseColors;
+      varying vec3 vColor;
       void main() {
         vec2 d = gl_PointCoord - 0.5;
-        if (dot(d, d) > 0.25) discard;
-        gl_FragColor = vec4(uColor, 1.0);
+        float r2 = dot(d, d);
+        if (uShape < 0.5) {
+          if (r2 > 0.25) discard;
+        } else if (uShape < 1.5) {
+          // circle outline
+          if (r2 > 0.25 || r2 < 0.12) discard;
+        } else {
+          // cross
+          if (abs(d.x) > 0.08 && abs(d.y) > 0.08) discard;
+        }
+        gl_FragColor = vec4(uUseColors > 0.5 ? vColor : uColor, 1.0);
       }`,
   });
 
@@ -68,12 +82,18 @@ function build(d: ParticleDraw): Points | LineSegments {
   if (d.points) {
     g.setAttribute('position', new BufferAttribute(d.points, 3));
     g.setAttribute('psize', new BufferAttribute(d.sizes ?? new Float32Array(d.points.length / 3).fill(0.05), 1));
-    const p = new Points(g, pointMaterial());
+    g.setAttribute('pcolor', new BufferAttribute(d.colors && d.colors.length === d.points.length ? d.colors : new Float32Array(d.points.length), 3));
+    const mat = pointMaterial();
+    mat.uniforms.uShape.value = d.shape === 'CIRCLE' ? 1 : d.shape === 'CROSS' ? 2 : 0;
+    mat.uniforms.uUseColors.value = d.colors && d.colors.length === d.points.length ? 1 : 0;
+    const p = new Points(g, mat);
     p.frustumCulled = false;
     return p;
   }
   g.setAttribute('position', new BufferAttribute(d.lines ?? new Float32Array(0), 3));
-  const l = new LineSegments(g, new LineBasicMaterial({ color: 0xffffff }));
+  const lineColors = !!d.colors && !!d.lines && d.colors.length === d.lines.length;
+  if (lineColors) g.setAttribute('color', new BufferAttribute(d.colors!, 3));
+  const l = new LineSegments(g, new LineBasicMaterial({ color: 0xffffff, vertexColors: lineColors }));
   l.frustumCulled = false;
   return l;
 }
@@ -102,7 +122,7 @@ function sync(localView: Set<string> | null) {
     else e.obj.matrixWorld.copy(IDENT);
     const c = new Color().setRGB(d.color[0], d.color[1], d.color[2]);
     if (e.obj instanceof Points) (e.obj.material as ShaderMaterial).uniforms.uColor.value.copy(c);
-    else (e.obj.material as LineBasicMaterial).color.copy(c);
+    else if (!(e.obj.material as LineBasicMaterial).vertexColors) (e.obj.material as LineBasicMaterial).color.copy(c);
   }
   for (const [key, e] of entries)
     if (!seen.has(key)) {
