@@ -6088,6 +6088,15 @@ export function createEditor({
         ? null
         : false;
   }
+  /**
+   * A failed write as an Error to show. The SDK rejects with plain objects too, at times with
+   * the reason nested inside, which the generic message would otherwise replace.
+   */
+  function saveFailure(error) {
+    if (error instanceof Error || P.isSignInCancelled(error)) return error;
+    const reason = reasonOf(error);
+    return new Error(`Puter could not save ${name}${reason ? `: ${reason}` : ''}.`);
+  }
   /** After a failed write to an existing file: whether to keep the changes as a new file. */
   async function offerCopy(error) {
     const reason = reasonOf(error);
@@ -6155,10 +6164,12 @@ export function createEditor({
       } catch (error) {
         // An existing file that cannot be written (shared to view only, its folder gone) need
         // not cost the changes: offer to keep them as a new file in the app's own folder.
-        if (!targetPath || !current()) throw error;
+        if (!targetPath || !current()) throw saveFailure(error);
         if (!(await offerCopy(error)) || !current()) return;
         targetPath = null;
-        item = await waitFor(() => P.saveFile(targetName, bytes, null), signal);
+        item = await waitFor(() => P.saveFile(targetName, bytes, null), signal).catch((e) => {
+          throw saveFailure(e);
+        });
       }
       if (!getUser()) await waitFor(() => signIn(signal), signal);
       if (!destroyed && token === saveGeneration) {

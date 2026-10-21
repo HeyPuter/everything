@@ -39,6 +39,7 @@ async function desktop(page, { launch = '/test/Documents/report.pdf', token } = 
           },
           write: async (path, blob, options) => {
             if (window.failWrite) { window.failWrite = false; throw { code: 'forbidden', message: 'Permission denied.' }; }
+            if (window.failQuota) { window.failQuota = false; throw { error: { code: 'storage_limit_reached', message: 'Storage capacity limit reached.' } }; }
             if (window.holdWrite) await new Promise((resolve) => { window.releaseWrite = resolve; });
             if (options.dedupeName && window.drive.has(path)) path = path.replace(/\\.pdf$/, ' (1).pdf');
             window.writes.push({ path, overwrite: options.overwrite });
@@ -250,4 +251,21 @@ test('save and leave during an upload already under way leaves once it is saved'
   await page.evaluate(() => window.releaseWrite());
   await expect.poll(() => page.evaluate(() => window.exits)).toBe(1);
   expect(await writes(page)).toEqual([{ path: '/test/Documents/report.pdf', overwrite: true }]);
+});
+
+test('a save that Puter refuses says why, and the next save can still go through', async ({
+  page,
+}) => {
+  await desktop(page, { launch: null });
+  await rotate(page);
+  const saveNew = page.getByRole('button', { name: 'Save to Puter', exact: true });
+  // The SDK rejects with a plain object, its reason nested inside.
+  await page.evaluate(() => (window.failQuota = true));
+  await saveNew.click();
+  await expect(page.locator('#toast')).toHaveText(
+    'Puter could not save Untitled.pdf: Storage capacity limit reached.',
+  );
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await saveNew.click();
+  await expect(page.locator('.save-status')).toHaveText('Saved to Puter');
 });
