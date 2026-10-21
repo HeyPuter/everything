@@ -15,13 +15,15 @@ export function confirmValidation(verdict) {
     let result = 'cancel';
     const finish = value => { result = value; modal.close(); };
     const retry = style === 'stop' && el('button.btn.btn-primary', { type: 'button', onclick: () => finish('retry') }, 'Retry');
+    const accept = !retry && el('button.btn.btn-primary', { type: 'button', onclick: () => finish('accept') }, style === 'warning' ? 'Use value' : 'OK');
     const content = el('div', {},
       el('p.modal-text', {}, verdict.message || 'This value does not meet the cell’s validation rule.'),
       el('div.row.row-end', {},
         el('button.btn.btn-ghost', { type: 'button', onclick: () => finish('cancel') }, 'Cancel'),
         style === 'warning' && el('button.btn', { type: 'button', onclick: () => finish('retry') }, 'Edit value'),
-        retry || el('button.btn.btn-primary', { type: 'button', onclick: () => finish('accept') }, style === 'warning' ? 'Use value' : 'OK')));
+        retry || accept));
+    // An Information alert starts on OK, as Excel's does: Enter keeps the entry rather than throwing it away.
     const modal = openModal({ title: verdict.rule.errorTitle || (style === 'warning' ? 'Invalid value' : 'Check this value'),
-      content, initialFocus: retry || null, onClose: () => resolve(result) });
+      content, initialFocus: retry || (style === 'information' ? accept : null), onClose: () => resolve(result) });
   });
 }
