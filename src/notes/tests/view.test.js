@@ -137,6 +137,22 @@ describe('export', () => {
     }
   });
 
+  it('names exported files without doubled spaces where unsafe characters were', async () => {
+    await mount();
+    app.editor.page.title = 'Plan <draft> & "final"  v2';
+    const names = [];
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function captureDownload() {
+      names.push(this.download);
+    };
+    try {
+      await app.exportPage('txt');
+    } finally {
+      HTMLAnchorElement.prototype.click = click;
+    }
+    expect(names).toEqual(['Plan draft & final v2.txt']);
+  });
+
   it('exports Markdown with one blank line between the title and each container', async () => {
     await mount();
     const page = app.editor.page;

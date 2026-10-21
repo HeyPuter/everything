@@ -872,7 +872,7 @@ function download(name, blob) {
 }
 
 function safeName(s) {
-  return (s || 'Untitled Page').replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 80) || 'Untitled Page';
+  return (s || 'Untitled Page').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim() || 'Untitled Page';
 }
 
 async function blobToDataUrl(blob) {
