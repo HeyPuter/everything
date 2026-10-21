@@ -12531,6 +12531,17 @@ export class Workbook extends EventTarget {
     return out;
   }
 
+  /** spillEntries one at a time, for a walk that may stop early: an array over the whole sheet spills more than any list holds. */
+  *eachSpill(sheetId, range = null) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return;
+    for (const a of this._ensureSpills(sheet).anchors.values()) {
+      const i1 = range ? Math.max(0, range.r1 - a.r) : 0, i2 = range ? Math.min(a.rows, range.r2 - a.r + 1) : a.rows;
+      const j1 = range ? Math.max(0, range.c1 - a.c) : 0, j2 = range ? Math.min(a.cols, range.c2 - a.c + 1) : a.cols;
+      for (let i = i1; i < i2; i++) for (let j = j1; j < j2; j++) if (i || j) yield { r: a.r + i, c: a.c + j, value: this._arrayValue(a, i, j) };
+    }
+  }
+
   /**
    * How many values spillEntries lists for the rectangle, counted without listing them: an array declared over
    * the whole sheet spills seventeen billion, which no list holds.
