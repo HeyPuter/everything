@@ -32,7 +32,8 @@ export function createAccessibilityPane({ editor, pkg, error, onState = () => {}
   }
   function render() {
     const counts = summarize(issues);
-    summaryLine.textContent = issues.length ? `${counts.errors} errors · ${counts.warnings} warnings · ${counts.tips} tips` : 'No accessibility issues found. People with disabilities should be able to read this document.';
+    const count = (n, one) => `${n} ${one}${n === 1 ? '' : 's'}`;
+    summaryLine.textContent = issues.length ? `${count(counts.errors, 'error')} · ${count(counts.warnings, 'warning')} · ${count(counts.tips, 'tip')}` : 'No accessibility issues found. People with disabilities should be able to read this document.';
     list.replaceChildren(...Object.entries(SEVERITY).map(([severity, title]) => {
       const own = issues.filter(i => i.severity === severity);
       if (!own.length) return null;

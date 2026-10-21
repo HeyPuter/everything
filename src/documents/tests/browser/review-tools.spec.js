@@ -155,6 +155,8 @@ test('an accessibility quick fix applies where its issue is now after an edit be
   const pane = page.getByRole('complementary', { name: 'Accessibility pane' });
   const fix = pane.getByRole('button', { name: 'Use a single space' });
   await expect(fix).toBeVisible();
+  // One issue is counted in the singular.
+  await expect(pane.getByRole('status')).toHaveText('0 errors · 0 warnings · 1 tip');
   // Typed just before the fix is chosen, before the list is checked again.
   await input.focus();
   await select(input, 0);
