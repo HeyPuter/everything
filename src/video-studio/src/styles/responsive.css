@@ -145,10 +145,20 @@
   height: 62dvh;
 }
 
-.sheet .inspector > .panel-head,
 .sheet .assets-panel .asset-tabs-wrap,
 .sheet .assets-panel .asset-tabs-bar {
   display: none;
+}
+
+/* The sheet has its own title; the details head stays only for a clip's tabs
+   (Video, Audio, Speed, Color...), at a size for fingers. */
+.sheet .inspector > .panel-head:has(> .insp-head-tabs:empty) {
+  display: none;
+}
+
+.sheet .inspector > .panel-head {
+  height: 44px;
+  padding: 0 12px;
 }
 
 /* Quick clip panels (speed, volume, animation) */
