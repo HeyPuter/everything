@@ -776,7 +776,6 @@ function textMenu(): MenuItem[] {
     { separator: true },
     { label: 'To Uppercase', op: 'font.case_set', props: { case: 'UPPER' } },
     { label: 'To Lowercase', op: 'font.case_set', props: { case: 'LOWER' } },
-    { label: 'Toggle Case', op: 'font.case_toggle' },
     { separator: true },
     { label: 'Insert Unicode…', op: 'font.text_insert_unicode' },
     { label: 'Special Characters', submenu: specialMenu },

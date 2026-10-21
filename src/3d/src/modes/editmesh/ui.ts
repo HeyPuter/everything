@@ -484,6 +484,7 @@ function contextMenu(): MenuItem[] {
       { separator: true },
       { label: 'Push/Pull', op: 'transform.push_pull' },
       { label: 'Shrink/Fatten', op: 'transform.shrink_fatten', shortcut: 'Alt S' },
+      { label: 'Shear', op: 'transform.shear', shortcut: 'Shift Ctrl Alt S' },
       { label: 'Slide Vertices', op: 'transform.vert_slide', shortcut: 'Shift V' },
       { label: 'Randomize Vertices', op: 'transform.vertex_random' },
       { label: 'Smooth Vertices', op: 'mesh.vertices_smooth' },

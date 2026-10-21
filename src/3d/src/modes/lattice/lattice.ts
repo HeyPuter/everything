@@ -212,7 +212,7 @@ registerOperators([
   },
   {
     idname: 'lattice.flip',
-    label: 'Flip (Distortion)',
+    label: 'Flip (Distortion Free)',
     description: 'Mirror all control points without inverting the lattice deform',
     props: [{ id: 'axis', label: 'Flip Axis', type: 'enum', default: 'U', items: [['U', 'U (X) Axis'], ['V', 'V (Y) Axis'], ['W', 'W (Z) Axis']] }],
     poll: inLatticeEdit,
@@ -403,7 +403,7 @@ function latticeMenu(): MenuItem[] {
     transformSubmenu([], true),
     mirrorSubmenu(),
     snapSubmenu(),
-    { label: 'Flip (Distortion)', submenu: flipMenu, shortcut: 'Alt F' },
+    { label: 'Flip (Distortion Free)', submenu: flipMenu, shortcut: 'Alt F' },
     { separator: true },
     { label: 'Make Regular', op: 'lattice.make_regular' },
     { separator: true },
@@ -412,7 +412,7 @@ function latticeMenu(): MenuItem[] {
 }
 
 function latticeContextMenu(): MenuItem[] {
-  return [{ heading: 'Lattice' }, mirrorSubmenu(), { label: 'Flip', submenu: flipMenu }, snapSubmenu(), { separator: true }, { label: 'Make Regular', op: 'lattice.make_regular' }];
+  return [{ heading: 'Lattice' }, mirrorSubmenu(), { label: 'Flip (Distortion Free)', submenu: flipMenu }, snapSubmenu(), { separator: true }, { label: 'Make Regular', op: 'lattice.make_regular' }];
 }
 
 function latticeSelectMenu(): MenuItem[] {
@@ -425,11 +425,12 @@ function latticeSelectMenu(): MenuItem[] {
     { label: 'Circle Select', op: 'view3d.select_circle_tool', shortcut: 'C' },
     { separator: true },
     { label: 'Select Mirror', op: 'lattice.select_mirror' },
-    { label: 'Ungrouped Vertices', op: 'lattice.select_ungrouped' },
     { label: 'Select Random', op: 'lattice.select_random' },
     { separator: true },
     { label: 'More', op: 'lattice.select_more', shortcut: 'Ctrl Numpad +' },
     { label: 'Less', op: 'lattice.select_less', shortcut: 'Ctrl Numpad -' },
+    { separator: true },
+    { label: 'Ungrouped Vertices', op: 'lattice.select_ungrouped' },
   ];
 }
 
