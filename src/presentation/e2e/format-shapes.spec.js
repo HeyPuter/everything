@@ -220,9 +220,12 @@ test("Text Outline on Shape Format outlines the letters, and No Outline removes 
 
   await page.locator(".object-hit").first().click();
   await tab(page, "Shape Format");
+  // A narrow ribbon folds the split button's menu half away with it.
+  await command(page, "text-outline");
   await page
-    .locator(".ribbon-panel:not([hidden])")
     .getByRole("button", { name: "Text outline colors" })
+    .filter({ visible: true })
+    .first()
     .click();
   await page.getByRole("menuitem", { name: "No Outline" }).click();
   ({ slideXml } = await download(page));
