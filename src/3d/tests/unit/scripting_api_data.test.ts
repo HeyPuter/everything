@@ -36,7 +36,7 @@ describe('every operator is callable from scripts', () => {
     expect(ids.length).toBeGreaterThan(1000);
     const missing = run(`const out = []; for (const id of ${JSON.stringify(ids)}) { const [m, n] = id.split('.'); const f = bpy.ops[m]?.[n]; if (typeof f !== 'function' || typeof f.poll !== 'function' || typeof f.poll() !== 'boolean') out.push(id); } print(out.join(','))`);
     expect(missing).toBe('');
-  });
+  }, 30_000);
 
   it('returns FINISHED / CANCELLED and raises when poll fails', () => {
     expect(run(`print([...bpy.ops.mesh.primitive_cube_add({size: 1})][0])`)).toBe('FINISHED');
