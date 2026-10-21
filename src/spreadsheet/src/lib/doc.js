@@ -952,6 +952,9 @@ export class Doc extends EventTarget {
       client.replica.addEventListener('incoming', doc._onRoomIncoming);
     }
     doc._setStatus(client.status.pending ? 'saving' : 'saved');
+    // The owner's file was renamed or moved elsewhere since the room last heard where it is: the room is told at once
+    // (by saving), or a save by anyone else would write a new file at the old address.
+    if (owner && doc.path && client.file?.path && doc.path !== client.file.path) doc.save({ auto: true }).catch(() => {});
     return doc;
   }
 

@@ -110,3 +110,21 @@ it("writes the owner's file under its new name after the owner renames it, whoev
   mine.close();
   theirs.close();
 });
+
+// Renamed or moved on the desktop, the file is found by its id when its owner opens it again, but the room went on
+// writing at the old address until the owner's browser next saved: a save by anyone else meanwhile wrote a new file there.
+it("tells the room where the owner's file is as soon as the owner opens it after a rename elsewhere", async () => {
+  const { join, env, room, a1 } = await renamedRoom();
+  const mine = await join(owner);
+  Doc.forRoom(mine, { path: after, uid: 'u1' });
+  await until(() => env.calls.some((c) => c.op === 'checkpoint' && c.file?.path === after), 4000, 'the room to be told');
+  const token = (await call(env.sdk(owner), SERVER, { op: 'invite', room, role: 'editor' })).token;
+  const theirs = await join(editor, token);
+  theirs.wb.setInput(theirs.wb.sheets[0].id, 0, 0, 'from bob');
+  await until(() => !theirs.replica.pending.length, 4000, 'delivery');
+  expect((await theirs.checkpoint({ file: true })).wrote).toBe(true);
+  expect(await a1(after)).toBe('from bob');
+  expect(env.files.has(before)).toBe(false);
+  mine.close();
+  theirs.close();
+});
