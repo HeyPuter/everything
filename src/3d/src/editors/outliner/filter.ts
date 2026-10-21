@@ -65,6 +65,7 @@ export function filterPopover(ol: Outliner): Child {
     ),
     check(ol, 'use_sort_alpha', 'Sort Alphabetically'),
     check(ol, 'use_sync_select', 'Sync Selection'),
+    check(ol, 'scroll_to_active', 'Scroll to Active'),
     check(ol, 'show_mode_column', 'Show Mode Column'),
     h('div', { class: 'olf-head' }, 'Search'),
     check(ol, 'use_filter_complete', 'Exact Match'),
