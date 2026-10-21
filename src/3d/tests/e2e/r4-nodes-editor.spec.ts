@@ -222,3 +222,43 @@ test('compositor asset shelf: effect thumbnails, adding an effect group, effects
   }
   await expectNoErrors(errors);
 });
+
+test('compositor: Menu Switch picks the input named by a Menu node', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(() => (window as unknown as { app: { run(id: string): void } }).app.run('node.new_compositing_node_group'));
+  await editorArea(page, 'COMPOSITOR');
+  const color = await page.evaluate(async () => {
+    const T = await import('/src/nodes/tree.ts');
+    const S = await import('/src/compositor/session.ts');
+    const a = (window as unknown as { app: any }).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.doc.scene.render.resolution_x = 64;
+    a.doc.scene.render.resolution_y = 48;
+    const t = a.hoverArea.editor.tree();
+    const ctx = T.ctxOf(a.doc, t);
+    const red = T.addNode(t, 'CompositorNodeRGB', [-500, 0]);
+    red.props['outputs.Color'] = [1, 0, 0, 1];
+    const blue = T.addNode(t, 'CompositorNodeRGB', [-500, -200]);
+    blue.props['outputs.Color'] = [0, 0, 1, 1];
+    const sw = T.addNode(t, 'GeometryNodeMenuSwitch', [-250, 0], { data_type: 'RGBA' });
+    sw.props.enum_items = JSON.stringify([
+      { id: 0, name: 'Red' },
+      { id: 1, name: 'Blue' },
+    ]);
+    const menu = T.addNode(t, 'FunctionNodeInputMenu', [-500, 200]);
+    menu.props.value = 'Blue';
+    T.connect(ctx, menu.id, 'Menu', sw.id, 'Menu');
+    T.connect(ctx, red.id, 'Color', sw.id, 'Item_0');
+    T.connect(ctx, blue.id, 'Color', sw.id, 'Item_1');
+    const v = t.nodes.find((n: { type: string }) => n.type === 'CompositorNodeViewer') ?? T.addNode(t, 'CompositorNodeViewer', [0, 0]);
+    T.connect(ctx, sw.id, 'Output', v.id, 'Image');
+    t.active_node = v.id;
+    a.changed('doc');
+    S.recomposite(true);
+    const vw = S.compositorState.viewer;
+    return vw ? Array.from(vw.data.subarray(0, 4)) : null;
+  });
+  expect(color).not.toBeNull();
+  expect(color![2]).toBeGreaterThan(0.9);
+  expect(color![0]).toBeLessThan(0.1);
+  await expectNoErrors(errors);
+});
