@@ -5549,8 +5549,11 @@ export function createGrid(opts) {
       // On the formula's own sheet, which another sheet shown to pick references on is not.
       const raw = wb.evaluateText(edit.sheetId, edit.r, edit.c, part);
       const value = raw && typeof raw === 'object' && raw.range ? raw.values?.[0]?.[0] ?? null : raw;
+      // A number goes in as a formula writes it, to its fifteen digits and with a full stop whatever the regional
+      // format: the cell's display (0,3333333333 in German) cut digits off and put a comma into the formula.
       const text = value && typeof value === 'object' && value.error ? value.error
-        : typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : value == null ? '0' : formatGeneral(value);
+        : typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : value == null ? '0'
+          : typeof value === 'number' ? String(Number(value.toPrecision(15))).replace('e', 'E') : formatGeneral(value);
       const next = whole ? `=${text}` : `${input.value.slice(0, a)}${text}${input.value.slice(b)}`;
       input.value = next;
       const caret = whole ? next.length : a + text.length;
