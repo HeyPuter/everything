@@ -4111,6 +4111,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'print':
+        // The entry goes in first (the dialog enters it too), so the sheet marked as previewed is the formula's own.
+        if (!committed()) return;
         openPrintDialog(ctx);
         if (wb.sheet(sheetId)?.kind !== 'chart') { previewedSheets.add(sheetId); refreshPageView(true); }
         return;
