@@ -6,7 +6,7 @@
  * word corrected as the entry is committed is written as an undo step of its own after the entry, so the
  * first Ctrl/Cmd+Z after Enter brings back what was typed and the second takes the entry away.
  */
-import { el, fieldId, MOD_KEY } from './dom.js';
+import { el, fieldId, MOD_KEY, isComposing } from './dom.js';
 import { openModal } from './modal.js';
 import { loadPref, savePref, syncPref } from '../lib/user-prefs.js';
 import { normalizeAutoCorrect, correctBeforeCaret, correctWord, isWordEnd, isFormulaText, DEFAULT_AUTOCORRECT } from '../core/autocorrect.js';
@@ -145,7 +145,8 @@ export function openAutoCorrectDialog({ onSaved = null, onClose = null } = {}) {
     render();
   });
   toInput.addEventListener('input', render);
-  for (const input of [fromInput, toInput]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!addBtn.disabled) addEntry(); } });
+  // An Enter that confirms a word composed with an input method only ends the composition.
+  for (const input of [fromInput, toInput]) input.addEventListener('keydown', (e) => { if (isComposing(e)) return; if (e.key === 'Enter') { e.preventDefault(); if (!addBtn.disabled) addEntry(); } });
   list.addEventListener('keydown', (e) => {
     const rows = [...list.children];
     if (!rows.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
