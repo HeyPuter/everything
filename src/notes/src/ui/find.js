@@ -18,12 +18,19 @@ export class FindBar {
     const close = h('button.icon-btn', { type: 'button', 'aria-label': 'Close find', onclick: () => this.close() }, icon('x', 16));
     this.el = h('div.find-bar', { role: 'search', 'aria-label': 'Find on page', hidden: true }, icon('search', 16), this.input, this.count, prev, next, close);
     app.canvasCol.append(this.el);
-    this.input.addEventListener('input', debounce(() => this.run(), 120));
+    const runSoon = debounce(() => this.run(), 120);
+    this.input.addEventListener('input', runSoon);
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.step(e.shiftKey ? -1 : 1);
+        // Right after typing, go to the first match of the new text
+        // rather than stepping through the previous text's matches.
+        if (runSoon.pending()) {
+          runSoon.cancel();
+          this.run();
+        } else this.step(e.shiftKey ? -1 : 1);
       } else if (e.key === 'Escape') {
+        runSoon.cancel();
         e.preventDefault();
         this.close();
       }

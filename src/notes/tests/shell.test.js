@@ -313,6 +313,20 @@ describe('Find on Page', () => {
     expect(app.find.ranges.map((r) => r.toString())).toEqual(['café']);
     app.find.close();
   });
+
+  it('goes to the first match of newly typed text on a quick Enter', async () => {
+    const { app } = await mount();
+    app.newPage({ title: 'Find', outlines: [{ id: 'o1', x: 48, y: 140, w: 600, html: '<p>form fold fox food</p>' }] });
+    await tick(10);
+    app.find.open('fo');
+    expect(app.find.ranges).toHaveLength(4);
+    app.find.input.value = 'fox';
+    app.find.input.dispatchEvent(new Event('input'));
+    keydown(app.find.input, 'Enter');
+    expect(app.find.count.textContent).toBe('1 of 1');
+    expect(app.find.ranges[app.find.index].toString()).toBe('fox');
+    app.find.close();
+  });
 });
 
 describe('menus', () => {
