@@ -13,6 +13,19 @@ import { editedText, drawTextEditOverlay } from './textedit';
 import { cursorPoint } from './pvtransform';
 import { drawScope, type ScopeMode } from './scopes';
 import { T } from './theme';
+import { compositionGuides, insetRect, centerCut, DEFAULT_SAFE_AREAS } from '../render/final/cameraoverlay';
+
+export interface PreviewGuides {
+  show_composition_thirds: boolean;
+  show_composition_center: boolean;
+  show_composition_center_diagonal: boolean;
+  show_composition_golden: boolean;
+  show_composition_golden_tria_a: boolean;
+  show_composition_golden_tria_b: boolean;
+  show_composition_harmony_tri_a: boolean;
+  show_composition_harmony_tri_b: boolean;
+  composition_guide_color: [number, number, number];
+}
 import { drawAnnotations2D, type Annotate2DHost, type Annotation2DOwner } from '../mask/annotate2d';
 
 /** The frame-overlay reference frame (null when the overlay is off). */
@@ -50,7 +63,9 @@ export class PreviewRegion implements Annotate2DHost {
   private scopePx: { px: Uint8ClampedArray; w: number; h: number; stamp: number } | null = null;
   private frameStamp = 0;
   /** preview overlay options */
-  opts = { safeAreas: false, cursor: true, outline: true };
+  opts = { safeAreas: false, cursor: true, outline: true, safeCenter: false, guides: true };
+  /** composition guides drawn over the frame (and their colour) */
+  composition: PreviewGuides = { show_composition_thirds: false, show_composition_center: false, show_composition_center_diagonal: false, show_composition_golden: false, show_composition_golden_tria_a: false, show_composition_golden_tria_b: false, show_composition_harmony_tri_a: false, show_composition_harmony_tri_b: false, composition_guide_color: [1, 1, 1] };
   /** Transform tool: show the frame with handles around the selected images */
   transformCage = false;
   /** draw the scene's annotations over the preview */
@@ -442,6 +457,7 @@ export class PreviewRegion implements Annotate2DHost {
     const editing = editedText();
     if (this.transformCage && !app.modal) this.drawCage(g);
     if (this.opts.safeAreas) this.drawSafeAreas(g);
+    if (this.opts.guides) this.drawGuides(g);
     if (editing) drawTextEditOverlay(g, (x, y) => this.toLocal(x, y));
     if (this.opts.cursor) this.drawCursor(g);
     for (const s of previewStrips(app.doc.scene.frame_current)) {
@@ -468,20 +484,32 @@ export class PreviewRegion implements Annotate2DHost {
   }
 
   /** Title-safe and action-safe frames (inset by a share of the frame size) and a centre cross. */
+  /** The frame as a screen rectangle (y down). */
+  private frameRect() {
+    const L = this.layout();
+    return { x: L.left, y: L.top, w: L.W * L.sx, h: L.H * L.s };
+  }
+
+  /** Title and action safe frames from the scene (inset by a share of the frame), the 4:3 centre-cut ones, a centre cross. */
   private drawSafeAreas(g: CanvasRenderingContext2D) {
-    const [W, H] = this.res();
-    const rect = (mx: number, my: number) => {
-      const [x0, y0] = this.toLocal(W * mx, H * my),
-        [x1, y1] = this.toLocal(W * (1 - mx), H * (1 - my));
-      g.strokeRect(Math.min(x0, x1) + 0.5, Math.min(y0, y1) + 0.5, Math.abs(x1 - x0), Math.abs(y1 - y0));
-    };
+    const sa = app.doc.scene.safe_areas ?? DEFAULT_SAFE_AREAS;
+    const r = this.frameRect();
+    const box = (b: { x: number; y: number; w: number; h: number }) => g.strokeRect(Math.round(b.x) + 0.5, Math.round(b.y) + 0.5, Math.round(b.w), Math.round(b.h));
     g.save();
     g.strokeStyle = 'rgba(255, 255, 255,0.35)';
     g.setLineDash([5, 4]);
-    rect(0.1, 0.05);
-    rect(0.035, 0.035);
+    box(insetRect(r, sa.title[0], sa.title[1]));
+    box(insetRect(r, sa.action[0], sa.action[1]));
+    if (this.opts.safeCenter) {
+      const c = centerCut(r);
+      g.strokeStyle = 'rgba(255, 220, 140, 0.4)';
+      box(insetRect(c, sa.title_center[0], sa.title_center[1]));
+      box(insetRect(c, sa.action_center[0], sa.action_center[1]));
+    }
     g.setLineDash([]);
-    const [cx, cy] = this.toLocal(W / 2, H / 2);
+    g.strokeStyle = 'rgba(255, 255, 255,0.35)';
+    const cx = r.x + r.w / 2,
+      cy = r.y + r.h / 2;
     g.beginPath();
     g.moveTo(cx - 8, cy);
     g.lineTo(cx + 8, cy);
@@ -490,6 +518,23 @@ export class PreviewRegion implements Annotate2DHost {
     g.stroke();
     g.restore();
   }
+
+  private drawGuides(g: CanvasRenderingContext2D) {
+    const segs = compositionGuides(this.composition, this.frameRect());
+    if (!segs.length) return;
+    const c = this.composition.composition_guide_color;
+    g.save();
+    g.strokeStyle = `rgba(${c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255)).join(', ')}, 0.75)`;
+    g.lineWidth = 1;
+    g.beginPath();
+    for (const [a, b, x, y] of segs) {
+      g.moveTo(a, b);
+      g.lineTo(x, y);
+    }
+    g.stroke();
+    g.restore();
+  }
+
 
   /** The 2D cursor: a ring with tick marks. */
   private drawCursor(g: CanvasRenderingContext2D) {

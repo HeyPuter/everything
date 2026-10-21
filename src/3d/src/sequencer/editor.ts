@@ -20,7 +20,7 @@ import { startPreviewTransform, setCursorPoint, pivotPoint } from './pvtransform
 import { pivotItems, PIVOT_ICONS } from './previewops';
 import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
-import { stripTab, modifiersTab, cacheTab, viewTab } from './sidebar';
+import { stripTab, modifiersTab, cacheTab, viewTab, previewGuidePanels } from './sidebar';
 import { PreviewRegion, overlayRefFrame, type PreviewSize } from './preview';
 import { soundNow, soundPeaks, PEAKS_PER_SECOND, movieThumb, imageNow } from './media';
 import { addFiles } from './add';
@@ -199,6 +199,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       splitRatio: this.splitRatio,
       previewSize: this.preview.size,
       previewOverlays: { ...this.preview.opts },
+      previewGuides: { ...this.preview.composition },
       scopeMode: this.preview.scopeMode,
       fitted: this.fitted,
     };
@@ -216,6 +217,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale', 'transform'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
+    if (s.previewGuides && typeof s.previewGuides === 'object') Object.assign(this.preview.composition, s.previewGuides);
     if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
     this.preview.showOverlays = this.showOverlays;
   }
@@ -497,7 +499,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
                 ed ? checkbox('seq-pov-frame', 'Frame Overlay', !!ed.show_overlay_frame, (v) => ((ed.show_overlay_frame = v), app.pushUndo('Frame Overlay'), app.changed('doc'))) : null,
                 checkbox('seq-pov-ann', 'Annotations', this.preview.showAnnotations, (v) => ((this.preview.showAnnotations = v), this.preview.draw(), app.changed('ui'))),
               ],
-              [pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas')],
+              [pt('cursor', '2D Cursor'), pt('safeAreas', 'Safe Areas'), pt('guides', 'Guides')],
             ),
           ]
         : null,
@@ -670,7 +672,18 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const tabs = [
       { id: 'strip', label: 'Strip', draw: stripTab },
       { id: 'modifiers', label: 'Modifiers', draw: modifiersTab },
-      { id: 'view', label: 'View', draw: () => (hasEditor() ? [viewTab({ safeAreas: this.preview.opts.safeAreas, setSafeAreas: (v) => ((this.preview.opts.safeAreas = v), this.preview.draw(), this.drawSidebar()) }), this.hasPreview() ? annotationsPanel('seq', this.preview) : null] : h('div', { class: 'sb-empty' }, 'No sequence editor')) },
+      {
+        id: 'view',
+        label: 'View',
+        draw: () =>
+          hasEditor()
+            ? [
+                viewTab(),
+                this.hasPreview() ? previewGuidePanels(this.preview, () => (this.preview.draw(), this.drawSidebar(), app.changed('ui'))) : null,
+                this.hasPreview() ? annotationsPanel('seq', this.preview) : null,
+              ]
+            : h('div', { class: 'sb-empty' }, 'No sequence editor'),
+      },
       { id: 'cache', label: 'Proxy & Cache', draw: () => cacheTab({ previewSize: this.preview.size, renderMs: this.preview.renderMs, scale: this.preview.scale }) },
     ];
     const tab = tabs.find((t) => t.id === this.sidebarTab) ?? tabs[0];

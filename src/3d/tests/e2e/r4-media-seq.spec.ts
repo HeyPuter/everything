@@ -173,3 +173,33 @@ test('sequencer: overlay popover toggles grid, colour tags, retiming, curves and
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('sequencer preview: safe areas follow the scene margins; composition guides draw over the frame', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    (window as any).app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 40 }, { invoke: false });
+  });
+  await page.waitForTimeout(300);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.showSidebar = true;
+    ed.sidebarTab = 'view';
+    ed.layout?.();
+    ed.refresh?.();
+  });
+  await page.locator('[data-id="seq-safe-show"]').first().click();
+  await page.locator('.panel-header', { hasText: 'Composition Guides' }).first().click();
+  await page.locator('[data-id="seq-cg-show_composition_thirds"]').first().click();
+  const st = await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    return { safe: ed.preview.opts.safeAreas, thirds: ed.preview.composition.show_composition_thirds, saved: ed.serialize().previewGuides.show_composition_thirds };
+  });
+  expect(st).toEqual({ safe: true, thirds: true, saved: true });
+  await expectNoErrors(errors);
+});
