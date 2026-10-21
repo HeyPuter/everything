@@ -60,11 +60,11 @@ export function viewClip(frame) {
  * range: { u0, u1, z0, z1 } extents of the model in view coordinates.
  * Returns [{ id, kind, g }].
  */
-export function elevationAnnotations(doc, view, frame, range, walls) {
+export function elevationAnnotations(doc, view, frame, range, walls, meshOf = null) {
   const out = [];
   const scale = +view.scale || 100;
   const P = (mm) => mm * scale;
-  const pc = { doc, view, scale, units: doc.units, walls, detail: view.detail || 'medium', cutZ: 0, bottomZ: 0, topZ: 0, ceiling: false, elevationView: true };
+  const pc = { doc, view, scale, units: doc.units, walls, detail: view.detail || 'medium', cutZ: 0, bottomZ: 0, topZ: 0, ceiling: false, elevationView: true, frame, meshOf };
   const pad = P(12);
   const u0 = (frame.u0 ?? range.u0) - pad;
   const u1 = (frame.u1 ?? range.u1) + pad;

@@ -128,7 +128,7 @@ export class ModelController {
     if (this.syncedKey === key && this.syncedView === view) return;
     const frame = this.frame();
     const range = this.modelRange(frame);
-    const items = [...sectionCuts(this.app.doc, frame, (el) => this.app.scene.mesh(el), view.detail), ...elevationAnnotations(this.app.doc, view, frame, range, this.app.scene.walls)];
+    const items = [...sectionCuts(this.app.doc, frame, (el) => this.app.scene.mesh(el), view.detail), ...elevationAnnotations(this.app.doc, view, frame, range, this.app.scene.walls, (el) => this.app.scene.mesh(el))];
     const keep = new Set();
     this.annBounds = new Map();
     for (const it of items) {

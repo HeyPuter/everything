@@ -1815,7 +1815,7 @@ export class TagTool extends Tool {
   }
 
   get viewKinds() {
-    return PLAN_VIEW_KINDS;
+    return [...PLAN_VIEW_KINDS, 'elevation', 'section'];
   }
 
   get o() {
@@ -1861,7 +1861,12 @@ export class TagTool extends Tool {
       return;
     }
     const o = this.o;
-    this.app.commit(this.title, () => addTag(this.app, t, this.vc.view, { show: o.show, leader: o.leader, at: o.show === 'material' || o.leader ? add(ev.p, [6 * (+this.vc.view.scale || 100), 4 * (+this.vc.view.scale || 100)]) : null }));
+    const view = this.vc.view;
+    const s = +view.scale || 100;
+    // In elevations and sections the tag goes where it was clicked (with a leader when offset).
+    const flat = view.kind === 'elevation' || view.kind === 'section';
+    const at = o.show === 'material' || o.leader ? add(ev.p, [6 * s, 4 * s]) : flat ? ev.p : null;
+    this.app.commit(this.title, () => addTag(this.app, t, view, { show: o.show, leader: o.leader || (flat && o.show === 'material'), at }));
   }
 }
 

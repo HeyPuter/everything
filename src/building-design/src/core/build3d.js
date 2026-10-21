@@ -7,6 +7,7 @@
 import { MeshBuilder, Frame, hexToRgba } from './mesh.js';
 import { add, scale, sub, dot, norm, perp, len, clipHalfPlane, triangulate } from './geom.js';
 import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wallAxis, rampLayout } from './model.js';
+import { cutFace, segmentInside, segmentOutside } from './roofcut.js';
 import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
@@ -635,28 +636,42 @@ function buildRoof(ctx, el) {
   const holes = (el.holes || []).filter((h) => h.length >= 3);
   for (const f of faces) {
     const vt = verticalThickness(th, f.plane);
-    const inner = holes.filter((h) => h.every((p) => pointInPoly(p, f.poly)));
-    const { points, tris } = triangulate(f.poly, inner);
-    for (let i = 0; i < tris.length; i += 3) {
-      const [a, c, d] = [points[tris[i]], points[tris[i + 1]], points[tris[i + 2]]];
-      const A = [a[0], a[1], zb(a, f.plane) + vt];
-      const C = [c[0], c[1], zb(c, f.plane) + vt];
-      const D = [d[0], d[1], zb(d, f.plane) + vt];
-      orientedTri(b, A, C, D, topCol, true);
-      orientedTri(b, [a[0], a[1], zb(a, f.plane)], [c[0], c[1], zb(c, f.plane)], [d[0], d[1], zb(d, f.plane)], coreCol, false);
+    // Openings inside the face are holes; openings across its edge take a notch out of it.
+    const { pieces, inner, crossing } = cutFace(f.poly, holes);
+    for (const piece of pieces) {
+      const { points, tris } = triangulate(piece.outer, piece.holes);
+      for (let i = 0; i < tris.length; i += 3) {
+        const [a, c, d] = [points[tris[i]], points[tris[i + 1]], points[tris[i + 2]]];
+        const A = [a[0], a[1], zb(a, f.plane) + vt];
+        const C = [c[0], c[1], zb(c, f.plane) + vt];
+        const D = [d[0], d[1], zb(d, f.plane) + vt];
+        orientedTri(b, A, C, D, topCol, true);
+        orientedTri(b, [a[0], a[1], zb(a, f.plane)], [c[0], c[1], zb(c, f.plane)], [d[0], d[1], zb(d, f.plane)], coreCol, false);
+      }
     }
-    const loop = f.poly.map((p) => [p[0], p[1], zb(p, f.plane) + vt]);
-    b.edgeLoop(loop);
-    // Sides of openings cut through this face.
-    for (const h of inner) {
+    const lerp = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    const top = (p) => [p[0], p[1], zb(p, f.plane) + vt];
+    // The face outline, except where openings cross it.
+    for (let i = 0; i < f.poly.length; i++) {
+      const p = f.poly[i];
+      const q = f.poly[(i + 1) % f.poly.length];
+      for (const [t0, t1] of crossing.length ? segmentOutside(p, q, crossing) : [[0, 1]]) b.edge(top(lerp(p, q, t0)), top(lerp(p, q, t1)));
+    }
+    // Sides of openings cut through this face (only the part of each side on this face).
+    for (const h of [...inner, ...crossing]) {
+      const whole = inner.includes(h);
       for (let i = 0; i < h.length; i++) {
-        const p = h[i];
-        const q = h[(i + 1) % h.length];
-        const P0 = [p[0], p[1], zb(p, f.plane)];
-        const Q0 = [q[0], q[1], zb(q, f.plane)];
-        b.quad(Q0, P0, [p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt], coreCol);
-        b.edge([p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt]);
-        b.edge(P0, Q0);
+        const hp = h[i];
+        const hq = h[(i + 1) % h.length];
+        for (const [t0, t1] of whole ? [[0, 1]] : segmentInside(hp, hq, f.poly)) {
+          const p = lerp(hp, hq, t0);
+          const q = lerp(hp, hq, t1);
+          const P0 = [p[0], p[1], zb(p, f.plane)];
+          const Q0 = [q[0], q[1], zb(q, f.plane)];
+          b.quad(Q0, P0, [p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt], coreCol);
+          b.edge([p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt]);
+          b.edge(P0, Q0);
+        }
       }
     }
   }

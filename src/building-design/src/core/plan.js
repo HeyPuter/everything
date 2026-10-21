@@ -1053,6 +1053,18 @@ export function tagAnchor(doc, target) {
   return null;
 }
 
+/** Where a tag's leader points, in the coordinates of the view it is drawn in. */
+export function tagAnchorInView(pc, target) {
+  const p = tagAnchor(pc.doc, target);
+  if (!p || !pc.frame) return p;
+  // Elevations and sections: along the view, at the middle of the element's height.
+  const f = pc.frame;
+  const u = (p[0] - f.origin[0]) * f.right[0] + (p[1] - f.origin[1]) * f.right[1];
+  const b = pc.meshOf?.(target)?.bounds;
+  const z = b ? (b.min[2] + b.max[2]) / 2 : (pc.doc.get(target.levelId)?.elevation ?? 0) + 1000;
+  return [u, z];
+}
+
 function drawTag(pc, el, b) {
   const target = pc.doc.get(el.targetId);
   if (!target) return;
@@ -1064,7 +1076,7 @@ function drawTag(pc, el, b) {
     // Material tags are plain text on a leader.
     b.text(at, text, { size: sz, align: 'left', mask: true });
     const w = sz * 0.6 * text.length;
-    const anchor = tagAnchor(pc.doc, target);
+    const anchor = tagAnchorInView(pc, target);
     if (anchor && dist(anchor, at) > sz) {
       const start = add(at, [anchor[0] < at[0] ? -sz * 0.3 : w + sz * 0.3, 0]);
       b.line(start, anchor, W.thin);
@@ -1099,7 +1111,7 @@ function drawTag(pc, el, b) {
   b.poly(outline, true, W.thin);
   b.text(at, text, { size: sz });
   if (el.leader) {
-    const anchor = tagAnchor(pc.doc, target);
+    const anchor = tagAnchorInView(pc, target);
     if (anchor && dist(anchor, at) > r * 1.5) {
       const d = norm(sub(anchor, at));
       b.line(add(at, scale(d, r)), anchor, W.thin);
