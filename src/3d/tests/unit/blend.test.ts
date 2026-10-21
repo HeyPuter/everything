@@ -497,9 +497,10 @@ describe('animation (vs expected, layered/slotted actions)', () => {
 });
 
 // A version 4.3 .blend file (classic 12-byte header, 24-byte block headers, CustomData mesh
-// layers) read from a local install path when present; the expectations below are for this file.
-const LEGACY_43 = '/Applications/Blender.app/Contents/Resources/5.2/datafiles/assets/brushes/essentials_brushes-mesh_vertex.blend';
-describe.skipIf(!existsSync(LEGACY_43))('version 4.3 .blend file (classic layout)', () => {
+// layers), read from the path in LEGACY_43_BLEND when it is set; the expectations below are for
+// that file (a vertex-paint brush library containing a "Suzanne" preview mesh).
+const LEGACY_43 = process.env.LEGACY_43_BLEND ?? '';
+describe.skipIf(!LEGACY_43 || !existsSync(LEGACY_43))('version 4.3 .blend file (classic layout)', () => {
   it('reads the classic layout and CustomData mesh layers', async () => {
     const r = await readBlend(new Uint8Array(readFileSync(LEGACY_43)));
     expect(r.version).toBe('4.3');
