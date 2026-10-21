@@ -187,26 +187,38 @@ interface ZoomableList {
   body?: HTMLElement;
 }
 
-function listHost(area: AreaLike, ed: ZoomableList & { el: HTMLElement }): View2DHost {
-  const p = (globalThis as { app?: { pointer: { x: number; y: number } } }).app?.pointer;
-  const el = (ed.body && scrollable(ed.body) ? ed.body : listElement(ed.el, p)) ?? ed.body ?? ed.el;
+function listHost(ed: ZoomableList & { el: HTMLElement }): View2DHost {
+  // the scrolling element is looked up when an operation needs it (key dispatch only asks the kind)
+  let found: HTMLElement | null = null;
+  const el = () => {
+    if (found?.isConnected) return found;
+    const p = app?.pointer;
+    found = (ed.body && scrollable(ed.body) ? ed.body : listElement(ed.el, p)) ?? ed.body ?? ed.el;
+    return found;
+  };
   const host: View2DHost = {
     kind: 'list',
-    el,
+    get el() {
+      return el();
+    },
     pan(dx, dy) {
-      el.scrollLeft -= dx;
-      el.scrollTop -= dy;
+      const e = el();
+      e.scrollLeft -= dx;
+      e.scrollTop -= dy;
     },
     reset() {
       if (ed.resetView) return ed.resetView();
-      el.scrollTop = 0;
-      el.scrollLeft = 0;
+      const e = el();
+      e.scrollTop = 0;
+      e.scrollLeft = 0;
     },
-    extent: () => ({ y: [el.scrollTop, el.scrollTop + el.clientHeight, 0, el.scrollHeight] }),
+    extent: () => {
+      const e = el();
+      return { y: [e.scrollTop, e.scrollTop + e.clientHeight, 0, e.scrollHeight] };
+    },
   };
   // regions that scale their panels (Properties) also zoom
   if (typeof ed.zoomBy === 'function') host.zoom = (fx, fy) => ed.zoomBy!(Math.sqrt(fx * fy));
-  void area;
   return host;
 }
 
@@ -219,7 +231,7 @@ view2dAdapters.push((editor, area) => {
     if (ed.hover === 'preview' || ed.view === 'PREVIEW') return null;
     return cached(ed, () => seqHost(ed as unknown as SeqLike));
   }
-  if (LIST_EDITORS.has(area.type) && ed.el instanceof HTMLElement) return listHost(area, ed as unknown as ZoomableList & { el: HTMLElement });
+  if (LIST_EDITORS.has(area.type) && ed.el instanceof HTMLElement) return listHost(ed as unknown as ZoomableList & { el: HTMLElement });
   return null;
 });
 
