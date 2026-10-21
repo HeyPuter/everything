@@ -662,6 +662,31 @@ test('Organize pages lets go of the pictures of pages scrolled far away', async 
   await expect.poll(() => first.evaluate((canvas) => canvas.width)).toBeGreaterThan(0);
 });
 
+test('the Organize pages grid stays one tab stop after its last page is deleted', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(3));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await toolbar.getByRole('button', { name: 'Delete pages', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Delete this page?' })
+    .getByRole('button', {
+      name: 'Delete page',
+      exact: true,
+    })
+    .click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(2);
+  await expect(grid.locator('[role="option"][tabindex="0"]')).toHaveCount(1);
+});
+
 test('Organize pages drops a page dragged into the gap between two pages there', async ({
   page,
 }) => {

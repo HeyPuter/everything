@@ -387,6 +387,8 @@ export function createOrganizeView({
       ? Number(document.activeElement.closest?.('.organize-tile')?.dataset.index)
       : null;
     selected = new Set([...selected].filter((i) => i < pdf.numPages));
+    // The tile holding the grid's tab stop must still exist once pages have gone.
+    if (anchor != null) anchor = Math.min(anchor, pdf.numPages - 1);
     tiles = Array.from({ length: pdf.numPages }, (_, i) => tile(i));
     grid.replaceChildren(...tiles);
     const revision = getRevision();
