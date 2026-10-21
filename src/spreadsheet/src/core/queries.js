@@ -1102,6 +1102,8 @@ function occupied(wb, sheetId, range) {
   return false;
 }
 
+const PROTECTED = 'Part of the place the data goes is protected. Choose another location, or unprotect it first.';
+
 const blockedMessage = (direction) => (direction === 'left'
   ? 'A column the query no longer gives could not be taken out of the table (a PivotTable, a protected sheet, merged cells or an array formula is in the way).'
   : `The refreshed data needs more ${direction === 'down' ? 'rows' : 'columns'}, but the cells ${direction === 'down' ? 'below' : 'beside'} the table could not be moved (a PivotTable, a protected sheet, merged cells or an array formula is in the way).`);
@@ -1168,6 +1170,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
       // A totals row stays the table's last row, under the fresh data: the resize below carries it (and its formulas) along.
       const foot = t.totalsRow ? 1 : 0;
       const next = { r1, c1, r2: r1 + Math.max(1, height) + foot, c2: c1 + layout.length - 1 };
+      if (wb.lockedIn(sheet.id, { r1, c1, r2: Math.max(old.r2, next.r2), c2: Math.max(old.c2, next.c2) })) { result = { error: PROTECTED }; return; }
       // A table that grows makes room for its new rows and columns, as Excel's refresh inserts cells for new
       // data: what stands beside or below it (a note, a total, another table) moves along instead of being
       // written over. Nothing has changed yet when the cells cannot move, so the refresh stops there.
@@ -1234,6 +1237,8 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     if (wb.sheet(sheetId).tables.some((t) => !(range.r2 < t.range.r1 || range.r1 > t.range.r2 || range.c2 < t.range.c1 || range.c1 > t.range.c2))) {
       result = { error: 'The data would overlap another table. Choose another location.' }; return;
     }
+    // A protected cell there refuses the data, which left an empty table behind reported as loaded.
+    if (at && wb.lockedIn(sheetId, range)) { result = { error: PROTECTED }; return; }
     // Loading over cells that hold something would write over them without a word: the location must be empty.
     if (at && occupied(wb, sheetId, range)) { result = { error: 'There is data where the table would go. Choose an empty location, or a new worksheet.' }; return; }
     const { entries, errors } = resultCells(table, r0, c0);
