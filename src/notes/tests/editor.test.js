@@ -463,3 +463,26 @@ describe('pasted HTML', () => {
     expect(cleanPastedHtml('<p onclick="x()">a<img src=x onerror=alert(1)><script>alert(1)</script></p>')).toBe('<p>a<img></p>');
   });
 });
+
+describe('note containers', () => {
+  it('does not pin the width when the resize edge is only clicked', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>short</p>' }], ink: [] });
+    const steps = ed.history.stack.length;
+    const edge = host.querySelector('.outline-resize');
+    edge.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 150 }));
+    window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 150 }));
+    expect(ed.page.outlines[0].w).toBeNull();
+    expect(ed.history.stack.length).toBe(steps);
+    // A real drag still sets the width.
+    edge.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, clientX: 100, clientY: 150 }));
+    window.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 300, clientY: 150 }));
+    window.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 300, clientY: 150 }));
+    expect(host.querySelector('.outline').style.width).toBe('200px');
+    expect(host.querySelector('.outline').classList.contains('auto-width')).toBe(false);
+    ed.destroy();
+    host.remove();
+  });
+});

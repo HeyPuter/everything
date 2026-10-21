@@ -379,8 +379,12 @@ export class PageEditor extends Emitter {
     const start = this.pagePoint(e);
     const w0 = outline.offsetWidth;
     const model = this.outlineModel(outline);
+    let resized = false;
     const onMove = (ev) => {
       const p = this.pagePoint(ev);
+      // A click on the edge is not a resize: it would pin an auto width.
+      if (!resized && Math.abs(p.x - start.x) < 2) return;
+      resized = true;
       const w = Math.max(80, Math.round(w0 + p.x - start.x));
       outline.style.width = `${w}px`;
       outline.classList.remove('auto-width');
@@ -388,6 +392,7 @@ export class PageEditor extends Emitter {
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      if (!resized) return;
       model.w = Math.round(outline.offsetWidth);
       this.layout();
       this.changed({ structural: true });
