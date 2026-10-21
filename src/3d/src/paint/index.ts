@@ -24,6 +24,8 @@ import './paintops';
 import './simpleuv';
 import './ui';
 import './strokeops';
+import './palette';
+import './scripting';
 import './selmask';
 import './sculptmenus';
 import './assetshelf';

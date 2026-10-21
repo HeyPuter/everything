@@ -1397,6 +1397,8 @@ export interface DocumentData {
   pointclouds?: Record<ID, import('../pointcloud/types').PointCloudData>;
   /** Library files this file links data-blocks from (src/library); absent in older files */
   libraries?: Record<ID, import('../library/types').LibraryData>;
+  /** Color palettes of the paint modes (src/paint/palette.ts); absent in older files */
+  palettes?: Record<ID, import('../paint/palettemath').PaletteData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

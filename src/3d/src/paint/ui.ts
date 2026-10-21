@@ -35,6 +35,8 @@ import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
 import { sampleTex, setImageCanvasSource, TEX_SOURCES, type BrushTexture } from './brushtex';
 import { imageCanvas } from '../render/images';
+import { paletteTemplate, palettesOf, paletteUsers } from './palette';
+import { dataBlockSelector } from '../editors/properties/tabs';
 import { Vector3 } from 'three';
 
 // ---------------------------------------------------------------------------
@@ -740,7 +742,7 @@ function brushPanels(mode: BrushMode): Child[] {
     );
     if (paintsColor(mode, b)) {
       out.push(panel(`pt-color-${mode}`, 'Color Picker', () => colorPicker('pt-cp')));
-      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows('pt-pal'), { closed: true }));
+      out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows(mode, 'pt-pal'), { closed: true }));
     }
   } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));
   if (mode === 'WEIGHT_PAINT') {
@@ -926,42 +928,10 @@ function colorPicker(p: string): Child {
   );
 }
 
-function paletteRows(p: string): Child {
-  const up = app.doc.scene.tool_settings.unified_paint as typeof app.doc.scene.tool_settings.unified_paint & { palette?: [number, number, number][] };
-  const pal = up.palette ?? [];
-  const same = (a: number[], b: number[]) => a.every((x, i) => Math.abs(x - b[i]) < 1e-4);
-  return h(
-    'div',
-    { class: 'paint-palette' },
-    pal.map((c, i) =>
-      h('button', {
-        key: `${p}-${i}`,
-        class: { 'pp-swatch': true, on: same(c, up.color) },
-        style: { background: `rgb(${c.map((x) => Math.round(linearToSrgb(x) * 255)).join(',')})` },
-        'data-tip': 'Click: use this color · Ctrl+click: remove it',
-        onclick: (e: MouseEvent) => {
-          if (e.ctrlKey || e.metaKey) up.palette = pal.filter((_, j) => j !== i);
-          else up.color = [c[0], c[1], c[2]];
-          app.pushUndo('Palette');
-          changed();
-        },
-      }),
-    ),
-    h(
-      'button',
-      {
-        key: `${p}-add`,
-        class: 'pp-add',
-        'data-tip': 'Add the brush color to the palette',
-        onclick: () => {
-          if (!pal.some((c) => same(c, up.color))) up.palette = [...pal, [up.color[0], up.color[1], up.color[2]]];
-          app.pushUndo('Palette');
-          changed();
-        },
-      },
-      icon('add'),
-    ),
-  );
+function paletteRows(mode: BrushMode, p: string): Child {
+  const owner = mode === 'WEIGHT_PAINT' ? null : mode;
+  if (!owner) return null;
+  return paletteTemplate(owner, p, (cur, set, create) => dataBlockSelector(`${p}-ids`, 'paint_palette', Object.values(palettesOf()), cur?.id ?? null, set, create, { users: cur ? paletteUsers(app.doc, cur.id) : 0 }));
 }
 
 // Properties editor ▸ Tool tab: the same brush panels in the paint modes

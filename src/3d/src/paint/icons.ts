@@ -126,3 +126,9 @@ registerIcons({
 registerIcons({
   brush_sculpt_boundary: '<path class="f" d="M1 15V8c3 0 4-3 7-3s4 3 7 3v7z" opacity=".35"/><path class="s" d="M1 8c3 0 4-3 7-3s4 3 7 3" fill="none" stroke-width="1.6"/><path class="s" d="M8 5V1.5" stroke-width="1.1"/><path class="f" d="M8 .5 9.8 2.8H6.2z"/>',
 });
+
+registerIcons({
+  // a painter's palette: a rounded board with a thumb hole and three paint dabs
+  paint_palette:
+    '<path class="s" d="M8 1.8C4.2 1.8 1.5 4.4 1.5 7.6c0 3.4 2.9 6.6 6.4 6.6 1.3 0 1.8-.9 1.4-1.9-.4-.9 0-1.9 1.1-1.9h1.6c1.6 0 2.6-1.1 2.6-2.8C14.6 4.4 11.8 1.8 8 1.8z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><circle class="f" cx="5" cy="6.5" r="1.1"/><circle class="f" cx="8" cy="4.6" r="1.1"/><circle class="f" cx="11" cy="6.2" r="1.1"/><circle class="s" cx="5.3" cy="10.2" r="1.1" fill="none" stroke-width="1"/>',
+});
