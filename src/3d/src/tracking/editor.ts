@@ -76,6 +76,8 @@ export interface ClipOverlays {
   show_tiny_markers?: boolean;
   /** the 2D cursor */
   show_cursor?: boolean;
+  /** notes drawn on the clip */
+  show_annotation?: boolean;
 }
 
 export const COLORS = {
@@ -478,7 +480,7 @@ export class ClipEditor implements Editor {
       this.drawCursor(ctx);
     } else {
       drawPlaneTracks(this, ctx, T);
-      drawAnnotations2D(this, ctx);
+      if (this.overlays.show_annotation !== false) drawAnnotations2D(this, ctx);
       this.drawMarkers(ctx, T);
       if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
@@ -1799,6 +1801,7 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     { heading: 'Guides' },
     tog('Distortion Grid', 'show_grid'),
     togOn('Cursor', 'show_cursor'),
+    togOn('Annotations', 'show_annotation'),
     { separator: true },
     { heading: 'Clip Display' },
     togOn('Red Channel', 'show_red_channel'),
