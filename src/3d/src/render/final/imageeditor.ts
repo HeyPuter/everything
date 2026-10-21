@@ -12,6 +12,8 @@ import { imageCanvas, imageTexture, touchImage, generatedPixels } from '../image
 import { lastImage } from '../../ops/data';
 import type { ImageData as Img } from '../../data/types';
 import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, download, toBW, EXT, virtualImages, onVirtualImageChange, PASS_ORDER, passLabel, type PassName, type ChannelMode, type FileFormat, type RenderResult } from './result';
+import { stereoResult } from './stereo';
+import { stereoDisplay } from './stereoops';
 import { renderSize } from './units';
 import { LOOKS, displayPixel } from './colormanage';
 import { pngWithText } from './stamp';
@@ -73,6 +75,31 @@ function resultLayer(r: RenderResult | null, layer: ResultLayer): RenderResult |
   return layer === 'VIEW_LAYER' ? { ...r, passes: r.viewLayer } : { ...r, passes: { Combined: r.passes.Combined } };
 }
 
+const stereoCache = new WeakMap<RenderResult, { key: string; res: RenderResult }>();
+
+/** View of a multi-view render shown: a view by name, or 'STEREO' for the combined eyes. */
+function resultView(r: RenderResult | null, view: string): RenderResult | null {
+  if (!r?.views?.length) return r;
+  if (view === 'STEREO') {
+    const key = `${r.version}|${JSON.stringify(stereoDisplay)}`;
+    const c = stereoCache.get(r);
+    if (c?.key === key) return c.res;
+    const res = stereoResult(r, stereoDisplay);
+    if (!res) return r;
+    stereoCache.set(r, { key, res });
+    return res;
+  }
+  const v = r.views.find((x) => x.name === view) ?? r.views[0];
+  return v.passes === r.passes ? r : { ...r, passes: v.passes, viewLayer: v.viewLayer };
+}
+
+/** Entries of the view menu of a multi-view render result. */
+function viewItems(r: RenderResult): { value: string; label: string; description?: string }[] {
+  const out = r.views!.map((v) => ({ value: v.name, label: v.name === 'left' ? 'Left' : v.name === 'right' ? 'Right' : v.name, description: 'The image of this view' }));
+  if (r.views!.length === 2 && r.stereo) out.push({ value: 'STEREO', label: 'Stereo 3D', description: 'Both eyes combined as set in Window ▸ Set Stereo 3D' });
+  return out;
+}
+
 /** Entries of the layer menu of a render result. */
 function layerItems(r: RenderResult): { value: string; label: string; description?: string }[] {
   const out: { value: string; label: string; description?: string }[] = [];
@@ -96,6 +123,8 @@ export class ImageEditor implements Editor, View2D {
   pass: PassName = 'Combined';
   channel: ChannelMode = 'COLOR_ALPHA';
   layer: ResultLayer = 'COMPOSITE';
+  /** view of a multi-view render ('' = the first, 'STEREO' = combined eyes) */
+  view = '';
   zoom = 1;
   offX = 0;
   offY = 0;
@@ -186,7 +215,7 @@ export class ImageEditor implements Editor, View2D {
   }
 
   get result(): RenderResult | null {
-    if (this.imageId === RENDER_RESULT) return resultLayer(renderResult.get(), this.layer);
+    if (this.imageId === RENDER_RESULT) return resultLayer(resultView(renderResult.get(), this.view), this.layer);
     const v = this.imageId ? virtualImages.get(this.imageId) : undefined;
     return v ? v.get() : null;
   }
@@ -228,7 +257,7 @@ export class ImageEditor implements Editor, View2D {
     const r = this.result;
     if (r) {
       const v = sceneView(r);
-      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${v.look}|${v.use_white_balance ? `${v.white_balance_temperature},${v.white_balance_tint}` : ''}|${v.use_curve_mapping ? JSON.stringify(v.curve_mapping) : ''}|${r.width}x${r.height}|${r.overlay ? 'S' : ''}`;
+      return `R${this.imageId}|${this.imageId === RENDER_RESULT ? renderResult.slot : ''}|${r.version}|${this.layer}|${this.view}:${this.view === 'STEREO' ? JSON.stringify(stereoDisplay) : ''}|${this.pass}|${this.channel}|${v.view_transform}|${v.exposure}|${v.gamma}|${v.look}|${v.use_white_balance ? `${v.white_balance_temperature},${v.white_balance_tint}` : ''}|${v.use_curve_mapping ? JSON.stringify(v.curve_mapping) : ''}|${r.width}x${r.height}|${r.overlay ? 'S' : ''}`;
     }
     const img = this.image;
     if (!img) return '';
@@ -704,6 +733,15 @@ export class ImageEditor implements Editor, View2D {
             layerItems(fullResult).some((i) => i.value === this.layer) ? this.layer : (fullResult.viewLayer ? 'COMPOSITE' : layerKey(fullResult.layers!.find((l) => l.passes.Combined === fullResult.passes.Combined) ?? fullResult.layers![0])),
             (v) => ((this.layer = v as ResultLayer), (this.cache = null), this.draw(), this.drawUI(), this.host.redrawHeader()),
             { tip: 'Render layer to display' },
+          )
+        : null,
+      fullResult?.views?.length
+        ? enumMenu(
+            'ie-view',
+            viewItems(fullResult),
+            viewItems(fullResult).some((i) => i.value === this.view) ? this.view : fullResult.views[0].name,
+            (v) => ((this.view = v), (this.cache = null), this.draw(), this.drawUI(), this.host.redrawHeader()),
+            { tip: 'View of the multi-view render to display' },
           )
         : null,
       isRender

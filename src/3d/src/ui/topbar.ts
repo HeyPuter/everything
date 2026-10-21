@@ -153,6 +153,7 @@ export function windowMenu(sh: Shell): MenuItem[] {
     { label: 'New Window', op: 'wm.window_new' },
     { separator: true },
     { label: 'Toggle Window Fullscreen', icon: 'fullscreen_enter', op: 'wm.window_fullscreen_toggle' },
+    ...(app.doc.scene.render.use_multiview ? [{ label: 'Set Stereo 3D…', op: 'wm.set_stereo_3d' }] : []),
     { separator: true },
     { label: 'Next Workspace', shortcut: 'Ctrl Page Down', op: 'screen.workspace_cycle', props: { direction: 'NEXT' } },
     { label: 'Previous Workspace', shortcut: 'Ctrl Page Up', op: 'screen.workspace_cycle', props: { direction: 'PREV' } },

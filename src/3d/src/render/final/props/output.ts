@@ -7,6 +7,7 @@ import { num, bool, enumProp, colorProp, splitRow, textProp } from '../../../ui/
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { FPS_PRESETS, fpsPreset, fpsFromPreset } from '../units';
+import { stereoscopyPanel, viewsSubPanel } from './stereo';
 
 let customFps = false;
 
@@ -91,6 +92,7 @@ function outputPanel(r: RenderSettings): Child {
     enumProp(r, 'color_mode', 'Color', colors),
     fmt !== 'PNG' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
     fmt === 'PNG' ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.') : fmt === 'WEBM' ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.') : null,
+    viewsSubPanel(r),
   ]);
 }
 
@@ -153,6 +155,6 @@ registerTab({
   poll: () => true,
   draw: () => {
     const r = renderSettings();
-    return [formatPanel(r), frameRangePanel(r), outputPanel(r), metadataPanel(r)];
+    return [formatPanel(r), frameRangePanel(r), stereoscopyPanel(r), outputPanel(r), metadataPanel(r)];
   },
 });

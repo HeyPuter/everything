@@ -38,6 +38,10 @@ export interface RenderResult {
   metadata?: StampField[];
   /** burnt-in metadata: RGBA8 overlay drawn over the display-converted Combined pass */
   overlay?: Uint8ClampedArray;
+  /** multi-view renders: the passes of each view (`passes` holds the first view's) */
+  views?: { name: string; suffix: string; passes: Partial<Record<PassName, Float32Array>>; viewLayer?: Partial<Record<PassName, Float32Array>> }[];
+  /** stereo renders: how the two eyes combine into one image */
+  stereo?: import('./stereo').Stereo3dFormat;
 }
 
 /** Post-processing of each finished frame of a render job (e.g. compositing), in order. */

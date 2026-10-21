@@ -5,6 +5,7 @@
 // edits replace arrays instead of writing into them (see data/cow.ts).
 
 import type { RealtimeRenderSettings, RealtimeLightSettings, RealtimeMaterialSettings, RealtimeWorldSettings, LightProbeSettings } from '../render/realtime/types';
+import type { MultiviewSettings, CameraStereoData } from '../render/final/stereo';
 export type ID = string;
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -334,6 +335,8 @@ export interface CameraData {
     /** anamorphic distortion of the bokeh (1 = round) */
     aperture_ratio?: number;
   };
+  /** stereo rig used by stereo 3D renders (render/final/stereo.ts) */
+  stereo?: CameraStereoData;
   display_size: number;
   show_passepartout: boolean;
   passepartout_alpha: number;
@@ -1036,7 +1039,7 @@ export interface CollectionData {
 
 export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
-export interface RenderSettings extends RealtimeRenderSettings {
+export interface RenderSettings extends RealtimeRenderSettings, MultiviewSettings {
   engine: RenderEngine;
   /** path tracer options (src/render/final/ptsettings.ts) */
   cycles?: import('../render/final/ptsettings').PathTraceSettings;
