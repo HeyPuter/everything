@@ -290,6 +290,19 @@ describe('AI sidebar tools', () => {
     expect(Object.values(store.project.assets).some((a) => a.origin === 'ai-video')).toBe(true);
   });
 
+  it('keeps pictures and voiceovers that finish after Stop in the media library only', async () => {
+    for (const [name, args, origin] of [['generate_image', { prompt: 'forest' }, 'ai-image'], ['edit_image', { source: 'img', instruction: 'night' }, 'ai-image'], ['add_voiceover', { text: 'hello' }, 'tts']]) {
+      const { store, ctx, main } = setup(clip('image', 0, 3));
+      let stopped = false;
+      const made = (value) => vi.fn(async () => ((stopped = true), value));
+      const png = { blob: new Blob(['png'], { type: 'image/png' }) };
+      const { runner } = runnerFor(ctx, { generateImage: made(png), editPicture: made(png), synthesize: made(new Blob(['mp3'], { type: 'audio/mpeg' })) });
+      expect(await runner.run(name, args, { note: () => {}, stopped: () => stopped })).toEqual({ skipped: true });
+      await vi.waitFor(() => expect(Object.values(store.project.assets).filter((a) => a.origin === origin)).toHaveLength(1));
+      expect(main().clips).toHaveLength(1);
+    }
+  });
+
   it('keeps what was stopped while it was being added to the project in the media only', async () => {
     for (const [name, args] of [['generate_video', { prompt: 'fox' }], ['generate_image', { prompt: 'forest' }], ['edit_image', { source: 'img', instruction: 'night' }], ['add_voiceover', { text: 'hello' }]]) {
       const { store, ctx, main } = setup(clip('image', 0, 3));
