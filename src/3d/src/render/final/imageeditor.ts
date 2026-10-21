@@ -30,7 +30,7 @@ import { activeTools } from '../../app/prefs';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
 import { drawMask, drawMaskMatte, hostMask, type MaskHost } from '../../mask/clipmask';
-import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar } from '../../mask/maskui';
+import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar, maskProportionalHeader } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
 import './imageextra';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
@@ -877,6 +877,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
             { iconOnly: true, tip: 'Pivot Point\nCenter for rotating and scaling mask points (.)', title: 'Pivot Point' },
           )
         : null,
+      this.maskEditing() ? maskProportionalHeader() : null,
       h('div', { class: 'hdr-spacer' }),
       this.host.close
         ? null

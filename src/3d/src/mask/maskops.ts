@@ -11,6 +11,7 @@ import { currentClipEditor } from '../tracking/editor';
 import { activeTrack, markerAt, sceneToClipFrame } from '../tracking/types';
 import { parentResolver } from './parent';
 import { pointInPolygon } from '../sequencer/selection';
+import { falloff } from '../editors/uv/uvtransform';
 
 type V = [number, number];
 
@@ -55,6 +56,17 @@ function selectedSplines(m: MaskData): { layer: MaskLayer; spline: MaskSpline }[
 }
 
 let clipboard: MaskSpline[] | null = null;
+
+const FALLOFF_ITEMS: [string, string][] = [
+  ['SMOOTH', 'Smooth'],
+  ['SPHERE', 'Sphere'],
+  ['ROOT', 'Root'],
+  ['INVERSE_SQUARE', 'Inverse Square'],
+  ['SHARP', 'Sharp'],
+  ['LINEAR', 'Linear'],
+  ['CONSTANT', 'Constant'],
+  ['RANDOM', 'Random'],
+];
 
 const SELECT_MODES: [string, string][] = [
   ['SET', 'Set'],
@@ -568,6 +580,16 @@ const ops: Operator[] = [
         hidden: true,
       },
       { id: 'value', label: 'Value', type: 'vec3', default: [0, 0, 0], precision: 4 },
+      { id: 'use_proportional_edit', label: 'Proportional Editing', type: 'bool', default: false },
+      { id: 'proportional_size', label: 'Proportional Size', type: 'float', default: 0.2, min: 0.001, softMax: 2, precision: 3, showIf: (p) => !!p.use_proportional_edit },
+      {
+        id: 'proportional_edit_falloff',
+        label: 'Proportional Falloff',
+        type: 'enum',
+        default: 'SMOOTH',
+        items: FALLOFF_ITEMS,
+        showIf: (p) => !!p.use_proportional_edit,
+      },
     ],
     poll: anySel,
     invoke: (_c, p) => (startTransform(p.mode as Mode) ? 'RUNNING_MODAL' : 'CANCELLED'),
@@ -581,7 +603,13 @@ const ops: Operator[] = [
       const mode = p.mode as Mode;
       const value = mode === 'RESIZE' ? [v[0] || 1, v[1] || v[0] || 1] : mode === 'FEATHER' ? [v[0] || 1] : mode === 'ROTATE' ? [v[0]] : [v[0], v[1]];
       const snaps = snapPoints(pts);
-      transformPoints(snaps, mode, value, aspectOf(ed), pivotOf(ed, snaps));
+      const pivot = pivotOf(ed, snaps);
+      transformPoints(snaps, mode, value, aspectOf(ed), pivot);
+      if (p.use_proportional_edit && mode !== 'FEATHER') {
+        // soft points are found from where the selection was before this transform
+        const before = snaps.map((x) => ({ co: x.co }));
+        transformSoft(softPointsFrom(m, pts, before, aspectOf(ed), Number(p.proportional_size) || 0.2, String(p.proportional_edit_falloff)), mode, value, aspectOf(ed), pivot);
+      }
       done(ed);
     },
   },
@@ -795,6 +823,46 @@ export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], 
 }
 
 /** Modal transform of the selected points; `release` (tool drags) confirms when the button is released. */
+/** Proportional editing of mask points (O): tool settings flag, shared size and falloff. */
+type PropSettings = { use_proportional_edit_mask?: boolean; proportional_size: number; proportional_edit_falloff: string };
+export const maskPropSettings = () => app.doc.scene.tool_settings as unknown as PropSettings;
+
+interface SoftPoint extends PointSnap {
+  weight: number;
+}
+
+
+/** Unselected points near the selection with their falloff weights (distance in aspect-correct frame units). */
+export function softPoints(m: MaskData, selected: MaskPoint[], aspect: number, size: number, type: string): SoftPoint[] {
+  return size > 0 ? softPointsFrom(m, selected, selected, aspect, size, type) : [];
+}
+
+/** Soft points measured from the selection's positions before a transform (`before`, same order as `selected`). */
+function softPointsFrom(m: MaskData, selected: MaskPoint[], before: { co: V }[], aspect: number, size: number, type: string): SoftPoint[] {
+  const out: SoftPoint[] = [];
+  const sel = new Set(selected);
+  let seed = 0;
+  for (const { point } of allPoints(m)) {
+    seed++;
+    if (sel.has(point)) continue;
+    let d = Infinity;
+    for (const q of before) d = Math.min(d, Math.hypot((point.co[0] - q.co[0]) * aspect, point.co[1] - q.co[1]));
+    if (d >= size) continue;
+    const [snap] = snapPoints([point]);
+    out.push({ ...snap, weight: falloff(type, d / size, seed) });
+  }
+  return out;
+}
+
+/** Apply a transform to soft points scaled by their weights. */
+function transformSoft(soft: SoftPoint[], mode: Mode, value: number[], aspect: number, pivot: V) {
+  for (const sp of soft) {
+    const k = sp.weight;
+    const v = mode === 'TRANSLATE' ? [value[0] * k, value[1] * k] : mode === 'ROTATE' ? [value[0] * k] : mode === 'RESIZE' ? [1 + (value[0] - 1) * k, 1 + ((value[1] ?? value[0]) - 1) * k] : [1];
+    transformPoints([sp], mode === 'FEATHER' ? 'RESIZE' : mode, mode === 'FEATHER' ? [1, 1] : v, aspect, pivot);
+  }
+}
+
 export function startTransform(mode: Mode, release = false, from?: { clientX: number; clientY: number }): boolean {
   const ed = maskEditor();
   if (!ed) return false;
@@ -804,6 +872,22 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
   const aspect = aspectOf(ed);
   const orig = snapPoints(pts);
   const [cx, cy] = pivotOf(ed, orig);
+  const ps = maskPropSettings();
+  let proportional = !!ps.use_proportional_edit_mask && mode !== 'FEATHER';
+  let size = ps.proportional_size > 0 && ps.proportional_size < 10 ? ps.proportional_size : 0.2;
+  let soft: SoftPoint[] = [];
+  const restoreSoft = () => {
+    for (const o of soft) {
+      o.p.co = [...o.co];
+      o.p.handle_left = [...o.hl];
+      o.p.handle_right = [...o.hr];
+    }
+  };
+  const gatherSoft = () => {
+    restoreSoft();
+    soft = proportional ? softPoints(m, pts, aspect, size, ps.proportional_edit_falloff) : [];
+  };
+  gatherSoft();
   const sp0 = ed.local(from ?? { clientX: app.pointer.x, clientY: app.pointer.y });
   const start = s2m(ed, sp0.x, sp0.y);
   const st = { text: '', axis: null as 'X' | 'Y' | null, value: [0, 0] as number[] };
@@ -826,6 +910,8 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
     }
     st.value = v;
     transformPoints(orig, mode, v, aspect, [cx, cy]);
+    restoreSoft();
+    transformSoft(soft, mode, v, aspect, [cx, cy]);
     updateHandles(m, aspect);
     app.changed('doc');
     ed.draw();
@@ -836,7 +922,13 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
     header: () => {
       const v = st.value;
       const val = mode === 'TRANSLATE' ? `${v[0].toFixed(4)}, ${v[1].toFixed(4)}` : mode === 'ROTATE' ? `${((v[0] * 180) / Math.PI).toFixed(1)}°` : (st.axis === 'Y' ? v[1] : v[0]).toFixed(3);
-      return `${handler.label}: ${st.text ? st.text + '|' : val}${st.axis ? ` along ${st.axis}` : ''}`;
+      return `${handler.label}: ${st.text ? st.text + '|' : val}${st.axis ? ` along ${st.axis}` : ''}${proportional ? `   Proportional Size: ${size.toFixed(3)}` : ''}`;
+    },
+    onWheel(e) {
+      if (!proportional) return;
+      size = Math.max(1e-3, size * (e.deltaY > 0 ? 1.1 : 1 / 1.1));
+      gatherSoft();
+      apply();
     },
     onPointerMove(e) {
       const q = ed.local(e);
@@ -850,6 +942,18 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
       if (e.key === 'Escape') return 'CANCELLED';
       if (e.key === 'Enter') return 'FINISHED';
       const k = e.key.toUpperCase();
+      if (k === 'O' && mode !== 'FEATHER' && !e.shiftKey) {
+        proportional = !proportional;
+        gatherSoft();
+        apply();
+        return true;
+      }
+      if ((e.key === 'PageUp' || e.key === 'PageDown') && proportional) {
+        size = Math.max(1e-3, size * (e.key === 'PageUp' ? 1.1 : 1 / 1.1));
+        gatherSoft();
+        apply();
+        return true;
+      }
       if ((k === 'X' || k === 'Y') && mode !== 'ROTATE' && mode !== 'FEATHER') {
         st.axis = st.axis === k ? null : (k as 'X');
         apply();
@@ -867,11 +971,13 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
         o.p.handle_right = o.hr;
         o.p.weight = o.w;
       }
+      restoreSoft();
       done(ed);
     },
     finish() {
+      if (proportional) ps.proportional_size = size;
       done(ed);
-      handler.redoOp = { idname: 'mask.transform', props: { mode, value: [st.value[0], st.value[1] ?? 0, 0] } };
+      handler.redoOp = { idname: 'mask.transform', props: { mode, value: [st.value[0], st.value[1] ?? 0, 0], use_proportional_edit: proportional, proportional_size: size, proportional_edit_falloff: ps.proportional_edit_falloff } };
     },
   };
   app.startModal(handler);

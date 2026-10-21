@@ -137,3 +137,31 @@ test('image editor: Mask mode lasso tool, sidebar Mask tab and mode persistence'
   await page.mouse.move(box.x + 10, box.y + 10);
   await expectNoErrors(errors);
 });
+
+test('mask: proportional editing (O) moves nearby points by a falloff; the redo panel keeps it', async ({ page }) => {
+  const { errors, box } = await imageEditor(page);
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    const e = app.hoverArea.editor;
+    e.setMode('MASK');
+    app.run('mask.new');
+    app.run('mask.primitive_square_add', { size: 0.4, location: [0.5, 0.5] }, { invoke: false });
+    app.run('mask.select_all', { action: 'DESELECT' });
+    const m = app.doc.masks[e.maskId];
+    m.layers[0].splines[0].points[0].select = true;
+    app.doc.scene.tool_settings.proportional_size = 0.5;
+    app.doc.scene.tool_settings.proportional_edit_falloff = 'LINEAR';
+  });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('o');
+  expect(await page.evaluate(() => (window as any).app.doc.scene.tool_settings.use_proportional_edit_mask)).toBe(true);
+  const before = await points(page);
+  await page.evaluate(() => (window as any).app.run('mask.transform', { mode: 'TRANSLATE', value: [0.1, 0, 0], use_proportional_edit: true, proportional_size: 0.5, proportional_edit_falloff: 'LINEAR' }, { invoke: false }));
+  const after = await points(page);
+  const dx = after.map((p: any, i: number) => Math.round((p.co[0] - before[i].co[0]) * 1000) / 1000);
+  // the selected corner moves fully, its two neighbours (0.4 away) by (1 - 0.4 / 0.5) = 0.2, the far one (0.566 away) not at all
+  expect(dx[0]).toBeCloseTo(0.1, 3);
+  expect(dx.filter((d: number) => Math.abs(d - 0.02) < 2e-3).length).toBe(2);
+  expect(dx.filter((d: number) => d === 0).length).toBe(1);
+  await expectNoErrors(errors);
+});

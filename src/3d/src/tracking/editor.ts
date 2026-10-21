@@ -38,7 +38,7 @@ import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
 import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
 import { clipLasso } from './graphops';
-import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
+import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar, maskProportionalHeader } from '../mask/maskui';
 import { maskTable } from '../mask/types';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, drawAnnotations2D, type AnnotateTool, type Annotation2DOwner } from '../mask/annotate2d';
 
@@ -1315,7 +1315,7 @@ export class ClipEditor implements Editor {
         : [this.view === 'GRAPH' ? menu('Select', () => graphSelectMenu()) : this.view !== 'DOPESHEET' ? menu('Select', () => selectMenu()) : null, this.view === 'CLIP' ? [menu('Clip', () => clipMenu()), menu('Track', () => trackMenu()), menu('Reconstruction', () => reconstructionMenu())] : null],
       h('div', { class: 'hdr-spacer' }),
       c && this.view === 'CLIP' && this.mode !== 'MASK' && solveErrorText(c) ? h('span', { class: 'clip-header-error', 'data-tip': 'Average reprojection error of the solution' }, solveErrorText(c)) : null,
-      this.view === 'CLIP' && this.mode === 'MASK' ? maskBrowse(this) : null,
+      this.view === 'CLIP' && this.mode === 'MASK' ? [maskBrowse(this), maskProportionalHeader()] : null,
       h(
         'div',
         { class: 'clip-browse' },

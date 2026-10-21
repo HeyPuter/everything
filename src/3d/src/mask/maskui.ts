@@ -9,7 +9,8 @@ import { num, bool, enumProp, splitRow } from '../ui/props';
 import type { MaskLayer } from './types';
 import { maskTable, activeLayer } from './types';
 import { hostMask, selectedPoints } from './clipmask';
-import { maskEditor } from './maskops';
+import { maskEditor, maskPropSettings } from './maskops';
+import { addKeys } from '../app/keymap';
 
 interface Host {
   maskId: string | null;
@@ -296,3 +297,59 @@ export function maskSidebar(ed: Host): Child[] {
     ),
   ];
 }
+
+const FALLOFFS: [string, string][] = [
+  ['SMOOTH', 'Smooth'],
+  ['SPHERE', 'Sphere'],
+  ['ROOT', 'Root'],
+  ['INVERSE_SQUARE', 'Inverse Square'],
+  ['SHARP', 'Sharp'],
+  ['LINEAR', 'Linear'],
+  ['CONSTANT', 'Constant'],
+  ['RANDOM', 'Random'],
+];
+
+/** Falloff menu of proportional editing (shared size and falloff with the other editors). */
+export function maskFalloffMenu(): MenuItem[] {
+  const ps = maskPropSettings();
+  return FALLOFFS.map(([v, label]) => ({
+    label,
+    active: ps.proportional_edit_falloff === v,
+    action: () => {
+      ps.proportional_edit_falloff = v;
+      app.pushUndo('Proportional Falloff');
+      app.changed('ui');
+    },
+  }));
+}
+
+export function toggleMaskProportional() {
+  const ps = maskPropSettings();
+  ps.use_proportional_edit_mask = !ps.use_proportional_edit_mask;
+  app.pushUndo('Proportional Editing');
+  app.changed('ui');
+}
+
+/** Header toggle and falloff dropdown of proportional editing in mask mode. */
+export function maskProportionalHeader(): Child {
+  const on = !!maskPropSettings().use_proportional_edit_mask;
+  return h(
+    'div',
+    { key: 'mask-prop', class: 'hdr-group' },
+    h('button', { class: { 'hdr-toggle': true, on }, 'data-tip': 'Proportional Editing (O)\nNearby points follow transforms with a falloff', onclick: () => toggleMaskProportional() }, icon(on ? 'prop_on' : 'prop_off')),
+    h(
+      'button',
+      {
+        class: 'hdr-icondrop',
+        'data-tip': 'Proportional Editing Falloff (Shift O)',
+        onpointerdown: (e: PointerEvent) => (e.preventDefault(), openMenu(maskFalloffMenu(), e.currentTarget as HTMLElement, { title: 'Proportional Editing Falloff' })),
+      },
+      icon('down_arrow_hlt', 'tiny'),
+    ),
+  );
+}
+
+addKeys('Mask Editing', [
+  { key: 'O', action: toggleMaskProportional },
+  { key: 'O', shift: true, menu: maskFalloffMenu, menuTitle: 'Proportional Editing Falloff' },
+]);
