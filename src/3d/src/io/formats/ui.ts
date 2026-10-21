@@ -14,6 +14,8 @@ export interface FormatOption {
   max?: number;
   step?: number;
   description?: string;
+  /** default computed when the dialog opens or a script leaves the option out (e.g. the scene's frame range) */
+  dynamicDefault?: () => boolean | string | number;
   /** visible only when the predicate holds */
   showIf?: (v: Record<string, unknown>) => boolean;
 }

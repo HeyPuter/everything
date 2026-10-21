@@ -89,7 +89,8 @@ export function optionProps(options: FormatOption[]): PropDef[] {
     id: o.bpy ?? o.id,
     label: o.label,
     type: propType(o),
-    default: o.default,
+    // scene-dependent options stay unset so a script that leaves them out gets the scene's value
+    default: o.dynamicDefault ? undefined : o.default,
     min: o.min,
     max: o.max,
     items: o.items?.map(([v, l]) => [v, l] as [string, string]),
@@ -103,8 +104,8 @@ export function propsToOptions(options: FormatOption[], props: Record<string, un
   for (const o of options) {
     let v = props[o.bpy ?? o.id];
     if (v === undefined) v = props[o.id];
-    if (v === undefined) {
-      out[o.id] = o.default;
+    if (v === undefined || v === null) {
+      out[o.id] = o.dynamicDefault ? o.dynamicDefault() : o.default;
       continue;
     }
     if (o.type === 'bool') out[o.id] = !!v;
@@ -126,7 +127,7 @@ export function propsToOptions(options: FormatOption[], props: Record<string, un
 
 export function optionsToProps(options: FormatOption[], values: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const o of options) out[o.bpy ?? o.id] = values[o.id] ?? o.default;
+  for (const o of options) out[o.bpy ?? o.id] = values[o.id] ?? (o.dynamicDefault ? o.dynamicDefault() : o.default);
   return out;
 }
 
@@ -245,7 +246,7 @@ function importExec(def: FormatDef, p: Record<string, unknown>): OpResult {
 /** Store picked files, ask for companions and options, then run the operator with paths. */
 async function importInteractive(def: FormatDef, opId: string, files: File[], props: Record<string, unknown>) {
   const intro = files.length === 1 ? files[0].name : `${files.length} files`;
-  const values = await optionsDialog(def.importOpLabel ?? `Import ${def.label}`, `${def.id}:import`, def.importOptions ?? [], 'Import', intro, propsToOptions(def.importOptions ?? [], { ...optionsToProps(def.importOptions ?? [], loadOptions(`${def.id}:import`, def.importOptions ?? [])), ...stripDefaults(def.importOptions ?? [], props) }));
+  const values = await optionsDialog(def.importOpLabel ?? `Import ${def.label}`, `${def.id}:import`, def.importOptions ?? [], 'Import', intro, propsToOptions(def.importOptions ?? [], { ...optionsToProps(def.importOptions ?? [], dialogStart(def.importOptions ?? [], `${def.id}:import`)), ...stripDefaults(def.importOptions ?? [], props) }));
   const dir = '/imports';
   const names: string[] = [];
   for (const f of files) {
@@ -321,7 +322,7 @@ async function exportInteractive(def: FormatDef, opId: string, props: Record<str
   await ensureImagesReady(app.doc);
   const selProp = def.selectionProp ?? 'use_selection';
   const selected = !!props[selProp];
-  const values = await optionsDialog(def.exportOpLabel ?? `Export ${def.label}`, `${def.id}:export`, def.exportOptions ?? [], 'Export', selected ? 'Selected objects only' : 'All objects in the scene', propsToOptions(def.exportOptions ?? [], { ...optionsToProps(def.exportOptions ?? [], loadOptions(`${def.id}:export`, def.exportOptions ?? [])), ...stripDefaults(def.exportOptions ?? [], props) }), {
+  const values = await optionsDialog(def.exportOpLabel ?? `Export ${def.label}`, `${def.id}:export`, def.exportOptions ?? [], 'Export', selected ? 'Selected objects only' : 'All objects in the scene', propsToOptions(def.exportOptions ?? [], { ...optionsToProps(def.exportOptions ?? [], dialogStart(def.exportOptions ?? [], `${def.id}:export`)), ...stripDefaults(def.exportOptions ?? [], props) }), {
     id: selProp,
     label: 'Selected Only',
     value: selected,
@@ -329,6 +330,13 @@ async function exportInteractive(def: FormatDef, opId: string, props: Record<str
   const sel = values.__selection as boolean | undefined;
   delete values.__selection;
   app.run(opId, { ...props, ...optionsToProps(def.exportOptions ?? [], values), [selProp]: sel ?? selected, filepath: props.filepath || `//${app.filename.replace(/\.[^.]+$/, '') || 'untitled'}`, download: true }, { invoke: false });
+}
+
+/** Remembered dialog values, with options that follow the scene (frame ranges) filled in fresh. */
+function dialogStart(options: FormatOption[], key: string): Record<string, unknown> {
+  const v = loadOptions(key, options);
+  for (const o of options) if (o.dynamicDefault) v[o.id] = o.dynamicDefault();
+  return v;
 }
 
 /** Properties that differ from the operator defaults (menu entries that preset an option). */

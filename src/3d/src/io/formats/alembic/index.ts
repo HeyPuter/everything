@@ -16,9 +16,8 @@ defineFormat({
     { id: 'import_animation', label: 'Animation', type: 'bool', default: true, description: 'Animated transforms and vertex caches (as per-frame shape keys)' },
   ],
   exportOptions: [
-    { id: 'init_scene_frame_range', label: 'Scene Frame Range', type: 'bool', default: true, description: "Write the scene's frame range (otherwise Start / End)" },
-    { id: 'start', label: 'Start', type: 'int', default: 1, min: -1048574, max: 1048574, showIf: (v) => !v.init_scene_frame_range },
-    { id: 'end', label: 'End', type: 'int', default: 250, min: -1048574, max: 1048574, showIf: (v) => !v.init_scene_frame_range },
+    { id: 'start', label: 'Start', type: 'int', default: 1, min: -1048574, max: 1048574, dynamicDefault: () => app.doc.scene.frame_start, description: 'First frame to write (the scene start by default)' },
+    { id: 'end', label: 'End', type: 'int', default: 250, min: -1048574, max: 1048574, dynamicDefault: () => app.doc.scene.frame_end, description: 'Last frame to write (the scene end by default)' },
     { id: 'global_scale', label: 'Scale', type: 'float', default: 1, min: 0.0001, max: 1000 },
     { id: 'flatten', label: 'Flatten Hierarchy', type: 'bool', default: false, description: 'Write every object at the top level with its world transform' },
     { id: 'uvs', label: 'UV Coordinates', type: 'bool', default: true },
@@ -39,10 +38,8 @@ defineFormat({
     commitToApp(ir, { setFrameRange: !!o.set_frame_range });
   },
   exportData(o) {
-    const sc = app.doc.scene;
-    const scenRange = o.init_scene_frame_range !== false;
-    const start = scenRange ? sc.frame_start : Number(o.start);
-    const end = scenRange ? sc.frame_end : Number(o.end);
+    const start = Number(o.start);
+    const end = Math.max(start, Number(o.end));
     const res = sampleAlembicScene(app.doc, {
       frameStart: start,
       frameEnd: end,
