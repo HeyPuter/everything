@@ -216,3 +216,30 @@ test("the Format pane formats the chart element chosen on the Format tab", async
   expect(spec.holeSizePct).toBe(70);
   expect(spec.title).toBe("Market share");
 });
+
+test("Select Data renames a series by clicking its name and typing", async ({
+  page,
+}) => {
+  await start(page);
+  await insertChart(page, "Column", "Clustered Column");
+  await page.getByRole("button", { name: "Close data sheet" }).click();
+  await ribbonCommand(page, "Chart Design", "chart-select-data");
+  const dialog = page.getByRole("dialog", { name: "Select Data" });
+  const name = dialog.getByRole("textbox", { name: "Name of series 2" });
+  await name.click();
+  await expect(name).toBeFocused();
+  await name.press("ControlOrMeta+a");
+  await page.keyboard.type("Revenue");
+  await expect(dialog.locator('li[aria-selected="true"] input')).toHaveValue(
+    "Revenue",
+  );
+  await expect(dialog.getByRole("button", { name: "Move up" })).toBeEnabled();
+  await dialog.getByRole("button", { name: "OK", exact: true }).click();
+  await page.waitForTimeout(300);
+  const { spec } = await download(page);
+  expect(spec.series.map((s) => s.name)).toEqual([
+    "Series 1",
+    "Revenue",
+    "Series 3",
+  ]);
+});

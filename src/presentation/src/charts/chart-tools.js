@@ -211,6 +211,17 @@ export function createChartTools(h) {
       "aria-label": "Category labels, one per line",
     });
     let chosen = 0;
+    // Choosing a series marks it in place: a click in its name box must
+    // leave the box there, focused, to type in.
+    const choose = (i) => {
+      chosen = i;
+      [...list.children].forEach((item, j) => {
+        item.tabIndex = j === chosen ? 0 : -1;
+        item.setAttribute("aria-selected", String(j === chosen));
+      });
+      up.disabled = chosen <= 0;
+      down.disabled = chosen >= spec.series.length - 1;
+    };
     const draw = () => {
       list.replaceChildren(
         ...spec.series.map((s, i) =>
@@ -218,13 +229,8 @@ export function createChartTools(h) {
             "li",
             {
               role: "option",
-              tabindex: i === chosen ? 0 : -1,
-              "aria-selected": String(i === chosen),
               class: "chart-series-item",
-              onclick: () => {
-                chosen = i;
-                draw();
-              },
+              onclick: () => choose(i),
             },
             el("span", {
               class: "chart-sheet-swatch",
@@ -235,9 +241,7 @@ export function createChartTools(h) {
               class: "input",
               value: s.name,
               "aria-label": `Name of series ${i + 1}`,
-              onfocus: () => {
-                chosen = i;
-              },
+              onfocus: () => choose(i),
               onchange: (e) => {
                 spec = cleanSpec({
                   ...spec,
@@ -253,9 +257,8 @@ export function createChartTools(h) {
       cats.value = spec.categories.join("\n");
       cats.disabled = xy;
       swap.disabled = !canSwitchRowColumn(spec.kind);
-      up.disabled = chosen <= 0;
-      down.disabled = chosen >= spec.series.length - 1;
       remove.disabled = spec.series.length <= 1;
+      choose(chosen);
     };
     const move = (d) => {
       const s = [...spec.series];
