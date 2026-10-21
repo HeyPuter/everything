@@ -56,6 +56,7 @@ describe('leaving the editor', () => {
     const leaving = editor.exit();
     await settle();
     expect(dialog()?.textContent).toContain("Couldn't save your changes");
+    expect(document.activeElement).toBe(button('Stay'));
     button('Stay').click();
     expect(await leaving).toBe(false);
     expect(onExit).not.toHaveBeenCalled();

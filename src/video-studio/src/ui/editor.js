@@ -401,13 +401,16 @@ export class Editor {
       if (saved && !media) return true;
       const where = this.library.backend.kind === 'local' ? 'in this browser' : 'to your Puter cloud';
       const what = [!saved ? 'your latest changes' : null, media ? `${media} media file${media === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
-      return confirmDialog({
+      const answer = confirmDialog({
         title: "Couldn't save your changes",
         message: `${what[0].toUpperCase()}${what.slice(1)} couldn't be saved ${where}. If you leave now, ${saved && media === 1 ? 'it' : 'they'} will be lost. Stay to keep trying.`,
         confirm: 'Leave anyway',
         cancel: 'Stay',
         danger: true,
       });
+      // Enter keeps the work: focus Stay rather than the destructive choice.
+      [...document.querySelectorAll('dialog[open] .dialog-actions .btn')].find((b) => b.textContent === 'Stay')?.focus();
+      return answer;
     })().finally(() => (this._leaving = null));
     return this._leaving;
   }
