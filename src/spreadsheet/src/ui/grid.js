@@ -3247,19 +3247,23 @@ export function createGrid(opts) {
     if (!opts.announce) return;
     const range = S.selRange(sel);
     const { r, c } = sel.active;
-    let text = wb.getDisplay(sheetId, r, c);
     // A very long text is read out in part, with its length: the whole of it would take minutes, or
     // choke the reader. The cut falls between characters as a reader sees them.
-    if (text.length > SPOKEN_MAX) {
+    const spoken = (text) => {
+      if (text.length <= SPOKEN_MAX) return text;
       const units = graphemes(text);
-      text = `${typeof units === 'string' ? units.slice(0, SPOKEN_MAX) : units.slice(0, SPOKEN_MAX).join('')}… ${text.length.toLocaleString()} characters`;
-    }
+      return `${typeof units === 'string' ? units.slice(0, SPOKEN_MAX) : units.slice(0, SPOKEN_MAX).join('')}… ${text.length.toLocaleString()} characters`;
+    };
+    const text = spoken(wb.getDisplay(sheetId, r, c));
     const cell = wb.getCell(sheetId, r, c);
     let msg = `${cellName(r, c)}${text ? `, ${text}` : ', empty'}`;
     if (cell?.f != null) msg += `, formula`;
     // A validation rule's input message is read with the cell it is shown beside.
     const rule = sheet().validations.length ? wb.validationAt(sheetId, r, c) : null;
     if (rule?.showInputMessage !== false && (rule?.prompt || rule?.promptTitle)) msg += `. ${[rule.promptTitle, rule.prompt].filter(Boolean).join(': ')}`;
+    // So is a note, which shows beside it too (unless notes are set to show nothing).
+    const note = appOption('commentIndicators') === 'none' ? null : sheet().notes.get(cellKey(r, c));
+    if (note) msg += `. Note: ${spoken(note)}`;
     if (!S.isSingle(sel)) msg = `${rangeName(range)} selected. ${msg}`;
     if (extras.length) msg = `${extras.length + 1} ranges selected. ${msg}`;
     opts.announce(msg);
