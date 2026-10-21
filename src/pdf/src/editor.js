@@ -3707,6 +3707,8 @@ export function createEditor({
     }
     if (tool === 'crop') discardCropDraft();
     if (tool === 'measure' && measureMode.value !== 'distance') {
+      // Corners clicked on another page are no part of this one.
+      if (measurePage !== pageIndex) measurePath = [];
       measurePath.push(pdfPoint(p));
       measurePage = pageIndex;
       drawMeasurePath(p);
@@ -9470,7 +9472,8 @@ export function createEditor({
     });
   }
   overlay.addEventListener('pointermove', (e) => {
-    if (tool === 'measure' && measurePath.length && !gesture) drawMeasurePath(screenPoint(e));
+    if (tool === 'measure' && measurePath.length && measurePage === pageIndex && !gesture)
+      drawMeasurePath(screenPoint(e));
   });
   overlay.addEventListener('dblclick', () => {
     if (tool === 'measure' && measurePath.length) safe(finishMeasure)();
