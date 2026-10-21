@@ -84,7 +84,17 @@ function anchoredShape(node, geometry) {
 }
 const children = (node, name) => node?.children.filter(n => n.name === name) || [];
 const path = (node, ...names) => names.reduce(child, node);
-const descendants = (node, name) => (node?.children || []).flatMap(n => n.name === name ? [n] : descendants(n, name));
+// The elements named `name` below a node, in document order, not looking inside one found. The walk keeps its
+// own stack: a part nesting thousands of elements deep must not overflow the call stack and stop the file opening.
+const descendants = (node, name) => {
+  const out = [], pending = [...(node?.children || [])].reverse();
+  while (pending.length) {
+    const n = pending.pop();
+    if (n.name === name) out.push(n);
+    else for (let i = n.children.length - 1; i >= 0; i--) pending.push(n.children[i]);
+  }
+  return out;
+};
 /**
  * A picture's Picture Format from DrawingML: a:lum (brightness and contrast), a:grayscl and
  * a:alphaModFix on its blip; a rounded or oval preset outline, an RGB frame and an outer shadow on
