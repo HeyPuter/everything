@@ -9,8 +9,8 @@ import { icon } from '../ui/icons';
 import { app, registerOperators, type ChangeKind, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { registerEditor, type Area, type Editor } from '../ui/screen';
-import { openMenu, openPie, promptText, type MenuItem } from '../ui/menu';
-import { textField, enumRow } from '../ui/widgets';
+import { openMenu, openPie, openPopover, promptText, type MenuItem } from '../ui/menu';
+import { textField, enumRow, checkbox } from '../ui/widgets';
 import { openFile, formats, fileEvents, projectUiState } from '../io/files';
 import { encodeDocument } from '../io/native';
 import { imageFromFile } from '../ops/imageobjects';
@@ -266,6 +266,21 @@ export class FileBrowser implements Editor {
         (v) => this.setView(v as View),
         { iconOnly: true },
       ),
+      h(
+        'button',
+        {
+          key: 'filter-pop',
+          class: { 'hdr-toggle': true, 'fb-filter-btn': true, on: !!this.categories || this.showHidden },
+          'data-tip': 'Filter\nWhich kinds of files are listed',
+          'aria-label': 'Filter settings',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => this.filterPopover(), { width: 220, className: 'fb-filter-pop' });
+          },
+        },
+        icon('filter'),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
       h('div', {
         key: 'filter',
         class: 'fb-filter-wrap',
@@ -276,6 +291,35 @@ export class FileBrowser implements Editor {
           }
         },
       }, textField('fb-filter', this.filter, (v) => ((this.filter = v), this.draw()), { placeholder: 'Filter (e.g. *.png)', icon: 'viewzoom', live: true, className: 'fb-filter' })),
+    );
+  }
+
+  /** The Filter popover: file kinds, hidden files, recursions. */
+  private filterPopover(): Child {
+    const on = !!this.categories;
+    const changed = () => {
+      this.draw();
+      app.changed('ui');
+    };
+    return h(
+      'div',
+      { class: 'fb-filter-body' },
+      checkbox('fbf-on', 'Filter', on, (v) => ((this.categories = v ? new Set(['project', 'image', 'model', 'text']) : null), changed()), { tip: 'Filter\nList only the kinds of files checked below' }),
+      ...CATEGORIES.map(([c, l, ic]) =>
+        h(
+          'div',
+          { key: c, class: 'fb-filter-row' },
+          h('span', { class: 'fb-filter-ic' }, icon(ic)),
+          checkbox(`fbf-${c}`, l, !this.categories || this.categories.has(c), (v) => {
+            if (!this.categories) return;
+            if (v) this.categories.add(c);
+            else this.categories.delete(c);
+            changed();
+          }, { disabled: !on }),
+        ),
+      ),
+      h('div', { class: 'fb-filter-sep' }),
+      checkbox('fbf-hidden', 'Show Hidden', this.showHidden, (v) => ((this.showHidden = v), changed()), { tip: 'Show Hidden\nList files and folders whose name starts with a dot (H)' }),
     );
   }
 

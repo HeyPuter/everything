@@ -269,3 +269,34 @@
 .fb-side-item.active {
   box-shadow: inset 2px 0 0 var(--accent, #4b70b5);
 }
+
+/* Filter popover */
+.fb-filter-btn {
+  display: flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 2px;
+  border-radius: var(--radius);
+}
+.fb-filter-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+}
+.fb-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 14px;
+}
+.fb-filter-ic {
+  display: grid;
+  place-items: center;
+  width: 16px;
+}
+.fb-filter-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--g-22, #1f2021);
+}

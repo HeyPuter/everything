@@ -93,3 +93,33 @@ test('File Browser: recursions list folders below; nested folders open in place'
   await page.keyboard.press('Escape');
   await expectNoErrors(errors);
 });
+
+test('File Browser: the Filter popover limits the listed kinds of files', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of (root as any).entries()) await root.removeEntry(name, { recursive: true });
+    for (const n of ['a.png', 'b.txt', 'c.bin']) {
+      const w = await (await root.getFileHandle(n, { create: true })).createWritable();
+      await w.write('x');
+      await w.close();
+    }
+  });
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').boundingBox())!;
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea;
+    ed.setType('FILE_BROWSER');
+    ed.editor.categories = null;
+  });
+  const fb = page.locator('.area[data-editor="FILE_BROWSER"]');
+  await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
+  await expect(fb.locator('.fb-item')).toHaveCount(3);
+  await fb.locator('.fb-filter-btn').dispatchEvent('pointerdown');
+  await page.locator('.fb-filter-pop .checkbox', { hasText: /^Filter$/ }).click();
+  await expect(fb.locator('.fb-item')).toHaveCount(2);
+  await page.locator('.fb-filter-pop .checkbox', { hasText: 'Images' }).click();
+  await expect(fb.locator('.fb-item')).toHaveCount(1);
+  await expect(fb.locator('.fb-item .fb-name')).toHaveText('b.txt');
+  await expectNoErrors(errors);
+});
