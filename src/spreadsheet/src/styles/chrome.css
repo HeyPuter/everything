@@ -270,7 +270,8 @@
 .grid-pages.lines-only .page-break-line.col::after { border-left-width: 1px; left: 50%; }
 .grid-pages.lines-only .page-break-line.manual::after { border-style: dashed; border-color: color-mix(in srgb, var(--ink, #333) 80%, transparent); }
 .consolidate-dialog .row { gap: 8px; align-items: flex-start; }
-.consolidate-dialog .consolidate-refs { flex: 1; min-height: 96px; }
+/* A list box, not a drop-down: no arrow, as the other dialogs' lists have none. */
+.consolidate-dialog .consolidate-refs { flex: 1; min-height: 96px; background-image: none; padding-right: 8px; height: auto; }
 .consolidate-dialog .input { flex: 1; }
 /* Share, at the right of the title row */
 .topbar .share-btn { height: 28px; padding: 0 12px 0 10px; gap: 6px; margin: 0 4px; font-size: 13px; font-weight: 400; color: var(--chrome-ink); background: var(--surface); border: 1px solid var(--hairline-strong); border-radius: 6px; }
