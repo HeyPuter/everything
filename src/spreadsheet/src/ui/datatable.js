@@ -4,10 +4,19 @@
 import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { parseCellRef } from '../core/cell.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
 
 export function openDataTable(ctx) {
   const sheetId = ctx.sheetId();
-  const range = ctx.grid.range;
+  // Whole columns (or rows) are taken as far as the sheet's data goes, as the other Data commands take them: a
+  // table down every row of the sheet ran its formula a million times over at each recalculation, and froze the app.
+  const whole = ctx.grid.range;
+  const used = ctx.wb.usedRange(sheetId);
+  const range = {
+    ...whole,
+    r2: whole.r2 >= MAX_ROW ? Math.max(whole.r1 + 1, Math.min(whole.r2, used?.r2 ?? 0)) : whole.r2,
+    c2: whole.c2 >= MAX_COL ? Math.max(whole.c1 + 1, Math.min(whole.c2, used?.c2 ?? 0)) : whole.c2,
+  };
   const field = (label) => el('input.input', { type: 'text', 'aria-label': label, spellcheck: false, autocomplete: 'off' });
   const rowInput = field('Row input cell');
   const colInput = field('Column input cell');
