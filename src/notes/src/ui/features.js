@@ -1089,7 +1089,16 @@ export function shareDialog(app) {
     }
   });
   stopBtn.addEventListener('click', async () => {
-    await app.store.backend.remove(`published/${page.id}.json`).catch(() => {});
+    stopBtn.disabled = true;
+    try {
+      await app.store.backend.remove(`published/${page.id}.json`);
+    } catch (err) {
+      // The snapshot is still there, so the link still opens it.
+      status.textContent = `Couldn't stop sharing: ${err?.message || 'request failed'}. The link still works. Try again.`;
+      return;
+    } finally {
+      stopBtn.disabled = false;
+    }
     delete page.published;
     app.store.pageChanged(page);
     linkInput.value = '';

@@ -42,3 +42,28 @@ describe('Deleted Notes', () => {
     expect(toasts()).toContain('Unlock the protected section first to restore this page.');
   });
 });
+
+describe('Share', () => {
+  it('keeps the link marked as shared when Stop Sharing fails', async () => {
+    const { app, backend } = await mount();
+    const page = app.editor.page;
+    await backend.writeJSON(`published/${page.id}.json`, { format: 'notes-shared-page' });
+    page.published = { at: new Date().toISOString(), expires: '30d' };
+    app.shareDialog();
+    const stop = [...document.querySelectorAll('dialog button')].find((b) => b.textContent === 'Stop Sharing');
+    expect(stop.hidden).toBe(false);
+    backend.failNext = 1;
+    stop.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const status = document.querySelector('dialog p.field-hint[role="status"]');
+    expect(status.textContent).toMatch(/Couldn't stop sharing/);
+    expect(stop.hidden).toBe(false);
+    expect(page.published).toBeTruthy();
+    expect(backend.files.has(`published/${page.id}.json`)).toBe(true);
+    stop.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(status.textContent).toMatch(/Sharing stopped/);
+    expect(backend.files.has(`published/${page.id}.json`)).toBe(false);
+    expect(page.published).toBeUndefined();
+  });
+});
