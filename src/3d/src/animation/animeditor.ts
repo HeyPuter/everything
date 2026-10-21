@@ -785,6 +785,16 @@ export abstract class AnimEditor implements Editor {
       return;
     }
     if (e.button !== 0) return;
+    if (e.shiftKey && (e.ctrlKey || e.metaKey) && ch.curves.length > 1) {
+      // Shift Ctrl: the channel and everything under it
+      this.deselectChannels();
+      setChannelSelected(ch, true);
+      for (const r of ch.curves) r.fc.select = true;
+      this.lastClicked = ch.key;
+      app.pushUndo('Select Channel Children');
+      app.changed('doc');
+      return;
+    }
     if (e.shiftKey && !(e.ctrlKey || e.metaKey) && this.lastClicked) {
       // Shift: select the range from the last clicked channel
       const rows = this.list.rows;
