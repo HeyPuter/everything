@@ -55,6 +55,20 @@ const foldedPartNames = new WeakMap<Part, { name: PartName; folded: string }>();
 
 const CONTENT_TYPES_PART = "[Content_Types].xml";
 
+// A part's bytes are replaced, never changed in place, when it is written, so
+// each `.rels` buffer is parsed once and every read gets a copy of the result.
+// Reading a slide's layout, media or links goes through its relationships,
+// and on a large deck re-parsing them dominated deck-wide reads.
+const parsedRels = new WeakMap<Uint8Array, Relationships>();
+const readRels = (data: Uint8Array): Relationships => {
+  let rels = parsedRels.get(data);
+  if (!rels) {
+    rels = parseRels(decode(data));
+    parsedRels.set(data, rels);
+  }
+  return { items: rels.items.map((item) => ({ ...item })) };
+};
+
 /**
  * In-memory model of an OPC package. Construct via `OpcPackage.load(bytes)`
  * to read an existing `.pptx`, or via `OpcPackage.empty()` to start from
@@ -222,7 +236,7 @@ export class OpcPackage {
     const relsName = relsPartNameFor(forPart);
     const part = this.getPart(relsName);
     if (part === null) return null;
-    return parseRels(decode(part.data));
+    return readRels(part.data);
   }
 
   /**
@@ -254,7 +268,7 @@ export class OpcPackage {
   rootRels(): Relationships | null {
     const part = this.getPart(partName("/_rels/.rels"));
     if (part === null) return null;
-    return parseRels(decode(part.data));
+    return readRels(part.data);
   }
 
   /** Convenience: write package-root relationships. */

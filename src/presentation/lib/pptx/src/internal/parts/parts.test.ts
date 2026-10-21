@@ -111,6 +111,30 @@ describe("OpcPackage round-trip", () => {
     const out = reread.getRels(partName("/ppt/slides/slide1.xml"));
     expect(out?.items.map((i) => i.id)).toEqual(["rId1", "rId2", "rId3"]);
   });
+
+  it("hands out a fresh copy of the relationships on every read", () => {
+    const pkg = OpcPackage.load(buildSyntheticPackageBytes());
+    const slide = partName("/ppt/slides/slide1.xml");
+    const first = pkg.getRels(slide);
+    if (!first) throw new Error("expected slide rels");
+    first.items[1]!.target = "../media/changed.png";
+    first.items.pop();
+    const second = pkg.getRels(slide);
+    expect(second?.items.length).toBe(2);
+    expect(second?.items[1]?.target).toBe("../media/image1.png");
+    // Writing them back is what the next read sees.
+    pkg.setRels(slide, first);
+    expect(pkg.getRels(slide)?.items.map((i) => i.target)).toEqual([
+      first.items[0]?.target,
+    ]);
+    // So is a part whose bytes are replaced directly.
+    const part = pkg.getPart(partName("/ppt/slides/_rels/slide1.xml.rels"));
+    if (!part) throw new Error("expected the rels part");
+    part.data = new TextEncoder().encode(
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+    );
+    expect(pkg.getRels(slide)?.items).toEqual([]);
+  });
 });
 
 describe("OpcPackage authoring", () => {
