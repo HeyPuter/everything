@@ -33,6 +33,7 @@ import { drawMask, drawMaskMatte, hostMask, type MaskHost, type MaskDisplayType 
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar, maskProportionalHeader } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
 import './imageextra';
+import { navGizmo2D } from './navgizmo2d';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, drawMaskStrip, maskStripRect, maskStripFrame, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
 
@@ -122,6 +123,8 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
   maskCircleRadius = 25;
   maskPrimitiveSize = 0.2;
   shapeOverlay: MaskHost['shapeOverlay'] = null;
+  /** navigation buttons (Ctrl `) */
+  showGizmo = true;
   /** View mode tool: Sample or one of the Annotate tools */
   viewTool: 'sample' | AnnotateTool = 'sample';
   private lastAnnotate: AnnotateTool = 'annotate';
@@ -691,6 +694,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       !paint && !mask && this.showToolbar && !this.host.close ? this.viewToolbar() : null,
       this.sampleBar(),
       this.showSidebar ? this.sidebar() : null,
+      navGizmo2D(this, this.showSidebar ? 270 : 0, this.showGizmo && !this.host.close, paint || (this.showToolSettings && (mask || this.image || this.result)) ? 36 : 8),
       this.host.area ? lastOpPanel(this) : null,
     ]);
   }
@@ -999,7 +1003,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       ...(this.paintMode() || this.host.close ? [] : [{ label: 'Tool Settings', checked: this.showToolSettings, action: () => ((this.showToolSettings = !this.showToolSettings), this.drawUI()) }]),
       { separator: true },
-      ...(this.host.close ? [] : [{ label: 'Show Metadata', checked: this.showMetadata, action: () => ((this.showMetadata = !this.showMetadata), this.drawUI()) }]),
+      ...(this.host.close ? [] : [{ label: 'Show Metadata', checked: this.showMetadata, action: () => ((this.showMetadata = !this.showMetadata), this.drawUI()) }, { label: 'Navigation Gizmo', checked: this.showGizmo, shortcut: 'Ctrl `', action: () => ((this.showGizmo = !this.showGizmo), this.drawUI()) }]),
       { separator: true },
       { label: 'Zoom In', op: 'image.view_zoom_in', shortcut: 'Numpad +' },
       { label: 'Zoom Out', op: 'image.view_zoom_out', shortcut: 'Numpad -' },
@@ -1703,6 +1707,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     if (e.code === 'KeyN' && !ctrl && !e.altKey && !e.shiftKey) return this.toggleSidebar(), true;
     if (e.code === 'KeyT' && !ctrl && !e.altKey && !e.shiftKey && !this.host.close) return ((this.showToolbar = !this.showToolbar), this.drawUI()), true;
     if (e.code === 'KeyZ' && !ctrl && e.altKey && e.shiftKey && !this.host.close) return this.toggleOverlays(), true;
+    if (e.code === 'Backquote' && ctrl && !e.altKey && !e.shiftKey && !this.host.close) return ((this.showGizmo = !this.showGizmo), this.drawUI()), true;
 
     if (e.key === 'Escape' && this.host.close && !app.modal) return this.host.close(), true;
     return false;

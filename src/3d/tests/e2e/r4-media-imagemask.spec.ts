@@ -214,3 +214,28 @@ test('image editor: text stored in a PNG shows as metadata', async ({ page }) =>
   await expect(page.locator('.ie-sidebar .panel-header', { hasText: 'Metadata' }).first()).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('image editor: navigation buttons zoom and pan; Ctrl ` hides them', async ({ page }) => {
+  const { errors, box } = await imageEditor(page);
+  const z0 = await page.evaluate(() => (window as any).app.hoverArea.editor.zoom);
+  const zb = (await page.locator('.ie-root .nav2d-zoom').boundingBox())!;
+  await page.mouse.move(zb.x + zb.width / 2, zb.y + zb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(zb.x + zb.width / 2 + 30, zb.y + zb.height / 2 - 30, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const z1 = await page.evaluate(() => (window as any).app.hoverArea.editor.zoom);
+  expect(z1).toBeGreaterThan(z0 * 1.2);
+  const pb = (await page.locator('.ie-root .nav2d-pan').boundingBox())!;
+  const off0 = await page.evaluate(() => (window as any).app.hoverArea.editor.offX);
+  await page.mouse.move(pb.x + pb.width / 2, pb.y + pb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(pb.x + pb.width / 2 - 40, pb.y + pb.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.offX)).not.toBe(off0);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.press('Control+Backquote');
+  await expect(page.locator('.ie-root .nav2d')).toHaveCount(0);
+  await expectNoErrors(errors);
+});

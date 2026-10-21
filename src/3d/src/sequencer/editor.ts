@@ -37,6 +37,7 @@ import { keysOf, keyValue, fadeProp } from './fades';
 import { keyFrames, KEY_PATHS } from './stripanim';
 import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
 import { prevWord, nextWord } from './textcursor';
+import { navGizmo2D } from '../render/final/navgizmo2d';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, isAnnotateTool, type AnnotateTool } from '../mask/annotate2d';
 
 export const RULER_H = 22;
@@ -134,6 +135,9 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   private sbEl: HTMLElement;
   private footerEl: HTMLElement;
   preview: PreviewRegion;
+  /** navigation buttons of the preview (Ctrl `) */
+  private pvNav: HTMLElement;
+  showGizmo = true;
 
   constructor(
     public area: Area,
@@ -145,7 +149,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     this.pvWrap = div('seq-pvwrap');
     this.pvToolbar = div('seq-toolbar seq-pv-toolbar');
     this.preview = new PreviewRegion(() => this.drawSidebarIfCache());
-    this.pvWrap.append(this.preview.el, this.pvToolbar);
+    this.pvNav = div('seq-pv-nav');
+    this.pvWrap.append(this.preview.el, this.pvToolbar, this.pvNav);
     this.grip = div('seq-split-grip');
     this.tlWrap = div('seq-tlwrap');
     this.toolbarEl = div('seq-toolbar');
@@ -538,7 +543,28 @@ export class SequencerEditor implements Editor, SeqEditorLike {
 
   // ------------------------------------------------------------------ toolbars, channels, sidebar
 
+  /** The preview's zoom / pan buttons. */
+  private drawPreviewNav() {
+    const pv = this.preview;
+    const host = {
+      el: pv.el,
+      zoomAt: (f: number, x?: number, y?: number) => {
+        const r = pv.el.getBoundingClientRect();
+        pv.zoomAt(f, r.left + (x ?? r.width / 2), r.top + (y ?? r.height / 2));
+        pv.request();
+      },
+      panBy: (dx: number, dy: number) => {
+        pv.panX += dx;
+        pv.panY += dy;
+        pv.fitted = false;
+        pv.draw();
+      },
+    };
+    patch(this.pvNav, [navGizmo2D(host, 0, this.showGizmo && pv.scopeMode === 'IMAGE')]);
+  }
+
   private drawToolbars() {
+    this.drawPreviewNav();
     if (this.preview.transformCage !== (this.pvTool === 'transform')) {
       this.preview.transformCage = this.pvTool === 'transform';
       this.preview.draw();
@@ -2358,6 +2384,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       this.showSeconds = !this.showSeconds;
       this.redraw();
       app.changed('ui');
+      return true;
+    }
+    if (e.code === 'Backquote' && ctrl && !e.shiftKey && !e.altKey && this.hasPreview()) {
+      this.showGizmo = !this.showGizmo;
+      this.drawPreviewNav();
       return true;
     }
     if (e.code === 'Tab' && ctrl && !e.shiftKey) {

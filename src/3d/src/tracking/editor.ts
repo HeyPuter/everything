@@ -41,6 +41,7 @@ import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, ty
 import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar, maskProportionalHeader } from '../mask/maskui';
 import { maskTable } from '../mask/types';
+import { navGizmo2D } from '../render/final/navgizmo2d';
 import { annotatePointerDown, annotateKeyHeld, annotateModeOf, drawAnnotations2D, type AnnotateTool, type Annotation2DOwner } from '../mask/annotate2d';
 
 export type ClipView = 'CLIP' | 'GRAPH' | 'DOPESHEET';
@@ -128,6 +129,8 @@ export class ClipEditor implements Editor {
   dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' | 'AVERAGE_ERROR' | 'START' | 'END' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
+  /** navigation buttons of the clip view (Ctrl `) */
+  showGizmo = true;
   /** Annotation toolbar tool in use (left button draws notes instead of editing markers) */
   annotateTool: AnnotateTool | null = null;
   /** graph: only the selected tracks' curves; graph / dope sheet: also hidden tracks */
@@ -1295,6 +1298,7 @@ export class ClipEditor implements Editor {
       if (e.code === 'KeyN') return this.toggleSidebar(), true;
       if (e.code === 'KeyT') return this.toggleToolbar(), true;
     }
+    if (e.code === 'Backquote' && ctrl && !e.altKey && !e.shiftKey && this.view === 'CLIP') return ((this.showGizmo = !this.showGizmo), this.drawUI()), true;
     if (e.code === 'Escape' && this.annotateTool) {
       this.annotateTool = null;
       this.drawUI();
@@ -1520,8 +1524,17 @@ export class ClipEditor implements Editor {
       const panel = lastOpPanel(this);
       if (panel) children.push(h('div', { key: 'redo', class: 'clip-redo', style: { left: `${this.showToolbar ? 236 : 6}px` } }, panel));
     }
+    if (this.view === 'CLIP') children.push(navGizmo2D(this, this.showSidebar ? 290 : 0, this.showGizmo));
     patch(this.ui, children);
     drawPatternPreviews(this);
+  }
+
+  /** Pan the clip view by screen pixels. */
+  panBy(dx: number, dy: number) {
+    this.offX += dx / this.zoom;
+    this.offY += dy / this.zoom;
+    this.fitted = true;
+    this.draw();
   }
 
   frameAllView() {

@@ -30,6 +30,7 @@ import './uvicons';
 import './uvstyle';
 import './uvsculpt';
 import { drawCustomRegion } from './uvregion';
+import { navGizmo2D } from '../../render/final/navgizmo2d';
 import type { StitchPreview } from './uvstitch';
 import { ANNOTATE_TOOLS, annotatePointerDown, annotateKeyHeld, annotateModeOf, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 
@@ -152,6 +153,8 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
   showModifiedEdges = false;
   stretchOpacity = 0.9;
   showGrid = true;
+  /** navigation buttons (Ctrl `) */
+  showGizmo = true;
   /** UDIM tile grid shown without a tiled image (columns, rows) */
   tileGrid: [number, number] = [1, 1];
   /** transforms land on pixel corners / centres; transforms keep UVs in the 0–1 square */
@@ -931,7 +934,7 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
   }
 
   drawUI() {
-    patch(this.ui, [this.showToolbar ? this.toolbar() : null, this.showSidebar ? this.sidebar() : null, lastOpPanel(this)]);
+    patch(this.ui, [this.showToolbar ? this.toolbar() : null, this.showSidebar ? this.sidebar() : null, navGizmo2D(this, this.showSidebar ? 270 : 0, this.showGizmo), lastOpPanel(this)]);
   }
 
   update(kinds?: Set<ChangeKind>) {
@@ -1542,6 +1545,7 @@ export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
     if (e.type !== 'keydown') return false;
     const ctrl = e.ctrlKey || e.metaKey;
     if (e.code === 'KeyZ' && !ctrl && e.altKey && e.shiftKey) return this.toggleOverlays(), true;
+    if (e.code === 'Backquote' && ctrl && !e.altKey && !e.shiftKey) return ((this.showGizmo = !this.showGizmo), this.drawUI()), true;
     if (!ctrl && !e.altKey && !e.shiftKey) {
       if (e.code === 'KeyT') return this.toggleToolbar(), true;
       if (e.code === 'KeyN') return this.toggleSidebar(), true;
