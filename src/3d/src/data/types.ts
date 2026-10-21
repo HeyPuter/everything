@@ -785,6 +785,8 @@ export interface FCurve {
   color?: Color;
   /** baked samples (frame, value) used when the curve has no keyframes */
   sampled_points?: [number, number][];
+  /** how automatic handles are computed: independently (NONE) or for a smooth acceleration (CONT_ACCEL) */
+  auto_smoothing?: 'NONE' | 'CONT_ACCEL';
   /** handle of the action slot this curve animates (actions with slots; the first slot when absent) */
   slot?: number;
   /** set when the curve's property could not be found during evaluation ("Revive Disabled F-Curves" clears it) */

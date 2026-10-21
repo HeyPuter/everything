@@ -25,31 +25,48 @@ export function newKeyframe(frame: number, value: number, interpolation: Keyfram
   };
 }
 
+/** Length of automatic handles as a fraction of the distance to the neighbouring key. */
+export const AUTO_HANDLE_FACTOR = 0.39041149;
+
+const isAuto = (t: Keyframe['handle_left_type']) => t === 'AUTO' || t === 'AUTO_CLAMPED';
+
+/** A key whose value is not between its neighbours' (gets flat clamped handles). */
+function isExtreme(k: Keyframe[], i: number) {
+  const prev = k[i - 1],
+    next = k[i + 1],
+    y = k[i].co[1];
+  if (!prev || !next) return false;
+  return (y >= prev.co[1] && y >= next.co[1]) || (y <= prev.co[1] && y <= next.co[1]);
+}
+
 /** Recalculate automatic/vector handles. Keyframes must be sorted. */
 export function calcHandles(fc: FCurve) {
   const k = fc.keyframe_points;
   const n = k.length;
+  const smooth = fc.auto_smoothing === 'CONT_ACCEL' ? continuousSlopes(k) : null;
   for (let i = 0; i < n; i++) {
     const cur = k[i],
       prev = k[i - 1],
       next = k[i + 1];
-    const autoL = cur.handle_left_type === 'AUTO' || cur.handle_left_type === 'AUTO_CLAMPED',
-      autoR = cur.handle_right_type === 'AUTO' || cur.handle_right_type === 'AUTO_CLAMPED';
+    const autoL = isAuto(cur.handle_left_type),
+      autoR = isAuto(cur.handle_right_type);
     const [x, y] = cur.co;
     const dxPrev = prev ? x - prev.co[0] : next ? next.co[0] - x : 1,
       dxNext = next ? next.co[0] - x : prev ? x - prev.co[0] : 1;
     if (autoL || autoR) {
+      const clamped = cur.handle_left_type === 'AUTO_CLAMPED' || cur.handle_right_type === 'AUTO_CLAMPED';
       let slope = 0;
-      if (prev && next) {
-        slope = (next.co[1] - prev.co[1]) / (next.co[0] - prev.co[0] || 1);
-        const clamped = cur.handle_left_type === 'AUTO_CLAMPED' || cur.handle_right_type === 'AUTO_CLAMPED';
-        if (clamped) {
-          // extremes get flat handles
-          if ((y >= prev.co[1] && y >= next.co[1]) || (y <= prev.co[1] && y <= next.co[1])) slope = 0;
-        }
-      } else slope = 0;
-      if (autoL) cur.handle_left = [x - dxPrev / 3, y - (slope * dxPrev) / 3];
-      if (autoR) cur.handle_right = [x + dxNext / 3, y + (slope * dxNext) / 3];
+      if (smooth && smooth[i] !== null) slope = smooth[i]!;
+      else if (prev && next) {
+        // the mean of the slopes of the two neighbouring segments
+        slope = ((y - prev.co[1]) / (x - prev.co[0] || 1) + (next.co[1] - y) / (next.co[0] - x || 1)) / 2;
+        // extremes get flat handles
+        if (clamped && isExtreme(k, i)) slope = 0;
+      }
+      // Continuous Acceleration places the handles at a third of each interval
+      const f = smooth ? 1 / 3 : AUTO_HANDLE_FACTOR;
+      if (autoL) cur.handle_left = [x - dxPrev * f, y - slope * dxPrev * f];
+      if (autoR) cur.handle_right = [x + dxNext * f, y + slope * dxNext * f];
       // clamp handles so they do not overshoot neighbours in clamped mode
       if (cur.handle_left_type === 'AUTO_CLAMPED' && prev) cur.handle_left[1] = clampBetween(cur.handle_left[1], y, prev.co[1], y);
       if (cur.handle_right_type === 'AUTO_CLAMPED' && next) cur.handle_right[1] = clampBetween(cur.handle_right[1], y, next.co[1], y);
@@ -65,6 +82,67 @@ export function calcHandles(fc: FCurve) {
     if (cur.handle_left_type === 'ALIGNED' && cur.handle_right_type !== 'ALIGNED') alignHandle(cur, 'left');
     if (cur.handle_right_type === 'ALIGNED' && cur.handle_left_type !== 'ALIGNED') alignHandle(cur, 'right');
   }
+}
+
+/**
+ * Handle Smoothing ▸ Continuous Acceleration: slopes of runs of automatic keys chosen so the
+ * curve's second derivative is continuous at every key (a tridiagonal system per run). The ends
+ * of the curve and clamped extremes are flat; keys with other handles keep their slope.
+ * Returns the slope per key (null where the key is not automatic).
+ */
+export function continuousSlopes(k: Keyframe[]): (number | null)[] {
+  const n = k.length;
+  const out: (number | null)[] = new Array(n).fill(null);
+  const auto = k.map((x) => isAuto(x.handle_left_type) && isAuto(x.handle_right_type) && x.interpolation === 'BEZIER');
+  // fixed slopes: curve ends, clamped extremes and non-automatic keys
+  const fixed: (number | null)[] = k.map((x, i) => {
+    if (!auto[i]) {
+      const hx = x.handle_right[0] - x.co[0];
+      return Math.abs(hx) > 1e-9 ? (x.handle_right[1] - x.co[1]) / hx : 0;
+    }
+    if (i === 0 || i === n - 1) return 0;
+    const clamped = x.handle_left_type === 'AUTO_CLAMPED' || x.handle_right_type === 'AUTO_CLAMPED';
+    return clamped && isExtreme(k, i) ? 0 : null;
+  });
+  for (let i = 0; i < n; i++) if (auto[i] && fixed[i] !== null) out[i] = fixed[i];
+  let i = 0;
+  while (i < n) {
+    if (fixed[i] !== null) {
+      i++;
+      continue;
+    }
+    // a run of free unknowns i..j-1 between fixed slopes at i-1 and j
+    let j = i;
+    while (j < n && fixed[j] === null) j++;
+    const m = j - i;
+    const a = new Float64Array(m),
+      b = new Float64Array(m),
+      c = new Float64Array(m),
+      d = new Float64Array(m);
+    for (let r = 0; r < m; r++) {
+      const q = i + r;
+      const hl = k[q].co[0] - k[q - 1].co[0] || 1e-6,
+        hr = k[q + 1].co[0] - k[q].co[0] || 1e-6;
+      a[r] = 1 / hl;
+      b[r] = 2 * (1 / hl + 1 / hr);
+      c[r] = 1 / hr;
+      d[r] = 3 * ((k[q].co[1] - k[q - 1].co[1]) / (hl * hl) + (k[q + 1].co[1] - k[q].co[1]) / (hr * hr));
+    }
+    d[0] -= a[0] * (fixed[i - 1] ?? 0);
+    d[m - 1] -= c[m - 1] * (fixed[j] ?? 0);
+    // Thomas algorithm
+    for (let r = 1; r < m; r++) {
+      const w = a[r] / b[r - 1];
+      b[r] -= w * c[r - 1];
+      d[r] -= w * d[r - 1];
+    }
+    const x = new Float64Array(m);
+    x[m - 1] = d[m - 1] / b[m - 1];
+    for (let r = m - 2; r >= 0; r--) x[r] = (d[r] - c[r] * x[r + 1]) / b[r];
+    for (let r = 0; r < m; r++) out[i + r] = x[r];
+    i = j;
+  }
+  return out;
 }
 
 function clampBetween(v: number, base: number, other: number, ref: number) {

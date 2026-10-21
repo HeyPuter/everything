@@ -90,6 +90,18 @@ export function drawFCurveSidebar(ed: GraphEditor, opts: { driver?: boolean } = 
             colorSwatch('g-col', fc.color ?? [1, 0.5, 0], (v, f) => ((fc.color = [v[0], v[1], v[2]]), commit(f, 'Change Color')), { linear: false }),
           )
         : null,
+      row(
+        'Handle Smoothing',
+        enumMenu(
+          'g-smooth',
+          [
+            { value: 'NONE', label: 'None', description: 'Automatic handles only look at the neighbouring keys' },
+            { value: 'CONT_ACCEL', label: 'Continuous Acceleration', description: 'Automatic handles are chosen together so the acceleration changes smoothly through the keys' },
+          ],
+          fc.auto_smoothing ?? 'NONE',
+          (v) => ((fc.auto_smoothing = v as FCurve['auto_smoothing']), calcHandles(fc), commit(true, 'Change Handle Smoothing', fc)),
+        ),
+      ),
     ]),
     k ? panel('g-key', 'Active Keyframe', () => keyframePanel(fc, k)) : panel('g-key', 'Active Keyframe', () => h('div', { class: 'sb-empty' }, 'No active keyframe on active F-Curve')),
   ];
