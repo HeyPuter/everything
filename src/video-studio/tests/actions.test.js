@@ -75,6 +75,15 @@ describe('split, delete and trim actions', () => {
     expect(store.time).toBe(s(2));
   });
 
+  it('moves the playhead to the kept part after Q with nothing selected too', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 4));
+    store.seek(s(3));
+    store.clearSelection();
+    actions.deleteLeft();
+    expect(spans(main())).toEqual([[0, 2], [2, 3]]);
+    expect(store.time).toBe(s(2));
+  });
+
   it('deletes right of the playhead on the base clip under it', () => {
     const { store, actions, main } = setup(clip('video', 0, 4));
     store.seek(s(1));

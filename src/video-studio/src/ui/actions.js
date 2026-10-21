@@ -423,11 +423,14 @@ export function createActions(ctx) {
     },
 
     deleteLeft() {
-      const ok = store.update('Delete left', (p) => T.trimToPlayhead(p, at(), 'left', sel(), store.opts) > 0);
-      if (ok && store.toggles.ripple) {
+      const t = at();
+      // The trimmed clip: the selected one, or the base clip under the playhead.
+      const target = sel().length ? sel() : [T.mainTrack(store.project)?.clips.find((c) => c.start < t && T.clipEnd(c) > t)?.id];
+      const ok = store.update('Delete left', (p) => T.trimToPlayhead(p, t, 'left', sel(), store.opts) > 0);
+      if (ok && store.toggles.ripple && target.length === 1) {
         // The kept part now starts where the deleted part began.
-        const s = store.selected;
-        if (s) store.seek(s.clip.start);
+        const kept = T.findClip(store.project, target[0]);
+        if (kept) store.seek(kept.clip.start);
       }
     },
 
