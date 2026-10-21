@@ -1,7 +1,8 @@
 // Generator (manual): derives how modifier / constraint settings are stored in .blend DNA from the
 // probe file written by tests/fixtures/blend/make_modifier_props.py, by diffing each probe
 // object's data struct against the untouched one, and writes src/io/blend/modprops.gen.ts.
-// Run: MODPROPS_BLEND=<probe.blend> MODPROPS_OUT=src/io/blend/modprops.gen.ts npx vitest run tests/unit/r4-io-modprops.gen.test.ts
+// Line rendering settings come from tests/fixtures/blend/make_lineset_props.py the same way.
+// Run: MODPROPS_BLEND=<modifiers.blend>,<linesets.blend> MODPROPS_OUT=src/io/blend/modprops.gen.ts npx vitest run tests/unit/r4-io-modprops.gen.test.ts
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { BlendFile, type BStruct } from '../../src/io/blend/reader';
@@ -9,8 +10,9 @@ import { BlendFile, type BStruct } from '../../src/io/blend/reader';
 const SRC = process.env.MODPROPS_BLEND ?? '';
 const OUT = process.env.MODPROPS_OUT ?? '';
 
+type Kind = 'MOD' | 'CON' | 'LINESET' | 'LINESTYLE' | 'FREESTYLE' | 'VIEWLAYER';
 interface Rec {
-  kind: 'MOD' | 'CON';
+  kind: Kind;
   rna: string;
   prop: string | null;
   type: string | null;
@@ -24,6 +26,7 @@ function flatten(s: BStruct, prefix = '', depth = 0, out: Flat = new Map()): Fla
   for (const f of s.st.fields) {
     const key = prefix + f.name;
     if (key === 'modifier' || key.startsWith('modifier.')) continue; // the shared header
+    if (key === 'id' || key.startsWith('id.') || /(^|\.)(session_uid|persistent_uid)$/.test(key)) continue; // ID header, per-session values
     if (f.nameInfo.pointer) out.set(key, `ptr:${s.ptr(f.name)}`);
     else if (f.structIndex >= 0) {
       if (depth < 3 && f.nameInfo.arrayLen <= 1) {
@@ -45,6 +48,7 @@ const eq = (a: unknown, b: unknown, tol = 1e-4): boolean => {
 
 interface Rule {
   f: string;
+  m?: number;
   e?: Record<number, string>;
   b?: number;
   k?: number;
@@ -53,12 +57,19 @@ interface Rule {
   n?: number;
 }
 
-it.skipIf(!SRC || !OUT)('derive modifier / constraint DNA rules', async () => {
+async function derive(SRC: string, out: Record<string, { rna: string; kind: string; props: Record<string, Rule> }>) {
   const file = await BlendFile.open(new Uint8Array(readFileSync(SRC)));
   const recs = JSON.parse(readFileSync(`${SRC}.json`, 'utf8')) as Record<string, Rec>;
   const obs = new Map<string, BStruct>();
   for (const ob of file.ids('OB')) obs.set(ob.idName, ob);
-  const dataOf = (name: string, kind: 'MOD' | 'CON'): BStruct | null => {
+  const scene = file.ids('SC')[0];
+  const layers = scene ? scene.list('view_layers', 10000) : [];
+  const styles = new Map(file.ids('LS').map((s) => [s.idName, s]));
+  const dataOf = (name: string, kind: Kind): BStruct | null => {
+    if (kind === 'LINESET') return layers[0]?.sub('freestyle_config')?.list('linesets', 10000).find((l) => l.str('name') === name) ?? null;
+    if (kind === 'LINESTYLE') return styles.get(name) ?? null;
+    if (kind === 'FREESTYLE') return layers.find((l) => l.str('name') === name)?.sub('freestyle_config') ?? null;
+    if (kind === 'VIEWLAYER') return layers.find((l) => l.str('name') === name) ?? null;
     const ob = obs.get(name);
     if (!ob) return null;
     if (kind === 'MOD') return ob.list('modifiers', 10)[0] ?? null;
@@ -78,13 +89,12 @@ it.skipIf(!SRC || !OUT)('derive modifier / constraint DNA rules', async () => {
     if (!groups.has(g)) groups.set(g, []);
     groups.get(g)!.push({ name, rec });
   }
-  const out: Record<string, { rna: string; kind: string; props: Record<string, Rule> }> = {};
   for (const [g, list] of groups) {
     const [kind, rna, prop] = g.split(':');
     const b = base.get(`${kind}:${rna}`);
     if (!b) continue;
     const entry = (out[b.dna] ??= { rna, kind, props: {} });
-    const flats = list.map((x) => ({ rec: x.rec, flat: (() => { const d = dataOf(x.name, kind as 'MOD'); return d ? flatten(d) : null; })() })).filter((x) => x.flat);
+    const flats = list.map((x) => ({ rec: x.rec, flat: (() => { const d = dataOf(x.name, kind as Kind); return d ? flatten(d) : null; })() })).filter((x) => x.flat);
     if (!flats.length) continue;
     const t = list[0].rec.type;
     const changed = (f: Flat) => [...f.keys()].filter((k) => !eq(f.get(k), b.flat.get(k), 0) && JSON.stringify(f.get(k)) !== JSON.stringify(b.flat.get(k)));
@@ -109,7 +119,18 @@ it.skipIf(!SRC || !OUT)('derive modifier / constraint DNA rules', async () => {
           e[v] = String(x.rec.value);
         }
         if (ok && Object.keys(e).length >= Math.min(2, flats.length)) {
-          rule = { f: k, e };
+          // values that differ only in some bits (an enum kept in a flags field): mask them
+          const raws = Object.keys(e).map(Number);
+          let mask = 0;
+          for (const r of raws) mask |= (r ^ raws[0]) >>> 0;
+          // only when the field also holds other settings (bits outside the enum in the untouched struct)
+          const baseRaw = Number(b.flat.get(k) ?? 0);
+          const shared = raws.reduce((a, r) => a & r, -1) & ~mask;
+          if (mask && shared && (baseRaw & ~mask) !== 0) {
+            const me: Record<number, string> = {};
+            for (const r of raws) me[r & mask] = e[r];
+            rule = { f: k, m: mask, e: me };
+          } else rule = { f: k, e };
           break;
         }
       }
@@ -162,16 +183,22 @@ it.skipIf(!SRC || !OUT)('derive modifier / constraint DNA rules', async () => {
     }
     if (rule) entry.props[prop] = rule;
   }
+}
+
+it.skipIf(!SRC || !OUT)('derive modifier / constraint / line rendering DNA rules', async () => {
+  const out: Record<string, { rna: string; kind: string; props: Record<string, Rule> }> = {};
+  for (const src of SRC.split(',')) await derive(src, out);
   const lines = [
     '// GENERATED (see tests/fixtures/blend/make_modifier_props.py and tests/unit/r4-io-modprops.gen.test.ts):',
     '// for every modifier and constraint type, one object per changed setting was written by a bpy script',
     "// and the DNA field that changed was recorded by reading the file back with this package's reader.",
-    '// Keyed by DNA struct name; f = field path, e = value -> enum identifier, b = bit mask (negative =',
+    '// Keyed by DNA struct name; f = field path, e = value -> enum identifier (m: of the masked bits), b = bit mask (negative =',
     '// inverted bit, 0 = whole value), k = stored value / property value, n = array length, s = string,',
     '// ptr = ID pointer.',
     'export interface DnaPropRule {',
     '  f: string;',
     '  e?: Record<number, string>;',
+    '  m?: number;',
     '  b?: number;',
     '  k?: number;',
     '  n?: number;',

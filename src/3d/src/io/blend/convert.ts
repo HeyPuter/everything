@@ -5,6 +5,7 @@ import type { RenderSettings, ArmatureData, Bone, CameraData, CollectionData, Cu
 import { defaultScene, emptyDocument, newArmature, newCamera, newCollection, newCurve, newLight, newMaterial, newObject, newWorld, uid } from '../../data/defaults';
 import { activateScene, ensureSceneIds } from '../../scenes/scenes';
 import { convertHairCurves, convertPointCloud, convertVolume } from './geometry';
+import { convertFreestyle, convertLineRender } from './lines';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -789,10 +790,14 @@ export function convertBlend(f: BlendFile): BlendImport {
       viewLayers.forEach((l, i) => {
         if (l === vl) return;
         const render: Partial<RenderSettings> = { use_view_layer: (l.num('flag') & 1) !== 0 };
+        const lineSettings = convertFreestyle(l, ctx);
+        if (lineSettings) render.freestyle_settings = lineSettings;
         doc.scene.view_layers![i].stored = { render, collections: layerFlagsOf(l) };
       });
     }
     if (vl) {
+      const lineSettings = convertFreestyle(vl, ctx);
+      if (lineSettings) doc.scene.render.freestyle_settings = lineSettings;
       for (const [cid, f] of Object.entries(layerFlagsOf(vl))) {
         const c = doc.collections[cid];
         c.exclude = !!f.exclude;
@@ -829,6 +834,7 @@ export function convertBlend(f: BlendFile): BlendImport {
       s.render.pixel_aspect_x = r.num('xasp') || 1;
       s.render.pixel_aspect_y = r.num('yasp') || 1;
       s.render.film_transparent = r.num('alphamode') === 1;
+      convertLineRender(r, s.render);
       const engine = r.str('engine');
       s.render.engine = engine === 'CYCLES' ? 'PATHTRACE' : engine === 'BLENDER_WORKBENCH' ? 'SOLID' : 'RASTER';
       const ps = r.num('psfra'),
