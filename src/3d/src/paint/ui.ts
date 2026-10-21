@@ -1241,6 +1241,22 @@ const wpMenu = (): MenuItem[] => [
 modeMenus.WEIGHT_PAINT = {
   ...modeMenus.WEIGHT_PAINT,
   header: () => [['Weights', wpMenu]],
+  // the vertex group being painted
+  headerExtra: () => {
+    const am = activeMeshData();
+    if (!am || !am.me.vertex_groups.length) return null;
+    return h(
+      'div',
+      { key: 'wp-group', style: { width: '130px', flex: 'none', marginLeft: '8px' } },
+      enumMenu(
+        'hdr-wp-group',
+        am.me.vertex_groups.map((g, i) => ({ value: String(i), label: g.name, icon: 'group_vertex' })),
+        String(am.ob.vertex_group_active_index ?? 0),
+        (x) => ((am.ob.vertex_group_active_index = Number(x)), invalidatePaintAttributes(), app.pushUndo('Active Vertex Group'), app.changed('doc')),
+        { tip: 'Vertex group to paint' },
+      ),
+    );
+  },
 };
 
 modeMenus.TEXTURE_PAINT = {
