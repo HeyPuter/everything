@@ -2,6 +2,7 @@
 const css = /* css */ `
 .seq-proxy-sizes { display: flex; flex-wrap: wrap; gap: 2px 10px; }
 .seq-pv-nav { position: absolute; top: 0; right: 0; }
+.seq-tool-name { display: flex; align-items: center; gap: 6px; padding: 4px 10px; color: #e6e7e8; }
 .seq-pv-nav .nav2d { top: 8px; }
 .seq-ov-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
 .seq-ov-cols > div { display: flex; flex-direction: column; min-width: 0; }

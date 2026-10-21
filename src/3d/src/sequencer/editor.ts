@@ -5,7 +5,8 @@ import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import type { Area, Editor } from '../ui/screen';
 import { openMenu, openPopover, type MenuItem } from '../ui/menu';
-import { checkbox, enumMenu, enumRow, numberField } from '../ui/widgets';
+import { checkbox, enumMenu, enumRow, numberField, panel } from '../ui/widgets';
+import { splitRow } from '../ui/props';
 import { menuButton } from '../animation/animeditor';
 import { playbackFooter } from '../animation/footer';
 import { frameStep } from '../animation/view2d';
@@ -16,8 +17,8 @@ import { seqEditor, seqList, seqChannels, hasEditor, activeStrip, setActive, isL
 import { T, stripColor, cssColor, typeColor } from './theme';
 import { selectStrip, deselectAll, renameChannel } from './ops';
 import { startSlide, startSlip, startRetimingKeyMove } from './transform';
-import { startPreviewTransform, setCursorPoint, pivotPoint } from './pvtransform';
-import { pivotItems, PIVOT_ICONS } from './previewops';
+import { startPreviewTransform, setCursorPoint, pivotPoint, PIVOTS, type Pivot } from './pvtransform';
+import { pivotItems, PIVOT_ICONS, setPivot } from './previewops';
 import { retimable, segmentSpeed, mapContent } from './retime';
 import { addMenu, viewMenu, selectMenu, stripMenu, imageMenu, contextMenu, markerMenu } from './menus';
 import { stripTab, modifiersTab, cacheTab, viewTab, previewGuidePanels } from './sidebar';
@@ -700,9 +701,67 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (this.showSidebar && this.sidebarTab === 'cache') this.drawSidebar();
   }
 
+  /** Sidebar ▸ Tool: the active tools of the timeline and the preview, with their settings. */
+  private toolTab(): Child {
+    const timelineTools: Record<string, [string, string]> = {
+      select_box: ['Select Box', 'select_box'],
+      select_circle: ['Select Circle', 'select_circle'],
+      select_lasso: ['Select Lasso', 'select_lasso'],
+      blade: ['Blade', 'seq_blade'],
+      slip: ['Slip', 'seq_slip'],
+    };
+    const previewTools: Record<string, [string, string]> = {
+      select: ['Select Box', 'select_box'],
+      select_circle: ['Select Circle', 'select_circle'],
+      select_lasso: ['Select Lasso', 'select_lasso'],
+      cursor: ['Cursor', 'cursor'],
+      move: ['Move', 'transform_move'],
+      rotate: ['Rotate', 'transform_rotate'],
+      scale: ['Scale', 'transform_scale'],
+      transform: ['Transform', 'transform'],
+      sample: ['Sample', 'eyedropper'],
+    };
+    const row = (label: string, ic: string) => h('div', { class: 'seq-tool-name' }, icon(ic), label);
+    const out: Child[] = [];
+    if (this.hasTimeline()) {
+      const [label, ic] = timelineTools[this.tool] ?? ['Select Box', 'select_box'];
+      out.push(
+        panel('seq-tool-timeline', 'Active Tool (Sequencer)', () => [
+          row(label, ic),
+          this.tool === 'blade' ? h('div', { class: 'sb-hint' }, 'Click splits the strip under the pointer; dragging cuts out a box (Shift keeps the gap, Alt ignores connections).') : null,
+          this.tool === 'slip' ? h('div', { class: 'sb-hint' }, 'Drag a strip to slip its content; Shift is precise and C toggles clamping.') : null,
+        ]),
+      );
+    }
+    if (this.hasPreview()) {
+      const ann = isAnnotateTool(this.pvTool);
+      const [label, ic] = ann ? ['Annotate', 'annotate'] : (previewTools[this.pvTool] ?? ['Select Box', 'select_box']);
+      const transform = ['move', 'rotate', 'scale', 'transform'].includes(this.pvTool);
+      out.push(
+        panel('seq-tool-preview', 'Active Tool (Preview)', () => [
+          row(label, ic),
+          transform
+            ? splitRow(
+                'Pivot Point',
+                enumMenu(
+                  'seq-tool-pivot',
+                  PIVOTS.map(([value, l]) => ({ value, label: l, icon: PIVOT_ICONS[value] })),
+                  pivotPoint(),
+                  (v) => setPivot(v as Pivot),
+                ),
+              )
+            : null,
+        ]),
+      );
+      if (ann) out.push(annotationsPanel('seq-tool', this.preview));
+    }
+    return out;
+  }
+
   drawSidebar() {
     if (!this.showSidebar) return;
     const tabs = [
+      { id: 'tool', label: 'Tool', draw: () => this.toolTab() },
       { id: 'strip', label: 'Strip', draw: stripTab },
       { id: 'modifiers', label: 'Modifiers', draw: modifiersTab },
       {
