@@ -9723,7 +9723,7 @@ export function createEditor({
           )(),
       },
       ...REVIEW_STATES.map((state) =>
-        el('option', { value: state, selected: (entry.state?.state || 'None') === state }, state),
+        el('option', { value: state, selected: (entry.state || 'None') === state }, state),
       ),
     );
     const replyText = el('textarea', {
