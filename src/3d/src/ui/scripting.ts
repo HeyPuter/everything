@@ -4,7 +4,7 @@ import { app, onAppReady } from '../app/app';
 import { Context } from '../scripting/api';
 import { mixin, pyError } from '../scripting/rna';
 import { shellRef } from './shellref';
-import { WORKSPACE_MODES, setWorkspaceMode } from './workspacepanel';
+import { WORKSPACE_MODES, setWorkspaceMode } from './workspacemodes';
 import type { Workspace } from './screen';
 
 /** A workspace as scripts see it (live: reads and writes go to the workspace tab). */

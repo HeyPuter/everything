@@ -5,28 +5,10 @@ import { checkbox, enumMenu, panel } from './widgets';
 import { splitRow } from './props';
 import { app } from '../app/app';
 import { shellRef } from './shellref';
+import { WORKSPACE_MODES, setWorkspaceMode } from './workspacemodes';
+
+export { WORKSPACE_MODES, setWorkspaceMode };
 import type { Workspace } from './screen';
-
-/** Object modes a workspace can switch to when activated. */
-export const WORKSPACE_MODES: [NonNullable<Workspace['mode']>, string][] = [
-  ['OBJECT', 'Object Mode'],
-  ['EDIT', 'Edit Mode'],
-  ['SCULPT', 'Sculpt Mode'],
-  ['VERTEX_PAINT', 'Vertex Paint'],
-  ['WEIGHT_PAINT', 'Weight Paint'],
-  ['TEXTURE_PAINT', 'Texture Paint'],
-  ['POSE', 'Pose Mode'],
-  ['PAINT_GREASE_PENCIL', 'Draw Mode'],
-];
-
-/** Set the mode the active (or named) workspace switches to. */
-export function setWorkspaceMode(mode: Workspace['mode'], name = shellRef.current?.active) {
-  const ws = shellRef.current?.workspaces.find((w) => w.name === name);
-  if (!ws) return false;
-  ws.mode = mode === 'OBJECT' ? undefined : mode;
-  app.changed('ui');
-  return true;
-}
 
 /** Workspace settings rows for the active workspace. */
 export function workspaceRows(idPrefix = 'ws'): VNode[] {
