@@ -148,7 +148,7 @@ registerOperators([
 // Alt+right-click anywhere, or Alt+click with a select tool
 viewportExtensions.push((v) => {
   const down = (e: PointerEvent) => {
-    if (!e.altKey || app.modal) return;
+    if (e.defaultPrevented || !e.altKey || app.modal) return;
     const mode = app.doc.mode;
     if (mode !== 'VERTEX_PAINT' && mode !== 'WEIGHT_PAINT' && mode !== 'TEXTURE_PAINT') return;
     const face = faceMaskOn(),
@@ -156,7 +156,7 @@ viewportExtensions.push((v) => {
     if (!face && !vert) return;
     if (!(e.button === 2 || (e.button === 0 && isSelectTool(activeTools[mode])))) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     const ctrl = e.ctrlKey || e.metaKey;
     app.run(face ? 'paint.face_select_loop' : 'paint.vert_select_loop', { extend: e.shiftKey, select: !(e.shiftKey && ctrl) }, { event: { x: e.clientX, y: e.clientY }, area: v.area as never });
   };

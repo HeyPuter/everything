@@ -442,9 +442,9 @@ paintHooks.brushPointer.push((v, e) => {
 // RMB: select curve points
 viewportExtensions.push((v) => {
   const down = (e: PointerEvent) => {
-    if (e.button !== 2 || app.modal || !isBrushMode(app.doc.mode) || !curveMethod() || !activePaintCurve()) return;
+    if (e.defaultPrevented || e.button !== 2 || app.modal || !isBrushMode(app.doc.mode) || !curveMethod() || !activePaintCurve()) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     app.run('paintcurve.select', { extend: e.shiftKey }, { event: { x: e.clientX, y: e.clientY }, area: v.area as never });
   };
   v.el.addEventListener('pointerdown', down, true);

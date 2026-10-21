@@ -279,13 +279,13 @@ registerOperators([
 // right mouse in a paint mode with a stencil: control it instead of opening the context menu
 viewportExtensions.push((v) => {
   const down = (e: PointerEvent) => {
-    if (e.button !== 2 || app.modal || !isBrushMode(app.doc.mode)) return;
+    if (e.defaultPrevented || e.button !== 2 || app.modal || !isBrushMode(app.doc.mode)) return;
     const b = brushNow();
     const mask = e.altKey;
     // with the Curve stroke method the right button selects curve points
     if (!isStencil(b, mask) || b.stroke_method === 'CURVE') return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     const mode = e.shiftKey ? 'SCALE' : e.ctrlKey || e.metaKey ? 'ROTATION' : 'TRANSLATION';
     app.run('brush.stencil_control', { mode, texmode: mask ? 'SECONDARY' : 'PRIMARY' }, { event: { x: e.clientX, y: e.clientY }, area: v.area as never });
   };
