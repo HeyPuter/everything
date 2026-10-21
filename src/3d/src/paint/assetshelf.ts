@@ -227,6 +227,10 @@ if (typeof document !== 'undefined' && !document.getElementById('paint-shelf-sty
 .paint-palette { display: flex; flex-wrap: wrap; gap: 3px; }
 .pp-swatch, .pp-add { width: 22px; height: 22px; border-radius: 4px; border: 1px solid rgba(0, 0, 0,0.5); cursor: pointer; padding: 0; }
 .pp-swatch.on { outline: 2px solid #ffffff; outline-offset: -1px; }
+.pbt-head { display: flex; align-items: center; gap: 4px; }
+.pbt-head .pbt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pbt-menu { width: 22px; height: 20px; display: flex; align-items: center; justify-content: center; padding: 0; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--text, #dedfe1); cursor: pointer; }
+.pbt-menu:hover { background: rgba(255, 255, 255,0.08); }
 .pp-wrap { display: flex; flex-direction: column; gap: 4px; }
 .pp-tools { display: flex; align-items: center; gap: 2px; }
 .pp-spacer { flex: 1; }

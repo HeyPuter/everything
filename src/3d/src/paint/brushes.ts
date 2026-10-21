@@ -3,6 +3,7 @@
 import type { BrushData, DocumentData, Mode } from '../data/types';
 import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
+import { defaultBrushes } from '../data/defaults';
 import type { Falloff } from './math';
 import type { StencilSettings } from './brushtex';
 
@@ -206,6 +207,14 @@ function extraBrushes(): PaintBrush[] {
       blend: 'MIX',
     }),
   ];
+}
+
+/** Factory settings of a built-in brush (null for other brushes). */
+export function factoryBrush(id: string): PaintBrush | null {
+  const b = (defaultBrushes()[id] as PaintBrush | undefined) ?? extraBrushes().find((x) => x.id === id);
+  if (!b) return null;
+  fillDefaults(b);
+  return b;
 }
 
 /** Settings each brush should have even when loaded from an older document. */

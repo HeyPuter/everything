@@ -28,6 +28,7 @@ import './palette';
 import './stencil';
 import './paintcurve';
 import './selloop';
+import './brushassets';
 import './scripting';
 import './selmask';
 import './sculptmenus';

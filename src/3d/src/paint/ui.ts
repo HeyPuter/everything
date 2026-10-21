@@ -35,6 +35,7 @@ import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
 import { paintHooks } from './painthooks';
 import { paintCurvesOf } from './paintcurve';
+import { brushOriginNote, brushSpecialsMenu } from './brushassets';
 import { mapModes, maskTextureActive, sampleTex, sampleTexRGBA, setImageCanvasSource, textureActive, TEX_SOURCES, type BrushTexture } from './brushtex';
 import { imageCanvas, imageReady } from '../render/images';
 import { paletteTemplate, palettesOf, paletteUsers } from './palette';
@@ -757,14 +758,32 @@ function sculptOptionRows(): Child[] {
 
 function brushTile(b: PaintBrush, mode: BrushMode): Child {
   const info = brushInfo(b.id);
+  const preview = (b as PaintBrush & { asset_data?: { preview?: string } }).asset_data?.preview;
+  const note = brushOriginNote(b);
   return h(
     'div',
     { class: 'paint-brush-tile' },
-    h('img', { src: brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
+    h('img', { src: preview || brushThumb(b.sculpt_tool, mode, 192), width: 96, height: 96, alt: '', draggable: false }),
     h(
       'div',
       { class: 'pbt-side' },
-      h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+      h(
+        'div',
+        { class: 'pbt-head' },
+        h('div', { class: 'pbt-name' }, info?.name ?? b.name),
+        h(
+          'button',
+          {
+            class: 'pbt-menu',
+            'data-tip': 'Brush Specials',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              openMenu(brushSpecialsMenu(), e.currentTarget as HTMLElement);
+            },
+          },
+          icon('down_arrow_hlt'),
+        ),
+      ),
       enumMenu(
         'pt-brush',
         BRUSH_LISTS[mode].filter((x): x is NonNullable<typeof x> => !!x).map((x) => ({ value: x.id, label: x.name, icon: x.icon })),
@@ -772,7 +791,7 @@ function brushTile(b: PaintBrush, mode: BrushMode): Child {
         (id) => (setActiveTool(id), changed()),
         { tip: 'Active brush (Space: brush shelf)' },
       ),
-      info ? h('div', { class: 'pbt-desc' }, info.description) : null,
+      info ? h('div', { class: 'pbt-desc' }, info.description) : note ? h('div', { class: 'pbt-desc' }, note) : null,
     ),
   );
 }
