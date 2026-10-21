@@ -981,6 +981,29 @@ function buildStair(ctx, el) {
       b.prism([...outer, ...inner], [], z - tt, z, col);
     }
     b.cylinder(s.c, SPIRAL_CORE, g.base, g.base + g.risers * g.riserHeight + 900, materialColor(ctx, 'mat-steel'), { segments: 16 });
+    if (el.railings !== false) {
+      // A helical handrail round the outer edge, on a baluster per tread.
+      const rail = materialColor(ctx, 'mat-steel');
+      const rr = s.rout - 40;
+      const at = (t) => {
+        const a = s.a0 + s.step * t;
+        return [s.c[0] + Math.cos(a) * rr, s.c[1] + Math.sin(a) * rr];
+      };
+      const zr = (t) => g.base + t * g.riserHeight + 900;
+      const segs = s.treads * 3;
+      for (let k = 0; k < segs; k++) {
+        const t0 = 0.5 + ((s.treads - 0.5) * k) / segs;
+        const t1 = 0.5 + ((s.treads - 0.5) * (k + 1)) / segs;
+        const p0 = at(t0);
+        const d = sub(at(t1), p0);
+        const L = len(d);
+        if (L < 1) continue;
+        const dir = scale(d, 1 / L);
+        const prof = [[0, zr(t0) - 40], [L, zr(t1) - 40], [L, zr(t1)], [0, zr(t0)]];
+        b.extrudeProfile(prof, add(p0, scale(perp(dir), -20)), dir, 40, rail);
+      }
+      for (let i = 0; i < s.treads; i++) b.cylinder(at(i + 0.5), 12, g.base + (i + 1) * g.riserHeight, zr(i + 0.5), rail, { segments: 8, edges: false });
+    }
     return b.build();
   }
   for (const f of g.flights) buildFlight(b, el, type, f, g, th, col, ctx);

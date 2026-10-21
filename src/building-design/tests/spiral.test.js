@@ -18,6 +18,17 @@ describe('spiral stairs', () => {
     expect(Math.max(-m.bounds.min[0], m.bounds.max[0], -m.bounds.min[1], m.bounds.max[1])).toBeLessThanOrEqual(SPIRAL_CORE + 900 + 1);
   });
 
+  it('carry a handrail above the treads unless it is turned off', () => {
+    const { doc, add, L1, L2 } = project();
+    const type = doc.all('stairType')[0];
+    const st = add({ kind: 'stair', typeId: type.id, levelId: L1.id, topLevelId: L2.id, a: [0, 0], b: [1000, 0], width: 900, shape: 'spiral' });
+    const scene = new Scene(doc);
+    const withRail = scene.mesh(doc.get(st.id)).pos.length;
+    doc.transact('no rails', () => doc.update(st.id, { railings: false }));
+    const without = scene.mesh(doc.get(st.id)).pos.length;
+    expect(withRail).toBeGreaterThan(without);
+  });
+
   it('turn the other way when asked', () => {
     const { doc, add, L1, L2 } = project();
     const type = doc.all('stairType')[0];
