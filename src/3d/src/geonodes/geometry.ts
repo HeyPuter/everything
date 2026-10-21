@@ -351,6 +351,10 @@ export class GeometrySet {
   greasePencil?: import('./curves/gpdata').GreasePencilComponent;
   /** Volume grids (src/volume/component.ts); passed through nodes that do not handle them */
   volume?: import('../volume/component').VolumeComponent;
+  /** name given by Set Geometry Name (kept by nodes that copy the set) */
+  name?: string;
+  /** bundle attached by Set Geometry Bundle */
+  bundle?: import('./bundles/values').BundleValue;
   static empty() {
     return new GeometrySet();
   }
@@ -369,6 +373,8 @@ export class GeometrySet {
     const g = new GeometrySet(this.mesh, this.points, this.curves, this.instances);
     g.greasePencil = this.greasePencil;
     g.volume = this.volume;
+    g.name = this.name;
+    g.bundle = this.bundle;
     const k = c?.kind ?? kind;
     if (k === 'MESH') g.mesh = (c as MeshComponent) ?? undefined;
     else if (k === 'POINTS') g.points = (c as PointsComponent) ?? undefined;
@@ -385,7 +391,13 @@ export class GeometrySet {
     }
     g.greasePencil = this.greasePencil;
     g.volume = this.volume;
+    g.name = this.name;
+    g.bundle = this.bundle;
     return g;
+  }
+  /** A copy of the set (components are shared). */
+  clone(): GeometrySet {
+    return this.with(this.mesh ?? null, 'MESH');
   }
   setComponent(c: Component) {
     if (c.kind === 'MESH') this.mesh = c;

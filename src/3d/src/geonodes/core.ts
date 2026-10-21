@@ -6,6 +6,8 @@ import './nodes/curve';
 import './nodes/point';
 import './nodes/utilities';
 import './nodes/textures';
+import './nodes/imagetex';
+import './nodes/gnmisc';
 import './nodes/output';
 import './nodes/vieweritems';
 import './nodes/gnfields';
