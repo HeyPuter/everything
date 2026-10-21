@@ -15,6 +15,7 @@ import { fontColorCss } from '../core/font-color.js';
 import { fontStack, fontKeyFor, borderCss, getLocale, defaultAlign } from '../core/format.js';
 import { readsRightToLeft } from '../core/bidi.js';
 import { cellLayoutText, wrapLines } from '../core/textfit.js';
+import { codeColor } from '../core/numfmt.js';
 import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
 import { conditionalFontStyle } from '../core/style-values.js';
@@ -408,7 +409,9 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         g.save();
         const clipX = jl === j ? cx : xs[jl], clipEnd = jr === j ? cx + cw : xs[jr + 1];
         g.beginPath(); g.rect(clipX, cy, clipEnd - clipX, ch); g.clip();
-        g.fillStyle = fontColorCss(cf?.color || st.color) || '#000000';
+        // A format's own colour ([Red] negatives) as the print inks it, under conditional formatting's.
+        const formatColor = st.fmt === 'custom' && st.code ? codeColor(value, st.code, wb.colorPalette) : null;
+        g.fillStyle = fontColorCss(cf?.color || formatColor || st.color) || '#000000';
         g.font = `${st.italic ? 'italic ' : ''}${st.bold ? '700' : '400'} ${Math.max(2, (st.size || 13) * s)}px ${fontStack(st.font) || 'sans-serif'}`;
         g.textAlign = align;
         g.textBaseline = st.valign === 'top' ? 'top' : st.valign === 'middle' ? 'middle' : 'bottom';
