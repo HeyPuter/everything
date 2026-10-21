@@ -97,7 +97,15 @@ def add_record(kind, rna_type, prop, ptype, value, default):
     records[name] = {'kind': kind, 'rna': rna_type, 'prop': prop, 'type': ptype, 'value': value, 'default': default}
     return name
 
-def new_holder(name):
+GP_HOLDER = set()
+
+def new_holder(name, gp=False):
+    if gp:
+        data = bpy.data.grease_pencils.new(name)
+        ob = bpy.data.objects.new(name, data)
+        ob.vertex_groups.new(name='S0x')
+        sc.collection.objects.link(ob)
+        return ob
     me = bpy.data.meshes.new(name)
     me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
     me.vertex_colors.new() if hasattr(me, 'vertex_colors') else None
@@ -109,14 +117,19 @@ def new_holder(name):
 # ---- modifiers
 mod_types = [i.identifier for i in bpy.types.Modifier.bl_rna.properties['type'].enum_items]
 for t in mod_types:
-    probe_ob = new_holder('probe')
-    try:
-        m = probe_ob.modifiers.new('m', t)
-    except Exception:
+    m = None
+    for gp in (False, True):
+        probe_ob = new_holder('probe', gp)
+        try:
+            m = probe_ob.modifiers.new('m', t)
+        except Exception:
+            m = None
+        if m is not None:
+            if gp:
+                GP_HOLDER.add(t)
+            break
         bpy.data.objects.remove(probe_ob)
-        continue
     if m is None:
-        bpy.data.objects.remove(probe_ob)
         continue
     props = [p for p in m.bl_rna.properties if p.identifier not in SKIP and not p.is_readonly]
     defaults = {}
@@ -128,13 +141,14 @@ for t in mod_types:
             pass
     bpy.data.objects.remove(probe_ob)
     # untouched instance
+    gp = t in GP_HOLDER
     name = add_record('MOD', t, None, None, None, None)
-    ob = new_holder(name)
+    ob = new_holder(name, gp)
     ob.modifiers.new('m', t)
     for i, p in enumerate(props):
         if p.type == 'POINTER':
             name = f'O{count + 1}'
-            ob = new_holder(name)
+            ob = new_holder(name, gp)
             mm = ob.modifiers.new('m', t)
             v = pointer_for(mm, p)
             if v is None:
@@ -142,13 +156,13 @@ for t in mod_types:
                 continue
             add_record('MOD', t, p.identifier, 'POINTER', v, None)
             continue
-        tmp = new_holder('tmp')
+        tmp = new_holder('tmp', gp)
         tm = tmp.modifiers.new('m', t)
         holder_vals = probe_values(tm, p, i)
         bpy.data.objects.remove(tmp)
         for v in holder_vals:
             name = f'O{count + 1}'
-            ob = new_holder(name)
+            ob = new_holder(name, gp)
             mm = ob.modifiers.new('m', t)
             try:
                 setattr(mm, p.identifier, v)

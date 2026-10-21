@@ -6,6 +6,7 @@ import { defaultScene, emptyDocument, newArmature, newCamera, newCollection, new
 import { activateScene, ensureSceneIds } from '../../scenes/scenes';
 import { convertHairCurves, convertPointCloud, convertVolume } from './geometry';
 import { convertFreestyle, convertLineRender } from './lines';
+import { convertGPStyle, convertGreasePencil } from './greasepencil';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -186,6 +187,7 @@ export function convertBlend(f: BlendFile): BlendImport {
     } else {
       mat.blend_method = (({ 0: 'OPAQUE', 3: 'CLIP', 4: 'HASHED', 5: 'BLEND' }) as Record<number, MaterialData['blend_method']>)[ma.num('blend_method')] ?? 'OPAQUE';
     }
+    convertGPStyle(ma, ctx, mat);
     doc.materials[mat.id] = mat;
     if (ma.ref('adt')) warn.add('Material animation not imported', mat.name);
     return mat.id;
@@ -460,6 +462,9 @@ export function convertBlend(f: BlendFile): BlendImport {
       case 29:
         type = 'VOLUME';
         break;
+      case 30:
+        type = 'GREASEPENCIL';
+        break;
       case 0:
         break;
       default:
@@ -505,6 +510,10 @@ export function convertBlend(f: BlendFile): BlendImport {
         const cv = convertHairCurves(d, ctx);
         (doc.hair_curves ??= {})[cv.id] = cv;
         id = cv.id;
+      } else if (type === 'GREASEPENCIL' && d.type === 'GreasePencil') {
+        const gp = convertGreasePencil(d, ctx);
+        (doc.grease_pencils ??= {})[gp.id] = gp;
+        id = gp.id;
       } else if (type === 'VOLUME' && d.type === 'Volume') {
         const vo = convertVolume(d, ctx);
         (doc.volumes ??= {})[vo.id] = vo;

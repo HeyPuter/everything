@@ -42,7 +42,7 @@ export function readRule(d: BStruct, r: DnaPropRule, ctx: Ctx, o: (s: BStruct | 
   }
   if (r.s) return at.s.str(at.name);
   if (r.n) return at.s.nums(at.name, r.n);
-  const v = at.s.num(at.name);
+  const v = r.i !== undefined ? (at.s.nums(at.name)[r.i] ?? 0) : at.s.num(at.name);
   if (r.e) return r.e[r.m ? v & r.m : v];
   if (r.b !== undefined) return r.b === 0 ? v !== 0 : r.b > 0 ? (v & r.b) !== 0 : (v & -r.b) === 0;
   if (r.k) return v / r.k;

@@ -1,7 +1,8 @@
 // Generator (manual): derives how modifier / constraint settings are stored in .blend DNA from the
 // probe file written by tests/fixtures/blend/make_modifier_props.py, by diffing each probe
 // object's data struct against the untouched one, and writes src/io/blend/modprops.gen.ts.
-// Line rendering settings come from tests/fixtures/blend/make_lineset_props.py the same way.
+// Line rendering settings come from tests/fixtures/blend/make_lineset_props.py the same way, Grease
+// Pencil layers and materials from tests/fixtures/blend/make_gp_props.py.
 // Run: MODPROPS_BLEND=<modifiers.blend>,<linesets.blend> MODPROPS_OUT=src/io/blend/modprops.gen.ts npx vitest run tests/unit/r4-io-modprops.gen.test.ts
 import { it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,7 @@ import { BlendFile, type BStruct } from '../../src/io/blend/reader';
 const SRC = process.env.MODPROPS_BLEND ?? '';
 const OUT = process.env.MODPROPS_OUT ?? '';
 
-type Kind = 'MOD' | 'CON' | 'LINESET' | 'LINESTYLE' | 'FREESTYLE' | 'VIEWLAYER';
+type Kind = 'MOD' | 'CON' | 'LINESET' | 'LINESTYLE' | 'FREESTYLE' | 'VIEWLAYER' | 'GPLAYER' | 'GPMAT';
 interface Rec {
   kind: Kind;
   rna: string;
@@ -49,6 +50,7 @@ const eq = (a: unknown, b: unknown, tol = 1e-4): boolean => {
 interface Rule {
   f: string;
   m?: number;
+  i?: number;
   e?: Record<number, string>;
   b?: number;
   k?: number;
@@ -65,7 +67,23 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
   const scene = file.ids('SC')[0];
   const layers = scene ? scene.list('view_layers', 10000) : [];
   const styles = new Map(file.ids('LS').map((s) => [s.idName, s]));
+  const gpLayers = new Map<string, BStruct>();
+  const walkGp = (g: BStruct) => {
+    for (const c of g.list('children', 100000)) {
+      const b = c.sub('base');
+      const nm = b ? file.cstringAt(b.ptr('name'), 256, b.block) : null;
+      if (c.type === 'GreasePencilLayer' && nm) gpLayers.set(nm, c);
+      else if (c.type === 'GreasePencilLayerTreeGroup') walkGp(c);
+    }
+  };
+  for (const gp of file.ids('GP')) {
+    const root = gp.ref('root_group_ptr');
+    if (root) walkGp(root);
+  }
+  const mats = new Map(file.ids('MA').map((m) => [m.idName, m]));
   const dataOf = (name: string, kind: Kind): BStruct | null => {
+    if (kind === 'GPLAYER') return gpLayers.get(name) ?? null;
+    if (kind === 'GPMAT') return mats.get(name)?.ref('gp_style') ?? null;
     if (kind === 'LINESET') return layers[0]?.sub('freestyle_config')?.list('linesets', 10000).find((l) => l.str('name') === name) ?? null;
     if (kind === 'LINESTYLE') return styles.get(name) ?? null;
     if (kind === 'FREESTYLE') return layers.find((l) => l.str('name') === name)?.sub('freestyle_config') ?? null;
@@ -158,6 +176,16 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
       const v = Number(x.rec.value);
       for (const k of changed(x.flat!)) {
         const got = x.flat!.get(k);
+        if (Array.isArray(got)) {
+          // one element of an array field (e.g. hsv[3])
+          const base = b.flat.get(k) as number[] | undefined;
+          const idx = got.findIndex((g, i) => eq(g as number, v) && !(base && eq(base[i], v)));
+          if (idx >= 0) {
+            rule = { f: k, i: idx };
+            break;
+          }
+          continue;
+        }
         if (typeof got !== 'number') continue;
         if (eq(got, v)) {
           rule = { f: k };
@@ -179,7 +207,18 @@ async function derive(SRC: string, out: Record<string, { rna: string; kind: stri
       for (const k of changed(x.flat!)) if (x.flat!.get(k) === x.rec.value) rule = { f: k, s: true };
     } else if (t === 'POINTER') {
       const x = flats[0];
-      for (const k of changed(x.flat!)) if (String(x.flat!.get(k)).startsWith('ptr:') && x.flat!.get(k) !== 'ptr:0') rule = { f: k, ptr: true };
+      // the field pointing at an ID block of the kind the probe assigned
+      const want = /Collection/.test(String(x.rec.value)) ? 'GR' : /Texture/.test(String(x.rec.value)) ? 'TE' : /Image/.test(String(x.rec.value)) ? 'IM' : 'OB';
+      for (const k of changed(x.flat!)) {
+        const v = String(x.flat!.get(k));
+        if (!v.startsWith('ptr:') || v === 'ptr:0') continue;
+        const raw = v.slice(4);
+        const hit = file.blockAt(/^\d+$/.test(raw) ? Number(raw) : raw);
+        if (hit?.block.code === want) {
+          rule = { f: k, ptr: true };
+          break;
+        }
+      }
     }
     if (rule) entry.props[prop] = rule;
   }
@@ -193,12 +232,14 @@ it.skipIf(!SRC || !OUT)('derive modifier / constraint / line rendering DNA rules
     '// for every modifier and constraint type, one object per changed setting was written by a bpy script',
     "// and the DNA field that changed was recorded by reading the file back with this package's reader.",
     '// Keyed by DNA struct name; f = field path, e = value -> enum identifier (m: of the masked bits), b = bit mask (negative =',
-    '// inverted bit, 0 = whole value), k = stored value / property value, n = array length, s = string,',
+    '// inverted bit, 0 = whole value), k = stored value / property value, n = array length, i = element',
+    '// of an array field, s = string,',
     '// ptr = ID pointer.',
     'export interface DnaPropRule {',
     '  f: string;',
     '  e?: Record<number, string>;',
     '  m?: number;',
+    '  i?: number;',
     '  b?: number;',
     '  k?: number;',
     '  n?: number;',
