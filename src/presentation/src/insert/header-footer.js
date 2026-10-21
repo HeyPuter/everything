@@ -233,6 +233,19 @@ export function createHeaderFooter(ctx) {
       ),
     );
     let tab = "slide";
+    const ids = ["slide", "notes"];
+    // The tabs are one stop for Tab; the arrow keys move between them.
+    const select = (id, focus = false) => {
+      tab = id;
+      slidePanel.hidden = id !== "slide";
+      notesPanel.hidden = id !== "notes";
+      tabs.querySelectorAll(".hf-tab").forEach((t) => {
+        const on = t.id === `hf-tab-${id}`;
+        t.setAttribute("aria-selected", String(on));
+        t.tabIndex = on ? 0 : -1;
+        if (on && focus) t.focus();
+      });
+    };
     const tabButton = (id, label) =>
       el(
         "button",
@@ -243,18 +256,22 @@ export function createHeaderFooter(ctx) {
           class: "hf-tab",
           "aria-controls": `hf-${id}`,
           "aria-selected": String(id === tab),
-          onclick: () => {
-            tab = id;
-            slidePanel.hidden = id !== "slide";
-            notesPanel.hidden = id !== "notes";
-            tabs
-              .querySelectorAll(".hf-tab")
-              .forEach((t) =>
-                t.setAttribute(
-                  "aria-selected",
-                  String(t.id === `hf-tab-${id}`),
-                ),
-              );
+          tabindex: id === tab ? 0 : -1,
+          onclick: () => select(id),
+          onkeydown: (e) => {
+            const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+            const at = ids.indexOf(id);
+            const next =
+              e.key === "Home"
+                ? 0
+                : e.key === "End"
+                  ? ids.length - 1
+                  : step
+                    ? (at + step + ids.length) % ids.length
+                    : null;
+            if (next === null) return;
+            e.preventDefault();
+            select(ids[next], true);
           },
         },
         label,

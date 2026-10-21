@@ -475,6 +475,25 @@ test("header and footer apply to every slide", async ({ page }) => {
   }
 });
 
+// The dialog's two tabs are one stop for Tab, moved between with the arrows.
+test("header and footer tabs move with the arrow keys", async ({ page }) => {
+  await start(page);
+  await command(page, "header-footer");
+  const dialog = page.getByRole("dialog", { name: "Header and Footer" });
+  const slideTab = dialog.getByRole("tab", { name: "Slide" });
+  const notesTab = dialog.getByRole("tab", { name: "Notes and Handouts" });
+  await expect(notesTab).toHaveAttribute("tabindex", "-1");
+  await slideTab.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(notesTab).toBeFocused();
+  await expect(notesTab).toHaveAttribute("aria-selected", "true");
+  await expect(dialog.locator("#hf-notes")).toBeVisible();
+  await expect(dialog.locator("#hf-slide")).toBeHidden();
+  await page.keyboard.press("ArrowRight");
+  await expect(slideTab).toBeFocused();
+  await expect(dialog.locator("#hf-slide")).toBeVisible();
+});
+
 // WordArt presets went in with their fill color only, so white text meant to
 // carry a blue outline was invisible on a light slide.
 test("WordArt goes in with its preset's outline and gradient", async ({
