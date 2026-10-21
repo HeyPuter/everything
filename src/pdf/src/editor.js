@@ -415,6 +415,7 @@ export function createEditor({
           toast(`Renamed to ${name}.`);
         } catch (error) {
           if (destroyed) return;
+          if (P.isConnectionFailure(error)) throw error;
           const reason = error?.message || error?.error?.message;
           throw new Error(
             /exist/i.test(reason || '') || error?.code === 'item_with_same_name_exists'
@@ -6164,7 +6165,8 @@ export function createEditor({
       } catch (error) {
         // An existing file that cannot be written (shared to view only, its folder gone) need
         // not cost the changes: offer to keep them as a new file in the app's own folder.
-        if (!targetPath || !current()) throw saveFailure(error);
+        // Without a connection a new file could not be written either.
+        if (!targetPath || !current() || P.isConnectionFailure(error)) throw saveFailure(error);
         if (!(await offerCopy(error)) || !current()) return;
         targetPath = null;
         item = await waitFor(() => P.saveFile(targetName, bytes, null), signal).catch((e) => {

@@ -38,3 +38,21 @@ for (const [action, reason] of Object.entries(refusals))
         : page.locator('#toast');
     await expect(message).toHaveText(reason);
   });
+
+test('opening a library PDF over a lost connection says so in plain words', async ({ page }) => {
+  await page.route('https://js.puter.com/**', (route) =>
+    route.fulfill({
+      contentType: 'application/javascript',
+      body: `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({ username: 'test-user' }) },
+        fs: { readdir: async () => [{ name: 'report.pdf', path: 'PDF Editor/report.pdf', size: 10, modified: 1700000000 }],
+          read: async () => { throw new TypeError('Failed to fetch'); } },
+        ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`,
+    }),
+  );
+  await page.goto('/#library');
+  await page.getByRole('button', { name: 'report.pdf', exact: true }).click();
+  await expect(page.locator('#toast')).toHaveText(
+    'The PDF could not be read because the connection to Puter failed. Check your connection and try again.',
+  );
+  await expect(page.getByRole('heading', { name: 'Your PDFs' })).toBeVisible();
+});

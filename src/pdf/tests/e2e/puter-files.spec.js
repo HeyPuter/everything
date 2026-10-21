@@ -39,6 +39,7 @@ async function desktop(page, { launch = '/test/Documents/report.pdf', token } = 
           },
           write: async (path, blob, options) => {
             if (window.failWrite) { window.failWrite = false; throw { code: 'forbidden', message: 'Permission denied.' }; }
+            if (window.dropConnection) throw new TypeError('Failed to fetch');
             if (window.failQuota) { window.failQuota = false; throw { error: { code: 'storage_limit_reached', message: 'Storage capacity limit reached.' } }; }
             if (window.holdWrite) await new Promise((resolve) => { window.releaseWrite = resolve; });
             if (options.dedupeName && window.drive.has(path)) path = path.replace(/\\.pdf$/, ' (1).pdf');
@@ -287,4 +288,21 @@ test('saving to another folder that Puter refuses says why rather than calling i
     'Puter could not save report.pdf: Storage capacity limit reached.',
   );
   await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+});
+
+test('a save that loses the connection says so, without offering a copy that would fail too', async ({
+  page,
+}) => {
+  await desktop(page);
+  await rotate(page);
+  await page.evaluate(() => (window.dropConnection = true));
+  await save(page);
+  await expect(page.locator('#toast')).toHaveText(
+    'The PDF could not be saved because the connection to Puter failed. Your changes are still here. Check your connection and try again.',
+  );
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.save-status')).toHaveText('Unsaved changes');
+  await page.evaluate(() => (window.dropConnection = false));
+  await save(page);
+  await expect(page.locator('.save-status')).toHaveText('Saved to Puter');
 });

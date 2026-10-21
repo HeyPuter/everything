@@ -24,6 +24,31 @@ export async function isSignedIn() {
     return false;
   }
 }
+/**
+ * The browser's own words for a request that never reached Puter (Chrome, Firefox, Safari),
+ * which say nothing to the reader; Puter's own reasons are left as they are.
+ */
+const LOST_CONNECTION =
+  /^(?:failed to fetch|networkerror when attempting to fetch resource\.?|load failed)$/i;
+export const isConnectionFailure = (error) =>
+  error?.code === 'connection-failed' ||
+  LOST_CONNECTION.test(String(error?.message || error?.error?.message || '').trim());
+/** Rethrow a lost connection as a message saying what could not be done, and what to do. */
+const overConnection =
+  (done, subject = 'The PDF') =>
+  (error) => {
+    if (!isConnectionFailure(error)) throw error;
+    const failure = new Error(
+      `${subject} could not be ${done} because the connection to Puter failed. ${
+        done === 'saved' ? 'Your changes are still here. ' : ''
+      }Check your connection and try again.`,
+    );
+    failure.code = 'connection-failed';
+    throw failure;
+  };
+/** Run an SDK call, reporting a lost connection by what could not be done. */
+const overNetwork = (call, done, subject) =>
+  Promise.resolve().then(call).catch(overConnection(done, subject));
 /** Whether an error means the person closed Puter's sign-in dialog rather than a failure. */
 export const isSignInCancelled = (error) => error?.code === 'sign-in-cancelled';
 export async function signIn() {
@@ -67,32 +92,38 @@ export async function listFiles() {
 /** Enforce import limits on the returned Blob before allocating an in-memory byte buffer. */
 export async function readFile(path, { maxBytes = Infinity, signal } = {}) {
   signal?.throwIfAborted();
-  const file = await sdk().fs.read(path);
+  const file = await overNetwork(() => sdk().fs.read(path), 'read');
   signal?.throwIfAborted();
   if (file.size > maxBytes)
     throw new Error(`Choose a PDF smaller than ${maxBytes / (1024 * 1024)} MB.`);
-  const bytes = await file.arrayBuffer();
+  const bytes = await overNetwork(() => file.arrayBuffer(), 'read');
   signal?.throwIfAborted();
   return new Uint8Array(bytes);
 }
 export async function saveFile(name, bytes, path = null) {
-  return sdk().fs.write(
-    path || `${FOLDER}/${safeName(name)}`,
-    new Blob([bytes], { type: 'application/pdf' }),
-    { overwrite: !!path, dedupeName: !path, createMissingParents: true },
+  return overNetwork(
+    () =>
+      sdk().fs.write(
+        path || `${FOLDER}/${safeName(name)}`,
+        new Blob([bytes], { type: 'application/pdf' }),
+        { overwrite: !!path, dedupeName: !path, createMissingParents: true },
+      ),
+    'saved',
   );
 }
 export function pickFile() {
   return sdk().ui.showOpenFilePicker({ accept: '.pdf', multiple: false });
 }
 export function saveAs(name, bytes) {
-  return sdk().ui.showSaveFilePicker(
-    new Blob([bytes], { type: 'application/pdf' }),
-    safeName(name),
+  return overNetwork(
+    () =>
+      sdk().ui.showSaveFilePicker(new Blob([bytes], { type: 'application/pdf' }), safeName(name)),
+    'saved',
   );
 }
-export const deleteFile = (path) => sdk().fs.delete(path);
-export const renameFile = (path, name) => sdk().fs.rename(path, safeName(name));
+export const deleteFile = (path) => overNetwork(() => sdk().fs.delete(path), 'deleted');
+export const renameFile = (path, name) =>
+  overNetwork(() => sdk().fs.rename(path, safeName(name)), 'renamed');
 /** Whether an SDK error means the file or folder is not there (any more). */
 export function isNotFound(error) {
   const code = error?.code || error?.error?.code || '';
@@ -136,7 +167,7 @@ export async function statFile(target) {
 /** A cloud file's contents as a Blob, for pictures dropped from the desktop. */
 export async function readBlob(path, { maxBytes = Infinity, signal } = {}) {
   signal?.throwIfAborted();
-  const file = await sdk().fs.read(path);
+  const file = await overNetwork(() => sdk().fs.read(path), 'read', 'The file');
   signal?.throwIfAborted();
   if (file.size > maxBytes)
     throw new Error(`Choose a file smaller than ${maxBytes / (1024 * 1024)} MB.`);

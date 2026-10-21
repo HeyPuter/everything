@@ -200,3 +200,41 @@ describe('Puter desktop files', () => {
     expect(onWindowClose).toHaveBeenCalledTimes(1);
   });
 });
+describe('lost connections', () => {
+  // Chrome, Firefox, and Safari each word a request that never reached Puter their own way.
+  const browserWords = [
+    new TypeError('Failed to fetch'),
+    new TypeError('NetworkError when attempting to fetch resource.'),
+    new TypeError('Load failed'),
+    { error: { message: 'Failed to fetch' } },
+  ];
+  it.each(browserWords)('says what could not be done and what to do: %s', async (failure) => {
+    const fail = () => Promise.reject(failure);
+    vi.stubGlobal('puter', {
+      fs: { read: fail, write: fail, rename: fail, delete: fail },
+      ui: { showSaveFilePicker: fail },
+    });
+    const advice = 'because the connection to Puter failed.';
+    await expect(P.readFile('PDF Editor/a.pdf')).rejects.toThrow(
+      `The PDF could not be read ${advice} Check your connection and try again.`,
+    );
+    await expect(P.readBlob('Pictures/a.png')).rejects.toThrow(
+      `The file could not be read ${advice}`,
+    );
+    for (const save of [P.saveFile('a', new Uint8Array([1])), P.saveAs('a', new Uint8Array([1]))])
+      await expect(save).rejects.toThrow(
+        `The PDF could not be saved ${advice} Your changes are still here. Check your connection and try again.`,
+      );
+    await expect(P.renameFile('PDF Editor/a.pdf', 'b')).rejects.toThrow(
+      `could not be renamed ${advice}`,
+    );
+    await expect(P.deleteFile('PDF Editor/a.pdf')).rejects.toThrow(
+      `could not be deleted ${advice}`,
+    );
+  });
+  it("keeps Puter's own reasons as they are", async () => {
+    const refusal = { code: 'storage_limit_reached', message: 'Storage capacity limit reached.' };
+    vi.stubGlobal('puter', { fs: { write: () => Promise.reject(refusal) } });
+    await expect(P.saveFile('a', new Uint8Array([1]))).rejects.toBe(refusal);
+  });
+});
