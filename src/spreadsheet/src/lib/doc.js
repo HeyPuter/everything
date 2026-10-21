@@ -597,6 +597,10 @@ export class Doc extends EventTarget {
         // it, where whoever opened it looks for it; anything else gets one in the app folder.
         dir = besideDir(this.path) ?? P.FOLDER;
         target = dir === P.FOLDER ? `${P.FOLDER}/${await P.uniqueName(fileName)}` : `${dir}/${fileName}`;
+        // A first write whose answer was lost may have made its file all the same: that file is written again,
+        // rather than found taken and a second one made beside it.
+        const lost = this._lostWrite;
+        if (lost && await this._landed(lost)) ({ target, dir } = lost);
       }
       // The book is encoded once per version: a retry after a failed write, or a save forced after a
       // conflict, sends the bytes already built instead of building the whole book again on the main thread.
@@ -606,16 +610,22 @@ export class Doc extends EventTarget {
       // The name check is advisory: another tab can create that file before
       // this write reaches the server. Deduplicate there, then adopt its name.
       let written;
+      const reuse = fresh && target === this._lostWrite?.target;
+      // Kept until a write is answered, for the retry to find (see _landed).
+      const attempt = (at) => { this._lostWrite = fresh && blob.size <= COMPARE_MAX_BYTES ? { target: at, dir, blob } : null; };
       try {
-        written = await P.writeFile(target, blob, { dedupe: fresh });
+        attempt(target);
+        written = await P.writeFile(target, blob, { dedupe: fresh && !reuse });
       } catch (e) {
         // A folder this user may not write in (someone else's, shared with them) refuses the file beside the
         // source: the app folder takes it instead. Offline, neither would, and the retry tries beside it again.
         if (dir === P.FOLDER || globalThis.navigator?.onLine === false) throw e;
         dir = P.FOLDER;
         target = `${P.FOLDER}/${await P.uniqueName(P.displayName(target))}`;
+        attempt(target);
         written = await P.writeFile(target, blob, { dedupe: true });
       }
+      this._lostWrite = null;
       this.uid = written?.uid || written?.id || this.uid;
       if (fresh) {
         oldKey = this.draftKey;
@@ -804,6 +814,17 @@ export class Doc extends EventTarget {
       const ours = new Uint8Array(await mine.arrayBuffer());
       return theirs.length === ours.length && theirs.every((byte, i) => byte === ours[i]);
     } catch { return null; }
+  }
+
+  /** Did a first write whose answer was lost reach the drive? Only when the file it named holds exactly its bytes. */
+  async _landed({ target, blob }) {
+    try {
+      const st = await P.statFile(target);
+      if (!st || sizeOf(st) !== blob.size) return false;
+      const theirs = new Uint8Array(await P.readFile(target));
+      const ours = new Uint8Array(await blob.arrayBuffer());
+      return theirs.length === ours.length && theirs.every((byte, i) => byte === ours[i]);
+    } catch { return false; }
   }
 
   /**
