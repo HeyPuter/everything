@@ -14,7 +14,7 @@ import { effectiveShortcut } from './custom-shortcuts.js';
 import { MOD_KEY } from './dom.js';
 import { cellName } from '../core/cell.js';
 import { RTL_LEAD } from '../core/bidi.js';
-import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_STYLES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces, MAX_DECIMAL_PLACES } from '../core/format.js';
+import { CURRENCIES, FONTS, fontName, fontStack, formatValue, currencyDecimals, BORDER_LINE_CHOICES, borderCss, ELAPSED_TIME_CODE, defaultAlign, AUTOMATIC_FORMAT, cellCurrency, currencyFormatLabel, hasDecimalPlaces, MAX_DECIMAL_PLACES } from '../core/format.js';
 import { openCustomFormatDialog } from './numfmtdialog.js';
 import { customColorRows, colorLabel } from './colorpicker.js';
 import { themeColorBlock } from './themes.js';
@@ -271,9 +271,10 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
           { label: 'Thick bottom border', icon: 'borderBottom', onSelect: () => ctx.run('borders', { kind: 'bottom', style: 'thick', color: pen.color }) },
           { separator: true },
           { label: 'Border color…', icon: 'textColor', shortcut: pen.color || 'Default', onSelect: () => borderColorMenu(anchor) },
-          { label: 'Border style…', icon: 'borderBottom', shortcut: BORDER_STYLES.find(([k]) => k === pen.style)?.[1] || 'Thin', onSelect: () => openMenu({
+          { label: 'Border style…', icon: 'borderBottom', shortcut: BORDER_LINE_CHOICES.find(([k]) => k === pen.style)?.[1] || 'Thin', onSelect: () => openMenu({
             anchor, label: 'Border style', minWidth: 180, focusChecked: true,
-            items: BORDER_STYLES.map(([key, label]) => ({
+            // Excel's thirteen lines, as Format Cells lists them: the pen may have taken up a hairline from a file.
+            items: BORDER_LINE_CHOICES.map(([key, label]) => ({
               label, checked: pen.style === key, radio: true, style: { borderBottom: `${borderCss({ bs: key }).width} ${borderCss({ bs: key }).style} currentColor`, paddingBottom: '2px' },
               onSelect: () => { pen.style = key; ctx.run('borders', { kind: 'restyle', style: key }); },
             })),
