@@ -207,3 +207,43 @@ describe('pictures as pages', () => {
     expect(doc.getPageCount()).toBe(1);
   });
 });
+
+it('refuses a small PNG that would unpack into an enormous picture, without unpacking it', async () => {
+  const { deflateSync } = await import('node:zlib');
+  const { crc32 } = await import('../src/lib/crc32.js');
+  const { embedImage } = await import('../src/core/document.js');
+  const chunk = (type, data) => {
+    const out = Buffer.alloc(12 + data.length);
+    out.writeUInt32BE(data.length, 0);
+    out.write(type, 4, 'latin1');
+    data.copy(out, 8);
+    out.writeUInt32BE(
+      crc32(new Uint8Array(out.subarray(4, 8 + data.length))) >>> 0,
+      8 + data.length,
+    );
+    return out;
+  };
+  const png = (width, height) => {
+    const header = Buffer.alloc(13);
+    header.writeUInt32BE(width, 0);
+    header.writeUInt32BE(height, 4);
+    header[8] = 1; // one bit of grey per pixel, all of it zeros: it compresses to almost nothing
+    const raw = Buffer.alloc((1 + Math.ceil(width / 8)) * height);
+    return new Uint8Array(
+      Buffer.concat([
+        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+        chunk('IHDR', header),
+        chunk('IDAT', deflateSync(raw, { level: 9 })),
+        chunk('IEND', Buffer.alloc(0)),
+      ]),
+    );
+  };
+  const huge = png(20000, 20000);
+  expect(huge.length).toBeLessThan(100 * 1024);
+  const doc = await PDFDocument.create();
+  const started = performance.now();
+  await expect(embedImage(doc, huge)).rejects.toThrow('at most 50 megapixels');
+  expect(performance.now() - started).toBeLessThan(2000);
+  // An ordinary large picture still goes in.
+  expect((await embedImage(doc, png(4000, 3000))).width).toBe(4000);
+}, 120000);

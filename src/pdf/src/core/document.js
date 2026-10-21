@@ -99,6 +99,8 @@ import {
 
 export const MAX_FILE_SIZE = 100 * 1024 * 1024;
 export const MAX_IMAGE_SIZE = 20 * 1024 * 1024;
+/** The most pixels a PNG may unpack to: an 8000 by 6000 photo, about 200 MB as it is placed. */
+export const MAX_PNG_PIXELS = 50 * 1000 * 1000;
 export const MAX_PAGES = 1000;
 const nameEncoder = new TextEncoder();
 export function safeName(value) {
@@ -1049,6 +1051,13 @@ export async function embedImage(doc, bytes) {
   if (bytes?.length > MAX_IMAGE_SIZE) throw new Error('Choose an image smaller than 20 MB.');
   const invalid = () => new Error('Choose a valid PNG or JPEG image.');
   if (!(bytes instanceof Uint8Array) || !bytes.length) throw invalid();
+  // A PNG is unpacked in full to be placed, and a small file can hold an enormous picture of
+  // one color; its header says the size before any of it is unpacked.
+  if (isPng(bytes) && bytes.length >= 24) {
+    const header = new DataView(bytes.buffer, bytes.byteOffset + 16, 8);
+    if (header.getUint32(0) * header.getUint32(4) > MAX_PNG_PIXELS)
+      throw new Error('Choose a PNG picture of at most 50 megapixels.');
+  }
   let image;
   try {
     if (isPng(bytes)) image = await doc.embedPng(bytes);
