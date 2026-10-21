@@ -19,36 +19,47 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Floors and ceilings from a picked room or building outline, a rectangle, or a sketched boundary. Footprint roofs with a slope per edge: hips, gables and shed roofs come out of the same model.
 - Walls can attach their tops to a roof and follow it when the roof changes.
 - Shaft openings that cut floors, ceilings and roofs through a range of levels.
-- Columns, beams, straight, L-shaped and U-shaped stairs with automatic riser counts, landings and handrails, and railings.
+- Columns (architectural and structural), beams, braces, beam systems that fill a bay, straight, L-shaped and U-shaped stairs with automatic riser counts, landings and handrails, ramps and railings.
+- Openings by face in floors, roofs and ceilings, curtain grids placed per wall, model lines, reference planes and work planes.
+- Foundations: isolated footings (one by one or under every column), wall foundations and foundation slabs.
+- Building services: ducts, pipes, cable trays and conduits drawn at a height and coloured by system, with air terminals, mechanical and electrical equipment, lighting, devices and plumbing fixtures.
+- Site: toposurfaces through points with contour lines, property lines, parking and site components. Massing: in-place masses with gross floor areas, and walls, floors, roofs and curtain systems made from their faces.
 - A library of furniture, casework, plumbing fixtures, appliances, planting and lighting. Furniture placed near a wall turns its back to it.
-- Rooms placed by clicking or automatically, bounded by walls, columns and room separation lines, with live area, perimeter and volume.
+- Rooms placed by clicking or automatically, bounded by walls, columns and room separation lines, with live area, perimeter and volume. Area plans with area boundaries, for gross and rentable areas.
+- Model groups that update every instance when one is edited, phases (existing, demolished, new) with phase filters, and design options for exploring alternatives side by side.
 - Levels and grids.
 
 **Editing**
 - Selection by click, window (left to right) and crossing (right to left), Tab to cycle overlapping elements, select all instances.
 - Drag to move (joined walls stay joined; doors slide along their wall or move to another wall), grips on wall ends, slab corners and section lines, flip controls, and editable temporary dimensions.
-- Move, copy, rotate, mirror (pick or draw an axis), array, align, offset, trim/extend to corner or to a reference, split, pin, match type, copy and paste.
+- Move, copy, rotate, mirror (pick or draw an axis), array, align, offset, scale, trim/extend to corner or to a reference, split (with a gap), pin, match type, create similar, copy and paste (also to other levels).
 - Object snaps (endpoints, midpoints, intersections, perpendicular, nearest), angle and length increments, and alignment with nearby points.
+- Selection filter by category, saved selections, selection by id, and a warnings list.
 - Undo and redo for everything.
 
 **Views and documentation**
 - Floor and ceiling plans with cut plane, detail level, underlay of the level below, room color fill and per-view visibility of categories and elements.
 - 3D views with an orientation cube, orbit, perspective or orthographic projection, section box and five visual styles.
 - Elevations and sections drawn from the model with cut elements filled, levels and grids annotated.
-- Aligned dimensions that follow the walls they measure, text, tags, detail lines and filled regions.
-- Schedules of doors, windows, rooms, walls, floors, furniture, columns and stairs, with field selection, sorting, grouping, totals, in-place editing and CSV export.
-- Sheets with a title block and placed views.
+- Callouts, drafting views, legends and view duplication with or without detailing; crop regions with grips.
+- Aligned, linear, angular, radial and diameter dimensions, spot elevations, coordinates and slopes, text with leaders, tags (by mark, type, material or keynote), detail lines, arcs, detail components, insulation, filled regions, revision clouds, colour fill legends, north arrows and scale bars.
+- Visibility/Graphics with category and per-element overrides, rule-based filters, view templates and project-wide object styles.
+- Schedules of doors, windows, rooms, areas, walls, floors, ceilings, roofs, ramps, furniture, columns, stairs, ducts, pipes and foundations, plus material takeoffs, sheet lists and view lists, with field selection (including project parameters), sorting, grouping, filters, totals, in-place editing and CSV export.
+- Sheets with a title block, placed views and a revision table.
 - Temporary hide and isolate, reveal hidden elements, thin lines.
+- Raster images placed in views to trace over or present.
 
 **Files**
 - Projects (.bdp) saved to your Puter cloud storage or to your device; open projects are kept in the browser so work survives a reload.
-- Share projects with other Puter users for viewing or editing.
+- Share projects with other Puter users for viewing or editing, and work on them together: saving merges others' changes element by element so nobody overwrites anyone, changes others save appear while you work, and worksets divide the model into parts that views can show or hide.
+- Link other projects, read-only, for coordination; transfer types, materials, templates and other standards from another project.
 - Import DXF drawings into a plan, section or sheet as detail lines and text, to trace over or annotate.
 - Export to IFC (IFC4, for other BIM software), glTF and OBJ (3D), DXF (plans), PDF, SVG and PNG (drawings and sheets), and CSV (schedules).
 
 **Interface**
 - Ribbon with contextual tabs, options bar, Properties palette with type selector and type editor (including wall, floor, roof and ceiling layer structures), Project Browser, view tabs, view control bar and status bar.
-- Two-letter keyboard shortcuts (for example WA wall, DR door, WN window, MV move), command search (Ctrl+K), context menus and a full keyboard path through the panels.
+- Two-letter keyboard shortcuts (for example WA wall, DR door, WN window, MV move) that you can reassign, export and import, command search (Ctrl+K), context menus and a full keyboard path through the panels.
+- An Options dialog for preferences such as tooltip detail, selection behaviour and live updates.
 - Light, dark and system themes. Works with mouse, trackpad, touch and keyboard, on desktops, tablets and phones.
 
 ## Getting around
@@ -85,6 +96,7 @@ Open `/?sample` to start with the sample house.
 | Editing | `src/editor` | Tools, snapping, grips, temporary dimensions. |
 | Interface | `src/ui` | No framework: ribbon, panels, dialogs, menus. |
 | Files | `src/io` | Native files, Puter storage, recovery, and the IFC, glTF, OBJ, DXF, PDF and SVG writers. |
+| Collaboration | `src/core/sync.js`, `src/io/sync.js` | Element-level three-way merge of the shared project file against the copy last synchronized; polling for others' saves; worksets in `src/core/worksets.js`. |
 
 Lengths are millimetres internally and shown in the project's units. Settings are kept in a single Puter key-value record; projects are always stored as files, never in the key-value store.
 
