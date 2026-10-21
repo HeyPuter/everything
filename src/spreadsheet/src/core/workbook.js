@@ -6239,7 +6239,8 @@ export class Workbook extends EventTarget {
         if (i == null) continue;
         moved.set(axis === 'row' ? cellKey(i, c) : cellKey(r, i), cell);
       }
-      for (const { r, c, s } of lent) for (let i = at; i < at + n && i <= limit; i++) moved.set(axis === 'row' ? cellKey(i, c) : cellKey(r, i), { v: null, f: null, s: { ...s } });
+      // Stored cell by cell, as for inserted lines: only as far as formatting a range stores empty cells.
+      if (lent.length * n <= STYLE_FILL_CELLS) for (const { r, c, s } of lent) for (let i = at; i < at + n && i <= limit; i++) moved.set(axis === 'row' ? cellKey(i, c) : cellKey(r, i), { v: null, f: null, s: { ...s } });
       sheet.cells = moved;
       const movedNotes = new Map();
       for (const [key, text] of sheet.notes) {
@@ -6593,7 +6594,12 @@ export class Workbook extends EventTarget {
         moved.set(cellKey(rr, cc), cell);
         if (lends1(axis === 'row' ? r : c) && cell.s && Object.keys(cell.s).length && lends(r, c)) lent.push({ r, c, s: cell.s });
       }
-      for (const { r, c, s } of lent) for (const b of lendTo.get(axis === 'row' ? r : c)) {
+      // The formatting lent is stored cell by cell, so it goes only as far as formatting a range stores empty cells
+      // (STYLE_FILL_CELLS): a selection run to the sheet's end inserted a million rows under a formatted row, five
+      // million styled empty cells that held the page for minutes. Past that the new lines are left plain.
+      let lentCells = 0;
+      for (const { r, c } of lent) for (const b of lendTo.get(axis === 'row' ? r : c)) lentCells += b.n;
+      if (lentCells <= STYLE_FILL_CELLS) for (const { r, c, s } of lent) for (const b of lendTo.get(axis === 'row' ? r : c)) {
         for (let i = b.start; i < b.start + b.n && i <= limit; i++) moved.set(cellKey(axis === 'row' ? i : r, axis === 'row' ? c : i), { v: null, f: null, s: { ...s } });
       }
       sheet.cells = moved;
