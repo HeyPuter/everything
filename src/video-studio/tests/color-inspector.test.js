@@ -204,6 +204,18 @@ describe('Wheels', () => {
   });
 });
 
+describe('wheel brightness', () => {
+  it('follows undo while it has focus', () => {
+    tab('Wheels').click();
+    const level = env.el.querySelectorAll('.wheel-level')[0];
+    level.focus();
+    drag(level, [30]);
+    expect(clip(env.v1.id).grade.wheels.shadows.l).toBe(30);
+    env.store.undo();
+    expect(level.value).toBe('0');
+  });
+});
+
 describe('presets and the Color assets tab', () => {
   it('saves a clip look, applies it to another clip and lists it', () => {
     drag(range('Contrast'), [25]);

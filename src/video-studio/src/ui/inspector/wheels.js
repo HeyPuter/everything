@@ -102,8 +102,11 @@ function wheelCard(view, def) {
 
   const levelId = uidFor('level');
   const level = h('input.wheel-level', { type: 'range', id: levelId, min: -100, max: 100, step: 1, value: 0, 'aria-label': `${label} brightness` });
+  // Only an active drag holds the slider; a focused one follows undo.
   let levelDrag = false;
   level.addEventListener('pointerdown', () => (levelDrag = true));
+  level.addEventListener('pointerup', () => (levelDrag = false));
+  level.addEventListener('pointercancel', () => (levelDrag = false));
   level.addEventListener('input', () => set({ ...wheelOf(view.clip, def.id), l: Number(level.value) }, false, 'brightness'));
   level.addEventListener('change', () => {
     levelDrag = false;
@@ -123,7 +126,7 @@ function wheelCard(view, def) {
     const amount = Math.round(Math.min(1, Math.hypot(w.x, w.y)) * 100);
     disk.setAttribute('aria-valuenow', String(amount));
     disk.setAttribute('aria-valuetext', amount ? `hue ${Math.round(wheelHue(w))} degrees, strength ${amount} percent` : 'neutral');
-    if (!levelDrag && document.activeElement !== level) level.value = String(w.l);
+    if (!levelDrag) level.value = String(w.l);
     level.style.setProperty('--pct', `${(w.l + 100) / 2}%`);
     const v = wheelVector(def.id, w, 100);
     vals.forEach((el, i) => (el.textContent = `${v[i] >= 0 ? '+' : ''}${v[i].toFixed(2)}`));
