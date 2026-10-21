@@ -72,7 +72,7 @@ const parmsList = (dict, count) => {
 const IMAGE_FILTERS = new Set(['DCTDecode', 'JPXDecode', 'JBIG2Decode', 'CCITTFaxDecode']);
 
 /** Undo PNG and TIFF predictors, which pdf-lib's Flate and LZW decoders leave in place. */
-function unpredict(bytes, parms) {
+export function unpredict(bytes, parms) {
   const predictor = get(parms, 'Predictor')?.asNumber?.() ?? 1;
   if (predictor < 2) return bytes;
   const colors = get(parms, 'Colors')?.asNumber?.() ?? 1;

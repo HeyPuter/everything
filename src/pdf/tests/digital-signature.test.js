@@ -11,6 +11,7 @@ import {
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFRef,
   PDFString,
   StandardFonts,
 } from 'pdf-lib';
@@ -26,6 +27,7 @@ import {
 } from '../src/core/digital-signature.js';
 import {
   appendRevision,
+  crossReferenceChain,
   highestObjectNumber,
   lastCrossReference,
   objectBytes,
@@ -98,6 +100,24 @@ const addPageContent = (bytes) =>
     page.node.set(PDFName.of('Contents'), doc.context.obj([contents, ref]));
     mark(page.ref, page.node);
   });
+
+/** Append a revision of nothing but a cross-reference table: `entries` maps numbers to rows. */
+async function appendTable(bytes, entries) {
+  const xref = lastCrossReference(bytes);
+  const { Root } = (await PDFDocument.load(bytes, { updateMetadata: false })).context.trailerInfo;
+  let table = 'xref\n';
+  for (const [number, row] of Object.entries(entries)) table += `${number} 1\n${row}\r\n`;
+  table += `trailer\n<< /Size ${xref.size} /Root ${Root} /Prev ${xref.offset} >>\n`;
+  table += `startxref\n${bytes.length}\n%%EOF\n`;
+  return new Uint8Array([...bytes, ...new TextEncoder().encode(table)]);
+}
+const offsetRow = (offset, generation = 0) =>
+  `${String(offset).padStart(10, '0')} ${String(generation).padStart(5, '0')} n`;
+async function pageText(bytes) {
+  const pdf = await pdfjs.getDocument({ data: bytes.slice(), isEvalSupported: false }).promise;
+  const { items } = await (await pdf.getPage(1)).getTextContent();
+  return items.map((item) => item.str).join('');
+}
 
 async function openWithPdfjs(bytes) {
   const pdf = await pdfjs.getDocument({
@@ -326,6 +346,96 @@ describe('signing and validating', () => {
     const [result] = await verifySignatures(swapped);
     expect(result.status).toBe('modified');
     expect(result.modifications.disallowed).toEqual(['The document catalog was replaced.']);
+  });
+
+  it('flags a later cross-reference table that hides or swaps signed objects', async () => {
+    // A signed file whose unused stream holds another body for the page's content stream.
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([612, 792]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.node.set(PDFName.of('Resources'), doc.context.obj({ Font: { F1: font.ref } }));
+    const shown = 'BT /F1 20 Tf 72 700 Td (Price: $100) Tj ET';
+    const contents = doc.context.register(doc.context.stream(shown));
+    page.node.set(PDFName.of('Contents'), contents);
+    const number = contents.objectNumber;
+    const other = 'BT /F1 20 Tf 72 700 Td (Price: $900) Tj ET';
+    const hidden = `${number} 0 obj\n<< /Length ${other.length} >>\nstream\n${other}\nendstream\nendobj`;
+    doc.context.register(doc.context.stream(`\n${hidden}\n`));
+    const signed = await signPdf(await doc.save({ useObjectStreams: false }), rsa, {});
+    expect(await pageText(signed)).toBe('Price: $100');
+
+    const at = new TextDecoder('latin1').decode(signed).indexOf(hidden);
+    const swapped = await appendTable(signed, { [number]: offsetRow(at) });
+    const removed = await appendTable(signed, { [number]: '0000000000 00001 f' });
+    expect(await pageText(swapped)).toBe('Price: $900');
+    expect(await pageText(removed)).toBe('');
+    for (const tampered of [swapped, removed]) {
+      const [result] = await verifySignatures(tampered);
+      expect(result.status).toBe('modified');
+      expect(result.modifications.disallowed).toEqual([
+        'Objects were replaced or removed through the cross-reference table.',
+      ]);
+    }
+  });
+
+  it('reads later revisions written with predicted cross-reference streams', async () => {
+    const signed = await signPdf(await makePdf({ objectStreams: true }), rsa, {
+      page: 0,
+      rect: RECT,
+    });
+    // An annotation added the way Acrobat saves: a cross-reference stream with PNG predictors,
+    // which also lists a free number.
+    const doc = await PDFDocument.load(signed, { updateMetadata: false });
+    const xref = lastCrossReference(signed);
+    const page = doc.getPage(0);
+    const first = Math.max(xref.size, highestObjectNumber(signed) + 1);
+    const annotation = `<< /Type /Annot /Subtype /Square /Rect [300 300 400 400] /C [1 0 0] /P ${page.ref} >>`;
+    const annots = page.node.lookup(PDFName.of('Annots')).asArray();
+    page.node.set(PDFName.of('Annots'), doc.context.obj([...annots, PDFRef.of(first)]));
+    const bodies = [
+      [page.ref.objectNumber, new TextDecoder('latin1').decode(objectBytes(page.node))],
+      [first, annotation],
+    ];
+    let text = '\n';
+    const rows = [];
+    for (const [number, body] of bodies) {
+      rows.push([number, 1, signed.length + text.length]);
+      text += `${number} 0 obj\n${body}\nendobj\n`;
+    }
+    const self = first + 1;
+    const section = signed.length + text.length;
+    rows.push([self, 1, section], [first + 2, 0, 0]);
+    rows.sort((a, b) => a[0] - b[0]);
+    const raw = rows.map(([, type, offset]) => [
+      type,
+      offset >> 16,
+      (offset >> 8) & 255,
+      offset & 255,
+      0,
+    ]);
+    const predicted = raw.flatMap((row, r) => [
+      2,
+      ...row.map((byte, i) => (byte - (raw[r - 1]?.[i] ?? 0)) & 255),
+    ]);
+    const data = deflateSync(Buffer.from(predicted));
+    const index = rows.map(([number]) => `${number} 1`).join(' ');
+    text += `${self} 0 obj\n<< /Type /XRef /Size ${first + 3} /W [1 3 1] /Index [${index}] /Root ${doc.context.trailerInfo.Root} /Prev ${xref.offset} /Filter /FlateDecode /DecodeParms << /Predictor 12 /Columns 5 >> /Length ${data.length} >>\nstream\n`;
+    const tail = `\nendstream\nendobj\nstartxref\n${section}\n%%EOF\n`;
+    const updated = new Uint8Array([
+      ...signed,
+      ...new TextEncoder().encode(text),
+      ...data,
+      ...new TextEncoder().encode(tail),
+    ]);
+    expect((await openWithPdfjs(updated)).annotations.map((a) => a.subtype)).toContain('Square');
+    const { entries } = crossReferenceChain(updated);
+    for (const [number, type, offset] of rows)
+      expect(entries.get(number)).toEqual(
+        type ? { offset, generation: 0, section } : { free: true, section },
+      );
+    const [result] = await verifySignatures(updated);
+    expect(result.status).toBe('valid-unknown-identity');
+    expect(result.modifications).toEqual({ allowed: ['An annotation was added.'], disallowed: [] });
   });
 
   it('signs twice without breaking the first signature', async () => {

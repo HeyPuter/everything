@@ -6,7 +6,19 @@
  * work that way: a signature covers the bytes of the file as they were, so signing, and any
  * change that should leave earlier signatures intact, appends to the file instead.
  */
-import { PDFHexString, PDFRef } from 'pdf-lib';
+import {
+  PDFArray,
+  PDFDict,
+  PDFHexString,
+  PDFName,
+  PDFNumber,
+  PDFObjectParser,
+  PDFParser,
+  PDFRawStream,
+  PDFRef,
+  decodePDFRawStream,
+} from 'pdf-lib';
+import { unpredict } from './image-redact.js';
 
 const ascii = (text) => {
   const out = new Uint8Array(text.length);
@@ -98,6 +110,115 @@ export function lastCrossReference(bytes) {
     return { offset, kind: 'stream', size: size ? +size[1] : 0 };
   }
   throw new Error('This PDF has a damaged cross-reference section.');
+}
+
+/** The entries of a cross-reference stream, PNG predictors included. */
+function streamEntries(stream) {
+  const { dict } = stream;
+  const numbers = (key) => {
+    const value = dict.lookup(PDFName.of(key));
+    return value instanceof PDFArray
+      ? value.asArray().map((n) => (n instanceof PDFNumber ? n.asNumber() : NaN))
+      : null;
+  };
+  const size = dict.lookup(PDFName.of('Size'));
+  const index = numbers('Index') || [0, size instanceof PDFNumber ? size.asNumber() : 0];
+  const widths = numbers('W');
+  if (!widths || widths.length < 3 || !widths.every((w) => Number.isInteger(w) && w >= 0))
+    throw new Error('Invalid cross-reference stream');
+  let parms = dict.lookup(PDFName.of('DecodeParms'));
+  if (parms instanceof PDFArray) parms = parms.asArray().find((p) => p instanceof PDFDict);
+  const data = unpredict(decodePDFRawStream(stream).decode(), parms);
+  const [typeWidth, secondWidth, thirdWidth] = widths;
+  const field = (at, width, fallback) => {
+    if (!width) return fallback;
+    let value = 0;
+    for (let i = 0; i < width; i++) value = value * 256 + data[at + i];
+    return value;
+  };
+  const row = typeWidth + secondWidth + thirdWidth;
+  const entries = new Map();
+  let at = 0;
+  for (let i = 0; i + 1 < index.length; i += 2)
+    for (let n = 0; n < index[i + 1] && at + row <= data.length; n++, at += row) {
+      const type = field(at, typeWidth, 1);
+      const second = field(at + typeWidth, secondWidth, 0);
+      const third = field(at + typeWidth + secondWidth, thirdWidth, 0);
+      const entry =
+        type === 0
+          ? { free: true }
+          : type === 1
+            ? { offset: second, generation: third }
+            : type === 2
+              ? { stream: second, index: third }
+              : null;
+      if (entry && !entries.has(index[i] + n)) entries.set(index[i] + n, entry);
+    }
+  return entries;
+}
+
+/** One cross-reference section (a table and its trailer, or a stream) at `offset`. */
+function readSection(bytes, offset) {
+  const parser = PDFParser.forBytesWithOptions(bytes.subarray(offset));
+  parser.skipWhitespaceAndComments();
+  const table = parser.maybeParseCrossRefSection();
+  if (table) {
+    const entries = new Map();
+    for (const subsection of table.subsections)
+      for (const { ref, offset: at, deleted } of subsection)
+        if (!entries.has(ref.objectNumber))
+          entries.set(
+            ref.objectNumber,
+            deleted ? { free: true } : { offset: at, generation: ref.generationNumber },
+          );
+    parser.skipWhitespaceAndComments();
+    const at = offset + parser.bytes.offset();
+    if (latin1(bytes, at, at + 7) !== 'trailer') throw new Error('Missing trailer');
+    const trailer = PDFObjectParser.forBytes(bytes.subarray(at + 7), parser.context).parseObject();
+    if (!(trailer instanceof PDFDict)) throw new Error('Invalid trailer');
+    return { entries, trailer };
+  }
+  parser.parseIndirectObjectHeader();
+  parser.skipWhitespaceAndComments();
+  const stream = parser.parseObject();
+  if (
+    !(stream instanceof PDFRawStream) ||
+    stream.dict.lookup(PDFName.of('Type')) !== PDFName.of('XRef')
+  )
+    throw new Error('Not a cross-reference section');
+  return { entries: streamEntries(stream), trailer: stream.dict };
+}
+
+/**
+ * Where a viewer finds each object: the cross-reference sections from the final `startxref`
+ * back through each one's /XRefStm and /Prev, the first section to list an object deciding.
+ * Returns `{ root, entries }`, each entry `{ section, free }`, `{ section, offset, generation }`
+ * or `{ section, stream, index }` (`section` is where the section listing it starts), or null
+ * when the chain cannot be read: viewers then rebuild it by scanning the file.
+ */
+export function crossReferenceChain(bytes) {
+  const entries = new Map();
+  let root;
+  try {
+    const queue = [lastCrossReference(bytes).offset];
+    const seen = new Set();
+    while (queue.length) {
+      const offset = queue.shift();
+      if (seen.has(offset)) continue;
+      seen.add(offset);
+      const { entries: listed, trailer } = readSection(bytes, offset);
+      root ??= trailer.get(PDFName.of('Root'));
+      for (const [number, entry] of listed)
+        if (!entries.has(number)) entries.set(number, { ...entry, section: offset });
+      for (const key of ['XRefStm', 'Prev']) {
+        const next = trailer.get(PDFName.of(key));
+        if (next instanceof PDFNumber) queue.push(next.asNumber());
+      }
+    }
+  } catch {
+    return null;
+  }
+  return { root, entries };
 }
 
 /** The highest object number declared anywhere in the file (`N G obj`). */

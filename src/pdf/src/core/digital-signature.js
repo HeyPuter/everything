@@ -10,11 +10,14 @@ import {
   JpegEmbedder,
   ParseSpeeds,
   PDFArray,
+  PDFContext,
   PDFDict,
   PDFDocument,
   PDFHexString,
   PDFName,
   PDFNumber,
+  PDFObjectParser,
+  PDFParser,
   PDFRawStream,
   PDFRef,
   PDFStream,
@@ -37,6 +40,7 @@ import { CryptoUnsupportedError, digest, signingHash, verifySignature } from './
 import {
   appendRevision,
   ascii,
+  crossReferenceChain,
   highestObjectNumber,
   lastCrossReference,
   objectBytes,
@@ -1054,6 +1058,91 @@ function changedKeys(before, after) {
   return keys;
 }
 
+/** The object a cross-reference entry leads a viewer to, or undefined when it cannot be read. */
+function objectAt(data, entries, number, entry) {
+  try {
+    if (entry.stream == null) {
+      const parser = PDFParser.forBytesWithOptions(data.subarray(entry.offset));
+      const header = parser.parseIndirectObjectHeader();
+      if (header.objectNumber !== number || header.generationNumber !== entry.generation)
+        return undefined;
+      parser.skipWhitespaceAndComments();
+      return parser.parseObject();
+    }
+    const holder = entries.get(entry.stream);
+    if (holder?.offset == null) return undefined;
+    const stream = objectAt(data, entries, entry.stream, holder);
+    if (!(stream instanceof PDFRawStream)) return undefined;
+    const bytes = decodePDFRawStream(stream).decode();
+    const first = numberOf(stream.dict.lookup(name('First')));
+    const header = PDFObjectParser.forBytes(bytes.subarray(0, first), PDFContext.create());
+    let offset;
+    for (let i = 0; i <= entry.index; i++) {
+      const listed = numberOf(header.parseObject());
+      offset = numberOf(header.parseObject());
+      if (i === entry.index && listed !== number) return undefined;
+    }
+    return PDFObjectParser.forBytes(
+      bytes.subarray(first + offset),
+      PDFContext.create(),
+    ).parseObject();
+  } catch {
+    return undefined;
+  }
+}
+/** Object numbers the document refers to, from its catalog. */
+function referencedNumbers(context, root) {
+  const numbers = new Set();
+  const stack = [root];
+  while (stack.length && numbers.size < 1000000) {
+    let value = stack.pop();
+    if (value instanceof PDFRef) {
+      if (numbers.has(value.objectNumber)) continue;
+      numbers.add(value.objectNumber);
+      value = context.lookup(value);
+    }
+    if (value instanceof PDFStream) value = value.dict;
+    if (value instanceof PDFDict) for (const child of value.values()) stack.push(child);
+    else if (value instanceof PDFArray) for (const child of value.asArray()) stack.push(child);
+  }
+  return numbers;
+}
+/**
+ * Whether viewers read other objects after `end` than pdf-lib does. pdf-lib takes the last
+ * body written for each object; viewers follow the cross-reference sections, which a later
+ * revision can point at other bytes (an object hidden in a stream, an earlier copy) or mark
+ * free, so that what shows changes while every object pdf-lib reads stays the same.
+ */
+const chains = new WeakMap();
+function crossReferenceMismatch(data, finalDoc, end) {
+  if (!chains.has(data)) chains.set(data, crossReferenceChain(data));
+  const chain = chains.get(data);
+  if (!chain) return false;
+  const { context } = finalDoc;
+  if (chain.root && String(chain.root) !== String(context.trailerInfo.Root)) return true;
+  const present = new Set(context.enumerateIndirectObjects().map(([ref]) => ref.objectNumber));
+  let used = null;
+  for (const [number, entry] of chain.entries) {
+    if (entry.section < end) continue;
+    if (entry.free) {
+      // Deleting an object frees its number; it matters only while something still uses it.
+      if (!present.has(number)) continue;
+      used ??= referencedNumbers(context, context.trailerInfo.Root);
+      if (used.has(number)) return true;
+      continue;
+    }
+    // An entry viewers cannot follow makes them rebuild the table by scanning the file.
+    const read = objectAt(data, chain.entries, number, entry);
+    if (read === undefined) continue;
+    // pdf-lib keeps neither cross-reference nor object streams; what they hold is checked.
+    const type = read instanceof PDFRawStream ? nameOf(read.dict.get(name('Type'))) : null;
+    if (type === 'XRef' || type === 'ObjStm') continue;
+    const known = context.lookup(PDFRef.of(number, entry.generation ?? 0));
+    if (!known || !sameObject(read, known)) return true;
+  }
+  return false;
+}
+
 const diffCache = new WeakMap();
 /** The objects added or changed after `end`, with their roles in the old and new revision. */
 async function revisionChanges(data, finalDoc, end) {
@@ -1100,6 +1189,7 @@ async function revisionChanges(data, finalDoc, end) {
       pagesChanged: oldPages.join() !== newPages.join(),
       // Pointing the trailer at another catalog swaps every document setting at once.
       rootChanged: root(oldDoc) !== root(finalDoc),
+      crossReferenceChanged: crossReferenceMismatch(data, finalDoc, end),
     };
   })();
   perFile.set(end, promise);
@@ -1203,7 +1293,7 @@ function formChanges(oldDoc, finalDoc, note, { formOk, otherOk }) {
  * restrictions of its own (form filling, signing and annotations allowed, as in Acrobat).
  */
 function classifyChanges(
-  { changes, oldDoc, pagesChanged, rootChanged },
+  { changes, oldDoc, pagesChanged, rootChanged, crossReferenceChanged },
   finalDoc,
   { level, locks, ownSigNumber },
 ) {
@@ -1217,6 +1307,8 @@ function classifyChanges(
   };
   if (pagesChanged) note(false, 'Pages were added, removed or reordered.');
   if (rootChanged) note(false, 'The document catalog was replaced.');
+  if (crossReferenceChanged)
+    note(false, 'Objects were replaced or removed through the cross-reference table.');
   const fieldLocked = (fieldName) => {
     if (!fieldName) return false;
     for (const lock of locks) {
