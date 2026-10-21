@@ -460,7 +460,8 @@ registerOperators([
     exec: (ctx, p) => {
       const t = p.type as 'FORCE' | 'WIND' | 'VORTEX' | 'TURBULENCE' | 'DRAG';
       const ob = newObject(t[0] + t.slice(1).toLowerCase(), 'EMPTY', null);
-      ob.empty_display_type = t === 'WIND' ? 'SINGLE_ARROW' : 'SPHERE';
+      // wind and vortex point along their axis; the other fields show plain axes (the field shape is drawn as an overlay)
+      ob.empty_display_type = t === 'WIND' || t === 'VORTEX' ? 'SINGLE_ARROW' : 'PLAIN_AXES';
       ob.field = { type: t, strength: 1, flow: 0, falloff_type: 'SPHERE', noise: 0, seed: 1 };
       if (p.location === null) p.location = [...ctx.doc.scene.cursor.location];
       if (p.rotation === null) delete p.rotation;

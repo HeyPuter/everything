@@ -15,3 +15,4 @@ registerIcons({
   snap_perpendicular: '<path class="s" d="M2 13h12M8 13V3" fill="none" stroke-width="1.3"/><path class="s" d="M8 10.5h2.5V13" fill="none" stroke-width="1"/><circle class="f" cx="8" cy="3" r="1.5"/>',
   snap_face_center: '<path class="s" d="M2.5 4.5 13.5 2.5v9l-11 2z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><circle class="f" cx="8" cy="8" r="2"/>',
 });
+import './fielddraw';
