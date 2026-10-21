@@ -1382,12 +1382,24 @@ editModeHooks.pointer.push((v, e) => {
     // Shift+Ctrl+drag: lasso mask (with Alt: unmask)
     return startGesture(v, { op: 'paint.mask_lasso_gesture', kind: 'LASSO', props: { value: e.altKey ? 0 : 1 }, label: 'Lasso Mask' }, e);
   }
+  return brushStroke(v, e);
+});
+
+
+
+/**
+ * Start a stroke of the active brush of the current paint mode at a pointer press (Ctrl inverts,
+ * Shift smooths / blurs, Alt masks in Sculpt Mode). Returns true when the press was used.
+ */
+export function brushStroke(v: View3D, e: PointerEvent): boolean {
+  const mode = app.doc.mode;
+  lastStrokeStarted = false;
   if (mode === 'SCULPT' && e.altKey) {
     // Alt: temporary Mask brush (keeps the current radius); Ctrl+Alt removes mask
     const mb = brushById('brush_mask');
     const cur = activeBrush('SCULPT');
     if (mb) {
-      sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
+      lastStrokeStarted = sculptStroke(v, e, { ...mb, radius: cur?.radius ?? mb.radius, mask_tool: 'DRAW' });
       return true;
     }
   }
@@ -1398,20 +1410,23 @@ editModeHooks.pointer.push((v, e) => {
       v.shading.color_type = 'VERTEX';
       app.report('INFO', 'Viewport color set to Attribute to show the painted colors');
     }
-    vertexPaintStroke(v, e, sb);
-  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') faceSetStroke(v, e, activeBrush('SCULPT')!);
-  else if (mode === 'SCULPT') sculptStroke(v, e);
-  else if (mode === 'VERTEX_PAINT') vertexPaintStroke(v, e);
+    lastStrokeStarted = vertexPaintStroke(v, e, sb);
+  } else if (mode === 'SCULPT' && activeBrush('SCULPT')?.sculpt_tool === 'DRAW_FACE_SETS') lastStrokeStarted = faceSetStroke(v, e, activeBrush('SCULPT')!) !== false;
+  else if (mode === 'SCULPT') lastStrokeStarted = sculptStroke(v, e);
+  else if (mode === 'VERTEX_PAINT') lastStrokeStarted = vertexPaintStroke(v, e);
   else if (mode === 'WEIGHT_PAINT') {
     const am = activeMeshData();
     if (am && !am.me.vertex_groups.length) {
       ensureActiveGroup(am.ob, am.me);
       invalidatePaintAttributes();
     }
-    weightPaintStroke(v, e);
-  } else texturePaintStroke(v, e);
+    lastStrokeStarted = weightPaintStroke(v, e);
+  } else lastStrokeStarted = texturePaintStroke(v, e);
   return true;
-});
+}
+
+/** Whether the last `brushStroke` call actually started a stroke (it hit the mesh). */
+export let lastStrokeStarted = false;
 
 // clone source marker
 editModeHooks.svg.push((v) => {

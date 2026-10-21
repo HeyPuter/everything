@@ -56,6 +56,54 @@ export interface StrokeHandler {
 
 let active: { handler: StrokeHandler; view: View3D } | null = null;
 
+/** A recorded stroke point in viewport pixels (top-left origin). */
+export interface StrokePoint {
+  x: number;
+  y: number;
+  /** pen pressure 0..1 (1 when not given) */
+  pressure?: number;
+}
+
+/** Points of a scripted stroke: the next `runStroke` plays them back synchronously. */
+let replay: StrokePoint[] | null = null;
+
+/** Synthetic pointer event at a viewport position (client coordinates are derived from the view). */
+export function strokeEvent(v: View3D, p: StrokePoint, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): PointerEvent {
+  const r = v.el.getBoundingClientRect();
+  const pr = p.pressure ?? 1;
+  return {
+    clientX: r.left + p.x,
+    clientY: r.top + p.y,
+    pointerId: -1,
+    pointerType: pr !== 1 ? 'pen' : 'mouse',
+    pressure: pr,
+    button: 0,
+    buttons: 1,
+    ctrlKey: !!mods.ctrl,
+    metaKey: false,
+    shiftKey: !!mods.shift,
+    altKey: !!mods.alt,
+    target: v.el,
+    preventDefault() {},
+    stopPropagation() {},
+  } as unknown as PointerEvent;
+}
+
+/**
+ * Run a stroke from recorded points instead of live pointer input: `start` receives a synthetic
+ * press at the first point and starts the stroke as a pointer press would (it calls `runStroke`),
+ * the remaining points are then played back and the stroke ends. Returns false when nothing started.
+ */
+export function playStroke(v: View3D, points: StrokePoint[], start: (e: PointerEvent) => boolean, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): boolean {
+  if (!points.length || active) return false;
+  replay = points.slice(1);
+  try {
+    return start(strokeEvent(v, points[0], mods)) !== false;
+  } finally {
+    replay = null;
+  }
+}
+
 export function strokeActive() {
   return !!active;
 }
@@ -78,11 +126,14 @@ editModeHooks.svg.push((v) => {
 
 export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   const el = v.el;
-  try {
-    el.setPointerCapture(e.pointerId);
-  } catch {
-    // ignore (synthetic events)
-  }
+  const scripted = replay;
+  replay = null;
+  if (!scripted)
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore (synthetic events)
+    }
   active = { handler, view: v };
   const st = handler.settings?.() ?? {};
   let method: StrokeMethod = st.stroke_method ?? 'SPACE';
@@ -242,6 +293,23 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
     renderContext?.engine.requestDraw();
     v.drawSvg();
   };
+  if (scripted) {
+    // recorded stroke: every point at once, then finish
+    if (airTimer) clearInterval(airTimer);
+    airTimer = 0;
+    const mods = { ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey };
+    for (const p of scripted) {
+      const ev = { ...strokeEvent(v, p), ...mods };
+      pending.push(ev);
+      if (method === 'AIRBRUSH') {
+        // one timed dab per recorded point
+        process();
+        handler.dab({ x: last.x, y: last.y, pressure: lastPressure, first: false, sizeFactor: dabSize() });
+      }
+    }
+    up();
+    return;
+  }
   addEventListener('pointermove', move, true);
   addEventListener('pointerup', up, true);
   addEventListener('pointercancel', up, true);

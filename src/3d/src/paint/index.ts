@@ -23,6 +23,7 @@ import './armweights';
 import './paintops';
 import './simpleuv';
 import './ui';
+import './strokeops';
 import './selmask';
 import './sculptmenus';
 import './assetshelf';
