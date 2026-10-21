@@ -70,3 +70,43 @@
   gap: 3px;
   margin-top: 6px;
 }
+
+/* Space brush picker of the paint modes */
+.gp-brush-pick {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  padding: 6px;
+}
+.gp-bp-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--w-field, #1d1d1d);
+  color: var(--c-text, #dedfe1);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  min-width: 0;
+}
+.gp-bp-tile svg {
+  width: 26px;
+  height: 26px;
+}
+.gp-bp-tile span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gp-bp-tile:hover {
+  background: var(--w-regular-hover, #2b2b2b);
+}
+.gp-bp-tile.on {
+  border-color: var(--accent, #4772b3);
+  background: var(--c-active, #334d80);
+}

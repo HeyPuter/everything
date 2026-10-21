@@ -40,6 +40,7 @@ import './curveedit';
 import './pen';
 import './texgrad';
 import './fillguides';
+import './brushpicker';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [
