@@ -666,6 +666,47 @@ test('Redact pages removes what a cropped page hides outside its crop box', asyn
   expect(items.map((item) => item.str).join('')).toBe('');
 });
 
+test('Find text and redact says which pages hold text it cannot search', async ({ page }) => {
+  // Page 2 draws its words with a font that does not say which characters its glyphs are.
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 300]).drawText('Searchable words', { x: 40, y: 200, size: 16, font });
+  const sheet = doc.addPage([400, 300]);
+  const glyph = doc.context.register(doc.context.stream('500 0 d0 0 0 400 700 re f'));
+  const shapes = doc.context.obj({
+    Type: 'Font',
+    Subtype: 'Type3',
+    FontBBox: [0, 0, 500, 700],
+    FontMatrix: [0.001, 0, 0, 0.001, 0, 0],
+    CharProcs: { g1: glyph },
+    Encoding: { Type: 'Encoding', Differences: [65, PDFName.of('g1')] },
+    FirstChar: 65,
+    LastChar: 65,
+    Widths: [500],
+  });
+  sheet.node.set(PDFName.of('Resources'), doc.context.obj({ Font: { T3: shapes } }));
+  sheet.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(doc.context.stream('BT /T3 20 Tf 40 200 Td (AAAA) Tj ET')),
+  );
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Redact a PDF', exact: true }).click();
+  await pane.getByRole('button', { name: 'Find text and redact…' }).click();
+  const finder = page.getByRole('dialog', { name: 'Find text and redact' });
+  await finder.getByLabel('Find text').fill('secret');
+  await finder.getByRole('button', { name: 'Search' }).click();
+  await expect(finder.getByRole('status')).toHaveText(
+    'No matches found. Some text on page 2 cannot be searched. Check it by eye.',
+  );
+  await finder.getByLabel('Find text').fill('words');
+  await finder.getByRole('button', { name: 'Search' }).click();
+  await expect(finder.getByRole('status')).toHaveText(
+    '1 match found. Choose the ones to mark. Some text on page 2 cannot be searched. Check it by eye.',
+  );
+});
+
 test('redaction lists what it could not handle before the file is shared', async ({ page }) => {
   // A transparency effect under the mark whose drawing cannot be read stays as it was.
   const doc = await PDFDocument.create();

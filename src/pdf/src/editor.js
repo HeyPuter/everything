@@ -8088,19 +8088,32 @@ export function createEditor({
       try {
         const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
         found = [];
+        // Pages whose fonts do not say which characters they draw: their text cannot be found.
+        const unsearchable = [];
         for (let page = 0; page < doc.getPageCount(); page++) {
           if (!d.open) return;
           const queries = [
             ...(text ? [text] : []),
             ...patterns.map((entry) => REDACTION_PATTERNS[entry.key]),
           ];
+          const report = {};
           for (const q of queries)
-            for (const match of await findTextRects(doc, page, q, { wholeWord: whole.checked }))
+            for (const match of await findTextRects(doc, page, q, {
+              wholeWord: whole.checked,
+              report,
+            }))
               found.push({ page, ...match });
+          if (report.unsearchable) unsearchable.push(page);
         }
-        status.textContent = found.length
-          ? `${found.length} ${found.length === 1 ? 'match' : 'matches'} found. Choose the ones to mark.`
-          : 'No matches found.';
+        status.textContent = [
+          found.length
+            ? `${found.length} ${found.length === 1 ? 'match' : 'matches'} found. Choose the ones to mark.`
+            : 'No matches found.',
+          unsearchable.length &&
+            `Some text on ${unsearchable.length === 1 ? 'page' : 'pages'} ${formatPageRange(unsearchable)} cannot be searched. Check it by eye.`,
+        ]
+          .filter(Boolean)
+          .join(' ');
         results.replaceChildren(
           ...found.map((match, i) =>
             el(

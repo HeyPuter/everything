@@ -891,11 +891,12 @@ export function findRedactionMatches(items, query, { measure, wholeWord = false 
  * XObjects, including invisible OCR text) and return one rectangle per matched line run, built
  * from the matched glyphs' boxes. Unlike interpolating PDF.js text items, this places marks on
  * the precise glyphs, whatever the font. `query` is as for `findRedactionMatches`. Text comes
- * from each font's ToUnicode map or glyph names; fonts without either cannot be searched.
+ * from each font's ToUnicode map or glyph names; fonts without either cannot be searched, and
+ * `report.unsearchable` is then set, so the page can be checked by eye.
  * Rects are drawn slightly inside the outer glyphs and their line, so applying them does not
  * reach kerned or tightly leaded neighbours. Returns `[{ text, rects }]`.
  */
-export async function findTextRects(doc, pageIndex, query, { wholeWord = false } = {}) {
+export async function findTextRects(doc, pageIndex, query, { wholeWord = false, report } = {}) {
   const page = doc.getPage(pageIndex);
   const glyphs = [];
   await filterContent(doc, {
@@ -904,7 +905,9 @@ export async function findTextRects(doc, pageIndex, query, { wholeWord = false }
     report: contentReport(),
     policy: {
       glyph(quad, { code, metrics, box }) {
-        glyphs.push({ quad, text: metrics.unicode(code), box });
+        const text = metrics.unicode(code);
+        if (!text && report) report.unsearchable = true;
+        glyphs.push({ quad, text, box });
         return false;
       },
     },
