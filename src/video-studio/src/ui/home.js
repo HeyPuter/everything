@@ -328,7 +328,8 @@ export class Home {
   sorted() {
     const s = prefs().homeSort;
     const list = this.projects.filter((p) => !this.query || p.name.toLowerCase().includes(this.query));
-    if (s === 'name') return list.sort((a, b) => a.name.localeCompare(b.name));
+    // Natural order: Project 2 before Project 10, case and accents aside.
+    if (s === 'name') return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
     if (s === 'created') return list.sort((a, b) => (b.created || 0) - (a.created || 0));
     return list.sort((a, b) => b.modified - a.modified);
   }

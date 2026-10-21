@@ -141,6 +141,15 @@ describe('home screen', () => {
 describe('home project list', () => {
   afterEach(() => setPref('homeSort', null));
 
+  it('sorts by name the way people count', async () => {
+    const lib = new Library(memoryBackend());
+    for (const n of ['Project 10', 'project 2', 'Project 1', 'Álbum']) await lib.createProject({ name: n });
+    setPref('homeSort', 'name');
+    mount(lib);
+    await settle();
+    expect(titles()).toEqual(['Álbum', 'Project 1', 'project 2', 'Project 10']);
+  });
+
   it('looks for a missing cover once, not on every search keystroke', async () => {
     const lib = new Library(memoryBackend());
     await lib.createProject({ name: 'No cover' });
