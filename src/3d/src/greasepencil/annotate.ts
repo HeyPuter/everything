@@ -752,6 +752,8 @@ function toolProps(mode: AnnotateMode) {
 
 // D held: annotate whatever the active tool is
 let dHeld = false;
+/** The annotate key (D) is held down. */
+export const annotateKeyHeld = () => dHeld;
 addEventListener(
   'keydown',
   (e) => {

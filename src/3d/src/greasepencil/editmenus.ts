@@ -334,8 +334,8 @@ modeMenus.EDIT = {
     inGPEdit()
       ? [
           ['Grease Pencil', gpMenu],
-          ['Stroke', strokeMenu],
           ['Point', pointMenu],
+          ['Stroke', strokeMenu],
         ]
       : (prevEdit?.header?.() ?? []),
   select: () => (inGPEdit() ? selectItems() : (prevEdit?.select?.() ?? [])),

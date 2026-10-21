@@ -158,3 +158,41 @@ test('annotations: line with arrows, polygon, D drag, eraser', async ({ page }) 
   expect(await get(page, `app.doc.scene.annotations.length`)).toBe(4);
   await expectNoErrors(errors);
 });
+
+test('annotations in a node editor: D drag draws in node space, D right drag erases', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    const scr = (a.activeArea ?? a.hoverArea).screen;
+    scr.areas.find((x: any) => x.type === 'VIEW_3D').setType('SHADER');
+  });
+  await page.waitForTimeout(500);
+  const r = (await page.evaluate(() => {
+    const b = document.querySelector('.area-main')!.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  })) as { x: number; y: number };
+  await page.mouse.move(r.x - 150, r.y - 120);
+  await page.keyboard.down('d');
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) await page.mouse.move(r.x - 150 + i * 12, r.y - 120 + (i % 4) * 5);
+  await page.mouse.up();
+  const count = () =>
+    page.evaluate(() => {
+      const a = (window as any).app;
+      const ed = (a.activeArea ?? a.hoverArea).screen.areas.find((x: any) => x.type === 'SHADER').editor;
+      return ed.tree()?.annotation_strokes_2d?.length ?? 0;
+    });
+  expect(await count()).toBe(1);
+  await expect(page.locator('.gp-annot2d polyline')).toHaveCount(1);
+  // right drag with D erases it
+  await page.mouse.move(r.x - 90, r.y - 115);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.move(r.x - 30, r.y - 110, { steps: 4 });
+  await page.mouse.up({ button: 'right' });
+  await page.keyboard.up('d');
+  const n = (await count()) as number;
+  expect(n === 0 || n === 2).toBe(true);
+  await expect(page.locator('.menu')).toHaveCount(0);
+  await expectNoErrors(errors);
+});

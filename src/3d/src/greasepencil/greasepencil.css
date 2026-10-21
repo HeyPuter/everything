@@ -110,3 +110,15 @@
   background: var(--c-active, #334d80);
 }
 
+
+/* annotations drawn over the 2D editors */
+.gp-annot2d {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 4;
+  overflow: hidden;
+}
+.gp-annot2d svg {
+  display: block;
+}

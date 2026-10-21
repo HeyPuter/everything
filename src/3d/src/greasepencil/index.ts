@@ -36,6 +36,7 @@ import './overlays';
 import './segmentops';
 import './annotations';
 import './annotate';
+import './annotate2d';
 import './curveedit';
 import './pen';
 import './texgrad';
