@@ -41,8 +41,9 @@ export function parseDelimited(text, delim, { maxRows = Infinity, maxColumns = I
       i++;
       continue;
     }
+    // A quote inside an unquoted field is part of it, strict or not: Excel quotes only a cell holding a
+    // line break or a tab, so a cell reading 12" pipe comes as it is.
     if (ch === '"' && field === '') { quoted = true; i++; continue; }
-    if (strict && ch === '"') return null;
     if (ch === delim) { row.push(field); field = ''; i++; continue; }
     if (ch === '\n' || ch === '\r') {
       row.push(field); rows.push(row); row = []; field = '';

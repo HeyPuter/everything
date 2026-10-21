@@ -53,7 +53,9 @@ describe('delimited text', () => {
     expect(parseDelimited('\t'.repeat(100000), '\t', bounds)).toBeNull();
   });
   it('can reject malformed quoted fields without changing permissive text import', () => {
-    for (const text of ['"unfinished', '"closed"extra', 'unquoted"quote']) expect(parseDelimited(text,'\t',{strict:true})).toBeNull();
+    for (const text of ['"unfinished', '"closed"extra']) expect(parseDelimited(text,'\t',{strict:true})).toBeNull();
+    // A quote inside an unquoted field is Excel's own text for a cell such as 12" pipe.
+    expect(parseDelimited('unquoted"quote','\t',{strict:true})).toEqual([['unquoted"quote']]);
     expect(parseDelimited('"unfinished','\t')).toEqual([['unfinished']]);
     expect(parseDelimited('""\t"a""b"\r\n','\t',{strict:true})).toEqual([['','a"b']]);
   });
