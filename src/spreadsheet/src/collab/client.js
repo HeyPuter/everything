@@ -189,7 +189,8 @@ export class RoomClient extends EventTarget {
   /** Keep what is pending in the outbox (or clear it once nothing is). */
   async persist() {
     if (!this.replica) return;
-    const pending = this.replica.outgoing();
+    // A room that is gone never takes them: nothing is kept for it.
+    const pending = this.gone ? [] : this.replica.outgoing();
     if (pending.length) await this.o.store.put(this.outboxKey, { room: this.room, user: this.user.uuid, rev: this.replica.rev, pending, at: Date.now() });
     else await this.o.store.delete(this.outboxKey);
     this.setStatus();
@@ -441,6 +442,9 @@ export class RoomClient extends EventTarget {
       if (error.status === 410 || error.status === 404 || error.status === 403) {
         // The room is gone for this person: it is said once, and the room is not asked again.
         this.halt();
+        // Closed or deleted, it is gone for everyone, and what this browser kept to send it with it (access removed
+        // may be given back, and the changes with it).
+        if (error.status !== 403) { this.gone = true; this.persist().catch(() => {}); }
         this.dispatchEvent(new CustomEvent('closed', { detail: { message: error.message } }));
       }
       return;
