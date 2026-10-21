@@ -15,6 +15,7 @@ const shadowMaterial = new ShaderMaterial({
     uIntensity: { value: 0.5 },
     uBias: { value: 0.002 },
     uTexel: { value: 1 / SIZE },
+    uSoft: { value: 1 },
     uLightDir: { value: new Vector3(0, 0, 1) },
   },
   vertexShader: /* glsl */ `
@@ -36,6 +37,7 @@ const shadowMaterial = new ShaderMaterial({
     uniform float uIntensity;
     uniform float uBias;
     uniform float uTexel;
+    uniform float uSoft;
     uniform vec3 uLightDir;
     varying vec4 vWorld;
     varying vec3 vNormal;
@@ -50,7 +52,7 @@ const shadowMaterial = new ShaderMaterial({
         float sum = 0.0;
         for (int i = -1; i <= 1; i++)
           for (int j = -1; j <= 1; j++) {
-            float d = texture2D(tDepth, p.xy + vec2(float(i), float(j)) * uTexel).r;
+            float d = texture2D(tDepth, p.xy + vec2(float(i), float(j)) * uTexel * uSoft).r;
             sum += p.z - bias > d ? 0.0 : 1.0;
           }
         lit = sum / 9.0;
@@ -85,7 +87,7 @@ function sceneBounds(ctx: RenderContext): Box3 {
  * Darken what is in shadow, after the shaded scene was drawn into the viewport rectangle.
  * `dir` points towards the light.
  */
-export function drawSolidShadow(r: WebGLRenderer, ctx: RenderContext, scene: Scene, camera: Camera, rect: { x: number; y: number; w: number; h: number }, dir: [number, number, number], intensity: number) {
+export function drawSolidShadow(r: WebGLRenderer, ctx: RenderContext, scene: Scene, camera: Camera, rect: { x: number; y: number; w: number; h: number }, dir: [number, number, number], intensity: number, focus = 1) {
   const box = sceneBounds(ctx);
   if (box.isEmpty()) return;
   const d = new Vector3(...dir);
@@ -115,11 +117,19 @@ export function drawSolidShadow(r: WebGLRenderer, ctx: RenderContext, scene: Sce
   scene.background = null;
   scene.environment = null;
   scene.overrideMaterial = depthOnly;
+  // objects whose Viewport Display ▸ Shadow is off cast no shadow
+  const noCast: { visible: boolean }[] = [];
+  for (const so of ctx.sync.objects.values())
+    if (so.mesh?.visible && (so.ev.ob as { display_show_shadows?: boolean }).display_show_shadows === false) {
+      so.mesh.visible = false;
+      noCast.push(so.mesh);
+    }
   r.setRenderTarget(target);
   r.setScissorTest(false);
   r.setViewport(0, 0, SIZE / r.getPixelRatio(), SIZE / r.getPixelRatio());
   r.clear(false, true, false);
   r.render(scene, lightCam);
+  for (const m of noCast) m.visible = true;
   r.setRenderTarget(null);
   // darken the visible surfaces that the light does not reach
   const u = shadowMaterial.uniforms;
@@ -128,6 +138,8 @@ export function drawSolidShadow(r: WebGLRenderer, ctx: RenderContext, scene: Sce
   u.uIntensity.value = Math.max(0, Math.min(1, intensity));
   u.uBias.value = 0.0015;
   u.uTexel.value = 1 / SIZE;
+  // Focus: 1 is a crisp edge, lower values spread the samples into a softer edge
+  u.uSoft.value = 1 + (1 - Math.max(0, Math.min(1, focus))) * 6;
   u.uLightDir.value.copy(d);
   r.setViewport(rect.x, rect.y, rect.w, rect.h);
   r.setScissor(rect.x, rect.y, rect.w, rect.h);

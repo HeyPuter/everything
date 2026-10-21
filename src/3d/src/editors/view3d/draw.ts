@@ -485,7 +485,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
       if (dof && ca) dofAfterScene = () => drawViewportDof(r, scene, camera, { x, y, w, h }, engine.dpr, { focus: dof.focus, lens: ca.lens, sensor: ca.sensor_fit === 'VERTICAL' ? ca.sensor_height : ca.sensor_width, fstop: ca.dof.aperture_fstop });
     }
     // Solid shading ▸ Shadow
-    if (sh.type === 'SOLID' && sh.show_shadows) drawSolidShadow(r, ctx, scene, camera, { x, y, w, h }, sh.light_direction ?? [0.5774, -0.5774, 0.5774], sh.shadow_intensity ?? 0.5);
+    if (sh.type === 'SOLID' && sh.show_shadows) drawSolidShadow(r, ctx, scene, camera, { x, y, w, h }, sh.light_direction ?? [0.5774, -0.5774, 0.5774], sh.shadow_intensity ?? 0.5, sh.shadow_focus ?? 1);
     if (sh.type === 'SOLID' && sh.show_cavity) drawCavity(r, scene, camera, { x, y, w, h }, engine.dpr, sh.cavity_ridge_factor ?? 1, sh.cavity_valley_factor ?? 1);
     afterScene();
     // the depth of field blur works on the shaded scene, before the overlays

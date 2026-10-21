@@ -306,6 +306,7 @@ registerTab({
         o.type === 'MESH' ? bool(o, 'show_wire', 'Wireframe') : null,
         o.type === 'MESH' ? bool(o as never, 'show_all_edges' as never, 'All Edges', { tip: 'All Edges\nThe wireframe shows every edge, whatever the wireframe threshold' }) : null,
         o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' ? bool(o as never, 'show_texture_space' as never, 'Texture Space', { tip: 'Texture Space\nDraw the box generated texture coordinates are mapped to' }) : null,
+        bool({ get v() { return (o as { display_show_shadows?: boolean }).display_show_shadows !== false; }, set v(x: boolean) { (o as { display_show_shadows?: boolean }).display_show_shadows = x; } } as { v: boolean }, 'v', 'Shadow', { tip: 'Shadow\nThe object casts a shadow in Solid shading' }),
         bool(o, 'show_in_front', 'In Front'),
         enumProp(o, 'display_type', 'Display As', [['BOUNDS', 'Bounds'], ['WIRE', 'Wire'], ['SOLID', 'Solid'], ['TEXTURED', 'Textured']]),
         colorProp(o, 'color', 'Color', { alpha: true }),

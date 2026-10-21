@@ -566,6 +566,7 @@ function shadingPopover(v: View3D): Child {
             ),
           )
         : null,
+      s.show_shadows ? numberField({ id: 's-shadow-f', label: 'Focus', value: s.shadow_focus ?? 1, min: 0, max: 1, slider: true, tip: 'Focus\nSharpness of the shadow edges', set: (x) => set('shadow_focus')(x) }) : null,
       checkbox('s-dof', 'Depth of Field', !!s.use_dof, set('use_dof'), { tip: 'Depth of Field\nIn camera view, blur by the camera’s depth of field' }),
       checkbox('s-cavity', 'Cavity', s.show_cavity, set('show_cavity'), { tip: 'Cavity\nLighten convex edges and darken creases' }),
       s.show_cavity

@@ -19,6 +19,8 @@ export interface Shading {
   /** Shadow: darkness of the shadows (0..1) and the direction towards the light */
   shadow_intensity?: number;
   light_direction?: [number, number, number];
+  /** Shadow edge sharpness (1 crisp, 0 soft) */
+  shadow_focus?: number;
   show_cavity: boolean;
   /** Cavity: how much ridges lighten and valleys darken (0..2.5) */
   cavity_ridge_factor?: number;
