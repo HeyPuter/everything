@@ -2173,6 +2173,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       case 'freeze': {
+        // The entry goes in first, as for the other commands on lines: a formula showing another sheet to pick
+        // references on froze that sheet, at the selection there.
+        if (!committed()) return;
         const sheet = wb.sheet(sheetId);
         const a = grid.active;
         const rg = grid.range;
