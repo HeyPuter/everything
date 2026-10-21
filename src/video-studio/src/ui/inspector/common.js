@@ -73,12 +73,21 @@ export function createClipView(ctx, id) {
     },
     /**
      * Edit the clip. key names the control so consecutive drag steps merge
-     * into one undo step; final ends that run.
+     * into one undo step; final ends that run. A one-off edit that changes
+     * nothing (a reset at the defaults) adds no undo step.
      */
     edit(label, fn, { key = null, final = true } = {}) {
-      const ok = actions.editClip(id, label, fn, key ? { coalesce: `${key}:${id}` } : {});
+      let same = false;
+      const once = (c, ...rest) => {
+        const before = JSON.stringify(c);
+        const r = fn(c, ...rest);
+        if (r === false) return false;
+        same = JSON.stringify(c) === before;
+        return same ? false : r;
+      };
+      const ok = actions.editClip(id, label, key ? fn : once, key ? { coalesce: `${key}:${id}` } : {});
       if (final) store.seal();
-      return ok;
+      return same || ok;
     },
     /** Keyframable value: a key at the playhead when the prop has keys, else the base value. */
     animate(prop, value, { label = 'Edit', final = true, key = prop } = {}) {

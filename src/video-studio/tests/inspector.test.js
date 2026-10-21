@@ -688,6 +688,28 @@ describe('number boxes', () => {
     expect(num.value).toBe('100');
   });
 
+  it('unchanged values and resets at the defaults add no undo steps', () => {
+    env.store.select(env.v1.id);
+    const steps = () => env.store.history.undoStack.length;
+    const before = steps();
+    const num = field('Opacity').querySelector('.num-input');
+    num.focus();
+    for (let i = 0; i < 3; i++) arrow(num, 'ArrowUp');
+    typeEnter('Opacity', 100);
+    typeEnter('Scale', 100);
+    env.el.querySelector('[aria-label="Reset Transform"]').click();
+    env.el.querySelector('[aria-label="Reset Blend"]').click();
+    env.el.querySelector('[aria-label="Reset Crop"]').click();
+    expect(steps()).toBe(before);
+    expect(num.value).toBe('100');
+    // A real change still is one.
+    typeEnter('Opacity', 50);
+    expect(steps()).toBe(before + 1);
+    env.el.querySelector('[aria-label="Reset Blend"]').click();
+    expect(steps()).toBe(before + 2);
+    expect(clip(env.v1.id).opacity).toBe(1);
+  });
+
   it('arrow keys keep values typed past the slider', () => {
     env.store.select(env.v1.id);
     const num = typeEnter('Scale', 1000);

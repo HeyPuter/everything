@@ -49,15 +49,15 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
     range.value = String(v);
     pct(range);
   };
-  /** Commit a value from the number box, then show what was stored. */
+  /**
+   * Commit a value from the number box, then show what was stored. The same
+   * value again (Enter, an arrow at the end of the range) is no edit.
+   */
   const commit = (v) => {
-    show(v);
-    emit(v, true);
+    if (v !== last) emit(v, true);
     const stored = read?.();
-    if (Number.isFinite(stored)) {
-      last = stored;
-      show(stored);
-    }
+    if (Number.isFinite(stored)) last = stored;
+    show(last);
   };
   const commitNum = () => {
     const raw = parseFloat(num.value);
