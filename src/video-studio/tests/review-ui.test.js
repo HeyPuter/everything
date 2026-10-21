@@ -159,6 +159,8 @@ describe('share for review (owner flow)', () => {
     const p = projectWithClips();
     p.settings = { ...p.settings, width: 1920, height: 1080, fps: 25 };
     expect(reviewSettings(p)).toMatchObject({ ...REVIEW_PRESET, resolution: 720, fps: 25 });
+    // Where the browser cannot encode sound the copy is shared silent, not refused (there is no format to pick).
+    expect(reviewSettings(p).audioOptional).toBe(true);
     p.settings = { ...p.settings, width: 640, height: 360 };
     expect(reviewSettings(p).resolution).toBe(360);
     expect(reviewSettings(p, { video: ['vp9'] })).toMatchObject({ codec: 'vp9', format: 'webm' });

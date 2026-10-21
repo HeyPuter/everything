@@ -10,7 +10,8 @@ import { ensureWorker, call } from './api.js';
 import { randomId, cleanTitle } from './protocol.js';
 
 /** Review copies: 720p H.264 MP4 at the project's frame rate, balanced quality, with sound. */
-export const REVIEW_PRESET = Object.freeze({ resolution: 720, codec: 'avc', format: 'mp4', bitrate: 'balanced', video: true, includeAudio: true, audio: false });
+// audioOptional: where the browser cannot encode sound, the review copy is shared silent rather than not at all.
+export const REVIEW_PRESET = Object.freeze({ resolution: 720, codec: 'avc', format: 'mp4', bitrate: 'balanced', video: true, includeAudio: true, audioOptional: true, audio: false });
 
 /**
  * Export settings for a review copy. Never upscales past the project's own
