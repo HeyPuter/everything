@@ -206,18 +206,7 @@ modifierExtraUI.DISPLACE = (ob, m) => {
   const axis = r.direction === 'X' || r.direction === 'Y' || r.direction === 'Z';
   return [
     textureRows(m, 'texture'),
-    r.texture
-      ? [
-          enumProp(r, 'texture_coords', 'Coordinates', [
-            ['LOCAL', 'Local'],
-            ['GLOBAL', 'Global'],
-            ['OBJECT', 'Object'],
-            ['UV', 'UV'],
-          ]),
-          r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
-          r.texture_coords === 'UV' ? uvMapRow(ob, r) : null,
-        ]
-      : null,
+    texCoordRows(ob, r),
     enumProp(r, 'direction', 'Direction', [
       ['X', 'X'],
       ['Y', 'Y'],
@@ -342,6 +331,21 @@ modifierExtraUI.CAST = (ob, m) => {
   ];
 };
 
+/** Texture coordinate rows of a modifier with a texture (Displace, Warp, Wave). */
+function texCoordRows(ob: ObjectData, r: Rec): Child {
+  if (!r.texture) return null;
+  return [
+    enumProp(r, 'texture_coords', 'Coordinates', [
+      ['LOCAL', 'Local'],
+      ['GLOBAL', 'Global'],
+      ['OBJECT', 'Object'],
+      ['UV', 'UV'],
+    ]),
+    r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
+    r.texture_coords === 'UV' ? uvMapRow(ob, r) : null,
+  ];
+}
+
 /** UV map picker of a modifier (the mesh's UV maps by name; empty: the active one). */
 function uvMapRow(ob: ObjectData, r: Rec) {
   const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
@@ -407,6 +411,7 @@ modifierExtraUI.WAVE = (ob, m) => {
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     sub(m, 'start', 'Start Position', () => [objRow(r, 'start_position_object', 'Object', (o) => o.id !== ob.id), !r.start_position_object ? [num(r, 'start_position_x', 'Start Position X', { unit: 'distance' }), num(r, 'start_position_y', 'Y', { unit: 'distance' })] : null]),
     sub(m, 'time', 'Time', () => [num(r, 'time_offset', 'Offset', { anim: a('time_offset') }), num(r, 'lifetime', 'Life', { min: 0 }), num(r, 'damping_time', 'Damping', { min: 0 }), num(r, 'speed', 'Speed', { softMin: -1, softMax: 1, anim: a('speed') })]),
+    sub(m, 'texture', 'Texture', () => [textureRows(m, 'texture'), texCoordRows(ob, r)]),
   ];
 };
 
@@ -445,7 +450,7 @@ modifierExtraUI.WARP = (ob, m) => {
     num(r, 'strength', 'Strength', { softMin: -100, softMax: 100, anim: { ob, path: `modifiers["${m.name}"].strength` } }),
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     sub(m, 'falloff', 'Falloff', () => [enumProp(r, 'falloff_type', 'Type', FALLOFF_TYPES), r.falloff_type !== 'NONE' ? num(r, 'falloff_radius', 'Radius', { unit: 'distance', min: 0 }) : null, r.falloff_type === 'CURVE' ? curveWidget(m, 'falloff_curve') : null]),
-    sub(m, 'texture', 'Texture', () => textureRows(m, 'texture')),
+    sub(m, 'texture', 'Texture', () => [textureRows(m, 'texture'), texCoordRows(ob, r)]),
   ];
 };
 

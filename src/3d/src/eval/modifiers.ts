@@ -1736,6 +1736,7 @@ function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const minfac = 1 / Math.exp(width * narrow * width * narrow);
   const vn = bool(mod, 'use_normal') ? vertexNormals(m) : null;
   const nAxes = [bool(mod, 'use_normal_x', true), bool(mod, 'use_normal_y', true), bool(mod, 'use_normal_z', true)];
+  const texAt = textureSampler(m, mod, ctx);
   return deform(m, mod, (p, i) => {
     const dx = p.x - sx,
       dy = p.y - sy;
@@ -1752,13 +1753,50 @@ function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     if (cyclic && x <= -width) x = (((x + width) % (2 * width)) + 2 * width) % (2 * width) - width;
     if (x <= -width) return;
     const a = x * narrow;
-    const amp = height * (1 / Math.exp(a * a) - minfac) * life * fall;
+    const amp = height * (1 / Math.exp(a * a) - minfac) * life * fall * (texAt ? texAt(p, i) : 1);
     if (vn) {
       if (nAxes[0]) p.x += vn[i * 3] * amp;
       if (nAxes[1]) p.y += vn[i * 3 + 1] * amp;
       if (nAxes[2]) p.z += vn[i * 3 + 2] * amp;
     } else p.z += amp;
   });
+}
+
+/**
+ * The modifier's texture sampled at a vertex in its texture coordinates (Local, Global, Object or a UV
+ * map), or null without a texture.
+ */
+function textureSampler(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): ((p: Vector3, i: number) => number) | null {
+  const tex = (mod.texture as Record<string, unknown> | null) ?? null;
+  if (!tex || !tex.type) return null;
+  const coords = str(mod, 'texture_coords', 'LOCAL');
+  const world = ctx.graph?.get(ctx.ob.id)?.world;
+  const objMat = coords === 'OBJECT' && typeof mod.texture_coords_object === 'string' ? objectSpaceOf(ctx, mod.texture_coords_object)?.invert() ?? null : null;
+  // per-vertex UVs (first corner of each vertex)
+  let vuv: Float32Array | null = null;
+  if (coords === 'UV') {
+    // a named UV map of the original mesh (same corners), else the evaluated one
+    const src = ctx.source;
+    const layer = str(mod, 'uv_layer');
+    const named = layer && src && src.indices === m.indices ? (src.uv_map_name === layer ? src.uvs : src.uv_layers_extra?.find((u) => u.name === layer)?.data) : undefined;
+    const uvs = named && named.length === m.indices.length * 2 ? named : m.uvs;
+    vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
+    for (let c = 0; c < m.indices.length; c++) {
+      const v = m.indices[c];
+      if (Number.isNaN(vuv[v * 2])) {
+        vuv[v * 2] = uvs[c * 2] * 2 - 1;
+        vuv[v * 2 + 1] = uvs[c * 2 + 1] * 2 - 1;
+      }
+    }
+  }
+  const q = new Vector3();
+  return (p, i) => {
+    q.copy(p);
+    if (coords === 'GLOBAL' && world) q.applyMatrix4(world);
+    else if (objMat) q.applyMatrix4(objMat);
+    else if (vuv) q.set(vuv[i * 2] || 0, vuv[i * 2 + 1] || 0, 0);
+    return proceduralTexture(tex, q.x, q.y, q.z);
+  };
 }
 
 function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -1778,26 +1816,8 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
       }
     }
   }
-  const tex = (mod.texture as Record<string, unknown> | null) ?? null;
-  const coords = str(mod, 'texture_coords', 'LOCAL');
+  const texAt = textureSampler(m, mod, ctx);
   const world = ctx.graph?.get(ctx.ob.id)?.world;
-  const objMat = coords === 'OBJECT' && typeof mod.texture_coords_object === 'string' ? objectSpaceOf(ctx, mod.texture_coords_object)?.invert() ?? null : null;
-  // per-vertex UVs (first corner of each vertex)
-  let vuv: Float32Array | null = null;
-  if (tex && coords === 'UV') {
-    // a named UV map of the original mesh (same corners), else the evaluated one
-    const src = ctx.source;
-    const named = str(mod, 'uv_layer') && src && src.indices === m.indices ? (src.uv_map_name === str(mod, 'uv_layer') ? src.uvs : src.uv_layers_extra?.find((u) => u.name === str(mod, 'uv_layer'))?.data) : undefined;
-    const uvs = named && named.length === m.indices.length * 2 ? named : m.uvs;
-    vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
-    for (let c = 0; c < m.indices.length; c++) {
-      const v = m.indices[c];
-      if (Number.isNaN(vuv[v * 2])) {
-        vuv[v * 2] = uvs[c * 2] * 2 - 1;
-        vuv[v * 2 + 1] = uvs[c * 2 + 1] * 2 - 1;
-      }
-    }
-  }
   // X/Y/Z in global space: the world axis expressed in local coordinates
   let axis: Vector3 | null = null;
   if (dir === 'X' || dir === 'Y' || dir === 'Z') {
@@ -1805,14 +1825,7 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
     if (str(mod, 'space', 'LOCAL') === 'GLOBAL' && world) axis.transformDirection(world.clone().invert());
   }
   return deform(m, mod, (p, i) => {
-    let value = 1;
-    if (tex && tex.type) {
-      let q = p;
-      if (coords === 'GLOBAL' && world) q = p.clone().applyMatrix4(world);
-      else if (objMat) q = p.clone().applyMatrix4(objMat);
-      else if (vuv) q = new Vector3(vuv[i * 2] || 0, vuv[i * 2 + 1] || 0, 0);
-      value = proceduralTexture(tex, q.x, q.y, q.z);
-    }
+    const value = texAt ? texAt(p, i) : 1;
     const d = (value - mid) * strength;
     if (vn) p.addScaledVector(new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]), d);
     else if (axis) p.addScaledVector(axis, d);
@@ -2054,11 +2067,11 @@ function warpMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh
   const idQ = new Quaternion(),
     one = new Vector3(1, 1, 1),
     zero = new Vector3();
-  const tex = mod.texture as Record<string, unknown> | null | undefined;
-  return deform(m, mod, (p) => {
+  const texAt = textureSampler(m, mod, ctx);
+  return deform(m, mod, (p, i) => {
     const d = p.distanceTo(pf);
     let f = (radius > 0 ? falloffFactor(ftype, 1 - d / radius, mod.falloff_curve) : 1) * strength;
-    if (tex && tex.type) f *= proceduralTexture(tex, p.x, p.y, p.z);
+    if (texAt) f *= texAt(p, i);
     if (!f) return;
     if (preserve) {
       // interpolate the transform itself (rotations stay rotations)
@@ -2399,15 +2412,15 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
   SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: smoothMesh },
-  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
+  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string, m.texture_coords_object as string], apply: warpMod },
   WAVE: {
     type: 'WAVE',
     label: 'Wave',
     category: 'DEFORM',
     icon: 'mod_wave',
     deformOnly: true,
-    defaults: base({ use_x: true, use_y: true, use_cyclic: true, use_normal: false, use_normal_x: true, use_normal_y: true, use_normal_z: true, falloff_radius: 0, height: 0.5, width: 1.5, narrowness: 1.5, start_position_x: 0, start_position_y: 0, start_position_object: null, time_offset: 0, lifetime: 0, damping_time: 10, speed: 0.25, vertex_group: '', invert_vertex_group: false }),
-    deps: (m) => [m.start_position_object as string],
+    defaults: base({ use_x: true, use_y: true, use_cyclic: true, use_normal: false, use_normal_x: true, use_normal_y: true, use_normal_z: true, falloff_radius: 0, height: 0.5, width: 1.5, narrowness: 1.5, start_position_x: 0, start_position_y: 0, start_position_object: null, time_offset: 0, lifetime: 0, damping_time: 10, speed: 0.25, texture: null, texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.start_position_object as string, m.texture_coords_object as string],
     timeDependent: () => true,
     apply: wave,
   },

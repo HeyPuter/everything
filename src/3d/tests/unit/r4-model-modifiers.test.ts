@@ -167,3 +167,33 @@ describe('Shrinkwrap: auxiliary target', () => {
     expect(run('aux')).toBeCloseTo(0.5, 5);
   });
 });
+
+describe('Texture coordinates shared by Displace, Warp and Wave', () => {
+  const tri = () => {
+    const m = buildMesh([0, 0, 0, 1, 0, 0, 0, 1, 0], [{ verts: [0, 1, 2], uvs: [0, 0, 1, 0, 0, 1] }]) as Any;
+    m.uv_map_name = 'UVMap';
+    m.uv_layers_extra = [{ name: 'Second', data: Float32Array.from([0.25, 0, 0.75, 0, 0.5, 1]) }];
+    return m as EvalMesh;
+  };
+  const blend = { type: 'BLEND' };
+  it('Displace reads the chosen UV map', () => {
+    const m = tri();
+    const t = modifierTypes.DISPLACE;
+    const ctx = { ob: { id: 'ob' }, source: m, graph: new Map() } as unknown as ModifierContext;
+    const run = (uv_layer: string) => t.apply(m, { ...t.defaults(), texture: blend, texture_coords: 'UV', uv_layer, direction: 'Z', mid_level: 0 } as never, ctx).positions;
+    // the blend texture is the u coordinate here
+    expect([0, 1, 2].map((v) => +run('')[v * 3 + 2].toFixed(4))).toEqual([0, 1, 0]);
+    expect([0, 1, 2].map((v) => +run('Second')[v * 3 + 2].toFixed(4))).toEqual([0.25, 0.75, 0.5]);
+  });
+  it('Wave height follows its texture', () => {
+    const m = tri();
+    const t = modifierTypes.WAVE;
+    const ctx = { ob: { id: 'ob' }, source: m, frame: 0, graph: new Map() } as unknown as ModifierContext;
+    const base = { ...t.defaults(), use_cyclic: true, width: 2, time_offset: 0, speed: 0 };
+    const plain = t.apply(m, base as never, ctx).positions;
+    const tex = t.apply(m, { ...base, texture: blend, texture_coords: 'UV' } as never, ctx).positions;
+    // vertex 1 has u = 1 (full height), vertex 0 has u = 0 (no wave)
+    expect(tex[1 * 3 + 2]).toBeCloseTo(plain[1 * 3 + 2], 5);
+    expect(tex[0 * 3 + 2]).toBeCloseTo(0, 5);
+  });
+});
