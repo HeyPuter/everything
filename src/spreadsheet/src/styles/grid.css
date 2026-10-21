@@ -984,6 +984,19 @@
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 5h18l-7 8v6l-4-2v-4z'/></svg>");
 }
 
+/* A filter button or a dropdown chevron takes the cell's ::after, where a note's or a comment's corner mark is
+   otherwise drawn: in those cells the mark is a background layer in the same corner instead. */
+.cell.filter-head.has-note, .cell.list-inline.has-note,
+.cell.filter-head.has-comment, .cell.list-inline.has-comment {
+  background-image: linear-gradient(to bottom left, var(--corner-mark) 50%, transparent 50%);
+  background-size: 7px 7px;
+  background-position: top right;
+  background-repeat: no-repeat;
+}
+.cell.has-note { --corner-mark: var(--warn); }
+.cell.has-comment { --corner-mark: var(--comment-mark); }
+.cell.has-comment.comment-done { --corner-mark: var(--comment-mark-done); }
+
 .hcell.filtered { color: var(--accent-strong); }
 /* Selected, a filtered row's number is ink on the accent fill like its neighbours': the accent-strong
    that marks it otherwise reads 1.3:1 on that fill, and Ctrl+A blanked every visible row number. */
