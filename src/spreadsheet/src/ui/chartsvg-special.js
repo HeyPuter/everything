@@ -15,6 +15,8 @@ import { seriesColor, seriesPaint, inkOn, svgEsc as esc, svgNum as f, chartTipTe
 
 export const SPECIAL_CHART_TYPES = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
 
+const AXIS_TITLED = new Set(['boxWhisker', 'stock', 'surface']);
+
 const TYPE_NAMES = { treemap: 'Treemap', sunburst: 'Sunburst', boxWhisker: 'Box and whisker chart', funnel: 'Funnel chart', stock: 'Stock chart', surface: 'Surface chart' };
 
 /** Text styles: the appearance's, or the theme's ink for an app chart without one. */
@@ -69,6 +71,18 @@ function chartFrame(chart, width, height, entries, describe) {
   const right = legend && !manual && chart.legendPos === 'right' ? legend.x - 10 : W - 10;
   const plot = a?.plot ? { x: a.plot.x * W, y: a.plot.y * H, w: (a.plot.w ?? .8) * W, h: (a.plot.h ?? .7) * H }
     : { x: 10, y: top, w: Math.max(10, right - 10), h: Math.max(10, bottom - top) };
+  // Axis titles (Add Chart Element ▸ Axis Titles) of the types with axes: the horizontal one under the plot, below its
+  // category labels, and the vertical one up its left side, beside its value labels; each takes its room from the plot.
+  if (AXIS_TITLED.has(chart.type) && chart.xTitle) {
+    const room = st.axis.size * 1.6, y = a?.plot ? H - 6 : plot.y + plot.h - room * .2;
+    if (!a?.plot) plot.h = Math.max(10, plot.h - room);
+    parts.push(text(fitText(chart.xTitle, plot.w, st.axis), plot.x + plot.w / 2, y, st.axis, 'middle', 'data-el="xTitle"'));
+  }
+  if (AXIS_TITLED.has(chart.type) && chart.yTitle) {
+    const room = st.value.size * 1.6, x = a?.plot ? st.value.size : plot.x + st.value.size * .9, y = plot.y + plot.h / 2;
+    if (!a?.plot) { plot.x += room; plot.w = Math.max(10, plot.w - room); }
+    parts.push(text(fitText(chart.yTitle, plot.h, st.value), x, y, st.value, 'middle', `data-el="yTitle" transform="rotate(-90 ${f(x)} ${f(y)})"`));
+  }
   const drawLegend = () => {
     if (!legend) return '';
     const out = [`<g data-el="legend"${a ? effectAttr(a, 'legend') : ''}>`, a ? legendBoxRect(a.legendBox, legend, st.legend.size) : ''];
