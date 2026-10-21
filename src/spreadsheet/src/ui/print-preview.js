@@ -14,6 +14,7 @@ import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
 import { fontStack, fontKeyFor, borderCss, getLocale, defaultAlign } from '../core/format.js';
 import { readsRightToLeft } from '../core/bidi.js';
+import { cellLayoutText, wrapLines } from '../core/textfit.js';
 import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
 import { conditionalFontStyle } from '../core/style-values.js';
@@ -414,7 +415,16 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         const pad = 3 * s;
         const tx = align === 'right' ? cx + cw - pad : align === 'center' ? cx + cw / 2 : cx + pad;
         const ty = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + ch / 2 : cy + ch - pad;
-        g.fillText(String(text).split('\n')[0], tx, ty);
+        // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
+        const shownText = cellLayoutText(text, st.wrap);
+        if (st.wrap) {
+          const lineHeight = Math.max(2, (st.size || 13) * s) * 1.3;
+          const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad), (t) => g.measureText?.(t)?.width || 0);
+          const block = lines.length * lineHeight;
+          let y = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - block) / 2 : cy + ch - pad - block;
+          g.textBaseline = 'top';
+          for (const line of lines) { g.fillText(line, tx, y); y += lineHeight; }
+        } else g.fillText(shownText, tx, ty);
         g.restore();
       }
       // Each cell's borders on its own edges; inside a merged block, only those on the block's outline.
