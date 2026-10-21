@@ -2735,13 +2735,16 @@ export function createGrid(opts) {
     hlLayer.replaceChildren();
     if (!highlights.cells.length) return;
     const frag = document.createDocumentFragment();
-    // A cell in view, or in a frozen band or a split window's top or left pane, which show wherever the sheet is scrolled.
-    const rowShown = (r) => (r >= vr.r0 && r <= vr.r1) || (r >= (frozen.r0 || 0) && r < frozen.rows) || (frozen.split && frozen.top && r >= paneRows[0] && r <= paneRows[1]);
-    const colShown = (c) => (c >= vr.c0 && c <= vr.c1) || (c >= (frozen.c0 || 0) && c < frozen.cols) || (frozen.split && frozen.left && c >= paneCols[0] && c <= paneCols[1]);
+    // Lines a..b reaching into the view, or into a frozen band or a split window's top or left pane, which show wherever the sheet is scrolled.
+    const rowsShown = (a, b) => (b >= vr.r0 && a <= vr.r1) || (b >= (frozen.r0 || 0) && a < frozen.rows) || (frozen.split && frozen.top && b >= paneRows[0] && a <= paneRows[1]);
+    const colsShown = (a, b) => (b >= vr.c0 && a <= vr.c1) || (b >= (frozen.c0 || 0) && a < frozen.cols) || (frozen.split && frozen.left && b >= paneCols[0] && a <= paneCols[1]);
+    const merges = sheet().merges.length > 0;
     highlights.cells.forEach((m, i) => {
-      if (!rowShown(m.r) || !colShown(m.c)) return;
+      // A match in a merged block is the block's: it is outlined whole, and while any of it is in view.
+      const area = (merges && mergeAt(m.r, m.c)) || { r1: m.r, c1: m.c, r2: m.r, c2: m.c };
+      if (!rowsShown(area.r1, area.r2) || !colsShown(area.c1, area.c2)) return;
       const node = el('div.find-hl', { className: `find-hl${i === highlights.current ? ' current' : ''}${m.kind === 'invalid' ? ' invalid-circle' : ''}` });
-      place(node, rangeBox({ r1: m.r, c1: m.c, r2: m.r, c2: m.c }));
+      place(node, rangeBox(area));
       frag.append(node);
     });
     hlLayer.append(frag);
