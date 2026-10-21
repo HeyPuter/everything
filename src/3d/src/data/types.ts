@@ -600,6 +600,8 @@ export interface WorldData extends RealtimeWorldSettings {
   mist_start?: number;
   mist_depth?: number;
   mist_falloff?: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC';
+  /** World ▸ Ray Visibility ▸ Camera: the background is seen by the camera (off: black) */
+  visible_camera?: boolean;
   users?: number;
 }
 

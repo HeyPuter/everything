@@ -647,6 +647,12 @@ export class RenderScene {
       s.environmentIntensity *= k;
       this.envKey += `*${k}`;
     }
+    // World ▸ Ray Visibility ▸ Camera off: the world still lights the scene but is not seen
+    const wo = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    if (useWorld && wo?.visible_camera === false && s.background) {
+      s.background = new Color(0, 0, 0);
+      this.envKey += '|nocam';
+    }
     // World ▸ Settings ▸ Light Probe ▸ Resolution: detail of the world's lighting
     const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
     if (env && this.mode === 'raster' && s.environment === env.texture && world?.probe_resolution) {
