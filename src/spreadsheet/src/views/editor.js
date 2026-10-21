@@ -3009,6 +3009,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         wb.groupSheets(wb.visibleSheets.filter((s) => s.kind !== 'chart' || s.id === wb.activeSheetId).map((s) => s.id));
         return;
       case 'ungroupSheets':
+        // The entry goes in first, on every grouped sheet it was typed for.
+        if (!committed()) return;
         wb.ungroupSheets();
         keepFocus();
         return;

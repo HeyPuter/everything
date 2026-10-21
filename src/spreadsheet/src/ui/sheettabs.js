@@ -300,6 +300,9 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
    * group, or take it out (the active one hands over to its neighbour in the group first).
    */
   function clickTab(s, e) {
+    // A value being typed goes in first, on the group it was typed for: the group changing under it took it to the
+    // active sheet alone. A formula picking a reference keeps its entry open, to point at the sheet clicked.
+    if (ctx.grid?.editing && !ctx.grid.acceptsRef() && !ctx.grid.commitEdit()) return;
     const wb = ctx.wb;
     const visible = wb.visibleSheets;
     const group = wb.sheetGroup;
