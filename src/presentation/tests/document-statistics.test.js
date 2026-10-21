@@ -55,6 +55,17 @@ describe("document statistics", () => {
     expect(part(saved, "_rels/.rels")).toContain("docProps/app.xml");
   });
 
+  it("names no author for a new presentation", async () => {
+    const pres = createDeck("blank");
+    expect(P.getCoreProperties(pres)).toMatchObject({
+      creator: null,
+      lastModifiedBy: null,
+    });
+    expect(
+      part(await P.savePresentation(pres), "docProps/core.xml"),
+    ).not.toMatch(/office-kit/);
+  });
+
   it("round-trips core properties edited as a document's properties", async () => {
     const pres = createDeck("blank");
     P.setCoreProperties(pres, {
