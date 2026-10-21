@@ -8623,9 +8623,10 @@ function startSlideDrag(e, target) {
       indicator.style.width = `${r.width}px`;
     }
   }
+  // The page hears the press's movements, as a quick flick can leave the
+  // thumbnail before the first of them arrives.
   function move(ev) {
-    // A release outside the thumbnail before the drag began never reached
-    // it; the pointer coming back with no button down ends the press.
+    if (ev.pointerId !== e.pointerId) return;
     if (!ev.buttons) {
       finish(false);
       return;
@@ -8648,9 +8649,9 @@ function startSlideDrag(e, target) {
   }
   function finish(apply) {
     if (slideDragCancel === cancel) slideDragCancel = null;
-    thumb.removeEventListener("pointermove", move);
-    thumb.removeEventListener("pointerup", end);
-    thumb.removeEventListener("pointercancel", cancel);
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", end);
+    document.removeEventListener("pointercancel", cancel);
     document.removeEventListener("keydown", escape, true);
     if (!dragging) return;
     if (thumb.hasPointerCapture(e.pointerId))
@@ -8697,8 +8698,8 @@ function startSlideDrag(e, target) {
       clearSelection();
     });
   }
-  const end = () => finish(true);
-  const cancel = () => finish(false);
+  const end = (ev) => ev.pointerId === e.pointerId && finish(true);
+  const cancel = (ev) => (!ev || ev.pointerId === e.pointerId) && finish(false);
   function escape(ev) {
     if (ev.key === "Escape" && dragging) {
       ev.preventDefault();
@@ -8706,9 +8707,9 @@ function startSlideDrag(e, target) {
       finish(false);
     }
   }
-  thumb.addEventListener("pointermove", move);
-  thumb.addEventListener("pointerup", end);
-  thumb.addEventListener("pointercancel", cancel);
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", end);
+  document.addEventListener("pointercancel", cancel);
   document.addEventListener("keydown", escape, true);
   slideDragCancel = cancel;
 }

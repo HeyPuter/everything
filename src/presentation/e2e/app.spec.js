@@ -13830,6 +13830,29 @@ test("a press released outside a thumbnail before dragging arms no drag", async 
   await expect(page.locator("#slide-position")).toHaveText("Slide 1 of 5");
 });
 
+// A quick flick reached the next thumbnail before the pressed one heard any
+// movement, so no drag began: the slide stayed where it was and the press
+// stayed armed until the pointer next passed over its thumbnail.
+test("a slide flicked along the navigator in one movement still moves", async ({
+  page,
+}) => {
+  await story(page);
+  const thumbs = page.locator(".slide-thumb");
+  const first = await thumbs.nth(0).boundingBox();
+  const third = await thumbs.nth(2).boundingBox();
+  const horizontal = third.x > first.x + first.width / 2;
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 4);
+  await page.mouse.down();
+  await page.mouse.move(
+    horizontal ? third.x + third.width * 0.9 : third.x + third.width / 2,
+    horizontal ? third.y + third.height / 2 : third.y + third.height * 0.9,
+  );
+  await page.mouse.up();
+  await expect(page.locator(".slide-drop")).toHaveCount(0);
+  await expect(thumbs.nth(2)).toHaveAccessibleName(/^Slide 3: YOUR NEXT/);
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 5");
+});
+
 // On a Mac, Ctrl-click opens the context menu; the modifier that adds a
 // slide to the selection is the same one every other row names.
 test("the shortcut list names the thumbnail modifier the way it names the rest", async ({
