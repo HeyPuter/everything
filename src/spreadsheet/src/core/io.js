@@ -1845,7 +1845,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     if (font && (reconcileStyle || cell.v != null || cell.f != null || fontIndex || src.l?.Target || font.nativeFill)) cell.s = { ...(cell.s || {}), ...font };
     // An imported hyperlink keeps the workbook's text styling rather than
     // acquiring the grid's default underlined link appearance.
-    if (!own && font && (src.l || /^HYPERLINK\s*\(/i.test(src.f || ''))) cell.s.underline = !!font.underline;
+    if (!own && font && (src.l || /^HYPERLINK\s*\(/i.test(src.f || ''))) cell.s.underline = font.underline || false;
     if (asText) cell.s = { ...(cell.s || {}), fmt: 'text' };
     if (fontIndex != null && lines && (lines.cols[c] || lines.rows[r])) {
       // Even a stored cell without s has XF 0. It must not acquire the

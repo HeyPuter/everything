@@ -20,7 +20,7 @@ afterEach(() => { grid?.destroy(); grid = null; vi.restoreAllMocks(); vi.unstubA
 
 const KINDS = ['single', 'double', 'singleAccounting', 'doubleAccounting'];
 // Cells A1:A4, each underlined in one of Excel's four ways.
-function excelFile() {
+function excelFile({ link = false } = {}) {
   const book = X.utils.book_new();
   X.utils.book_append_sheet(book, X.utils.aoa_to_sheet(KINDS.map(kind => [kind])), 'Data');
   const zip = X.CFB.read(new Uint8Array(X.write(book, { type: 'array', bookType: 'xlsx' })), { type: 'array' });
@@ -32,6 +32,9 @@ function excelFile() {
     .replace(/<cellXfs count="(\d+)">([\s\S]*?)<\/cellXfs>/, (_, count, body) => { xfBase = Number(count); return `<cellXfs count="${xfBase + KINDS.length}">${body}${
       KINDS.map((_, i) => `<xf numFmtId="0" fontId="${fontBase + i}" fillId="0" borderId="0" xfId="0" applyFont="1"/>`).join('')}</cellXfs>`; }));
   edit('/xl/worksheets/sheet1.xml', xml => xml.replace(/<c r="A(\d)"/g, (all, row) => `<c r="A${row}" s="${xfBase + Number(row) - 1}"`));
+  // A2 as a link: =HYPERLINK("https://example.com", "double").
+  if (link) edit('/xl/worksheets/sheet1.xml', xml => xml.replace(/<c r="A2" (s="\d+")[^>]*>[\s\S]*?<\/c>/,
+    (_, style) => `<c r="A2" ${style} t="str"><f>HYPERLINK("https://example.com","double")</f><v>double</v></c>`));
   return X.CFB.write(zip, { type: 'array', fileType: 'zip' });
 }
 const underlines = wb => KINDS.map((_, r) => wb.getCell(wb.activeSheetId, r, 0).s?.underline);
@@ -63,4 +66,9 @@ it('draws a double underline doubled on the grid and in print', async () => {
   const printed = Object.fromEntries([...buildPrintTable(wb, wb.activeSheetId, { fit: 'actual' }).querySelectorAll('td')]
     .filter(td => td.textContent).map(td => [td.textContent, td.style.textDecorationStyle]));
   expect(printed).toEqual({ single: '', double: 'double', singleAccounting: '', doubleAccounting: 'double' });
+});
+
+it('keeps a linked cell\'s double underline', async () => {
+  const wb = await workbookFromFile(excelFile({ link: true }), 'underlines.xlsx');
+  expect(wb.getCell(wb.activeSheetId, 1, 0)).toMatchObject({ f: 'HYPERLINK("https://example.com","double")', s: { underline: 'double' } });
 });
