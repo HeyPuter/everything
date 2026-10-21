@@ -3,10 +3,11 @@
  *
  * A sheet is the file format's full grid, 1,048,576 rows by 16,384 columns, and nearly every line has the
  * sheet's default size. Only the lines that differ — resized, hidden, filtered out — are kept,
- * sorted, with the running sum of how much each changes the length before the next. A line's
- * place is then its index times the default size plus that sum, found by binary search, and the
- * line at a place is found the same way: building costs the number of lines that differ, not the
- * number of lines, and every read is logarithmic in it.
+ * sorted, as runs of neighbouring lines of one size, with the running sum of how much each run
+ * changes the length before the next. A line's place is then its index times the default size plus
+ * that sum, found by binary search, and the line at a place is found the same way: reading costs the
+ * logarithm of the number of runs, and the rows hidden from under a list to the sheet's end, a
+ * million of them, are one run.
  *
  * Two translations sit over the content positions, so the grid can keep drawing in the coordinates
  * it always used:
@@ -27,10 +28,11 @@ export class AxisOffsets {
   constructor() {
     this.n = 0; // number of lines
     this.d = 0; // default size of a line
-    this.keys = []; // indexes of the lines whose size is not the default, ascending
-    this.sizes = []; // their sizes
-    this.starts = new Float64Array(0); // content position of each such line
-    this.ends = new Float64Array(0); // content position after each such line
+    this.keys = []; // the first line of each run of lines whose size is not the default, ascending
+    this.lasts = []; // the last line of each run
+    this.sizes = []; // the size of each line of each run
+    this.starts = new Float64Array(0); // content position of each run's first line
+    this.ends = new Float64Array(0); // content position after each run's last line
     this.origin = 0; // content position placed at 0
     this.win = null; // { keep, base, size }: see the class comment (positions relative to the origin)
     this.explicit = null; // { starts, ends }: a layout given line by line (Page Layout view's pages)
@@ -38,28 +40,48 @@ export class AxisOffsets {
 
   /**
    * Lay out `n` lines of default size `d`, with `entries` ([index, size] pairs; an index may repeat,
-   * the last size wins, and an index outside 0..n-1 is ignored) for the lines that differ.
+   * the last size wins, and an index outside 0..n-1 is ignored) for the lines that differ, and then
+   * the lines of no size: `hidden` is a list of collections of their indexes (sets of hidden rows).
    */
-  build(n, d, entries = []) {
+  build(n, d, entries = [], hidden = []) {
     this.explicit = null;
     this.n = Math.max(0, n | 0);
     this.d = Math.max(0, d);
-    const map = new Map();
-    for (const [i, size] of entries) if (i >= 0 && i < this.n && Number.isInteger(i)) map.set(i, size);
-    const keys = [...map.keys()].filter((i) => map.get(i) !== this.d).sort((a, b) => a - b);
+    let count = entries.length;
+    for (const lines of hidden) count += lines.size ?? lines.length;
+    const keys = [];
+    const lasts = [];
+    const sizes = [];
+    const add = (i, size) => {
+      const k = keys.length - 1;
+      if (k >= 0 && lasts[k] === i - 1 && sizes[k] === size) lasts[k] = i;
+      else { keys.push(i); lasts.push(i); sizes.push(size); }
+    };
+    const valid = (i) => i >= 0 && i < this.n && Number.isInteger(i);
+    if (count > 4096 && count * 16 > this.n) {
+      // Many lines differ (rows hidden to the sheet's end): a size per line, read in order, costs less than sorting them.
+      const size = new Float64Array(this.n).fill(this.d);
+      for (const [i, s] of entries) if (valid(i)) size[i] = s;
+      for (const lines of hidden) for (const i of lines) if (valid(i)) size[i] = 0;
+      for (let i = 0; i < this.n; i++) if (size[i] !== this.d) add(i, size[i]);
+    } else {
+      const map = new Map();
+      for (const [i, size] of entries) if (valid(i)) map.set(i, size);
+      for (const lines of hidden) for (const i of lines) if (valid(i)) map.set(i, 0);
+      for (const i of [...map.keys()].filter((i) => map.get(i) !== this.d).sort((a, b) => a - b)) add(i, map.get(i));
+    }
     const k = keys.length;
-    const sizes = new Array(k);
     const starts = new Float64Array(k);
     const ends = new Float64Array(k);
     let delta = 0;
     for (let j = 0; j < k; j++) {
-      const size = map.get(keys[j]);
-      sizes[j] = size;
+      const lines = lasts[j] - keys[j] + 1;
       starts[j] = keys[j] * this.d + delta;
-      ends[j] = starts[j] + size;
-      delta += size - this.d;
+      ends[j] = starts[j] + lines * sizes[j];
+      delta += lines * (sizes[j] - this.d);
     }
     this.keys = keys;
+    this.lasts = lasts;
     this.sizes = sizes;
     this.starts = starts;
     this.ends = ends;
@@ -83,7 +105,7 @@ export class AxisOffsets {
     return this;
   }
 
-  /** The number of non-default lines before line i. */
+  /** The number of runs of non-default lines that begin before line i. */
   _below(i) {
     const keys = this.keys;
     let lo = 0;
@@ -100,8 +122,10 @@ export class AxisOffsets {
   content(i) {
     if (!(i > 0)) return 0;
     if (i >= this.n) return this.endPos;
-    const j = this._below(i);
-    return j ? this.ends[j - 1] + (i - this.keys[j - 1] - 1) * this.d : i * this.d;
+    const j = this._below(i) - 1;
+    if (j < 0) return i * this.d;
+    if (i <= this.lasts[j]) return this.starts[j] + (i - this.keys[j]) * this.sizes[j];
+    return this.ends[j] + (i - this.lasts[j] - 1) * this.d;
   }
 
   /** The line holding content position p (never a line of no size); the last line from the end on. */
@@ -117,8 +141,8 @@ export class AxisOffsets {
       if (ends[mid] <= p) lo = mid + 1;
       else hi = mid;
     }
-    if (lo < ends.length && this.starts[lo] <= p) return this.keys[lo];
-    const line = lo ? this.keys[lo - 1] + 1 : 0;
+    if (lo < ends.length && this.starts[lo] <= p) return Math.min(this.lasts[lo], this.keys[lo] + Math.floor((p - this.starts[lo]) / this.sizes[lo]));
+    const line = lo ? this.lasts[lo - 1] + 1 : 0;
     const start = lo ? ends[lo - 1] : 0;
     const limit = lo < ends.length ? this.keys[lo] - 1 : this.n - 1;
     if (!(this.d > 0)) return lo < ends.length ? this.keys[lo] : this.n - 1;
@@ -195,7 +219,9 @@ export class AxisOffsets {
   /** The non-default lines in a..b, as [index, size] pairs (for callers that walk them rather than every line). */
   overridesIn(a, b) {
     const out = [];
-    for (let j = this._below(a); j < this.keys.length && this.keys[j] <= b; j++) out.push([this.keys[j], this.sizes[j]]);
+    for (let j = Math.max(0, this._below(a) - 1); j < this.keys.length && this.keys[j] <= b; j++) {
+      for (let i = Math.max(a, this.keys[j]); i <= Math.min(b, this.lasts[j]); i++) out.push([i, this.sizes[j]]);
+    }
     return out;
   }
 }

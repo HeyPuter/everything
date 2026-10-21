@@ -426,13 +426,10 @@ export function createGrid(opts) {
     // Only the lines that differ from the default are listed: a million rows cost what their resized and hidden ones do.
     const colSizes = [];
     for (const [c, w] of s.colWidths) colSizes.push([c, Math.round(w * zoom)]);
-    for (const c of s.hiddenCols) colSizes.push([c, 0]);
-    colOffsets.build(s.cols, Math.round(s.defaultColWidth * zoom), colSizes);
+    colOffsets.build(s.cols, Math.round(s.defaultColWidth * zoom), colSizes, [s.hiddenCols]);
     const rowSizes = [];
     for (const [r, h] of s.rowHeights) rowSizes.push([r, Math.round(h * zoom)]);
-    for (const r of s.hiddenRows) rowSizes.push([r, 0]);
-    for (const r of s.filterHidden) rowSizes.push([r, 0]);
-    rowOffsets.build(s.rows, Math.round(s.defaultRowHeight * zoom), rowSizes);
+    rowOffsets.build(s.rows, Math.round(s.defaultRowHeight * zoom), rowSizes, [s.hiddenRows, s.filterHidden]);
     // Frozen panes can begin at a saved row/column other than the first.
     // Keep absolute cell indexes, translating their coordinates so the first
     // frozen cell starts at zero; earlier cells remain present in the model.
