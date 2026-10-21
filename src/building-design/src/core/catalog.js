@@ -77,6 +77,7 @@ export const CATEGORIES = [
   { id: 'masses', label: 'Mass', model: true },
   { id: 'links', label: 'Linked Projects', model: true },
   { id: 'wallSweeps', label: 'Wall Sweeps and Reveals', model: true },
+  { id: 'trusses', label: 'Structural Trusses', model: true },
   { id: 'spaces', label: 'Spaces', model: false },
   { id: 'siteCoordinates', label: 'Project Base Point and Survey Point', model: false },
   { id: 'scopeBoxes', label: 'Scope Boxes', model: false },
@@ -153,6 +154,7 @@ const KIND_CATEGORY = {
   treadNumbers: 'tags',
   basePoint: 'siteCoordinates',
   scopeBox: 'scopeBoxes',
+  truss: 'trusses',
   wallSweep: 'wallSweeps',
 };
 
@@ -217,6 +219,7 @@ export const KIND_LABEL = {
   treadNumbers: 'Tread Numbers',
   basePoint: 'Base Point',
   scopeBox: 'Scope Box',
+  truss: 'Truss',
   wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',
@@ -239,6 +242,7 @@ export const TYPE_KIND = {
   footing: 'footingType',
   wallFooting: 'wallFootingType',
   wallSweep: 'wallSweepType',
+  truss: 'trussType',
   brace: 'beamType',
   duct: 'ductType',
   pipe: 'pipeType',
@@ -505,6 +509,17 @@ function sweepTypes(imp) {
   ].map((x) => ({ ...x, kind: 'wallSweepType', familyName: x.reveal ? 'Wall Reveal' : 'Wall Sweep' }));
 }
 
+function trussTypes(imp) {
+  const t = (mm, inch) => (imp ? inch * IN : mm);
+  return [
+    { id: 'tt-pratt', name: imp ? 'Pratt - 5\' deep' : 'Pratt - 1500 mm deep', pattern: 'pratt', height: t(1500, 60), chord: t(150, 6), web: t(100, 4), materialId: 'mat-steel' },
+    { id: 'tt-warren', name: imp ? 'Warren - 4\' deep' : 'Warren - 1200 mm deep', pattern: 'warren', height: t(1200, 48), chord: t(150, 6), web: t(100, 4), materialId: 'mat-steel' },
+    { id: 'tt-howe', name: imp ? 'Howe - Timber 5\'' : 'Howe - Timber 1500 mm', pattern: 'howe', height: t(1500, 60), chord: t(200, 8), web: t(150, 6), materialId: 'mat-wood' },
+    { id: 'tt-fink', name: imp ? 'Fink - Roof 6\' rise' : 'Fink - Roof 1800 mm rise', pattern: 'fink', height: t(1800, 72), chord: t(150, 6), web: t(100, 4), materialId: 'mat-wood' },
+    { id: 'tt-kingpost', name: imp ? 'King Post - 4\' rise' : 'King Post - 1200 mm rise', pattern: 'kingpost', height: t(1200, 48), chord: t(200, 8), web: t(150, 6), materialId: 'mat-wood' },
+  ].map((x) => ({ ...x, kind: 'trussType', familyName: 'Truss' }));
+}
+
 function railingTypes(imp) {
   const t = (mm, inch) => (imp ? inch * IN : mm);
   return [
@@ -583,6 +598,7 @@ export function defaultTypes(system = 'metric') {
     ...componentTypes(imp),
     ...foundationTypes(imp),
     ...sweepTypes(imp),
+    ...trussTypes(imp),
     ...mepTypes(imp),
   ];
 }

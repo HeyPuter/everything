@@ -22,6 +22,7 @@ import { massFloorArea } from './massing.js';
 import { spaceLoads, SPACE_TYPES } from './spaces.js';
 import { lockAll } from './constraints.js';
 import { PROFILES } from './sweeps.js';
+import { PATTERNS } from './truss.js';
 import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
 import { optionable, optionLabel } from './designopts.js';
 
@@ -314,6 +315,14 @@ const INSTANCE = {
     ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
   ],
   zone: [P('name', 'Name', 'Identity Data', 'text')],
+  truss: [
+    P('levelId', 'Reference Level', 'Constraints', 'level'),
+    len('offset', 'Bottom Chord Height', 'Constraints'),
+    len('height', 'Height Override (0 = type)', 'Dimensions', { get: (el) => el.height || 0, set: (el, v) => ({ height: +v > 0 ? +v : null }) }),
+    ro('length', 'Span', 'Dimensions', (el) => (el.a && el.b ? Math.hypot(el.b[0] - el.a[0], el.b[1] - el.a[1]) : 0)),
+    mark,
+    comments,
+  ],
   scopeBox: [P('name', 'Name', 'Identity Data', 'text'), len('z0', 'Bottom Elevation', 'Extents'), len('z1', 'Top Elevation', 'Extents'), ro('views', 'Views Using It', 'Identity Data', (el, c) => String(c.doc.filter((v) => v.scopeBoxId === el.id).length), 'text')],
   wallSweep: [
     len('z', 'Offset From Wall Base', 'Constraints'),
@@ -572,6 +581,15 @@ export const TYPE_PARAMS = {
   stairType: [len('maxRiser', 'Maximum Riser Height', 'Dimensions'), len('tread', 'Minimum Tread Depth', 'Dimensions'), len('width', 'Default Width', 'Dimensions'), len('thickness', 'Thickness', 'Construction'), P('monolithic', 'Monolithic', 'Construction', 'bool'), MAT('materialId', 'Material')],
   footingType: [len('width', 'Width', 'Dimensions'), len('length', 'Length', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
   wallFootingType: [len('width', 'Width', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
+  trussType: [
+    P('pattern', 'Pattern', 'Construction', 'select', { get: (t) => t.pattern || 'pratt', options: () => PATTERNS }),
+    len('height', 'Height (or rise)', 'Dimensions'),
+    P('panels', 'Panels (0 = automatic)', 'Dimensions', 'number', { get: (t) => t.panels || 0 }),
+    len('chord', 'Chord Size', 'Dimensions'),
+    len('web', 'Web Size', 'Dimensions'),
+    MAT('materialId', 'Material'),
+    P('mark', 'Type Mark', 'Identity Data', 'text'),
+  ],
   wallSweepType: [
     P('profile', 'Profile', 'Construction', 'select', { get: (t) => t.profile || 'rect', options: () => Object.entries(PROFILES).map(([value, p]) => ({ value, label: p.label })) }),
     P('reveal', 'Cuts Into the Wall (Reveal)', 'Construction', 'bool', { get: (t) => !!t.reveal }),

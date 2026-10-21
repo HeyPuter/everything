@@ -600,7 +600,7 @@ export class ComponentTool extends Tool {
 
 export class LineTool extends Tool {
   get placingKind() {
-    return this.kind === 'beam' || this.kind === 'brace' || MEP_KINDS.includes(this.kind) ? this.kind : null;
+    return this.kind === 'beam' || this.kind === 'brace' || this.kind === 'truss' || MEP_KINDS.includes(this.kind) ? this.kind : null;
   }
 
   constructor(app, opts) {
@@ -611,7 +611,7 @@ export class LineTool extends Tool {
   }
 
   get title() {
-    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
+    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', truss: 'Place Truss', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
   }
 
   get prompt() {
@@ -670,6 +670,10 @@ export class LineTool extends Tool {
       const o = this.app.toolOptions(this.kind, { offset: 0 });
       out.push(lengthField(this, 'Offset from level', o.offset || 0, (v) => (o.offset = v)));
     }
+    if (this.kind === 'truss') {
+      const o = this.app.toolOptions('truss', { offset: this.doc.units.system === 'imperial' ? 9 * MM_PER_FOOT : 2800 });
+      out.push(lengthField(this, 'Bottom chord height', o.offset, (v) => (o.offset = v)));
+    }
     if (MEP_KINDS.includes(this.kind)) {
       const imp = this.doc.units.system === 'imperial';
       const o = this.app.toolOptions(this.kind, { offset: this.kind === 'duct' ? (imp ? 9 * MM_PER_FOOT : 2800) : this.kind === 'cableTray' ? (imp ? 9.5 * MM_PER_FOOT : 2900) : imp ? 8.5 * MM_PER_FOOT : 2600, system: SYSTEMS[this.kind][0].value });
@@ -726,6 +730,10 @@ export class LineTool extends Tool {
         const el = { kind: this.kind, typeId: this.app.currentType(this.kind)?.id, levelId: this.app.activeLevelId(), a, b, offset: o.offset ?? 2700, system: o.system };
         for (const k of ['width', 'height', 'diameter']) if (o[k] > 0) el[k] = o[k];
         return el;
+      }
+      case 'truss': {
+        const o = this.app.toolOptions('truss', { offset: 2800 });
+        return { kind: 'truss', typeId: this.app.currentType('truss')?.id, levelId: this.app.activeLevelId(), a, b, offset: o.offset };
       }
       case 'brace': {
         const o = this.app.toolOptions('brace', { baseOffset: 0 });

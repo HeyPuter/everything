@@ -224,6 +224,7 @@ export function gripsFor(app, el, vc) {
       case 'modelLine':
       case 'areaBoundary':
       case 'brace':
+      case 'truss':
       case 'duct':
       case 'pipe':
       case 'cableTray':

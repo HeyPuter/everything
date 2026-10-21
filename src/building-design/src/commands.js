@@ -215,6 +215,7 @@ export const COMMANDS = {
   editCurtain: { label: 'Mullions and Panels', icon: 'curtainWall', enabled: (app) => [...app.selection].some((id) => app.doc.get(app.doc.get(id)?.typeId)?.curtain), run: (app) => curtainedit.curtainEditDialog(app, [...app.selection].find((id) => app.doc.get(app.doc.get(id)?.typeId)?.curtain)), desc: 'Remove or restore mullion segments and change panels to solid, empty or door' },
   wallSweep: { label: 'Wall Sweep', icon: 'wallSweep', run: tool(WallSweepTool), desc: 'A cornice, skirting or band along a wall face' },
   wallReveal: { label: 'Wall Reveal', icon: 'wallReveal', run: tool(WallSweepTool, { reveal: true }), desc: 'A groove along a wall face' },
+  truss: { label: 'Truss', icon: 'truss', keys: 'TS', run: tool(LineTool, { kind: 'truss' }), desc: 'A truss between two points: Pratt, Howe, Warren, Fink or king post' },
   brace: { label: 'Brace', icon: 'brace', keys: 'BR', run: tool(LineTool, { kind: 'brace' }), desc: 'A diagonal member from this level up to the level above' },
   beamSystem: { label: 'Beam System', icon: 'beamSystem', keys: 'BS', run: tool(BeamSystemTool), desc: 'Fill an area or a floor with parallel beams at a spacing' },
   footing: { label: 'Isolated', icon: 'footing', run: tool(FootingTool), desc: 'Pad footings, placed one by one or under every column' },

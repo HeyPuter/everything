@@ -26,6 +26,7 @@ const TYPE_GROUPS = [
   { label: 'Structural Foundations', typeKind: 'footingType', kind: 'footing' },
   { label: 'Wall Foundations', typeKind: 'wallFootingType', kind: 'wallFooting' },
   { label: 'Wall Sweeps and Reveals', typeKind: 'wallSweepType', kind: 'wallSweep' },
+  { label: 'Structural Trusses', typeKind: 'trussType', kind: 'truss' },
   { label: 'Ducts', typeKind: 'ductType', kind: 'duct', byFamily: true },
   { label: 'Pipes', typeKind: 'pipeType', kind: 'pipe' },
   { label: 'Cable Trays', typeKind: 'cableTrayType', kind: 'cableTray' },

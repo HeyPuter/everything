@@ -100,6 +100,7 @@ export const RIBBON = [
           { cmd: 'floor', size: 'lg' },
           { cmd: 'brace', size: 'lg' },
           { cmd: 'beamSystem', size: 'lg' },
+          { cmd: 'truss', size: 'lg' },
         ],
       },
       { title: 'Foundation', items: [{ cmd: 'footing', size: 'lg' }, { cmd: 'wallFooting', size: 'lg', label: 'Wall' }, { cmd: 'slabFoundation', size: 'lg', label: 'Slab' }] },
