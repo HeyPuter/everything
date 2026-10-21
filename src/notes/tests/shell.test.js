@@ -120,6 +120,23 @@ describe('App shell', () => {
     expect(document.activeElement).toBe(app.railButtons.recent);
   });
 
+  it('moves from the pages list to the page with F6', () => {
+    // jsdom has no layout; treat everything outside a hidden subtree as shown.
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent');
+    Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get() { return this.isConnected && !this.closest('[hidden]') ? document.body : null; } });
+    try {
+      app.nav.sectionsList.querySelector('.row[tabindex="0"]').focus();
+      keydown(document.activeElement, 'F6');
+      expect(app.nav.pagesList.contains(document.activeElement)).toBe(true);
+      keydown(document.activeElement, 'F6');
+      expect(app.editor.scroller.contains(document.activeElement)).toBe(true);
+      keydown(document.activeElement, 'F6', { shiftKey: true });
+      expect(app.nav.pagesList.contains(document.activeElement)).toBe(true);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, 'offsetParent', desc);
+    }
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

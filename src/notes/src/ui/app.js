@@ -1216,7 +1216,7 @@ export class App {
       () => (this.taskPanes.el.hidden ? null : this.taskPanes.el.querySelector('button, input, select')),
     ];
     const targets = regions.map((f) => f()).filter((el) => el && el.offsetParent !== null);
-    const i = targets.findIndex((el) => el.contains(document.activeElement) || el === document.activeElement || el.closest('.nav, .ribbon, .side-panel, .task-pane, .canvas-scroll')?.contains(document.activeElement));
+    const i = targets.findIndex((el) => el.contains(document.activeElement) || el === document.activeElement || el.closest('.sections-pane, .pages-pane, .ribbon, .side-panel, .task-pane, .canvas-scroll')?.contains(document.activeElement));
     const next = targets[(i + dir + targets.length) % targets.length];
     next?.focus();
   }
