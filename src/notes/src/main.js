@@ -109,6 +109,9 @@ async function viewShared(url) {
     return;
   }
   root.removeAttribute('aria-busy');
+  // Phones show one level of the app at a time and hide the page unless it
+  // is the current level; the shared view only has the page.
+  root.dataset.mobileView = 'page';
   const style = document.createElement('style');
   style.textContent = tagStylesheet();
   document.head.append(style);
