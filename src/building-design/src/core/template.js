@@ -5,6 +5,7 @@
 import { Doc, newId } from './doc.js';
 import { defaultMaterials, defaultTypes } from './catalog.js';
 import { MM_PER_FOOT } from './units.js';
+import { defaultPhases } from './phases.js';
 
 export const VIEW_DEFAULTS = {
   plan: { detail: 'medium', cutHeight: 1200, hiddenCats: [], hiddenIds: [] },
@@ -67,6 +68,7 @@ export function upgradeDoc(doc) {
     if (t.materialId) used.add(t.materialId);
   }
   for (const m of defaultMaterials()) if (used.has(m.id) && !doc.has(m.id)) doc._put(m.id, Object.freeze(m));
+  if (!doc.count('phase')) for (const p of defaultPhases()) doc._put(p.id, Object.freeze(p));
   return doc;
 }
 
@@ -90,6 +92,7 @@ export function createProject({ system = 'metric', name = 'Untitled' } = {}) {
     });
     for (const m of defaultMaterials()) doc.add(m);
     for (const t of defaultTypes(system)) doc.add(t);
+    for (const p of defaultPhases()) doc.add(p);
     const h = imp ? 10 * MM_PER_FOOT : 3000;
     const l1 = doc.add({ kind: 'level', name: 'Level 1', elevation: 0 });
     const l2 = doc.add({ kind: 'level', name: 'Level 2', elevation: h });

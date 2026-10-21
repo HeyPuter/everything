@@ -7,7 +7,8 @@ import { schemeLabel, AREA_TYPES } from './props.js';
 import { roofGeometry } from './build3d.js';
 import { VIEW_KINDS, VIEW_LABEL } from './doc.js';
 import { scaleLabel } from './units.js';
-import { typeThickness, KIND_LABEL, CATEGORIES } from './catalog.js';
+import { typeThickness, KIND_LABEL, CATEGORIES, categoryOf } from './catalog.js';
+import { paramFields } from './params.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { formatLength, formatArea, formatVolume } from './units.js';
 
@@ -316,11 +317,21 @@ function scheduleRuleMatches(v, rule) {
   }
 }
 
+/** A category's built-in fields plus the project parameters of its elements. */
+export function allFields(doc, category) {
+  const cat = SCHEDULE_CATEGORIES[category];
+  if (!cat) return [];
+  if (!cat.kinds) return cat.fields;
+  const extra = paramFields(doc, cat.kinds, (k) => (k === 'component' ? '*' : categoryOf({ kind: k }, doc)));
+  return [...cat.fields.filter((f) => f.id !== 'count'), ...extra, ...cat.fields.filter((f) => f.id === 'count')];
+}
+
 export function scheduleColumns(doc, view) {
   const cat = SCHEDULE_CATEGORIES[view.category];
   if (!cat) return [];
+  const fields = allFields(doc, view.category);
   const ids = view.fields?.length ? view.fields : cat.defaults;
-  return ids.map((id) => cat.fields.find((f) => f.id === id)).filter(Boolean);
+  return ids.map((id) => fields.find((f) => f.id === id)).filter(Boolean);
 }
 
 /**
@@ -333,7 +344,8 @@ export function scheduleRows(app, view) {
   const ctx = { doc: app.doc, scene: app.scene };
   const cols = scheduleColumns(app.doc, view);
   // Filters may use fields that are not shown.
-  const filterCols = (view.filter || []).map((f) => cat.fields.find((x) => x.id === f.field)).filter((c) => c && !cols.includes(c));
+  const fields = allFields(app.doc, view.category);
+  const filterCols = (view.filter || []).map((f) => fields.find((x) => x.id === f.field)).filter((c) => c && !cols.includes(c));
   const els = cat.items ? cat.items(ctx) : cat.kinds.flatMap((k) => app.doc.all(k));
   let rows = [];
   for (const el of els) {
@@ -351,7 +363,7 @@ export function scheduleRows(app, view) {
   const itemize = view.itemize ?? !cat.group;
   if (!itemize) {
     const groups = new Map();
-    const keyCols = cols.filter((c) => c.type === 'text' && !c.edit);
+    const keyCols = cols.filter((c) => c.type === 'text' && !c.edit && !c.editParam);
     for (const r of rows) {
       const key = keyCols.map((c) => r.values[c.id]).join('|');
       if (!groups.has(key)) groups.set(key, { id: null, ids: [], values: { ...r.values, count: 0 } });
@@ -360,7 +372,7 @@ export function scheduleRows(app, view) {
       for (const c of cols) {
         if (c.type === 'count') g.values[c.id] = (g.values[c.id] || 0) + 1;
         else if (['area', 'volume', 'length'].includes(c.type) && g.ids.length > 1) g.values[c.id] = (+g.values[c.id] || 0) + (+r.values[c.id] || 0);
-        else if (c.edit && g.ids.length > 1 && g.values[c.id] !== r.values[c.id]) g.values[c.id] = '';
+        else if ((c.edit || c.editParam) && g.ids.length > 1 && g.values[c.id] !== r.values[c.id]) g.values[c.id] = '';
       }
     }
     rows = [...groups.values()];

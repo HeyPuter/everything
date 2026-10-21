@@ -14,8 +14,9 @@ import { scaleOptions } from './units.js';
 import { STAIR_SHAPES } from './stairs.js';
 import { DETAIL_FAMILIES, radialTarget } from './annotate.js';
 import { applyTemplatePatch, templateKindOf } from './graphics.js';
+import { phasesInOrder, phased, PHASE_FILTERS } from './phases.js';
 
-export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
+export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
 
 const P = (key, label, group, type, extra = {}) => ({ key, label, group, type, ...extra });
 
@@ -466,9 +467,22 @@ for (const k of ['wallType', 'floorType', 'roofType', 'ceilingType', 'doorType',
   TYPE_PARAMS[k].push(P('keynote', 'Keynote', 'Identity Data', 'text'));
 }
 
+const phaseOptions = (c, none) => [...(none ? [{ value: '', label: none }] : []), ...phasesInOrder(c.doc).map((p) => ({ value: p.id, label: p.name }))];
+const lastPhase = (c) => phasesInOrder(c.doc).at(-1)?.id ?? '';
+const PHASE_PARAMS = [
+  P('phaseId', 'Phase Created', 'Phasing', 'select', { get: (el, c) => el.phaseId || lastPhase(c), options: (c) => phaseOptions(c) }),
+  P('demolishedId', 'Phase Demolished', 'Phasing', 'select', { get: (el) => el.demolishedId || '', set: (el, v) => ({ demolishedId: v || null }), options: (c) => phaseOptions(c, 'None') }),
+];
+const VIEW_PHASE = [
+  P('phaseId', 'Phase', 'Phasing', 'select', { get: (el, c) => el.phaseId || lastPhase(c), options: (c) => phaseOptions(c), ro: templated }),
+  P('phaseFilter', 'Phase Filter', 'Phasing', 'select', { get: (el) => el.phaseFilter || 'all', options: () => PHASE_FILTERS, ro: templated }),
+];
+const PHASED_VIEWS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section']);
+
 export function instanceParams(el) {
-  if (VIEW[el.kind]) return VIEW[el.kind];
-  return INSTANCE[el.kind] || [mark, comments];
+  if (VIEW[el.kind]) return PHASED_VIEWS.has(el.kind) ? [...VIEW[el.kind], ...VIEW_PHASE] : VIEW[el.kind];
+  const base = INSTANCE[el.kind] || [mark, comments];
+  return phased(el) ? [...base, ...PHASE_PARAMS] : base;
 }
 
 export function paramValue(d, el, ctx) {

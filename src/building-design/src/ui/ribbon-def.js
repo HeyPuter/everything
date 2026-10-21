@@ -227,8 +227,23 @@ export const RIBBON = [
     id: 'manage',
     label: 'Manage',
     panels: [
-      { title: 'Settings', items: [{ cmd: 'projectInfo', size: 'lg' }, { cmd: 'units', size: 'lg' }, { cmd: 'materials', size: 'lg' }, { cmd: 'snaps', size: 'lg' }] },
-      { title: 'Project', items: [{ cmd: 'levels', size: 'lg' }, { cmd: 'types', size: 'lg' }, { cmd: 'purge', size: 'lg' }] },
+      {
+        title: 'Settings',
+        items: [
+          { cmd: 'materials', size: 'lg' },
+          { cmd: 'objectStyles', size: 'lg' },
+          { cmd: 'snaps', size: 'lg' },
+          { cmd: 'projectInfo', size: 'lg' },
+          { cmd: 'projectParams', size: 'lg' },
+          { cmd: 'purge', size: 'lg' },
+          { cmd: 'units', size: 'lg' },
+          { cmd: 'renumber', size: 'lg', label: 'Numbering' },
+        ],
+      },
+      { title: 'Project', items: [{ cmd: 'levels', size: 'lg' }, { cmd: 'types', size: 'lg' }, { cmd: 'startingView', size: 'lg' }] },
+      { title: 'Phasing', items: [{ cmd: 'phases', size: 'lg' }] },
+      { title: 'Selection', items: [{ cmd: 'selectionSave', size: 'lg', label: 'Save' }, { cmd: 'selectionLoad', size: 'lg', label: 'Load' }] },
+      { title: 'Inquiry', items: [{ cmd: 'selectionIds', size: 'lg' }, { cmd: 'selectById', size: 'lg' }, { cmd: 'warnings', size: 'lg' }] },
       { title: 'Help', items: [{ cmd: 'shortcuts', size: 'lg' }, { cmd: 'help', size: 'lg' }] },
     ],
   },
@@ -271,6 +286,7 @@ export function MODIFY_PANEL() {
       { cmd: 'mirrorDraw', small: true },
       { cmd: 'pin', small: true },
       { cmd: 'unpin', small: true },
+      { cmd: 'demolish', small: true },
       { cmd: 'delete', small: true },
     ],
   };

@@ -26,6 +26,7 @@ import { drawTempDim } from './views/overlay.js';
 import { deleteElements, moveElements, uniqueName, expandGroups } from './core/ops.js';
 import { groupable, createGroup, propagateGroup, ungroup } from './core/groups.js';
 import { viewGraphics, hiddenByFilters, templateSettings, templateKindOf } from './core/graphics.js';
+import { phaseLook, phased } from './core/phases.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
 import { ModelController } from './views/model.js';
@@ -151,6 +152,8 @@ export class App {
     this.originSet = false;
     upgradeDoc(doc);
     this.groupEdit = null;
+    // New model elements belong to the phase of the view they are drawn in.
+    doc.addHooks = [(item) => (!item.phaseId && phased(item) && this.activeView?.phaseId ? { phaseId: this.activeView.phaseId } : null)];
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');
@@ -164,7 +167,8 @@ export class App {
     this.openViews = [];
     this.activeViewId = null;
     doc.on((ev) => this.docChanged(ev));
-    const first = doc.all('plan').sort((a, b) => (doc.get(a.levelId)?.elevation ?? 0) - (doc.get(b.levelId)?.elevation ?? 0))[0] || doc.all('view3d')[0];
+    const start = doc.get(doc.get('project')?.startViewId);
+    const first = (isView(start) ? start : null) || doc.all('plan').sort((a, b) => (doc.get(a.levelId)?.elevation ?? 0) - (doc.get(b.levelId)?.elevation ?? 0))[0] || doc.all('view3d')[0];
     if (first) this.openView(first.id);
     this.renderBrowser();
     this.updateTitle();
@@ -598,6 +602,11 @@ export class App {
       const reveal = this.reveal.has(view.id);
       if (el && this.hiddenInView(view, el)) f |= reveal ? FLAG.halftone : FLAG.hidden;
       else if (el && (view.overrides || view.filters?.length) && viewGraphics(this.doc, view, el).halftone) f |= FLAG.halftone;
+      if (el && this.phaseCount > 1 && phased(el)) {
+        const look = phaseLook(this.doc, view, el);
+        if (look === 'hidden') f |= reveal ? FLAG.halftone : FLAG.hidden;
+        else if (look === 'halftone' || look === 'dashed') f |= FLAG.halftone;
+      }
       const t = this.temp.get(view.id);
       if (t) {
         const inSet = t.ids.has(id) || (el?.hostId && t.ids.has(el.hostId));
@@ -625,6 +634,7 @@ export class App {
     const key = `${this.flagsVersion}|${this.activeViewId}|${this.scene?.version}`;
     if (this.flagsKey === key) return;
     this.flagsKey = key;
+    this.phaseCount = this.doc?.count('phase') ?? 0;
     const entries = [];
     const scene = this.scene;
     if (!scene) return;
@@ -1686,6 +1696,10 @@ export class App {
   templatesDialog() {
     return dialogs.templatesDialog(this);
   }
+  startingViewDialog() {
+    return dialogs.startingViewDialog(this);
+  }
+
   async templateFromView() {
     const v = this.activeView;
     if (!v || !['plan', 'areaPlan', 'ceilingPlan', 'view3d', 'elevation', 'section'].includes(v.kind)) return this.toast('Open a plan, 3D view, elevation or section first.', { kind: 'error' });

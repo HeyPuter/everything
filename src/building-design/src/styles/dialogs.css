@@ -660,3 +660,33 @@
   gap: 6px;
   align-items: center;
 }
+
+/* Phases */
+
+.phase-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.phase-list li {
+  gap: 6px;
+}
+
+.phase-list .input {
+  flex: 1;
+}
+
+.phase-num {
+  width: 1.6em;
+  text-align: right;
+  color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.warn-list .icon {
+  color: var(--warning, #b7791f);
+}

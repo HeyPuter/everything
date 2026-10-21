@@ -42,6 +42,8 @@ import {
 import { deleteElements } from './core/ops.js';
 import { PlaceGroupTool, GroupMemberTool } from './editor/groups.js';
 import { CurtainGridTool } from './editor/curtain.js';
+import { DemolishTool, RenumberTool } from './editor/manage.js';
+import * as manage from './ui/manage.js';
 import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
@@ -231,6 +233,17 @@ export const COMMANDS = {
   nextView: { label: 'Next View', icon: 'chevron-right', accel: 'Ctrl+Tab', run: (app) => app.cycleView(1) },
 
   // Manage
+  objectStyles: { label: 'Object Styles', icon: 'objectStyles', run: (app) => manage.objectStylesDialog(app), desc: 'Default line colors and weights of each category' },
+  projectParams: { label: 'Project Parameters', icon: 'projectParams', run: (app) => manage.projectParamsDialog(app), desc: 'Add your own parameters to categories of elements' },
+  phases: { label: 'Phases', icon: 'phases', run: (app) => manage.phasesDialog(app), desc: 'The construction phases of the project, such as Existing and New Construction' },
+  demolish: { label: 'Demolish', icon: 'demolish', run: tool(DemolishTool), desc: 'Mark elements as demolished in the phase of the view' },
+  renumber: { label: 'Renumber', icon: 'renumber', run: tool(RenumberTool), desc: 'Give doors, windows, rooms or areas sequential numbers by clicking them in order' },
+  selectionSave: { label: 'Save Selection', icon: 'selectionSave', enabled: hasSel, run: (app) => manage.saveSelection(app), desc: 'Save the selection to load it again later' },
+  selectionLoad: { label: 'Load Selection', icon: 'selectionLoad', run: (app) => manage.loadSelection(app), desc: 'Select a saved selection, or add to it' },
+  selectionIds: { label: 'IDs of Selection', icon: 'selectionIds', enabled: hasSel, run: (app) => manage.idsOfSelection(app) },
+  selectById: { label: 'Select by ID', icon: 'selectById', run: (app) => manage.selectById(app) },
+  warnings: { label: 'Warnings', icon: 'warning', run: (app) => manage.warningsDialog(app), desc: 'Problems in the model: overlapping walls, unenclosed rooms, duplicate marks' },
+  startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },
   projectInfo: { label: 'Project Information', icon: 'info', run: (app) => app.projectInfoDialog() },
   units: { label: 'Project Units', icon: 'units', keys: 'UN', run: (app) => app.unitsDialog() },
   materials: { label: 'Materials', icon: 'material', run: (app) => app.materialsDialog() },

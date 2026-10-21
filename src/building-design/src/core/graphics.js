@@ -125,6 +125,9 @@ export function viewGraphics(doc, view, el) {
   const out = { hidden: false, color: null, weight: null, halftone: false };
   if (!view || !el) return out;
   const cat = categoryOf(el, doc);
+  // Object styles set the project-wide look of a category; views override it.
+  const os = cat ? doc.get('project')?.objectStyles?.[cat] : null;
+  if (os) merge(out, { color: os.color, weight: os.weight });
   const co = cat ? view.overrides?.[cat] : null;
   if (co) merge(out, co);
   for (const f of view.filters || []) {

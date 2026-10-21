@@ -10,13 +10,14 @@ import { COMMANDS } from '../commands.js';
 import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/catalog.js';
 import { TYPE_PARAMS, AREA_SCHEMES, schemeLabel } from '../core/props.js';
 import { AreaSolver } from '../core/rooms.js';
+import { projectParams } from '../core/params.js';
 import { newRevision, revisionsInOrder } from '../core/revisions.js';
 import { FILTER_PARAMS, FILTER_OPS, filterMatches, templateSettings, applyTemplatePatch, propagateTemplate, templateKindOf } from '../core/graphics.js';
 import { formatLength, parseLength, MM_PER_FOOT, scaleOptions } from '../core/units.js';
 import { uniqueName, deleteElements } from '../core/ops.js';
 import { planView } from '../core/template.js';
 import { newId, isView, isPlanView, isFlatView, VIEW_LABEL } from '../core/doc.js';
-import { SCHEDULE_CATEGORIES } from '../core/schedule.js';
+import { SCHEDULE_CATEGORIES, allFields } from '../core/schedule.js';
 import { sheetSize } from '../core/sheet.js';
 import { bboxUnion } from '../core/geom.js';
 import { createLevel, boundaryFromExterior, interiorPoint } from '../editor/draw.js';
@@ -561,7 +562,7 @@ export function filtersDialog(app) {
         rs[i] = { ...rs[i], ...patch };
         save({ rules: rs });
       };
-      const param = h('select.input.sm', { 'aria-label': 'Parameter' }, FILTER_PARAMS.map((p) => h('option', { value: p.value }, p.label)));
+      const param = h('select.input.sm', { 'aria-label': 'Parameter' }, [...FILTER_PARAMS, ...projectParams(doc).map((p) => ({ value: p.id, label: p.name }))].map((p) => h('option', { value: p.value }, p.label)));
       param.value = r.param;
       param.addEventListener('change', () => upd({ param: param.value }));
       const op = h('select.input.sm', { 'aria-label': 'Condition' }, FILTER_OPS.map((p) => h('option', { value: p.value }, p.label)));
@@ -882,6 +883,22 @@ export function planViewDialog(app) {
   });
 }
 
+export function startingViewDialog(app) {
+  const doc = app.doc;
+  const views = doc.filter((v) => isView(v)).sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+  const sel = h('select.input', { 'aria-label': 'Starting view' }, h('option', { value: '' }, '<Last viewed>'), views.map((v) => h('option', { value: v.id }, `${VIEW_LABEL[v.kind]}: ${app.viewName(v)}`)));
+  sel.value = doc.get('project')?.startViewId || '';
+  return openDialog({
+    title: 'Starting View',
+    body: h('div', field('View', sel), h('p.field-hint', 'This view opens first when the project is opened. A sheet with a cover or key plan works well.')),
+    size: 'sm',
+    actions: [
+      { label: 'Cancel', value: null },
+      { label: 'OK', primary: true, onClick: () => doc.setInfo({ startViewId: sel.value || null }) },
+    ],
+  });
+}
+
 /** New drafting view or legend: a 2D view drawn with annotation tools only. */
 export function newFlatViewDialog(app, kind) {
   const doc = app.doc;
@@ -1143,13 +1160,14 @@ export function scheduleFieldsDialog(app, id) {
   if (!view || view.kind !== 'schedule') return;
   const cat = SCHEDULE_CATEGORIES[view.category];
   const current = view.fields?.length ? view.fields : cat.defaults;
-  const order = [...current, ...cat.fields.map((f) => f.id).filter((f) => !current.includes(f))];
+  const fieldsAll = allFields(app.doc, view.category);
+  const order = [...current.filter((f) => fieldsAll.some((x) => x.id === f)), ...fieldsAll.map((f) => f.id).filter((f) => !current.includes(f))];
   const on = new Set(current);
   const list = h('ul.style-list', { 'aria-label': 'Fields' });
   const render = () => {
     clear(list);
     order.forEach((fid, i) => {
-      const f = cat.fields.find((x) => x.id === fid);
+      const f = fieldsAll.find((x) => x.id === fid);
       const cb = h('input', { type: 'checkbox', checked: on.has(fid), 'aria-label': f.label });
       cb.addEventListener('change', () => (cb.checked ? on.add(fid) : on.delete(fid)));
       list.append(
@@ -1181,7 +1199,7 @@ export function scheduleFilterDialog(app, id) {
   const cat = SCHEDULE_CATEGORIES[view.category];
   const rules = structuredClone(view.filter || []);
   const list = h('div.rule-list');
-  const fields = cat.fields.filter((f) => f.type !== 'count');
+  const fields = allFields(app.doc, view.category).filter((f) => f.type !== 'count');
   const render = () => {
     clear(list);
     rules.forEach((r, i) => {

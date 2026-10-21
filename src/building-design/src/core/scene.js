@@ -12,7 +12,8 @@
 import { WallSolver, hubsOf } from './walls.js';
 import { RoomSolver, AreaSolver } from './rooms.js';
 import { build3D } from './build3d.js';
-import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.js';
+import { planGraphics, planContext, columnOutline, hiddenInView, PlanBuilder } from './plan.js';
+import { phasesInOrder, phaseLook, phased } from './phases.js';
 import { hostedBy } from './model.js';
 import { ANNOTATION_KINDS } from './annotate.js';
 import { hiddenByFilters, viewGraphics, restyle, viewFilterItems } from './graphics.js';
@@ -86,6 +87,7 @@ export class Scene {
       const before = this.known.get(id);
       const kind = now?.kind ?? before?.kind;
       if (kind === 'level' || kind === 'wallType' || kind === 'material' || kind === 'project') all = true;
+      if (kind === 'phase') this.plans.clear();
       // Column outlines bound rooms, and their size lives on the type.
       if (kind === 'columnType') columnType = true;
       if (LEVEL_SCOPED.has(kind)) {
@@ -170,6 +172,7 @@ export class Scene {
     // Callouts made in this view show their marker here.
     for (const v of doc.all(view.kind)) if (v.calloutOf === view.id) out.push(v);
     const areaPlan = view.kind === 'areaPlan';
+    const phases = phasesInOrder(doc);
     for (const k of PLAN_KINDS) {
       if (areaPlan ? NOT_IN_AREA_PLANS.has(k) : AREA_ONLY.has(k)) continue;
       for (const el of doc.all(k)) {
@@ -179,6 +182,7 @@ export class Scene {
           if (view.kind !== 'plan' && view.kind !== 'areaPlan') continue;
         }
         if (hiddenInView(doc, view, el) || hiddenByFilters(doc, view, el)) continue;
+        if (phases.length > 1 && phased(el) && phaseLook(doc, view, el, phases) === 'hidden') continue;
         out.push(el);
       }
     }
@@ -215,8 +219,9 @@ export class Scene {
     let g = null;
     try {
       g = planGraphics(ctx, el);
-      if (g && (view.overrides || view.filters?.length)) g = restyle(g, viewGraphics(this.doc, view, el));
+      if (g && (view.overrides || view.filters?.length || this.doc.get('project')?.objectStyles)) g = restyle(g, viewGraphics(this.doc, view, el));
       if (g && view.cropOn && view.crop && !el.viewId && !isView(el) && el.kind !== 'section' && el.kind !== 'elevation') g = cropGraphics(g, view.crop);
+      if (g && phased(el) && phaseLook(this.doc, view, el) === 'dashed') g = dashed(g);
     } catch (err) {
       console.warn('Could not draw', el.kind, el.id, err);
     }
@@ -232,6 +237,15 @@ export class Scene {
   prune() {
     for (const id of this.plans.keys()) if (!this.doc.has(id)) this.plans.delete(id);
   }
+}
+
+/** Demolished elements: every line dashed, cut fills left out. */
+function dashed(g) {
+  const b = new PlanBuilder();
+  for (const l of g.lines) b.lines.push({ ...l, d: 2, w: Math.min(l.w, 3) });
+  b.picks = g.picks;
+  b.texts = g.texts;
+  return b;
 }
 
 function wallSignature(g) {

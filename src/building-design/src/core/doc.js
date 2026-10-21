@@ -207,7 +207,13 @@ export class Doc {
    */
   add(item) {
     const extra = this.addDefaults?.accept(item) ? this.addDefaults.fields : null;
-    const it = Object.freeze({ ...item, ...extra, id: item.id || newId(prefixFor(item.kind)) });
+    // Hooks fill in fields the caller left out (for example the active phase).
+    let hooked = null;
+    for (const hook of this.addHooks || []) {
+      const p = hook(item);
+      if (p) hooked = { ...hooked, ...p };
+    }
+    const it = Object.freeze({ ...hooked, ...item, ...extra, id: item.id || newId(prefixFor(item.kind)) });
     if (!it.kind) throw new Error('Item needs a kind');
     this._record(it.id);
     this._put(it.id, it);

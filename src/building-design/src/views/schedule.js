@@ -120,13 +120,14 @@ export class ScheduleController {
       for (const c of cols) {
         const v = r.values[c.id];
         const num = ['length', 'area', 'volume', 'number', 'count'].includes(c.type);
-        if (c.edit) {
+        if (c.edit || c.editParam) {
           const input = h('input', { type: 'text', value: v ?? '', 'aria-label': `${c.label}`, placeholder: r.ids.length > 1 && v === '' ? 'Varies' : '' });
           input.addEventListener('keydown', (e) => {
             e.stopPropagation();
             if (e.key === 'Enter') input.blur();
           });
-          input.addEventListener('change', () => app.commit(`Edit ${c.label}`, () => r.ids.forEach((id) => app.doc.update(id, { [c.edit]: input.value }))));
+          const patch = (id) => (c.editParam ? { params: { ...(app.doc.get(id).params || {}), [c.editParam]: input.value } } : { [c.edit]: input.value });
+          input.addEventListener('change', () => app.commit(`Edit ${c.label}`, () => r.ids.forEach((id) => app.doc.update(id, patch(id)))));
           tr.append(h('td', input));
         } else tr.append(h(`td${num ? '.num' : ''}`, formatCell(c, v, app.doc.units)));
       }

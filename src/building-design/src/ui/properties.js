@@ -12,6 +12,7 @@ import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
 import { isView, VIEW_LABEL } from '../core/doc.js';
 import { swapGroupType } from '../core/groups.js';
+import { paramDescriptors } from '../core/params.js';
 
 
 export class PropertiesPanel {
@@ -151,7 +152,7 @@ export class PropertiesPanel {
     const body = h('div.props-body');
     if (t.mode === 'tool') body.append(h('p.props-empty', 'Choose the type above. Options for placing are in the options bar.'));
     else if (t.mode === 'sel' && !t.kind) body.append(this.renderParams([commentsParam()], t.all));
-    else if (items.length) body.append(this.renderParams(instanceParams(items[0]), items));
+    else if (items.length) body.append(this.renderParams([...instanceParams(items[0]), ...paramDescriptors(doc, items[0])], items));
     wrap.append(body);
     this.body.append(wrap);
   }
@@ -192,7 +193,7 @@ export class PropertiesPanel {
     const same = values.every((v) => JSON.stringify(v) === JSON.stringify(values[0]));
     const value = same ? values[0] : undefined;
     const ro = items.some((el) => isReadOnly(p, el, ctx));
-    const id = `prop-${p.key}`;
+    const id = `prop-${p.key.replace(/[^\w-]/g, '_')}`;
     const label = h('label.prow-label', { for: id, title: p.label }, p.label);
     const cell = h('div.prow-value');
     const commit = (raw) => {
