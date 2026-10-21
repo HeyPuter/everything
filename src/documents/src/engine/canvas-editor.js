@@ -1615,7 +1615,11 @@ export class CanvasEditor {
     }, undefined, undefined, true);
     this.typingGroup = null;
   }
-  reconcile(value, checkpoint) {
+  /**
+   * Apply the native field's new value to the model. `caret` is the native field's collapsed caret after
+   * the change, which ends where a deletion started or an insertion ended.
+   */
+  reconcile(value, checkpoint, { caret = null } = {}) {
     const old = this.inputText;
     if (old === value) return false;
     const selection = this.model.selection, at = selection.focus, added = value.length - old.length;
@@ -1626,11 +1630,16 @@ export class CanvasEditor {
       return this.model.replace(value.slice(at, at + added), { checkpoint });
     }
     let start = 0, end = old.length, tail = value.length;
-    while (start < end && start < tail && old[start] === value[start]) start++;
+    // Where the native caret shows the change was, take it: deleting "two " before "three" also reads
+    // as deleting "wo t", which would strike the wrong letters and keep the wrong one's formatting.
+    const from = caret === null ? -1 : added < 0 ? caret : caret - added;
+    const exact = from >= 0 && value.slice(0, from) === old.slice(0, from) && value.slice(from + Math.max(0, added)) === old.slice(from + Math.max(0, -added));
+    if (exact) { start = from; end = from + Math.max(0, -added); tail = from + Math.max(0, added); }
+    else while (start < end && start < tail && old[start] === value[start]) start++;
     // Keep diffs at complete grapheme boundaries, including composed emoji.
     const points = boundaries(old);
     start = [...points].reverse().find(p => p <= start) ?? 0;
-    while (end > start && tail > start && old[end - 1] === value[tail - 1]) { end--; tail--; }
+    if (!exact) while (end > start && tail > start && old[end - 1] === value[tail - 1]) { end--; tail--; }
     const safeEnd = points.find(p => p >= end) ?? old.length;
     tail += safeEnd - end; end = safeEnd;
     const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
@@ -1646,7 +1655,7 @@ export class CanvasEditor {
       const revision = this.session.revision;
       this.session.run(() => {
         const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
-        this.reconcile(value, false);
+        this.reconcile(value, false, { caret: a === b ? a : null });
         const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
         if (this.inputText === value) {
           const selection = this.model.selection;

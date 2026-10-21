@@ -83,3 +83,15 @@ test('Cmd+Backspace and Cmd+Delete stop at the edge of the line as laid out, not
   expect(await softLine('deleteSoftLineBackward', first[0])).toBe(true);
   await expect(input(page)).toHaveValue(`Intro${long}`);
 });
+
+test('deleting a word with the platform chord removes that word, not letters shifted onto the next', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('one two three');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(8, 13); e.toggleBold(); e.model.select(8); e.syncInput(); });
+  // The platform's delete-word chord, handled by the native field. "two " and "three" share the t, so
+  // the change also reads as deleting "wo t".
+  await input(page).press(process.platform === 'darwin' ? 'Alt+Backspace' : 'Control+Backspace');
+  await expect(input(page)).toHaveValue('one three');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold]))).toEqual([['one ', false], ['three', true]]);
+  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([4, 4]);
+});
