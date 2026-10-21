@@ -216,3 +216,50 @@ test('Freestyle style modules draw lines from a script', async ({ page }) => {
   expect(alpha).toBeGreaterThan(10);
   await expectNoErrors(errors);
 });
+
+test('OpenEXR output: options in the Output panel and saving a render as EXR', async ({ page }) => {
+  const errors = await start(page);
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tab="OUTPUT"]').click();
+  await page.evaluate(() => {
+    (window as any).app.doc.scene.render.file_format = 'OPEN_EXR_MULTILAYER';
+    (window as any).app.changed('doc');
+  });
+  await expect(props.locator('.split-row', { hasText: 'Color Depth' })).toBeVisible();
+  await expect(props.locator('.split-row', { hasText: 'Codec' })).toBeVisible();
+  await render(page, { use_pass_z: true });
+  // the render shows in an Image Editor; saving writes a multilayer EXR
+  const download = page.waitForEvent('download');
+  await page.locator('.ie-root').first().hover();
+  await page.evaluate(() => (window as any).app.run('image.save', {}, { area: null }));
+  const d = await download;
+  expect(d.suggestedFilename()).toMatch(/\.exr$/);
+  const buf = await (await import('node:fs/promises')).readFile(await d.path());
+  expect([buf[0], buf[1], buf[2], buf[3]]).toEqual([0x76, 0x2f, 0x31, 0x01]);
+  expect(buf.toString('latin1')).toContain('.Depth.Z');
+  await expectNoErrors(errors);
+});
+
+test('Light spread and cast shadow for the path tracer', async ({ page }) => {
+  const errors = await start(page);
+  await page.evaluate(() => {
+    const a = (window as any).app,
+      d = a.doc;
+    d.scene.render.engine = 'PATHTRACE';
+    const L = Object.values(d.objects).find((o: any) => o.type === 'LIGHT') as any;
+    d.lights[L.data].type = 'AREA';
+    for (const o of Object.values(d.objects) as any[]) o.select = false;
+    L.select = true;
+    d.scene.active_object = L.id;
+    a.changed('doc', 'select');
+  });
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tab="DATA"]').click();
+  await expect(props.locator('.split-row', { hasText: 'Spread' })).toBeVisible();
+  await props.locator('[data-panel="la-pt-settings"] .checkbox', { hasText: 'Cast Shadow' }).click();
+  expect(await page.evaluate(() => (window as any).bpy.data.lights[0].use_shadow)).toBe(false);
+  await page.evaluate(() => ((window as any).bpy.data.lights[0].spread = 0.5));
+  const res = await render(page, {});
+  expect(res.mean).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});
