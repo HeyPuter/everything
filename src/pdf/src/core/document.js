@@ -58,6 +58,7 @@ import {
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
+import { numberFormat, typedNumber } from './form-format.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -1497,6 +1498,9 @@ export async function fillFields(doc, values) {
     const checkBoxes = field instanceof PDFCheckBox ? checkBoxOptions(field) : null;
     if (field instanceof PDFTextField) {
       if (fieldValue(field) === value) continue;
+      // A number or percent field takes a number, as its keystroke check in Acrobat allows.
+      if (String(value).trim() && numberFormat(field) && typedNumber(value) === null)
+        throw new Error(`Enter a number in ${fieldTooltip(field) || name}, such as 1234.5.`);
       prepareFieldAppearance(field, form);
       field.setText(value);
       // An explicit empty value overrides inherited/default values; deleting /V does not.

@@ -483,6 +483,28 @@ it('keeps the first of several selections when a list stops taking several', asy
   expect(operators.match(/0\.6 0\.7\d* 0\.8\d* rg/g)).toHaveLength(1);
 });
 
+it('takes only numbers in number and percent fields', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  await addFormField(doc, 0, {
+    type: 'text',
+    name: 'Amount',
+    rect: rect(50, 600, 200, 24),
+    format: 'number',
+    tooltip: 'Amount due',
+  });
+  await addFormField(doc, 0, { type: 'text', name: 'Rate', rect: rect(50, 500, 200, 24) });
+  await updateFormField(doc, 'Rate', { format: 'percent', decimals: 1 });
+  await addFormField(doc, 0, { type: 'text', name: 'Note', rect: rect(50, 400, 200, 24) });
+  await expect(fillFields(doc, { Amount: '12 apples' })).rejects.toThrow(
+    'Enter a number in Amount due, such as 1234.5.',
+  );
+  await expect(fillFields(doc, { Rate: '5%' })).rejects.toThrow('Enter a number in Rate');
+  await fillFields(doc, { Amount: '-1234.5', Rate: '0,25', Note: 'twelve' });
+  await fillFields(doc, { Amount: '' });
+  expect(listFields(doc).map((field) => field.value)).toEqual(['', '0,25', 'twelve']);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>
