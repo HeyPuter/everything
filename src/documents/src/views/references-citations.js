@@ -5,7 +5,7 @@
  * preview), the citation Style selector and the Bibliography gallery. Sources are kept in the
  * document's bibliography part, so other word processors see them too.
  */
-import { el } from '../ui/dom.js';
+import { el, isComposing } from '../ui/dom.js';
 import { check, field, galleryItem, openDialog, select, text } from './references-ui.js';
 import { loadMasterSources, rememberSources, saveMasterSources, syncMasterSources, preferredStyle, rememberStyle } from '../lib/source-library.js';
 
@@ -219,6 +219,8 @@ export function createCitationCommands(ctx) {
     masterList.addEventListener('change', () => { focused = masterList; showPreview(); });
     docList.addEventListener('change', () => { focused = docList; showPreview(); });
     search.addEventListener('input', fill);
+    // Enter in the search field only searches: it must not close the Source Manager.
+    search.addEventListener('keydown', e => { if (e.key === 'Enter' && !isComposing(e)) e.preventDefault(); });
     const toDocument = async () => {
       const picked = selected(masterList); if (!picked.length) return;
       const docSources = documentData().data.sources, tags = new Set(docSources.map(s => s.tag.toLowerCase()));

@@ -291,6 +291,35 @@ test('Mail Merge Recipients keeps keyboard focus when sorting or including every
   expect(errors).toEqual([]);
 });
 
+test('Enter in a recipient list\'s search field searches without closing the dialog', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/^A small beginning/);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  // A dialog that is closing lingers for its exit animation: only an open one counts.
+  const grid = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'New Address List' });
+  await grid.getByLabel('Last Name, entry 1').fill('Zed');
+  await grid.getByRole('button', { name: 'New Entry' }).click();
+  await grid.getByLabel('Last Name, entry 2').fill('Young');
+  await grid.getByLabel('Find in list').fill('Young');
+  await page.keyboard.press('Enter');
+  await expect(grid).toBeVisible();
+  await expect(grid.getByLabel('Last Name, entry 1')).toHaveCount(0);
+  await grid.getByLabel('Find in list').fill('');
+  await grid.getByRole('button', { name: 'OK' }).click();
+  await expect(grid).toHaveCount(0);
+  await ribbon(page).getByRole('button', { name: 'Edit Recipient List', exact: true }).click();
+  const recipients = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Mail Merge Recipients' });
+  await recipients.getByLabel('Find recipient').fill('Zed');
+  await page.keyboard.press('Enter');
+  await expect(recipients).toBeVisible();
+  await expect(recipients.getByRole('cell', { name: 'Young' })).toHaveCount(0);
+  await expect(recipients.getByRole('cell', { name: 'Zed' })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
 test('Labels opens its collapsed measurements to show a value that needs fixing', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');

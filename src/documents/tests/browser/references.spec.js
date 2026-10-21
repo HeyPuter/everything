@@ -255,6 +255,13 @@ test('Edit Source keeps tag names unique', async ({ page }, info) => {
   const manager = page.getByRole('dialog', { name: 'Source Manager' });
   const current = manager.getByRole('listbox', { name: 'Current list' });
   await expect(current.getByRole('option')).toHaveCount(2);
+  // Enter in the search field searches; it does not close the manager.
+  await manager.getByLabel('Search sources').fill('Jones');
+  await page.keyboard.press('Enter');
+  // A closing dialog lingers for its exit animation: only an open one counts.
+  await expect(page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Source Manager' })).toBeVisible();
+  await expect(current.getByRole('option')).toHaveCount(1);
+  await manager.getByLabel('Search sources').fill('');
   await current.selectOption('Smi20');
   await manager.getByRole('button', { name: 'Edit…', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Source' });

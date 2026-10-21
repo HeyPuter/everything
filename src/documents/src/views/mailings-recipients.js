@@ -2,9 +2,12 @@
  * Recipient lists: typing a new list in a grid, customizing its columns, and the Edit Recipient List
  * dialog (include or exclude rows, sort, filter, find duplicates, check addresses).
  */
-import { el, fieldId } from '../ui/dom.js';
+import { el, fieldId, isComposing } from '../ui/dom.js';
 import { dialog, field, select, input, checkbox, button } from './mailings-ui.js';
 import { visibleRows, duplicateRows, validateAddresses, FILTER_OPERATORS, DEFAULT_COLUMNS, autoMatchFields } from '../engine/merge-fields.js';
+
+/** Enter in a list's search field only searches: it must not submit, and close, the dialog around it. */
+const stayOnEnter = e => { if (e.key === 'Enter' && !isComposing(e)) e.preventDefault(); };
 
 const PAGE = 200;
 const clone = list => structuredClone(list);
@@ -52,7 +55,7 @@ export function openRecipientGrid({ list, title = 'New Address List', onSave }) 
     if (index === undefined) return;
     if (index === draft.rows.length - 1) addEntry(); else focus(index + 1, c);
   });
-  const search = input('', { type: 'search', placeholder: 'Find in list', 'aria-label': 'Find in list', oninput: () => { query = search.value.trim().toLowerCase(); page = 0; render(); } });
+  const search = input('', { type: 'search', placeholder: 'Find in list', 'aria-label': 'Find in list', oninput: () => { query = search.value.trim().toLowerCase(); page = 0; render(); }, onkeydown: stayOnEnter });
   const customize = button('Customize Columns…', () => openColumns(draft.columns, (columns, mapping) => {
     draft.rows = draft.rows.map(row => ({ ...row, values: mapping.map(from => from === null ? '' : row.values[from] ?? '') }));
     draft.columns = columns;
@@ -167,7 +170,7 @@ export function openRecipientList({ state, onApply, onEditEntries }) {
     const filtered = (draft.filters || []).length ? ' · filtered' : '';
     summary.textContent = `${included} of ${draft.rows.length} recipients will be merged${filtered}`;
   }
-  const search = input('', { type: 'search', placeholder: 'Find recipient', 'aria-label': 'Find recipient', oninput: () => { query = search.value.trim().toLowerCase(); page = 0; render(); } });
+  const search = input('', { type: 'search', placeholder: 'Find recipient', 'aria-label': 'Find recipient', oninput: () => { query = search.value.trim().toLowerCase(); page = 0; render(); }, onkeydown: stayOnEnter });
   const source = state.source?.name ? `Data source: ${state.source.name}` : state.source?.kind === 'typed' ? 'Data source: typed in this document' : 'Data source: stored in this document';
   render();
   const modal = dialog({ title: 'Mail Merge Recipients', size: 'xwide', submit: 'OK', body: [
