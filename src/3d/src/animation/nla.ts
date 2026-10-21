@@ -241,6 +241,7 @@ export class NlaEditor extends AnimEditor {
         shortcut: 'N',
         action: () => this.toggleSidebar(),
       },
+      this.channelsMenuItem(),
       {
         label: 'Show Markers',
         checked: this.showMarkers,

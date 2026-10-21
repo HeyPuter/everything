@@ -33,6 +33,8 @@ export interface KeyTransformHost {
   cursorValue?: number;
   /** proportional editing: unselected keys within the radius (frames) follow with a falloff */
   proportional?: { size: number; falloff: string };
+  /** keys moved onto the frame of another key replace it (View ▸ Auto-Merge Keyframes; default on) */
+  autoMerge?: boolean;
 }
 
 interface Snap {
@@ -308,7 +310,7 @@ export function transformKeys(host: KeyTransformHost, t: TransformValues): numbe
   if (!snaps.length) return 0;
   const pivot = pivotOf(host, snaps, t.mode);
   const touched = apply(host, snaps, t, pivot, host.autoSnap);
-  for (const fc of touched) finalizeCurve(fc);
+  for (const fc of touched) finalizeCurve(fc, host.autoMerge !== false);
   return snaps.length;
 }
 
@@ -557,7 +559,7 @@ export function startKeyTransform(
     },
     finish() {
       const touched = new Set(snaps.map((s) => s.fc));
-      for (const fc of touched) finalizeCurve(fc);
+      for (const fc of touched) finalizeCurve(fc, host.autoMerge !== false);
       handler.redoOp = {
         idname: opts.redoIdname,
         props: {

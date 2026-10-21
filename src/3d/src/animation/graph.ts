@@ -31,6 +31,8 @@ export class GraphEditor extends AnimEditor {
   normalize = false;
   showHandles = true;
   onlySelectedHandles = true;
+  /** curves continue past their first and last keys (View ▸ Show Extrapolation) */
+  showExtrapolation = true;
   showCursor = true;
   cursorValue = 0;
   pivot: 'BOUNDING_BOX_CENTER' | 'CURSOR' = 'BOUNDING_BOX_CENTER';
@@ -48,6 +50,7 @@ export class GraphEditor extends AnimEditor {
     if (typeof s.normalize === 'boolean') this.normalize = s.normalize;
     if (typeof s.showHandles === 'boolean') this.showHandles = s.showHandles;
     if (typeof s.onlySelectedHandles === 'boolean') this.onlySelectedHandles = s.onlySelectedHandles;
+    if (typeof s.showExtrapolation === 'boolean') this.showExtrapolation = s.showExtrapolation;
     if (typeof s.cursorValue === 'number') this.cursorValue = s.cursorValue;
   }
 
@@ -56,6 +59,7 @@ export class GraphEditor extends AnimEditor {
       normalize: this.normalize,
       showHandles: this.showHandles,
       onlySelectedHandles: this.onlySelectedHandles,
+      showExtrapolation: this.showExtrapolation,
       cursorValue: this.cursorValue,
     };
   }
@@ -228,6 +232,7 @@ export class GraphEditor extends AnimEditor {
         shortcut: 'N',
         action: () => this.toggleSidebar(),
       },
+      this.channelsMenuItem(),
       { separator: true },
       {
         label: 'Show Cursor',
@@ -238,6 +243,11 @@ export class GraphEditor extends AnimEditor {
         label: 'Show Markers',
         checked: this.showMarkers,
         action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
+      },
+      {
+        label: 'Show Extrapolation',
+        checked: this.showExtrapolation,
+        action: () => ((this.showExtrapolation = !this.showExtrapolation), this.draw()),
       },
       {
         label: 'Show Handles',
@@ -466,8 +476,8 @@ export class GraphEditor extends AnimEditor {
     if (fc.modifiers.some((m) => !m.mute) || !k.length) {
       for (let x = 0; x <= W; x += 1.5) pt(v.xf(x), evaluateFCurve(fc, v.xf(x)), x === 0);
     } else {
-      const left = v.xf(-2),
-        right = v.xf(W + 2);
+      const left = this.showExtrapolation ? v.xf(-2) : k[0].co[0],
+        right = this.showExtrapolation ? v.xf(W + 2) : k[k.length - 1].co[0];
       pt(Math.min(left, k[0].co[0]), evaluateFCurve(fc, Math.min(left, k[0].co[0])), true);
       for (let i = 0; i < k.length; i++) {
         const a = k[i],
@@ -487,7 +497,7 @@ export class GraphEditor extends AnimEditor {
         }
       }
       const last = k[k.length - 1];
-      const end = Math.max(right, last.co[0]);
+      const end = this.showExtrapolation ? Math.max(right, last.co[0]) : last.co[0];
       pt(end, evaluateFCurve(fc, end), false);
     }
     g.stroke();
@@ -598,6 +608,7 @@ export class GraphEditor extends AnimEditor {
       pivot: this.pivot,
       cursorValue: this.cursorValue,
       proportional: proportionalOf('use_proportional_fcurve'),
+      autoMerge: this.autoMerge,
     };
   }
 

@@ -91,6 +91,12 @@ export abstract class AnimEditor implements Editor {
   showSeconds = false;
   /** value sliders next to F-Curve channels */
   showSliders = false;
+  /** the channel region is shown (View ▸ Channels) */
+  showChannels = true;
+  /** keys moved onto another key's frame replace it (View ▸ Auto-Merge Keyframes) */
+  autoMerge = true;
+  /** the channel search matches every word separately (View ▸ Multi-Word Match Search) */
+  multiWordSearch = false;
   /** what transforms snap to, and whether keys snap to it (absolute) or move by whole steps */
   snapMode: 'FRAME' | 'SECOND' | 'MARKER' = 'FRAME';
   snapAbsolute = false;
@@ -302,6 +308,9 @@ export abstract class AnimEditor implements Editor {
       showMarkers: this.showMarkers,
       showSeconds: this.showSeconds,
       showSliders: this.showSliders,
+      showChannels: this.showChannels,
+      autoMerge: this.autoMerge,
+      multiWordSearch: this.multiWordSearch,
       snapMode: this.snapMode,
       snapAbsolute: this.snapAbsolute,
       view: {
@@ -328,6 +337,9 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.showMarkers === 'boolean') this.showMarkers = s.showMarkers;
     if (typeof s.showSeconds === 'boolean') this.showSeconds = s.showSeconds;
     if (typeof s.showSliders === 'boolean') this.showSliders = s.showSliders;
+    if (typeof s.showChannels === 'boolean') this.showChannels = s.showChannels;
+    if (typeof s.autoMerge === 'boolean') this.autoMerge = s.autoMerge;
+    if (typeof s.multiWordSearch === 'boolean') this.multiWordSearch = s.multiWordSearch;
     if (s.snapMode === 'FRAME' || s.snapMode === 'SECOND' || s.snapMode === 'MARKER') this.snapMode = s.snapMode;
     if (typeof s.snapAbsolute === 'boolean') this.snapAbsolute = s.snapAbsolute;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;
@@ -346,6 +358,7 @@ export abstract class AnimEditor implements Editor {
       onlySelected: this.onlySelected,
       showHidden: this.showHidden,
       search: this.search,
+      multiWord: this.multiWordSearch,
       onlyErrors: this.onlyErrors,
       curveError: (ob, fc) => !!fc.disabled || (fc.data_path !== '' && getValue(app.doc, ob, fc.data_path, fc.array_index) === undefined),
       isVisible: (ob: ObjectData) => app.isVisible(ob.id),
@@ -383,6 +396,7 @@ export abstract class AnimEditor implements Editor {
 
   layout() {
     this.chEl.style.width = `${this.chWidth}px`;
+    this.chEl.hidden = !this.showChannels;
     this.sbEl.hidden = !this.showSidebar || !this.sidebarTabs().length;
   }
 
@@ -835,6 +849,11 @@ export abstract class AnimEditor implements Editor {
         ),
       ),
     ]);
+  }
+
+  /** View ▸ Channels: the menu entry that shows / hides the channel region */
+  channelsMenuItem(): MenuItem {
+    return { label: 'Channels', checked: this.showChannels, action: () => ((this.showChannels = !this.showChannels), this.layout(), this.draw(), app.changed('ui')) };
   }
 
   toggleSidebar() {

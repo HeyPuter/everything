@@ -44,6 +44,8 @@ export interface ChannelFilter {
   onlySelected: boolean;
   showHidden: boolean;
   search: string;
+  /** match every word of the search separately (in any order) */
+  multiWord?: boolean;
   onlyErrors?: boolean;
   isVisible: (ob: ObjectData) => boolean;
   activeObject: ObjectData | null;
@@ -122,11 +124,17 @@ function curveVisibleForFilter(doc: DocumentData, ob: ObjectData, fc: FCurve, f:
     const bone = boneOf(fc.data_path);
     if (bone && ob.pose[bone] && !ob.pose[bone].select) return false;
   }
-  if (f.search) {
-    const q = f.search.toLowerCase();
-    if (!channelLabel(fc.data_path, fc.array_index).toLowerCase().includes(q) && !fc.data_path.toLowerCase().includes(q)) return false;
-  }
+  if (f.search && !searchMatches(f, channelLabel(fc.data_path, fc.array_index), fc.data_path)) return false;
   return true;
+}
+
+/** Whether any of the texts matches the search (every word of it, with Multi-Word Match). */
+export function searchMatches(f: Pick<ChannelFilter, 'search' | 'multiWord'>, ...texts: string[]): boolean {
+  const hay = texts.map((t) => t.toLowerCase());
+  const q = f.search.toLowerCase().trim();
+  if (!q) return true;
+  if (!f.multiWord) return hay.some((t) => t.includes(q));
+  return q.split(/\s+/).every((w) => hay.some((t) => t.includes(w)));
 }
 
 function filteredObjects(doc: DocumentData, f: ChannelFilter): ObjectData[] {

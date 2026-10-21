@@ -58,6 +58,8 @@ export class DopeSheet extends AnimEditor {
   mode: DopeSheetMode = 'DOPESHEET';
   showHandlesInterp = true;
   showSummary = true;
+  /** View ▸ Show Extremes: mark keys where the value turns */
+  showExtremes = false;
   /** Action Editor: the marker row shows the action's pose markers */
   showPoseMarkers = false;
 
@@ -67,10 +69,11 @@ export class DopeSheet extends AnimEditor {
     if (s.mode === 'ACTION' || s.mode === 'SHAPEKEY' || s.mode === 'DOPESHEET') this.mode = s.mode;
     if (typeof s.showHandlesInterp === 'boolean') this.showHandlesInterp = s.showHandlesInterp;
     if (typeof s.showPoseMarkers === 'boolean') this.showPoseMarkers = s.showPoseMarkers;
+    if (typeof s.showExtremes === 'boolean') this.showExtremes = s.showExtremes;
   }
 
   protected serializeExtra() {
-    return { mode: this.mode, showHandlesInterp: this.showHandlesInterp, showPoseMarkers: this.showPoseMarkers };
+    return { mode: this.mode, showHandlesInterp: this.showHandlesInterp, showPoseMarkers: this.showPoseMarkers, showExtremes: this.showExtremes };
   }
 
   space(): SpaceKind {
@@ -178,12 +181,14 @@ export class DopeSheet extends AnimEditor {
   viewMenu(): MenuItem[] {
     return [
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
+      this.channelsMenuItem(),
       { separator: true },
       {
         label: 'Show Handles and Interpolation',
         checked: this.showHandlesInterp,
         action: () => ((this.showHandlesInterp = !this.showHandlesInterp), this.draw()),
       },
+      { label: 'Show Extremes', checked: this.showExtremes, action: () => ((this.showExtremes = !this.showExtremes), this.draw()) },
       {
         label: 'Show Markers',
         checked: this.showMarkers,
@@ -320,6 +325,7 @@ export class DopeSheet extends AnimEditor {
         if (x < -10 || x > W + 10) continue;
         const shape = this.showHandlesInterp ? shapeFor(k.handle, k.interp) : 'DIAMOND';
         drawKey(g, Math.round(x) + 0.5, Math.round(yc) + 0.5, size, k.type, k.selected, shape, muted ? 0.5 : 1);
+        if (this.showExtremes && k.extreme) drawExtreme(g, Math.round(x) + 0.5, Math.round(yc) + 0.5, size, k.extreme);
       }
     }
   }
@@ -362,6 +368,7 @@ export class DopeSheet extends AnimEditor {
       snapTo: this.snapTo(),
       handlesVisible: () => true,
       proportional: proportionalOf('use_proportional_action'),
+      autoMerge: this.autoMerge,
     };
   }
 
@@ -538,6 +545,28 @@ function actionPanel(act: ActionData): Child {
         ]
       : null,
   );
+}
+
+/** Chevrons over (maximum) and/or under (minimum) a key that is a turning point. */
+function drawExtreme(g: CanvasRenderingContext2D, x: number, y: number, size: number, kind: 'MAX' | 'MIN' | 'BOTH') {
+  const r = size / 2 + 2,
+    w = 3;
+  g.save();
+  g.strokeStyle = 'rgba(0, 0, 0,0.8)';
+  g.fillStyle = '#e8e9ea';
+  g.lineWidth = 1;
+  const tri = (dir: 1 | -1) => {
+    g.beginPath();
+    g.moveTo(x - w, y - dir * r);
+    g.lineTo(x, y - dir * (r + w));
+    g.lineTo(x + w, y - dir * r);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  };
+  if (kind !== 'MIN') tri(1);
+  if (kind !== 'MAX') tri(-1);
+  g.restore();
 }
 
 /** The action's active slot: name and the type of data-block it is for. */

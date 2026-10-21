@@ -1,5 +1,6 @@
 // Header/context menus shared by the Dope Sheet ('action') and Graph Editor ('graph').
 import type { MenuItem } from '../ui/menu';
+import { app } from '../app/app';
 import type { Interpolation, KeyHandleType, Keyframe } from '../data/types';
 import type { AnimEditor } from './animeditor';
 import { KEY_TYPES } from './footer';
@@ -250,6 +251,8 @@ export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
         ed.refresh();
       },
     },
+    { label: 'Auto-Merge Keyframes', checked: ed.autoMerge, action: () => ((ed.autoMerge = !ed.autoMerge), app.changed('ui')) },
+    { label: 'Multi-Word Match Search', checked: ed.multiWordSearch, action: () => ((ed.multiWordSearch = !ed.multiWordSearch), ed.refresh()) },
     { separator: true },
     { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
     { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },

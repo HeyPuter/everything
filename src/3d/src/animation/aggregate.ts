@@ -9,6 +9,8 @@ export interface AggKey {
   type: Keyframe['type'];
   handle: KeyHandleType | 'MIXED';
   interp: Interpolation | 'MIXED';
+  /** the key is a turning point of the value (higher / lower than both neighbours) */
+  extreme?: 'MAX' | 'MIN' | 'BOTH';
 }
 
 export interface AggSpan {
@@ -47,6 +49,20 @@ export function aggregate(curves: FCurve[]): AggRow {
         if (cur.interp !== k.interpolation) cur.interp = 'MIXED';
       }
     }
+  // turning points of each curve, merged per column
+  for (const fc of curves) {
+    const ks = fc.keyframe_points;
+    for (let i = 1; i + 1 < ks.length; i++) {
+      const v = ks[i].co[1],
+        a = ks[i - 1].co[1],
+        b = ks[i + 1].co[1];
+      const eps = 1e-6 * Math.max(1, Math.abs(v));
+      const kind = v > a + eps && v > b + eps ? 'MAX' : v < a - eps && v < b - eps ? 'MIN' : null;
+      if (!kind) continue;
+      const cur = map.get(q(ks[i].co[0]));
+      if (cur) cur.extreme = cur.extreme && cur.extreme !== kind ? 'BOTH' : kind;
+    }
+  }
   const keys = [...map.values()].sort((a, b) => a.frame - b.frame);
   const holds: AggSpan[] = [];
   const interps: AggRow['interps'] = [];
