@@ -86,8 +86,8 @@ export function promptDialog({ title, label, value = '', confirm = 'Save', maxLe
 let toastHost = null;
 
 export function toast(message, { kind = 'info', action, duration = 3800 } = {}) {
-  if (!toastHost) {
-    toastHost = h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
+  if (!toastHost?.isConnected) {
+    toastHost ||= h('div.toasts', { role: 'region', 'aria-label': 'Notifications' });
     document.body.append(toastHost);
   }
   const iconName = kind === 'error' ? 'alert' : kind === 'success' ? 'check' : 'info';

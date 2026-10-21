@@ -6,7 +6,7 @@ import { h } from '../lib/dom.js';
 import { icon, appIcon } from '../lib/icons.js';
 import { menuButton } from './menu.js';
 import { getTheme, setTheme, prefs } from './prefs.js';
-import { promptDialog } from './dialog.js';
+import { promptDialog, toast } from './dialog.js';
 
 export function themeMenuItems() {
   const t = getTheme();
@@ -254,7 +254,14 @@ export function createTopbar(ctx) {
       status.replaceChildren(h('span.save-status-long', `${where}: `), h('span.save-status-short', { 'aria-hidden': 'true' }, 'Saved '), fmt(at));
     }
     fitStatus();
+    // Where the status has no room (phones, narrow tablets), a failed save still has to be seen.
+    if (s === 'error' && !errorNote && status.clientWidth < 40) errorNote = toast("Couldn't save your changes. Retrying...", { kind: 'error', duration: 8000 });
+    else if (s !== 'error' && errorNote) {
+      errorNote.remove();
+      errorNote = null;
+    }
   };
+  let errorNote = null;
   // Say just "Saved" and the time only when the full status does not fit. The status's width
   // does not depend on its text (contain: inline-size), so measuring here cannot loop.
   const fitStatus = () => {

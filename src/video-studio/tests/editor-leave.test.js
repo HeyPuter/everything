@@ -183,3 +183,30 @@ describe('closing the page', () => {
     expect(unload()).toBe(false);
   });
 });
+
+describe('a failed save where the status has no room', () => {
+  const errorToasts = () => [...document.querySelectorAll('.toast.error:not(.leaving)')].map((t) => t.textContent);
+
+  it('says so once in a toast, and takes it away when a save works again', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    editor.saver.emit('status', { status: 'error' });
+    editor.saver.emit('status', { status: 'error' }); // the retry failed too: still one note
+    expect(errorToasts()).toEqual(["Couldn't save your changes. Retrying..."]);
+    editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    await settle(250);
+    expect(errorToasts()).toEqual([]);
+  });
+
+  it('leaves it to the status where the status shows', async () => {
+    await open();
+    document.querySelectorAll('.toast').forEach((t) => t.remove());
+    const status = root.querySelector('.save-status');
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? 240 : 0;
+    });
+    editor.saver.emit('status', { status: 'error' });
+    expect(status.textContent).toBe("Couldn't save. Retrying...");
+    expect(errorToasts()).toEqual([]);
+  });
+});
