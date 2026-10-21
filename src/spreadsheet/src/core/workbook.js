@@ -6011,7 +6011,8 @@ export class Workbook extends EventTarget {
       const live = this.sheet(sheetId);
       const show = Array.from({ length: n }, (_, i) => at + i);
       for (const table of tables) {
-        const filter = sheetFilters(live).find(f => f.range.r1 === table.range.r1 && f.range.c1 === table.range.c1 && f.range.c2 === table.range.c2);
+        // The table's own filter, which the insertion took down to the new rows; not a worksheet filter over its top rows.
+        const filter = sheetFilters(live).find(f => f.range.r1 === table.range.r1 && f.range.c1 === table.range.c1 && f.range.c2 === table.range.c2 && f.range.r2 === at - 1 + n);
         if (filter) this._setFilter(live, { ...filter, range: { ...filter.range, r2: at - 1 + n } }, 'Insert rows', { show, target: filter });
         this._growTableDependents(live, table, at - 1, at - 1 + n, 'Insert rows');
       }
@@ -6582,6 +6583,8 @@ export class Workbook extends EventTarget {
     if (extent > limit) return false;
     const clamp = (range) => (range[hi] > limit ? { ...range, [hi]: limit } : range);
     this._structural(axis === 'row' ? 'Insert rows' : 'Insert columns', () => {
+      // The tables' own filters, told apart now from a worksheet filter over the top of a table (see below).
+      const tableFilters = axis === 'row' ? sheetFilters(sheet).filter(f => filterTable(sheet, f)).map(f => f.range) : [];
       this.nativePivots = mapNativePivotRanges(this.nativePivots, sheetId, ref => adjustRefForInsertedLines(ref, axis, lines));
       // The line before the new ones lends them its formatting (from above, or from
       // the left): the style alone, never a value, formula or note. A table's header row
@@ -6695,12 +6698,16 @@ export class Workbook extends EventTarget {
       });
       // Columns inserted inside a table get header names of their own, so no two columns share one.
       if (axis === 'col') for (const t of sheet.tables) if (t.range.c1 < at && at + n - 1 <= t.range.c2) this._nameInsertedTableColumns(sheet, t, at, n);
-      // A table's filter reaches its last data row, including rows inserted under a table that had none.
-      if (axis === 'row') mapSheetFilters(sheet, f => {
-        const owner = sheet.tables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
-        const end = owner ? tableRows(owner).dataEnd : -1;
-        return owner && f.range.r2 < end ? { ...f, range: { ...f.range, r2: end } } : f;
-      });
+      // A table's filter reaches its last data row, including rows inserted under a table that had none. A worksheet
+      // filter over the table's first rows and columns is no table's: it keeps its own extent.
+      if (axis === 'row') {
+        const owned = new Set(tableFilters.map(m => filterRangeKey({ range: clamp(grow(m)) })));
+        mapSheetFilters(sheet, f => {
+          const owner = owned.has(filterRangeKey(f)) && sheet.tables.find(t => t.range.r1 === f.range.r1 && t.range.c1 === f.range.c1 && t.range.c2 === f.range.c2);
+          const end = owner ? tableRows(owner).dataEnd : -1;
+          return owner && f.range.r2 < end ? { ...f, range: { ...f.range, r2: end } } : f;
+        });
+      }
       // Explicit insertion moves existing cells and layout. The scrolling
       // growth cap must not hide those shifted lines or shrink an import.
       if (axis === 'row') {
