@@ -47,6 +47,9 @@ test('renders the independent native conditional styles and preserves them throu
     // border fixture below separately checks baseline and edge geometry.
   }
   const images = () => page.locator('canvas.canvas-page').evaluateAll(cs => cs.map(c => c.toDataURL()));
+  // Reading pixels back (above) changes how Chrome rasterizes the canvases' later paints. Paint the
+  // pages again (a caret move does) so both images below come from paints made after it.
+  await input.press('ArrowRight'); await input.press('ArrowLeft');
   const before = await images(), text = await input.inputValue();
   await input.press('ControlOrMeta+Home'); await page.keyboard.insertText('Edited ');
   const download = async suffix => {

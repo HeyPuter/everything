@@ -460,7 +460,9 @@ export function attachTablePointer(engine, { readOnly, widths, heights, error = 
       mode = next || null; pen = nextPen ? { ...nextPen } : pen;
       setCursor(modeCursor()); hover = null; repaint();
     },
-    refresh() { syncSelection(); refreshRuler(); repaint(); },
+    // The overlay paints with the engine's own paints, which every edit and selection change
+    // already makes; only pointer state (hover, drags, modes) asks for a repaint of its own.
+    refresh() { syncSelection(); refreshRuler(); },
     detach() {
       abort.abort(); setCursor(null); rulerLayer.remove();
       const at = engine.overlays.indexOf(overlay); if (at >= 0) engine.overlays.splice(at, 1);
