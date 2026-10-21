@@ -31,6 +31,11 @@ describe('transcript helpers', () => {
     // Spoken language not chosen: English fillers only when it reads as English.
     expect(found('Er ist um acht Uhr, hmm, gekommen', 'auto')).toEqual(['hmm,']);
     expect(found('So um this is what we do, er, with the tool', 'auto')).toEqual(['um', 'er,']);
+    // Short clips give little to go on: English unless the words read as another language.
+    expect(found('Um, hello everyone. Um, welcome back. Uh, today, er, we start.', 'auto')).toEqual(['Um,', 'Um,', 'Uh,', 'er,']);
+    expect(found('Um, hi.', 'auto')).toEqual(['Um,']);
+    expect(found('Er sagt, dass er um acht kommt, äh, und ich nicht.', 'auto')).toEqual(['äh,']);
+    expect(found('Ah, o filme é muito bom, hum, mas não sei.', 'auto')).toEqual(['hum,']);
   });
 
   it('finds long pauses and leaves breathing room', () => {

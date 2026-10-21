@@ -143,23 +143,37 @@ export const SOFT_FILLERS = {
 
 const clean = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}'\s]+/gu, '').trim();
 
-// Common English words that are not words in the other languages above.
-const ENGLISH = new Set(['the', 'and', 'is', 'to', 'of', 'you', 'that', 'it', 'this', 'we', 'what', 'for', 'with', 'are', 'have', 'they', 'be', 'not', 'just', 'my']);
+// Common little words of each language above that are not English words.
+const WORDS = {
+  en: ['the', 'and', 'is', 'to', 'of', 'you', 'that', 'it', 'this', 'we', 'what', 'for', 'with', 'are', 'have', 'they', 'be', 'not', 'just', 'my'],
+  de: ['der', 'das', 'und', 'ist', 'ich', 'nicht', 'ein', 'eine', 'sie', 'wir', 'mit', 'auf', 'für', 'zu', 'dem', 'von', 'sich', 'auch', 'wie', 'aber', 'dass'],
+  es: ['el', 'los', 'las', 'que', 'y', 'es', 'por', 'para', 'una', 'con', 'pero', 'muy', 'del', 'lo', 'como', 'está'],
+  fr: ['le', 'les', 'et', 'est', 'je', 'des', 'une', 'pas', 'vous', 'nous', 'ce', 'dans', 'qui', 'sur', 'avec', 'mais', "c'est"],
+  it: ['il', 'che', 'di', 'non', 'gli', 'sono', 'per', 'questo', 'della', 'è', 'una', 'con'],
+  pt: ['não', 'os', 'uma', 'com', 'mas', 'você', 'isso', 'então', 'muito', 'é', 'que', 'para'],
+};
+const LANG_OF = new Map();
+for (const [lang, list] of Object.entries(WORDS)) for (const w of list) LANG_OF.set(w, [...(LANG_OF.get(w) || []), lang]);
 
-/** Whether a transcript in an unknown language reads as English. */
-function looksEnglish(words) {
-  const n = Math.min(words.length, 500);
-  let hits = 0;
-  for (let i = 0; i < n; i++) if (ENGLISH.has(clean(words[i].text))) hits++;
-  return n > 0 && hits / n >= 0.15;
+/**
+ * The language a transcript of unknown language reads as, by its little
+ * words. English unless another language clearly shows (a short clip of
+ * "um, hello" has little to go on, and English is the most common).
+ */
+function guessLanguage(words) {
+  const score = {};
+  for (let i = 0; i < Math.min(words.length, 500); i++) for (const lang of LANG_OF.get(clean(words[i].text)) || []) score[lang] = (score[lang] || 0) + 1;
+  let best = 'en';
+  for (const [lang, n] of Object.entries(score)) if (n > (score[best] || 0)) best = lang;
+  return best;
 }
 
 /**
  * Indices of filler words (and multi-word soft fillers when soft is on).
- * language 'auto' uses English fillers only when the words read as English.
+ * language 'auto' uses the fillers of the language the words read as.
  */
 export function findFillers(words, { language = 'en', soft = false } = {}) {
-  const lang = language === 'auto' ? (looksEnglish(words) ? 'en' : null) : FILLERS[language] ? language : null;
+  const lang = language === 'auto' ? guessLanguage(words) : FILLERS[language] ? language : null;
   const hard = new Set([...COMMON_FILLERS, ...(lang ? FILLERS[lang] : [])]);
   const phrases = soft && lang ? (SOFT_FILLERS[lang] || []).map((p) => p.split(' ')) : [];
   const out = new Set();
