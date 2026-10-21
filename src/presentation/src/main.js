@@ -3801,7 +3801,7 @@ const backgroundPane = createBackgroundPane({
   pres: () => doc.pres,
   target: () => slide(),
   slides: () => P.getSlides(doc.pres),
-  mutateTarget: (fn, options) => mutateSlide(slide(), fn, options),
+  mutateTarget: (fn, options) => mutateBackgrounds(slide(), fn, options),
   mutateDeck: (fn) => mutate(fn),
   skip: SKIP_MUTATION,
   fail,
@@ -3814,7 +3814,7 @@ const backgroundPane = createBackgroundPane({
       "Background color",
       slideBackground(target).color,
       (c) =>
-        mutateSlide(target, (s) => P.setSlideBackground(s, c), {
+        mutateBackgrounds(target, (s) => P.setSlideBackground(s, c), {
           coalesce: coalesceKey("background", target),
         }),
       {
@@ -3848,6 +3848,17 @@ const backgroundPane = createBackgroundPane({
     dedupeSlideMedia(doc.pres, target);
   },
 });
+// A background edit reaches every selected slide when the slide shown is
+// one of them, as one undo step; it is skipped when no slide changed.
+function mutateBackgrounds(target, fn, options) {
+  const parts = partsOf(actionSlides(target));
+  return mutate(() => {
+    let changed = false;
+    for (const s of resolveSlides(parts))
+      if (fn(s) !== SKIP_MUTATION) changed = true;
+    return changed ? undefined : SKIP_MUTATION;
+  }, options);
+}
 // Comments, proofing, accessibility, compare and the read-only mark
 // (review/). It reaches the editor through this surface.
 const review = createReview({
@@ -11690,22 +11701,23 @@ function insertImage() {
 // any earlier background image, leave the file with it.
 async function setBackgroundImage(file) {
   const target = doc,
-    part = P.getSlidePartName(slide());
+    parts = partsOf(actionSlides(slide()));
   const bytes = await readImageFile(file);
   if (doc !== target) return;
   await mutate(() => {
-    const destination = slideByPart(part);
-    if (!destination) throw new Error("The slide was removed.");
-    P.setSlideBackgroundImage(destination, bytes);
-    // New bytes under the same part name leave the slide's XML as it was.
-    doc.previews.delete(part);
-    pruneUnusedMedia(doc.pres, destination);
-    dedupeSlideMedia(doc.pres, destination);
+    const destinations = resolveSlides(parts);
+    if (!destinations.length) throw new Error("The slide was removed.");
+    for (const destination of destinations) {
+      P.setSlideBackgroundImage(destination, bytes);
+      // New bytes under the same part name leave the slide's XML as it was.
+      doc.previews.delete(P.getSlidePartName(destination));
+      pruneUnusedMedia(doc.pres, destination);
+      dedupeSlideMedia(doc.pres, destination);
+    }
   });
 }
 function removeBackgroundImage() {
-  const target = slide();
-  mutateSlide(target, (target) => {
+  mutateBackgrounds(slide(), (target) => {
     if (P.getSlideBackground(target).kind !== "image") return SKIP_MUTATION;
     P.setSlideBackground(target, THEMES[theme].bg);
     pruneUnusedMedia(doc.pres, target);

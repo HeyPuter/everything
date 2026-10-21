@@ -244,6 +244,43 @@ test("background styles, the Format Background pane and Apply to All", async ({
   expect(P.getSlideBackground(P.getSlides(p)[1]).kind).toBe("image");
 });
 
+// With several slides selected, the pane's fill went on the one shown only.
+test("the Format Background pane fills every selected slide", async ({
+  page,
+}) => {
+  await storyDeck(page);
+  await page.locator(".slide-thumb").nth(1).click();
+  await page
+    .locator(".slide-thumb")
+    .nth(2)
+    .click({ modifiers: ["Shift"] });
+  await tab(page, "design");
+  await command(page, "format-background");
+  const pane = page.locator("#format-background");
+  await pane.getByRole("radio", { name: "Pattern fill" }).check();
+  await pane.getByRole("radio", { name: "Small grid" }).click();
+  await expect(page.locator("#save-status")).toContainText("Saved");
+  const { p } = await download(page);
+  const pattern = (s) =>
+    /<a:pattFill prst="(\w+)"/.exec(P.getSlideXmlString(s))?.[1];
+  expect(P.getSlides(p).map(pattern)).toEqual([
+    undefined,
+    "smGrid",
+    "smGrid",
+    undefined,
+    undefined,
+  ]);
+  // One undo takes the last change back from both.
+  await page.locator("#slide-canvas").click({ position: { x: 4, y: 4 } });
+  await page.keyboard.press(`${mod}+z`);
+  await expect(page.locator("#save-status")).toContainText("Saved");
+  const again = await download(page);
+  expect(P.getSlides(again.p).map(pattern).slice(1, 3)).toEqual([
+    "pct20",
+    "pct20",
+  ]);
+});
+
 test("the current theme saves as a theme file that another deck can use", async ({
   page,
 }) => {
