@@ -192,8 +192,14 @@ export function exportStyles(source, normalFont = null, palette = null, defaultV
     }
     return formats.get(code);
   };
+  // A conditional format's own number format (fmt) goes between its font and its fill, as CT_Dxf orders them.
+  const differentialFormat = s => {
+    if (s.fmt == null) return '';
+    const code = s.fmt === 'general' ? 'General' : styleToNumFmt(s);
+    return xmlTag('numFmt', { numFmtId: code === 'General' ? 0 : numberFormatCode(code, true), formatCode: encodeXlsxAttribute(code) });
+  };
   const differential = (s = {}) => intern(dxfs, xmlTag('dxf', {},
-    fontXml(s, true, '', palette, fontTheme) + (Object.hasOwn(s, 'bg') ? fillXml(s, true, palette) : '') + borderXml(s, true)));
+    fontXml(s, true, '', palette, fontTheme) + differentialFormat(s) + (Object.hasOwn(s, 'bg') ? fillXml(s, true, palette) : '') + borderXml(s, true)));
   // Whole-column defaults often repeat one XF across thousands of columns.
   // Avoid rebuilding identical font/fill/border XML before interning it.
   const cellFormats = new Map();

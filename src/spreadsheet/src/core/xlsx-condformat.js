@@ -6,7 +6,7 @@ import { cellName, parseRange } from './cell.js';
 import { shiftFormula } from './refs.js';
 import { fromFileFormula } from './xlfn.js';
 import { dataBarLink, extendedBarEntries, readExtendedBar } from './xlsx-databar.js';
-import { xlsxAttr as attr, xlsxElements as elements, xlsxColor, xlsxText, readXlsxDifferentialStyle } from './xlsx-styles.js';
+import { xlsxAttr as attr, xlsxElements as elements, xlsxColor, xlsxText, readXlsxDifferentialStyle, xlsxDifferentialNumberFormat } from './xlsx-styles.js';
 
 /** Relative CFVO references are forbidden by MS-XLSX 2.6.26. For malformed
  * input Excel still parses them from the bounding sqref corner, then evaluates
@@ -92,8 +92,8 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
       const formulas = elements(source, inline ? 'f' : 'formula').map(tag => fromFileFormula(xlsxText(tag.replace(/^<[^>]+>|<\/[^>]+>$/g, '')), definedNames));
       let rule, targets = ranges;
       const dxfId = attr(source, 'dxfId');
-      const style = inline ? readXlsxDifferentialStyle(elements(source, 'dxf')[0], themes)
-        : dxfId != null ? styles?.dxfs?.[Number(dxfId)] : {};
+      const style = inline ? { ...readXlsxDifferentialStyle(elements(source, 'dxf')[0], themes), ...xlsxDifferentialNumberFormat(elements(source, 'dxf')[0]) }
+        : dxfId != null ? styles?.dxfs?.[Number(dxfId)] && { ...styles.dxfs[Number(dxfId)], ...styles.dxfNumberFormats?.[Number(dxfId)] } : {};
       if (type === 'expression' && formulas[0]) rule = { type: 'formula', value: formulas[0] };
       else if (type === 'duplicateValues' || type === 'uniqueValues') {
         rule = { type: type === 'duplicateValues' ? 'dup' : 'unique', duplicateRange: duplicateSourceFormula(ranges) };

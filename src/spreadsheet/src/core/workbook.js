@@ -9447,6 +9447,8 @@ export class Workbook extends EventTarget {
       if (matchesRule(rule, value, ctx)) {
         const style = { ...rule.style };
         for (const key of painted) delete style[key];
+        // A number format is one set of fields: the earlier rule's stands whole.
+        if (painted.has('fmt')) for (const key of FORMAT_DETAIL_KEYS) delete style[key];
         paint(style);
         // Imported rules combine non-conflicting formats in priority order unless a
         // matching rule stops evaluation. App-authored rules keep first-match behavior.

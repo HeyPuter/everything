@@ -1,6 +1,7 @@
 import { normalizeFontColor } from './font-color.js';
 import { normalizeFillColor } from './fill-color.js';
 import { normalizeNativeFill } from './native-fill.js';
+import { NUMBER_FORMAT_KEYS } from './format.js';
 
 export const BORDER_STYLE_KEYS = ['bt', 'bb', 'bl', 'br', 'bc', 'bs', 'btBorder', 'bbBorder', 'blBorder', 'brBorder'];
 
@@ -50,6 +51,17 @@ export function conditionalFontStyle(style, conditional) {
     if (conditional?.[key] == null) continue;
     if (out === style) out = { ...style };
     out[key] = conditional[key];
+  }
+  return out;
+}
+
+/** A rule's number format replaces the cell's whole format while the rule matches, as Excel shows it. */
+export function conditionalNumberFormat(style, conditional) {
+  if (conditional?.fmt == null) return style;
+  const out = { ...style };
+  for (const key of NUMBER_FORMAT_KEYS) {
+    if (conditional[key] !== undefined) out[key] = conditional[key];
+    else delete out[key];
   }
   return out;
 }

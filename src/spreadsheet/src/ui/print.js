@@ -1,4 +1,4 @@
-import { conditionalFontStyle } from '../core/style-values.js';
+import { conditionalFontStyle, conditionalNumberFormat } from '../core/style-values.js';
 import { nativeSparklineAt, nativeSparklineData } from '../core/native-sparkline-data.js';
 import { nativeSparklineNode } from './native-sparkline.js';
 import { createSlicerControl } from './slicer.js';
@@ -522,7 +522,7 @@ function printTextBounds(wb, sheetId, sheet, bounds) {
     let st = spill ? wb._pivotDisplayStyle(sheetId, r, c, { ...wb._lineStyle(sheet, r, c), ...spill.style, ...cell?.s }) : wb.displayStyleAt(sheetId, r, c) || {};
     if (st.wrap || st.clip || st.rot || st.shrink) continue;
     const cf = wb.conditionalStyle(sheetId, r, c, value);
-    st = conditionalFontStyle(st, cf);
+    st = conditionalNumberFormat(conditionalFontStyle(st, cf), cf);
     if (cf?.barOnly || cf?.iconOnly) continue;
     const text = cellLayoutText(formatValue(value, st), false);
     const align = st.align || (readsRightToLeft(text) ? 'right' : defaultAlign(value));
@@ -918,7 +918,7 @@ export function buildPrintTable(wb, sheetId, opts = {}) {
       } else {
         const value = spill ? spill.value : cell.v != null || cell.f != null ? wb.getValue(sheetId, sr, sc) : null;
         // Match the grid: line defaults, then the spill's number format, then cell overrides.
-        const st = conditionalFontStyle(spill ? wb._pivotDisplayStyle(sheetId, sr, sc, { ...(lineFormats ? wb._lineStyle(sheet, sr, sc) : null), ...spill.style, ...cell?.s }) : styleOf(cell, sr, sc) || {}, conditional);
+        const st = conditionalNumberFormat(conditionalFontStyle(spill ? wb._pivotDisplayStyle(sheetId, sr, sc, { ...(lineFormats ? wb._lineStyle(sheet, sr, sc) : null), ...spill.style, ...cell?.s }) : styleOf(cell, sr, sc) || {}, conditional), conditional);
         borderStyle = customTables ? borderStyleAt(sr, sc) : st;
         let text = cellLayoutText(formatValue(value, st), st.wrap);
         if (value === 0 && sheet.zeros === false) text = '';

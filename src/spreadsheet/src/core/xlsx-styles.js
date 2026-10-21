@@ -94,6 +94,16 @@ export function xlsxAlignment(alignment) {
   return out;
 }
 
+/**
+ * A differential style's number format, which a conditional format shows the cells it matches in. Table styles
+ * hold none in Excel, so this is read apart from the paint below.
+ */
+export function xlsxDifferentialNumberFormat(dxf) {
+  const tag = element(dxf, 'numFmt'), code = tag && decodeXlsxString(attr(tag, 'formatCode') ?? '');
+  if (!code) return {};
+  return /^general$/i.test(code) ? { fmt: 'general' } : numFmtToStyle(code) || {};
+}
+
 /** Shared differential paint for styles.xml records and inline x14 rules. */
 export function readXlsxDifferentialStyle(dxf, themes) {
   const out = borders(element(dxf, 'border'), themes);
@@ -216,6 +226,7 @@ export function readXlsxStyles(book, fillBaseline = null, fillDefinitions = null
   const borderStyles = borderRecords.map(b => borders(b, themes));
   const differential = elements(element(xml, 'dxfs'), 'dxf');
   const dxfs = differential.map(dxf => readXlsxDifferentialStyle(dxf, themes));
+  const dxfNumberFormats = differential.map(xlsxDifferentialNumberFormat);
   const tables = new Map();
   for (const table of elements(element(xml, 'tableStyles'), 'tableStyle')) {
     const name = attr(table, 'name');
@@ -245,7 +256,7 @@ export function readXlsxStyles(book, fillBaseline = null, fillDefinitions = null
     return { unlocked: ['0', 'false'].includes(attr(tag, 'locked')), hidden: ['1', 'true'].includes(attr(tag, 'hidden')) };
   });
   const { namedStyles, cellXfStyleNames } = readNamedStyles({ xml, fontRecords, fontNames, fontSchemes, fontColors, fills, borderStyles, formatCodes: book.SSF });
-  return { borders: borderStyles, fills, dxfs, tables, shrink, protection, fontColors, fontNames, fontSchemes, fontTheme, normalFont, normalFontId, namedStyles, cellXfStyleNames,
+  return { borders: borderStyles, fills, dxfs, dxfNumberFormats, tables, shrink, protection, fontColors, fontNames, fontSchemes, fontTheme, normalFont, normalFontId, namedStyles, cellXfStyleNames,
     nativeNormalStyle, nativeNormalFill: fillResources.normal, nativeDefaultCellFormat, formatCodes: book.SSF, colorPalette, themeInfo, colors: themes };
 }
 

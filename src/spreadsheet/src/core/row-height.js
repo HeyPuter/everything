@@ -1,4 +1,4 @@
-import { conditionalFontStyle } from './style-values.js';
+import { conditionalFontStyle, conditionalNumberFormat } from './style-values.js';
 import { normalIndentUnit } from './normal-font.js';
 import { cellKey } from './cell.js';
 import { formatValue, fontStack, indentWidth } from './format.js';
@@ -60,7 +60,7 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
     // A cached height is not a minimum (confirmed by native Excel round trips).
     if (automatic && mergeAt(r, c)) continue;
     const value = wb.getValue(sheetId, r, c);
-    const st = conditionalFontStyle(styleAt(s, r, c), wb.conditionalStyle(sheetId, r, c, value));
+    const cf = wb.conditionalStyle(sheetId, r, c, value), st = conditionalNumberFormat(conditionalFontStyle(styleAt(s, r, c), cf), cf);
     const size = st?.size || baseFontSize;
     const bold = st?.bold;
     const font = `${st?.italic ? 'italic ' : ''}${bold ? '600 ' : ''}${size}px ${fontStack(st?.font) || cellFont.replace(/^[\d.]+px\s*/, '')}`;

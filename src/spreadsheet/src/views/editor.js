@@ -1,5 +1,5 @@
 import { workbookPathUri } from '../core/workbook-location.js';
-import { conditionalFontStyle } from '../core/style-values.js';
+import { conditionalFontStyle, conditionalNumberFormat } from '../core/style-values.js';
 import { openSparklineDialog } from '../ui/sparklinedialog.js';
 import { openSparklineCreateDialog } from '../ui/sparklinecreatedialog.js';
 import { openSlicerDialog } from '../ui/slicerdialog.js';
@@ -4323,7 +4323,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const baseSize = parseFloat(css.getPropertyValue('--grid-font-size')) || 13;
     const family = css.fontFamily || 'system-ui';
     const measure = (r, c, value, st) => {
-      st = conditionalFontStyle(st, wb.conditionalStyle(sheetId, r, c, value));
+      const cf = wb.conditionalStyle(sheetId, r, c, value);
+      st = conditionalNumberFormat(conditionalFontStyle(st, cf), cf);
       const bold = st?.bold;
       canvas.font = `${st?.italic ? 'italic ' : ''}${bold ? '600 ' : ''}${st?.size || baseSize}px ${fontStack(st?.font) || family}`;
       // A number is drawn in tabular figures, every digit as wide as a 0, and the grid measures it so to fit.

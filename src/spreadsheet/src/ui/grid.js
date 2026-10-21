@@ -1,4 +1,4 @@
-import { conditionalFontStyle } from '../core/style-values.js';
+import { conditionalFontStyle, conditionalNumberFormat } from '../core/style-values.js';
 import { nativeSparklineAt, nativeSparklineData } from '../core/native-sparkline-data.js';
 import { nativeSparklineNode } from './native-sparkline.js';
 import { createSlicerControl } from './slicer.js';
@@ -1477,6 +1477,8 @@ export function createGrid(opts) {
     node.classList.add((rtl ? align === 'left' : align === 'right') ? 'ar' : align === 'center' ? 'ac' : 'al');
     const cf = s.rules.length || s.tables.length ? wb.conditionalStyle(s.id, r, c, value) : null;
     st = conditionalFontStyle(st, cf);
+    // A rule's number format shows over the cell's own while the rule matches.
+    if (cf?.fmt != null && text) { st = conditionalNumberFormat(st, cf); text = cellLayoutText(formatValue(value, st), st?.wrap); }
     // A cell's own fill shows through the table's coat (its bands and header colours); a rule's fill paints over both.
     const coated = !!cf?.bg && nativeFillOverridesNormal(st, wb.nativeNormalFill) && cf.coat;
     if (cf) {
