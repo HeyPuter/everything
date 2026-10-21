@@ -10,6 +10,7 @@
 //   curve_extend       'HORIZONTAL' | 'EXTRAPOLATED'
 //   black_level / white_level (RGB curves): [r, g, b]
 import type { SocketValue } from '../data/types';
+import { curveEvaluator, type CurveEval } from './curvemap';
 
 export interface RampStop {
   pos: number;
@@ -129,9 +130,9 @@ function lerpHue(a: number, b: number, t: number, mode: string) {
     if (d > 0 && d < 0.5) d -= 1;
     else if (d < 0 && d > -0.5) d += 1;
   } else if (mode === 'CW') {
-    if (d > 0) d -= 1;
-  } else if (mode === 'CCW') {
     if (d < 0) d += 1;
+  } else if (mode === 'CCW') {
+    if (d > 0) d -= 1;
   }
   return (((a + d * t) % 1) + 1) % 1;
 }
@@ -142,44 +143,51 @@ function mixColors(a: number[], b: number[], t: number, mode: string, hue: strin
   const from = mode === 'HSV' ? hsvToRgbA : hslToRgbA;
   const A = to(a),
     B = to(b);
-  // keep hue of a grey stop from distorting the blend
-  if (A[1] === 0) A[0] = B[0];
-  if (B[1] === 0) B[0] = A[0];
   return from([lerpHue(A[0], B[0], t, hue), A[1] + (B[1] - A[1]) * t, A[2] + (B[2] - A[2]) * t, A[3] + (B[3] - A[3]) * t]);
+}
+
+/** Spline weights of the four control colors around a segment (B-spline or cardinal, tension 0.71). */
+function splineWeights(f: number, bspline: boolean): [number, number, number, number] {
+  const f2 = f * f,
+    f3 = f2 * f;
+  if (bspline) return [-f3 / 6 + f2 / 2 - f / 2 + 1 / 6, f3 / 2 - f2 + 2 / 3, -f3 / 2 + f2 / 2 + f / 2 + 1 / 6, f3 / 6];
+  const c = 0.71;
+  return [-c * f3 + 2 * c * f2 - c * f, (2 - c) * f3 + (c - 3) * f2 + 1, (c - 2) * f3 + (3 - 2 * c) * f2 + c * f, c * f3 - c * f2];
 }
 
 /** Evaluate a color ramp at t. */
 export function evalRamp(ramp: Ramp, t: number): number[] {
   const s = [...ramp.stops].sort((a, b) => a.pos - b.pos);
   if (!s.length) return [0, 0, 0, 1];
+  const n = s.length;
+  const spline = ramp.interpolation === 'CARDINAL' || ramp.interpolation === 'B_SPLINE';
+  if (spline && n > 1) {
+    // splines run through the end stops' neighbourhood too: the end stops are doubled
+    const tc = Math.min(Math.max(t, s[0].pos), s[n - 1].pos);
+    let i = 0;
+    while (i < n - 2 && tc > s[i + 1].pos) i++;
+    const span = s[i + 1].pos - s[i].pos;
+    const f = span > 0 ? (tc - s[i].pos) / span : 0;
+    const p0 = s[Math.max(0, i - 1)].color,
+      p1 = s[i].color,
+      p2 = s[i + 1].color,
+      p3 = s[Math.min(n - 1, i + 2)].color;
+    const w = splineWeights(f, ramp.interpolation === 'B_SPLINE');
+    const out = [0, 0, 0, 0];
+    // cardinal splines overshoot: keep the result inside [0, 1]
+    for (let k = 0; k < 4; k++) out[k] = Math.max(0, Math.min(1, w[0] * p0[k] + w[1] * p1[k] + w[2] * p2[k] + w[3] * p3[k]));
+    return out;
+  }
   if (t <= s[0].pos) return [...s[0].color];
-  if (t >= s[s.length - 1].pos) return [...s[s.length - 1].color];
+  if (t >= s[n - 1].pos) return [...s[n - 1].color];
   let i = 0;
-  while (i < s.length - 1 && t > s[i + 1].pos) i++;
+  while (i < n - 1 && t > s[i + 1].pos) i++;
   const a = s[i],
     b = s[i + 1];
   if (ramp.interpolation === 'CONSTANT') return t >= b.pos ? [...b.color] : [...a.color];
   const span = b.pos - a.pos;
   let f = span > 0 ? (t - a.pos) / span : 0;
   if (ramp.interpolation === 'EASE') f = smooth(f);
-  if (ramp.interpolation === 'CARDINAL' || ramp.interpolation === 'B_SPLINE') {
-    const p0 = s[Math.max(0, i - 1)].color,
-      p3 = s[Math.min(s.length - 1, i + 2)].color;
-    const p1 = a.color,
-      p2 = b.color;
-    const f2 = f * f,
-      f3 = f2 * f;
-    if (ramp.interpolation === 'CARDINAL') {
-      // Catmull-Rom spline through the stops
-      return p1.map((_, k) => 0.5 * (2 * p1[k] + (-p0[k] + p2[k]) * f + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * f2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * f3));
-    }
-    // uniform cubic B-spline (approximating)
-    const w0 = (1 - f) ** 3 / 6,
-      w1 = (3 * f3 - 6 * f2 + 4) / 6,
-      w2 = (-3 * f3 + 3 * f2 + 3 * f + 1) / 6,
-      w3 = f3 / 6;
-    return p1.map((_, k) => w0 * p0[k] + w1 * p1[k] + w2 * p2[k] + w3 * p3[k]);
-  }
   return mixColors(a.color, b.color, f, ramp.colorMode, ramp.hueInterpolation);
 }
 
@@ -213,7 +221,7 @@ export const CURVE_RANGE: Record<CurveKind, [number, number, number, number]> = 
 export function defaultCurves(kind: CurveKind): Record<string, SocketValue> {
   const out: Record<string, SocketValue> = {
     curve_kind: kind,
-    curve_extend: 'HORIZONTAL',
+    curve_extend: 'EXTRAPOLATED',
     curve_active: 0,
   };
   const [x0, y0, x1, y1] = CURVE_RANGE[kind];
@@ -240,39 +248,6 @@ export function writeCurve(props: Record<string, SocketValue>, index: number, pt
   props[`curve_${index}`] = [...pts].sort((a, b) => a.x - b.x).flatMap((p) => [p.x, p.y, p.handle]);
 }
 
-/** Tangent (slope) at each point for piecewise cubic Hermite interpolation. */
-function slopes(p: CurvePoint[]): number[] {
-  const n = p.length;
-  const m = new Array(n).fill(0);
-  const sec = (i: number) => {
-    const dx = p[i + 1].x - p[i].x;
-    return dx > 1e-9 ? (p[i + 1].y - p[i].y) / dx : 0;
-  };
-  for (let i = 0; i < n; i++) {
-    if (n === 1) break;
-    if (i === 0) m[i] = sec(0);
-    else if (i === n - 1) m[i] = sec(n - 2);
-    else {
-      const a = sec(i - 1),
-        b = sec(i);
-      const dxa = p[i].x - p[i - 1].x,
-        dxb = p[i + 1].x - p[i].x;
-      m[i] = (a * dxb + b * dxa) / Math.max(1e-9, dxa + dxb);
-      if (p[i].handle === 2 && a * b <= 0) m[i] = 0; // clamped extremum
-      if (p[i].handle === 2) {
-        const lim = 3 * Math.min(Math.abs(a), Math.abs(b));
-        if (Math.abs(m[i]) > lim) m[i] = Math.sign(m[i]) * lim;
-      }
-    }
-  }
-  // end points with a single neighbour: ease into the curve like an auto handle
-  if (n > 2) {
-    m[0] = (3 * sec(0) - m[1]) / 2;
-    m[n - 1] = (3 * sec(n - 2) - m[n - 2]) / 2;
-  }
-  return m;
-}
-
 /** Curve evaluated periodically over [0, 1) (hue curves: the last point continues into the first). */
 export function evalPeriodicCurve(pts: CurvePoint[], x: number): number {
   if (!pts.length) return 0.5;
@@ -280,34 +255,16 @@ export function evalPeriodicCurve(pts: CurvePoint[], x: number): number {
   return evalCurve(ext, x, 'HORIZONTAL');
 }
 
-/** Evaluate a curve at x (points sorted by x). */
-export function evalCurve(pts: CurvePoint[], x: number, extend = 'HORIZONTAL'): number {
-  const n = pts.length;
-  if (!n) return x;
-  if (n === 1) return pts[0].y;
-  const m = slopes(pts);
-  if (x <= pts[0].x) {
-    if (extend === 'EXTRAPOLATED') return pts[0].y + (x - pts[0].x) * (pts[0].handle === 1 ? (pts[1].y - pts[0].y) / Math.max(1e-9, pts[1].x - pts[0].x) : m[0]);
-    return pts[0].y;
-  }
-  if (x >= pts[n - 1].x) {
-    if (extend === 'EXTRAPOLATED') return pts[n - 1].y + (x - pts[n - 1].x) * (pts[n - 1].handle === 1 ? (pts[n - 1].y - pts[n - 2].y) / Math.max(1e-9, pts[n - 1].x - pts[n - 2].x) : m[n - 1]);
-    return pts[n - 1].y;
-  }
-  let i = 0;
-  while (i < n - 2 && x > pts[i + 1].x) i++;
-  const a = pts[i],
-    b = pts[i + 1];
-  const h = b.x - a.x;
-  if (h <= 1e-9) return b.y;
-  const t = (x - a.x) / h;
-  if (a.handle === 1 && b.handle === 1) return a.y + (b.y - a.y) * t;
-  const lin = (b.y - a.y) / h;
-  const ma = a.handle === 1 ? lin : m[i],
-    mb = b.handle === 1 ? lin : m[i + 1];
-  const t2 = t * t,
-    t3 = t2 * t;
-  return (2 * t3 - 3 * t2 + 1) * a.y + (t3 - 2 * t2 + t) * h * ma + (-2 * t3 + 3 * t2) * b.y + (t3 - t2) * h * mb;
+const evaluators = new WeakMap<CurvePoint[], Map<string, CurveEval>>();
+
+/** Evaluate a curve at x (points sorted by x); evaluators are cached per point array. */
+export function evalCurve(pts: CurvePoint[], x: number, extend = 'EXTRAPOLATED'): number {
+  if (!pts.length) return x;
+  let byExt = evaluators.get(pts);
+  if (!byExt) evaluators.set(pts, (byExt = new Map()));
+  let f = byExt.get(extend);
+  if (!f) byExt.set(extend, (f = curveEvaluator(pts, extend)));
+  return f(x);
 }
 
 /**
@@ -317,7 +274,7 @@ export function evalCurve(pts: CurvePoint[], x: number, extend = 'HORIZONTAL'): 
  */
 export function bakeCurves(props: Record<string, SocketValue>, kind: CurveKind, n = 256): { data: Float32Array; min: number; max: number } {
   const [x0, , x1] = CURVE_RANGE[kind];
-  const extend = (props.curve_extend as string) ?? 'HORIZONTAL';
+  const extend = (props.curve_extend as string) ?? 'EXTRAPOLATED';
   const data = new Float32Array(n * 4);
   const curves = CURVE_NAMES[kind].map((_, i) => readCurve(props, i));
   for (let i = 0; i < n; i++) {
@@ -367,13 +324,12 @@ export function wavelengthToRgb(lambdaNm: number): [number, number, number] {
   return c.map((v) => Math.max(0, v)) as [number, number, number];
 }
 
-/** Linear RGB colour of a black body at `kelvin`, normalised to unit luminance-ish brightness. */
-export function blackbodyToRgb(kelvin: number): [number, number, number] {
-  const T = Math.max(800, Math.min(12000, kelvin));
+/** Black body color by integrating Planck's law against the color matching functions. */
+function blackbodyExact(T: number): [number, number, number] {
   let X = 0,
     Y = 0,
     Z = 0;
-  for (let l = 380; l <= 780; l += 5) {
+  for (let l = 360; l <= 830; l += 2) {
     const lm = l * 1e-9;
     const planck = 1 / (lm ** 5 * (Math.exp(0.014387769 / (lm * T)) - 1));
     const [x, y, z] = cieXYZ(l);
@@ -381,7 +337,29 @@ export function blackbodyToRgb(kelvin: number): [number, number, number] {
     Y += y * planck;
     Z += z * planck;
   }
-  const c = xyzToLinearRec709(X, Y, Z).map((v) => Math.max(0, v));
-  const m = Math.max(c[0], c[1], c[2]) || 1;
-  return [c[0] / m, c[1] / m, c[2] / m];
+  const c = xyzToLinearRec709(X / Y, 1, Z / Y);
+  return [Math.max(0, c[0]), Math.max(0, c[1]), Math.max(0, c[2])];
+}
+
+const BB_MIN = 800,
+  BB_MAX = 12000,
+  BB_STEP = 20;
+let bbTable: Float32Array | null = null;
+
+/**
+ * Linear RGB color of a black body at `kelvin` (clamped to 800–12000 K), normalized to unit
+ * luminance; negative components are clipped. Tabulated every 20 K and interpolated.
+ */
+export function blackbodyToRgb(kelvin: number): [number, number, number] {
+  if (!bbTable) {
+    const n = (BB_MAX - BB_MIN) / BB_STEP + 1;
+    bbTable = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) bbTable.set(blackbodyExact(BB_MIN + i * BB_STEP), i * 3);
+  }
+  const T = Math.max(BB_MIN, Math.min(BB_MAX, Number.isFinite(kelvin) ? kelvin : BB_MIN));
+  const f = (T - BB_MIN) / BB_STEP;
+  const i = Math.min(Math.floor(f), bbTable.length / 3 - 2);
+  const t = f - i;
+  const o = i * 3;
+  return [bbTable[o] + (bbTable[o + 3] - bbTable[o]) * t, bbTable[o + 1] + (bbTable[o + 4] - bbTable[o + 1]) * t, bbTable[o + 2] + (bbTable[o + 5] - bbTable[o + 2]) * t];
 }

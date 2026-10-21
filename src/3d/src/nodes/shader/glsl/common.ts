@@ -163,14 +163,14 @@ vec4 nd_wavelength(float l) { return vec4(max(nd_xyz2rgb(nd_cie(l)), vec3(0.0)),
 vec4 nd_blackbody(float T) {
   T = clamp(T, 800.0, 12000.0);
   vec3 acc = vec3(0.0);
-  for (int i = 0; i < 24; i++) {
-    float l = 380.0 + float(i) * 17.0;
+  for (int i = 0; i < 48; i++) {
+    float l = 362.0 + float(i) * 10.0;
     float lm = l * 1e-9;
     float planck = 1.0 / (pow(lm * 1e6, 5.0) * (exp(0.014387769 / (lm * T)) - 1.0));
     acc += nd_cie(l) * planck;
   }
-  vec3 c = max(nd_xyz2rgb(acc), vec3(0.0));
-  return vec4(c / max(max(c.r, c.g), max(c.b, 1e-9)), 1.0);
+  // unit luminance; negative components clipped
+  return vec4(max(nd_xyz2rgb(acc / max(acc.y, 1e-12)), vec3(0.0)), 1.0);
 }
 `,
   },

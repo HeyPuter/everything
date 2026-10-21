@@ -591,6 +591,10 @@ setProp(nodeDef('ShaderNodeClamp'), 'clamp_type', { noLabel: true });
     visible: (n) => p(n, 'data_type') === 'RGBA',
   });
   setProp(d, 'clamp_result', { visible: (n) => p(n, 'data_type') === 'RGBA' });
+  // the node body lists Clamp Result above Clamp Factor
+  const cr = d.props.findIndex((q) => q.id === 'clamp_result'),
+    cf = d.props.findIndex((q) => q.id === 'clamp_factor');
+  if (cr > cf && cf >= 0) d.props.splice(cf, 0, ...d.props.splice(cr, 1));
   d.init = (n) => {
     n.props.data_type ??= 'FLOAT';
   };

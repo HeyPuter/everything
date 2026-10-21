@@ -14,6 +14,7 @@ import './editor/interactions';
 import './editor/drops';
 import './editor/colorpresets';
 import './editor/rampui';
+import './editor/rampattach';
 import './editor/shaderprovider';
 import './properties';
 export {};

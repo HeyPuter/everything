@@ -48,9 +48,10 @@ export function gridMesh(sizeX: number, sizeY: number, vx: number, vy: number, u
   vy = Math.max(1, vy);
   const dx = vx > 1 ? sizeX / (vx - 1) : 0,
     dy = vy > 1 ? sizeY / (vy - 1) : 0;
-  const ox = vx > 1 ? -sizeX / 2 : 0,
-    oy = vy > 1 ? -sizeY / 2 : 0;
-  for (let x = 0; x < vx; x++) for (let y = 0; y < vy; y++) b.vert(ox + x * dx, oy + y * dy, 0);
+  // positions step outward from the center in single precision (stable bit patterns for hashing)
+  const fdx = Math.fround(dx),
+    fdy = Math.fround(dy);
+  for (let x = 0; x < vx; x++) for (let y = 0; y < vy; y++) b.vert(Math.fround((x - (vx - 1) / 2) * fdx), Math.fround((y - (vy - 1) / 2) * fdy), 0);
   const id = (x: number, y: number) => x * vy + y;
   const u = (x: number) => (vx > 1 ? x / (vx - 1) : 0),
     v = (y: number) => (vy > 1 ? y / (vy - 1) : 0);

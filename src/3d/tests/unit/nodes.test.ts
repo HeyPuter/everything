@@ -366,7 +366,7 @@ describe('ramps and curves', () => {
     ];
     expect(evalCurve(bent, 0.5)).toBeCloseTo(0.8);
     expect(evalCurve(bent, 0.25)).toBeGreaterThan(0.4);
-    expect(evalCurve(bent, 2)).toBe(1);
+    expect(evalCurve(bent, 2, 'HORIZONTAL')).toBe(1);
     expect(evalCurve(bent, 2, 'EXTRAPOLATED')).toBeGreaterThan(1);
     const vec = [
       { x: 0, y: 0, handle: 1 },
@@ -383,10 +383,12 @@ describe('ramps and curves', () => {
   it('computes physical colours', () => {
     const red = wavelengthToRgb(650);
     expect(red[0]).toBeGreaterThan(red[1]);
-    const warm = blackbodyToRgb(1500);
-    expect(warm[0]).toBeCloseTo(1);
+    // unit luminance: warm temperatures exceed 1 in red, cool ones in blue
+    const warm = blackbodyToRgb(1550);
+    expect(Math.abs(warm[0] - 3.17)).toBeLessThan(0.15);
     expect(warm[2]).toBeLessThan(0.1);
-    const cool = blackbodyToRgb(10000);
-    expect(cool[2]).toBeCloseTo(1);
+    const cool = blackbodyToRgb(10050);
+    expect(cool[2]).toBeCloseTo(1.43, 1);
+    expect(0.2126 * cool[0] + 0.7152 * cool[1] + 0.0722 * cool[2]).toBeCloseTo(1, 2);
   });
 });
