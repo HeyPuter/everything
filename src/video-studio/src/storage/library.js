@@ -94,10 +94,23 @@ export class Library extends Emitter {
     return project;
   }
 
+  /** Open a project document. Errors for a missing or damaged file have unreadable set. */
   async openProject(id) {
-    const raw = await this.backend.readJSON(`projects/${id}.json`);
-    if (!raw) throw new Error('This project could not be found. It may have been deleted.');
-    const project = normalizeProject(raw);
+    const unreadable = (message) => Object.assign(new Error(message), { unreadable: true });
+    let raw;
+    try {
+      raw = await this.backend.readJSON(`projects/${id}.json`);
+    } catch (err) {
+      if (err instanceof SyntaxError) throw unreadable('This project file is damaged.');
+      throw err;
+    }
+    if (!raw) throw unreadable('This project could not be found. It may have been deleted.');
+    let project;
+    try {
+      project = normalizeProject(raw);
+    } catch (err) {
+      throw unreadable(err?.message || 'This project file is damaged.');
+    }
     // The file name is the id: a document without one (or with another) must still save back to this file.
     project.id = id;
     return project;
@@ -132,7 +145,8 @@ export class Library extends Emitter {
 
   /** Move a project to the Trash. It keeps its files until it is deleted for good or purged. */
   async trashProject(id, now = Date.now()) {
-    const p = await this.openProject(id);
+    const p = await this._openOrEntry(id);
+    if (!p) return this._editEntry(id, (e) => ({ ...e, deletedAt: now }));
     p.deletedAt = now;
     await this.saveProject(p);
     return p;
@@ -140,10 +154,30 @@ export class Library extends Emitter {
 
   /** Bring a project back from the Trash. */
   async restoreProject(id) {
-    const p = await this.openProject(id);
+    const p = await this._openOrEntry(id);
+    if (!p) return this._editEntry(id, ({ deletedAt, ...e }) => e);
     delete p.deletedAt;
     await this.saveProject(p);
     return p;
+  }
+
+  /**
+   * The project, or null when its file is missing or damaged but the list has
+   * an entry for it: that entry can still go to the Trash and be deleted.
+   */
+  async _openOrEntry(id) {
+    try {
+      return await this.openProject(id);
+    } catch (err) {
+      if (err?.unreadable && (this.index || (await this._readIndex())).some((e) => e.id === id)) return null;
+      throw err;
+    }
+  }
+
+  async _editEntry(id, fn) {
+    let entry = null;
+    await this._updateIndex((list) => list.map((e) => (e.id === id ? (entry = fn(e)) : e)));
+    return entry;
   }
 
   /** Delete every project in the Trash for good. Returns the ids removed. */

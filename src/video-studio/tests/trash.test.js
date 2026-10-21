@@ -28,6 +28,32 @@ describe('Trash', () => {
     expect(backend.files.get(`covers/${gone.id}.jpg`)).toBe('cover');
   });
 
+  it.each([
+    ['missing', null],
+    ['damaged', '{"oops'],
+    ['not a project', '{"format":"other"}'],
+  ])('moves a project whose file is %s to the Trash and deletes it for good', async (_, content) => {
+    const p = await lib.createProject({ name: 'Broken' });
+    if (content === null) backend.files.delete(`projects/${p.id}.json`);
+    else backend.files.set(`projects/${p.id}.json`, content);
+    await lib.trashProject(p.id, T0);
+    expect(await lib.listProjects()).toEqual([]);
+    expect((await lib.listTrash()).map((x) => [x.name, x.deletedAt])).toEqual([['Broken', T0]]);
+    await lib.restoreProject(p.id);
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual(['Broken']);
+    await lib.trashProject(p.id, T0);
+    await lib.deleteProject(p.id);
+    expect(await lib.listTrash()).toEqual([]);
+    expect(backend.files.has(`projects/${p.id}.json`)).toBe(false);
+  });
+
+  it('does not touch the list when the project file cannot be read for another reason', async () => {
+    const p = await lib.createProject({ name: 'Offline' });
+    backend.failNext = 1;
+    await expect(lib.trashProject(p.id, T0)).rejects.toThrow('Simulated network failure');
+    expect((await lib.listProjects()).map((x) => x.name)).toEqual(['Offline']);
+  });
+
   it('restores a project from the Trash', async () => {
     const p = await lib.createProject({ name: 'Back' });
     await lib.trashProject(p.id, T0);
