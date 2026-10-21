@@ -179,19 +179,20 @@ function ensureU8(me: MeshData, key: 'select_vert' | 'hide_vert' | 'hide_poly' |
 }
 
 /** Writes an edge flag to every corner on the edge. */
-function setEdgeFlag(me: MeshData, key: 'seams' | 'sharp' | 'creases', e: number, v: number) {
+type EdgeKey = 'seams' | 'sharp' | 'creases' | 'bevel_weight_edge';
+function setEdgeFlag(me: MeshData, key: EdgeKey, e: number, v: number) {
   const info = edgeInfo(me);
   if (e >= info.faceEdges) {
-    if (v) app.report('WARNING', `edge ${e} is a loose edge: ${key === 'seams' ? 'seams' : key === 'sharp' ? 'sharp edges' : 'creases'} are only kept on face edges`);
+    if (v) app.report('WARNING', `edge ${e} is a loose edge: ${key === 'seams' ? 'seams' : key === 'sharp' ? 'sharp edges' : key === 'creases' ? 'creases' : 'bevel weights'} are only kept on face edges`);
     return;
   }
   const nc = me.indices.length;
-  if (!me[key] || me[key]!.length !== nc) me[key] = (key === 'creases' ? new Float32Array(nc) : new Uint32Array(nc)) as never;
+  if (!me[key] || me[key]!.length !== nc) me[key] = (key === 'creases' || key === 'bevel_weight_edge' ? new Float32Array(nc) : new Uint32Array(nc)) as never;
   const arr = cow(me, key) as Float32Array | Uint32Array;
   for (let k = info.edgeCornerOffsets[e]; k < info.edgeCornerOffsets[e + 1]; k++) arr[info.edgeCorners[k]] = v;
 }
 
-function edgeFlag(me: MeshData, key: 'seams' | 'sharp' | 'creases', e: number): number {
+function edgeFlag(me: MeshData, key: EdgeKey, e: number): number {
   const arr = me[key];
   if (!arr) return 0;
   const info = edgeInfo(me);
@@ -253,7 +254,7 @@ export function commitPending(id: string) {
   const arrays = buildMesh(me.positions, polys);
   Object.assign(me, arrays);
   if (keepUVs) me.uvs = keepUVs;
-  for (const k of ['seams', 'sharp', 'creases', 'custom_normals', 'quad_flip', 'face_strength', 'hide_poly', 'sculpt_face_set'] as const) if (!(k in arrays)) delete (me as unknown as Any)[k];
+  for (const k of ['seams', 'sharp', 'creases', 'bevel_weight_edge', 'custom_normals', 'quad_flip', 'face_strength', 'hide_poly', 'sculpt_face_set'] as const) if (!(k in arrays)) delete (me as unknown as Any)[k];
   // explicit edges that no face uses become loose edges
   const faceEdge = new Set<string>();
   for (const f of polys) for (let k = 0; k < f.verts.length; k++) {
@@ -910,7 +911,7 @@ function builtinAttributes(me: MeshData): AttrDef[] {
     out.push({ name: 'sharp_face', domain: 'FACE', data_type: 'BOOLEAN', width: 1, read: (m) => Array.from({ length: nFaces(m) }, (_, f) => (m.smooth?.[f] ? 0 : 1)), write: (m, v) => (m.smooth = Uint8Array.from(v, (x) => (x ? 0 : 1))), remove: (m) => (m.smooth = new Uint8Array(nFaces(m)).fill(1)) });
   if (me.material_index?.some((x) => x))
     out.push({ name: 'material_index', domain: 'FACE', data_type: 'INT', width: 1, read: (m) => m.material_index ?? new Uint16Array(nFaces(m)), write: (m, v) => (m.material_index = Uint16Array.from(v)), remove: (m) => delete m.material_index });
-  const edgeAttr = (name: string, key: 'seams' | 'sharp' | 'creases', type: string): AttrDef => ({
+  const edgeAttr = (name: string, key: EdgeKey, type: string): AttrDef => ({
     name,
     domain: 'EDGE',
     data_type: type,
@@ -922,6 +923,9 @@ function builtinAttributes(me: MeshData): AttrDef[] {
   if (me.sharp?.some((x) => x)) out.push(edgeAttr('sharp_edge', 'sharp', 'BOOLEAN'));
   if (me.creases?.some((x) => x)) out.push(edgeAttr('crease_edge', 'creases', 'FLOAT'));
   if (me.seams?.some((x) => x)) out.push(edgeAttr('.uv_seam', 'seams', 'BOOLEAN'));
+  if (me.bevel_weight_edge) out.push(edgeAttr('bevel_weight_edge', 'bevel_weight_edge', 'FLOAT'));
+  for (const k of ['bevel_weight_vert', 'crease_vert'] as const)
+    if (me[k]) out.push({ name: k, domain: 'POINT', data_type: 'FLOAT', width: 1, read: (m) => m[k] ?? [], write: (m, v) => (m[k] = Float32Array.from(v)), remove: (m) => delete m[k] });
   if (me.select_vert) out.push({ name: '.select_vert', domain: 'POINT', data_type: 'BOOLEAN', width: 1, read: (m) => m.select_vert ?? [], write: (m, v) => (m.select_vert = Uint8Array.from(v, (x) => (x ? 1 : 0))), remove: (m) => delete m.select_vert, is_internal: true });
   if (me.hide_vert) out.push({ name: '.hide_vert', domain: 'POINT', data_type: 'BOOLEAN', width: 1, read: (m) => m.hide_vert ?? [], write: (m, v) => (m.hide_vert = Uint8Array.from(v, (x) => (x ? 1 : 0))), remove: (m) => delete m.hide_vert, is_internal: true });
   if (me.hide_poly) out.push({ name: '.hide_poly', domain: 'FACE', data_type: 'BOOLEAN', width: 1, read: (m) => m.hide_poly ?? [], write: (m, v) => (m.hide_poly = Uint8Array.from(v, (x) => (x ? 1 : 0))), remove: (m) => delete m.hide_poly, is_internal: true });
@@ -1094,9 +1098,11 @@ export class MeshAttributes extends PropCollection<unknown> {
     else if ((n === 'sharp_edge' || n === 'crease_edge') && dom === 'EDGE') {
       if (n === 'sharp_edge') me.sharp = new Uint32Array(me.indices.length);
       else me.creases = new Float32Array(me.indices.length);
-    } else if (n === '.hide_poly' && dom === 'FACE') me.hide_poly = new Uint8Array(nFaces(me));
+    } else if (n === 'bevel_weight_edge' && dom === 'EDGE') me.bevel_weight_edge = new Float32Array(me.indices.length);
+    else if ((n === 'bevel_weight_vert' || n === 'crease_vert') && dom === 'POINT') me[n] = new Float32Array(nVerts(me));
+    else if (n === '.hide_poly' && dom === 'FACE') me.hide_poly = new Uint8Array(nFaces(me));
     else if ((n === '.select_vert' || n === '.hide_vert') && dom === 'POINT') me[n === '.select_vert' ? 'select_vert' : 'hide_vert'] = new Uint8Array(nVerts(me));
-    else throw pyError('RuntimeError', `Error: meshes here store color attributes (FLOAT_COLOR/BYTE_COLOR on POINT or CORNER), one UV map (FLOAT2 on CORNER) and the built-in attributes (.sculpt_face_set, .sculpt_mask, custom_normal, sharp_face, sharp_edge, crease_edge, material_index); "${n}" (${t} on ${dom}) can't be stored`);
+    else throw pyError('RuntimeError', `Error: meshes here store color attributes (FLOAT_COLOR/BYTE_COLOR on POINT or CORNER), one UV map (FLOAT2 on CORNER) and the built-in attributes (.sculpt_face_set, .sculpt_mask, custom_normal, sharp_face, sharp_edge, crease_edge, crease_vert, bevel_weight_edge, bevel_weight_vert, material_index); "${n}" (${t} on ${dom}) can't be stored`);
     touched('geometry');
     return this.getItem(n);
   }

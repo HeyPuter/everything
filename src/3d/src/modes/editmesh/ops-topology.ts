@@ -283,16 +283,7 @@ function startInsetModal(individual: boolean, outsetInit = false) {
 }
 
 function cloneEdit(m: MeshEdit): MeshEdit {
-  const c = new MeshEdit();
-  c.pos = m.pos.slice();
-  c.sel = m.sel.slice();
-  c.hide = m.hide.slice();
-  c.weights = m.weights.map((w) => w.slice());
-  c.keys = m.keys.map((k) => k.slice());
-  c.pcolors = m.pcolors.map((k) => k.slice());
-  c.looseEdges = m.looseEdges.map((e) => [e[0], e[1]] as [number, number]);
-  c.faces = m.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined }));
-  return c;
+  return m.clone();
 }
 
 // ---------------------------------------------------------------------------

@@ -262,6 +262,12 @@ modifierExtraUI.SKIN = (ob, m) => {
     h(
       'div',
       { class: 'mod-wide' },
+      wideButton(`${m.id}.loose`, 'Mark Loose', () => app.run('object.skin_loose_mark_clear', { action: 'MARK' }), { disabled: !edit, tip: 'Available in Edit Mode' }),
+      wideButton(`${m.id}.unloose`, 'Clear Loose', () => app.run('object.skin_loose_mark_clear', { action: 'CLEAR' }), { disabled: !edit, tip: 'Available in Edit Mode' }),
+    ),
+    h(
+      'div',
+      { class: 'mod-wide' },
       wideButton(`${m.id}.root`, 'Mark Root', () => app.run('object.skin_root_mark'), { disabled: !edit, tip: 'Available in Edit Mode' }),
       wideButton(`${m.id}.eq`, 'Equalize Radii', () => app.run('object.skin_radii_equalize'), { disabled: !edit, tip: 'Available in Edit Mode' }),
     ),

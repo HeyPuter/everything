@@ -43,6 +43,9 @@ function toMeshEdit(m: EvalMesh): MeshEdit {
     seams: m.seams,
     sharp: m.sharp,
     creases: m.creases,
+    bevel_weight_edge: m.bevel_weight_edge,
+    bevel_weight_vert: m.bevel_weight_vert,
+    crease_vert: m.crease_vert,
     weights: m.weights ?? [],
     shape_keys: [],
     color_attributes: [],
@@ -83,14 +86,19 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     inGroup = (v) => ((w?.[v] ?? 0) > 0) !== inv;
   }
   const before = new Set(e.faces);
+  // weight limit: only weighted elements, their amount scaled by the weight
+  const vw = limit === 'WEIGHT' && m.bevel_weight_vert?.length === m.positions.length / 3 ? m.bevel_weight_vert : null;
   if (str(mod, 'affect', 'EDGES') === 'VERTICES') {
     const off = offsetType === 'PERCENT' ? (width / 100) * averageEdgeLength(m) : width;
-    return bevelMeshVertices(m, (v) => !inGroup || inGroup(v), off, segments, profile, Math.round(num(mod, 'material', -1)));
+    if (limit === 'WEIGHT' && !vw) return m;
+    return bevelMeshVertices(m, (v) => (!inGroup || inGroup(v)) && (limit !== 'WEIGHT' || (vw?.[v] ?? 0) > 0), off, segments, profile, Math.round(num(mod, 'material', -1)));
   } else {
     const ef = e.edgeFaces();
     const chosen: [number, number][] = [];
     for (const [a, b] of e.edges()) {
-      if (limit === 'ANGLE') {
+      if (limit === 'WEIGHT') {
+        if (!(e.edgeBevelWeight(a, b) > 0)) continue;
+      } else if (limit === 'ANGLE') {
         const fs = ef.get(edgeKey(a, b)) ?? [];
         if (fs.length !== 2) continue;
         const n0 = new Vector3(...(e.faceNormal(e.faces[fs[0][0]]) as [number, number, number])),
@@ -111,6 +119,7 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       markSeam: bool(mod, 'mark_seam'),
       markSharp: bool(mod, 'mark_sharp'),
       harden: bool(mod, 'harden_normals'),
+      edgeScale: limit === 'WEIGHT' ? (a, b) => e.edgeBevelWeight(a, b) : undefined,
     });
     if (!ok) return m;
   }
@@ -863,7 +872,7 @@ modifierFields.BEVEL = [
   ['affect', 'Affect', 'enum', [['EDGES', 'Edges']]],
   ['width', 'Amount', 'dist'],
   ['segments', 'Segments', 'int', { min: 1, max: 100 }],
-  ['limit_method', 'Limit Method', 'enum', [['NONE', 'None'], ['ANGLE', 'Angle']]],
+  ['limit_method', 'Limit Method', 'enum', [['NONE', 'None'], ['ANGLE', 'Angle'], ['WEIGHT', 'Weight'], ['VGROUP', 'Vertex Group']]],
   ['angle_limit', 'Angle', 'angle'],
   ['profile', 'Shape', 'factor'],
   ['harden_normals', 'Harden Normals', 'bool'],

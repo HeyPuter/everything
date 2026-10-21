@@ -464,7 +464,22 @@ function meshData(o: ObjectData, me: MeshData): Child {
       splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
       h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
     ], { closed: true }),
-    panel('me-geodata', 'Geometry Data', () => [h('div', { class: 'btn-row' }, opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data'))], { closed: true }),
+    panel(
+      'me-geodata',
+      'Geometry Data',
+      () => [
+        h(
+          'div',
+          { class: 'btn-row btn-stack' },
+          opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data', {}, { icon: 'x' }),
+          opButton('mesh.customdata_face_sets_clear', 'Clear Sculpt Face Sets', {}, { icon: 'x' }),
+          me.skin_vertices ? opButton('mesh.customdata_skin_clear', 'Clear Skin Data', {}, { icon: 'x' }) : opButton('mesh.customdata_skin_add', 'Add Skin Data', {}, { icon: 'add' }),
+          opButton('mesh.reorder_vertices_spatial', 'Reorder Mesh Spatially'),
+          me.custom_normals ? opButton('mesh.customdata_custom_splitnormals_clear', 'Clear Custom Split Normals Data', {}, { icon: 'x' }) : opButton('mesh.customdata_custom_splitnormals_add', 'Add Custom Split Normals Data', {}, { icon: 'add' }),
+        ),
+      ],
+      { closed: true },
+    ),
     panel('me-normals', 'Normals', () => [
       splitRow('Auto Smooth', checkbox('me-autosmooth', '', me.auto_smooth_angle !== undefined, (v) => ((me.auto_smooth_angle = v ? (30 * Math.PI) / 180 : undefined), changed('Auto Smooth')))),
       me.auto_smooth_angle !== undefined ? num(me as never, 'auto_smooth_angle' as never, 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,

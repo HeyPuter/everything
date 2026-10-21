@@ -203,6 +203,13 @@ registerOperators([
     exec: () => (duplicateElements(activeMetaball()!.mb) ? 'FINISHED' : 'CANCELLED'),
   },
   {
+    idname: 'mball.duplicate_metaelems',
+    label: 'Duplicate Metaball Elements',
+    description: 'Copy the selected metaball elements in place (the copies become the selection)',
+    poll: editPoll,
+    exec: () => (duplicateElements(activeMetaball()!.mb) ? (app.changed('doc', 'geometry'), 'FINISHED') : 'CANCELLED'),
+  },
+  {
     idname: 'mball.hide_metaelems',
     label: 'Hide Selected',
     description: 'Hide (un)selected metaball elements',

@@ -3,3 +3,4 @@ import './icons';
 import './interactiveadd';
 import './dropops';
 import './polybuild';
+import './meshdata';

@@ -90,7 +90,7 @@ export function extrudeMenu(): MenuItem[] {
 
 function vertexGroupMenu(): MenuItem[] {
   return [
-    { label: 'Assign to New Group', action: () => app.run('object.vertex_group_add') === 'FINISHED' && app.run('object.vertex_group_assign') },
+    { label: 'Assign to New Group', op: 'object.vertex_group_assign_new' },
     { separator: true },
     { label: 'Assign to Active Group', op: 'object.vertex_group_assign' },
     { label: 'Remove from Active Group', op: 'object.vertex_group_remove_from', shortcut: 'Ctrl Alt G' },
@@ -100,16 +100,38 @@ function vertexGroupMenu(): MenuItem[] {
   ];
 }
 
+function lockMenu(): MenuItem[] {
+  const l = (label: string, action: string, mask: string): MenuItem => ({ label, op: 'object.vertex_group_lock', props: { action, mask } });
+  return [
+    l('Lock All', 'LOCK', 'ALL'),
+    l('Lock Selected', 'LOCK', 'SELECTED'),
+    l('Lock Unselected', 'LOCK', 'UNSELECTED'),
+    l('Lock Only Selected', 'LOCK', 'INVERT_UNSELECTED'),
+    l('Lock Only Unselected', 'UNLOCK', 'INVERT_UNSELECTED'),
+    { separator: true },
+    l('Unlock All', 'UNLOCK', 'ALL'),
+    l('Unlock Selected', 'UNLOCK', 'SELECTED'),
+    l('Unlock Unselected', 'UNLOCK', 'UNSELECTED'),
+    { separator: true },
+    l('Invert Locks', 'INVERT', 'ALL'),
+  ];
+}
+
 function weightsMenu(): MenuItem[] {
   return [
     { label: 'Normalize All', op: 'object.vertex_group_normalize_all' },
     { label: 'Normalize', op: 'object.vertex_group_normalize' },
     { separator: true },
+    { label: 'Mirror', op: 'object.vertex_group_mirror' },
     { label: 'Invert', op: 'object.vertex_group_invert' },
     { label: 'Clean', op: 'object.vertex_group_clean' },
     { separator: true },
+    { label: 'Quantize', op: 'object.vertex_group_quantize' },
+    { label: 'Levels', op: 'object.vertex_group_levels' },
     { label: 'Smooth', op: 'object.vertex_group_smooth' },
     { label: 'Limit Total', op: 'object.vertex_group_limit_total' },
+    { separator: true },
+    { label: 'Locks', submenu: lockMenu },
   ];
 }
 
@@ -131,11 +153,15 @@ export function vertexMenu(): MenuItem[] {
     { label: 'Smooth Vertices', op: 'mesh.vertices_smooth' },
     { label: 'Smooth Laplacian', op: 'mesh.vertices_smooth_laplacian' },
     { separator: true },
+    { label: 'Vertex Crease', op: 'transform.vert_crease' },
+    { separator: true },
     { label: 'Blend from Shape', op: 'mesh.blend_from_shape' },
     { label: 'Propagate to Shapes', op: 'mesh.shape_propagate_to_all' },
     { separator: true },
     { label: 'Vertex Groups', submenu: vertexGroupMenu, shortcut: 'Ctrl G' },
     { label: 'Hooks', submenu: hooksMenu, shortcut: 'Ctrl H' },
+    { separator: true },
+    { label: 'Make Vertex Parent', op: 'object.vertex_parent_set', shortcut: 'Ctrl P' },
   ];
 }
 
@@ -157,6 +183,7 @@ export function edgeMenu(): MenuItem[] {
     { label: 'Offset Edge Slide', op: 'mesh.offset_edge_loops_slide', shortcut: 'Shift Ctrl R' },
     { label: 'Loop Cut and Slide', op: 'mesh.loopcut_slide', shortcut: 'Ctrl R' },
     { separator: true },
+    { label: 'Edge Bevel Weight', op: 'transform.edge_bevelweight' },
     { label: 'Edge Crease', op: 'transform.edge_crease', shortcut: 'Shift E' },
     { separator: true },
     { label: 'Mark Seam', op: 'mesh.mark_seam', props: { clear: false } },
@@ -166,6 +193,7 @@ export function edgeMenu(): MenuItem[] {
     { label: 'Clear Sharp', op: 'mesh.mark_sharp', props: { clear: true } },
     { separator: true },
     { label: 'Mark Sharp from Vertices', op: 'mesh.mark_sharp', props: { use_verts: true } },
+    { label: 'Clear Sharp from Vertices', op: 'mesh.mark_sharp', props: { use_verts: true, clear: true } },
     { label: 'Set Sharpness by Angle', op: 'mesh.set_sharpness_by_angle' },
     { separator: true },
     { label: 'Mark Freestyle Edge', op: 'mesh.mark_freestyle_edge', props: { clear: false } },

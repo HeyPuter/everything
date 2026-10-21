@@ -393,6 +393,12 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   if (seams) mesh.seams = Uint32Array.from(seams);
   if (sharp) mesh.sharp = Uint32Array.from(sharp);
   if (creases) mesh.creases = Float32Array.from(creases);
+  const bevelE = edgeToCorner(take(get('bevel_weight_edge', 'EDGE')), false);
+  if (bevelE) mesh.bevel_weight_edge = Float32Array.from(bevelE);
+  for (const key of ['bevel_weight_vert', 'crease_vert'] as const) {
+    const vals = take(get(key, 'POINT'));
+    if (vals && vals.length === totvert && Array.prototype.some.call(vals, (x: number) => x > 0)) mesh[key] = Float32Array.from(vals);
+  }
   const hideV = take(get('.hide_vert', 'POINT'));
   if (hideV && hideV.some((x) => x)) mesh.hide_vert = Uint8Array.from(hideV);
   const selV = take(get('.select_vert', 'POINT'));

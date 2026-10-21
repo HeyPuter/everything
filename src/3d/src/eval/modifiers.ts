@@ -36,8 +36,14 @@ export interface SubdivOptions {
   uvSmooth?: string;
 }
 
+/** Crease weight (0..1) → subdivision sharpness (levels that stay sharp; fractional parts blend). */
+export const creaseToSharpness = (c: number) => 10 * c * c;
+const sharpnessToCrease = (s: number) => Math.sqrt(Math.max(0, Math.min(10, s)) / 10);
+
 export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true, opts: SubdivOptions = {}): EvalMesh {
-  let mesh = m;
+  // creases travel through the levels as sharpness (each level uses up one unit)
+  const toSharp = (a: Float32Array | undefined) => (a ? Float32Array.from(a, creaseToSharpness) : undefined);
+  let mesh: EvalMesh = useCreases && !simple && levels > 0 ? { ...m, creases: toSharp(m.creases), crease_vert: toSharp(m.crease_vert) } : m;
   const boundary = opts.boundary ?? 'SMOOTH';
   const uvMode = !simple && opts.uvSmooth && opts.uvSmooth !== 'NONE' ? opts.uvSmooth : null;
   let uvMesh = uvMode && levels > 0 ? uvTopology(m) : null;
@@ -47,6 +53,10 @@ export function catmullClark(m: EvalMesh, levels: number, simple = false, useCre
     if (uvMesh) uvMesh = subdivideOnce(uvMesh, false, false, uvBoundary);
   }
   if (levels > 0 && !simple && opts.limit) mesh = { ...mesh, positions: limitPositions(mesh, boundary, useCreases) };
+  if (mesh !== m && useCreases && !simple && levels > 0) {
+    const back = (a: Float32Array | undefined) => (a && a.some((x) => x > 0) ? Float32Array.from(a, sharpnessToCrease) : undefined);
+    mesh = { ...mesh, creases: back(mesh.creases), crease_vert: back(mesh.crease_vert) };
+  }
   if (uvMesh) {
     const P = opts.limit ? limitPositions(uvMesh, uvBoundary, false) : uvMesh.positions;
     const uvs = new Float32Array(mesh.indices.length * 2);
@@ -163,6 +173,7 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
   if (useCreases && m.creases) for (let c = 0; c < m.indices.length; c++) crease[et.cornerEdge[c]] = Math.max(crease[et.cornerEdge[c]], m.creases[c]);
   const boundaryEdge = new Uint8Array(ne);
   for (let e = 0; e < ne; e++) if (et.faceOffsets[e + 1] - et.faceOffsets[e] !== 2) boundaryEdge[e] = 1;
+  const vsharp = useCreases && m.crease_vert && m.crease_vert.length === nv ? m.crease_vert : null;
   // edge points
   const ep = new Float64Array(ne * 3);
   for (let e = 0; e < ne; e++) {
@@ -234,6 +245,9 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       const w = Math.min(1, creaseSum[v] / ccount[v]);
       out = smooth.map((s, k) => s + (P[v * 3 + k] - s) * w);
     }
+    // vertex sharpness pulls the vertex towards its own position (a corner)
+    const vs = vsharp ? vsharp[v] : 0;
+    if (vs > 0) out = out.map((s, k) => s + (P[v * 3 + k] - s) * Math.min(1, vs));
     for (let k = 0; k < 3; k++) vp[v * 3 + k] = out[k];
   }
   // emit vertices: original, edge, face
@@ -300,7 +314,14 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       b.addFace([m.indices[c], ebase + eNext, fbase + f, ebase + ePrev], uv, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, { seams: seam, sharp, creases, colors });
     }
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  if (vsharp && vsharp.some((x) => x > 1)) {
+    // original vertices keep what is left of their sharpness; new vertices are smooth
+    const cv = new Float32Array(out.positions.length / 3);
+    for (let v = 0; v < nv; v++) cv[v] = Math.max(0, vsharp[v] - 1);
+    out.crease_vert = cv;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

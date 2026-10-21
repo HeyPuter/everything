@@ -67,7 +67,7 @@ export function modifiersSignature(mods: ModifierBase[]): string {
 }
 
 export function meshSignature(me: MeshData) {
-  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
+  return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.bevel_weight_edge)}:${aid(me.bevel_weight_vert)}:${aid(me.crease_vert)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
     .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}:${aid(me.skin_vertices)}`;
 }
@@ -121,6 +121,9 @@ export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
     seams: me.seams,
     sharp: me.sharp,
     creases: me.creases,
+    bevel_weight_edge: me.bevel_weight_edge?.length === me.indices.length ? me.bevel_weight_edge : undefined,
+    bevel_weight_vert: me.bevel_weight_vert?.length === me.positions.length / 3 ? me.bevel_weight_vert : undefined,
+    crease_vert: me.crease_vert?.length === me.positions.length / 3 ? me.crease_vert : undefined,
     custom_normals: me.custom_normals && me.custom_normals.length === me.indices.length * 3 ? me.custom_normals : undefined,
     quad_flip: me.quad_flip && me.quad_flip.length === me.offsets.length - 1 ? me.quad_flip : undefined,
     face_strength: me.face_strength && me.face_strength.length === me.offsets.length - 1 ? me.face_strength : undefined,

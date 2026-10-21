@@ -924,7 +924,7 @@ export class MeshStruct extends IDStruct {
     me.weights = me.vertex_groups.map(() => new Float32Array(vs.length));
     me.shape_keys = [];
     me.color_attributes = [];
-    for (const k of ['custom_normals', 'quad_flip', 'face_strength', 'hide_poly', 'sculpt_face_set', 'sculpt_mask', 'loose_edges', 'uv_select', 'uv_pin', 'uv_hide'] as const) delete (me as unknown as Raw)[k];
+    for (const k of ['custom_normals', 'quad_flip', 'face_strength', 'hide_poly', 'sculpt_face_set', 'sculpt_mask', 'loose_edges', 'uv_select', 'uv_pin', 'uv_hide', 'bevel_weight_edge', 'bevel_weight_vert', 'crease_vert', 'skin_vertices'] as const) delete (me as unknown as Raw)[k];
     // edges that no face uses are kept as loose edges
     const faceEdge = new Set<string>();
     for (const f of polys) for (let k = 0; k < f.verts.length; k++) {

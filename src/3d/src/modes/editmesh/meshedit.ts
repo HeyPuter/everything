@@ -7,6 +7,9 @@ import { buildMesh, polyNormal } from '../../mesh/mesh';
 import { exclusionsOf, setExclusions } from './selset';
 import type { Vec3 } from '../../data/types';
 
+/** Per-vertex float layers of MeshData that Edit Mode carries through topology changes. */
+export const VERT_FLOAT_LAYERS = ['crease_vert', 'bevel_weight_vert'] as const;
+
 export interface EFace {
   verts: number[];
   uvs: number[]; // 2 per corner
@@ -51,6 +54,12 @@ export class MeshEdit {
   fsEdges = new Set<string>();
   /** vertices added on marked edges (the edge's ends), so the split parts stay marked */
   fsMid = new Map<number, [number, number]>();
+  /** per-vertex float layers (VERT_FLOAT_LAYERS: vertex crease, vertex bevel weight) */
+  vfloat: Record<string, number[]> = {};
+  /** edge bevel weights by vertex pair key */
+  ebw = new Map<string, number>();
+  /** vertices added on weighted edges (the edge's ends), so the split parts keep the weight */
+  ebwMid = new Map<number, [number, number]>();
 
   get vcount() {
     return this.pos.length / 3;
@@ -89,6 +98,18 @@ export class MeshEdit {
     }
     const loose = me.loose_edges;
     if (loose) for (let i = 0; i < loose.length; i += 2) m.looseEdges.push([loose[i], loose[i + 1]]);
+    const rec = me as unknown as Record<string, Float32Array | undefined>;
+    for (const key of VERT_FLOAT_LAYERS) {
+      const a = rec[key];
+      if (a && a.length === nv) m.vfloat[key] = Array.from(a);
+    }
+    const bw = me.bevel_weight_edge;
+    if (bw && bw.length === me.indices.length)
+      for (let f = 0; f < me.offsets.length - 1; f++) {
+        const a = me.offsets[f],
+          b = me.offsets[f + 1];
+        for (let c = a; c < b; c++) if (bw[c] > 0) m.ebw.set(edgeKey(me.indices[c], me.indices[c + 1 < b ? c + 1 : a]), Math.max(bw[c], m.ebw.get(edgeKey(me.indices[c], me.indices[c + 1 < b ? c + 1 : a])) ?? 0));
+      }
     const ex = exclusionsOf(me);
     if (ex) {
       for (const f of ex.faces) if (m.faces[f]) m.faces[f].selX = true;
@@ -132,6 +153,14 @@ export class MeshEdit {
       return { ...c, data };
     });
     me.loose_edges = this.looseEdges.length ? Uint32Array.from(this.looseEdges.flat()) : undefined;
+    const rec = me as unknown as Record<string, Float32Array | undefined>;
+    const nv = this.vcount;
+    for (const key of VERT_FLOAT_LAYERS) {
+      const l = this.vfloat[key];
+      rec[key] = l && l.some((x) => x) ? Float32Array.from({ length: nv }, (_, i) => l[i] ?? 0) : undefined;
+    }
+    me.bevel_weight_edge = this.ebw.size ? Float32Array.from(this.faces.flatMap((f) => f.verts.map((v, i) => this.edgeBevelWeight(v, f.verts[(i + 1) % f.verts.length])))) : undefined;
+    if (me.bevel_weight_edge && !me.bevel_weight_edge.some(Boolean)) me.bevel_weight_edge = undefined;
     me.custom_normals = this.customNormals();
     me.face_strength = this.faces.some((f) => f.strength !== undefined && f.strength !== 1) ? Uint8Array.from(this.faces, (f) => f.strength ?? 1) : undefined;
     me.quad_flip = this.faces.some((f) => f.flip && f.verts.length === 4) ? Uint8Array.from(this.faces, (f) => (f.flip && f.verts.length === 4 ? 1 : 0)) : undefined;
@@ -207,6 +236,9 @@ export class MeshEdit {
     c.edgeExcl = new Set(this.edgeExcl);
     c.fsEdges = new Set(this.fsEdges);
     c.fsMid = new Map(this.fsMid);
+    c.vfloat = Object.fromEntries(Object.entries(this.vfloat).map(([k, v]) => [k, v.slice()]));
+    c.ebw = new Map(this.ebw);
+    c.ebwMid = new Map(this.ebwMid);
     c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: f.cnormals ? [...f.cnormals] : undefined }));
     return c;
   }
@@ -230,6 +262,16 @@ export class MeshEdit {
         b = ends(from[1][0]);
       const pair = [...new Set([...a, ...b])];
       if (pair.length === 2 && this.fsEdges.has(edgeKey(pair[0], pair[1]))) this.fsMid.set(i, [pair[0], pair[1]]);
+    }
+    if (this.ebw.size && from.length === 2) {
+      const ends = (v: number) => this.ebwMid.get(v) ?? [v, v];
+      const pair = [...new Set([...ends(from[0][0]), ...ends(from[1][0])])];
+      if (pair.length === 2 && this.ebw.has(edgeKey(pair[0], pair[1]))) this.ebwMid.set(i, [pair[0], pair[1]]);
+    }
+    for (const l of Object.values(this.vfloat)) {
+      let v = 0;
+      for (const [s, t] of from) v += (l[s] ?? 0) * t;
+      l.push(v);
     }
     this.pos.push(p[0], p[1], p[2]);
     this.sel.push(select);
@@ -315,6 +357,7 @@ export class MeshEdit {
     this.keys = this.keys.map((k) => pick(k, 3));
     this.pcolors = this.pcolors.map((c) => pick(c, 4));
     if (this.skin) this.skin = pick(this.skin, 4);
+    for (const k in this.vfloat) this.vfloat[k] = pick(this.vfloat[k], 1);
     for (const f of this.faces) f.verts = f.verts.map((v) => map[v]);
     this.faces = this.faces.filter((f) => f.verts.every((v) => v >= 0));
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a >= 0 && b >= 0);
@@ -362,6 +405,24 @@ export class MeshEdit {
     this.compact();
   }
 
+  /** Bevel weight of the edge u–v (directly, or inherited from the weighted edge it was split from). */
+  edgeBevelWeight(u: number, v: number): number {
+    const w = this.ebw.get(edgeKey(u, v));
+    if (w !== undefined) return w;
+    if (!this.ebwMid.size || !(this.ebwMid.has(u) || this.ebwMid.has(v))) return 0;
+    const a = this.ebwMid.get(u) ?? [u, u],
+      b = this.ebwMid.get(v) ?? [v, v];
+    const ends = [...new Set([...a, ...b])];
+    return ends.length === 2 ? (this.ebw.get(edgeKey(ends[0], ends[1])) ?? 0) : 0;
+  }
+
+  /** Per-vertex float layer (created on demand, zero-filled). */
+  vertLayer(key: (typeof VERT_FLOAT_LAYERS)[number]): number[] {
+    const l = (this.vfloat[key] ??= []);
+    while (l.length < this.vcount) l.push(0);
+    return l;
+  }
+
   /** Is the edge u–v marked for line rendering (directly, or as part of a split marked edge)? */
   fsMarked(u: number, v: number): boolean {
     if (this.fsEdges.has(edgeKey(u, v))) return true;
@@ -387,6 +448,20 @@ export class MeshEdit {
       const mid = new Map<number, [number, number]>();
       for (const [k, [a, b]] of this.fsMid) if (map[k] >= 0 && map[a] >= 0 && map[b] >= 0) mid.set(map[k], [map[a], map[b]]);
       this.fsMid = mid;
+    }
+    if (this.ebw.size) {
+      // resolve inherited weights before the indices change
+      const out = new Map<string, number>();
+      for (const [k, w] of this.ebw) {
+        const [a, b] = k.split(':').map(Number);
+        const x = map[a],
+          y = map[b];
+        if (x >= 0 && y >= 0 && x !== y && x !== undefined && y !== undefined) out.set(edgeKey(x, y), Math.max(w, out.get(edgeKey(x, y)) ?? 0));
+      }
+      const mid = new Map<number, [number, number]>();
+      for (const [k, [a, b]] of this.ebwMid) if (map[k] >= 0 && map[a] >= 0 && map[b] >= 0) mid.set(map[k], [map[a], map[b]]);
+      this.ebw = out;
+      this.ebwMid = mid;
     }
     if (!this.edgeExcl.size) return;
     this.edgeExcl = remapSet(this.edgeExcl);

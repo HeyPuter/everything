@@ -101,6 +101,12 @@ export interface MeshData {
   sharp?: Uint32Array;
   /** per-corner edge crease weight (0..1) for subdivision */
   creases?: Float32Array;
+  /** per-corner edge bevel weight (0..1), the edge starting at this corner (Bevel modifier "Weight" limit) */
+  bevel_weight_edge?: Float32Array;
+  /** per-vertex bevel weight (0..1) for vertex bevels limited by weight */
+  bevel_weight_vert?: Float32Array;
+  /** per-vertex subdivision crease (0..1): sharpens the subdivided surface at the vertex */
+  crease_vert?: Float32Array;
   /** custom split normals, xyz per face corner (overrides the computed shading normals) */
   custom_normals?: Float32Array;
   /** per face: split this quad along the other diagonal than the automatic choice */

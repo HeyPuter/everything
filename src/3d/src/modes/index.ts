@@ -19,6 +19,7 @@ import './editmesh/tools';
 import './editmesh/normals';
 import './editmesh/slide';
 import './editmesh/itempanel';
+import './editmesh/edgedata';
 import './armature/armature';
 import './armature/boneprops';
 import './armature/tools';

@@ -169,6 +169,14 @@ export function permuteVerts(m: MeshEdit, order: number[]) {
   m.weights = m.weights.map((w) => pick(w, 1));
   m.keys = m.keys.map((k) => pick(k, 3));
   m.pcolors = m.pcolors.map((c) => pick(c, 4));
+  if (m.skin) m.skin = pick(m.skin, 4);
+  for (const k in m.vfloat) m.vfloat[k] = pick(m.vfloat[k], 1);
+  const rekey = (k: string) => k.split(':').map((x) => map[+x]).sort((a, b) => a - b).join(':');
+  m.ebw = new Map([...m.ebw].map(([k, w]) => [rekey(k), w]));
+  m.ebwMid = new Map([...m.ebwMid].map(([v, [a, b]]) => [map[v], [map[a], map[b]]]));
+  m.fsEdges = new Set([...m.fsEdges].map(rekey));
+  m.fsMid = new Map([...m.fsMid].map(([v, [a, b]]) => [map[v], [map[a], map[b]]]));
+  m.edgeExcl = new Set([...m.edgeExcl].map(rekey));
   for (const f of m.faces) f.verts = f.verts.map((v) => map[v]);
   m.looseEdges = m.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]);
 }

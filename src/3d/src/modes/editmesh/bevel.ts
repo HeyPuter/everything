@@ -124,6 +124,8 @@ export interface BevelOptions {
   offsetType?: 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
   /** keep the faces next to the bevel flat-shaded with custom normals and shade the bevel smoothly */
   harden?: boolean;
+  /** per-edge scale of the offset (e.g. bevel weights); default 1 */
+  edgeScale?: (a: number, b: number) => number;
 }
 
 /** Convert a width / depth / percentage amount to the offset along the faces (averaged over the selection). */
@@ -233,20 +235,29 @@ export function bevelEdges(m: MeshEdit, offset: number, segments: number, profil
       const dPrev = V(m.p(prev)).sub(p),
         dNext = V(m.p(next)).sub(p);
       let target: Vector3;
+      const sPrev = opts.edgeScale ? opts.edgeScale(prev, v) : 1,
+        sNext = opts.edgeScale ? opts.edgeScale(v, next) : 1;
       if (bPrev && bNext) {
         const a = dPrev.clone().normalize(),
           b = dNext.clone().normalize();
-        const bis = a.clone().add(b);
-        if (bis.lengthSq() < 1e-12) bis.copy(V(m.faceNormal(m.faces[fi])).cross(a));
-        bis.normalize();
-        const sinHalf = Math.max(0.05, Math.sin(a.angleTo(b) / 2));
-        target = p.clone().addScaledVector(bis, offset / sinHalf);
+        const sinFull = Math.sin(a.angleTo(b));
+        if (sPrev !== sNext && sinFull > 0.05) {
+          // unequal offsets: the point at distance offset·sPrev from the previous edge and offset·sNext from the next
+          target = p.clone().addScaledVector(a, (offset * sNext) / sinFull).addScaledVector(b, (offset * sPrev) / sinFull);
+        } else {
+          const bis = a.clone().add(b);
+          if (bis.lengthSq() < 1e-12) bis.copy(V(m.faceNormal(m.faces[fi])).cross(a));
+          bis.normalize();
+          const sinHalf = Math.max(0.05, Math.sin(a.angleTo(b) / 2));
+          target = p.clone().addScaledVector(bis, (offset * (sPrev + sNext)) / 2 / sinHalf);
+        }
       } else {
         const dir = bPrev ? dNext : dPrev;
         const other = bPrev ? dPrev : dNext;
         const sinA = Math.max(0.05, Math.abs(Math.sin(dir.angleTo(other))));
         // absolute: the amount is measured along the adjacent edge itself
-        target = p.clone().addScaledVector(dir.clone().normalize(), Math.min(dir.length() * 0.95, opts.offsetType === 'ABSOLUTE' ? offset : offset / sinA));
+        const o = offset * (bPrev ? sPrev : sNext);
+        target = p.clone().addScaledVector(dir.clone().normalize(), Math.min(dir.length() * 0.95, opts.offsetType === 'ABSOLUTE' ? o : o / sinA));
         const key = `${v}>${bPrev ? next : prev}`;
         const shared = along.get(key);
         if (shared !== undefined) {
