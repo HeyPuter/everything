@@ -716,6 +716,15 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null,
       meta.sheets[sheet.name].groups = sheet.groups;
       any = true;
     }
+    // An Advanced Filter run in place, for Data ▸ Clear and Reapply once the file is opened again (a file keeps
+    // only the rows it hid). Criteria on another sheet name it, as the ids of a book are its own.
+    if (sheet.advancedFilter) {
+      const { criteria } = sheet.advancedFilter;
+      const other = criteria?.sheetId ? wb.sheet(criteria.sheetId)?.name : null;
+      meta.sheets[sheet.name].advancedFilter = { ...sheet.advancedFilter,
+        criteria: !criteria ? criteria : criteria.sheetId && !other ? false : { sheetId: other, range: criteria.range } };
+      any = true;
+    }
     if (sheet.zeros === false) {
       meta.sheets[sheet.name].zeros = false;
       any = true;
@@ -2072,6 +2081,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
+    advancedFilter: own?.advancedFilter,
     outlineSettings: readXlsxOutlineSettings(partXml),
     gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
@@ -2808,6 +2818,13 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
     wb.renameSheet(sheet.id, fixed);
   }
   if (renamed.size) wb.clearHistory();
+  // An Advanced Filter's criteria on another sheet came by that sheet's name (see collectMeta): it now takes its id.
+  for (const sheet of wb.sheets) {
+    const criteria = sheet.advancedFilter?.criteria;
+    if (!criteria?.sheetId) continue;
+    const id = wb.sheetByName(renamed.get(criteria.sheetId) || criteria.sheetId)?.id;
+    sheet.advancedFilter = { ...sheet.advancedFilter, criteria: id ? { ...criteria, sheetId: id } : false };
+  }
   // SheetJS CE does not carry the workbook's active tab through a write, so
   // the sidecar remembers which sheet was open. Treat this optional hint as
   // a name only; coercing malformed objects can abort an otherwise valid import.
