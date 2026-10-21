@@ -17,6 +17,7 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { gpTS, gpBrush, gpOf, DRAW_PRESETS, slotStyle } from './data';
 import { drawMenu, sculptMenu } from './menus';
 import { guideButton } from './guides';
+import { gpColorPanel } from './colorpanel';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
 
@@ -796,6 +797,7 @@ export function gpToolPanels(): Child {
           )
         : null,
     ]),
+    tool === 'builtin.brush.Draw' || tool === 'builtin.brush.Tint' ? gpColorPanel(b, refresh, tool === 'builtin.brush.Draw') : null,
     mode === 'PAINT_GREASE_PENCIL'
       ? panel('gp-sb-place', 'Stroke Placement', () => [
           row(

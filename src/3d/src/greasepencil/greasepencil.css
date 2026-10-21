@@ -138,3 +138,105 @@
   white-space: nowrap;
   padding: 0 4px;
 }
+
+/* Tool settings ▸ Color: wheel, value bar, swatches and palette */
+.gp-seg-row {
+  display: flex;
+  margin: 2px 0 6px;
+}
+.gp-seg {
+  flex: 1;
+  border: 1px solid var(--w-outline, #3d3d3d);
+  background: var(--w-regular, #545454);
+  color: var(--c-text, #dedfe1);
+  font: inherit;
+  padding: 3px 4px;
+  cursor: pointer;
+}
+.gp-seg:first-child {
+  border-radius: var(--radius, 4px) 0 0 var(--radius, 4px);
+}
+.gp-seg:last-child {
+  border-radius: 0 var(--radius, 4px) var(--radius, 4px) 0;
+}
+.gp-seg.on {
+  background: var(--accent, #4772b3);
+}
+.gp-wheel-row {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 4px 0;
+}
+.gp-wheel {
+  position: relative;
+  cursor: crosshair;
+}
+.gp-wheel canvas {
+  display: block;
+}
+.gp-wheel-cursor {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 1.5px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
+}
+.gp-wheel-value {
+  position: relative;
+  width: 14px;
+  border-radius: 3px;
+  cursor: ns-resize;
+}
+.gp-wheel-vcursor {
+  position: absolute;
+  left: -2px;
+  right: -2px;
+  height: 3px;
+  margin-top: -1.5px;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #000000;
+  pointer-events: none;
+}
+.gp-color-pair {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.gp-color-pair > :not(.btn) {
+  flex: 1;
+}
+.gp-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+.gp-pal-swatch {
+  width: 20px;
+  height: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+.gp-pal-swatch.on {
+  outline: 2px solid #ffffff;
+  outline-offset: -1px;
+}
+.gp-pal-add {
+  width: 20px;
+  height: 20px;
+  border: 1px dashed var(--c-text-dim, #aaabad);
+  border-radius: 3px;
+  background: none;
+  color: var(--c-text, #dedfe1);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
