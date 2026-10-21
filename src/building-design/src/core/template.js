@@ -64,7 +64,9 @@ export function upgradeDoc(doc) {
   for (const t of defaultTypes(system)) if (!doc.count(t.kind)) missingKinds.add(t.kind);
   const used = new Set();
   for (const t of defaultTypes(system)) {
-    if (!missingKinds.has(t.kind) || doc.has(t.id)) continue;
+    // Kinds the project has none of, and component categories added since it was saved.
+    const newCategory = t.kind === 'componentType' && !doc.find((x) => x.kind === 'componentType' && x.category === t.category);
+    if ((!missingKinds.has(t.kind) && !newCategory) || doc.has(t.id)) continue;
     doc._put(t.id, Object.freeze(t));
     if (t.materialId) used.add(t.materialId);
   }

@@ -87,6 +87,7 @@ export function snapFeatures(scene, el) {
     case 'insulation':
     case 'brace':
     case 'truss':
+    case 'wire':
     case 'duct':
     case 'pipe':
     case 'cableTray':

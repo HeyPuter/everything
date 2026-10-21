@@ -315,6 +315,7 @@ const INSTANCE = {
     ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
   ],
   zone: [P('name', 'Name', 'Identity Data', 'text')],
+  wire: [P('circuit', 'Circuit', 'Identity Data', 'text'), P('ticks', 'Conductor Ticks', 'Graphics', 'select', { get: (el) => +el.ticks || 0, options: () => [0, 2, 3, 4].map((v) => ({ value: v, label: String(v) })) }), comments],
   truss: [
     P('levelId', 'Reference Level', 'Constraints', 'level'),
     len('offset', 'Bottom Chord Height', 'Constraints'),

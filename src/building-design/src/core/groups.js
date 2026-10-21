@@ -126,6 +126,52 @@ export function createGroup(doc, ids, { name, levelId }) {
   return doc.get(group.id);
 }
 
+/**
+ * A group type from another project's first level (inside a transaction on
+ * `doc`): its model elements centred on the origin, plus the types and
+ * materials they use that `doc` does not have. Returns the type, or null.
+ */
+export function groupFromProject(src, doc, name) {
+  const levels = src.levels();
+  const base = levels[0];
+  if (!base) return null;
+  const above = levels[1]?.id;
+  const own = src.filter((el) => groupable(el) && !el.groupId && !el.hostId && el.levelId === base.id);
+  const ids = new Set(own.map((e) => e.id));
+  const members = [...own, ...src.filter((el) => el.hostId && ids.has(el.hostId) && groupable(el))];
+  if (!members.length) return null;
+  const pts = [];
+  for (const el of own) for (const f of ['a', 'b', 'at']) if (Array.isArray(el[f])) pts.push(el[f]);
+  for (const el of own) for (const p of el.boundary || el.path || []) pts.push(p);
+  const bb = pts.length ? bbox(pts) : { x0: 0, y0: 0, x1: 0, y1: 0 };
+  const xf = translation([-Math.round((bb.x0 + bb.x1) / 2), -Math.round((bb.y0 + bb.y1) / 2)]);
+  const def = members.map((el) => {
+    const { id, groupId: _g, ...rest } = el;
+    void _g;
+    const out = { ...rest, ...(el.hostId ? {} : transformPatch(el, xf)), localId: id };
+    if (out.levelId === base.id) out.levelId = BASE;
+    if (out.topLevelId) out.topLevelId = out.topLevelId === above ? ABOVE : null;
+    if (out.hostId) out.hostId = `@${out.hostId}`;
+    return out;
+  });
+  // Types and their materials that this project does not have yet.
+  const bring = (id) => {
+    const it = src.get(id);
+    if (!it || doc.has(id)) return;
+    doc.add({ ...it });
+    for (const l of it.layers || []) bring(l.materialId);
+    for (const k of ['materialId', 'panelMaterialId', 'frameMaterialId']) if (it[k]) bring(it[k]);
+  };
+  for (const m of members) {
+    if (m.typeId) bring(m.typeId);
+    if (m.materialId) bring(m.materialId);
+  }
+  const names = doc.all('groupType').map((t) => t.name);
+  let n = name || 'Loaded Group';
+  for (let i = 2; names.includes(n); i++) n = `${name} ${i}`;
+  return doc.add({ kind: 'groupType', name: n, familyName: 'Model Group', members: def });
+}
+
 /** Place a new instance of a group type. */
 export function placeGroup(doc, type, at, rotationDeg, levelId, viewId = null) {
   const group = doc.add({ kind: 'group', typeId: type.id, levelId, at, rotation: rotationDeg || 0, ...(type.detail && viewId ? { viewId } : {}) });

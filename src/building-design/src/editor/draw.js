@@ -611,7 +611,7 @@ export class LineTool extends Tool {
   }
 
   get title() {
-    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', truss: 'Place Truss', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
+    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', truss: 'Place Truss', wire: 'Wire', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
   }
 
   get prompt() {
@@ -625,7 +625,7 @@ export class LineTool extends Tool {
   }
 
   get chain() {
-    return ['detailLine', 'roomSeparator', 'beam', 'modelLine', 'areaBoundary', ...MEP_KINDS].includes(this.kind);
+    return ['detailLine', 'roomSeparator', 'beam', 'modelLine', 'areaBoundary', 'wire', ...MEP_KINDS].includes(this.kind);
   }
 
   /** Line kinds that can be drawn by picking existing lines. */
@@ -731,6 +731,8 @@ export class LineTool extends Tool {
         for (const k of ['width', 'height', 'diameter']) if (o[k] > 0) el[k] = o[k];
         return el;
       }
+      case 'wire':
+        return { kind: 'wire', levelId: this.app.activeLevelId(), a, b, ticks: this.app.toolOptions('wire', { ticks: 2 }).ticks, circuit: '' };
       case 'truss': {
         const o = this.app.toolOptions('truss', { offset: 2800 });
         return { kind: 'truss', typeId: this.app.currentType('truss')?.id, levelId: this.app.activeLevelId(), a, b, offset: o.offset };

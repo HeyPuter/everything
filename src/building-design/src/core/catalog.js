@@ -69,6 +69,8 @@ export const CATEGORIES = [
   { id: 'conduits', label: 'Conduits', model: true },
   { id: 'mechanical', label: 'Mechanical Equipment', model: true },
   { id: 'airTerminals', label: 'Air Terminals', model: true },
+  { id: 'sprinklers', label: 'Sprinklers', model: true },
+  { id: 'wires', label: 'Wires', model: false },
   { id: 'electricalEquipment', label: 'Electrical Equipment', model: true },
   { id: 'electricalFixtures', label: 'Electrical Fixtures', model: true },
   { id: 'topography', label: 'Topography', model: true },
@@ -155,6 +157,7 @@ const KIND_CATEGORY = {
   basePoint: 'siteCoordinates',
   scopeBox: 'scopeBoxes',
   truss: 'trusses',
+  wire: 'wires',
   wallSweep: 'wallSweeps',
 };
 
@@ -220,6 +223,7 @@ export const KIND_LABEL = {
   basePoint: 'Base Point',
   scopeBox: 'Scope Box',
   truss: 'Truss',
+  wire: 'Wire',
   wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',
@@ -566,6 +570,7 @@ function componentTypes(imp) {
     c('cpt-pendant', 'pendant', 'lighting', 'Pendant Light', imp ? '16"' : '400 mm', t(400, 16), t(400, 16), t(300, 12), { elevation: t(2100, 84) }),
     c('cpt-floor-lamp', 'floorLamp', 'lighting', 'Floor Lamp', imp ? '18"' : '450 mm', t(450, 18), t(450, 18), t(1600, 64)),
     c('cpt-downlight', 'downlight', 'lighting', 'Recessed Downlight', imp ? '6"' : '150 mm', t(150, 6), t(150, 6), t(120, 5), { elevation: t(2700, 108) }),
+    c('cpt-sprinkler', 'sprinkler', 'sprinklers', 'Pendant Sprinkler', imp ? 'K5.6 - 1/2 in' : 'K80 - 15 mm', t(70, 2.75), t(70, 2.75), t(60, 2.5), { elevation: t(2640, 104) }),
     c('cpt-diffuser', 'diffuser', 'airTerminals', 'Supply Diffuser', imp ? '24" x 24"' : '600 x 600 mm', t(600, 24), t(600, 24), t(60, 2.5), { elevation: t(2700, 108) }),
     c('cpt-grille', 'grille', 'airTerminals', 'Return Grille', imp ? '24" x 12"' : '600 x 300 mm', t(600, 24), t(300, 12), t(60, 2.5), { elevation: t(2700, 108) }),
     c('cpt-ahu', 'mechUnit', 'mechanical', 'Air Handling Unit', imp ? '72" x 36"' : '1800 x 900 mm', t(1800, 72), t(900, 36), t(1500, 60)),

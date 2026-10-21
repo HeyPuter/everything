@@ -319,6 +319,16 @@ const F = {
     plan.loops.push({ pts: [[-w * 0.35, -w * 0.35], [w * 0.35, w * 0.35]] }, { pts: [[-w * 0.35, w * 0.35], [w * 0.35, -w * 0.35]] });
     plan.noFill = true;
   },
+  sprinkler(t, x, plan) {
+    // Pendant head: a deflector disc under a short body, hanging below the ceiling.
+    const { width: w, height: h } = t;
+    x.cyl(0, 0, w / 2, 0, 6, 'mat-steel', { segments: 16 });
+    x.cyl(0, 0, w * 0.18, 6, h, 'mat-steel', { segments: 10 });
+    x.cyl(0, 0, w * 0.3, h - 12, h, 'mat-paint-white', { segments: 14 });
+    plan.loops.push({ pts: ellipse(0, 0, w / 2, w / 2, 16), closed: true });
+    plan.loops.push({ pts: [[-w * 0.5, 0], [w * 0.5, 0]] }, { pts: [[0, -w * 0.5], [0, w * 0.5]] });
+    plan.noFill = true;
+  },
   diffuser(t, x, plan) {
     const { width: w, depth: d, height: h } = t;
     x.box(-w / 2, -d / 2, h - 20, w / 2, d / 2, h, 'mat-paint-white');
@@ -407,6 +417,6 @@ export function buildFamily(type, frame, builder, materialOf) {
   const t = { width: +type?.width || 600, depth: +type?.depth || 600, height: +type?.height || 900 };
   fn(t, new FamilyContext(builder, frame, materialOf), plan);
   plan.outline = rect(-t.width / 2, -t.depth / 2, t.width / 2, t.depth / 2);
-  if (['roundTable', 'tree', 'shrub', 'pendant', 'floorLamp', 'downlight', 'waterHeater', 'bollard'].includes(type?.family)) plan.outline = ellipse(0, 0, t.width / 2, t.depth / 2, 24);
+  if (['roundTable', 'tree', 'shrub', 'pendant', 'floorLamp', 'downlight', 'waterHeater', 'bollard', 'sprinkler'].includes(type?.family)) plan.outline = ellipse(0, 0, t.width / 2, t.depth / 2, 24);
   return plan;
 }

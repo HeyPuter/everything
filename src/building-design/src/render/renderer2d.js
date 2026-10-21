@@ -22,6 +22,7 @@ export const KIND_Z = {
   space: 0,
   wallSweep: 7,
   truss: 5,
+  wire: 10,
   scopeBox: 9,
   floor: 0,
   ceiling: 0,

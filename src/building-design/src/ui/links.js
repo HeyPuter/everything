@@ -11,6 +11,7 @@ import { isSignedIn, puterAvailable } from '../platform.js';
 import { linkData } from '../core/links.js';
 import { upgradeDoc } from '../core/template.js';
 import { MODEL_KINDS } from '../core/scene.js';
+import { groupFromProject } from '../core/groups.js';
 
 function modelCount(doc) {
   let n = 0;
@@ -19,7 +20,7 @@ function modelCount(doc) {
 }
 
 /** Ask where the project to link is: resolves to { name, path?, buffer } or null. */
-async function chooseProject(app) {
+export async function chooseProject(app) {
   if (usePuterPickers()) {
     try {
       return await puterOpenPicker();
@@ -100,6 +101,31 @@ export async function reloadLink(app, id, pick = false) {
   } catch (err) {
     toast(err.message || 'That file could not be read.', { kind: 'error' });
   }
+}
+
+/**
+ * Load another project's ground floor as a model group type (with any of
+ * its types and materials this project lacks), then place it.
+ */
+export async function loadAsGroup(app) {
+  const src = await chooseProject(app);
+  if (!src) return;
+  let other;
+  try {
+    other = await readLinked(src);
+  } catch (err) {
+    return toast(err.message || 'That file could not be read.', { kind: 'error' });
+  }
+  const doc = app.doc;
+  let type;
+  try {
+    app.commit('Load as group', () => (type = groupFromProject(other, doc, baseName(src.name))));
+  } catch (err) {
+    return toast(err.message, { kind: 'error' });
+  }
+  if (!type) return toast('That project has no model elements on its first level.', { kind: 'error' });
+  app.placeType(type, 'group');
+  toast(`Loaded ${type.name} as a group (${type.members.length} elements). Click to place it.`, { kind: 'success' });
 }
 
 export function manageLinksDialog(app) {

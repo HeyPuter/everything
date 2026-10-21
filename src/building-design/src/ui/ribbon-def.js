@@ -115,10 +115,10 @@ export const RIBBON = [
     label: 'Systems',
     panels: [
       { title: 'HVAC', items: [{ cmd: 'duct', size: 'lg' }, { cmd: 'airTerminal', size: 'lg' }, { cmd: 'mechEquipment', size: 'lg' }] },
-      { title: 'Plumbing & Piping', items: [{ cmd: 'pipe', size: 'lg' }, { cmd: 'plumbingFixture', size: 'lg' }] },
+      { title: 'Plumbing & Piping', items: [{ cmd: 'pipe', size: 'lg' }, { cmd: 'plumbingFixture', size: 'lg' }, { cmd: 'sprinkler', size: 'lg' }] },
       {
         title: 'Electrical',
-        items: [{ cmd: 'cableTray', size: 'lg' }, { cmd: 'conduit', size: 'lg' }, { cmd: 'electricalEquipment', size: 'lg' }, { cmd: 'electricalFixture', size: 'lg' }, { cmd: 'lightingFixture', size: 'lg' }],
+        items: [{ cmd: 'cableTray', size: 'lg' }, { cmd: 'conduit', size: 'lg' }, { cmd: 'wire', size: 'lg' }, { cmd: 'electricalEquipment', size: 'lg' }, { cmd: 'electricalFixture', size: 'lg' }, { cmd: 'lightingFixture', size: 'lg' }],
       },
       { title: 'Work Plane', items: [{ cmd: 'refPlane', size: 'lg' }, { cmd: 'workPlaneGrid', size: 'lg' }] },
     ],
@@ -129,7 +129,7 @@ export const RIBBON = [
     panels: [
       { title: 'Link', items: [{ cmd: 'linkProject', size: 'lg' }, { cmd: 'manageLinks', size: 'lg' }] },
       { title: 'Import', items: [{ cmd: 'importDxf', size: 'lg' }, { cmd: 'importImage', size: 'lg' }] },
-      { title: 'Load from Library', items: [{ cmd: 'transferStandards', size: 'lg', label: 'Load from Project' }, { cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
+      { title: 'Load from Library', items: [{ cmd: 'transferStandards', size: 'lg', label: 'Load from Project' }, { cmd: 'loadAsGroup', size: 'lg' }, { cmd: 'component', size: 'lg' }, { cmd: 'types', size: 'lg' }] },
       { title: 'Project', items: [{ cmd: 'open', size: 'lg' }, { cmd: 'sample', size: 'lg' }] },
     ],
   },

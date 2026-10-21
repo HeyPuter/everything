@@ -196,6 +196,9 @@ export function planGraphics(pc, el) {
     case 'truss':
       planTruss(pc, el, b);
       break;
+    case 'wire':
+      planWire(pc, el, b);
+      break;
     case 'roomSeparator':
       if (el.levelId === pc.view.levelId) b.line(el.a, el.b, W.thin, 0, null);
       break;
@@ -836,6 +839,36 @@ function drawTreadNumbers(pc, el, b) {
       b.pick([add(p, [-sz, -sz]), add(p, [sz, -sz]), add(p, [sz, sz]), add(p, [-sz, sz])]);
     }
     n++;
+  }
+}
+
+/** Wiring: an arc between the two ends, with tick marks for the conductors and the circuit name. */
+function planWire(pc, el, b) {
+  if (el.levelId !== pc.view.levelId || !el.a || !el.b) return;
+  const L = dist(el.a, el.b);
+  if (L < 10) return;
+  const d = norm(sub(el.b, el.a));
+  const n = perp(d);
+  const sag = L * 0.18;
+  const pts = [];
+  for (let i = 0; i <= 24; i++) {
+    const t = i / 24;
+    pts.push(add(add(el.a, scale(d, L * t)), scale(n, sag * 4 * t * (1 - t))));
+  }
+  b.poly(pts, false, W.thin, 0, [40, 90, 200, 255]);
+  const m = add(mid(el.a, el.b), scale(n, sag));
+  const ticks = Math.max(0, Math.min(6, +el.ticks || 0));
+  const tl = P(pc, 1.2);
+  for (let i = 0; i < ticks; i++) {
+    const c = add(m, scale(d, (i - (ticks - 1) / 2) * P(pc, 0.8)));
+    b.line(add(c, scale(n, -tl)), add(c, scale(n, tl)), W.thin, 0, [40, 90, 200, 255]);
+  }
+  if (el.circuit) b.text(add(m, scale(n, P(pc, 2.6))), String(el.circuit), { size: P(pc, 2), rot: readableAngle(angleOf(d)), color: [40, 90, 200, 255] });
+  for (let i = 0; i + 1 < pts.length; i += 4) {
+    const p = pts[i];
+    const q = pts[Math.min(pts.length - 1, i + 4)];
+    const pn = scale(perp(norm(sub(q, p))), P(pc, 1));
+    b.pick([sub(p, pn), sub(q, pn), add(q, pn), add(p, pn)]);
   }
 }
 
