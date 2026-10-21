@@ -24,8 +24,10 @@ import { evaluatedDrawing, evaluatedControlIndex, strokeCurveType, withDerived, 
 import type { GPDrawing } from './types';
 
 registerIcons({
-  gp_pen: '<path class="s" d="M2 14c1.5-4 4.5-6.5 9-7.5" fill="none" stroke-width="1.2" stroke-linecap="round" opacity=".6"/><path class="f" d="M9.2 3.4 12.6 6.8 10.4 9 7 5.6z"/><path class="f" d="M12 2.2 13.8 4 13 4.8 11.2 3z"/><circle class="s" cx="5.2" cy="10.8" r="1.4" fill="none" stroke-width="1.1"/>',
-  gp_texture_gradient: '<path class="f" d="M2.5 2.5h11v11h-11z" opacity=".2"/><path class="f" d="M2.5 2.5h5.5v11H2.5z" opacity=".45"/><path class="s" d="M2.5 2.5h11v11h-11z" fill="none" stroke-width="1.1"/><path class="s" d="M4 12 12 4" stroke-width="1.3" stroke-linecap="round"/><circle class="f" cx="4" cy="12" r="1.4"/><circle class="f" cx="12" cy="4" r="1.4"/>',
+  gp_pen:
+    '<path class="s" d="M2 14c1.5-4 4.5-6.5 9-7.5" fill="none" stroke-width="1.2" stroke-linecap="round" opacity=".6"/><path class="f" d="M9.2 3.4 12.6 6.8 10.4 9 7 5.6z"/><path class="f" d="M12 2.2 13.8 4 13 4.8 11.2 3z"/><circle class="s" cx="5.2" cy="10.8" r="1.4" fill="none" stroke-width="1.1"/>',
+  gp_texture_gradient:
+    '<path class="f" d="M2.5 2.5h11v11h-11z" opacity=".2"/><path class="f" d="M2.5 2.5h5.5v11H2.5z" opacity=".45"/><path class="s" d="M2.5 2.5h11v11h-11z" fill="none" stroke-width="1.1"/><path class="s" d="M4 12 12 4" stroke-width="1.3" stroke-linecap="round"/><circle class="f" cx="4" cy="12" r="1.4"/><circle class="f" cx="12" cy="4" r="1.4"/>',
 });
 
 type V3 = [number, number, number];
@@ -178,7 +180,20 @@ export function cycleHandleType(p: GPPoint): GPPoint {
 // ---------------------------------------------------------------------------
 // operator
 
-const PEN_PROPS = ['extend', 'deselect', 'toggle', 'deselect_all', 'select_passthrough', 'extrude_point', 'delete_point', 'insert_point', 'move_segment', 'select_point', 'move_point', 'cycle_handle_type'];
+const PEN_PROPS = [
+  'extend',
+  'deselect',
+  'toggle',
+  'deselect_all',
+  'select_passthrough',
+  'extrude_point',
+  'delete_point',
+  'insert_point',
+  'move_segment',
+  'select_point',
+  'move_point',
+  'cycle_handle_type',
+];
 
 function locate(t: EditTarget, i: number): { strokes: GPStroke[]; s: number; k: number } {
   const d = drawing(t);
@@ -197,7 +212,17 @@ function deselectAll() {
 }
 
 /** Drag `fn(deltaLocal)` for a target until release; Esc / right click restores. */
-function dragModal(v: View3D, t: EditTarget, anchorWorld: Vector3, label: string, start: { x: number; y: number }, base: GPDrawing, fn: (delta: V3, world: Vector3) => GPDrawing, onCancel: () => void, clickOnly?: () => void) {
+function dragModal(
+  v: View3D,
+  t: EditTarget,
+  anchorWorld: Vector3,
+  label: string,
+  start: { x: number; y: number },
+  base: GPDrawing,
+  fn: (delta: V3, world: Vector3) => GPDrawing,
+  onCancel: () => void,
+  clickOnly?: () => void,
+) {
   const r = v.el.getBoundingClientRect();
   const inv = t.world.clone().invert();
   const a = anchorWorld.clone().applyMatrix4(inv);
@@ -307,18 +332,27 @@ function penInvoke(ctx: OpContext, p: Record<string, unknown>) {
     const base = drawing(hit.t);
     const anchor = new Vector3(base.position[hit.i * 3], base.position[hit.i * 3 + 1], base.position[hit.i * 3 + 2]).applyMatrix4(hit.t.world);
     const i = hit.i;
-    dragModal(v, hit.t, anchor, 'Pen', start, base, (dl) => {
-      const pos = base.position.slice();
-      add3(base.position, i, dl, pos);
-      const out: GPDrawing = { ...base, position: pos };
-      if (base.handle_left) {
-        out.handle_left = base.handle_left.slice();
-        out.handle_right = base.handle_right!.slice();
-        add3(base.handle_left, i, dl, out.handle_left);
-        add3(base.handle_right!, i, dl, out.handle_right);
-      }
-      return withDerived(out);
-    }, () => {});
+    dragModal(
+      v,
+      hit.t,
+      anchor,
+      'Pen',
+      start,
+      base,
+      (dl) => {
+        const pos = base.position.slice();
+        add3(base.position, i, dl, pos);
+        const out: GPDrawing = { ...base, position: pos };
+        if (base.handle_left) {
+          out.handle_left = base.handle_left.slice();
+          out.handle_right = base.handle_right!.slice();
+          add3(base.handle_left, i, dl, out.handle_left);
+          add3(base.handle_right!, i, dl, out.handle_right);
+        }
+        return withDerived(out);
+      },
+      () => {},
+    );
     return 'RUNNING_MODAL' as const;
   }
 
@@ -336,7 +370,16 @@ function penInvoke(ctx: OpContext, p: Record<string, unknown>) {
       side = hit.side;
     const own = side === 'L' ? based.handle_left! : based.handle_right!;
     const anchor = new Vector3(own[i * 3], own[i * 3 + 1], own[i * 3 + 2]).applyMatrix4(hit.t.world);
-    dragModal(v, hit.t, anchor, 'Pen', start, base0, (dl) => moveHandle(based, i, side, dl), () => {});
+    dragModal(
+      v,
+      hit.t,
+      anchor,
+      'Pen',
+      start,
+      base0,
+      (dl) => moveHandle(based, i, side, dl),
+      () => {},
+    );
     return 'RUNNING_MODAL' as const;
   }
 
@@ -352,12 +395,21 @@ function penInvoke(ctx: OpContext, p: Record<string, unknown>) {
     // the curve point at u moves by 3u(1-u)·Δ when both inner handles move by Δ
     const gain = 1 / Math.max(0.2, 3 * u * (1 - u));
     const anchor = v.unproject(x, y, new Vector3(base.position[a * 3], base.position[a * 3 + 1], base.position[a * 3 + 2]).applyMatrix4(hit.t.world));
-    dragModal(v, hit.t, anchor, 'Pen', start, base, (dl) => {
-      const D: V3 = [dl[0] * gain, dl[1] * gain, dl[2] * gain];
-      let out = moveHandle(base, a, 'R', D, true);
-      out = moveHandle(out, b, 'L', D, true);
-      return out;
-    }, () => {});
+    dragModal(
+      v,
+      hit.t,
+      anchor,
+      'Pen',
+      start,
+      base,
+      (dl) => {
+        const D: V3 = [dl[0] * gain, dl[1] * gain, dl[2] * gain];
+        let out = moveHandle(base, a, 'R', D, true);
+        out = moveHandle(out, b, 'L', D, true);
+        return out;
+      },
+      () => {},
+    );
     return 'RUNNING_MODAL' as const;
   }
 
@@ -374,7 +426,13 @@ function penInvoke(ctx: OpContext, p: Record<string, unknown>) {
 
 /** Move one handle by a local delta: derived types become editable, an aligned partner turns along. */
 function moveHandle(base: GPDrawing, i: number, side: 'L' | 'R', dl: V3, keepAlignTypes = false): GPDrawing {
-  const out: GPDrawing = { ...base, handle_left: base.handle_left!.slice(), handle_right: base.handle_right!.slice(), handle_type_left: base.handle_type_left!.slice(), handle_type_right: base.handle_type_right!.slice() };
+  const out: GPDrawing = {
+    ...base,
+    handle_left: base.handle_left!.slice(),
+    handle_right: base.handle_right!.slice(),
+    handle_type_left: base.handle_type_left!.slice(),
+    handle_type_right: base.handle_type_right!.slice(),
+  };
   const own = side === 'L' ? out.handle_left! : out.handle_right!,
     other = side === 'L' ? out.handle_right! : out.handle_left!;
   const tOwn = side === 'L' ? out.handle_type_left! : out.handle_type_right!,
@@ -432,7 +490,17 @@ function extrude(v: View3D, ob: NonNullable<typeof app.activeObject>, gp: NonNul
   let si = target,
     pi: number;
   const src = target >= 0 ? strokes[target].points[atStart ? 0 : strokes[target].points.length - 1] : null;
-  const np: GPPoint = { co, radius: src?.radius ?? set.radius / pl.scale(), opacity: src?.opacity ?? 1, vertex_color: src ? [...src.vertex_color] : [0, 0, 0, 0], select: true, handle_left: [...co], handle_right: [...co], handle_type_left: endType, handle_type_right: endType };
+  const np: GPPoint = {
+    co,
+    radius: src?.radius ?? set.radius / pl.scale(),
+    opacity: src?.opacity ?? 1,
+    vertex_color: src ? [...src.vertex_color] : [0, 0, 0, 0],
+    select: true,
+    handle_left: [...co],
+    handle_right: [...co],
+    handle_type_left: endType,
+    handle_type_right: endType,
+  };
   if (target >= 0) {
     const s = deselected[target];
     s.points = atStart ? [np, ...s.points] : [...s.points, np];
@@ -459,7 +527,13 @@ function extrude(v: View3D, ob: NonNullable<typeof app.activeObject>, gp: NonNul
     d1,
     (dl) => {
       // symmetric aligned handles: the outgoing one follows the pointer
-      const out: GPDrawing = { ...d1, handle_left: d1.handle_left!.slice(), handle_right: d1.handle_right!.slice(), handle_type_left: d1.handle_type_left!.slice(), handle_type_right: d1.handle_type_right!.slice() };
+      const out: GPDrawing = {
+        ...d1,
+        handle_left: d1.handle_left!.slice(),
+        handle_right: d1.handle_right!.slice(),
+        handle_type_left: d1.handle_type_left!.slice(),
+        handle_type_right: d1.handle_type_right!.slice(),
+      };
       const fwd = atStart ? out.handle_left! : out.handle_right!,
         back = atStart ? out.handle_right! : out.handle_left!;
       for (let c = 0; c < 3; c++) {
@@ -484,7 +558,17 @@ registerOperators([
     description: 'Build Bézier strokes: click to add points, drag to shape them; Ctrl click inserts or deletes points',
     props: [
       ...PEN_PROPS.map((id) => ({ id, label: id.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()), type: 'bool' as const, default: false, hidden: true })),
-      { id: 'extrude_handle', label: 'Extrude Handle Type', type: 'enum', default: 'VECTOR', items: [['AUTO', 'Auto'], ['VECTOR', 'Vector']], hidden: true },
+      {
+        id: 'extrude_handle',
+        label: 'Extrude Handle Type',
+        type: 'enum',
+        default: 'VECTOR',
+        items: [
+          ['AUTO', 'Auto'],
+          ['VECTOR', 'Vector'],
+        ],
+        hidden: true,
+      },
       { id: 'size', label: 'Size', type: 'float', default: 0.01, min: 0, hidden: true },
     ],
     poll: () => inGPEdit(),
@@ -496,7 +580,12 @@ registerOperators([
 // ---------------------------------------------------------------------------
 // tool
 
-const PEN_TOOL: ToolDef = { id: 'builtin.pen', label: 'Pen', icon: 'gp_pen', description: 'Draw Bézier strokes point by point: click to add, drag to pull handles, Ctrl click to insert or delete points' };
+const PEN_TOOL: ToolDef = {
+  id: 'builtin.pen',
+  label: 'Pen',
+  icon: 'gp_pen',
+  description: 'Draw Bézier strokes point by point: click to add, drag to pull handles, Ctrl click to insert or delete points',
+};
 {
   // after the transform tools, before Radius / Bend
   const list = toolsByMode.EDIT_GREASEPENCIL;
@@ -512,7 +601,11 @@ editModeHooks.pointer.unshift((_v, e) => {
   const dbl = now - lastClick.time < 350 && Math.hypot(e.clientX - lastClick.x, e.clientY - lastClick.y) < 6;
   lastClick = { time: dbl ? 0 : now, x: e.clientX, y: e.clientY };
   const ctrl = e.ctrlKey || e.metaKey;
-  const props = dbl ? { cycle_handle_type: true } : ctrl ? { insert_point: true, delete_point: true } : { extrude_point: true, move_segment: true, select_point: true, move_point: true, extend: e.shiftKey, toggle: false, extrude_handle: penSettings().extrude_handle, size: penSettings().radius };
+  const props = dbl
+    ? { cycle_handle_type: true }
+    : ctrl
+      ? { insert_point: true, delete_point: true }
+      : { extrude_point: true, move_segment: true, select_point: true, move_point: true, extend: e.shiftKey, toggle: false, extrude_handle: penSettings().extrude_handle, size: penSettings().radius };
   app.run('grease_pencil.pen', props, { event: { x: e.clientX, y: e.clientY, shift: e.shiftKey, ctrl, alt: e.altKey } });
   return true;
 });
@@ -520,7 +613,11 @@ editModeHooks.pointer.unshift((_v, e) => {
 toolSettingsRenderers['builtin.pen'] = () => {
   const s = penSettings();
   return [
-    h('div', { style: { width: '130px', flex: 'none' } }, numberField({ id: 'gp-pen-r', label: 'Radius', value: s.radius, min: 0.0001, max: 10, step: 0.001, precision: 3, set: (x) => ((s.radius = x), app.changed('ui')) })),
+    h(
+      'div',
+      { style: { width: '130px', flex: 'none' } },
+      numberField({ id: 'gp-pen-r', label: 'Radius', value: s.radius, min: 0.0001, max: 10, step: 0.001, precision: 3, set: (x) => ((s.radius = x), app.changed('ui')) }),
+    ),
     h(
       'div',
       { style: { width: '110px', flex: 'none' } },

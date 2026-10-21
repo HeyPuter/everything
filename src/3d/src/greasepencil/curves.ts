@@ -97,7 +97,13 @@ export function drawingComponent(d: GPDrawing): CurvesComponent {
   const np = d.position.length / 3,
     nc = d.offsets.length - 1;
   if (d.curve_type?.length === nc) setCurveAttr(attrs, 'curve_type', 'INT8', Int32Array.from(d.curve_type));
-  if (d.resolution?.length === nc) setCurveAttr(attrs, 'resolution', 'INT', Int32Array.from(d.resolution, (r) => Math.max(1, r)));
+  if (d.resolution?.length === nc)
+    setCurveAttr(
+      attrs,
+      'resolution',
+      'INT',
+      Int32Array.from(d.resolution, (r) => Math.max(1, r)),
+    );
   if (d.nurbs_order?.length === nc) setCurveAttr(attrs, 'nurbs_order', 'INT8', Int32Array.from(d.nurbs_order));
   if (d.knots_mode?.length === nc) setCurveAttr(attrs, 'knots_mode', 'INT8', Int32Array.from(d.knots_mode));
   if (hasBezier(d)) {
@@ -117,10 +123,40 @@ export function drawingComponent(d: GPDrawing): CurvesComponent {
 
 const evalCache = new WeakMap<GPDrawing, { keys: unknown[]; out: GPDrawing; controlIndex: Int32Array }>();
 
-const evalKeys = (d: GPDrawing) => [d.position, d.offsets, d.radius, d.opacity, d.vertex_color, d.curve_type, d.resolution, d.nurbs_order, d.knots_mode, d.handle_left, d.handle_right, d.handle_type_left, d.handle_type_right, d.cyclic, d.miter_angle, d.weights];
+const evalKeys = (d: GPDrawing) => [
+  d.position,
+  d.offsets,
+  d.radius,
+  d.opacity,
+  d.vertex_color,
+  d.curve_type,
+  d.resolution,
+  d.nurbs_order,
+  d.knots_mode,
+  d.handle_left,
+  d.handle_right,
+  d.handle_type_left,
+  d.handle_type_right,
+  d.cyclic,
+  d.miter_angle,
+  d.weights,
+];
 
 /** Per stroke arrays copied unchanged to the evaluated drawing. */
-const CURVE_DOMAIN: (keyof GPDrawing)[] = ['cyclic', 'material_index', 'start_cap', 'end_cap', 'fill_color', 'fill_opacity', 'fill_id', 'stroke_type', 'uv_translation', 'uv_rotation', 'uv_scale', 'is_fill_guide'];
+const CURVE_DOMAIN: (keyof GPDrawing)[] = [
+  'cyclic',
+  'material_index',
+  'start_cap',
+  'end_cap',
+  'fill_color',
+  'fill_opacity',
+  'fill_id',
+  'stroke_type',
+  'uv_translation',
+  'uv_rotation',
+  'uv_scale',
+  'is_fill_guide',
+];
 
 function evaluate(d: GPDrawing): { out: GPDrawing; controlIndex: Int32Array } {
   const ev = evaluateCurves(drawingComponent(d));

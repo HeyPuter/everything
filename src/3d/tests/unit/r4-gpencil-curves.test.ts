@@ -8,7 +8,9 @@ const wave = (n = 120, cyclic = false): GPStroke => {
   const pts: GPPoint[] = [];
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1);
-    const p = cyclic ? newPoint([Math.cos(t * Math.PI * 2 * (1 - 1 / n)), 0, Math.sin(t * Math.PI * 2 * (1 - 1 / n))], 0.01 + t * 0.02) : newPoint([t * 4 - 2, 0, Math.sin(t * Math.PI * 2) * 0.6], 0.01 + t * 0.02);
+    const p = cyclic
+      ? newPoint([Math.cos(t * Math.PI * 2 * (1 - 1 / n)), 0, Math.sin(t * Math.PI * 2 * (1 - 1 / n))], 0.01 + t * 0.02)
+      : newPoint([t * 4 - 2, 0, Math.sin(t * Math.PI * 2) * 0.6], 0.01 + t * 0.02);
     p.select = true;
     pts.push(p);
   }

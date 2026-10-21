@@ -35,6 +35,7 @@ import './sculptui';
 import './overlays';
 import './segmentops';
 import './annotations';
+import './annotate';
 import './curveedit';
 import './pen';
 import './texgrad';

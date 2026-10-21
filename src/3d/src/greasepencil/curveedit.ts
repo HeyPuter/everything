@@ -389,4 +389,3 @@ export function selectByStrokeTypeMenu(): MenuItem[] {
 }
 
 addKeys('Grease Pencil', [{ key: 'V', menu: handleTypeMenu, menuTitle: 'Set Handle Type', when: poll }]);
-
