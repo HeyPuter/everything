@@ -276,7 +276,17 @@ const INSTANCE = {
   areaBoundary: [ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
   angularDim: [ro('angle', 'Angle', 'Dimensions', (el) => `${Math.round(((((el.a1 - el.a0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)) * (18000 / Math.PI)) / 100}°`, 'text'), len('r', 'Arc Radius', 'Graphics')],
   radialDim: [P('diameter', 'Show Diameter', 'Graphics', 'bool'), ro('value', 'Value', 'Dimensions', (el, c) => radialTarget(c.doc, el).r * (el.diameter ? 2 : 1))],
-  spot: [ro('mode', 'Type', 'Identity Data', (el) => ({ elevation: 'Spot Elevation', coordinate: 'Spot Coordinate', slope: 'Spot Slope' })[el.mode] || '', 'text')],
+  spot: [
+    ro('mode', 'Type', 'Identity Data', (el) => ({ elevation: 'Spot Elevation', coordinate: 'Spot Coordinate', slope: 'Spot Slope' })[el.mode] || '', 'text'),
+    P('origin', 'Relative To', 'Constraints', 'select', {
+      get: (el) => el.origin || (el.mode === 'coordinate' ? 'survey' : 'project'),
+      options: () => [
+        { value: 'project', label: 'Project base point' },
+        { value: 'survey', label: 'Survey point' },
+      ],
+      ro: (el) => el.mode === 'slope',
+    }),
+  ],
   revisionCloud: [
     P('revisionId', 'Revision', 'Identity Data', 'select', { options: (c) => c.doc.all('revision').sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0)).map((r) => ({ value: r.id, label: `${r.number ?? r.seq}: ${r.description || ''}` })) }),
     P('showTag', 'Show Revision Tag', 'Graphics', 'bool', { get: (el) => el.showTag !== false }),
@@ -303,6 +313,12 @@ const INSTANCE = {
     ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
   ],
   zone: [P('name', 'Name', 'Identity Data', 'text')],
+  basePoint: [
+    ro('role', 'Point', 'Identity Data', (el) => (el.role === 'survey' ? 'Survey Point' : 'Project Base Point'), 'text'),
+    len('n', 'N/S (northing here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
+    len('e', 'E/W (easting here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
+    len('elevation', 'Elevation', 'Constraints'),
+  ],
   link: [
     P('name', 'Name', 'Identity Data', 'text'),
     len('z', 'Elevation Offset', 'Constraints'),

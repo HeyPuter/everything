@@ -23,6 +23,7 @@ import { roofGeometry } from './build3d.js';
 import { roofHeightAt } from './roof.js';
 import { levelElevation } from './model.js';
 import { systemOf } from './mep.js';
+import { coordinatesAt, elevationFrom } from './coords.js';
 
 const P = (pc, mm) => mm * pc.scale;
 
@@ -300,16 +301,19 @@ export function spotSlopeAt(doc, p) {
 function spotLabel(pc, el) {
   const doc = pc.doc;
   const units = pc.units;
-  const base = doc.project.basePoint || [0, 0];
-  const zBase = +doc.project.baseElevation || 0;
-  if (el.mode === 'coordinate') return `N ${formatLength(el.at[1] - base[1], units)}\nE ${formatLength(el.at[0] - base[0], units)}`;
+  if (el.mode === 'coordinate') {
+    // Elevations and sections have no plan position to report.
+    if (pc.elevationView) return '';
+    const c = coordinatesAt(doc, el.at, el.origin || 'survey');
+    return `N ${formatLength(c.n, units)}\nE ${formatLength(c.e, units)}`;
+  }
   if (el.mode === 'slope') {
     const s = pc.elevationView ? null : spotSlopeAt(doc, el.at);
     if (!s) return '';
     return s.deg ? `${Math.round(s.deg * 10) / 10}°` : 'Flat';
   }
   const z = pc.elevationView ? el.at[1] : spotElevationAt(doc, pc.view, el.at);
-  const v = z - zBase;
+  const v = elevationFrom(doc, z, el.origin || 'project');
   if (Math.abs(v) < 0.5) return `±${formatLength(0, units)}`;
   return `${v > 0 ? '+' : ''}${formatLength(v, units)}`;
 }

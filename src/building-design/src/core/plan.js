@@ -21,6 +21,7 @@ import { categoryOf } from './catalog.js';
 import { formatDimension, formatArea } from './units.js';
 import { annotationGraphics, arrowHead, leaderStart } from './annotate.js';
 import { planSpace } from './spaces.js';
+import { planBasePoint } from './coords.js';
 
 export const INK = (a = 255) => [-1, -1, -1, a];
 export const BG = [-2, -2, -2, 255];
@@ -179,6 +180,9 @@ export function planGraphics(pc, el) {
       break;
     case 'space':
       planSpace(pc, el, b);
+      break;
+    case 'basePoint':
+      planBasePoint(pc, el, b);
       break;
     case 'roomSeparator':
       if (el.levelId === pc.view.levelId) b.line(el.a, el.b, W.thin, 0, null);

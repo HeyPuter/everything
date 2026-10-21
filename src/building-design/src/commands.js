@@ -380,6 +380,18 @@ export const COMMANDS = {
   addToOption: { label: 'Add to Option', icon: 'designOptions', enabled: hasSel, run: (app) => dopts.addToOption(app), desc: 'Move the selected elements into the design option being edited' },
   viewOptions: { label: 'View Design Options', icon: 'designOptions', run: (app) => dopts.viewOptionsDialog(app), desc: 'Which option of each set the active view shows' },
   finishOption: { label: 'Finish Editing Option', icon: 'check', enabled: () => !!editingOption(), run: (app) => app.editOption(null), desc: 'Go back to editing the main model' },
+  showBasePoints: {
+    label: 'Show Base Points',
+    icon: 'basePoints',
+    toggle: (app) => !!app.activeView?.showBasePoints,
+    enabled: (app) => ['plan', 'ceilingPlan', 'areaPlan'].includes(app.activeView?.kind),
+    run: (app) => {
+      const v = app.activeView;
+      app.commit('Base points', () => app.doc.update(v.id, { showBasePoints: !v.showBasePoints }));
+      if (!v.showBasePoints) app.setPrompt('Drag the survey point to a known site point and set its northing, easting and elevation in Properties.');
+    },
+    desc: 'Show the project base point and the survey point in this plan, to move them or set site coordinates',
+  },
   globalParams: { label: 'Global Parameters', icon: 'globalParams', run: (app) => globalsui.globalParamsDialog(app), desc: 'Named project values that element parameters can follow, with formulas' },
   transferStandards: { label: 'Transfer Project Standards', icon: 'transfer', run: (app) => manage.transferStandardsDialog(app), desc: 'Copy types, materials, view templates, filters and more from another project file' },
   startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },

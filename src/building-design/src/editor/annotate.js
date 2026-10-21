@@ -291,7 +291,8 @@ export class SpotTool extends AnnotationTool {
       this.app.setPrompt(this.prompt);
       return;
     }
-    this.place(this.title, { kind: 'spot', mode: this.opts.mode, at: this.at, leader: p });
+    const origin = this.app.toolOptions(`spot-${this.opts.mode}`, { origin: this.opts.mode === 'coordinate' ? 'survey' : 'project' }).origin;
+    this.place(this.title, { kind: 'spot', mode: this.opts.mode, at: this.at, leader: p, origin });
     this.at = null;
     this.app.setPrompt(this.prompt);
   }

@@ -6,6 +6,7 @@ import { Doc, newId } from './doc.js';
 import { defaultMaterials, defaultTypes } from './catalog.js';
 import { MM_PER_FOOT } from './units.js';
 import { defaultPhases } from './phases.js';
+import { defaultBasePoints } from './coords.js';
 
 export const VIEW_DEFAULTS = {
   plan: { detail: 'medium', cutHeight: 1200, hiddenCats: [], hiddenIds: [] },
@@ -69,6 +70,7 @@ export function upgradeDoc(doc) {
   }
   for (const m of defaultMaterials()) if (used.has(m.id) && !doc.has(m.id)) doc._put(m.id, Object.freeze(m));
   if (!doc.count('phase')) for (const p of defaultPhases()) doc._put(p.id, Object.freeze(p));
+  if (!doc.count('basePoint')) for (const p of defaultBasePoints(doc)) doc._put(p.id, Object.freeze(p));
   return doc;
 }
 

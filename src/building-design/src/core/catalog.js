@@ -77,6 +77,7 @@ export const CATEGORIES = [
   { id: 'masses', label: 'Mass', model: true },
   { id: 'links', label: 'Linked Projects', model: true },
   { id: 'spaces', label: 'Spaces', model: false },
+  { id: 'siteCoordinates', label: 'Project Base Point and Survey Point', model: false },
   { id: 'propertyLines', label: 'Property Lines', model: false },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
@@ -148,6 +149,7 @@ const KIND_CATEGORY = {
   link: 'links',
   space: 'spaces',
   treadNumbers: 'tags',
+  basePoint: 'siteCoordinates',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -209,6 +211,7 @@ export const KIND_LABEL = {
   mass: 'Mass',
   link: 'Linked Project',
   treadNumbers: 'Tread Numbers',
+  basePoint: 'Base Point',
   space: 'Space',
   zone: 'Zone',
 };
