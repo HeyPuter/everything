@@ -76,3 +76,22 @@ describe('generated image patterns', () => {
     expect(hsvToRgb(0.25, 1, 1)).toEqual([128, 255, 0]);
   });
 });
+
+describe('UV packing groups', () => {
+  it('merges islands whose bounds overlap', async () => {
+    const { mergeOverlapping } = await import('../../src/editors/uv/uvalgo');
+    const arr = buildMesh(
+      [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 3, 0, 0, 4, 0, 0, 4, 1, 0, 3, 1, 0, 6, 0, 0, 7, 0, 0, 7, 1, 0, 6, 1, 0],
+      [
+        { verts: [0, 1, 2, 3], uvs: [0.1, 0.1, 0.3, 0.1, 0.3, 0.3, 0.1, 0.3] },
+        { verts: [4, 5, 6, 7], uvs: [0.2, 0.2, 0.4, 0.2, 0.4, 0.4, 0.2, 0.4] },
+        { verts: [8, 9, 10, 11], uvs: [0.6, 0.6, 0.9, 0.6, 0.9, 0.9, 0.6, 0.9] },
+      ],
+    );
+    const me = newMeshData('Q3', arr);
+    me.select_vert = new Uint8Array(12).fill(1);
+    const t = new UVTopo(layer(me));
+    const groups = mergeOverlapping(t, new Float32Array(me.uvs), t.islandFaces());
+    expect(groups.map((g) => g.length).sort()).toEqual([1, 2]);
+  });
+});

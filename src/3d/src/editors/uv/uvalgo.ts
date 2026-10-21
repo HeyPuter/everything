@@ -608,6 +608,26 @@ export interface PackOptions {
   region?: [number, number, number, number];
 }
 
+/** Merge islands whose UV bounds overlap into one group each (packed as a unit). */
+export function mergeOverlapping(t: UVTopo, uvs: Float32Array, islands: number[][]): number[][] {
+  const bb = islands.map((faces) => cornersBounds(uvs, islandCorners(t, faces)));
+  const parent = islands.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < islands.length; i++)
+    for (let j = i + 1; j < islands.length; j++) {
+      const a = bb[i],
+        b = bb[j];
+      // strictly overlapping areas (touching edges do not merge)
+      if (a[0] < b[2] - 1e-9 && b[0] < a[2] - 1e-9 && a[1] < b[3] - 1e-9 && b[1] < a[3] - 1e-9) parent[find(i)] = find(j);
+    }
+  const groups = new Map<number, number[]>();
+  islands.forEach((faces, i) => {
+    const r = find(i);
+    groups.set(r, [...(groups.get(r) ?? []), ...faces]);
+  });
+  return [...groups.values()];
+}
+
 /** Pack islands into the 0–1 UV square keeping their relative sizes. */
 export function packIslandsUV(t: UVTopo, uvs: Float32Array, islands: number[][], o: PackOptions): boolean {
   if (!islands.length) return false;

@@ -266,3 +266,26 @@ test('UV editor: Stitch previews the result, toggles options with keys and confi
   expect(await page.evaluate(() => (window as any).app.hoverArea.editor.stitchPreview)).toBe(null);
   await expectNoErrors(errors);
 });
+
+test('UV editor: Pack Islands can leave pinned islands where they are', async ({ page }) => {
+  const { errors } = await uvWorkspace(page);
+  const r = await page.evaluate(() => {
+    const app = (window as any).app;
+    const me = app.doc.meshes[app.activeObject.data];
+    // split face 0 off as its own island and pin it
+    const uvs = new Float32Array(me.uvs);
+    for (let c = me.offsets[0]; c < me.offsets[1]; c++) uvs[c * 2] += 0.7;
+    me.uvs = uvs;
+    const pin = new Uint8Array(me.indices.length);
+    for (let c = me.offsets[0]; c < me.offsets[1]; c++) pin[c] = 1;
+    me.uv_pin = pin;
+    app.changed('doc');
+    app.run('uv.select_all', { action: 'SELECT' });
+    const before = Array.from(app.doc.meshes[app.activeObject.data].uvs as Float32Array).slice(me.offsets[0] * 2, me.offsets[1] * 2);
+    app.run('uv.pack_islands', { pin: true }, { invoke: false });
+    const after = Array.from(app.doc.meshes[app.activeObject.data].uvs as Float32Array);
+    return { same: before.every((x, i) => Math.abs(x - after[me.offsets[0] * 2 + i]) < 1e-6), others: after.slice(me.offsets[1] * 2, me.offsets[1] * 2 + 2) };
+  });
+  expect(r.same).toBe(true);
+  await expectNoErrors(errors);
+});

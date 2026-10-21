@@ -13,6 +13,8 @@ import {
   selectedIslands,
   averageIslandsScale,
   packIslandsUV,
+  mergeOverlapping,
+  islandCorners,
   arrangeIslands,
   randomizeIslands,
   minimizeStretch,
@@ -351,6 +353,8 @@ registerOperators([
       { id: 'rotate_method', label: 'Rotation Method', type: 'enum', default: 'ANY', items: [['ANY', 'Any'], ['CARDINAL', 'Cardinal'], ['AXIS_ALIGNED', 'Axis-aligned'], ['AXIS_ALIGNED_X', 'Axis-aligned (Horizontal)'], ['AXIS_ALIGNED_Y', 'Axis-aligned (Vertical)']], showIf: (p) => !!p.rotate },
       { id: 'scale', label: 'Scale', type: 'bool', default: true },
       { id: 'margin', label: 'Margin', type: 'float', default: 0.001, min: 0, max: 1, precision: 3 },
+      { id: 'merge_overlap', label: 'Merge Overlapping', type: 'bool', default: false },
+      { id: 'pin', label: 'Lock Pinned Islands', type: 'bool', default: false },
       {
         id: 'udim_source',
         label: 'Pack to',
@@ -370,7 +374,15 @@ registerOperators([
       const view = ctxUVEditor(ctx) as unknown as { image?(): ImageData | null } | null;
       const region = packRegion(p.udim_source as PackSource, selectionBounds(layers), view?.image?.() ?? null, regionSettings().uv_custom_region);
       const o: PackOptions = { margin: p.margin as number, rotate: !!p.rotate, rotateMethod: p.rotate_method as PackOptions['rotateMethod'], scale: !!p.scale, region };
-      return editUVs((t, uvs, sel) => packIslandsUV(t, uvs, opIslands(ctx, t, sel), o), layers) ? 'FINISHED' : 'CANCELLED';
+      return editUVs((t, uvs, sel) => {
+        let islands = opIslands(ctx, t, sel);
+        // pinned islands stay where they are
+        if (p.pin) islands = islands.filter((faces) => !islandCorners(t, faces).some((c) => isPinned(t.me, c)));
+        if (p.merge_overlap) islands = mergeOverlapping(t, uvs, islands);
+        return packIslandsUV(t, uvs, islands, o);
+      }, layers)
+        ? 'FINISHED'
+        : 'CANCELLED';
     },
   },
   {
