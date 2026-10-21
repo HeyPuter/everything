@@ -43,6 +43,7 @@ import { imageCanvas, imageReady } from '../render/images';
 import { paletteTemplate, palettesOf, paletteUsers } from './palette';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { Vector3 } from 'three';
+import { renderContext } from '../render/context';
 
 // ---------------------------------------------------------------------------
 // toolbar
@@ -207,6 +208,44 @@ function cavityRows(): Child[] {
         )
       : null,
   ];
+}
+
+interface ImageEditorLike {
+  el: HTMLElement;
+  image: { id: string } | null;
+  toImage(sx: number, sy: number): [number, number];
+}
+
+/** Brush color from the image pixel under the pointer in the Image Editor. */
+function sampleImageEditor(ed: ImageEditorLike, ev?: { x: number; y: number }): boolean {
+  const img = ed.image ? app.doc.images[ed.image.id] : null;
+  if (!img) return false;
+  const r = ed.el.getBoundingClientRect();
+  const [ix, iy] = ed.toImage((ev?.x ?? app.pointer.x) - r.left, (ev?.y ?? app.pointer.y) - r.top);
+  const c = imageCanvas(img);
+  if (ix < 0 || iy < 0 || ix >= c.width || iy >= c.height) return false;
+  const d = c.getContext('2d', { willReadFrequently: true })?.getImageData(Math.floor(ix), Math.floor(iy), 1, 1).data;
+  if (!d) return false;
+  app.doc.scene.tool_settings.unified_paint.color = [srgbToLinear(d[0] / 255), srgbToLinear(d[1] / 255), srgbToLinear(d[2] / 255)];
+  return true;
+}
+
+/** Brush color from what the 3D view shows under (x, y). */
+function sampleScreen(v: View3D, x: number, y: number): boolean {
+  const engine = renderContext?.engine;
+  if (!engine) return false;
+  engine.drawAll();
+  const base = engine.canvas.getBoundingClientRect();
+  const r = v.el.getBoundingClientRect();
+  const dpr = engine.dpr;
+  const c = document.createElement('canvas');
+  c.width = c.height = 1;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return false;
+  g.drawImage(engine.canvas, (r.left - base.left + x) * dpr, (r.top - base.top + y) * dpr, 1, 1, 0, 0, 1, 1);
+  const d = g.getImageData(0, 0, 1, 1).data;
+  app.doc.scene.tool_settings.unified_paint.color = [srgbToLinear(d[0] / 255), srgbToLinear(d[1] / 255), srgbToLinear(d[2] / 255)];
+  return true;
 }
 
 /** Weight Paint settings beyond the shared tool settings. */
@@ -1384,13 +1423,24 @@ registerOperators([
     idname: 'paint.sample_color',
     label: 'Sample Color',
     description: 'Use the color under the cursor as the brush color',
+    props: [
+      { id: 'merged', label: 'Sample Merged', type: 'bool', default: false },
+      { id: 'palette', label: 'Add to Palette', type: 'bool', default: false },
+    ],
     undo: false,
-    poll: () => (app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D(),
-    exec: (ctx) => {
-      const v = activeView3D()!;
-      const p = pointerIn(v, ctx.event);
-      const ok = app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, p.x, p.y) : sampleVertexColor(v, p.x, p.y);
+    poll: (ctx) =>
+      ctx.area?.type === 'IMAGE_EDITOR' || ((app.doc.mode === 'TEXTURE_PAINT' || app.doc.mode === 'VERTEX_PAINT' || (app.doc.mode === 'SCULPT' && !!activeMeshData()?.me.color_attributes.length)) && !!activeView3D()),
+    exec: (ctx, p) => {
+      let ok = false;
+      if (ctx.area?.type === 'IMAGE_EDITOR') ok = sampleImageEditor(ctx.area.editor as ImageEditorLike, ctx.event);
+      else {
+        const v = activeView3D()!;
+        const q = pointerIn(v, ctx.event);
+        // merged: the color as shown in the view (lighting and all), else the painted data
+        ok = p.merged ? sampleScreen(v, q.x, q.y) : app.doc.mode === 'TEXTURE_PAINT' ? sampleImageColor(v, q.x, q.y) : sampleVertexColor(v, q.x, q.y);
+      }
       if (!ok) return 'CANCELLED';
+      if (p.palette && app.poll('palette.color_add', ctx.area as never)) app.run('palette.color_add', {}, { invoke: false, area: ctx.area });
       changed();
     },
   },
@@ -1470,7 +1520,7 @@ addKeys('Sculpt', [
 ]);
 addKeys('Vertex Paint', [
   ...common([
-    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color', props: { merged: true } },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
     { key: 'X', ctrl: true, op: 'paint.vertex_color_set' },
@@ -1494,7 +1544,7 @@ addKeys('Weight Paint', [
 ]);
 addKeys('Image Paint', [
   ...common([
-    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color' },
+    { key: 'X', shift: true, ctrl: true, op: 'paint.sample_color', props: { merged: true } },
     { key: 'X', op: 'paint.brush_colors_flip' },
     { key: 'X', shift: true, op: 'paint.sample_color' },
   ]),
