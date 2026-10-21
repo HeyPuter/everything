@@ -315,6 +315,59 @@ export async function selectById(app) {
   toast(found.length === ids.length ? `Selected ${found.length}.` : `Found ${found.length} of ${ids.length}.`, { kind: found.length ? 'success' : 'error' });
 }
 
+// Line styles ------------------------------------------------------------------------------------------
+
+const DASHES = [
+  { value: 0, label: 'Solid' },
+  { value: 1, label: 'Dash' },
+  { value: 2, label: 'Hidden (short dash)' },
+  { value: 3, label: 'Center (dash dot)' },
+];
+
+/** The project's own line styles for detail lines, model lines and arcs. */
+export function lineStylesDialog(app) {
+  const doc = app.doc;
+  const body = h('div');
+  const render = () => {
+    clear(body);
+    const styles = doc.all('lineStyle');
+    const uses = new Map();
+    for (const el of doc.filter((x) => x.style && doc.get(x.style)?.kind === 'lineStyle')) uses.set(el.style, (uses.get(el.style) || 0) + 1);
+    const tbody = h('tbody');
+    for (const st of styles) {
+      const name = h('input.input.sm', { type: 'text', value: st.name, 'aria-label': 'Name' });
+      name.addEventListener('change', () => name.value.trim() && app.commit('Rename line style', () => doc.update(st.id, { name: name.value.trim() })));
+      const weight = h('select.input.sm', { 'aria-label': `${st.name} weight` }, [1, 2, 3, 4, 5].map((w) => h('option', { value: String(w) }, ['', 'Fine', 'Light', 'Medium', 'Cut', 'Heavy'][w])));
+      weight.value = String(st.weight || 1);
+      weight.addEventListener('change', () => app.commit('Line style weight', () => doc.update(st.id, { weight: +weight.value })));
+      const color = h('input.ov-color', { type: 'color', value: st.color || '#000000', 'aria-label': `${st.name} colour` });
+      color.addEventListener('change', () => app.commit('Line style colour', () => doc.update(st.id, { color: color.value })));
+      const dash = h('select.input.sm', { 'aria-label': `${st.name} pattern` }, DASHES.map((d) => h('option', { value: String(d.value) }, d.label)));
+      dash.value = String(st.dash || 0);
+      dash.addEventListener('change', () => app.commit('Line style pattern', () => doc.update(st.id, { dash: +dash.value })));
+      const del = h('button.icon-btn.sm', { type: 'button', 'aria-label': `Delete ${st.name}`, onClick: () => {
+        app.commit('Delete line style', () => {
+          for (const el of doc.filter((x) => x.style === st.id)) doc.update(el.id, { style: 'thin' });
+          doc.remove(st.id);
+        });
+        render();
+      } }, icon('trash', 14));
+      tbody.append(h('tr', h('td', name), h('td', weight), h('td', color), h('td', dash), h('td.num', String(uses.get(st.id) || 0)), h('td', del)));
+    }
+    body.append(
+      styles.length
+        ? h('table.vg-table', h('thead', h('tr', h('th', 'Name'), h('th', 'Weight'), h('th', 'Colour'), h('th', 'Pattern'), h('th.num', 'Used by'), h('th', h('span.sr-only', 'Delete')))), tbody)
+        : h('p.dialog-text', 'Besides Thin, Medium, Wide, Dashed, Hidden and Center, add your own line styles (for example a red demolition line or a property boundary) to use for detail lines, model lines and arcs.'),
+      h('div', { style: { marginTop: '10px' } }, h('button.btn', { type: 'button', onClick: () => {
+        app.commit('New line style', () => doc.add({ kind: 'lineStyle', name: uniqueName(styles.map((x) => x.name), 'Line Style 1'), weight: 2, dash: 0, color: '#d03030' }));
+        render();
+      } }, icon('plus', 14), 'New Line Style')),
+    );
+  };
+  render();
+  return openDialog({ title: 'Line Styles', body, size: 'md', actions: [{ label: 'Close', primary: true, value: true }] });
+}
+
 // Transfer project standards ------------------------------------------------------------------------
 
 /** Pick a project file, then choose what to copy from it. */

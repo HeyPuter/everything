@@ -226,7 +226,7 @@ export function planGraphics(pc, el) {
       if (el.viewId === pc.view.id) drawTreadNumbers(pc, el, b);
       break;
     case 'detailLine':
-      if (el.viewId === pc.view.id) drawDetailLine(el, b);
+      if (el.viewId === pc.view.id) drawDetailLine(pc, el, b);
       break;
     case 'region':
       if (el.viewId === pc.view.id && el.boundary?.length >= 3) {
@@ -303,7 +303,7 @@ export function planGraphics(pc, el) {
       break;
     }
     case 'modelLine':
-      if (el.levelId === pc.view.levelId) drawDetailLine(el, b);
+      if (el.levelId === pc.view.levelId) drawDetailLine(pc, el, b);
       break;
     case 'ramp':
       if (!pc.ceiling) planRamp(pc, el, b);
@@ -1220,9 +1220,23 @@ function drawTag(pc, el, b) {
 
 export const LINE_STYLE = { thin: [W.thin, 0], medium: [W.medium, 0], wide: [W.heavy, 0], dashed: [W.thin, 1], hidden: [W.thin, 2], center: [W.thin, 3] };
 
-function drawDetailLine(el, b) {
-  const [w, d] = LINE_STYLE[el.style] || LINE_STYLE.thin;
-  b.line(el.a, el.b, w, d);
+/**
+ * Weight, dash and colour of a line style: a built-in name, or the id of a
+ * project line style ({ name, weight, dash, color }).
+ */
+export function lineStyleOf(doc, style, fallback = 'thin') {
+  const custom = doc?.get(style);
+  if (custom?.kind === 'lineStyle') {
+    const n = parseInt(String(custom.color || '#000000').slice(1, 7), 16) || 0;
+    return [+custom.weight || W.thin, +custom.dash || 0, custom.color && custom.color !== '#000000' ? [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255] : null];
+  }
+  const [w, d] = LINE_STYLE[style] || LINE_STYLE[fallback];
+  return [w, d, null];
+}
+
+function drawDetailLine(pc, el, b) {
+  const [w, d, c] = lineStyleOf(pc.doc, el.style);
+  b.line(el.a, el.b, w, d, c);
   const n = perp(norm(sub(el.b, el.a)));
   const pad = 20;
   b.pick([add(el.a, scale(n, -pad)), add(el.b, scale(n, -pad)), add(el.b, scale(n, pad)), add(el.a, scale(n, pad))]);

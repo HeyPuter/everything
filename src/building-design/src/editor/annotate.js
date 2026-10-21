@@ -13,7 +13,7 @@ import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { formatAngle } from '../core/units.js';
 import { PLAN_VIEW_KINDS } from '../core/doc.js';
-import { LINE_STYLES } from '../core/props.js';
+import { lineStyleOptions } from '../core/props.js';
 
 const LEGEND_SOURCES = [
   { value: 'rooms', label: 'Rooms' },
@@ -474,7 +474,7 @@ export class ArcTool extends AnnotationTool {
         },
         'Arc type',
       ),
-      select('Style', LINE_STYLES, o.style, (v) => (o.style = v)),
+      select('Style', lineStyleOptions(this.doc), o.style, (v) => (o.style = v)),
     ];
   }
 

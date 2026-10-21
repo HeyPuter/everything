@@ -158,22 +158,23 @@ export function manageLinksDialog(app) {
   const body = h('div');
   const render = () => {
     clear(body);
-    const links = app.doc.all('link');
+    const links = app.doc.all('link', 'importedModel');
     if (!links.length) {
       body.append(h('p.dialog-text', 'This project has no links. Use Link Project on the Insert tab to show another project in this one.'));
       return;
     }
     const tbody = h('tbody');
     for (const el of links) {
-      const e = app.scene.link(el);
+      const ifc = el.kind === 'importedModel';
+      const e = ifc ? null : app.scene.link(el);
       tbody.append(
         h('tr',
           h('td', el.name),
-          h('td.muted', el.path || 'Device file'),
-          h('td.num', e.doc ? String(modelCount(e.doc)) : 'Unreadable'),
+          h('td.muted', ifc ? `IFC: ${el.source}` : el.path || 'Device file'),
+          h('td.num', ifc ? String(el.count || 0) : e.doc ? String(modelCount(e.doc)) : 'Unreadable'),
           h('td', h('span.inline',
-            h('button.btn.sm', { type: 'button', disabled: !el.path, onClick: () => reloadLink(app, el.id).then(render) }, 'Reload'),
-            h('button.btn.sm', { type: 'button', onClick: () => reloadLink(app, el.id, true).then(render) }, 'Reload From...'),
+            ifc ? null : h('button.btn.sm', { type: 'button', disabled: !el.path, onClick: () => reloadLink(app, el.id).then(render) }, 'Reload'),
+            ifc ? null : h('button.btn.sm', { type: 'button', onClick: () => reloadLink(app, el.id, true).then(render) }, 'Reload From...'),
             h('button.icon-btn.sm', { type: 'button', 'aria-label': `Remove ${el.name}`, onClick: async () => {
               if (!(await confirmDialog('Remove link?', `${el.name} will no longer be shown in this project.`, { confirm: 'Remove', danger: true }))) return;
               app.commit('Remove link', () => app.doc.remove(el.id));
@@ -184,5 +185,5 @@ export function manageLinksDialog(app) {
     body.append(h('table.vg-table', h('thead', h('tr', h('th', 'Name'), h('th', 'Source'), h('th', 'Elements'), h('th', h('span.sr-only', 'Actions')))), tbody));
   };
   render();
-  return openDialog({ title: 'Manage Links', body, size: 'lg', actions: [{ label: 'Link Project...', onClick: () => (linkProject(app), true) }, { label: 'Close', primary: true, value: true }] });
+  return openDialog({ title: 'Manage Links', body, size: 'lg', actions: [{ label: 'Link IFC...', onClick: () => (linkIFC(app), true) }, { label: 'Link Project...', onClick: () => (linkProject(app), true) }, { label: 'Close', primary: true, value: true }] });
 }

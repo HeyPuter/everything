@@ -294,6 +294,7 @@ export const RIBBON = [
           { cmd: 'transferStandards', size: 'lg' },
           { cmd: 'purge', size: 'lg' },
           { cmd: 'units', size: 'lg' },
+          { cmd: 'lineStyles', size: 'lg', label: 'Additional Settings', variants: [{ cmd: 'lineStyles', label: 'Line Styles' }, { cmd: 'snaps', label: 'Snaps' }, { cmd: 'objectStyles', label: 'Object Styles' }] },
           { cmd: 'renumber', size: 'lg', label: 'Numbering' },
         ],
       },

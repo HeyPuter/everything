@@ -17,7 +17,7 @@
  *   colorLegend   { viewId, at, by }
  */
 import { add, sub, scale, norm, perp, dist, rotate, arcPoints, angleOf, mid, pointInPolygon, bbox } from './geom.js';
-import { W, INK, BG, PATTERN, readableAngle, roomColorFor, LINE_STYLE, planGraphics } from './plan.js';
+import { W, INK, BG, PATTERN, readableAngle, roomColorFor, lineStyleOf, planGraphics } from './plan.js';
 import { formatLength, formatDimension } from './units.js';
 import { roofGeometry } from './build3d.js';
 import { roofHeightAt } from './roof.js';
@@ -550,10 +550,10 @@ function drawDetailItem(pc, el, b) {
 }
 
 function drawArc(pc, el, b) {
-  const [w, d] = LINE_STYLE[el.style] || LINE_STYLE.medium;
+  const [w, d, col] = lineStyleOf(pc.doc, el.style, 'medium');
   const full = Math.abs((el.a1 ?? Math.PI * 2) - (el.a0 ?? 0)) >= Math.PI * 2 - 1e-6;
-  if (full) b.circle(el.c, el.r, w, d);
-  else b.arc(el.c, el.r, el.a0, el.a1, w, d);
+  if (full) b.circle(el.c, el.r, w, d, col);
+  else b.arc(el.c, el.r, el.a0, el.a1, w, d, col);
   const pad = Math.max(P(pc, 1), 20);
   const outer = full ? arcPoints(el.c, el.r + pad, 0, Math.PI * 2, Math.PI / 24) : arcPoints(el.c, el.r + pad, el.a0, el.a1, Math.PI / 24);
   const inner = full ? [] : arcPoints(el.c, Math.max(1, el.r - pad), el.a1, el.a0, Math.PI / 24);

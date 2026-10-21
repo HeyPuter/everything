@@ -40,7 +40,7 @@ import { newId, isPlanView, PLAN_VIEW_KINDS } from '../core/doc.js';
 /** Views that take 2D annotations. */
 export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section', 'drafting', 'legend'];
 import { STAIR_SHAPES } from '../core/stairs.js';
-import { LINE_STYLES } from '../core/props.js';
+import { lineStyleOptions } from '../core/props.js';
 import { newRevision } from '../core/revisions.js';
 import { MEP_KINDS, SYSTEMS, mepSize } from '../core/mep.js';
 import { MM_PER_FOOT } from '../core/units.js';
@@ -661,7 +661,7 @@ export class LineTool extends Tool {
     }
     if (this.kind === 'detailLine' || this.kind === 'modelLine') {
       const o = this.app.toolOptions(this.kind, { style: this.kind === 'modelLine' ? 'thin' : 'medium' });
-      const s = h('select.input.sm', { 'aria-label': 'Line style' }, ...LINE_STYLES.map((v) => h('option', { value: v.value }, v.label)));
+      const s = h('select.input.sm', { 'aria-label': 'Line style' }, ...lineStyleOptions(this.doc).map((v) => h('option', { value: v.value }, v.label)));
       s.value = o.style;
       s.addEventListener('change', () => (o.style = s.value));
       out.push(h('div.ob-group', h('label', 'Style'), s));

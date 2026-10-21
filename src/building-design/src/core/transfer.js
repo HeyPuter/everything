@@ -13,6 +13,7 @@ export const STANDARD_GROUPS = [
   { id: 'templates', label: 'View templates', match: (it) => it.kind === 'viewTemplate' },
   { id: 'filters', label: 'Filters', match: (it) => it.kind === 'viewFilter' },
   { id: 'params', label: 'Project parameters', match: (it) => it.kind === 'projectParam' },
+  { id: 'lineStyles', label: 'Line styles', match: (it) => it.kind === 'lineStyle' },
   { id: 'objectStyles', label: 'Object styles', match: () => false },
 ];
 
@@ -76,6 +77,7 @@ export function transferStandards(src, doc, groups) {
       bring({ ...t, settings: { ...t.settings, filters } });
     }
   if (chosen.has('params')) for (const p of src.all('projectParam')) bring(p);
+  if (chosen.has('lineStyles')) for (const p of src.all('lineStyle')) bring(p);
   if (chosen.has('objectStyles')) {
     const os = src.get('project')?.objectStyles;
     if (os) {

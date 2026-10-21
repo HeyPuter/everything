@@ -241,13 +241,13 @@ const INSTANCE = {
     ro('area', 'Area', 'Dimensions', (el) => polyArea(el.boundary || []), 'area'),
   ],
   detailLine: [
-    P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES }),
+    P('style', 'Line Style', 'Graphics', 'select', { options: (c) => lineStyleOptions(c.doc) }),
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
   ],
   modelLine: [
     P('levelId', 'Level', 'Constraints', 'level'),
     len('offset', 'Offset From Level', 'Constraints'),
-    P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES }),
+    P('style', 'Line Style', 'Graphics', 'select', { options: (c) => lineStyleOptions(c.doc) }),
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
   ],
   refPlane: [P('name', 'Name', 'Identity Data', 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
@@ -300,7 +300,7 @@ const INSTANCE = {
     len('h', 'Height', 'Dimensions'),
     P('rotation', 'Rotation', 'Graphics', 'angle'),
   ],
-  detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
+  detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: (c) => lineStyleOptions(c.doc) })],
   symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
   space: [
     P('levelId', 'Level', 'Constraints', 'level', { ro: () => true }),
@@ -415,6 +415,11 @@ const INSTANCE = {
     comments,
   ],
 };
+
+/** Built-in line styles and the project's own, for style pickers. */
+export function lineStyleOptions(doc) {
+  return [...LINE_STYLES, ...(doc ? doc.all('lineStyle').map((s) => ({ value: s.id, label: s.name })) : [])];
+}
 
 export const LINE_STYLES = ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));
 

@@ -67,7 +67,7 @@ export function phaseLook(doc, view, el, phases) {
 
 /** Model elements take part in phasing; annotations and views do not. */
 export function phased(el) {
-  return !!el && !el.viewId && !el.kind.endsWith('Type') && !['level', 'grid', 'refPlane', 'material', 'project', 'phase', 'viewFilter', 'viewTemplate', 'revision', 'group', 'viewport', 'room', 'area', 'areaBoundary', 'roomSeparator', 'link', 'workset', 'syncEntry', 'projectParam', 'optionSet', 'designOption', 'space', 'zone', 'globalParam', 'basePoint', 'scopeBox', 'importedModel'].includes(el.kind) && !el.kind.match(/^(plan|ceilingPlan|areaPlan|view3d|elevation|section|drafting|legend|schedule|sheet)$/);
+  return !!el && !el.viewId && !el.kind.endsWith('Type') && !['level', 'grid', 'refPlane', 'material', 'project', 'phase', 'viewFilter', 'viewTemplate', 'revision', 'group', 'viewport', 'room', 'area', 'areaBoundary', 'roomSeparator', 'link', 'workset', 'syncEntry', 'projectParam', 'optionSet', 'designOption', 'space', 'zone', 'globalParam', 'basePoint', 'scopeBox', 'importedModel', 'lineStyle'].includes(el.kind) && !el.kind.match(/^(plan|ceilingPlan|areaPlan|view3d|elevation|section|drafting|legend|schedule|sheet)$/);
 }
 
 /** Default phases for a new project. */

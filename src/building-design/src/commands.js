@@ -408,6 +408,7 @@ export const COMMANDS = {
     },
     desc: 'Show the project base point and the survey point in this plan, to move them or set site coordinates',
   },
+  lineStyles: { label: 'Line Styles', icon: 'lineStyles', run: (app) => manage.lineStylesDialog(app), desc: 'Your own line styles: weight, colour and pattern' },
   globalParams: { label: 'Global Parameters', icon: 'globalParams', run: (app) => globalsui.globalParamsDialog(app), desc: 'Named project values that element parameters can follow, with formulas' },
   transferStandards: { label: 'Transfer Project Standards', icon: 'transfer', run: (app) => manage.transferStandardsDialog(app), desc: 'Copy types, materials, view templates, filters and more from another project file' },
   startingView: { label: 'Starting View', icon: 'startingView', run: (app) => app.startingViewDialog(), desc: 'The view that opens first with the project' },
