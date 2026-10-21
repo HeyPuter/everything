@@ -20,15 +20,19 @@ interface Candidate {
 const SNAP_PX = 18;
 
 /** Geometry that may be snapped to: everything visible except what is being transformed. */
-function candidates(v: View3D): Candidate[] {
+function candidates(v: View3D, includeMoving = false): Candidate[] {
   const out: Candidate[] = [];
   const mode = app.doc.mode;
   for (const ev of app.graph.objects.values()) {
     if (!ev.visible || !ev.mesh || ev.mesh.offsets.length < 2) continue;
     if (v.localView && !v.localView.has(ev.id)) continue;
     const ob = ev.ob;
-    if (mode === 'OBJECT' && ob.select) continue;
+    if (mode === 'OBJECT' && ob.select && !includeMoving) continue;
     if (mode === 'EDIT' && app.graph.editObjects.has(ev.id) && ob.type === 'MESH' && ob.data) {
+      if (includeMoving) {
+        out.push({ id: ev.id, mesh: app.doc.meshes[ob.data], world: ev.world });
+        continue;
+      }
       // snap to the unselected part of the edited mesh itself
       const me = app.doc.meshes[ob.data];
       out.push({ id: ev.id, mesh: me, world: ev.world, skip: me.select_vert });
@@ -47,8 +51,8 @@ export interface SnapHit {
 }
 
 /** Find the snap target under the mouse for the enabled element types. */
-export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, elements: SnapElement[]): SnapHit | null {
-  const cands = candidates(v);
+export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, elements: SnapElement[], includeMoving = false): SnapHit | null {
+  const cands = candidates(v, includeMoving);
   if (!cands.length) return null;
   let best: { d: number; hit: SnapHit } | null = null;
   const consider = (d: number, point: Vector3, kind: SnapElement) => {
@@ -173,15 +177,26 @@ function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[])
 // ---------------------------------------------------------------------------
 // indicator (drawn while a transform modal is snapping)
 
-export const snapIndicator: { point: Vector3 | null; kind: SnapElement | null } = { point: null, kind: null };
+export const snapIndicator: { point: Vector3 | null; kind: SnapElement | null; added?: Vector3[]; source?: Vector3 | null; editingSource?: boolean } = { point: null, kind: null };
 
 editModeHooks.svg.push((v) => {
-  if (!app.modal || !snapIndicator.point) return null;
+  if (!app.modal) return null;
+  // points added with A (the target is their average) and a snap base chosen with B
+  const extra: ReturnType<typeof h>[] = [];
+  for (const p of snapIndicator.added ?? []) {
+    const q = v.project(p);
+    if (q.z <= 1) extra.push(h('circle', { cx: q.x, cy: q.y, r: 4, fill: '#ffffff', stroke: '#000000', 'stroke-width': 1 }));
+  }
+  if (snapIndicator.source) {
+    const q = v.project(snapIndicator.source);
+    if (q.z <= 1) extra.push(h('path', { d: `M${q.x - 6} ${q.y}H${q.x + 6}M${q.x} ${q.y - 6}V${q.y + 6}`, stroke: '#ffffff', 'stroke-width': 1.5 }));
+  }
+  if (!snapIndicator.point) return extra.length ? h('g', { class: 'snap-indicator' }, ...extra) : null;
   const s = v.project(snapIndicator.point);
-  if (s.z > 1) return null;
+  if (s.z > 1) return extra.length ? h('g', { class: 'snap-indicator' }, ...extra) : null;
   const shape =
     snapIndicator.kind === 'EDGE' || snapIndicator.kind === 'EDGE_MIDPOINT'
       ? h('rect', { x: s.x - 5, y: s.y - 5, width: 10, height: 10, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5, transform: snapIndicator.kind === 'EDGE_MIDPOINT' ? `rotate(45 ${s.x} ${s.y})` : undefined })
       : h('circle', { cx: s.x, cy: s.y, r: 6, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 });
-  return h('g', { class: 'snap-indicator' }, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#ffffff' }));
+  return h('g', { class: { 'snap-indicator': true, 'snap-source-edit': !!snapIndicator.editingSource } }, ...extra, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#ffffff' }));
 });
