@@ -7,7 +7,7 @@ import { modKey } from '../lib/platform.js';
 import { PAGE_COLORS } from '../data/colors.js';
 import { History, snapshotOf, applySnapshot } from './history.js';
 import { hydrate, serialize, fileSpan } from './embeds.js';
-import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf } from './selection.js';
+import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf, isBlock } from './selection.js';
 import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles } from './format.js';
 import { moveCell } from './table.js';
 import { setDone } from './tag-edit.js';
@@ -732,7 +732,7 @@ export class PageEditor extends Emitter {
       const el = this.createOutlineAt(48, this.nextFreeY());
       el.querySelector('.outline-body').focus();
     } else e.preventDefault();
-    if (html) insertHtml(sanitizeHtml(stripPasteWrapper(html)));
+    if (html) insertHtml(cleanPastedHtml(html));
     else if (text) insertHtml(textToHtml(text));
   }
 
@@ -1046,6 +1046,67 @@ export function ruleImage(kind, color, dark) {
 function stripPasteWrapper(html) {
   const m = html.match(/<!--StartFragment-->([\s\S]*)<!--EndFragment-->/);
   return m ? m[1] : html;
+}
+
+/**
+ * Pasted HTML ready to insert: Word's list paragraphs become real lists,
+ * the result is sanitized, and the line breaks between blocks are dropped
+ * (Chrome turns them into empty paragraphs).
+ */
+export function cleanPastedHtml(html) {
+  const doc = document.implementation.createHTMLDocument('');
+  const root = doc.createElement('div');
+  root.innerHTML = stripPasteWrapper(String(html ?? ''));
+  wordLists(root, doc);
+  root.innerHTML = sanitizeHtml(root.innerHTML);
+  for (const el of [root, ...root.querySelectorAll('ul, ol, table, tbody, thead, tr, td, th, li, blockquote, div')]) {
+    for (const n of [...el.childNodes]) {
+      if (n.nodeType !== 3 || n.nodeValue.replace(/[\t\n\r ]/g, '')) continue;
+      if (isBlock(n.previousSibling) || isBlock(n.nextSibling)) n.remove();
+    }
+  }
+  return root.innerHTML;
+}
+
+/*
+ * Word writes a bulleted or numbered list as paragraphs styled
+ * "mso-list:l1 level2 lfo1" whose bullet or number is literal text in a
+ * span marked "mso-list:Ignore". Rebuild them as nested <ul>/<ol>.
+ */
+function wordLists(root, doc) {
+  let stack = [];
+  for (const p of root.querySelectorAll('p, h1, h2, h3, h4, h5, h6')) {
+    const m = /mso-list:\s*l\d+\s+level(\d+)/i.exec(p.getAttribute('style') || '');
+    if (!m) continue;
+    const level = Number(m[1]);
+    let marker = '';
+    const ignore = [...p.querySelectorAll('[style]')].find((el) => /mso-list:\s*ignore/i.test(el.getAttribute('style')));
+    if (ignore) {
+      marker = ignore.textContent.replace(/[\s\u00a0]/g, '');
+      // Drop the marker and the wrappers it leaves empty, never the item text.
+      let gone = ignore;
+      while (gone.parentNode !== p && !gone.parentNode.textContent.replace(gone.textContent, '').trim()) gone = gone.parentNode;
+      gone.remove();
+    }
+    const ordered = /^[0-9a-z]{1,5}[.)]$/i.test(marker);
+    // A list continues while its paragraphs follow one another.
+    let prev = p.previousSibling;
+    while (prev && prev.nodeType === 3 && !prev.nodeValue.trim()) prev = prev.previousSibling;
+    if (!stack.length || prev !== stack[0].list) stack = [];
+    while (stack.length && stack.at(-1).level > level) stack.pop();
+    let top = stack.at(-1);
+    if (!top || top.level < level) {
+      const list = doc.createElement(ordered ? 'ol' : 'ul');
+      if (top) top.list.lastElementChild.append(list);
+      else p.before(list);
+      top = { level, list };
+      stack.push(top);
+    }
+    const li = doc.createElement('li');
+    while (p.firstChild) li.append(p.firstChild);
+    top.list.append(li);
+    p.remove();
+  }
 }
 
 /** Plain text to paragraphs, keeping URLs as links. */

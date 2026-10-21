@@ -4,7 +4,7 @@ import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
 import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles } from '../src/editor/format.js';
-import { textToHtml, ruleImage, PageEditor } from '../src/editor/page-editor.js';
+import { textToHtml, ruleImage, PageEditor, cleanPastedHtml } from '../src/editor/page-editor.js';
 
 function body(html) {
   document.body.innerHTML = '';
@@ -409,5 +409,33 @@ describe('page editor keys', () => {
     expect(ed.selectedOutlines.size).toBe(1);
     ed.destroy();
     host.remove();
+  });
+});
+
+describe('pasted HTML', () => {
+  const item = (level, marker, text, font = 'Symbol') => `<p class=MsoListParagraphCxSpMiddle style='margin-left:${level * 0.5}in;text-indent:-.25in;mso-list:l0 level${level} lfo1'><![if !supportLists]><span style='font-family:${font}'><span style='mso-list:Ignore'>${marker}<span style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp; </span></span></span><![endif]>${text}<o:p></o:p></p>\n`;
+
+  it("rebuilds Word's list paragraphs as nested lists", () => {
+    const html = '<html><body><!--StartFragment--><p class=MsoNormal>Intro<o:p></o:p></p>\n'
+      + item(1, '·', 'One') + item(2, 'o', 'One A', 'Courier New') + item(1, '·', 'Two')
+      + '<p class=MsoNormal>Between<o:p></o:p></p>\n'
+      + item(1, '1.', 'First', 'Calibri') + item(2, 'a.', 'Sub', 'Calibri') + item(1, '2.', 'Second', 'Calibri')
+      + '<!--EndFragment--></body></html>';
+    expect(cleanPastedHtml(html)).toBe('<p>Intro</p><ul><li>One<ul><li>One A</li></ul></li><li>Two</li></ul><p>Between</p>'
+      + '<ol><li><span style="font-family: Calibri">First</span><ol><li><span style="font-family: Calibri">Sub</span></li></ol></li><li><span style="font-family: Calibri">Second</span></li></ol>'.replace(/<span style="font-family: Calibri">([^<]*)<\/span>/g, '$1'));
+  });
+
+  it('keeps the item text when Word wraps the marker and the text together', () => {
+    const html = "<p class=MsoListParagraph style='mso-list:l0 level1 lfo1'><b><![if !supportLists]><span style='mso-list:Ignore'>1.<span>&nbsp; </span></span><![endif]>Bold item</b></p>";
+    expect(cleanPastedHtml(html)).toBe('<ol><li><b>Bold item</b></li></ol>');
+  });
+
+  it('drops line breaks between blocks but keeps spaces between words', () => {
+    expect(cleanPastedHtml('<p>a</p>\n  <p>b</p>\n<ul>\n <li>c</li>\n</ul>')).toBe('<p>a</p><p>b</p><ul><li>c</li></ul>');
+    expect(cleanPastedHtml('<b>bold</b> <i>it</i> ')).toBe('<b>bold</b> <i>it</i> ');
+  });
+
+  it('is still sanitized', () => {
+    expect(cleanPastedHtml('<p onclick="x()">a<img src=x onerror=alert(1)><script>alert(1)</script></p>')).toBe('<p>a<img></p>');
   });
 });
