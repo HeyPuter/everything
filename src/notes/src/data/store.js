@@ -1171,9 +1171,9 @@ export class Store extends Emitter {
    * Searches page titles and text. Every whitespace-separated term must
    * appear (case- and accent-insensitive). Title hits rank first.
    */
-  async search(query, { scope = 'all', limit = 200 } = {}) {
+  async search(query, { scope = 'all', limit = 200, count = false } = {}) {
     const terms = normalize(query).split(/\s+/).filter(Boolean);
-    if (!terms.length) return [];
+    if (!terms.length) return count ? { results: [], total: 0 } : [];
     const candidates = this.scopePages(scope);
     const results = [];
     await mapLimit(candidates, 6, async (c) => {
@@ -1188,7 +1188,8 @@ export class Store extends Emitter {
     // Pages whose title has more of the terms come first, however often
     // another page's text repeats them.
     results.sort((a, b) => b.titleHits - a.titleHits || b.score - a.score || (b.meta.modified || '').localeCompare(a.meta.modified || ''));
-    return results.slice(0, limit);
+    // With `count`, also say how many matched in all, for a capped list.
+    return count ? { results: results.slice(0, limit), total: results.length } : results.slice(0, limit);
   }
 
   /** Every tagged paragraph in a scope, for the Tags Summary pane. */

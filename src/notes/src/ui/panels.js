@@ -125,17 +125,20 @@ export class SearchPanel {
       return;
     }
     if (!refresh) this.results.replaceChildren(h('div.empty-state', h('div.spinner'), h('p', 'Searching...')));
-    const results = await this.app.store.search(q, { scope: this.scope.value || 'all' });
+    const { results, total } = await this.app.store.search(q, { scope: this.scope.value || 'all', count: true });
     if (token !== this.token) return;
     const terms = normalize(q).split(/\s+/).filter(Boolean);
     const focused = this.results.contains(document.activeElement) ? document.activeElement.closest('.result')?.dataset.id : null;
+    const count = total > results.length
+      ? `Showing the first ${results.length} of ${total.toLocaleString()} results`
+      : `${results.length} ${results.length === 1 ? 'result' : 'results'}`;
     if (!results.length) {
       this.results.replaceChildren(h('div.empty-state', h('p', `No results for "${q}".`)));
     } else {
-      this.results.replaceChildren(h('div.group-label', `${results.length} ${results.length === 1 ? 'result' : 'results'}`), ...results.map((r) => resultRow(this.app, r, terms, q)));
+      this.results.replaceChildren(h('div.group-label', count), ...results.map((r) => resultRow(this.app, r, terms, q)));
     }
     if (focused) this.results.querySelector(`.result[data-id="${CSS.escape(focused)}"]`)?.focus();
-    const status = results.length ? `${results.length} results` : 'No results';
+    const status = results.length ? count : 'No results';
     if (!refresh || this.status.textContent !== status) this.status.textContent = status;
     this.shown = key;
   }

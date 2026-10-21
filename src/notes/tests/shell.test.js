@@ -317,6 +317,16 @@ describe('App shell', () => {
     expect(app.editor.ink.tool).toBe('type');
   });
 
+  it('says when search shows only the first results of many', async () => {
+    const section = store.section(app.state.sectionId);
+    for (let i = 0; i < 205; i++) store.createPage(section.id, { title: `Lorem ${i}`, silent: true });
+    app.setRailView('search');
+    app.search.input.value = 'lorem';
+    await app.search.run();
+    expect(app.search.results.querySelectorAll('.result')).toHaveLength(200);
+    expect(app.search.results.querySelector('.group-label').textContent).toBe('Showing the first 200 of 205 results');
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
