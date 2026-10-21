@@ -5,6 +5,10 @@
  * it on the timeline in one synchronous undo step, so an edit the user makes
  * while a clip is being generated never folds into the assistant's step.
  *
+ * What is made lands on the timeline (or compound clip) that was open when
+ * the call started; when the user opened another one meanwhile it goes into
+ * the media library only, and the model is told so.
+ *
  * A clip still being generated when the user presses Stop is not thrown
  * away (it has been paid for): it lands in the media library when it is
  * done, and a toast says so.
@@ -174,15 +178,22 @@ export function createAiToolRunner(ctx, services = {}) {
     return asset;
   }
 
-  /** Register an asset and do the rest of fn() as one undo step labeled label: { entry, value }. */
-  function oneStep(label, asset, fn) {
+  /** The timeline being edited, and the compound clips opened in it. */
+  const openedAt = () => [store.project.timelineId, ...store.nest.map((f) => f.id)].join('/');
+
+  /**
+   * Register an asset and do the rest of fn() as one undo step labeled label:
+   * { entry, value }. fn() is skipped when the timeline open at the start of
+   * the call (at) isn't the one open now.
+   */
+  function oneStep(label, asset, fn, at) {
     const mark = store.beginBatch();
     let value;
     try {
       store.update(`Add ${asset.name}`, (p) => {
         p.assets[asset.id] = asset;
       }, { structural: false });
-      value = fn();
+      value = at && at !== openedAt() ? { clip: null, words: 'in the media library only, not on the timeline: another timeline was opened while it was being made' } : fn();
     } catch (err) {
       store.endBatch(mark, label);
       throw err;
@@ -224,7 +235,7 @@ export function createAiToolRunner(ctx, services = {}) {
   }
 
   /** Make a video (opts as generateVideo's), import it and put it with put(asset): the tool's result. */
-  async function makeVideo(control, { prompt, seconds, aspect, firstFrame, lastFrame, sound, avoid }, label, put) {
+  async function makeVideo(control, { prompt, seconds, aspect, firstFrame, lastFrame, sound, avoid }, label, put, at) {
     // A model that can't start (or end) on a picture hands the clip to one that can.
     const chosen = videoModel(svc.videoModel());
     const { model, fallback } = modelForFrames(chosen, { first: Boolean(firstFrame || lastFrame), last: Boolean(firstFrame && lastFrame) });
@@ -237,7 +248,7 @@ export function createAiToolRunner(ctx, services = {}) {
     if (!made) return { skipped: true };
     control?.note?.('Adding the video to the project…');
     const asset = await importMade(new File([made.blob], videoFileName(prompt, made.blob.type), { type: made.blob.type || 'video/mp4' }), 'ai-video');
-    const { entry, value } = oneStep(label, asset, () => put(asset));
+    const { entry, value } = oneStep(label, asset, () => put(asset), at);
     const clip = value?.clip || null;
     if (clip) store.select(clip.id);
     const length = asset.duration ? secs(asset.duration) : len ? `${len}s` : '';
@@ -256,7 +267,7 @@ export function createAiToolRunner(ctx, services = {}) {
       return ok(`\n${clipDetails(store.project, f.clip, f.track)}`, { target: { ids: [f.clip.id], time: f.clip.start } });
     },
 
-    async generate_video(a, control) {
+    async generate_video(a, control, at) {
       const prompt = str(a.prompt);
       if (!prompt) return fail('describe the video in prompt');
       let first = null;
@@ -269,10 +280,10 @@ export function createAiToolRunner(ctx, services = {}) {
         return fail(err.message);
       }
       return makeVideo(control, { prompt, seconds: num(a.seconds), aspect: a.aspect, firstFrame: first, lastFrame: last, sound: typeof a.sound === 'boolean' ? a.sound : undefined, avoid: str(a.avoid, 500) }, 'Generate video',
-        (asset) => place(asset, { place: a.place, start: a.start }));
+        (asset) => place(asset, { place: a.place, start: a.start }), at);
     },
 
-    async animate_image(a, control) {
+    async animate_image(a, control, at) {
       const f = oneClip(a.clip, (c) => c.type === 'image', 'image clip');
       if (f.error) return fail(f.error);
       const prompt = str(a.prompt);
@@ -298,10 +309,10 @@ export function createAiToolRunner(ctx, services = {}) {
         });
         const clip = T.findClip(store.project, id)?.clip;
         return { clip, words: `in place of the picture, as clip ${id} at ${clip ? span(clip) : ''}` };
-      });
+      }, at);
     },
 
-    async extend_clip(a, control) {
+    async extend_clip(a, control, at) {
       const f = oneClip(a.clip, (c) => c.type === 'video' || c.type === 'image', 'video or image clip');
       if (f.error) return fail(f.error);
       const prompt = str(a.prompt);
@@ -319,10 +330,10 @@ export function createAiToolRunner(ctx, services = {}) {
         if (track.main) return place(asset, { place: 'after', afterId: clip.id });
         const now = T.findClip(store.project, clip.id)?.clip || clip;
         return place(asset, { place: 'overlay', start: T.clipEnd(now) / US, trackId: track.id });
-      });
+      }, at);
     },
 
-    async generate_transition(a, control) {
+    async generate_transition(a, control, at) {
       const f = oneClip(a.after_clip, (c) => c.type === 'video' || c.type === 'image', 'video or image clip');
       if (f.error) return fail(f.error);
       if (!f.track.main) return fail('AI transitions go between clips on the base track');
@@ -341,10 +352,10 @@ export function createAiToolRunner(ctx, services = {}) {
       const shortest = !model.seconds ? null : Array.isArray(model.seconds) ? model.seconds[0] : model.seconds.min;
       const prompt = `A seamless cinematic transition that morphs the first shot into the second. ${str(a.prompt) || 'Smooth camera movement, continuous motion, no cut.'}`;
       const id = f.clip.id;
-      return makeVideo(control, { prompt, seconds: Number.isFinite(num(a.seconds)) ? num(a.seconds) : shortest ?? undefined, firstFrame: from, lastFrame: to }, 'AI transition', (asset) => place(asset, { place: 'after', afterId: id }));
+      return makeVideo(control, { prompt, seconds: Number.isFinite(num(a.seconds)) ? num(a.seconds) : shortest ?? undefined, firstFrame: from, lastFrame: to }, 'AI transition', (asset) => place(asset, { place: 'after', afterId: id }), at);
     },
 
-    async generate_image(a, control) {
+    async generate_image(a, control, at) {
       const prompt = str(a.prompt, 1000);
       if (!prompt) return fail('describe the picture in prompt');
       const s = store.project.settings;
@@ -357,12 +368,12 @@ export function createAiToolRunner(ctx, services = {}) {
       if (!made) return { skipped: true };
       const asset = await importMade(new File([made.blob], imageFileName(prompt, (made.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: made.blob.type || 'image/png' }), 'ai-image');
       const duration = Number.isFinite(num(a.duration)) ? Math.round(Math.max(0.2, num(a.duration)) * US) : 0;
-      const { entry, value } = oneStep('Generate picture', asset, () => place(asset, { place: a.place, start: a.start, duration }));
+      const { entry, value } = oneStep('Generate picture', asset, () => place(asset, { place: a.place, start: a.start, duration }), at);
       if (value.clip) store.select(value.clip.id);
       return ok(`made a picture (media ${asset.id}) and added it ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
     },
 
-    async edit_image(a, control) {
+    async edit_image(a, control, at) {
       const instruction = str(a.instruction, 600);
       if (!instruction) return fail('describe the change in instruction');
       control?.note?.('Capturing the picture…');
@@ -384,19 +395,19 @@ export function createAiToolRunner(ctx, services = {}) {
           return { clip, words: `in place of the picture of clip ${sourceClip.id}` };
         }
         return place(asset, { place: a.place || 'overlay', start: a.start ?? (sourceClip ? sourceClip.start / US : store.time / US) });
-      });
+      }, at);
       if (value.clip) store.select(value.clip.id);
       return ok(`changed the picture from ${got.from} (new media ${asset.id}) and put it ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
     },
 
-    async add_voiceover(a, control) {
+    async add_voiceover(a, control, at) {
       const text = str(a.text, 3000);
       if (!text) return fail('give the words to speak in text');
       const voice = TTS_VOICES.some((v) => v.id === a.voice) ? a.voice : TTS_VOICES[0].id;
       const blob = await generating(control, 'Recording the voice', () => svc.synthesize(text, voice, { testMode: svc.testMode() }), async () => {});
       if (!blob) return { skipped: true };
       const asset = await importMade(speechFile(blob, text), 'tts');
-      const { entry, value } = oneStep('Add voiceover', asset, () => place(asset, { start: a.start }));
+      const { entry, value } = oneStep('Add voiceover', asset, () => place(asset, { start: a.start }), at);
       return ok(`added the voiceover (media ${asset.id}) ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
     },
 
@@ -437,7 +448,7 @@ export function createAiToolRunner(ctx, services = {}) {
     if (!tool) return fail(`there is no tool called ${name}`);
     try {
       if (VIDEO_PAUSE.has(name)) ctx.player?.pause?.();
-      return await tool(a, control);
+      return await tool(a, control, openedAt());
     } catch (err) {
       if (err?.name === 'AbortError') return { skipped: true };
       console.error(err);

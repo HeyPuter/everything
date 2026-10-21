@@ -4,6 +4,8 @@ import { normalizeAsset } from '../src/model/project.js';
 import { createActions } from '../src/ui/actions.js';
 import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
 import { createAiToolRunner } from '../src/ui/ai-tool-runner.js';
+import { addTimeline } from '../src/model/timelines.js';
+import { createCompound } from '../src/model/compound.js';
 import { createAgent, requestMessages, userContent, userText, suggestions, SYSTEM_PROMPT, MAX_ROUNDS } from '../src/media/ai-agent.js';
 import { TOOLS, toolSpecs, changesProject, costly, describeCall, mediaBrief, projectSnapshot } from '../src/media/ai-tools.js';
 import { txt2vidOptions, fitSeconds, videoAspectFor, generateVideo, videoBlobFrom, videoErrorMessage, modelForFrames, estimateCents, formatCents, modelSummary, VIDEO_MODELS, DEFAULT_VIDEO_MODEL } from '../src/media/ai-video.js';
@@ -274,6 +276,46 @@ describe('AI sidebar tools', () => {
     expect(r).toEqual({ skipped: true });
     expect(main().clips).toHaveLength(1);
     expect(Object.values(store.project.assets).some((a) => a.origin === 'ai-video')).toBe(true);
+  });
+
+  it('keeps what was made in the media only when another timeline was opened meanwhile', async () => {
+    const { store, ctx, main } = setup(clip('image', 0, 3));
+    let open;
+    const later = (value) => vi.fn(() => new Promise((r) => (open = () => r(value))));
+    const { runner } = runnerFor(ctx, { generateVideo: later(video()) });
+    const img = main().clips[0].id;
+    let b;
+    store.update('Add timeline', (p) => {
+      b = addTimeline(p, { name: 'Shorts' });
+    });
+    const a = store.project.timelineId;
+    for (const [name, args] of [['generate_video', { prompt: 'fox' }], ['animate_image', { clip: img, prompt: 'sway' }]]) {
+      open = null;
+      store.openTimeline(a);
+      const running = runner.run(name, args, { note: () => {}, stopped: () => false });
+      await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+      store.openTimeline(b);
+      open();
+      const r = await running;
+      expect(r.ok).toBe(true);
+      expect(r.content).toMatch(/in the media library only, not on the timeline: another timeline was opened while it was being made/);
+      expect(r.target).toBe(null);
+      expect(main().clips).toHaveLength(0);
+      expect(store.project.assets[r.content.match(/media (gen\d+)/)[1]]).toBeTruthy();
+    }
+    store.openTimeline(a);
+    expect(main().clips.map((c) => [c.id, c.type])).toEqual([[img, 'image']]);
+    // A compound clip opened meanwhile counts too.
+    store.update('Group', (p) => createCompound(p, [img]));
+    const comp = main().clips[0].id;
+    open = null;
+    const { runner: pics } = runnerFor(ctx, { generateImage: later({ blob: new Blob(['png'], { type: 'image/png' }) }) });
+    const running = pics.run('generate_image', { prompt: 'forest' }, { note: () => {}, stopped: () => false });
+    await vi.waitFor(() => expect(open).toBeTypeOf('function'));
+    store.openCompound(comp);
+    open();
+    expect((await running).content).toMatch(/media library only/);
+    expect(main().clips.map((c) => c.id)).toEqual([img]);
   });
 
   it('makes and edits pictures, and speaks a voiceover', async () => {
