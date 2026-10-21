@@ -51,7 +51,7 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     onclick: (e) => { act('newSheet', null, () => ctx.wb.addSheet()); pointerBackToGrid(e); },
   });
   const openAllSheets = (anchor) => {
-      const hidden = ctx.wb.sheets.filter((s) => s.hidden);
+      const hidden = hiddenSheets();
       openMenu({
         anchor, label: 'Sheets', focusChecked: true,
         search: ctx.wb.sheets.length >= 8 ? 'Search sheets' : null,
