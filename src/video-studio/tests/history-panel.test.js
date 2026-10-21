@@ -10,7 +10,10 @@ describe('history panel', () => {
     store.update('Rename B', (p) => void (p.name = 'B'), { structural: false });
     store.update('Rename C', (p) => void (p.name = 'C'), { structural: false });
     expect(historySteps(store.history).map((s) => s.label)).toEqual(['Opened project', 'Rename A', 'Rename B', 'Rename C']);
-    goToStep(store, 1);
+    let changes = 0;
+    store.on('change', () => changes++);
+    expect(goToStep(store, 1)).toBe(2);
+    expect(changes).toBe(1);
     expect(store.project.name).toBe('A');
     const steps = historySteps(store.history);
     expect(steps.map((s) => s.state)).toEqual(['done', 'done', 'undone', 'undone']);

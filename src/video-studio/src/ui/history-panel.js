@@ -18,10 +18,9 @@ export function historySteps(history) {
 /** Move the store to step index k of historySteps. */
 export function goToStep(store, k) {
   const cur = store.history.undoStack.length;
-  let moved = 0;
-  if (k < cur) for (let i = 0; i < cur - k; i++) moved += store.undo() ? 1 : 0;
-  else for (let i = 0; i < k - cur; i++) moved += store.redo() ? 1 : 0;
-  return moved;
+  if (k < cur) store.undo(cur - k);
+  else if (k > cur) store.redo(k - cur);
+  return Math.abs(store.history.undoStack.length - cur);
 }
 
 export function createHistoryPanel(ctx) {

@@ -216,18 +216,25 @@ export class EditorStore extends Emitter {
     return entry;
   }
 
-  undo() {
-    const entry = this.history.undo(structuredClone(this.project));
-    if (!entry) return null;
-    this.project = entry.snapshot;
-    this._afterRestore(entry.label);
-    return entry.label;
+  /** Undo one step, or several at once (views hear about it once). Returns the last step's label. */
+  undo(steps = 1) {
+    return this._travel('undo', steps);
   }
 
-  redo() {
-    const entry = this.history.redo(structuredClone(this.project));
+  redo(steps = 1) {
+    return this._travel('redo', steps);
+  }
+
+  _travel(dir, steps) {
+    let entry = null;
+    for (let i = 0; i < steps; i++) {
+      // Only the live project needs a copy; a step's snapshot passes straight to the other stack.
+      const next = this.history[dir](entry ? this.project : structuredClone(this.project));
+      if (!next) break;
+      entry = next;
+      this.project = entry.snapshot;
+    }
     if (!entry) return null;
-    this.project = entry.snapshot;
     this._afterRestore(entry.label);
     return entry.label;
   }

@@ -202,6 +202,30 @@ describe('EditorStore.update', () => {
   });
 });
 
+describe('EditorStore multi-step undo', () => {
+  it('undoes and redoes several steps with one change event', () => {
+    const store = storeWith();
+    for (const n of ['A', 'B', 'C', 'D']) store.update(`Rename ${n}`, (p) => void (p.name = n), { structural: false });
+    const changes = events(store, 'change');
+    expect(store.undo(3)).toBe('Rename B');
+    expect(store.project.name).toBe('A');
+    expect(changes).toHaveLength(1);
+    expect(store.history.redoStack).toHaveLength(3);
+    expect(store.redo(2)).toBe('Rename C');
+    expect(store.project.name).toBe('C');
+    expect(changes).toHaveLength(2);
+    // Each step still restores exactly, one at a time too.
+    expect(store.undo(9)).toBe('Rename A');
+    expect(store.project.name).toBe('Test');
+    expect(store.undo(2)).toBe(null);
+    expect(store.redo()).toBe('Rename A');
+    expect(store.project.name).toBe('A');
+    expect(store.redo(5)).toBe('Rename D');
+    expect(store.project.name).toBe('D');
+    expect(changes).toHaveLength(5);
+  });
+});
+
 describe('EditorStore selection', () => {
   it('selects, adds and toggles ids', () => {
     const store = storeWith();
