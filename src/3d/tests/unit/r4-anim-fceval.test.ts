@@ -9,7 +9,6 @@ const FRAMES = [2, 4, 7, 9.5, 11, 13, 14.5, 17, 22, 28];
 describe('F-Curve evaluation matches the reference', () => {
   for (const [name, values] of Object.entries(expected as Record<string, number[]>)) {
     // Elastic follows its own (unmatched) oscillation shape
-    if (name.startsWith('ELASTIC')) continue;
     it(name, () => {
       const [interp, ...rest] = name.split('_');
       const easing = rest.slice(-1)[0] === 'AUTO' ? 'AUTO' : rest.slice(-2).join('_').replace(/^IN_OUT$/, 'EASE_IN_OUT');

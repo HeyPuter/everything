@@ -6,7 +6,7 @@ import { openMenu } from '../ui/menu';
 import { numberField, enumMenu, checkbox, colorSwatch, textField, panel, button } from '../ui/widgets';
 import type { FCurve, FModifier, Keyframe } from '../data/types';
 import { channelLabel } from '../data/rna';
-import { calcHandles, sortKeyframes, alignHandle } from '../anim/fcurve';
+import { calcHandles, sortKeyframes, alignHandle, ELASTIC_DEFAULTS } from '../anim/fcurve';
 import { finalizeCurve } from './keyedit';
 import { curveColor } from './theme';
 import { INTERPOLATION_ITEMS, HANDLE_ITEMS, EASING_ITEMS } from './menus';
@@ -169,7 +169,7 @@ function keyframePanel(fc: FCurve, k: Keyframe): Child {
             'Amplitude',
             numberField({
               id: 'g-amp',
-              value: k.amplitude ?? 0,
+              value: k.amplitude ?? ELASTIC_DEFAULTS.amplitude,
               min: 0,
               step: 0.1,
               set: (v, f) => ((k.amplitude = v), commit(f, 'Change Amplitude', fc)),
@@ -179,7 +179,7 @@ function keyframePanel(fc: FCurve, k: Keyframe): Child {
             'Period',
             numberField({
               id: 'g-period',
-              value: k.period ?? 0,
+              value: k.period ?? ELASTIC_DEFAULTS.period,
               min: 0,
               step: 0.1,
               set: (v, f) => ((k.period = v), commit(f, 'Change Period', fc)),

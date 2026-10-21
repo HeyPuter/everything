@@ -274,7 +274,7 @@ const easeIn: Record<string, (t: number, k: Keyframe) => number> = {
   EXPO: (t) => (t <= 0 ? 0 : (Math.pow(2, 10 * (t - 1)) - EXPO_FLOOR) / (1 - EXPO_FLOOR)),
   CIRC: (t) => 1 - Math.sqrt(1 - t * t),
   BACK: (t, k) => {
-    const s = k.back || 1.70158;
+    const s = k.back ?? 1.70158;
     return t * t * ((s + 1) * t - s);
   },
   BOUNCE: (t) => 1 - bounceOut(1 - t),
@@ -303,7 +303,7 @@ function ease(k: Keyframe, t: number) {
   if (mode === 'EASE_IN') return fn(t, k);
   if (mode === 'EASE_OUT') return 1 - fn(1 - t, k);
   // Back overshoots more when easing both ways (each half covers half the distance)
-  const kk = k.interpolation === 'BACK' ? ({ ...k, back: (k.back || 1.70158) * 1.525 } as Keyframe) : k;
+  const kk = k.interpolation === 'BACK' ? ({ ...k, back: (k.back ?? 1.70158) * 1.525 } as Keyframe) : k;
   return t < 0.5 ? fn(t * 2, kk) / 2 : 1 - fn((1 - t) * 2, kk) / 2;
 }
 
@@ -379,9 +379,53 @@ function evaluateRaw(fc: FCurve, frame: number): number {
       return a.co[1] + (b.co[1] - a.co[1]) * t;
     case 'BEZIER':
       return bezierValue(a.co, a.handle_right, b.handle_left, b.co, frame);
+    case 'ELASTIC':
+      return a.co[1] + elasticOffset(a, frame - a.co[0], b.co[1] - a.co[1], span);
     default:
       return a.co[1] + (b.co[1] - a.co[1]) * ease(a, t);
   }
+}
+
+/** Keyframe defaults of the Elastic easing (amplitude in value units, period in frames). */
+export const ELASTIC_DEFAULTS = { amplitude: 0.8, period: 4.1 };
+
+/**
+ * Elastic easing of a key segment, in absolute units: `time` frames into a segment of `d` frames
+ * that changes the value by `c`. The oscillation period is in frames (0: 30% of the segment, 45%
+ * easing both ways) and the amplitude in value units; amplitudes smaller than the change scale the
+ * oscillation down, fading back to full size over the quarter period next to the target key.
+ */
+export function elasticOffset(k: Pick<Keyframe, 'easing' | 'amplitude' | 'period'>, time: number, c: number, d: number): number {
+  if (time <= 0) return 0;
+  if (time >= d || !c) return time >= d ? c : 0;
+  const mode = k.easing === 'AUTO' || !k.easing ? 'EASE_OUT' : k.easing;
+  const amp = k.amplitude ?? ELASTIC_DEFAULTS.amplitude,
+    per = k.period ?? ELASTIC_DEFAULTS.period;
+  const p = per || d * (mode === 'EASE_IN_OUT' ? 0.45 : 0.3);
+  const small = !amp || amp < Math.abs(c);
+  const a = small ? c : amp;
+  const s = small ? p / 4 : (p / (2 * Math.PI)) * Math.asin(c / amp);
+  /** factor of the oscillation `dist` frames away from the target key */
+  const scale = (dist: number) => {
+    if (!small) return 1;
+    const f = amp ? amp / Math.abs(c) : 0;
+    if (dist >= s) return f;
+    const l = dist / s;
+    return f * l + (1 - l);
+  };
+  const w = (2 * Math.PI) / p;
+  if (mode === 'EASE_IN') {
+    const u = time / d - 1; // negative
+    return -scale(-u * d) * a * Math.pow(2, 10 * u) * Math.sin((u * d - s) * w);
+  }
+  if (mode === 'EASE_OUT') {
+    const u = time / d;
+    return scale(u * d) * a * Math.pow(2, -10 * u) * Math.sin((u * d - s) * w) + c;
+  }
+  // both ways: each half covers half of the segment
+  const u = (time / d) * 2 - 1;
+  if (u < 0) return -0.5 * scale(-u * d) * a * Math.pow(2, 10 * u) * Math.sin((u * d - s) * w);
+  return 0.5 * scale(u * d) * a * Math.pow(2, -10 * u) * Math.sin((u * d - s) * w) + c;
 }
 
 /** How strongly a modifier applies at a frame (influence and restricted frame range with blending). */

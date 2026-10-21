@@ -12,7 +12,7 @@ import { newAction } from '../data/defaults';
 import { getValue } from '../data/rna';
 import { ensureFCurve, keyProperty } from '../anim/keyframes';
 import { assignAction, objectCurves, slotCurves } from '../anim/slots';
-import { calcHandles, evaluateFCurve, insertKeyframe, sortKeyframes } from '../anim/fcurve';
+import { calcHandles, evaluateFCurve, insertKeyframe, sortKeyframes, ELASTIC_DEFAULTS } from '../anim/fcurve';
 import { animTarget, locateOwner } from '../ui/rnapath';
 import { ActionStruct, ObjectStruct, SceneStruct, uniqueName, wrapId } from './api';
 import { Vector } from './mathutils';
@@ -826,7 +826,21 @@ class KeyframePoints extends PropCollection<unknown> {
   private wrap(i: number) {
     const fc = this.fc;
     const k = fc.keyframe_points[i];
-    return proxify(new Struct('Keyframe', () => (fc.keyframe_points.includes(k) ? (k as unknown as Raw) : null), `${this.__path}[${i}]`));
+    const st = new Struct('Keyframe', () => (fc.keyframe_points.includes(k) ? (k as unknown as Raw) : null), `${this.__path}[${i}]`);
+    // easing parameters read as their defaults until set
+    for (const [key, def] of [
+      ['back', 1.70158],
+      ['amplitude', ELASTIC_DEFAULTS.amplitude],
+      ['period', ELASTIC_DEFAULTS.period],
+    ] as const)
+      Object.defineProperty(st, key, {
+        get: () => k[key] ?? def,
+        set: (v: unknown) => {
+          k[key] = Number(v);
+          touched();
+        },
+      });
+    return proxify(st);
   }
   /** Adds (or replaces) the key at `frame`; options may include 'REPLACE', 'NEEDED', 'FAST'. */
   insert(frame: number, value: number, options: unknown = null, keyframe_type = 'KEYFRAME') {
