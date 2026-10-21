@@ -75,6 +75,7 @@ export const CATEGORIES = [
   { id: 'revisionClouds', label: 'Revision Clouds', model: false },
   { id: 'genericAnnotations', label: 'Symbols', model: false },
   { id: 'colorLegends', label: 'Color Fill Legends', model: false },
+  { id: 'legendComponents', label: 'Legend Components', model: false },
   { id: 'markers', label: 'View Markers', model: false },
 ];
 
@@ -113,6 +114,7 @@ const KIND_CATEGORY = {
   detailArc: 'lines',
   symbol: 'genericAnnotations',
   colorLegend: 'colorLegends',
+  legendComponent: 'legendComponents',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -160,6 +162,7 @@ export const KIND_LABEL = {
   detailArc: 'Detail Arc',
   symbol: 'Symbol',
   colorLegend: 'Color Fill Legend',
+  legendComponent: 'Legend Component',
 };
 
 export const TYPE_KIND = {

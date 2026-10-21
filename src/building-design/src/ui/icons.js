@@ -233,6 +233,13 @@ const BIM = {
   colorLegend: [R(4, 4, 5, 4, 'a', 0.5), R(4, 10, 5, 4, 's', 0.5), R(4, 16, 5, 4, 'f', 0.5), P('M12 6h8M12 12h6M12 18h7', 'thin')],
   scaleBar: [P('M3 10h18v4H3z'), P('M3 10h4.5v4H3zM12 10h4.5v4H12z', 'f'), P('M3 17v2M12 17v2M21 17v2', 'thin')],
   spanDirection: [P('M3 12h18'), P('M6 9l-3 3 3 3M18 9l3 3-3 3'), P('M12 8.5l3.5 3.5-3.5 3.5-3.5-3.5z', 'a'), P('M12 8.5l3.5 3.5-3.5 3.5-3.5-3.5z')],
+  filterRules: [P('M3 5h18l-7 8v6l-4 2v-8z', 'a'), P('M3 5h18l-7 8v6l-4 2v-8z')],
+  viewTemplate: [R(3, 4, 14, 14, 's', 1), R(3, 4, 14, 14, '', 1), P('M3 9h14M8 9v9', 'thin'), P('M13 14l4 4 4-8', 'thick-a')],
+  callout: [P('M3 3h18v18H3z', 's'), P('M3 3h18v18H3z', 'thin'), R(6, 9, 8, 7, 'a', 2), DASH('M8 9h4a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2z', '2 1.5'), P('M14 9l3.5-3.5'), C(19, 4.5, 2)],
+  draftingView: [R(3, 3, 18, 18, 's', 1), R(3, 3, 18, 18, '', 1), P('M6 17l5-9 3 5 2-3 3 7', 'thin'), P('M14 4l3 3-8 8H6v-3z', 'a'), P('M14 4l3 3-8 8H6v-3z')],
+  legend: [R(3, 3, 18, 18, 's', 1), R(3, 3, 18, 18, '', 1), R(6, 6, 4, 3, 'a', 0.5), R(6, 11, 4, 3, 'f', 0.5), R(6, 16, 4, 2, ''), P('M12 7.5h6M12 12.5h6M12 17h4', 'thin')],
+  legendComponent: [R(3, 7, 9, 10, 'a', 0.5), P('M3 7h9v10H3zM3 10h9M3 13h9', 'thin'), P('M15 9h6M15 12h6M15 15h4', 'thin')],
+  cropShow: [DASH('M4 4h16v16H4z', '3 2'), P('M2 4h4M4 2v4M18 2v4M18 4h4M2 20h4M4 18v4M18 22v-4M18 20h4')],
 };
 
 const LUCIDE = {
@@ -396,6 +403,9 @@ export const KIND_ICON = {
   plan: 'planView',
   ceilingPlan: 'ceilingPlan',
   areaPlan: 'areaPlan',
+  drafting: 'draftingView',
+  legend: 'legend',
+  legendComponent: 'legendComponent',
   view3d: 'view3d',
   elevation: 'elevation',
   section: 'section',

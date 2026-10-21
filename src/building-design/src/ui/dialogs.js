@@ -11,10 +11,11 @@ import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/c
 import { TYPE_PARAMS, AREA_SCHEMES, schemeLabel } from '../core/props.js';
 import { AreaSolver } from '../core/rooms.js';
 import { newRevision, revisionsInOrder } from '../core/revisions.js';
-import { formatLength, parseLength, MM_PER_FOOT } from '../core/units.js';
+import { FILTER_PARAMS, FILTER_OPS, filterMatches, templateSettings, applyTemplatePatch, propagateTemplate, templateKindOf } from '../core/graphics.js';
+import { formatLength, parseLength, MM_PER_FOOT, scaleOptions } from '../core/units.js';
 import { uniqueName, deleteElements } from '../core/ops.js';
 import { planView } from '../core/template.js';
-import { newId, isView, isPlanView, VIEW_LABEL } from '../core/doc.js';
+import { newId, isView, isPlanView, isFlatView, VIEW_LABEL } from '../core/doc.js';
 import { SCHEDULE_CATEGORIES } from '../core/schedule.js';
 import { sheetSize } from '../core/sheet.js';
 import { bboxUnion } from '../core/geom.js';
@@ -313,41 +314,377 @@ function kindFromType(k) {
 
 // Visibility ----------------------------------------------------------------------------------------
 
-export function visibilityDialog(app) {
-  const view = app.activeView;
-  if (!view || !isView(view) || view.kind === 'schedule') return toast('Open a view first.', { kind: 'error' });
-  const hidden = new Set(view.hiddenCats || []);
-  const groups = [
-    { title: 'Model categories', cats: CATEGORIES.filter((c) => c.model) },
-    { title: 'Annotation and other categories', cats: CATEGORIES.filter((c) => !c.model) },
+const WEIGHTS = [
+  { value: '', label: 'By category' },
+  { value: '1', label: '1 Fine' },
+  { value: '2', label: '2 Light' },
+  { value: '3', label: '3 Medium' },
+  { value: '4', label: '4 Cut' },
+  { value: '5', label: '5 Heavy' },
+];
+
+/** Colour, weight and halftone controls for one override object (edited in place). */
+function overrideCells(ov, label, onChange) {
+  const swatch = h('input.ov-color', { type: 'color', value: ov.color || '#000000', 'aria-label': `${label} line color` });
+  const clearBtn = h('button.icon-btn.sm', { type: 'button', 'aria-label': `Reset ${label} color`, 'data-tip': 'By category', hidden: !ov.color }, icon('x', 12));
+  const colorWrap = h('div.ov-colorcell', { class: ov.color ? 'set' : '' }, swatch, clearBtn);
+  swatch.addEventListener('input', () => {
+    ov.color = swatch.value;
+    colorWrap.classList.add('set');
+    clearBtn.hidden = false;
+    onChange();
+  });
+  clearBtn.addEventListener('click', () => {
+    ov.color = null;
+    colorWrap.classList.remove('set');
+    clearBtn.hidden = true;
+    onChange();
+  });
+  const weight = h('select.input.sm', { 'aria-label': `${label} line weight` }, WEIGHTS.map((w) => h('option', { value: w.value }, w.label)));
+  weight.value = ov.weight ? String(ov.weight) : '';
+  weight.addEventListener('change', () => ((ov.weight = weight.value ? +weight.value : null), onChange()));
+  const half = h('input', { type: 'checkbox', checked: !!ov.halftone, 'aria-label': `${label} halftone` });
+  half.addEventListener('change', () => ((ov.halftone = half.checked), onChange()));
+  return [h('td', colorWrap), h('td', weight), h('td.center', half)];
+}
+
+function cleanOverride(o) {
+  if (!o) return null;
+  const out = {};
+  if (o.color) out.color = o.color;
+  if (o.weight) out.weight = o.weight;
+  if (o.halftone) out.halftone = true;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * Visibility and graphics of a view, or of a view template's settings.
+ * target: { name, values: { hiddenCats, overrides, filters, hiddenIds }, save(patch) }
+ */
+export function graphicsDialog(app, target) {
+  const doc = app.doc;
+  const hidden = new Set(target.values.hiddenCats || []);
+  const overrides = structuredClone(target.values.overrides || {});
+  const filters = structuredClone(target.values.filters || []);
+  const body = h('div.vg-dlg');
+  const tabs = [
+    { id: 'model', label: 'Model Categories' },
+    { id: 'annotation', label: 'Annotation Categories' },
+    { id: 'filters', label: 'Filters' },
   ];
-  const body = h('div');
-  for (const g of groups) {
-    body.append(h('h3.dlg-sub', g.title));
-    const grid = h('div.snap-grid');
-    for (const c of g.cats) {
-      const cb = h('input', { type: 'checkbox', checked: !hidden.has(c.id) });
-      cb.addEventListener('change', () => (cb.checked ? hidden.delete(c.id) : hidden.add(c.id)));
-      grid.append(h('label.check', cb, c.label));
+  let tab = 'model';
+  const tabBar = h('div.tabs', { role: 'tablist' });
+  const panel = h('div.vg-panel', { role: 'tabpanel' });
+  const catTable = (cats) => {
+    const tbody = h('tbody');
+    for (const c of cats) {
+      const vis = h('input', { type: 'checkbox', checked: !hidden.has(c.id), 'aria-label': `Show ${c.label}` });
+      vis.addEventListener('change', () => (vis.checked ? hidden.delete(c.id) : hidden.add(c.id)));
+      const ov = overrides[c.id] || (overrides[c.id] = {});
+      tbody.append(h('tr', h('td.center', vis), h('td', c.label), ...overrideCells(ov, c.label, () => {})));
     }
-    body.append(grid);
-  }
-  const hiddenIds = view.hiddenIds || [];
+    return h('table.vg-table', h('thead', h('tr', h('th', 'Visible'), h('th', 'Category'), h('th', 'Line color'), h('th', 'Line weight'), h('th', 'Halftone'))), tbody);
+  };
+  const filterTab = () => {
+    const wrap = h('div');
+    const tbody = h('tbody');
+    filters.forEach((f, i) => {
+      const def = doc.get(f.id);
+      if (!def) return;
+      const vis = h('input', { type: 'checkbox', checked: f.visible !== false, 'aria-label': `Show what ${def.name} selects` });
+      vis.addEventListener('change', () => (f.visible = vis.checked));
+      f.override = f.override || {};
+      tbody.append(
+        h(
+          'tr',
+          h('td', def.name),
+          h('td.center', vis),
+          ...overrideCells(f.override, def.name, () => {}),
+          h('td', h('button.icon-btn.sm', { type: 'button', 'aria-label': `Remove ${def.name}`, onClick: () => (filters.splice(i, 1), render()) }, icon('trash', 14))),
+        ),
+      );
+    });
+    const available = doc.all('viewFilter').filter((d) => !filters.some((f) => f.id === d.id));
+    const add = h('select.input.sm', { 'aria-label': 'Add a filter' }, h('option', { value: '' }, 'Add filter...'), available.map((d) => h('option', { value: d.id }, d.name)));
+    add.addEventListener('change', () => {
+      if (!add.value) return;
+      filters.push({ id: add.value, visible: true, override: {} });
+      render();
+    });
+    if (filters.length) wrap.append(h('table.vg-table', h('thead', h('tr', h('th', 'Filter'), h('th', 'Visible'), h('th', 'Line color'), h('th', 'Line weight'), h('th', 'Halftone'), h('th', h('span.sr-only', 'Remove')))), tbody));
+    else wrap.append(h('p.props-empty', 'No filters in this view. Filters show, hide or restyle elements that match rules, such as walls whose type name contains "Fire".'));
+    wrap.append(
+      h('div.inline', { style: { marginTop: '8px', gap: '8px' } }, available.length ? add : null, h('button.btn.sm', { type: 'button', onClick: () => filtersDialog(app).then(() => render()) }, icon('filter', 14), 'Edit filters...')),
+    );
+    return wrap;
+  };
+  const render = () => {
+    clear(tabBar);
+    for (const t of tabs) tabBar.append(h('button.tab', { type: 'button', role: 'tab', 'aria-selected': String(t.id === tab), onClick: () => ((tab = t.id), render()) }, t.label));
+    clear(panel);
+    if (tab === 'model') panel.append(catTable(CATEGORIES.filter((c) => c.model)));
+    else if (tab === 'annotation') panel.append(catTable(CATEGORIES.filter((c) => !c.model)));
+    else panel.append(filterTab());
+  };
+  render();
+  body.append(tabBar, panel);
+  const hiddenIds = target.values.hiddenIds || [];
   let clearIds = false;
   if (hiddenIds.length) {
     const cb = h('input', { type: 'checkbox' });
     cb.addEventListener('change', () => (clearIds = cb.checked));
-    body.append(h('h3.dlg-sub', 'Hidden elements'), h('label.check', cb, `Show the ${hiddenIds.length} element${hiddenIds.length === 1 ? '' : 's'} hidden individually in this view`));
+    body.append(h('label.check', { style: { marginTop: '10px' } }, cb, `Show the ${hiddenIds.length} element${hiddenIds.length === 1 ? '' : 's'} hidden individually in this view`));
   }
+  body.append(h('p.field-hint', 'Line colors and weights apply to plans and to annotations; halftone and filters apply in every view.'));
   return openDialog({
-    title: `Visibility/Graphics: ${view.name}`,
+    title: `Visibility/Graphics: ${target.name}`,
     body,
-    size: 'md',
+    size: 'lg',
     actions: [
       { label: 'Cancel', value: null },
-      { label: 'OK', primary: true, onClick: () => app.commit('Visibility/Graphics', () => app.doc.update(view.id, { hiddenCats: [...hidden], ...(clearIds ? { hiddenIds: [] } : {}) })) },
+      {
+        label: 'OK',
+        primary: true,
+        onClick: () => {
+          const ov = {};
+          for (const [k, v] of Object.entries(overrides)) {
+            const c = cleanOverride(v);
+            if (c) ov[k] = c;
+          }
+          const fl = filters.map((f) => ({ id: f.id, visible: f.visible !== false, override: cleanOverride(f.override) }));
+          target.save({ hiddenCats: [...hidden], overrides: Object.keys(ov).length ? ov : null, filters: fl, ...(clearIds ? { hiddenIds: [] } : {}) });
+        },
+      },
     ],
   });
+}
+
+export function visibilityDialog(app) {
+  const view = app.activeView;
+  if (!view || !isView(view) || view.kind === 'schedule') return toast('Open a view first.', { kind: 'error' });
+  const tpl = view.templateId ? app.doc.get(view.templateId) : null;
+  if (tpl) {
+    return confirmDialog('Controlled by a view template', `The graphics of "${view.name}" come from the view template "${tpl.name}". Edit the template to change them for every view that uses it.`, { confirm: 'Edit template' }).then((ok) => ok && templateGraphics(app, tpl));
+  }
+  return graphicsDialog(app, { name: view.name, values: view, save: (patch) => app.commit('Visibility/Graphics', () => app.doc.update(view.id, patch)) });
+}
+
+function templateGraphics(app, tpl) {
+  return graphicsDialog(app, {
+    name: `${tpl.name} (template)`,
+    values: tpl.settings || {},
+    save: (patch) =>
+      app.commit('Edit view template', () => {
+        const { hiddenIds: _ignored, ...rest } = patch;
+        void _ignored;
+        app.doc.update(tpl.id, { settings: { ...(app.doc.get(tpl.id).settings || {}), ...rest } });
+        propagateTemplate(app.doc, tpl.id);
+      }),
+  });
+}
+
+/** Project filters: categories and parameter rules. */
+export function filtersDialog(app) {
+  const doc = app.doc;
+  let current = doc.all('viewFilter')[0]?.id ?? null;
+  const side = h('div.style-side');
+  const main = h('div.style-main');
+  const render = () => {
+    clear(side);
+    clear(main);
+    const list = h('ul.style-list', { role: 'listbox', 'aria-label': 'Filters' });
+    for (const f of doc.all('viewFilter'))
+      list.append(h('li.style-item', { role: 'option', 'aria-selected': String(f.id === current), tabindex: '0', onClick: () => ((current = f.id), render()), onKeydown: (e) => e.key === 'Enter' && ((current = f.id), render()) }, f.name));
+    side.append(
+      list,
+      h(
+        'div.inline',
+        h(
+          'button.btn.sm',
+          {
+            type: 'button',
+            onClick: () => {
+              const names = doc.all('viewFilter').map((f) => f.name);
+              let f;
+              app.commit('New filter', () => (f = doc.add({ kind: 'viewFilter', name: uniqueName(names, 'Filter 1'), categories: ['walls'], rules: [{ param: 'typeName', op: 'contains', value: '' }] })));
+              current = f.id;
+              render();
+            },
+          },
+          icon('plus', 14),
+          'New',
+        ),
+        current
+          ? h(
+              'button.btn.sm',
+              {
+                type: 'button',
+                onClick: () => {
+                  app.commit('Delete filter', () => {
+                    for (const v of doc.items.values()) if (v.filters?.some((x) => x.id === current)) doc.update(v.id, { filters: v.filters.filter((x) => x.id !== current) });
+                    for (const t of doc.all('viewTemplate')) if (t.settings?.filters?.some((x) => x.id === current)) doc.update(t.id, { settings: { ...t.settings, filters: t.settings.filters.filter((x) => x.id !== current) } });
+                    doc.remove(current);
+                  });
+                  current = doc.all('viewFilter')[0]?.id ?? null;
+                  render();
+                },
+              },
+              icon('trash', 14),
+              'Delete',
+            )
+          : null,
+      ),
+    );
+    const f = doc.get(current);
+    if (!f) {
+      main.append(h('p.props-empty', 'Create a filter to select elements by category and by their parameters. Then add it to views from Visibility/Graphics.'));
+      return;
+    }
+    const save = (patch) => app.commit('Edit filter', () => doc.update(f.id, patch));
+    const name = h('input.input', { type: 'text', value: f.name, 'aria-label': 'Filter name' });
+    name.addEventListener('change', () => name.value.trim() && (save({ name: name.value.trim() }), render()));
+    const cats = h('div.snap-grid');
+    for (const c of CATEGORIES) {
+      const cb = h('input', { type: 'checkbox', checked: f.categories?.includes(c.id) });
+      cb.addEventListener('change', () => {
+        const set = new Set(doc.get(f.id).categories || []);
+        if (cb.checked) set.add(c.id);
+        else set.delete(c.id);
+        save({ categories: [...set] });
+      });
+      cats.append(h('label.check', cb, c.label));
+    }
+    const rules = h('div.rule-list');
+    (f.rules || []).forEach((r, i) => {
+      const upd = (patch) => {
+        const rs = doc.get(f.id).rules.slice();
+        rs[i] = { ...rs[i], ...patch };
+        save({ rules: rs });
+      };
+      const param = h('select.input.sm', { 'aria-label': 'Parameter' }, FILTER_PARAMS.map((p) => h('option', { value: p.value }, p.label)));
+      param.value = r.param;
+      param.addEventListener('change', () => upd({ param: param.value }));
+      const op = h('select.input.sm', { 'aria-label': 'Condition' }, FILTER_OPS.map((p) => h('option', { value: p.value }, p.label)));
+      op.value = r.op;
+      op.addEventListener('change', () => (upd({ op: op.value }), render()));
+      const val = h('input.input.sm', { type: 'text', value: r.value ?? '', 'aria-label': 'Value', hidden: r.op === 'hasValue' || r.op === 'hasNoValue' });
+      val.addEventListener('change', () => upd({ value: val.value }));
+      rules.append(h('div.rule', param, op, val, h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Remove rule', onClick: () => (save({ rules: doc.get(f.id).rules.filter((_, j) => j !== i) }), render()) }, icon('x', 13))));
+    });
+    const matches = doc.filter((el) => !isView(el) && !el.kind.endsWith('Type') && filterMatches(doc, doc.get(f.id), el)).length;
+    main.append(
+      field('Name', name),
+      h('h3.dlg-sub', 'Categories'),
+      cats,
+      h('h3.dlg-sub', 'Rules (all must match)'),
+      rules,
+      h('button.btn.sm', { type: 'button', onClick: () => (save({ rules: [...(doc.get(f.id).rules || []), { param: 'typeName', op: 'contains', value: '' }] }), render()) }, icon('plus', 14), 'Add rule'),
+      h('p.field-hint', `${matches} element${matches === 1 ? '' : 's'} in the project match this filter.`),
+    );
+  };
+  render();
+  return openDialog({ title: 'Filters', body: h('div.style-dlg', side, main), size: 'lg', actions: [{ label: 'Close', primary: true, value: null }] });
+}
+
+/** View templates: create from a view, edit, and assign to views. */
+export function templatesDialog(app) {
+  const doc = app.doc;
+  const active = app.activeView;
+  let current = doc.all('viewTemplate')[0]?.id ?? null;
+  const side = h('div.style-side');
+  const main = h('div.style-main');
+  const KIND_NAME = { plan: 'Floor plans and area plans', ceilingPlan: 'Ceiling plans', view3d: '3D views', elevation: 'Elevations and sections' };
+  const fits = (tpl, v) => templateKindOf(v.kind) === tpl.viewKind;
+  const render = () => {
+    clear(side);
+    clear(main);
+    const list = h('ul.style-list', { role: 'listbox', 'aria-label': 'View templates' });
+    for (const t of doc.all('viewTemplate'))
+      list.append(
+        h(
+          'li.style-item',
+          { role: 'option', 'aria-selected': String(t.id === current), tabindex: '0', onClick: () => ((current = t.id), render()), onKeydown: (e) => e.key === 'Enter' && ((current = t.id), render()) },
+          h('span', t.name),
+          h('span.file-meta', ` ${KIND_NAME[t.viewKind] || t.viewKind}`),
+        ),
+      );
+    const canCreate = active && ['plan', 'areaPlan', 'ceilingPlan', 'view3d', 'elevation', 'section'].includes(active.kind);
+    side.append(
+      list,
+      h(
+        'div.inline',
+        h(
+          'button.btn.sm',
+          {
+            type: 'button',
+            disabled: !canCreate,
+            'data-tip': canCreate ? `From ${active.name}` : 'Open a plan, 3D view, elevation or section first',
+            onClick: () => {
+              const names = doc.all('viewTemplate').map((t) => t.name);
+              let t;
+              app.commit('New view template', () => (t = doc.add({ kind: 'viewTemplate', name: uniqueName(names, `${active.name} Template`), viewKind: templateKindOf(active.kind), settings: templateSettings(active) })));
+              current = t.id;
+              render();
+            },
+          },
+          icon('plus', 14),
+          'New from view',
+        ),
+        current ? h('button.btn.sm', { type: 'button', onClick: () => (app.commit('Delete view template', () => { for (const v of doc.items.values()) if (v.templateId === current) doc.update(v.id, { templateId: null }); doc.remove(current); }), (current = doc.all('viewTemplate')[0]?.id ?? null), render()) }, icon('trash', 14), 'Delete') : null,
+      ),
+    );
+    const t = doc.get(current);
+    if (!t) {
+      main.append(h('p.props-empty', 'A view template stores the scale, detail level, visibility and graphics of a view. Views that use a template follow it whenever it changes.'));
+      return;
+    }
+    const s = t.settings || {};
+    const set = (patch) => {
+      app.commit('Edit view template', () => {
+        doc.update(t.id, patch.name ? { name: patch.name } : { settings: { ...doc.get(t.id).settings, ...patch } });
+        propagateTemplate(doc, t.id);
+      });
+      render();
+    };
+    const name = h('input.input', { type: 'text', value: t.name, 'aria-label': 'Template name' });
+    name.addEventListener('change', () => name.value.trim() && set({ name: name.value.trim() }));
+    const rows = [field('Name', name)];
+    if (s.scale !== undefined) {
+      const sc = h('select.input', {}, scaleOptions(doc.units).map((o) => h('option', { value: o.value }, o.label)));
+      sc.value = String(s.scale);
+      sc.addEventListener('change', () => set({ scale: +sc.value }));
+      rows.push(field('View scale', sc));
+    }
+    const det = h('select.input', {}, ['coarse', 'medium', 'fine'].map((v) => h('option', { value: v }, v[0].toUpperCase() + v.slice(1))));
+    det.value = s.detail || 'medium';
+    det.addEventListener('change', () => set({ detail: det.value }));
+    rows.push(field('Detail level', det));
+    if (t.viewKind === 'view3d' || t.viewKind === 'elevation') {
+      const st = h('select.input', {}, [['wireframe', 'Wireframe'], ['hidden', 'Hidden Line'], ['shaded', 'Shaded'], ['consistent', 'Consistent Colors'], ['realistic', 'Realistic']].map(([v, l]) => h('option', { value: v }, l)));
+      st.value = s.style || 'shaded';
+      st.addEventListener('change', () => set({ style: st.value }));
+      rows.push(field('Visual style', st));
+    }
+    if (t.viewKind === 'plan') {
+      const rf = h('input', { type: 'checkbox', checked: !!s.roomFill });
+      rf.addEventListener('change', () => set({ roomFill: rf.checked }));
+      rows.push(h('label.check', rf, 'Room color fill'));
+    }
+    rows.push(h('button.btn.sm', { type: 'button', onClick: () => templateGraphics(app, doc.get(t.id)).then(render) }, icon('visibility', 14), 'Visibility/Graphics...'));
+    const views = doc.filter((v) => isView(v) && fits(t, v));
+    const assign = h('div.snap-grid');
+    for (const v of views) {
+      const cb = h('input', { type: 'checkbox', checked: v.templateId === t.id });
+      cb.addEventListener('change', () => {
+        app.commit(cb.checked ? 'Assign view template' : 'Remove view template', () => doc.update(v.id, cb.checked ? applyTemplatePatch(doc.get(t.id)) : { templateId: null }));
+        render();
+      });
+      assign.append(h('label.check', cb, v.name));
+    }
+    main.append(...rows, h('h3.dlg-sub', 'Views that use this template'), views.length ? assign : h('p.props-empty', 'No views of this kind.'));
+  };
+  render();
+  return openDialog({ title: 'View Templates', body: h('div.style-dlg', side, main), size: 'lg', actions: [{ label: 'Close', primary: true, value: null }] });
 }
 
 // Project ----------------------------------------------------------------------------------------------
@@ -539,6 +876,35 @@ export function planViewDialog(app) {
               }
           });
           if (last) app.openView(last.id);
+        },
+      },
+    ],
+  });
+}
+
+/** New drafting view or legend: a 2D view drawn with annotation tools only. */
+export function newFlatViewDialog(app, kind) {
+  const doc = app.doc;
+  const label = kind === 'legend' ? 'Legend' : 'Drafting View';
+  const names = doc.all(kind).map((v) => v.name);
+  const name = h('input.input', { type: 'text', value: uniqueName(names, `${label} 1`) });
+  const scale = h('select.input', {}, scaleOptions(doc.units).map((o) => h('option', { value: o.value }, o.label)));
+  scale.value = String(doc.units.system === 'imperial' ? (kind === 'legend' ? 48 : 12) : kind === 'legend' ? 50 : 10);
+  return openDialog({
+    title: `New ${label}`,
+    body: h('div', field('Name', name), field('Scale', scale), h('p.field-hint', kind === 'legend' ? 'Place legend components (types drawn as symbols or layered strips) with text to explain them.' : 'Draw details with lines, regions, detail components, dimensions and text.')),
+    size: 'sm',
+    actions: [
+      { label: 'Cancel', value: null },
+      {
+        label: 'Create',
+        primary: true,
+        onClick: () => {
+          const n = name.value.trim();
+          if (!n) return false;
+          const v = { id: newId('v'), kind, name: uniqueName(names, n), scale: +scale.value, detail: 'fine', hiddenCats: [], hiddenIds: [] };
+          app.commit(`New ${label.toLowerCase()}`, () => doc.add(v));
+          app.openView(v.id);
         },
       },
     ],
@@ -809,6 +1175,40 @@ export function scheduleFieldsDialog(app, id) {
   });
 }
 
+export function scheduleFilterDialog(app, id) {
+  const view = app.doc.get(id || app.activeViewId);
+  if (!view || view.kind !== 'schedule') return;
+  const cat = SCHEDULE_CATEGORIES[view.category];
+  const rules = structuredClone(view.filter || []);
+  const list = h('div.rule-list');
+  const fields = cat.fields.filter((f) => f.type !== 'count');
+  const render = () => {
+    clear(list);
+    rules.forEach((r, i) => {
+      const fieldSel = h('select.input.sm', { 'aria-label': 'Field' }, fields.map((f) => h('option', { value: f.id }, f.label)));
+      fieldSel.value = r.field;
+      fieldSel.addEventListener('change', () => (r.field = fieldSel.value));
+      const op = h('select.input.sm', { 'aria-label': 'Condition' }, FILTER_OPS.map((o) => h('option', { value: o.value }, o.label)));
+      op.value = r.op;
+      op.addEventListener('change', () => ((r.op = op.value), render()));
+      const val = h('input.input.sm', { type: 'text', value: r.value ?? '', 'aria-label': 'Value', hidden: r.op === 'hasValue' || r.op === 'hasNoValue' });
+      val.addEventListener('input', () => (r.value = val.value));
+      list.append(h('div.rule', fieldSel, op, val, h('button.icon-btn.sm', { type: 'button', 'aria-label': 'Remove rule', onClick: () => (rules.splice(i, 1), render()) }, icon('x', 13))));
+    });
+    if (!rules.length) list.append(h('p.props-empty', 'Every row is shown. Add a rule to show only rows that match it.'));
+  };
+  render();
+  return openDialog({
+    title: `Filter: ${view.name}`,
+    body: h('div', list, h('button.btn.sm', { type: 'button', style: { marginTop: '8px' }, onClick: () => (rules.push({ field: fields[0].id, op: 'equals', value: '' }), render()) }, icon('plus', 14), 'Add rule'), h('p.field-hint', 'Rows must match every rule. Lengths and areas compare in millimetres and square millimetres.')),
+    size: 'md',
+    actions: [
+      { label: 'Cancel', value: null },
+      { label: 'OK', primary: true, onClick: () => app.commit('Schedule filter', () => app.doc.update(view.id, { filter: rules })) },
+    ],
+  });
+}
+
 export function newSheet(app) {
   const doc = app.doc;
   const sheets = doc.all('sheet');
@@ -842,7 +1242,7 @@ export async function placeViewDialog(app, viewId) {
   const at = [(area.x0 + area.x1) / 2, (area.y0 + area.y1) / 2];
   let center = null;
   let size = null;
-  if (isPlanView(view)) {
+  if (isFlatView(view)) {
     // Center on the view's content.
     const cached = app.controllers.has(view.id);
     const c = app.controllerFor(view);

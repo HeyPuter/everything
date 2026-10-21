@@ -59,6 +59,7 @@ export class ProjectBrowser {
       { key: 'views/view3d', label: '3D Views', children: doc.all('view3d').sort(sortByName).map(viewNode) },
       { key: 'views/elevation', label: 'Elevations', children: doc.all('elevation').map(viewNode) },
       { key: 'views/section', label: 'Sections', children: doc.all('section').sort(sortByName).map(viewNode) },
+      { key: 'views/drafting', label: 'Drafting Views', children: doc.all('drafting').sort(sortByName).map(viewNode) },
     ].filter((g) => g.children.length);
     const fam = [];
     for (const g of TYPE_GROUPS) {
@@ -93,6 +94,7 @@ export class ProjectBrowser {
     }
     return [
       { key: 'views', label: 'Views (all)', icon: 'layers', children: views },
+      { key: 'legends', label: 'Legends', icon: 'legend', children: doc.all('legend').sort(sortByName).map(viewNode) },
       { key: 'schedules', label: 'Schedules/Quantities', icon: 'schedule', children: doc.all('schedule').sort(sortByName).map(viewNode) },
       { key: 'sheets', label: 'Sheets (all)', icon: 'sheet', children: doc.all('sheet').sort((a, b) => String(a.number).localeCompare(String(b.number), undefined, { numeric: true })).map(viewNode) },
       { key: 'families', label: 'Families', icon: 'types', children: fam },

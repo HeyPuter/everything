@@ -15,11 +15,17 @@ import { build3D } from './build3d.js';
 import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.js';
 import { hostedBy } from './model.js';
 import { ANNOTATION_KINDS } from './annotate.js';
+import { hiddenByFilters, viewGraphics, restyle, viewFilterItems } from './graphics.js';
+import { cropGraphics } from './crop.js';
+import { isView } from './doc.js';
 
 export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'ramp', 'railing', 'component', 'modelLine'];
 export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'modelLine', 'area', 'areaBoundary']);
+
+/** 2D views that show only their own annotations. */
+export const DRAWN_ONLY = new Set(['drafting', 'legend']);
 
 /** Kinds drawn only in area plans, and kinds area plans leave out. */
 const AREA_ONLY = new Set(['area', 'areaBoundary']);
@@ -156,6 +162,13 @@ export class Scene {
   planCandidates(view) {
     const doc = this.doc;
     const out = [];
+    // Drafting views and legends show only what is drawn in them.
+    if (DRAWN_ONLY.has(view.kind)) {
+      for (const el of doc.items.values()) if (el.viewId === view.id && !hiddenInView(doc, view, el)) out.push(el);
+      return out;
+    }
+    // Callouts made in this view show their marker here.
+    for (const v of doc.all(view.kind)) if (v.calloutOf === view.id) out.push(v);
     const areaPlan = view.kind === 'areaPlan';
     for (const k of PLAN_KINDS) {
       if (areaPlan ? NOT_IN_AREA_PLANS.has(k) : AREA_ONLY.has(k)) continue;
@@ -165,7 +178,7 @@ export class Scene {
         if (k === 'section' || k === 'elevation') {
           if (view.kind !== 'plan' && view.kind !== 'areaPlan') continue;
         }
-        if (hiddenInView(doc, view, el)) continue;
+        if (hiddenInView(doc, view, el) || hiddenByFilters(doc, view, el)) continue;
         out.push(el);
       }
     }
@@ -175,7 +188,7 @@ export class Scene {
   /** Inputs of an element's plan graphics, beyond its 3D inputs. */
   depsPlan(view, el, pc) {
     const doc = this.doc;
-    const d = [view, doc.get(view.levelId), ...this.deps3D(el)];
+    const d = [view, doc.get(view.levelId), ...this.deps3D(el), ...viewFilterItems(doc, view)];
     if (el.kind === 'room') d.push(this.rooms.room(el));
     else if (el.kind === 'area') d.push(this.areas.area(el));
     else if (el.kind === 'dimension') for (const r of el.refs || []) d.push(doc.get(r.id));
@@ -202,6 +215,8 @@ export class Scene {
     let g = null;
     try {
       g = planGraphics(ctx, el);
+      if (g && (view.overrides || view.filters?.length)) g = restyle(g, viewGraphics(this.doc, view, el));
+      if (g && view.cropOn && view.crop && !el.viewId && !isView(el) && el.kind !== 'section' && el.kind !== 'elevation') g = cropGraphics(g, view.crop);
     } catch (err) {
       console.warn('Could not draw', el.kind, el.id, err);
     }

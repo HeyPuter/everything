@@ -6,7 +6,7 @@
 import { ModelController } from './model.js';
 import { PlanController } from './plan.js';
 import { drawLayerTexts } from './overlay.js';
-import { isPlanView } from '../core/doc.js';
+import { isFlatView } from '../core/doc.js';
 
 /**
  * Render a view to a canvas of w x h pixels. fit: zoom to extents first.
@@ -30,7 +30,7 @@ export function renderViewImage(app, view, w, h, { fit = true, camera = null, tr
     canvas: { width: w, height: h },
     requestRender() {},
   };
-  const isPlan = isPlanView(view);
+  const isPlan = isFlatView(view);
   const C = isPlan ? PlanController : ModelController;
   const saved = app.viewStates.get(view.id);
   const c = new C(app, view);

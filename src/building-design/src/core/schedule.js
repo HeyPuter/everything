@@ -4,6 +4,9 @@
  */
 import { openingSize, verticalExtent, levelOf, stairLayout, rampLayout } from './model.js';
 import { schemeLabel, AREA_TYPES } from './props.js';
+import { roofGeometry } from './build3d.js';
+import { VIEW_KINDS, VIEW_LABEL } from './doc.js';
+import { scaleLabel } from './units.js';
 import { typeThickness, KIND_LABEL, CATEGORIES } from './catalog.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { formatLength, formatArea, formatVolume } from './units.js';
@@ -197,7 +200,121 @@ export const SCHEDULE_CATEGORIES = {
     ],
     defaults: ['type', 'level', 'offset', 'area'],
   },
+  materialTakeoff: {
+    label: 'Material Takeoff',
+    // One row per layer of every layered element.
+    items: (ctx) => {
+      const out = [];
+      for (const el of ctx.doc.all('wall', 'floor', 'roof', 'ceiling')) {
+        const type = ctx.doc.get(el.typeId);
+        if (!type?.layers) continue;
+        const face = layeredArea(el, ctx);
+        type.layers.forEach((l, i) => out.push({ ...el, id: el.id, layer: l, layerIndex: i, faceArea: face }));
+      }
+      return out;
+    },
+    fields: [
+      F('material', 'Material', (r, c) => c.doc.get(r.layer.materialId)?.name ?? ''),
+      F('category', 'Category', (r) => KIND_LABEL[r.kind]),
+      F('type', 'Type', typeName),
+      F('function', 'Layer Function', (r) => r.layer.function ?? ''),
+      F('thickness', 'Thickness', (r) => +r.layer.thickness || 0, 'length'),
+      F('area', 'Area', (r) => r.faceArea, 'area'),
+      F('volume', 'Volume', (r) => r.faceArea * (+r.layer.thickness || 0), 'volume'),
+      F('level', 'Level', lvlName),
+      COUNT,
+    ],
+    defaults: ['material', 'area', 'volume', 'count'],
+    group: true,
+  },
+  sheetList: {
+    label: 'Sheet List',
+    items: (ctx) => ctx.doc.all('sheet'),
+    fields: [
+      F('number', 'Sheet Number', (el) => el.number ?? '', 'text', 'number'),
+      F('name', 'Sheet Name', (el) => el.name ?? '', 'text', 'name'),
+      F('drawnBy', 'Drawn By', (el) => el.drawnBy ?? '', 'text', 'drawnBy'),
+      F('checkedBy', 'Checked By', (el) => el.checkedBy ?? '', 'text', 'checkedBy'),
+      F('issueDate', 'Issue Date', (el) => el.issueDate ?? '', 'text', 'issueDate'),
+      F('views', 'Views', (el, c) => c.doc.all('viewport').filter((v) => v.viewId === el.id).length, 'number'),
+      COUNT,
+    ],
+    defaults: ['number', 'name', 'drawnBy', 'issueDate', 'views'],
+  },
+  viewList: {
+    label: 'View List',
+    items: (ctx) => ctx.doc.filter((v) => VIEW_KINDS.has(v.kind) && v.kind !== 'sheet' && v.kind !== 'schedule'),
+    fields: [
+      F('name', 'View Name', (el) => el.name ?? '', 'text', 'name'),
+      F('kind', 'View Type', (el) => VIEW_LABEL[el.kind] ?? el.kind),
+      F('level', 'Associated Level', lvlName),
+      F('scale', 'Scale', (el, c) => (el.scale ? scaleLabel(+el.scale, c.doc.units) : '')),
+      F('detail', 'Detail Level', (el) => ({ coarse: 'Coarse', medium: 'Medium', fine: 'Fine' })[el.detail] ?? ''),
+      F('sheet', 'Sheet', (el, c) => {
+        const vp = c.doc.all('viewport').find((v) => v.placedId === el.id);
+        const sh = vp && c.doc.get(vp.viewId);
+        return sh ? `${sh.number} - ${sh.name}` : '';
+      }),
+      F('template', 'View Template', (el, c) => c.doc.get(el.templateId)?.name ?? ''),
+      COUNT,
+    ],
+    defaults: ['name', 'kind', 'level', 'scale', 'sheet'],
+  },
 };
+
+/** Face area a layer of a wall, floor, roof or ceiling covers. */
+function layeredArea(el, c) {
+  if (el.kind === 'wall') return dist(el.a, el.b) * wallH(el, c);
+  if (el.kind === 'roof') return roofSurfaceArea(c.doc, el);
+  return slabArea(el);
+}
+
+/** Sloped surface area of a roof (footprint area over the cosine of each face's slope). */
+function roofSurfaceArea(doc, el) {
+  try {
+    const g = roofGeometry(doc, el);
+    let s = 0;
+    for (const f of g.faces) s += polyArea(f.poly) / (f.plane ? Math.cos(Math.atan(f.plane.k)) : 1);
+    return s - (el.holes || []).reduce((t, h) => t + polyArea(h), 0);
+  } catch {
+    return slabArea(el);
+  }
+}
+
+/** Does a schedule row pass the schedule's filters? */
+function rowPasses(view, values) {
+  for (const f of view.filter || []) if (!scheduleRuleMatches(values[f.field], f)) return false;
+  return true;
+}
+
+function scheduleRuleMatches(v, rule) {
+  const s = String(v ?? '');
+  const t = String(rule.value ?? '');
+  const n = parseFloat(s);
+  const m = parseFloat(t);
+  switch (rule.op) {
+    case 'equals':
+      return s.toLowerCase() === t.toLowerCase() || (Number.isFinite(n) && Number.isFinite(m) && Math.abs(n - m) < 1e-6);
+    case 'notEquals':
+      return !scheduleRuleMatches(v, { ...rule, op: 'equals' });
+    case 'contains':
+      return s.toLowerCase().includes(t.toLowerCase());
+    case 'notContains':
+      return !s.toLowerCase().includes(t.toLowerCase());
+    case 'beginsWith':
+      return s.toLowerCase().startsWith(t.toLowerCase());
+    case 'greater':
+      return Number.isFinite(n) && Number.isFinite(m) ? n > m : s.localeCompare(t, undefined, { numeric: true }) > 0;
+    case 'less':
+      return Number.isFinite(n) && Number.isFinite(m) ? n < m : s.localeCompare(t, undefined, { numeric: true }) < 0;
+    case 'hasValue':
+      return s !== '';
+    case 'hasNoValue':
+      return s === '';
+    default:
+      return true;
+  }
+}
 
 export function scheduleColumns(doc, view) {
   const cat = SCHEDULE_CATEGORIES[view.category];
@@ -215,18 +332,22 @@ export function scheduleRows(app, view) {
   if (!cat) return [];
   const ctx = { doc: app.doc, scene: app.scene };
   const cols = scheduleColumns(app.doc, view);
-  const els = cat.kinds.flatMap((k) => app.doc.all(k));
-  let rows = els.map((el) => {
+  // Filters may use fields that are not shown.
+  const filterCols = (view.filter || []).map((f) => cat.fields.find((x) => x.id === f.field)).filter((c) => c && !cols.includes(c));
+  const els = cat.items ? cat.items(ctx) : cat.kinds.flatMap((k) => app.doc.all(k));
+  let rows = [];
+  for (const el of els) {
     const values = {};
-    for (const c of cols) {
+    for (const c of [...cols, ...filterCols]) {
       try {
         values[c.id] = c.get(el, ctx);
       } catch {
         values[c.id] = '';
       }
     }
-    return { id: el.id, ids: [el.id], values };
-  });
+    if (!rowPasses(view, values)) continue;
+    rows.push({ id: el.id, ids: [el.id], values });
+  }
   const itemize = view.itemize ?? !cat.group;
   if (!itemize) {
     const groups = new Map();
@@ -246,14 +367,29 @@ export function scheduleRows(app, view) {
   }
   const sort = view.sortBy && cols.some((c) => c.id === view.sortBy) ? view.sortBy : cols[0]?.id;
   const dir = view.sortDir === 'desc' ? -1 : 1;
-  if (sort)
+  const cmp = (x, y) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true }));
+  const group = view.groupBy && cols.some((c) => c.id === view.groupBy) ? view.groupBy : null;
+  if (sort || group)
     rows.sort((a, b) => {
-      const x = a.values[sort];
-      const y = b.values[sort];
-      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
-      return String(x).localeCompare(String(y), undefined, { numeric: true }) * dir;
+      if (group) {
+        const g = cmp(a.values[group], b.values[group]);
+        if (g) return g;
+      }
+      return sort ? cmp(a.values[sort], b.values[sort]) * dir : 0;
     });
   return rows;
+}
+
+/** Rows split into groups by a field: [{ value, rows }] (one group when there is no grouping). */
+export function scheduleGroups(view, rows) {
+  if (!view.groupBy) return [{ value: null, rows }];
+  const out = [];
+  for (const r of rows) {
+    const v = r.values[view.groupBy];
+    if (!out.length || out.at(-1).value !== v) out.push({ value: v, rows: [] });
+    out.at(-1).rows.push(r);
+  }
+  return out;
 }
 
 export function formatCell(col, v, units) {

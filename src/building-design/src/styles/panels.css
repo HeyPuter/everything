@@ -754,3 +754,25 @@ button.type-sel:hover:not(:disabled) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.schedule tr.group-head td {
+  background: var(--bg-group);
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.schedule tr.group-total td {
+  font-weight: 600;
+  border-bottom-width: 2px;
+}
+
+.schedule tr.group-head:hover td,
+.schedule tr.group-total:hover td {
+  background: var(--bg-group);
+}
+
+.schedule-head .inline {
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--fg-muted);
+}

@@ -4,7 +4,7 @@
  * text overlay.
  */
 import { viewMatrix2D } from '../render/renderer2d.js';
-import { planContext } from '../core/plan.js';
+import { planContext, PlanBuilder, W } from '../core/plan.js';
 import { pointInPolygon, distToSegment, bboxIntersects, bboxContains, segmentIntersectsBox, bboxUnion } from '../core/geom.js';
 import { snapFeatures } from '../editor/snap.js';
 import { drawLayerTexts } from './overlay.js';
@@ -29,6 +29,8 @@ const PICK_RANK = {
   beam: 3,
   grid: 4,
   refPlane: 4,
+  plan: 4,
+  ceilingPlan: 4,
   area: 5,
   section: 4,
   elevation: 4,
@@ -114,6 +116,25 @@ export class PlanController {
         keep.add(key);
         this.layer.set(key, scene.indexOf(key), el.kind === 'wall' ? 'floor' : el.kind, g);
       }
+    }
+    // The crop region's outline, when it is shown (not an element: not selectable).
+    if (view.cropShow && view.crop) {
+      const key = `crop:${view.id}`;
+      const r = view.crop;
+      const b = new PlanBuilder();
+      b.poly(
+        [
+          [r.x0, r.y0],
+          [r.x1, r.y0],
+          [r.x1, r.y1],
+          [r.x0, r.y1],
+        ],
+        true,
+        W.light,
+        1,
+      );
+      keep.add(key);
+      this.layer.set(key, scene.indexOf(key), 'overlay', b);
     }
     this.layer.retain(keep);
     this.syncedVersion = scene.version;

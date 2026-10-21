@@ -209,6 +209,11 @@ export function planGraphics(pc, el) {
     case 'refPlane':
       planRefPlane(pc, el, b);
       break;
+    case 'plan':
+    case 'ceilingPlan':
+    case 'areaPlan':
+      if (el.calloutOf === pc.view.id && el.crop) planCalloutMarker(pc, el, b);
+      break;
     case 'modelLine':
       if (el.levelId === pc.view.levelId) drawDetailLine(el, b);
       break;
@@ -1049,6 +1054,38 @@ function planElevationMarker(pc, v, b) {
   b.text(c, abbreviation(v.name), { size: P(pc, 2) });
   b.pick(circle);
   b.pick(tri);
+}
+
+/** A callout in its parent view: the cropped area, a leader and a bubble with the view's name. */
+function planCalloutMarker(pc, v, b) {
+  const r = v.crop;
+  const rad = Math.min(P(pc, 3), (r.x1 - r.x0) / 4, (r.y1 - r.y0) / 4);
+  // Rounded rectangle.
+  const pts = [];
+  const corner = (cx, cy, a0) => pts.push(...arcPoints([cx, cy], rad, a0, a0 + Math.PI / 2, Math.PI / 12));
+  corner(r.x1 - rad, r.y0 + rad, -Math.PI / 2);
+  corner(r.x1 - rad, r.y1 - rad, 0);
+  corner(r.x0 + rad, r.y1 - rad, Math.PI / 2);
+  corner(r.x0 + rad, r.y0 + rad, Math.PI);
+  b.poly(pts, true, W.medium, 1);
+  const bubbleR = P(pc, 4);
+  const c = [r.x1 + bubbleR * 2.2, r.y1 + bubbleR * 1.6];
+  b.line([r.x1 - rad * 0.3, r.y1 - rad * 0.3], add(c, scale(norm(sub([r.x1, r.y1], c)), bubbleR)), W.thin);
+  const circle = arcPoints(c, bubbleR, 0, Math.PI * 2, Math.PI / 20).slice(0, -1);
+  b.fill(circle, [], BG);
+  b.circle(c, bubbleR, W.light);
+  b.line(add(c, [-bubbleR, 0]), add(c, [bubbleR, 0]), W.thin);
+  b.text(add(c, [0, bubbleR * 0.42]), abbreviation(v.name), { size: P(pc, 2) });
+  b.text(add(c, [0, -bubbleR * 0.45]), v.sheetRef || '', { size: P(pc, 1.6) });
+  // Picks: the outline band and the bubble, so what is inside stays selectable.
+  const pad = P(pc, 1);
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const q = pts[(i + 1) % pts.length];
+    const n = perp(norm(sub(q, p)));
+    b.pick([add(p, scale(n, -pad)), add(q, scale(n, -pad)), add(q, scale(n, pad)), add(p, scale(n, pad))]);
+  }
+  b.pick(circle);
 }
 
 function abbreviation(name) {

@@ -16,7 +16,8 @@ import { COMMANDS } from './commands.js';
 import { Scene, MODEL_KINDS } from './core/scene.js';
 import { createProject, default3DView, upgradeDoc } from './core/template.js';
 import { createSampleProject } from './core/sample.js';
-import { isView, newId, PLAN_VIEW_KINDS } from './core/doc.js';
+import { isView, newId, PLAN_VIEW_KINDS, isPlanView } from './core/doc.js';
+import { defaultCrop } from './core/props.js';
 import { categoryOf, defaultTypeFor } from './core/catalog.js';
 import { describe as describeEl } from './core/props.js';
 import { formatArea, formatLength, parseLength } from './core/units.js';
@@ -24,6 +25,7 @@ import { temporaryDimensions } from './editor/tempdims.js';
 import { drawTempDim } from './views/overlay.js';
 import { deleteElements, moveElements, uniqueName, expandGroups } from './core/ops.js';
 import { groupable, createGroup, propagateGroup, ungroup } from './core/groups.js';
+import { viewGraphics, hiddenByFilters, templateSettings, templateKindOf } from './core/graphics.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
 import { ModelController } from './views/model.js';
@@ -223,7 +225,7 @@ export class App {
   controllerFor(view) {
     let c = this.controllers.get(view.id);
     if (c) return c;
-    if (PLAN_KINDS.has(view.kind)) c = new PlanController(this, view);
+    if (PLAN_KINDS.has(view.kind) || view.kind === 'drafting' || view.kind === 'legend') c = new PlanController(this, view);
     else if (view.kind === 'view3d' || view.kind === 'elevation' || view.kind === 'section') c = new ModelController(this, view);
     else if (view.kind === 'schedule') c = new ScheduleController(this, view);
     else if (view.kind === 'sheet') c = new SheetController(this, view);
@@ -444,15 +446,35 @@ export class App {
     this.openView(v.id);
   }
 
-  duplicateView(id) {
+  duplicateView(id, { detailing = false } = {}) {
     const v = this.doc.get(id || this.activeViewId);
     if (!v || !isView(v) || v.kind === 'schedule' || v.kind === 'sheet') return this.toast('Choose a plan, 3D view or section to duplicate.', { kind: 'error' });
     const names = this.doc.filter((x) => isView(x)).map((x) => x.name);
     const { id: _id, ...rest } = v;
     void _id;
     let copy;
-    this.commit('Duplicate view', () => (copy = this.doc.add({ ...rest, id: newId('v'), name: uniqueName(names, `${v.name} Copy 1`) })));
+    this.commit(detailing ? 'Duplicate view with detailing' : 'Duplicate view', () => {
+      copy = this.doc.add({ ...rest, id: newId('v'), name: uniqueName(names, `${v.name} Copy 1`) });
+      if (!detailing) return;
+      for (const el of this.doc.filter((x) => x.viewId === v.id && x.kind !== 'viewport')) {
+        const { id: _eid, ...er } = el;
+        void _eid;
+        this.doc.add({ ...er, viewId: copy.id });
+      }
+    });
     if (copy) this.openView(copy.id);
+  }
+
+  newFlatView(kind) {
+    return dialogs.newFlatViewDialog(this, kind);
+  }
+
+  toggleCrop(key) {
+    const v = this.activeView;
+    if (!v || !isPlanView(v)) return this.toast('Crop regions are for plan views.', { kind: 'error' });
+    const on = !v[key];
+    this.commit(key === 'cropOn' ? 'Crop view' : 'Show crop region', () => this.doc.update(v.id, { [key]: on, ...(on && !v.crop ? { crop: defaultCrop(this, v) } : {}) }));
+    this.renderViewbar();
   }
 
   /** The level new elements go on: the plan's level, else the first level. */
@@ -575,6 +597,7 @@ export class App {
       const el = this.doc.get(id);
       const reveal = this.reveal.has(view.id);
       if (el && this.hiddenInView(view, el)) f |= reveal ? FLAG.halftone : FLAG.hidden;
+      else if (el && (view.overrides || view.filters?.length) && viewGraphics(this.doc, view, el).halftone) f |= FLAG.halftone;
       const t = this.temp.get(view.id);
       if (t) {
         const inSet = t.ids.has(id) || (el?.hostId && t.ids.has(el.hostId));
@@ -594,7 +617,7 @@ export class App {
       const host = this.doc.get(el.hostId);
       if (host && view.hiddenIds?.includes(host.id)) return true;
     }
-    return false;
+    return hiddenByFilters(this.doc, view, el);
   }
 
   /** Refresh the per-element state texture before drawing. */
@@ -758,6 +781,8 @@ export class App {
   isCommandActive(cmd) {
     if (cmd === 'thinLines') return !!this.settings.thinLines;
     if (cmd === 'workPlaneGrid') return !!this.settings.workPlaneGrid;
+    if (cmd === 'cropView') return !!this.activeView?.cropOn;
+    if (cmd === 'cropShow') return !!this.activeView?.cropShow;
     if (cmd === 'roomFill') return !!this.activeView?.roomFill;
     if (cmd === 'revealHidden') return this.reveal.has(this.activeViewId);
     if (cmd === 'sectionBox') return !!this.activeView?.sectionBox;
@@ -896,7 +921,7 @@ export class App {
   editElement(id, ev) {
     const el = this.doc.get(id);
     if (!el) return;
-    if (el.kind === 'section' || el.kind === 'elevation') return this.openView(el.id);
+    if (el.kind === 'section' || el.kind === 'elevation' || isView(el)) return this.openView(el.id);
     if (el.kind === 'group') return this.startGroupEdit(el.id);
     if (el.kind === 'floor' || el.kind === 'roof' || el.kind === 'ceiling' || el.kind === 'railing') {
       this.select([id]);
@@ -1655,6 +1680,21 @@ export class App {
   revisionsDialog() {
     return dialogs.revisionsDialog(this);
   }
+  filtersDialog() {
+    return dialogs.filtersDialog(this);
+  }
+  templatesDialog() {
+    return dialogs.templatesDialog(this);
+  }
+  async templateFromView() {
+    const v = this.activeView;
+    if (!v || !['plan', 'areaPlan', 'ceilingPlan', 'view3d', 'elevation', 'section'].includes(v.kind)) return this.toast('Open a plan, 3D view, elevation or section first.', { kind: 'error' });
+    const names = this.doc.all('viewTemplate').map((t) => t.name);
+    const name = await promptDialog('New View Template', 'Template name', uniqueName(names, `${v.name} Template`), { okLabel: 'Create', validate: (x) => (!x ? 'Enter a name.' : names.includes(x) ? 'A template with this name exists.' : null) });
+    if (!name) return;
+    this.commit('New view template', () => this.doc.add({ kind: 'viewTemplate', name, viewKind: templateKindOf(v.kind), settings: templateSettings(v) }));
+    this.toast(`Created the view template "${name}". Assign it to views in their properties, or in View Templates.`, { kind: 'success' });
+  }
   findReplaceDialog() {
     return dialogs.findReplaceDialog(this);
   }
@@ -1675,6 +1715,9 @@ export class App {
   }
   scheduleFieldsDialog(id) {
     return dialogs.scheduleFieldsDialog(this, id);
+  }
+  scheduleFilterDialog(id) {
+    return dialogs.scheduleFilterDialog(this, id);
   }
 }
 

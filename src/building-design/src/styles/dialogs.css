@@ -581,3 +581,82 @@
   font-size: var(--fs-xs);
   color: var(--fg-faint);
 }
+
+/* Visibility/Graphics, filters and templates */
+
+.style-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.style-main > .btn {
+  align-self: flex-start;
+}
+
+.vg-panel {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.vg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.vg-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-elev, var(--bg));
+  text-align: left;
+  font-weight: 600;
+  color: var(--fg-muted);
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.vg-table td {
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+  height: 30px;
+}
+
+.vg-table td.center {
+  text-align: center;
+}
+
+.ov-colorcell {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ov-color {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  opacity: 0.35;
+  cursor: pointer;
+}
+
+.ov-colorcell.set .ov-color {
+  opacity: 1;
+}
+
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rule {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.1fr) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}

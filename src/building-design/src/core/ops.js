@@ -66,6 +66,11 @@ export function transformPatch(el, xf) {
   for (const f of POINT_FIELDS) if (Array.isArray(el[f]) && typeof el[f][0] === 'number') patch[f] = xf.point(el[f]);
   for (const f of POLY_FIELDS) if (Array.isArray(el[f])) patch[f] = el[f].map(xf.point);
   if (Array.isArray(el.holes)) patch.holes = el.holes.map((h) => h.map(xf.point));
+  if (el.crop && el.calloutOf) {
+    const p = xf.point([el.crop.x0, el.crop.y0]);
+    const q = xf.point([el.crop.x1, el.crop.y1]);
+    patch.crop = { x0: Math.min(p[0], q[0]), y0: Math.min(p[1], q[1]), x1: Math.max(p[0], q[0]), y1: Math.max(p[1], q[1]) };
+  }
   if (el.kind === 'dimension') {
     if (el.refs) patch.refs = el.refs.map((r) => ({ ...r, at: xf.point(r.at) }));
     if (el.dir) patch.dir = norm(sub(xf.point(add(el.line, el.dir)), xf.point(el.line)));

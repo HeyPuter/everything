@@ -6,6 +6,28 @@
  */
 import { add, sub, scale, perp, mid, dot, eq, dist, angleOf } from '../core/geom.js';
 import { radialTarget } from '../core/annotate.js';
+
+/** Edge and corner handles that resize a crop rectangle stored on a view. */
+export function cropGrips(doc, view, r) {
+  const set = (patch) => {
+    const c = { ...doc.get(view.id).crop, ...patch };
+    if (c.x1 - c.x0 < 100 || c.y1 - c.y0 < 100) return;
+    doc.update(view.id, { crop: c });
+  };
+  const mx = (r.x0 + r.x1) / 2;
+  const my = (r.y0 + r.y1) / 2;
+  const g = (at, f) => ({ at, shape: 'square', title: 'Drag to resize the crop region', drag: (p) => set(f(p)) });
+  return [
+    g([r.x0, my], (p) => ({ x0: p[0] })),
+    g([r.x1, my], (p) => ({ x1: p[0] })),
+    g([mx, r.y0], (p) => ({ y0: p[1] })),
+    g([mx, r.y1], (p) => ({ y1: p[1] })),
+    g([r.x0, r.y0], (p) => ({ x0: p[0], y0: p[1] })),
+    g([r.x1, r.y0], (p) => ({ x1: p[0], y0: p[1] })),
+    g([r.x1, r.y1], (p) => ({ x1: p[0], y1: p[1] })),
+    g([r.x0, r.y1], (p) => ({ x0: p[0], y1: p[1] })),
+  ];
+}
 import { wallAxis, openingSize, rampLayout } from '../core/model.js';
 import { sectionFrame } from '../core/plan.js';
 import { dimensionGeometry } from '../core/plan.js';
@@ -219,6 +241,11 @@ export function gripsFor(app, el, vc) {
             },
           }),
         );
+        break;
+      case 'plan':
+      case 'ceilingPlan':
+      case 'areaPlan':
+        if (el.calloutOf && el.crop) out.push(...cropGrips(doc, el, el.crop).slice(4));
         break;
       case 'room':
       case 'area':

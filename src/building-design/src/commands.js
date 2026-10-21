@@ -20,6 +20,7 @@ import {
   TextTool,
   TagTool,
   SectionTool,
+  CalloutTool,
   ElevationTool,
   LevelTool,
   placeRoomsAutomatically,
@@ -41,7 +42,7 @@ import {
 import { deleteElements } from './core/ops.js';
 import { PlaceGroupTool, GroupMemberTool } from './editor/groups.js';
 import { CurtainGridTool } from './editor/curtain.js';
-import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool } from './editor/annotate.js';
+import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
@@ -186,7 +187,14 @@ export const COMMANDS = {
   selectSimilar: { label: 'Select All Instances', icon: 'pointer', keys: 'SA', enabled: hasSel, run: (app, args) => app.selectSimilar(args?.scope || 'view') },
 
   // View
-  visibility: { label: 'Visibility/Graphics', icon: 'visibility', keys: 'VV', run: (app) => app.visibilityDialog() },
+  visibility: { label: 'Visibility/Graphics', icon: 'visibility', keys: 'VV', run: (app) => app.visibilityDialog(), desc: 'Show, hide and restyle categories and filters in the view' },
+  filters: { label: 'Filters', icon: 'filterRules', run: (app) => app.filtersDialog(), desc: 'Rules that select elements by category and parameters, to hide or restyle them in views' },
+  viewTemplates: { label: 'View Templates', icon: 'viewTemplate', run: (app) => app.templatesDialog(), desc: 'Save view settings as templates and apply them to many views' },
+  templateFromView: {
+    label: 'Create Template from Current View',
+    icon: 'viewTemplate',
+    run: (app) => app.templateFromView(),
+  },
   thinLines: { label: 'Thin Lines', icon: 'thinLines', keys: 'TL', run: (app) => app.toggleSetting('thinLines') },
   view3d: { label: 'Default 3D View', icon: 'view3d', run: (app) => app.open3D() },
   newView3d: { label: 'New 3D View', icon: 'view3d', run: (app) => app.new3DView() },
@@ -195,6 +203,13 @@ export const COMMANDS = {
   levelInElevation: { label: 'Level', icon: 'level', run: tool(LevelTool) },
   planViews: { label: 'Floor Plan', icon: 'planView', run: (app) => app.planViewDialog() },
   duplicateView: { label: 'Duplicate View', icon: 'duplicate', run: (app, args) => app.duplicateView(args?.id) },
+  duplicateDetailing: { label: 'Duplicate with Detailing', icon: 'duplicate', run: (app, args) => app.duplicateView(args?.id, { detailing: true }), desc: 'Copy the view with its dimensions, text, tags and other annotations' },
+  callout: { label: 'Callout', icon: 'callout', run: tool(CalloutTool), desc: 'Draw a rectangle to make an enlarged, cropped plan of that area' },
+  draftingView: { label: 'Drafting View', icon: 'draftingView', run: (app) => app.newFlatView('drafting'), desc: 'A 2D view for details drawn with lines, regions and annotations' },
+  legend: { label: 'Legend', icon: 'legend', run: (app) => app.newFlatView('legend'), desc: 'A view that explains symbols and types used in the drawings' },
+  legendComponent: { label: 'Legend Component', icon: 'legendComponent', run: tool(LegendComponentTool), desc: 'Place a type, such as a wall or door type, in a legend' },
+  cropView: { label: 'Crop View', icon: 'cropView', run: (app) => app.toggleCrop('cropOn'), desc: 'Hide the model outside the crop region' },
+  cropShow: { label: 'Show Crop Region', icon: 'cropShow', run: (app) => app.toggleCrop('cropShow'), desc: 'Show the crop region, with handles to resize it' },
   schedule: { label: 'Schedule', icon: 'schedule', run: (app, args) => app.newScheduleDialog(args?.category) },
   sheet: { label: 'Sheet', icon: 'sheet', run: (app) => app.newSheet() },
   placeView: { label: 'Place View on Sheet', icon: 'sheet', run: (app) => app.placeViewDialog() },

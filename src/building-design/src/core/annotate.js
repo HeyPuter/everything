@@ -17,7 +17,7 @@
  *   colorLegend   { viewId, at, by }
  */
 import { add, sub, scale, norm, perp, dist, rotate, arcPoints, angleOf, mid, pointInPolygon, bbox } from './geom.js';
-import { W, INK, BG, PATTERN, readableAngle, roomColorFor, LINE_STYLE } from './plan.js';
+import { W, INK, BG, PATTERN, readableAngle, roomColorFor, LINE_STYLE, planGraphics } from './plan.js';
 import { formatLength, formatDimension } from './units.js';
 import { roofGeometry } from './build3d.js';
 import { roofHeightAt } from './roof.js';
@@ -25,7 +25,7 @@ import { levelElevation } from './model.js';
 
 const P = (pc, mm) => mm * pc.scale;
 
-export const ANNOTATION_KINDS = ['angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend'];
+export const ANNOTATION_KINDS = ['angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend', 'legendComponent'];
 
 /** Draw an annotation; returns false when the kind is not one of these. */
 export function annotationGraphics(pc, el, b) {
@@ -58,9 +58,96 @@ export function annotationGraphics(pc, el, b) {
     case 'colorLegend':
       drawLegend(pc, el, b);
       return true;
+    case 'legendComponent':
+      drawLegendComponent(pc, el, b);
+      return true;
     default:
       return false;
   }
+}
+
+// Legend components ------------------------------------------------------------------------------
+
+const LAYERED = new Set(['wallType', 'floorType', 'roofType', 'ceilingType']);
+
+/** Size of a legend component in model millimetres (for placement and picking). */
+export function legendComponentSize(doc, el) {
+  const type = doc.get(el.typeId);
+  if (!type) return [1000, 300];
+  if (LAYERED.has(type.kind)) return [+el.length || 1200, (type.layers || []).reduce((s, l) => s + (+l.thickness || 0), 0) || 200];
+  if (type.kind === 'doorType' || type.kind === 'windowType') return [(+type.width || 900) + 600, (+type.width || 900) + 400];
+  return [+type.width || 600, +type.depth || +type.width || 600];
+}
+
+function drawLegendComponent(pc, el, b) {
+  const doc = pc.doc;
+  const type = doc.get(el.typeId);
+  const at = el.at;
+  if (!type) return;
+  const [w, hgt] = legendComponentSize(doc, el);
+  if (LAYERED.has(type.kind)) {
+    // Layers stacked from the top (exterior or finish face) down.
+    let y = at[1] + hgt / 2;
+    for (const l of type.layers || []) {
+      const t = +l.thickness || 0;
+      const mat = doc.get(l.materialId);
+      const strip = [
+        [at[0] - w / 2, y - t],
+        [at[0] + w / 2, y - t],
+        [at[0] + w / 2, y],
+        [at[0] - w / 2, y],
+      ];
+      const n = parseInt(String(mat?.color || '#c8c8c8').slice(1, 7), 16) || 0;
+      b.fill(strip, [], [(n >> 16) & 255, (n >> 8) & 255, n & 255, 90], PATTERN[mat?.cut] ?? 0);
+      b.line(strip[0], strip[1], W.thin);
+      y -= t;
+    }
+    const box = [
+      [at[0] - w / 2, at[1] - hgt / 2],
+      [at[0] + w / 2, at[1] - hgt / 2],
+      [at[0] + w / 2, at[1] + hgt / 2],
+      [at[0] - w / 2, at[1] + hgt / 2],
+    ];
+    b.poly(box, true, W.cut);
+    b.pick(box);
+    return;
+  }
+  // Doors, windows, columns and components: their plan symbols, drawn with a stand-in host.
+  const kind = { doorType: 'door', windowType: 'window', columnType: 'column', componentType: 'component' }[type.kind];
+  if (!kind) {
+    b.text(at, type.name, { size: P(pc, 2.5) });
+    return;
+  }
+  const wallType = doc.all('wallType').find((t) => !t.curtain) || null;
+  const span = (+type.width || 900) + 600;
+  const host = { id: '__legend_host', kind: 'wall', typeId: wallType?.id, a: [at[0] - span / 2, at[1]], b: [at[0] + span / 2, at[1]], baseOffset: 0, height: 3000, locationLine: 'center' };
+  const proxy = Object.create(doc);
+  proxy.get = (id) => (id === host.id ? host : doc.get(id));
+  const pc2 = { ...pc, doc: proxy, cutZ: 1200, bottomZ: -1, topZ: 1e6, ceiling: false, level: null };
+  let item;
+  if (kind === 'door' || kind === 'window') {
+    item = { id: '__legend_item', kind, typeId: type.id, hostId: host.id, t: span / 2 };
+    const half = (wallType?.layers || []).reduce((s, l) => s + (+l.thickness || 0), 0) / 2 || 100;
+    const ow = +type.width || 900;
+    for (const sy of [-1, 1]) {
+      b.line([at[0] - span / 2, at[1] + sy * half], [at[0] - ow / 2, at[1] + sy * half], W.cut);
+      b.line([at[0] + ow / 2, at[1] + sy * half], [at[0] + span / 2, at[1] + sy * half], W.cut);
+    }
+    b.line([at[0] - span / 2, at[1] - half], [at[0] - span / 2, at[1] + half], W.thin);
+    b.line([at[0] + span / 2, at[1] - half], [at[0] + span / 2, at[1] + half], W.thin);
+  } else item = { id: '__legend_item', kind, typeId: type.id, levelId: null, at, rotation: 0, height: 3000 };
+  const g = planGraphics(pc2, item);
+  if (g) {
+    b.lines.push(...g.lines);
+    b.fills.push(...g.fills);
+    b.texts.push(...g.texts);
+  }
+  b.pick([
+    [at[0] - w / 2, at[1] - hgt / 2],
+    [at[0] + w / 2, at[1] - hgt / 2],
+    [at[0] + w / 2, at[1] + hgt / 2],
+    [at[0] - w / 2, at[1] + hgt / 2],
+  ]);
 }
 
 /** An open arrowhead at `tip` pointing along `dir`. */

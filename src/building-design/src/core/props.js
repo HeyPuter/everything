@@ -13,6 +13,7 @@ import { area as polyArea, perimeter, dist } from './geom.js';
 import { scaleOptions } from './units.js';
 import { STAIR_SHAPES } from './stairs.js';
 import { DETAIL_FAMILIES, radialTarget } from './annotate.js';
+import { applyTemplatePatch, templateKindOf } from './graphics.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Extents', 'Camera', 'Other'];
 
@@ -320,43 +321,69 @@ const STYLES = [
   { value: 'realistic', label: 'Realistic' },
 ];
 
+const templated = (el) => !!el.templateId;
 const viewName = P('name', 'View Name', 'Identity Data', 'text');
-const viewScale = P('scale', 'View Scale', 'Graphics', 'select', { options: (c) => scaleOptions(c.doc.units), get: (el) => el.scale, set: (el, v) => ({ scale: +v }) });
-const viewDetail = P('detail', 'Detail Level', 'Graphics', 'select', { options: () => DETAIL });
+const viewScale = P('scale', 'View Scale', 'Graphics', 'select', { options: (c) => scaleOptions(c.doc.units), get: (el) => el.scale, set: (el, v) => ({ scale: +v }), ro: templated });
+const viewDetail = P('detail', 'Detail Level', 'Graphics', 'select', { options: () => DETAIL, ro: templated });
 const vis = P('vis', 'Visibility/Graphics', 'Graphics', 'button', { action: 'visibility', text: 'Edit...' });
+const viewStyle = P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES, ro: templated });
+const viewTemplate = P('templateId', 'View Template', 'Identity Data', 'select', {
+  get: (el) => el.templateId || '',
+  options: (c) => [{ value: '', label: '<None>' }, ...c.doc.all('viewTemplate').filter((t) => t.viewKind === templateKindOf(c.items?.[0]?.kind || 'plan')).map((t) => ({ value: t.id, label: t.name }))],
+  set: (el, v, c) => (v ? applyTemplatePatch(c.doc.get(v)) : { templateId: null }),
+});
+
+/** A crop rectangle around what the view shows now (or a default area). */
+export function defaultCrop(app, view) {
+  const c = app?.controllers?.get(view.id) || (app && app.controllerFor?.(view));
+  c?.sync?.();
+  const b = c?.extents?.();
+  const pad = 1000;
+  return b ? { x0: b.x0 - pad, y0: b.y0 - pad, x1: b.x1 + pad, y1: b.y1 + pad } : { x0: -5000, y0: -5000, x1: 15000, y1: 12000 };
+}
+
+const cropOn = P('cropOn', 'Crop View', 'Extents', 'bool', { set: (el, v, c) => ({ cropOn: !!v, ...(v && !el.crop ? { crop: defaultCrop(c.app, el) } : {}) }) });
+const cropShow = P('cropShow', 'Crop Region Visible', 'Extents', 'bool', { set: (el, v, c) => ({ cropShow: !!v, ...(v && !el.crop ? { crop: defaultCrop(c.app, el) } : {}) }) });
 
 const VIEW = {
   plan: [
     viewScale,
     viewDetail,
     vis,
-    P('roomFill', 'Room Color Fill', 'Graphics', 'bool'),
-    P('roomFillBy', 'Color Scheme', 'Graphics', 'select', { get: (el) => el.roomFillBy || 'name', options: () => Object.entries(ROOM_FILL_LABEL).map(([value, label]) => ({ value, label: `Rooms by ${label}` })) }),
+    P('roomFill', 'Room Color Fill', 'Graphics', 'bool', { ro: templated }),
+    P('roomFillBy', 'Color Scheme', 'Graphics', 'select', { get: (el) => el.roomFillBy || 'name', options: () => Object.entries(ROOM_FILL_LABEL).map(([value, label]) => ({ value, label: `Rooms by ${label}` })), ro: templated }),
+    viewTemplate,
     P('underlay', 'Underlay', 'Underlay', 'select', {
       get: (el) => el.underlay || '',
       set: (el, v) => ({ underlay: v || null }),
       options: (c) => [{ value: '', label: 'None' }, { value: 'below', label: 'Level below' }, ...c.doc.levels().map((l) => ({ value: l.id, label: l.name }))],
-    }), len('cutHeight', 'Cut Plane Height', 'Extents'), len('viewDepth', 'View Depth Offset', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
-  ceilingPlan: [viewScale, viewDetail, vis, len('cutHeight', 'Cut Plane Height', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
+    }), len('cutHeight', 'Cut Plane Height', 'Extents', { ro: templated }), len('viewDepth', 'View Depth Offset', 'Extents', { ro: templated }), cropOn, cropShow, ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
+  ceilingPlan: [viewScale, viewDetail, vis, len('cutHeight', 'Cut Plane Height', 'Extents', { ro: templated }), cropOn, cropShow, ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewTemplate, viewName],
   areaPlan: [
     viewScale,
     viewDetail,
     vis,
-    len('cutHeight', 'Cut Plane Height', 'Extents'),
+    len('cutHeight', 'Cut Plane Height', 'Extents', { ro: templated }),
+    cropOn,
+    cropShow,
     ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'),
     ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
+    viewTemplate,
     viewName,
   ],
   view3d: [
-    P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES }),
+    viewStyle,
     viewDetail,
     vis,
     P('sectionBoxOn', 'Section Box', 'Extents', 'bool', { get: (el) => !!el.sectionBox, set: () => null, action: 'section-box' }),
     P('persp', 'Perspective', 'Camera', 'bool', { get: (el, c) => c.app?.vc?.cam?.persp !== false, set: () => null, action: 'toggle-persp' }),
+    viewTemplate,
     viewName,
   ],
-  elevation: [viewScale, P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES }), viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewName],
-  section: [viewScale, P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES }), viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewName],
+  drafting: [viewScale, viewDetail, vis, viewName],
+  legend: [viewScale, viewDetail, vis, viewName],
+  elevation: [viewScale, viewStyle, viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
+  section: [viewScale, viewStyle, viewDetail, vis, len('depth', 'Far Clip Offset', 'Extents'), viewTemplate, viewName],
   schedule: [viewName, ro('category', 'Category', 'Other', (el) => el.category, 'text'), P('fields', 'Fields', 'Other', 'button', { action: 'schedule-fields', text: 'Edit...' })],
   sheet: [
     P('number', 'Sheet Number', 'Identity Data', 'text'),

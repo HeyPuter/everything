@@ -639,6 +639,67 @@ export class LegendTool extends AnnotationTool {
   }
 }
 
+// Legend components ----------------------------------------------------------------------------
+
+const LEGEND_TYPE_KINDS = [
+  ['wallType', 'Walls'],
+  ['floorType', 'Floors'],
+  ['roofType', 'Roofs'],
+  ['ceilingType', 'Ceilings'],
+  ['doorType', 'Doors'],
+  ['windowType', 'Windows'],
+  ['columnType', 'Columns'],
+  ['componentType', 'Components'],
+];
+
+export class LegendComponentTool extends AnnotationTool {
+  get title() {
+    return 'Legend Component';
+  }
+
+  get viewKinds() {
+    return ['legend'];
+  }
+
+  get prompt() {
+    return 'Click to place the type. Pick another type in the options bar.';
+  }
+
+  get o() {
+    const o = this.app.toolOptions('legendComponent', { typeId: null });
+    if (!this.doc.get(o.typeId)) o.typeId = this.doc.all('wallType')[0]?.id ?? null;
+    return o;
+  }
+
+  options() {
+    const o = this.o;
+    const s = h('select.input.sm', { 'aria-label': 'Type' });
+    for (const [kind, label] of LEGEND_TYPE_KINDS) {
+      const types = this.doc.all(kind);
+      if (!types.length) continue;
+      s.append(h('optgroup', { label }, ...types.map((t) => h('option', { value: t.id }, t.familyName && kind !== 'wallType' ? `${t.familyName}: ${t.name}` : t.name))));
+    }
+    s.value = o.typeId || '';
+    s.addEventListener('change', () => ((o.typeId = s.value), this.app.requestRender()));
+    return [h('div.ob-group', h('label', 'Type'), s)];
+  }
+
+  down(ev) {
+    const p = this.snap(ev);
+    if (p && this.o.typeId) this.place('Legend component', { kind: 'legendComponent', typeId: this.o.typeId, at: p });
+  }
+
+  move(ev) {
+    this.cursor = this.snap(ev);
+    this.app.requestRender();
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (this.cursor && this.o.typeId) this.preview(ctx, vc, vp, { kind: 'legendComponent', typeId: this.o.typeId, at: this.cursor });
+    this.drawSnap(ctx, vc, vp);
+  }
+}
+
 export const ROOM_FILL_BY = [
   { value: 'name', label: 'Name' },
   { value: 'department', label: 'Department' },

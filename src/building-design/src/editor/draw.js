@@ -38,7 +38,7 @@ import { icon } from '../ui/icons.js';
 import { newId, isPlanView, PLAN_VIEW_KINDS } from '../core/doc.js';
 
 /** Views that take 2D annotations. */
-export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section'];
+export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section', 'drafting', 'legend'];
 import { STAIR_SHAPES } from '../core/stairs.js';
 import { LINE_STYLES } from '../core/props.js';
 import { newRevision } from '../core/revisions.js';
@@ -1916,6 +1916,66 @@ export class SectionTool extends Tool {
       const m = mid(this.start, this.cursor);
       strokeModel(ctx, [m, add(m, scale(look, 30 * vc.mmPerPx()))], S, vp.theme.preview, 2);
     }
+    this.drawSnap(ctx, vc, vp);
+  }
+}
+
+/** Callout: a cropped, larger-scale plan of an area of this plan. */
+export class CalloutTool extends Tool {
+  get title() {
+    return 'Callout';
+  }
+
+  get prompt() {
+    return this.start ? 'Click the opposite corner of the callout' : 'Click a corner of the area to call out';
+  }
+
+  down(ev) {
+    const p = this.snap(ev, this.start);
+    if (!p) return;
+    if (!this.start) {
+      this.start = p;
+      this.app.setPrompt(this.prompt);
+      return;
+    }
+    const r = { x0: Math.min(p[0], this.start[0]), y0: Math.min(p[1], this.start[1]), x1: Math.max(p[0], this.start[0]), y1: Math.max(p[1], this.start[1]) };
+    if (r.x1 - r.x0 < 200 || r.y1 - r.y0 < 200) return;
+    const parent = this.vc.view;
+    const names = this.doc.filter((x) => x.calloutOf).map((x) => x.name);
+    const imp = this.doc.units.system === 'imperial';
+    const view = {
+      ...structuredClone(parent),
+      id: newId('v'),
+      name: uniqueName(names, `Callout ${names.length + 1}`),
+      calloutOf: parent.id,
+      scale: Math.max(1, Math.min(+parent.scale || 100, imp ? 24 : 50)),
+      detail: 'fine',
+      crop: r,
+      cropOn: true,
+      cropShow: true,
+      templateId: null,
+    };
+    this.app.commit('Callout', () => this.doc.add(view));
+    this.start = null;
+    this.app.toast(`${view.name} created. Double-click its outline, or use the Project Browser, to open it.`);
+    this.app.setPrompt(this.prompt);
+  }
+
+  move(ev) {
+    this.cursor = this.snap(ev, this.start);
+    this.app.requestRender();
+  }
+
+  cancel() {
+    if (this.start) {
+      this.start = null;
+      return false;
+    }
+    return true;
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (this.start && this.cursor) strokeModel(ctx, rectPolygon(this.start, this.cursor), (p) => vc.modelToScreen(p), vp.theme.preview, 1.5, [8, 4], true);
     this.drawSnap(ctx, vc, vp);
   }
 }

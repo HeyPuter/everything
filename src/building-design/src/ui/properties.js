@@ -158,7 +158,7 @@ export class PropertiesPanel {
 
   renderParams(params, items) {
     const app = this.app;
-    const ctx = { doc: app.doc, scene: app.scene, app };
+    const ctx = { doc: app.doc, scene: app.scene, app, items };
     const frag = h('div');
     for (const group of GROUPS.concat(['Materials and Finishes'])) {
       const list = params.filter((p) => p.group === group);

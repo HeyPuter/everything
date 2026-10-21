@@ -4,7 +4,7 @@
  * drag to move, grips, and double-click to edit or open.
  */
 import { Tool } from './tool.js';
-import { gripsFor } from './grips.js';
+import { gripsFor, cropGrips } from './grips.js';
 import { drawGrip, drawFlipArrows } from '../views/overlay.js';
 import { sub, eq, add } from '../core/geom.js';
 import { transformPatch, translation, expandGroups } from '../core/ops.js';
@@ -39,6 +39,7 @@ export class SelectTool extends Tool {
     const vc = this.vc;
     if (!vc) return [];
     const out = sectionBoxGrips(this.app, vc);
+    if (vc.is2D && vc.view?.cropShow && vc.view.crop) out.push(...cropGrips(this.doc, vc.view, vc.view.crop));
     if (this.app.selection.size !== 1) return out;
     const id = [...this.app.selection][0];
     const el = this.doc.get(id);

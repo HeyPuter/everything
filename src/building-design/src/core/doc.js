@@ -339,12 +339,12 @@ function prefixFor(kind) {
   return 'e';
 }
 
-export const VIEW_KINDS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section', 'schedule', 'sheet']);
+export const VIEW_KINDS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section', 'drafting', 'legend', 'schedule', 'sheet']);
 
 /** Views drawn as plans of a level (2D, model cut at a height). */
 export const PLAN_VIEW_KINDS = ['plan', 'ceilingPlan', 'areaPlan'];
 
-export const VIEW_LABEL = { plan: 'Floor Plan', ceilingPlan: 'Ceiling Plan', areaPlan: 'Area Plan', view3d: '3D View', elevation: 'Elevation', section: 'Section', schedule: 'Schedule', sheet: 'Sheet' };
+export const VIEW_LABEL = { plan: 'Floor Plan', ceilingPlan: 'Ceiling Plan', areaPlan: 'Area Plan', drafting: 'Drafting View', legend: 'Legend', view3d: '3D View', elevation: 'Elevation', section: 'Section', schedule: 'Schedule', sheet: 'Sheet' };
 
 export function isView(item) {
   return !!item && VIEW_KINDS.has(item.kind);
@@ -352,4 +352,9 @@ export function isView(item) {
 
 export function isPlanView(item) {
   return !!item && PLAN_VIEW_KINDS.includes(item.kind);
+}
+
+/** Views drawn with 2D plan graphics: plans of levels, drafting views and legends. */
+export function isFlatView(item) {
+  return !!item && (PLAN_VIEW_KINDS.includes(item.kind) || item.kind === 'drafting' || item.kind === 'legend');
 }

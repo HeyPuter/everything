@@ -164,18 +164,60 @@ export const RIBBON = [
     id: 'view',
     label: 'View',
     panels: [
-      { title: 'Graphics', items: [{ cmd: 'visibility', size: 'lg' }, { cmd: 'thinLines' }, { cmd: 'revealHidden' }, { cmd: 'tempReset' }] },
+      {
+        title: 'Graphics',
+        items: [
+          {
+            cmd: 'viewTemplates',
+            size: 'lg',
+            variants: [
+              { cmd: 'viewTemplates', label: 'Manage View Templates' },
+              { cmd: 'templateFromView', label: 'Create Template from Current View' },
+            ],
+          },
+          { cmd: 'visibility', size: 'lg' },
+          { cmd: 'filters', size: 'lg' },
+          { cmd: 'thinLines' },
+          { cmd: 'revealHidden' },
+          { cmd: 'tempReset' },
+        ],
+      },
       {
         title: 'Create',
         items: [
           { cmd: 'view3d', size: 'lg', variants: [{ cmd: 'view3d', label: 'Default 3D View' }, { cmd: 'newView3d', label: 'New 3D View' }] },
           { cmd: 'section', size: 'lg' },
+          { cmd: 'callout', size: 'lg' },
+          {
+            cmd: 'planViews',
+            size: 'lg',
+            variants: [
+              { cmd: 'planViews', label: 'Floor Plan' },
+              { cmd: 'areaPlan', label: 'Area Plan' },
+            ],
+          },
           { cmd: 'elevation', size: 'lg' },
-          { cmd: 'planViews', size: 'lg' },
-          { cmd: 'duplicateView', size: 'lg' },
+          { cmd: 'draftingView', size: 'lg' },
+          {
+            cmd: 'duplicateView',
+            size: 'lg',
+            variants: [
+              { cmd: 'duplicateView', label: 'Duplicate' },
+              { cmd: 'duplicateDetailing', label: 'Duplicate with Detailing' },
+            ],
+          },
+          {
+            cmd: 'legend',
+            size: 'lg',
+            variants: [
+              { cmd: 'legend', label: 'Legend' },
+              { cmd: 'legendComponent', label: 'Legend Component' },
+            ],
+          },
           { cmd: 'schedule', size: 'lg' },
         ],
       },
+      { title: 'Crop', items: [{ cmd: 'cropView' }, { cmd: 'cropShow' }] },
       { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }, { cmd: 'revisions', size: 'lg' }] },
       { title: 'Windows', items: [{ cmd: 'closeInactive' }, { cmd: 'toggleProps' }, { cmd: 'toggleBrowser' }] },
       { title: 'Navigate', items: [{ cmd: 'zoomFit' }, { cmd: 'zoomRegion' }, { cmd: 'sectionBox' }] },
