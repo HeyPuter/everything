@@ -203,3 +203,34 @@ test('sequencer preview: safe areas follow the scene margins; composition guides
   expect(st).toEqual({ safe: true, thirds: true, saved: true });
   await expectNoErrors(errors);
 });
+
+test('sequencer preview: View Settings ▸ Channel previews only the channels up to it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Video Editing').create());
+    const app = (window as any).app;
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 1, length: 40, color: [1, 0, 0] }, { invoke: false });
+    app.run('sequencer.effect_strip_add', { type: 'COLOR', frame_start: 1, channel: 2, length: 40, color: [0, 1, 0] }, { invoke: false });
+    app.setFrame(5);
+  });
+  await page.waitForTimeout(400);
+  const pv = (await page.locator('.seq-pv').first().boundingBox())!;
+  await page.mouse.move(pv.x + pv.width / 2, pv.y + pv.height / 2);
+  const sample = () =>
+    page.evaluate(([x, y]) => {
+      const ed = (window as any).app.hoverArea.editor;
+      return ed.preview.sample(x, y)?.rgba.slice(0, 3).map((v: number) => Math.round(v * 255) > 128);
+    }, [pv.x + pv.width / 2, pv.y + pv.height / 2] as const);
+  expect(await sample()).toEqual([false, true, false]);
+  await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.preview.displayChannel = 1;
+    ed.preview.request();
+  });
+  await page.waitForTimeout(400);
+  expect(await sample()).toEqual([true, false, false]);
+  await expectNoErrors(errors);
+});

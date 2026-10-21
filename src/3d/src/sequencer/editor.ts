@@ -205,6 +205,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       previewSize: this.preview.size,
       previewOverlays: { ...this.preview.opts },
       previewGuides: { ...this.preview.composition },
+      displayChannel: this.preview.displayChannel,
       scopeMode: this.preview.scopeMode,
       fitted: this.fitted,
     };
@@ -223,6 +224,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
     if (s.previewGuides && typeof s.previewGuides === 'object') Object.assign(this.preview.composition, s.previewGuides);
+    if (typeof s.displayChannel === 'number') this.preview.displayChannel = s.displayChannel;
     if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
     this.preview.showOverlays = this.showOverlays;
   }

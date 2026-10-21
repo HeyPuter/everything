@@ -666,7 +666,7 @@ export function viewTab(): Child {
 }
 
 /** View tab: safe areas (shared with the camera's), the 4:3 centre-cut ones and composition guides of the preview. */
-export function previewGuidePanels(pv: { opts: { safeAreas: boolean; safeCenter: boolean; guides: boolean }; composition: PreviewGuides; draw(): void }, redraw: () => void): Child[] {
+export function previewGuidePanels(pv: { opts: { safeAreas: boolean; safeCenter: boolean; guides: boolean }; composition: PreviewGuides; displayChannel: number; draw(): void; request(): void }, redraw: () => void): Child[] {
   const sc = app.doc.scene;
   const sa = () => (sc.safe_areas ??= JSON.parse(JSON.stringify(DEFAULT_SAFE_AREAS)) as NonNullable<typeof sc.safe_areas>);
   const pair = (key: 'title' | 'action' | 'title_center' | 'action_center', label: string) =>
@@ -692,6 +692,23 @@ export function previewGuidePanels(pv: { opts: { safeAreas: boolean; safeCenter:
   const g = pv.composition;
   const gt = (key: Exclude<keyof PreviewGuides, 'composition_guide_color'>, label: string) => checkbox(`seq-cg-${key}`, label, g[key], (v) => ((g[key] = v), (pv.opts.guides = true), redraw()));
   return [
+    panel('seq-view-settings', 'View Settings', () => [
+      splitRow(
+        'Channel',
+        numberField({
+          id: 'seq-display-channel',
+          value: pv.displayChannel,
+          int: true,
+          min: 0,
+          max: 128,
+          tip: 'Preview the channels up to this one only (0 shows every channel)',
+          set: (v) => {
+            pv.displayChannel = Math.max(0, Math.round(v));
+            pv.request();
+          },
+        }),
+      ),
+    ]),
     panel('seq-safe', 'Safe Areas', () => [checkbox('seq-safe-show', 'Show Safe Areas', pv.opts.safeAreas, (v) => ((pv.opts.safeAreas = v), redraw())), ...pair('title', 'Title X'), ...pair('action', 'Action X')]),
     panel('seq-safe-center', 'Center-Cut Safe Areas', () => [checkbox('seq-safe-cc', 'Show Center-Cut', pv.opts.safeCenter, (v) => ((pv.opts.safeCenter = v), redraw())), ...pair('title_center', 'Title X'), ...pair('action_center', 'Action X')], { closed: true }),
     panel(

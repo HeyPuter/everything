@@ -70,6 +70,8 @@ export class PreviewRegion implements Annotate2DHost {
   transformCage = false;
   /** draw the scene's annotations over the preview */
   showAnnotations = true;
+  /** preview the channels up to this one only (0: all) */
+  displayChannel = 0;
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null = null;
   shape: SelectShape | null = null;
   /** Sample tool readout: region-local position, output pixel and its colour (0..1) */
@@ -265,6 +267,7 @@ export class PreviewRegion implements Annotate2DHost {
         sceneImage: renderScenePreview,
         cancelled: () => my !== this.gen || this.disposed,
         proxy: this.size.startsWith('PROXY_') ? (Number(this.size.slice(6)) as ProxySize) : undefined,
+        maxChannel: this.displayChannel,
       });
       const t = await sr.render(ed, frame);
       comp.present(t);

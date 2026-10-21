@@ -39,6 +39,8 @@ export interface RenderOptions {
   cancelled?: () => boolean;
   /** proxy size the preview uses for movie strips with built proxies */
   proxy?: ProxySize;
+  /** preview only the channels up to this one (0 or unset: every channel) */
+  maxChannel?: number;
 }
 
 export class Cancelled extends Error {}
@@ -81,7 +83,8 @@ export class SequencerRender {
   async render(ed: SequenceEditor, frame: number): Promise<Target> {
     this.comp.resize(this.Wk, this.Hk);
     this.all = allStrips(ed.strips);
-    return this.renderList(ed.strips, ed.channels, frame);
+    const max = this.o.maxChannel ?? 0;
+    return this.renderList(max > 0 ? ed.strips.filter((s) => s.channel <= max) : ed.strips, ed.channels, frame);
   }
 
   private check() {
