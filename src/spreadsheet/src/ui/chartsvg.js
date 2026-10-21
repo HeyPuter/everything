@@ -652,7 +652,9 @@ function renderChartContent(data, chart, width, height) {
   }
 
   const valueLabels = scaleTicks(yScale);
-  const valueLabelW = maxOf(valueLabels.map((v) => textW(axisLabel(v, vs, yScale.step), 11))) + 10;
+  // A chart in the default style drawn here (a histogram, a waterfall) may have an axis deleted (Add Chart Element ▸ Axes).
+  const hideValues = !!chart.appearance?.hideYAxis, hideCategories = !!chart.appearance?.hideXAxis;
+  const valueLabelW = hideValues ? 4 : maxOf(valueLabels.map((v) => textW(axisLabel(v, vs, yScale.step), 11))) + 10;
   const y2Scale = secondary ? chartAxisScale(lo2, hi2, { ticks: 5 }) : null;
   const value2Labels = secondary ? scaleTicks(y2Scale) : [];
   const value2LabelW = secondary ? maxOf(value2Labels.map((v) => textW(axisLabel(v, vs2, y2Scale.step), 11))) + 10 : 0;
@@ -722,11 +724,11 @@ function renderChartContent(data, chart, width, height) {
     if (horizontal) {
       const x = vx(v);
       if (grid) parts.push(`<line x1="${f(x)}" y1="${f(plot.y)}" x2="${f(x)}" y2="${f(plot.y + plot.h)}" stroke="var(--grid)" stroke-width="1"/>`);
-      parts.push(`<text x="${f(x)}" y="${f(plot.y + plot.h + 15)}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${esc(gridText(v))}</text>`);
+      if (!hideValues) parts.push(`<text x="${f(x)}" y="${f(plot.y + plot.h + 15)}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${esc(gridText(v))}</text>`);
     } else {
       const y = vy(v);
       if (grid) parts.push(`<line x1="${f(plot.x)}" y1="${f(y)}" x2="${f(plot.x + plot.w)}" y2="${f(y)}" stroke="var(--grid)" stroke-width="1"/>`);
-      parts.push(`<text x="${f(plot.x - 6)}" y="${f(y + 4)}" text-anchor="end" font-size="11" fill="var(--ink-3)">${esc(gridText(v))}</text>`);
+      if (!hideValues) parts.push(`<text x="${f(plot.x - 6)}" y="${f(y + 4)}" text-anchor="end" font-size="11" fill="var(--ink-3)">${esc(gridText(v))}</text>`);
     }
   }
   if (!grid) parts.push(horizontal
@@ -829,12 +831,21 @@ function renderChartContent(data, chart, width, height) {
   const catPos = (i) => (horizontal ? plot.y + slot * i : plot.x + slot * i);
   const labelEvery = Math.max(1, Math.ceil((horizontal ? 14 : maxOf(categories.map((c) => textW(shortCategory(c), 11))) + 8) / slot));
   categories.forEach((c, i) => {
-    if (table && !horizontal) return;
+    if ((table && !horizontal) || hideCategories) return;
     if (i % labelEvery) return;
     const label = esc(shortCategory(c));
     if (horizontal) categoryLabels.push(`<text x="${f(categoryLabelX - 6)}" y="${f(catPos(i) + slot / 2 + 4)}" text-anchor="end" font-size="11" fill="var(--ink-2)">${label}</text>`);
     else categoryLabels.push(`<text x="${f(catPos(i) + slot / 2)}" y="${f(categoryLabelY + 15)}" text-anchor="middle" font-size="11" fill="var(--ink-2)">${label}</text>`);
   });
+  // Category gridlines (Add Chart Element ▸ Gridlines), between the categories, behind the marks.
+  if (chart.appearance?.xGridlines) {
+    const ink = chart.appearance.gridlineStyles?.x?.color;
+    for (let i = 0; i <= n; i++) {
+      const at = catPos(i);
+      parts.push(horizontal ? `<line x1="${f(plot.x)}" y1="${f(at)}" x2="${f(plot.x + plot.w)}" y2="${f(at)}" stroke="${esc(ink && ink !== 'none' ? ink : 'var(--grid)')}" stroke-width="1" class="chart-gridline-x"/>`
+        : `<line x1="${f(at)}" y1="${f(plot.y)}" x2="${f(at)}" y2="${f(plot.y + plot.h)}" stroke="${esc(ink && ink !== 'none' ? ink : 'var(--grid)')}" stroke-width="1" class="chart-gridline-x"/>`);
+    }
+  }
 
   openMarks();
   if (wf) {
