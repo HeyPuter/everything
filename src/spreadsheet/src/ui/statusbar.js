@@ -404,6 +404,8 @@ export function createStatusBar(ctx) {
       if (s.nums && prefs.sum) stats.push(stat('Sum', fmt(s.sum)));
     }
     if (filterNote) items.push(filterNote);
+    // Laid out from the Sum leftward (editor.css), so a narrow bar leaves out the first ones rather than cutting one off.
+    stats.forEach((item, i) => { item.style.order = String(stats.length - i); });
     left.replaceChildren(...items);
     right.replaceChildren(...stats);
   }
