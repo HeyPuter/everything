@@ -103,8 +103,7 @@ async function openProject(id, files) {
 async function createProject(opts = {}, files) {
   loading('Creating project...');
   try {
-    const n = (await library.listProjects()).length + 1;
-    const project = await library.createProject({ name: `Project ${n}`, ratio: opts.ratio || 'original' });
+    const project = await library.createProject({ name: await library.nextProjectName(), ratio: opts.ratio || 'original' });
     await openProject(project.id, files);
   } catch (err) {
     console.error(err);

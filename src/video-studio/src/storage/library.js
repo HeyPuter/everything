@@ -89,6 +89,14 @@ export class Library extends Emitter {
     this.emit('index', next);
   }
 
+  /** "Project N" with the lowest N no project (Trash included) is called. */
+  async nextProjectName() {
+    const used = new Set((await this._readIndex()).map((p) => String(p.name).trim().toLowerCase()));
+    let n = 1;
+    while (used.has(`project ${n}`)) n++;
+    return `Project ${n}`;
+  }
+
   async createProject(opts) {
     const project = createProject(opts);
     await this.saveProject(project);

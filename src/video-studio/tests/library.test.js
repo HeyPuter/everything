@@ -63,6 +63,20 @@ describe('Library projects', () => {
     expect((await lib.listProjects()).map((x) => x.id).sort()).toEqual([p.id, copy.id].sort());
   });
 
+  it('names new projects with the lowest free number, counting the Trash', async () => {
+    expect(await lib.nextProjectName()).toBe('Project 1');
+    const p1 = await lib.createProject({ name: await lib.nextProjectName() });
+    const p2 = await lib.createProject({ name: await lib.nextProjectName() });
+    expect(p2.name).toBe('Project 2');
+    await lib.trashProject(p1.id);
+    // Project 1 is in the Trash: restoring it must not make two of them.
+    expect(await lib.nextProjectName()).toBe('Project 3');
+    await lib.deleteProject(p1.id);
+    expect(await lib.nextProjectName()).toBe('Project 1');
+    await lib.renameProject(p2.id, 'project 1');
+    expect(await lib.nextProjectName()).toBe('Project 2');
+  });
+
   it('deletes the project file, its cover and its index entry', async () => {
     const keep = await lib.createProject({ name: 'Keep' });
     const gone = await lib.createProject({ name: 'Gone' });
