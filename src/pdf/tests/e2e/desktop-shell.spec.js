@@ -355,6 +355,35 @@ for (const display of ['Two-page', 'Two-page scrolling'])
     await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
   });
 
+test('in two-page view, Next and Previous stop at the first and last pair', async ({ page }) => {
+  await openPdf(page, await numberedPdf(4));
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Page display' }).click();
+  await page.getByRole('menuitemcheckbox', { name: 'Two-page', exact: true }).click();
+  await settled(page);
+  const caption = page.locator('.page-caption');
+  const next = page.getByRole('button', { name: 'Next page', exact: true });
+  const previous = page.getByRole('button', { name: 'Previous page', exact: true });
+  await next.click();
+  await expect(caption).toHaveText('Page 3 of 4');
+  await settled(page);
+  // Page 4 is already in view beside page 3; there is no pair to turn to.
+  await expect(next).toBeDisabled();
+  await page.keyboard.press('Alt+ArrowRight');
+  await page.waitForTimeout(300);
+  await expect(caption).toHaveText('Page 3 of 4');
+  await previous.click();
+  await expect(caption).toHaveText('Page 1 of 4');
+  await settled(page);
+  const right = await page.locator('.page-slot[data-page="1"]').boundingBox();
+  await page.mouse.click(right.x + 50, right.y + 50);
+  await expect(caption).toHaveText('Page 2 of 4');
+  await settled(page);
+  await expect(previous).toBeDisabled();
+  await expect(next).toBeEnabled();
+  await page.evaluate(() => localStorage.removeItem('pdf-editor:page-display'));
+});
+
 test('Read out loud speaks a long page in short pieces and says when a page has no text', async ({
   page,
 }) => {

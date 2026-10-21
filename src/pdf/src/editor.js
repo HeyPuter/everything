@@ -2286,8 +2286,10 @@ export function createEditor({
       statusPage.textContent = `${pdf.numPages} ${pdf.numPages === 1 ? 'page' : 'pages'}`;
     }
     const destination = clampPageIndex(pendingNavigation?.index ?? pageIndex);
-    prevButton.disabled = !pageCount || destination === 0;
-    nextButton.disabled = !pageCount || destination >= pageCount - 1;
+    // Side by side, the buttons turn pairs: the other page of the pair on view is in sight.
+    const turn = (index) => (stack.twoUp ? Math.floor(index / 2) : index);
+    prevButton.disabled = !pageCount || turn(destination) === 0;
+    nextButton.disabled = !pageCount || turn(destination) >= turn(pageCount - 1);
     editorRoot.setAttribute('aria-busy', String(busy));
     if (organizer.visible && organizer.busy !== busy) organizer.updateState();
     // The tools pane's commands follow the busy state; redraw only when it changes.
@@ -2929,7 +2931,12 @@ export function createEditor({
     const from = clampPageIndex(pendingNavigation?.index ?? pageIndex);
     // Side by side, the next or previous page is the first of the next or previous pair; the
     // other page of the pair on view is already in sight.
-    if (stack.twoUp) return navigate(Math.max(0, (Math.floor(from / 2) + direction) * 2));
+    if (stack.twoUp) {
+      // From the first or last pair there is none to turn to.
+      const pair = Math.floor(from / 2) + direction;
+      if (pair < 0 || pair > Math.floor((pageCount - 1) / 2)) return false;
+      return navigate(pair * 2);
+    }
     return navigate(from + direction);
   }
   async function navigate(index, comment = null, { scroll = true } = {}) {
