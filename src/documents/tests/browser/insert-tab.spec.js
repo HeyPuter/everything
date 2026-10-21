@@ -340,3 +340,20 @@ test('the Date and Time and Special Characters lists are one Tab stop with arrow
   await expect.poll(() => input.inputValue()).toBe('Dated –');
   expect(errors).toEqual([]);
 });
+
+test('Text from File reads Unicode and Windows text files as opening them does', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Start' });
+  const insert = async (name, buffer) => {
+    await input.press('ControlOrMeta+End'); await input.press('Enter');
+    await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+    await (await chooser).setFiles({ name, mimeType: 'text/plain', buffer });
+  };
+  // Notepad's "Unicode" is UTF-16 with a byte order mark; older editors save in the Windows code page.
+  await insert('unicode.txt', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('Grüße 😀\r\nZweite Zeile', 'utf16le')]));
+  await expect.poll(() => input.inputValue()).toBe('Start\nGrüße 😀\nZweite Zeile');
+  await insert('legacy.txt', Buffer.from([0x43, 0x61, 0x66, 0xe9, 0x20, 0x80, 0x35]));
+  await expect.poll(() => input.inputValue()).toBe('Start\nGrüße 😀\nZweite Zeile\nCafé €5');
+  expect(errors).toEqual([]);
+});

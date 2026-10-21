@@ -530,7 +530,10 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         text = source.text.replace(/[\uFFFC]/g, '').replace(/[\f\u000e]/g, '\n');
         if (!fragment) toast('Pictures, tables and fields in that file were inserted as text.', { icon: 'info' });
       } else {
-        const raw = await file.text();
+        // Decoded as opening the file decodes it: a byte order mark names UTF-16 (Notepad's "Unicode"), and a
+        // file that is not UTF-8 is read in the code page it was written in rather than as replacement characters.
+        const { decodeTextFile } = await import('../lib/importers.js');
+        const raw = decodeTextFile(await file.arrayBuffer(), /\.html?$/i.test(file.name) ? 'html' : null);
         if (/\.(md|markdown)$/i.test(file.name)) { const { markdownHtml } = await import('../lib/markdown-html.js'); fragment = formatted ? htmlFragment(markdownHtml(raw)) : null; text = raw; }
         else if (/\.html?$/i.test(file.name)) { fragment = formatted ? htmlFragment(raw) : null; text = new DOMParser().parseFromString(raw, 'text/html').body.textContent || ''; }
         else text = raw.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
