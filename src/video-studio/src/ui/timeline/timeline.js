@@ -404,9 +404,13 @@ export function createTimeline(ctx) {
         if (e.node.parentNode !== lane) lane.append(e.node);
         const x = timeToX(clip.start);
         const w = Math.max(2, (clip.duration / US) * pps);
-        e.node.style.transform = `translateX(${x}px)`;
-        e.node.style.width = `${w}px`;
-        e.node.className = `tl-clip type-${clip.type}${store.selection.has(clip.id) ? ' selected' : ''}${row.track.locked ? ' locked' : ''}${w < 40 ? ' narrow' : ''}${clip.caption ? ' caption' : ''}${clip.disabled ? ' disabled' : ''}${clip.group ? ' grouped' : ''}${clip.label ? ' labeled' : ''}`;
+        // Clips being dragged or trimmed keep their preview position.
+        const held = drag?.cls && drag.ids.has(clip.id);
+        if (!held) {
+          e.node.style.transform = `translateX(${x}px)`;
+          e.node.style.width = `${w}px`;
+        }
+        e.node.className = `tl-clip type-${clip.type}${store.selection.has(clip.id) ? ' selected' : ''}${row.track.locked ? ' locked' : ''}${w < 40 ? ' narrow' : ''}${clip.caption ? ' caption' : ''}${clip.disabled ? ' disabled' : ''}${clip.group ? ' grouped' : ''}${clip.label ? ' labeled' : ''}${held ? ` ${drag.cls}` : ''}`;
         if (clip.label) e.node.style.setProperty('--clip-tag', LABEL_COLORS[clip.label]);
         else e.node.style.removeProperty('--clip-tag');
         e.node.setAttribute('aria-selected', String(store.selection.has(clip.id)));
@@ -909,6 +913,7 @@ export function createTimeline(ctx) {
     const moving = [...store.selection].filter((x) => T.findClip(store.project, x) && !T.findClip(store.project, x).track.locked);
     if (!moving.includes(id)) moving.push(id);
     const exclude = new Set(moving);
+    drag = { type: 'move', ids: exclude, cls: '', move: (ev) => move(ev), last: null };
     const points = T.snapPoints(store.project, { exclude, playhead: store.time });
     const nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
     const origStart = clip.start;
@@ -916,12 +921,13 @@ export function createTimeline(ctx) {
     const minStart = Math.min(...moving.map((mid) => T.findClip(store.project, mid).clip.start));
     let moved = false;
     let target = { start: origStart, trackId: track.id };
-    drag = { type: 'move' };
     const move = (ev) => {
+      drag.last = ev;
       const p = contentPoint(ev);
       if (!moved && Math.abs(p.x - p0.x) < 3 && Math.abs(p.y - p0.y) < 3) return;
       if (!moved) {
         moved = true;
+        drag.cls = 'dragging';
         player.pause();
         nodes.forEach((n) => n.classList.add('dragging'));
       }
@@ -993,12 +999,14 @@ export function createTimeline(ctx) {
     const origEdge = edge === 'start' ? clip.start : T.clipEnd(clip);
     let at = origEdge;
     let moved = false;
-    drag = { type: 'trim' };
+    drag = { type: 'trim', ids: new Set([id]), cls: '', move: (ev) => move(ev), last: null };
     const move = (ev) => {
+      drag.last = ev;
       const p = contentPoint(ev);
       if (!moved && Math.abs(p.x - p0.x) < 2) return;
       if (!moved) {
         moved = true;
+        drag.cls = 'trimming';
         player.pause();
         node.classList.add('trimming');
       }
@@ -1410,6 +1418,8 @@ export function createTimeline(ctx) {
 
   scroller.addEventListener('scroll', () => {
     drawRulerNow();
+    // Scrolling under a held drag (edge auto-scroll or the wheel) moves it with the view.
+    if (drag?.last) drag.move(drag.last);
     queueRender();
     notifyView();
     if (centered) scrollSeek();
