@@ -54,7 +54,16 @@ export interface StrokeHandler {
   canRestore?: boolean;
 }
 
-let active: { handler: StrokeHandler; view: View3D } | null = null;
+/** What a stroke needs from the editor it runs in (the 3D Viewport, the Image Editor). */
+export interface StrokeView {
+  el: HTMLElement;
+  /** pointer position in the editor's pixels (top-left origin) */
+  local(e: { clientX: number; clientY: number }): { x: number; y: number };
+  /** redraw overlays (line / anchored previews) */
+  drawSvg(): void;
+}
+
+let active: { handler: StrokeHandler; view: StrokeView } | null = null;
 
 /** A recorded stroke point in viewport pixels (top-left origin). */
 export interface StrokePoint {
@@ -68,7 +77,7 @@ export interface StrokePoint {
 let replay: StrokePoint[] | null = null;
 
 /** Synthetic pointer event at a viewport position (client coordinates are derived from the view). */
-export function strokeEvent(v: View3D, p: StrokePoint, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): PointerEvent {
+export function strokeEvent(v: StrokeView, p: StrokePoint, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): PointerEvent {
   const r = v.el.getBoundingClientRect();
   const pr = p.pressure ?? 1;
   return {
@@ -94,7 +103,7 @@ export function strokeEvent(v: View3D, p: StrokePoint, mods: { ctrl?: boolean; s
  * press at the first point and starts the stroke as a pointer press would (it calls `runStroke`),
  * the remaining points are then played back and the stroke ends. Returns false when nothing started.
  */
-export function playStroke(v: View3D, points: StrokePoint[], start: (e: PointerEvent) => boolean, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): boolean {
+export function playStroke(v: StrokeView, points: StrokePoint[], start: (e: PointerEvent) => boolean, mods: { ctrl?: boolean; shift?: boolean; alt?: boolean } = {}): boolean {
   if (!points.length || active) return false;
   replay = points.slice(1);
   try {
@@ -109,7 +118,7 @@ export function strokeActive() {
 }
 
 /** Straight line of a Line stroke, drawn while dragging. */
-const lineState = { view: null as View3D | null, a: null as { x: number; y: number } | null, b: null as { x: number; y: number } | null, anchorR: 0 };
+const lineState = { view: null as StrokeView | null, a: null as { x: number; y: number } | null, b: null as { x: number; y: number } | null, anchorR: 0 };
 
 editModeHooks.svg.push((v) => {
   if (lineState.view !== v || !lineState.a || !lineState.b) return null;
@@ -124,7 +133,7 @@ editModeHooks.svg.push((v) => {
   return h('g', { key: 'stroke-line' }, ...parts) as VNode;
 });
 
-export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
+export function runStroke(v: StrokeView, e: PointerEvent, handler: StrokeHandler) {
   const el = v.el;
   const scripted = replay;
   replay = null;

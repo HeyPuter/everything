@@ -1,11 +1,15 @@
-// Painting directly on an image in the Image Editor (Paint mode): Paint, Soften, Smear and Fill
-// with the shared Texture Paint brushes and colors, plus the UV wire overlay of the active mesh.
-import { app } from '../../app/app';
+// Painting directly on an image in the Image Editor (Paint mode) with the shared Texture Paint
+// brushes and colors: Paint, Soften, Smear, Clone and Fill, the brush's stroke method, stabilizer,
+// pen pressure, falloff and hardness, brush texture / mask texture (including stencils), the clone
+// source (Ctrl+click; right-drag moves it), plus the UV wire overlay of the active mesh.
+import { app, registerOperators } from '../../app/app';
 import type { ImageData as Img } from '../../data/types';
 import { imageCanvas, imageTexture } from '../images';
 import { activeBrush, ensureBrushes, type PaintBrush } from '../../paint/brushes';
 import { blendColor, falloff, linearToSrgb, type BlendMode, type Falloff } from '../../paint/math';
 import { commitImage } from '../../paint/tpaint';
+import { runStroke, type StrokeView } from '../../paint/stroke';
+import { dabMaskAt, dabTextureColor, dabTextureAt, maskTextureActive, textureActive } from '../../paint/brushtex';
 import { modifiedImages } from './imageops';
 
 export interface PaintHost {
@@ -22,10 +26,15 @@ interface Work {
   H: number;
   ctx: CanvasRenderingContext2D;
   data: globalThis.ImageData;
+  /** pixels at the start of the stroke (cancel, anchored strokes) */
+  orig?: Uint8ClampedArray;
   /** per pixel paint already applied this stroke (limits build-up to the brush strength) */
   acc: Float32Array;
   dirty: [number, number, number, number];
 }
+
+/** Clone source of 2D painting: image pixel offset from the painted pixel to its source. */
+export const clone2D = { set: false, x: 0, y: 0, offset: [0, 0] as [number, number], image: null as string | null };
 
 export function paintBrush(): PaintBrush | null {
   ensureBrushes(app.doc);
@@ -48,8 +57,19 @@ function flush(w: Work) {
   imageTexture(w.img).needsUpdate = true;
 }
 
+/** Per-dab extras: brush texture color / strength, clone source, hardness. */
+export interface DabExtras {
+  hardness?: number;
+  /** texture strength factor at an image pixel (mask texture, or the texture for non-paint tools) */
+  strengthAt?: ((x: number, y: number) => number) | null;
+  /** texture color (display RGBA) at an image pixel, null outside a stencil */
+  colorAt?: ((x: number, y: number, out: number[]) => number[] | null) | null;
+  /** clone: source pixels and the offset from the painted pixel to its source */
+  clone?: { data: Uint8ClampedArray; W: number; H: number; dx: number; dy: number } | null;
+}
+
 /** One dab at image position (cx, cy) with radius r (image pixels). Exported for tests. */
-export function dab(w: Work, tool: string, cx: number, cy: number, r: number, strength: number, fall: Falloff, color: number[], mode: BlendMode, smearFrom?: [number, number]) {
+export function dab(w: Work, tool: string, cx: number, cy: number, r: number, strength: number, fall: Falloff, color: number[], mode: BlendMode, smearFrom?: [number, number], ex: DabExtras = {}) {
   const p = w.data.data;
   const x0 = Math.max(0, Math.floor(cx - r)),
     x1 = Math.min(w.W - 1, Math.ceil(cx + r)),
@@ -59,12 +79,26 @@ export function dab(w: Work, tool: string, cx: number, cy: number, r: number, st
   const src = tool === 'SOFTEN' || tool === 'SMEAR' ? p.slice() : null;
   const dst = [0, 0, 0, 1],
     out = [0, 0, 0, 1],
-    col = [0, 0, 0];
+    col = [0, 0, 0],
+    tc = [1, 1, 1, 1],
+    pc = [0, 0, 0];
+  const hard = ex.hardness ?? 0;
   for (let y = y0; y <= y1; y++)
     for (let x = x0; x <= x1; x++) {
       const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
       if (d > r) continue;
-      const k = falloff(fall, d / r) * strength;
+      let k = falloff(fall, d / r, hard) * strength;
+      if (k <= 0) continue;
+      if (ex.strengthAt) k *= ex.strengthAt(x + 0.5, y + 0.5);
+      let paint = color;
+      if (ex.colorAt && tool === 'DRAW') {
+        if (!ex.colorAt(x + 0.5, y + 0.5, tc)) continue;
+        k *= tc[3];
+        pc[0] = color[0] * tc[0];
+        pc[1] = color[1] * tc[1];
+        pc[2] = color[2] * tc[2];
+        paint = pc;
+      }
       if (k <= 0) continue;
       const i = (y * w.W + x) * 4;
       for (let c = 0; c < 4; c++) dst[c] = p[i + c] / 255;
@@ -92,6 +126,21 @@ export function dab(w: Work, tool: string, cx: number, cy: number, r: number, st
         if (xx < 0 || yy < 0 || xx >= w.W || yy >= w.H) continue;
         const j = (yy * w.W + xx) * 4;
         for (let c = 0; c < 4; c++) out[c] = dst[c] + (src![j + c] / 255 - dst[c]) * k;
+      } else if (tool === 'CLONE') {
+        const cl = ex.clone;
+        if (!cl) continue;
+        const sx = Math.floor(x + cl.dx),
+          sy = Math.floor(y + cl.dy);
+        if (sx < 0 || sy < 0 || sx >= cl.W || sy >= cl.H) continue;
+        const px = y * w.W + x;
+        const add = Math.max(0, Math.min(k, strength) - w.acc[px]);
+        if (add <= 0) continue;
+        w.acc[px] += add;
+        const a = Math.min(1, add / Math.max(1e-6, 1 - (w.acc[px] - add)));
+        const j = (sy * cl.W + sx) * 4;
+        for (let c = 0; c < 4; c++) out[c] = dst[c] + (cl.data[j + c] / 255 - dst[c]) * a;
+      } else if (tool === 'SMEAR') {
+        continue;
       } else {
         // limit build-up within one stroke to the brush strength
         const px = y * w.W + x;
@@ -99,7 +148,7 @@ export function dab(w: Work, tool: string, cx: number, cy: number, r: number, st
         if (add <= 0) continue;
         w.acc[px] += add;
         const a = add / Math.max(1e-6, 1 - (w.acc[px] - add));
-        blendColor(mode, dst, color, Math.min(1, a), out);
+        blendColor(mode, dst, paint, Math.min(1, a), out);
       }
       for (let c = 0; c < 4; c++) p[i + c] = Math.round(Math.max(0, Math.min(1, out[c])) * 255);
     }
@@ -157,6 +206,25 @@ export function makeWork(img: Img): Work {
   return { img, W, H, ctx, data: ctx.getImageData(0, 0, W, H), acc: new Float32Array(W * H), dirty: [Infinity, Infinity, -1, -1] };
 }
 
+/** Editor pixels for an image pixel (the inverse of `host.toImage`, which is a pan and zoom). */
+function screenOf(host: PaintHost) {
+  const [ox, oy] = host.toImage(0, 0);
+  const z = host.zoom;
+  return (ix: number, iy: number): [number, number] => [(ix - ox) * z, (iy - oy) * z];
+}
+
+/** Clone source pixels: another image, or the painted image as it was when the stroke started. */
+function cloneData(b: PaintBrush, w: Work): { data: Uint8ClampedArray; W: number; H: number } {
+  const srcId = b.clone_image && b.clone_image !== w.img.id ? b.clone_image : null;
+  const src = srcId ? app.doc.images[srcId] : null;
+  if (src) {
+    const c = imageCanvas(src);
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (g) return { data: g.getImageData(0, 0, c.width, c.height).data, W: c.width, H: c.height };
+  }
+  return { data: w.orig ?? w.data.data.slice(), W: w.W, H: w.H };
+}
+
 /** Paint a stroke with the active Texture Paint brush (Ctrl: secondary color, Shift: soften). */
 export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): boolean {
   const b = paintBrush();
@@ -164,53 +232,185 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
   const live = app.doc.images[img.id];
   if (!live) return false;
   const w = makeWork(live);
+  w.orig = w.data.data.slice();
   const up = app.doc.scene.tool_settings.unified_paint;
   const invert = e.ctrlKey || e.metaKey;
   const tool = e.shiftKey ? 'SOFTEN' : b.sculpt_tool === 'TEXDRAW' ? 'DRAW' : b.sculpt_tool;
-  const lin = invert ? up.secondary_color : up.color;
+  const lin = invert && tool !== 'CLONE' ? up.secondary_color : up.color;
   const color = [linearToSrgb(lin[0]), linearToSrgb(lin[1]), linearToSrgb(lin[2])];
   const mode = (b.blend ?? 'MIX') as BlendMode;
   const r = host.el.getBoundingClientRect();
   const at = (ev: { clientX: number; clientY: number }) => host.toImage(ev.clientX - r.left, ev.clientY - r.top);
-  const radius = () => Math.max(0.5, b.radius / host.zoom);
   const strength = Math.max(0, b.strength);
-  let last = at(e);
+  const start = at(e);
   if (tool === 'FILL') {
-    floodFill(w, Math.floor(last[0]), Math.floor(last[1]), color, strength || 1, mode);
+    floodFill(w, Math.floor(start[0]), Math.floor(start[1]), color, strength || 1, mode);
     flush(w);
     host.draw();
     modifiedImages.add(live.id);
     void commitImage(live, 'Image Paint');
     return true;
   }
-  const fall = (b.falloff ?? 'SMOOTH') as Falloff;
-  dab(w, tool, last[0], last[1], radius(), strength, fall, color, mode);
-  flush(w);
-  host.draw();
-  const move = (ev: PointerEvent) => {
-    const p = at(ev);
-    const step = Math.max(0.5, (radius() * Math.max(1, b.spacing || 10)) / 100);
-    const dist = Math.hypot(p[0] - last[0], p[1] - last[1]);
-    const n = Math.floor(dist / step);
-    for (let i = 1; i <= n; i++) {
-      const t = (i * step) / dist;
-      const x = last[0] + (p[0] - last[0]) * t,
-        y = last[1] + (p[1] - last[1]) * t;
-      const prev: [number, number] = [last[0] + (p[0] - last[0]) * ((i - 1) * step) / dist, last[1] + (p[1] - last[1]) * ((i - 1) * step) / dist];
-      dab(w, tool, x, y, radius(), strength, fall, color, mode, prev);
+  let cloneSrc: DabExtras['clone'] = null;
+  if (tool === 'CLONE') {
+    if (invert) {
+      // Ctrl+click: pick the clone source point
+      clone2D.set = true;
+      clone2D.x = start[0];
+      clone2D.y = start[1];
+      clone2D.image = live.id;
+      host.draw();
+      return true;
     }
-    if (n > 0) last = [last[0] + ((p[0] - last[0]) * n * step) / dist, last[1] + ((p[1] - last[1]) * n * step) / dist];
-    flush(w);
-    host.draw();
-  };
-  const end = () => {
-    removeEventListener('pointermove', move);
-    removeEventListener('pointerup', end);
-    flush(w);
-    modifiedImages.add(live.id);
-    void commitImage(live, 'Image Paint');
-  };
-  addEventListener('pointermove', move);
-  addEventListener('pointerup', end);
+    const cd = cloneData(b, w);
+    // the first dab copies from the source point (or straight across from another image)
+    const dx = clone2D.set && clone2D.image === live.id && !b.clone_image ? clone2D.x - start[0] : clone2D.offset[0];
+    const dy = clone2D.set && clone2D.image === live.id && !b.clone_image ? clone2D.y - start[1] : clone2D.offset[1];
+    if (!b.clone_image && !clone2D.set) {
+      app.report('INFO', 'Clone: Ctrl+click to set the source point first');
+      return true;
+    }
+    cloneSrc = { ...cd, dx, dy };
+  }
+  const fall = (b.falloff ?? 'SMOOTH') as Falloff;
+  const toScreen = screenOf(host);
+  const view: StrokeView = { el: host.el, local: (ev) => ({ x: ev.clientX - r.left, y: ev.clientY - r.top }), drawSvg: () => host.draw() };
+  const viewH = host.el.clientHeight;
+  let last: [number, number] | null = null;
+  let dabIndex = 0;
+  runStroke(view, e, {
+    spacing: () => Math.max(1, b.spacing || 10),
+    radiusPx: () => b.radius,
+    settings: () => b,
+    canRestore: true,
+    dab: (d) => {
+      if (d.restore && w.orig) {
+        // anchored / drag dot: start over from the pixels before the stroke
+        w.data.data.set(w.orig);
+        w.acc.fill(0);
+        mark(w, 0, 0, w.W - 1, w.H - 1);
+      }
+      const [ix, iy] = host.toImage(d.x, d.y);
+      const radius = Math.max(0.5, ((d.radiusPx ?? b.radius) * (d.sizeFactor ?? 1)) / host.zoom);
+      const place = { cx: d.x, cy: d.y, radiusPx: (d.radiusPx ?? b.radius) * (d.sizeFactor ?? 1), index: dabIndex++, viewH };
+      const colorAt = tool === 'DRAW' && textureActive(b) ? dabTextureColor(b, place) : null;
+      const strengthAt = tool === 'DRAW' ? (maskTextureActive(b) ? dabMaskAt(b, place) : null) : dabTextureAt(b, place);
+      const ex: DabExtras = {
+        hardness: b.hardness ?? 0,
+        colorAt: colorAt ? (x, y, out) => colorAt(...toScreen(x, y), x, y, 0, out) : null,
+        strengthAt: strengthAt ? (x, y) => strengthAt(...toScreen(x, y), x, y, 0) : null,
+        clone: cloneSrc,
+      };
+      dab(w, tool, ix, iy, radius, strength * d.pressure, fall, color, mode, last ?? undefined, ex);
+      last = [ix, iy];
+    },
+    update: () => {
+      flush(w);
+      host.draw();
+    },
+    cancel: () => {
+      if (w.orig) w.data.data.set(w.orig);
+      mark(w, 0, 0, w.W - 1, w.H - 1);
+      flush(w);
+      host.draw();
+    },
+    end: () => {
+      flush(w);
+      host.draw();
+      modifiedImages.add(live.id);
+      // a source point follows the stroke (aligned cloning)
+      if (cloneSrc && clone2D.set && !b.clone_image) clone2D.offset = [cloneSrc.dx, cloneSrc.dy];
+      void commitImage(live, 'Image Paint');
+    },
+  });
   return true;
+}
+
+/**
+ * Right-drag in Paint mode with the Clone brush: move the clone source. Returns true when it
+ * took the press.
+ */
+export function imagePaintRightDown(host: PaintHost & { area?: unknown }, e: PointerEvent): boolean {
+  const b = paintBrush();
+  if (!b || b.sculpt_tool !== 'CLONE' || e.button !== 2) return false;
+  e.preventDefault();
+  grabHost = host;
+  app.run('paint.grab_clone', {}, { event: { x: e.clientX, y: e.clientY } });
+  return true;
+}
+
+let grabHost: PaintHost | null = null;
+
+function moveClone(dx: number, dy: number) {
+  clone2D.x += dx;
+  clone2D.y += dy;
+  clone2D.offset = [clone2D.offset[0] + dx, clone2D.offset[1] + dy];
+}
+
+registerOperators([
+  {
+    idname: 'paint.grab_clone',
+    label: 'Grab Clone',
+    description: 'Move the source of the Clone brush (in image pixels)',
+    props: [{ id: 'delta', label: 'Delta', type: 'vec2', default: [0, 0] }],
+    undo: false,
+    poll: () => paintBrush()?.sculpt_tool === 'CLONE',
+    invoke: (ctx) => {
+      const host = grabHost;
+      if (!host || !ctx.event) return 'CANCELLED';
+      const z = host.zoom;
+      const sx = ctx.event.x,
+        sy = ctx.event.y;
+      const p0 = { x: clone2D.x, y: clone2D.y, o: [...clone2D.offset] as [number, number] };
+      const apply = (ev: PointerEvent) => {
+        clone2D.x = p0.x;
+        clone2D.y = p0.y;
+        clone2D.offset = [...p0.o];
+        moveClone((ev.clientX - sx) / z, (ev.clientY - sy) / z);
+        host.draw();
+      };
+      app.startModal({
+        label: 'Grab Clone',
+        onPointerMove: apply,
+        onPointerUp: (ev) => (ev.button === 2 || ev.button === 0 ? 'FINISHED' : undefined),
+        onKey: (ev) => (ev.type === 'keydown' && ev.key === 'Escape' ? 'CANCELLED' : true),
+        cancel: () => {
+          clone2D.x = p0.x;
+          clone2D.y = p0.y;
+          clone2D.offset = p0.o;
+          host.draw();
+        },
+        header: () => 'Move the clone source · release to confirm',
+      });
+      return 'RUNNING_MODAL';
+    },
+    exec: (_ctx, p) => {
+      const d = (p.delta as number[]) ?? [0, 0];
+      moveClone(d[0] ?? 0, d[1] ?? 0);
+      grabHost?.draw();
+    },
+  },
+]);
+
+/** Clone source marker over the image (editor pixels from image pixels). */
+export function drawPaintOverlay(ctx: CanvasRenderingContext2D, imageToScreen: (x: number, y: number) => [number, number], imageId: string | null) {
+  const b = paintBrush();
+  if (!b || b.sculpt_tool !== 'CLONE' || !clone2D.set || clone2D.image !== imageId) return;
+  const [x, y] = imageToScreen(clone2D.x, clone2D.y);
+  ctx.save();
+  for (const [col, wdt] of [
+    ['rgba(0, 0, 0,0.6)', 3],
+    ['#ffffff', 1.2],
+  ] as [string, number][]) {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = wdt;
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.moveTo(x - 11, y);
+    ctx.lineTo(x + 11, y);
+    ctx.moveTo(x, y - 11);
+    ctx.lineTo(x, y + 11);
+    ctx.stroke();
+  }
+  ctx.restore();
 }

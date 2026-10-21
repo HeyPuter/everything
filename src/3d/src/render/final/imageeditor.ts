@@ -22,7 +22,7 @@ import { lastOpPanel } from '../../ui/redo';
 import { uiList } from '../../editors/properties/uilist';
 import { isTiled, tileName, tileView, atlasLayout, tileCell } from '../udim';
 import { makeTiled, makeSingle, openImageFiles, saveTiles } from './udimops';
-import { imagePaintStroke, paintBrush } from './imagepaint';
+import { drawPaintOverlay, imagePaintRightDown, imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
 import { toolHeaderSettings } from '../../paint/ui';
@@ -106,6 +106,8 @@ export class ImageEditor implements Editor, View2D {
   showMetadata = true;
   /** View or Paint; unset follows the object mode (Paint while in Texture Paint mode) */
   uiMode: 'VIEW' | 'PAINT' | null = null;
+  /** a right-drag in Paint mode was used by the brush (no context menu on release) */
+  private skipContextMenu = false;
   showToolbar = true;
   /** View mode: show the Sample tool's settings over the image */
   showToolSettings = true;
@@ -426,6 +428,7 @@ export class ImageEditor implements Editor, View2D {
         ctx.stroke();
       }
     }
+    if (this.paintMode()) drawPaintOverlay(ctx, (ix, iy) => [x + ix * this.zoom, y + iy * this.zoom], this.image?.id ?? null);
     // sample cross-hair
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,
@@ -1293,6 +1296,11 @@ export class ImageEditor implements Editor, View2D {
     el.addEventListener('pointerdown', (e) => {
       this.el.focus({ preventScroll: true });
       const start = this.local(e);
+      // Paint mode: right-drag moves the clone source of the Clone brush
+      if (e.button === 2 && this.paintMode() && imagePaintRightDown(this, e)) {
+        this.skipContextMenu = true;
+        return;
+      }
       if (e.button === 1 || (e.button === 0 && e.altKey)) {
         e.preventDefault();
         el.setPointerCapture(e.pointerId);
@@ -1334,6 +1342,10 @@ export class ImageEditor implements Editor, View2D {
     });
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
+      if (this.skipContextMenu) {
+        this.skipContextMenu = false;
+        return;
+      }
       openMenu(this.imageMenu(), { x: e.clientX, y: e.clientY }, { title: 'Image' });
     });
   }
