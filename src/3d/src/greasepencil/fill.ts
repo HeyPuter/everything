@@ -12,6 +12,7 @@ import { layerMatrix } from './render';
 import type { GPBrush, GPLayer, GreasePencilData } from './types';
 import { floodFill, dilate, traceContours, simplifyLoop, invertedRegion } from './fillmath';
 import { extensionLines, type ScreenStroke } from './fillgaps';
+import { evaluatedDrawing } from './curves';
 
 export { floodFill, dilate, traceContours, simplifyLoop };
 
@@ -66,7 +67,7 @@ export function fillRegion(v: View3D, ob: ObjectData, gp: GreasePencilData, laye
   const pxPerWorld: number[] = [];
   for (const l of fillLayers(gp, layer, b.fill_layer_mode)) {
     const fr = frameAt(l, frame);
-    const d = fr ? gp.drawings[fr.drawing] : null;
+    const d = fr && gp.drawings[fr.drawing] ? evaluatedDrawing(gp.drawings[fr.drawing]) : null;
     if (!d) continue;
     const m = obWorld ? obWorld.clone().multiply(layerMatrix(l)) : layerMatrix(l);
     for (let k = 0; k + 1 < d.offsets.length; k++) {
@@ -160,7 +161,7 @@ export function extensionPreview(v: View3D, ob: ObjectData, gp: GreasePencilData
   let px = 1;
   for (const l of fillLayers(gp, layer, b.fill_layer_mode)) {
     const fr = frameAt(l, frame);
-    const d = fr ? gp.drawings[fr.drawing] : null;
+    const d = fr && gp.drawings[fr.drawing] ? evaluatedDrawing(gp.drawings[fr.drawing]) : null;
     if (!d) continue;
     const m = obWorld ? obWorld.clone().multiply(layerMatrix(l)) : layerMatrix(l);
     for (let k = 0; k + 1 < d.offsets.length; k++) {

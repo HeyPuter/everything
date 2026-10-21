@@ -12,6 +12,8 @@ import { inGPEdit } from './edit';
 import { activeLayerMenu, animationMenu, showHideMenu, cleanupMenu } from './menus';
 import { placementControls } from './ui';
 import { vertexGroupMenu } from './weightpaint';
+import { convertTypeMenu, setCurveTypeMenu, strokeTypeMenu, handleTypeMenu, cornerTypeMenu, selectByStrokeTypeMenu } from './curveedit';
+
 
 const gpNow = () => gpOf(app.doc, app.activeObject);
 
@@ -203,6 +205,13 @@ function strokeMenu(): MenuItem[] {
       },
     },
     { separator: true },
+    { label: 'Convert Type', submenu: convertTypeMenu },
+    { label: 'Set Curve Type', submenu: setCurveTypeMenu },
+    { label: 'Set Resolution', op: 'grease_pencil.set_curve_resolution' },
+    { separator: true },
+    { label: 'Set Stroke Type', submenu: strokeTypeMenu },
+    { separator: true },
+    { label: 'Reset UVs', op: 'grease_pencil.reset_uvs' },
     { label: 'Join Fills', op: 'grease_pencil.join_fills', shortcut: 'Shift J' },
     { label: 'Separate Fills', op: 'grease_pencil.separate_fills', shortcut: 'Alt P' },
   ];
@@ -215,6 +224,9 @@ function pointMenu(): MenuItem[] {
     { label: 'Smooth', op: 'grease_pencil.stroke_smooth' },
     { separator: true },
     { label: 'Vertex Groups', submenu: vertexGroupMenu, shortcut: 'Ctrl G' },
+    { separator: true },
+    { label: 'Set Handle Type', submenu: handleTypeMenu, shortcut: 'V' },
+    { label: 'Set Corner Type', submenu: cornerTypeMenu },
   ];
 }
 
@@ -226,6 +238,7 @@ function selectItems(): MenuItem[] {
     { separator: true },
     { label: 'Box Select', op: 'view3d.select_box', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle', shortcut: 'C' },
+    { label: 'Lasso Select', op: 'view3d.select_lasso_tool' },
     { separator: true },
     { label: 'Random', op: 'grease_pencil.select_random' },
     { label: 'Alternated', op: 'grease_pencil.select_alternate' },
@@ -245,6 +258,7 @@ function selectItems(): MenuItem[] {
           ['OPACITY', 'Opacity'],
         ].map(([mode, label]) => ({ label, op: 'grease_pencil.select_similar', props: { mode } })),
     },
+    { label: 'By Stroke Type', submenu: selectByStrokeTypeMenu },
     { label: 'Fill', op: 'grease_pencil.select_fill', shortcut: 'Ctrl L' },
     { label: 'Linked', op: 'grease_pencil.select_linked', shortcut: 'L' },
     { separator: true },
@@ -261,6 +275,7 @@ function contextMenu(): MenuItem[] {
     { label: 'Subdivide and Smooth', op: 'grease_pencil.stroke_subdivide_smooth' },
     { label: 'Simplify', op: 'grease_pencil.stroke_simplify' },
     { label: 'Outline', op: 'grease_pencil.outline' },
+    { label: 'Set Stroke Type', submenu: strokeTypeMenu },
     { separator: true },
     { label: 'To Sphere', op: 'transform.tosphere', shortcut: 'Shift Alt S' },
     { label: 'Shear', op: 'transform.shear', shortcut: 'Shift Ctrl Alt S' },
@@ -269,6 +284,7 @@ function contextMenu(): MenuItem[] {
     { label: 'Shrink/Fatten', op: 'transform.transform', props: { mode: 'CURVE_SHRINKFATTEN' }, shortcut: 'Alt S' },
     { label: 'Smooth Points', op: 'grease_pencil.stroke_smooth' },
     { label: 'Set Start Point', op: 'grease_pencil.set_start_point' },
+    { label: 'Set Corner Type', submenu: cornerTypeMenu },
     { separator: true },
     { label: 'Mirror', submenu: mirrorMenu },
     { separator: true },
@@ -284,6 +300,8 @@ function contextMenu(): MenuItem[] {
     { label: 'Dissolve', op: 'grease_pencil.dissolve', props: { type: 'POINTS' } },
     { label: 'Dissolve Between', op: 'grease_pencil.dissolve', props: { type: 'BETWEEN' } },
     { label: 'Dissolve Unselected', op: 'grease_pencil.dissolve', props: { type: 'UNSELECT' } },
+    { separator: true },
+    { label: 'Convert Type', submenu: convertTypeMenu },
   ];
 }
 
@@ -316,8 +334,8 @@ modeMenus.EDIT = {
     inGPEdit()
       ? [
           ['Grease Pencil', gpMenu],
-          ['Stroke', strokeMenu],
           ['Point', pointMenu],
+          ['Stroke', strokeMenu],
         ]
       : (prevEdit?.header?.() ?? []),
   select: () => (inGPEdit() ? selectItems() : (prevEdit?.select?.() ?? [])),

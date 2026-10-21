@@ -12,6 +12,7 @@ import type { DocumentData, ModifierBase, ObjectData } from '../data/types';
 import { toStrokes, fromStrokes, normalizeDrawing, slotStyle, type GPPoint, type GPStroke } from './data';
 import { smoothPoints, subdivideStroke, simplifyPoints, mergeByDistance, simplifyFixed, sampleByLength, outlinePoints } from './strokeops';
 import { noise } from './drawproc';
+import { fillPlane } from './geometry';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
 
 type M = Record<string, unknown>;
@@ -74,6 +75,49 @@ function smoothNoise(seed: number, x: number) {
 // kernels
 
 export const kernels: Record<string, Kernel> = {
+  GREASE_PENCIL_TEXTURE: (ss, m) => {
+    const mode = str(m, 'mode', 'STROKE');
+    const fr = num(m, 'fill_rotation', 0),
+      fo = vec(m, 'fill_offset', [0, 0]),
+      fs = num(m, 'fill_scale', 1) || 1;
+    return ss.map((s) => {
+      const o: GPStroke = { ...s };
+      if (mode !== 'FILL') o.uv_stroke = [num(m, 'uv_offset', 0), num(m, 'uv_scale', 1), str(m, 'fit_method', 'CONSTANT_LENGTH') === 'FIT_STROKE' ? 1 : 0, num(m, 'alignment_rotation', 0)];
+      if (mode !== 'STROKE' && s.points.length >= 3) {
+        // start from the stroke's own fill transform, or the one mapping its bounds to 0..1
+        let t = s.uv_translation,
+          r = s.uv_rotation ?? 0,
+          sc = s.uv_scale;
+        if (!t || !sc) {
+          const P = s.points.flatMap((p) => p.co);
+          const loop = s.points.map((_, i) => i);
+          const { U, V } = fillPlane(P, [loop]);
+          let x0 = Infinity,
+            y0 = Infinity,
+            x1 = -Infinity,
+            y1 = -Infinity;
+          for (const p of s.points) {
+            const x = p.co[0] * U[0] + p.co[1] * U[1] + p.co[2] * U[2],
+              y = p.co[0] * V[0] + p.co[1] * V[1] + p.co[2] * V[2];
+            [x0, y0, x1, y1] = [Math.min(x0, x), Math.min(y0, y), Math.max(x1, x), Math.max(y1, y)];
+          }
+          t = [x0, y0];
+          r = 0;
+          sc = [x1 - x0 || 1, y1 - y0 || 1];
+        }
+        // offset in texture units, then scale (more repeats when larger), then turn the texture
+        const c = Math.cos(r),
+          sn = Math.sin(r);
+        const ox = fo[0] * sc[0],
+          oy = fo[1] * sc[1];
+        o.uv_translation = [t[0] - (c * ox - sn * oy), t[1] - (sn * ox + c * oy)];
+        o.uv_scale = [sc[0] / fs, sc[1] / fs];
+        o.uv_rotation = r + fr;
+      }
+      return o;
+    });
+  },
+
   GREASE_PENCIL_THICKNESS: (ss, m) =>
     ss.map((s) => ({
       ...s,
@@ -899,6 +943,7 @@ export const GP_MODIFIERS: Def[] = [
   { type: 'GREASE_PENCIL_COLOR', label: 'Hue/Saturation', category: 'COLOR', icon: 'mod_hue_saturation', defaults: { color_mode: 'BOTH', hue: 0.5, saturation: 1, value: 1 } },
   { type: 'GREASE_PENCIL_OPACITY', label: 'Opacity', category: 'COLOR', icon: 'mod_opacity', defaults: { color_mode: 'BOTH', color_factor: 1, use_uniform_opacity: false } },
   { type: 'GREASE_PENCIL_TINT', label: 'Tint', category: 'COLOR', icon: 'mod_tint', defaults: { color_mode: 'BOTH', factor: 0.5, color: [1, 1, 1] } },
+  { type: 'GREASE_PENCIL_TEXTURE', label: 'Texture Mapping', category: 'EDIT', icon: 'mod_uvproject', defaults: { mode: 'STROKE', fit_method: 'CONSTANT_LENGTH', uv_offset: 0, uv_scale: 1, alignment_rotation: 0, fill_rotation: 0, fill_offset: [0, 0], fill_scale: 1 } },
 ];
 
 for (const d of GP_MODIFIERS)

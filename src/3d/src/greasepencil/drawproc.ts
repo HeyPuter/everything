@@ -65,3 +65,97 @@ export function noise(seed: number, i: number): number {
   h ^= h >>> 16;
   return ((h >>> 0) / 4294967295) * 2 - 1;
 }
+
+/** Radius factor of a pen nib: 1 - factor where the direction runs along the nib angle, 1 across it. */
+export function nibFactor(dir: number, angle: number, factor: number): number {
+  return Math.max(0.01, 1 - Math.max(0, Math.min(1, factor)) * Math.abs(Math.cos(dir - angle)));
+}
+
+/** Brush blend modes of vertex painting (`bpy` brush.blend names). */
+export const VERTEX_BLEND_MODES: [string, string][] = [
+  ['MIX', 'Mix'],
+  ['DARKEN', 'Darken'],
+  ['MUL', 'Multiply'],
+  ['LIGHTEN', 'Lighten'],
+  ['SCREEN', 'Screen'],
+  ['ADD', 'Add'],
+  ['SUB', 'Subtract'],
+  ['OVERLAY', 'Overlay'],
+  ['DIFFERENCE', 'Difference'],
+  ['HUE', 'Hue'],
+  ['SATURATION', 'Saturation'],
+  ['COLOR', 'Color'],
+  ['LUMINOSITY', 'Value'],
+];
+
+function toHsv(c: number[]): [number, number, number] {
+  const mx = Math.max(c[0], c[1], c[2]),
+    mn = Math.min(c[0], c[1], c[2]);
+  const d = mx - mn;
+  let hh = 0;
+  if (d > 1e-9) {
+    if (mx === c[0]) hh = ((c[1] - c[2]) / d) % 6;
+    else if (mx === c[1]) hh = (c[2] - c[0]) / d + 2;
+    else hh = (c[0] - c[1]) / d + 4;
+    hh /= 6;
+    if (hh < 0) hh += 1;
+  }
+  return [hh, mx > 0 ? d / mx : 0, mx];
+}
+
+function fromHsv(hh: number, s: number, v: number): [number, number, number] {
+  const i = Math.floor(hh * 6),
+    f = hh * 6 - i;
+  const p = v * (1 - s),
+    q = v * (1 - f * s),
+    t = v * (1 - (1 - f) * s);
+  switch (((i % 6) + 6) % 6) {
+    case 0:
+      return [v, t, p];
+    case 1:
+      return [q, v, p];
+    case 2:
+      return [p, v, t];
+    case 3:
+      return [p, q, v];
+    case 4:
+      return [t, p, v];
+    default:
+      return [v, p, q];
+  }
+}
+
+/** The color a brush in `mode` paints over `base` (rgb 0..1): the stroke then mixes toward it. */
+export function blendColor(mode: string, base: number[], paint: number[]): [number, number, number] {
+  const ch = (fn: (a: number, b: number) => number): [number, number, number] => [0, 1, 2].map((k) => Math.max(0, Math.min(1, fn(base[k], paint[k])))) as [number, number, number];
+  switch (mode) {
+    case 'DARKEN':
+      return ch(Math.min);
+    case 'MUL':
+      return ch((a, b) => a * b);
+    case 'LIGHTEN':
+      return ch(Math.max);
+    case 'SCREEN':
+      return ch((a, b) => 1 - (1 - a) * (1 - b));
+    case 'ADD':
+      return ch((a, b) => a + b);
+    case 'SUB':
+      return ch((a, b) => a - b);
+    case 'OVERLAY':
+      return ch((a, b) => (a < 0.5 ? 2 * a * b : 1 - 2 * (1 - a) * (1 - b)));
+    case 'DIFFERENCE':
+      return ch((a, b) => Math.abs(a - b));
+    case 'HUE':
+    case 'SATURATION':
+    case 'COLOR':
+    case 'LUMINOSITY': {
+      const B = toHsv(base),
+        P = toHsv(paint);
+      if (mode === 'HUE') return fromHsv(P[0], B[1], B[2]);
+      if (mode === 'SATURATION') return fromHsv(B[0], P[1], B[2]);
+      if (mode === 'COLOR') return fromHsv(P[0], P[1], B[2]);
+      return fromHsv(B[0], B[1], P[2]);
+    }
+  }
+  return [paint[0], paint[1], paint[2]];
+}

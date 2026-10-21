@@ -58,6 +58,7 @@ export function cleanupMenu(): MenuItem[] {
     { label: 'Delete Duplicate Frames', op: 'grease_pencil.frame_clean_duplicate' },
     { label: 'Merge by Distance', op: 'grease_pencil.stroke_merge_by_distance' },
     { label: 'Reproject Strokes...', op: 'grease_pencil.reproject' },
+    { label: 'Remove Fill Guides', op: 'grease_pencil.remove_fill_guides' },
   ];
 }
 

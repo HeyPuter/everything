@@ -9,7 +9,7 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { extraToolLists, toolSettingsRenderers, type ToolDef } from '../editors/view3d/toolbar';
 import { modeMenus } from '../editors/view3d/modemenus';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
 import { h } from '../ui/h';
 import { numberField } from '../ui/widgets';
 import type { MenuItem } from '../ui/menu';
@@ -81,7 +81,7 @@ function brush(tool: string): GPBrush & { weight?: number } {
   return b;
 }
 
-function startWeightPaint(v: View3D, e: PointerEvent) {
+export function startWeightPaint(v: View3D, e: PointerEvent) {
   const { ob, gp } = gpCtx()!;
   const group = activeGroup(ob, gp) ?? addGroup(ob, gp);
   const tool = activeTools[app.doc.mode] ?? 'builtin.brush.WeightDraw';

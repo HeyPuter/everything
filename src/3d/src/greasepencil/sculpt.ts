@@ -5,7 +5,7 @@ import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
 import { drawContext, editableDrawing } from './paint';
 import { gpBrush, gpTS, frameAt, toStrokes, fromStrokes, normalizeDrawing } from './data';
 import { Placement } from './placement';
@@ -258,7 +258,7 @@ export function startSculpt(v: View3D, e: PointerEvent, toolOverride?: string) {
 }
 
 /** Clone brush: the copied strokes are pasted under the brush and follow it until release. */
-function startClone(v: View3D, e: PointerEvent) {
+export function startClone(v: View3D, e: PointerEvent) {
   const c = drawContext();
   if (!c?.layer || c.layer.lock) return;
   const src = clipboardWorldStrokes();

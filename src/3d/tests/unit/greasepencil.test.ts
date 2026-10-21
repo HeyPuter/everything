@@ -17,7 +17,7 @@ describe('stroke geometry', () => {
     const b = buildStrokeBuffers(d, [LINE]);
     expect(b.vertexCount).toBe(8);
     expect(b.index.length).toBe(12);
-    expect(b.orderEnd).toBe(1);
+    expect(b.orderEnd).toBe(2); // each stroke owns two draw orders (fill, line)
     const c = buildStrokeBuffers(fromStrokes([newStroke(pts([[0, 0], [1, 0], [1, 1]]), { cyclic: true })]), [LINE]);
     expect(c.vertexCount).toBe(12);
     // the closing segment goes from the last point back to the first

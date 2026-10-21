@@ -35,6 +35,17 @@ import './sculptui';
 import './overlays';
 import './segmentops';
 import './annotations';
+import './annotate';
+import './annotate2d';
+import './curveedit';
+import './pen';
+import './texgrad';
+import './fillguides';
+import './brushshelf';
+import './brushpicker';
+import './brushstroke';
+import './itempanel';
+import './presets';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

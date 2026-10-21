@@ -8,11 +8,16 @@ import { viewportExtensions } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
 import { h } from '../ui/h';
-import { checkbox, numberField, colorSwatch } from '../ui/widgets';
+import { checkbox, numberField, colorSwatch, enumMenu } from '../ui/widgets';
 import { gpOf, gpTS } from './data';
 
 export interface GPOverlay {
   use_gpencil_onion_skin?: boolean;
+  /** onion skins of the active object only */
+  use_gpencil_onion_skin_active_object?: boolean;
+  /** canvas drawn over everything */
+  use_gpencil_canvas_xray?: boolean;
+  gpencil_grid_offset?: [number, number];
   use_gpencil_fade_layers?: boolean;
   gpencil_fade_layer?: number;
   use_gpencil_fade_objects?: boolean;
@@ -65,6 +70,7 @@ overlayPopoverHooks.push((v) => {
       'div',
       { class: 'pop-grid' },
       checkbox('gpo-onion', 'Onion Skins', o.use_gpencil_onion_skin !== false, set('use_gpencil_onion_skin')),
+      checkbox('gpo-onion-act', 'Active Object Only', !!o.use_gpencil_onion_skin_active_object, set('use_gpencil_onion_skin_active_object')),
       checkbox('gpo-fadel', 'Fade Inactive Layers', !!o.use_gpencil_fade_layers, set('use_gpencil_fade_layers')),
       checkbox('gpo-fadeo', 'Fade Grease Pencil Objects', !!o.use_gpencil_fade_objects, set('use_gpencil_fade_objects')),
       checkbox('gpo-grid', 'Canvas', !!o.use_gpencil_grid, set('use_gpencil_grid')),
@@ -74,6 +80,9 @@ overlayPopoverHooks.push((v) => {
     o.use_gpencil_grid
       ? [
           numberField({ id: 'gpo-grid-op', label: 'Grid Opacity', value: o.gpencil_grid_opacity, min: 0.1, max: 1, slider: true, set: (x) => set('gpencil_grid_opacity')(x) }),
+          checkbox('gpo-grid-xray', 'X-Ray', !!o.use_gpencil_canvas_xray, set('use_gpencil_canvas_xray'), { tip: 'Canvas X-Ray\nShow the canvas grid over the scene' }),
+          numberField({ id: 'gpo-grid-ox', label: 'Offset X', value: (o.gpencil_grid_offset ?? [0, 0])[0], min: -100, max: 100, step: 0.1, set: (x) => set('gpencil_grid_offset')([x, (o.gpencil_grid_offset ?? [0, 0])[1]]) }),
+          numberField({ id: 'gpo-grid-oy', label: 'Offset Y', value: (o.gpencil_grid_offset ?? [0, 0])[1], min: -100, max: 100, step: 0.1, set: (x) => set('gpencil_grid_offset')([(o.gpencil_grid_offset ?? [0, 0])[0], x]) }),
           numberField({ id: 'gpo-grid-sc', label: 'Grid Scale', value: (o.gpencil_grid_scale ?? [1, 1])[0], min: 0.01, max: 100, set: (x) => set('gpencil_grid_scale')([x, x]) }),
           numberField({ id: 'gpo-grid-sub', label: 'Subdivisions', value: o.gpencil_grid_subdivisions ?? 4, min: 1, max: 32, int: true, set: (x) => set('gpencil_grid_subdivisions')(Math.round(x)) }),
           colorSwatch('gpo-grid-col', o.gpencil_grid_color ?? [0.5, 0.5, 0.5], (c) => set('gpencil_grid_color')(c.slice(0, 3))),
@@ -83,6 +92,26 @@ overlayPopoverHooks.push((v) => {
       ? [
           h('div', { class: 'pop-grid' }, checkbox('gpo-lines', 'Edit Lines', o.use_gpencil_edit_lines !== false, set('use_gpencil_edit_lines')), checkbox('gpo-mlines', 'Only in Multiframe', !!o.use_gpencil_multiedit_line_only, set('use_gpencil_multiedit_line_only'))),
           numberField({ id: 'gpo-vop', label: 'Vertex Opacity', value: o.vertex_opacity, min: 0, max: 1, slider: true, set: (x) => set('vertex_opacity')(x) }),
+          app.doc.mode === 'EDIT'
+            ? h(
+                'div',
+                { class: 'pop-line' },
+                h('span', null, 'Handles'),
+                enumMenu(
+                  'gpo-handles',
+                  [
+                    { value: 'ALL', label: 'All' },
+                    { value: 'SELECTED', label: 'Selected' },
+                    { value: 'NONE', label: 'None' },
+                  ],
+                  v.overlay.display_handle ?? 'SELECTED',
+                  (x) => {
+                    v.overlay.display_handle = x as 'ALL';
+                    app.changed('ui');
+                  },
+                ),
+              )
+            : null,
         ]
       : null,
   ];
@@ -137,13 +166,17 @@ viewportExtensions.push((v) => {
     const c = o.gpencil_grid_color ?? [0.5, 0.5, 0.5];
     gridMat.color.setRGB(c[0], c[1], c[2]);
     gridMat.opacity = o.gpencil_grid_opacity;
+    // X-Ray: the canvas shows through everything
+    gridMat.depthTest = !o.use_gpencil_canvas_xray;
     // the grid lies on the drawing plane (front X-Z by default) at the object origin
     const world = app.graph.get(ob.id)?.world ?? new Matrix4();
     const axis = gpTS(app.doc).gpencil_lock_axis;
     const rot = new Matrix4();
     if (axis === 'AXIS_Z') rot.makeRotationX(Math.PI / 2);
     else if (axis === 'AXIS_X') rot.makeRotationZ(Math.PI / 2);
-    grid.matrix.copy(new Matrix4().setPosition(new Vector3().setFromMatrixPosition(world)).multiply(rot));
+    // the offset moves the grid within its plane (local X / Z of the front plane before turning)
+    const off = o.gpencil_grid_offset ?? [0, 0];
+    grid.matrix.copy(new Matrix4().setPosition(new Vector3().setFromMatrixPosition(world)).multiply(rot).multiply(new Matrix4().makeTranslation(off[0], 0, off[1])));
     grid.matrixWorld.copy(grid.matrix);
     renderContext?.engine.renderer.render(gridScene, camera);
   };

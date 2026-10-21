@@ -75,6 +75,19 @@ export function drawingToCurves(d: GPDrawing): CurvesComponent {
   if (d.fill_opacity.length === nc) setCurveAttr(attrs, 'fill_opacity', 'FLOAT', d.fill_opacity);
   if (d.start_cap.length === nc) setCurveAttr(attrs, 'start_cap', 'INT8', Int32Array.from(d.start_cap));
   if (d.end_cap.length === nc) setCurveAttr(attrs, 'end_cap', 'INT8', Int32Array.from(d.end_cap));
+  // stroke spline types (Bézier strokes bring their handles)
+  if (d.curve_type?.length === nc) {
+    setCurveAttr(attrs, 'curve_type', 'INT8', Int32Array.from(d.curve_type));
+    if (d.resolution?.length === nc) setCurveAttr(attrs, 'resolution', 'INT', Int32Array.from(d.resolution));
+    if (d.nurbs_order?.length === nc) setCurveAttr(attrs, 'nurbs_order', 'INT8', Int32Array.from(d.nurbs_order));
+    if (d.knots_mode?.length === nc) setCurveAttr(attrs, 'knots_mode', 'INT8', Int32Array.from(d.knots_mode));
+    if (d.handle_left?.length === np * 3 && d.handle_right?.length === np * 3 && d.handle_type_left && d.handle_type_right) {
+      setPointAttr(attrs, 'handle_left', 'FLOAT_VECTOR', d.handle_left);
+      setPointAttr(attrs, 'handle_right', 'FLOAT_VECTOR', d.handle_right);
+      setPointAttr(attrs, 'handle_type_left', 'INT8', Int32Array.from(d.handle_type_left));
+      setPointAttr(attrs, 'handle_type_right', 'INT8', Int32Array.from(d.handle_type_right));
+    }
+  }
   return new CurvesComponent(d.position, d.offsets, d.cyclic, attrs);
 }
 

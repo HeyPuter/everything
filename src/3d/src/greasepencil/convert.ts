@@ -6,8 +6,9 @@ import { app, onAppReady, operators } from '../app/app';
 import type { DocumentData, MaterialData, ObjectData } from '../data/types';
 import { newCurve, newMeshData, newObject } from '../data/defaults';
 import { uniqueName, addObjectToScene } from '../ops/object';
-import { gpTable, gpOf, newGreasePencil, newLayer, newGPMaterial, fromStrokes, toStrokes, setKeyframe, frameAt, newPoint, newStroke, normalizeDrawing, slotStyle, type GPPoint, type GPStroke } from './data';
+import { gpTable, gpOf, newGreasePencil, newLayer, newGPMaterial, fromStrokes, toStrokes, setKeyframe, frameAt, newPoint, newStroke, normalizeDrawing, slotStyle, strokeShows, type GPPoint, type GPStroke } from './data';
 import { layerMatrix } from './render';
+import { evaluatedDrawing } from './curves';
 
 // ---------------------------------------------------------------------------
 // kernels (pure)
@@ -143,7 +144,7 @@ function fromGreasePencil(doc: DocumentData, ob: ObjectData, target: 'MESH' | 'C
     const fr = frameAt(l, frame);
     if (!fr || !gp.drawings[fr.drawing]) continue;
     const m = layerMatrix(l);
-    for (const s of toStrokes(normalizeDrawing(gp.drawings[fr.drawing]))) all.push({ s: { ...s, points: s.points.map((p) => ({ ...p, co: v.set(...p.co).applyMatrix4(m).toArray() as [number, number, number] })) } });
+    for (const s of toStrokes(evaluatedDrawing(normalizeDrawing(gp.drawings[fr.drawing])))) if (!s.is_fill_guide) all.push({ s: { ...s, points: s.points.map((p) => ({ ...p, co: v.set(...p.co).applyMatrix4(m).toArray() as [number, number, number] })) } });
   }
   if (!all.length) return null;
   if (target === 'CURVE') {
@@ -168,14 +169,15 @@ function fromGreasePencil(doc: DocumentData, ob: ObjectData, target: 'MESH' | 'C
   const matIdx: number[] = [];
   for (const { s } of all) {
     const st = slotStyle(doc, gp, s.material_index);
-    if (st?.show_fill && s.points.length >= 3) {
+    const shows = strokeShows(st, s.stroke_type);
+    if (shows.fill && s.points.length >= 3) {
       const base = positions.length / 3;
       for (const p of s.points) positions.push(...p.co);
       for (let i = 0; i < s.points.length; i++) indices.push(base + i);
       offsets.push(indices.length);
       matIdx.push(s.material_index);
     }
-    if (st && !st.show_stroke) continue;
+    if (!shows.stroke) continue;
     const rb = strokeRibbon(s);
     const base = positions.length / 3;
     positions.push(...rb.positions);

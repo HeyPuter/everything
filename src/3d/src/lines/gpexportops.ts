@@ -4,7 +4,7 @@
 import { Matrix4, Vector3, type Camera } from 'three';
 import { app, registerOperators, onAppReady, type PropDef } from '../app/app';
 import type { DocumentData, ObjectData } from '../data/types';
-import { gpOf, frameAt, normalizeDrawing, toStrokes, slotStyle } from '../greasepencil/data';
+import { gpOf, frameAt, normalizeDrawing, toStrokes, slotStyle, strokeShows } from '../greasepencil/data';
 import { activeModifiers, layerFrame, evaluateDrawing } from '../greasepencil/modifiers';
 import { layerMatrix } from '../greasepencil/render';
 import { renderCamera } from '../render/final/camera';
@@ -15,6 +15,7 @@ import { ZipWriter } from '../render/final/zip';
 import { optionsDialog, type FormatOption } from '../io/formats/ui';
 import { registerFormat, formats } from '../io/files';
 import { writePdf, writeSvg, type ExportItem, type ExportObject, type RGBA } from './gpexport';
+import { evaluatedDrawing } from '../greasepencil/curves';
 
 const toSrgb = (c: number) => (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055);
 const mix = (a: number[], b: number[], t: number) => [0, 1, 2].map((i) => a[i] + (b[i] - a[i]) * t);
@@ -64,7 +65,7 @@ export function collectExport(doc: DocumentData, obs: ObjectData[], view: Export
       if (layer.hide) return;
       const shown = mods.length ? layerFrame(ob, { layer, layerIndex: li, doc, gp }, frame, mods) : frame;
       const fr = frameAt(layer, shown);
-      let d = fr ? gp.drawings[fr.drawing] : undefined;
+      let d = fr && gp.drawings[fr.drawing] ? evaluatedDrawing(normalizeDrawing(gp.drawings[fr.drawing])) : undefined;
       if (!d) return;
       const world = ev.world.clone().multiply(layerMatrix(layer));
       if (mods.length) {
@@ -75,6 +76,7 @@ export function collectExport(doc: DocumentData, obs: ObjectData[], view: Export
       const items: ExportItem[] = [];
       const groups = new Map<number, { rings: [number, number][][]; color: RGBA }>();
       for (const s of toStrokes(normalizeDrawing(d))) {
+        if (s.is_fill_guide) continue;
         const st = slotStyle(doc, gp, s.material_index);
         if (!st || st.hide) continue;
         let pts = s.points;
@@ -99,7 +101,8 @@ export function collectExport(doc: DocumentData, obs: ObjectData[], view: Export
         if (!ok || !xy.length) continue;
         opac /= pts.length;
         const lay = layer.opacity;
-        if (st.show_fill && xy.length > 2) {
+        const shows = strokeShows(st, s.stroke_type);
+        if (shows.fill && xy.length > 2) {
           const fc = mix(st.fill_color, s.fill_color, s.fill_color[3]);
           const color: RGBA = [toSrgb(fc[0]), toSrgb(fc[1]), toSrgb(fc[2]), st.fill_color[3] * s.fill_opacity * lay];
           if (s.fill_id) {
@@ -111,7 +114,7 @@ export function collectExport(doc: DocumentData, obs: ObjectData[], view: Export
             g.rings.push(xy);
           } else items.push({ kind: 'fill', fill: { rings: [xy], color } });
         }
-        if (st.show_stroke) {
+        if (shows.stroke) {
           const vc = pts.map((p) => p.vertex_color);
           const a = vc.reduce((x, c) => x + c[3], 0) / vc.length;
           const avgC = [0, 1, 2].map((i) => vc.reduce((x, c) => x + c[i], 0) / vc.length);

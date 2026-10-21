@@ -9,7 +9,8 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { extraToolLists, toolSettingsRenderers, type ToolDef } from '../editors/view3d/toolbar';
 import { modeMenus } from '../editors/view3d/modemenus';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
+import { blendColor, VERTEX_BLEND_MODES } from './drawproc';
 import { h } from '../ui/h';
 import { colorSwatch, enumMenu, numberField } from '../ui/widgets';
 import type { MenuItem } from '../ui/menu';
@@ -54,7 +55,7 @@ interface Target {
   world: Matrix4;
 }
 
-function startVertexPaint(v: View3D, e: PointerEvent) {
+export function startVertexPaint(v: View3D, e: PointerEvent) {
   const ob = app.activeObject!;
   const gp = gpOf(app.doc, ob)!;
   const tool = activeTools[app.doc.mode] ?? 'builtin.brush.VertexDraw';
@@ -79,6 +80,7 @@ function startVertexPaint(v: View3D, e: PointerEvent) {
   };
   const mode = b.vertex_mode ?? 'BOTH';
   const col = b.color ?? [1, 1, 1];
+  const blend = b.blend ?? 'MIX';
   // selection masks: only the selected points / strokes
   const ts = gpTS(app.doc);
   const mPoint = !!ts.use_gpencil_vertex_select_mask_point,
@@ -141,7 +143,8 @@ function startVertexPaint(v: View3D, e: PointerEvent) {
             case 'builtin.brush.VertexDraw':
               if (erase) vc[i * 4 + 3] = Math.max(0, vc[i * 4 + 3] - k);
               else {
-                for (let c = 0; c < 3; c++) vc[i * 4 + c] += (col[c] - vc[i * 4 + c]) * k;
+                const target = blend === 'MIX' ? col : blendColor(blend, [before[i * 4], before[i * 4 + 1], before[i * 4 + 2]], col);
+                for (let c = 0; c < 3; c++) vc[i * 4 + c] += (target[c] - vc[i * 4 + c]) * k;
                 vc[i * 4 + 3] += (1 - vc[i * 4 + 3]) * k;
               }
               break;
@@ -179,7 +182,8 @@ function startVertexPaint(v: View3D, e: PointerEvent) {
             if (tool === 'builtin.brush.VertexDraw') {
               if (erase) fc[s * 4 + 3] = Math.max(0, fc[s * 4 + 3] - k);
               else {
-                for (let c = 0; c < 3; c++) fc[s * 4 + c] += (col[c] - fc[s * 4 + c]) * k;
+                const target = blend === 'MIX' ? col : blendColor(blend, [fc[s * 4], fc[s * 4 + 1], fc[s * 4 + 2]], col);
+                for (let c = 0; c < 3; c++) fc[s * 4 + c] += (target[c] - fc[s * 4 + c]) * k;
                 fc[s * 4 + 3] += (1 - fc[s * 4 + 3]) * k;
               }
             } else if (tool === 'builtin.brush.VertexReplace' && fc[s * 4 + 3] > 0) for (let c = 0; c < 3; c++) fc[s * 4 + c] = col[c];
@@ -392,6 +396,19 @@ for (const t of VERTEX_TOOLS)
             'button',
             { class: 'hdr-toggle', 'data-tip': 'Swap Colors (X)\nSwap the brush color with the secondary color', onclick: () => app.run('paint.brush_colors_flip') },
             h('span', { style: { display: 'inline-block', width: '10px', height: '10px', border: '1px solid #000000', background: `rgb(${(b.secondary_color ?? [1, 1, 1]).map((x) => Math.round(Math.pow(clamp(x), 1 / 2.2) * 255)).join(',')})` } }),
+          )
+        : null,
+      t.id === 'builtin.brush.VertexDraw'
+        ? h(
+            'div',
+            { style: { width: '120px', flex: 'none' } },
+            enumMenu(
+              `gpv-blend-${t.id}`,
+              VERTEX_BLEND_MODES.map(([value, label]) => ({ value, label })),
+              b.blend ?? 'MIX',
+              (x) => ((b.blend = x), refresh()),
+              { tip: 'Blend\nHow the brush color combines with the colors painted before', label: 'Blend' },
+            ),
           )
         : null,
       h('div', { style: { width: '120px', flex: 'none' } }, sizeField(b, `gpv-size-${t.id}`, 'Radius')),

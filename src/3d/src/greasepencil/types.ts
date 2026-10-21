@@ -35,6 +35,36 @@ export interface GPDrawing {
   fill_id: Int32Array;
   /** per point weights of the vertex groups, by group name */
   weights?: Record<string, Float32Array>;
+  // --- spline types (absent = every stroke is a poly line) -----------------------------------
+  /** per stroke: 0 Catmull-Rom, 1 poly, 2 Bézier, 3 NURBS */
+  curve_type?: Uint8Array;
+  /** per stroke: evaluated points per segment of smooth types (default 12) */
+  resolution?: Uint16Array;
+  /** per stroke NURBS order (default 4) and knot mode (0 normal, 1 endpoint, 2 Bézier, 3 endpoint + Bézier) */
+  nurbs_order?: Uint8Array;
+  knots_mode?: Uint8Array;
+  /** per point Bézier handles (xyz) and their types (0 free, 1 auto, 2 vector, 3 align) */
+  handle_left?: Float32Array;
+  handle_right?: Float32Array;
+  handle_type_left?: Uint8Array;
+  handle_type_right?: Uint8Array;
+  /** Edit Mode selection of the handles */
+  select_handle_left?: Uint8Array;
+  select_handle_right?: Uint8Array;
+  /** per stroke override of the material's stroke / fill visibility: 0 material, 1 stroke, 2 fill, 3 both */
+  stroke_type?: Uint8Array;
+  /** per point corner limit: joins sharper than this angle are cut (radians, absent / 0 = round) */
+  miter_angle?: Float32Array;
+  /** per stroke fill texture transform (Gradient tool): offset, rotation, scale */
+  uv_translation?: Float32Array;
+  uv_rotation?: Float32Array;
+  uv_scale?: Float32Array;
+  /** per stroke: helper lines drawn with the Fill tool (not rendered, removed by Remove Fill Guides) */
+  is_fill_guide?: Uint8Array;
+  /** per stroke edge softness 0 (hard) .. 1 (fades from the center line) */
+  softness?: Float32Array;
+  /** per stroke texture mapping of the line (4 per stroke): offset, scale, fit to the stroke (0/1), dot rotation */
+  uv_stroke?: Float32Array;
 }
 
 export interface GPFrame {
@@ -125,8 +155,30 @@ export interface MaterialGPencilStyle {
   color: [number, number, number, number];
   fill_color: [number, number, number, number];
   mode: 'LINE' | 'DOTS' | 'BOX';
-  stroke_style: 'SOLID';
-  fill_style: 'SOLID' | 'GRADIENT';
+  stroke_style: 'SOLID' | 'TEXTURE';
+  fill_style: 'SOLID' | 'GRADIENT' | 'TEXTURE';
+  /** image textures (image data-block ids) of the stroke and the fill */
+  stroke_image?: ID | null;
+  fill_image?: ID | null;
+  /** stroke texture: blend toward the base color (0 = texture only) and length of one repeat in stroke widths */
+  mix_stroke_factor?: number;
+  pixel_size?: number;
+  /** fill texture: show it once instead of repeating */
+  texture_clamp?: boolean;
+  /** Dots / Squares: how they are placed along the stroke, their extra rotation, and randomness */
+  placement_mode?: 'COUNT' | 'RADIUS' | 'DENSITY';
+  placement_count?: number;
+  placement_radius_spacing?: number;
+  placement_density?: number;
+  alignment_rotation?: number;
+  use_randomization?: boolean;
+  random_size_factor?: number;
+  random_strength_factor?: number;
+  random_rotation_factor?: number;
+  random_hue_factor?: number;
+  random_saturation_factor?: number;
+  random_value_factor?: number;
+  random_noise_scale?: number;
   /** gradient fills */
   gradient_type?: 'LINEAR' | 'RADIAL';
   mix_color?: [number, number, number, number];
@@ -208,6 +260,8 @@ export interface GPBrush {
   eraser_mode?: 'SOFT' | 'HARD' | 'STROKE';
   /** Tint */
   vertex_mode?: 'STROKE' | 'FILL' | 'BOTH';
+  /** Vertex Paint: how the brush color combines with the painted colors */
+  blend?: string;
   /** Fill */
   fill_layer_mode?: 'ACTIVE' | 'ABOVE' | 'BELOW' | 'ALL_ABOVE' | 'ALL_BELOW' | 'VISIBLE';
   dilate?: number;
@@ -221,6 +275,11 @@ export interface GPBrush {
   subdivision?: number;
   /** Sculpt brushes: affect the stroke falloff */
   direction?: 'ADD' | 'SUBTRACT';
+  /** Draw: edge hardness of new strokes (1 = hard; lower values give soft edges) */
+  hardness?: number;
+  /** Draw: pen nib — strokes running along `angle` (screen, radians) get thinner by up to `angle_factor` */
+  angle?: number;
+  angle_factor?: number;
 }
 
 /** A visual effect applied to a grease pencil object's rendered image. */

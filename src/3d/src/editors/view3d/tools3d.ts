@@ -1,4 +1,5 @@
-// Interactive viewport tools shared by Object and Edit Mode: Annotate, Measure.
+// Interactive viewport tools shared by Object and Edit Mode: Measure, plus the annotation data
+// (layers, strokes, settings) the Annotate tools in greasepencil/annotate.ts draw with.
 // Annotations and rulers are stored on the scene so they are saved and undoable.
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
@@ -8,9 +9,11 @@ import type { View3D } from './view3d';
 import { h, type VNode } from '../../ui/h';
 import { surfaceHit, cursorToolSettings } from '../../ops/view3d';
 import { toolSettingsRenderers } from './toolbar';
-import { colorSwatch, formatNumber, numberField, enumMenu, opButton, checkbox } from '../../ui/widgets';
+import { formatNumber, enumMenu, opButton, checkbox } from '../../ui/widgets';
 import { addKeys } from '../../app/keymap';
 import type { SceneData } from '../../data/types';
+
+export type AnnotationArrow = 'NONE' | 'ARROW' | 'ARROW_OPEN' | 'ARROW_OPEN_INVERTED' | 'DIAMOND';
 
 export interface AnnotationStroke {
   points: number[]; // flat xyz, world space
@@ -18,6 +21,9 @@ export interface AnnotationStroke {
   thickness: number;
   /** annotation layer (by name); its colour and thickness win when it exists */
   layer?: string;
+  /** end decorations of straight lines */
+  arrow_start?: AnnotationArrow;
+  arrow_end?: AnnotationArrow;
 }
 
 export interface AnnotationLayer {
@@ -52,7 +58,7 @@ export function activeAnnotationLayer(create = false): AnnotationLayer | null {
 }
 
 /** How a stroke draws: its layer's colour, thickness and opacity (null when the layer is hidden). */
-function strokeLook(s: AnnotationStroke): { color: number[]; thickness: number; opacity: number } | null {
+export function strokeLook(s: AnnotationStroke): { color: number[]; thickness: number; opacity: number } | null {
   const l = s.layer ? scene().annotation_layers?.find((x) => x.name === s.layer) : undefined;
   if (l?.annotation_hide) return null;
   return { color: l?.color ?? s.color, thickness: l?.thickness ?? s.thickness, opacity: l?.annotation_opacity ?? 1 };
@@ -73,7 +79,7 @@ function localXY(v: View3D, e: PointerEvent) {
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
-function placePoint(v: View3D, x: number, y: number, mode: 'CURSOR' | 'VIEW' | 'SURFACE'): Vector3 {
+export function placePoint(v: View3D, x: number, y: number, mode: 'CURSOR' | 'VIEW' | 'SURFACE'): Vector3 {
   const cursor = new Vector3(...app.doc.scene.cursor.location);
   if (mode === 'SURFACE') {
     const hit = surfaceHit(v, x, y);
@@ -86,28 +92,17 @@ function placePoint(v: View3D, x: number, y: number, mode: 'CURSOR' | 'VIEW' | '
   return v.unproject(x, y, cursor);
 }
 
-const rgbCss = (c: number[]) => `rgb(${c.map((x) => Math.round(Math.max(0, Math.min(1, x)) * 255)).join(',')})`;
 
 // ---------------------------------------------------------------------------
 // drawing (always visible while overlays are on)
 
-let preview: VNode | null = null;
 let activeRuler = -1;
 
 editModeHooks.svg.push((v) => {
   if (!v.overlay.show_overlays) return null;
   const sc = scene();
   const parts: VNode[] = [];
-  for (const s of sc.annotations ?? []) {
-    const pts: string[] = [];
-    for (let i = 0; i < s.points.length; i += 3) {
-      const p = v.project(new Vector3(s.points[i], s.points[i + 1], s.points[i + 2]));
-      if (p.z > 1) continue;
-      pts.push(`${p.x.toFixed(1)},${p.y.toFixed(1)}`);
-    }
-    const look = strokeLook(s);
-    if (pts.length > 1 && look) parts.push(h('polyline', { points: pts.join(' '), fill: 'none', stroke: rgbCss(look.color), 'stroke-width': look.thickness, 'stroke-opacity': look.opacity, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
-  }
+  // annotation strokes are drawn by the annotation tools (greasepencil/annotate.ts)
   (sc.rulers ?? []).forEach((r, i) => {
     const a = v.project(new Vector3(...r.a)),
       b = v.project(new Vector3(...r.b));
@@ -144,78 +139,8 @@ editModeHooks.svg.push((v) => {
       my = (a.y + b.y) / 2;
     parts.push(h('g', { class: 'ruler' }, ...seg(a, b), dot(a), dot(b), h('circle', { cx: mx, cy: my, r: 3, fill: 'none', stroke: on ? '#ffffff' : '#bbbcbe', 'stroke-width': 1 }), ...label(mx, my, formatNumber(len, 'distance'))));
   });
-  if (preview) parts.push(preview);
   return parts.length ? h('g', { class: 'tools3d' }, parts) : null;
 });
-
-// ---------------------------------------------------------------------------
-// Annotate
-
-function annotatePointer(v: View3D, e: PointerEvent): boolean {
-  const erase = e.ctrlKey;
-  const layer = activeAnnotationLayer(!erase);
-  if (layer?.lock) {
-    app.report('WARNING', `Annotation layer "${layer.name}" is locked`);
-    return true;
-  }
-  const lookColor = layer?.color ?? annotateSettings.color,
-    lookWidth = layer?.thickness ?? annotateSettings.thickness;
-  const pts: number[] = [];
-  const add = (ev: PointerEvent) => {
-    const { x, y } = localXY(v, ev);
-    if (erase) {
-      eraseAt(v, x, y);
-      return;
-    }
-    const p = placePoint(v, x, y, annotateSettings.placement);
-    pts.push(p.x, p.y, p.z);
-    const screen: string[] = [];
-    for (let i = 0; i < pts.length; i += 3) {
-      const s = v.project(new Vector3(pts[i], pts[i + 1], pts[i + 2]));
-      screen.push(`${s.x.toFixed(1)},${s.y.toFixed(1)}`);
-    }
-    preview = h('polyline', { points: screen.join(' '), fill: 'none', stroke: rgbCss(lookColor), 'stroke-width': lookWidth, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' });
-    app.changed('ui');
-  };
-  let erased = false;
-  const eraseAt = (vv: View3D, x: number, y: number) => {
-    const sc = scene();
-    const before = sc.annotations?.length ?? 0;
-    const locked = new Set((sc.annotation_layers ?? []).filter((l) => l.lock || l.annotation_hide).map((l) => l.name));
-    sc.annotations = (sc.annotations ?? []).filter((s) => {
-      if (s.layer && locked.has(s.layer)) return true;
-      for (let i = 0; i < s.points.length; i += 3) {
-        const p = vv.project(new Vector3(s.points[i], s.points[i + 1], s.points[i + 2]));
-        if (Math.hypot(p.x - x, p.y - y) < annotateSettings.eraserRadius) return false;
-      }
-      return true;
-    });
-    if (sc.annotations.length !== before) {
-      erased = true;
-      app.changed('doc');
-    }
-  };
-  add(e);
-  const up = () => {
-    removeEventListener('pointermove', add);
-    removeEventListener('pointerup', up);
-    preview = null;
-    if (erase) {
-      if (erased) app.pushUndo('Annotation Erase');
-      app.changed('doc');
-      return;
-    }
-    if (pts.length >= 6) {
-      const sc = scene();
-      sc.annotations = [...(sc.annotations ?? []), { points: pts, color: [...lookColor] as [number, number, number], thickness: lookWidth, layer: layer?.name }];
-      app.pushUndo('Annotate');
-    }
-    app.changed('doc');
-  };
-  addEventListener('pointermove', add);
-  addEventListener('pointerup', up);
-  return true;
-}
 
 // ---------------------------------------------------------------------------
 // Measure
@@ -288,7 +213,6 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
 editModeHooks.pointer.push((v, e) => {
   const t = tool();
   if (e.altKey) return false;
-  if (t === 'builtin.annotate') return annotatePointer(v, e);
   if (t === 'builtin.measure') return measurePointer(v, e);
   return false;
 });
@@ -331,53 +255,6 @@ addKeys('3D View', [
   { key: 'X', op: 'view3d.ruler_remove', when: () => tool() === 'builtin.measure' && activeRuler >= 0 },
   { key: 'DEL', op: 'view3d.ruler_remove', when: () => tool() === 'builtin.measure' && activeRuler >= 0 },
 ]);
-
-// the colour and thickness edit the active annotation layer when there is one
-toolSettingsRenderers['builtin.annotate'] = () =>
-  h(
-    'span',
-    { class: 'th-settings' },
-    h('span', { class: 'th-label' }, 'Color'),
-    colorSwatch('ann-color', activeAnnotationLayer()?.color ?? annotateSettings.color, (c, final) => {
-      annotateSettings.color = [c[0], c[1], c[2]];
-      const l = activeAnnotationLayer();
-      if (l) {
-        l.color = [c[0], c[1], c[2]];
-        if (final) app.pushUndo('Annotation Color');
-      }
-      app.changed('ui');
-    }),
-    h('span', { class: 'th-label' }, 'Thickness'),
-    numberField({
-      id: 'ann-thick',
-      value: activeAnnotationLayer()?.thickness ?? annotateSettings.thickness,
-      min: 1,
-      max: 10,
-      int: true,
-      set: (x, final) => {
-        annotateSettings.thickness = x;
-        const l = activeAnnotationLayer();
-        if (l) {
-          l.thickness = x;
-          if (final) app.pushUndo('Annotation Thickness');
-        }
-        app.changed('ui');
-      },
-    }),
-    h('span', { class: 'th-label' }, 'Placement'),
-    enumMenu(
-      'ann-place',
-      [
-        { value: 'CURSOR', label: '3D Cursor' },
-        { value: 'VIEW', label: 'View' },
-        { value: 'SURFACE', label: 'Surface' },
-      ],
-      annotateSettings.placement,
-      (p) => ((annotateSettings.placement = p as 'CURSOR'), app.changed('ui')),
-    ),
-    opButton('annotation.clear', 'Clear'),
-    h('span', { class: 'th-label' }, 'Ctrl-drag to erase'),
-  );
 
 toolSettingsRenderers['builtin.measure'] = () =>
   h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · drag a midpoint to measure an angle · Ctrl snaps to surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));

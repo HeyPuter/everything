@@ -7,7 +7,7 @@ import { activeTools } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeView3D } from '../editors/view3d/view3d';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
 import { h } from '../ui/h';
 import { renderContext } from '../render/context';
 import type { ObjectData } from '../data/types';
@@ -16,7 +16,7 @@ import { eraseHard, eraseSoft, eraseStrokes, type ScreenFn } from './erase';
 import { Placement } from './placement';
 import { setStrokePreview, layerMatrix } from './render';
 import { smoothPoints, simplifyPoints, subdivideStroke } from './strokeops';
-import { stabilize, trimEnds, noise, type Sample } from './drawproc';
+import { stabilize, trimEnds, noise, nibFactor, type Sample } from './drawproc';
 import { startSculpt } from './sculpt';
 import { guideSettings, guideCenter, guideConstraint } from './guides';
 import { fillRegion, extensionPreview } from './fill';
@@ -121,6 +121,14 @@ export function samplesToPoints(pl: Placement, samples: Sample[], b: GPBrush, br
     const pr = pressureOf(b, s.pressure);
     let radius = ((b.size / 2) * pr.size * pl.pixelSize(w)) / sc;
     let opacity = b.strength * pr.strength;
+    if (b.angle_factor) {
+      // pen nib: thinner where the stroke runs along the nib angle (screen space, y up)
+      const a = samples[Math.max(0, i - 1)],
+        c = samples[Math.min(samples.length - 1, i + 1)];
+      const dx = c.x - a.x,
+        dy = a.y - c.y;
+      if (dx || dy) radius *= nibFactor(Math.atan2(dy, dx), b.angle ?? 0, b.angle_factor);
+    }
     if (rnd) {
       radius *= Math.max(0.05, 1 + (b.random_pressure ?? 0) * noise(seed, i * 3 + 1));
       opacity *= Math.max(0, 1 + (b.random_strength ?? 0) * noise(seed, i * 3 + 2));
@@ -179,16 +187,19 @@ export function materialUsable(c: NonNullable<ReturnType<typeof drawContext>>): 
 export const lazy = { on: false, x: 0, y: 0, cx: 0, cy: 0, view: null as View3D | null };
 let strokeSeed = 1;
 
-function startDraw(v: View3D, e: PointerEvent) {
+/** `guide`: a Fill tool helper line (thin, shown only in the viewport, a boundary for fills). */
+export function startDraw(v: View3D, e: PointerEvent, fillGuide = false) {
   const c = drawContext();
-  if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
-  const b = gpBrush(app.doc, 'builtin.brush.Draw');
+  if (!c || !checkLayer(c.layer) || (!fillGuide && !materialUsable(c))) return;
+  const b0 = gpBrush(app.doc, 'builtin.brush.Draw');
+  const b: GPBrush = fillGuide ? { ...b0, size: 3, use_pressure_size: false, use_pressure_strength: false, strength: 1, use_settings_random: false, use_smooth_stroke: false } : b0;
   const pl = new Placement(v, c.ob, c.gp, c.layer);
   const samples: Sample[] = [];
   const mat = Math.min(c.ob.active_material_index, Math.max(0, c.gp.materials.length - 1));
   const color = brushColorFor(b);
   const seed = strokeSeed++;
-  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat });
+  const softness = fillGuide ? 0 : Math.max(0, Math.min(1, 1 - (b.hardness ?? 1)));
+  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat, ...(fillGuide ? { is_fill_guide: true } : {}), ...(softness > 0 ? { softness } : {}) });
   const stab = !!b.use_smooth_stroke;
   const p0 = v.local(e);
   Object.assign(lazy, { on: stab, x: p0.x, y: p0.y, cx: p0.x, cy: p0.y, view: v });
@@ -282,7 +293,7 @@ function eraseDab(v: View3D, x: number, y: number, pressure: number, b: GPBrush,
   app.changed('doc');
 }
 
-function startErase(v: View3D, e: PointerEvent) {
+export function startErase(v: View3D, e: PointerEvent) {
   const b = gpBrush(app.doc, 'builtin.brush.Erase');
   const touched = new Map<GPLayer, number>();
   runStroke(v, e, {
@@ -298,7 +309,7 @@ function startErase(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Tint
 
-function startTint(v: View3D, e: PointerEvent) {
+export function startTint(v: View3D, e: PointerEvent) {
   const c = drawContext();
   if (!c) return;
   const b = gpBrush(app.doc, 'builtin.brush.Tint');
@@ -379,7 +390,7 @@ function startTint(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Fill
 
-function doFill(v: View3D, x: number, y: number, ctrl = false) {
+export function doFill(v: View3D, x: number, y: number, ctrl = false) {
   const c = drawContext();
   if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
   const b = gpBrush(app.doc, 'builtin.brush.Fill');
@@ -439,6 +450,11 @@ editModeHooks.pointer.unshift((v, e) => {
     return true;
   }
   if (tool === 'builtin.brush.Fill') {
+    // Alt drag: draw a fill guide (a boundary line that is never rendered)
+    if (e.altKey) {
+      startDraw(v, e, true);
+      return true;
+    }
     const p = v.local(e);
     doFill(v, p.x, p.y, e.ctrlKey || e.metaKey);
     return true;
@@ -449,6 +465,22 @@ editModeHooks.pointer.unshift((v, e) => {
   }
   return false;
 });
+
+// the eraser end of a tablet pen erases in Draw Mode whatever the tool (the viewport only passes
+// the main button to the tool hooks, so catch it on the way down)
+if (typeof window !== 'undefined')
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.pointerType !== 'pen' || e.button !== 5 || !inDrawMode() || app.modal) return;
+      const v = activeView3D();
+      if (!v || !v.el.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startErase(v, e);
+    },
+    true,
+  );
 
 editModeHooks.hover.push((v, e) => {
   if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL' && app.doc.mode !== 'VERTEX_GREASE_PENCIL' && app.doc.mode !== 'WEIGHT_GREASE_PENCIL') return;

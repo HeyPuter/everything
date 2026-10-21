@@ -6,7 +6,8 @@ import { addKeys } from '../app/keymap';
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { numberField, enumMenu, colorSwatch, panel, checkbox, row } from '../ui/widgets';
-import { openMenu, type MenuItem } from '../ui/menu';
+import { openMenu, openPopover, type MenuItem } from '../ui/menu';
+import { curveWidget } from '../editors/properties/modui/kit';
 import { extraToolLists, toolSettingsRenderers, toolsByMode, COMMON_TOOLS, setActiveTool, type ToolDef } from '../editors/view3d/toolbar';
 import { modeMenus } from '../editors/view3d/modemenus';
 import { sidebarTabs } from '../editors/view3d/sidebar';
@@ -16,28 +17,57 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { gpTS, gpBrush, gpOf, DRAW_PRESETS, slotStyle } from './data';
 import { drawMenu, sculptMenu } from './menus';
 import { guideButton } from './guides';
+import { gpColorPanel } from './colorpanel';
+import { brushPresetItems } from './presets';
 import { cursorRadius } from './paint';
 import type { GPBrush, GPToolSettings } from './types';
+
+// ---------------------------------------------------------------------------
+// multi-frame falloff popover
+
+type MFSettings = { use_multiframe_falloff?: boolean; multiframe_falloff_curve?: unknown };
+const mfHolder = {
+  id: 'gp-multiframe',
+  get multiframe_falloff_curve() {
+    const ts = gpTS(app.doc) as unknown as MFSettings;
+    return (ts.multiframe_falloff_curve ??= { curve_kind: 'FLOAT', curve_extend: 'HORIZONTAL', curve_active: 0, curve_0: [0, 0, 0, 0.5, 0.75, 0, 1, 1, 0] });
+  },
+  set multiframe_falloff_curve(v: unknown) {
+    (gpTS(app.doc) as unknown as MFSettings).multiframe_falloff_curve = v;
+  },
+};
+
+function multiFramePanel(redraw: () => void): Child {
+  const ts = gpTS(app.doc) as unknown as MFSettings;
+  return h(
+    'div',
+    { class: 'pop-panel' },
+    h('div', { class: 'pop-sub' }, 'Multi Frame'),
+    checkbox('gp-mf-falloff', 'Use Falloff', !!ts.use_multiframe_falloff, (x) => ((ts.use_multiframe_falloff = x), redraw(), app.changed('ui'))),
+    ts.use_multiframe_falloff ? curveWidget(mfHolder as unknown as Parameters<typeof curveWidget>[0], 'multiframe_falloff_curve') : null,
+  );
+}
 
 // ---------------------------------------------------------------------------
 // toolbars
 
 export const DRAW_TOOLS: (ToolDef | null)[] = [
+  { id: 'builtin.cursor', label: 'Cursor', icon: 'cursor', description: 'Set the cursor location, drag to transform' },
+  null,
   { id: 'builtin.brush.Draw', label: 'Draw', icon: 'gp_draw', description: 'Draw free-hand strokes (Ctrl: erase, Shift: smooth)' },
-  { id: 'builtin.brush.Fill', label: 'Fill', icon: 'gp_fill', description: 'Fill a closed area with the active material' },
   { id: 'builtin.brush.Erase', label: 'Erase', icon: 'gp_erase', description: 'Erase points or whole strokes' },
+  { id: 'builtin.brush.Fill', label: 'Fill', icon: 'gp_fill', description: 'Fill a closed area with the active material (Alt drag: draw a fill guide)' },
   { id: 'builtin.brush.Tint', label: 'Tint', icon: 'gp_tint', description: 'Tint the color of strokes and fills' },
+  { id: 'builtin.box', label: 'Box', icon: 'gp_box', group: 'gp_primitive', description: 'Create a rectangle stroke' },
+  { id: 'builtin.circle', label: 'Circle', icon: 'gp_circle', group: 'gp_primitive', description: 'Create a circle stroke' },
+  { id: 'builtin.line', label: 'Line', icon: 'gp_line', group: 'gp_primitive', description: 'Create a line stroke' },
+  { id: 'builtin.polyline', label: 'Polyline', icon: 'gp_polyline', group: 'gp_primitive', description: 'Create a stroke of straight segments' },
+  { id: 'builtin.arc', label: 'Arc', icon: 'gp_arc', group: 'gp_primitive', description: 'Create an arc stroke' },
+  { id: 'builtin.curve', label: 'Curve', icon: 'gp_curve', group: 'gp_primitive', description: 'Create a curved stroke with editable handles' },
   null,
   { id: 'builtin.trim', label: 'Trim', icon: 'gp_trim', description: 'Cut away the parts of strokes inside a lasso, up to where they cross other strokes' },
   null,
   { id: 'builtin.eyedropper', label: 'Eyedropper', icon: 'eyedropper', description: 'Sample a color from the viewport into a material or the brush' },
-  null,
-  { id: 'builtin.line', label: 'Line', icon: 'gp_line', description: 'Create a line stroke' },
-  { id: 'builtin.polyline', label: 'Polyline', icon: 'gp_polyline', description: 'Create a stroke of straight segments' },
-  { id: 'builtin.arc', label: 'Arc', icon: 'gp_arc', description: 'Create an arc stroke' },
-  { id: 'builtin.curve', label: 'Curve', icon: 'gp_curve', description: 'Create a curved stroke with editable handles' },
-  { id: 'builtin.box', label: 'Box', icon: 'gp_box', description: 'Create a rectangle stroke' },
-  { id: 'builtin.circle', label: 'Circle', icon: 'gp_circle', description: 'Create a circle stroke' },
   null,
   { id: 'builtin.interpolate', label: 'Interpolate', icon: 'gp_interpolate', description: 'Drag to create an in-between breakdown from the keys around the current frame' },
 ];
@@ -237,27 +267,24 @@ function drawHeader(): Child {
   return [
     field(
       110,
-      enumMenu(
-        'gp-brush',
-        DRAW_PRESETS.map((p) => ({
-          value: p.id,
-          label: p.name,
-          icon: 'gp_draw',
-        })),
-        preset?.id ?? '',
-        (id) => {
-          const p = DRAW_PRESETS.find((x) => x.id === id)!;
-          ts.gpencil_draw_brush = id;
-          Object.assign(b, {
-            size: p.size,
-            strength: p.strength,
-            use_pressure_size: p.use_pressure_size,
-            use_pressure_strength: p.use_pressure_strength,
-            pen_smooth_factor: p.smooth,
-          });
-          refresh();
+      h(
+        'button',
+        {
+          class: 'enum-menu gp-brush-preset',
+          'data-tip': 'Brush Preset\nPick a built-in or saved brush, or save the current settings',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            const apply = (p: (typeof DRAW_PRESETS)[number]) => {
+              ts.gpencil_draw_brush = p.id;
+              Object.assign(b, { size: p.size, strength: p.strength, use_pressure_size: p.use_pressure_size, use_pressure_strength: p.use_pressure_strength, pen_smooth_factor: p.smooth, hardness: p.hardness ?? 1 });
+              refresh();
+            };
+            openMenu([...DRAW_PRESETS.map((p) => ({ label: p.name, icon: 'gp_draw', active: p.id === ts.gpencil_draw_brush, action: () => apply(p) })), { separator: true }, ...brushPresetItems()], e.currentTarget as HTMLElement);
+          },
         },
-        { tip: 'Brush preset' },
+        icon('gp_draw'),
+        h('span', { class: 'em-label' }, preset?.name ?? (ts.gpencil_draw_brush?.startsWith('user:') ? ts.gpencil_draw_brush.slice(5) : 'Brush')),
+        h('span', { class: 'em-arrow' }, icon('down_arrow_hlt')),
       ),
     ),
     materialSwatch(),
@@ -267,7 +294,49 @@ function drawHeader(): Child {
     pressureToggle(b, 'use_pressure_size', 'gp-ps'),
     field(120, strengthField(b, 'gp-str')),
     pressureToggle(b, 'use_pressure_strength', 'gp-pst'),
+    popoverButton('gp-hdr-adv', 'Advanced', 'Advanced\nPen nib angle and edge hardness of new strokes', () => [
+      num(b, 'hardness', 'gp-ha-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
+      angleField(b),
+      num(b, 'angle_factor', 'gp-ha-af', 'Factor', { min: 0, max: 1, slider: true, def: 0, tip: 'How much thinner the stroke gets when it runs along the angle' }),
+    ]),
+    popoverButton('gp-hdr-stroke', 'Stroke', 'Stroke\nStabilizer, post-processing and randomness of new strokes', () => [drawStrokePanels(b)]),
   ];
+}
+
+/** The pen nib angle in degrees (stored in radians). */
+function angleField(b: GPBrush): Child {
+  return row(
+    '',
+    numberField({
+      id: 'gp-ha-angle',
+      label: 'Angle',
+      value: ((b.angle ?? 0) * 180) / Math.PI,
+      min: -90,
+      max: 90,
+      precision: 1,
+      tip: 'Direction (degrees) along which the stroke is thinnest',
+      set: (x) => ((b.angle = (x * Math.PI) / 180), refresh()),
+    }),
+  );
+}
+
+/** A header button opening a popover of tool options. */
+function popoverButton(key: string, label: string, tip: string, body: () => Child): Child {
+  return h(
+    'button',
+    {
+      key,
+      class: 'hdr-menu',
+      'data-tip': tip,
+      onpointerdown: (e: PointerEvent) => {
+        e.preventDefault();
+        const pop = openPopover(e.currentTarget as HTMLElement, () => h('div', { class: 'pop-panel' }, body()), { width: 260 });
+        void pop;
+      },
+    },
+    label,
+    icon('down_arrow_hlt', 'tiny'),
+  );
 }
 
 const ERASE_MODES = [
@@ -621,6 +690,21 @@ export function placementControls(): Child {
           icon('gp_multiframe'),
         )
       : null,
+    app.doc.mode === 'EDIT'
+      ? h(
+          'button',
+          {
+            key: 'gp-mf-pop',
+            class: 'hdr-toggle',
+            'data-tip': 'Multi Frame\nFalloff of the edits on the keyframes away from the current frame',
+            onpointerdown: (e: PointerEvent) => {
+              e.preventDefault();
+              const pop = openPopover(e.currentTarget as HTMLElement, () => multiFramePanel(() => pop.redraw()), { width: 240 });
+            },
+          },
+          icon('down_arrow_hlt', 'tiny'),
+        )
+      : null,
     v
       ? h(
           'button',
@@ -743,6 +827,18 @@ export function gpToolPanels(): Child {
       row('', strengthField(b, 'gp-sb-str')),
       checkbox('gp-sb-ps', 'Use Pressure for Size', !!b.use_pressure_size, (x) => ((b.use_pressure_size = x), refresh())),
       checkbox('gp-sb-pst', 'Use Pressure for Strength', !!b.use_pressure_strength, (x) => ((b.use_pressure_strength = x), refresh())),
+      tool === 'builtin.brush.Draw'
+        ? panel(
+            'gp-sb-adv',
+            'Advanced',
+            () => [
+              num(b, 'hardness', 'gp-sb-hard', 'Hardness', { min: 0, max: 1, slider: true, def: 1, tip: 'Edge hardness of new strokes: lower values fade the edges' }),
+              angleField(b),
+              num(b, 'angle_factor', 'gp-sb-af', 'Angle Factor', { min: 0, max: 1, slider: true, def: 0, tip: 'How much thinner the stroke gets when it runs along the angle' }),
+            ],
+            { sub: true, closed: true },
+          )
+        : null,
       tool === 'builtin.brush.Draw' ? drawStrokePanels(b) : null,
       tool === 'builtin.brush.Erase'
         ? row(
@@ -751,6 +847,7 @@ export function gpToolPanels(): Child {
           )
         : null,
     ]),
+    tool === 'builtin.brush.Draw' || tool === 'builtin.brush.Tint' ? gpColorPanel(b, refresh, tool === 'builtin.brush.Draw') : null,
     mode === 'PAINT_GREASE_PENCIL'
       ? panel('gp-sb-place', 'Stroke Placement', () => [
           row(

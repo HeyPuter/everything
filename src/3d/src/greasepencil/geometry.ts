@@ -21,10 +21,112 @@ export interface StrokeStyle {
   /** holdout: the stroke / fill cuts the object's image instead of drawing */
   holdoutStroke?: boolean;
   holdoutFill?: boolean;
+  /** image textures (drawn by a pass of their own that binds the image) */
+  fillTex?: { image: string; mix: number; clamp: boolean; offset: [number, number]; angle: number; scale: [number, number] };
+  strokeTex?: { image: string; mix: number; uvFactor: number };
+  /** Dots / Squares placement along the stroke (absent: one per point) */
+  placement?: { mode: 'COUNT' | 'RADIUS' | 'DENSITY'; count: number; spacing: number; density: number };
+  /** extra rotation of dots / squares (radians) */
+  alignRotation?: number;
+  /** per dot randomness (factors 0..1) and the frequency of its noise along the stroke */
+  random?: { size: number; strength: number; rotation: number; hue: number; sat: number; val: number; scale: number };
 }
 
-/** Gradient coordinates of fill points: the fill's plane, normalized to its bounds, then moved / turned / scaled. */
-export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullable<StrokeStyle['gradient']>): Map<number, [number, number]> {
+/** Hash noise in [-1, 1] for dot randomness. */
+function dotNoise(seed: number, i: number) {
+  let x = (Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(i + 0x632be5ab, 0xc2b2ae35)) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x2c1b3c6d) >>> 0;
+  x ^= x >>> 12;
+  return (x / 4294967295) * 2 - 1;
+}
+function smoothDotNoise(seed: number, t: number) {
+  const i = Math.floor(t),
+    f = t - i;
+  const w = f * f * (3 - 2 * f);
+  return dotNoise(seed, i) * (1 - w) + dotNoise(seed, i + 1) * w;
+}
+
+/** Shift a linear RGB color in hue / saturation / value. */
+function hsvShift(c: number[], dh: number, ds: number, dv: number): number[] {
+  const mx = Math.max(c[0], c[1], c[2]),
+    mn = Math.min(c[0], c[1], c[2]);
+  const d = mx - mn;
+  let hh = 0;
+  if (d > 1e-9) {
+    if (mx === c[0]) hh = ((c[1] - c[2]) / d) % 6;
+    else if (mx === c[1]) hh = (c[2] - c[0]) / d + 2;
+    else hh = (c[0] - c[1]) / d + 4;
+    hh /= 6;
+  }
+  let sat = mx > 0 ? d / mx : 0,
+    v = mx;
+  hh = (((hh + dh) % 1) + 1) % 1;
+  sat = Math.max(0, Math.min(1, sat * (1 + ds)));
+  v = Math.max(0, v * (1 + dv));
+  const i = Math.floor(hh * 6),
+    f = hh * 6 - i;
+  const p = v * (1 - sat),
+    q = v * (1 - f * sat),
+    t = v * (1 - (1 - f) * sat);
+  const rgb = [
+    [v, t, p],
+    [q, v, p],
+    [p, v, t],
+    [p, q, v],
+    [t, p, v],
+    [v, p, q],
+  ][((i % 6) + 6) % 6];
+  return [rgb[0], rgb[1], rgb[2], c[3]];
+}
+
+/**
+ * Where the dots / squares of a stroke go: one per point, or placed along the poly line by count
+ * per segment, by spacing (percent of the diameter) or by density (per unit of length). Returns
+ * the segment index and parameter of each.
+ */
+export function dotPlacements(P: ArrayLike<number>, radius: (i: number) => number, a: number, b: number, cyclic: boolean, pl?: StrokeStyle['placement']): { i: number; t: number }[] {
+  const n = b - a;
+  const out: { i: number; t: number }[] = [];
+  if (!pl || n < 2) {
+    for (let i = a; i < b; i++) out.push({ i, t: 0 });
+    return out;
+  }
+  const segs = cyclic ? n : n - 1;
+  const seg = (k: number) => {
+    const i = a + k,
+      j = a + ((k + 1) % n);
+    return { i, j, len: Math.hypot(P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]) };
+  };
+  if (pl.mode === 'COUNT') {
+    const c = Math.max(1, Math.round(pl.count));
+    for (let k = 0; k < segs; k++) for (let m = 0; m < c; m++) out.push({ i: a + k, t: m / c });
+    if (!cyclic) out.push({ i: b - 1, t: 0 });
+    return out;
+  }
+  // walk the line, dropping a dot every `step`
+  let next = 0,
+    acc = 0;
+  for (let k = 0; k < segs; k++) {
+    const { i, j, len } = seg(k);
+    while (next <= acc + len + 1e-9) {
+      const t = len > 1e-12 ? (next - acc) / len : 0;
+      out.push({ i, t: Math.min(1, t) });
+      const r = radius(i) + (radius(j) - radius(i)) * t;
+      const step = pl.mode === 'DENSITY' ? 1 / Math.max(1e-3, pl.density) : Math.max(1e-6, 2 * r * Math.max(0.01, pl.spacing / 100));
+      next += step;
+      if (out.length > 200000) return out;
+    }
+    acc += len;
+  }
+  return out;
+}
+
+/** Flag bit of segments / dots that sample the stroke texture. */
+export const FLAG_STROKE_TEX = 4096;
+
+/** Plane of a fill: unit normal and two in-plane axes (u, v) from the loops' Newell normal. */
+export function fillPlane(P: ArrayLike<number>, loops: number[][]): { N: number[]; U: number[]; V: number[] } {
   const n = [0, 0, 0];
   for (const l of loops) newell(P, l, n);
   const len = Math.hypot(n[0], n[1], n[2]) || 1;
@@ -35,6 +137,12 @@ export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullab
   const ul = Math.hypot(u[0], u[1], u[2]) || 1;
   const U = [u[0] / ul, u[1] / ul, u[2] / ul];
   const V = [N[1] * U[2] - N[2] * U[1], N[2] * U[0] - N[0] * U[2], N[0] * U[1] - N[1] * U[0]];
+  return { N, U, V };
+}
+
+/** Gradient coordinates of fill points: the fill's plane, normalized to its bounds, then moved / turned / scaled. */
+export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullable<StrokeStyle['gradient']>): Map<number, [number, number]> {
+  const { U, V } = fillPlane(P, loops);
   const pts = new Map<number, [number, number]>();
   let x0 = Infinity,
     y0 = Infinity,
@@ -60,11 +168,49 @@ export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullab
   return pts;
 }
 
+/** Whether stroke s has its own fill texture transform (set with the Gradient tool). */
+export function hasStrokeUV(d: GPDrawing, s: number): boolean {
+  const n = d.offsets.length - 1;
+  if (!d.uv_translation || !d.uv_rotation || !d.uv_scale || d.uv_rotation.length !== n) return false;
+  return d.uv_translation[s * 2] !== 0 || d.uv_translation[s * 2 + 1] !== 0 || d.uv_rotation[s] !== 0 || d.uv_scale[s * 2] !== 1 || d.uv_scale[s * 2 + 1] !== 1;
+}
+
+/**
+ * Gradient coordinates from a stroke's own transform: in the fill plane, the gradient starts at
+ * `uv_translation`, runs along `uv_rotation` and spans `uv_scale` (linear: u 0 → 1; radial: the
+ * distance from the start, 0 → 1).
+ */
+export function strokeUV(P: ArrayLike<number>, loops: number[][], d: GPDrawing, s: number, radial: boolean): Map<number, [number, number]> {
+  const { U, V } = fillPlane(P, loops);
+  const tx = d.uv_translation![s * 2],
+    ty = d.uv_translation![s * 2 + 1],
+    r = d.uv_rotation![s];
+  const sx = d.uv_scale![s * 2] || 1,
+    sy = d.uv_scale![s * 2 + 1] || 1;
+  const c = Math.cos(-r),
+    sn = Math.sin(-r);
+  const pts = new Map<number, [number, number]>();
+  for (const l of loops)
+    for (const i of l) {
+      const x = P[i * 3] * U[0] + P[i * 3 + 1] * U[1] + P[i * 3 + 2] * U[2] - tx;
+      const y = P[i * 3] * V[0] + P[i * 3 + 1] * V[1] + P[i * 3 + 2] * V[2] - ty;
+      const u = (x * c - y * sn) / sx,
+        v = (x * sn + y * c) / sy;
+      pts.set(i, radial ? [0.5 + u * 0.5, 0.5 + v * 0.5] : [u, v]);
+    }
+  return pts;
+}
+
+/** Color of the Fill tool's guide lines. */
+export const GUIDE_COLOR: RGBA = [0.1, 0.75, 0.95, 0.9];
+
 /** Primitive kinds stored in aInfo.x */
 export const KIND_FILL = 0,
   KIND_SEGMENT = 1,
   KIND_DOT = 2,
-  KIND_SQUARE = 3;
+  KIND_SQUARE = 3,
+  /** a flat or pointed corner between two segments (screen-space bevel / miter wedge) */
+  KIND_JOIN = 4;
 
 export interface StrokeBuffers {
   p0: Float32Array; // 3
@@ -77,6 +223,8 @@ export interface StrokeBuffers {
   /** neighbouring points of a segment (xyz + radius; radius 0 = none): before p0 and after p1 */
   nbr0: Float32Array;
   nbr1: Float32Array;
+  /** stroke texture coordinates: u at both segment ends (dots: rotation, joints: u and du per world unit) */
+  uv: Float32Array;
   index: Uint32Array;
   vertexCount: number;
   /** next free draw order */
@@ -142,7 +290,13 @@ export function fillColorOf(d: GPDrawing, s: number, base: RGBA): RGBA {
  * strokes draw over earlier ones while overlaps inside one stroke never blend twice).
  */
 /** `holdout`: only the holdout strokes / fills (true) or everything else (false). */
-export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0, holdout = false): StrokeBuffers {
+/** `guides`: also draw the Fill tool's guide lines (viewport only). */
+/**
+ * `slots`: only strokes of these material slots (textured materials are drawn by their own pass).
+ * Each stroke owns two draw orders (fill, then line) whatever is drawn, so partial builds of the
+ * same drawing (holdouts, textured slots) stack in the same order as the full one.
+ */
+export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0, holdout = false, guides = false, slots?: (slot: number) => boolean): StrokeBuffers {
   const nPts = d.position.length / 3;
   const nStrokes = d.offsets.length - 1;
   const est = nPts * 4 + 64;
@@ -154,7 +308,8 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     corner = new Grow(est * 2),
     info = new Grow(est * 4),
     nb0 = new Grow(est * 4),
-    nb1 = new Grow(est * 4);
+    nb1 = new Grow(est * 4),
+    uvs = new Grow(est * 2);
   let index = new Uint32Array(Math.max(64, nPts * 6 + 64));
   let ni = 0;
   let nv = 0;
@@ -200,8 +355,11 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     s: number,
     n0: number[] = NONE,
     n1: number[] = NONE,
+    tu0 = 0,
+    tu1 = 0,
   ) => {
     for (let k = 0; k < 4; k++) {
+      uvs.push2(tu0, tu1);
       nb0.push4(n0[0], n0[1], n0[2], n0[3]);
       nb1.push4(n1[0], n1[1], n1[2], n1[3]);
       p0.push3(ax, ay, az);
@@ -216,9 +374,19 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     nv += 4;
   };
 
+  const stype = d.stroke_type && d.stroke_type.length === nStrokes ? d.stroke_type : null;
+  const guide = d.is_fill_guide && d.is_fill_guide.length === nStrokes ? d.is_fill_guide : null;
+  const soft = d.softness && d.softness.length === nStrokes ? d.softness : null;
   for (let s = 0; s < nStrokes; s++) {
-    const st = styles[d.material_index[s]] ?? null;
-    if (!st) continue;
+    order = orderStart + s * 2;
+    const st0 = styles[d.material_index[s]] ?? null;
+    if (!st0) continue;
+    if (slots && !slots(d.material_index[s])) continue;
+    // fill guides only show where the caller asks for them (Fill tool, viewport)
+    if (guide?.[s] && !(guides && !holdout)) continue;
+    // a per stroke type overrides the material's stroke / fill switches
+    const t = guide?.[s] ? 1 : (stype?.[s] ?? 0);
+    const st: StrokeStyle = guide?.[s] ? { ...st0, stroke: true, fill: false, mode: 'LINE', color: GUIDE_COLOR } : t ? { ...st0, stroke: (t & 1) !== 0, fill: (t & 2) !== 0 } : st0;
     const a = d.offsets[s],
       b = d.offsets[s + 1];
     const n = b - a;
@@ -237,14 +405,16 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         if (tris.length) {
           const fc = fillColorOf(d, s, st.fillColor);
           const g = st.gradient;
-          const uv = g ? gradientUV(P, loops, g) : null;
+          const tx = !g ? st.fillTex : undefined;
+          const map = g ?? (tx ? { type: 'LINEAR' as const, mix: [0, 0, 0, 0] as RGBA, factor: tx.mix, flip: false, offset: tx.offset, angle: tx.angle, scale: tx.scale } : undefined);
+          const uv = map ? (hasStrokeUV(d, s) ? strokeUV(P, loops, d, s, map.type === 'RADIAL') : gradientUV(P, loops, map)) : null;
           let ca2 = fc as number[],
             cb2 = fc as number[];
           if (g) {
             const mix = [g.mix[0], g.mix[1], g.mix[2], g.mix[3] * d.fill_opacity[s]];
             [ca2, cb2] = g.flip ? [mix, fc] : [fc, mix];
           }
-          if (fc[3] > 0 || (g && g.mix[3] > 0)) {
+          if (fc[3] > 0 || (g && g.mix[3] > 0) || tx) {
             if (strokeOrder[s] < 0) strokeOrder[s] = order;
             for (const i of tris) {
               p0.push3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]);
@@ -255,9 +425,10 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
               corner.push2(0, 0);
               info.push4(KIND_FILL, order, 0, s);
               const t = uv?.get(i) ?? [0, 0];
-              // fills keep their gradient coordinates and kind (1 linear, 2 radial) in the first neighbour slot
-              nb0.push4(t[0], t[1], g ? (g.type === 'RADIAL' ? 2 : 1) : 0, g ? g.factor : 0);
+              // fills keep their gradient / texture coordinates and kind (1 linear, 2 radial, 3 texture) in the first neighbour slot
+              nb0.push4(t[0], t[1], g ? (g.type === 'RADIAL' ? 2 : 1) : tx ? 3 : 0, g ? g.factor : tx ? tx.mix : 0);
               nb1.push4(0, 0, 0, 0);
+              uvs.push2(0, 0);
               pushIndex(nv++);
             }
             order++;
@@ -266,26 +437,86 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       }
     }
     if (!st.stroke || !!st.holdoutStroke !== holdout) continue;
+    order = orderStart + s * 2 + 1;
     if (strokeOrder[s] < 0) strokeOrder[s] = order;
+    // edge softness travels in the flag bits above 4 (0..255)
+    const softBits = soft ? Math.round(Math.max(0, Math.min(1, soft[s])) * 255) << 4 : 0;
+    const texBit = st.strokeTex ? FLAG_STROKE_TEX : 0;
+    // stroke texture mapping (Texture Mapping modifier): offset, scale, fit to the stroke, dot rotation
+    const us = d.uv_stroke && d.uv_stroke.length === nStrokes * 4 ? d.uv_stroke : null;
+    const uOff = us ? us[s * 4] : 0,
+      uScale = us ? us[s * 4 + 1] || 1 : 1,
+      uFit = !!us && us[s * 4 + 2] > 0.5,
+      dotRot = us ? us[s * 4 + 3] : 0;
+    // textured lines: u at every point (distance along the stroke in stroke widths, or 0..1 when fitted)
+    let uAt: Float64Array | null = null,
+      dudw = 0;
+    if (texBit && st.mode === 'LINE') {
+      uAt = new Float64Array(n + 1);
+      let meanR = 0;
+      for (let i = a; i < b; i++) meanR += R(i);
+      meanR = Math.max(1e-6, meanR / n);
+      for (let k = 1; k <= n; k++) {
+        const i = a + k - 1,
+          j = k < n ? i + 1 : a;
+        uAt[k] = uAt[k - 1] + Math.hypot(P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]);
+      }
+      const total = (d.cyclic[s] && n > 2 ? uAt[n] : uAt[n - 1]) || 1;
+      const div = uFit ? total : 2 * meanR * Math.max(0.01, st.strokeTex!.uvFactor);
+      dudw = uScale / div;
+      for (let k = 0; k <= n; k++) uAt[k] = (uAt[k] / div + uOff) * uScale;
+    }
     if (st.mode !== 'LINE') {
       const kind = st.mode === 'DOTS' ? KIND_DOT : KIND_SQUARE;
-      for (let i = a; i < b; i++) {
+      const places = dotPlacements(P, R, a, b, !!d.cyclic[s] && n > 2, st.placement);
+      const rnd = st.random;
+      const cc = [0, 0, 0, 0];
+      places.forEach(({ i, t }, k) => {
+        const j = i + 1 < b ? i + 1 : !!d.cyclic[s] && n > 2 ? a : i;
+        const x = P[i * 3] + (P[j * 3] - P[i * 3]) * t,
+          y = P[i * 3 + 1] + (P[j * 3 + 1] - P[i * 3 + 1]) * t,
+          z = P[i * 3 + 2] + (P[j * 3 + 2] - P[i * 3 + 2]) * t;
+        let r = R(i) + (R(j) - R(i)) * t;
         pointColor(d, i, st.color, ca);
-        const j = i + 1 < b ? i + 1 : i - 1 >= a ? i - 1 : i;
-        const sign = j < i ? -1 : 1;
-        // p1 only gives the alignment direction (squares follow the path)
-        let dx = (P[j * 3] - P[i * 3]) * sign,
-          dy = (P[j * 3 + 1] - P[i * 3 + 1]) * sign,
-          dz = (P[j * 3 + 2] - P[i * 3 + 2]) * sign;
-        if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(R(i), 1e-4), 0, 0];
-        // flag 8: screen aligned (fixed)
-        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, st.alignment === 'FIXED' ? 8 : 0, s);
-      }
+        pointColor(d, j, st.color, cb);
+        let col = [0, 1, 2, 3].map((c) => ca[c] + (cb[c] - ca[c]) * t);
+        let rot = dotRot + (st.alignRotation ?? 0);
+        if (rnd) {
+          // smooth noise along the dots (its frequency set by the noise scale)
+          const u = (k + 0.5) * Math.max(0.001, rnd.scale);
+          const nz = (c: number) => smoothDotNoise(s * 7919 + c * 104729, u);
+          r *= Math.max(0.05, 1 + rnd.size * nz(1));
+          col[3] *= Math.max(0, Math.min(1, 1 + rnd.strength * nz(2)));
+          rot += rnd.rotation * Math.PI * nz(3);
+          if (rnd.hue || rnd.sat || rnd.val) col = hsvShift(col, rnd.hue * 0.5 * nz(4), rnd.sat * nz(5), rnd.val * nz(6));
+        }
+        // p1 only gives the alignment direction (squares follow the path): toward the next point,
+        // or away from the previous one at the end
+        const [fi, ti] = j !== i ? [i, j] : i - 1 >= a ? [i - 1, i] : [i, i];
+        let dx = P[ti * 3] - P[fi * 3],
+          dy = P[ti * 3 + 1] - P[fi * 3 + 1],
+          dz = P[ti * 3 + 2] - P[fi * 3 + 2];
+        if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(r, 1e-4), 0, 0];
+        cc[0] = col[0];
+        cc[1] = col[1];
+        cc[2] = col[2];
+        cc[3] = col[3];
+        // flag 8: screen aligned (fixed); the rotation turns the square and its texture
+        quad(x, y, z, x + dx, y + dy, z + dz, Math.max(0, r), Math.max(0, r), cc, cc, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits | texBit, s, NONE, NONE, rot);
+      });
       order++;
       continue;
     }
     const cyclic = !!d.cyclic[s] && n > 2;
     const segs = n === 1 ? 1 : cyclic ? n : n - 1;
+    // corners: points with a miter angle get a cut join (flat, or pointed up to the limit)
+    const miter = d.miter_angle && d.miter_angle.length === nPts ? d.miter_angle : null;
+    // soft strokes cut their segments at every inner point and fill the joints with round dots
+    // drawn after them, so each pixel takes the soft edge of the segment it lies across
+    // textured strokes too: the texture then runs on continuously across the joints
+    const softStroke = (!!soft && soft[s] > 0) || !!st.strokeTex;
+    const inner = (i: number) => n > 2 && (cyclic || (i !== a && i !== b - 1));
+    const cut = (i: number) => inner(i) && ((!!miter && miter[i] > 0) || softStroke);
     for (let k = 0; k < segs; k++) {
       const i = a + k;
       const j = n === 1 ? i : a + ((k + 1) % n);
@@ -294,6 +525,9 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       let flags = 0;
       if (!cyclic && k === 0 && d.start_cap[s]) flags |= 1;
       if (!cyclic && k === segs - 1 && d.end_cap[s]) flags |= 2;
+      if (cut(i)) flags |= 1;
+      if (cut(j)) flags |= 2;
+      flags |= softBits | texBit;
       // neighbours (for single-coverage joins): the point before i and the point after j
       const hasPrev = n > 1 && (k > 0 || cyclic),
         hasNext = n > 1 && (k < segs - 1 || cyclic);
@@ -301,8 +535,21 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         nj = a + ((k + 2) % n);
       const n0 = hasPrev ? [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)] : NONE;
       const n1 = hasNext ? [P[nj * 3], P[nj * 3 + 1], P[nj * 3 + 2], R(nj)] : NONE;
-      quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1);
+      quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1, uAt ? uAt[k] : 0, uAt ? uAt[k + 1] : 0);
     }
+    if (miter || softStroke)
+      for (let i = a; i < b; i++) {
+        if (!cut(i)) continue;
+        const pi = i > a ? i - 1 : b - 1,
+          ni = i < b - 1 ? i + 1 : a;
+        pointColor(d, i, st.color, ca);
+        if (!(miter && miter[i] > 0)) {
+          quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3], P[i * 3 + 1], P[i * 3 + 2], R(i), R(i), ca, ca, KIND_DOT, softBits | texBit, s, [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)], [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], R(ni)], uAt ? uAt[i - a] : 0, dudw);
+          continue;
+        }
+        // p0: the corner, p1: the previous point, next point + miter limit in the second neighbour slot
+        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(i), R(i), ca, ca, KIND_JOIN, 0, s, NONE, [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], miter[i]]);
+      }
     order++;
   }
   return {
@@ -315,9 +562,10 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     info: info.done(),
     nbr0: nb0.done(),
     nbr1: nb1.done(),
+    uv: uvs.done(),
     index: index.slice(0, ni),
     vertexCount: nv,
-    orderEnd: order,
+    orderEnd: orderStart + nStrokes * 2,
     strokeOrder,
   };
 }
