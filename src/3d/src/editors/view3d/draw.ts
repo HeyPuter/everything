@@ -46,6 +46,7 @@ import { evaluateWorldForViewport } from '../../render/world';
 import { drawEnvironmentBackground, drawLookdevSpheres } from './lookdev';
 import { drawObjectOutlines } from './objoutline';
 import { thresholdEdges } from './wirethreshold';
+import { dashedLineMaterial, dashedSegments, syncDashViewport } from './dashline';
 
 export interface DrawView {
   nav: NavCamera;
@@ -127,7 +128,8 @@ const originGeoSel = new BufferGeometry();
 const originPtsSel = new Points(originGeoSel, new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0xe16003, depthTest: false, transparent: true }));
 const originGeoAll = new BufferGeometry();
 const originPtsAll = new Points(originGeoAll, new PointsMaterial({ size: 5, sizeAttenuation: false, color: 0xbbbcbe, depthTest: false, transparent: true }));
-const relLines = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 }));
+// relationship lines: dashed in screen space, hidden behind surfaces
+const relLines = new LineSegments(new BufferGeometry(), dashedLineMaterial);
 const originScene = new Scene();
 originScene.add(originPtsAll, originPtsSel, originPts, relLines);
 
@@ -580,8 +582,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     originGeo.setAttribute('position', new Float32BufferAttribute(act, 3));
     originGeoSel.setAttribute('position', new Float32BufferAttribute(sel, 3));
     originGeoAll.setAttribute('position', new Float32BufferAttribute(all, 3));
-    relLines.geometry.setAttribute('position', new Float32BufferAttribute(rel, 3));
-    relLines.geometry.setDrawRange(0, rel.length / 3);
+    dashedSegments(relLines.geometry, rel);
+    syncDashViewport(r, ctx.engine.dpr);
     originScene.updateMatrixWorld(true);
     r.render(originScene, camera);
   }
