@@ -22,8 +22,9 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Shaft openings that cut floors, ceilings and roofs through a range of levels.
 - Columns (architectural and structural), beams, braces, beam systems that fill a bay, straight, L-shaped and U-shaped stairs with automatic riser counts, landings and handrails, ramps and railings.
 - Openings by face in floors, roofs and ceilings, curtain grids placed per wall, model lines, reference planes and work planes.
-- Foundations: isolated footings (one by one or under every column), wall foundations and foundation slabs.
-- Building services: ducts, pipes, cable trays and conduits drawn at a height and coloured by system, with air terminals, mechanical and electrical equipment, lighting, devices and plumbing fixtures.
+- Foundations: isolated footings (one by one or under every column), wall foundations and foundation slabs. Trusses (Pratt, Howe, Warren, Fink, king post) between two points.
+- Model text: 3D lettering, standing or flat. Your own families, made from masses, that stretch to their type's size.
+- Building services: ducts, pipes, cable trays and conduits drawn at a height and coloured by system, with fittings where runs meet, air terminals, mechanical and electrical equipment, lighting, devices, plumbing fixtures, sprinklers and circuit wiring.
 - Site: toposurfaces through points with contour lines, property lines, parking and site components. Massing: in-place masses with gross floor areas, and walls, floors, roofs and curtain systems made from their faces.
 - A library of furniture, casework, plumbing fixtures, appliances, planting and lighting. Furniture placed near a wall turns its back to it.
 - Rooms placed by clicking or automatically, bounded by walls, columns and room separation lines, with live area, perimeter and volume. Area plans with area boundaries, for gross and rentable areas.
@@ -35,7 +36,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 **Editing**
 - Selection by click, window (left to right) and crossing (right to left), Tab to cycle overlapping elements, select all instances.
 - Drag to move (joined walls stay joined; doors slide along their wall or move to another wall), grips on wall ends, slab corners and section lines, flip controls, and editable temporary dimensions.
-- Move, copy, rotate, mirror (pick or draw an axis), array, align, offset, scale, trim/extend to corner or to a reference, split (with a gap), pin, match type, create similar, copy and paste (also to other levels).
+- Move, copy, rotate, mirror (pick or draw an axis), linear and radial array, align, offset, scale, trim/extend to corner or to a reference, split (with a gap), pin, match type, create similar, copy and paste (also to other levels).
 - Object snaps (endpoints, midpoints, intersections, perpendicular, nearest), angle and length increments, and alignment with nearby points.
 - Selection filter by category, saved selections, selection by id, and a warnings list.
 - Undo and redo for everything.
@@ -49,7 +50,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Callouts, drafting views, legends and view duplication with or without detailing; crop regions with grips.
 - Aligned, linear, angular, radial and diameter dimensions, spot elevations, coordinates and slopes, text with leaders, tags (by mark, type, material or keynote), detail lines, arcs, detail components, insulation, filled regions, revision clouds, colour fill legends, north arrows and scale bars.
 - Visibility/Graphics with category and per-element overrides (colour, weight, halftone and, in 3D, transparency), rule-based filters, view templates and project-wide object styles.
-- Tags in plans, elevations and sections, tread numbers on stairs, and arc length dimensions.
+- Tags in plans, elevations and sections, tread numbers on stairs, arc length dimensions, matchlines, view references, and your own line styles.
 - Schedules of doors, windows, rooms, areas, walls, floors, ceilings, roofs, ramps, furniture, columns, stairs, ducts, pipes and foundations, plus material takeoffs, sheet lists and view lists, with field selection (including project parameters), sorting, grouping, filters, totals, in-place editing and CSV export.
 - Sheets with a title block, placed views and a revision table.
 - Temporary hide and isolate, reveal hidden elements, thin lines.
@@ -58,7 +59,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 **Files**
 - Projects (.bdp) saved to your Puter cloud storage or to your device; open projects are kept in the browser so work survives a reload.
 - Share projects with other Puter users for viewing or editing, and work on them together: saving merges others' changes element by element so nobody overwrites anyone, changes others save appear while you work, and worksets divide the model into parts that views can show or hide.
-- Link other projects, read-only, for coordination; transfer types, materials, templates and other standards from another project.
+- Link other projects and IFC models from other BIM software, read-only, for coordination; load another project as a group; transfer types, materials, templates, line styles and other standards from another project.
 - Import DXF drawings into a plan, section or sheet as detail lines and text, to trace over or annotate.
 - Export to IFC (IFC4, for other BIM software), glTF and OBJ (3D), DXF (plans), PDF, SVG and PNG (drawings and sheets), and CSV (schedules).
 
