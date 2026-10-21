@@ -81,15 +81,37 @@ export class Library extends Emitter {
     return out;
   }
 
-  async _updateIndex(fn) {
-    // Read it again: another tab or device may have changed it since. If it
-    // can't be read, keep working from the list this tab knows.
-    let index = await this.backend.readJSON('index.json').catch(() => undefined);
-    if (!Array.isArray(index)) index = this.index || (await this._readIndex());
-    const next = fn([...index]);
-    this.index = next;
-    await this.backend.writeJSON('index.json', next);
-    this.emit('index', next);
+  /**
+   * Change the project list. Changes run one after another (two at once would
+   * read the same list and the second write would drop the first one's
+   * change); changes asked for while one is being written share the next
+   * read and write.
+   */
+  _updateIndex(fn) {
+    return new Promise((resolve, reject) => {
+      const first = !this._indexPending;
+      (this._indexPending ||= []).push({ fn, resolve, reject });
+      if (first) this._indexQueue = (this._indexQueue || Promise.resolve()).then(() => this._writeIndex());
+    });
+  }
+
+  async _writeIndex() {
+    const batch = this._indexPending;
+    this._indexPending = null;
+    try {
+      // Read it again: another tab or device may have changed it since. If it
+      // can't be read, keep working from the list this tab knows.
+      let index = await this.backend.readJSON('index.json').catch(() => undefined);
+      if (!Array.isArray(index)) index = this.index || (await this._readIndex());
+      let next = [...index];
+      for (const { fn } of batch) next = fn([...next]);
+      this.index = next;
+      await this.backend.writeJSON('index.json', next);
+      this.emit('index', next);
+      for (const { resolve } of batch) resolve();
+    } catch (err) {
+      for (const { reject } of batch) reject(err);
+    }
   }
 
   /** "Project N" with the lowest N no project (Trash included) is called. */

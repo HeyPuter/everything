@@ -116,6 +116,59 @@ describe('Library projects', () => {
   });
 });
 
+describe('project list changes in one tab', () => {
+  it('lists both projects saved at the same time', async () => {
+    const lib = new Library(memoryBackend(), { cache: null });
+    const a = await lib.createProject({ name: 'A' });
+    const b = await lib.createProject({ name: 'B' });
+    const short = { ...(await lib.openProject(a.id)), id: 'p_short', name: 'Short' };
+    await Promise.all([lib.saveProject({ ...(await lib.openProject(b.id)), name: 'B2' }), lib.saveProject(short)]);
+    const names = (await new Library(lib.backend, { cache: null }).listProjects()).map((p) => p.name).sort();
+    expect(names).toEqual(['A', 'B2', 'Short']);
+  });
+
+  it('keeps a duplicate made while another project goes to the Trash', async () => {
+    const lib = new Library(memoryBackend(), { cache: null });
+    const a = await lib.createProject({ name: 'A' });
+    const b = await lib.createProject({ name: 'B' });
+    await Promise.all([lib.duplicateProject(a.id), lib.trashProject(b.id)]);
+    const fresh = new Library(lib.backend, { cache: null });
+    expect((await fresh.listProjects()).map((p) => p.name).sort()).toEqual(['A', 'A copy']);
+    expect((await fresh.listTrash()).map((p) => p.name)).toEqual(['B']);
+  });
+
+  it('reads and writes the list once for changes asked for together', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const a = await lib.createProject({ name: 'A' });
+    let reads = 0;
+    let writes = 0;
+    const { readJSON, writeJSON } = backend;
+    backend.readJSON = async (path) => (path === 'index.json' && reads++, readJSON(path));
+    backend.writeJSON = async (path, v) => (path === 'index.json' && writes++, writeJSON(path, v));
+    await Promise.all([1, 2, 3, 4].map((n) => lib.saveProject({ ...a, name: `A${n}` })));
+    expect(reads).toBeLessThanOrEqual(2);
+    expect(writes).toBeLessThanOrEqual(2);
+    expect((await new Library(backend, { cache: null }).listProjects()).map((p) => p.name)).toEqual(['A4']);
+  });
+
+  it('rejects every change of a list that could not be written', async () => {
+    const backend = memoryBackend();
+    const lib = new Library(backend, { cache: null });
+    const a = await lib.createProject({ name: 'A' });
+    const { writeJSON } = backend;
+    backend.writeJSON = async (path, v) => {
+      if (path === 'index.json') throw new Error('offline');
+      return writeJSON(path, v);
+    };
+    const results = await Promise.allSettled([lib.saveProject(a), lib.saveProject({ ...a, name: 'B' })]);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected']);
+    backend.writeJSON = writeJSON;
+    await lib.saveProject({ ...a, name: 'C' });
+    expect((await new Library(backend, { cache: null }).listProjects()).map((p) => p.name)).toEqual(['C']);
+  });
+});
+
 describe('Library in two tabs', () => {
   it('keeps a project created in another tab in the index', async () => {
     const backend = memoryBackend();
