@@ -480,6 +480,7 @@ export function galleryGrid(
     class: "fmt-gallery",
     role: "group",
     "aria-label": label,
+    "data-arrow-keys": "",
     style: `--fmt-columns:${columns}`,
   });
   const cells = items.map((item) =>

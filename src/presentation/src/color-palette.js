@@ -149,6 +149,7 @@ export function colorMenuItems({
     class: "palette",
     role: "group",
     "aria-label": "Colors",
+    "data-arrow-keys": "",
   });
   if (theme) {
     grid.append(el("div", { class: "palette-heading" }, "Theme Colors"));

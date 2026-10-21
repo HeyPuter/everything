@@ -762,10 +762,25 @@ function onScroll(e) {
   closeFrom(0, { focus: false });
   if (restoreFocus) anchor.focus({ preventScroll: true });
 }
-function onKey(e) {
+function onKey(e, pastGrid = false) {
   if (e.isComposing || !chain.length) return;
   clearTimeout(hoverTimer);
   hoveredItem = null;
+  // A grid in a menu (a gallery, the table picker) moves the focus with the
+  // arrow keys itself; the menu takes a key only when the grid leaves it, at
+  // the grid's edges. This listener runs first, so it waits for the grid.
+  if (
+    !pastGrid &&
+    e.key.startsWith("Arrow") &&
+    document.activeElement?.closest?.("[data-arrow-keys]")
+  ) {
+    const after = (event) => {
+      document.removeEventListener("keydown", after);
+      if (event === e && !e.defaultPrevented) onKey(e, true);
+    };
+    document.addEventListener("keydown", after);
+    return;
+  }
   // Keys belong to the menu the focus is in, and to the innermost one when
   // focus has gone elsewhere.
   const focused = panelAt(document.activeElement);

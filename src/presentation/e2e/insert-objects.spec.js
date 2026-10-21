@@ -325,6 +325,26 @@ test("a video's bytes are let go once another presentation opens", async ({
   await expect.poll(() => read(src)).toBeNull();
 });
 
+test("the table picker sizes a table with the arrow keys", async ({ page }) => {
+  await start(page);
+  await command(page, "table");
+  const label = page.locator(".table-picker-label");
+  await expect(
+    page.getByRole("gridcell", { name: "1 by 1 table" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    page.getByRole("gridcell", { name: "3 by 2 table" }),
+  ).toBeFocused();
+  await expect(label).toHaveText("3x2 Table");
+  await page.keyboard.press("Enter");
+  const { slide } = await download(page);
+  expect(slide().match(/<a:gridCol /g)).toHaveLength(3);
+  expect(slide().match(/<a:tr /g)).toHaveLength(2);
+});
+
 test("audio from a file and from a recording is saved as media", async ({
   page,
 }) => {

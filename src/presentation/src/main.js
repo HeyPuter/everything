@@ -5505,6 +5505,7 @@ function tableMenu() {
     class: "table-picker",
     role: "grid",
     "aria-label": "Insert table",
+    "data-arrow-keys": "",
   });
   const label = el("div", { class: "table-picker-label" }, "Insert Table");
   const cells = [];
@@ -5528,6 +5529,28 @@ function tableMenu() {
       cells.push(cell);
       grid.append(cell);
     }
+  // Arrow keys size the table as the pointer does, across and down; Down
+  // from the last row goes on to Insert Table….
+  grid.addEventListener("keydown", (e) => {
+    const at = cells.indexOf(document.activeElement);
+    if (at < 0 || !e.key.startsWith("Arrow")) return;
+    const r = Math.floor(at / 10),
+      c = at % 10;
+    const [nr, nc] = {
+      ArrowRight: [r, c + 1],
+      ArrowLeft: [r, c - 1],
+      ArrowDown: [r + 1, c],
+      ArrowUp: [r - 1, c],
+    }[e.key] ?? [r, c];
+    e.preventDefault();
+    e.stopPropagation();
+    if (nr > 7)
+      grid
+        .closest(".table-picker-wrap")
+        ?.parentElement?.querySelector(".menu-item")
+        ?.focus();
+    else if (nr >= 0 && nc >= 0 && nc < 10) cells[nr * 10 + nc].focus();
+  });
   function mark(r, c) {
     for (const cell of cells)
       cell.classList.toggle(
