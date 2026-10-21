@@ -267,15 +267,19 @@ export function replaceAdvanced(model, matches, template, { wildcards = false, f
     model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
   };
   const selection = { ...model.selection };
+  // Without formatting to apply, a match within one paragraph is replaced in a view of just that paragraph.
+  const starts = !Object.keys(runPatch).length && !Object.keys(paragraphPatch).length && model.paragraphsEditAlone ? model.paragraphStarts() : null;
   let first = null, count = 0;
   try {
     for (let i = matches.length - 1; i >= 0; i--) {
       const m = matches[i], text = texts[i];
       let start = m.start, end = m.end;
       if (!formatOnly && text !== m.text) {
-        select(m.start, m.end);
+        // Text put back after the author deleted it is found as a move anywhere in the document.
+        const alone = starts && !m.text.includes('\n') && !(text && model.trackChanges && model.lastTrackedDeletion);
+        if (!alone) select(m.start, m.end);
         // A replacement the document refuses changes nothing, and its formatting is not applied.
-        if (!model.replace(text, { checkpoint: false })) continue;
+        if (!(alone ? model.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, text) : model.replace(text, { checkpoint: false }))) continue;
         end = model.selection.focus; start = end - text.length;
       }
       if (end > start) {

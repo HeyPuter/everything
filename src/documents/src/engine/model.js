@@ -1872,28 +1872,37 @@ export class TextDocument {
   }
   // With Track Changes on, each replacement is an ordinary tracked edit, so
   // the found text is marked deleted and the replacement inserted. One step.
+  /** Whether a paragraph's text can be edited apart from the others: no fields, controls or note marks reach across paragraphs. */
+  get paragraphsEditAlone() { return !this.hasContentControls && !this.hasBlockControls && !this.hasPlainTextControls && !this.hasBodyFields && !this.hasNoteMarks && !this.hasMacroButtons; }
+  paragraphStarts() { const starts = []; let at = 0; for (const p of this.paragraphs) { starts.push(at); at += paragraphLength(p) + 1; } return starts; }
+  /**
+   * Replace [start, end) within paragraph `index`, which starts at `at`, as replace() does, in a view of
+   * the model holding only that paragraph (see paragraphsEditAlone). An edit makes several passes over
+   * its document; making them over the whole document for each of a batch of replacements made Replace
+   * All take minutes on a long document. Later paragraphs keep their indices only when `text` has no
+   * paragraph break, so a batch runs from its last replacement.
+   */
+  replaceWithinParagraph(index, at, start, end, text) {
+    const view = Object.create(this);
+    view.paragraphs = [this.paragraphs[index]];
+    view.selection = { anchor: start - at, focus: end - at };
+    view.typingFormat = {}; view.typingStyle = null; view.typingDirectCleared = false;
+    const changed = view.replace(text, { checkpoint: false });
+    this.paragraphs.splice(index, 1, ...view.paragraphs);
+    this.selection = { anchor: view.selection.anchor + at, focus: view.selection.focus + at };
+    this.lastTrackedDeletion = view.lastTrackedDeletion;
+    return changed;
+  }
   trackedReplaceMatches(matches, text) {
     // Replacing text that is already marked deleted can change nothing; keep history exact then.
     const before = this.snapshot(); let count = 0;
-    // Each match lies within one paragraph. Without fields, controls or note marks, which reach across
-    // paragraphs, it is edited in a view of the model holding only that paragraph: a tracked edit makes
-    // several passes over its document, and making them over the whole document for every match made
-    // Replace All on a long document take minutes.
-    const local = !this.hasContentControls && !this.hasBlockControls && !this.hasPlainTextControls && !this.hasBodyFields && !this.hasNoteMarks && !this.hasMacroButtons;
-    const starts = []; let offset = 0;
-    if (local) for (const p of this.paragraphs) { starts.push(offset); offset += paragraphLength(p) + 1; }
+    const starts = this.paragraphsEditAlone ? this.paragraphStarts() : null;
     for (const m of [...matches].reverse()) {
       // Text put back after the author deleted it is found as a move anywhere in the document.
-      const view = local && (!text || !this.lastTrackedDeletion) ? Object.create(this) : null, model = view || this, at = view ? starts[m.paragraph] : 0;
-      if (view) view.paragraphs = [this.paragraphs[m.paragraph]];
-      model.selection = { anchor: m.start - at, focus: m.end - at };
-      model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
-      if (model.replace(text, { checkpoint: false })) count++;
-      if (view) {
-        this.paragraphs[m.paragraph] = view.paragraphs[0];
-        this.selection = { anchor: view.selection.anchor + at, focus: view.selection.focus + at };
-        this.lastTrackedDeletion = view.lastTrackedDeletion;
-      }
+      if (starts && (!text || !this.lastTrackedDeletion)) { if (this.replaceWithinParagraph(m.paragraph, starts[m.paragraph], m.start, m.end, text)) count++; continue; }
+      this.selection = { anchor: m.start, focus: m.end };
+      this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
+      if (this.replace(text, { checkpoint: false })) count++;
     }
     if (!count) { this.selection = before.selection; return 0; }
     this.history.push(before);

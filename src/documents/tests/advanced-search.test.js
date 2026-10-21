@@ -128,3 +128,17 @@ it('does not take a paragraph mark for white space to ignore', () => {
   const { doc } = documentWith(['foo', 'bar', 'foo  bar', 'foo\tbar']);
   expect(texts(find(doc, 'foo bar', { ignoreWhitespace: true }))).toEqual(['foo  bar', 'foo\tbar']);
 });
+
+it('replaces thousands of matches across a long document in linear time', () => {
+  const pkg = createDocx(Array.from({ length: 3000 }, (_, i) => paragraph(`Order ${i} ships in ${i % 9 + 1} days.`)), undefined, undefined, undefined, [], {}, WRITING_STYLES);
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  const started = performance.now();
+  // A wildcard group and a paragraph break in the replacement.
+  expect(doc.replaceMatches('in ([0-9]) days', '\\1 days^pfrom stock', { advanced: true, wildcards: true }, true)).toBe(3000);
+  // Each replacement walked the whole document several times, so this took about twenty seconds.
+  expect(performance.now() - started).toBeLessThan(12000);
+  expect(doc.paragraphs).toHaveLength(6000);
+  expect(doc.text.split('\n').slice(-2)).toEqual(['Order 2999 ships 3 days', 'from stock.']);
+  expect(doc.undo()).toBe(true);
+  expect(doc.text.split('\n').at(-1)).toBe('Order 2999 ships in 3 days.');
+}, 120000);
