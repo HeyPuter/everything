@@ -763,6 +763,8 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       sourceRefs, colors: series.map((s, i) => radarOnly ? shapeFill(val(radar, 'radarStyle') === 'filled' ? child(s, 'spPr') : path(s, 'spPr', 'ln')) : fill(bubbleOnly || (mixed ? ['area', 'column'].includes(seriesTypes[i]) : i < columnCount) ? child(s, 'spPr') : path(s, 'spPr', 'ln'))),
       legend: !!legend, legendPos, gridlines: grids.y.visible,
       smooth: series.some(s => val(s, 'smooth') === '1'), includeHidden: val(chart, 'plotVisOnly') === '0',
+      // The app draws one straight trendline through every series: a curved one, or one on only some series, stays off.
+      trendline: series.every(s => children(s, 'trendline').some(t => (val(t, 'trendlineType') || 'linear') === 'linear')),
       labels: bubbleOnly ? series.some(s => { const l = bubbleLabels(s); return l.value || l.size || l.category || l.series; })
         : series.some(s => (chartBoolean(child(s, 'dLbls'), 'showVal').showVal ?? chartBoolean(child(groups.find(g => g.children.includes(s)), 'dLbls'), 'showVal').showVal) === true
           || children(child(s, 'dLbls'), 'dLbl').some(p => chartBoolean(p, 'showVal').showVal === true)),
