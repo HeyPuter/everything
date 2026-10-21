@@ -1,4 +1,5 @@
 // Per-node GLSL generators for shader nodes (registered into codegen's `nodeGenerators`).
+import { TEX_MAPPING_NODES, texMapping, isIdentityMapping, texMappingTransform } from '../texmapping';
 import { tileGrid } from '../../render/udim';
 import { registerGenerator, fmt, type NodeGen } from './codegen';
 import { readRamp, bakeRamp, bakeCurves, type CurveKind } from '../curves';
@@ -483,7 +484,18 @@ registerGenerator('ShaderNodeMixRGB', (g) => {
 // ---------------------------------------------------------------------------
 // Textures
 
-const texVector = (g: NodeGen) => g.inOr('Vector', 'vec3', g.ctx.orco);
+/** A texture node's coordinates after its Texture Mapping (no code when the mapping is the identity). */
+function mappedVector(g: NodeGen, v: string): string {
+  if (!TEX_MAPPING_NODES.has(g.node.type)) return v;
+  const m = texMapping(g.node);
+  if (isIdentityMapping(m)) return v;
+  const { L, t } = texMappingTransform(m);
+  const col = (c: number) => g.uniform('vec3', [L[c], L[3 + c], L[6 + c]]);
+  const p = g.tmp('vec3', v);
+  const e = `(${col(0)} * ${p}.x + ${col(1)} * ${p}.y + ${col(2)} * ${p}.z + ${g.uniform('vec3', t)})`;
+  return m.vector_type === 'NORMAL' ? `nd_safe_normalize(${e})` : e;
+}
+const texVector = (g: NodeGen) => mappedVector(g, g.inOr('Vector', 'vec3', g.ctx.orco));
 
 registerGenerator('ShaderNodeTexChecker', (g) => {
   g.lib('nd_checker');
@@ -594,7 +606,7 @@ registerGenerator('ShaderNodeTexImage', (g) => {
     image: img,
     interpolation: g.str('interpolation') || 'Linear',
   });
-  const v = g.tmp('vec3', g.inOr('Vector', 'vec3', g.ctx.uv));
+  const v = g.tmp('vec3', mappedVector(g, g.inOr('Vector', 'vec3', g.ctx.uv)));
   const proj = g.str('projection');
   let c: string;
   if (proj === 'BOX') c = `nd_tex_box(${tex}, ${v}, ${g.ctx.objN}, ${g.uniform('float', num(g.prop('projection_blend'), 0))}, ${interp}, ${ext})`;
@@ -624,7 +636,7 @@ registerGenerator('ShaderNodeTexEnvironment', (g) => {
     image: img,
     interpolation: g.str('interpolation') || 'Linear',
   });
-  const d = g.tmp('vec3', g.inOr('Vector', 'vec3', `(-${g.ctx.I})`));
+  const d = g.tmp('vec3', mappedVector(g, g.inOr('Vector', 'vec3', `(-${g.ctx.I})`)));
   const uv = g.str('projection') === 'MIRROR_BALL' ? `nd_mirrorball_uv(${d})` : `nd_equirect_uv(${d})`;
   const interp = Math.min(2, enumIndex(INTERP, g.str('interpolation')));
   g.out('Color', 'vec4', `vec4(nd_tex_sample(${tex}, ${uv}, ${interp}, 0).rgb, 1.0)`);

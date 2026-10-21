@@ -8,6 +8,7 @@
 //
 // All writes mark the document changed; script runs group them into one undo step
 // (see runner.ts).
+import { TEX_MAPPING_NODES, texMapping, setTexMapping } from '../nodes/texmapping';
 import { Matrix4 } from 'three';
 import { app, operators, type OpResult } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, NodeTreeData, NodeData, ID, ImageData, TextData, CollectionData, MaterialData } from '../data/types';
@@ -1524,6 +1525,53 @@ class NodeStruct extends Struct {
       this.node.parent = target.id;
     }
     touched();
+  }
+  /** Texture nodes: coordinate mapping (axis remap and location / rotation / scale). */
+  get texture_mapping(): unknown {
+    if (!TEX_MAPPING_NODES.has(this.node.type)) return undefined;
+    const node = () => this.node;
+    const vecProp = (key: 'translation' | 'rotation' | 'scale') => ({
+      get: () =>
+        new Proxy([...texMapping(node())[key]], {
+          set: (arr, i, v) => {
+            (arr as unknown as Record<string | symbol, unknown>)[i] = v;
+            if (typeof i === 'string' && /^[0-2]$/.test(i)) {
+              setTexMapping(node(), { [key]: arr.map(Number) as [number, number, number] });
+              touched();
+            }
+            return true;
+          },
+        }),
+      set: (v: unknown) => {
+        const a = Array.from(v as ArrayLike<number>).map(Number);
+        if (a.length < 3) throw pyError('ValueError', `TexMapping.${key}: expected 3 items`);
+        setTexMapping(node(), { [key]: [a[0], a[1], a[2]] });
+        touched();
+      },
+      enumerable: true,
+    });
+    const enumProp = (key: 'vector_type' | 'mapping_x' | 'mapping_y' | 'mapping_z', items: string[]) => ({
+      get: () => texMapping(node())[key],
+      set: (v: unknown) => {
+        if (!items.includes(String(v))) throw pyError('TypeError', `bpy_struct: item.${key} = '${v}': enum "${v}" not found in (${items.map((x) => `'${x}'`).join(', ')})`);
+        setTexMapping(node(), { [key]: String(v) } as never);
+        touched();
+      },
+      enumerable: true,
+    });
+    const axes = ['NONE', 'X', 'Y', 'Z'];
+    return Object.defineProperties(
+      { __kind: 'struct', __type: 'TexMapping', toString: () => '<bpy_struct, TexMapping>' },
+      {
+        translation: vecProp('translation'),
+        rotation: vecProp('rotation'),
+        scale: vecProp('scale'),
+        vector_type: enumProp('vector_type', ['POINT', 'TEXTURE', 'VECTOR', 'NORMAL']),
+        mapping_x: enumProp('mapping_x', axes),
+        mapping_y: enumProp('mapping_y', axes),
+        mapping_z: enumProp('mapping_z', axes),
+      },
+    );
   }
   get paired_output(): unknown {
     const id = this.node.props.paired_output;

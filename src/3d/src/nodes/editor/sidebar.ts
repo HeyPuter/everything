@@ -9,6 +9,7 @@ import { panel, textField, checkbox, colorSwatch, enumMenu, numberField, button 
 import { splitRow } from '../../ui/props';
 import type { NodeTreeData } from '../../data/types';
 import { getNodeType, nodeSockets, interfaceSocketType, SOCKET_IDNAME, SOCKET_COLORS } from '../registry';
+import { TEX_MAPPING_NODES, texMapping, setTexMapping, type TexMapping, type TexAxis } from '../texmapping';
 import { nodeById, addInterfaceSocket, uniqueGroupName } from '../tree';
 import { addInterfacePanel, duplicateInterfaceItem, findSocketItem, interfaceEntries, moveInterfaceEntry, removeInterfaceItem, setSocketPanel, panelOfToggle, socketKey } from '../iface';
 import { propWidget, socketValueWidget, nodeChanged } from './nodeui';
@@ -173,6 +174,49 @@ function nodeTab(tree: NodeTreeData): Child {
     panel('nd-side-props', 'Properties', () => optionsBody(tree, n.id), {
       closed: false,
     }),
+    TEX_MAPPING_NODES.has(n.type) && tree.type !== 'GEOMETRY' ? panel('nd-side-texmap', 'Texture Mapping', () => texMappingPanel(n), { closed: true }) : null,
+  ];
+}
+
+const AXES = (['NONE', 'X', 'Y', 'Z'] as const).map((v) => ({ value: v, label: v === 'NONE' ? 'None' : v }));
+const MAP_TYPES = [
+  { value: 'POINT', label: 'Point' },
+  { value: 'TEXTURE', label: 'Texture' },
+  { value: 'VECTOR', label: 'Vector' },
+  { value: 'NORMAL', label: 'Normal' },
+];
+
+/** Texture node coordinates: axis remap and location / rotation / scale (like a Mapping node inside the texture). */
+function texMappingPanel(n: NodeTreeData['nodes'][number]): Child {
+  const m = texMapping(n);
+  const set = (part: Parameters<typeof setTexMapping>[1], label: string, final = true) => {
+    setTexMapping(n, part);
+    nodeChanged(label, final);
+  };
+  const vec = (key: 'translation' | 'rotation' | 'scale', label: string, unit?: 'distance' | 'angle') =>
+    (['X', 'Y', 'Z'] as const).map((c, i) =>
+      splitRow(
+        i === 0 ? label : c,
+        numberField({
+          id: `nd-tm-${key}-${i}-${n.id}`,
+          value: m[key][i],
+          unit,
+          set: (v, final) => {
+            const next = [...m[key]] as [number, number, number];
+            next[i] = v;
+            set({ [key]: next }, 'Texture Mapping', final);
+          },
+        }),
+      ),
+    );
+  return [
+    splitRow('Type', enumMenu(`nd-tm-type-${n.id}`, MAP_TYPES, m.vector_type, (v) => set({ vector_type: v as TexMapping['vector_type'] }, 'Texture Mapping Type'))),
+    splitRow('Projection X', enumMenu(`nd-tm-px-${n.id}`, AXES, m.mapping_x, (v) => set({ mapping_x: v as TexAxis }, 'Texture Projection'))),
+    splitRow('Y', enumMenu(`nd-tm-py-${n.id}`, AXES, m.mapping_y, (v) => set({ mapping_y: v as TexAxis }, 'Texture Projection'))),
+    splitRow('Z', enumMenu(`nd-tm-pz-${n.id}`, AXES, m.mapping_z, (v) => set({ mapping_z: v as TexAxis }, 'Texture Projection'))),
+    ...(m.vector_type === 'VECTOR' || m.vector_type === 'NORMAL' ? [] : vec('translation', 'Location', 'distance')),
+    ...vec('rotation', 'Rotation', 'angle'),
+    ...vec('scale', 'Scale'),
   ];
 }
 
