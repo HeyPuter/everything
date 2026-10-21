@@ -1025,9 +1025,14 @@
 }
 
 .menu-shortcut {
-  color: var(--text-3);
+  color: var(--text-2);
   font-size: 11.5px;
   margin-left: 16px;
+}
+
+/* Disabled items stay dimmer than enabled ones, shortcut included. */
+.menu-item:disabled .menu-shortcut {
+  color: inherit;
 }
 
 .menu-sep {
@@ -1039,7 +1044,7 @@
 .menu-heading {
   padding: 6px 10px 4px 28px;
   font-size: 11px;
-  color: var(--text-3);
+  color: var(--text-2);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
