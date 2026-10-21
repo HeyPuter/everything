@@ -55,6 +55,10 @@ export class SearchPanel {
     );
     const run = debounce(() => this.run(), 220);
     this.input.addEventListener('input', run);
+    // Pages renamed, moved, deleted or locked elsewhere update the results.
+    app.store.on('change', debounce(() => {
+      if (!this.el.hidden && this.input.value.trim()) this.run({ refresh: true });
+    }, 300));
     this.scope.addEventListener('change', () => this.run());
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -109,7 +113,8 @@ export class SearchPanel {
     return `${this.scope.value || 'all'}\n${this.input.value.trim()}`;
   }
 
-  async run() {
+  /** Searches for the box's text. A refresh redraws the results in place, keeping focus. */
+  async run({ refresh = false } = {}) {
     const q = this.input.value.trim();
     const key = this.queryKey();
     const token = (this.token = Symbol('search'));
@@ -119,16 +124,19 @@ export class SearchPanel {
       this.status.textContent = '';
       return;
     }
-    this.results.replaceChildren(h('div.empty-state', h('div.spinner'), h('p', 'Searching...')));
+    if (!refresh) this.results.replaceChildren(h('div.empty-state', h('div.spinner'), h('p', 'Searching...')));
     const results = await this.app.store.search(q, { scope: this.scope.value || 'all' });
     if (token !== this.token) return;
     const terms = normalize(q).split(/\s+/).filter(Boolean);
+    const focused = this.results.contains(document.activeElement) ? document.activeElement.closest('.result')?.dataset.id : null;
     if (!results.length) {
       this.results.replaceChildren(h('div.empty-state', h('p', `No results for "${q}".`)));
     } else {
       this.results.replaceChildren(h('div.group-label', `${results.length} ${results.length === 1 ? 'result' : 'results'}`), ...results.map((r) => resultRow(this.app, r, terms, q)));
     }
-    this.status.textContent = results.length ? `${results.length} results` : 'No results';
+    if (focused) this.results.querySelector(`.result[data-id="${CSS.escape(focused)}"]`)?.focus();
+    const status = results.length ? `${results.length} results` : 'No results';
+    if (!refresh || this.status.textContent !== status) this.status.textContent = status;
     this.shown = key;
   }
 }

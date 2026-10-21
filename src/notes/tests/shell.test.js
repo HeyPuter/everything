@@ -227,6 +227,18 @@ describe('App shell', () => {
     }
   });
 
+  it('drops a deleted page from the search results that are showing', async () => {
+    const doomed = app.newPage({ title: 'Doomed plan' });
+    await tick();
+    app.setRailView('search');
+    app.search.input.value = 'doomed';
+    await app.search.run();
+    expect(app.search.results.querySelectorAll('.result')).toHaveLength(1);
+    app.deletePage(doomed.id);
+    await tick(400);
+    expect(app.search.results.querySelectorAll('.result')).toHaveLength(0);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
