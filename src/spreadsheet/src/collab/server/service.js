@@ -405,8 +405,11 @@ export class RoomService {
       const latest = await this.kv.get(`ss:${room}:cp`);
       if (!latest || rev > latest.rev) {
         await this.kv.set(`ss:${room}:cp`, { rev, path, at: this.now() });
-        const history = ((await this.kv.get(`ss:${room}:cps`)) || []).filter((c) => c.rev < rev);
-        await this.kv.set(`ss:${room}:cps`, [...history, { rev, path }].slice(-50));
+        const history = [...((await this.kv.get(`ss:${room}:cps`)) || []).filter((c) => c.rev < rev), { rev, path }];
+        await this.kv.set(`ss:${room}:cps`, history.slice(-50));
+        // A checkpoint off the list is read by nothing any more: its file goes, or the owner's drive keeps a copy of
+        // the whole workbook for every minute anyone spent editing it.
+        for (const old of history.slice(0, -50)) await this.fs.delete(old.path).catch(() => {});
       }
       saved = true;
     }
