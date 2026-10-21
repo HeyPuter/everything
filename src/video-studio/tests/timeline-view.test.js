@@ -114,3 +114,21 @@ describe('timeline focus', () => {
     tl.dispose();
   });
 });
+
+describe('timeline rendering', () => {
+  it('only builds transition chips for the cuts in view', () => {
+    const p = fixture();
+    onMain(p, ...Array.from({ length: 300 }, (_, i) => clip('video', i, 1)));
+    const { tl, scroller } = mountTimeline(p);
+    const chips = () => tl.el.querySelectorAll('.tl-transition').length;
+    const near = chips();
+    expect(near).toBeGreaterThan(0);
+    expect(near).toBeLessThan(60);
+    expect(tl.el.querySelectorAll('.tl-clip').length).toBeLessThan(60);
+    scroller.scrollLeft = 150 * tl.pps;
+    tl.render();
+    expect(chips()).toBeGreaterThan(0);
+    expect(chips()).toBeLessThan(60);
+    tl.dispose();
+  });
+});

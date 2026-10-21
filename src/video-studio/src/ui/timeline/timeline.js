@@ -66,6 +66,7 @@ export function createTimeline(ctx) {
   let rows = [];
   let drag = null;
   let renderQueued = false;
+  let contentH = 0; // laid-out height of the tracks area, kept so the playhead never forces a layout
   let canvasQueued = false;
   let activeId = null; // roving focus clip
   const clipEls = new Map();
@@ -366,6 +367,7 @@ export function createTimeline(ctx) {
   function render(force = false) {
     renderQueued = false;
     const totalH = computeRows();
+    contentH = totalH;
     const dur = store.duration;
     const vw = scroller.clientWidth;
     const width = Math.max(vw, timeToX(dur) + Math.max(vw * 0.6, 300));
@@ -376,6 +378,7 @@ export function createTimeline(ctx) {
     renderHeaders(totalH);
     const [t0, t1] = visibleRange();
     const keep = new Set();
+    const live = new Set();
     multicams = [];
     const fps = store.fps;
     // Track rows (lanes).
@@ -397,6 +400,7 @@ export function createTimeline(ctx) {
       lane.classList.toggle('locked', row.track.locked);
       lane.classList.toggle('hidden-track', row.track.hidden);
       for (const clip of row.track.clips) {
+        live.add(clip.id);
         const visible = T.clipEnd(clip) >= t0 && clip.start <= t1;
         if (!visible && !store.selection.has(clip.id) && clip.id !== activeId) continue;
         keep.add(clip.id);
@@ -446,16 +450,16 @@ export function createTimeline(ctx) {
     for (const [id, e] of clipEls) {
       if (!keep.has(id)) {
         e.node.remove();
-        if (!T.findClip(store.project, id)) clipEls.delete(id);
+        if (!live.has(id)) clipEls.delete(id);
       }
     }
-    renderTransitions();
+    renderTransitions(t0, t1);
     const range = store.project.range;
     rangeEl.hidden = !range;
     if (range) Object.assign(rangeEl.style, { left: `${timeToX(range.in)}px`, width: `${Math.max(1, timeToX(range.out) - timeToX(range.in))}px` });
     placePlayhead();
     drawRulerNow();
-    emptyHint.hidden = T.allClips(store.project).length > 0;
+    emptyHint.hidden = live.size > 0;
     ruler.setAttribute('aria-valuemax', String(Math.round(dur / US)));
     queueCanvases();
     notifyView();
@@ -491,7 +495,8 @@ export function createTimeline(ctx) {
     e.cuts.replaceChildren(...runs.map((c, i) => h(`span.mc-mark${i ? '' : '.first'}`, { style: { left: `${((c.t - clip.in) / US) * pps}px` } }, String(c.angle + 1))));
   }
 
-  function renderTransitions() {
+  /** Transition chips on the cuts in view (t0..t1), plus a selected or focused one. */
+  function renderTransitions(t0, t1) {
     const keep = new Set();
     rows.forEach((row) => {
       if (row.track.kind !== 'video') return;
@@ -499,14 +504,16 @@ export function createTimeline(ctx) {
       for (let i = 0; i < clips.length - 1; i++) {
         const a = clips[i];
         const b = clips[i + 1];
-        if (Math.abs(b.start - T.clipEnd(a)) > 2000) continue;
+        const cut = T.clipEnd(a);
+        if (Math.abs(b.start - cut) > 2000) continue;
+        const id = a.id;
+        let chip = trChips.get(id);
+        if ((cut < t0 || cut > t1) && store.transition !== id && !(chip && chip === document.activeElement)) continue;
         const has = Boolean(a.transition);
         // Show chips for existing transitions; others appear on hover as "add" targets.
-        const id = a.id;
         keep.add(id);
-        let chip = trChips.get(id);
         if (!chip) {
-          chip = h('button.tl-transition', { type: 'button' });
+          chip = h('button.tl-transition', { type: 'button' }, icon('transition', 12));
           chip.addEventListener('click', (e) => {
             e.stopPropagation();
             const clip = T.findClip(store.project, id)?.clip;
@@ -520,14 +527,18 @@ export function createTimeline(ctx) {
           trChips.set(id, chip);
         }
         const name = has ? TRANSITIONS.find((t) => t.id === a.transition.id)?.label || 'Transition' : null;
-        chip.className = `tl-transition${has ? ' has' : ''}${store.transition === id ? ' selected' : ''}`;
-        chip.setAttribute('aria-label', has ? `${name} transition between ${T.clipLabel(store.project, a)} and ${T.clipLabel(store.project, b)}` : `Add transition after ${T.clipLabel(store.project, a)}`);
-        chip.setAttribute('data-tip', has ? name : 'Add transition');
-        chip.replaceChildren(icon('transition', 12));
+        const label = has ? `${name} transition between ${T.clipLabel(store.project, a)} and ${T.clipLabel(store.project, b)}` : `Add transition after ${T.clipLabel(store.project, a)}`;
         const w = has ? Math.max(18, (a.transition.duration / US) * pps) : 18;
-        chip.style.left = `${timeToX(T.clipEnd(a)) - w / 2}px`;
-        chip.style.top = `${row.y + row.h / 2 - 9}px`;
-        chip.style.width = `${w}px`;
+        const sig = `${has}|${store.transition === id}|${label}|${name}|${timeToX(cut) - w / 2}|${row.y + row.h / 2 - 9}|${w}`;
+        if (chip._sig !== sig) {
+          chip._sig = sig;
+          chip.className = `tl-transition${has ? ' has' : ''}${store.transition === id ? ' selected' : ''}`;
+          chip.setAttribute('aria-label', label);
+          chip.setAttribute('data-tip', has ? name : 'Add transition');
+          chip.style.left = `${timeToX(cut) - w / 2}px`;
+          chip.style.top = `${row.y + row.h / 2 - 9}px`;
+          chip.style.width = `${w}px`;
+        }
         if (chip.parentNode !== content) content.append(chip);
       }
     });
@@ -542,7 +553,7 @@ export function createTimeline(ctx) {
   function placePlayhead() {
     const t = store.time;
     playhead.style.transform = `translateX(${timeToX(t)}px)`;
-    playhead.style.height = `${content.offsetHeight || 200}px`;
+    playhead.style.height = `${contentH || 200}px`;
     ruler.setAttribute('aria-valuenow', String(Math.round(t / US)));
     ruler.setAttribute('aria-valuetext', timecode(t, store.fps));
   }
