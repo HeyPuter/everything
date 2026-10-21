@@ -13,6 +13,8 @@ import type { ArmatureTarget } from '../eval/constraints_more';
 import type { Constraint, ObjectData } from '../data/types';
 import { constraintPath } from './ops';
 import { bindProp } from '../ui/binding';
+import { constraintSlot, findSlot, isSlotted } from '../anim/slots';
+import { slotSelector, type SlotBinding } from '../animation/slotops';
 
 /** Extra panel content for constraint types registered by feature modules (e.g. Follow Track). */
 export const constraintExtraUI: Record<string, (ob: ObjectData, c: Constraint) => Child> = {};
@@ -421,8 +423,9 @@ const drawers: Record<string, (ob: ObjectData, c: C, bone?: string) => Child> = 
     panel(`con-${c.id}-act-action`, 'Action', () => [
       splitRow(
         'Action',
-        enumMenu(`${c.id}.action`, [{ value: '', label: '—' }, ...Object.values(app.doc.actions).map((a) => ({ value: a.id, label: a.name, icon: 'action' }))], String(c.action ?? ''), (v) => ((c.action = v || null), commit('Set Action'))),
+        enumMenu(`${c.id}.action`, [{ value: '', label: '—' }, ...Object.values(app.doc.actions).map((a) => ({ value: a.id, label: a.name, icon: 'action' }))], String(c.action ?? ''), (v) => ((c.action = v || null), delete c.action_slot_handle, commit('Set Action'))),
       ),
+      constraintSlotRow(ob, c, bone),
       bone ? bool(c, 'use_bone_object_action', 'Object Action') : null,
       num(c, 'frame_start', 'Frame Start', { int: true }),
       num(c, 'frame_end', 'End', { int: true }),
@@ -811,3 +814,17 @@ registerTab({
     return stack(o, pb.constraints, arm.active_bone!);
   },
 });
+
+/** Slot of the Action constraint's action it plays (actions with slots). */
+function constraintSlotRow(ob: ObjectData, c: Constraint, bone?: string | null): Child {
+  const act = c.action ? app.doc.actions[c.action as string] : undefined;
+  if (!act || !isSlotted(act)) return null;
+  const b: SlotBinding = {
+    act,
+    owner: ob,
+    current: findSlot(act, constraintSlot(act, c, ob)),
+    assign: (slot) => ((c.action_slot_handle = slot ? slot.handle : 0), commit('Assign Slot')),
+    unassign: ['anim.slot_unassign_from_constraint', { object: ob.id, constraint: c.name, bone: bone ?? '' }],
+  };
+  return splitRow('Slot', slotSelector(`${c.id}.slot`, b, 'panel'));
+}

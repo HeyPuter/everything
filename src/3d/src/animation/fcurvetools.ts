@@ -94,26 +94,31 @@ export interface BlendOptions {
 }
 
 /**
- * S-shaped ease from 0 to 1. `shift` (-1..1) moves the steep part towards the
- * start (positive) or the end (negative); `sharpness` controls how abrupt it is.
+ * S-shaped ease from 0 to 1 (an algebraic sigmoid, normalized to the segment). `shift` (-1..1)
+ * moves the steep part towards the start (positive) or the end (negative); `sharpness` is its
+ * steepness. Matches the reference app's Ease tool.
  */
 export function easeCurve(x: number, shift: number, sharpness: number) {
   const t = Math.max(0, Math.min(1, x));
-  // remap x so the midpoint of the S moves with the shift
-  const s = Math.max(-0.999, Math.min(0.999, shift));
-  const p = Math.pow(2, -s * 2);
-  const xs = Math.pow(t, p);
-  const e = Math.max(0.05, sharpness + 1);
-  const a = Math.pow(xs, e),
-    b = Math.pow(1 - xs, e);
-  return a + b > 0 ? a / (a + b) : xs;
+  const w = Math.max(1e-6, 2 * sharpness),
+    c = 0.5 - shift / 2;
+  const g = (u: number) => {
+    const z = (u - c) * w;
+    return z / Math.sqrt(1 + z * z);
+  };
+  const lo = g(0),
+    hi = g(1);
+  return hi - lo > 1e-12 ? (g(t) - lo) / (hi - lo) : t;
 }
 
-/** One-sided ease used by Blend to Ease: fast start (out) or slow start (in). */
+/**
+ * One-sided ease used by Blend to Ease: fast start (out) or slow start (in). The ease-in shape is
+ * x³ / (1 + 3(1 − x)²) (fitted exactly to the reference app's results); ease-out mirrors it.
+ */
 export function easeOneSided(x: number, out: boolean) {
   const t = Math.max(0, Math.min(1, x));
-  const p = 4;
-  return out ? 1 - Math.pow(1 - t, p) : Math.pow(t, p);
+  const easeIn = (u: number) => (u * u * u) / (1 + 3 * (1 - u) * (1 - u));
+  return out ? 1 - easeIn(1 - t) : easeIn(t);
 }
 
 /**
@@ -231,10 +236,13 @@ export function smoothKeys(curves: CurveRef[]): number {
     const keys = segKeys(seg);
     if (keys.length < 3) continue;
     const ys = keys.map((k) => k.co[1]);
-    const at = (i: number) => ys[Math.max(0, Math.min(ys.length - 1, i))];
-    for (let i = 1; i < keys.length - 1; i++) {
-      let v = 0;
-      for (let j = -2; j <= 2; j++) v += w[j + 2] * at(i + j);
+    const last = ys.length - 1;
+    // the run's first and last keys stay; the outer neighbours fall back to the inner ones near the
+    // ends (the key two before must lie after the run's first key; the one two after may be its last)
+    for (let i = 1; i < last; i++) {
+      const before2 = i - 2 > 0 ? ys[i - 2] : ys[i - 1],
+        after2 = i + 2 <= last ? ys[i + 2] : ys[i + 1];
+      const v = w[0] * before2 + w[1] * ys[i - 1] + w[2] * ys[i] + w[3] * ys[i + 1] + w[4] * after2;
       setKeyValue(keys[i], v);
       n++;
     }
@@ -350,7 +358,8 @@ export function butterworthSmooth(
     blend = o.blend ?? 1,
     inOut = Math.max(0, o.blendInOut ?? 1),
     fps = o.fps ?? 24;
-  const secs = butterworthSections(order, cutoff, fps * spf);
+  // the filter order counts second-order sections (each section is a pair of poles)
+  const secs = butterworthSections(order * 2, cutoff, fps * spf);
   let n = 0;
   for (const seg of selectedSegments(curves)) {
     const keys = segKeys(seg);
@@ -358,12 +367,18 @@ export function butterworthSmooth(
     const copy: FCurve = { ...seg.fc, keyframe_points: seg.fc.keyframe_points.map(cloneKey), modifiers: [] };
     const f0 = keys[0].co[0],
       f1 = keys[keys.length - 1].co[0];
-    const count = Math.max(2, Math.round((f1 - f0) * spf) + 1);
+    // the curve is sampled from the key before the selection to the key after it
+    const nb = neighbours(seg);
+    const s0 = Math.min(f0, nb.left.co[0]),
+      s1 = Math.max(f1, nb.right.co[0]);
+    const count = Math.max(2, Math.round((s1 - s0) * spf) + 1);
     const samples: number[] = [];
-    for (let i = 0; i < count; i++) samples.push(evaluateFCurve(copy, f0 + i / spf));
-    const filtered = filtfilt(samples, secs, Math.min(count - 1, 3 * (order + 1) * spf));
+    for (let i = 0; i < count; i++) samples.push(evaluateFCurve(copy, s0 + i / spf));
+    // held ends: the samples are padded with the first / last value on both sides
+    const ext = [...new Array<number>(count).fill(samples[0]), ...samples, ...new Array<number>(count).fill(samples[count - 1])];
+    const filtered = filtfilt(ext, secs, 0).slice(count, 2 * count);
     const sampleAt = (f: number) => {
-      const t = (f - f0) * spf;
+      const t = (f - s0) * spf;
       const i = Math.max(0, Math.min(count - 2, Math.floor(t)));
       return lerp(filtered[i], filtered[i + 1], Math.max(0, Math.min(1, t - i)));
     };

@@ -492,6 +492,41 @@ export interface Bone {
   /** B-Bone display size (default: a tenth of the bone length) */
   bbone_x?: number;
   bbone_z?: number;
+  /** location is applied in the bone's own space (false: in the parent's space) */
+  use_local_location?: boolean;
+  /** objects parented to the bone follow its deformation (pose relative to rest) instead of its tail */
+  use_relative_parent?: boolean;
+  /** envelope deformation strength and whether it multiplies vertex group weights */
+  envelope_weight?: number;
+  use_envelope_multiply?: boolean;
+  /** colour of the bone (Edit Mode / rest; pose bones can override it) */
+  color?: BoneColor;
+  // B-Bone shape (rest): curve offsets, roll, scale and ease of the start / end handles
+  bbone_curveinx?: number;
+  bbone_curveinz?: number;
+  bbone_curveoutx?: number;
+  bbone_curveoutz?: number;
+  bbone_rollin?: number;
+  bbone_rollout?: number;
+  use_endroll_as_inroll?: boolean;
+  bbone_scalein?: Vec3;
+  bbone_scaleout?: Vec3;
+  bbone_easein?: number;
+  bbone_easeout?: number;
+  use_scale_easing?: boolean;
+  /** what the B-Bone's start / end handles follow */
+  bbone_handle_type_start?: 'AUTO' | 'ABSOLUTE' | 'RELATIVE' | 'TANGENT';
+  bbone_handle_type_end?: 'AUTO' | 'ABSOLUTE' | 'RELATIVE' | 'TANGENT';
+  bbone_custom_handle_start?: string;
+  bbone_custom_handle_end?: string;
+  /** how vertices map to segments: by projection on the straight bone or on the curve */
+  bbone_mapping_mode?: 'STRAIGHT' | 'CURVED';
+}
+
+/** Bone colour: a theme colour set or custom colours for the normal / selected / active states. */
+export interface BoneColor {
+  palette: string;
+  custom?: { normal: Color; select: Color; active: Color; show_colored_constraints?: boolean };
 }
 
 /** Named group of bones (visibility, selection, organisation). */
@@ -510,6 +545,10 @@ export interface ArmatureData {
   show_names: boolean;
   show_axes: boolean;
   show_in_front?: boolean;
+  /** draw bones in their colours */
+  show_bone_colors?: boolean;
+  /** draw custom shapes instead of the bones (default on) */
+  show_bone_custom_shapes?: boolean;
   active_bone?: string | null;
   users?: number;
   collections?: BoneCollection[];
@@ -527,6 +566,27 @@ export interface PoseBone {
   scale: Vec3;
   constraints: Constraint[];
   custom_shape?: ID | null;
+  /** custom shape placement (relative to the bone) and line width */
+  custom_shape_translation?: Vec3;
+  custom_shape_rotation_euler?: Vec3;
+  custom_shape_scale_xyz?: Vec3;
+  custom_shape_wire_width?: number;
+  /** the custom shape is drawn at this other bone's transform (Override Transform) */
+  custom_shape_transform?: string;
+  use_custom_shape_bone_size?: boolean;
+  /** pose colour (overrides the bone's colour when its palette is not DEFAULT) */
+  color?: BoneColor;
+  // B-Bone shape (pose, added to the rest values)
+  bbone_curveinx?: number;
+  bbone_curveinz?: number;
+  bbone_curveoutx?: number;
+  bbone_curveoutz?: number;
+  bbone_rollin?: number;
+  bbone_rollout?: number;
+  bbone_scalein?: Vec3;
+  bbone_scaleout?: Vec3;
+  bbone_easein?: number;
+  bbone_easeout?: number;
   lock_location?: [boolean, boolean, boolean];
   lock_rotation?: [boolean, boolean, boolean];
   lock_scale?: [boolean, boolean, boolean];
@@ -835,6 +895,26 @@ export interface FCurve {
   color?: Color;
   /** baked samples (frame, value) used when the curve has no keyframes */
   sampled_points?: [number, number][];
+  /** how automatic handles are computed: independently (NONE) or for a smooth acceleration (CONT_ACCEL) */
+  auto_smoothing?: 'NONE' | 'CONT_ACCEL';
+  /** handle of the action slot this curve animates (actions with slots; the first slot when absent) */
+  slot?: number;
+  /** set when the curve's property could not be found during evaluation ("Revive Disabled F-Curves" clears it) */
+  disabled?: boolean;
+}
+
+/**
+ * A slot of an action: one data-block's worth of animation. Several data-blocks can play
+ * the same action, each through its own slot (or share one).
+ */
+export interface ActionSlot {
+  /** stable number the users refer to (unique within the action) */
+  handle: number;
+  /** two-letter data-block type code ('OB', 'ME', …; 'XX' until first assigned) followed by the name */
+  identifier: string;
+  select?: boolean;
+  /** expanded in the channel list of the Action Editor */
+  show_expanded?: boolean;
 }
 
 export interface ActionData {
@@ -846,6 +926,14 @@ export interface ActionData {
   /** markers stored with the action (shown in the Action Editor with Show Pose Markers) */
   pose_markers?: TimelineMarker[];
   users?: number;
+  /** slots (absent / empty: a single implicit slot playing every curve on whatever uses the action) */
+  slots?: ActionSlot[];
+  /** last slot handle handed out */
+  last_slot_handle?: number;
+  /** handle of the slot shown as active in the Action Editor */
+  active_slot?: number;
+  /** groups pinned in the Graph Editor (listed while their bone is unselected) */
+  pinned_groups?: string[];
 }
 
 export interface NlaStrip {
@@ -865,9 +953,17 @@ export interface NlaStrip {
   select?: boolean;
   extrapolation: 'HOLD' | 'HOLD_FORWARD' | 'NOTHING';
   /** strip kind (action clip when absent) */
-  type?: 'CLIP' | 'TRANSITION' | 'META';
+  type?: 'CLIP' | 'TRANSITION' | 'META' | 'SOUND';
   /** META: the grouped strips, in inner time (action_frame_start..end) */
   strips?: NlaStrip[];
+  /** slot of the action the strip plays (0: none; absent: found through the owner, see anim/slots.ts) */
+  action_slot_handle?: number;
+  /** F-Modifiers acting on every channel the strip produces */
+  modifiers?: FModifier[];
+  /** SOUND strips: the speaker's sound plays from the strip start */
+  sound?: ID | null;
+  /** control curves of the strip (`influence` while the influence is animated) */
+  fcurves?: FCurve[];
 }
 
 export interface NlaTrack {
@@ -886,7 +982,15 @@ export interface AnimData {
   action_influence?: number;
   drivers: Driver[];
   /** NLA tweak mode: the strip whose action is being edited */
-  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
+  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean; prev_slot?: number; prev_slot_action?: ID | null } | null;
+  /** slot of `action` this data-block plays (0: none); valid while slot_action equals action */
+  action_slot_handle?: number;
+  /** the action action_slot_handle refers to (when it differs from action, the slot is found again) */
+  slot_action?: ID | null;
+  /** identifier of the slot last assigned, used to find a slot again when another action is assigned */
+  last_slot_identifier?: string;
+  /** Graph Editor: channels stay listed while the owner is unselected ("Only Show Selected") */
+  use_pin?: boolean;
 }
 
 export type DriverIdType = 'OBJECT' | 'SCENE' | 'MESH' | 'CURVE' | 'LIGHT' | 'CAMERA' | 'ARMATURE' | 'LATTICE' | 'MATERIAL' | 'WORLD' | 'IMAGE' | 'ACTION' | 'NODETREE' | 'TEXT' | 'COLLECTION' | 'PARTICLE';
@@ -1334,6 +1438,12 @@ export interface ToolSettings {
   use_mesh_automerge: boolean;
   double_threshold: number;
   use_keyframe_insert_auto: boolean;
+  /** auto keying adds and replaces keys, or only replaces keys that exist on the frame */
+  auto_keying_mode?: 'ADD_REPLACE_KEYS' | 'REPLACE_KEYS';
+  /** auto keying keys the active keying set only */
+  use_keyframe_insert_keyingset?: boolean;
+  /** keys inserted on curves with a Cycles modifier land inside the cycle (and keep both ends equal) */
+  use_keyframe_cycle_aware?: boolean;
   /** markers can't be selected, moved or deleted */
   lock_markers?: boolean;
   /** proportional editing of keys in the Dope Sheet / Graph Editor */

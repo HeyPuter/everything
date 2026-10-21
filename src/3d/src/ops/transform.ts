@@ -12,7 +12,7 @@ import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { prefs } from '../app/prefs';
 import type { ObjectData } from '../data/types';
 import { applyMatrixToObject, toMatrix4, localMatrix } from '../eval/transform';
-import { insertKeyframesForObjects } from '../anim/keyframes';
+import { autoKeyObjects } from '../anim/keyframes';
 import { renderContext } from '../render/context';
 import { findSnapTarget, snapIndicator, type SnapElement } from './snap';
 import { editModeHooks } from '../editors/view3d/hooks';
@@ -181,7 +181,7 @@ const objectProvider: TProvider = {
       active: act && ids.has(act.id) ? new Vector3().setFromMatrixPosition(objectWorld(act)) : undefined,
       label: 'Object',
       finish() {
-        if (app.doc.scene.tool_settings.use_keyframe_insert_auto) insertKeyframesForObjects(moved, 'Available');
+        autoKeyObjects(moved);
       },
       cancel() {},
     };

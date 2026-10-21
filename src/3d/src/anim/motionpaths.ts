@@ -4,12 +4,13 @@
 import { Vector3 } from 'three';
 import { app, registerOperators } from '../app/app';
 import type { ObjectData } from '../data/types';
-import { objectExtraPanels } from '../editors/properties/tabs';
+import { armatureDataPanels, objectExtraPanels } from '../editors/properties/tabs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { h, type VNode } from '../ui/h';
 import { panel, opButton } from '../ui/widgets';
 import { num, bool, enumProp } from '../ui/props';
 import { keyframeFrames } from './keyframes';
+import { objectCurves } from './slots';
 
 export interface MotionPathSettings {
   type: 'RANGE' | 'CURRENT_FRAME';
@@ -121,10 +122,9 @@ const selectedBoneNames = (o: ObMP) => Object.entries(o.pose ?? {}).filter(([, p
 
 /** Frame range of an object's keys (all, or only selected keys). */
 function keyRange(o: ObMP, selectedOnly: boolean): [number, number] | null {
-  const act = o.animation_data?.action ? app.doc.actions[o.animation_data.action] : undefined;
   let a = Infinity,
     b = -Infinity;
-  for (const fc of act?.fcurves ?? [])
+  for (const fc of objectCurves(app.doc, o as ObjectData))
     for (const k of fc.keyframe_points)
       if (!selectedOnly || k.select_control_point) {
         a = Math.min(a, k.co[0]);
@@ -273,13 +273,17 @@ registerOperators([
   },
 ]);
 
-objectExtraPanels.push((o) => {
+objectExtraPanels.push((o) => motionPathsPanel(o, 'ob-motionpaths', app.doc.mode === 'POSE' && o.type === 'ARMATURE' && o === app.activeObject));
+// the Armature tab holds the bones' paths (as in Pose Mode on the Object tab)
+armatureDataPanels.push((o) => (o === app.activeObject ? motionPathsPanel(o, 'ar-motionpaths', true) : null));
+
+/** Motion Paths panel of an object, or (bones) of its pose bones. */
+function motionPathsPanel(o: ObjectData, id: string, bones: boolean) {
   const ob = o as ObMP;
   const st = settings(ob);
-  const bones = app.doc.mode === 'POSE' && ob.type === 'ARMATURE' && ob === app.activeObject;
   const hasBonePaths = Object.keys(ob.bone_paths ?? {}).length > 0;
   return panel(
-    'ob-motionpaths',
+    id,
     'Motion Paths',
     () => [
       enumProp(st, 'type', 'Type', [
@@ -306,7 +310,7 @@ objectExtraPanels.push((o) => {
     ],
     { closed: true },
   );
-});
+}
 
 // viewport drawing
 function drawPath(v: Parameters<(typeof editModeHooks.svg)[number]>[0], mp: MotionPath, st: MotionPathSettings, keys: Map<number, boolean> | null, parts: VNode[]) {

@@ -93,7 +93,9 @@ function armatureMenu(): MenuItem[] {
     { label: 'Bone Roll', submenu: rollMenu },
     { separator: true },
     mirror ? { label: 'Extrude Forked', op: 'armature.extrude_forked', shortcut: 'Shift E' } : { label: 'Extrude', op: 'armature.extrude_move', shortcut: 'E' },
+    { label: 'Extrude to Cursor', op: 'armature.click_extrude', shortcut: 'Ctrl RMB' },
     { label: 'Duplicate', op: 'armature.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate and Rename', op: 'armature.duplicate_rename' },
     { label: 'Fill Between Joints', op: 'armature.fill', shortcut: 'F' },
     { separator: true },
     { label: 'Split', op: 'armature.split', shortcut: 'Y' },
@@ -263,4 +265,15 @@ addKeys('Pose', [
   { key: 'H', alt: true, op: 'pose.reveal', when: pose },
   { key: 'M', menu: () => collectionMenuItems(true), menuTitle: 'Move to Collection', when: pose },
   { key: 'M', shift: true, menu: () => collectionMenuItems(false), menuTitle: 'Add to Collection', when: pose },
+  { key: 'P', ctrl: true, menu: poseParentMenu, menuTitle: 'Set Parent To', when: pose },
 ]);
+
+/** Pose Mode ▸ Ctrl P: parent the other selected objects to the armature or its active bone. */
+function poseParentMenu(): MenuItem[] {
+  return [
+    { label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } },
+    { label: 'Object (Keep Transform)', op: 'object.parent_set', props: { type: 'OBJECT', keep_transform: true } },
+    { label: 'Bone', op: 'object.parent_set', props: { type: 'BONE' } },
+    { label: 'Bone Relative', op: 'object.parent_set', props: { type: 'BONE_RELATIVE' } },
+  ];
+}

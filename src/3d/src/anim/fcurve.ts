@@ -10,6 +10,14 @@ export const keyframeDefaults = {
   insertNeeded: false,
   /** location / rotation / scale curves are coloured X red, Y green, Z blue */
   xyzToRgb: true,
+  /** Handle Smoothing of new F-Curves */
+  smoothing: 'CONT_ACCEL' as NonNullable<FCurve['auto_smoothing']>,
+  /** auto keying only keys channels that already have animation */
+  autoAvailable: false,
+  /** channels auto keying keys */
+  channels: ['LOCATION', 'ROTATION', 'SCALE'] as string[],
+  /** set while auto keying in Replace mode: only keys that exist on the frame are updated */
+  replaceOnly: false,
 };
 
 export function newKeyframe(frame: number, value: number, interpolation: Keyframe['interpolation'] = keyframeDefaults.interpolation): Keyframe {
@@ -25,31 +33,48 @@ export function newKeyframe(frame: number, value: number, interpolation: Keyfram
   };
 }
 
+/** Length of automatic handles as a fraction of the distance to the neighbouring key. */
+export const AUTO_HANDLE_FACTOR = 0.39041149;
+
+const isAuto = (t: Keyframe['handle_left_type']) => t === 'AUTO' || t === 'AUTO_CLAMPED';
+
+/** A key whose value is not between its neighbours' (gets flat clamped handles). */
+function isExtreme(k: Keyframe[], i: number) {
+  const prev = k[i - 1],
+    next = k[i + 1],
+    y = k[i].co[1];
+  if (!prev || !next) return false;
+  return (y >= prev.co[1] && y >= next.co[1]) || (y <= prev.co[1] && y <= next.co[1]);
+}
+
 /** Recalculate automatic/vector handles. Keyframes must be sorted. */
 export function calcHandles(fc: FCurve) {
   const k = fc.keyframe_points;
   const n = k.length;
+  const smooth = fc.auto_smoothing === 'CONT_ACCEL' ? continuousSlopes(k) : null;
   for (let i = 0; i < n; i++) {
     const cur = k[i],
       prev = k[i - 1],
       next = k[i + 1];
-    const autoL = cur.handle_left_type === 'AUTO' || cur.handle_left_type === 'AUTO_CLAMPED',
-      autoR = cur.handle_right_type === 'AUTO' || cur.handle_right_type === 'AUTO_CLAMPED';
+    const autoL = isAuto(cur.handle_left_type),
+      autoR = isAuto(cur.handle_right_type);
     const [x, y] = cur.co;
     const dxPrev = prev ? x - prev.co[0] : next ? next.co[0] - x : 1,
       dxNext = next ? next.co[0] - x : prev ? x - prev.co[0] : 1;
     if (autoL || autoR) {
+      const clamped = cur.handle_left_type === 'AUTO_CLAMPED' || cur.handle_right_type === 'AUTO_CLAMPED';
       let slope = 0;
-      if (prev && next) {
-        slope = (next.co[1] - prev.co[1]) / (next.co[0] - prev.co[0] || 1);
-        const clamped = cur.handle_left_type === 'AUTO_CLAMPED' || cur.handle_right_type === 'AUTO_CLAMPED';
-        if (clamped) {
-          // extremes get flat handles
-          if ((y >= prev.co[1] && y >= next.co[1]) || (y <= prev.co[1] && y <= next.co[1])) slope = 0;
-        }
-      } else slope = 0;
-      if (autoL) cur.handle_left = [x - dxPrev / 3, y - (slope * dxPrev) / 3];
-      if (autoR) cur.handle_right = [x + dxNext / 3, y + (slope * dxNext) / 3];
+      if (smooth && smooth[i] !== null) slope = smooth[i]!;
+      else if (prev && next) {
+        // the mean of the slopes of the two neighbouring segments
+        slope = ((y - prev.co[1]) / (x - prev.co[0] || 1) + (next.co[1] - y) / (next.co[0] - x || 1)) / 2;
+        // extremes get flat handles
+        if (clamped && isExtreme(k, i)) slope = 0;
+      }
+      // Continuous Acceleration places the handles at a third of each interval
+      const f = smooth ? 1 / 3 : AUTO_HANDLE_FACTOR;
+      if (autoL) cur.handle_left = [x - dxPrev * f, y - slope * dxPrev * f];
+      if (autoR) cur.handle_right = [x + dxNext * f, y + slope * dxNext * f];
       // clamp handles so they do not overshoot neighbours in clamped mode
       if (cur.handle_left_type === 'AUTO_CLAMPED' && prev) cur.handle_left[1] = clampBetween(cur.handle_left[1], y, prev.co[1], y);
       if (cur.handle_right_type === 'AUTO_CLAMPED' && next) cur.handle_right[1] = clampBetween(cur.handle_right[1], y, next.co[1], y);
@@ -65,6 +90,105 @@ export function calcHandles(fc: FCurve) {
     if (cur.handle_left_type === 'ALIGNED' && cur.handle_right_type !== 'ALIGNED') alignHandle(cur, 'left');
     if (cur.handle_right_type === 'ALIGNED' && cur.handle_left_type !== 'ALIGNED') alignHandle(cur, 'right');
   }
+}
+
+/**
+ * Handle Smoothing ▸ Continuous Acceleration: slopes of runs of automatic keys chosen so the
+ * curve's second derivative is continuous at every key (a tridiagonal system per run). The ends
+ * of the curve and clamped extremes are flat; keys with other handles keep their slope.
+ * Returns the slope per key (null where the key is not automatic).
+ */
+export function continuousSlopes(k: Keyframe[]): (number | null)[] {
+  const n = k.length;
+  const auto = k.map((x) => isAuto(x.handle_left_type) && isAuto(x.handle_right_type) && x.interpolation === 'BEZIER');
+  const clampedKey = (i: number) => k[i].handle_left_type === 'AUTO_CLAMPED' || k[i].handle_right_type === 'AUTO_CLAMPED';
+  // fixed slopes: curve ends, clamped extremes and non-automatic keys
+  const fixed: (number | null)[] = k.map((x, i) => {
+    if (!auto[i]) {
+      const hx = x.handle_right[0] - x.co[0];
+      return Math.abs(hx) > 1e-9 ? (x.handle_right[1] - x.co[1]) / hx : 0;
+    }
+    if (i === 0 || i === n - 1) return 0;
+    return clampedKey(i) && isExtreme(k, i) ? 0 : null;
+  });
+  // clamped keys whose handles would overshoot a neighbour get the steepest slope that does not,
+  // and the other slopes are solved again around them
+  for (let pass = 0; pass < n; pass++) {
+    const m = solveSlopeRuns(k, fixed);
+    // the worst overshoot is limited first, then the others are solved again
+    let worst = -1,
+      worstBy = 1e-12,
+      worstSlope = 0;
+    for (let i = 1; i < n - 1; i++) {
+      if (fixed[i] !== null || !clampedKey(i)) continue;
+      const y = k[i].co[1];
+      const hl = (k[i].co[0] - k[i - 1].co[0]) / 3,
+        hr = (k[i + 1].co[0] - k[i].co[0]) / 3;
+      const pv = k[i - 1].co[1],
+        nv = k[i + 1].co[1];
+      const left = y - m[i] * hl,
+        right = y + m[i] * hr;
+      const overL = Math.max(0, Math.min(y, pv) - left, left - Math.max(y, pv)),
+        overR = Math.max(0, Math.min(y, nv) - right, right - Math.max(y, nv));
+      if (overL > worstBy && overL >= overR) {
+        worst = i;
+        worstBy = overL;
+        worstSlope = (y - pv) / hl;
+      } else if (overR > worstBy) {
+        worst = i;
+        worstBy = overR;
+        worstSlope = (nv - y) / hr;
+      }
+    }
+    if (worst < 0) return k.map((_, i) => (auto[i] ? m[i] : null));
+    fixed[worst] = worstSlope;
+  }
+  const m = solveSlopeRuns(k, fixed);
+  return k.map((_, i) => (auto[i] ? m[i] : null));
+}
+
+/** Slopes of each run of free keys (tridiagonal C2 system) between fixed slopes. */
+function solveSlopeRuns(k: Keyframe[], fixed: (number | null)[]): number[] {
+  const n = k.length;
+  const out = fixed.map((f) => f ?? 0);
+  let i = 0;
+  while (i < n) {
+    if (fixed[i] !== null) {
+      i++;
+      continue;
+    }
+    // a run of free unknowns i..j-1 between fixed slopes at i-1 and j
+    let j = i;
+    while (j < n && fixed[j] === null) j++;
+    const m = j - i;
+    const a = new Float64Array(m),
+      b = new Float64Array(m),
+      c = new Float64Array(m),
+      d = new Float64Array(m);
+    for (let r = 0; r < m; r++) {
+      const q = i + r;
+      const hl = k[q].co[0] - k[q - 1].co[0] || 1e-6,
+        hr = k[q + 1].co[0] - k[q].co[0] || 1e-6;
+      a[r] = 1 / hl;
+      b[r] = 2 * (1 / hl + 1 / hr);
+      c[r] = 1 / hr;
+      d[r] = 3 * ((k[q].co[1] - k[q - 1].co[1]) / (hl * hl) + (k[q + 1].co[1] - k[q].co[1]) / (hr * hr));
+    }
+    d[0] -= a[0] * (fixed[i - 1] ?? 0);
+    d[m - 1] -= c[m - 1] * (fixed[j] ?? 0);
+    // Thomas algorithm
+    for (let r = 1; r < m; r++) {
+      const w = a[r] / b[r - 1];
+      b[r] -= w * c[r - 1];
+      d[r] -= w * d[r - 1];
+    }
+    const x = new Float64Array(m);
+    x[m - 1] = d[m - 1] / b[m - 1];
+    for (let r = m - 2; r >= 0; r--) x[r] = (d[r] - c[r] * x[r + 1]) / b[r];
+    for (let r = 0; r < m; r++) out[i + r] = x[r];
+    i = j;
+  }
+  return out;
 }
 
 function clampBetween(v: number, base: number, other: number, ref: number) {
@@ -137,6 +261,8 @@ function bezierValue(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, frame: number) {
   return mt * mt * mt * p0[1] + 3 * mt * mt * t * y1 + 3 * mt * t * t * y2 + t * t * t * p3[1];
 }
 
+const EXPO_FLOOR = Math.pow(2, -10);
+
 // Easing functions: t in [0,1] → [0,1]
 const easeIn: Record<string, (t: number, k: Keyframe) => number> = {
   SINE: (t) => 1 - Math.cos((t * Math.PI) / 2),
@@ -144,7 +270,8 @@ const easeIn: Record<string, (t: number, k: Keyframe) => number> = {
   CUBIC: (t) => t * t * t,
   QUART: (t) => t ** 4,
   QUINT: (t) => t ** 5,
-  EXPO: (t) => (t === 0 ? 0 : Math.pow(2, 10 * (t - 1))),
+  // exponential, shifted and scaled so it starts at exactly 0
+  EXPO: (t) => (t <= 0 ? 0 : (Math.pow(2, 10 * (t - 1)) - EXPO_FLOOR) / (1 - EXPO_FLOOR)),
   CIRC: (t) => 1 - Math.sqrt(1 - t * t),
   BACK: (t, k) => {
     const s = k.back ?? 1.70158;
@@ -175,7 +302,9 @@ function ease(k: Keyframe, t: number) {
   if (mode === 'AUTO') mode = ['BOUNCE', 'ELASTIC', 'BACK'].includes(k.interpolation) ? 'EASE_OUT' : 'EASE_IN';
   if (mode === 'EASE_IN') return fn(t, k);
   if (mode === 'EASE_OUT') return 1 - fn(1 - t, k);
-  return t < 0.5 ? fn(t * 2, k) / 2 : 1 - fn((1 - t) * 2, k) / 2;
+  // Back overshoots more when easing both ways (each half covers half the distance)
+  const kk = k.interpolation === 'BACK' ? ({ ...k, back: (k.back ?? 1.70158) * 1.525 } as Keyframe) : k;
+  return t < 0.5 ? fn(t * 2, kk) / 2 : 1 - fn((1 - t) * 2, kk) / 2;
 }
 
 /** Linear lookup in baked samples (held at the ends). */
@@ -250,9 +379,53 @@ function evaluateRaw(fc: FCurve, frame: number): number {
       return a.co[1] + (b.co[1] - a.co[1]) * t;
     case 'BEZIER':
       return bezierValue(a.co, a.handle_right, b.handle_left, b.co, frame);
+    case 'ELASTIC':
+      return a.co[1] + elasticOffset(a, frame - a.co[0], b.co[1] - a.co[1], span);
     default:
       return a.co[1] + (b.co[1] - a.co[1]) * ease(a, t);
   }
+}
+
+/** Keyframe defaults of the Elastic easing (amplitude in value units, period in frames). */
+export const ELASTIC_DEFAULTS = { amplitude: 0.8, period: 4.1 };
+
+/**
+ * Elastic easing of a key segment, in absolute units: `time` frames into a segment of `d` frames
+ * that changes the value by `c`. The oscillation period is in frames (0: 30% of the segment, 45%
+ * easing both ways) and the amplitude in value units; amplitudes smaller than the change scale the
+ * oscillation down, fading back to full size over the quarter period next to the target key.
+ */
+export function elasticOffset(k: Pick<Keyframe, 'easing' | 'amplitude' | 'period'>, time: number, c: number, d: number): number {
+  if (time <= 0) return 0;
+  if (time >= d || !c) return time >= d ? c : 0;
+  const mode = k.easing === 'AUTO' || !k.easing ? 'EASE_OUT' : k.easing;
+  const amp = k.amplitude ?? ELASTIC_DEFAULTS.amplitude,
+    per = k.period ?? ELASTIC_DEFAULTS.period;
+  const p = per || d * (mode === 'EASE_IN_OUT' ? 0.45 : 0.3);
+  const small = !amp || amp < Math.abs(c);
+  const a = small ? c : amp;
+  const s = small ? p / 4 : (p / (2 * Math.PI)) * Math.asin(c / amp);
+  /** factor of the oscillation `dist` frames away from the target key */
+  const scale = (dist: number) => {
+    if (!small) return 1;
+    const f = amp ? amp / Math.abs(c) : 0;
+    if (dist >= s) return f;
+    const l = dist / s;
+    return f * l + (1 - l);
+  };
+  const w = (2 * Math.PI) / p;
+  if (mode === 'EASE_IN') {
+    const u = time / d - 1; // negative
+    return -scale(-u * d) * a * Math.pow(2, 10 * u) * Math.sin((u * d - s) * w);
+  }
+  if (mode === 'EASE_OUT') {
+    const u = time / d;
+    return scale(u * d) * a * Math.pow(2, -10 * u) * Math.sin((u * d - s) * w) + c;
+  }
+  // both ways: each half covers half of the segment
+  const u = (time / d) * 2 - 1;
+  if (u < 0) return -0.5 * scale(-u * d) * a * Math.pow(2, 10 * u) * Math.sin((u * d - s) * w);
+  return 0.5 * scale(u * d) * a * Math.pow(2, -10 * u) * Math.sin((u * d - s) * w) + c;
 }
 
 /** How strongly a modifier applies at a frame (influence and restricted frame range with blending). */
@@ -285,28 +458,45 @@ export function evaluateFCurve(fc: FCurve, frame: number): number {
     const w = modifierWeight(m, frame);
     f = w >= 1 ? g : f + (g - f) * w;
   }
-  let v = evaluateRaw(fc, f);
-  if (fc.modifiers.length) {
-    for (const m of fc.modifiers) {
-      if (m.mute) continue;
-      let nv = v;
-      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
-      else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
-      else if (m.type === 'GENERATOR' && m.coefficients) {
-        let p = 0;
-        m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
-        nv = m.use_additive ? v + p : p;
-      } else if (m.type === 'FNGENERATOR') {
-        const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
-        nv = m.use_additive ? v + g : g;
-      } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
-      else if (m.type === 'LIMITS') {
-        if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
-        if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
-      } else continue;
-      const w = modifierWeight(m, frame);
-      v = w >= 1 ? nv : v + (nv - v) * w;
-    }
+  return applyModifiersToValue(fc.modifiers, frame, evaluateRaw(fc, f), fc);
+}
+
+/** Time-domain F-Modifiers (Stepped) applied to a frame, for modifier stacks without keys (NLA strips). */
+export function modifiersTime(mods: FModifier[], frame: number): number {
+  let f = frame;
+  for (const m of mods) {
+    if (m.mute || m.type !== 'STEPPED') continue;
+    const step = m.frame_step || 2,
+      off = m.frame_offset || 0;
+    const g = Math.floor((f - off) / step) * step + off;
+    const w = modifierWeight(m, frame);
+    f = w >= 1 ? g : f + (g - f) * w;
+  }
+  return f;
+}
+
+/** Value-domain F-Modifiers applied to a value at a frame (`fc` gives Cycles' repeat offset). */
+export function applyModifiersToValue(mods: FModifier[], frame: number, value: number, fc?: FCurve): number {
+  let v = value;
+  for (const m of mods) {
+    if (m.mute) continue;
+    let nv = v;
+    if (m.type === 'CYCLES' && fc && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
+    else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
+    else if (m.type === 'GENERATOR' && m.coefficients) {
+      let p = 0;
+      m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
+      nv = m.use_additive ? v + p : p;
+    } else if (m.type === 'FNGENERATOR') {
+      const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
+      nv = m.use_additive ? v + g : g;
+    } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
+    else if (m.type === 'LIMITS') {
+      if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
+      if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
+    } else continue;
+    const w = modifierWeight(m, frame);
+    v = w >= 1 ? nv : v + (nv - v) * w;
   }
   return v;
 }

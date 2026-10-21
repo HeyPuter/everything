@@ -7,7 +7,7 @@ import { addKeys, keymaps, keyInputHooks, keyName, keyLabel, type KeyItem } from
 import { openMenu, tooltipHooks, menuSettings, type MenuItem } from './menu';
 import { bindingAt, bindingValue, buttonHooks, getBinding, type PropBinding } from './binding';
 import { animTarget, fullDataPath, locateOwner, relDataPath, type OwnerLoc } from './rnapath';
-import { keyProperty, keyState } from '../anim/keyframes';
+import { keyProperty, keyState, withCycleAware } from '../anim/keyframes';
 import { tokenize, resolve, getValue } from '../data/rna';
 import { parseNumber, linearToSrgb, srgbToLinear } from './widgets';
 import { emptyDocument, newObject, newLight, newCamera, newMaterial, newWorld, newCurve, newCollection, newArmature, newLattice } from '../data/defaults';
@@ -15,6 +15,7 @@ import { modifierTypes, newModifier } from '../eval/modifiers';
 import { constraintTypes, newConstraint } from '../eval/constraints';
 import type { DocumentData, ObjectData } from '../data/types';
 import { Vector3 } from 'three';
+import { objectCurves } from '../anim/slots';
 
 // ---------------------------------------------------------------------------
 // target button
@@ -277,7 +278,7 @@ function keyedCurves(b: PropBinding, all: boolean) {
   if (!a) return null;
   const act = a.ob.animation_data?.action ? app.doc.actions[a.ob.animation_data.action] : undefined;
   const idx = all ? -1 : a.index;
-  return { a, act, curves: act ? act.fcurves.filter((f) => f.data_path === a.path && (idx < 0 || f.array_index === idx)) : [] };
+  return { a, act, curves: act ? objectCurves(app.doc, a.ob).filter((f) => f.data_path === a.path && (idx < 0 || f.array_index === idx)) : [] };
 }
 
 function insertKey(b: PropBinding, all: boolean) {
@@ -563,7 +564,7 @@ registerOperators([
     redo: false,
     props: [{ id: 'all', label: 'All', type: 'bool', default: true }],
     poll,
-    exec: (_c, p) => (insertKey(targetButton()!, !!p.all) ? 'FINISHED' : 'CANCELLED'),
+    exec: (_c, p) => (withCycleAware(() => insertKey(targetButton()!, !!p.all)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'anim.keyframe_delete_button',

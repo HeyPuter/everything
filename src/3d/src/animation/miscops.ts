@@ -9,7 +9,8 @@ import { DriversEditor, driverError, addDriver } from './driverseditor';
 import { GraphEditor, curveId } from './graph';
 import { KEY_TYPES } from './footer';
 import { setKeySelected } from './keyedit';
-import { activeAction, setExpanded } from './channels';
+import { activeAction, setExpanded, curveGroupKey } from './channels';
+import { assignAction, objectCurves } from '../anim/slots';
 import { rotationPath } from '../anim/keyframes';
 import { BUILTIN_KEYING_SETS, propertyAnimExtraItems } from '../anim/keyingsets';
 import { shell } from '../ui/shell';
@@ -227,7 +228,7 @@ const ops: Operator[] = [
     exec: (ctx, p) => {
       const ob = targetOb(p);
       const act = ob ? activeAction(ctx.doc, ob) : undefined;
-      const fcs = act?.fcurves.filter((f) => f.data_path === p.data_path && ((p.index as number) < 0 || f.array_index === p.index)) ?? [];
+      const fcs = objectCurves(ctx.doc, ob).filter((f) => f.data_path === p.data_path && ((p.index as number) < 0 || f.array_index === p.index));
       if (!ob || !act || !fcs.length) {
         app.report('WARNING', 'The property is not animated');
         return 'CANCELLED';
@@ -240,13 +241,13 @@ const ops: Operator[] = [
       }
       if (area.type !== 'GRAPH') area.setType('GRAPH');
       const ed = area.editor as GraphEditor;
-      for (const f of act.fcurves) {
+      for (const f of objectCurves(ctx.doc, ob)) {
         f.select = fcs.includes(f);
         if (p.isolate) f.hide = !fcs.includes(f);
       }
       setExpanded(`ob:${ob.id}`, true);
       setExpanded(`act:${ob.id}:${act.id}`, true);
-      for (const f of fcs) if (f.group) setExpanded(`grp:${act.id}:${f.group}`, true);
+      for (const f of fcs) if (f.group) setExpanded(curveGroupKey(act, f), true);
       ed.activeKey = curveId({ ob, action: act, fc: fcs[0] });
       ed.refresh();
       ed.fitBounds({ x0: Math.min(...fcs.flatMap((f) => f.keyframe_points.map((k) => k.co[0]))), x1: Math.max(...fcs.flatMap((f) => f.keyframe_points.map((k) => k.co[0]))), y0: 0, y1: 0 }, ed.list.curves.filter((r) => fcs.includes(r.fc)));
@@ -278,7 +279,7 @@ const ops: Operator[] = [
     exec: (ctx, p) => {
       const ad = app.activeObject!.animation_data!;
       const id = ad.action!;
-      ad.action = null;
+      assignAction(ctx.doc, app.activeObject!, ad, null);
       if (p.force_delete) {
         const a = ctx.doc.actions[id];
         if (a) a.use_fake_user = false;
@@ -294,8 +295,7 @@ function deleteWithSet(ctx: OpContext, ks: string) {
     const set = ctx.doc.scene.keying_sets?.find((k) => k.name === ks.slice(3));
     for (const pth of set?.paths ?? []) {
       const ob = pth.id ? ctx.doc.objects[pth.id] : undefined;
-      const act = ob ? activeAction(ctx.doc, ob) : undefined;
-      for (const fc of act?.fcurves ?? []) {
+      for (const fc of objectCurves(ctx.doc, ob)) {
         if (fc.data_path !== pth.data_path || (pth.index >= 0 && fc.array_index !== pth.index)) continue;
         const before = fc.keyframe_points.length;
         fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - f) > 0.5);
@@ -306,9 +306,8 @@ function deleteWithSet(ctx: OpContext, ks: string) {
     const obs = app.selectedObjects();
     const paths = (ob: ObjectData) => [...(ks.includes('Loc') || ks === 'Location' || ks === 'WholeCharacter' || ks === 'Available' ? ['location'] : []), ...(ks.includes('Rot') || ks === 'Rotation' || ks === 'WholeCharacter' || ks === 'Available' ? [rotationPath(ob)] : []), ...(ks.includes('Scale') || ks === 'WholeCharacter' || ks === 'Available' ? ['scale'] : [])];
     for (const ob of obs) {
-      const act = activeAction(ctx.doc, ob);
       const want = new Set(paths(ob));
-      for (const fc of act?.fcurves ?? []) {
+      for (const fc of objectCurves(ctx.doc, ob)) {
         const tail = fc.data_path.split('.').pop()!;
         if (!want.has(tail) && ks !== 'Available') continue;
         const before = fc.keyframe_points.length;
@@ -330,7 +329,7 @@ registerOperators(ops);
 propertyAnimExtraItems.push((ob, path, index) => {
   const t = { object: ob.id, data_path: path, index };
   const driven = !!ob.animation_data?.drivers.some((d) => d.data_path === path && (index < 0 || d.array_index === index));
-  const animated = !!activeAction(app.doc, ob)?.fcurves.some((f) => f.data_path === path && (index < 0 || f.array_index === index));
+  const animated = objectCurves(app.doc, ob).some((f) => f.data_path === path && (index < 0 || f.array_index === index));
   return [
     ...(driven ? [{ label: 'Copy Driver', op: 'anim.copy_driver_button', props: t }] : []),
     { label: 'Paste Driver', op: 'anim.paste_driver_button', props: t },

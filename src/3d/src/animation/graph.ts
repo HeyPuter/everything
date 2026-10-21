@@ -12,10 +12,11 @@ import { C, curveColor, HANDLE_COLORS } from './theme';
 import { valueStep, formatValue, animSettings } from './view2d';
 import { evaluateFCurve } from '../anim/fcurve';
 import { lassoGesture } from './selecttools';
+import { curveDisplayFactor } from './units';
 import { setKeySelected, selectAll, selectColumns, keyBounds, isAnySelected } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
 import { proportionalOf, proportionalHeader } from './proportional';
-import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
+import { previewRangeMenu, selectMenu, channelMenu, keyMenu } from './menus';
 import { drawFCurveSidebar, drawModifiersSidebar } from './graphsidebar';
 import { numberField, checkbox, button } from '../ui/widgets';
 
@@ -28,8 +29,14 @@ export class GraphEditor extends AnimEditor {
   prefix = 'graph' as const;
   protected rowScroll = false;
   normalize = false;
+  /** Auto Normalization: recompute the normalization as curves change */
+  autoNormalize = true;
   showHandles = true;
   onlySelectedHandles = true;
+  /** curves continue past their first and last keys (View ▸ Show Extrapolation) */
+  showExtrapolation = true;
+  /** View ▸ Auto-Lock Key Axis */
+  autoLockAxis = false;
   showCursor = true;
   cursorValue = 0;
   pivot: 'BOUNDING_BOX_CENTER' | 'CURSOR' = 'BOUNDING_BOX_CENTER';
@@ -47,6 +54,8 @@ export class GraphEditor extends AnimEditor {
     if (typeof s.normalize === 'boolean') this.normalize = s.normalize;
     if (typeof s.showHandles === 'boolean') this.showHandles = s.showHandles;
     if (typeof s.onlySelectedHandles === 'boolean') this.onlySelectedHandles = s.onlySelectedHandles;
+    if (typeof s.showExtrapolation === 'boolean') this.showExtrapolation = s.showExtrapolation;
+    if (typeof s.autoLockAxis === 'boolean') this.autoLockAxis = s.autoLockAxis;
     if (typeof s.cursorValue === 'number') this.cursorValue = s.cursorValue;
   }
 
@@ -55,6 +64,8 @@ export class GraphEditor extends AnimEditor {
       normalize: this.normalize,
       showHandles: this.showHandles,
       onlySelectedHandles: this.onlySelectedHandles,
+      showExtrapolation: this.showExtrapolation,
+      autoLockAxis: this.autoLockAxis,
       cursorValue: this.cursorValue,
     };
   }
@@ -114,11 +125,14 @@ export class GraphEditor extends AnimEditor {
     }
     return n;
   }
+  /** stored value → displayed value (normalized, or in display units such as degrees) */
   toDisp(fc: FCurve, v: number) {
+    if (!this.normalize) return v * curveDisplayFactor(app.doc, fc);
     const n = this.norm(fc);
     return (v + n.offset) * n.factor;
   }
   fromDisp(fc: FCurve, d: number) {
+    if (!this.normalize) return d / curveDisplayFactor(app.doc, fc);
     const n = this.norm(fc);
     return d / n.factor - n.offset;
   }
@@ -156,6 +170,25 @@ export class GraphEditor extends AnimEditor {
         },
         icon('graph'),
         'Normalize',
+      ),
+      this.normalize
+        ? hdrToggle('auto-norm', 'file_refresh', this.autoNormalize, 'Auto Normalization\nRecalculate the normalization while editing (off: keep the current factors)', () => {
+            this.autoNormalize = !this.autoNormalize;
+            if (this.autoNormalize) this.normCache.clear();
+            this.draw();
+            app.changed('ui');
+          })
+        : null,
+      // ghost curves: take a snapshot of the curves, or clear it
+      h(
+        'button',
+        {
+          key: 'ghost',
+          class: 'hdr-toggle',
+          'data-tip': this.ghosts.length ? 'Clear Ghost Curves\nRemove the faded snapshot of the curves' : 'Create Ghost Curves\nKeep a faded snapshot of the visible curves for reference while editing',
+          onclick: () => app.run(this.ghosts.length ? 'graph.ghost_curves_clear' : 'graph.ghost_curves_create', {}, { area: this.area }),
+        },
+        icon(this.ghosts.length ? 'ghost_curves_clear' : 'ghost_curves'),
       ),
       h('div', { class: 'hdr-spacer' }),
       hdrToggle(
@@ -203,6 +236,8 @@ export class GraphEditor extends AnimEditor {
         icon(this.pivot === 'CURSOR' ? 'pivot_cursor' : 'pivot_boundbox'),
         icon('down_arrow_hlt', 'tiny'),
       ),
+      this.errorsToggle(),
+      this.filtersHeader(),
       this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_fcurve'),
     );
@@ -217,36 +252,41 @@ export class GraphEditor extends AnimEditor {
   }
 
   viewMenu(): MenuItem[] {
+    const tog = (label: string, on: boolean, flip: () => void, extra: Partial<MenuItem> = {}): MenuItem => ({ label, checked: on, ...extra, action: () => (flip(), this.draw(), app.changed('ui')) });
     return [
-      {
-        label: 'Sidebar',
-        checked: this.showSidebar,
-        shortcut: 'N',
-        action: () => this.toggleSidebar(),
-      },
+      { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
+      this.channelsMenuItem(),
+      this.footerMenuItem(),
       { separator: true },
-      {
-        label: 'Show Cursor',
-        checked: this.showCursor,
-        action: () => ((this.showCursor = !this.showCursor), this.draw()),
-      },
-      {
-        label: 'Show Markers',
-        checked: this.showMarkers,
-        action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
-      },
-      {
-        label: 'Show Handles',
-        checked: this.showHandles,
-        shortcut: 'Ctrl H',
-        action: () => ((this.showHandles = !this.showHandles), this.draw()),
-      },
-      {
-        label: 'Only Selected Keyframes Handles',
-        checked: this.onlySelectedHandles,
-        action: () => ((this.onlySelectedHandles = !this.onlySelectedHandles), this.draw()),
-      },
-      ...viewMenuCommon('graph', this),
+      { label: 'Frame Selected', op: 'graph.view_selected', shortcut: 'Numpad .' },
+      { label: 'Frame All', op: 'graph.view_all', shortcut: 'Home' },
+      { label: 'Local View', op: 'graph.local_view', shortcut: '/' },
+      { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
+      { label: 'Go to Current Frame', op: 'graph.view_frame', shortcut: 'Numpad 0' },
+      { separator: true },
+      this.realtimeMenuItem(),
+      tog('Show Sliders', this.showSliders, () => {
+        this.showSliders = !this.showSliders;
+        if (this.showSliders) this.chWidth = Math.max(this.chWidth, 300);
+        this.refresh();
+      }),
+      tog('Auto-Merge Keyframes', this.autoMerge, () => (this.autoMerge = !this.autoMerge)),
+      tog('Auto-Lock Key Axis', this.autoLockAxis, () => (this.autoLockAxis = !this.autoLockAxis), { description: 'Moving keys follows only the direction the pointer moved most in' }),
+      { separator: true },
+      tog('Show Markers', this.showMarkers, () => ((this.showMarkers = !this.showMarkers), this.refresh())),
+      tog('Show Cursor', this.showCursor, () => (this.showCursor = !this.showCursor)),
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.syncRangeMenuItem(),
+      { separator: true },
+      tog('Show Extrapolation', this.showExtrapolation, () => (this.showExtrapolation = !this.showExtrapolation)),
+      tog('Show Handles', this.showHandles, () => (this.showHandles = !this.showHandles), { shortcut: 'Ctrl H' }),
+      tog('Only Selected Keyframes Handles', this.onlySelectedHandles, () => (this.onlySelectedHandles = !this.onlySelectedHandles)),
+      { separator: true },
+      ...previewRangeMenu('graph.previewrange_set'),
+      { separator: true },
+      { label: 'Toggle Dope Sheet', op: 'anim.switch_editor', props: { type: 'DOPESHEET' }, shortcut: 'Ctrl Tab' },
+      { separator: true },
+      this.areaMenuItem(),
     ];
   }
 
@@ -285,9 +325,12 @@ export class GraphEditor extends AnimEditor {
 
   protected rowPrefix(ch: Channel): Child {
     const fcs = channelCurves(ch);
-    if (!fcs.length || ch.kind === 'SUMMARY') return null;
+    if (!fcs.length || ch.kind === 'SUMMARY' || ch.kind === 'ACTION' || ch.kind === 'SLOT') return null;
     const hidden = fcs.every((f) => f.hide);
-    const out: Child[] = [
+    const out: Child[] = [];
+    const pin = this.pinToggle(ch);
+    if (pin) out.push(pin);
+    out.push(
       h(
         'button',
         {
@@ -298,7 +341,7 @@ export class GraphEditor extends AnimEditor {
         },
         icon(hidden ? 'hide_on' : 'hide_off'),
       ),
-    ];
+    );
     if (ch.kind === 'FCURVE' && ch.fc) {
       const i = this.list.curves.findIndex((r) => r.fc === ch.fc);
       out.unshift(
@@ -312,34 +355,13 @@ export class GraphEditor extends AnimEditor {
     return out;
   }
 
+  /** F-Curve rows start with their colour swatch where other rows have the expander. */
+  protected expanderSpace(ch: Channel): boolean {
+    return ch.kind !== 'FCURVE';
+  }
+
   protected rowToggles(ch: Channel): Child {
-    const fcs = channelCurves(ch);
-    const mods = ch.kind === 'FCURVE' && ch.fc && ch.fc.modifiers.length ? ch.fc : null;
-    return [
-      mods
-        ? h(
-            'button',
-            {
-              key: 'mods',
-              class: {
-                'anim-tg': true,
-                off: mods.modifiers.every((m) => m.mute),
-              },
-              'data-tip': 'Modifiers\nEnable/disable F-Curve modifiers',
-              onpointerdown: (e: PointerEvent) => {
-                e.stopPropagation();
-                if (e.button !== 0) return;
-                const allMuted = mods.modifiers.every((m) => m.mute);
-                mods.modifiers.forEach((m) => (m.mute = !allMuted));
-                app.pushUndo('Toggle Modifiers');
-                app.changed('doc');
-              },
-            },
-            icon('modifier'),
-          )
-        : null,
-      fcs.length ? this.muteLockToggles(ch) : null,
-    ];
+    return [this.modifierToggle(ch), channelCurves(ch).length ? this.muteLockToggles(ch) : null];
   }
 
   // ---------------------------------------------------------------- drawing
@@ -370,7 +392,8 @@ export class GraphEditor extends AnimEditor {
   }
 
   refresh() {
-    if (!app.modal) this.normCache.clear();
+    // with Auto Normalization off the factors stay as they were when it was turned off
+    if (!app.modal && this.autoNormalize) this.normCache.clear();
     super.refresh();
   }
 
@@ -444,7 +467,23 @@ export class GraphEditor extends AnimEditor {
 
   private drawCurve(g: CanvasRenderingContext2D, r: CurveRef, color: string, selected: boolean, W: number) {
     const fc = r.fc;
-    if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) return;
+    if (!fc.keyframe_points.length && !fc.sampled_points?.length && !fc.modifiers.some((m) => m.type === 'GENERATOR')) {
+      // a driver curve without keys passes the driver value through: show that as the line y = x
+      if (this.space() === 'DRIVERS' && !fc.modifiers.length) {
+        const x0 = this.view.xf(0),
+          x1 = this.view.xf(W);
+        g.strokeStyle = color;
+        g.globalAlpha = selected ? 1 : animSettings.unselectedAlpha;
+        g.lineWidth = selected ? 1.6 : 1.2;
+        g.beginPath();
+        g.moveTo(this.px(x0), this.py(this.toDisp(fc, x0)));
+        g.lineTo(this.px(x1), this.py(this.toDisp(fc, x1)));
+        g.stroke();
+        g.globalAlpha = 1;
+        g.lineWidth = 1;
+      }
+      return;
+    }
     g.strokeStyle = color;
     g.globalAlpha = selected ? 1 : animSettings.unselectedAlpha;
     g.lineWidth = selected ? 1.6 : 1.2;
@@ -462,8 +501,8 @@ export class GraphEditor extends AnimEditor {
     if (fc.modifiers.some((m) => !m.mute) || !k.length) {
       for (let x = 0; x <= W; x += 1.5) pt(v.xf(x), evaluateFCurve(fc, v.xf(x)), x === 0);
     } else {
-      const left = v.xf(-2),
-        right = v.xf(W + 2);
+      const left = this.showExtrapolation ? v.xf(-2) : k[0].co[0],
+        right = this.showExtrapolation ? v.xf(W + 2) : k[k.length - 1].co[0];
       pt(Math.min(left, k[0].co[0]), evaluateFCurve(fc, Math.min(left, k[0].co[0])), true);
       for (let i = 0; i < k.length; i++) {
         const a = k[i],
@@ -483,7 +522,7 @@ export class GraphEditor extends AnimEditor {
         }
       }
       const last = k[k.length - 1];
-      const end = Math.max(right, last.co[0]);
+      const end = this.showExtrapolation ? Math.max(right, last.co[0]) : last.co[0];
       pt(end, evaluateFCurve(fc, end), false);
     }
     g.stroke();
@@ -594,6 +633,10 @@ export class GraphEditor extends AnimEditor {
       pivot: this.pivot,
       cursorValue: this.cursorValue,
       proportional: proportionalOf('use_proportional_fcurve'),
+      autoMerge: this.autoMerge,
+      realtime: this.realtimeUpdates,
+      redraw: () => this.draw(),
+      autoLockAxis: this.autoLockAxis,
     };
   }
 
@@ -606,7 +649,7 @@ export class GraphEditor extends AnimEditor {
     });
   }
 
-  private setActive(r: CurveRef, k?: Keyframe) {
+  setActive(r: CurveRef, k?: Keyframe) {
     for (const c of this.list.curves) c.fc.select = false;
     r.fc.select = true;
     this.activeKey = curveId(r);

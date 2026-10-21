@@ -8,7 +8,6 @@ import type { MenuItem } from '../ui/menu';
 import { DopeSheet } from '../animation/dopesheet';
 import { RULER_H, menuButton } from '../animation/animeditor';
 import { markerMenu } from '../animation/markers';
-import { previewRangeMenu } from '../animation/menus';
 import { playbackFooter } from '../animation/footer';
 import { aggregate } from '../animation/aggregate';
 import { drawKey } from '../animation/theme';
@@ -16,8 +15,8 @@ import { drawKey } from '../animation/theme';
 /** Cached frames drawn as strips along the bottom of the timeline (e.g. simulation caches). */
 export const timelineCacheProviders: (() => { frames: number[]; baked: boolean; color: string }[])[] = [];
 /** Extra drawing in the timeline's content area (e.g. physics cache bars) and its View menu entries. */
-export const timelineOverlays: ((g: CanvasRenderingContext2D, tl: Timeline, W: number) => void)[] = [];
-export const timelineViewMenuHooks: ((tl: Timeline) => MenuItem[])[] = [];
+export { timelineOverlays, timelineViewMenuHooks } from '../animation/overlays';
+import { timelineOverlays, timelineViewMenuHooks } from '../animation/overlays';
 
 export class Timeline extends DopeSheet {
   /** keys shown only for selected channels' objects (the summary of selected objects) */
@@ -27,6 +26,9 @@ export class Timeline extends DopeSheet {
     this.compactMarkers = true;
     const s = (state ?? {}) as Record<string, unknown>;
     if (typeof s.onlySelected !== 'boolean') this.onlySelected = true;
+    // channels (and their rows) only when asked for: by default a single summary row
+    if (typeof s.showChannels !== 'boolean') this.showChannels = false;
+    if (typeof s.showFooter !== 'boolean') this.showFooter = false;
   }
 
   header(): Child {
@@ -42,35 +44,39 @@ export class Timeline extends DopeSheet {
   }
 
   viewMenu(): MenuItem[] {
+    const tog = (label: string, on: boolean, flip: () => void, extra: Partial<MenuItem> = {}): MenuItem => ({ label, checked: on, ...extra, action: () => (flip(), this.refresh(), app.changed('ui')) });
     return [
-      { label: 'Show Markers', checked: this.showMarkers, action: () => ((this.showMarkers = !this.showMarkers), this.refresh()) },
-      { label: 'Only Show Selected', checked: this.onlySelected, action: () => ((this.onlySelected = !this.onlySelected), this.refresh(), app.changed('ui')) },
-      { label: 'Show Hidden', checked: this.showHidden, action: () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')) },
-      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
-      ...timelineViewMenuHooks.flatMap((f) => f(this)),
+      tog('Channels', this.showChannels, () => ((this.showChannels = !this.showChannels), this.layout())),
       { separator: true },
       { label: 'Frame All', op: 'action.view_all', shortcut: 'Home' },
       { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
       { label: 'Go to Current Frame', op: 'action.view_frame', shortcut: 'Numpad 0' },
       { separator: true },
-      ...previewRangeMenu('action.previewrange_set'),
+      tog('Show Markers', this.showMarkers, () => (this.showMarkers = !this.showMarkers)),
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.syncRangeMenuItem(),
       { separator: true },
-      {
-        label: this.area.screen.maximized === this.area ? 'Back to Previous' : 'Maximize Area',
-        op: 'screen.screen_full_area',
-        shortcut: 'Ctrl Space',
-      },
+      tog('Only Show Selected', this.onlySelected, () => (this.onlySelected = !this.onlySelected), { description: 'Show the keyframes of the selected objects only' }),
+      tog('Only Show Errors', this.onlyErrors, () => (this.onlyErrors = !this.onlyErrors), { description: 'Show only the channels whose property cannot be found' }),
+      { separator: true },
+      ...timelineViewMenuHooks.flatMap((f) => f(this)),
+      { separator: true },
+      this.areaMenuItem(),
     ];
   }
 
   layout() {
     super.layout();
-    // channels stay hidden: the timeline shows a single summary row
-    this.chEl.style.display = 'none';
+    // without the channel region the timeline shows a single summary row
+    if (!this.showChannels) this.chEl.style.display = 'none';
   }
 
   rebuild() {
     super.rebuild();
+    if (this.showChannels) {
+      this.rowH = 18;
+      return;
+    }
     const sum = this.list.rows.find((r) => r.kind === 'SUMMARY');
     this.list = { rows: sum ? [{ ...sum, label: 'Summary' }] : [], curves: this.list.curves };
     // the summary row fills the space between the ruler and the markers
@@ -78,7 +84,12 @@ export class Timeline extends DopeSheet {
     this.rowH = Math.max(12, Math.min(28, avail || 18));
   }
 
-  protected drawContent(g: CanvasRenderingContext2D, W: number) {
+  protected drawContent(g: CanvasRenderingContext2D, W: number, H: number) {
+    // with the channels shown the rows are drawn like the Dope Sheet's
+    if (this.showChannels) {
+      this.drawCaches(g, W);
+      return super.drawContent(g, W, H);
+    }
     this.drawCaches(g, W);
     for (const o of timelineOverlays) o(g, this, W);
     const ch = this.list.rows[0];

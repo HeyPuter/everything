@@ -5,7 +5,7 @@ import { addKeys } from '../app/keymap';
 import { openMenu } from '../ui/menu';
 import { uid, newObject } from '../data/defaults';
 import { addObjectToScene } from '../ops/object';
-import { ensureAction, ensureFCurve } from '../anim/keyframes';
+import { keyingTarget, ensureFCurve } from '../anim/keyframes';
 import { insertKeyframe } from '../anim/fcurve';
 import { newConstraint } from '../eval/constraints';
 import { download } from '../io/native';
@@ -1011,7 +1011,7 @@ const ops: Operator[] = [
       }
       doc.scene.frame_current = keep;
       ob.constraints = ob.constraints.filter((c) => c !== con);
-      const act = ensureAction(doc, ob);
+      const { act, slot } = keyingTarget(doc, ob);
       ob.rotation_mode = ob.rotation_mode === 'QUATERNION' || ob.rotation_mode === 'AXIS_ANGLE' ? 'XYZ' : ob.rotation_mode;
       for (const { f, m } of samples) {
         const pos = new Vector3(),
@@ -1019,9 +1019,9 @@ const ops: Operator[] = [
           s = new Vector3();
         m.decompose(pos, q, s);
         const e = new Euler().setFromQuaternion(q, ob.rotation_mode as 'XYZ');
-        [pos.x, pos.y, pos.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'location', i), f, v));
-        [e.x, e.y, e.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'rotation_euler', i), f, v));
-        [s.x, s.y, s.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'scale', i), f, v));
+        [pos.x, pos.y, pos.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'location', i, slot), f, v));
+        [e.x, e.y, e.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'rotation_euler', i, slot), f, v));
+        [s.x, s.y, s.z].forEach((v, i) => insertKeyframe(ensureFCurve(act, 'scale', i, slot), f, v));
       }
       app.graph.invalidate(ob.id);
       app.report('INFO', `Baked ${samples.length} frames of "${con.name}" into keyframes`);

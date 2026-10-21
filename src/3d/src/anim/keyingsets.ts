@@ -9,7 +9,8 @@ import { openMenu, type MenuItem } from '../ui/menu';
 import { uiList } from '../editors/properties/uilist';
 import { sceneKeyingPanel } from '../editors/properties/tabs';
 import { propertyAnimMenuHook } from '../ui/props';
-import { keyProperty, keyState } from './keyframes';
+import { keyProperty, keyState, withCycleAware } from './keyframes';
+import { objectCurves } from './slots';
 
 export const BUILTIN_KEYING_SETS: [string, string][] = [
   ['Location', 'Location'],
@@ -154,7 +155,7 @@ const ops: Operator[] = [
     exec: (ctx, p) => {
       const t = target(p);
       if (!t) return 'CANCELLED';
-      keyProperty(ctx.doc, t.ob, t.path, t.index);
+      withCycleAware(() => keyProperty(ctx.doc, t.ob, t.path, t.index));
     },
   },
   {
@@ -168,13 +169,14 @@ const ops: Operator[] = [
       if (!t || !act) return 'CANCELLED';
       const f = ctx.doc.scene.frame_current;
       let n = 0;
-      for (const fc of act.fcurves) {
+      const mine = new Set(objectCurves(ctx.doc, t.ob));
+      for (const fc of mine) {
         if (fc.data_path !== t.path || (t.index >= 0 && fc.array_index !== t.index)) continue;
         const before = fc.keyframe_points.length;
         fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - f) > 0.5);
         n += before - fc.keyframe_points.length;
       }
-      act.fcurves = act.fcurves.filter((fc) => fc.keyframe_points.length || fc.modifiers.length);
+      act.fcurves = act.fcurves.filter((fc) => !mine.has(fc) || fc.keyframe_points.length || fc.modifiers.length);
       if (!n) return 'CANCELLED';
     },
   },
@@ -188,7 +190,8 @@ const ops: Operator[] = [
       const act = t?.ob.animation_data?.action ? ctx.doc.actions[t.ob.animation_data.action] : undefined;
       if (!t || !act) return 'CANCELLED';
       const before = act.fcurves.length;
-      act.fcurves = act.fcurves.filter((fc) => !(fc.data_path === t.path && (t.index < 0 || fc.array_index === t.index)));
+      const mine = new Set(objectCurves(ctx.doc, t.ob));
+      act.fcurves = act.fcurves.filter((fc) => !(mine.has(fc) && fc.data_path === t.path && (t.index < 0 || fc.array_index === t.index)));
       if (act.fcurves.length === before) return 'CANCELLED';
     },
   },
@@ -369,7 +372,7 @@ export function keyingSetsPanel(): Child {
                     : null,
                 ]
               : null,
-            h('div', { class: 'btn-row' }, opButton('anim.keyframe_insert', 'Insert Keyframes')),
+            h('div', { class: 'btn-row' }, opButton('anim.keyframe_insert', 'Insert Keyframes'), opButton('anim.keying_set_export', 'Export Keying Set')),
           ];
         })
       : null,

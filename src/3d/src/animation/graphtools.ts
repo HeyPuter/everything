@@ -648,6 +648,7 @@ const viewOps: Operator[] = [
         return { fc: r.fc, pts };
       });
       ed.draw();
+      app.changed('ui');
     },
   },
   {
@@ -660,6 +661,7 @@ const viewOps: Operator[] = [
       const ed = graphEd(ctx)!;
       ed.ghosts = [];
       ed.draw();
+      app.changed('ui');
     },
   },
   {

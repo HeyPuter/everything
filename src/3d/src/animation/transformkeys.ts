@@ -2,7 +2,7 @@
 // (time translate, scale, extend) and the Graph Editor (translate, rotate, scale
 // with axis constraints, numeric input and frame snapping).
 import { app, type ModalHandler } from '../app/app';
-import type { FCurve, Keyframe } from '../data/types';
+import type { FCurve, Keyframe, TimelineMarker } from '../data/types';
 import type { CurveRef } from './channels';
 import { calcHandles, alignHandle, sortKeyframes } from '../anim/fcurve';
 import { finalizeCurve, editable, isAnySelected } from './keyedit';
@@ -33,6 +33,25 @@ export interface KeyTransformHost {
   cursorValue?: number;
   /** proportional editing: unselected keys within the radius (frames) follow with a falloff */
   proportional?: { size: number; falloff: string };
+  /** keys moved onto the frame of another key replace it (View ▸ Auto-Merge Keyframes; default on) */
+  autoMerge?: boolean;
+  /** markers that move in time with the keys (Marker ▸ Sync Markers: the selected ones) */
+  syncMarkers?: TimelineMarker[];
+  /** View ▸ Realtime Updates off: other views update when the transform ends (`redraw` repaints the editor meanwhile) */
+  realtime?: boolean;
+  redraw?: () => void;
+  /** View ▸ Auto-Lock Key Axis: free moves follow only the dominant direction */
+  autoLockAxis?: boolean;
+}
+
+/** Move the synced markers by the time part of a transform (from their original frames). */
+function applyMarkers(orig: [TimelineMarker, number][], t: TransformValues, pivot: { x: number }) {
+  for (const [m, f] of orig) {
+    let x = f;
+    if (t.mode === 'TIME_TRANSLATE' || t.mode === 'TIME_EXTEND' || (t.mode === 'TRANSLATION' && t.constraint !== 'Y')) x = f + t.value[0];
+    else if (t.mode === 'TIME_SCALE' || (t.mode === 'RESIZE' && t.constraint !== 'Y')) x = pivot.x + (f - pivot.x) * t.value[0];
+    m.frame = Math.round(x);
+  }
 }
 
 interface Snap {
@@ -308,7 +327,8 @@ export function transformKeys(host: KeyTransformHost, t: TransformValues): numbe
   if (!snaps.length) return 0;
   const pivot = pivotOf(host, snaps, t.mode);
   const touched = apply(host, snaps, t, pivot, host.autoSnap);
-  for (const fc of touched) finalizeCurve(fc);
+  if (host.syncMarkers?.length) applyMarkers(host.syncMarkers.map((m) => [m, m.frame]), t, pivot);
+  for (const fc of touched) finalizeCurve(fc, host.autoMerge !== false);
   return snaps.length;
 }
 
@@ -342,6 +362,7 @@ export function startKeyTransform(
     side = opts.start.x < p.x ? 'LEFT' : 'RIGHT';
   }
   const snaps = collect(host, mode, side);
+  const markerOrig: [TimelineMarker, number][] = (host.syncMarkers ?? []).map((m) => [m, m.frame]);
   if (!snaps.length) return false;
   const pivot = pivotOf(host, snaps, mode);
   const pivotScreen = host.screen(pivot.x, pivot.d);
@@ -404,6 +425,10 @@ export function startKeyTransform(
             if (constraint === 'NONE') dy = 0;
           }
         } else if (snapOn && !perKeySnap(host.snapTo)) dx = snapDelta(dx, host.snapTo);
+        if (num === null && constraint === 'NONE' && host.autoLockAxis) {
+          if (Math.abs(mouse.x - start.x) >= Math.abs(mouse.y - start.y)) dy = 0;
+          else dx = 0;
+        }
         value = [dx, dy];
         break;
       }
@@ -431,7 +456,9 @@ export function startKeyTransform(
     }
     current = { mode, value, constraint, side };
     apply(host, snaps, current, pivot, snapOn);
-    app.changed('doc');
+    if (markerOrig.length) applyMarkers(markerOrig, current, pivot);
+    if (host.realtime === false && host.redraw) host.redraw();
+    else app.changed('doc');
     opts.onUpdate?.();
   };
 
@@ -543,6 +570,7 @@ export function startKeyTransform(
       return true;
     },
     cancel() {
+      for (const [m, f] of markerOrig) m.frame = f;
       const touched = new Set<FCurve>();
       for (const s of snaps) {
         restore(s);
@@ -557,7 +585,7 @@ export function startKeyTransform(
     },
     finish() {
       const touched = new Set(snaps.map((s) => s.fc));
-      for (const fc of touched) finalizeCurve(fc);
+      for (const fc of touched) finalizeCurve(fc, host.autoMerge !== false);
       handler.redoOp = {
         idname: opts.redoIdname,
         props: {

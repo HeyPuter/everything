@@ -36,7 +36,8 @@ import { cow, cloneShared } from '../data/cow';
 import { dropUnusedLibraries } from '../library/core';
 import { newModifier, modifierTypes } from '../eval/modifiers';
 import { newConstraint, constraintTypes, boneOnlyConstraints } from '../eval/constraints';
-import { keyProperty, ensureAction, ensureFCurve } from '../anim/keyframes';
+import { keyProperty, ensureFCurve } from '../anim/keyframes';
+import { objectCurves } from '../anim/slots';
 import { insertKeyframe, evaluateFCurve as evaluateFC } from '../anim/fcurve';
 import { localMatrix, applyMatrixToObject } from '../eval/transform';
 import { getValue } from '../data/rna';
@@ -517,8 +518,7 @@ export class ObjectStruct extends IDStruct {
       throw pyError('TypeError', `bpy_struct.keyframe_insert() property "${data_path}" not animatable`);
     keyProperty(app.doc, ob, data_path, index ?? -1, f);
     if (group) {
-      const act = ensureAction(app.doc, ob);
-      for (const fc of act.fcurves) if (fc.data_path === data_path) fc.group = group;
+      for (const fc of objectCurves(app.doc, ob)) if (fc.data_path === data_path) fc.group = group;
     }
     touched();
     return true;
@@ -529,13 +529,14 @@ export class ObjectStruct extends IDStruct {
     const act = ob.animation_data?.action ? app.doc.actions[ob.animation_data.action] : null;
     if (!act) return false;
     let removed = false;
-    for (const fc of act.fcurves) {
+    const mine = new Set(objectCurves(app.doc, ob));
+    for (const fc of mine) {
       if (fc.data_path !== data_path || (index >= 0 && fc.array_index !== index)) continue;
       const n = fc.keyframe_points.length;
       fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - f) > 1e-4);
       removed ||= fc.keyframe_points.length !== n;
     }
-    act.fcurves = act.fcurves.filter((fc) => fc.keyframe_points.length);
+    act.fcurves = act.fcurves.filter((fc) => !mine.has(fc) || fc.keyframe_points.length);
     if (!removed) throw pyError('RuntimeError', `keyframe_delete: no keyframe at frame ${f} for "${data_path}"`);
     touched();
     return true;

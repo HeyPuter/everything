@@ -3,6 +3,7 @@
 import type { ActionData, FCurve, ObjectData } from '../data/types';
 import { evaluateFCurve, insertKeyframe } from '../anim/fcurve';
 import { groupKey } from './channels';
+import { curveSlot, isSlotted } from '../anim/slots';
 import { setKeySelected } from './keyedit';
 
 // ---------------------------------------------------------------------------
@@ -31,17 +32,26 @@ export function moveSelected<T>(list: T[], sel: (t: T) => boolean, dir: Dir): bo
   return list.some((t, i) => t !== before[i]);
 }
 
-/** Reorder an action's channels: selected groups move among groups, selected curves within their group. */
+/** Reorder an action's channels: selected groups move among groups, selected curves within their group (per slot). */
 export function moveActionChannels(action: ActionData, dir: Dir, selectedGroups: Set<string>): boolean {
-  const groups: string[] = [];
-  for (const fc of action.fcurves) if (fc.group && !groups.includes(fc.group)) groups.push(fc.group);
-  let changed = moveSelected(groups, (g) => selectedGroups.has(groupKey(action, g)), dir);
-  const buckets = new Map<string, FCurve[]>();
-  for (const g of groups) buckets.set(g, []);
-  const loose: FCurve[] = [];
-  for (const fc of action.fcurves) (fc.group ? buckets.get(fc.group)! : loose).push(fc);
-  for (const list of [...buckets.values(), loose]) if (moveSelected(list, (fc) => !!fc.select, dir)) changed = true;
-  const next = [...groups.flatMap((g) => buckets.get(g)!), ...loose];
+  let changed = false;
+  const parts = new Map<number | undefined, FCurve[]>();
+  for (const fc of action.fcurves) {
+    const s = isSlotted(action) ? curveSlot(action, fc) : undefined;
+    (parts.get(s) ?? parts.set(s, []).get(s)!).push(fc);
+  }
+  const next: FCurve[] = [];
+  for (const [slot, curves] of parts) {
+    const groups: string[] = [];
+    for (const fc of curves) if (fc.group && !groups.includes(fc.group)) groups.push(fc.group);
+    if (moveSelected(groups, (g) => selectedGroups.has(groupKey(action, g, slot)), dir)) changed = true;
+    const buckets = new Map<string, FCurve[]>();
+    for (const g of groups) buckets.set(g, []);
+    const loose: FCurve[] = [];
+    for (const fc of curves) (fc.group ? buckets.get(fc.group)! : loose).push(fc);
+    for (const list of [...buckets.values(), loose]) if (moveSelected(list, (fc) => !!fc.select, dir)) changed = true;
+    next.push(...groups.flatMap((g) => buckets.get(g)!), ...loose);
+  }
   if (next.some((fc, i) => fc !== action.fcurves[i])) {
     action.fcurves = next;
     changed = true;

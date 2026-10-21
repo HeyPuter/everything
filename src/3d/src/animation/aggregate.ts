@@ -9,6 +9,8 @@ export interface AggKey {
   type: Keyframe['type'];
   handle: KeyHandleType | 'MIXED';
   interp: Interpolation | 'MIXED';
+  /** the key is a turning point of the value (higher / lower than both neighbours) */
+  extreme?: 'MAX' | 'MIN' | 'BOTH';
 }
 
 export interface AggSpan {
@@ -24,6 +26,13 @@ export interface AggRow {
 }
 
 const q = (f: number) => Math.round(f * 1000) / 1000;
+
+/** Handle types from the least to the most automatic (columns show the first present). */
+const HANDLE_ORDER = ['FREE', 'AUTO', 'VECTOR', 'ALIGNED', 'AUTO_CLAMPED'];
+const handleRank = (h: string) => {
+  const i = HANDLE_ORDER.indexOf(h);
+  return i < 0 ? -1 : i;
+};
 
 export function aggregate(curves: FCurve[]): AggRow {
   const map = new Map<number, AggKey>();
@@ -43,10 +52,25 @@ export function aggregate(curves: FCurve[]): AggRow {
       else {
         cur.selected ||= !!k.select_control_point;
         if (cur.type !== k.type) cur.type = 'KEYFRAME';
-        if (cur.handle !== handle) cur.handle = 'MIXED';
+        // a column shows the least smooth handle type among its keys
+        if (cur.handle !== handle) cur.handle = handleRank(handle) < handleRank(cur.handle) ? handle : cur.handle;
         if (cur.interp !== k.interpolation) cur.interp = 'MIXED';
       }
     }
+  // turning points of each curve, merged per column
+  for (const fc of curves) {
+    const ks = fc.keyframe_points;
+    for (let i = 1; i + 1 < ks.length; i++) {
+      const v = ks[i].co[1],
+        a = ks[i - 1].co[1],
+        b = ks[i + 1].co[1];
+      const eps = 1e-6 * Math.max(1, Math.abs(v));
+      const kind = v > a + eps && v > b + eps ? 'MAX' : v < a - eps && v < b - eps ? 'MIN' : null;
+      if (!kind) continue;
+      const cur = map.get(q(ks[i].co[0]));
+      if (cur) cur.extreme = cur.extreme && cur.extreme !== kind ? 'BOTH' : kind;
+    }
+  }
   const keys = [...map.values()].sort((a, b) => a.frame - b.frame);
   const holds: AggSpan[] = [];
   const interps: AggRow['interps'] = [];
@@ -70,16 +94,16 @@ export function aggregate(curves: FCurve[]): AggRow {
       });
     const sel = keys[i].selected && keys[i + 1].selected;
     if (allHold && anyReal) holds.push({ a, b, selected: sel });
-    // interpolation display: all curves keyed at `a` share one non-Bézier mode
+    // interpolation display: a curve keyed at `a` interpolates without Bézier handles
     let mode: Interpolation | null = null;
-    let consistent = true;
     for (const c of keyed) {
       const k = c.keyframe_points.find((kk) => Math.abs(kk.co[0] - a) < 1e-3);
-      if (!k) continue;
-      if (mode === null) mode = k.interpolation;
-      else if (mode !== k.interpolation) consistent = false;
+      if (k && k.interpolation !== 'BEZIER') {
+        mode = k.interpolation;
+        break;
+      }
     }
-    if (consistent && mode && mode !== 'BEZIER') interps.push({ a, b, selected: sel, interp: mode });
+    if (mode) interps.push({ a, b, selected: sel, interp: mode });
   }
   return { keys, holds, interps };
 }

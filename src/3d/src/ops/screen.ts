@@ -3,8 +3,9 @@ import { prefs } from '../app/prefs';
 import { app, registerOperators, operators, type AreaLike } from '../app/app';
 import { openMenu, openSearch, captureMenuItems, type SearchEntry, type MenuItem } from '../ui/menu';
 import { openRedoPopup } from '../ui/redo';
-import { insertKeyframesForObjects, deleteKeyframesAt, type KeyingSet } from '../anim/keyframes';
+import { insertKeyframesForObjects, deleteKeyframesAt, withCycleAware, type KeyingSet } from '../anim/keyframes';
 import { shortcutLabel } from '../app/keymap';
+import { objectCurves } from '../anim/slots';
 
 let playRaf = 0;
 let playStart = 0;
@@ -70,8 +71,7 @@ function allKeyFrames(): number[] {
   const obs = app.selectedObjects().length ? app.selectedObjects() : app.activeObject ? [app.activeObject] : [];
   const frames = new Set<number>();
   for (const ob of obs) {
-    const act = ob.animation_data?.action ? doc.actions[ob.animation_data.action] : undefined;
-    for (const fc of act?.fcurves ?? []) for (const k of fc.keyframe_points) frames.add(k.co[0]);
+    for (const fc of objectCurves(doc, ob)) for (const k of fc.keyframe_points) frames.add(k.co[0]);
   }
   for (const m of doc.scene.timeline_markers) frames.add(m.frame);
   return [...frames].sort((a, b) => a - b);
@@ -190,7 +190,7 @@ registerOperators([
     poll: () => app.selectedObjects().length > 0 || !!app.activeObject,
     exec: (ctx) => {
       const obs = app.selectedObjects().length ? app.selectedObjects() : [app.activeObject!];
-      insertKeyframesForObjects(obs, ctx.doc.scene.keying_set ?? 'LocRotScale');
+      withCycleAware(() => insertKeyframesForObjects(obs, ctx.doc.scene.keying_set ?? 'LocRotScale'));
       app.report('INFO', 'Keyframes inserted');
     },
   },
@@ -199,7 +199,7 @@ registerOperators([
     label: 'Insert Keyframe (by Keying Set)',
     props: [{ id: 'type', label: 'Keying Set', type: 'enum', default: 'LocRotScale', items: [['Location', 'Location'], ['Rotation', 'Rotation'], ['Scale', 'Scale'], ['LocRot', 'Location & Rotation'], ['LocScale', 'Location & Scale'], ['RotScale', 'Rotation & Scale'], ['LocRotScale', 'Location, Rotation & Scale'], ['Available', 'Available'], ['WholeCharacter', 'Whole Character']] }],
     poll: () => app.selectedObjects().length > 0,
-    exec: (_ctx, p) => insertKeyframesForObjects(app.selectedObjects(), p.type as KeyingSet),
+    exec: (_ctx, p) => withCycleAware(() => insertKeyframesForObjects(app.selectedObjects(), p.type as KeyingSet)),
   },
   {
     idname: 'anim.keyframe_insert_menu',

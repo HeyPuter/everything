@@ -3,6 +3,7 @@ import { app, registerOperators } from '../app/app';
 import type { ActionData, AnimData, DocumentData, NlaStrip, NlaTrack, ObjectData } from '../data/types';
 import { newAction } from '../data/defaults';
 import { activeAction } from './channels';
+import { assignAction, resolveSlot } from '../anim/slots';
 import { cloneKey } from './keyedit';
 
 export function uniqueName(base: string, taken: Iterable<string>) {
@@ -53,6 +54,9 @@ export function copyAction(doc: DocumentData, act: ActionData): ActionData {
     color: fc.color ? ([...fc.color] as typeof fc.color) : undefined,
   }));
   if (act.frame_range) c.frame_range = [...act.frame_range];
+  if (act.slots) c.slots = act.slots.map((sl) => ({ ...sl }));
+  if (act.last_slot_handle !== undefined) c.last_slot_handle = act.last_slot_handle;
+  if (act.active_slot !== undefined) c.active_slot = act.active_slot;
   doc.actions[c.id] = c;
   return c;
 }
@@ -71,9 +75,10 @@ export function newTrack(ad: AnimData, name = 'NlaTrack'): NlaTrack {
   return t;
 }
 
-export function makeStrip(act: ActionData, start: number, extrapolation: NlaStrip['extrapolation'] = 'HOLD_FORWARD'): NlaStrip {
+export function makeStrip(act: ActionData, start: number, extrapolation: NlaStrip['extrapolation'] = 'HOLD_FORWARD', slot?: number | null): NlaStrip {
   const [a, b] = actionRange(act);
   return {
+    ...(slot !== undefined ? { action_slot_handle: slot ?? 0 } : {}),
     name: act.name,
     action: act.id,
     frame_start: start,
@@ -105,7 +110,7 @@ export function pushDown(doc: DocumentData, ob: ObjectData): NlaStrip | null {
   const act = activeAction(doc, ob);
   if (!ad || !act) return null;
   const isFirst = ad.nla_tracks.every((t) => !t.strips.length);
-  const strip = makeStrip(act, actionRange(act)[0], isFirst ? 'HOLD' : 'HOLD_FORWARD');
+  const strip = makeStrip(act, actionRange(act)[0], isFirst ? 'HOLD' : 'HOLD_FORWARD', resolveSlot(act, ad, ob));
   const top = ad.nla_tracks[ad.nla_tracks.length - 1];
   let track: NlaTrack;
   if (top && !top.lock && stripFits(top, strip.frame_start, strip.frame_end)) track = top;
@@ -116,7 +121,7 @@ export function pushDown(doc: DocumentData, ob: ObjectData): NlaStrip | null {
   for (const t of ad.nla_tracks) for (const s of t.strips) s.select = false;
   track.strips.push(strip);
   sortStrips(track);
-  ad.action = null;
+  assignAction(doc, ob, ad, null);
   return strip;
 }
 
@@ -126,7 +131,7 @@ export function stashAction(doc: DocumentData, ob: ObjectData): boolean {
   const act = activeAction(doc, ob);
   if (!ad || !act) return false;
   let track = ad.nla_tracks.find((t) => t.name === '[Action Stash]');
-  const strip = makeStrip(act, actionRange(act)[0], 'NOTHING');
+  const strip = makeStrip(act, actionRange(act)[0], 'NOTHING', resolveSlot(act, ad, ob));
   strip.select = false;
   if (!track || !stripFits(track, strip.frame_start, strip.frame_end)) {
     track = { ...newTrack(ad, '[Action Stash]'), mute: true };
@@ -135,7 +140,7 @@ export function stashAction(doc: DocumentData, ob: ObjectData): boolean {
   track.strips.push(strip);
   sortStrips(track);
   act.use_fake_user = true;
-  ad.action = null;
+  assignAction(doc, ob, ad, null);
   return true;
 }
 
@@ -159,7 +164,7 @@ registerOperators([
             ),
           );
       ctx.doc.actions[act.id] = act;
-      ensureAnimData(ob).action = act.id;
+      assignAction(ctx.doc, ob, ensureAnimData(ob), act.id);
     },
   },
   {
@@ -170,7 +175,7 @@ registerOperators([
     exec: (ctx) => {
       const ob = activeOb()!;
       const act = activeAction(ctx.doc, ob);
-      ob.animation_data!.action = null;
+      assignAction(ctx.doc, ob, ob.animation_data!, null);
       if (
         act &&
         !act.use_fake_user &&
@@ -203,7 +208,7 @@ registerOperators([
         ),
       );
       ctx.doc.actions[act.id] = act;
-      ensureAnimData(ob).action = act.id;
+      assignAction(ctx.doc, ob, ensureAnimData(ob), act.id);
     },
   },
   {

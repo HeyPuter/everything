@@ -4,11 +4,9 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
 import { openPopover } from '../ui/menu';
-import { numberField, enumMenu, checkbox } from '../ui/widgets';
+import { numberField, enumMenu, enumRow, checkbox } from '../ui/widgets';
 import type { Keyframe } from '../data/types';
 import { keyingSetItems } from '../anim/keyingsets';
-import { prefs } from '../app/prefs';
-import { setPref } from '../prefs/store';
 
 /** Playback options kept for the session. */
 export const playbackOptions = { follow: false };
@@ -70,16 +68,25 @@ function playbackPopover(): Child {
   ];
 }
 
-function keyingPopover(): Child {
+/** Keying ▸ the active keying set (with insert / delete), the type of new keys and cycle-aware keying. */
+function keyframingPopover(): Child {
   const s = app.doc.scene;
   const ts = s.tool_settings;
+  const keyBtn = (ic: string, op: string, tip: string) =>
+    h('button', { key: op, class: 'hdr-toggle', 'data-tip': tip, onclick: () => app.run(op) }, icon(ic));
   return [
     h('div', { class: 'opt-head' }, 'Active Keying Set'),
-    enumMenu(
-      'anim-ks',
-      keyingSetItems().map(([value, label]) => ({ value, label })),
-      s.keying_set ?? 'LocRotScale',
-      (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
+    h(
+      'div',
+      { class: 'opt-row anim-ks-row' },
+      enumMenu(
+        'anim-ks',
+        keyingSetItems().map(([value, label]) => ({ value, label })),
+        s.keying_set ?? 'LocRotScale',
+        (v) => ((s.keying_set = v as 'Location'), app.pushUndo('Keying Set'), app.changed('ui')),
+      ),
+      keyBtn('keyframe_hlt', 'anim.keyframe_insert', 'Insert Keyframe\nKey the selected objects with the active keying set'),
+      keyBtn('decorate_animate', 'anim.keyframe_delete', 'Delete Keyframe\nRemove the keys of the active keying set on the current frame'),
     ),
     h('div', { class: 'opt-head' }, 'New Keyframe Type'),
     enumMenu(
@@ -88,8 +95,27 @@ function keyingPopover(): Child {
       ts.keyframe_type,
       (v) => ((ts.keyframe_type = v as Keyframe['type']), app.pushUndo('Keyframe Type'), app.changed('ui')),
     ),
-    h('div', { class: 'opt-head' }, 'Auto Keying'),
-    checkbox('anim-only-needed', 'Only Insert Needed', prefs.use_keyframe_insert_needed, (v) => (setPref('use_keyframe_insert_needed', v), app.changed('ui')), { tip: 'Skip keyframes that would not change the curve (also in Preferences ▸ Animation)' }),
+    checkbox('anim-cycle-aware', 'Cycle-Aware Keying', !!ts.use_keyframe_cycle_aware, (v) => ((ts.use_keyframe_cycle_aware = v), app.pushUndo('Cycle-Aware Keying'), app.changed('ui')), {
+      tip: 'Cycle-Aware Keying\nOn curves repeated by a Cycles modifier, new keys land inside the cycle, and a key on its start also sets its end',
+    }),
+  ];
+}
+
+/** Auto keying dropdown: how keys are added, and whether only the active keying set is keyed. */
+function autoKeyingPopover(): Child {
+  const ts = app.doc.scene.tool_settings;
+  return [
+    h('div', { class: 'opt-head' }, 'Auto Keyframing'),
+    enumRow(
+      'anim-ak-mode',
+      [
+        { value: 'ADD_REPLACE_KEYS', label: 'Add & Replace', description: 'Insert new keys and replace existing ones' },
+        { value: 'REPLACE_KEYS', label: 'Replace', description: 'Only change keys that already exist on the current frame' },
+      ],
+      ts.auto_keying_mode ?? 'ADD_REPLACE_KEYS',
+      (v) => ((ts.auto_keying_mode = v as 'REPLACE_KEYS'), app.pushUndo('Auto Keying Mode'), app.changed('ui')),
+    ),
+    checkbox('anim-ak-ks', 'Only Active Keying Set', !!ts.use_keyframe_insert_keyingset, (v) => ((ts.use_keyframe_insert_keyingset = v), app.pushUndo('Only Active Keying Set'), app.changed('ui')), { tip: 'Auto keying keys the channels of the active keying set' }),
   ];
 }
 
@@ -116,7 +142,7 @@ function timeJumpPopover(): Child {
 const tbtn = (ic: string, tip: string, onclick: () => void, on = false) => h('button', { key: tip, class: { 'hdr-toggle': true, on }, 'data-tip': tip, onclick }, icon(ic));
 
 /** Header controls shared by the Timeline, Dope Sheet and Sequencer: playback options, auto keying, transport, frames. */
-export function playbackFooter(extra: Child = null): Child {
+export function playbackFooter(extra: Child = null, keying = false): Child {
   const s = app.doc.scene;
   const ts = s.tool_settings;
   const playing = app.playing;
@@ -124,6 +150,7 @@ export function playbackFooter(extra: Child = null): Child {
     'div',
     { class: 'hdr-row anim-footer-row' },
     popoverButton('Playback', null, playbackPopover),
+    keying ? popoverButton('Keying', 'keyframe_hlt', keyframingPopover) : null,
     h('div', { class: 'hdr-spacer' }),
     // auto keying with the keying options in its dropdown
     h(
@@ -139,7 +166,7 @@ export function playbackFooter(extra: Child = null): Child {
         },
         icon('rec'),
       ),
-      popoverButton('', null, keyingPopover, 'hdr-icondrop hidden-icon keying-drop'),
+      popoverButton('', null, autoKeyingPopover, 'hdr-icondrop hidden-icon keying-drop'),
     ),
     h(
       'div',

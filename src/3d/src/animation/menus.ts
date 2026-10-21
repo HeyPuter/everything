@@ -1,5 +1,6 @@
 // Header/context menus shared by the Dope Sheet ('action') and Graph Editor ('graph').
 import type { MenuItem } from '../ui/menu';
+import { app } from '../app/app';
 import type { Interpolation, KeyHandleType, Keyframe } from '../data/types';
 import type { AnimEditor } from './animeditor';
 import { KEY_TYPES } from './footer';
@@ -236,43 +237,6 @@ export function previewRangeMenu(setSelected: string): MenuItem[] {
   ];
 }
 
-export function viewMenuCommon(p: Prefix, ed: AnimEditor): MenuItem[] {
-  return [
-    { label: 'Show Seconds', checked: ed.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
-    { label: 'Only Show Errors', checked: ed.onlyErrors, action: () => ((ed.onlyErrors = !ed.onlyErrors), ed.refresh()) },
-    {
-      label: 'Show Sliders',
-      checked: ed.showSliders,
-      action: () => {
-        ed.showSliders = !ed.showSliders;
-        // make room for the value fields next to the channel names
-        if (ed.showSliders) ed.chWidth = Math.max(ed.chWidth, 300);
-        ed.refresh();
-      },
-    },
-    { separator: true },
-    { label: 'Frame Selected', op: `${p}.view_selected`, shortcut: 'Numpad .' },
-    { label: 'Frame All', op: `${p}.view_all`, shortcut: 'Home' },
-    { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
-    { label: 'Go to Current Frame', op: `${p}.view_frame`, shortcut: 'Numpad 0' },
-    ...(p === 'graph' ? [{ separator: true }, { label: 'Local View', op: 'graph.local_view', shortcut: '/' }, { label: 'Create Ghost Curves', op: 'graph.ghost_curves_create' }, { label: 'Clear Ghost Curves', op: 'graph.ghost_curves_clear' }] : []),
-    { separator: true },
-    ...previewRangeMenu(`${p}.previewrange_set`),
-    { separator: true },
-    {
-      label: p === 'action' ? 'Toggle Graph Editor' : 'Toggle Dope Sheet',
-      op: 'anim.switch_editor',
-      props: { type: p === 'action' ? 'GRAPH' : 'DOPESHEET' },
-      shortcut: 'Ctrl Tab',
-    },
-    {
-      label: ed.area.screen.maximized === ed.area ? 'Back to Previous' : 'Maximize Area',
-      op: 'screen.screen_full_area',
-      shortcut: 'Ctrl Space',
-    },
-  ];
-}
-
 function settingMenu(op: string, graph: boolean): MenuItem[] {
   const items: MenuItem[] = [
     { label: 'Mute', op, props: { type: 'MUTE' } },
@@ -312,6 +276,8 @@ export function channelMenu(p: Prefix): MenuItem[] {
     { label: 'Collapse Channels', op: 'anim.channels_collapse', shortcut: 'Numpad -' },
     { separator: true },
     { label: 'Move Channels', submenu: moveChannelsMenu },
+    { separator: true },
+    { label: 'Revive Disabled F-Curves', op: 'anim.channels_fcurves_enable' },
     { separator: true },
     { label: 'Bake Channels', op: 'anim.channels_bake' },
     ...(graph
@@ -430,7 +396,7 @@ export function keyMenu(p: Prefix): MenuItem[] {
     ? [
         { label: 'Handle Type', submenu: () => handleMenu(p), shortcut: 'V' },
         { label: 'Interpolation Mode', submenu: () => interpolationMenu(p), shortcut: 'T' },
-        { label: 'Easing Mode', submenu: () => easingMenu(p), shortcut: 'Ctrl E' },
+        { label: 'Easing Type', submenu: () => easingMenu(p), shortcut: 'Ctrl E' },
         { separator: true },
         { label: 'Density', submenu: densityMenu },
         { label: 'Blend', submenu: blendMenu, shortcut: 'Alt D' },
@@ -455,11 +421,12 @@ export function keyMenu(p: Prefix): MenuItem[] {
     { label: 'Jump to Selected', op: `${p}.frame_jump`, shortcut: 'Ctrl G' },
     { separator: true },
     graph ? { label: 'Insert', submenu: () => insertKeyMenu(p), shortcut: 'I' } : { label: 'Insert Keyframes', op: 'action.keyframe_insert', shortcut: 'I' },
-    { label: 'Copy', op: `${p}.copy`, shortcut: 'Ctrl C' },
-    { label: 'Paste', op: `${p}.paste`, shortcut: 'Ctrl V' },
+    // the Dope Sheet names the key operators in full
+    { label: graph ? 'Copy' : 'Copy Keyframes', op: `${p}.copy`, shortcut: 'Ctrl C' },
+    { label: graph ? 'Paste' : 'Paste Keyframes', op: `${p}.paste`, shortcut: 'Ctrl V' },
     { label: 'Paste Flipped', op: `${p}.paste`, props: { flipped: true }, shortcut: 'Shift Ctrl V' },
     { label: 'Duplicate', op: `${p}.duplicate_move`, shortcut: 'Shift D' },
-    { label: 'Delete', op: `${p}.delete`, shortcut: 'X' },
+    { label: graph ? 'Delete' : 'Delete Keyframes', op: `${p}.delete`, shortcut: 'X' },
     { separator: true },
     ...shape,
   ];

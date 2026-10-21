@@ -209,7 +209,7 @@ export class GPDopeSheet extends DopeSheet {
   }
 
   protected footer(): Child | null {
-    return playbackFooter();
+    return playbackFooter(null, true);
   }
 
   protected sidebarTabs() {

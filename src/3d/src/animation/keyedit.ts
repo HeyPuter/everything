@@ -279,6 +279,9 @@ export function insertKeysAt(curves: CurveRef[], frame: number, type: Keyframe['
   return n;
 }
 
+/** Values within a threshold, compared in single precision (as key values are stored in files). */
+const near = (a: number, b: number, t: number) => Math.abs(Math.fround(Math.fround(a) - Math.fround(b))) <= Math.fround(t);
+
 /** Remove redundant keys (value equal to both neighbours within threshold). */
 export function cleanKeys(curves: CurveRef[], threshold = 0.001, onlySelected = true): number {
   let n = 0;
@@ -291,8 +294,8 @@ export function cleanKeys(curves: CurveRef[], threshold = 0.001, onlySelected = 
       const prev = keep[keep.length - 1],
         next = k[i + 1];
       const eligible = !onlySelected || cur.select_control_point;
-      const flatPrev = prev && Math.abs(prev.co[1] - cur.co[1]) <= threshold;
-      const flatNext = !next || Math.abs(next.co[1] - cur.co[1]) <= threshold;
+      const flatPrev = prev && near(prev.co[1], cur.co[1], threshold);
+      const flatNext = !next || near(next.co[1], cur.co[1], threshold);
       if (eligible && prev && flatPrev && flatNext && (!next || prev.interpolation !== 'BEZIER' || isFlat(prev))) {
         n++;
         continue;

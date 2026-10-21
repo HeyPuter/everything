@@ -5,7 +5,8 @@ import { addKeys, type KeyItem } from '../app/keymap';
 import { openMenu, type MenuItem } from '../ui/menu';
 import type { Interpolation, KeyHandleType, Keyframe } from '../data/types';
 import { AnimEditor, overChannels, overMain, hoverEditor } from './animeditor';
-import { channelState, channelSelected, setChannelSelected, groupKey, setExpanded, isExpanded, shapeKeyPath, type CurveRef } from './channels';
+import { removeSlot } from '../anim/slots';
+import { channelState, channelSelected, setChannelSelected, curveGroupKey, setExpanded, isExpanded, shapeKeyPath, type CurveRef } from './channels';
 import { keyProperty } from '../anim/keyframes';
 import { getValue } from '../data/rna';
 import * as K from './keyedit';
@@ -517,7 +518,7 @@ function keyOps(p: Prefix): Operator[] {
         }
         let c = curves(ctx);
         if (type === 'SEL' || type === 'CURSOR_SEL') c = c.filter((r) => r.fc.select);
-        else if (type === 'GROUP') c = c.filter((r) => r.fc.group && channelState.selectedGroups.has(groupKey(r.action, r.fc.group)));
+        else if (type === 'GROUP') c = c.filter((r) => r.fc.group && channelState.selectedGroups.has(curveGroupKey(r.action, r.fc)));
         else if (type === 'ACTIVE' || type === 'CURSOR_ACTIVE') {
           const a = e.activeCurve?.();
           c = a ? [a] : [];
@@ -712,7 +713,7 @@ function animEd(ctx: OpContext): AnimEditor | null {
 
 /** F-Curves of selected channels (selected curves and curves in selected groups). */
 export function selectedChannelCurves(ed: AnimEditor): CurveRef[] {
-  return ed.list.curves.filter((r) => r.fc.select || (r.fc.group && channelState.selectedGroups.has(groupKey(r.action, r.fc.group))));
+  return ed.list.curves.filter((r) => r.fc.select || (r.fc.group && channelState.selectedGroups.has(curveGroupKey(r.action, r.fc))));
 }
 
 const settingProp: PropDef = {
@@ -799,6 +800,11 @@ const channelOps: Operator[] = [
         }
         if (ch.kind === 'NLA_TRACK' && ch.track?.select && ch.ob?.animation_data) {
           ch.ob.animation_data.nla_tracks = ch.ob.animation_data.nla_tracks.filter((t) => t !== ch.track);
+          n++;
+        }
+        // a selected slot row removes the slot with its animation
+        if (ch.kind === 'SLOT' && ch.slot?.select && ch.action?.slots?.includes(ch.slot)) {
+          removeSlot(ctx.doc, ch.action, ch.slot);
           n++;
         }
       }

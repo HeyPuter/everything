@@ -948,7 +948,19 @@ class ObjectData_ {
     if (ob.type !== 'ARMATURE') return null;
     ob.pose ??= {};
     const id = self.__id;
-    return { __kind: 'struct', __type: 'Pose', bones: new PoseBones(id), toString: () => `<bpy_struct, Pose at ${obPath(id)}.pose>` };
+    const pose: Record<string, unknown> = { __kind: 'struct', __type: 'Pose', bones: new PoseBones(id), toString: () => `<bpy_struct, Pose at ${obPath(id)}.pose>` };
+    // pose options (X-Axis Mirror, Relative Mirror, Auto IK)
+    for (const key of ['use_mirror_x', 'use_mirror_relative', 'use_auto_ik'] as const)
+      Object.defineProperty(pose, key, {
+        enumerable: true,
+        get: () => !!(obOf(id) as { pose_options?: Record<string, boolean> }).pose_options?.[key],
+        set: (v: unknown) => {
+          const o = obOf(id) as { pose_options?: Record<string, boolean> };
+          (o.pose_options ??= {})[key] = !!v;
+          touched();
+        },
+      });
+    return pose;
   }
   get shader_effects() {
     return new ShaderEffects((this as unknown as ObjectStruct).__id);

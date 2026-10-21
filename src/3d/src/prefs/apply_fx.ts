@@ -48,6 +48,9 @@ onPrefsApply((p) => {
 
   keyframeDefaults.interpolation = p.keyframe_new_interpolation_type;
   keyframeDefaults.handle = p.keyframe_new_handle_type;
+  keyframeDefaults.smoothing = p.fcurve_new_auto_smoothing ?? 'CONT_ACCEL';
+  keyframeDefaults.autoAvailable = !!p.use_auto_keyframe_insert_available;
+  keyframeDefaults.channels = p.key_insert_channels ?? ['LOCATION', 'ROTATION', 'SCALE'];
   keyframeDefaults.insertNeeded = p.use_keyframe_insert_needed;
   keyframeDefaults.xyzToRgb = p.use_insertkey_xyz_to_rgb;
   view2dSettings.smoothMs = Math.max(0, p.smooth_view);

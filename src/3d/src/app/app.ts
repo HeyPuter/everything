@@ -93,6 +93,9 @@ export interface Report {
 }
 
 export const operators = new Map<string, Operator>();
+
+/** Run before each undo step is stored (e.g. to write editor-side copies back into the document). */
+export const undoPushHooks: (() => void)[] = [];
 export function registerOperator(op: Operator) {
   operators.set(op.idname, op);
 }
@@ -351,6 +354,7 @@ export class App {
   }
 
   pushUndo(label: string) {
+    for (const f of undoPushHooks) f();
     this.undo.push(this.doc, label);
     this.dirty = true;
   }

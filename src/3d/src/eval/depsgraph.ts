@@ -323,9 +323,10 @@ export class Depsgraph {
         } else if (ob.parent_type === 'BONE' && ob.parent_bone && parent.pose) {
           const bone = parent.pose.bones.get(ob.parent_bone);
           if (bone) {
-            // child is relative to the bone tail
-            const tail = new Matrix4().makeTranslation(0, bone.length, 0);
-            pm.multiply(bone.pose).multiply(tail);
+            const arm = parent.ob.data ? doc.armatures[parent.ob.data] : undefined;
+            // relative parenting follows the bone's deformation; otherwise the child is relative to the bone tail
+            if (arm?.bones.find((b) => b.name === ob.parent_bone)?.use_relative_parent) pm.multiply(bone.deform);
+            else pm.multiply(bone.pose).multiply(new Matrix4().makeTranslation(0, bone.length, 0));
           }
         }
         ev.parentMatrix = new Matrix4().multiplyMatrices(pm, toMatrix4(ob.matrix_parent_inverse));

@@ -14,6 +14,7 @@ import { activeArmature, ensurePose, pickBone, newBone, forkedMirror, syncConnec
 import { transformModes } from '../transformmodes';
 import { startValueModal } from '../valuemodal';
 import * as A from './armkernels';
+import { objectCurves } from '../../anim/slots';
 
 const inArmEdit = () => app.doc.mode === 'EDIT' && !!activeArmature();
 const poll = () => inArmEdit();
@@ -44,8 +45,7 @@ export function applyRenames(ob: ObjectData, changes: Map<string, string>) {
     const old = me.vertex_groups.map((g) => g.name);
     me.vertex_groups.forEach((g, i) => (g.name = changes.get(old[i]) ?? g.name));
   }
-  const act = ob.animation_data?.action ? app.doc.actions[ob.animation_data.action] : undefined;
-  for (const fc of act?.fcurves ?? []) {
+  for (const fc of objectCurves(app.doc, ob)) {
     const m = /^pose\.bones\["(.*?)"\]/.exec(fc.data_path);
     if (m && changes.has(m[1])) fc.data_path = fc.data_path.replace(`pose.bones["${m[1]}"]`, `pose.bones["${changes.get(m[1])}"]`);
     if (fc.group && changes.has(fc.group)) fc.group = changes.get(fc.group)!;

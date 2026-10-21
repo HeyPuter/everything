@@ -10,8 +10,9 @@ import { app } from '../app/app';
 import type { ActionData, AnimData, Driver, DriverVariable, FCurve, FModifier, KeyingSetData, NlaStrip, NlaTrack, ObjectData, TimelineMarker } from '../data/types';
 import { newAction } from '../data/defaults';
 import { getValue } from '../data/rna';
-import { ensureAction, ensureFCurve, keyProperty } from '../anim/keyframes';
-import { calcHandles, evaluateFCurve, insertKeyframe, sortKeyframes } from '../anim/fcurve';
+import { ensureFCurve, keyProperty } from '../anim/keyframes';
+import { assignAction, objectCurves, slotCurves } from '../anim/slots';
+import { calcHandles, evaluateFCurve, insertKeyframe, sortKeyframes, ELASTIC_DEFAULTS } from '../anim/fcurve';
 import { animTarget, locateOwner } from '../ui/rnapath';
 import { ActionStruct, ObjectStruct, SceneStruct, uniqueName, wrapId } from './api';
 import { Vector } from './mathutils';
@@ -87,7 +88,7 @@ export function insertKey(t: Target, index: number, frame: unknown, group?: stri
   } finally {
     ts.keyframe_type = prevType;
   }
-  if (group) for (const fc of ensureAction(app.doc, t.ob).fcurves) if (fc.data_path === t.path) fc.group = String(group);
+  if (group) for (const fc of objectCurves(app.doc, t.ob)) if (fc.data_path === t.path) fc.group = String(group);
   touched();
   return true;
 }
@@ -97,13 +98,14 @@ export function deleteKey(t: Target, index: number, frame: unknown) {
   const act = t.ob.animation_data?.action ? app.doc.actions[t.ob.animation_data.action] : null;
   let removed = false;
   if (act) {
-    for (const fc of act.fcurves) {
+    const mine = new Set(objectCurves(app.doc, t.ob));
+    for (const fc of mine) {
       if (fc.data_path !== t.path || (index >= 0 && fc.array_index !== index)) continue;
       const n = fc.keyframe_points.length;
       fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - f) > 1e-4);
       removed ||= fc.keyframe_points.length !== n;
     }
-    act.fcurves = act.fcurves.filter((fc) => fc.keyframe_points.length || fc.data_path !== t.path);
+    act.fcurves = act.fcurves.filter((fc) => !mine.has(fc) || fc.keyframe_points.length || fc.data_path !== t.path);
   }
   if (!removed) throw pyError('RuntimeError', `keyframe_delete: no keyframe at frame ${f} for "${t.path}"`);
   touched();
@@ -254,19 +256,20 @@ const adOf = (id: string) => {
 };
 const obPath = (id: string) => `bpy.data.objects[${q(app.doc.objects[id]?.name ?? '?')}]`;
 
-class AnimDataStruct extends Struct {
+export class AnimDataStruct extends Struct {
   constructor(readonly __obId: string) {
     super('AnimData', () => app.doc.objects[__obId]?.animation_data as unknown as Raw, `${obPath(__obId)}.animation_data`);
   }
   override __hidden() {
-    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action']);
+    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action', 'action_slot_handle', 'slot_action', 'last_slot_identifier', 'use_pin']);
   }
   get action() {
     const a = adOf(this.__obId).action;
     return a && app.doc.actions[a] ? wrapId('actions', a) : null;
   }
   set action(v: unknown) {
-    adOf(this.__obId).action = v === null || v === undefined ? null : expectId(v, 'actions', 'Action');
+    // like assigning in the UI: the slot is picked again (last used, own name, or a never-used one)
+    assignAction(app.doc, obOf(this.__obId), adOf(this.__obId), v === null || v === undefined ? null : expectId(v, 'actions', 'Action'));
     touched();
   }
   get action_blend_type() {
@@ -292,17 +295,12 @@ class AnimDataStruct extends Struct {
   get use_tweak_mode() {
     return !!adOf(this.__obId).tweak;
   }
-  /** the action's slot this object is animated by (actions here have one slot) */
-  get action_slot() {
-    const a = adOf(this.__obId).action;
-    return a && app.doc.actions[a] ? actionSlot(a) : null;
+  get use_pin() {
+    return !!adOf(this.__obId).use_pin;
   }
-  set action_slot(_v: unknown) {
-    /* a single slot per action: nothing to switch */
-  }
-  get action_suitable_slots() {
-    const a = adOf(this.__obId).action;
-    return a && app.doc.actions[a] ? [actionSlot(a)] : [];
+  set use_pin(v: boolean) {
+    adOf(this.__obId).use_pin = !!v;
+    touched();
   }
   get use_nla() {
     return true;
@@ -375,6 +373,9 @@ function actionRange(a: ActionData | undefined): [number, number] {
   return [lo, hi > lo ? hi : lo + 1];
 }
 
+/** Extra members of NlaStrip wrappers (e.g. action slots, see api_slots.ts). */
+export const stripStructHooks: ((s: Struct, strip: NlaStrip, obId: string) => void)[] = [];
+
 class NlaStrips extends PropCollection<unknown> {
   constructor(
     readonly obId: string,
@@ -393,6 +394,7 @@ class NlaStrips extends PropCollection<unknown> {
     const s = new Struct('NlaStrip', () => (this.strips().includes(st) ? (st as unknown as Raw) : null), `${this.__path}[${q(st.name)}]`);
     Object.defineProperty(s, '__strip', { value: st });
     const obId = this.obId;
+    for (const hook of stripStructHooks) hook(s, st, obId);
     Object.defineProperty(s, 'strips', { get: () => new NlaStrips(obId, () => (st.strips ??= []), s.__path) });
     // the strip's length follows its action range, scale and repeat
     const span = () => (st.action_frame_end - st.action_frame_start) * st.scale * st.repeat;
@@ -666,89 +668,15 @@ function targetStruct(t: DriverVariable['targets'][number], path: string) {
 // ---------------------------------------------------------------------------
 // actions: F-Curves with keyframe points and modifiers
 
-// Layered actions (scripts written for 4.4+): every action has one slot, one layer with one
-// keyframe strip, and that strip's channelbag for the slot holds the action's F-curves.
-
-/** Slot identifier: ID type code + the name of the first object using the action. */
-function slotIdentifier(actId: string) {
-  const user = Object.values(app.doc.objects).find((o) => o.animation_data?.action === actId || o.animation_data?.nla_tracks.some((t) => t.strips.some((x) => x.action === actId)));
-  return `OB${user?.name ?? 'Slot'}`;
-}
-
-function actionSlot(actId: string) {
-  const ident = () => slotIdentifier(actId);
-  return {
-    __kind: 'struct',
-    __type: 'ActionSlot',
-    get identifier() {
-      return ident();
-    },
-    get name_display() {
-      return ident().slice(2);
-    },
-    target_id_type: 'OBJECT',
-    handle: 1,
-    active: true,
-    select: true,
-    __key: `slot:${actId}`,
-    toString: () => `<bpy_struct, ActionSlot("${ident()}")>`,
-  };
-}
-
-function channelbag(actId: string) {
-  return {
-    __kind: 'struct',
-    __type: 'ActionChannelbag',
-    get fcurves() {
-      return new FCurves(actId);
-    },
-    get groups() {
-      return (wrapId('actions', actId) as { groups: unknown }).groups;
-    },
-    get slot() {
-      return actionSlot(actId);
-    },
-    __key: `channelbag:${actId}`,
-    toString: () => `<bpy_struct, ActionChannelbag>`,
-  };
-}
-
-function actionLayers(actId: string) {
-  const strip = {
-    __kind: 'struct',
-    __type: 'ActionKeyframeStrip',
-    type: 'KEYFRAME',
-    channelbag: (_slot?: unknown, ensure = false) => {
-      void ensure;
-      return channelbag(actId);
-    },
-    get channelbags() {
-      return [channelbag(actId)];
-    },
-    toString: () => '<bpy_struct, ActionKeyframeStrip>',
-  };
-  const layer = { __kind: 'struct', __type: 'ActionLayer', name: 'Layer', influence: 1, mix_mode: 'REPLACE', strips: [strip], toString: () => '<bpy_struct, ActionLayer("Layer")>' };
-  return [layer];
-}
-
 class ActionAnim {
   get fcurves() {
     return new FCurves((this as unknown as ActionStruct).__id);
-  }
-  get slots() {
-    return [actionSlot((this as unknown as ActionStruct).__id)];
-  }
-  get layers() {
-    return actionLayers((this as unknown as ActionStruct).__id);
   }
   get is_action_layered() {
     return true;
   }
   get is_action_legacy() {
     return false;
-  }
-  get is_empty() {
-    return !app.doc.actions[(this as unknown as ActionStruct).__id]?.fcurves.length;
   }
   get id_root() {
     return 'OBJECT';
@@ -757,7 +685,7 @@ class ActionAnim {
     const actId = (this as unknown as ActionStruct).__id;
     const act = app.doc.actions[actId];
     const names = [...new Set(act.fcurves.map((f) => f.group).filter(Boolean))] as string[];
-    return names.map((name) => ({ __kind: 'struct', __type: 'ActionGroup', name, channels: act.fcurves.filter((f) => f.group === name).map((f) => fcurveWrapper(actId, f)) }));
+    return names.map((name) => groupStruct(actId, name));
   }
 }
 mixin(ActionStruct, ActionAnim, true);
@@ -768,12 +696,21 @@ const actOf = (id: string) => {
   return a;
 };
 
-class FCurves extends PropCollection<unknown> {
-  constructor(readonly actId: string) {
-    super(`bpy.data.actions[${q(app.doc.actions[actId]?.name ?? '?')}].fcurves`);
+/** F-Curves of an action (`action.fcurves`), or of one slot of it (a channelbag's `fcurves`). */
+export class FCurves extends PropCollection<unknown> {
+  constructor(
+    readonly actId: string,
+    readonly slot?: number,
+    path?: string,
+  ) {
+    super(path ?? `bpy.data.actions[${q(app.doc.actions[actId]?.name ?? '?')}].fcurves`);
+  }
+  private curves() {
+    const act = actOf(this.actId);
+    return this.slot === undefined ? act.fcurves : slotCurves(act, this.slot);
   }
   list() {
-    return actOf(this.actId).fcurves.map((f) => fcurveWrapper(this.actId, f));
+    return this.curves().map((f) => fcurveWrapper(this.actId, f));
   }
   nameOf(x: unknown) {
     return (x as { data_path: string }).data_path;
@@ -781,15 +718,19 @@ class FCurves extends PropCollection<unknown> {
   new(data_path: string, index = 0, action_group = '') {
     const act = actOf(this.actId);
     const i = Number(index ?? 0);
-    if (act.fcurves.some((f) => f.data_path === data_path && f.array_index === i)) throw pyError('RuntimeError', `Error: F-Curve '${data_path}[${i}]' already exists in action '${act.name}'`);
-    const fc = ensureFCurve(act, String(data_path), i);
+    if (this.curves().some((f) => f.data_path === data_path && f.array_index === i)) throw pyError('RuntimeError', `Error: F-Curve '${data_path}[${i}]' already exists in action '${act.name}'`);
+    const fc = ensureFCurve(act, String(data_path), i, this.slot);
     if (action_group) fc.group = String(action_group);
     touched();
     return fcurveWrapper(this.actId, fc);
   }
   find(data_path: string, index = 0) {
-    const fc = actOf(this.actId).fcurves.find((f) => f.data_path === data_path && f.array_index === Number(index ?? 0));
+    const fc = this.curves().find((f) => f.data_path === data_path && f.array_index === Number(index ?? 0));
     return fc ? fcurveWrapper(this.actId, fc) : null;
+  }
+  /** The F-Curve for data_path/index, created when missing. */
+  ensure(data_path: string, index = 0, group_name = '') {
+    return this.find(data_path, index) ?? this.new(data_path, index, group_name);
   }
   remove(fcurve: unknown) {
     const act = actOf(this.actId);
@@ -800,14 +741,41 @@ class FCurves extends PropCollection<unknown> {
     touched();
   }
   clear() {
-    actOf(this.actId).fcurves = [];
+    const act = actOf(this.actId);
+    const mine = new Set(this.curves());
+    act.fcurves = act.fcurves.filter((f) => !mine.has(f));
     touched();
   }
 }
 kwMethod(FCurves.prototype, 'new', ['data_path', 'index', 'action_group']);
+kwMethod(FCurves.prototype, 'ensure', ['data_path', 'index', 'group_name']);
 kwMethod(FCurves.prototype, 'find', ['data_path', 'index']);
 
 const fcCache = new WeakMap<FCurve, unknown>();
+/** An action group (`fcurve.group`, `action.groups[...]`). */
+export function groupStruct(actId: string, name: string) {
+  const act = () => app.doc.actions[actId];
+  return {
+    __kind: 'struct',
+    __type: 'ActionGroup',
+    name,
+    get channels() {
+      return (act()?.fcurves ?? []).filter((f) => f.group === name).map((f) => fcurveWrapper(actId, f));
+    },
+    get use_pin() {
+      return !!act()?.pinned_groups?.includes(name);
+    },
+    set use_pin(v: boolean) {
+      const a = act();
+      if (!a) return;
+      const list = (a.pinned_groups ?? []).filter((g) => g !== name);
+      a.pinned_groups = v ? [...list, name] : list;
+      touched();
+    },
+    toString: () => `<bpy_struct, ActionGroup("${name}")>`,
+  };
+}
+
 export function fcurveWrapper(actId: string, fc: FCurve): unknown {
   let w = fcCache.get(fc);
   if (w) return w;
@@ -829,6 +797,15 @@ export function fcurveWrapper(actId: string, fc: FCurve): unknown {
   Object.defineProperty(s, 'range', { value: () => new Vector(fc.keyframe_points.length ? [fc.keyframe_points[0].co[0], fc.keyframe_points[fc.keyframe_points.length - 1].co[0]] : [0, 0]) });
   Object.defineProperty(s, 'is_valid', { get: alive });
   Object.defineProperty(s, 'driver', { value: null });
+  // the group is an ActionGroup (assigned from a group, or by name)
+  Object.defineProperty(s, 'group', {
+    get: () => (fc.group ? groupStruct(actId, fc.group) : null),
+    set: (v: unknown) => {
+      fc.group = v === null || v === undefined ? undefined : typeof v === 'string' ? v : String((v as { name?: unknown }).name ?? '');
+      if (!fc.group) delete fc.group;
+      touched();
+    },
+  });
   w = proxify(s);
   fcCache.set(fc, w);
   return w;
@@ -855,7 +832,21 @@ class KeyframePoints extends PropCollection<unknown> {
   private wrap(i: number) {
     const fc = this.fc;
     const k = fc.keyframe_points[i];
-    return proxify(new Struct('Keyframe', () => (fc.keyframe_points.includes(k) ? (k as unknown as Raw) : null), `${this.__path}[${i}]`));
+    const st = new Struct('Keyframe', () => (fc.keyframe_points.includes(k) ? (k as unknown as Raw) : null), `${this.__path}[${i}]`);
+    // easing parameters read as their defaults until set
+    for (const [key, def] of [
+      ['back', 1.70158],
+      ['amplitude', ELASTIC_DEFAULTS.amplitude],
+      ['period', ELASTIC_DEFAULTS.period],
+    ] as const)
+      Object.defineProperty(st, key, {
+        get: () => k[key] ?? def,
+        set: (v: unknown) => {
+          k[key] = Number(v);
+          touched();
+        },
+      });
+    return proxify(st);
   }
   /** Adds (or replaces) the key at `frame`; options may include 'REPLACE', 'NEEDED', 'FAST'. */
   insert(frame: number, value: number, options: unknown = null, keyframe_type = 'KEYFRAME') {

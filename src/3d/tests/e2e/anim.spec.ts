@@ -67,7 +67,8 @@ test('graph editor: smoothing, density and blend shortcuts', async ({ page }) =>
   await page.keyboard.press('Alt+S');
   await expect(page.locator('.menu-item', { hasText: 'Butterworth Smooth' })).toBeVisible();
   await page.locator('.menu-item', { hasText: 'Smooth (Legacy)' }).click();
-  expect((await keyValues(page)).slice(2, 7)).toEqual([3, 3.5, 3.833, 4.75, 6]);
+  // (the key two before the middle one is the run's first key: its neighbour stands in, as in the reference)
+  expect((await keyValues(page)).slice(2, 7)).toEqual([3, 3.5, 3.667, 4.75, 6]);
   await page.keyboard.press('Alt+D');
   await expect(page.locator('.menu-item', { hasText: 'Scale from Neighbor' })).toBeVisible();
   await page.keyboard.press('Escape');
