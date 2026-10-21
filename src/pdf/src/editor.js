@@ -10832,7 +10832,7 @@ export function createEditor({
           }
         });
       const inputs = [
-        ...(includeCurrent.checked ? [{ name, bytes: session.bytes.slice() }] : []),
+        ...(includeCurrent.checked ? [{ name, bytes: session.bytes.slice(), protection }] : []),
         ...files,
       ];
       // Checked while the dialog is open, so the files and steps chosen are still there.
@@ -10914,6 +10914,17 @@ export function createEditor({
           return ocrEngine.recognize(picture, { signal: controller.signal });
         },
       });
+      // The open PDF is worked on without its password. Its copy is locked again as every other
+      // export of it is, unless the batch gives the results a password of its own.
+      if (!steps.some((step) => step.type === 'protect'))
+        for (const [i, result] of results.entries()) {
+          if (!result.bytes || !inputs[i].protection) continue;
+          try {
+            result.bytes = await exportBytes(result.bytes, inputs[i].protection);
+          } catch (error) {
+            results[i] = { name: result.name, error: error.message };
+          }
+        }
       done = true;
       if (d.open) d.close();
       if (destroyed) return;
