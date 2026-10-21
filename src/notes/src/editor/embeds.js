@@ -65,6 +65,7 @@ export async function hydrate(root, store) {
     );
     if (kind === 'audio' || kind === 'video') {
       const media = h(kind, { controls: true, preload: 'metadata' });
+      fixUnknownDuration(media);
       span.append(head, media);
       jobs.push(store.assetUrl(span.dataset.asset).then((url) => url && (media.src = url)).catch(() => {}));
     } else {
@@ -82,6 +83,24 @@ export async function hydrate(root, store) {
     jobs.push(renderMath(span.dataset.tex).then((html) => (span.innerHTML = html)));
   }
   await Promise.all(jobs);
+}
+
+/**
+ * Browsers record WebM without a duration, so a recording's player shows
+ * no length and can't be scrubbed. Seeking past the end once makes the
+ * browser scan the file and learn its real duration.
+ */
+function fixUnknownDuration(media) {
+  media.addEventListener('loadedmetadata', () => {
+    if (media.duration !== Infinity) return;
+    const known = () => {
+      if (!Number.isFinite(media.duration)) return;
+      media.removeEventListener('durationchange', known);
+      media.currentTime = 0;
+    };
+    media.addEventListener('durationchange', known);
+    media.currentTime = Number.MAX_SAFE_INTEGER;
+  }, { once: true });
 }
 
 /** Stored HTML for an outline body element. */

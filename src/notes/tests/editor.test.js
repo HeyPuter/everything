@@ -127,6 +127,24 @@ describe('embeds', () => {
     expect(two.children.length).toBe(1);
   });
 
+  it('makes a recording without a stored duration show its length', async () => {
+    const el = body('');
+    el.append(fileSpan({ asset: 'a4.webm', name: 'Audio recording.webm', type: 'audio/webm', kind: 'audio' }));
+    await hydrate(el, { assetUrl: async () => 'blob:rec' });
+    const media = el.querySelector('audio');
+    let duration = Infinity;
+    const seeks = [];
+    Object.defineProperty(media, 'duration', { get: () => duration });
+    Object.defineProperty(media, 'currentTime', { get: () => seeks.at(-1) ?? 0, set: (v) => seeks.push(v) });
+    media.dispatchEvent(new Event('loadedmetadata'));
+    expect(seeks[0]).toBeGreaterThan(1e6); // seek past the end to find the length
+    media.dispatchEvent(new Event('durationchange')); // still unknown
+    duration = 4.2;
+    media.dispatchEvent(new Event('durationchange'));
+    expect(seeks).toHaveLength(2);
+    expect(seeks[1]).toBe(0);
+  });
+
   it('treats a lone placeholder as empty', () => {
     expect(serialize(body('<p><br></p>'))).toBe('');
   });
