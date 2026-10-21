@@ -566,6 +566,34 @@ test('a certificate signature is added, validated, and protected from silent edi
   ]);
 });
 
+test('the Signatures panel leaves out the revision of a signature it cannot place', async ({
+  page,
+}) => {
+  const { createSelfSignedId, signPdf } = await import('../../src/core/digital-signature.js');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  const signed = await signPdf(await doc.save(), await createSelfSignedId({ name: 'Ada' }), {});
+  // A byte range that does not start at the beginning of the file covers no revision.
+  const text = Buffer.from(signed).toString('latin1');
+  const at = text.indexOf('/ByteRange [0 ') + '/ByteRange ['.length;
+  signed[at] = '1'.charCodeAt(0);
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: /Open a PDF/ }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'signed.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(signed),
+  });
+  await settled(page);
+  await page.getByRole('tab', { name: 'Signatures' }).click();
+  const panel = page.getByRole('tabpanel', { name: 'Signatures' });
+  await expect(panel).toContainText('does not start at the beginning of the file');
+  await expect(panel.locator('dt')).not.toContainText(['Revision']);
+  await expect(panel.locator('dd')).not.toContainText(['null']);
+});
+
 test('Find text and redact removes the matched words from the saved file', async ({ page }) => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

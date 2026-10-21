@@ -74,7 +74,12 @@ export function createSignaturesPanel({ onGoTo, onValidate }) {
               .join(' → ')
           : '',
       ],
-      ['Revision', report.totalRevisions ? `${report.revision} of ${report.totalRevisions}` : ''],
+      [
+        'Revision',
+        report.revision && report.totalRevisions
+          ? `${report.revision} of ${report.totalRevisions}`
+          : '',
+      ],
       ['Certification', report.certification ? `Level ${report.certification.level}` : ''],
       [
         'Certificate valid',
