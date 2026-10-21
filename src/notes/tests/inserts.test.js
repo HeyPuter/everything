@@ -100,3 +100,43 @@ describe('attachments', () => {
     expect(opened).toEqual(['notes.txt', 'notes.txt']);
   });
 });
+
+describe('dictation', () => {
+  let rec;
+  beforeEach(() => {
+    app.dictation.Recognition = class {
+      start() {
+        rec = this;
+      }
+      stop() {
+        this.onend?.();
+      }
+    };
+    app.dictation.supported = true;
+  });
+  const say = (transcript) => rec.onresult({ resultIndex: 0, results: [Object.assign([{ transcript }], { isFinal: true })] });
+
+  it("writes at the note's caret without taking focus from the search box", () => {
+    const el = app.editor.createOutlineAt(100, 200, '<p>Notes: </p>');
+    const text = el.querySelector('p').firstChild;
+    const r = document.createRange();
+    r.setStart(text, text.length);
+    app.editor.lastRange = r;
+    app.dictation.start();
+    app.tellMeInput.focus();
+    say('hello');
+    say('world');
+    expect(document.activeElement).toBe(app.tellMeInput);
+    expect(app.tellMeInput.value).toBe('');
+    expect(app.editor.page.outlines[0].html).toBe('<p>Notes: hello world </p>');
+  });
+
+  it('stops instead of typing into a field when the note caret is gone', () => {
+    app.editor.lastRange = null;
+    app.dictation.start();
+    app.tellMeInput.focus();
+    say('hello');
+    expect(app.tellMeInput.value).toBe('');
+    expect(app.dictation.active).toBe(false);
+  });
+});
