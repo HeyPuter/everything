@@ -9808,6 +9808,11 @@ export function createEditor({
   }
   /** Comments out as XFDF (as other PDF editors exchange them) or a plain text summary. */
   async function exportComments(kind) {
+    // As for a download: a note being written and edits still being applied go out too.
+    await idle();
+    if (destroyed) return;
+    await finishDrafts();
+    if (destroyed) return;
     const doc = await PDFDocument.load(session.bytes, { updateMetadata: false });
     const base = safeName(name).replace(/\.pdf$/i, '');
     if (kind === 'summary') {
