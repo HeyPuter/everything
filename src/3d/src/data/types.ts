@@ -404,6 +404,8 @@ export interface Bone {
   bbone_z?: number;
   /** location is applied in the bone's own space (false: in the parent's space) */
   use_local_location?: boolean;
+  /** objects parented to the bone follow its deformation (pose relative to rest) instead of its tail */
+  use_relative_parent?: boolean;
   /** envelope deformation strength and whether it multiplies vertex group weights */
   envelope_weight?: number;
   use_envelope_multiply?: boolean;

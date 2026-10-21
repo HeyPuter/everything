@@ -197,3 +197,31 @@ describe('pose sliding tools', () => {
     }
   });
 });
+
+describe('Bone and Bone Relative parenting', () => {
+  for (const type of ['BONE', 'BONE_RELATIVE'] as const)
+    it(`${type}: the child follows the posed bone like in the reference`, async () => {
+      const ref = (await import('../fixtures/anim/bone_parent.json')).default as unknown as Record<string, { world1: number[][]; pinv: number[][]; rel: boolean }>;
+      build([['Bone', [0, 0, 0], [0, 0.5, 1], 0.3, null, false]]);
+      ob.location = [0.5, 0, 0];
+      const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+      cube.location = [2, 1, 0.5];
+      cube.rotation_euler = [0, 0, 0];
+      cube.scale = [1, 1, 1];
+      app.evaluate();
+      cube.select = true;
+      ob.select = true;
+      arm.active_bone = 'Bone';
+      expect(app.run('object.parent_set', { type }, { invoke: false })).toBe('FINISHED');
+      expect(!!arm.bones[0].use_relative_parent).toBe(ref[type].rel);
+      const pb = ob.pose!['Bone'];
+      pb.rotation_mode = 'XYZ';
+      pb.rotation_euler = [0.5, 0.2, 0.1];
+      pb.location = [0.1, 0.2, 0.3];
+      pb.scale = [1, 1.5, 1];
+      app.evaluate();
+      const w = app.graph.get(cube.id)!.world.elements;
+      // reference matrices are row-major; three.js stores columns
+      ref[type].world1.forEach((row, r) => row.forEach((v, c) => expect(w[c * 4 + r], `world[${r}][${c}]`).toBeCloseTo(v, 4)));
+    });
+});

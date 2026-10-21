@@ -979,6 +979,7 @@ registerOperators([
           ['ARMATURE_NAME', 'With Empty Groups'],
           ['ARMATURE_AUTO', 'With Automatic Weights'],
           ['BONE', 'Bone'],
+          ['BONE_RELATIVE', 'Bone Relative'],
           ['CURVE', 'Curve Deform'],
           ['LATTICE', 'Lattice Deform'],
         ],
@@ -1007,15 +1008,18 @@ registerOperators([
         ob.parent = parent.id;
         ob.parent_type = 'OBJECT';
         ob.parent_bone = '';
-        if (p.type === 'BONE' && parent.type === 'ARMATURE') {
+        if ((p.type === 'BONE' || p.type === 'BONE_RELATIVE') && parent.type === 'ARMATURE') {
           const arm = parent.data ? ctx.doc.armatures[parent.data] : undefined;
           const pose = app.graph.get(parent.id)?.pose;
           const bname = arm?.active_bone;
           const b = bname ? pose?.bones.get(bname) : undefined;
-          if (b && bname) {
+          const boneData = arm?.bones.find((x) => x.name === bname);
+          if (b && bname && boneData) {
             ob.parent_type = 'BONE';
             ob.parent_bone = bname;
-            const bw = pw.clone().multiply(b.pose).multiply(new Matrix4().makeTranslation(0, b.length, 0));
+            // Bone Relative: the child follows the bone's deformation (pose relative to rest)
+            boneData.use_relative_parent = p.type === 'BONE_RELATIVE';
+            const bw = boneData.use_relative_parent ? pw.clone().multiply(b.deform) : pw.clone().multiply(b.pose).multiply(new Matrix4().makeTranslation(0, b.length, 0));
             ob.matrix_parent_inverse = fromMatrix4(bw.invert());
             applyMatrixToObject(ob, w.clone().premultiply(new Matrix4()));
             continue;

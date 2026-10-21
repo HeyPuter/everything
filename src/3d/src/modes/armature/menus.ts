@@ -274,5 +274,6 @@ function poseParentMenu(): MenuItem[] {
     { label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } },
     { label: 'Object (Keep Transform)', op: 'object.parent_set', props: { type: 'OBJECT', keep_transform: true } },
     { label: 'Bone', op: 'object.parent_set', props: { type: 'BONE' } },
+    { label: 'Bone Relative', op: 'object.parent_set', props: { type: 'BONE_RELATIVE' } },
   ];
 }
