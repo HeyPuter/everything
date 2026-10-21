@@ -107,9 +107,9 @@ function addElementMenu(ctx) {
       radio('Top', state.legend === 'top', el2('legend', 'top')),
       radio('Bottom', state.legend === 'bottom', el2('legend', 'bottom')),
       { separator: true }, { label: 'More Legend Options…', cmd: 'chart', arg: { action: 'formatPane', element: 'legend' } }]),
-    sub('Trendline', 'chartLine', !pie && !chart.stacked ? [
+    sub('Trendline', 'chartLine', can('trendline', 'linear') ? [
       radio('None', state.trendline === 'none', el2('trendline', 'none')),
-      radio('Linear', state.trendline === 'linear', el2('trendline', 'linear'))] : [], pie || !!chart.stacked),
+      radio('Linear', state.trendline === 'linear', el2('trendline', 'linear'))] : [], !can('trendline', 'linear')),
   ];
 }
 

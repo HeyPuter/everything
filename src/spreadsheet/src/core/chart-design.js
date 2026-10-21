@@ -14,6 +14,7 @@ const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
 // Treemaps, sunbursts and funnels have no value axis; the other newer types draw their own kind of plot.
 const AXIS_FREE = new Set(['radar', 'treemap', 'sunburst', 'funnel']);
 const SPECIAL = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
+const NO_TRENDLINE = new Set(['radar', 'histogram', 'waterfall']);
 const AXES = t => !PIE.has(t) && !AXIS_FREE.has(t);
 export const isPieChart = chart => PIE.has(chart?.type);
 export const hasAxes = chart => AXES(chart?.type);
@@ -108,7 +109,8 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
       if (value === 'none') return done({ legend: false });
       return done({ legend: true, legendPos: value, appearance: { legendPos: value, legend: null } });
     case 'trendline':
-      if (PIE.has(chart.type) || chart.stacked || SPECIAL.has(chart.type)) return null;
+      // As in Excel, a radar chart, a histogram and a waterfall take no trendline, any more than a stack does.
+      if (PIE.has(chart.type) || chart.stacked || SPECIAL.has(chart.type) || NO_TRENDLINE.has(chart.type)) return null;
       return done({ trendline: value === 'linear' });
     default: return null;
   }
