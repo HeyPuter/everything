@@ -137,6 +137,55 @@ describe('lyricsFromClip', () => {
     expect(res.cues[0].end).toBeLessThanOrEqual(5);
   });
 
+  it('separates the singing and finds the beat off the main thread, and stops it on cancel', async () => {
+    const workers = [];
+    vi.stubGlobal('Worker', class {
+      constructor(url) {
+        this.url = String(url);
+        this.terminated = false;
+        workers.push(this);
+      }
+      postMessage(msg) {
+        this.msg = msg;
+      }
+      terminate() {
+        this.terminated = true;
+      }
+    });
+    try {
+      const { p, music } = project();
+      const ac = new AbortController();
+      const steps = [];
+      const run = lyricsFromClip(p, music.id, {
+        signal: ac.signal,
+        decode: async () => ({ sampleRate: SR, channels: song(1) }),
+        transcribe: async () => [W('La', 0.6, 0.9)],
+        onStep: (st, f) => steps.push([st, f]),
+      });
+      await vi.waitFor(() => expect(workers).toHaveLength(1));
+      expect(workers[0].url).toMatch(/lyrics-worker\.js/);
+      expect(workers[0].msg).toMatchObject({ op: 'isolate', sr: SR });
+      workers[0].onmessage({ data: { progress: 0.5 } });
+      expect(steps.at(-1)).toEqual(['isolate', 0.5]);
+      workers[0].onmessage({ data: { ok: true, result: new Float32Array(SR) } });
+      await vi.waitFor(() => expect(workers).toHaveLength(2));
+      expect(workers[0].terminated).toBe(true);
+      expect(workers[1].msg).toMatchObject({ op: 'beats', sr: SR });
+      ac.abort();
+      await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+      expect(workers[1].terminated).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('works without workers', async () => {
+    const { p, music } = project();
+    expect(typeof Worker).toBe('undefined');
+    const res = await lyricsFromClip(p, music.id, { decode: async () => ({ sampleRate: SR, channels: song(1.5) }), transcribe: async () => [W('La', 0.6, 0.9)] });
+    expect(res).toMatchObject({ isolated: true, words: 1 });
+  });
+
   it('skips isolation when asked and reports unreadable clips', async () => {
     const { p, music } = project();
     const separate = vi.fn();

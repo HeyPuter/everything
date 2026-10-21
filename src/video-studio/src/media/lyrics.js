@@ -10,7 +10,7 @@
  * are timeline seconds (the clip's speed and in point applied).
  */
 import { US } from '../lib/time.js';
-import { Separator } from './audio-fx.js';
+import { isolateVocals } from './vocals.js';
 import { decodeClipSound, downmix, detectBeats } from './audio-analysis.js';
 import { STT_RATE, transcribeMix, joinWords } from './transcribe.js';
 import { localAtSource } from '../model/speed-curve.js';
@@ -57,29 +57,6 @@ export function resample(x, from, to) {
       out[j] = i + 1 < x.length ? x[i] + (x[i + 1] - x[i]) * f : x[i] || 0;
     }
   }
-  return out;
-}
-
-/**
- * The singing of a song as mono: the separator in voice mode at full
- * strength over both channels (a mono song gives the same channel twice,
- * where only the voice band is kept), with its latency taken out.
- */
-export function isolateVocals(channels, sr, { amount = 100 } = {}) {
-  const n = channels[0]?.length || 0;
-  const s = new Separator(sr, { mode: 'voice', amount });
-  const lat = s.latency;
-  const L = new Float32Array(n + lat);
-  const R = new Float32Array(n + lat);
-  L.set(channels[0]);
-  R.set(channels[1] || channels[0]);
-  const B = 512;
-  for (let i = 0; i < L.length; i += B) {
-    const m = Math.min(B, L.length - i);
-    s.process(L.subarray(i, i + m), R.subarray(i, i + m), m);
-  }
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) out[i] = (L[i + lat] + R[i + lat]) / 2;
   return out;
 }
 
@@ -169,6 +146,58 @@ function abortError() {
   return new DOMException('Cancelled', 'AbortError');
 }
 
+export { isolateVocals };
+
+/**
+ * Run a lyrics worker op ('isolate' or 'beats'): seconds of math that would
+ * freeze the page. Aborting stops the worker; without workers (or when one
+ * cannot start) it runs here.
+ */
+function offThread(op, data, local, { signal, onProgress } = {}) {
+  if (signal?.aborted) return Promise.reject(abortError());
+  let worker = null;
+  try {
+    if (typeof Worker === 'function') worker = new Worker(new URL('../workers/lyrics-worker.js', import.meta.url), { type: 'module' });
+  } catch {
+    worker = null;
+  }
+  const here = () => new Promise((r) => setTimeout(r, 0)).then(() => {
+    if (signal?.aborted) throw abortError();
+    return local();
+  });
+  if (!worker) return here();
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      worker.terminate();
+      signal?.removeEventListener('abort', stop);
+    };
+    const stop = () => {
+      done();
+      reject(abortError());
+    };
+    signal?.addEventListener('abort', stop, { once: true });
+    worker.onmessage = (e) => {
+      const m = e.data || {};
+      if ('progress' in m) return onProgress?.(m.progress);
+      done();
+      if (m.ok) resolve(m.result);
+      else reject(new Error(m.error));
+    };
+    worker.onerror = (e) => {
+      e.preventDefault?.();
+      done();
+      here().then(resolve, reject);
+    };
+    worker.postMessage({ op, ...data });
+  });
+}
+
+/** The singing (isolateVocals) of a song, worked out off the main thread. */
+export const isolateVocalsOffThread = (channels, sr, opts) => offThread('isolate', { channels, sr }, () => isolateVocals(channels, sr), opts);
+
+/** The beat (detectBeats) of a song, worked out off the main thread. */
+export const detectBeatsOffThread = (mono, sr, opts) => offThread('beats', { mono, sr }, () => detectBeats(mono, sr), opts);
+
 /** Timeline seconds for seconds into a clip's decoded source range. */
 function toTimeline(clip, sec) {
   return (clip.start + localAtSource(clip, sec * US)) / US;
@@ -179,13 +208,13 @@ function toTimeline(clip, sec) {
  *  isolate     separate the singing first (default on)
  *  onStep      (step, fraction) with step 'decode' | 'isolate' | 'transcribe' | 'phrase'
  *  decode      (asset, clip, { maxSeconds, signal, onProgress }) => { sampleRate, channels }
- *  separate    (channels, sampleRate) => mono vocals
+ *  separate    (channels, sampleRate, { signal, onProgress }) => mono vocals (or a promise of them)
  *  transcribe  (mono, sampleRate, { language, signal, onProgress }) => timed words (seconds)
- *  beats       (mono, sampleRate) => { beats: [seconds] } | null
+ *  beats       (mono, sampleRate, { signal }) => { beats: [seconds] } | null (or a promise of it)
  */
 export async function lyricsFromClip(project, clipId, {
   library, language = 'auto', isolate = true, signal, onStep,
-  decode = null, separate = isolateVocals, transcribe = transcribeMix, beats = detectBeats,
+  decode = null, separate = isolateVocalsOffThread, transcribe = transcribeMix, beats = detectBeatsOffThread,
 } = {}) {
   const found = songClips(project).find((s) => s.clip.id === clipId);
   if (!found) throw new Error('Pick a song clip with sound.');
@@ -206,8 +235,7 @@ export async function lyricsFromClip(project, clipId, {
   let isolated = false;
   if (isolate) {
     step('isolate');
-    await new Promise((r) => setTimeout(r, 0));
-    voice = separate(channels, STT_RATE);
+    voice = await separate(channels, STT_RATE, { signal, onProgress: (f) => step('isolate', f) });
     isolated = true;
   }
   if (signal?.aborted) throw abortError();
@@ -215,7 +243,8 @@ export async function lyricsFromClip(project, clipId, {
   const words = await transcribe(voice, STT_RATE, { language, signal, onProgress: (f) => step('transcribe', f) });
   if (signal?.aborted) throw abortError();
   step('phrase');
-  const grid = beats(full, STT_RATE)?.beats || [];
+  const grid = (await beats(full, STT_RATE, { signal }))?.beats || [];
+  if (signal?.aborted) throw abortError();
   const end = (clip.start + clip.duration) / US;
   const toT = (w) => ({ text: w.text, start: toTimeline(clip, w.start), end: toTimeline(clip, w.end) });
   const timed = words.map(toT).filter((w) => w.start < end - 0.05);
