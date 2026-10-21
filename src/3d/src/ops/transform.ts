@@ -760,6 +760,8 @@ export function startTransform(
     redoSelf?: boolean;
     /** label for the undo step */
     label?: string;
+    /** pivot to transform around instead of the pivot point setting (e.g. the Scale Cage's opposite handle) */
+    center?: Vector3;
   } = {},
 ): boolean {
   const v = activeView3D();
@@ -770,6 +772,10 @@ export function startTransform(
   const rect = v.el.getBoundingClientRect();
   const start = opts.event ? { x: opts.event.x - rect.left, y: opts.event.y - rect.top } : { x: app.pointer.x - rect.left, y: app.pointer.y - rect.top };
   const proportional = proportionalEnabled();
+  if (opts.center) {
+    s.pivot.copy(opts.center);
+    s.individual = false;
+  }
   const pivot0 = s.pivot.clone();
   const sel0 = s.sel;
   // Snap With: Closest uses the bounding-box corners of moved objects (captured before moving)

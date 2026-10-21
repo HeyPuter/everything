@@ -7,6 +7,11 @@ import type { View3D } from './view3d';
 import { enumMenu, enumRow } from '../../ui/widgets';
 import { DRAG_ACTIONS, TOOL_KIND, gizmoOrientationSlot, setGizmoOrientationSlot, setToolDragAction, toolDragAction, type DragAction } from './transformtool';
 import { BUILTIN_ORIENTATIONS, customOrientations } from '../../ops/orientations';
+import { registerIcons } from '../../ui/icons';
+
+registerIcons({
+  scale_cage: '<rect class="s" x="3" y="3" width="10" height="10" fill="none" stroke-width="1.1" stroke-dasharray="2 1.4"/><rect class="f" x="1.5" y="1.5" width="3" height="3"/><rect class="f" x="11.5" y="1.5" width="3" height="3"/><rect class="f" x="1.5" y="11.5" width="3" height="3"/><rect class="f" x="11.5" y="11.5" width="3" height="3"/><rect class="f" x="6.5" y="6.5" width="3" height="3" opacity=".6"/>',
+});
 import { openMenu } from '../../ui/menu';
 import { toolHeaderRightHooks, optionsButton, hasToolOptions } from './tooloptions';
 
@@ -49,7 +54,8 @@ const COMMON: (ToolDef | null)[] = [
   null,
   { id: 'builtin.move', label: 'Move', icon: 'transform_move', shortcut: 'G', description: 'Move selected items' },
   { id: 'builtin.rotate', label: 'Rotate', icon: 'transform_rotate', shortcut: 'R', description: 'Rotate selected items' },
-  { id: 'builtin.scale', label: 'Scale', icon: 'transform_scale', shortcut: 'S', description: 'Scale (resize) selected items' },
+  { id: 'builtin.scale', label: 'Scale', icon: 'transform_scale', shortcut: 'S', group: 'scale', description: 'Scale (resize) selected items' },
+  { id: 'builtin.scale_cage', label: 'Scale Cage', icon: 'scale_cage', group: 'scale', description: 'Scale the selection from the opposite side of its bounding box' },
   { id: 'builtin.transform', label: 'Transform', icon: 'transform', description: 'Supports any combination of grab, rotate, and scale at once' },
   null,
   { id: 'builtin.annotate', label: 'Annotate', icon: 'annotate', group: 'annotate', description: 'Draw free-hand annotation' },
@@ -241,6 +247,6 @@ function toolSettingsFor(id: string): Child {
       { iconOnly: true },
     );
   }
-  if (id === 'builtin.move' || id === 'builtin.rotate' || id === 'builtin.scale' || id === 'builtin.transform') return transformToolSettings(id);
+  if (TOOL_KIND[id]) return transformToolSettings(id);
   return null;
 }

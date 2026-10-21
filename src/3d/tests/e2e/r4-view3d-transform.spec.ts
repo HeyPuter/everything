@@ -118,3 +118,30 @@ test('transform tool settings: gizmo orientation slot and drag action', async ({
   expect(loc[0]).toBeCloseTo(loc[1], 3);
   await expectNoErrors(errors);
 });
+
+test('Scale Cage scales from the opposite side of the selection box', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => (window as any).app.run('wm.tool_set_by_id', { name: 'builtin.scale_cage' })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.waitForTimeout(150);
+  const h = page.locator('.v3d-svg [data-gizmo="cage:1,0,0"]').first();
+  await expect(h).toBeVisible();
+  const b = (await h.boundingBox())!;
+  const x = b.x + b.width / 2,
+    y = b.y + b.height / 2;
+  // drag the +X face handle away from the box
+  const far = await screenOf(page, [3, 0, 0]);
+  const dx = far.x - x,
+    dy = far.y - y,
+    l = Math.hypot(dx, dy);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + (dx / l) * 40, y + (dy / l) * 40, { steps: 6 });
+  await page.mouse.up();
+  const ob = await get<{ scale: number[]; location: number[] }>(page, '({ scale: app.activeObject.scale, location: app.activeObject.location })');
+  expect(ob.scale[0]).toBeGreaterThan(1.05);
+  expect(ob.scale[1]).toBeCloseTo(1, 5);
+  // the -X face stays in place: the centre moves by the growth
+  expect(ob.location[0]).toBeCloseTo(ob.scale[0] - 1, 3);
+  await expectNoErrors(errors);
+});

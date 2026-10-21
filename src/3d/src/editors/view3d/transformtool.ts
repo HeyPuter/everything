@@ -16,7 +16,7 @@ type SceneExt = SceneData & {
 
 const scene = () => app.doc.scene as SceneExt;
 
-export const TOOL_KIND: Record<string, GizmoKind> = { 'builtin.move': 'move', 'builtin.rotate': 'rotate', 'builtin.scale': 'scale', 'builtin.transform': 'move' };
+export const TOOL_KIND: Record<string, GizmoKind> = { 'builtin.move': 'move', 'builtin.rotate': 'rotate', 'builtin.scale': 'scale', 'builtin.scale_cage': 'scale', 'builtin.transform': 'move' };
 
 /** Orientation slot value of a gizmo ('DEFAULT' or an orientation id / custom name). */
 export function gizmoOrientationSlot(kind: GizmoKind): string {

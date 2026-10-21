@@ -59,6 +59,7 @@ export function setGizmoCenterHook(fn: typeof gizmoCenterHook) {
 
 function toolKind(): 'move' | 'rotate' | 'scale' | 'transform' | null {
   const t = activeTools[app.doc.mode];
+  if (t === 'builtin.scale_cage') return null;
   if (t === 'builtin.move') return 'move';
   if (t === 'builtin.rotate') return 'rotate';
   if (t === 'builtin.scale') return 'scale';
@@ -78,6 +79,7 @@ function gizmoParts(v: View3D) {
 }
 
 export function transformGizmo(v: View3D): VNode | null {
+  if (v.showToolGizmo && activeTools[app.doc.mode] === 'builtin.scale_cage' && !app.modal) return scaleCage(v);
   const show = gizmoParts(v);
   const count = +show.move + +show.rotate + +show.scale;
   if (!count || app.modal) return null;
@@ -160,6 +162,7 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   const g = t.closest?.('[data-gizmo]') as SVGElement | null;
   if (!g) return false;
   const id = g.getAttribute('data-gizmo')!;
+  if (id.startsWith('cage:')) return cagePointerDown(v, e, id);
   const [kind, axis] = id.split(':');
   e.preventDefault();
   e.stopPropagation();
@@ -177,5 +180,96 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
     addEventListener('pointerup', up, true);
   }
   void transformProviders;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Scale Cage: a box around the selection (in the scale gizmo's orientation) with handles on its
+// corners, edges and faces; dragging one scales the selection from the opposite side.
+
+/** Selection bounds in the coordinates of `basis` (object mode: geometry of the selected objects). */
+function cageBounds(basis: Matrix3): { min: Vector3; max: Vector3 } | null {
+  const inv = basis.clone().invert();
+  const min = new Vector3(Infinity, Infinity, Infinity),
+    max = new Vector3(-Infinity, -Infinity, -Infinity);
+  const add = (p: Vector3) => {
+    p.applyMatrix3(inv);
+    min.min(p);
+    max.max(p);
+  };
+  if (app.doc.mode === 'OBJECT') {
+    for (const ob of app.selectedObjects()) {
+      const ev = app.graph.get(ob.id);
+      if (!ev) continue;
+      const P = ev.mesh?.positions;
+      if (P && P.length) {
+        const step = Math.max(1, Math.floor(P.length / 3 / 5000));
+        for (let i = 0; i < P.length / 3; i += step) add(new Vector3(P[i * 3], P[i * 3 + 1], P[i * 3 + 2]).applyMatrix4(ev.world));
+      } else add(new Vector3().setFromMatrixPosition(ev.world));
+    }
+  } else {
+    const c = gizmoCenterHook?.();
+    if (c) add(c.center.clone());
+  }
+  return Number.isFinite(min.x) ? { min, max } : null;
+}
+
+function cageFrame(): { basis: Matrix3; min: Vector3; max: Vector3; at: (ix: number, iy: number, iz: number) => Vector3 } | null {
+  const basis = orientationBasis(gizmoOrientation('scale'));
+  const b = cageBounds(basis);
+  if (!b) return null;
+  const pick = (i: number, k: 'x' | 'y' | 'z') => (i < 0 ? b.min[k] : i > 0 ? b.max[k] : (b.min[k] + b.max[k]) / 2);
+  return { basis, min: b.min, max: b.max, at: (ix, iy, iz) => new Vector3(pick(ix, 'x'), pick(iy, 'y'), pick(iz, 'z')).applyMatrix3(basis) };
+}
+
+function scaleCage(v: View3D): VNode | null {
+  const f = cageFrame();
+  if (!f) return null;
+  const parts: VNode[] = [];
+  const P = (ix: number, iy: number, iz: number) => v.project(f.at(ix, iy, iz));
+  const edges: [number[], number[]][] = [];
+  for (const a of [-1, 1])
+    for (const b of [-1, 1]) {
+      edges.push([[-1, a, b], [1, a, b]], [[a, -1, b], [a, 1, b]], [[a, b, -1], [a, b, 1]]);
+    }
+  const flat = [0, 1, 2].map((k) => Math.abs((k === 0 ? f.max.x - f.min.x : k === 1 ? f.max.y - f.min.y : f.max.z - f.min.z)) < 1e-9);
+  for (const [a, b] of edges) {
+    const p = P(a[0], a[1], a[2]),
+      q = P(b[0], b[1], b[2]);
+    if (p.z > 1 || q.z > 1) continue;
+    parts.push(h('line', { x1: p.x, y1: p.y, x2: q.x, y2: q.y, stroke: '#ffffff', 'stroke-width': 1, opacity: 0.7 }));
+  }
+  for (const ix of [-1, 0, 1])
+    for (const iy of [-1, 0, 1])
+      for (const iz of [-1, 0, 1]) {
+        if (!ix && !iy && !iz) continue;
+        // a flat box has no handles off its plane
+        if ((flat[0] && ix) || (flat[1] && iy) || (flat[2] && iz)) continue;
+        const p = P(ix, iy, iz);
+        if (p.z > 1) continue;
+        const n = +!!ix + +!!iy + +!!iz;
+        const r = n === 3 ? 4.5 : n === 2 ? 3.5 : 4;
+        const color = n === 1 ? COLORS[ix ? 0 : iy ? 1 : 2] : '#ffffff';
+        parts.push(h('rect', { x: p.x - r, y: p.y - r, width: r * 2, height: r * 2, fill: color, stroke: '#000000', 'stroke-width': 0.6, 'data-gizmo': `cage:${ix},${iy},${iz}`, class: 'gz' }));
+      }
+  return h('g', { class: 'transform-gizmo scale-cage' }, parts);
+}
+
+function cagePointerDown(v: View3D, e: PointerEvent, id: string): boolean {
+  const [ix, iy, iz] = id.slice(5).split(',').map(Number);
+  const f = cageFrame();
+  if (!f) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const center = f.at(-ix, -iy, -iz);
+  const constraint = [ix !== 0, iy !== 0, iz !== 0];
+  if (startTransform('RESIZE', { constraint, center, event: { x: e.clientX, y: e.clientY }, release_confirm: true, orient: gizmoOrientation('scale'), label: 'Scale Cage' })) {
+    const up = () => {
+      removeEventListener('pointerup', up, true);
+      if (app.modal) app.endModal('FINISHED');
+    };
+    addEventListener('pointerup', up, true);
+  }
+  void v;
   return true;
 }
