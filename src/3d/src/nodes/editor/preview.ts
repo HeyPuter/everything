@@ -1,7 +1,7 @@
 // Node previews (Shift H) in the Shader Editor: a small lit sphere showing what a node outputs,
 // drawn above the node. Previews render off-screen with the shared renderer, one per frame and
 // only after edits settle, and are cached until the material changes.
-import { Mesh, PerspectiveCamera, Scene, SphereGeometry, SRGBColorSpace, WebGLRenderTarget, DirectionalLight } from 'three';
+import { BoxGeometry, Mesh, PerspectiveCamera, PlaneGeometry, Scene, SphereGeometry, SRGBColorSpace, WebGLRenderTarget, DirectionalLight, type BufferGeometry } from 'three';
 import type { DocumentData, MaterialData, NodeData } from '../../data/types';
 import { renderContext } from '../../render/context';
 import { app } from '../../app/app';
@@ -17,11 +17,16 @@ interface Entry {
   key: string;
   url?: string;
 }
+/** Shapes of the material preview (Material ▸ Preview). */
+export type PreviewShape = 'SPHERE' | 'CUBE' | 'FLAT';
+
 interface Job {
   id: string;
   key: string;
   material: string;
-  node: string;
+  /** node whose output is shown; null for the whole material */
+  node: string | null;
+  shape: PreviewShape;
 }
 
 const entries = new Map<string, Entry>();
@@ -68,7 +73,22 @@ export function nodePreview(doc: DocumentData, ma: MaterialData, node: NodeData,
   const e = entries.get(id);
   if (!e || e.key !== key) {
     if (pending.get(id)?.key !== key) {
-      pending.set(id, { id, key, material: ma.id, node: node.id });
+      pending.set(id, { id, key, material: ma.id, node: node.id, shape: 'SPHERE' });
+      lastRequest = performance.now();
+    }
+    install();
+  }
+  return e?.url;
+}
+
+/** The preview image URL of a whole material on a shape (possibly older while a new one renders). */
+export function materialPreview(doc: DocumentData, ma: MaterialData, shape: PreviewShape = 'SPHERE'): string | undefined {
+  const id = `${ma.id}:__material__`;
+  const key = `${previewTreeKey(doc, ma)}|${shape}|${ma.diffuse_color.join(',')}|${ma.use_nodes}`;
+  const e = entries.get(id);
+  if (!e || e.key !== key) {
+    if (pending.get(id)?.key !== key) {
+      pending.set(id, { id, key, material: ma.id, node: null, shape });
       lastRequest = performance.now();
     }
     install();
@@ -109,6 +129,10 @@ function probeMaterial(doc: DocumentData, ma: MaterialData, nodeId: string): Mat
 let scene: Scene | null = null;
 let camera: PerspectiveCamera | null = null;
 let mesh: Mesh | null = null;
+const shapes: Partial<Record<PreviewShape, BufferGeometry>> = {};
+function shapeGeometry(shape: PreviewShape): BufferGeometry {
+  return (shapes[shape] ??= shape === 'CUBE' ? new BoxGeometry(1.15, 1.15, 1.15) : shape === 'FLAT' ? new PlaneGeometry(2.1, 2.1) : new SphereGeometry(0.9, 48, 32));
+}
 let target: WebGLRenderTarget | null = null;
 let buffer: Uint8Array | null = null;
 let canvas: HTMLCanvasElement | null = null;
@@ -119,8 +143,7 @@ function setup() {
   camera.position.set(0, -3.6, 0.6);
   camera.up.set(0, 0, 1);
   camera.lookAt(0, 0, 0);
-  mesh = new Mesh(new SphereGeometry(0.9, 48, 32));
-  mesh.rotation.x = Math.PI / 2;
+  mesh = new Mesh(shapeGeometry('SPHERE'));
   scene.add(mesh);
   const key = new DirectionalLight(0xffffff, 2);
   key.position.set(-2, -3, 4);
@@ -132,11 +155,14 @@ function setup() {
   canvas.width = canvas.height = SIZE;
 }
 
-function renderPreview(ma: MaterialData, doc: DocumentData): string | undefined {
+function renderPreview(ma: MaterialData, doc: DocumentData, shape: PreviewShape = 'SPHERE'): string | undefined {
   const rc = renderContext;
   if (!rc || rc.engine.lost) return undefined;
   if (!scene) setup();
   const r = rc.engine.renderer;
+  mesh!.geometry = shapeGeometry(shape);
+  // spheres keep their poles on Z; the cube is turned to show three faces; the plane faces the camera
+  mesh!.rotation.set(shape === 'FLAT' ? Math.PI / 2 : shape === 'SPHERE' ? Math.PI / 2 : 0.45, 0, shape === 'CUBE' ? 0.6 : 0);
   mesh!.material = compileMaterial(doc, ma);
   scene!.environment = rc.studio();
   const prev = r.getRenderTarget();
@@ -172,8 +198,8 @@ function step() {
     // built from the current document (undo may have replaced the data since the request)
     const doc = app.doc;
     const ma = doc.materials[job.material];
-    const probe = ma ? probeMaterial(doc, ma, job.node) : null;
-    url = probe ? renderPreview(probe, doc) : undefined;
+    const probe = !ma ? null : job.node ? probeMaterial(doc, ma, job.node) : ma;
+    url = probe ? renderPreview(probe, doc, job.shape) : undefined;
   } catch (e) {
     console.warn('Node preview failed', e);
   }

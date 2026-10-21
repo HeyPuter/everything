@@ -655,7 +655,7 @@ registerTab({
   },
 });
 
-export const materialSurfacePanel: { draw: ((ma: MaterialData) => Child) | null } = { draw: null };
+export const materialSurfacePanel: { draw: ((ma: MaterialData) => Child) | null; after?: (ma: MaterialData) => Child; preview?: (ma: MaterialData) => Child } = { draw: null };
 /** Hook for the World ▸ Surface panel (set by the nodes module). */
 export const worldSurfacePanel: { draw: ((w: WorldData) => Child) | null } = { draw: null };
 
@@ -664,8 +664,15 @@ export const materialExtraPanels: ((ma: MaterialData) => Child)[] = [];
 
 function materialPanels(ma: MaterialData): Child {
   return [
-    panel('ma-preview', 'Preview', () => h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #ffffff88 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }), { closed: true }),
+    panel(
+      'ma-preview',
+      'Preview',
+      () => materialSurfacePanel.preview?.(ma) ?? h('div', { class: 'mat-preview', style: { background: `radial-gradient(circle at 35% 35%, #ffffff88 0, transparent 30%), radial-gradient(circle, ${swatchCss(ma)} 0 60%, transparent 61%)` } }),
+      { closed: true },
+    ),
     panel('ma-surface', 'Surface', () => (materialSurfacePanel.draw ? materialSurfacePanel.draw(ma) : h('div', { class: 'prop-note' }, 'Edit the node tree in the Shader Editor.'))),
+    // node inputs drawn as panels of their own (Volume, Displacement, Thickness)
+    materialSurfacePanel.after?.(ma) ?? null,
     (ensureMaterialDefaults(ma), materialSettingsPanel(ma)),
     ...materialExtraPanels.map((f) => f(ma)),
     panel('ma-display', 'Viewport Display', () => [colorProp(ma, 'diffuse_color', 'Color', { alpha: true }), num(ma, 'metallic', 'Metallic', { min: 0, max: 1, slider: true }), num(ma, 'roughness', 'Roughness', { min: 0, max: 1, slider: true })], { closed: true }),

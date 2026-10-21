@@ -671,6 +671,36 @@
   flex-direction: column;
   gap: 1px;
 }
+/* unlinked inputs without a value field ("Default") read like an empty field */
+.nd-props-default {
+  display: flex;
+  align-items: center;
+  height: var(--row);
+  padding: 0 6px;
+  border-radius: 3px;
+  background: var(--w-field);
+}
+/* node panels (Diffuse, Subsurface, …) inside the node view */
+.nd-props-panel-hdr {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: calc(var(--row) - 2px);
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nd-props-panel-hdr:hover {
+  color: var(--text-hi, #fff);
+}
+.nd-props-panel-body {
+  margin-left: 12px;
+}
 
 /* color ramp */
 .nd-ramp,
@@ -859,4 +889,44 @@
 .nd-header .hdr-toggle,
 .nd-header .hdr-group {
   flex: none;
+}
+
+/* Material ▸ Preview */
+.mat-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 2px 0 4px;
+}
+.mat-preview-img {
+  flex: 1;
+  min-width: 0;
+  max-height: 220px;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.mat-preview-wait {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.06) 0 40%, transparent 41%), rgba(0, 0, 0, 0.18);
+}
+.mat-preview-shapes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mat-preview-shape {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  border: 0;
+  border-radius: 3px;
+  background: var(--w-regular);
+  color: inherit;
+  cursor: pointer;
+}
+.mat-preview-shape.on {
+  background: var(--accent);
 }
