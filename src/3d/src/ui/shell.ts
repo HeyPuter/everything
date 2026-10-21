@@ -27,6 +27,7 @@ import { switchScene } from '../scenes/switch';
 import './screenedit';
 import './wmicons';
 import './rampdropper';
+import './browseops';
 import { shellRef } from './shellref';
 import './favorites';
 import './areawindow';

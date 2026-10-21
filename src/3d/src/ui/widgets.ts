@@ -557,10 +557,11 @@ export function enumRow(id: string, items: EnumItem[], value: string, set: (v: s
   );
 }
 
-export function textField(id: string, value: string, set: (v: string) => void, opts: { placeholder?: string; className?: string; icon?: string; live?: boolean } = {}): VNode {
+export function textField(id: string, value: string, set: (v: string) => void, opts: { placeholder?: string; className?: string; icon?: string; live?: boolean; bound?: boolean } = {}): VNode {
   return h(
     'label',
-    { key: id, class: `text-field ${opts.className ?? ''}` },
+    // bound fields (a property binding registered under `id`) take the button shortcuts and menus
+    { key: id, class: `text-field ${opts.className ?? ''}`, 'data-id': opts.bound ? id : null },
     opts.icon ? icon(opts.icon) : null,
     h('input', {
       value,

@@ -172,12 +172,19 @@ export function colorProp<T extends object>(owner: T, key: keyof T & string, lab
 }
 
 export function textProp<T extends object>(owner: T, key: keyof T & string, label: string, o: PropOpts = {}) {
+  const id = `${oid(owner)}.${key}`;
+  bind(id, owner, key, label, 'text', o);
   return splitRow(
     label,
-    textField(`${oid(owner)}.${key}`, String(owner[key] ?? ''), (v) => {
-      (owner as Record<string, unknown>)[key] = v;
-      commit(`Change ${label}`, true, o);
-    }),
+    textField(
+      id,
+      String(owner[key] ?? ''),
+      (v) => {
+        (owner as Record<string, unknown>)[key] = v;
+        commit(`Change ${label}`, true, o);
+      },
+      { bound: true },
+    ),
   );
 }
 
