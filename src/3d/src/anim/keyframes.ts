@@ -53,6 +53,7 @@ export function ensureFCurve(act: ActionData, path: string, index: number, slot?
       color_mode: !keyframeDefaults.xyzToRgb ? 'AUTO_RAINBOW' : /(^|\.)(location|rotation_euler|rotation_quaternion|rotation_axis_angle|scale|delta_location|delta_rotation_euler|delta_scale)$/.test(path) ? (/rotation_(quaternion|axis_angle)$/.test(path) ? 'AUTO_YRGB' : 'AUTO_RGB') : 'AUTO_RAINBOW',
     };
     if (slot !== undefined && isSlotted(act)) fc.slot = slot;
+    if (keyframeDefaults.smoothing !== 'NONE') fc.auto_smoothing = keyframeDefaults.smoothing;
     act.fcurves.push(fc);
   }
   return fc;

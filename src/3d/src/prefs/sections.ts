@@ -226,6 +226,7 @@ registerPrefSection({
       pBool('show_only_selected_curve_keyframes', 'Only Selected Keyframes Handles', 'Show keyframes and handles only on selected curves'),
       pEnum('keyframe_new_interpolation_type', 'Default Interpolation', [E('CONSTANT', 'Constant'), E('LINEAR', 'Linear'), E('BEZIER', 'Bézier')]),
       pEnum('keyframe_new_handle_type', 'Default Handles', [E('FREE', 'Free'), E('ALIGNED', 'Aligned'), E('VECTOR', 'Vector'), E('AUTO', 'Automatic'), E('AUTO_CLAMPED', 'Auto Clamped')]),
+      pEnum('fcurve_new_auto_smoothing', 'Default Smoothing Mode', [E('NONE', 'None'), E('CONT_ACCEL', 'Continuous Acceleration')]),
       pBool('use_negative_frames', 'Allow Negative Frames', 'The current frame may go below 0'),
     ]),
   ],

@@ -10,6 +10,8 @@ export const keyframeDefaults = {
   insertNeeded: false,
   /** location / rotation / scale curves are coloured X red, Y green, Z blue */
   xyzToRgb: true,
+  /** Handle Smoothing of new F-Curves */
+  smoothing: 'CONT_ACCEL' as NonNullable<FCurve['auto_smoothing']>,
 };
 
 export function newKeyframe(frame: number, value: number, interpolation: Keyframe['interpolation'] = keyframeDefaults.interpolation): Keyframe {
@@ -215,6 +217,8 @@ function bezierValue(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, frame: number) {
   return mt * mt * mt * p0[1] + 3 * mt * mt * t * y1 + 3 * mt * t * t * y2 + t * t * t * p3[1];
 }
 
+const EXPO_FLOOR = Math.pow(2, -10);
+
 // Easing functions: t in [0,1] → [0,1]
 const easeIn: Record<string, (t: number, k: Keyframe) => number> = {
   SINE: (t) => 1 - Math.cos((t * Math.PI) / 2),
@@ -222,10 +226,11 @@ const easeIn: Record<string, (t: number, k: Keyframe) => number> = {
   CUBIC: (t) => t * t * t,
   QUART: (t) => t ** 4,
   QUINT: (t) => t ** 5,
-  EXPO: (t) => (t === 0 ? 0 : Math.pow(2, 10 * (t - 1))),
+  // exponential, shifted and scaled so it starts at exactly 0
+  EXPO: (t) => (t <= 0 ? 0 : (Math.pow(2, 10 * (t - 1)) - EXPO_FLOOR) / (1 - EXPO_FLOOR)),
   CIRC: (t) => 1 - Math.sqrt(1 - t * t),
   BACK: (t, k) => {
-    const s = k.back ?? 1.70158;
+    const s = k.back || 1.70158;
     return t * t * ((s + 1) * t - s);
   },
   BOUNCE: (t) => 1 - bounceOut(1 - t),
@@ -253,7 +258,9 @@ function ease(k: Keyframe, t: number) {
   if (mode === 'AUTO') mode = ['BOUNCE', 'ELASTIC', 'BACK'].includes(k.interpolation) ? 'EASE_OUT' : 'EASE_IN';
   if (mode === 'EASE_IN') return fn(t, k);
   if (mode === 'EASE_OUT') return 1 - fn(1 - t, k);
-  return t < 0.5 ? fn(t * 2, k) / 2 : 1 - fn((1 - t) * 2, k) / 2;
+  // Back overshoots more when easing both ways (each half covers half the distance)
+  const kk = k.interpolation === 'BACK' ? ({ ...k, back: (k.back || 1.70158) * 1.525 } as Keyframe) : k;
+  return t < 0.5 ? fn(t * 2, kk) / 2 : 1 - fn((1 - t) * 2, kk) / 2;
 }
 
 /** Linear lookup in baked samples (held at the ends). */

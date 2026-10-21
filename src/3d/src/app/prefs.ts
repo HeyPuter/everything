@@ -146,6 +146,8 @@ export interface Preferences {
   show_only_selected_curve_keyframes: boolean;
   keyframe_new_interpolation_type: 'CONSTANT' | 'LINEAR' | 'BEZIER';
   keyframe_new_handle_type: 'FREE' | 'ALIGNED' | 'VECTOR' | 'AUTO' | 'AUTO_CLAMPED';
+  /** Handle Smoothing of new F-Curves */
+  fcurve_new_auto_smoothing: 'NONE' | 'CONT_ACCEL';
   use_negative_frames: boolean;
 
   // --- System
@@ -300,6 +302,7 @@ export const defaultPreferences = (): Preferences => ({
   show_only_selected_curve_keyframes: false,
   keyframe_new_interpolation_type: 'BEZIER',
   keyframe_new_handle_type: 'AUTO_CLAMPED',
+  fcurve_new_auto_smoothing: 'CONT_ACCEL',
   use_negative_frames: true,
 
   undo_steps: 64,
