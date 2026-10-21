@@ -24,6 +24,7 @@ import {
   NO_CHANGE,
 } from "../src/assistant-tools.js";
 import { aiChatStream } from "../src/cloud.js";
+import { addInkStroke } from "../src/draw/ink-model.js";
 import { fixture } from "./slide-transition-fixture.js";
 import { solidPaintInheritanceFixture } from "./solid-paint-inheritance-fixture.js";
 import { parseDeck } from "../src/model.js";
@@ -148,6 +149,22 @@ describe("assistant tools", () => {
     expect(read.content).toMatch(/id \d+, text box, at x 0\.8/);
     expect(read.content).toContain("Where we are today.");
     expect(read.changed).toBe(false);
+  });
+  it("tells ink drawn on a slide from an outlined shape", async () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    addInkStroke(
+      P,
+      slide,
+      Array.from({ length: 12 }, (_, i) => ({
+        x: 1000000 + i * 80000,
+        y: 1000000 + (i % 3) * 40000,
+      })),
+      { type: "pen", color: "#E81224", width: 1, texture: "solid" },
+    );
+    const read = await runTool("read_slide", { slide: 1 }, envFor(pres));
+    expect(read.content).toMatch(/id \d+, ink stroke, at x 1\.09/);
+    expect(read.content).toContain("outline #E81224");
   });
 
   it("reports inherited transformed fills and outlines as they are painted", async () => {

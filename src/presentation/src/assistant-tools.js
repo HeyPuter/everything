@@ -54,6 +54,7 @@ import {
   slideDescription,
   imageDescription,
 } from "./model.js";
+import { isInk } from "./draw/ink-model.js";
 
 /** A request the deck refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -596,6 +597,9 @@ function kindOf(shape) {
   if (isTable(shape)) return "table";
   if (isChart(shape)) return "chart";
   if (kind === "graphicFrame") return "diagram";
+  // Drawn with a pen on the Draw tab: handwriting or a sketch, whose
+  // outline is all there is of it.
+  if (isInk(P, shape)) return "ink stroke";
   const placeholder = P.getShapePlaceholderType(shape);
   if (placeholder) return `placeholder (${placeholder})`;
   if (P.isShapeTextBox(shape)) return "text box";
