@@ -31,6 +31,10 @@ export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'T
 const P = (key, label, group, type, extra = {}) => ({ key, label, group, type, ...extra });
 
 const mark = P('mark', 'Mark', 'Identity Data', 'text');
+const JOIN_STYLES = [
+  { value: 'miter', label: 'Miter' },
+  { value: 'butt', label: 'Butt (this wall stops)' },
+];
 const comments = P('comments', 'Comments', 'Identity Data', 'text');
 
 const LOCATION = [
@@ -57,6 +61,8 @@ const INSTANCE = {
     P('flipped', 'Flipped', 'Construction', 'bool'),
     P('joinA', 'Join at Start', 'Construction', 'bool'),
     P('joinB', 'Join at End', 'Construction', 'bool'),
+    P('joinStyleA', 'Corner at Start', 'Construction', 'select', { get: (el) => el.joinStyleA || 'miter', options: () => JOIN_STYLES }),
+    P('joinStyleB', 'Corner at End', 'Construction', 'select', { get: (el) => el.joinStyleB || 'miter', options: () => JOIN_STYLES }),
     P('structural', 'Structural', 'Structural', 'bool'),
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
     ro('width', 'Width', 'Dimensions', (el, c) => typeThickness(c.doc.get(el.typeId))),

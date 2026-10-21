@@ -146,6 +146,12 @@ function solveNode(node, hubs) {
   });
   list.sort((x, y) => x.ang - y.ang);
   const m = list.length;
+  // Two walls where one end asks to butt: that wall stops at the other's face.
+  if (m === 2) {
+    const style = (it) => (it.rec.e === 0 ? it.rec.g.wall.joinStyleA : it.rec.g.wall.joinStyleB);
+    const stop = list.find((it) => style(it) === 'butt');
+    if (stop && Math.abs(cross(list[0].out, list[1].out)) > 0.05 && solveButt(stop, list.find((it) => it !== stop))) return;
+  }
   // Corner between each neighbor pair (i, i+1): the counterclockwise face of i
   // meets the clockwise face of i+1.
   const corners = [];
@@ -190,6 +196,50 @@ function solveNode(node, hubs) {
     }
     hubs.push({ poly: corners, ids: list.map((x) => x.rec.g.id), base, top });
   }
+}
+
+/** Set one end of a wall (its left and right face points) where its faces cross a line. */
+function cutEnd(rec, p, d) {
+  const g = rec.g;
+  const ax = g.axis;
+  const o = rec.e === 0 ? ax.a : ax.b;
+  const l = lineIntersect(add(o, scale(ax.n, ax.half)), ax.dir, p, d);
+  const r = lineIntersect(add(o, scale(ax.n, -ax.half)), ax.dir, p, d);
+  if (!l || !r) return null;
+  if (rec.e === 0) {
+    g.L0 = l.point;
+    g.R0 = r.point;
+  } else {
+    g.L1 = l.point;
+    g.R1 = r.point;
+  }
+  return [l.point, r.point];
+}
+
+/**
+ * A butt join at a two-wall corner: `stop` ends at the near face of
+ * `through`, and `through` runs on to the far face of `stop`.
+ */
+function solveButt(stop, through) {
+  const sDir = stop.out;
+  const tDir = through.out;
+  // The through wall's face towards the stopping wall's body, and the stopping wall's face away from the through wall's body.
+  const nearSign = dot(sDir, perp(tDir)) >= 0 ? 1 : -1;
+  const near = add(through.origin, scale(perp(tDir), nearSign * through.half));
+  const farSign = dot(tDir, perp(sDir)) >= 0 ? -1 : 1;
+  const far = add(stop.origin, scale(perp(sDir), farSign * stop.half));
+  const ts = cutEnd(through.rec, far, sDir);
+  const ss = cutEnd(stop.rec, near, tDir);
+  if (!ts || !ss) return false;
+  stop.rec.g.ends[stop.rec.e] = { kind: 'tee', host: through.rec.g.id, side: nearSign };
+  through.rec.g.ends[through.rec.e] = { kind: 'corner', with: [stop.rec.g.id], angle: Math.abs(cross(sDir, tDir)) };
+  // Interrupt the through wall's face where the stopping wall meets it.
+  const h = through.rec.g.axis;
+  const u0 = dot(sub(ss[0], h.a), h.dir);
+  const u1 = dot(sub(ss[1], h.a), h.dir);
+  const side = dot(perp(tDir), h.n) * nearSign > 0 ? 'left' : 'right';
+  through.rec.g.cuts[side].push([Math.min(u0, u1), Math.max(u0, u1)]);
+  return true;
 }
 
 function solveT(rec, wallGrid, WG) {
