@@ -127,3 +127,17 @@ describe('integrator shader patch', () => {
     expect(patchIntegrator(m.fragmentShader)).toBeTruthy();
   });
 });
+
+describe('numerically safe tracing shader', () => {
+  it('replaces undefined pow / acos / sqrt uses that turned smooth glass black', () => {
+    const m = new PhysicalPathTracingMaterial();
+    const out = patchIntegrator(m.fragmentShader)!;
+    expect(out).not.toContain('pow( ( 1.0 - eta ) / ( 1.0 + eta ), 2.0 )');
+    expect(out).toContain('float ptR = ( 1.0 - eta ) / ( 1.0 + eta ); return ptR * ptR;');
+    // the only plain acos is inside the clamped helper
+    expect(out.match(/\bacos\(/g)).toHaveLength(1);
+    expect(out).not.toMatch(/sqrt\( 1\.0 - (\w+) \* \1 \)/);
+    expect(out).toContain('if ( attDist > 1e19 ) return vec3( 1.0 );');
+    expect(out).toContain('if ( surf.sheen > 0.0 ) color += sheenColor');
+  });
+});

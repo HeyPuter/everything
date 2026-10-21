@@ -24,6 +24,27 @@ export function patchIntegrator(src: string): string | null {
   const mainAt = s.indexOf('void main()');
   if (mainAt < 0) return null;
   s = s.slice(0, mainAt) + HELPERS + s.slice(mainAt);
+  // acos of a cosine that rounds just past ±1 is NaN on some GPUs (smooth glass turned black)
+  const common = s.indexOf('#include <common>');
+  if (common < 0) return null;
+  s = s.replace(/\bacos\(/g, 'ptAcos(');
+  const at = common + '#include <common>'.length;
+  s = s.slice(0, at) + '\nfloat ptAcos( float x ) { return acos( clamp( x, -1.0, 1.0 ) ); }\n' + s.slice(at);
+  // the sheen terms are weighted by the sheen amount: skip them without sheen, so that infinities
+  // they produce for refracted directions do not become NaN (black glass)
+  s = s.replace('color *= mix( 1.0, sheenAlbedoScaling( wo, wi, surf ), surf.sheen );', 'if ( surf.sheen > 0.0 ) color *= mix( 1.0, sheenAlbedoScaling( wo, wi, surf ), surf.sheen );');
+  s = s.replace('color += sheenColor( wo, wi, halfVector, surf ) * surf.sheen;', 'if ( surf.sheen > 0.0 ) color += sheenColor( wo, wi, halfVector, surf ) * surf.sheen;');
+  // sin from cos: a cosine that rounds just above 1 made the root NaN (normal incidence on glass)
+  s = s.replace(/sqrt\( 1\.0 - (\w+) \* \1 \)/g, 'sqrt( max( 0.0, 1.0 - $1 * $1 ) )');
+  s = s.replace('float sinThetaISq = 1.0f - cosThetaI * cosThetaI;', 'float sinThetaISq = max( 0.0, 1.0f - cosThetaI * cosThetaI );');
+  // pow() of a negative base is undefined in GLSL (NaN on some GPUs): square / clamp instead.
+  // The F0 of rays leaving glass (eta > 1) was NaN, which turned smooth glass black.
+  s = s.replace('return pow( ( 1.0 - eta ) / ( 1.0 + eta ), 2.0 );', 'float ptR = ( 1.0 - eta ) / ( 1.0 + eta ); return ptR * ptR;');
+  s = s.replace('float cosTheta4 = pow( cosTheta, 4.0 );', 'float cosTheta4 = cosTheta * cosTheta * cosTheta * cosTheta;');
+  s = s.replace('float tanTheta2 = pow( tanTheta, 2.0 );', 'float tanTheta2 = tanTheta * tanTheta;');
+  s = s.replace(/pow\( 1\.0 - cosine, 5\.0 \)/g, 'pow( max( 0.0, 1.0 - cosine ), 5.0 )');
+  // no attenuation inside clear media: dividing by an infinite distance gives NaN on some GPUs
+  s = s.replace('vec3 ot = - log( attColor ) / attDist;', 'if ( attDist > 1e19 ) return vec3( 1.0 );\n\t\tvec3 ot = - log( max( attColor, vec3( 1e-6 ) ) ) / attDist;');
   const ok =
     // the noise seed shifts the per-pixel offsets of the stratified samples
     step('pixelSeed = texture( stratifiedOffsetTexture, uv );', () => 'pixelSeed = fract( texture( stratifiedOffsetTexture, uv ) + ptSeedOff );') &&
@@ -50,6 +71,8 @@ export function patchIntegrator(src: string): string | null {
 						}`,
     ) &&
     step('uint minBounces = 3u;', () => 'uint minBounces = uint( max( ptMinB, 0 ) );') &&
+    // perfectly smooth surfaces: keep the microfacet terms finite (they turned smooth glass black)
+    step('surf.filteredRoughness = applyFilteredGlossy( surf.roughness, accumulatedRoughness );', () => 'surf.filteredRoughness = max( applyFilteredGlossy( surf.roughness, accumulatedRoughness ), 1e-3 );') &&
     step('ray.direction = scatterRec.direction;', (m) =>
       `// fast GI approximation: past the set bounces, light comes from the world unless occluded nearby
 						if ( ptFastGi.x > 0.5 && int( state.depth ) > int( ptFastGi.y ) && ! surf.volumeParticle ) {

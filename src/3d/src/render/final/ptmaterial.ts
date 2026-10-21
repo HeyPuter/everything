@@ -130,6 +130,9 @@ function convertInto(src: Material, m: MeshPhysicalMaterial) {
     m.transmission = 0;
   }
   if (hint) applyHint(m, hint);
+  // a finite stand-in for "no absorption" inside solid transmissive objects (infinite values
+  // turned refraction black on some GPUs); thin surfaces keep Infinity, which marks them thin
+  if (!isFinite(m.attenuationDistance) && m.thickness > 0) m.attenuationDistance = 1e20;
   m.userData.sss = hint?.subsurface ?? null;
 }
 
