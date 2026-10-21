@@ -450,6 +450,24 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     this.draw();
   }
 
+  /** Mask mode: put the 2D cursor in the middle of the view. */
+  centerCursor() {
+    const [W, H] = this.frameSize();
+    this.offX = W / 2 - this.cursor[0] * W;
+    this.offY = H / 2 - (1 - this.cursor[1]) * H;
+    this.fitted = true;
+    this.draw();
+  }
+
+  /** Mask mode: put the 2D cursor at the middle of the view. */
+  cursorToCenter() {
+    const { w, h: hh } = this.viewSize();
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toImage(w / 2, hh / 2);
+    this.cursor = [x / W, 1 - y / H];
+    this.draw();
+  }
+
   /** Pan by screen pixels. */
   panBy(dx: number, dy: number) {
     this.offX += dx / this.zoom;
@@ -957,9 +975,12 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       ...(this.paintMode() || this.host.close ? [] : [{ label: 'Tool Settings', checked: this.showToolSettings, action: () => ((this.showToolSettings = !this.showToolSettings), this.drawUI()) }]),
       { separator: true },
+      ...(this.host.close ? [] : [{ label: 'Show Metadata', checked: this.showMetadata, action: () => ((this.showMetadata = !this.showMetadata), this.drawUI()) }]),
+      { separator: true },
       { label: 'Zoom In', op: 'image.view_zoom_in', shortcut: 'Numpad +' },
       { label: 'Zoom Out', op: 'image.view_zoom_out', shortcut: 'Numpad -' },
       { label: 'Fractional Zoom', submenu: () => RATIOS.map(([l, z]) => ({ label: `Zoom ${l}`, op: 'image.view_zoom_ratio', props: { ratio: z }, shortcut: z === 1 ? 'Numpad 1' : z < 1 ? `Numpad ${Math.round(1 / z)}` : `Ctrl Numpad ${z}` })) },
+      ...(this.maskEditing() ? [{ label: 'Center View to Cursor', op: 'image.view_center_cursor' }, { label: 'Cursor to Center View', op: 'image.view_cursor_center', shortcut: 'Shift C' }] : []),
       { label: 'Zoom Region…', op: 'image.view_zoom_border', shortcut: 'Shift B' },
       { separator: true },
       { label: 'Frame All', op: 'image.view_all', props: { fit_view: false }, shortcut: 'Home' },
