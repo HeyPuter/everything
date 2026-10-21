@@ -334,6 +334,9 @@ export class App {
         this.store.flush();
       } else this.refreshFromCloud();
     });
+    // Switching between visible windows (or Puter app windows) changes
+    // focus, not visibility.
+    this.listen(window, 'focus', () => this.refreshFromCloud());
     this.refreshFromCloud = debounce(async () => {
       try {
         if (await this.store.refresh()) this.ensureSelection();

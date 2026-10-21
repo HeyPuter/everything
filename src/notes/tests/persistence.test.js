@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { Store } from '../src/data/store.js';
 import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
@@ -77,5 +77,20 @@ describe('Pictures and files', () => {
     await app.editor.insertFiles([new File(['x'], 'photo.png', { type: 'image/png' })]);
     expect(toasts().some((t) => t.startsWith("Couldn't insert photo.png"))).toBe(true);
     expect(app.editor.page.outlines.some((o) => o.html.includes('data-asset'))).toBe(false);
+  });
+});
+
+describe('Changes from another device', () => {
+  it('picks them up when the window regains focus', async () => {
+    const { store } = await mount();
+    const refresh = vi.spyOn(store, 'refresh');
+    vi.useFakeTimers();
+    try {
+      window.dispatchEvent(new Event('focus'));
+      await vi.advanceTimersByTimeAsync(2000);
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });
