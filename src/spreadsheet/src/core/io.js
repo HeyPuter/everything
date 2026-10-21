@@ -370,6 +370,12 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
       const runs = normalizeRichText(cell.richText, value);
       if (runs) out.odsRuns = runs;
     }
+    // The writer marks a space at the ends of the text as one (text:s), where a reader would drop a bare
+    // one, but not a space beside a line break, which it writes bare at a paragraph's edge. Written as
+    // runs split at the line breaks, each such space stands at a run's edge and is marked.
+    if (ods && out.t === 's' && !out.odsRuns && /[ ]\n|\n[ ]/.test(out.v)) {
+      out.odsRuns = out.v.split(/(\n)/).filter(Boolean).map((part) => ({ text: part }));
+    }
     if (cell.f != null && !unparsed && !deferredForOds) {
       // Native XLSX tables own these references: keeping them live preserves
       // resizing and keeps calculated cells consistent with their template.
