@@ -10,7 +10,7 @@ import { app, registerOperators, type PropDef, type OpResult } from '../../app/a
 import type { DocumentData } from '../../data/types';
 import { registerFormat } from '../files';
 import { download } from '../native';
-import { scriptState } from '../../scripting/rna';
+import { scriptState, ensureEvaluated } from '../../scripting/rna';
 import { imageCanvas, imageReady } from '../../render/images';
 import { baseOf, dirOf, extOf, joinPath, normPath, stemOf, vfsCompanion, vfsRead, vfsWrite } from '../vfs';
 import { AbortError, companionFilesDialog, loadOptions, optionsDialog, type FormatOption } from './ui';
@@ -283,6 +283,8 @@ async function importInteractive(def: FormatDef, opId: string, files: File[], pr
 // export
 
 function exportExec(def: FormatDef, p: Record<string, unknown>): OpResult {
+  // a script may have changed the scene (or the frame) right before exporting
+  ensureEvaluated();
   const options = propsToOptions(def.exportOptions ?? [], p);
   const selectedOnly = !!(p[def.selectionProp ?? 'use_selection'] ?? p.use_selection ?? p.selectedOnly);
   let objectIds: Set<string> | undefined;
@@ -425,6 +427,7 @@ export function defineFormat(def: FormatDef) {
 export function exportToPath(formatId: string, path: string, props: Record<string, unknown>, objectIds?: Set<string>): string | null {
   const def = formatDefs.get(formatId);
   if (!def?.exportData) return null;
+  ensureEvaluated();
   const options = propsToOptions(def.exportOptions ?? [], props);
   const out = def.exportData({ ...options, selectedOnly: false, objectIds }, { base: stemOf(path), path, toFiles: true });
   let p = normPath(path);

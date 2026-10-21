@@ -187,6 +187,9 @@ export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOu
     for (let p = eo.parent; p; p = p.parent) if (p === anc) return true;
     return false;
   };
+  /** Data name of the object's shape prim (null without one). */
+  const shapeDataName = (eo: ExportObject): string | null =>
+    eo.mesh ? eo.mesh.name || eo.name : eo.camera ? eo.camera.name || eo.name : eo.light ? eo.light.name || eo.name : eo.armature ? eo.armature.data.name || eo.name : null;
   const writeObject = (eo: ExportObject, names: Names) => {
     const prim = names.get(eo.name);
     const track = trackOf.get(eo);
@@ -196,12 +199,14 @@ export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOu
     w.open(`def ${isSkelRoot ? 'SkelRoot' : 'Xform'} ${quote(prim)}`);
     w.line(`custom string userProperties:name = ${quote(eo.name)}`);
     xformOps(local, anim && track?.locals && !eo.parentBone ? track.locals : undefined);
+    // the shape prim is named after its data (mesh, camera, light), like other DCC exporters
     const childNames = new Names();
-    childNames.get(prim);
-    if (eo.mesh) writeMesh(eo, eo.mesh, prim);
-    if (eo.camera) writeCamera(eo, prim);
-    if (eo.light) writeLight(eo, prim);
-    if (eo.armature) writeSkeleton(eo, prim);
+    const shape = shapeDataName(eo);
+    const shapePrim = shape !== null ? childNames.get(shape) : prim;
+    if (eo.mesh) writeMesh(eo, eo.mesh, shapePrim);
+    if (eo.camera) writeCamera(eo, shapePrim);
+    if (eo.light) writeLight(eo, shapePrim);
+    if (eo.armature) writeSkeleton(eo, shapePrim);
     for (const c of eo.children) writeObject(c, childNames);
     w.close();
   };
@@ -272,7 +277,7 @@ export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOu
 
   const writeSkeleton = (eo: ExportObject, prim: string) => {
     const arm = eo.armature!;
-    const skelName = prim; // same name as the SkelRoot (reserved for the object's data prim)
+    const skelName = prim; // the armature data's name (reserved among the SkelRoot's children)
     const path = new Map<string, string>();
     for (const b of arm.bones) path.set(b.name, b.parent && path.has(b.parent) ? `${path.get(b.parent)}/${usdIdentifier(b.name)}` : usdIdentifier(b.name));
     (eo as ExportObject & { _skelPath?: string })._skelPath = skelName;
@@ -295,15 +300,16 @@ export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOu
     w.line(`float[] primvars:blender:bone_lengths = [${arm.bones.map((b) => fmt(b.length * unit)).join(', ')}] (`);
     w.line('    interpolation = "uniform"');
     w.line(')');
-    w.line(`prepend rel skel:animationSource = </root/${skelPathOf(eo)}/${skelName}/Anim>`);
-    // animation: current pose as defaults, sampled frames as time samples
+    // animation: current pose as defaults, sampled frames as time samples (named after the action)
     const track = trackOf.get(eo);
+    const animName = usdIdentifier(track?.name ?? 'Anim');
+    w.line(`prepend rel skel:animationSource = </root/${skelPathOf(eo)}/${skelName}/${animName}>`);
     const poseLocal = arm.bones.map((b) => {
       const pose = arm.pose.get(b.name)!;
       const pp = b.parent ? arm.pose.get(b.parent) : undefined;
       return pp ? pp.clone().invert().multiply(pose) : pose.clone();
     });
-    w.open('def SkelAnimation "Anim"');
+    w.open(`def SkelAnimation ${quote(animName)}`);
     w.line(`uniform token[] joints = [${arm.bones.map((b) => quote(path.get(b.name)!)).join(', ')}]`);
     const trsOf = (ms: Matrix4[]) => ms.map((m) => decompose(m));
     const writeTRS = (ms: Matrix4[]) => {
@@ -526,7 +532,8 @@ export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOu
     pathOf.set(eo, p);
     skelRootPath.set(eo, p.replace(/^\/root\//, ''));
     const child = new Names();
-    child.get(prim);
+    const shape = shapeDataName(eo);
+    if (shape !== null) child.get(shape);
     for (const c of eo.children) assign(c, p, child);
   };
   const preNames = new Names();

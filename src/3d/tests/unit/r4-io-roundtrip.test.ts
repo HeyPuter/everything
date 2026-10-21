@@ -126,7 +126,8 @@ describe.skipIf(!RT)('round trip against the reference (manual)', () => {
       ['wm.alembic_export', 'abc'],
     ];
     for (const [op, ext] of exp) {
-      js(`bpy.ops.${op}({ filepath: '/tmp/ours.${ext}' })`);
+      // the reference side writes USD with animation too
+      js(`bpy.ops.${op}({ filepath: '/tmp/ours.${ext}'${op === 'wm.usd_export' ? ', export_animation: true' : ''} })`);
       writeFileSync(join(RT, `ours.${ext}`), vfsRead(`/tmp/ours.${ext}`)!);
       if (ext === 'obj') writeFileSync(join(RT, 'ours.mtl'), vfsRead('/tmp/ours.mtl') ?? new Uint8Array());
     }
