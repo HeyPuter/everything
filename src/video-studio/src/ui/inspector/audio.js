@@ -52,10 +52,14 @@ function fadeSlider(view, which) {
       c[key] = Math.max(0, Math.min(Math.round(v * US), c.duration - other));
     }, { key, final }),
   });
-  // Fades can't run longer than the clip.
+  // Fades can't run longer than the clip. The slider covers up to 10 s; the
+  // number box takes up to the clip's length.
   const fit = () => {
     const c = view.clip;
-    if (c) field.input.max = String(Math.max(0.1, Math.min(10, Math.floor((c.duration / US) * 10) / 10)));
+    if (!c) return;
+    const len = Math.max(0.1, Math.floor((c.duration / US) * 10) / 10);
+    field.input.max = String(Math.min(10, len));
+    field.setLimits(0, len);
   };
   fit();
   view.bind(fit);

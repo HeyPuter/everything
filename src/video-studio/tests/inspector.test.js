@@ -667,6 +667,18 @@ describe('number boxes', () => {
     expect(clip(env.text.id).style.size).toBe(500);
   });
 
+  it('takes fades longer than the slider on a long clip', () => {
+    env.store.update('Longer', (p) => {
+      T.findClip(p, env.aud.id).clip.duration = 30 * US;
+    }, { structural: false });
+    env.store.select(env.aud.id);
+    typeEnter('Fade out', 25);
+    expect(clip(env.aud.id).fadeOut).toBe(25 * US);
+    // Still no longer than the clip leaves room for.
+    typeEnter('Fade in', 25);
+    expect(clip(env.aud.id).fadeIn).toBe(5 * US);
+  });
+
   it('limits multi-selection values to the range', () => {
     env.store.select([env.v1.id, env.img.id]);
     const num = typeEnter('Opacity', 500);
