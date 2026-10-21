@@ -1549,7 +1549,11 @@ export function createGrid(opts) {
       text = `=${cell.f}`;
       node.classList.add('formula-text');
     }
-    if ((cf?.barOnly || cf?.iconOnly) && !showFormulas) text = '';
+    if ((cf?.barOnly || cf?.iconOnly) && !showFormulas) {
+      // The bar or icon stands in for the value on screen; a screen reader still reads the value.
+      if (text) node.setAttribute('aria-label', text);
+      text = '';
+    }
     if (cf?.icon && !showFormulas) {
       // Icon sets: a colored glyph before the value (or instead of it).
       node.classList.add('has-icon');
