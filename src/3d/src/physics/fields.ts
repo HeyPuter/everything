@@ -4,7 +4,7 @@
 // (point, line, plane, surface or every vertex) decides where distances are measured from.
 import { Matrix4, Vector3 } from 'three';
 import type { DocumentData, ObjectData } from '../data/types';
-import { hash32, motionKey, worldAt, type SimContext } from './common';
+import { caches, hash32, motionKey, worldAt, type FrameCache, type SimContext } from './common';
 import type { ForceFieldX } from './types';
 import { meshSignature } from '../eval/depsgraph';
 import type { EvalMesh } from '../eval/types';
@@ -39,9 +39,28 @@ export function fieldObjects(doc: DocumentData): ObjectData[] {
   return out;
 }
 
+/** Particle systems whose particles act as force fields (Force Field Settings of their settings). */
+export function particleFieldSystems(doc: DocumentData): { ob: ObjectData; modId: string; s: Record<string, unknown>; fields: ForceFieldX[] }[] {
+  const out: { ob: ObjectData; modId: string; s: Record<string, unknown>; fields: ForceFieldX[] }[] = [];
+  for (const id of doc.object_order) {
+    const ob = doc.objects[id];
+    if (!ob || ob.hide_viewport) continue;
+    for (const ps of ob.particle_systems as { id?: string; settings: string }[]) {
+      const s = doc.particles[ps.settings] as unknown as Record<string, unknown> | undefined;
+      if (!s || s.type === 'HAIR') continue;
+      const fields = [s.force_field_1, s.force_field_2].filter((f): f is ForceFieldX => !!f && typeof f === 'object' && (f as ForceFieldX).type !== 'NONE');
+      if (!fields.length) continue;
+      const m = ob.modifiers.find((x) => x.type === 'PARTICLE_SYSTEM' && x.particle_system === ps.id);
+      if (m) out.push({ ob, modId: m.id, s, fields });
+    }
+  }
+  return out;
+}
+
 /** Settings + motion signature of all fields (part of simulation cache hashes). */
 export function fieldsKey(doc: DocumentData, refFrame: number): string {
-  return fieldObjects(doc)
+  const parts = particleFieldSystems(doc).map((p) => `P:${p.ob.id}:${JSON.stringify(p.fields)}:${p.s.effector_amount}:${p.s.use_self_effect}:${p.s.count}:${p.s.frame_start}:${p.s.frame_end}:${p.s.lifetime}:${motionKey(doc, p.ob, refFrame)}`);
+  return parts.join('|') + fieldObjects(doc)
     .map((ob) => {
       let k = `${ob.id}:${JSON.stringify(ob.field)}:${motionKey(doc, ob, refFrame)}`;
       // guides follow their curve, surface/point fields their mesh
@@ -79,6 +98,24 @@ export function collectEffectors(ctx: SimContext, frame: number, exclude?: strin
       if (shape === 'SURFACE') eff.tris = meshTriangles({ positions: W, offsets: me.offsets, indices: me.indices } as EvalMesh);
     }
     out.push(eff);
+  }
+  // particles acting as force fields (their own system only feels them with Self Effect)
+  for (const p of particleFieldSystems(ctx.doc)) {
+    if (p.ob.id === exclude && !p.s.use_self_effect) continue;
+    const c = caches.get(`PARTICLES:${p.ob.id}:${p.modId}`) as FrameCache<{ pos: Float32Array; state: Uint8Array }> | undefined;
+    const fr = c?.frames.get(Math.round(frame)) ?? c?.nearest(Math.round(frame));
+    if (!fr) continue;
+    const amount = Math.max(0, Math.round((p.s.effector_amount as number) ?? 0));
+    const n = fr.state.length;
+    const step = amount > 0 ? Math.max(1, Math.floor(n / amount)) : 1;
+    let used = 0;
+    for (let i = 0; i < n; i += step) {
+      if (fr.state[i] !== 1) continue;
+      if (amount > 0 && used >= amount) break;
+      used++;
+      const m = new Matrix4().makeTranslation(fr.pos[i * 3], fr.pos[i * 3 + 1], fr.pos[i * 3 + 2]);
+      for (const f of p.fields) out.push({ id: p.ob.id, field: f, px: fr.pos[i * 3], py: fr.pos[i * 3 + 1], pz: fr.pos[i * 3 + 2], ax: 0, ay: 0, az: 1, inv: m.clone().invert(), scale: 1, world: m });
+    }
   }
   return out;
 }

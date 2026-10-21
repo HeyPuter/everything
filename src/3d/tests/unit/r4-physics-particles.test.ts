@@ -300,3 +300,25 @@ describe('hair dynamics volume', () => {
     expect(x2[9] - x2[3]).toBeGreaterThan(0.01);
   });
 });
+
+describe('particles as force fields', () => {
+  it('a system with a force field pushes another system', async () => {
+    const { defaultField } = await import('../../src/physics/types');
+    const run = (withField: boolean) => {
+      caches.clear();
+      const doc = emptyDocument();
+      doc.scene.use_gravity = false;
+      const src = addMesh(doc, 'Src', plane(0.2), [0, 0, 0]);
+      emitter(doc, src, { physics_type: 'NO', count: 20, force_field_1: withField ? { ...defaultField('FORCE'), strength: 50 } : null });
+      const ob = addMesh(doc, 'Other', plane(0.2), [1, 0, 0]);
+      const { m } = emitter(doc, ob, { physics_type: 'NEWTON', count: 20, normal_factor: 0 });
+      const g = new Depsgraph(doc);
+      for (let f = 1; f <= 20; f++) at(g, doc, f);
+      const fr = frame(ob, m, 20);
+      let x = 0;
+      for (let i = 0; i < fr.state.length; i++) x += fr.pos[i * 3];
+      return x / fr.state.length;
+    };
+    expect(run(true)).toBeGreaterThan(run(false) + 0.1);
+  });
+});

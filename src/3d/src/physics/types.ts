@@ -321,6 +321,12 @@ export interface ParticleSettingsX extends ParticleSettings {
   path_start?: number;
   path_end?: number;
   length_random?: number;
+  /** particles act as force fields on other simulations */
+  force_field_1?: ForceFieldX | null;
+  force_field_2?: ForceFieldX | null;
+  use_self_effect?: boolean;
+  /** particles that act as fields (0: all) */
+  effector_amount?: number;
   /** instances keep their object's world offset / rotation */
   use_global_instance?: boolean;
   use_rotation_instance?: boolean;
@@ -735,6 +741,10 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     length_random: 0,
     use_global_instance: false,
     use_rotation_instance: false,
+    force_field_1: null,
+    force_field_2: null,
+    use_self_effect: false,
+    effector_amount: 0,
     root_radius: 1,
     tip_radius: 0,
     radius_scale: 0.01,

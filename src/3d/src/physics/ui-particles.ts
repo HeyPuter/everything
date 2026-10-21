@@ -6,7 +6,7 @@ import { num, bool, enumProp, splitRow, vecProp } from '../ui/props';
 import { uiList } from '../editors/properties/uilist';
 import { insertTabAfter, changed, note, subHeading, objectRow, cachePanel, fieldWeightsPanel, collectionRow } from './ui-common';
 import { particleCacheKey } from './particles';
-import { defaultHairDynamics, defaultParticleSettings, defaultPointCache, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
+import { defaultField, defaultHairDynamics, defaultParticleSettings, defaultPointCache, FIELD_TYPES, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
 import { hairDynKey } from './hairdyn';
 import type { ModifierBase } from '../data/types';
 import { BOID_RULES, defaultBoidSettings, ensureBoidStates } from './boids';
@@ -89,6 +89,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
     childrenPanel(s, false),
     vertexGroupsPanel(ob, ps, false),
     fieldWeightsPanel('pa-fw', s, d),
+    particleFieldsPanel(s),
     cachePanel('pa-cache', key, pc),
   ];
 }
@@ -563,6 +564,43 @@ function hairShapePanel(s: ParticleSettingsX): Child {
     num(s, 'radius_scale', 'Scaling', { min: 0, max: 1000, softMax: 1, unit: 'distance', tip: 'Diameters are multiplied by this' }),
     bool(s, 'use_close_tip', 'Close Tip'),
   ], { closed: true });
+}
+
+/** Force Field Settings: the particles push and pull other simulations like force field objects. */
+function particleFieldsPanel(s: ParticleSettingsX): Child {
+  const slot = (key: 'force_field_1' | 'force_field_2', title: string): Child => {
+    const f = s[key] ?? null;
+    return panel(`pa-ff-${key}`, title, () => [
+      fieldTypeRow(s, key, 'Type'),
+      f ? [
+        num(f, 'strength', 'Strength', { min: -1000, max: 1000, softMin: -10, softMax: 10 }),
+        f.type !== 'MAGNET' && f.type !== 'DRAG' ? num(f, 'flow', 'Flow', { min: 0, max: 10 }) : null,
+        f.type === 'LENNARDJ' || f.type === 'TURBULENCE' ? num(f, 'size', 'Size', { min: 0.001, max: 1000, softMax: 10, unit: 'distance' }) : null,
+        enumProp(f, 'falloff_type', 'Falloff', [['SPHERE', 'Sphere'], ['TUBE', 'Tube'], ['CONE', 'Cone']]),
+        num(f, 'falloff_power', 'Power', { min: 0, max: 10 }),
+        bool(f, 'use_max_distance', 'Use Max Distance'),
+        f.use_max_distance ? num(f, 'distance_max', 'Max Distance', { min: 0, unit: 'distance' }) : null,
+      ] : null,
+    ], { sub: true, closed: !f });
+  };
+  return panel('pa-fields', 'Force Field Settings', () => [
+    bool(s, 'use_self_effect', 'Self Effect', { tip: 'The fields also act on the particles of this system' }),
+    num(s, 'effector_amount', 'Effector Amount', { int: true, min: 0, max: 10000, tip: 'Particles that act as fields (0: all)' }),
+    slot('force_field_1', 'Type 1'),
+    slot('force_field_2', 'Type 2'),
+  ], { closed: true });
+}
+
+/** Field type selector of one of the particle field slots (creates or clears the field). */
+function fieldTypeRow(s: ParticleSettingsX, key: 'force_field_1' | 'force_field_2', label: string): Child {
+  const cur = s[key]?.type ?? 'NONE';
+  return splitRow(
+    label,
+    enumMenu(`pa-fft-${s.id}-${key}`, [{ value: 'NONE', label: 'None' }, ...FIELD_TYPES.filter(([x]) => x !== 'GUIDE').map(([x, l]) => ({ value: x, label: l }))], cur, (v) => {
+      s[key] = v === 'NONE' ? null : { ...defaultField(v as never), ...(s[key] ?? {}), type: v as never };
+      changed(`Set ${label} Field`);
+    }),
+  );
 }
 
 insertTabAfter('CONSTRAINT', {
