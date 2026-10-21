@@ -54,7 +54,7 @@ Because every browser ends up applying the same operations in the same order, co
 
 ### Undo takes back only your own changes
 
-The workbook's own Undo would put back whole sheets, including other people's edits. In a shared workbook each change keeps its **inverse**: the values it replaced, and the opposite structural operation (an insertion's inverse is a deletion; a deletion's inverse re-inserts the lines and writes back what was on them, the settings it changed and the formulas it turned to `#REF!`; deleting a sheet is undone by putting it back whole). Every change that arrives from someone else afterwards transforms the stored inverses (positions move, formulas are rewritten), and any register someone else wrote since is dropped from them: Undo takes back only what you did, only where nobody has changed it since. Undoing is an ordinary change, shared with everyone; its own inverse becomes the Redo. Each Undo applies exactly one step; one whose every effect was overwritten by others is used up without changing anything.
+The workbook's own Undo would put back whole sheets, including other people's edits. In a shared workbook each change keeps its **inverse**: the values it replaced, and the opposite structural operation (an insertion's inverse is a deletion; a deletion's inverse re-inserts the lines and writes back what was on them, the settings it changed and the formulas it turned to `#REF!`; deleting a sheet is undone by putting it back whole). Every change that arrives from someone else afterwards transforms the stored inverses (positions move, formulas are rewritten), and any register someone else wrote since is dropped from them: Undo takes back only what you did, only where nobody has changed it since. Where someone else changed the same register at the same moment and the room put theirs first, yours replaced theirs, and Undo puts theirs back (not what was there before either of you); Redo does yours again. Undoing is an ordinary change, shared with everyone; its own inverse becomes the Redo. Each Undo applies exactly one step; one whose every effect was overwritten by others is used up without changing anything.
 
 ## Offline and recovery
 
@@ -74,7 +74,7 @@ One tab per shared workbook keeps the outbox; two tabs of the same shared workbo
 | `ss:<room>:named:<username>` | Invitation by Puter username |
 | `ss:<room>:claim:<rev>` | Who claimed a log position (atomic `incr`: the first claimant owns it) |
 | `ss:<room>:log:<rev>` | The record: author, session, time, changes (large ones in a file) |
-| `ss:<room>:cp`, `ss:<room>:cps` | The latest checkpoint and the last 50 |
+| `ss:<room>:cp`, `ss:<room>:cps` | The latest checkpoint and the last 50 (an older one's file is deleted as it leaves the list) |
 | `ss:<room>:presence:<session>` | Peer ticket and where the person is (90 s) |
 | `ss:<room>:ev:signal` | Change notice (carries no data) |
 | `spreadsheet/shared/<room>/…` | Initial state, checkpoints (gzipped JSON), large records |
@@ -85,7 +85,7 @@ The worker enforces roles on every request, independently of the interface:
 
 - Viewers cannot commit or write checkpoints (the browser also takes a viewer's edit back at once and says so).
 - Every change is validated (`validateChange`): known operation types only, cell keys inside the grid, only shared settings, sane ranges, size limits.
-- A commit not on top of the latest record is answered with the records it missed, for the browser to rebase on; positions are claimed atomically, so two worker instances cannot both accept a commit at the same position. A position claimed but never written (a commit that failed half way) is filled with an empty record after 20 seconds.
+- A commit not on top of the latest record is answered with the records it missed, for the browser to rebase on; positions are claimed atomically, so two worker instances cannot both accept a commit at the same position. A position claimed but never written (a commit that failed half way) is filled with an empty record after 20 seconds; a browser sending meanwhile tries again after pauses that double, rather than at once.
 - Invitations admit only people who are not members; they never raise a role the owner lowered.
 - Only the owner manages access, and only the worker's owner creates rooms on it.
 
@@ -95,11 +95,11 @@ Outside content (IMPORT* and WEBSERVICE formulas, the AI, web images) is the own
 
 ## Checkpoints and the file
 
-The worker does not run the spreadsheet, so checkpoints come from browsers: the editor with the lowest session among those present writes one (the whole workbook at a revision, while it has nothing pending, so its state is the room's) after every 50 revisions or a minute after the last one. Joining loads the latest checkpoint and the log after it. Saving (**Ctrl+S**, leaving, or 15 seconds after the last change in the owner's browser) delivers what is pending and writes a checkpoint with the workbook as `.xlsx`; the worker writes it over the owner's file, and the owner's browser writes the file itself when the worker could not. The file is therefore always a recent state of the shared workbook and opens anywhere; version history keeps working for it.
+The worker does not run the spreadsheet, so checkpoints come from browsers: the editor with the lowest session among those present writes one (the whole workbook at a revision, while it has nothing pending, so its state is the room's) after every 50 revisions or a minute after the last one. Joining loads the latest checkpoint and the log after it. Saving (**Ctrl+S**, leaving, or 15 seconds after the last change in the owner's browser; in anyone else's, only Save asked for, not one the app makes on its own) delivers what is pending and writes a checkpoint with the workbook as `.xlsx`; the worker writes it over the owner's file, and the owner's browser writes the file itself when the worker could not. Changes made offline reach the file a quiet moment after they reach the room. The worker writes where the owner's browser last said the file is: renaming it in the app saves at once, and so does opening a workbook whose file was renamed or moved on the desktop. The file is therefore always a recent state of the shared workbook and opens anywhere; version history keeps working for it, the owner's saves keeping automatic snapshots as any file's do.
 
 ## Presence
 
-Each person shares their sheet, their selection, their active cell and whether they are typing. It travels over signed WebRTC peer links when they are available (immediately, at most 20 times a second) and with each check-in to the worker otherwise (every few seconds while others are here). The title bar shows everyone's initials in their colour (white text on each colour meets 4.5:1), with their name and location on hover; a click goes to where they are, and the list button lists everyone with their location. On the grid, each person's selection is outlined in their colour with their active cell, and a flag with their name shows while they move or type, then shrinks to a small tab so it does not cover the cells. The sheet tabs carry a dot per person on that sheet. The status beside the name says **Live · Saved**, **Syncing…**, **Offline · N changes waiting**, **View only** or **Not connected**.
+Each person shares their sheet, their selection, their active cell and whether they are typing. It travels over signed WebRTC peer links when they are available (immediately, at most 20 times a second) and with each check-in to the worker otherwise (every few seconds while others are here). The title bar shows everyone's initials in their colour (white text on each colour meets 4.5:1), with their name and location on hover; a click goes to where they are, and the list button lists everyone with their location. On the grid, each person's selection is outlined in their colour with their active cell, and a flag with their name shows while they move or type, then shrinks to a small tab so it does not cover the cells. The sheet tabs carry a dot per person on that sheet. Times the worker gives (when someone last checked in, when a peer ticket expires) are read on its clock, so a computer whose clock is off still shows everyone. The status beside the name says **Live · Saved**, **Syncing…**, **Offline · N changes waiting**, **View only** or **Not connected**.
 
 ## Limits and known gaps
 
@@ -107,7 +107,9 @@ Each person shares their sheet, their selection, their active cell and whether t
 - A structural operation's transform can lose intent in rare combinations: a move whose block someone else broke up is dropped; a pending change whose formulas refer to tables that exist only in the shared state is rewritten without them.
 - The workbook's engine must behave identically in every browser; an engine update while people are in a room should reach everyone (they share one app build). A browser whose copy diverged recovers by reopening the workbook.
 - Comments are shared per sheet as one register; where two people change a sheet's comments at once, the two are merged thread by thread and reply by reply (new threads and replies from both are kept, a deleted one stays deleted). None of these lists is merged across a concurrent insertion, deletion or move of rows, columns or sheets: there the later list stands.
-- Presence positions are each sender's; during a concurrent structural change a selection may be shown one row off until the sender moves.
+- Presence positions are each sender's; during a concurrent structural change a selection may be shown one row off until the sender moves. A comment being written, like a cell being typed in, follows its cell.
+- Members see the shared workbook under the name it had when sharing started, the owner under the file's name; only the owner can rename it (by renaming the file), and members keep the first name.
+- A comment's @mention is mailed with the shared workbook's link, which opens for its members: the owner may share with and invite someone mentioned who is not in it; anyone else is told to ask the owner.
 - Puter Workers may not allow writing to the owner's absolute file path; then the owner's browser writes the file when it next saves.
 - Room size is not load-tested against the hosted Puter service; the peer topology (full mesh up to eight, relays beyond) is the Whiteboard app's.
 
