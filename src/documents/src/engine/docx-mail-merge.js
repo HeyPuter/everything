@@ -14,6 +14,7 @@ import { strToU8, strFromU8 } from 'fflate';
 import { parseXml } from './docx-xml.js';
 import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
 import { planMerge, MERGE_TYPES, fieldKeyword } from './merge-fields.js';
+import { xmlAttributeText } from './text-limits.js';
 
 export const MAIL_MERGE_NS = 'urn:puter-documents:mail-merge:1';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
@@ -111,10 +112,12 @@ export function readMailMerge(parts) {
 /** The custom XML document for a state's list, mapping and options. */
 export function mailMergeDataXml(state) {
   const doc = parseXml(`<mm:mailMerge xmlns:mm="${MAIL_MERGE_NS}" version="1"/>`), root = doc.documentElement;
+  // Recipient files can hold characters XML cannot (a vertical tab for a line break in a cell, a DOS
+  // end-of-file mark); one written as it is would leave the part, and the list, unreadable.
   const add = (parent, name, attrs = {}, text = null) => {
     const node = doc.createElementNS(MAIL_MERGE_NS, `mm:${name}`);
-    for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) node.setAttribute(k, String(v));
-    if (text !== null) node.textContent = text;
+    for (const [k, v] of Object.entries(attrs)) if (v !== undefined && v !== null) node.setAttribute(k, xmlAttributeText(v));
+    if (text !== null) node.textContent = xmlAttributeText(text);
     parent.append(node); return node;
   };
   if (state.source) add(root, 'source', { kind: state.source.kind, name: state.source.name });
@@ -294,6 +297,8 @@ export function xmlMergeFields(nodes) {
 
 /** Result runs for merged text: line breaks as w:br, tabs as w:tab. */
 function resultRuns(doc, text, properties) {
+  // A recipient's line break may be a vertical tab or CR; characters XML cannot hold go.
+  text = xmlAttributeText(text);
   if (!text) return [];
   const run = doc.createElementNS(W, 'w:r');
   if (properties) run.append(properties.cloneNode(true));

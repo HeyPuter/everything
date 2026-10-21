@@ -122,6 +122,26 @@ describe('merging to a new document', () => {
   });
 });
 
+describe('recipient values with control characters', () => {
+  // A list exported with in-cell line breaks as vertical tabs, or ending in a DOS end-of-file mark.
+  const odd = { columns: ['First Name', 'Last Name', 'City', 'Title', 'Address Line 1', 'Country'], rows: [
+    { values: ['Rosa', 'Vidal', 'Oslo', 'Ms.', '1 Pier Rd\vUnit 4', 'Norway\x1a'], included: true },
+  ], sort: [], filters: [] };
+  const wellFormed = bytes => new DOMParser().parseFromString(strFromU8(bytes), 'application/xml').getElementsByTagName('parsererror').length === 0;
+  it('keep the embedded list readable', async () => {
+    const pkg = await DocxPackage.open(fixture('letter.docx'));
+    pkg.mailMerge = { ...pkg.mailMerge, list: odd, source: { kind: 'csv', name: 'people.csv' } };
+    const out = await save(pkg, model(pkg)), item = Object.entries(unzipSync(out)).find(([name, bytes]) => name.startsWith('customXml/item') && strFromU8(bytes).includes(MAIL_MERGE_NS));
+    expect(wellFormed(item[1])).toBe(true);
+    expect((await DocxPackage.open(out)).mailMerge.list.rows[0].values).toEqual(['Rosa', 'Vidal', 'Oslo', 'Ms.', '1 Pier Rd\nUnit 4', 'Norway']);
+  });
+  it('keep the merged document readable', async () => {
+    const { parts } = mergeDocumentParts(unzipSync(fixture('letter.docx')), { data: mergeRecords(odd), mapping: { first: 'First Name', last: 'Last Name', title: 'Title', city: 'City', address1: 'Address Line 1', country: 'Country' } });
+    expect(wellFormed(parts['word/document.xml'])).toBe(true);
+    expect(partText(parts['word/document.xml'])).toContain('Ms. Rosa Vidal\n1 Pier Rd\nUnit 4\nOslo\nNorway');
+  });
+});
+
 describe('editing merge fields in the model', () => {
   const blankModel = async (text = 'Hello ') => {
     const blank = createDocx([paragraph(text)], undefined, undefined, undefined, [], {}, WRITING_STYLES);
