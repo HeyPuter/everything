@@ -34,7 +34,7 @@ it('keeps whole rows selected after deleting them, so Ctrl+- again takes the nex
   view.goTo('2:3'); await flush(); grid().focus();
   press('-'); await flush();
   expect(column(wb, id)).toEqual(['r1', 'r4', 'r5', null, null]);
-  expect(nameBox()).toBe('A2:XFD3');
+  expect(nameBox()).toBe('2:3');
   press('-'); await flush();
   expect(document.querySelector('.insert-delete-cells')).toBeNull();
   expect(column(wb, id)).toEqual(['r1', null, null, null, null]);
@@ -44,7 +44,7 @@ it('keeps a whole column selected after deleting it, and leaves the active cell 
   const { wb, id } = await mount();
   view.goTo('A:A'); await flush(); grid().focus();
   view.run('deleteCols'); await flush();
-  expect(nameBox()).toBe('A1:A1048576');
+  expect(nameBox()).toBe('A:A');
   for (let r = 0; r < 5; r++) wb.setInput(id, r, 0, `r${r + 1}`);
   view.goTo('A2:B3'); await flush();
   view.run('deleteRows'); await flush();

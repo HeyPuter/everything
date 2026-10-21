@@ -489,7 +489,7 @@ describe('insert link dialog', () => {
   it('selects a range exactly at the edges of the grid', async () => {
     const { doc } = setup(), wb = doc.wb;
     expect(view.goTo('A1048576:XFD1048576')).toBe(true); await vi.advanceTimersByTimeAsync(1);
-    expect(view.el.querySelector('.name-box').value).toBe('A1048576:XFD1048576');
+    expect(view.el.querySelector('.name-box').value).toBe('1048576:1048576');
     expect(wb.sheets[0].rows).toBe(1048576); // the whole last row: its row comes into view, its columns are all there
   });
 

@@ -34,7 +34,7 @@ it('selects inserted rows whole, so Ctrl+- straight after takes them out again',
   view.goTo('3:3'); await flush(); grid().focus();
   press('=', { shiftKey: true }); await flush();
   expect(column(wb, id)).toEqual(['r1', 'r2', null, 'r3', 'r4']);
-  expect(nameBox()).toBe('A3:XFD3');
+  expect(nameBox()).toBe('3:3');
   press('-'); await flush();
   // No Delete dialog asking how to shift cells: the row goes, as the one inserted was a whole row.
   expect(document.querySelector('.insert-delete-cells')).toBeNull();
@@ -45,5 +45,5 @@ it('selects inserted columns whole', async () => {
   await mount();
   view.goTo('B:B'); await flush(); grid().focus();
   view.run('insertCols', 'left'); await flush();
-  expect(nameBox()).toBe('B1:B1048576');
+  expect(nameBox()).toBe('B:B');
 });

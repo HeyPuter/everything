@@ -47,10 +47,10 @@ async function go(box, text) {
 }
 
 it.each([
-  ['$3:$5', 'A3:XFD5'],
-  ['Sheet2!B:C', 'B1:C1048576'],
-  ['Sheet2!$3:$5', 'A3:XFD5'],
-  ["'Sheet2'!$B:$C", 'B1:C1048576'],
+  ['$3:$5', '3:5'],
+  ['Sheet2!B:C', 'B:C'],
+  ['Sheet2!$3:$5', '3:5'],
+  ["'Sheet2'!$B:$C", 'B:C'],
 ])('selects %s', async (text, shown) => {
   const { wb, home, other, box } = await mount();
   await go(box, text);
