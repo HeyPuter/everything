@@ -4755,6 +4755,7 @@ export function createEditor({
   }
   let finishingForms;
   async function finishDrafts(skipImages = false) {
+    await annotationLayer.finish();
     if (!skipImages) await pageImages.finish();
     await finishTextEdit();
     await finishNoteEdit();
@@ -12237,6 +12238,7 @@ export function createEditor({
     document.removeEventListener('dragstart', restrictCopy);
     clearTextPreview(textEdit);
     pageImages.destroy();
+    annotationLayer.destroy();
     generation++;
     pageRenderGeneration++;
     searchGeneration++;

@@ -27,12 +27,21 @@ export const ANNOTATION_KINDS = new Set([
 const movable = (entry) =>
   !entry.locked && !entry.readOnly && annotationAccepts(entry.subtype, 'rect');
 
+/** How long arrow keys rest before their nudges are saved as one move, in milliseconds. */
+const NUDGE_REST = 180;
+
 export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
   const root = el('div', { class: 'annotation-targets' });
   let viewport = null,
     entries = [],
     selected = null,
     drag = null;
+  // Arrow-key nudges not yet saved, as a PDF offset: shown at once, saved as one move once the
+  // keys rest. `moving` is a saved move still being applied; nudges meanwhile wait for it.
+  let nudge = null,
+    nudgeTimer = 0,
+    moving = null;
+  const heldArrows = new Set();
 
   function screenBox({ x, y, width, height }) {
     const [x1, y1] = viewport.convertToViewportPoint(x, y);
@@ -50,6 +59,52 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     const [bx, by] = viewport.convertToPdfPoint(dx, dy);
     return [bx - ax, by - ay];
   }
+  /** A PDF offset as a screen offset. */
+  function screenOffset(ox, oy) {
+    const [ax, ay] = viewport.convertToViewportPoint(0, 0);
+    const [bx, by] = viewport.convertToViewportPoint(ox, oy);
+    return [bx - ax, by - ay];
+  }
+  const nodeOf = (id) => [...root.children].find((node) => node.dataset.id === id);
+  function showNudge(extra = [0, 0]) {
+    const node = nudge && nodeOf(nudge.id);
+    if (!node) return;
+    const [dx, dy] = screenOffset(nudge.ox + extra[0], nudge.oy + extra[1]);
+    node.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+  /** Save the nudges so far as one move, from where the comment now is. */
+  function saveNudge() {
+    clearTimeout(nudgeTimer);
+    if (!nudge || moving) return;
+    const { id, ox, oy } = nudge;
+    const entry = entries.find((item) => item.id === id) ?? nudge.entry;
+    nudge = null;
+    const { x, y, width, height } = entry.rect;
+    moving = { id, ox, oy };
+    moving.done = Promise.resolve(onMove(entry, { x: x + ox, y: y + oy, width, height })).finally(
+      () => {
+        moving = null;
+        const node = nodeOf(id);
+        if (node) node.style.transform = '';
+        // Keys pressed while the move was saved go on from where it left the comment.
+        if (nudge) {
+          showNudge();
+          if (!heldArrows.size) nudgeTimer = setTimeout(saveNudge, NUDGE_REST);
+        }
+      },
+    );
+  }
+  function endNudgeKey(e) {
+    if (!heldArrows.size) return;
+    if (e.type === 'blur') heldArrows.clear();
+    else if (!heldArrows.delete(e.key) || heldArrows.size) return;
+    // A held key pauses before it repeats: wait for the release, then a moment for quick
+    // presses to follow, so one movement is one edit.
+    clearTimeout(nudgeTimer);
+    nudgeTimer = setTimeout(saveNudge, NUDGE_REST);
+  }
+  window.addEventListener('keyup', endNudgeKey, true);
+  window.addEventListener('blur', endNudgeKey);
   const place = (node, box) =>
     Object.assign(node.style, {
       left: `${box.left}px`,
@@ -92,6 +147,7 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             if (e.button !== 0) return;
             e.preventDefault();
             e.stopPropagation();
+            saveNudge();
             if (selected !== entry.id) select(entry);
             // Preventing the default also prevents focus; the selected comment takes it, as
             // a desktop editor's does, for the arrow keys, Delete, and Escape.
@@ -126,10 +182,16 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
           onkeydown: (e) => {
             if (e.key === 'Delete' || e.key === 'Backspace') {
               e.preventDefault();
+              // A comment being deleted has nowhere left to be nudged to.
+              if (nudge?.id === entry.id) {
+                nudge = null;
+                clearTimeout(nudgeTimer);
+              }
               // As the disabled Delete button says, a locked comment stays.
               if (!entry.locked && !entry.readOnly) onDelete(entry);
             } else if (e.key === 'Escape') {
               e.preventDefault();
+              saveNudge();
               select(null);
             } else if (
               e.key.startsWith('Arrow') &&
@@ -144,8 +206,13 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
                 dy = { ArrowUp: -step, ArrowDown: step }[e.key] || 0;
               const [ox, oy] = pdfOffset(dx, dy);
-              const { x, y, width, height } = entry.rect;
-              onMove(entry, { x: x + ox, y: y + oy, width, height });
+              if (nudge && nudge.id !== entry.id) saveNudge();
+              nudge ??= { id: entry.id, entry, ox: 0, oy: 0 };
+              nudge.ox += ox;
+              nudge.oy += oy;
+              showNudge(moving?.id === entry.id ? [moving.ox, moving.oy] : [0, 0]);
+              heldArrows.add(e.key);
+              clearTimeout(nudgeTimer);
             }
           },
           onfocus: () => {
@@ -163,6 +230,8 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
       [...root.children]
         .find((node) => node.dataset.id === selected)
         ?.focus({ preventScroll: true });
+    // Nudges made while the page was drawn again stay in view.
+    showNudge();
   }
 
   return {
@@ -170,13 +239,28 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
     render,
     setEnabled(on) {
       root.hidden = !on;
+      if (!on) saveNudge();
       if (!on && selected) select(null);
     },
     get selected() {
       return entries.find((entry) => entry.id === selected) || null;
     },
     clear() {
+      saveNudge();
       if (selected) select(null);
+    },
+    /** Save the nudges not yet saved, as a save or another edit must include them. */
+    async finish() {
+      while (nudge || moving) {
+        saveNudge();
+        await moving?.done;
+      }
+    },
+    destroy() {
+      clearTimeout(nudgeTimer);
+      nudge = null;
+      window.removeEventListener('keyup', endNudgeKey, true);
+      window.removeEventListener('blur', endNudgeKey);
     },
     focus(id) {
       const entry = entries.find((item) => item.id === id);

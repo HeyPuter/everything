@@ -104,3 +104,48 @@ test('Alt with an arrow key turns the page without moving the comment in focus',
   const [after] = await savedRectangles(page);
   expect(after.box).toEqual(before.box);
 });
+
+// Quick or held arrow keys move the comment as far as they were pressed, at once on screen,
+// and the whole movement is one edit to undo.
+for (const how of ['pressed quickly', 'held down'])
+  test(`an arrow key ${how} moves a comment as one edit`, async ({ page }) => {
+    const target = await openWithRectangle(page);
+    await target.click();
+    const start = await target.boundingBox();
+    if (how === 'held down') {
+      // Key repeat: ten keydowns, one keyup.
+      for (let i = 0; i < 10; i++) await page.keyboard.down('ArrowRight');
+      const held = await target.boundingBox();
+      expect(held.x - start.x).toBeCloseTo(10, 0);
+      await page.keyboard.up('ArrowRight');
+    } else {
+      for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
+      // The comment follows the keys before the edit is saved.
+      const moved = await target.boundingBox();
+      expect(moved.x - start.x).toBeCloseTo(10, 0);
+    }
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+    await settled(page);
+    await expect(target).toBeFocused();
+    const shown = await target.boundingBox();
+    expect(shown.x - start.x).toBeCloseTo(10, 0);
+    // Each press moves a screen pixel.
+    const pixel = 400 / (await page.locator('.paper').boundingBox()).width;
+    const [after] = await savedRectangles(page);
+    expect(after.box.x).toBeCloseTo(100 + 10 * pixel, 2);
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await settled(page);
+    const [undone] = await savedRectangles(page);
+    expect(undone.box.x).toBeCloseTo(100, 3);
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  });
+
+// A download right after the keys includes the nudges not yet saved.
+test('a download right after arrow keys includes the move', async ({ page }) => {
+  const target = await openWithRectangle(page);
+  await target.click();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowRight');
+  const pixel = 400 / (await page.locator('.paper').boundingBox()).width;
+  const [after] = await savedRectangles(page);
+  expect(after.box.x).toBeCloseTo(100 + 3 * pixel, 2);
+});
