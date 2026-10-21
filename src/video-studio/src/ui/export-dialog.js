@@ -23,6 +23,9 @@ import { prefs, setPref } from './prefs.js';
 
 let seq = 0;
 
+/** Frame rates picked in the dialog this session, by project and timeline; otherwise exports use the timeline's own. */
+const pickedFps = new Map();
+
 const signedIn = (ctx) => ctx.library?.backend?.kind === 'puter' && typeof puter !== 'undefined';
 
 /** Settings worth remembering on this device (not the per-project name). */
@@ -113,6 +116,10 @@ export function openExportDialog(ctx) {
   // With several timelines the file is named after the project and the timeline.
   const multi = (ctx.timelines?.list().length || 0) > 1;
   let s = { ...DEFAULT_SETTINGS, ...EXTRA_DEFAULTS, ...saved, name: multi ? `${full.name} - ${ctx.timelines.active().name}` : full.name };
+  // Frame rate: the timeline's own, unless another was picked for it earlier.
+  const fpsKey = `${full.id}/${full.timelineId || ''}`;
+  const ownFps = FRAME_RATES.includes(full.settings.fps) ? full.settings.fps : s.fps;
+  s.fps = pickedFps.get(fpsKey) ?? ownFps;
   // The in/out range is the natural default whenever one is set.
   if (full.range) s.scope = 'range';
   else if (s.scope === 'range' || (s.scope === 'selection' && !selection.length)) s.scope = 'all';
@@ -240,6 +247,8 @@ export function openExportDialog(ctx) {
   });
   const fps = select('Frame rate', FRAME_RATES.map((f) => ({ value: f, label: `${f} fps` })), s.fps, (v) => {
     s.fps = Number(v);
+    if (s.fps === ownFps) pickedFps.delete(fpsKey);
+    else pickedFps.set(fpsKey, s.fps);
     update();
   });
   const audioSwitchId = `exp-${++seq}`;

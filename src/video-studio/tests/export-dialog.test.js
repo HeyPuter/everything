@@ -25,6 +25,39 @@ beforeEach(() => {
 });
 
 describe('export dialog', () => {
+  it("starts at the timeline's frame rate, keeping a rate picked for it this session", async () => {
+    const { setPref } = await import('../src/ui/prefs.js');
+    setPref('exportSettings', { fps: 30, resolution: 720 });
+    const make = (fps) => {
+      const p = createProject({ name: 'Trip' });
+      p.settings.fps = fps;
+      p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 2 * US }));
+      p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+      return p;
+    };
+    const fpsSelect = (d) => [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.textContent === '25 fps'));
+    const resSelect = (d) => [...d.el.querySelectorAll('select')].find((x) => [...x.options].some((o) => o.textContent === '720p'));
+    const pal = make(25);
+    let d = openExportDialog(ctxWith(pal));
+    await flush();
+    let sel = fpsSelect(d);
+    expect(sel.value).toBe('25');
+    sel.value = '50';
+    sel.dispatchEvent(new Event('change'));
+    d.close();
+    d = openExportDialog(ctxWith(pal));
+    await flush();
+    expect(fpsSelect(d).value).toBe('50');
+    d.close();
+    d = openExportDialog(ctxWith(make(24)));
+    await flush();
+    expect(fpsSelect(d).value).toBe('24');
+    // Other choices are still remembered.
+    expect(resSelect(d).value).toBe('720');
+    d.close();
+    setPref('exportSettings', null);
+  });
+
   it('labels every control and lists only encodable codecs', async () => {
     const p = createProject({ name: 'Trip' });
     p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 2 * US }));
