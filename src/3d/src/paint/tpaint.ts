@@ -16,6 +16,7 @@ import { activeMeshData, meshSession, type MeshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { runStroke } from './stroke';
 import { paintDisplay } from './display';
+import { dabMaskAt, dabTextureAt, dabTextureColor } from './brushtex';
 import { materialSlots } from '../editors/view3d/draw';
 
 // ---------------------------------------------------------------------------
@@ -247,6 +248,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   const mode = (b.blend ?? 'MIX') as BlendMode;
   let lastUV: [number, number] | null = null;
   let filled = false;
+  let dabCount = 0;
   runStroke(v, e, {
     spacing: () => (tool === 'FILL' ? 0 : Math.max(1, b.spacing || 10)),
     radiusPx: () => b.radius,
@@ -275,6 +277,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         uvDelta: delta,
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
         clone,
+        index: dabCount++,
       });
       lastUV = uv;
     },
@@ -348,6 +351,8 @@ interface DabOpts {
   radius: number;
   /** clone: source pixels and the texel offset from the painted texel to its source */
   clone?: { data: Uint8ClampedArray; W: number; H: number; du: number; dv: number };
+  /** dab number in the stroke (random texture mapping) */
+  index?: number;
 }
 
 /** Clone source picked with Ctrl+click (UV of the paint texture, plus the world point for the marker). */
@@ -525,6 +530,13 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const src = o.tool === 'TEXDRAW' ? data : data.slice(0); // snapshot for soften / smear sampling
     const r2 = r * r;
     const accumulate = !!b.use_accumulate;
+    // brush texture: colors what the Paint brush lays down (and the mask texture scales it); other
+    // tools only take its strength
+    const place = { cx: o.x, cy: o.y, radiusPx: r, index: o.index ?? 0, viewH: Hv };
+    const texCol = o.tool === 'TEXDRAW' ? dabTextureColor(b, place) : null;
+    const texF = o.tool === 'TEXDRAW' ? dabMaskAt(b, place) : dabTextureAt(b, place);
+    const trgba = [1, 1, 1, 1];
+    const tcol = [0, 0, 0];
     for (const t of cand) {
       const i0 = s.tris[t * 3] * 3,
         i1 = s.tris[t * 3 + 1] * 3,
@@ -552,7 +564,18 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
             if (dz !== Infinity && tmp[2] > dz + 2e-4 + Math.abs(dz) * 1e-4) return;
           }
         }
-        const a = best * o.strength;
+        let a = best * o.strength;
+        if (texF) a *= texF(tmp[0], tmp[1], lx, ly, lz);
+        let col = o.color;
+        if (texCol) {
+          if (!texCol(tmp[0], tmp[1], lx, ly, lz, trgba)) return;
+          a *= trgba[3];
+          tcol[0] = o.color[0] * trgba[0];
+          tcol[1] = o.color[1] * trgba[1];
+          tcol[2] = o.color[2] * trgba[2];
+          col = tcol;
+        }
+        if (a <= 0) return;
         const p = ti * 4;
         if (o.tool === 'TEXDRAW') {
           const sa = accumulate ? Math.min(1, alpha[ti] + a) : Math.max(alpha[ti], a);
@@ -562,7 +585,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
           dst[1] = orig[p + 1] / 255;
           dst[2] = orig[p + 2] / 255;
           dst[3] = orig[p + 3] / 255;
-          blendColor(o.mode, dst, o.color, sa, out);
+          blendColor(o.mode, dst, col, sa, out);
         } else if (o.tool === 'SOFTEN') {
           const W = st.W,
             H = st.H;

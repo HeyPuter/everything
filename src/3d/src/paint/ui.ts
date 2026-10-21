@@ -33,8 +33,8 @@ import { invalidatePaintAttributes } from './display';
 import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
 import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
-import { sampleTex, setImageCanvasSource, TEX_SOURCES, type BrushTexture } from './brushtex';
-import { imageCanvas } from '../render/images';
+import { mapModes, maskTextureActive, sampleTex, sampleTexRGBA, setImageCanvasSource, textureActive, TEX_SOURCES, type BrushTexture } from './brushtex';
+import { imageCanvas, imageReady } from '../render/images';
 import { paletteTemplate, palettesOf, paletteUsers } from './palette';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { Vector3 } from 'three';
@@ -339,7 +339,7 @@ export function toolHeaderSettings(mode: BrushMode): Child {
   if (mode === 'WEIGHT_PAINT' && b.sculpt_tool === 'DRAW') parts.push(field(100, blendMenu(b, 'th-wblend', BLENDS)));
   if (mode === 'SCULPT') parts.push(directionToggle(b));
   parts.push(popButton('th-p-brush', 'Brush', 'Brush Settings', () => [...mainRows(b, mode, 'thp'), ...advancedRows(b, mode, 'thp')]));
-  if (mode !== 'TEXTURE_PAINT') parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => textureRows(b, 'thp')));
+  parts.push(popButton('th-p-tex', 'Texture', 'Texture', () => [...textureRows(b, 'thp', mode), ...(mode === 'TEXTURE_PAINT' ? [h('div', { class: 'pop-sub' }, 'Texture Mask'), ...textureRows(b, 'thpm', mode, true)] : [])]));
   parts.push(popButton('th-p-stroke', 'Stroke', 'Stroke', () => strokeRows(b, mode, 'thp')));
   parts.push(popButton('th-p-falloff', 'Falloff', 'Falloff', () => falloffRows(b, mode, 'thp')));
   parts.push(popButton('th-p-cursor', 'Cursor', 'Cursor', () => cursorRows(b, mode, 'thp')));
@@ -594,15 +594,16 @@ function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   ];
 }
 
-function textureRows(b: PaintBrush, p: string): Child[] {
-  const t: BrushTexture = b.texture_slot ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
+function textureRows(b: PaintBrush, p: string, mode: BrushMode = app.doc.mode as BrushMode, mask = false): Child[] {
+  const key = mask ? 'mask_texture_slot' : 'texture_slot';
+  const t: BrushTexture = b[key] ?? { source: 'NONE', map_mode: 'VIEW_PLANE', angle: 0, scale: 1, strength: 1 };
   const set = (patch: Partial<BrushTexture>) => {
-    b.texture_slot = { ...t, ...patch };
+    b[key] = { ...t, ...patch };
     changed();
   };
   const images = Object.values(app.doc.images);
   const rows: Child[] = [
-    row('Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: 'Pattern that modulates the brush strength' })),
+    row(mask ? 'Mask' : 'Texture', enumMenu(`${p}-tsrc`, TEX_SOURCES.map(([value, label]) => ({ value, label })), t.source, (x) => set({ source: x as BrushTexture['source'] }), { tip: mask ? 'Pattern that scales the brush strength' : 'Pattern that modulates the brush (in Texture Paint: its colors are painted)' })),
   ];
   if (t.source === 'IMAGE')
     rows.push(
@@ -611,6 +612,8 @@ function textureRows(b: PaintBrush, p: string): Child[] {
         : h('div', { class: 'sb-label' }, 'No images in the file: open one in the Image Editor first'),
     );
   if (t.source === 'NONE') return rows;
+  const modes = mapModes(mode, mask);
+  const stencil = t.map_mode === 'STENCIL';
   rows.push(
     h('canvas', {
       key: `${p}-tprev-${t.source}-${t.image}-${t.angle}-${t.scale}`,
@@ -623,13 +626,17 @@ function textureRows(b: PaintBrush, p: string): Child[] {
         const img = ctx.createImageData(96, 96);
         const cos = Math.cos(-t.angle),
           sin = Math.sin(-t.angle);
+        const px = [0, 0, 0, 0];
         for (let y = 0; y < 96; y++)
           for (let x = 0; x < 96; x++) {
             const dx = (x / 48 - 1) / t.scale,
               dy = (1 - y / 48) / t.scale;
-            const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
             const i = (y * 96 + x) * 4;
-            img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            sampleTexRGBA(t, dx * cos - dy * sin, dx * sin + dy * cos, px);
+            if (mask || t.source !== 'IMAGE') {
+              const f = sampleTex(t, dx * cos - dy * sin, dx * sin + dy * cos);
+              img.data[i] = img.data[i + 1] = img.data[i + 2] = Math.round(f * 255);
+            } else for (let k = 0; k < 3; k++) img.data[i + k] = Math.round(px[k] * px[3] * 255);
             img.data[i + 3] = 255;
           }
         ctx.putImageData(img, 0, 0);
@@ -639,21 +646,58 @@ function textureRows(b: PaintBrush, p: string): Child[] {
       'Mapping',
       enumMenu(
         `${p}-tmap`,
-        [
-          { value: 'VIEW_PLANE', label: 'View Plane' },
-          { value: 'TILED', label: 'Tiled' },
-          { value: 'RANDOM', label: 'Random' },
-        ],
-        t.map_mode,
-        (x) => set({ map_mode: x as BrushTexture['map_mode'] }),
-        { tip: 'View Plane: follows the brush · Tiled: fixed on the screen · Random: new rotation and offset per dab' },
+        modes.map(([value, label, description]) => ({ value, label, description })),
+        modes.some((m) => m[0] === t.map_mode) ? t.map_mode : 'VIEW_PLANE',
+        (x) => {
+          set({ map_mode: x as BrushTexture['map_mode'] });
+          if (x === 'STENCIL') centerStencil(b, mask);
+        },
+        { tip: 'How the texture is placed over the brush' },
       ),
     ),
-    numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }),
+  );
+  if (stencil)
+    rows.push(
+      h('div', { class: 'sb-label' }, 'Right-drag moves the stencil · Shift: scale · Ctrl: rotate' + (mask ? ' (hold Alt for the mask)' : '')),
+      h(
+        'div',
+        { class: 'row-split' },
+        opButton('brush.stencil_fit_image_aspect', 'Image Aspect', { mask }, { tip: 'Give the stencil the proportions of its image' }),
+        opButton('brush.stencil_reset_transform', 'Reset Transform', { mask }, { tip: 'Put the stencil back to its default place, size and angle' }),
+      ),
+    );
+  if (t.map_mode === 'RANDOM' || t.map_mode === 'VIEW_PLANE' || t.map_mode === 'AREA_PLANE' || stencil) {
+    rows.push(numberField({ id: `${p}-tang`, label: 'Angle', value: t.angle, min: -Math.PI * 2, max: Math.PI * 2, unit: 'angle', set: (x) => set({ angle: x }) }));
+    if (!stencil && t.map_mode !== 'RANDOM')
+      rows.push(
+        checkbox(`${p}-trnd`, 'Random', !!t.use_random, (x) => set({ use_random: x }), { tip: 'Rotate the texture by a random angle for each dab' }),
+        t.use_random ? numberField({ id: `${p}-trnda`, label: 'Random Angle', value: t.random_angle ?? Math.PI * 2, min: 0, max: Math.PI * 2, unit: 'angle', set: (x) => set({ random_angle: x }) }) : null,
+      );
+  }
+  const off = t.offset ?? [0, 0, 0];
+  rows.push(
     numberField({ id: `${p}-tscale`, label: 'Size', value: t.scale, min: 0.01, max: 100, softMax: 4, set: (x) => set({ scale: x }) }),
-    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the strength', set: (x) => set({ strength: x }) }),
+    numberField({ id: `${p}-toffx`, label: 'Offset X', value: off[0], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [x, off[1], off[2]] }) }),
+    numberField({ id: `${p}-toffy`, label: 'Y', value: off[1], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [off[0], x, off[2]] }) }),
+    t.map_mode === '3D' ? numberField({ id: `${p}-toffz`, label: 'Z', value: off[2], min: -10, max: 10, softMin: -2, softMax: 2, set: (x) => set({ offset: [off[0], off[1], x] }) }) : null,
+    numberField({ id: `${p}-tstr`, label: 'Influence', value: t.strength ?? 1, min: 0, max: 1, slider: true, tip: 'How much the texture modulates the brush', set: (x) => set({ strength: x }) }),
   );
   return rows;
+}
+
+/** Put a new stencil in the middle of the active viewport. */
+function centerStencil(b: PaintBrush, mask: boolean) {
+  const v = activeView3D();
+  if (!v) return;
+  if (mask ? b.mask_stencil_pos : b.stencil_pos) return;
+  const s = Math.round(Math.min(v.width, v.height) * 0.35);
+  if (mask) {
+    b.mask_stencil_pos = [Math.round(v.width / 2), Math.round(v.height / 2)];
+    b.mask_stencil_dimension ??= [s, s];
+  } else {
+    b.stencil_pos = [Math.round(v.width / 2), Math.round(v.height / 2)];
+    b.stencil_dimension ??= [s, s];
+  }
 }
 
 function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
@@ -665,6 +709,8 @@ function cursorRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           DIRECTIONAL.has(b.sculpt_tool) ? row('Subtract Color', colorSwatch(`${p}-csub`, b.cursor_color_subtract ?? [0.43, 0.55, 1], (c) => ((b.cursor_color_subtract = [c[0], c[1], c[2]]), changed()), { linear: false })) : null,
         ]
       : null,
+    textureActive(b) ? numberField({ id: `${p}-tov`, label: 'Texture Opacity', value: b.texture_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the texture overlay (stencils) in the viewport', set: (x) => ((b.texture_overlay_alpha = Math.round(x)), changed()) }) : null,
+    maskTextureActive(b) ? numberField({ id: `${p}-mov`, label: 'Mask Texture Opacity', value: b.mask_overlay_alpha ?? 33, min: 0, max: 100, slider: true, precision: 0, tip: 'Opacity of the mask texture overlay (stencils) in the viewport', set: (x) => ((b.mask_overlay_alpha = Math.round(x)), changed()) }) : null,
   ];
 }
 
@@ -735,7 +781,8 @@ function brushPanels(mode: BrushMode): Child[] {
         ...mainRows(b, mode, 'pt'),
         panel(`pt-adv-${mode}`, 'Advanced', () => advancedRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-stroke-${mode}`, 'Stroke', () => strokeRows(b, mode, 'pt'), { sub: true, closed: true }),
-        mode !== 'TEXTURE_PAINT' ? panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt'), { sub: true, closed: true }) : null,
+        panel(`pt-tex-${mode}`, 'Texture', () => textureRows(b, 'pt', mode), { sub: true, closed: true }),
+        mode === 'TEXTURE_PAINT' ? panel(`pt-texmask-${mode}`, 'Texture Mask', () => textureRows(b, 'ptm', mode, true), { sub: true, closed: true }) : null,
         panel(`pt-falloff-${mode}`, 'Falloff', () => falloffRows(b, mode, 'pt'), { sub: true, closed: true }),
         panel(`pt-cursor-${mode}`, 'Cursor', () => cursorRows(b, mode, 'pt'), { sub: true, closed: true }),
       ]),
@@ -1553,4 +1600,7 @@ for (const km of ['Sculpt', 'Vertex Paint', 'Weight Paint', 'Image Paint'])
     { key: 'S', shift: true, op: 'paint.brush_smooth_stroke_toggle', when: () => isBrushMode(app.doc.mode) },
   ]);
 
-setImageCanvasSource(imageCanvas);
+setImageCanvasSource((img) => {
+  const c = imageCanvas(img);
+  return imageReady(img) ? c : null;
+});

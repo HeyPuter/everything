@@ -4,9 +4,10 @@ import type { BrushData, DocumentData, Mode } from '../data/types';
 import { app } from '../app/app';
 import { activeTools } from '../app/prefs';
 import type { Falloff } from './math';
+import type { StencilSettings } from './brushtex';
 
 /** Brush settings beyond the core BrushData fields (stored on the same data-block). */
-export interface PaintBrush extends BrushData {
+export interface PaintBrush extends BrushData, StencilSettings {
   falloff_shape?: 'SPHERE' | 'PROJECTED';
   use_frontface?: boolean;
   /** clay/flatten/fill/scrape plane offset (fraction of the radius) */
@@ -39,6 +40,11 @@ export interface PaintBrush extends BrushData {
   boundary_deform_type?: 'GRAB' | 'EXPAND' | 'INFLATE';
   /** texture modulating the strength */
   texture_slot?: import('./brushtex').BrushTexture;
+  /** texture scaling only the strength (Texture Paint) */
+  mask_texture_slot?: import('./brushtex').BrushTexture;
+  /** opacity (percent) of the texture / mask texture overlay in the viewport */
+  texture_overlay_alpha?: number;
+  mask_overlay_alpha?: number;
   /** brush cursor display */
   show_cursor?: boolean;
   cursor_color_add?: [number, number, number];

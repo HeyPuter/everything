@@ -890,7 +890,7 @@ function dab(st: StrokeState, d: Dab, tool: string) {
         }
       }
     } else {
-      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs);
+      st.texFn = dabTexture(b, s, v, d.x, d.y, d.radiusPx ?? brushRadiusPx(b, s, v, hit.world) * sizeFactor, st.dabs, { center: hit.point, normal: hit.normal, radius: R });
       surfaceDab(st, tool, hit.point, hit.normal, viewDir, R, strokeDir, strength);
       st.texFn = st.texCur = null;
     }

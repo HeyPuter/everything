@@ -25,6 +25,7 @@ import './simpleuv';
 import './ui';
 import './strokeops';
 import './palette';
+import './stencil';
 import './scripting';
 import './selmask';
 import './sculptmenus';
