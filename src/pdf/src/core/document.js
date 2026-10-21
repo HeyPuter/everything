@@ -58,7 +58,7 @@ import {
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
 import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
-import { numberFormat, typedNumber } from './form-format.js';
+import { numberFormat, simpleCalculation, typedNumber } from './form-format.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -69,6 +69,7 @@ import {
 import {
   choiceKeys,
   choiceOptions,
+  choiceValues,
   defaultFieldValue,
   readChoiceKeys,
   selectedChoices,
@@ -1479,6 +1480,61 @@ export function listFields(doc) {
     return { ...base, type: 'unsupported' };
   });
 }
+/** A field's value as a calculation reads it: its text, choice, or export value. */
+function calculationInput(field) {
+  if (field instanceof PDFTextField) return textValue(field);
+  if (field instanceof PDFDropdown || field instanceof PDFOptionList)
+    return choiceValues(field)[0] ?? '';
+  if (field instanceof PDFRadioGroup) return fieldValue(field) ?? '';
+  if (field instanceof PDFCheckBox)
+    return checkBoxSelection(field, checkBoxOptions(field))[0] ?? '';
+  return '';
+}
+const CALCULATIONS = {
+  SUM: (numbers) => numbers.reduce((a, b) => a + b, 0),
+  PRD: (numbers) => numbers.reduce((a, b) => a * b, 1),
+  AVG: (numbers) => numbers.reduce((a, b) => a + b, 0) / numbers.length,
+  MIN: (numbers) => Math.min(...numbers),
+  MAX: (numbers) => Math.max(...numbers),
+};
+/**
+ * Work out the form's own simple calculations (sums, products, averages, minimums, and
+ * maximums of other fields) in its calculation order, as Acrobat does after a value changes.
+ * Returns the fields whose values changed.
+ */
+function recalculate(doc, fields) {
+  const order = doc.getForm().acroForm.dict.lookup(PDFName.of('CO'));
+  if (!(order instanceof PDFArray)) return [];
+  const names = new Map(fields.map((field) => [field, formFieldName(field)]));
+  const changed = [];
+  for (const entry of order.asArray()) {
+    const target = doc.context.lookup(entry);
+    const field = fields.find((f) => f.ref === entry || f.acroField.dict === target);
+    if (!(field instanceof PDFTextField)) continue;
+    try {
+      const calculation = simpleCalculation(field);
+      if (!calculation) continue;
+      const sources = fields.filter((other) =>
+        calculation.names.some(
+          (name) =>
+            other !== field &&
+            (names.get(other) === name || names.get(other).startsWith(`${name}.`)),
+        ),
+      );
+      if (!sources.length) continue;
+      // A value that is not a number counts as zero, as in Acrobat.
+      const numbers = sources.map((source) => typedNumber(calculationInput(source)) ?? 0);
+      const value = String(CALCULATIONS[calculation.operation](numbers));
+      if (textValue(field) === value) continue;
+      prepareFieldAppearance(field, doc.getForm());
+      field.setText(value);
+      changed.push(field);
+    } catch {
+      // A calculation that cannot be worked out leaves its field as it is.
+    }
+  }
+  return changed;
+}
 export async function fillFields(doc, values) {
   const fields = formFields(doc);
   if (!fields) throw new Error(DAMAGED_FORM);
@@ -1612,6 +1668,11 @@ export async function fillFields(doc, values) {
     changedFields.push(field);
   }
   if (!changed) return false;
+  for (const field of recalculate(doc, fields)) {
+    if (changedFields.includes(field)) continue;
+    changedFields.push(field);
+    changedText.set(field, textValue(field));
+  }
   // Each field is drawn with the bundled face its own text needs, such as the Korean one.
   const fonts = new Map();
   for (const field of changedFields) {

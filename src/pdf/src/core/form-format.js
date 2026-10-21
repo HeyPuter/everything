@@ -1,7 +1,7 @@
 /**
  * Acrobat's number and percent formats (AFNumber_Format and AFPercent_Format in a text field's
- * format action). The value keeps what was typed; viewers show it formatted. No document
- * JavaScript runs: the calls are read as data.
+ * format action), and its simple calculations (AFSimple_Calculate). The value keeps what was
+ * typed; viewers show it formatted. No document JavaScript runs: the calls are read as data.
  */
 import {
   PDFDict,
@@ -12,9 +12,18 @@ import {
   decodePDFRawStream,
 } from 'pdf-lib';
 
-function formatScript(field) {
+const jsString = (literal) =>
+  literal
+    .slice(1, -1)
+    .replace(/\\u([\da-fA-F]{4})|\\(.)/g, (_, code, char) =>
+      code ? String.fromCharCode(parseInt(code, 16)) : char,
+    );
+const STRING = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g;
+
+/** The script of a field's format (F) or calculation (C) action. */
+function actionScript(field, key = 'F') {
   const actions = field.acroField.dict.lookup(PDFName.of('AA'));
-  const action = actions instanceof PDFDict ? actions.lookup(PDFName.of('F')) : undefined;
+  const action = actions instanceof PDFDict ? actions.lookup(PDFName.of(key)) : undefined;
   const script = action instanceof PDFDict ? action.lookup(PDFName.of('JS')) : undefined;
   if (script instanceof PDFString || script instanceof PDFHexString) return script.decodeText();
   if (script instanceof PDFRawStream)
@@ -28,7 +37,7 @@ function formatScript(field) {
 
 /** The field's number format, or null when it has none. */
 export function numberFormat(field) {
-  const script = formatScript(field);
+  const script = actionScript(field);
   const number = script.match(
     /AFNumber_Format\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*\d+\s*,\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*,\s*(true|false)/,
   );
@@ -39,11 +48,7 @@ export function numberFormat(field) {
       separators: Number(number[2]),
       parentheses: Number(number[3]) >= 2,
       // A JavaScript string: \u20AC is the euro sign.
-      currency: number[4]
-        .slice(1, -1)
-        .replace(/\\u([\da-fA-F]{4})|\\(.)/g, (_, code, char) =>
-          code ? String.fromCharCode(parseInt(code, 16)) : char,
-        ),
+      currency: jsString(number[4]),
       prepend: number[5] === 'true',
     };
   const percent = script.match(/AFPercent_Format\(\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*(true|false))?/);
@@ -55,6 +60,22 @@ export function numberFormat(field) {
       prepend: percent[3] === 'true',
     };
   return null;
+}
+
+/**
+ * The field's calculation when it is one of Acrobat's own ("Value is the sum of the following
+ * fields", AFSimple_Calculate): the operation and the names of the fields, or null.
+ */
+export function simpleCalculation(field) {
+  const call = actionScript(field, 'C').match(
+    /AFSimple_Calculate\(\s*["'](SUM|PRD|AVG|MIN|MAX)["']\s*,\s*(new\s+Array\s*\(([^)]*)\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\)/,
+  );
+  if (!call) return null;
+  const names =
+    call[3] !== undefined
+      ? (call[3].match(STRING) ?? []).map(jsString)
+      : jsString(call[2]).split(',');
+  return { operation: call[1], names: names.map((name) => name.trim()).filter(Boolean) };
 }
 
 /** The number typed, with either decimal mark and no grouping, or null when it is none. */

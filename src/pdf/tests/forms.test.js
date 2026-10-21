@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { PDFArray, PDFName, PDFString } from 'pdf-lib';
+import { PDFArray, PDFHexString, PDFName, PDFString } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   PdfSession,
   deletePage,
@@ -10,7 +11,7 @@ import {
   listFields,
   radioButtonChoices,
 } from '../src/core/document.js';
-import { flattenCounts, flattenFields } from '../src/core/flatten.js';
+import { flattenCounts, flattenDocument, flattenFields } from '../src/core/flatten.js';
 import { damagedWidgetsPdf } from './fixtures/damaged-widgets.js';
 
 afterEach(() => vi.restoreAllMocks());
@@ -572,4 +573,73 @@ it('records and highlights the list option chosen among options sharing an expor
   // A plain export value still picks its first option.
   await fillFields(doc, { Fruit: ['B'] });
   expect(dict.has(PDFName.of('I'))).toBe(false);
+});
+
+it('works out the form’s own sums and other simple calculations after filling', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  const field = (fieldName, y) => {
+    const created = form.createTextField(fieldName);
+    created.addToPage(page, { x: 50, y, width: 150, height: 20 });
+    return created;
+  };
+  field('Qty.1', 700);
+  field('Qty.2', 670);
+  const total = field('Total', 600);
+  const largest = field('Largest', 560);
+  const unlisted = field('Unlisted', 520);
+  const actions = (scripts) =>
+    source.context.obj(
+      Object.fromEntries(
+        Object.entries(scripts).map(([key, js]) => [
+          key,
+          { S: 'JavaScript', JS: PDFHexString.fromText(js) },
+        ]),
+      ),
+    );
+  total.acroField.dict.set(
+    PDFName.of('AA'),
+    actions({
+      C: 'AFSimple_Calculate("SUM", new Array ("Qty"));',
+      F: 'AFNumber_Format(2, 0, 0, 0, "", true);',
+    }),
+  );
+  total.enableReadOnly();
+  // Calculations run in the form's order: this one reads the total worked out before it.
+  largest.acroField.dict.set(
+    PDFName.of('AA'),
+    actions({ C: 'AFSimple_Calculate("MAX", "Qty.1, Total");' }),
+  );
+  // A calculation the form does not list in its order is not run, as in Acrobat.
+  unlisted.acroField.dict.set(
+    PDFName.of('AA'),
+    actions({ C: 'AFSimple_Calculate("SUM", "Qty");' }),
+  );
+  form.acroForm.dict.set(PDFName.of('CO'), source.context.obj([total.ref, largest.ref]));
+  const doc = await PDFDocument.load(await source.save());
+  await fillFields(doc, { 'Qty.1': '2', 'Qty.2': '1000.5' });
+  await fillFields(doc, { 'Qty.1': 'two' });
+  expect(listFields(doc).map(({ name, value }) => [name, value])).toEqual([
+    ['Qty.1', 'two'],
+    ['Qty.2', '1000.5'],
+    ['Total', '1000.5'],
+    ['Largest', '1000.5'],
+    ['Unlisted', ''],
+  ]);
+  flattenDocument(doc);
+  const task = pdfjs.getDocument({
+    data: await doc.save(),
+    standardFontDataUrl: new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)
+      .pathname,
+  });
+  try {
+    const content = await (await (await task.promise).getPage(1)).getTextContent();
+    expect(content.items.map((item) => item.str)).toContain('1,000.50');
+  } finally {
+    await task.destroy();
+  }
 });
