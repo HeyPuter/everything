@@ -143,6 +143,7 @@ import {
   radioButtonChoices,
   sharedChoiceSelections,
   fillFields,
+  flattenFonts,
   MAX_FILE_SIZE,
   MAX_IMAGE_SIZE,
   MAX_PAGES,
@@ -11412,8 +11413,9 @@ export function createEditor({
       }
       d.close();
       let done = false;
-      await mutate((doc) => {
-        done = flattenDocument(doc, choice);
+      await mutate(async (doc) => {
+        const fonts = choice.fields ? await flattenFonts(doc) : [];
+        done = flattenDocument(doc, { ...choice, fonts });
         return !!(done && (done.fields || done.annotations));
       });
       if (done) {

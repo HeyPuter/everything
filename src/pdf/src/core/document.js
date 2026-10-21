@@ -57,7 +57,7 @@ import {
   IMAGE_ORIENTATION_KEY,
 } from './image-orientation.js';
 import { reorientNotes } from './notes.js';
-import { flattenFields, requireFlattenedPages } from './flatten.js';
+import { flattenFields, redrawnFieldTexts, requireFlattenedPages } from './flatten.js';
 import {
   choiceAppearanceProvider,
   prepareFieldAppearance,
@@ -845,6 +845,24 @@ export async function addText(
       popGraphicsState(),
     );
   }
+}
+/**
+ * The bundled faces flattening needs for fields it draws anew whose text the standard font
+ * cannot write, such as Polish, Cyrillic, or Korean values in a form that leaves its drawing to
+ * the viewer. Pass them to flattenDocument.
+ */
+export async function flattenFonts(doc) {
+  const texts = redrawnFieldTexts(doc);
+  if (!texts.length) return [];
+  const standard = doc.getForm().getDefaultFont();
+  const fonts = new Set();
+  for (const text of texts)
+    try {
+      standard.encodeText(text.replace(/[\r\n]/g, ''));
+    } catch {
+      fonts.add(await embedFont(doc, 'regular', text));
+    }
+  return [...fonts];
 }
 const characterSets = new WeakMap();
 /** Return the supported canonical spelling, composing accents where the face permits it. */

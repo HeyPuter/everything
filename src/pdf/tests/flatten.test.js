@@ -5,6 +5,7 @@ import { PDFDocument, PDFBool, PDFName, PDFHexString, PDFString, StandardFonts }
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { flattenCounts, flattenDocument } from '../src/core/flatten.js';
+import { flattenFonts } from '../src/core/document.js';
 import { addNote, listNotes } from '../src/core/notes.js';
 import { addHighlight, listHighlights, rectQuad } from '../src/core/highlight.js';
 import { addLink, listLinks } from '../src/core/links.js';
@@ -383,6 +384,42 @@ it('regenerates missing field appearances and appearances the form says are stal
     } finally {
       await task.destroy();
     }
+  }
+});
+
+it('redraws fields in Polish, Cyrillic, or Korean when the form leaves drawing to viewers', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async (url) =>
+      new Response(
+        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+      ),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage([300, 300]);
+  const form = source.getForm();
+  const values = { city: 'Łódź', name: 'Иван', greeting: '안녕하세요', plain: 'Paris' };
+  Object.entries(values).forEach(([key, value], i) => {
+    const field = form.createTextField(key);
+    field.addToPage(page, { x: 20, y: 40 + 50 * i, width: 200, height: 30 });
+    field.acroField.setValue(PDFHexString.fromText(value));
+  });
+  form.acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+  const doc = await PDFDocument.load(await source.save({ updateFieldAppearances: false }));
+  const fonts = await flattenFonts(doc);
+  expect(fonts).toHaveLength(2);
+  expect(flattenDocument(doc, { fonts })).toEqual({ fields: 4, annotations: 0 });
+  const task = pdfjs.getDocument({
+    data: await doc.save(),
+    standardFontDataUrl: new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)
+      .pathname,
+  });
+  try {
+    const text = (await (await (await task.promise).getPage(1)).getTextContent()).items
+      .map((item) => item.str)
+      .join(' ');
+    for (const value of Object.values(values)) expect(text).toContain(value);
+  } finally {
+    await task.destroy();
   }
 });
 

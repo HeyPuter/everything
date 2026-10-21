@@ -10,7 +10,7 @@
  *      | { type: 'flatten' } | { type: 'sanitize' } | { type: 'ocr' } | { type: 'compress', level }
  *      | { type: 'protect', open, permissions }
  */
-import { PdfSession, validatePdf, rotateAllPages } from './document.js';
+import { PdfSession, flattenFonts, validatePdf, rotateAllPages } from './document.js';
 import { addWatermark, addPageNumbers, addHeaderFooter } from './page-marks.js';
 import { flattenDocument } from './flatten.js';
 import { sanitizeDocument, SANITIZE_DEFAULTS } from './sanitize.js';
@@ -107,7 +107,7 @@ export async function runBatch(files, steps, { signal, onProgress, codec, recogn
               break;
             }
             case 'flatten':
-              flattenDocument(doc);
+              flattenDocument(doc, { fonts: await flattenFonts(doc) });
               break;
             case 'sanitize':
               await sanitizeDocument(doc, { ...SANITIZE_DEFAULTS, ...(step.options || {}) });
