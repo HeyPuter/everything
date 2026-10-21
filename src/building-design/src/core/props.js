@@ -336,6 +336,8 @@ const INSTANCE = {
     len('e', 'E/W (easting here)', 'Constraints', { ro: (el) => el.role !== 'survey' }),
     len('elevation', 'Elevation', 'Constraints'),
   ],
+  matchline: [P('name', 'Name', 'Identity Data', 'text'), len('z0', 'Bottom Elevation', 'Extents'), len('z1', 'Top Elevation', 'Extents')],
+  viewRef: [P('targetId', 'Target View', 'Identity Data', 'select', { options: (c) => c.doc.filter((v) => ['plan', 'ceilingPlan', 'areaPlan', 'elevation', 'section', 'drafting', 'view3d', 'legend'].includes(v.kind)).map((v) => ({ value: v.id, label: v.name })) })],
   modelText: [
     P('text', 'Text', 'Text', 'text'),
     len('size', 'Letter Height', 'Dimensions'),

@@ -1103,6 +1103,7 @@ export class App {
     const el = this.doc.get(id);
     if (!el) return;
     if (el.kind === 'section' || el.kind === 'elevation' || isView(el)) return this.openView(el.id);
+    if (el.kind === 'viewRef' && this.doc.has(el.targetId)) return this.openView(el.targetId);
     if (el.kind === 'group') return this.startGroupEdit(el.id);
     if (el.kind === 'floor' || el.kind === 'roof' || el.kind === 'ceiling' || el.kind === 'railing') {
       this.select([id]);

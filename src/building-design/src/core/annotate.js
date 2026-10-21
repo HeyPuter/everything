@@ -27,7 +27,7 @@ import { coordinatesAt, elevationFrom } from './coords.js';
 
 const P = (pc, mm) => mm * pc.scale;
 
-export const ANNOTATION_KINDS = ['image', 'angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend', 'legendComponent'];
+export const ANNOTATION_KINDS = ['viewRef', 'image', 'angularDim', 'radialDim', 'spot', 'revisionCloud', 'insulation', 'detailItem', 'detailArc', 'symbol', 'colorLegend', 'legendComponent'];
 
 /** Draw an annotation; returns false when the kind is not one of these. */
 export function annotationGraphics(pc, el, b) {
@@ -56,6 +56,9 @@ export function annotationGraphics(pc, el, b) {
       return true;
     case 'symbol':
       drawSymbol(pc, el, b);
+      return true;
+    case 'viewRef':
+      drawViewRef(pc, el, b);
       return true;
     case 'colorLegend':
       drawLegend(pc, el, b);
@@ -360,6 +363,40 @@ function drawSpot(pc, el, b) {
     [bb.x1, bb.y1],
     [bb.x0, bb.y1],
   ]);
+}
+
+// View references ---------------------------------------------------------------------------------
+
+/** Where a view is placed: the sheet's number and the view's detail number on it. */
+export function viewPlacement(doc, viewId) {
+  const vp = doc.all('viewport').find((v) => v.placedId === viewId);
+  if (!vp) return null;
+  const sheet = doc.get(vp.viewId);
+  const onSheet = doc.all('viewport').filter((v) => v.viewId === vp.viewId);
+  return { sheet, detail: vp.detailNumber || String(onSheet.indexOf(vp) + 1) };
+}
+
+/** A reference to another view: its name, and its sheet and detail number when placed. */
+function drawViewRef(pc, el, b) {
+  const target = pc.doc.get(el.targetId);
+  const sz = P(pc, 2.2);
+  const place = target ? viewPlacement(pc.doc, target.id) : null;
+  const top = target ? target.name.toUpperCase() : 'VIEW DELETED';
+  const bottom = place ? `${place.detail} / ${place.sheet?.number || '?'}` : 'NOT ON A SHEET';
+  const w = sz * 0.62 * Math.max(top.length, bottom.length) + sz * 2;
+  const at = el.at;
+  const box = [
+    [at[0], at[1] - sz * 1.3],
+    [at[0] + w, at[1] - sz * 1.3],
+    [at[0] + w, at[1] + sz * 1.3],
+    [at[0], at[1] + sz * 1.3],
+  ];
+  b.fill(box, [], BG);
+  b.poly(box, true, W.thin);
+  b.line([at[0], at[1]], [at[0] + w, at[1]], W.thin);
+  b.text([at[0] + w / 2, at[1] + sz * 0.65], `SEE ${top}`, { size: sz * 0.8, bold: true });
+  b.text([at[0] + w / 2, at[1] - sz * 0.65], bottom, { size: sz * 0.8 });
+  b.pick(box);
 }
 
 // Clouds, insulation, items and arcs ---------------------------------------------------------------

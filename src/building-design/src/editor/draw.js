@@ -611,7 +611,7 @@ export class LineTool extends Tool {
   }
 
   get title() {
-    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', truss: 'Place Truss', wire: 'Wire', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
+    return { grid: 'Place Grid', beam: 'Place Beam', brace: 'Place Brace', truss: 'Place Truss', wire: 'Wire', matchline: 'Matchline', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary', duct: 'Duct', pipe: 'Pipe', cableTray: 'Cable Tray', conduit: 'Conduit' }[this.kind];
   }
 
   get prompt() {
@@ -730,6 +730,10 @@ export class LineTool extends Tool {
         const el = { kind: this.kind, typeId: this.app.currentType(this.kind)?.id, levelId: this.app.activeLevelId(), a, b, offset: o.offset ?? 2700, system: o.system };
         for (const k of ['width', 'height', 'diameter']) if (o[k] > 0) el[k] = o[k];
         return el;
+      }
+      case 'matchline': {
+        const lv = this.doc.levels();
+        return { kind: 'matchline', a, b, name: '', z0: (lv[0]?.elevation ?? 0) - 1, z1: (lv.at(-1)?.elevation ?? 0) + 1 };
       }
       case 'wire':
         return { kind: 'wire', levelId: this.app.activeLevelId(), a, b, ticks: this.app.toolOptions('wire', { ticks: 2 }).ticks, circuit: '' };

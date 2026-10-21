@@ -272,7 +272,7 @@ export const RIBBON = [
         ],
       },
       { title: 'Crop', items: [{ cmd: 'cropView' }, { cmd: 'cropShow' }, { cmd: 'scopeBox' }] },
-      { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }, { cmd: 'revisions', size: 'lg' }] },
+      { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }, { cmd: 'revisions', size: 'lg' }, { cmd: 'matchline', size: 'lg' }, { cmd: 'viewRef', size: 'lg' }] },
       { title: 'Windows', items: [{ cmd: 'tileViews', size: 'lg' }, { cmd: 'tabViews', size: 'lg' }, { cmd: 'closeInactive' }, { cmd: 'toggleProps' }, { cmd: 'toggleBrowser' }] },
       { title: 'User Interface', items: [{ cmd: 'shortcuts', size: 'lg' }, { cmd: 'options', size: 'lg' }] },
       { title: 'Navigate', items: [{ cmd: 'zoomFit' }, { cmd: 'zoomRegion' }, { cmd: 'sectionBox' }] },

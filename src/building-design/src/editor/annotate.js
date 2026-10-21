@@ -155,6 +155,35 @@ function norm2pi(a) {
 
 // Radial and diameter dimensions ---------------------------------------------------------------
 
+/** Place a reference to another view. */
+export class ViewRefTool extends AnnotationTool {
+  get title() {
+    return 'View Reference';
+  }
+
+  get prompt() {
+    return 'Choose the view in the options bar, then click to place the reference';
+  }
+
+  targets() {
+    return this.doc.filter((v) => ['plan', 'ceilingPlan', 'areaPlan', 'elevation', 'section', 'drafting', 'legend'].includes(v.kind) && v.id !== this.vc?.view?.id);
+  }
+
+  options() {
+    const o = this.app.toolOptions('viewRef', { targetId: null });
+    const list = this.targets();
+    if (!o.targetId || !this.doc.has(o.targetId)) o.targetId = list[0]?.id ?? null;
+    return [select('Refers to', list.map((v) => ({ value: v.id, label: v.name })), o.targetId || '', (v) => (o.targetId = v))];
+  }
+
+  down(ev) {
+    if (!ev.p) return;
+    const o = this.app.toolOptions('viewRef', { targetId: null });
+    if (!o.targetId) return this.app.toast('There is no other view to refer to.');
+    this.place(this.title, { kind: 'viewRef', at: ev.p, targetId: o.targetId });
+  }
+}
+
 /** Number the treads of a stair in the active plan. */
 export class TreadNumberTool extends AnnotationTool {
   get title() {

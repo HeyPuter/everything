@@ -81,6 +81,8 @@ export const CATEGORIES = [
   { id: 'wallSweeps', label: 'Wall Sweeps and Reveals', model: true },
   { id: 'trusses', label: 'Structural Trusses', model: true },
   { id: 'genericModels', label: 'Generic Models', model: true },
+  { id: 'matchlines', label: 'Matchlines', model: false },
+  { id: 'viewReferences', label: 'View References', model: false },
   { id: 'spaces', label: 'Spaces', model: false },
   { id: 'siteCoordinates', label: 'Project Base Point and Survey Point', model: false },
   { id: 'scopeBoxes', label: 'Scope Boxes', model: false },
@@ -161,6 +163,8 @@ const KIND_CATEGORY = {
   wire: 'wires',
   importedModel: 'links',
   modelText: 'genericModels',
+  matchline: 'matchlines',
+  viewRef: 'viewReferences',
   wallSweep: 'wallSweeps',
 };
 
@@ -229,6 +233,8 @@ export const KIND_LABEL = {
   wire: 'Wire',
   importedModel: 'Imported Model',
   modelText: 'Model Text',
+  matchline: 'Matchline',
+  viewRef: 'View Reference',
   wallSweep: 'Wall Sweep',
   space: 'Space',
   zone: 'Zone',

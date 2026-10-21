@@ -207,6 +207,9 @@ export function planGraphics(pc, el) {
     case 'modelText':
       planModelText(pc, el, b);
       break;
+    case 'matchline':
+      planMatchline(pc, el, b);
+      break;
     case 'roomSeparator':
       if (el.levelId === pc.view.levelId) b.line(el.a, el.b, W.thin, 0, null);
       break;
@@ -828,6 +831,22 @@ function planStair(pc, el, b) {
     const f0 = g.flights[0];
     b.text(add(walk[0], scale(f0.dir, -P(pc, 3))), atBase ? 'UP' : 'DN', { size: P(pc, 2.2), rot: readableAngle(angleOf(f0.dir) - Math.PI / 2) });
   }
+}
+
+/** Matchline: where the building continues on another sheet, in every plan of the levels it spans. */
+function planMatchline(pc, el, b) {
+  const z = pc.level?.elevation ?? 0;
+  if (el.z0 != null && z < el.z0 - 1) return;
+  if (el.z1 != null && z > el.z1 + 1) return;
+  const d = norm(sub(el.b, el.a));
+  const n = perp(d);
+  b.line(el.a, el.b, W.heavy, 3, [120, 60, 160, 255]);
+  const L = dist(el.a, el.b);
+  const sz = P(pc, 2.5);
+  const rot = readableAngle(angleOf(d));
+  for (const s of [0.15, 0.85]) b.text(add(add(el.a, scale(d, L * s)), scale(n, sz * 0.9)), el.name ? `MATCH LINE - ${el.name}` : 'MATCH LINE', { size: sz, rot, bold: true, color: [120, 60, 160, 255], mask: true });
+  const pad = P(pc, 1.2);
+  b.pick([add(el.a, scale(n, -pad)), add(el.b, scale(n, -pad)), add(el.b, scale(n, pad)), add(el.a, scale(n, pad))]);
 }
 
 /** Numbers on the treads of a stair, counted from the bottom, on one side of the walk line. */

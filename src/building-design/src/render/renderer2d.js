@@ -24,6 +24,7 @@ export const KIND_Z = {
   truss: 5,
   wire: 10,
   modelText: 6,
+  matchline: 11,
   scopeBox: 9,
   floor: 0,
   ceiling: 0,

@@ -62,7 +62,7 @@ import { sunDirection } from './core/sun.js';
 import { editingOption } from './core/designopts.js';
 import { worksharingOn } from './core/worksets.js';
 import { confirmDialog } from './ui/dialog.js';
-import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool, TreadNumberTool } from './editor/annotate.js';
+import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool, TreadNumberTool, ViewRefTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
@@ -389,6 +389,8 @@ export const COMMANDS = {
     },
     desc: 'Cast shadows from the sun at the project location, date and time',
   },
+  matchline: { label: 'Matchline', icon: 'matchline', run: tool(LineTool, { kind: 'matchline' }), desc: 'Where a large plan continues on another sheet, shown in every plan' },
+  viewRef: { label: 'View Reference', icon: 'viewRef', run: tool(ViewRefTool), desc: 'A tag naming another view and the sheet it is on; double-click it to open the view' },
   scopeBox: { label: 'Scope Box', icon: 'scopeBox', run: tool(ScopeBoxTool), desc: 'Named extents that views can crop to; the views follow when it changes' },
   render: { label: 'Render', icon: 'render', run: (app) => renderui.renderDialog(app), enabled: (app) => app.activeView?.kind === 'view3d', desc: 'A presentation image of the 3D view with materials, sun, shadows and sky' },
   sunSettings: { label: 'Sun Settings', icon: 'sun-l', run: (app) => sunui.sunSettingsDialog(app), desc: 'Project location, north angle, date and time for shadows' },
