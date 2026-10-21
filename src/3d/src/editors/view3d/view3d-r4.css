@@ -89,3 +89,15 @@
 .ov-scale-row.sh-dir-row {
   grid-template-columns: 1fr 1fr 1fr;
 }
+.sh-world-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.sh-world-row > :last-child {
+  flex: 1;
+}
+.sh-world-row > .icon-btn.on {
+  background: var(--c-accent, #4772b3);
+}

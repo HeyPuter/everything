@@ -504,6 +504,14 @@ function shadingPopover(v: View3D): Child {
     panel('sh-light', 'Lighting', () => [
       enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')),
       h('div', { class: 'sh-light-row' }, solidLightingChooser(v), s.light === 'MATCAP' ? h('button', { class: { 'icon-btn': true, on: !!s.matcap_flip }, 'data-tip': 'Flip MatCap\nMirror the MatCap left to right', onclick: () => app.run('view3d.toggle_matcap_flip') }, icon('mod_mirror')) : null, s.light !== 'FLAT' ? h('button', { class: 'icon-btn', 'data-tip': 'Preferences\nEdit studio lights and MatCaps', onclick: () => app.run('screen.userpref_show', { section: 'LIGHTS' }) }, icon('preferences')) : null),
+      s.light === 'STUDIO'
+        ? h(
+            'div',
+            { class: 'sh-world-row' },
+            h('button', { class: { 'icon-btn': true, on: !!s.use_world_space_lighting }, 'data-tip': 'World Space Lighting\nKeep the studio lights fixed to the scene instead of the view', onclick: () => set('use_world_space_lighting')(!s.use_world_space_lighting) }, icon('world')),
+            numberField({ id: 's-srot', label: 'Rotation', value: s.studiolight_rotate_z ?? 0, min: -Math.PI, max: Math.PI, unit: 'angle', slider: true, disabled: !s.use_world_space_lighting, set: (x) => set('studiolight_rotate_z')(x) }),
+          )
+        : null,
     ], { sub: true }),
     panel('sh-color', 'Color', () => [
       h('div', { class: 'pop-label' }, 'Wireframe'),

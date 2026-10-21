@@ -36,6 +36,8 @@ export interface Shading {
   /** blur of the studio HDRI drawn behind the scene (0 sharp … 1 soft) */
   studiolight_background_blur?: number;
   studiolight_rotate_z: number;
+  /** studio lights fixed to the world instead of the view */
+  use_world_space_lighting?: boolean;
   /** Preferences ▸ Lights entries used by Solid (studio light, matcap) and Material Preview (HDRI) */
   studio_light?: string;
   studio_matcap?: string;

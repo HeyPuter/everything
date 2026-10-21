@@ -208,6 +208,28 @@ function swapGeometry(o: LineSegments, g: BufferGeometry) {
   o.geometry = g;
 }
 
+/**
+ * World Space Lighting: the studio lights stay fixed to the scene (turned by the Rotation)
+ * instead of following the view. The built-in studio light becomes one key light from above.
+ */
+function worldSpaceStudio(rotateZ: number, camera: Camera) {
+  const u = studioUniforms;
+  camera.updateMatrixWorld();
+  const toView = new Matrix4().extractRotation(camera.matrixWorldInverse).multiply(new Matrix4().makeRotationZ(rotateZ));
+  if (!u.uStudioCustom.value) {
+    // same weights as the default look, with the key light fixed in the world
+    u.uStudioCustom.value = 1;
+    u.uAmbient.value.set(0.11, 0.11, 0.11);
+    u.uLightDir.value.forEach((d, i) => {
+      d.set(-0.42, -0.45, 0.79).normalize();
+      u.uLightDiffuse.value[i].setScalar(i === 0 ? 0.293 : 0);
+      u.uLightSpecular.value[i].setScalar(i === 0 ? 0.08 : 0);
+      u.uLightSmooth.value[i] = 0;
+    });
+  }
+  for (const d of u.uLightDir.value) d.applyMatrix4(toView).normalize();
+}
+
 /** MatCap mirrored left to right (Shading ▸ Flip MatCap): a mirrored copy of the MatCap image. */
 const flippedMatcaps = new WeakMap<object, { version: number; tex: CanvasTexture }>();
 function flipMatcap() {
@@ -355,6 +377,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
   // the studio light / matcap this view uses (shared shader uniforms)
   applyStudioLighting(sh);
   if (sh.light === 'MATCAP' && sh.matcap_flip) flipMatcap();
+  if (sh.light === 'STUDIO' && sh.use_world_space_lighting) worldSpaceStudio(sh.studiolight_rotate_z ?? 0, view.sceneCamera ?? nav.camera);
   const rendered = sh.type === 'RENDERED';
   const material = sh.type === 'MATERIAL';
   const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
