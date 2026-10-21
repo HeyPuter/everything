@@ -73,8 +73,20 @@ describe('Share', () => {
 describe('Pictures and files', () => {
   it('reports a pasted or dropped picture that could not be saved', async () => {
     const { app, backend } = await mount();
+    // jsdom never decodes pictures: make the decode check pass.
+    const RealImage = globalThis.Image;
+    globalThis.Image = class {
+      naturalWidth = 10;
+      set src(_) {
+        setTimeout(() => this.onload?.());
+      }
+    };
     backend.failNext = 1;
-    await app.editor.insertFiles([new File(['x'], 'photo.png', { type: 'image/png' })]);
+    try {
+      await app.editor.insertFiles([new File(['x'], 'photo.png', { type: 'image/png' })]);
+    } finally {
+      globalThis.Image = RealImage;
+    }
     expect(toasts().some((t) => t.startsWith("Couldn't insert photo.png"))).toBe(true);
     expect(app.editor.page.outlines.some((o) => o.html.includes('data-asset'))).toBe(false);
   });
