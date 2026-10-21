@@ -443,8 +443,10 @@ export class NlaEditor extends AnimEditor {
     const top = y + 2,
       hh = rh - 5;
     // extrapolation (hold) regions
+    const base = s.type === 'TRANSITION' ? ['#3e5979', '#77a0d8'] : s.type === 'META' ? ['#5a436d', '#a26ecd'] : s.type === 'SOUND' ? ['#2d5c58', '#4fb3a6'] : tweaked ? ['#406f43', '#65c06a'] : ['#574a39', C.nlaStripSelected];
     if (!s.mute && s.extrapolation !== 'NOTHING') {
-      g.fillStyle = s.select ? 'rgba(245, 148, 4,0.12)' : 'rgba(255, 255, 255,0.05)';
+      // held regions in a faint version of the strip's colour
+      g.fillStyle = withAlpha(s.select ? base[1] : base[0], s.select ? 0.28 : 0.45);
       if (s.extrapolation === 'HOLD' && first) g.fillRect(0, top, Math.max(0, x0), hh);
       const endX = next ? v.fx(next.frame_start) : W;
       if (endX > x1) g.fillRect(x1, top, endX - x1, hh);
@@ -452,7 +454,6 @@ export class NlaEditor extends AnimEditor {
     if (x1 < 0 || x0 > W) return;
     g.globalAlpha = dim || s.mute ? 0.45 : 1;
     roundRect(g, x0, top, Math.max(2, x1 - x0), hh, 3);
-    const base = s.type === 'TRANSITION' ? ['#3e5979', '#77a0d8'] : s.type === 'META' ? ['#5a436d', '#a26ecd'] : s.type === 'SOUND' ? ['#2d5c58', '#4fb3a6'] : tweaked ? ['#406f43', '#65c06a'] : ['#574a39', C.nlaStripSelected];
     g.fillStyle = s.select ? base[1] : base[0];
     g.fill();
     if (s.type === 'TRANSITION') {
@@ -985,6 +986,18 @@ export class NlaEditor extends AnimEditor {
         : null,
     ]);
   }
+}
+
+/** A '#rrggbb' (or rgb()) colour with an alpha. */
+function withAlpha(c: string, a: number): string {
+  const m = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i.exec(c);
+  if (m) return `rgba(${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}, ${a})`;
+  const r = /rgba?\(([^)]+)\)/.exec(c);
+  if (r) {
+    const [x, y, z] = r[1].split(',').map((v) => v.trim());
+    return `rgba(${x}, ${y}, ${z}, ${a})`;
+  }
+  return c;
 }
 
 /** Strips that Extend moves: the selected ones on one side of the current frame. */

@@ -181,6 +181,17 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
     const action = doc.actions[ad.action];
     if (action) blendAction(doc, ob, acc, action, frame, ad.action_blend_type ?? 'REPLACE', ad.action_influence ?? 1);
   }
+  // channels of the NLA stack that no strip drives at this frame go back to their default
+  // values (rest transforms), so a strip's animation does not linger outside it
+  if (ad.nla_tracks.length) {
+    for (const [key, path, index] of stackChannels(doc, ob, ad, solo)) {
+      if (acc.has(key)) continue;
+      const cur = getValue(doc, ob, path, index);
+      if (typeof cur !== 'number') continue;
+      const def = restValue(path, index, cur);
+      if (def !== cur) acc.set(key, { path, index, value: def });
+    }
+  }
   for (const e of acc.values()) {
     // A manual edit of an animated property stays until the
     // frame changes or the animation itself changes (it is not overwritten on every update).
@@ -202,6 +213,25 @@ export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, f
     }
     if (typeof e.value === 'number') lastWritten.set(k, { frame, anim: e.value });
   }
+}
+
+/** Every channel (key, path, index) the clips of the unmuted NLA tracks animate. */
+function stackChannels(doc: DocumentData, ob: ObjectData, ad: AnimData, solo: boolean): [string, string, number][] {
+  const out = new Map<string, [string, string, number]>();
+  const visit = (strips: NlaStrip[]) => {
+    for (const st of strips) {
+      if (st.type === 'META') visit(st.strips ?? []);
+      if (st.type === 'TRANSITION' || st.type === 'SOUND' || st.type === 'META') continue;
+      const act = doc.actions[st.action];
+      if (!act) continue;
+      for (const fc of slotCurves(act, stripSlot(act, st, ob))) {
+        const key = `${fc.data_path}|${fc.array_index}`;
+        if (!out.has(key)) out.set(key, [key, fc.data_path, fc.array_index]);
+      }
+    }
+  };
+  for (const t of ad.nla_tracks) if (!t.mute && (!solo || t.is_solo)) visit(t.strips);
+  return [...out.values()];
 }
 
 /** Camera bound to the last marker at or before `frame` (markers with cameras switch the scene camera). */

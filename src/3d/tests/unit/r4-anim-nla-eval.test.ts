@@ -47,4 +47,22 @@ describe('NLA evaluation matches the reference', () => {
       expect(ob.rotation_euler[2], `rot @${f}`).toBeCloseTo(rz, 4);
     }
   });
+
+  it('channels of the stack go back to their defaults where no strip drives them', () => {
+    const doc = startupDocument();
+    const ob = newObject('O', 'EMPTY', null);
+    doc.objects[ob.id] = ob;
+    const a = act('S', [
+      ['location', 1, [[1, 3], [10, 5]]],
+      ['scale', 0, [[1, 4]]],
+    ]);
+    doc.actions[a.id] = a;
+    const st = makeStrip(a, 50, 'HOLD_FORWARD');
+    ob.animation_data = { action: null, drivers: [], nla_tracks: [{ name: 'T', strips: [st], mute: false, is_solo: false }] };
+    ob.location = [7, 7, 7];
+    ob.scale = [9, 9, 9];
+    applyAnimData(doc, ob, ob.animation_data, 20);
+    expect(ob.location).toEqual([7, 0, 7]);
+    expect(ob.scale).toEqual([1, 9, 9]);
+  });
 });
