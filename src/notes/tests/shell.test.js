@@ -212,6 +212,21 @@ describe('App shell', () => {
     expect(app.nav.sectionsList.textContent).not.toContain('This notebook');
   });
 
+  it('closes the collapsed ribbon panel when KeyTips are cancelled', () => {
+    app.ribbon.toggleCollapsed(true);
+    try {
+      app.keytips.start();
+      keydown(document.body, 'h');
+      expect(app.ribbon.el.classList.contains('peek')).toBe(true);
+      keydown(document.body, 'Escape');
+      keydown(document.body, 'Escape');
+      expect(app.keytips.active).toBe(false);
+      expect(app.ribbon.el.classList.contains('peek')).toBe(false);
+    } finally {
+      app.ribbon.toggleCollapsed(false);
+    }
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

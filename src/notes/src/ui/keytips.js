@@ -103,6 +103,8 @@ export class KeyTips {
     this.layer = null;
     this.targets = [];
     this.typed = '';
+    // Cancelled: a collapsed ribbon's panel opened by a tab's key closes too.
+    if (restore) this.app.ribbon.closePeek();
     if (restore && this.returnFocus?.isConnected) {
       if (!this.app.editor.restoreRange()) this.returnFocus.focus();
     }
