@@ -35,6 +35,11 @@ describe('shared page view', () => {
     expect(meta.querySelectorAll('button')).toHaveLength(0);
     expect(meta.textContent).toContain('2026');
   });
+
+  it('lets keyboard users reach and scroll the page canvas', async () => {
+    const root = await openShared(PAGE);
+    expect(root.querySelector('.canvas-scroll').tabIndex).toBe(0);
+  });
 });
 
 describe('shared page view with a malformed snapshot', () => {

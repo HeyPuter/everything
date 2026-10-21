@@ -129,6 +129,9 @@ async function viewShared(url) {
   const fakeStore = { assetUrl: async () => null, pageChanged() {} };
   const editor = new PageEditor({ store: fakeStore, host, readOnly: true });
   editor.pageEl.classList.add('read-only');
+  // Nothing on a shared page need be focusable, so the canvas itself is a
+  // Tab stop: arrow keys and Page Down then scroll it.
+  editor.scroller.tabIndex = 0;
   const outlines = Array.isArray(data.outlines)
     ? data.outlines.map((o, i) => ({ id: `s${i}`, x: Number(o.x) || 0, y: Number(o.y) || 0, w: Number(o.w) || null, html: sanitizeHtml(o.html || '') }))
     : [{ id: 's0', x: 48, y: 140, w: 760, html: sanitizeHtml(data.html || '') }];
