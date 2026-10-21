@@ -9,7 +9,7 @@ import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, type BlendMode } from './math';
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
-import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { brushRadiusPx, gatherPaint, normalAngleOf, smearSource, type NormalFalloff } from './vgather';
 import { dabTexture } from './brushtex';
 import { colorJitterOn, colorJitterer, seededRandom, type ColorJitter } from './paintmath';
 import { paintFilter } from './fsdata';
@@ -110,7 +110,7 @@ export function vertexPaintStroke(v: View3D, e: PointerEvent, override?: PaintBr
           y: d.y,
           hit,
           strength: 1,
-          normalAngle: NORMAL_ANGLE,
+          normalAngle: normalAngleOf((app.doc.scene.tool_settings as unknown as { vertex_paint?: NormalFalloff }).vertex_paint),
           sizeFactor: d.sizeFactor,
           tex: dabTexture(b, s, v, d.x, d.y, brushRadiusPx(b, s, v, hit?.world) * (d.sizeFactor ?? 1), dabCount++),
         },

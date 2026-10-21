@@ -10,7 +10,7 @@ import { blendWeight, normalizeAllWeights, normalizeVertexWeights, type BlendMod
 import { activeMeshData, beginGeometryStroke, meshSession, reevaluate, type MeshSession } from './session';
 import { runStroke } from './stroke';
 import { paintFilter } from './fsdata';
-import { brushRadiusPx, gatherPaint, NORMAL_ANGLE, smearSource } from './vgather';
+import { brushRadiusPx, gatherPaint, normalAngleOf, smearSource, type NormalFalloff } from './vgather';
 import { dabTexture } from './brushtex';
 import { invalidatePaintAttributes, writeCornerValues } from './display';
 import { barycentric } from './vpaint';
@@ -107,7 +107,7 @@ export function weightPaintStroke(v: View3D, e: PointerEvent): boolean {
           y: d.y,
           hit,
           strength: 1,
-          normalAngle: NORMAL_ANGLE,
+          normalAngle: normalAngleOf((app.doc.scene.tool_settings as unknown as { weight_paint?: NormalFalloff }).weight_paint),
           sizeFactor: d.sizeFactor,
           tex: dabTexture(b, s, v, d.x, d.y, brushRadiusPx(b, s, v, hit?.world) * (d.sizeFactor ?? 1), dabCount++),
         },

@@ -14,7 +14,7 @@ import { renderContext } from '../render/context';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { activeMeshData, meshSession, type MeshSession } from './session';
-import { brushRadiusPx } from './vgather';
+import { brushRadiusPx, normalAngleOf } from './vgather';
 import { runStroke } from './stroke';
 import { paintDisplay } from './display';
 import { dabMaskAt, dabTextureAt, dabTextureColor } from './brushtex';
@@ -51,6 +51,9 @@ export function paintImage(ob: ObjectData | null = app.activeObject): Img | null
 /** Texture Paint settings stored on the scene (tool_settings.image_paint). */
 export interface ImagePaintSettings {
   palette?: string | null;
+  /** normal falloff: faces turning away from the view get less paint */
+  use_normal_falloff?: boolean;
+  normal_angle?: number;
   /** a grayscale image over the UVs limits where paint lands */
   use_stencil_layer?: boolean;
   stencil_image?: string | null;
@@ -488,6 +491,8 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
   const viewDir0 = new Vector3(0, 0, -1).transformDirection(v.camera.matrixWorld).transformDirection(s.world().clone().invert());
   // symmetry: paint the mirrored mesh from the same viewpoint (a mirrored camera in object space)
   const passes = symmetryPasses(sym.use_symmetry_x, sym.use_symmetry_y, sym.use_symmetry_z);
+  const na = normalAngleOf(imagePaintSettings());
+  const cosNA = na > 0 ? Math.cos(na) : -2;
   for (const sg of o.tool === 'SMEAR' ? passes.slice(0, 1) : passes) {
     const M = M0.clone().multiply(new Matrix4().makeScale(sg[0], sg[1], sg[2])).elements;
     const camPosLocal = new Vector3(camPos0.x * sg[0], camPos0.y * sg[1], camPos0.z * sg[2]);
@@ -496,6 +501,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const ntri = s.tris.length / 3;
     const sp = new Float32Array(9);
     const cand: number[] = [];
+    const triFactor: number[] = [];
     const projected: Float32Array[] = [];
     const allowedF = s.paintFaces;
     for (let t = 0; t < ntri; t++) {
@@ -532,6 +538,31 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
         const d = ortho ? -(nx * viewDirLocal.x + ny * viewDirLocal.y + nz * viewDirLocal.z) : nx * (camPosLocal.x - P[vi]) + ny * (camPosLocal.y - P[vi + 1]) + nz * (camPosLocal.z - P[vi + 2]);
         if (d <= 0) continue;
       }
+      // normal falloff: faces turning away from the view get less paint
+      let nf = 1;
+      if (cosNA > -1) {
+        const f = s.triFace[t];
+        const nx = s.fn[f * 3],
+          ny = s.fn[f * 3 + 1],
+          nz = s.fn[f * 3 + 2];
+        const vi = s.tris[t * 3] * 3;
+        let tx = -viewDirLocal.x,
+          ty = -viewDirLocal.y,
+          tz = -viewDirLocal.z;
+        if (!ortho) {
+          tx = camPosLocal.x - P[vi];
+          ty = camPosLocal.y - P[vi + 1];
+          tz = camPosLocal.z - P[vi + 2];
+          const l = Math.hypot(tx, ty, tz) || 1;
+          tx /= l;
+          ty /= l;
+          tz /= l;
+        }
+        const d = (nx * tx + ny * ty + nz * tz) / (Math.hypot(nx, ny, nz) || 1);
+        if (d <= cosNA) continue;
+        nf = Math.min(1, ((d - cosNA) / Math.max(1e-6, 1 - cosNA)) * 2);
+      }
+      triFactor.push(nf);
       cand.push(t);
       projected.push(sp.slice());
     }
@@ -597,7 +628,9 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const trgba = [1, 1, 1, 1];
     const sten = o.stencil;
     const tcol = [0, 0, 0];
-    for (const t of cand) {
+    for (let ci = 0; ci < cand.length; ci++) {
+      const t = cand[ci],
+        tf = triFactor[ci];
       const i0 = s.tris[t * 3] * 3,
         i1 = s.tris[t * 3 + 1] * 3,
         i2 = s.tris[t * 3 + 2] * 3;
@@ -624,7 +657,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
             if (dz !== Infinity && tmp[2] > dz + 2e-4 + Math.abs(dz) * 1e-4) return;
           }
         }
-        let a = best * o.strength;
+        let a = best * o.strength * tf;
         if (texF) a *= texF(tmp[0], tmp[1], lx, ly, lz);
         if (sten) {
           const q = (Math.min(sten.H - 1, Math.floor((y * sten.H) / st.H)) * sten.W + Math.min(sten.W - 1, Math.floor((x * sten.W) / st.W))) * 4;

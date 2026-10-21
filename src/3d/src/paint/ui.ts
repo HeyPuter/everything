@@ -34,6 +34,7 @@ import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from '.
 import { curveWidget } from '../render/final/props/curvewidget';
 import { hsvToRgb, rgbToHsv, type ColorJitter } from './paintmath';
 import { brushThumb } from './brushthumbs';
+import { NORMAL_ANGLE, type NormalFalloff } from './vgather';
 import { paintHooks } from './painthooks';
 import { paintCurvesOf } from './paintcurve';
 import { brushOriginNote, brushSpecialsMenu } from './brushassets';
@@ -695,12 +696,25 @@ function falloffRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         )
       : null,
+    mode !== 'SCULPT' ? normalFalloffRows(mode, p) : null,
     mode === 'SCULPT'
       ? [
           checkbox(`${p}-fff`, 'Front-Face Falloff', !!b.use_frontface_falloff, (x) => ((b.use_frontface_falloff = x), (b.use_frontface ||= x), changed()), { tip: 'Fade the brush out on surfaces turning away from the view' }),
           b.use_frontface_falloff ? numberField({ id: `${p}-ffa`, label: 'Angle', value: b.falloff_angle ?? 0, min: 0, max: Math.PI / 2, unit: 'angle', tip: 'Surfaces up to this angle from the view get full strength', set: (x) => ((b.falloff_angle = x), changed()) }) : null,
         ]
       : null,
+  ];
+}
+
+/** Normal falloff of the paint modes: less paint on surfaces turning away from the view. */
+function normalFalloffRows(mode: BrushMode, p: string): Child[] {
+  const ts = app.doc.scene.tool_settings as unknown as Record<string, NormalFalloff | undefined>;
+  const key = mode === 'VERTEX_PAINT' ? 'vertex_paint' : mode === 'WEIGHT_PAINT' ? 'weight_paint' : 'image_paint';
+  const st = (ts[key] ??= {});
+  const on = st.use_normal_falloff !== false;
+  return [
+    checkbox(`${p}-nfo`, 'Normal Falloff', on, (x) => ((st.use_normal_falloff = x), changed()), { tip: 'Paint less on surfaces turning away from the view' }),
+    on ? numberField({ id: `${p}-nfa`, label: 'Angle', value: st.normal_angle ?? NORMAL_ANGLE, min: 0, max: Math.PI / 2, unit: 'angle', tip: 'Surfaces turned further than this get no paint', set: (x) => ((st.normal_angle = x), changed()) }) : null,
   ];
 }
 

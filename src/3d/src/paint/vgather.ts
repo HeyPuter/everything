@@ -193,3 +193,15 @@ export function smearSource(s: MeshSession, vi: number, dir: Vector3): number {
 
 /** Default normal falloff angle of the paint modes (80°). */
 export const NORMAL_ANGLE = (80 * Math.PI) / 180;
+
+/** Normal falloff settings of a paint mode (tool_settings.vertex_paint / weight_paint / image_paint). */
+export interface NormalFalloff {
+  use_normal_falloff?: boolean;
+  normal_angle?: number;
+}
+
+/** The normal falloff angle a paint mode uses (0: off). */
+export function normalAngleOf(settings: NormalFalloff | undefined | null): number {
+  if (settings?.use_normal_falloff === false) return 0;
+  return settings?.normal_angle ?? NORMAL_ANGLE;
+}
