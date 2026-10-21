@@ -761,8 +761,10 @@ export class PageEditor extends Emitter {
     if (!root?.classList.contains('outline-body') || !this.scroller.contains(root)) return;
     let content = range.cloneContents();
     if (!content.querySelector('.nt-file, .nt-math')) return;
-    // Items or cells copied without their list or table keep it.
+    // Items or cells copied without their list or table keep it. Text
+    // from inside one item or cell is copied as it is.
     for (let n = range.commonAncestorContainer; n && n !== root; n = n.parentNode) {
+      if (n.nodeType === 1 && ['LI', 'TD', 'TH'].includes(n.tagName)) break;
       if (n.nodeType !== 1 || !['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TR'].includes(n.tagName)) continue;
       const wrap = n.cloneNode(false);
       wrap.append(content);

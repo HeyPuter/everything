@@ -682,6 +682,28 @@ describe('copying and pasting embeds', () => {
     ed.destroy();
     host.remove();
   });
+
+  it('copies an equation from inside one cell or list item without the table or list', async () => {
+    const { ed, body, host } = await setup('<table><tbody><tr><td>a <span class="nt-math" data-tex="x" contenteditable="false"></span> b</td><td>c</td></tr></tbody></table>'
+      + '<ul><li>d <span class="nt-math" data-tex="y" contenteditable="false"></span> e</li><li>f</li></ul>');
+    const copy = (node) => {
+      const r = document.createRange();
+      r.selectNodeContents(node);
+      selectRange(r);
+      const data = {};
+      const ev = new Event('copy', { bubbles: true, cancelable: true });
+      ev.clipboardData = { setData: (t, v) => (data[t] = v) };
+      body.dispatchEvent(ev);
+      return data['text/html'];
+    };
+    expect(copy(body.querySelector('td'))).toBe('a <span class="nt-math" data-tex="x" contenteditable="false"></span> b');
+    expect(copy(body.querySelector('li'))).toBe('d <span class="nt-math" data-tex="y" contenteditable="false"></span> e');
+    // Across cells or items, the table or list comes along.
+    expect(copy(body.querySelector('tr'))).toMatch(/^<table><tbody><tr><td>a /);
+    expect(copy(body.querySelector('ul'))).toMatch(/^<ul><li>d /);
+    ed.destroy();
+    host.remove();
+  });
 });
 
 describe('editor bookkeeping', () => {
