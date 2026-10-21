@@ -5,3 +5,4 @@ import './lightdraw';
 import './datagizmos';
 import './viewops';
 import './camdraw';
+import './objdisplay';

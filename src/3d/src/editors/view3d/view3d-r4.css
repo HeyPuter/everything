@@ -65,3 +65,24 @@
 .v3d-info .v3d-stats {
   margin-top: 8px;
 }
+/* 4×4 matrix fields (Parent Inverse Transform) */
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+/* object names and axes (Object ▸ Viewport Display) */
+.v3d-svg .ob-name-label {
+  font: 500 11px var(--font);
+  fill: var(--t-ee, #f0f1f2);
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 2px;
+}
+.v3d-svg .ob-name-label.sel {
+  fill: #ffaf29;
+}
+.v3d-svg .ob-axis-label {
+  font: 600 10px var(--font);
+}

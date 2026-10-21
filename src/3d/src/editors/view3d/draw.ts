@@ -138,6 +138,40 @@ function objectColorState(app: App, ob: ObjectData): 0 | 1 | 2 {
   return ob.select ? 1 : 0;
 }
 
+/**
+ * Render the synced scene with "In Front" objects (Object ▸ Viewport Display) drawn last over
+ * everything else: the rest first, then the depth cleared and only those objects again.
+ */
+function renderWithInFront(r: RenderContext['engine']['renderer'], ctx: RenderContext, scene: Scene, camera: Camera) {
+  const front: SyncedObject[] = [];
+  for (const so of ctx.sync.objects.values()) if (so.ev.ob.show_in_front && so.root.visible) front.push(so);
+  if (!front.length) {
+    r.render(scene, camera);
+    return;
+  }
+  for (const so of front) so.root.visible = false;
+  r.render(scene, camera);
+  for (const so of front) so.root.visible = true;
+  // everything else is hidden for the second render, except the light sources themselves
+  const restore: { o: { visible: boolean }; v: boolean }[] = [];
+  const hide = (o: { visible: boolean } | undefined) => {
+    if (!o) return;
+    restore.push({ o, v: o.visible });
+    o.visible = false;
+  };
+  for (const so of ctx.sync.objects.values()) {
+    if (!so.root.visible || front.includes(so)) continue;
+    if (so.light) for (const c of so.root.children) c !== so.light && hide(c);
+    else hide(so.root);
+  }
+  const bg = scene.background;
+  scene.background = null;
+  r.clearDepth();
+  r.render(scene, camera);
+  scene.background = bg;
+  for (const x of restore) x.o.visible = x.v;
+}
+
 /** Wire geometries limited by the wireframe threshold, per full wire geometry and threshold. */
 const thresholdCache = new WeakMap<BufferGeometry, { t: number; g: BufferGeometry }>();
 function thresholdWire(full: BufferGeometry, mesh: { offsets: Uint32Array | ArrayLike<number>; indices: Uint32Array | ArrayLike<number>; positions: Float32Array | ArrayLike<number> }, t: number): BufferGeometry {
@@ -374,7 +408,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
       hide(so.points);
     }
     const afterScene = runPassHooks('SCENE', view, camera);
-    r.render(scene, camera);
+    renderWithInFront(r, ctx, scene, camera);
     afterScene();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
   }
@@ -672,7 +706,7 @@ export function renderIdPass(app: App, ctx: RenderContext, view: DrawView, camer
   r.setClearColor(0x000000, 0);
   r.clear(true, true, true);
   const afterId = runPassHooks('ID', view, camera);
-  r.render(scene, camera);
+  renderWithInFront(r, ctx, scene, camera);
   afterId();
   r.setRenderTarget(null);
   for (const s of saved.reverse()) {

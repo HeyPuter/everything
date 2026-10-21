@@ -20,6 +20,7 @@ import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../o
 import { propertiesCollection } from '../../object/relations';
 import { objectCollectionsPanel } from '../../object/collections';
 import { customPropsPanelBody } from '../../ui/customprops';
+import { parentInversePanel, boundsRow } from '../../object/parentinverse';
 
 /** Small lock toggle used inside list rows. */
 function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
@@ -269,6 +270,7 @@ registerTab({
         ),
         vecProp(o, 'scale', 'Scale', { anim: { ob: o, path: 'scale' }, lock: { owner: o, key: 'lock_scale' } }),
         panel('ob-delta', 'Delta Transform', () => [vecProp(o, 'delta_location', 'Delta Location', { unit: 'distance' }), vecProp(o, 'delta_rotation_euler', 'Delta Rotation', { unit: 'angle' }), vecProp(o, 'delta_scale', 'Delta Scale')], { sub: true, closed: true }),
+        parentInversePanel(o),
       ]),
       panel('ob-relations', 'Relations', () => [
         splitRow('Parent', enumMenu('ob-parent', [{ value: '', label: '—' }, ...parents.map((p) => ({ value: p.id, label: p.name, icon: 'object' }))], o.parent ?? '', (v) => {
@@ -304,6 +306,7 @@ registerTab({
         bool(o, 'show_in_front', 'In Front'),
         enumProp(o, 'display_type', 'Display As', [['BOUNDS', 'Bounds'], ['WIRE', 'Wire'], ['SOLID', 'Solid'], ['TEXTURED', 'Textured']]),
         colorProp(o, 'color', 'Color', { alpha: true }),
+        boundsRow(o),
         o.type === 'EMPTY' ? [enumProp(o, 'empty_display_type', 'Display As', [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone'], ['IMAGE', 'Image']]), num(o, 'empty_display_size', 'Size', { unit: 'distance', min: 0 })] : null,
       ], { closed: true }),
       panel('ob-custom', 'Custom Properties', () => customPropsPanelBody(o as never, 'object'), { closed: true }),
