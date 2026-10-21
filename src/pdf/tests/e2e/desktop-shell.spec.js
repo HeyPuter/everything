@@ -582,6 +582,36 @@ test('Organize pages keeps the duplicated pages selected', async ({ page }) => {
   expect(doc.getPages().map((p) => p.getRotation().angle)).toEqual([0, 90, 0, 0, 90, 0, 0]);
 });
 
+test('duplicating or deleting from the tools pane keeps the grid on the right pages', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(5));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await grid
+    .getByRole('option', { name: 'Page 4', exact: true })
+    .click({ modifiers: ['ControlOrMeta'] });
+  await pane
+    .getByRole('group', { name: '2 pages', exact: true })
+    .getByRole('button', { name: 'Duplicate pages', exact: true })
+    .click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(7);
+  await expect(grid.locator('[aria-selected="true"]')).toHaveText(['2', '5']);
+  await pane
+    .getByRole('group', { name: '2 pages', exact: true })
+    .getByRole('button', { name: 'Delete pages', exact: true })
+    .click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Delete pages', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(5);
+  // The deleted pages' places are not handed to the pages that moved into them.
+  await expect(grid.locator('[aria-selected="true"]')).toHaveCount(0);
+});
+
 test('Organize pages drops a page dragged into the gap between two pages there', async ({
   page,
 }) => {

@@ -6620,7 +6620,10 @@ export function createEditor({
                   glyph: 'Copy',
                   permission: 'assemble',
                   disabled: busy,
-                  onSelect: run(() => organizeActions.duplicate(chosen)),
+                  onSelect: run(() =>
+                    // The grid keeps its choice on the pages that were duplicated.
+                    organizer.visible ? organizer.duplicate() : organizeActions.duplicate(chosen),
+                  ),
                 },
                 {
                   label: chosen.length === 1 ? 'Extract page' : 'Extract pages',
@@ -6635,7 +6638,9 @@ export function createEditor({
                   danger: true,
                   permission: 'assemble',
                   disabled: busy || !pdf || chosen.length >= pdf.numPages,
-                  onSelect: run(() => organizeActions.remove(chosen)),
+                  onSelect: run(() =>
+                    organizer.visible ? organizer.remove() : organizeActions.remove(chosen),
+                  ),
                 },
               ],
             },

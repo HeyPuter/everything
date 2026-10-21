@@ -60,6 +60,24 @@ export function createOrganizeView({
     if (isBusy()) return;
     await fn();
   };
+  async function duplicateChosen() {
+    const list = target();
+    const revision = getRevision();
+    await actions.duplicate(list);
+    if (getRevision() === revision || !selected.size) return;
+    // Each copy lands right after its page, pushing later selected pages along; keep the
+    // selection on the pages that were chosen rather than on whatever took their places.
+    const moved = (i) => i + list.filter((k) => k < i).length;
+    selected = new Set(indices().map(moved));
+    if (anchor != null) anchor = moved(anchor);
+    updateState();
+  }
+  async function removeChosen() {
+    if ((await actions.remove(target())) === false) return;
+    // The deleted pages' places now hold other pages, which were not chosen.
+    selected.clear();
+    updateState();
+  }
   const commands = {
     insert: button('Insert', 'FilePlus2', (e) => insertMenu(e.currentTarget), 'btn organize-btn', {
       'aria-haspopup': 'menu',
@@ -81,25 +99,9 @@ export function createOrganizeView({
         'data-permission': 'assemble',
       },
     ),
-    duplicate: iconButton(
-      'Duplicate pages',
-      'Copy',
-      run(async () => {
-        const list = target();
-        const revision = getRevision();
-        await actions.duplicate(list);
-        if (getRevision() === revision || !selected.size) return;
-        // Each copy lands right after its page, pushing later selected pages along; keep the
-        // selection on the pages that were chosen rather than on whatever took their places.
-        const moved = (i) => i + list.filter((k) => k < i).length;
-        selected = new Set(indices().map(moved));
-        if (anchor != null) anchor = moved(anchor);
-        updateState();
-      }),
-      {
-        'data-permission': 'assemble',
-      },
-    ),
+    duplicate: iconButton('Duplicate pages', 'Copy', run(duplicateChosen), {
+      'data-permission': 'assemble',
+    }),
     extract: iconButton(
       'Extract pages',
       'Scissors',
@@ -108,15 +110,9 @@ export function createOrganizeView({
         'data-permission': 'copy',
       },
     ),
-    remove: iconButton(
-      'Delete pages',
-      'Trash2',
-      run(async () => {
-        const removed = target();
-        if ((await actions.remove(removed)) !== false) selected.clear();
-      }),
-      { 'data-permission': 'assemble' },
-    ),
+    remove: iconButton('Delete pages', 'Trash2', run(removeChosen), {
+      'data-permission': 'assemble',
+    }),
   };
   function insertMenu(anchorButton) {
     const at = after();
@@ -469,6 +465,9 @@ export function createOrganizeView({
     updateState() {
       if (visible) updateState();
     },
+    /** Duplicate or delete the chosen pages, as the grid's own buttons do. */
+    duplicate: run(duplicateChosen),
+    remove: run(removeChosen),
     select(list) {
       selected = new Set(list);
       anchor = list[0] ?? null;
