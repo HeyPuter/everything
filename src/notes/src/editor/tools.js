@@ -454,15 +454,22 @@ export class InkTools {
     return true;
   }
 
-  /** Recolors the selected ink (Draw > color picker with a selection). */
-  recolor(color, width) {
+  /**
+   * Restyles the selected ink (a pen, color or thickness picked while ink
+   * is selected), as one undo step.
+   */
+  recolor({ color, width, highlighter } = {}) {
     const items = this.selectedItems();
     if (!items.length) return false;
     for (const item of items) {
       if (color) item.color = color;
-      if (width) item.width = width;
+      // Shapes keep the same width limits as when they're drawn.
+      if (width) item.width = item.type === 'shape' ? Math.max(1.5, Math.min(width, 8)) : width;
+      if (highlighter !== undefined && item.type === 'stroke') item.highlighter = Boolean(highlighter);
       this.replaceEl(item);
     }
+    this.updateSelectionBox();
+    this.editor.layout();
     this.editor.changed();
     return true;
   }

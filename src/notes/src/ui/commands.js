@@ -213,12 +213,12 @@ export function buildCommands() {
         const pen = app.editor?.ink.pen || PENS[0];
         return [
           { type: 'header', label: 'Color' },
-          { type: 'swatches', label: 'Ink colors', colors: INK_COLORS, selected: pen.color, run: (c) => app.setPen({ ...pen, color: c, id: 'custom' }) },
+          { type: 'swatches', label: 'Ink colors', colors: INK_COLORS, selected: pen.color, run: (c) => app.setPen({ ...pen, color: c, id: 'custom' }, { color: c }) },
           { type: 'sep' },
           { type: 'header', label: 'Thickness' },
-          ...INK_WIDTHS.map((w) => ({ label: `${w} pt`, radio: true, checked: pen.width === w, run: () => app.setPen({ ...pen, width: w, id: 'custom' }) })),
+          ...INK_WIDTHS.map((w) => ({ label: `${w} pt`, radio: true, checked: pen.width === w, run: () => app.setPen({ ...pen, width: w, id: 'custom' }, { width: w }) })),
           { type: 'sep' },
-          { label: 'Highlighter', checked: Boolean(pen.highlighter), run: () => app.setPen({ ...pen, highlighter: !pen.highlighter, id: 'custom' }) },
+          { label: 'Highlighter', checked: Boolean(pen.highlighter), run: () => app.setPen({ ...pen, highlighter: !pen.highlighter, id: 'custom' }, { highlighter: !pen.highlighter }) },
         ];
       },
     },
@@ -226,7 +226,7 @@ export function buildCommands() {
       const ink = app.editor.ink;
       ink.inkToShape = !ink.inkToShape;
       setPref('inkToShape', ink.inkToShape);
-      if (ink.inkToShape && ink.tool !== 'pen') app.setPen(ink.pen);
+      if (ink.inkToShape && ink.tool !== 'pen') app.setTool('pen', { pen: ink.pen });
       app.ribbon.refresh();
     } },
     { id: 'deleteInk', label: 'Delete', icon: 'trash', desc: 'Delete the selected ink or containers.', enabled: (app) => editable(app) && Boolean(app.editor.ink.selected.size || app.editor.selectedOutlines.size), run: (app) => app.editor.deleteSelectedOutlines() },

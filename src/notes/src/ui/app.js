@@ -961,7 +961,20 @@ export class App {
     announce(`${{ type: 'Type', lasso: 'Lasso Select', eraser: 'Eraser', pen: 'Pen', shape: 'Shape', space: 'Insert Space' }[tool] || tool} tool`);
   }
 
-  setPen(pen) {
+  /**
+   * Picks a pen. With ink selected, the pick restyles that ink instead
+   * (only what `changes` names; a whole pen by default) and becomes the
+   * pen for what's drawn next, keeping the selection.
+   */
+  setPen(pen, changes = { color: pen.color, width: pen.width, highlighter: Boolean(pen.highlighter) }) {
+    const ink = this.editor.ink;
+    if (ink.selected.size && !this.editor.readOnly) {
+      ink.pen = { ...pen };
+      ink.recolor(changes);
+      this.ribbon.refresh();
+      announce('Selected ink changed');
+      return;
+    }
     this.setTool('pen', { pen });
   }
 

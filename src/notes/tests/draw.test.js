@@ -117,3 +117,44 @@ describe('lost pointer', () => {
     expect(app.editor.page.ink.length).toBe(2);
   });
 });
+
+describe('restyling selected ink', () => {
+  const stroke = (id, y) => ({ id, type: 'stroke', color: '#1f1f1f', width: 2.5, highlighter: false, points: [[0, y, 0.5], [100, y, 0.5]] });
+
+  it('recolors and re-widths selected ink as one undo step each, keeping the tool and selection', async () => {
+    const ed = app.editor;
+    ed.page.ink.push(stroke('a', 10), stroke('b', 40), { id: 'c', type: 'shape', kind: 'rect', color: '#1f1f1f', width: 2, x1: 0, y1: 100, x2: 50, y2: 150 });
+    ed.changed();
+    ink.render();
+    app.setTool('lasso');
+    ink.select(['a', 'c']);
+    const steps = ed.history.index;
+    app.setPen({ ...ink.pen, color: '#c42b1c', id: 'custom' }, { color: '#c42b1c' });
+    expect(ed.page.ink.map((i) => i.color)).toEqual(['#c42b1c', '#1f1f1f', '#c42b1c']);
+    expect(ed.page.ink.map((i) => i.width)).toEqual([2.5, 2.5, 2]);
+    app.setPen({ ...ink.pen, width: 24, id: 'custom' }, { width: 24 });
+    expect(ed.page.ink.map((i) => i.width)).toEqual([24, 2.5, 8]); // shapes keep their limit
+    expect(ink.tool).toBe('lasso');
+    expect([...ink.selected]).toEqual(['a', 'c']);
+    expect(ink.layer.querySelector('[data-id="a"]').getAttribute('fill')).toBe('#c42b1c');
+    expect(ed.history.index).toBe(steps + 2);
+    await ed.undo();
+    expect(ed.page.ink.map((i) => i.width)).toEqual([2.5, 2.5, 2]);
+    expect(ed.page.ink[0].color).toBe('#c42b1c');
+  });
+
+  it('applies a whole pen from the gallery, and just picks the pen with nothing selected', () => {
+    const ed = app.editor;
+    ed.page.ink.push(stroke('a', 10));
+    ink.render();
+    ink.select(['a']);
+    app.setPen({ id: 'hl-yellow', color: '#ffe500', width: 16, highlighter: true });
+    expect(ed.page.ink[0]).toMatchObject({ color: '#ffe500', width: 16, highlighter: true });
+    expect(ink.pen.id).toBe('hl-yellow');
+    ink.clearSelection();
+    app.setTool('type');
+    app.setPen({ id: 'pen-blue', color: '#1c5fd4', width: 2.5, highlighter: false });
+    expect(ink.tool).toBe('pen');
+    expect(ed.page.ink[0].color).toBe('#ffe500');
+  });
+});
