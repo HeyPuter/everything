@@ -98,7 +98,8 @@ editModeHooks.svg.push((v) => {
   if (!v.overlay.show_overlays) return null;
   const sc = scene();
   const parts: VNode[] = [];
-  for (const s of sc.annotations ?? []) {
+  // Overlays ▸ Annotations hides the strokes (rulers stay)
+  for (const s of v.overlay.show_annotation === false ? [] : sc.annotations ?? []) {
     const pts: string[] = [];
     for (let i = 0; i < s.points.length; i += 3) {
       const p = v.project(new Vector3(s.points[i], s.points[i + 1], s.points[i + 2]));
