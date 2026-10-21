@@ -1556,7 +1556,8 @@ export class CanvasEditor {
     const edge = direction < 0 ? line.start : line.end;
     // At the edge already, the key deletes what is across it, as Backspace or Delete would.
     if (edge === start) return this.model.delete(direction);
-    this.model.select(Math.min(start, edge), Math.max(start, edge));
+    // Selected from the caret toward the edge, so a tracked deletion leaves the caret on the far side of it.
+    this.model.select(start, edge);
     return this.model.replace('');
   }
   // Typing continues one undo step until a new word starts.
@@ -1617,9 +1618,10 @@ export class CanvasEditor {
   }
   /**
    * Apply the native field's new value to the model. `caret` is the native field's collapsed caret after
-   * the change, which ends where a deletion started or an insertion ended.
+   * the change, which ends where a deletion started or an insertion ended; `backward` marks a deletion
+   * toward the start (Option or Ctrl+Backspace).
    */
-  reconcile(value, checkpoint, { caret = null } = {}) {
+  reconcile(value, checkpoint, { caret = null, backward = false } = {}) {
     const old = this.inputText;
     if (old === value) return false;
     const selection = this.model.selection, at = selection.focus, added = value.length - old.length;
@@ -1645,17 +1647,19 @@ export class CanvasEditor {
     const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
     const controlCaret = start === end && start === selection.anchor && end === selection.focus ? selection.controlCaret : undefined;
     const sameRange = start === Math.min(selection.anchor, selection.focus) && end === Math.max(selection.anchor, selection.focus);
-    this.model.select(sameRange ? selection.anchor : start, sameRange ? selection.focus : end, controlCaret, sameRange ? selection.controlSelection : undefined);
+    // A backward deletion leaves the caret before what it removed, also when Track Changes keeps that
+    // text as a deletion, so the next press goes on to the word before.
+    this.model.select(sameRange ? selection.anchor : backward ? end : start, sameRange ? selection.focus : backward ? start : end, controlCaret, sameRange ? selection.controlSelection : undefined);
     this.model.typingFormat = typingFormat; this.model.typingStyle = typingStyle; this.model.typingDirectCleared = typingDirectCleared;
     return this.model.replace(value.slice(start, tail), { checkpoint });
   }
-  nativeInput() {
+  nativeInput(e) {
     if (this.readOnly || this.viewOnly) { this.syncInput(); return; }
     try {
       const revision = this.session.revision;
       this.session.run(() => {
         const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
-        this.reconcile(value, false, { caret: a === b ? a : null });
+        this.reconcile(value, false, { caret: a === b ? a : null, backward: /Backward$/.test(e?.inputType || '') });
         const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
         if (this.inputText === value) {
           const selection = this.model.selection;

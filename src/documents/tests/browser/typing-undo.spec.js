@@ -95,3 +95,28 @@ test('deleting a word with the platform chord removes that word, not letters shi
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, !!r.bold]))).toEqual([['one ', false], ['three', true]]);
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([4, 4]);
 });
+
+test('with Track Changes on, word and line deletions leave the caret before what they struck out', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('one two three\nfour five six');
+  await input(page).press('ControlOrMeta+Shift+e');
+  await expect.poll(() => page.evaluate(() => !!window.__docs.current.view.engine.model.trackChanges)).toBe(true);
+  const state = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    return { range: [...e.model.range], deleted: e.model.paragraphs.map(p => p.runs.filter(r => r.revision?.type === 'del').map(r => r.text).join('')) };
+  });
+  await input(page).evaluate(el => { el.setSelectionRange(13, 13); el.dispatchEvent(new Event('select')); });
+  // The platform's delete-word chord, handled by the native field.
+  const deleteWord = process.platform === 'darwin' ? 'Alt+Backspace' : 'Control+Backspace';
+  await input(page).press(deleteWord);
+  expect(await state()).toEqual({ range: [8, 8], deleted: ['three', ''] });
+  // A second press goes on to the word before, rather than striking the same one again.
+  await input(page).press(deleteWord);
+  expect(await state()).toEqual({ range: [4, 4], deleted: ['two three', ''] });
+  // Cmd+Backspace (the Mac's soft-line deletion) likewise.
+  await input(page).evaluate(el => {
+    el.setSelectionRange(27, 27); el.dispatchEvent(new Event('select'));
+    el.dispatchEvent(new InputEvent('beforeinput', { inputType: 'deleteSoftLineBackward', bubbles: true, cancelable: true }));
+  });
+  expect(await state()).toEqual({ range: [14, 14], deleted: ['two three', 'four five six'] });
+});
