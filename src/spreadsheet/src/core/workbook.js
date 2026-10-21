@@ -5721,21 +5721,33 @@ export class Workbook extends EventTarget {
       const used = this.usedRange(sheetId);
       if (!used) return [];
       rg = { r1: Math.max(rg.r1, used.r1), c1: Math.max(rg.c1, used.c1), r2: Math.min(rg.r2, used.r2), c2: Math.min(rg.c2, used.c2) };
-      if (rg.r1 > rg.r2 || rg.c1 > rg.c2 || (rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1) > 400000) return [];
+      if (rg.r1 > rg.r2 || rg.c1 > rg.c2) return [];
+      // A column's blanks are the gaps between the rows something fills, worked out from what the sheet holds rather
+      // than by visiting every cell of the range: one entry far off makes the used range millions of cells, which
+      // was given up on, so a long list with a label off to its side had "no blank cells".
+      const filled = new Map(); // column → [first, last] runs of rows that are no blanks
+      const fill = (m) => {
+        const cut = intersection(m, rg);
+        if (cut) for (let c = cut.c1; c <= cut.c2; c++) { if (!filled.has(c)) filled.set(c, []); filled.get(c).push([cut.r1, cut.r2]); }
+      };
+      for (const [key, cell] of sheet.cells) if (cell.v != null || cell.f != null) { const { r, c } = parseKey(key); fill({ r1: r, c1: c, r2: r, c2: c }); }
+      // What an array formula spills over is filled by its results.
+      for (const a of this._ensureSpills(sheet).anchors.values()) fill({ r1: a.r, c1: a.c, r2: a.r + a.rows - 1, c2: a.c + a.cols - 1 });
       // A merged block is one cell, its top-left: the cells it covers are no blanks of their own, or filling the
       // blanks (Ctrl+Enter) would write values nobody can see under the merge.
-      const covered = new Set();
-      for (const m of sheet.merges) {
-        const cut = intersection(m, rg);
-        if (cut) for (let r = cut.r1; r <= cut.r2; r++) for (let c = cut.c1; c <= cut.c2; c++) if (r !== m.r1 || c !== m.c1) covered.add(cellKey(r, c));
-      }
+      for (const m of sheet.merges) { fill({ ...m, c1: m.c1 + 1 }); fill({ ...m, r1: m.r1 + 1, c2: m.c1 }); }
+      const out = [];
       for (let c = rg.c1; c <= rg.c2; c++) {
-        for (let r = rg.r1; r <= rg.r2; r++) {
-          const key = cellKey(r, c);
-          const cell = sheet.cells.get(key);
-          if ((!cell || (cell.v == null && cell.f == null)) && !this.spillAt(sheetId, r, c) && !covered.has(key)) found.push({ r, c });
+        let r = rg.r1;
+        for (const [r1, r2] of [...(filled.get(c) || []).sort((a, b) => a[0] - b[0]), [rg.r2 + 1, rg.r2 + 1]]) {
+          if (r1 > r) {
+            if (out.length >= limit) { out.truncated = true; return out; }
+            out.push({ r1: r, c1: c, r2: r1 - 1, c2: c });
+          }
+          r = Math.max(r, r2 + 1);
         }
       }
+      return out;
     } else if (kind === 'notes') {
       for (const key of sheet.notes.keys()) { const p = parseKey(key); if (inside(p.r, p.c)) found.push(p); }
     } else {
