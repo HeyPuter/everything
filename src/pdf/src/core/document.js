@@ -1458,7 +1458,7 @@ export async function fillFields(doc, values) {
     if (!byName.has(name)) byName.set(name, field);
   }
   let changed = false;
-  const changedText = [];
+  const changedText = new Map();
   const changedChoices = [];
   const changedFields = [];
   for (const [name, value] of Object.entries(values)) {
@@ -1475,7 +1475,7 @@ export async function fillFields(doc, values) {
       // A rich-text field also carries its value as RV, which viewers show in preference; a
       // stale one would keep the old words. The plain value is now the whole value.
       field.acroField.dict.delete(PDFName.of('RV'));
-      changedText.push(value);
+      changedText.set(field, value);
     } else if (checkBoxes && isCheckBoxGroup(checkBoxes)) {
       // pdf-lib's check() only knows the first widget's on state. Translate the chosen
       // export value back to its appearance name for /V and each widget's /AS.
@@ -1568,7 +1568,7 @@ export async function fillFields(doc, values) {
           field instanceof PDFOptionList
             ? options.map((option) => option.label)
             : chosen.map(({ value, index }) => options[index]?.label ?? value);
-        changedText.push(...labels);
+        changedText.set(field, labels.join('\n'));
         changedChoices.push({ field, labels, options });
       }
     } else continue;
@@ -1578,11 +1578,18 @@ export async function fillFields(doc, values) {
     changedFields.push(field);
   }
   if (!changed) return false;
-  const font = await embedFont(doc);
-  assertSupportedText(font, changedText.join('\n'));
+  // Each field is drawn with the bundled face its own text needs, such as the Korean one.
+  const fonts = new Map();
+  for (const field of changedFields) {
+    const text = changedText.get(field) ?? '';
+    const font = await embedFont(doc, 'regular', text);
+    assertSupportedText(font, text);
+    fonts.set(field, font);
+  }
   for (const { field, labels, options } of changedChoices) {
-    updateFieldAppearance(field, form, font, choiceAppearanceProvider(field, options, labels));
+    const provider = choiceAppearanceProvider(field, options, labels);
+    updateFieldAppearance(field, form, fonts.get(field), provider);
   }
   for (const field of changedFields)
-    if (field.needsAppearancesUpdate()) updateFieldAppearance(field, form, font);
+    if (field.needsAppearancesUpdate()) updateFieldAppearance(field, form, fonts.get(field));
 }

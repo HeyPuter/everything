@@ -450,6 +450,36 @@ it('keeps naming the field’s own font after filling, for viewers that redraw i
   expect(saved.getTextField('Code').getText()).toBe('ABC-123');
 });
 
+it('fills a field with Korean text in the Korean face, and others in their own', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async (url) =>
+      new Response(
+        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+      ),
+  );
+  const source = await PDFDocument.create();
+  const page = source.addPage();
+  const form = source.getForm();
+  form.createTextField('Name').addToPage(page, { x: 50, y: 600, width: 200, height: 24 });
+  form.createTextField('City').addToPage(page, { x: 50, y: 500, width: 200, height: 24 });
+  const doc = await PDFDocument.load(await source.save());
+  // Ł is beyond the Korean face, so one face for both fields could draw neither.
+  await fillFields(doc, { Name: '김민준', City: 'Łódź' });
+  const saved = (await PDFDocument.load(await doc.save())).getForm();
+  expect(saved.getTextField('Name').getText()).toBe('김민준');
+  expect(saved.getTextField('City').getText()).toBe('Łódź');
+  const faces = (name) => {
+    const widget = saved.getTextField(name).acroField.getWidgets()[0];
+    const stream = saved.doc.context.lookup(widget.getNormalAppearance());
+    const fonts = stream.dict.lookup(PDFName.of('Resources')).lookup(PDFName.of('Font'));
+    return fonts
+      .values()
+      .map((ref) => saved.doc.context.lookup(ref).get(PDFName.of('BaseFont')).decodeText());
+  };
+  expect(faces('Name')).toEqual([expect.stringMatching(/NotoSansKR/)]);
+  expect(faces('City')).toEqual([expect.not.stringMatching(/NotoSansKR/)]);
+});
+
 it('tells apart radio buttons that share an export value, unless they are in unison', async () => {
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(
     new Response(await readFile(new URL('../public/fonts/NotoSans-Regular.ttf', import.meta.url))),
