@@ -206,6 +206,12 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       coauthoringStatus: () => (live ? { status: live.status, pending: live.pending, role: live.role, saves: !!live.saves } : null),
     },
     refresh() { renderChip(); },
-    destroy() { destroyed = true; dialog?.close(); live?.destroy(); live = null; },
+    destroy() {
+      destroyed = true; dialog?.close();
+      // A room joined from an invitation whose session never began (the editor closed while opening, or could
+      // not open the document) is left here; a session that began leaves it when it ends.
+      if (!live && doc.collab?.client) doc.collab.client.close().catch(() => {});
+      live?.destroy(); live = null;
+    },
   };
 }
