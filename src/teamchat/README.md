@@ -835,7 +835,7 @@ at the message, and a reminder about a deleted message never fires.
 
 Delivery is therefore bounded by whoever polls next, not by a clock: with
 events healthy (see "Realtime" below) that is the 20-second safety floor,
-worse case; the message a delivery writes then signals like any other post,
+worst case; the message a delivery writes then signals like any other post,
 so every other open tab learns of it at once rather than waiting out its own
 next poll.
 
