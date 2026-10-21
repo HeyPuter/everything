@@ -396,7 +396,7 @@ export function keyMenu(p: Prefix): MenuItem[] {
     ? [
         { label: 'Handle Type', submenu: () => handleMenu(p), shortcut: 'V' },
         { label: 'Interpolation Mode', submenu: () => interpolationMenu(p), shortcut: 'T' },
-        { label: 'Easing Mode', submenu: () => easingMenu(p), shortcut: 'Ctrl E' },
+        { label: 'Easing Type', submenu: () => easingMenu(p), shortcut: 'Ctrl E' },
         { separator: true },
         { label: 'Density', submenu: densityMenu },
         { label: 'Blend', submenu: blendMenu, shortcut: 'Alt D' },
@@ -421,11 +421,12 @@ export function keyMenu(p: Prefix): MenuItem[] {
     { label: 'Jump to Selected', op: `${p}.frame_jump`, shortcut: 'Ctrl G' },
     { separator: true },
     graph ? { label: 'Insert', submenu: () => insertKeyMenu(p), shortcut: 'I' } : { label: 'Insert Keyframes', op: 'action.keyframe_insert', shortcut: 'I' },
-    { label: 'Copy', op: `${p}.copy`, shortcut: 'Ctrl C' },
-    { label: 'Paste', op: `${p}.paste`, shortcut: 'Ctrl V' },
+    // the Dope Sheet names the key operators in full
+    { label: graph ? 'Copy' : 'Copy Keyframes', op: `${p}.copy`, shortcut: 'Ctrl C' },
+    { label: graph ? 'Paste' : 'Paste Keyframes', op: `${p}.paste`, shortcut: 'Ctrl V' },
     { label: 'Paste Flipped', op: `${p}.paste`, props: { flipped: true }, shortcut: 'Shift Ctrl V' },
     { label: 'Duplicate', op: `${p}.duplicate_move`, shortcut: 'Shift D' },
-    { label: 'Delete', op: `${p}.delete`, shortcut: 'X' },
+    { label: graph ? 'Delete' : 'Delete Keyframes', op: `${p}.delete`, shortcut: 'X' },
     { separator: true },
     ...shape,
   ];
