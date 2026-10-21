@@ -44,10 +44,25 @@ export function accountButton({ user, picture, env, onSignOut, onSignIn, extraIt
   return btn;
 }
 
+/** Give el a tooltip with its full text while it is cut off, else the fallback tooltip (if any). */
+function tipWhenCut(el, fallback = null, fullText = () => el.textContent) {
+  // pointerover reaches el before the document's tooltip listener reads data-tip.
+  const sync = () => {
+    const tip = el.scrollWidth > el.clientWidth ? fullText() : fallback;
+    if (tip) el.setAttribute('data-tip', tip);
+    else el.removeAttribute('data-tip');
+  };
+  el.addEventListener('pointerover', sync);
+  el.addEventListener('focus', sync);
+}
+
 export function createTopbar(ctx) {
   const { store, commands } = ctx;
   const status = h('span.save-status', { role: 'status', 'aria-live': 'polite' });
+  let statusText = '';
+  tipWhenCut(status, null, () => statusText);
   const nameBtn = h('button.project-name', { type: 'button', 'data-tip': 'Rename project' });
+  tipWhenCut(nameBtn, 'Rename project');
   const renderName = () => {
     nameBtn.textContent = store.project.name;
     nameBtn.setAttribute('aria-label', `Project name: ${store.project.name}. Rename`);
@@ -230,10 +245,14 @@ export function createTopbar(ctx) {
   const setStatus = ({ status: s, at }) => {
     const local = ctx.library.backend.kind === 'local';
     status.classList.toggle('error', s === 'error');
-    if (s === 'saving') status.textContent = 'Saving...';
-    else if (s === 'error') status.textContent = "Couldn't save. Retrying...";
-    else if (s === 'pending') status.textContent = 'Unsaved changes';
-    else status.textContent = `${local ? 'Saved in this browser' : 'Auto saved'}: ${fmt(at)}`;
+    if (s === 'saving') statusText = status.textContent = 'Saving...';
+    else if (s === 'error') statusText = status.textContent = "Couldn't save. Retrying...";
+    else if (s === 'pending') statusText = status.textContent = 'Unsaved changes';
+    else {
+      const where = local ? 'Saved in this browser' : 'Auto saved';
+      statusText = `${where}: ${fmt(at)}`;
+      status.replaceChildren(h('span.save-status-long', `${where}: `), h('span.save-status-short', 'Saved '), fmt(at));
+    }
   };
   ctx.saver.on('status', setStatus);
   setStatus({ status: 'saved', at: ctx.saver.lastSaved });

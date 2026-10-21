@@ -85,3 +85,45 @@ describe('tooltip shortcuts', () => {
     }
   });
 });
+
+describe('top bar tooltips', () => {
+  it('show the full project name and save status when they are cut off', async () => {
+    vi.useRealTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { Library } = await import('../src/storage/library.js');
+    const { memoryBackend } = await import('../src/storage/backends.js');
+    const { Editor } = await import('../src/ui/editor.js');
+    const { fixture, clip, onMain } = await import('./helpers.js');
+    const root = h('div');
+    document.body.append(root);
+    const p = fixture();
+    p.name = 'Summer trip highlights, final cut';
+    onMain(p, clip('video', 0, 4));
+    const lib = new Library(memoryBackend());
+    await lib.saveProject(p);
+    const editor = new Editor(root, { library: lib, project: p, account: { user: { username: 'sam' } }, onExit() {}, onNewProject() {} });
+    vi.useFakeTimers();
+    const tipFor = (el) => {
+      hover(el);
+      vi.advanceTimersByTime(500);
+      const text = document.querySelector('.tooltip')?.firstChild?.textContent;
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      return text;
+    };
+    let cut = false;
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(() => (cut ? 200 : 100));
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(() => 100);
+    try {
+      const name = root.querySelector('.project-name');
+      const status = root.querySelector('.save-status');
+      expect(tipFor(name)).toBe('Rename project');
+      expect(tipFor(status)).toBeUndefined();
+      cut = true;
+      expect(tipFor(name)).toBe('Summer trip highlights, final cut');
+      expect(tipFor(status)).toMatch(/^Auto saved: \d/);
+    } finally {
+      vi.restoreAllMocks();
+      editor.dispose();
+    }
+  });
+});
