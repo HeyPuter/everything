@@ -156,8 +156,11 @@ export class Doc extends EventTarget {
    * In a shared document one client writes the file (the owner's elected tab); the others leave
    * saving to it: their edits reach the file through the room, so they are never "unsaved" here.
    */
-  setSaving(on) {
+  setSaving(on, { takeOver = false } = {}) {
     if (this.writes === !!on) return;
+    // Taking over from the room's tab that wrote the file: its writes reached this copy through the room, so its
+    // time stamp on the file is no change from another window.
+    if (on && takeOver && this.writes === false) this._remoteModified = null;
     this.writes = !!on;
     if (!this.writes) { clearTimeout(this._timer); this._timer = null; this.savedVersion = this.version; this._setStatus('saved'); }
   }

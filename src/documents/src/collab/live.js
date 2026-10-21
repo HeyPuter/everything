@@ -122,7 +122,7 @@ export class LiveSession extends EventTarget {
     if (this.saves !== saves) {
       this.saves = saves;
       // Local sharing has no file: each tab keeps its own download, as before sharing.
-      if (!this.local) { this.doc.setSaving?.(saves); if (saves) this.doc.changed?.(); }
+      if (!this.local) { this.doc.setSaving?.(saves, { takeOver: true }); if (saves) this.doc.changed?.(); }
       this.dispatchEvent(new Event('saver'));
     }
   }
