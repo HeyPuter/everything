@@ -630,6 +630,38 @@ test('cancelling the deletion of one page in Organize pages keeps it chosen', as
   await expect(page.locator('.organize-status')).toHaveText('1 of 3 pages selected');
 });
 
+test('Organize pages lets go of the pictures of pages scrolled far away', async ({ page }) => {
+  await openPdf(page, await numberedPdf(150));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const drawn = () =>
+    grid.evaluate(
+      (node) =>
+        // A tile's canvas is sized for its picture when the page is drawn into it.
+        [...node.querySelectorAll('canvas')].filter(
+          (canvas) => canvas.style.width && canvas.width * canvas.height > 0,
+        ).length,
+    );
+  await expect.poll(drawn).toBeGreaterThan(0);
+  const near = await drawn();
+  // Scroll the whole grid through, a screen at a time, as a reader looking for a page does.
+  for (let step = 1; step <= 40; step++) {
+    await grid.evaluate((node, step) => (node.scrollTop = step * node.clientHeight), step);
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 60)));
+  }
+  await expect(page.getByRole('option', { name: 'Page 150', exact: true })).toBeInViewport();
+  await expect.poll(drawn).toBeGreaterThan(0);
+  // Only the pages near the view keep their pictures, however many were passed on the way.
+  expect(await drawn()).toBeLessThan(Math.max(near * 8, 60));
+  await grid.evaluate((node) => (node.scrollTop = 0));
+  const first = page.getByRole('option', { name: 'Page 1', exact: true }).locator('canvas');
+  await expect.poll(() => first.evaluate((canvas) => canvas.width)).toBeGreaterThan(0);
+});
+
 test('Organize pages drops a page dragged into the gap between two pages there', async ({
   page,
 }) => {

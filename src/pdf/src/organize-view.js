@@ -392,16 +392,21 @@ export function createOrganizeView({
     const revision = getRevision();
     const width = SIZES[size];
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    observer = new IntersectionObserver(
+    // Tiles are drawn as they come near the view and let go of their pictures once far from
+    // it, so scrolling through a long PDF does not keep a picture of every page it passed.
+    const drawn = new Set(),
+      renders = new Map();
+    const draw = new IntersectionObserver(
       (entries) =>
         entries.forEach(async (entry) => {
-          if (!entry.isIntersecting) return;
-          observer.unobserve(entry.target);
+          if (!entry.isIntersecting || drawn.has(entry.target)) return;
+          drawn.add(entry.target);
           const index = Number(entry.target.dataset.index);
           const canvas = entry.target.querySelector('canvas');
           try {
             const page = await pdf.getPage(index + 1);
             if (getPdf() !== pdf || getRevision() !== revision || !canvas.isConnected) return;
+            if (!drawn.has(entry.target)) return;
             const natural = page.getViewport({ scale: 1 });
             const scale = Math.min(width / natural.width, (width * 1.3) / natural.height);
             const view = page.getViewport({ scale });
@@ -409,13 +414,19 @@ export function createOrganizeView({
             canvas.height = Math.max(1, Math.floor(view.height * ratio));
             canvas.style.width = `${Math.floor(view.width)}px`;
             canvas.style.height = `${Math.floor(view.height)}px`;
-            await page.render({
+            const task = page.render({
               canvasContext: canvas.getContext('2d'),
               viewport: view,
               transform: ratio === 1 ? null : [ratio, 0, 0, ratio, 0, 0],
               // Layers hidden in the Layers panel stay hidden here, as on the pages.
               optionalContentConfigPromise: getLayers(),
-            }).promise;
+            });
+            renders.set(entry.target, task);
+            try {
+              await task.promise;
+            } finally {
+              if (renders.get(entry.target) === task) renders.delete(entry.target);
+            }
             if (index !== currentIndex()) page.cleanup();
           } catch {
             /* A page that cannot be drawn keeps its blank tile. */
@@ -423,7 +434,27 @@ export function createOrganizeView({
         }),
       { root: grid, rootMargin: '200px' },
     );
-    tiles.forEach((t) => observer.observe(t));
+    const keep = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting || !drawn.delete(entry.target)) return;
+          renders.get(entry.target)?.cancel();
+          const canvas = entry.target.querySelector('canvas');
+          canvas.width = canvas.height = 0;
+        }),
+      { root: grid, rootMargin: '300% 0px' },
+    );
+    observer = {
+      disconnect() {
+        draw.disconnect();
+        keep.disconnect();
+        for (const task of renders.values()) task.cancel();
+      },
+    };
+    tiles.forEach((t) => {
+      draw.observe(t);
+      keep.observe(t);
+    });
     updateState();
     if (Number.isInteger(focusAt)) focusTile(Math.min(focusAt, tiles.length - 1));
   }
