@@ -612,7 +612,19 @@ function curveData(o: ObjectData, cu: CurveData): Child {
   return [
     dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
-      ? fontDataPanels.map((f) => f(o, cu))
+      ? [
+          panel(
+            'cu-text-shape',
+            'Shape',
+            () => [
+              num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }),
+              num(cu as never, 'render_resolution_u' as never, 'Render U', { int: true, min: 0, max: 1024, tip: 'Resolution used for rendering (0: the preview resolution)' }),
+              enumProp(cu, 'fill_mode', 'Fill Mode', fillItems),
+            ],
+            { closed: true },
+          ),
+          fontDataPanels.map((f) => f(o, cu)),
+        ]
       : panel('cu-shape', 'Shape', () => [
           enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => {
             cu.dimensions = v as '2D';
