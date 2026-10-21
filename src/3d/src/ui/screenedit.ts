@@ -127,6 +127,20 @@ registerOperators([
     },
   },
   {
+    idname: 'screen.quadview_size',
+    label: 'Quad View Resize',
+    description: 'Drag the crossing of the quad view lines (or any two crossing area edges) to resize all four views',
+    undo: false,
+    invoke: (ctx) => {
+      const pt = pointerOf(ctx);
+      const sc = screenAt(pt.x, pt.y);
+      const cross = sc?.crossingAt(pt.x, pt.y);
+      if (!sc || !cross) return 'PASS_THROUGH';
+      sc.dragCrossing(cross);
+      return 'CANCELLED';
+    },
+  },
+  {
     idname: 'screen.region_scale',
     label: 'Scale Region Size',
     description: 'Drag the edge of a side region to resize it; dragging it nearly closed hides the region',

@@ -636,6 +636,9 @@ export class Screen {
     d.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
+      // where two edge lines cross (the middle of a quad view) both move
+      const cross = this.crossingAt(e.clientX, e.clientY);
+      if (cross) return this.dragCrossing(cross);
       // the edges in line with this one (e.g. both halves of a quad view's middle) move together
       const edge = this.edges().find((x) => x.node === n);
       if (edge) this.dragEdge(edge);
@@ -674,6 +677,62 @@ export class Screen {
     }
     this.relayout();
     app.changed('ui', 'view');
+  }
+
+  /** Where a vertical and a horizontal edge cross near a client point (e.g. the middle of a quad view). */
+  crossingAt(x: number, y: number, tol = 6): [LayoutEdge, LayoutEdge] | null {
+    const r = this.el.getBoundingClientRect();
+    const lx = x - r.left,
+      ly = y - r.top;
+    const all = this.edges();
+    const v = all.filter((e) => e.dir === 'h' && Math.abs(e.pos - lx) <= tol && ly >= e.from - tol && ly <= e.to + tol);
+    const hz = all.filter((e) => e.dir === 'v' && Math.abs(e.pos - ly) <= tol && lx >= e.from - tol && lx <= e.to + tol);
+    // a crossing: the line continues on both sides of the point in both directions
+    for (const a of v)
+      for (const b of hz) {
+        const va = alignedEdges(all, a),
+          hb = alignedEdges(all, b);
+        const spans = (g: LayoutEdge[], p: number) => g.some((e) => e.from < p - tol) && g.some((e) => e.to > p + tol);
+        if (spans(va, ly) && spans(hb, lx)) return [a, b];
+      }
+    return null;
+  }
+
+  /** Drag the crossing of two edge lines: both move with the pointer. */
+  dragCrossing(pair: [LayoutEdge, LayoutEdge]) {
+    const all = this.edges();
+    const groups = pair.map((e) => alignedEdges(all, e));
+    const r0 = groups.map((g) => g.map((x) => x.node.ratio));
+    const origin = this.el.getBoundingClientRect();
+    document.body.classList.add('edge-drag-hv');
+    const move = (ev: PointerEvent) => {
+      groups.forEach((g, i) => {
+        const pos = pair[i].dir === 'h' ? ev.clientX - origin.left : ev.clientY - origin.top;
+        for (const x of g) x.node.ratio = edgeRatio(x, pos);
+      });
+      this.relayout();
+    };
+    const end = (ok: boolean) => {
+      removeEventListener('pointermove', move, true);
+      removeEventListener('pointerup', up, true);
+      removeEventListener('keydown', key, true);
+      document.body.classList.remove('edge-drag-hv');
+      if (!ok) {
+        groups.forEach((g, i) => g.forEach((x, j) => (x.node.ratio = r0[i][j])));
+        this.relayout();
+      }
+      app.changed('ui', 'view');
+    };
+    const up = () => end(true);
+    const key = (ev: KeyboardEvent) => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      end(false);
+    };
+    addEventListener('pointermove', move, true);
+    addEventListener('pointerup', up, true);
+    addEventListener('keydown', key, true);
   }
 
   /** Drag an edge (with the edges aligned with it) until release (Ctrl snaps, Esc / right click restore them). */

@@ -146,5 +146,16 @@ test('quad view: dragging the middle edge moves both halves of the line', async 
   expect(b1[0].width).toBeCloseTo(b0[0].width - 50, -1);
   // the lower row follows
   expect(b1[2].width).toBeCloseTo(b0[2].width - 50, -1);
+  // the crossing in the middle moves both lines
+  const cx = b1[0].right + 1,
+    cy = b1[0].bottom + 1;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy + 30, { steps: 3 });
+  await page.mouse.up();
+  const b2 = await boxes();
+  expect(b2[0].width).toBeCloseTo(b1[0].width + 40, -1);
+  expect(b2[0].height).toBeCloseTo(b1[0].height + 30, -1);
+  expect(b2[3].height).toBeCloseTo(b1[3].height - 30, -1);
   await expectNoErrors(errors);
 });

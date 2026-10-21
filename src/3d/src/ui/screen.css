@@ -266,3 +266,7 @@ body.region-scaling * {
   stroke-width: 1.5;
   filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
 }
+body.edge-drag-hv,
+body.edge-drag-hv * {
+  cursor: move !important;
+}
