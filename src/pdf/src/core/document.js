@@ -83,6 +83,7 @@ import {
   pruneCopiedResources,
   relinkCopiedPages,
 } from './pages.js';
+import { appendOutline } from './outline-edit.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import {
   DAMAGED_FORM,
@@ -625,6 +626,8 @@ export async function insertPdfPages(
   pruneCopiedResources(doc, copied);
   const indexToRef = new Map(indices.map((index, k) => [index, copied[k].ref]));
   relinkCopiedPages(doc, copied, indexToRef);
+  // The inserted pages' bookmarks come along, after the document's own.
+  appendOutline(doc, source, indexToRef);
   inheritPdfVersion(doc, source);
   return copied.map((_, k) => position + k);
 }

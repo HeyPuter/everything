@@ -138,7 +138,7 @@ function resolveNamedDest(source, name) {
   return tree instanceof PDFDict ? searchNameTree(context, tree, key) : undefined;
 }
 /** The explicit page-destination array behind a dest value ([pageRef ...] or { D: [...] }). */
-function explicitDest(source, dest) {
+export function explicitDest(source, dest) {
   let value = dest instanceof PDFRef ? source.context.lookup(dest) : dest;
   if (value instanceof PDFName || isString(value)) value = resolveNamedDest(source, value);
   if (value instanceof PDFDict) value = source.context.lookup(value.get(PDFName.of('D')));

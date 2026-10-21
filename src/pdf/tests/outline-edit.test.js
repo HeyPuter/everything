@@ -303,3 +303,65 @@ for (const nested of [false, true]) {
     },
   );
 }
+
+describe('bookmarks of inserted pages', () => {
+  async function bookPdf() {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < 3; i++) doc.addPage([300 + i, 300]);
+    addBookmark(doc, { title: 'Intro', pageIndex: 0 });
+    addBookmark(doc, { title: 'Chapter', pageIndex: 1 });
+    addBookmark(doc, { title: 'Web', pageIndex: 0 });
+    const ctx = doc.context;
+    const root = ctx.lookup(doc.catalog.get(PDFName.of('Outlines')));
+    const items = [];
+    for (
+      let ref = root.get(PDFName.of('First'));
+      ref;
+      ref = ctx.lookup(ref).get(PDFName.of('Next'))
+    )
+      items.push(ref);
+    // The chapter is closed and holds a section reached through a named destination.
+    const chapterDict = ctx.lookup(items[1]);
+    const section = ctx.register(
+      ctx.obj({
+        Title: PDFHexString.fromText('Section'),
+        Parent: items[1],
+        A: { S: 'GoTo', D: PDFHexString.fromText('sec') },
+      }),
+    );
+    chapterDict.set(PDFName.of('First'), section);
+    chapterDict.set(PDFName.of('Last'), section);
+    chapterDict.set(PDFName.of('Count'), ctx.obj(-1));
+    doc.catalog.set(
+      PDFName.of('Names'),
+      ctx.obj({ Dests: { Names: [PDFHexString.fromText('sec'), [doc.getPage(2).ref, 'Fit']] } }),
+    );
+    const webDict = ctx.lookup(items[2]);
+    webDict.delete(PDFName.of('Dest'));
+    webDict.set(
+      PDFName.of('A'),
+      ctx.obj({ S: 'URI', URI: PDFHexString.fromText('https://example.com/') }),
+    );
+    return doc.save();
+  }
+
+  it('come along when pages are inserted from another PDF', async () => {
+    const { insertPdfPages } = await import('../src/core/document.js');
+    const doc = await PDFDocument.create();
+    doc.addPage([100, 100]);
+    doc.addPage([200, 200]);
+    addBookmark(doc, { title: 'Cover', pageIndex: 0 });
+    await insertPdfPages(doc, await bookPdf(), { pages: [1, 2], after: 0 });
+    const saved = await PDFDocument.load(await doc.save());
+    expect(saved.getPages().map((page) => page.getWidth())).toEqual([100, 301, 302, 200]);
+    // Intro's page was not inserted; the rest point at the pages they now are.
+    expect(await outlineOf(saved)).toEqual([
+      { title: 'Cover', page: 0, items: [] },
+      { title: 'Chapter', page: 1, items: [{ title: 'Section', page: 2, items: [] }] },
+      { title: 'Web', page: null, items: [] },
+    ]);
+    const root = saved.context.lookup(saved.catalog.get(PDFName.of('Outlines')));
+    // The chapter stays closed, so only the three top-level bookmarks show.
+    expect(root.lookup(PDFName.of('Count')).asNumber()).toBe(3);
+  });
+});

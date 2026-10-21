@@ -2,7 +2,8 @@
  * Bookmarks (the PDF outline): add one for a page, rename one, or remove one. Items are
  * addressed by their path of indices in the tree, the same order PDF.js reports them in.
  */
-import { PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef } from 'pdf-lib';
+import { PDFArray, PDFDict, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
+import { explicitDest } from './pages.js';
 
 const name = PDFName.of;
 export const MAX_BOOKMARK_TITLE = 200;
@@ -159,4 +160,106 @@ export function removeBookmark(doc, path) {
   const root = outlines(doc);
   if (!children(doc, root.dict).length) doc.catalog.delete(name('Outlines'));
   else recount(doc, root.dict, true);
+}
+
+/**
+ * Append the bookmarks of `source` that lead to its pages in `pageRefOf` (a map from source
+ * page index to the page that copy became in `doc`), as an editor carries a PDF's bookmarks
+ * along with pages inserted from it. Web links come too; a bookmark leading elsewhere stays
+ * only as the heading of bookmarks that do come. Closed bookmarks stay closed.
+ */
+export function appendOutline(doc, source, pageRefOf) {
+  const from = outlines(source);
+  if (!from) return;
+  const sourcePages = new Map(source.getPages().map((page, index) => [page.ref, index]));
+  const name = PDFName.of;
+  // Read the tree in order without recursion; a node seen twice is read once.
+  const seen = new Set();
+  const top = { children: [] };
+  const order = [];
+  const pending = [{ node: from.dict, into: top }];
+  while (pending.length) {
+    const { node, into } = pending.pop();
+    const kids = children(source, node).filter(([ref]) => !seen.has(ref.toString()));
+    kids.forEach(([ref]) => seen.add(ref.toString()));
+    const items = kids.map(([, dict]) => ({ dict, children: [] }));
+    into.children.push(...items);
+    order.push(...items);
+    for (let i = items.length - 1; i >= 0; i--)
+      pending.push({ node: items[i].dict, into: items[i] });
+  }
+  for (const item of order) {
+    const { dict } = item;
+    const action = dict.lookup(name('A'));
+    const dest =
+      dict.get(name('Dest')) ??
+      (action instanceof PDFDict && action.lookup(name('S')) === name('GoTo')
+        ? action.get(name('D'))
+        : undefined);
+    const explicit = dest === undefined ? null : explicitDest(source, dest);
+    const first = explicit?.get(0);
+    const index = first instanceof PDFNumber ? first.asNumber() : sourcePages.get(first);
+    const page = index === undefined ? undefined : pageRefOf.get(index);
+    if (page) {
+      // The view settings after the page are plain names and numbers.
+      const view = explicit
+        .asArray()
+        .slice(1)
+        .map((entry) => source.context.lookup(entry))
+        .filter(
+          (entry) =>
+            entry instanceof PDFName || entry instanceof PDFNumber || entry?.toString() === 'null',
+        );
+      item.dest = doc.context.obj([page, ...(view.length ? view : [name('Fit')])]);
+    }
+    const uri =
+      action instanceof PDFDict && action.lookup(name('S')) === name('URI')
+        ? action.lookup(name('URI'))
+        : null;
+    if (uri instanceof PDFString || uri instanceof PDFHexString)
+      item.action = doc.context.obj({ S: 'URI', URI: uri.clone() });
+  }
+  // Children come after their parents in reading order, so a backward pass settles them first.
+  for (let i = order.length - 1; i >= 0; i--)
+    order[i].kept = !!(order[i].dest || order[i].action || order[i].children.some((c) => c.kept));
+  if (!top.children.some((item) => item.kept)) return;
+  const root = outlines(doc, true);
+  const build = [{ list: top.children, parentRef: root.ref, parentDict: root.dict, append: true }];
+  while (build.length) {
+    const { list, parentRef, parentDict, append } = build.pop();
+    let [last, lastDict] = append ? children(doc, parentDict).at(-1) || [] : [];
+    for (const item of list.filter((entry) => entry.kept)) {
+      const title = item.dict.lookup(name('Title'));
+      const dict = doc.context.obj({
+        Title:
+          title instanceof PDFString || title instanceof PDFHexString
+            ? title.clone()
+            : PDFHexString.fromText(''),
+        Parent: parentRef,
+      });
+      if (item.dest) dict.set(name('Dest'), item.dest);
+      else if (item.action) dict.set(name('A'), item.action);
+      for (const key of ['C', 'F']) {
+        const value = item.dict.lookup(name(key));
+        if (
+          value instanceof PDFNumber ||
+          (value instanceof PDFArray && value.asArray().every((n) => n instanceof PDFNumber))
+        )
+          dict.set(name(key), value.clone());
+      }
+      // recount keeps the item open or closed by the sign of its Count.
+      const open = (item.dict.lookup(name('Count'))?.asNumber?.() ?? -1) > 0;
+      dict.set(name('Count'), PDFNumber.of(open ? 1 : -1));
+      const ref = doc.context.register(dict);
+      if (lastDict instanceof PDFDict) {
+        lastDict.set(name('Next'), ref);
+        dict.set(name('Prev'), last);
+      } else parentDict.set(name('First'), ref);
+      parentDict.set(name('Last'), ref);
+      [last, lastDict] = [ref, dict];
+      if (item.children.some((child) => child.kept))
+        build.push({ list: item.children, parentRef: ref, parentDict: dict, append: false });
+    }
+  }
+  recount(doc, root.dict, true);
 }
