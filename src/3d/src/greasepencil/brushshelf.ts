@@ -135,23 +135,26 @@ export function shelfBrushes(): ShelfBrush[] {
 // the shelf
 
 interface ShelfState {
-  show: boolean;
+  /** shown per mode (Draw Mode shows it by default, the other modes keep it folded away) */
+  shown: Record<string, boolean>;
   tab: string;
   search: string;
 }
 const states = new WeakMap<View3D, ShelfState>();
 function stateOf(v: View3D): ShelfState {
   let s = states.get(v);
-  if (!s) states.set(v, (s = { show: true, tab: 'All', search: '' }));
+  if (!s) states.set(v, (s = { shown: {}, tab: 'All', search: '' }));
   return s;
 }
+const isShown = (st: ShelfState) => st.shown[app.doc.mode] ?? app.doc.mode === 'PAINT_GREASE_PENCIL';
+const setShown = (st: ShelfState, on: boolean) => (st.shown[app.doc.mode] = on);
 
 const changed = () => app.changed('ui');
 
 function shelf(v: View3D): Child {
   if (!inBrushMode()) return null;
   const st = stateOf(v);
-  if (!st.show) return null;
+  if (!isShown(st)) return null;
   const all = shelfBrushes();
   const cats = [...new Set(all.map((b) => b.category))];
   const q = st.search.trim().toLowerCase();
@@ -174,7 +177,7 @@ function shelf(v: View3D): Child {
         oninput: (e: Event) => ((st.search = (e.target as HTMLInputElement).value), changed()),
         onkeydown: (e: KeyboardEvent) => e.stopPropagation(),
       }),
-      h('button', { class: 'ps-icon', 'data-tip': 'Hide the brush shelf (View ▸ Asset Shelf)', onclick: () => ((st.show = false), changed()) }, icon('x')),
+      h('button', { class: 'ps-icon', 'data-tip': 'Hide the brush shelf (View ▸ Asset Shelf)', onclick: () => (setShown(st, false), changed()) }, icon('x')),
     ),
     h(
       'div',
@@ -209,5 +212,5 @@ viewMenuExtras.push(() => {
   const v = activeView3D();
   if (!v || !inBrushMode()) return [];
   const st = stateOf(v);
-  return [{ label: 'Asset Shelf', checked: st.show, action: () => ((st.show = !st.show), changed()) }];
+  return [{ label: 'Asset Shelf', checked: isShown(st), action: () => (setShown(st, !isShown(st)), changed()) }];
 });
