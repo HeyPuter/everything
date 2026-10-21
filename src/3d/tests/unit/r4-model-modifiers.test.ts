@@ -78,3 +78,35 @@ describe('Wireframe: relative offset and crease edges (recorded)', () => {
     expect([...ours].sort()).toEqual([...refSet].sort());
   });
 });
+
+import { uvSphere } from '../../src/mesh/primitives';
+
+describe('Decimate collapse: symmetry and vertex group', () => {
+  const sphere = () => {
+    const s = uvSphere(32, 16, 1);
+    return { ...s, normals: new Float32Array(s.indices.length * 3) } as unknown as EvalMesh;
+  };
+  const t = modifierTypes.DECIMATE;
+  it('symmetry keeps the result mirrored across the axis', () => {
+    const out = t.apply(sphere(), { ...t.defaults(), ratio: 0.3, use_symmetry: true, symmetry_axis: 'X' } as never, {} as ModifierContext);
+    const key = (x: number, y: number, z: number) => [x, y, z].map((c) => (Math.round(c * 1e4) / 1e4 + 0).toFixed(4)).join(',');
+    const set = new Set<string>();
+    for (let i = 0; i < out.positions.length; i += 3) set.add(key(out.positions[i], out.positions[i + 1], out.positions[i + 2]));
+    for (let i = 0; i < out.positions.length; i += 3) expect(set.has(key(-out.positions[i], out.positions[i + 1], out.positions[i + 2]))).toBe(true);
+    expect(out.offsets.length - 1).toBeLessThan(500);
+  });
+  it('vertices with zero weight stay; weighted ones collapse', () => {
+    const m = sphere();
+    const nv = m.positions.length / 3;
+    const w = Float32Array.from({ length: nv }, (_, v) => (m.positions[v * 3] > 0 ? 1 : 0));
+    const mesh = { ...m, vertex_groups: [{ name: 'G' }], weights: [w] } as EvalMesh;
+    const out = t.apply(mesh, { ...t.defaults(), ratio: 0.3, vertex_group: 'G' } as never, {} as ModifierContext);
+    let pos = 0,
+      neg = 0;
+    for (let i = 0; i < out.positions.length; i += 3) (out.positions[i] > 1e-4 ? pos++ : out.positions[i] < -1e-4 ? neg++ : 0);
+    const neg0 = Array.from({ length: nv }, (_, v) => m.positions[v * 3] < -1e-4).filter(Boolean).length;
+    // as recorded: the unweighted half is untouched, the weighted half nearly vanishes
+    expect(neg).toBe(neg0);
+    expect(pos).toBeLessThan(20);
+  });
+});

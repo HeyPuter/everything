@@ -518,7 +518,26 @@ modifierExtraUI.DECIMATE = (ob, m) => {
         (v) => ((r.decimate_type = v), touch('Change Decimate Type')),
       ),
     ),
-    type === 'COLLAPSE' ? [num(r, 'ratio', 'Ratio', { min: 0, max: 1, slider: true }), bool(r, 'use_collapse_triangulate', 'Triangulate')] : null,
+    type === 'COLLAPSE'
+      ? [
+          num(r, 'ratio', 'Ratio', { min: 0, max: 1, slider: true }),
+          bool(r, 'use_collapse_triangulate', 'Triangulate'),
+          bool(r, 'use_symmetry', 'Symmetry'),
+          r.use_symmetry
+            ? splitRow(
+                'Axis',
+                enumRow(
+                  `${m.id}.symmetry_axis`,
+                  ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a })),
+                  String(r.symmetry_axis ?? 'X'),
+                  (v) => ((r.symmetry_axis = v), touch('Symmetry Axis')),
+                ),
+              )
+            : null,
+          vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+          r.vertex_group ? num(r, 'vertex_group_factor', 'Factor', { min: 0, max: 1000, softMax: 10 }) : null,
+        ]
+      : null,
     type === 'UNSUBDIV' ? num(r, 'iterations', 'Iterations', { int: true, min: 0, max: 32767, softMax: 100 }) : null,
     type === 'DISSOLVE'
       ? [
