@@ -1102,18 +1102,21 @@ export class Store extends Emitter {
     return changed;
   }
 
-  /** A copied page gets its own copies of sealed assets, keyed for where it now lives. */
+  /**
+   * A copied page gets its own copies of its assets, keyed for where it now
+   * lives. Shared files would break the other page's pictures as soon as
+   * one of them is re-encrypted (moved into or out of a protected section).
+   */
   async copyAssets(page) {
     const target = this.findPage(page.id)?.section;
-    const needs = page.outlines.some((o) => /data-asset="[^"]+\.sealed"/.test(o.html)) || target?.locked;
-    if (!needs) return;
+    if (!page.outlines.some((o) => o.html.includes('data-asset="'))) return;
     for (const o of page.outlines) {
-      for (const m of [...o.html.matchAll(/data-asset="([^"]+)"/g)]) {
-        const blob = await this.assetBlob(m[1]).catch(() => null);
+      for (const assetId of new Set([...o.html.matchAll(/data-asset="([^"]+)"/g)].map((m) => m[1]))) {
+        const blob = await this.assetBlob(assetId).catch(() => null);
         if (!blob) continue;
-        const ext = m[1].endsWith('.sealed') ? m[1].split('.').at(-2) : m[1].split('.').pop();
+        const ext = assetId.endsWith('.sealed') ? assetId.split('.').at(-2) : assetId.split('.').pop();
         const id = await this.saveAsset(blob, `x.${ext}`, { sectionId: target?.locked ? target.id : null });
-        o.html = o.html.split(`data-asset="${m[1]}"`).join(`data-asset="${id}"`);
+        o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${id}"`);
       }
     }
     this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);

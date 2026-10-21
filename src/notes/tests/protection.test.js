@@ -359,6 +359,29 @@ describe('password-protected sections: re-encrypting pictures', () => {
   });
 });
 
+describe('copies and their pictures', () => {
+  it("moving a page's copy into a protected section leaves the original's picture alone", async () => {
+    const { backend, store, meta } = await setup();
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png');
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    const copy = await store.copyPage(meta.id);
+    await store.flush();
+    // Later, in another session where the original isn't open:
+    const later = new Store(backend, { saveDelay: 0 });
+    await later.load();
+    const safe = later.createSection(later.notebooks[0].id, { name: 'Safe' });
+    await later.protectSection(safe.id, 'pw');
+    later.movePage(copy.id, { sectionId: safe.id });
+    await new Promise((r) => setTimeout(r, 20));
+    await later.flush();
+    const original = await later.loadPage(meta.id);
+    const id = original.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    expect(await (await later.assetBlob(id)).text()).toBe('png bytes');
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');
