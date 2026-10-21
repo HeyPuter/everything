@@ -721,6 +721,11 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null,
       meta.sheets[sheet.name].scenarios = sheet.scenarios;
       any = true;
     }
+    // Outline Settings likewise: an .xlsx keeps them in the worksheet's <outlinePr> (xlsx-outline.js).
+    if (ods && sheet.outlineSettings) {
+      meta.sheets[sheet.name].outlineSettings = sheet.outlineSettings;
+      any = true;
+    }
     // An Advanced Filter run in place, for Data ▸ Clear and Reapply once the file is opened again (a file keeps
     // only the rows it hid). Criteria on another sheet name it, as the ids of a book are its own.
     if (sheet.advancedFilter) {
@@ -2087,7 +2092,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     protected: own ? !!own.protected : !!part?.protected,
     groups: own ? own.groups || null : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
-    outlineSettings: readXlsxOutlineSettings(partXml),
+    outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,
     gridlines: own ? own.gridlines !== false : part?.gridlines !== false,
     headers: nativePart?.headers ?? own?.headers ?? true,
     rightToLeft: nativePart?.rightToLeft ?? own?.rightToLeft ?? false,
