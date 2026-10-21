@@ -229,10 +229,12 @@ async function main(workbook) {
   if (contents) contents.getRange().clear();
   else contents = workbook.addWorksheet(name, 0);
   const rows = [['Sheet', 'Visible']];
+  // Inside the formula's quotes, a double quote in a name is written twice: in the link and in the label alike.
+  const quoted = (text) => text.replace(/"/g, '""');
   for (const sheet of workbook.getWorksheets()) {
     if (sheet.getName() === name) continue;
     const target = "'" + sheet.getName().replace(/'/g, "''") + "'!A1";
-    rows.push([\`=HYPERLINK("#\${target}", "\${sheet.getName().replace(/"/g, '""')}")\`, sheet.getVisible() ? 'Yes' : 'No']);
+    rows.push([\`=HYPERLINK("#\${quoted(target)}", "\${quoted(sheet.getName())}")\`, sheet.getVisible() ? 'Yes' : 'No']);
   }
   const range = contents.getRange('A1').getResizedRange(rows.length - 1, 1);
   range.setFormulas(rows);
