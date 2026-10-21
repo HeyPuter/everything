@@ -1,5 +1,6 @@
 // Properties tabs: scene, world, collection, object, data, material.
 import { uvMaps, setActiveUV, renameUV } from '../../mesh/uvmaps';
+import { shapeKeyFrame } from '../../eval/depsgraph';
 import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { h, type Child } from '../../ui/h';
@@ -405,7 +406,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
           label: k.name,
           icon: 'shapekey_data',
           rightSize: 'wide' as const,
-          right: [
+          right: me.use_relative === false ? [h('span', { class: 'ul-meta' }, shapeKeyFrame(me, i).toFixed(3))] : [
             i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null,
             i > 0 ? checkbox(`sk-mute.${me.id}.${i}`, '', !k.mute, (v) => ((k.mute = !v), changed('Shape Key Mute'))) : null,
             lockToggle(!!k.lock_shape, 'Lock shape against edits', () => ((me.shape_keys[i] = { ...k, lock_shape: !k.lock_shape }), changed('Lock Shape Key'))),
@@ -425,7 +426,14 @@ function meshData(o: ObjectData, me: MeshData): Child {
           },
         },
       ),
-      me.shape_keys[me.active_shape_key_index] && me.active_shape_key_index > 0
+      me.shape_keys.length && me.use_relative === false
+        ? [
+            num(me as never, 'eval_time' as never, 'Evaluation Time', { min: 0, softMax: Math.max(10, shapeKeyFrame(me, me.shape_keys.length - 1)), anim: { ob: o, path: 'data.shape_keys.eval_time' } }),
+            me.shape_keys[me.active_shape_key_index]
+              ? splitRow('Interpolation', enumMenu('sk-interp', [['KEY_LINEAR', 'Linear'], ['KEY_CARDINAL', 'Cardinal'], ['KEY_CATMULL_ROM', 'Catmull-Rom'], ['KEY_BSPLINE', 'BSpline']].map(([value, label]) => ({ value, label })), me.shape_keys[me.active_shape_key_index].interpolation ?? 'KEY_LINEAR', (v) => ((me.shape_keys[me.active_shape_key_index] = { ...me.shape_keys[me.active_shape_key_index], interpolation: v as 'KEY_LINEAR' }), changed('Shape Key Interpolation'))))
+              : null,
+          ]
+        : me.shape_keys[me.active_shape_key_index] && me.active_shape_key_index > 0
         ? (() => {
             const k = me.shape_keys[me.active_shape_key_index];
             return [
@@ -440,7 +448,13 @@ function meshData(o: ObjectData, me: MeshData): Child {
         : me.shape_keys.length
           ? h('div', { class: 'prop-note' }, 'The Basis key is the rest shape.')
           : null,
-      me.shape_keys.length ? [bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'), bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode')] : null,
+      me.shape_keys.length
+        ? [
+            splitRow('', checkbox('sk-relative', 'Relative', me.use_relative !== false, (v) => ((me.use_relative = v ? undefined : false), changed('Relative Shape Keys')), { tip: 'Keys blend over their reference key; off: the keys are reached one after another by the evaluation time' })),
+            bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'),
+            bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode'),
+          ]
+        : null,
     ]),
     panel('me-uvmaps', 'UV Maps', () => {
       const rows = uvMaps(me);

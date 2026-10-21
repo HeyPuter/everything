@@ -74,6 +74,10 @@ export interface ShapeKey {
   vertex_group?: string;
   /** protected from edits (Edit Mode shape editing, sculpting) */
   lock_shape?: boolean;
+  /** absolute shape keys: the evaluation time at which this key is reached */
+  frame?: number;
+  /** absolute shape keys: interpolation from this key to the next */
+  interpolation?: 'KEY_LINEAR' | 'KEY_CARDINAL' | 'KEY_CATMULL_ROM' | 'KEY_BSPLINE';
 }
 
 export interface ColorAttribute {
@@ -140,6 +144,10 @@ export interface MeshData {
   shape_keys: ShapeKey[];
   active_shape_key_index: number;
   use_shape_key_edit_mode?: boolean;
+  /** shape keys blend relative to their reference key (default); false: absolute keys reached in turn by `eval_time` */
+  use_relative?: boolean;
+  /** absolute shape keys: evaluation time (animatable as data.shape_keys.eval_time) */
+  eval_time?: number;
   color_attributes: ColorAttribute[];
   active_color_index: number;
   /** generic attributes (Attributes panel, geometry nodes Named Attribute, scripts) */

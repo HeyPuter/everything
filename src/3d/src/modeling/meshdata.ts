@@ -168,3 +168,17 @@ registerOperators([
     },
   },
 ]);
+
+registerOperators([
+  {
+    idname: 'object.shape_key_retime',
+    label: 'Re-Time Shape Keys',
+    description: 'Space the evaluation times of absolute shape keys evenly in list order (10 apart)',
+    poll: () => (activeMesh()?.shape_keys.length ?? 0) > 1,
+    exec: () => {
+      const me = activeMesh()!;
+      me.shape_keys = me.shape_keys.map((k, i) => ({ ...k, frame: i * 10 }));
+      changed();
+    },
+  },
+]);

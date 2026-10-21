@@ -467,7 +467,13 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
 
   // --- shape keys
   const key = me.ref('key');
-  if (key) mesh.shape_keys = convertShapeKeys(key, ctx, name, totvert);
+  if (key) {
+    mesh.shape_keys = convertShapeKeys(key, ctx, name, totvert);
+    if (key.num('type') === 0 && mesh.shape_keys.length > 1) {
+      mesh.use_relative = false;
+      mesh.eval_time = key.num('ctime');
+    }
+  }
 
   // --- materials
   const totcol = Math.max(0, Math.min(32767, me.num('totcol')));
@@ -512,8 +518,8 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
 function convertShapeKeys(key: BStruct, ctx: Ctx, meshName: string, totvert: number): ShapeKey[] {
   const blocks = key.list('block', 10_000);
   if (!blocks.length) return [];
-  // Key.type: 0 = absolute keys (not supported), 1 = relative
-  if (key.num('type') === 0 && blocks.length > 1) ctx.warn.add('Absolute shape keys imported as relative', meshName);
+  // Key.type: 0 = absolute keys (frames and interpolation per key), 1 = relative
+  const absolute = key.num('type') === 0 && blocks.length > 1;
   const names = blocks.map((b) => b.str('name'));
   const out: ShapeKey[] = [];
   for (const kb of blocks) {
@@ -539,6 +545,11 @@ function convertShapeKeys(key: BStruct, ctx: Ctx, meshName: string, totvert: num
     };
     const vg = kb.str('vgroup');
     if (vg) sk.vertex_group = vg;
+    if (absolute) {
+      // KeyBlock.pos is the key's place on the evaluation time axis (stored / 100), type its interpolation
+      sk.frame = Math.round(kb.num('pos') * 100 * 1e4) / 1e4;
+      sk.interpolation = (['KEY_LINEAR', 'KEY_CARDINAL', 'KEY_BSPLINE', 'KEY_CATMULL_ROM'] as const)[kb.num('type')] ?? 'KEY_LINEAR';
+    }
     out.push(sk);
   }
   return out;

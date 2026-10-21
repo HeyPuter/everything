@@ -6,7 +6,7 @@ import type { DocumentData, ObjectData, MeshData, ModifierBase } from '../data/t
 import type { EvalMesh, ModifierContext } from './types';
 import { localMatrix, toMatrix4 } from './transform';
 import { vertexParentMatrix } from './vertexparent';
-import { modifierTypes } from './modifiers';
+import { modifierTypes, latticeWeights } from './modifiers';
 import { constraintDeps, solveObjectConstraints } from './constraint_solve';
 import { evaluatePose, type PoseResult } from './armature';
 import { curveToMesh } from './curve';
@@ -69,7 +69,32 @@ export function modifiersSignature(mods: ModifierBase[]): string {
 export function meshSignature(me: MeshData) {
   return `${aid(me.positions)}:${aid(me.indices)}:${aid(me.loose_edges)}:${aid(me.offsets)}:${aid(me.uvs)}:${aid(me.smooth)}:${aid(me.material_index)}:${aid(me.seams)}:${aid(me.sharp)}:${aid(me.creases)}:${aid(me.bevel_weight_edge)}:${aid(me.bevel_weight_vert)}:${aid(me.crease_vert)}:${aid(me.custom_normals)}:${aid(me.quad_flip)}:${aid(me.face_strength)}:${me.auto_smooth_angle ?? ''}:${me.weights.map(aid).join(',')}:${me.shape_keys
     .map((k) => `${aid(k.data)}=${k.mute ? 'm' : k.value}`)
-    .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}:${aid(me.skin_vertices)}`;
+    .join(',')}:${me.color_attributes.map((c) => aid(c.data)).join(',')}:${me.active_color_index}:${aid(me.skin_vertices)}${me.use_relative === false ? `:abs${me.eval_time ?? 0}:${me.shape_keys.map((k) => `${k.frame}/${k.interpolation}`).join(',')}` : ''}`;
+}
+
+/** Frame of an absolute shape key (keys without one are 10 apart). */
+export const shapeKeyFrame = (me: MeshData, i: number) => me.shape_keys[i]?.frame ?? i * 10;
+
+/** Positions of absolute shape keys at evaluation time t (keys interpolated in frame order). */
+export function absoluteShape(me: MeshData, t: number): Float32Array | null {
+  const keys = me.shape_keys.map((k, i) => ({ k, f: shapeKeyFrame(me, i) })).filter((x) => !x.k.mute && x.k.data.length === me.positions.length);
+  if (!keys.length) return null;
+  keys.sort((a, b) => a.f - b.f);
+  let i = 0;
+  while (i < keys.length - 2 && t >= keys[i + 1].f) i++;
+  const span = keys.length > 1 ? keys[i + 1].f - keys[i].f : 0;
+  const u = span > 0 ? Math.max(0, Math.min(1, (t - keys[i].f) / span)) : 0;
+  // the weights blend from the start key's interpolation to the end key's across the segment
+  const wa = [0, 0, 0, 0],
+    wb = [0, 0, 0, 0];
+  latticeWeights(u, keys[i].k.interpolation ?? 'KEY_LINEAR', wa);
+  latticeWeights(u, keys[Math.min(keys.length - 1, i + 1)].k.interpolation ?? 'KEY_LINEAR', wb);
+  const w = wa.map((x, j) => x * (1 - u) + wb[j] * u);
+  const at = (j: number) => keys[Math.max(0, Math.min(keys.length - 1, j))].k.data;
+  const src = [at(i - 1), at(i), at(i + 1), at(i + 2)];
+  const out = new Float32Array(me.positions.length);
+  for (let c = 0; c < out.length; c++) out[c] = src[0][c] * w[0] + src[1][c] * w[1] + src[2][c] * w[2] + src[3][c] * w[3];
+  return out;
 }
 
 /** The mesh as if only its active shape key were applied, at full strength (shape key pinning). */
@@ -81,8 +106,10 @@ export function pinnedShapeKey(me: MeshData): MeshData {
 
 export function baseEvalMesh(me: MeshData, editMode = false): EvalMesh {
   let positions = me.positions;
+  // absolute shape keys: the shape at the evaluation time, between the keys reached before and after
+  if (me.use_relative === false && me.shape_keys.length > 1 && !(editMode && !me.use_shape_key_edit_mode)) positions = absoluteShape(me, me.eval_time ?? 0) ?? positions;
   // shape keys (relative to basis = key 0)
-  if (me.shape_keys.length > 1 && !(editMode && !me.use_shape_key_edit_mode)) {
+  else if (me.shape_keys.length > 1 && !(editMode && !me.use_shape_key_edit_mode)) {
     const basis = me.shape_keys[0].data;
     const out = new Float32Array(positions);
     let changed = false;
