@@ -59,7 +59,13 @@ export class SearchPanel {
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.results.querySelector('.result')?.click();
+        // Results still showing an earlier query would open the wrong
+        // page, so search for what is typed now first.
+        const want = this.queryKey();
+        const ready = this.shown === want && !run.pending() ? null : (run.cancel(), this.run());
+        Promise.resolve(ready).then(() => {
+          if (this.shown === want) this.results.querySelector('.result')?.click();
+        });
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         this.results.querySelector('.result')?.focus();
@@ -99,9 +105,15 @@ export class SearchPanel {
     this.input.select();
   }
 
+  queryKey() {
+    return `${this.scope.value || 'all'}\n${this.input.value.trim()}`;
+  }
+
   async run() {
     const q = this.input.value.trim();
+    const key = this.queryKey();
     const token = (this.token = Symbol('search'));
+    this.shown = null;
     if (!q) {
       this.results.replaceChildren(h('div.empty-state', icon('search', 28), h('p', 'Search titles and text in your notebooks.')));
       this.status.textContent = '';
@@ -117,6 +129,7 @@ export class SearchPanel {
       this.results.replaceChildren(h('div.group-label', `${results.length} ${results.length === 1 ? 'result' : 'results'}`), ...results.map((r) => resultRow(this.app, r, terms, q)));
     }
     this.status.textContent = results.length ? `${results.length} results` : 'No results';
+    this.shown = key;
   }
 }
 

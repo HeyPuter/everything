@@ -90,6 +90,23 @@ describe('App shell', () => {
     setPref('pageSort', 'manual');
   });
 
+  it('opens the top result for what is typed, not for the previous search, on a quick Enter', async () => {
+    const budget = app.newPage({ title: 'Budget plan' });
+    const travel = app.newPage({ title: 'Travel ideas' });
+    await tick();
+    app.setRailView('search', { focus: true });
+    const input = app.search.input;
+    input.value = 'budget';
+    input.dispatchEvent(new Event('input'));
+    await tick(300);
+    await app.openPage(budget.id);
+    input.value = 'travel';
+    input.dispatchEvent(new Event('input'));
+    keydown(input, 'Enter');
+    await tick(50);
+    expect(app.state.pageId).toBe(travel.id);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
