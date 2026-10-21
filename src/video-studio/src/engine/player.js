@@ -202,6 +202,7 @@ export class Player extends Emitter {
     this.playing = true;
     this.clockStart = performance.now();
     this.timeStart = this.store.time;
+    this._holdClock();
     this.emit('play', { playing: true });
     this.invalidate();
   }
@@ -222,15 +223,52 @@ export class Player extends Emitter {
     else this.play();
   }
 
+  /**
+   * Video elements take a few frames to start playing, and the first play
+   * can stall while the sound starts. For the first moments the clock waits
+   * whenever it gets a frame ahead of the video on screen (it never runs
+   * faster or goes back), so the picture and sound do not trail the playhead
+   * and the text drawn on it. Without video on screen the clock runs at once.
+   */
+  _holdClock() {
+    this._startWait = { until: performance.now() + 800, ref: null, synced: false, last: this.timeStart };
+  }
+
+  /** The clock time while it may be held (see _holdClock): null once it runs freely. */
+  _heldTime(now) {
+    const w = this._startWait;
+    if (!w) return null;
+    const ref = w.ref;
+    const el = ref?.entry.el;
+    if (now >= w.until || (w.synced && (!ref || el.paused))) {
+      this._startWait = null;
+      return null;
+    }
+    let t = this.timeStart + (now - this.clockStart) * 1000;
+    const moved = el && !el.seeking ? el.currentTime - ref.sec : NaN;
+    if (moved > -0.001 && moved < 1) {
+      const videoAt = ref.t + (Math.max(0, moved) * US) / ref.speed;
+      if (t > videoAt + US / this.store.fps / 2) {
+        t = Math.max(w.last, videoAt);
+        this.timeStart = t;
+        this.clockStart = now;
+      }
+    }
+    w.last = t;
+    return t;
+  }
+
   _tick() {
     this.raf = 0;
     if (this.playing) {
-      const t = this.timeStart + (performance.now() - this.clockStart) * 1000;
+      const now = performance.now();
+      const t = this._heldTime(now) ?? this.timeStart + (now - this.clockStart) * 1000;
       const end = this._stopAt();
       if (t >= end && this.loop && end - this._startAt() > 50_000) {
         // Loop: start over from the beginning (or the in point).
         this.timeStart = this._startAt();
         this.clockStart = performance.now();
+        this._holdClock();
         this.store.seek(this.timeStart);
       } else if (t >= end) {
         this.store.seek(end);
@@ -320,6 +358,9 @@ export class Player extends Emitter {
       const entry = pool.claim(layer.clip, this.previewAsset(layer.asset), 'video', sec);
       map.set(layer.clip.id, entry);
       this._drive(entry, layer.clip, sec, fps, true, t, layer.held);
+      // The clock starts with the first element that plays at a steady speed.
+      const w = this._startWait;
+      if (w && !w.ref && this.playing && !entry.el.paused && !layer.held && !layer.clip.freeze && !hasCurve(layer.clip)) w.ref = { entry, sec, t, speed: Math.min(16, Math.max(0.0625, layer.clip.speed || 1)) };
     };
     for (const l of layers) want(l);
     // Sound: audio clips (and video clips whose picture is hidden) still play.
@@ -357,6 +398,7 @@ export class Player extends Emitter {
       }
     }
     pool.endFrame();
+    if (this._startWait && this.playing) this._startWait.synced = true;
     return map;
   }
 

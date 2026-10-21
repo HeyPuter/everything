@@ -1,5 +1,5 @@
 // The live preview's playback of media elements (jsdom: elements are stand-ins).
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { Player } from '../src/engine/player.js';
 import { evaluate } from '../src/engine/scene.js';
@@ -122,5 +122,48 @@ describe('preview quality', () => {
     player.store.project.settings.height = 2160;
     player.layout(552, 311, 1);
     expect(3840 * 2160 * player.renderScale ** 2).toBeCloseTo(2_200_000, -3);
+  });
+});
+
+describe('starting playback', () => {
+  it('holds the clock until the video on screen has started, then runs with it', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 5));
+    const { player, entries, frame } = setup(p);
+    player.playing = false;
+    player.invalidate = () => {};
+    let now = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      player.play();
+      frame(0);
+      const el = [...entries.values()][0].el;
+      expect(el.paused).toBe(false);
+      now = 1100; // 100 ms in, the video has not moved yet
+      expect(player._heldTime(now)).toBe(0);
+      now = 1150;
+      el.currentTime = 0.05; // now it plays
+      expect(player._heldTime(now)).toBe(50_000);
+      now = 1200;
+      el.currentTime = 0.1;
+      expect(player._heldTime(now)).toBe(100_000);
+      // After the start-up window the clock runs on its own.
+      now = 2000;
+      expect(player._heldTime(now)).toBe(null);
+      expect(player.timeStart + (now - player.clockStart) * 1000).toBe(900_000);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('runs at once when no video is on screen', () => {
+    const p = fixture();
+    onMain(p, clip('image', 0, 5));
+    const { player, frame } = setup(p);
+    player.playing = false;
+    player.invalidate = () => {};
+    player.play();
+    frame(0);
+    expect(player._heldTime(performance.now())).toBe(null);
   });
 });
