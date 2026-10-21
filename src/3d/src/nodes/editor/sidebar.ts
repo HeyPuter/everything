@@ -290,6 +290,18 @@ function groupProps(ed: Ed): Child {
         icon('node_tree'),
       ),
     ),
+    // geometry node groups: where the group is offered
+    g.tree.type === 'GEOMETRY'
+      ? panel(
+          'nd-side-group-usage',
+          'Usage',
+          () => [
+            splitRow('', checkbox(`nd-g-mod-${g.id}`, 'Modifier', !!g.is_modifier, (v) => ((g.is_modifier = v), changed('Group Usage')), { tip: 'Modifier\nOffer the group as a Geometry Nodes modifier' })),
+            splitRow('', checkbox(`nd-g-tool-${g.id}`, 'Tool', !!g.is_tool, (v) => ((g.is_tool = v), changed('Group Usage')), { tip: 'Tool\nOffer the group as a node tool in the 3D viewport menus' })),
+          ],
+          { sub: true },
+        )
+      : null,
   ]);
 }
 
