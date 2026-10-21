@@ -12,7 +12,7 @@ import { Library } from './storage/library.js';
 import { puterBackend, opfsBackend, opfsAvailable, memoryBackend } from './storage/backends.js';
 import { Home } from './ui/home.js';
 import { importProjectBundle } from './storage/bundle.js';
-import { toast } from './ui/dialog.js';
+import { toast, confirmDialog } from './ui/dialog.js';
 import { loadDsp } from './media/dsp.js';
 import { parseReviewHash } from './review/protocol.js';
 
@@ -63,10 +63,26 @@ async function openProject(id, files) {
     showHome();
     return;
   }
+  // Open in another tab too: edits in both would overwrite each other, so ask first.
+  const claim = await library.claimProject(id);
+  if (!claim.held) {
+    const ok = await confirmDialog({
+      title: 'Project open in another tab',
+      message: `${project.name} is already open in another tab or window. Changes made in both places overwrite each other. Open it here anyway?`,
+      confirm: 'Open anyway',
+      cancel: 'Go back',
+    });
+    if (!ok) {
+      claim.release();
+      showHome();
+      return;
+    }
+  }
   const { Editor } = await import('./ui/editor.js');
   view = new Editor(root, {
     library,
     project,
+    claim,
     account,
     onExit: () => showHome(),
     onNewProject: () => createProject({ ratio: 'original' }),

@@ -145,6 +145,69 @@ describe('Library in two tabs', () => {
   });
 });
 
+describe('project claims', () => {
+  // A small stand-in for navigator.locks: exclusive locks by name, queued or ifAvailable.
+  function fakeLocks() {
+    const held = new Map();
+    const queue = [];
+    const grant = (name, cb, resolve) => {
+      held.set(name, true);
+      Promise.resolve(cb({ name })).then((v) => {
+        held.delete(name);
+        resolve(v);
+        const next = queue.findIndex((q) => q.name === name && !q.signal?.aborted);
+        if (next >= 0) {
+          const [q] = queue.splice(next, 1);
+          grant(q.name, q.cb, q.resolve);
+        }
+      });
+    };
+    return {
+      request(name, opts, cb) {
+        return new Promise((resolve, reject) => {
+          if (!held.has(name)) return grant(name, cb, resolve);
+          if (opts.ifAvailable) return Promise.resolve(cb(null)).then(resolve);
+          opts.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          queue.push({ name, cb, resolve, signal: opts.signal });
+        });
+      },
+    };
+  }
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it('tells when a project is already open in another tab, and hands it over when that tab closes it', async () => {
+    vi.stubGlobal('navigator', { ...navigator, locks: fakeLocks() });
+    try {
+      const lib = new Library(memoryBackend());
+      const first = await lib.claimProject('p1');
+      expect(first.held).toBe(true);
+      const second = await lib.claimProject('p1');
+      expect(second.held).toBe(false);
+      expect((await lib.claimProject('p2')).held).toBe(true);
+      first.release();
+      await tick();
+      // The tab that opened it anyway has it now, so a third is told.
+      const third = await lib.claimProject('p1');
+      expect(third.held).toBe(false);
+      third.release();
+      second.release();
+      await tick();
+      expect((await lib.claimProject('p1')).held).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('lets every project open where the browser has no locks', async () => {
+    const lib = new Library(memoryBackend());
+    const a = await lib.claimProject('p1');
+    const b = await lib.claimProject('p1');
+    expect([a.held, b.held]).toEqual([true, true]);
+    a.release();
+    b.release();
+  });
+});
+
 describe('Library media', () => {
   it('imports a file, stores it once by content and serves it back', async () => {
     const backend = memoryBackend();

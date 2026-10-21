@@ -33,9 +33,11 @@ import { openPreferences, pref, onPrefsChange } from './preferences-dialog.js';
 import { prefs, setPref } from './prefs.js';
 
 export class Editor {
-  constructor(root, { library, project, account, onExit, onNewProject, onOpenProject }) {
+  constructor(root, { library, project, claim, account, onExit, onNewProject, onOpenProject }) {
     this.root = root;
     this.library = library;
+    // This tab's claim on the project (see Library.claimProject), let go on dispose.
+    this._claim = claim;
     const store = new EditorStore(project, { toggles: prefs().toggles });
     this.store = store;
     store.on('toggles', () => setPref('toggles', { ...store.toggles }));
@@ -445,5 +447,6 @@ export class Editor {
     this.proxies.dispose();
     this.media.dispose();
     this.library.releaseMedia();
+    this._claim?.release();
   }
 }

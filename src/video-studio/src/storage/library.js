@@ -224,6 +224,38 @@ export class Library extends Emitter {
     return this.backend.readBlob(`covers/${id}.jpg`).catch(() => null);
   }
 
+  /**
+   * Claim a project while the editor has it open, so another tab of this
+   * browser opening it too can warn first. Resolves { held, release() }:
+   * held is false when another tab has it open (this one then takes over
+   * the claim once that tab lets go). Without navigator.locks, always held.
+   */
+  async claimProject(id) {
+    const locks = typeof navigator !== 'undefined' ? navigator.locks : null;
+    if (!locks?.request) return { held: true, release() {} };
+    const name = `video-studio:project:${id}`;
+    let letGo;
+    const done = new Promise((r) => (letGo = r));
+    const stop = new AbortController();
+    const held = await new Promise((resolve) => {
+      locks
+        .request(name, { ifAvailable: true }, (lock) => {
+          resolve(Boolean(lock));
+          return lock ? done : null;
+        })
+        .catch(() => resolve(true));
+    });
+    // Opened anyway: take the claim over when the other tab lets go, so a third tab is warned too.
+    if (!held) locks.request(name, { signal: stop.signal }, () => done).catch(() => {});
+    return {
+      held,
+      release() {
+        stop.abort();
+        letGo();
+      },
+    };
+  }
+
   mediaPath(asset) {
     return `media/${asset.hash}.${asset.ext}`;
   }
