@@ -5,7 +5,7 @@ import { savePdf } from './core/version.js';
 import { indexPageText, searchQuery } from './core/search.js';
 import { inspectText, matrix, textColor } from './core/text-edit.js';
 import { groupTextRuns, replaceTextGroup } from './core/text-group.js';
-import { draftText, textLineInput } from './text-line-input.js';
+import { draftText, needsDraftText, textLineInput } from './text-line-input.js';
 import { groupTextParagraphs } from './core/text-paragraph.js';
 import { readingOrder, reorderSegments, reorderText } from './core/bidi.js';
 import { textPositionControls } from './text-position.js';
@@ -4998,10 +4998,11 @@ export function createEditor({
     }
     if (!run?.parts) {
       input.value = reading?.text ?? (run?.text || '');
-      // Tabs from a copied table have no glyph in the text fonts; they paste as spaces.
+      // Tabs from a copied table have no glyph in the text fonts; they paste as spaces, and
+      // the other line breaks apps copy paste as line breaks.
       input.addEventListener('paste', (e) => {
         const text = e.clipboardData?.getData('text/plain') ?? '';
-        if (!text.includes('\t')) return;
+        if (!needsDraftText(text)) return;
         e.preventDefault();
         document.execCommand('insertText', false, draftText(text));
       });
