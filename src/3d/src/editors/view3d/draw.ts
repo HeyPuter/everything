@@ -512,6 +512,9 @@ function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camer
   }
   selTex.needsUpdate = true;
   const u = outlineMaterial.uniforms;
+  // theme colours are linear; the outline shader encodes its output for the display
+  u.uSelColor.value.copy(theme.selected);
+  u.uActColor.value.copy(theme.active);
   u.tId.value = view.idTarget!.texture;
   u.tSel.value = selTex;
   u.uSize.value.set(W, H, 1);

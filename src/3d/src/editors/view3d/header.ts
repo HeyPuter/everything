@@ -238,10 +238,12 @@ export function viewHeader(v: View3D): Child {
             h('div', { class: 'pop-title' }, 'Viewport Gizmos'),
             checkbox('nav-g', 'Navigate', v.showNavGizmo, (x) => ((v.showNavGizmo = x), v.drawUI())),
             checkbox('tool-g', 'Active Tools', v.showToolGizmo, (x) => ((v.showToolGizmo = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('act-g', 'Active Object', v.dataGizmos.activeObject, (x) => ((v.dataGizmos.activeObject = x), v.drawSvg(), app.changed('ui'))),
             h('div', { class: 'pop-title' }, 'Object Gizmos'),
             checkbox('obg-move', 'Move', v.objectGizmos.translate, (x) => ((v.objectGizmos.translate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-rot', 'Rotate', v.objectGizmos.rotate, (x) => ((v.objectGizmos.rotate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-scale', 'Scale', v.objectGizmos.scale, (x) => ((v.objectGizmos.scale = x), v.drawSvg(), app.changed('ui'))),
+            ...dataGizmoRows(v),
           ),
         ),
       'hidden-icon'),
@@ -283,6 +285,23 @@ export function viewHeader(v: View3D): Child {
       iconDrop('sh-pop', 'down_arrow_hlt', 'Shading', (el) => openPopover(el, () => shadingPopover(v), { width: 280 }), 'hidden-icon'),
     ),
   );
+}
+
+/** Gizmos popover rows for the object data gizmos (editors/view3d/datagizmos.ts). */
+function dataGizmoRows(v: View3D): Child[] {
+  const g = v.dataGizmos;
+  const row = (key: keyof View3D['dataGizmos'], label: string) => checkbox(`dg-${key}`, label, g[key], (x) => ((g[key] = x), v.drawSvg(), app.changed('ui')));
+  const off = !g.activeObject;
+  return [
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Empty'),
+    row('empty_image', 'Image'),
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Light'),
+    row('light_size', 'Size'),
+    row('light_look_at', 'Look At'),
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Camera'),
+    row('camera_lens', 'Lens'),
+    row('camera_focus_distance', 'Focus Distance'),
+  ];
 }
 
 /** Transform orientation dropdown: built-in and custom orientations, create / delete. */
