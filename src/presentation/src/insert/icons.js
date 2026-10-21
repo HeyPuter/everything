@@ -72,6 +72,7 @@ export function createIconFeatures(ctx) {
         "aria-label": iconWords(name),
         title: iconWords(name),
         "data-icon": name,
+        tabindex: -1,
         onclick: (e) => toggle(name, e.currentTarget),
       },
       preview,
@@ -146,6 +147,9 @@ export function createIconFeatures(ctx) {
         grid.append(
           el("p", { class: "icon-empty" }, "No icons match your search."),
         );
+      // Tab reaches the icons once, at the first; the arrow keys move on.
+      const first = grid.querySelector(".icon-cell");
+      if (first) first.tabIndex = 0;
       sync();
     }
     function sync() {
@@ -170,16 +174,13 @@ export function createIconFeatures(ctx) {
             role: "tab",
             class: "icon-category",
             "aria-selected": label === category ? "true" : "false",
+            tabindex: label === category ? 0 : -1,
             onclick: (e) => {
               category = label;
-              chips
-                .querySelectorAll(".icon-category")
-                .forEach((c) =>
-                  c.setAttribute(
-                    "aria-selected",
-                    String(c === e.currentTarget),
-                  ),
-                );
+              chips.querySelectorAll(".icon-category").forEach((c) => {
+                c.setAttribute("aria-selected", String(c === e.currentTarget));
+                c.tabIndex = c === e.currentTarget ? 0 : -1;
+              });
               fill();
             },
           },
@@ -187,6 +188,29 @@ export function createIconFeatures(ctx) {
         ),
       );
     search.addEventListener("input", fill);
+    // The categories are one stop for Tab; Left and Right choose among them.
+    chips.addEventListener("keydown", (e) => {
+      const tabs = [...chips.children];
+      const at = tabs.indexOf(document.activeElement);
+      const next = {
+        ArrowRight: at + 1,
+        ArrowLeft: at - 1,
+        Home: 0,
+        End: tabs.length - 1,
+      }[e.key];
+      if (at < 0 || next === undefined) return;
+      e.preventDefault();
+      const tab = tabs[(next + tabs.length) % tabs.length];
+      tab.click();
+      tab.focus();
+    });
+    // The icon last reached is where Tab comes back to.
+    grid.addEventListener("focusin", (e) => {
+      if (!e.target.classList?.contains("icon-cell")) return;
+      for (const cell of grid.querySelectorAll('.icon-cell[tabindex="0"]'))
+        if (cell !== e.target) cell.tabIndex = -1;
+      e.target.tabIndex = 0;
+    });
     // Arrow keys move through the grid.
     grid.addEventListener("keydown", (e) => {
       const cells = [...grid.querySelectorAll(".icon-cell")];

@@ -209,6 +209,41 @@ test("icons are inserted as SVG pictures, restyled, and converted to shapes", as
   expect(saved.slide()).not.toContain("<p:pic>");
 });
 
+test("the Icons dialog takes one Tab for its categories and one for its icons", async ({
+  page,
+}) => {
+  await start(page);
+  await command(page, "icons");
+  const dialog = page.getByRole("dialog", { name: "Insert Icons" });
+  await expect(
+    dialog.getByRole("searchbox", { name: "Search icons" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("tab", { name: "All" })).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const people = dialog.getByRole("tab", { name: "People" });
+  await expect(people).toBeFocused();
+  await expect(people).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Tab");
+  const first = dialog.getByRole("option").first();
+  await expect(first).toBeFocused();
+  await page.keyboard.press("ArrowRight");
+  const second = dialog.getByRole("option").nth(1);
+  await expect(second).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(second).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    dialog.getByRole("button", { name: "Insert", exact: true }),
+  ).toBeFocused();
+  // Back into the icons, at the one last reached.
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(second).toBeFocused();
+});
+
 test("equations are pictures that keep their source and reopen for editing", async ({
   page,
 }) => {
