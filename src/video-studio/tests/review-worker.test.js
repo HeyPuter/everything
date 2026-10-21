@@ -172,6 +172,26 @@ describe('review worker: invites and members', () => {
     expect((await env.as('alice')('invite.list', { review: review.id })).invites[0].revoked).toBe(true);
   });
 
+  it('lets a member reopen the link they joined with after it expired or was turned off', async () => {
+    const env = await setup();
+    const { review } = await publish(env);
+    const token = await invite(env, review.id, 'commenter', 1);
+    expect((await env.as('bob')('join', { review: review.id, token })).review.role).toBe('commenter');
+    env.advance(DAY + 1000);
+    for (let i = 0; i <= LIMITS.failedJoins; i++) expect((await env.as('bob')('join', { review: review.id, token })).review.role).toBe('commenter');
+    const viewer = await invite(env, review.id, 'viewer', 7);
+    expect((await env.as('carol')('join', { review: review.id, token: viewer })).review.role).toBe('viewer');
+    const list = await env.as('alice')('invite.list', { review: review.id });
+    await env.as('alice')('invite.revoke', { review: review.id, invite: list.invites[0].id });
+    expect((await env.as('carol')('join', { review: review.id, token: viewer })).review.role).toBe('viewer');
+    // A link that doesn't work never raises a role, and removed people stay out.
+    expect((await env.as('carol')('join', { review: review.id, token })).review.role).toBe('viewer');
+    await env.as('alice')('member.remove', { review: review.id, uuid: USERS.bob.uuid });
+    await expect(env.as('bob')('join', { review: review.id, token })).rejects.toThrow(/expired/);
+    // Outsiders with the expired link are still refused and counted.
+    expect(await statusOf(env.as('dave')('join', { review: review.id, token }))).toBe(403);
+  });
+
   it('throttles repeated failed joins', async () => {
     const env = await setup();
     const { review } = await publish(env);
