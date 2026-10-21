@@ -7,10 +7,12 @@ import {
   convertChart,
   deleteColumn,
   deleteRow,
+  deleteSeriesColumn,
   detectChartType,
   gridToSpec,
   insertColumn,
   insertRow,
+  insertSeriesColumn,
   parseTsv,
   pasteBlock,
   sampleSpec,
@@ -121,6 +123,56 @@ describe("data sheet grid", () => {
     next = gridToSpec(deleteColumn(deleteRow(grid, 1), 1), spec);
     expect(next.categories[0]).toBe("Category 2");
     expect(next.series[0].name).toBe("Series 2");
+  });
+
+  it("adds and deletes a series column keeping the others' formatting", () => {
+    const sample = sampleSpec("column-clustered");
+    const colors = ["#C00000", "#00B050", "#0070C0"];
+    const spec = {
+      ...sample,
+      series: sample.series.map((s, i) => ({ ...s, color: colors[i] })),
+    };
+    let { grid, spec: prior } = deleteSeriesColumn(specToGrid(spec), spec, 1);
+    let next = gridToSpec(grid, prior);
+    expect(next.series.map((s) => [s.name, s.color])).toEqual([
+      ["Series 2", "#00B050"],
+      ["Series 3", "#0070C0"],
+    ]);
+    ({ grid, spec: prior } = insertSeriesColumn(specToGrid(spec), spec, 2));
+    next = gridToSpec(grid, prior);
+    expect(next.series.map((s) => s.color)).toEqual([
+      "#C00000",
+      undefined,
+      "#00B050",
+      "#0070C0",
+    ]);
+    expect(next.series[2].values).toEqual(spec.series[1].values);
+  });
+
+  it("adds and deletes a bubble series with its size column", () => {
+    const spec = sampleSpec("bubble");
+    let { grid, spec: prior } = insertSeriesColumn(specToGrid(spec), spec, 2);
+    expect(grid[0]).toHaveLength(5);
+    grid[0][1] = "New";
+    grid[1][1] = "5";
+    grid[1][2] = "3";
+    const next = gridToSpec(grid, prior);
+    expect(next.series.map((s) => s.name)).toEqual(["New", "Y Values"]);
+    expect(next.series[0].bubbleSizes[0]).toBe(3);
+    expect(next.series[1]).toMatchObject({
+      values: spec.series[0].values,
+      bubbleSizes: spec.series[0].bubbleSizes,
+    });
+    ({ grid, spec: prior } = deleteSeriesColumn(grid, next, 1));
+    expect(gridToSpec(grid, prior).series).toEqual([
+      expect.objectContaining({
+        name: "Y Values",
+        values: spec.series[0].values,
+        bubbleSizes: spec.series[0].bubbleSizes,
+      }),
+    ]);
+    // The last series stays.
+    expect(deleteSeriesColumn(grid, prior, 2).grid).toBe(grid);
   });
 
   it("pastes tab-separated blocks and grows the grid", () => {

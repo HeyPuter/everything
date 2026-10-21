@@ -1049,4 +1049,30 @@ export function deleteColumn(grid, at) {
   if (at < 1 || (grid[0]?.length || 0) <= 2) return grid;
   return grid.map((r) => r.filter((_, i) => i !== at));
 }
+// The data sheet's columns after the first hold the series in order: one
+// column each, or a value and a size column each on a bubble chart. Adding
+// or deleting the column of a series adds or removes that series alone:
+// the definition returned with the grid lines the other series' formatting
+// up with their columns again, as gridToSpec pairs them by position.
+const seriesStep = (spec) => (gridLayout(spec) === "bubble" ? 2 : 1);
+export function insertSeriesColumn(grid, spec, at) {
+  const step = seriesStep(spec);
+  const index = Math.floor((Math.max(1, at) - 1) / step);
+  let out = grid;
+  for (let k = 0; k < step; k++) out = insertColumn(out, 1 + index * step);
+  const series = [...spec.series];
+  if (index < series.length) series.splice(index, 0, {});
+  return { grid: out, spec: { ...spec, series } };
+}
+export function deleteSeriesColumn(grid, spec, at) {
+  const step = seriesStep(spec);
+  const width = grid[0]?.length || 0;
+  if (at < 1 || width - step < 2) return { grid, spec };
+  const index = Math.floor((at - 1) / step);
+  const first = 1 + index * step;
+  return {
+    grid: grid.map((r) => r.filter((_, c) => c < first || c >= first + step)),
+    spec: { ...spec, series: spec.series.filter((_, i) => i !== index) },
+  };
+}
 export const CATEGORY_KIND_SET = CATEGORY_KINDS;

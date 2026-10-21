@@ -5,12 +5,12 @@
 // data. Rows pasted from a spreadsheet fill the grid from the cell chosen.
 import { el, icon, toast } from "../ui.js";
 import {
-  deleteColumn,
   deleteRow,
+  deleteSeriesColumn,
   gridLayout,
   gridToSpec,
-  insertColumn,
   insertRow,
+  insertSeriesColumn,
   parseTsv,
   pasteBlock,
   specToGrid,
@@ -82,18 +82,25 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
           col: focus.col,
         }),
       ),
-      tool("Insert column to the left", "o:insertLeft", () =>
-        edit(insertColumn(grid, Math.max(1, focus.col)), {
-          row: focus.row,
-          col: Math.max(1, focus.col),
-        }),
-      ),
-      tool("Delete column", "o:deleteColumns", () =>
-        edit(deleteColumn(grid, focus.col), {
-          row: focus.row,
-          col: Math.max(1, Math.min(focus.col, grid[0].length - 2)),
-        }),
-      ),
+      tool("Insert column to the left", "o:insertLeft", () => {
+        const next = insertSeriesColumn(grid, spec, focus.col);
+        edit(
+          next.grid,
+          { row: focus.row, col: Math.max(1, focus.col) },
+          next.spec,
+        );
+      }),
+      tool("Delete column", "o:deleteColumns", () => {
+        const next = deleteSeriesColumn(grid, spec, focus.col);
+        edit(
+          next.grid,
+          {
+            row: focus.row,
+            col: Math.max(1, Math.min(focus.col, next.grid[0].length - 1)),
+          },
+          next.spec,
+        );
+      }),
       tool("Switch Row/Column", "o:switchRowColumn", () => {
         if (isXYKind(spec.kind)) {
           toast(
@@ -244,12 +251,13 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
     clearTimeout(timer);
     timer = setTimeout(() => commitNow(), 280);
   }
-  function commitNow() {
+  // `prior` gives the series their formatting when columns have moved.
+  function commitNow(prior = spec) {
     clearTimeout(timer);
     timer = null;
     let next;
     try {
-      next = gridToSpec(grid, spec);
+      next = gridToSpec(grid, prior);
     } catch (error) {
       status.textContent = error.message;
       return;
@@ -270,9 +278,9 @@ export function openChartSheet({ title, target, read, write, seriesColor }) {
       focusCell(focus.row, focus.col);
     }
   }
-  function edit(next, at) {
+  function edit(next, at, prior = spec) {
     grid = next;
-    commitNow();
+    commitNow(prior);
     draw();
     focusCell(at.row, at.col);
   }
