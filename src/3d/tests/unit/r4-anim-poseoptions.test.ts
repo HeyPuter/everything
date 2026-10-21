@@ -225,3 +225,22 @@ describe('Bone and Bone Relative parenting', () => {
       ref[type].world1.forEach((row, r) => row.forEach((v, c) => expect(w[c * 4 + r], `world[${r}][${c}]`).toBeCloseTo(v, 4)));
     });
 });
+
+describe('custom shape Override Transform', () => {
+  it('draws the shape at the other bone', async () => {
+    const { customShapeWorldSegments } = await import('../../src/modes/armature/customshape');
+    build([
+      ['A', [0, 0, 0], [0, 0, 1], 0, null, false],
+      ['B', [3, 0, 0], [3, 0, 2], 0, null, false],
+    ]);
+    const { newObject } = await import('../../src/data/defaults');
+    const empty = newObject('Shape', 'EMPTY' as never, null);
+    app.doc.objects[empty.id] = empty;
+    ob.pose!['A'].custom_shape = empty.id;
+    app.evaluate();
+    const centre = (segs: { x: number; y: number; z: number }[]) => segs.reduce((s, v) => s + v.x, 0) / segs.length;
+    expect(centre(customShapeWorldSegments(ob, 'A')!)).toBeCloseTo(0, 5);
+    ob.pose!['A'].custom_shape_transform = 'B';
+    expect(centre(customShapeWorldSegments(ob, 'A')!)).toBeCloseTo(3, 5);
+  });
+});

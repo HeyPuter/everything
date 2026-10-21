@@ -481,6 +481,8 @@ export interface PoseBone {
   custom_shape_rotation_euler?: Vec3;
   custom_shape_scale_xyz?: Vec3;
   custom_shape_wire_width?: number;
+  /** the custom shape is drawn at this other bone's transform (Override Transform) */
+  custom_shape_transform?: string;
   use_custom_shape_bone_size?: boolean;
   /** pose colour (overrides the bone's colour when its palette is not DEFAULT) */
   color?: BoneColor;

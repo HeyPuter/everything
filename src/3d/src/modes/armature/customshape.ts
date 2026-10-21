@@ -50,6 +50,12 @@ export function customShapeMatrix(pb: PoseBone, boneLength: number): Matrix4 {
   return new Matrix4().compose(new Vector3(t[0], t[1], t[2]), q, new Vector3(sc[0] * k, sc[1] * k, sc[2] * k));
 }
 
+/** Evaluated bone whose transform places a bone's custom shape (Override Transform, else the bone). */
+export function customShapeBone(ev: EvalObject, pb: PoseBone, name: string) {
+  const own = ev.pose?.bones.get(name);
+  return (pb.custom_shape_transform ? ev.pose?.bones.get(pb.custom_shape_transform) : undefined) ?? own;
+}
+
 /** The pose bone's custom shape object, when it has one that is drawn. */
 export function customShapeOf(doc: DocumentData, ob: ObjectData, name: string): ObjectData | null {
   const arm = ob.data ? doc.armatures[ob.data] : undefined;
@@ -64,7 +70,7 @@ export function customShapeWorldSegments(ob: ObjectData, name: string): Vector3[
   const doc = app.doc;
   const shape = customShapeOf(doc, ob, name);
   const ev = app.graph.get(ob.id);
-  const be = ev?.pose?.bones.get(name);
+  const be = ev ? customShapeBone(ev, ob.pose![name], name) : undefined;
   if (!shape || !ev || !be) return null;
   const m = ev.world.clone().multiply(be.pose).multiply(customShapeMatrix(ob.pose![name], be.length));
   const seg = shapeSegments(doc, shape);
@@ -88,7 +94,7 @@ function syncCustomShapes(doc: DocumentData, ev: EvalObject, so: SyncedObject) {
     .map((n) => {
       const pb = ob.pose![n];
       const shape = doc.objects[pb.custom_shape!];
-      return `${n}:${shape.id}:${app.graph.get(shape.id)?.geomVersion ?? 0}:${shape.empty_display_type}:${shape.empty_display_size}:${JSON.stringify([pb.custom_shape_translation, pb.custom_shape_rotation_euler, pb.custom_shape_scale_xyz, pb.use_custom_shape_bone_size, pb.custom_shape_wire_width])}`;
+      return `${n}:${shape.id}:${app.graph.get(shape.id)?.geomVersion ?? 0}:${shape.empty_display_type}:${shape.empty_display_size}:${JSON.stringify([pb.custom_shape_translation, pb.custom_shape_rotation_euler, pb.custom_shape_scale_xyz, pb.use_custom_shape_bone_size, pb.custom_shape_wire_width, pb.custom_shape_transform])}`;
     })
     .join('|');
   if (signatures.get(g) === sig) return;
@@ -98,8 +104,8 @@ function syncCustomShapes(doc: DocumentData, ev: EvalObject, so: SyncedObject) {
   const shaped = new Set(names);
   for (const c of g.children) if (shaped.has(c.userData.bone as string)) c.visible = false;
   for (const n of names) {
-    const be = ev.pose.bones.get(n)!;
     const pb = ob.pose![n];
+    const be = customShapeBone(ev, pb, n)!;
     const seg = shapeSegments(doc, doc.objects[pb.custom_shape!]);
     if (!seg.length) continue;
     const geo = new BufferGeometry();

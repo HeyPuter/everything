@@ -201,6 +201,7 @@ const tab: PropertiesTab = {
                       vecProp(pb as never, 'custom_shape_translation' as never, 'Translation', { unit: 'distance' }),
                       vecProp(pb as never, 'custom_shape_rotation_euler' as never, 'Rotation', { unit: 'angle' }),
                       vecProp(pb as never, 'custom_shape_scale_xyz' as never, 'Scale'),
+                      enumProp(pb as never, 'custom_shape_transform' as never, 'Override Transform', [['', '—'], ...arm.bones.filter((b) => b.name !== bone.name).map((b): [string, string] => [b.name, b.name])]),
                       bool(pb as never, 'use_custom_shape_bone_size' as never, 'Scale to Bone Length'),
                       num(pb as never, 'custom_shape_wire_width' as never, 'Wireframe Width', { min: 1, max: 16 }),
                     ];
