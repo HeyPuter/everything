@@ -115,6 +115,13 @@ test("tabs follow the arrow keys, collapse, and a contextual tab follows the sel
   await expect(page.getByRole("tab", { name: "Shape Format" })).toBeHidden();
   await page.getByRole("button", { name: "Collapse the ribbon" }).click();
   await expect(page.locator(".ribbon-body")).toBeHidden();
+  // A tab opens the folded ribbon over the slide; Escape folds it again.
+  await page.getByRole("tab", { name: "Insert" }).click();
+  await expect(page.locator(".ribbon-body")).toBeVisible();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".ribbon-body")).toBeHidden();
+  await expect(page.getByRole("tab", { name: "Insert" })).toBeFocused();
   await page.getByRole("button", { name: "Expand the ribbon" }).click();
   await expect(page.locator(".ribbon-body")).toBeVisible();
   await rectangle(page, [100, 100], [300, 200]);

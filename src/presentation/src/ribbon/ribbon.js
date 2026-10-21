@@ -226,6 +226,12 @@ export function createRibbon({
       fit();
     }
   }
+  // Escape folds it away too, handing the keyboard back to its tab.
+  root.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !root.classList.contains("flyout")) return;
+    flyout(false);
+    if (body.contains(document.activeElement)) tabButtons.get(active)?.focus();
+  });
   // Listeners on the document end with the ribbon (see destroy), or every
   // presentation opened would keep the previous editor alive.
   const lifetime = new AbortController();
