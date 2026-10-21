@@ -144,9 +144,12 @@ export function protectDialog(current, { signal } = {}) {
       const allow = Object.fromEntries(
         allowances.map(({ key, box }) => [key, restrict.checked ? box.checked : true]),
       );
+      // Permissions finer than the checkboxes carry over while their box is left as it was.
+      const { R, P } = current?.original?.security || {};
+      const base = restrict.checked ? (current?.base ?? (R >= 3 ? P : null)) : null;
       result = keepOpen
-        ? { open: null, permissions: ownerValue, allow, openFrom: unknownOpen }
-        : { open: openValue, permissions: ownerValue, allow };
+        ? { open: null, permissions: ownerValue, allow, base, openFrom: unknownOpen }
+        : { open: openValue, permissions: ownerValue, allow, base };
       dialog.close();
     };
     form.onsubmit = (e) => {

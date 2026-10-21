@@ -95,6 +95,14 @@ describe('primitives', () => {
     );
     expect(permissionFlags({ print: false }) & 0x804).toBe(0);
     expect(permissionFlags({ copy: false }) & 0x10).toBe(0);
+    // A file's finer permissions stay while their permission is left as the file had it.
+    const lowResolutionFormsOnly = permissionFlags() & ~0x800 & ~0x20;
+    expect(permissionFlags({ annotate: false }, lowResolutionFormsOnly)).toBe(
+      lowResolutionFormsOnly,
+    );
+    expect(permissionFlags({ print: false, annotate: true }, lowResolutionFormsOnly)).toBe(
+      permissionFlags({ print: false }),
+    );
   });
 });
 
