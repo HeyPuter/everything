@@ -420,7 +420,7 @@ paintHooks.priorityKeymaps.push({ name: 'Paint Curve', active: pollCurve });
 
 // LMB: Ctrl adds a point, Shift+Ctrl places the cursor, on a point slides it, elsewhere paints along the curve
 paintHooks.brushPointer.push((v, e) => {
-  if (!curveMethod()) return false;
+  if (!curveMethod() || e.altKey) return false;
   const ev = { x: e.clientX, y: e.clientY };
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.shiftKey) return app.run('paintcurve.cursor', {}, { event: ev, area: v.area as never }), true;
