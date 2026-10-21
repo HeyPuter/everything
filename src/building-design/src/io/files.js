@@ -27,6 +27,7 @@ import {
 } from './storage.js';
 import { isSignedIn, puterAvailable, whenPuter } from '../platform.js';
 import { scheduleRows, scheduleColumns, toCSV } from '../core/schedule.js';
+import { PLAN_VIEW_KINDS } from '../core/doc.js';
 
 export const recentFiles = recent;
 
@@ -337,7 +338,7 @@ export function pickFile(accept) {
 /** Import a DXF drawing into the active view as detail lines and text. */
 export async function importDXF(app) {
   const view = app.activeView;
-  if (!view || !['plan', 'ceilingPlan', 'elevation', 'section', 'sheet'].includes(view.kind)) {
+  if (!view || ![...PLAN_VIEW_KINDS, 'elevation', 'section', 'sheet'].includes(view.kind)) {
     if (!app.requirePlan()) return;
   }
   const target = app.activeView;

@@ -9,7 +9,7 @@
  * BG is the canvas colour (used to mask what lies underneath).
  */
 import { add, sub, scale, dot, norm, perp, len, dist, lerp, arcPoints, rotate, pointInPolygon, bbox, mid, angleOf } from './geom.js';
-import { verticalExtent, openingSize, levelElevation, wallAxis } from './model.js';
+import { verticalExtent, openingSize, levelElevation, wallAxis, rampLayout, rampOutline } from './model.js';
 import { axisParam, facePoint, hubsOf } from './walls.js';
 import { wallOpenings, keepIntervals, splitByCuts, roofGeometry, curtainGrid } from './build3d.js';
 import { stairFlights, flightOutline, flightPoint } from './stairs.js';
@@ -92,7 +92,7 @@ export class PlanBuilder {
  * Plan context for one view:
  * { doc, view, level, cutZ, bottomZ, topZ, scale, detail, walls, rooms, ceiling }
  */
-export function planContext(doc, view, walls, rooms) {
+export function planContext(doc, view, walls, rooms, areas = null) {
   const level = doc.get(view.levelId);
   const elev = level?.elevation ?? 0;
   const above = level ? doc.levelAbove(level.id) : null;
@@ -102,6 +102,7 @@ export function planContext(doc, view, walls, rooms) {
     level,
     walls,
     rooms,
+    areas,
     ceiling: view.kind === 'ceilingPlan',
     cutZ: elev + (+view.cutHeight || 1200),
     bottomZ: elev + (+view.viewDepth || 0),
@@ -203,10 +204,89 @@ export function planGraphics(pc, el) {
     case 'elevation':
       planElevationMarker(pc, el, b);
       break;
+    case 'refPlane':
+      planRefPlane(pc, el, b);
+      break;
+    case 'modelLine':
+      if (el.levelId === pc.view.levelId) drawDetailLine(el, b);
+      break;
+    case 'ramp':
+      if (!pc.ceiling) planRamp(pc, el, b);
+      break;
+    case 'area':
+      planArea(pc, el, b);
+      break;
+    case 'areaBoundary':
+      if (el.levelId === pc.view.levelId) {
+        b.line(el.a, el.b, W.cut, 0, AREA_LINE);
+        const n = perp(norm(sub(el.b, el.a)));
+        const pad = P(pc, 0.8);
+        b.pick([add(el.a, scale(n, -pad)), add(el.b, scale(n, -pad)), add(el.b, scale(n, pad)), add(el.a, scale(n, pad))]);
+      }
+      break;
     default:
       return null;
   }
   return b.empty ? null : b;
+}
+
+/** Colours of datum and area annotations. */
+export const REF_PLANE = [46, 139, 87, 255];
+export const AREA_LINE = [150, 80, 200, 255];
+
+// Reference planes, ramps and areas ------------------------------------------------------------
+
+function planRefPlane(pc, el, b) {
+  const d = norm(sub(el.b, el.a));
+  if (!len(d)) return;
+  b.line(el.a, el.b, W.thin, 3, REF_PLANE);
+  if (el.name) b.text(add(el.b, scale(d, P(pc, 3))), el.name, { size: P(pc, 2.2), color: REF_PLANE, rot: readableAngle(angleOf(d)), align: 'left' });
+  const n = perp(d);
+  const pad = P(pc, 1);
+  b.pick([add(el.a, scale(n, -pad)), add(el.b, scale(n, -pad)), add(el.b, scale(n, pad)), add(el.a, scale(n, pad))]);
+}
+
+function planRamp(pc, el, b) {
+  const atBase = el.levelId === pc.view.levelId;
+  const atTop = el.topLevelId && el.topLevelId === pc.view.levelId;
+  if (!atBase && !atTop) return;
+  const g = rampLayout(pc.doc, el);
+  const outline = rampOutline(pc.doc, el);
+  b.poly(outline, true, W.light);
+  b.pick(outline);
+  // Arrow up the slope, with the direction and the slope.
+  const a0 = add(el.a, scale(g.dir, Math.min(g.run * 0.1, P(pc, 4))));
+  const a1 = sub(g.end, scale(g.dir, Math.min(g.run * 0.1, P(pc, 4))));
+  b.line(a0, a1, W.thin);
+  const ah = P(pc, 2.2);
+  b.poly([add(add(a1, scale(g.dir, -ah)), scale(g.side, ah * 0.45)), a1, add(add(a1, scale(g.dir, -ah)), scale(g.side, -ah * 0.45))], false, W.thin);
+  const rot = readableAngle(angleOf(g.dir));
+  const m = mid(el.a, g.end);
+  b.text(add(m, scale(g.side, P(pc, 2.2))), atBase ? 'UP' : 'DN', { size: P(pc, 2.2), rot, mask: true });
+  b.text(add(m, scale(g.side, -P(pc, 2.2))), `1:${Math.round(g.ratio * 10) / 10}`, { size: P(pc, 2), rot, mask: true });
+}
+
+function areaColor(name) {
+  const c = roomColor(name);
+  return [c[0], c[1], c[2], 70];
+}
+
+function planArea(pc, el, b) {
+  if (el.levelId !== pc.view.levelId) return;
+  const region = pc.areas?.area(el);
+  const at = el.tagAt || el.at;
+  if (region) {
+    b.fill(region.outer, region.holes, areaColor(el.name));
+    b.pick(region.outer);
+  } else {
+    const s = P(pc, 1.5);
+    b.line(add(el.at, [-s, -s]), add(el.at, [s, s]), W.thin, 0, RED);
+    b.line(add(el.at, [-s, s]), add(el.at, [s, -s]), W.thin, 0, RED);
+    b.pick([add(el.at, [-s, -s]), add(el.at, [s, -s]), add(el.at, [s, s]), add(el.at, [-s, s])]);
+  }
+  const sz = P(pc, 2.5);
+  b.text([at[0], at[1] + sz * 0.9], (el.name || 'Area').toUpperCase(), { size: sz, bold: true, mask: true });
+  b.text([at[0], at[1] - sz * 0.6], region ? formatArea(region.area, pc.units) : 'Not enclosed', { size: P(pc, 2), color: region ? null : RED, mask: true });
 }
 
 // Walls ----------------------------------------------------------------------------------
@@ -480,6 +560,7 @@ function planRoof(pc, el, b) {
   const { poly, ridges } = roofGeometry(pc.doc, el);
   b.poly(poly, true, W.light);
   for (const [p, q] of ridges) b.line(p, q, W.thin);
+  for (const hole of el.holes || []) b.poly(hole, true, W.light);
   b.pick(poly);
 }
 

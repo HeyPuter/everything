@@ -5,7 +5,7 @@
  * with nearby points.
  */
 import { add, sub, scale, dot, dist, norm, closestOnSegment, lineIntersect, len, angleOf, mid } from '../core/geom.js';
-import { wallAxis } from '../core/model.js';
+import { wallAxis, rampOutline } from '../core/model.js';
 import { columnOutline } from '../core/plan.js';
 import { buildFamily } from '../core/families.js';
 import { Frame } from '../core/mesh.js';
@@ -46,10 +46,20 @@ export function snapFeatures(scene, el) {
       }
       break;
     }
+    case 'ramp': {
+      const o = rampOutline(doc, el);
+      o.forEach((p) => P(p));
+      for (let i = 0; i < o.length; i++) Lg(o[i], o[(i + 1) % o.length], 'edge');
+      P(el.a, 'midpoint');
+      break;
+    }
     case 'grid':
     case 'detailLine':
     case 'roomSeparator':
     case 'beam':
+    case 'refPlane':
+    case 'modelLine':
+    case 'areaBoundary':
       P(el.a);
       P(el.b);
       P(mid(el.a, el.b), 'midpoint');

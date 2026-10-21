@@ -25,7 +25,7 @@ import {
   area as polyArea,
 } from '../core/geom.js';
 import { typeThickness } from '../core/catalog.js';
-import { wallAxis, openingSize, hostedBy, stairLayout } from '../core/model.js';
+import { wallAxis, openingSize, hostedBy, stairLayout, rampLayout } from '../core/model.js';
 import { planGraphics, planContext, tagAnchor, sectionFrame } from '../core/plan.js';
 import { nextMark, nextRoomNumber, nextGridName, uniqueName } from '../core/ops.js';
 import { VIEW_DEFAULTS, planView } from '../core/template.js';
@@ -35,8 +35,12 @@ import { formatAngle } from '../core/units.js';
 import { strokeModel, fillModel, drawTempDim, drawTag } from '../views/overlay.js';
 import { h } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
-import { newId } from '../core/doc.js';
+import { newId, isPlanView, PLAN_VIEW_KINDS } from '../core/doc.js';
+
+/** Views that take 2D annotations. */
+export const ANNOTATION_VIEWS = [...PLAN_VIEW_KINDS, 'elevation', 'section'];
 import { STAIR_SHAPES } from '../core/stairs.js';
+import { LINE_STYLES } from '../core/props.js';
 import { MM_PER_FOOT } from '../core/units.js';
 
 export const REGION_PATTERNS = [
@@ -54,7 +58,7 @@ export const REGION_PATTERNS = [
 /** Draw plan graphics of a temporary element on the overlay. */
 export function previewGraphics(app, vc, el, ctx, color, alpha = 0.12) {
   const view = vc.view;
-  const pc = planContext(app.doc, view.kind === 'plan' || view.kind === 'ceilingPlan' ? view : { ...view, levelId: app.activeLevelId() }, app.scene.walls, app.scene.rooms);
+  const pc = planContext(app.doc, isPlanView(view) ? view : { ...view, levelId: app.activeLevelId() }, app.scene.walls, app.scene.rooms, app.scene.areas);
   if (!vc.is2D) {
     pc.scale = +view.scale || 100;
   }
@@ -510,7 +514,8 @@ export class ComponentTool extends Tool {
   }
 
   get title() {
-    return this.kind === 'column' ? 'Place Column' : 'Place Component';
+    if (this.kind === 'column') return this.opts.structural ? 'Place Structural Column' : 'Place Column';
+    return 'Place Component';
   }
 
   get prompt() {
@@ -557,7 +562,7 @@ export class ComponentTool extends Tool {
     const el = { kind: this.kind, typeId: type.id, levelId: this.app.activeLevelId(), at: p, rotation: Math.round(rot * 1000) / 1000, offset: o.offset || 0 };
     if (this.kind === 'column') {
       const top = o.topLevelId === undefined ? this.doc.levelAbove(el.levelId)?.id ?? null : o.topLevelId;
-      Object.assign(el, { baseOffset: o.offset || 0, topLevelId: top, topOffset: 0, height: 3000 });
+      Object.assign(el, { baseOffset: o.offset || 0, topLevelId: top, topOffset: 0, height: 3000, structural: !!this.opts.structural });
     }
     return el;
   }
@@ -604,34 +609,73 @@ export class LineTool extends Tool {
   }
 
   get title() {
-    return { grid: 'Place Grid', beam: 'Place Beam', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines' }[this.kind];
+    return { grid: 'Place Grid', beam: 'Place Beam', detailLine: 'Detail Lines', roomSeparator: 'Room Separation Lines', refPlane: 'Reference Plane', modelLine: 'Model Lines', areaBoundary: 'Area Boundary' }[this.kind];
   }
 
   get prompt() {
+    if (this.pickMode) return 'Click a wall face, line, grid or edge to draw along it';
     return this.start ? 'Click the end point (type a length to enter it)' : 'Click the start point';
   }
 
   get viewKinds() {
-    return this.kind === 'detailLine' ? ['plan', 'ceilingPlan', 'elevation', 'section'] : ['plan', 'ceilingPlan'];
+    if (this.kind === 'areaBoundary') return ['areaPlan'];
+    return this.kind === 'detailLine' ? ANNOTATION_VIEWS : PLAN_VIEW_KINDS;
   }
 
   get chain() {
-    return this.kind === 'detailLine' || this.kind === 'roomSeparator' || this.kind === 'beam';
+    return ['detailLine', 'roomSeparator', 'beam', 'modelLine', 'areaBoundary'].includes(this.kind);
+  }
+
+  /** Line kinds that can be drawn by picking existing lines. */
+  get canPick() {
+    return ['refPlane', 'modelLine', 'areaBoundary', 'detailLine', 'roomSeparator'].includes(this.kind);
+  }
+
+  get pickMode() {
+    return this.canPick && this.app.toolOptions(`line-${this.kind}`, { mode: 'draw' }).mode === 'pick';
   }
 
   options() {
-    if (this.kind === 'detailLine') {
-      const o = this.app.toolOptions('detailLine', { style: 'medium' });
-      const s = h('select.input.sm', { 'aria-label': 'Line style' }, ...['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => h('option', { value: v }, v[0].toUpperCase() + v.slice(1))));
+    const out = [];
+    if (this.canPick) {
+      const o = this.app.toolOptions(`line-${this.kind}`, { mode: 'draw' });
+      out.push(
+        segmented(
+          [
+            { value: 'draw', label: 'Line', icon: 'line', text: false, tip: 'Draw' },
+            { value: 'pick', label: 'Pick lines', icon: 'pickLines', text: false, tip: 'Pick lines' },
+          ],
+          o.mode,
+          (v) => {
+            o.mode = v;
+            this.start = null;
+            this.app.renderOptions();
+            this.app.setPrompt(this.prompt);
+          },
+          'Draw mode',
+        ),
+        h('span.ob-sep'),
+      );
+    }
+    if (this.kind === 'detailLine' || this.kind === 'modelLine') {
+      const o = this.app.toolOptions(this.kind, { style: this.kind === 'modelLine' ? 'thin' : 'medium' });
+      const s = h('select.input.sm', { 'aria-label': 'Line style' }, ...LINE_STYLES.map((v) => h('option', { value: v.value }, v.label)));
       s.value = o.style;
       s.addEventListener('change', () => (o.style = s.value));
-      return [h('div.ob-group', h('label', 'Style'), s)];
+      out.push(h('div.ob-group', h('label', 'Style'), s));
     }
-    if (this.kind === 'beam') {
-      const o = this.app.toolOptions('beam', { offset: 0 });
-      return [lengthField(this, 'Offset from level', o.offset, (v) => (o.offset = v))];
+    if (this.kind === 'beam' || this.kind === 'modelLine') {
+      const o = this.app.toolOptions(this.kind, { offset: 0 });
+      out.push(lengthField(this, 'Offset from level', o.offset || 0, (v) => (o.offset = v)));
     }
-    return null;
+    if (this.kind === 'refPlane') {
+      const o = this.app.toolOptions('refPlane', { name: '' });
+      const inp = h('input.input.sm', { type: 'text', value: o.name, 'aria-label': 'Name', placeholder: 'Optional' });
+      inp.addEventListener('input', () => (o.name = inp.value));
+      inp.addEventListener('keydown', (e) => e.stopPropagation());
+      out.push(h('div.ob-group', h('label', 'Name'), inp));
+    }
+    return out.length ? out : null;
   }
 
   make(a, b) {
@@ -645,9 +689,25 @@ export class LineTool extends Tool {
         return { kind: 'detailLine', viewId: view.id, a, b, style: this.app.toolOptions('detailLine', { style: 'medium' }).style };
       case 'roomSeparator':
         return { kind: 'roomSeparator', levelId: this.app.activeLevelId(), a, b };
+      case 'refPlane':
+        return { kind: 'refPlane', a, b, name: this.app.toolOptions('refPlane', { name: '' }).name || '' };
+      case 'modelLine': {
+        const o = this.app.toolOptions('modelLine', { style: 'thin', offset: 0 });
+        return { kind: 'modelLine', levelId: this.app.activeLevelId(), a, b, offset: o.offset || 0, style: o.style };
+      }
+      case 'areaBoundary':
+        return { kind: 'areaBoundary', levelId: view.levelId, scheme: view.scheme || 'gross', a, b };
       default:
         return null;
     }
+  }
+
+  pick(ev) {
+    this.snap(ev);
+    const ref = this.snapRes?.ref;
+    const line = ref?.line || this.snapRes?.line;
+    if (!line) return this.app.setPrompt('Nothing to pick here. Click a wall face, line, grid or edge.');
+    this.app.commit(this.title, () => this.doc.add(this.make(line.a, line.b)));
   }
 
   lastGrid() {
@@ -656,6 +716,7 @@ export class LineTool extends Tool {
   }
 
   down(ev) {
+    if (this.pickMode) return this.pick(ev);
     const p = this.snap(ev, this.start);
     if (!p) return;
     if (!this.start) {
@@ -706,9 +767,14 @@ export class LineTool extends Tool {
   }
 
   drawOverlay(ctx, vc, vp) {
+    if (this.pickMode) {
+      const line = this.snapRes?.ref?.line || this.snapRes?.line;
+      if (line) strokeModel(ctx, [line.a, line.b], (p) => vc.modelToScreen(p), vp.theme.preview, 3);
+      return;
+    }
     if (this.start && this.cursor && dist(this.start, this.cursor) > 1) {
       const S = (p) => vc.modelToScreen(p);
-      if (this.kind === 'detailLine' || this.kind === 'roomSeparator') strokeModel(ctx, [this.start, this.cursor], S, vp.theme.preview, 1.6);
+      if (['detailLine', 'roomSeparator', 'modelLine', 'refPlane', 'areaBoundary'].includes(this.kind)) strokeModel(ctx, [this.start, this.cursor], S, vp.theme.preview, 1.6);
       else previewGraphics(this.app, vc, { id: 'preview', ...this.make(this.start, this.cursor) }, ctx, vp.theme.preview, 0.1);
       drawTempDim(ctx, S(this.start), S(this.cursor), this.fmt(dist(this.start, this.cursor)), vp.theme.preview, vp.theme, -20);
     }
@@ -720,11 +786,11 @@ export class LineTool extends Tool {
 
 export class SketchTool extends Tool {
   get placingKind() {
-    return this.kind === 'shaft' || this.kind === 'region' ? null : this.kind;
+    return this.kind === 'shaft' || this.kind === 'region' || this.kind === 'vopening' ? null : this.kind;
   }
 
   get viewKinds() {
-    return this.kind === 'region' ? ['plan', 'ceilingPlan', 'elevation', 'section', 'sheet'] : ['plan', 'ceilingPlan'];
+    return this.kind === 'region' ? [...ANNOTATION_VIEWS, 'sheet'] : PLAN_VIEW_KINDS;
   }
 
   constructor(app, opts) {
@@ -735,13 +801,15 @@ export class SketchTool extends Tool {
     this.pts = el ? (el.boundary || el.path || []).slice() : [];
     this.closed = !!el && this.kind !== 'railing';
     this.cursor = null;
-    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' ? 'polygon' : this.kind === 'shaft' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
+    const defaults = { mode: this.kind === 'railing' || this.kind === 'region' ? 'polygon' : this.kind === 'shaft' || this.kind === 'vopening' ? 'rect' : this.kind === 'roof' ? 'pickWalls' : this.kind === 'ceiling' ? 'pickRoom' : 'pickWalls', slope: 30, overhang: app.doc.units.system === 'imperial' ? 24 * 25.4 : 600, offset: this.kind === 'ceiling' ? (app.doc.units.system === 'imperial' ? 8 * MM_PER_FOOT : 2700) : 0 };
     this.o = app.toolOptions(`sketch-${this.kind}`, defaults);
     if (this.editId) this.o.mode = 'polygon';
+    this.hostId = opts.hostId || null;
   }
 
   get title() {
     if (this.kind === 'shaft') return 'Shaft Opening';
+    if (this.kind === 'vopening') return 'Opening in Floor, Roof or Ceiling';
     if (this.kind === 'region') return 'Filled Region';
     const n = { floor: 'Floor', ceiling: 'Ceiling', roof: 'Roof', railing: 'Railing' }[this.kind];
     return this.editId ? `Edit ${n} Boundary` : `Create ${n} ${this.kind === 'railing' ? 'Path' : 'Boundary'}`;
@@ -749,6 +817,7 @@ export class SketchTool extends Tool {
 
   get prompt() {
     const m = this.o.mode;
+    if (this.kind === 'vopening' && !this.hostId) return 'Click the floor, roof or ceiling to cut';
     if (m === 'pickRoom') return 'Click inside an enclosed area to use its outline. Then click Finish.';
     if (m === 'pickWalls') return 'Click a wall of the building to use the building outline. Then click Finish.';
     if (m === 'rect') return 'Click two opposite corners. Then click Finish.';
@@ -799,6 +868,14 @@ export class SketchTool extends Tool {
 
   down(ev) {
     const m = this.o.mode;
+    if (this.kind === 'vopening' && !this.hostId) {
+      const host = this.vc.hitTest(ev.x, ev.y, 8).map((id) => this.doc.get(id)).find((el) => ['floor', 'roof', 'ceiling'].includes(el?.kind));
+      if (!host) return this.app.toast('Click the edge or inside of a floor, roof or ceiling.', { kind: 'error' });
+      this.hostId = host.id;
+      this.app.select([host.id]);
+      this.app.setPrompt(`Sketch the opening in the ${host.kind}. Then click Finish.`);
+      return;
+    }
     if (m === 'pickRoom') {
       const r = this.app.scene.rooms.regionAt(this.app.activeLevelId(), ev.p);
       if (!r) return this.app.toast('That point is not inside an enclosed area.', { kind: 'error' });
@@ -908,6 +985,13 @@ export class SketchTool extends Tool {
     }
     if (pts.length < 3 || Math.abs(signedArea(pts)) < 1000) return this.app.toast('The boundary needs at least three points enclosing an area.', { kind: 'error' });
     if (this.kind === 'shaft') return this.finishShaft(pts);
+    if (this.kind === 'vopening') {
+      const host = this.doc.get(this.hostId);
+      if (!host) return this.app.toast('Pick the floor, roof or ceiling to cut first.', { kind: 'error' });
+      this.app.commit('Opening', () => this.doc.update(host.id, { holes: [...(host.holes || []), pts] }));
+      this.app.select([host.id]);
+      return this.app.cancelTool();
+    }
     if (this.kind === 'region') {
       const view = this.vc.view;
       this.app.commit('Filled region', () => this.doc.add({ kind: 'region', viewId: view.id, boundary: pts, holes: [], pattern: this.o.pattern || 'diag', outline: true }));
@@ -1096,6 +1180,218 @@ export class StairTool extends Tool {
   }
 }
 
+// Ramps -----------------------------------------------------------------------------------------------
+
+export class RampTool extends Tool {
+  get placingKind() {
+    return 'ramp';
+  }
+
+  get title() {
+    return 'Place Ramp';
+  }
+
+  get prompt() {
+    return this.start ? 'Click to set the direction of the run' : 'Click the bottom of the ramp';
+  }
+
+  options() {
+    const o = this.app.toolOptions('ramp', {});
+    const type = this.app.currentType('ramp');
+    return [
+      lengthField(this, 'Width', o.width ?? type?.width ?? 1200, (v) => (o.width = v)),
+      h('div.ob-group', h('label', 'Top'), levelSelect(this.app, o.topLevelId ?? this.doc.levelAbove(this.app.activeLevelId())?.id ?? '', (v) => (o.topLevelId = v), { none: 'Unconnected (600)' })),
+      h(
+        'label.ob-group',
+        (() => {
+          const c = h('input', { type: 'checkbox', checked: o.railings !== false });
+          c.addEventListener('change', () => (o.railings = c.checked));
+          return c;
+        })(),
+        h('span.ob-label', 'Handrails'),
+      ),
+    ];
+  }
+
+  make(a, b) {
+    const o = this.app.toolOptions('ramp', {});
+    const levelId = this.app.activeLevelId();
+    const type = this.app.currentType('ramp');
+    const topLevelId = o.topLevelId === undefined ? this.doc.levelAbove(levelId)?.id ?? null : o.topLevelId || null;
+    const el = { kind: 'ramp', typeId: type?.id, levelId, topLevelId, baseOffset: 0, topOffset: 0, height: 600, a, b, width: o.width ?? type?.width ?? 1200, railings: o.railings !== false };
+    const g = rampLayout(this.doc, el);
+    el.b = g.end;
+    return { el, g };
+  }
+
+  down(ev) {
+    const p = this.snap(ev, this.start);
+    if (!p) return;
+    if (!this.start) {
+      this.start = p;
+      this.app.setPrompt(this.prompt);
+      return;
+    }
+    if (dist(p, this.start) < 10) return;
+    const { el, g } = this.make(this.start, p);
+    if (g.run > 60000) return this.app.toast(`That ramp would be ${this.fmt(g.run)} long. Choose a closer top level or an unconnected height.`, { kind: 'error' });
+    this.app.commit('Ramp', () => this.doc.add({ ...el, mark: '', comments: '' }));
+    this.start = null;
+    this.app.setPrompt(this.prompt);
+  }
+
+  move(ev) {
+    this.cursor = this.snap(ev, this.start);
+    this.app.requestRender();
+  }
+
+  cancel() {
+    if (this.start) {
+      this.start = null;
+      this.app.requestRender();
+      return false;
+    }
+    return true;
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (this.start && this.cursor && dist(this.start, this.cursor) > 10) {
+      const { el, g } = this.make(this.start, this.cursor);
+      previewGraphics(this.app, vc, el, ctx, vp.theme.preview, 0.1);
+      const s = vc.modelToScreen(this.cursor);
+      drawTag(ctx, s.x + 40, s.y + 24, `Run ${this.fmt(g.run)}, rise ${this.fmt(g.rise)} (1:${Math.round(g.ratio)})`, { bg: vp.theme.bgCss, fg: vp.theme.inkCss, border: vp.theme.preview });
+    }
+    this.drawSnap(ctx, vc, vp);
+  }
+}
+
+// Areas -----------------------------------------------------------------------------------------------
+
+export class AreaTool extends Tool {
+  get title() {
+    return 'Place Area';
+  }
+
+  get viewKinds() {
+    return ['areaPlan'];
+  }
+
+  get prompt() {
+    return this.region ? 'Click to place an area here' : 'Move into a region enclosed by area boundary lines';
+  }
+
+  move(ev) {
+    const view = this.vc.view;
+    this.at = ev.p;
+    this.region = ev.p ? this.app.scene.areas.regionAt(view.levelId, view.scheme || 'gross', ev.p) : null;
+    this.app.setPrompt(this.prompt);
+    this.app.requestRender();
+  }
+
+  down(ev) {
+    if (!ev.p) return;
+    const view = this.vc.view;
+    const scheme = view.scheme || 'gross';
+    const region = this.app.scene.areas.regionAt(view.levelId, scheme, ev.p);
+    if (region) {
+      const existing = this.doc.all('area').find((a) => a.levelId === view.levelId && (a.scheme || 'gross') === scheme && this.app.scene.areas.area(a)?.outer === region.outer);
+      if (existing) return this.app.toast(`This region already has an area (${existing.name}).`, { kind: 'error' });
+    }
+    const o = this.app.toolOptions('area', { name: 'Area' });
+    this.app.commit('Area', () => this.doc.add({ kind: 'area', levelId: view.levelId, scheme, at: ev.p, name: o.name || 'Area', number: String(this.doc.all('area').length + 1), areaType: 'floor' }));
+  }
+
+  options() {
+    const o = this.app.toolOptions('area', { name: 'Area' });
+    const inp = h('input.input.sm', { type: 'text', value: o.name, 'aria-label': 'Area name' });
+    inp.addEventListener('input', () => (o.name = inp.value));
+    inp.addEventListener('keydown', (e) => e.stopPropagation());
+    return [h('div.ob-group', h('label', 'Name'), inp)];
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (!this.region) return;
+    const S = (p) => vc.modelToScreen(p);
+    fillModel(ctx, this.region.outer, S, vp.theme.preview, 0.12);
+    strokeModel(ctx, this.region.outer, S, vp.theme.preview, 1.5, [6, 4], true);
+    const s = S(this.at);
+    drawTag(ctx, s.x, s.y - 24, this.app.formatArea(this.region.area), { bg: vp.theme.bgCss, fg: vp.theme.inkCss, border: vp.theme.preview });
+  }
+}
+
+/**
+ * Area boundary lines along the outside faces of the building on a level,
+ * for a new gross area plan. Returns the number of lines added.
+ */
+export function boundaryFromExterior(app, levelId, scheme) {
+  const doc = app.doc;
+  const solved = app.scene.walls.level(levelId);
+  const faces = arrangementFaces(boundarySegments(doc, solved, levelId, (c) => columnOutline(doc, c)));
+  let n = 0;
+  for (const f of faces) {
+    // Outer cycles of connected wall groups wind clockwise.
+    if (f.area >= 0 || -f.area < 1e6) continue;
+    const loop = cleanPolygon(f.loop, 0.5);
+    for (let i = 0; i < loop.length; i++) {
+      doc.add({ kind: 'areaBoundary', levelId, scheme, a: loop[i], b: loop[(i + 1) % loop.length] });
+      n++;
+    }
+  }
+  return n;
+}
+
+/** Move the label of a room or area to a clicked point. */
+export class LabelTool extends Tool {
+  get title() {
+    return 'Tag Room';
+  }
+
+  get viewKinds() {
+    return PLAN_VIEW_KINDS;
+  }
+
+  get prompt() {
+    return this.target ? 'Click where the label goes' : 'Click a room (or area) to place its label';
+  }
+
+  down(ev) {
+    if (!ev.p) return;
+    if (this.target) {
+      const id = this.target.id;
+      this.app.commit('Place label', () => this.doc.update(id, { tagAt: ev.p }));
+      this.target = null;
+      this.app.setHover(null);
+      this.app.setPrompt(this.prompt);
+      return;
+    }
+    const hit = this.vc.hitTest(ev.x, ev.y).map((id) => this.doc.get(id)).find((el) => el?.kind === 'room' || el?.kind === 'area');
+    if (!hit) return;
+    this.target = hit;
+    this.app.setPrompt(this.prompt);
+  }
+
+  move(ev) {
+    this.cursor = ev.p;
+    if (!this.target) {
+      const hit = this.vc.hitTest(ev.x, ev.y).map((id) => this.doc.get(id)).find((el) => el?.kind === 'room' || el?.kind === 'area');
+      this.app.setHover(hit?.id ?? null);
+    }
+    this.app.requestRender();
+  }
+
+  cancel() {
+    if (this.target) {
+      this.target = null;
+      return false;
+    }
+    return true;
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    if (this.target && this.cursor) previewGraphics(this.app, vc, { ...this.target, tagAt: this.cursor }, ctx, vp.theme.preview, 0);
+  }
+}
+
 // Rooms -------------------------------------------------------------------------------------------------
 
 export class RoomTool extends Tool {
@@ -1172,7 +1468,7 @@ export function placeRoomsAutomatically(app) {
   app.toast(n ? `Placed ${n} room${n === 1 ? '' : 's'}.` : 'Every enclosed area already has a room.');
 }
 
-function interiorPoint(loop) {
+export function interiorPoint(loop) {
   // Try the centroid, then midpoints between vertices.
   const pip = (p) => {
     let inside = false;
@@ -1213,7 +1509,7 @@ export class DimensionTool extends Tool {
   }
 
   get viewKinds() {
-    return ['plan', 'ceilingPlan', 'elevation', 'section'];
+    return ANNOTATION_VIEWS;
   }
 
   get prompt() {
@@ -1327,7 +1623,7 @@ export class TextTool extends Tool {
   }
 
   get viewKinds() {
-    return ['plan', 'ceilingPlan', 'elevation', 'section'];
+    return ANNOTATION_VIEWS;
   }
 
   get prompt() {
@@ -1417,7 +1713,7 @@ export function addTag(app, el, view) {
 /** Tag every untagged door and window visible in the view. */
 export function tagAll(app, kinds = ['door', 'window']) {
   const view = app.vc?.view;
-  if (!view || (view.kind !== 'plan' && view.kind !== 'ceilingPlan')) return app.toast('Open a floor plan to tag elements.', { kind: 'error' });
+  if (!isPlanView(view)) return app.toast('Open a floor plan to tag elements.', { kind: 'error' });
   const doc = app.doc;
   const tagged = new Set(doc.all('tag').filter((t) => t.viewId === view.id).map((t) => t.targetId));
   const pc = planContext(doc, view, app.scene.walls, app.scene.rooms);

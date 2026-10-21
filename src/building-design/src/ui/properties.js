@@ -10,9 +10,8 @@ import { showMenu } from './menu.js';
 import { instanceParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../core/props.js';
 import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
-import { isView } from '../core/doc.js';
+import { isView, VIEW_LABEL } from '../core/doc.js';
 
-const VIEW_LABEL = { plan: 'Floor Plan', ceilingPlan: 'Ceiling Plan', view3d: '3D View', elevation: 'Elevation', section: 'Section', schedule: 'Schedule', sheet: 'Sheet' };
 
 export class PropertiesPanel {
   constructor(app, body) {

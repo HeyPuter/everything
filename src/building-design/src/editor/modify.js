@@ -19,7 +19,7 @@ import {
 } from '../core/ops.js';
 import { formatAngle, parseAngle } from '../core/units.js';
 import { strokeModel, drawTempDim, drawTag } from '../views/overlay.js';
-import { previewGraphics } from './draw.js';
+import { previewGraphics, ANNOTATION_VIEWS } from './draw.js';
 import { h } from '../ui/dom.js';
 
 function selectionIds(app) {
@@ -650,7 +650,7 @@ export class MeasureTool extends Tool {
   }
 
   get viewKinds() {
-    return ['plan', 'ceilingPlan', 'elevation', 'section'];
+    return ANNOTATION_VIEWS;
   }
 
   get prompt() {
@@ -744,7 +744,7 @@ export class ZoomRegionTool extends Tool {
   }
 
   get viewKinds() {
-    return ['plan', 'ceilingPlan', 'elevation', 'section'];
+    return ANNOTATION_VIEWS;
   }
 
   get prompt() {

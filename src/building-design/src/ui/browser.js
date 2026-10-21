@@ -8,6 +8,7 @@ import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { showMenu } from './menu.js';
 import { FAMILY_BY_KIND, CATEGORIES } from '../core/catalog.js';
+import { AREA_SCHEMES } from '../core/props.js';
 
 const TYPE_GROUPS = [
   { label: 'Walls', typeKind: 'wallType', kind: 'wall' },
@@ -19,6 +20,7 @@ const TYPE_GROUPS = [
   { label: 'Columns', typeKind: 'columnType', kind: 'column', byFamily: true },
   { label: 'Structural Framing', typeKind: 'beamType', kind: 'beam' },
   { label: 'Stairs', typeKind: 'stairType', kind: 'stair' },
+  { label: 'Ramps', typeKind: 'rampType', kind: 'ramp' },
   { label: 'Railings', typeKind: 'railingType', kind: 'railing' },
 ];
 
@@ -52,6 +54,7 @@ export class ProjectBrowser {
     const views = [
       { key: 'views/plan', label: 'Floor Plans', children: doc.all('plan').sort((a, b) => levelElev(a) - levelElev(b) || sortByName(a, b)).map(viewNode) },
       { key: 'views/ceilingPlan', label: 'Ceiling Plans', children: doc.all('ceilingPlan').sort((a, b) => levelElev(a) - levelElev(b)).map(viewNode) },
+      ...AREA_SCHEMES.map((s) => ({ key: `views/areaPlan/${s.value}`, label: `Area Plans (${s.label})`, children: doc.all('areaPlan').filter((v) => (v.scheme || 'gross') === s.value).sort((a, b) => levelElev(a) - levelElev(b)).map(viewNode) })),
       { key: 'views/view3d', label: '3D Views', children: doc.all('view3d').sort(sortByName).map(viewNode) },
       { key: 'views/elevation', label: 'Elevations', children: doc.all('elevation').map(viewNode) },
       { key: 'views/section', label: 'Sections', children: doc.all('section').sort(sortByName).map(viewNode) },

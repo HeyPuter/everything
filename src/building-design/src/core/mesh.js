@@ -68,6 +68,10 @@ export class MeshBuilder {
 
   edge(a, b) {
     this.edges.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    for (let i = 0; i < 3; i++) {
+      this.min[i] = Math.min(this.min[i], a[i], b[i]);
+      this.max[i] = Math.max(this.max[i], a[i], b[i]);
+    }
   }
 
   edgeLoop(points) {

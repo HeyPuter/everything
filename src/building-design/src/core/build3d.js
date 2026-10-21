@@ -6,7 +6,7 @@
  */
 import { MeshBuilder, Frame, hexToRgba } from './mesh.js';
 import { add, scale, sub, dot, norm, perp, len, clipHalfPlane, triangulate } from './geom.js';
-import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wallAxis } from './model.js';
+import { verticalExtent, openingSize, hostedBy, levelElevation, stairLayout, wallAxis, rampLayout } from './model.js';
 import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
@@ -52,9 +52,71 @@ export function build3D(ctx, el) {
       return buildRailing(ctx, el);
     case 'component':
       return buildComponent(ctx, el);
+    case 'ramp':
+      return buildRamp(ctx, el);
+    case 'modelLine':
+      return buildModelLine(ctx, el);
     default:
       return null;
   }
+}
+
+// Ramps and model lines -------------------------------------------------------------------
+
+function buildRamp(ctx, el) {
+  const g = rampLayout(ctx.doc, el);
+  if (g.run < 1) return null;
+  const type = ctx.doc.get(el.typeId) || {};
+  const col = materialColor(ctx, type.materialId || 'mat-concrete');
+  const b = new MeshBuilder();
+  const origin = add(el.a, scale(g.side, -g.width / 2));
+  const th = g.thickness;
+  b.extrudeProfile(
+    [
+      [0, g.base - th],
+      [g.run, g.top - th],
+      [g.run, g.top],
+      [0, g.base],
+    ],
+    origin,
+    g.dir,
+    g.width,
+    col,
+  );
+  if (el.railings !== false) {
+    const rail = materialColor(ctx, 'mat-steel');
+    const H = 900;
+    for (const off of [50, g.width - 50]) {
+      const p0 = add(origin, scale(g.side, off));
+      b.extrudeProfile(
+        [
+          [0, g.base + H - 40],
+          [g.run, g.top + H - 40],
+          [g.run, g.top + H],
+          [0, g.base + H],
+        ],
+        add(p0, scale(g.side, -20)),
+        g.dir,
+        40,
+        rail,
+      );
+      const posts = Math.max(2, Math.round(g.run / 1200) + 1);
+      for (let i = 0; i < posts; i++) {
+        const s = (g.run * i) / (posts - 1);
+        const z = g.base + (g.rise * s) / g.run;
+        b.cylinder(add(p0, scale(g.dir, s)), 15, z, z + H - 40, rail, { segments: 8, edges: false });
+      }
+    }
+  }
+  return b.build();
+}
+
+function buildModelLine(ctx, el) {
+  if (!el.a || !el.b) return null;
+  const z = levelElevation(ctx.doc, el.levelId) + (+el.offset || 0);
+  const b = new MeshBuilder();
+  b.edge([el.a[0], el.a[1], z], [el.b[0], el.b[1], z]);
+  return b.build();
 }
 
 // Walls -----------------------------------------------------------------------------
@@ -423,9 +485,11 @@ function buildRoof(ctx, el) {
   const topCol = layerColor(ctx, type, 'first');
   const coreCol = layerColor(ctx, type, 'core');
   const zb = (p, pl) => base + (pl ? planeHeight(pl, p) : 0);
+  const holes = (el.holes || []).filter((h) => h.length >= 3);
   for (const f of faces) {
     const vt = verticalThickness(th, f.plane);
-    const { points, tris } = triangulate(f.poly);
+    const inner = holes.filter((h) => h.every((p) => pointInPoly(p, f.poly)));
+    const { points, tris } = triangulate(f.poly, inner);
     for (let i = 0; i < tris.length; i += 3) {
       const [a, c, d] = [points[tris[i]], points[tris[i + 1]], points[tris[i + 2]]];
       const A = [a[0], a[1], zb(a, f.plane) + vt];
@@ -436,6 +500,18 @@ function buildRoof(ctx, el) {
     }
     const loop = f.poly.map((p) => [p[0], p[1], zb(p, f.plane) + vt]);
     b.edgeLoop(loop);
+    // Sides of openings cut through this face.
+    for (const h of inner) {
+      for (let i = 0; i < h.length; i++) {
+        const p = h[i];
+        const q = h[(i + 1) % h.length];
+        const P0 = [p[0], p[1], zb(p, f.plane)];
+        const Q0 = [q[0], q[1], zb(q, f.plane)];
+        b.quad(Q0, P0, [p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt], coreCol);
+        b.edge([p[0], p[1], P0[2] + vt], [q[0], q[1], Q0[2] + vt]);
+        b.edge(P0, Q0);
+      }
+    }
   }
   // Sides along the footprint.
   const activeAt = (p) => {

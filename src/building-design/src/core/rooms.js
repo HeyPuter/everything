@@ -289,3 +289,55 @@ export class RoomSolver {
     return regionAt(f.faces, p, f.grid);
   }
 }
+
+/**
+ * Area regions: like rooms, but bounded only by the area boundary lines of
+ * one area scheme on a level (cached per level and scheme).
+ */
+export class AreaSolver {
+  constructor(doc) {
+    this.doc = doc;
+    this.cache = new Map();
+  }
+
+  invalidate(levelId) {
+    if (levelId === undefined) this.cache.clear();
+    else for (const k of [...this.cache.keys()]) if (k.startsWith(`${levelId}|`)) this.cache.delete(k);
+  }
+
+  faces(levelId, scheme = 'gross') {
+    const key = `${levelId}|${scheme}`;
+    let f = this.cache.get(key);
+    if (!f) {
+      const segs = [];
+      for (const s of this.doc.all('areaBoundary')) {
+        if (s.levelId !== levelId || (s.scheme || 'gross') !== scheme) continue;
+        const d = sub(s.b, s.a);
+        const l = Math.hypot(d[0], d[1]);
+        if (l < 1) continue;
+        const e = [(d[0] / l) * 3, (d[1] / l) * 3];
+        segs.push([
+          [s.a[0] - e[0], s.a[1] - e[1]],
+          [s.b[0] + e[0], s.b[1] + e[1]],
+        ]);
+      }
+      const faces = arrangementFaces(segs);
+      f = { faces, grid: indexFaces(faces), areas: new Map() };
+      this.cache.set(key, f);
+    }
+    return f;
+  }
+
+  /** Region of an area element. */
+  area(el) {
+    const f = this.faces(el.levelId, el.scheme || 'gross');
+    const key = `${el.at[0]},${el.at[1]}`;
+    if (!f.areas.has(key)) f.areas.set(key, regionAt(f.faces, el.at, f.grid));
+    return f.areas.get(key);
+  }
+
+  regionAt(levelId, scheme, p) {
+    const f = this.faces(levelId, scheme);
+    return regionAt(f.faces, p, f.grid);
+  }
+}

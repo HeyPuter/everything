@@ -52,6 +52,25 @@ export function default3DView(name = '3D View') {
 }
 
 /**
+ * Bring a document opened from an older file up to date: type kinds and
+ * materials added since it was saved get their defaults. Runs outside the
+ * undo history and does not mark the project modified.
+ */
+export function upgradeDoc(doc) {
+  const system = doc.units.system === 'imperial' ? 'imperial' : 'metric';
+  const missingKinds = new Set();
+  for (const t of defaultTypes(system)) if (!doc.count(t.kind)) missingKinds.add(t.kind);
+  const used = new Set();
+  for (const t of defaultTypes(system)) {
+    if (!missingKinds.has(t.kind) || doc.has(t.id)) continue;
+    doc._put(t.id, Object.freeze(t));
+    if (t.materialId) used.add(t.materialId);
+  }
+  for (const m of defaultMaterials()) if (used.has(m.id) && !doc.has(m.id)) doc._put(m.id, Object.freeze(m));
+  return doc;
+}
+
+/**
  * Create an empty project. system: 'metric' | 'imperial'.
  */
 export function createProject({ system = 'metric', name = 'Untitled' } = {}) {

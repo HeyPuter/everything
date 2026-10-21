@@ -8,15 +8,16 @@ import { icon, KIND_ICON } from './icons.js';
 import { openDialog, toast, confirmDialog, promptDialog } from './dialog.js';
 import { COMMANDS } from '../commands.js';
 import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/catalog.js';
-import { TYPE_PARAMS } from '../core/props.js';
+import { TYPE_PARAMS, AREA_SCHEMES, schemeLabel } from '../core/props.js';
+import { AreaSolver } from '../core/rooms.js';
 import { formatLength, parseLength, MM_PER_FOOT } from '../core/units.js';
 import { uniqueName, deleteElements } from '../core/ops.js';
 import { planView } from '../core/template.js';
-import { newId, isView } from '../core/doc.js';
+import { newId, isView, isPlanView, VIEW_LABEL } from '../core/doc.js';
 import { SCHEDULE_CATEGORIES } from '../core/schedule.js';
 import { sheetSize } from '../core/sheet.js';
 import { bboxUnion } from '../core/geom.js';
-import { createLevel } from '../editor/draw.js';
+import { createLevel, boundaryFromExterior, interiorPoint } from '../editor/draw.js';
 import * as exporters from '../io/exporters.js';
 import { isSignedIn, puterAvailable } from '../platform.js';
 
@@ -543,6 +544,70 @@ export function planViewDialog(app) {
   });
 }
 
+export function areaPlanDialog(app) {
+  const doc = app.doc;
+  const list = h('div');
+  const checks = [];
+  const active = app.activeView?.levelId;
+  for (const l of doc.levels()) {
+    const cb = h('input', { type: 'checkbox', value: l.id, checked: l.id === active });
+    checks.push(cb);
+    list.append(h('label.check', cb, l.name));
+  }
+  const scheme = h('select.input', {}, AREA_SCHEMES.map((s) => h('option', { value: s.value }, s.label)));
+  const auto = h('input', { type: 'checkbox', checked: true });
+  return openDialog({
+    title: 'New Area Plan',
+    body: h(
+      'div',
+      field('Area scheme', scheme),
+      h('h3.dlg-sub', 'Levels'),
+      list,
+      h('label.check', auto, 'Draw boundary lines along the outside of the building'),
+      h('p.field-hint', 'Areas are bounded by area boundary lines. You can add, move or pick more of them later from the Architecture tab.'),
+    ),
+    size: 'sm',
+    actions: [
+      { label: 'Cancel', value: null },
+      {
+        label: 'Create',
+        primary: true,
+        onClick: () => {
+          const chosen = checks.filter((c) => c.checked).map((c) => doc.get(c.value));
+          if (!chosen.length) {
+            toast('Choose at least one level.', { kind: 'error' });
+            return false;
+          }
+          let last;
+          const names = doc.filter((x) => isView(x)).map((x) => x.name);
+          const label = schemeLabel(scheme.value);
+          app.commit('New area plan', () => {
+            for (const level of chosen) {
+              const v = { ...planView(doc, level, 'plan'), kind: 'areaPlan', scheme: scheme.value, underlay: null };
+              v.name = uniqueName(names, `${level.name} (${label})`);
+              names.push(v.name);
+              last = doc.add(v);
+              if (auto.checked) {
+                boundaryFromExterior(app, level.id, scheme.value);
+                // One area for each enclosed outline.
+                const solver = new AreaSolver(doc);
+                const { faces } = solver.faces(level.id, scheme.value);
+                for (const f of faces) {
+                  if (f.area < 1e6) continue;
+                  const c = interiorPoint(f.loop);
+                  if (!c) continue;
+                  doc.add({ kind: 'area', levelId: level.id, scheme: scheme.value, at: c, name: scheme.value === 'gross' ? 'Gross Area' : 'Area', number: String(doc.count('area') + 1), areaType: 'floor' });
+                }
+              }
+            }
+          });
+          if (last) app.openView(last.id);
+        },
+      },
+    ],
+  });
+}
+
 export function newScheduleDialog(app, category) {
   const sel = h('select.input', { 'aria-label': 'Category' }, Object.entries(SCHEDULE_CATEGORIES).map(([k, c]) => h('option', { value: k, selected: k === category }, c.label)));
   const name = h('input.input', { type: 'text', value: '' });
@@ -629,7 +694,7 @@ export async function placeViewDialog(app, viewId) {
     sheet = app.activeView;
     sheetSel.append(h('option', { value: sheet.id, selected: true }, `${sheet.number} - ${sheet.name}`));
   }
-  const viewSel = h('select.input', { 'aria-label': 'View' }, views.map((v) => h('option', { value: v.id, selected: v.id === viewId }, `${v.name} (${{ plan: 'Floor Plan', ceilingPlan: 'Ceiling Plan', view3d: '3D', elevation: 'Elevation', section: 'Section' }[v.kind]})`)));
+  const viewSel = h('select.input', { 'aria-label': 'View' }, views.map((v) => h('option', { value: v.id, selected: v.id === viewId }, `${v.name} (${VIEW_LABEL[v.kind]})`)));
   const r = await openDialog({ title: 'Place View on Sheet', body: h('div', field('Sheet', sheetSel), field('View', viewSel)), size: 'sm', actions: [{ label: 'Cancel', value: null }, { label: 'Place', primary: true, value: true }] });
   if (!r) return;
   const sh = doc.get(sheetSel.value);
@@ -639,7 +704,7 @@ export async function placeViewDialog(app, viewId) {
   const at = [(area.x0 + area.x1) / 2, (area.y0 + area.y1) / 2];
   let center = null;
   let size = null;
-  if (view.kind === 'plan' || view.kind === 'ceilingPlan') {
+  if (isPlanView(view)) {
     // Center on the view's content.
     const cached = app.controllers.has(view.id);
     const c = app.controllerFor(view);

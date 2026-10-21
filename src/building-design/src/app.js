@@ -14,9 +14,9 @@ import { h, clear, MOD } from './ui/dom.js';
 import { icon, KIND_ICON } from './ui/icons.js';
 import { COMMANDS } from './commands.js';
 import { Scene, MODEL_KINDS } from './core/scene.js';
-import { createProject, default3DView } from './core/template.js';
+import { createProject, default3DView, upgradeDoc } from './core/template.js';
 import { createSampleProject } from './core/sample.js';
-import { isView, newId } from './core/doc.js';
+import { isView, newId, PLAN_VIEW_KINDS } from './core/doc.js';
 import { categoryOf, defaultTypeFor } from './core/catalog.js';
 import { describe as describeEl } from './core/props.js';
 import { formatArea, formatLength, parseLength } from './core/units.js';
@@ -50,7 +50,7 @@ import { renderViewbar } from './ui/viewbar.js';
 import { renderHome } from './ui/home.js';
 import { Settings } from './settings.js';
 
-const PLAN_KINDS = new Set(['plan', 'ceilingPlan']);
+const PLAN_KINDS = new Set(PLAN_VIEW_KINDS);
 
 export class App {
   constructor(root) {
@@ -146,6 +146,7 @@ export class App {
     this.viewport.r3.clear();
     this.viewport.r3.origin = [0, 0, 0];
     this.originSet = false;
+    upgradeDoc(doc);
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');
@@ -666,6 +667,7 @@ export class App {
 
   isCommandActive(cmd) {
     if (cmd === 'thinLines') return !!this.settings.thinLines;
+    if (cmd === 'workPlaneGrid') return !!this.settings.workPlaneGrid;
     if (cmd === 'roomFill') return !!this.activeView?.roomFill;
     if (cmd === 'revealHidden') return this.reveal.has(this.activeViewId);
     if (cmd === 'sectionBox') return !!this.activeView?.sectionBox;
@@ -791,7 +793,7 @@ export class App {
 
   placeType(type, kind) {
     this.setCurrentType(kind, type.id);
-    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', railing: 'railing', component: 'component' }[kind];
+    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', ramp: 'ramp', railing: 'railing', component: 'component' }[kind];
     if (cmd) this.run(cmd);
   }
 
@@ -1553,6 +1555,9 @@ export class App {
   }
   planViewDialog() {
     return dialogs.planViewDialog(this);
+  }
+  areaPlanDialog() {
+    return dialogs.areaPlanDialog(this);
   }
   newScheduleDialog(category) {
     return dialogs.newScheduleDialog(this, category);

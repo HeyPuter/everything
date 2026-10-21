@@ -7,6 +7,7 @@ import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { showMenu } from './menu.js';
 import { scaleOptions, scaleLabel } from '../core/units.js';
+import { isPlanView } from '../core/doc.js';
 
 const STYLES = [
   ['wireframe', 'Wireframe', 'styleWire'],
@@ -48,7 +49,7 @@ export function renderViewbar(app) {
     bar.append(
       btn(icon(d[2], 16), `Detail level: ${d[1]}`, (e) => showMenu(e.currentTarget, DETAILS.map(([v, l, ic]) => ({ label: l, icon: ic, checked: view.detail === v, radio: true, action: () => set({ detail: v }, 'Detail level') })), { label: 'Detail level' }), null, { menu: true }),
     );
-    if (view.kind !== 'plan' && view.kind !== 'ceilingPlan') {
+    if (!isPlanView(view)) {
       const s = STYLES.find((x) => x[0] === (view.style || 'shaded')) || STYLES[2];
       bar.append(btn(icon(s[2], 16), `Visual style: ${s[1]}`, (e) => showMenu(e.currentTarget, STYLES.map(([v, l, ic]) => ({ label: l, icon: ic, checked: view.style === v, radio: true, action: () => set({ style: v }, 'Visual style') })), { label: 'Visual style' }), null, { menu: true }));
     }

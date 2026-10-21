@@ -2,7 +2,8 @@
  * Schedules: tables of elements of one category with chosen fields,
  * sorting, optional grouping by type with counts and totals, and CSV export.
  */
-import { openingSize, verticalExtent, levelOf, stairLayout } from './model.js';
+import { openingSize, verticalExtent, levelOf, stairLayout, rampLayout } from './model.js';
+import { schemeLabel, AREA_TYPES } from './props.js';
 import { typeThickness, KIND_LABEL, CATEGORIES } from './catalog.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
 import { formatLength, formatArea, formatVolume } from './units.js';
@@ -138,6 +139,63 @@ export const SCHEDULE_CATEGORIES = {
       COUNT,
     ],
     defaults: ['type', 'level', 'risers', 'riser', 'tread', 'width'],
+  },
+  area: {
+    label: 'Areas',
+    kinds: ['area'],
+    fields: [
+      F('number', 'Number', (el) => el.number ?? '', 'text', 'number'),
+      F('name', 'Name', (el) => el.name ?? '', 'text', 'name'),
+      F('scheme', 'Area Scheme', (el) => schemeLabel(el.scheme)),
+      F('areaType', 'Area Type', (el) => AREA_TYPES.find((t) => t.value === (el.areaType || 'floor'))?.label ?? ''),
+      F('level', 'Level', lvlName),
+      F('area', 'Area', (el, c) => c.scene.areas.area(el)?.area ?? 0, 'area'),
+      F('perimeter', 'Perimeter', (el, c) => c.scene.areas.area(el)?.perimeter ?? 0, 'length'),
+      F('comments', 'Comments', (el) => el.comments ?? '', 'text', 'comments'),
+      COUNT,
+    ],
+    defaults: ['number', 'name', 'scheme', 'level', 'area'],
+  },
+  ramp: {
+    label: 'Ramps',
+    kinds: ['ramp'],
+    fields: [
+      F('type', 'Type', typeName),
+      F('level', 'Base Level', lvlName),
+      F('width', 'Width', (el, c) => rampLayout(c.doc, el).width, 'length'),
+      F('run', 'Run Length', (el, c) => rampLayout(c.doc, el).run, 'length'),
+      F('rise', 'Rise', (el, c) => rampLayout(c.doc, el).rise, 'length'),
+      F('slope', 'Slope', (el, c) => `1:${Math.round(rampLayout(c.doc, el).ratio * 10) / 10}`),
+      F('mark', 'Mark', (el) => el.mark ?? '', 'text', 'mark'),
+      COUNT,
+    ],
+    defaults: ['type', 'level', 'width', 'run', 'rise', 'slope'],
+  },
+  roof: {
+    label: 'Roofs',
+    kinds: ['roof'],
+    fields: [
+      F('type', 'Type', typeName),
+      F('level', 'Base Level', lvlName),
+      F('area', 'Footprint Area', slabArea, 'area'),
+      F('perimeter', 'Perimeter', (el) => perimeter(el.boundary || []), 'length'),
+      F('mark', 'Mark', (el) => el.mark ?? '', 'text', 'mark'),
+      COUNT,
+    ],
+    defaults: ['type', 'level', 'area', 'perimeter'],
+  },
+  ceiling: {
+    label: 'Ceilings',
+    kinds: ['ceiling'],
+    fields: [
+      F('type', 'Type', typeName),
+      F('level', 'Level', lvlName),
+      F('offset', 'Height Offset', (el) => +el.offset || 0, 'length'),
+      F('area', 'Area', slabArea, 'area'),
+      F('mark', 'Mark', (el) => el.mark ?? '', 'text', 'mark'),
+      COUNT,
+    ],
+    defaults: ['type', 'level', 'offset', 'area'],
   },
 };
 

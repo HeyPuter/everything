@@ -7,6 +7,7 @@ import { snapPoint } from './snap.js';
 import { drawSnapMarker, strokeModel } from '../views/overlay.js';
 import { parseLength, formatLength } from '../core/units.js';
 import { h } from '../ui/dom.js';
+import { PLAN_VIEW_KINDS } from '../core/doc.js';
 
 export class Tool {
   constructor(app, opts = {}) {
@@ -27,7 +28,7 @@ export class Tool {
 
   /** View kinds the tool works in. */
   get viewKinds() {
-    return ['plan', 'ceilingPlan'];
+    return PLAN_VIEW_KINDS;
   }
 
   get doc() {

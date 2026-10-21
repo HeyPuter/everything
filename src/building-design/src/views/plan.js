@@ -19,12 +19,17 @@ const PICK_RANK = {
   component: 2,
   column: 2,
   stair: 2,
+  ramp: 2,
   railing: 2,
   detailLine: 2,
+  modelLine: 2,
   roomSeparator: 2,
+  areaBoundary: 2,
   wall: 3,
   beam: 3,
   grid: 4,
+  refPlane: 4,
+  area: 5,
   section: 4,
   elevation: 4,
   room: 5,
@@ -82,7 +87,7 @@ export class PlanController {
     if (!view) return;
     const scene = this.scene;
     if (this.syncedVersion === scene.version && this.syncedView === view) return;
-    const pc = planContext(scene.doc, view, scene.walls, scene.rooms);
+    const pc = planContext(scene.doc, view, scene.walls, scene.rooms, scene.areas);
     const keep = new Set();
     this.grid.clear();
     this.bounds.clear();
@@ -197,7 +202,37 @@ export class PlanController {
   }
 
   drawOverlay(ctx, vp) {
+    if (this.app.settings.workPlaneGrid) this.drawWorkPlane(ctx, vp);
     drawLayerTexts(ctx, this.layer, (p) => this.modelToScreen(p), this.cam.zoom, vp.theme, (id) => this.app.flagsOf(id));
+  }
+
+  /** A light grid on the level, spaced so lines stay at least ~28 px apart. */
+  drawWorkPlane(ctx, vp) {
+    const imp = this.app.doc.units.system === 'imperial';
+    const steps = imp ? [152.4, 304.8, 609.6, 1524, 3048, 6096, 15240, 30480] : [100, 250, 500, 1000, 2500, 5000, 10000, 25000];
+    const step = steps.find((s) => s * this.cam.zoom >= 28) ?? steps.at(-1);
+    const a = this.screenToModel(0, vp.height);
+    const b = this.screenToModel(vp.width, 0);
+    ctx.save();
+    ctx.strokeStyle = vp.theme.inkCss;
+    ctx.lineWidth = 1;
+    for (const major of [false, true]) {
+      const s = major ? step * 5 : step;
+      ctx.globalAlpha = major ? 0.14 : 0.06;
+      ctx.beginPath();
+      for (let x = Math.ceil(a[0] / s) * s; x <= b[0]; x += s) {
+        const px = Math.round(this.modelToScreen([x, 0]).x) + 0.5;
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, vp.height);
+      }
+      for (let y = Math.ceil(a[1] / s) * s; y <= b[1]; y += s) {
+        const py = Math.round(this.modelToScreen([0, y]).y) + 0.5;
+        ctx.moveTo(0, py);
+        ctx.lineTo(vp.width, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   // Coordinates -----------------------------------------------------------------------

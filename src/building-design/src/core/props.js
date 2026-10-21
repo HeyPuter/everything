@@ -6,7 +6,7 @@
  * Types: length, number, angle, text, textarea, bool, select, level,
  * levelOpt (a level or none), material, readonly, button.
  */
-import { verticalExtent, openingSize, stairLayout } from './model.js';
+import { verticalExtent, openingSize, stairLayout, rampLayout } from './model.js';
 import { typeThickness, KIND_LABEL } from './catalog.js';
 import { roofGeometry } from './build3d.js';
 import { area as polyArea, perimeter, dist } from './geom.js';
@@ -209,10 +209,62 @@ const INSTANCE = {
     ro('area', 'Area', 'Dimensions', (el) => polyArea(el.boundary || []), 'area'),
   ],
   detailLine: [
-    P('style', 'Line Style', 'Graphics', 'select', { options: () => ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) })) }),
+    P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES }),
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
   ],
+  modelLine: [
+    P('levelId', 'Level', 'Constraints', 'level'),
+    len('offset', 'Offset From Level', 'Constraints'),
+    P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES }),
+    ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
+  ],
+  refPlane: [P('name', 'Name', 'Identity Data', 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
+  ramp: [
+    P('levelId', 'Base Level', 'Constraints', 'level'),
+    len('baseOffset', 'Base Offset', 'Constraints'),
+    P('topLevelId', 'Top Level', 'Constraints', 'levelOpt', { none: 'Unconnected' }),
+    len('topOffset', 'Top Offset', 'Constraints', { ro: (el) => !el.topLevelId }),
+    len('height', 'Unconnected Height', 'Constraints', { ro: (el) => !!el.topLevelId }),
+    len('width', 'Width', 'Dimensions', { get: (el, c) => rampLayout(c.doc, el).width }),
+    P('slopeRatio', 'Slope (1 in ...)', 'Dimensions', 'number', { get: (el, c) => rampLayout(c.doc, el).ratio, set: (el, v) => ({ slopeRatio: Math.max(1, +v) }) }),
+    ro('run', 'Run Length', 'Dimensions', (el, c) => rampLayout(c.doc, el).run),
+    ro('rise', 'Rise', 'Dimensions', (el, c) => rampLayout(c.doc, el).rise),
+    P('railings', 'Handrails', 'Construction', 'bool', { get: (el) => el.railings !== false }),
+    mark,
+    comments,
+  ],
+  area: [
+    P('name', 'Name', 'Identity Data', 'text'),
+    P('number', 'Number', 'Identity Data', 'text'),
+    ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'),
+    ro('level', 'Level', 'Constraints', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
+    P('areaType', 'Area Type', 'Identity Data', 'select', { get: (el) => el.areaType || 'floor', options: () => AREA_TYPES }),
+    ro('area', 'Area', 'Dimensions', (el, c) => c.scene?.areas.area(el)?.area ?? 0, 'area'),
+    ro('perimeter', 'Perimeter', 'Dimensions', (el, c) => c.scene?.areas.area(el)?.perimeter ?? 0),
+    comments,
+  ],
+  areaBoundary: [ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
 };
+
+export const LINE_STYLES = ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));
+
+export const AREA_SCHEMES = [
+  { value: 'gross', label: 'Gross Building' },
+  { value: 'rentable', label: 'Rentable' },
+];
+
+export const AREA_TYPES = [
+  { value: 'floor', label: 'Floor Area' },
+  { value: 'office', label: 'Office Area' },
+  { value: 'store', label: 'Store Area' },
+  { value: 'common', label: 'Building Common Area' },
+  { value: 'major', label: 'Major Vertical Penetration' },
+  { value: 'exterior', label: 'Exterior Area' },
+];
+
+export function schemeLabel(s) {
+  return AREA_SCHEMES.find((x) => x.value === (s || 'gross'))?.label ?? s;
+}
 
 const DETAIL = [
   { value: 'coarse', label: 'Coarse' },
@@ -245,6 +297,15 @@ const VIEW = {
       options: (c) => [{ value: '', label: 'None' }, { value: 'below', label: 'Level below' }, ...c.doc.levels().map((l) => ({ value: l.id, label: l.name }))],
     }), len('cutHeight', 'Cut Plane Height', 'Extents'), len('viewDepth', 'View Depth Offset', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
   ceilingPlan: [viewScale, viewDetail, vis, len('cutHeight', 'Cut Plane Height', 'Extents'), ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'), viewName],
+  areaPlan: [
+    viewScale,
+    viewDetail,
+    vis,
+    len('cutHeight', 'Cut Plane Height', 'Extents'),
+    ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'),
+    ro('level', 'Associated Level', 'Identity Data', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
+    viewName,
+  ],
   view3d: [
     P('style', 'Visual Style', 'Graphics', 'select', { options: () => STYLES }),
     viewDetail,
@@ -321,6 +382,13 @@ export const TYPE_PARAMS = {
   ],
   beamType: [len('width', 'Width', 'Dimensions'), len('depth', 'Depth', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
   stairType: [len('maxRiser', 'Maximum Riser Height', 'Dimensions'), len('tread', 'Minimum Tread Depth', 'Dimensions'), len('width', 'Default Width', 'Dimensions'), len('thickness', 'Thickness', 'Construction'), P('monolithic', 'Monolithic', 'Construction', 'bool'), MAT('materialId', 'Material')],
+  rampType: [
+    P('slopeRatio', 'Maximum Slope (1 in ...)', 'Dimensions', 'number'),
+    len('width', 'Default Width', 'Dimensions'),
+    len('thickness', 'Thickness', 'Construction'),
+    MAT('materialId', 'Material'),
+    P('mark', 'Type Mark', 'Identity Data', 'text'),
+  ],
   railingType: [len('height', 'Rail Height', 'Dimensions'), len('spacing', 'Baluster Spacing', 'Dimensions'), len('rail', 'Rail Size', 'Dimensions'), P('glass', 'Glass Panels', 'Construction', 'bool'), MAT('materialId', 'Material')],
   componentType: [len('width', 'Width', 'Dimensions'), len('depth', 'Depth', 'Dimensions'), len('height', 'Height', 'Dimensions'), len('elevation', 'Default Elevation', 'Dimensions'), ro('category', 'Category', 'Identity Data', (t) => t.category, 'text'), P('mark', 'Type Mark', 'Identity Data', 'text')],
 };
@@ -366,7 +434,8 @@ function pathLength(p) {
 export function describe(doc, el) {
   if (!el) return '';
   if (el.kind === 'room') return `Room ${el.number || ''} ${el.name || ''}`.trim();
-  if (el.kind === 'level' || el.kind === 'grid') return `${KIND_LABEL[el.kind]} ${el.name}`;
+  if (el.kind === 'area') return `Area ${el.name || ''}`.trim();
+  if (el.kind === 'level' || el.kind === 'grid' || (el.kind === 'refPlane' && el.name)) return `${KIND_LABEL[el.kind]} ${el.name}`;
   const t = doc.get(el.typeId);
   const base = KIND_LABEL[el.kind] || el.kind;
   return t ? `${base}: ${t.name}` : base;

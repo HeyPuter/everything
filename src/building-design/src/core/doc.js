@@ -334,8 +334,17 @@ function prefixFor(kind) {
   return 'e';
 }
 
-export const VIEW_KINDS = new Set(['plan', 'ceilingPlan', 'view3d', 'elevation', 'section', 'schedule', 'sheet']);
+export const VIEW_KINDS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section', 'schedule', 'sheet']);
+
+/** Views drawn as plans of a level (2D, model cut at a height). */
+export const PLAN_VIEW_KINDS = ['plan', 'ceilingPlan', 'areaPlan'];
+
+export const VIEW_LABEL = { plan: 'Floor Plan', ceilingPlan: 'Ceiling Plan', areaPlan: 'Area Plan', view3d: '3D View', elevation: 'Elevation', section: 'Section', schedule: 'Schedule', sheet: 'Sheet' };
 
 export function isView(item) {
   return !!item && VIEW_KINDS.has(item.kind);
+}
+
+export function isPlanView(item) {
+  return !!item && PLAN_VIEW_KINDS.includes(item.kind);
 }

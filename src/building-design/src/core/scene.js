@@ -10,21 +10,26 @@
  * comparing those inputs by identity tells whether to rebuild.
  */
 import { WallSolver, hubsOf } from './walls.js';
-import { RoomSolver } from './rooms.js';
+import { RoomSolver, AreaSolver } from './rooms.js';
 import { build3D } from './build3d.js';
 import { planGraphics, planContext, columnOutline, hiddenInView } from './plan.js';
 import { hostedBy } from './model.js';
 
-export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'railing', 'component'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'grid', 'region', 'dimension', 'text', 'tag', 'detailLine', 'section', 'elevation'];
+export const MODEL_KINDS = ['wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'stair', 'ramp', 'railing', 'component', 'modelLine'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'region', 'dimension', 'text', 'tag', 'detailLine', 'section', 'elevation'];
 
-const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'railing', 'component', 'beam']);
+const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'modelLine', 'area', 'areaBoundary']);
+
+/** Kinds drawn only in area plans, and kinds area plans leave out. */
+const AREA_ONLY = new Set(['area', 'areaBoundary']);
+const NOT_IN_AREA_PLANS = new Set(['room', 'roomSeparator']);
 
 export class Scene {
   constructor(doc) {
     this.doc = doc;
     this.walls = new WallSolver(doc);
     this.rooms = new RoomSolver(doc, this.walls, (c) => columnOutline(doc, c));
+    this.areas = new AreaSolver(doc);
     this.meshes = new Map();
     this.plans = new Map();
     this.known = new Map();
@@ -93,11 +98,13 @@ export class Scene {
     if (all) {
       this.walls.invalidate();
       if (rooms) this.rooms.invalidate();
+      this.areas.invalidate();
     } else {
       if (columnType && rooms) this.rooms.invalidate();
       for (const l of levels) {
         this.walls.invalidate(l);
         if (rooms) this.rooms.invalidate(l);
+        this.areas.invalidate(l);
       }
     }
     for (const id of ev.ids) if (!doc.has(id)) this.meshes.delete(id);
@@ -148,11 +155,14 @@ export class Scene {
   planCandidates(view) {
     const doc = this.doc;
     const out = [];
+    const areaPlan = view.kind === 'areaPlan';
     for (const k of PLAN_KINDS) {
+      if (areaPlan ? NOT_IN_AREA_PLANS.has(k) : AREA_ONLY.has(k)) continue;
       for (const el of doc.all(k)) {
         if (el.viewId && el.viewId !== view.id) continue;
+        if (areaPlan && AREA_ONLY.has(k) && (el.scheme || 'gross') !== (view.scheme || 'gross')) continue;
         if (k === 'section' || k === 'elevation') {
-          if (view.kind !== 'plan') continue;
+          if (view.kind !== 'plan' && view.kind !== 'areaPlan') continue;
         }
         if (hiddenInView(doc, view, el)) continue;
         out.push(el);
@@ -166,10 +176,11 @@ export class Scene {
     const doc = this.doc;
     const d = [view, doc.get(view.levelId), ...this.deps3D(el)];
     if (el.kind === 'room') d.push(this.rooms.room(el));
+    else if (el.kind === 'area') d.push(this.areas.area(el));
     else if (el.kind === 'dimension') for (const r of el.refs || []) d.push(doc.get(r.id));
     else if (el.kind === 'tag') {
       const t = doc.get(el.targetId);
-      d.push(t, t && doc.get(t.hostId), t && doc.get(t.typeId), t?.kind === 'room' ? this.rooms.room(t) : null);
+      d.push(t, t && doc.get(t.hostId), t && doc.get(t.typeId), t?.kind === 'room' ? this.rooms.room(t) : t?.kind === 'area' ? this.areas.area(t) : null);
     } else if (el.kind === 'stair') d.push(doc.levelAbove(el.levelId));
     void pc;
     return d;
@@ -179,7 +190,7 @@ export class Scene {
   planOf(view, el, pc = null) {
     let cache = this.plans.get(view.id);
     if (!cache) this.plans.set(view.id, (cache = new Map()));
-    const ctx = pc || planContext(this.doc, view, this.walls, this.rooms);
+    const ctx = pc || planContext(this.doc, view, this.walls, this.rooms, this.areas);
     const deps = this.depsPlan(view, el, ctx);
     const c = cache.get(el.id);
     if (c && sameDeps(c.deps, deps)) return c.g;

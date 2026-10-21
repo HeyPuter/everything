@@ -26,6 +26,12 @@
  *   text         { viewId, at, text, size, rotation }
  *   tag          { viewId, targetId, at, leader }
  *   detailLine   { viewId, a, b, style }
+ *   refPlane     { a, b, name }                       (shown in every plan)
+ *   modelLine    { levelId, a, b, offset, style }
+ *   ramp         { typeId, levelId, topLevelId, baseOffset, topOffset, height, a, b, width, railings }
+ *   area         { levelId, scheme, at, name, number, tagAt }
+ *   areaBoundary { levelId, scheme, a, b }
+ *   group        { typeId, levelId, at, rotation }     (members carry groupId)
  */
 import { MM_PER_FOOT, MM_PER_INCH } from './units.js';
 
@@ -45,7 +51,9 @@ export const CATEGORIES = [
   { id: 'columns', label: 'Columns', model: true },
   { id: 'beams', label: 'Structural Framing', model: true },
   { id: 'stairs', label: 'Stairs', model: true },
+  { id: 'ramps', label: 'Ramps', model: true },
   { id: 'railings', label: 'Railings', model: true },
+  { id: 'modelLines', label: 'Lines (Model)', model: true },
   { id: 'furniture', label: 'Furniture', model: true },
   { id: 'casework', label: 'Casework', model: true },
   { id: 'plumbing', label: 'Plumbing Fixtures', model: true },
@@ -54,7 +62,10 @@ export const CATEGORIES = [
   { id: 'lighting', label: 'Lighting Fixtures', model: true },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
+  { id: 'areas', label: 'Areas', model: false },
+  { id: 'areaBoundaries', label: 'Area Boundary Lines', model: false },
   { id: 'grids', label: 'Grids', model: false },
+  { id: 'refPlanes', label: 'Reference Planes', model: false },
   { id: 'levels', label: 'Levels', model: false },
   { id: 'dimensions', label: 'Dimensions', model: false },
   { id: 'text', label: 'Text Notes', model: false },
@@ -84,6 +95,11 @@ const KIND_CATEGORY = {
   tag: 'tags',
   detailLine: 'lines',
   region: 'lines',
+  refPlane: 'refPlanes',
+  modelLine: 'modelLines',
+  ramp: 'ramps',
+  area: 'areas',
+  areaBoundary: 'areaBoundaries',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -115,6 +131,12 @@ export const KIND_LABEL = {
   tag: 'Tag',
   detailLine: 'Detail Line',
   region: 'Filled Region',
+  refPlane: 'Reference Plane',
+  modelLine: 'Model Line',
+  ramp: 'Ramp',
+  area: 'Area',
+  areaBoundary: 'Area Boundary',
+  group: 'Model Group',
 };
 
 export const TYPE_KIND = {
@@ -129,6 +151,8 @@ export const TYPE_KIND = {
   stair: 'stairType',
   railing: 'railingType',
   component: 'componentType',
+  ramp: 'rampType',
+  group: 'groupType',
 };
 
 // Materials ----------------------------------------------------------------------
@@ -360,6 +384,14 @@ function stairTypes(imp) {
   ].map((x) => ({ ...x, kind: 'stairType', familyName: 'Stair' }));
 }
 
+function rampTypes(imp) {
+  const t = (mm, inch) => (imp ? inch * IN : mm);
+  return [
+    { id: 'rpt-concrete', name: 'Concrete - 1:12', slopeRatio: 12, width: t(1200, 48), thickness: t(150, 6), materialId: 'mat-concrete' },
+    { id: 'rpt-gentle', name: 'Concrete - 1:20', slopeRatio: 20, width: t(1500, 60), thickness: t(150, 6), materialId: 'mat-concrete' },
+  ].map((x) => ({ ...x, kind: 'rampType', familyName: 'Ramp' }));
+}
+
 function railingTypes(imp) {
   const t = (mm, inch) => (imp ? inch * IN : mm);
   return [
@@ -420,6 +452,7 @@ export function defaultTypes(system = 'metric') {
     ...columnTypes(imp),
     ...beamTypes(imp),
     ...stairTypes(imp),
+    ...rampTypes(imp),
     ...railingTypes(imp),
     ...componentTypes(imp),
   ];

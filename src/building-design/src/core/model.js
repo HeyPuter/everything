@@ -92,6 +92,29 @@ export function stairRise(doc, s) {
   return { base, top, rise: Math.max(1, top - base) };
 }
 
+/**
+ * Ramp run: the rise between its levels divided by the slope (1 in
+ * slopeRatio), along a→b. The stored b is only a direction; `end` is where
+ * the ramp really ends.
+ */
+export function rampLayout(doc, r) {
+  const type = doc.get(r.typeId) || {};
+  const { base, top, rise } = stairRise(doc, r);
+  const ratio = Math.max(1, +(r.slopeRatio ?? type.slopeRatio) || 12);
+  const run = rise * ratio;
+  const d = sub(r.b, r.a);
+  const dir = len(d) > 1e-6 ? norm(d) : [1, 0];
+  const width = +(r.width ?? type.width) || 1200;
+  return { base, top, rise, ratio, run, dir, side: perp(dir), width, end: add(r.a, scale(dir, run)), thickness: +type.thickness || 150 };
+}
+
+/** Plan outline of a ramp (a rectangle centred on its run line). */
+export function rampOutline(doc, r) {
+  const g = rampLayout(doc, r);
+  const h = scale(g.side, g.width / 2);
+  return [sub(r.a, h), sub(g.end, h), add(g.end, h), add(r.a, h)];
+}
+
 /** Riser count, riser height and tread depth for a stair. */
 export function stairLayout(doc, s) {
   const type = doc.get(s.typeId) || {};

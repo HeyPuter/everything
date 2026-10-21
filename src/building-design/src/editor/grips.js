@@ -5,7 +5,7 @@
  * click handler.
  */
 import { add, sub, scale, perp, mid, dot, eq } from '../core/geom.js';
-import { wallAxis, openingSize } from '../core/model.js';
+import { wallAxis, openingSize, rampLayout } from '../core/model.js';
 import { sectionFrame } from '../core/plan.js';
 import { dimensionGeometry } from '../core/plan.js';
 
@@ -82,7 +82,14 @@ export function gripsFor(app, el, vc) {
       case 'detailLine':
       case 'roomSeparator':
       case 'beam':
+      case 'ramp':
+        out.push({ at: el.a, shape: 'circle', title: 'Drag start', exclude: [el.id], drag: (p) => doc.update(el.id, { a: p, b: add(p, sub(el.b, el.a)) }) });
+        out.push({ at: rampLayout(doc, el).end, shape: 'circle', title: 'Drag to turn the ramp', exclude: [el.id], drag: (p) => doc.update(el.id, { b: p }) });
+        break;
       case 'stair':
+      case 'refPlane':
+      case 'modelLine':
+      case 'areaBoundary':
         for (const end of ['a', 'b'])
           out.push({
             at: el[end],
@@ -150,7 +157,8 @@ export function gripsFor(app, el, vc) {
         );
         break;
       case 'room':
-        out.push({ at: el.tagAt || el.at, shape: 'diamond', title: 'Move room tag', exclude: [el.id], drag: (p) => doc.update(el.id, { tagAt: p }) });
+      case 'area':
+        out.push({ at: el.tagAt || el.at, shape: 'diamond', title: 'Move label', exclude: [el.id], drag: (p) => doc.update(el.id, { tagAt: p }) });
         break;
       case 'dimension': {
         if (!el.refs?.length) break;

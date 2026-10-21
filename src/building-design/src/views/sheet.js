@@ -7,6 +7,7 @@ import { PlanController } from './plan.js';
 import { titleBlock, planViewportGraphics, viewportTitle, sheetSize } from '../core/sheet.js';
 import { planContext, PlanBuilder } from '../core/plan.js';
 import { renderViewImage } from './snapshot.js';
+import { isPlanView } from '../core/doc.js';
 
 const IMAGE_DPMM = 6;
 
@@ -35,7 +36,7 @@ export class SheetController extends PlanController {
       if (!view) continue;
       let g;
       let rect;
-      if (view.kind === 'plan' || view.kind === 'ceilingPlan') {
+      if (isPlanView(view)) {
         const pc = planContext(this.app.doc, view, scene.walls, scene.rooms);
         const r = planViewportGraphics(scene, view, vpEl, pc);
         g = r.builder;

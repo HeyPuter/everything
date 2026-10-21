@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "description": "Building Design: building information modeling in the browser. Model walls, doors, windows, floors, roofs, stairs and rooms on levels, then work in plans, elevations, sections, 3D, schedules and sheets.",
   "scripts": {
     "dev": "vite",
