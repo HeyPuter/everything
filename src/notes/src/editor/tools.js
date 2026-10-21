@@ -129,8 +129,10 @@ export class InkTools {
     }
     if (this.active) return;
     this.overlay.setPointerCapture(e.pointerId);
+    // A pen's eraser end (or eraser button) erases whatever the tool.
+    const tool = e.pointerType === 'pen' && (e.button === 5 || e.buttons & 32) ? 'eraser' : this.tool;
     const handlers = { pen: () => this.drawStroke(e), eraser: () => this.erase(e), lasso: () => this.lasso(e), shape: () => this.drawShape(e), space: () => this.insertSpace(e) };
-    handlers[this.tool]?.();
+    handlers[tool]?.();
   }
 
   startGesture() {

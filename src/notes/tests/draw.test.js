@@ -3,6 +3,7 @@ import { Store } from '../src/data/store.js';
 import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
 import { closeAllMenus } from '../src/ui/menu.js';
+import { setPref } from '../src/ui/prefs.js';
 
 let app;
 let ink;
@@ -11,6 +12,7 @@ let scrolled;
 beforeEach(async () => {
   document.body.innerHTML = '<div id="app"></div><div id="live-region"></div>';
   localStorage.clear();
+  setPref('zoom', 1); // pinching saves the zoom
   const store = new Store(memoryBackend(), { saveDelay: 0 });
   await store.load({ defaultName: "sam's Notebook" });
   app = new App(document.getElementById('app'), { store, user: { username: 'sam' }, env: 'web', onSignOut: () => {} });
@@ -88,5 +90,16 @@ describe('drawing with fingers and pens', () => {
     pointer('pointermove', 11, 'touch', 320, 320);
     pointer('pointerup', 11, 'touch', 320, 320);
     expect(app.editor.page.ink.length).toBe(1);
+  });
+});
+
+describe('pen eraser', () => {
+  it("erases with the pen's eraser end whatever the tool", () => {
+    app.editor.page.ink.push({ id: 's1', type: 'stroke', color: '#000', width: 3, highlighter: false, points: [[0, 50, 0.5], [100, 50, 0.5]] });
+    ink.render();
+    pointer('pointerdown', 2, 'pen', 40, 30, { button: 5, buttons: 32 });
+    pointer('pointermove', 2, 'pen', 40, 70, { buttons: 32 });
+    pointer('pointerup', 2, 'pen', 40, 70, { button: 5 });
+    expect(app.editor.page.ink.length).toBe(0);
   });
 });
