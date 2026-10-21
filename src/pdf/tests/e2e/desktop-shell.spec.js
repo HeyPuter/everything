@@ -540,6 +540,30 @@ test('Organize pages selects, turns, moves, and deletes several pages', async ({
   await expect(page.locator('.page-caption')).toHaveText(/of 2$/);
 });
 
+test('Organize pages keeps the duplicated pages selected', async ({ page }) => {
+  await openPdf(page, await numberedPdf(5));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 2', exact: true }).click();
+  await grid
+    .getByRole('option', { name: 'Page 4', exact: true })
+    .click({ modifiers: ['ControlOrMeta'] });
+  const toolbar = page.getByRole('toolbar', { name: 'Organize pages' });
+  await toolbar.getByRole('button', { name: 'Duplicate pages', exact: true }).click();
+  await settled(page);
+  await expect(grid.getByRole('option')).toHaveCount(7);
+  // The original page 4 now comes after the copy of page 2.
+  await expect(grid.locator('[aria-selected="true"]')).toHaveText(['2', '5']);
+  await toolbar.getByRole('button', { name: 'Rotate clockwise', exact: true }).click();
+  await settled(page);
+  const doc = await PDFDocument.load(await downloaded(page));
+  expect(doc.getPages().map((p) => p.getRotation().angle)).toEqual([0, 90, 0, 0, 90, 0, 0]);
+});
+
 test('batch text recognition lets each PDF go before reading the next', async ({ page }) => {
   // Count the documents PDF.js holds open: each GetDocRequest opens one, Terminate closes it.
   await page.evaluate(() => {

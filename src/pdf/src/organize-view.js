@@ -74,7 +74,18 @@ export function createOrganizeView({ getPdf, getRevision, currentIndex, can, isB
     duplicate: iconButton(
       'Duplicate pages',
       'Copy',
-      run(() => actions.duplicate(target())),
+      run(async () => {
+        const list = target();
+        const revision = getRevision();
+        await actions.duplicate(list);
+        if (getRevision() === revision || !selected.size) return;
+        // Each copy lands right after its page, pushing later selected pages along; keep the
+        // selection on the pages that were chosen rather than on whatever took their places.
+        const moved = (i) => i + list.filter((k) => k < i).length;
+        selected = new Set(indices().map(moved));
+        if (anchor != null) anchor = moved(anchor);
+        updateState();
+      }),
       {
         'data-permission': 'assemble',
       },
@@ -123,7 +134,13 @@ export function createOrganizeView({ getPdf, getRevision, currentIndex, can, isB
     commands.extract,
     commands.remove,
     el('span', { class: 'organize-sep', 'aria-hidden': 'true' }),
-    el('label', { class: 'organize-size' }, icon('ZoomOut', 16, { plain: true }), sizeInput, icon('ZoomIn', 16, { plain: true })),
+    el(
+      'label',
+      { class: 'organize-size' },
+      icon('ZoomOut', 16, { plain: true }),
+      sizeInput,
+      icon('ZoomIn', 16, { plain: true }),
+    ),
     button('Close', 'X', () => actions.close(), 'btn organize-close'),
   );
   const root = el(
