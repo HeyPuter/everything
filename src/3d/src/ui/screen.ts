@@ -6,7 +6,7 @@ import { openMenu, captureMenuItems, type MenuItem } from './menu';
 import { regionSizes, setRegionSizes } from './regionscale';
 import { app, type ChangeKind, type AreaLike } from '../app/app';
 import { prefs } from '../app/prefs';
-import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, type Side, type LayoutEdge } from './layout';
+import { GAP, areaRects, leaves, splitLayout, swapLayout, joinLayout, neighbourOn, removeFromLayout, layoutEdges, edgeNear, edgeRatio, alignedEdges, type Side, type LayoutEdge } from './layout';
 
 export { areaRects, type Side, type LayoutEdge };
 
@@ -610,12 +610,12 @@ export class Screen {
         const wa = Math.round((w - GAP) * n.ratio);
         place(n.a, x, y, wa, hgt);
         place(n.b, x + wa + GAP, y, w - wa - GAP, hgt);
-        this.addDivider(n, 'h', x + wa, y, GAP, hgt, x, w);
+        this.addDivider(n, 'h', x + wa, y, GAP, hgt);
       } else {
         const ha = Math.round((hgt - GAP) * n.ratio);
         place(n.a, x, y, w, ha);
         place(n.b, x, y + ha + GAP, w, hgt - ha - GAP);
-        this.addDivider(n, 'v', x, y + ha, w, GAP, y, hgt);
+        this.addDivider(n, 'v', x, y + ha, w, GAP);
       }
     };
     const root = this.maximized ? { area: { id: this.maximized.id, type: this.maximized.type } } : this.layout;
@@ -629,30 +629,16 @@ export class Screen {
     for (const a of this.areas) a.editor.resize?.();
   }
 
-  private addDivider(n: Extract<LayoutNode, { split: string }>, dir: 'h' | 'v', x: number, y: number, w: number, hgt: number, start: number, size: number) {
+  private addDivider(n: Extract<LayoutNode, { split: string }>, dir: 'h' | 'v', x: number, y: number, w: number, hgt: number) {
     const d = document.createElement('div');
     d.className = `divider ${dir}`;
     Object.assign(d.style, { left: `${x - (dir === 'h' ? 2 : 0)}px`, top: `${y - (dir === 'v' ? 2 : 0)}px`, width: `${dir === 'h' ? w + 4 : w}px`, height: `${dir === 'v' ? hgt + 4 : hgt}px` });
     d.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      d.setPointerCapture(e.pointerId);
-      const move = (ev: PointerEvent) => {
-        const pos = dir === 'h' ? ev.clientX - this.el.getBoundingClientRect().left : ev.clientY - this.el.getBoundingClientRect().top;
-        let r = (pos - start) / Math.max(1, size - GAP);
-        // Ctrl snaps to common proportions
-        if (ev.ctrlKey || ev.metaKey) r = snapRatio(r);
-        // keep a header's height (or a narrow column) on both sides
-        const minFrac = Math.min(0.45, 26 / Math.max(1, size - GAP));
-        n.ratio = Math.max(minFrac, Math.min(1 - minFrac, r));
-        this.relayout();
-      };
-      const up = () => {
-        d.removeEventListener('pointermove', move);
-        d.removeEventListener('pointerup', up);
-      };
-      d.addEventListener('pointermove', move);
-      d.addEventListener('pointerup', up);
+      // the edges in line with this one (e.g. both halves of a quad view's middle) move together
+      const edge = this.edges().find((x) => x.node === n);
+      if (edge) this.dragEdge(edge);
     });
     d.addEventListener('dblclick', () => {
       n.ratio = 0.5;
@@ -679,25 +665,30 @@ export class Screen {
     return edgeNear(this.edges(), x - r.left, y - r.top, tol);
   }
 
-  /** Move an edge by `delta` pixels (right / down); `snap` rounds to common proportions. */
+  /** Move an edge (and the edges aligned with it) by `delta` pixels (right / down); `snap` rounds to common proportions. */
   moveEdge(e: LayoutEdge, delta: number, snap = false) {
-    let r = edgeRatio(e, e.pos + delta);
-    if (snap) r = snapRatio(r);
-    e.node.ratio = r;
+    for (const x of alignedEdges(this.edges(), e)) {
+      let r = edgeRatio(x, x.pos + delta);
+      if (snap) r = snapRatio(r);
+      x.node.ratio = r;
+    }
     this.relayout();
     app.changed('ui', 'view');
   }
 
-  /** Drag an edge with the pointer until release (Ctrl snaps, Esc / right click restore it). */
+  /** Drag an edge (with the edges aligned with it) until release (Ctrl snaps, Esc / right click restore them). */
   dragEdge(e: LayoutEdge) {
-    const r0 = e.node.ratio;
+    const group = alignedEdges(this.edges(), e);
+    const r0 = group.map((x) => x.node.ratio);
     const origin = this.el.getBoundingClientRect();
     document.body.classList.add(e.dir === 'h' ? 'edge-drag-h' : 'edge-drag-v');
     const move = (ev: PointerEvent) => {
       const pos = e.dir === 'h' ? ev.clientX - origin.left : ev.clientY - origin.top;
-      let r = edgeRatio(e, pos);
-      if (ev.ctrlKey || ev.metaKey) r = snapRatio(r);
-      e.node.ratio = r;
+      for (const x of group) {
+        let r = edgeRatio(x, pos);
+        if (ev.ctrlKey || ev.metaKey) r = snapRatio(r);
+        x.node.ratio = r;
+      }
       this.relayout();
     };
     const end = (ok: boolean) => {
@@ -707,7 +698,7 @@ export class Screen {
       removeEventListener('keydown', key, true);
       document.body.classList.remove('edge-drag-h', 'edge-drag-v');
       if (!ok) {
-        e.node.ratio = r0;
+        group.forEach((x, i) => (x.node.ratio = r0[i]));
         this.relayout();
       }
       app.changed('ui', 'view');

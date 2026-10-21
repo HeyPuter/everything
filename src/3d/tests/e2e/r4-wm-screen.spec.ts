@@ -124,3 +124,27 @@ test('playback step and pause; Info log window', async ({ page }) => {
   await expect(page.locator('.area-window .area[data-editor="INFO"]')).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('quad view: dragging the middle edge moves both halves of the line', async ({ page }) => {
+  const errors = await openApp(page);
+  const v = await areaBox(page, 'VIEW_3D');
+  await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  await page.keyboard.press('Control+Alt+q');
+  await expect(page.locator('.area[data-editor="VIEW_3D"]')).toHaveCount(4);
+  const boxes = async () => {
+    const all = await page.locator('.area[data-editor="VIEW_3D"]').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
+    return all.sort((a, b) => a.top - b.top || a.left - b.left);
+  };
+  const b0 = await boxes();
+  const edgeX = b0[0].right + 1;
+  const y = b0[0].top + b0[0].height / 2;
+  await page.mouse.move(edgeX, y);
+  await page.mouse.down();
+  await page.mouse.move(edgeX - 50, y, { steps: 3 });
+  await page.mouse.up();
+  const b1 = await boxes();
+  expect(b1[0].width).toBeCloseTo(b0[0].width - 50, -1);
+  // the lower row follows
+  expect(b1[2].width).toBeCloseTo(b0[2].width - 50, -1);
+  await expectNoErrors(errors);
+});

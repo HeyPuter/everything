@@ -241,3 +241,23 @@ export function edgeRatio(e: LayoutEdge, pos: number, minPx = 26, gap = GAP): nu
   const minFrac = Math.min(0.45, minPx / avail);
   return Math.max(minFrac, Math.min(1 - minFrac, r));
 }
+
+/**
+ * Edges that continue `e` in a straight line (same direction and position, touching end to end,
+ * e.g. the two halves of a quad view's middle line): dragging one moves them all.
+ */
+export function alignedEdges(edges: LayoutEdge[], e: LayoutEdge, tol = 1, gap = GAP): LayoutEdge[] {
+  const out = [e];
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const x of edges) {
+      if (out.includes(x) || x.dir !== e.dir || Math.abs(x.pos - e.pos) > tol) continue;
+      if (out.some((y) => x.from <= y.to + gap + tol && y.from <= x.to + gap + tol)) {
+        out.push(x);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}

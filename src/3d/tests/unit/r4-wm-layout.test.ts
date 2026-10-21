@@ -31,3 +31,16 @@ describe('layout edges', () => {
     expect(edgeRatio(h, 10000)).toBeCloseTo(1 - 26 / 800, 9);
   });
 });
+
+describe('aligned edges', () => {
+  it('the halves of a quad layout middle line move together; offset edges do not', async () => {
+    const { layoutEdges, alignedEdges } = await import('../../src/ui/layout');
+    const quad: LayoutNode = { split: 'v', ratio: 0.5, a: { split: 'h', ratio: 0.5, a: A('a'), b: A('b') }, b: { split: 'h', ratio: 0.5, a: A('c'), b: A('d') } };
+    const e = layoutEdges(quad, 802, 402);
+    const top = e.find((x) => x.dir === 'h' && x.from === 0)!;
+    expect(alignedEdges(e, top)).toHaveLength(2);
+    const off: LayoutNode = { ...quad, b: { split: 'h', ratio: 0.3, a: A('c'), b: A('d') } };
+    const e2 = layoutEdges(off, 802, 402);
+    expect(alignedEdges(e2, e2.find((x) => x.dir === 'h' && x.from === 0)!)).toHaveLength(1);
+  });
+});
