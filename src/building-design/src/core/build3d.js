@@ -575,29 +575,44 @@ function buildCurtainWall(ctx, w, g, type) {
   const H = top - base;
   const { us, vs, nu, nv } = curtainGrid(L, H, type, w);
   const frame = new Frame(axis.a, Math.atan2(dir[1], dir[0]), base);
-  const box = (x0, y0, z0, x1, y1, z1, col) => b.prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((p) => frame.apply(p)), [], base + z0, base + z1, col);
+  const box = (x0, y0, z0, x1, y1, z1, col, opts) => b.prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((p) => frame.apply(p)), [], base + z0, base + z1, col, opts);
+  // Mullion segments can be removed one by one (wall.mullionsOff: 'v:i:j' and 'h:j:i').
+  const off = new Set(w.mullionsOff || []);
   for (let i = 0; i <= nu; i++) {
     const u = Math.min(L - mw / 2, Math.max(mw / 2, us[i]));
-    box(u - mw / 2, -md / 2, 0, u + mw / 2, md / 2, H, mul);
+    for (let j = 0; j < nv; j++) if (!off.has(`v:${i}:${j}`)) box(u - mw / 2, -md / 2, vs[j], u + mw / 2, md / 2, vs[j + 1], mul);
   }
   for (let j = 0; j <= nv; j++) {
     const z = Math.min(H - mw / 2, Math.max(mw / 2, vs[j]));
-    for (let i = 0; i < nu; i++) box(us[i] + mw / 2, -md / 2 + 10, z - mw / 2, us[i + 1] - mw / 2, md / 2 - 10, z + mw / 2, mul);
+    for (let i = 0; i < nu; i++) if (!off.has(`h:${j}:${i}`)) box(us[i] + mw / 2, -md / 2 + 10, z - mw / 2, us[i + 1] - mw / 2, md / 2 - 10, z + mw / 2, mul);
   }
+  // Panels: glass unless the wall says otherwise (wall.panels['i:j'] = 'solid' | 'empty' | 'door').
+  const solid = materialColor(ctx, c.panelMaterialId || 'mat-paint-white');
   for (let i = 0; i < nu; i++)
     for (let j = 0; j < nv; j++) {
+      const kind = w.panels?.[`${i}:${j}`] || 'glass';
+      if (kind === 'empty') continue;
       const x0 = us[i] + mw / 2;
       const x1 = us[i + 1] - mw / 2;
       const z0 = vs[j] + mw / 2;
       const z1 = vs[j + 1] - mw / 2;
       if (x1 - x0 < 1 || z1 - z0 < 1) continue;
-      const pts = [
-        [x0, -6],
-        [x1, -6],
-        [x1, 6],
-        [x0, 6],
-      ].map((p) => frame.apply(p));
-      b.prism(pts, [], base + z0, base + z1, glass, { edges: false });
+      if (kind === 'solid') {
+        box(x0, -15, z0, x1, 15, z1, solid);
+        continue;
+      }
+      if (kind === 'door') {
+        // A glazed door leaf: a frame round the glass and a pull handle.
+        const f = Math.min(80, (x1 - x0) / 6);
+        box(x0, -25, z0, x0 + f, 25, z1, mul);
+        box(x1 - f, -25, z0, x1, 25, z1, mul);
+        box(x0 + f, -25, z0, x1 - f, 25, z0 + f * 1.5, mul);
+        box(x0 + f, -25, z1 - f, x1 - f, 25, z1, mul);
+        box(x1 - f * 2.2, 25, z0 + (z1 - z0) * 0.35, x1 - f * 1.8, 70, z0 + (z1 - z0) * 0.6, mul);
+        box(x0 + f, -6, z0 + f * 1.5, x1 - f, 6, z1 - f, glass, { edges: false });
+        continue;
+      }
+      box(x0, -6, z0, x1, 6, z1, glass, { edges: false });
     }
   void n;
   return b.build();

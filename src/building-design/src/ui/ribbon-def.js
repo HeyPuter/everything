@@ -39,6 +39,7 @@ export const RIBBON = [
           { cmd: 'floor', size: 'lg' },
           { cmd: 'curtainWall', size: 'lg' },
           { cmd: 'curtainGrid', size: 'lg' },
+          { cmd: 'editCurtain', size: 'lg', label: 'Mullion' },
         ],
       },
       { title: 'Circulation', items: [{ cmd: 'railing', size: 'lg' }, { cmd: 'ramp', size: 'lg' }, { cmd: 'stair', size: 'lg' }] },
@@ -380,7 +381,7 @@ export function contextualPanels(kinds) {
   if (k === 'group') panels.push({ title: 'Group', items: [{ cmd: 'groupEdit', size: 'lg' }, { cmd: 'ungroup', size: 'lg' }, { cmd: 'groupPlace', size: 'lg' }] });
   else panels.push({ title: 'Create', items: [{ cmd: 'createSimilar', size: 'lg' }, { cmd: 'groupCreate', size: 'lg' }] });
   if (kinds.length > 1) panels.unshift({ title: 'Selection', items: [{ cmd: 'selectionFilter', size: 'lg' }] });
-  if (k === 'wall') panels.push({ title: 'Wall', items: [{ cmd: 'flip', size: 'lg' }, { cmd: 'attachTop', size: 'lg' }, { cmd: 'detachTop', size: 'lg' }] });
+  if (k === 'wall') panels.push({ title: 'Wall', items: [{ cmd: 'flip', size: 'lg' }, { cmd: 'attachTop', size: 'lg' }, { cmd: 'detachTop', size: 'lg' }, { cmd: 'editCurtain', size: 'lg' }] });
   if (k === 'door' || k === 'window') panels.push({ title: 'Opening', items: [{ cmd: 'flip', size: 'lg' }] });
   if (k === 'floor' || k === 'roof' || k === 'ceiling' || k === 'railing') panels.push({ title: 'Mode', items: [{ cmd: 'editBoundary', size: 'lg' }] });
   panels.push({ title: 'View', items: [{ cmd: 'hideEl' }, { cmd: 'hideCat' }, { cmd: 'overrideEl' }, { cmd: 'tempIsolate' }, { cmd: 'tempHide' }, { cmd: 'selectSimilar' }] });
