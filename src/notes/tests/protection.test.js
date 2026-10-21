@@ -305,6 +305,60 @@ describe('password-protected sections: restoring deleted pages', () => {
   });
 });
 
+describe('password-protected sections: re-encrypting pictures', () => {
+  async function withPicture() {
+    const { backend, store, section, meta } = await setup();
+    const page = await store.loadPage(meta.id);
+    const asset = await store.saveAsset(new Blob(['png bytes'], { type: 'image/png' }), 'a.png');
+    page.outlines[0].html += `<p><img data-asset="${asset}"></p>`;
+    store.pageChanged(page);
+    await store.flush();
+    return { backend, store, section, meta, asset };
+  }
+  async function pictureAfterReload(backend, meta, unlock) {
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    if (unlock) await fresh.unlockSection(...unlock);
+    const page = await fresh.loadPage(meta.id);
+    const id = page.outlines[0].html.match(/data-asset="([^"]+)"/)[1];
+    return fresh.assetBlob(id);
+  }
+
+  it('keeps the old picture until the page pointing at the new one is saved', async () => {
+    const { backend, store, section, meta, asset } = await withPicture();
+    const write = backend.writeJSON;
+    backend.writeJSON = async (path, value) => {
+      if (path.startsWith('pages/')) throw new Error('Simulated network failure');
+      return write(path, value);
+    };
+    await store.protectSection(section.id, 'pw');
+    backend.writeJSON = write;
+    // The session ends before the page save is retried: the stored page
+    // still points at the old picture, which must still be there.
+    expect(await pictureAfterReload(backend, meta, [section.id, 'pw'])).toBeTruthy();
+    await store.flush();
+    expect(backend.files.has(`assets/${asset}`)).toBe(false);
+    expect(await (await pictureAfterReload(backend, meta, [section.id, 'pw'])).text()).toBe('png bytes');
+  });
+
+  it('does the same when a page with a picture moves into a protected section', async () => {
+    const { backend, store, meta, asset } = await withPicture();
+    const safe = store.createSection(store.notebooks[0].id, { name: 'Safe' });
+    await store.protectSection(safe.id, 'pw');
+    const write = backend.writeJSON;
+    backend.writeJSON = async (path, value) => {
+      if (path.startsWith('pages/')) throw new Error('Simulated network failure');
+      return write(path, value);
+    };
+    store.movePage(meta.id, { sectionId: safe.id });
+    await new Promise((r) => setTimeout(r, 20));
+    backend.writeJSON = write;
+    expect(await pictureAfterReload(backend, meta, [safe.id, 'pw'])).toBeTruthy();
+    await store.flush();
+    expect(backend.files.has(`assets/${asset}`)).toBe(false);
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');

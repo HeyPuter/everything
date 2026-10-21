@@ -55,6 +55,9 @@ export class Store extends Emitter {
     this.assetWrites = 0;
     this.versionState = new Map();
     this.versionJobs = new Map();
+    // Re-encrypted assets' old copies, by page id: removed once the page
+    // pointing at the new copies is saved.
+    this.staleAssets = new Map();
     this.loadedSnapshots = new Map();
     this.status = 'saved';
     // Keys of unlocked password-protected sections, by section id. Never stored.
@@ -769,6 +772,7 @@ export class Store extends Emitter {
     this.cancel(`pages/${id}.json`);
     this.pages.delete(id);
     this.textCache.delete(id);
+    this.staleAssets.delete(id);
     // A shared link must not outlive a page deleted for good.
     await Promise.all([this.backend.remove(`pages/${id}.json`), this.backend.remove(`versions/${id}.json`), this.backend.remove(`published/${id}.json`)]);
   }
@@ -1060,7 +1064,9 @@ export class Store extends Emitter {
 
   /**
    * Re-saves a page's assets so they match its section: sealed with the
-   * section key when protected, plain otherwise. Old copies are removed.
+   * section key when protected, plain otherwise. Old copies are removed
+   * after the page that points at the new ones is saved, so a failure in
+   * between never leaves the stored page pointing at a deleted file.
    */
   async rekeyAssets(page, { from = null, sectionId, force = false } = {}) {
     const target = sectionId === undefined ? this.findPage(page.id)?.section : this.section(sectionId);
@@ -1088,7 +1094,7 @@ export class Store extends Emitter {
         const ext = sealedFor ? assetId.split('.').at(-2) : assetId.split('.').pop();
         const newId = await this.saveAsset(blob, `x.${ext}`, { sectionId: wantSection });
         o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${newId}"`);
-        await this.backend.remove(`assets/${assetId}`).catch(() => {});
+        this.staleAssets.set(page.id, [...(this.staleAssets.get(page.id) || []), assetId]);
         changed = true;
       }
     }
@@ -1276,8 +1282,12 @@ export class Store extends Emitter {
           snapshot = JSON.parse(JSON.stringify(this.trash));
           this.emit('change', { type: 'trash' });
         }
+        const plain = snapshot;
         snapshot = await this.seal(path, snapshot);
-        if (snapshot !== null) await this.backend.writeJSON(path, snapshot);
+        if (snapshot !== null) {
+          await this.backend.writeJSON(path, snapshot);
+          if (path.startsWith('pages/')) await this.dropStaleAssets(plain);
+        }
         if (path === 'trash.json' && snapshot) this.trashBase = new Set(snapshot.map((t) => t.id));
         this.failed.delete(path);
       } catch (err) {
@@ -1297,6 +1307,19 @@ export class Store extends Emitter {
     });
     this.writers.set(path, job.catch(() => {}));
     return job;
+  }
+
+  /** Removes old asset copies the just-saved page no longer points at (unless a loaded page still does). */
+  async dropStaleAssets(saved) {
+    const stale = this.staleAssets.get(saved?.id);
+    if (!stale || !Array.isArray(saved.outlines)) return;
+    const uses = (page, a) => page.outlines?.some((o) => o.html?.includes(`data-asset="${a}"`));
+    const gone = stale.filter((a) => !uses(saved, a));
+    const left = stale.filter((a) => !gone.includes(a));
+    if (left.length) this.staleAssets.set(saved.id, left);
+    else this.staleAssets.delete(saved.id);
+    const unused = gone.filter((a) => ![...this.pages.values()].some((p) => p.id !== saved.id && uses(p, a)));
+    await Promise.all(unused.map((a) => this.backend.remove(`assets/${a}`).catch(() => {})));
   }
 
   /** Writes everything pending now. */
