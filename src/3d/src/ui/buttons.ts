@@ -664,6 +664,15 @@ export function activateHovered() {
   if (el.classList.contains('num-field')) dispatchEvent(new PointerEvent('pointerup', init));
 }
 
+/** K / Alt K over an animatable button: add it to (or remove it from) the active keying set. */
+function keyingSetButton(add: boolean) {
+  const b = targetButton();
+  const a = b ? animOf(b) : null;
+  const op = add ? 'anim.keyingset_button_add' : 'anim.keyingset_button_remove';
+  if (!b || !a || !operators.has(op)) return;
+  app.run(op, { object: a.ob.id, data_path: a.path, index: b.index ?? -1, all: true });
+}
+
 /** Minus over a number button flips its sign. */
 function negateHovered() {
   const b = targetButton();
@@ -705,6 +714,8 @@ addKeys('User Interface', [
   { key: 'RET', alt: true, op: 'ui.copy_to_selected_button', props: { all: true } },
   { key: 'RET', action: () => activateHovered() },
   { key: 'NUMPAD_ENTER', action: () => activateHovered() },
+  { key: 'K', action: () => keyingSetButton(true) },
+  { key: 'K', alt: true, action: () => keyingSetButton(false) },
   { key: 'MINUS', action: () => negateHovered() },
   { key: 'NUMPAD_MINUS', action: () => negateHovered() },
 ]);

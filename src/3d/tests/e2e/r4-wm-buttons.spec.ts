@@ -66,3 +66,21 @@ test('Properties background menu pins the object; path fields browse', async ({ 
   expect(await page.evaluate(() => (window as any).app.doc.scene.render.filepath)).toBe('//frames/');
   await expectNoErrors(errors);
 });
+
+test('K over a property adds it to the keying set, Alt K removes it', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="OBJECT"]').click();
+  const field = page.locator('.area[data-editor="PROPERTIES"] .num-field').first();
+  const b = (await field.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.keyboard.press('k');
+  const paths = () => page.evaluate(() => {
+    const sc = (window as any).app.doc.scene;
+    const ks = (sc.keying_sets ?? [])[sc.active_keying_set_index ?? 0] ?? (sc.keying_sets ?? [])[0];
+    return (ks?.paths ?? []).map((p: any) => p.data_path);
+  });
+  await expect.poll(paths).toContain('location');
+  await page.keyboard.press('Alt+k');
+  await expect.poll(paths).not.toContain('location');
+  await expectNoErrors(errors);
+});
