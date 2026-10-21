@@ -8,7 +8,7 @@ import { htmlToMarkdown, markdownToHtml } from '../lib/markdown.js';
 import { pageText, normalize } from '../data/store.js';
 import { insertHtml, insertNode, setFontName } from '../editor/format.js';
 import { mathSpan, renderMath, hydrate } from '../editor/embeds.js';
-import { currentRange, selectRange } from '../editor/selection.js';
+import { currentRange, selectRange, placeCaret } from '../editor/selection.js';
 import { textToHtml } from '../editor/page-editor.js';
 import { openDialog, confirmDialog } from './dialog.js';
 import { openMenu } from './menu.js';
@@ -161,6 +161,8 @@ async function printout(app, file, range) {
     const el = app.editor.createOutlineAt(48, app.editor.nextFreeY(), '');
     const body = el.querySelector('.outline-body');
     body.innerHTML = sanitizeHtml(images.join(''));
+    // Replacing the content dropped the caret to the top: put it after the last page.
+    placeCaret(body);
     await hydrate(body, app.store);
     app.editor.dirty.add(el);
     app.editor.commit();
