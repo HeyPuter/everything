@@ -3792,8 +3792,48 @@ export function createGrid(opts) {
   // Sheets. A click or an arrow key ends the run (setSelection clears the origin).
   let tabOrigin = null;
 
+  /**
+   * On a protected sheet Tab and Shift+Tab move between the cells left unlocked for entry, as in Excel: the nearest one
+   * along the rows, round from the last to the first. Null when the sheet is not protected or leaves none open, or
+   * several cells are selected (Tab walks those).
+   */
+  function unlockedStep(back) {
+    const s = sheet();
+    if (!s?.protected || s.externalCache || !S.isSingle(sel) || extras.length) return null;
+    const covered = (r, c) => { const m = s.merges.length ? mergeAt(r, c) : null; return !!m && (m.r1 !== r || m.c1 !== c); };
+    const open = (r, c) => wb.styleAt(sheetId, r, c)?.locked === false && !rowHidden(s, r) && !s.hiddenCols.has(c) && !covered(r, c) && !wb.protectedRangeAt(sheetId, r, c);
+    // Cells unlocked one by one, and whole columns or rows unlocked: those as far as the sheet's content goes.
+    const unlocked = (styles) => [...styles].filter(([, st]) => st?.locked === false).map(([i]) => i);
+    const cols = unlocked(s.colStyles), rows = unlocked(s.rowStyles);
+    const used = wb.usedRange(sheetId);
+    const lastRow = Math.max(used?.r2 ?? 0, sel.active.r, ...rows), lastCol = Math.max(used?.c2 ?? 0, sel.active.c, ...cols);
+    const width = bounds().cols;
+    const here = sel.active.r * width + sel.active.c;
+    let next = null, round = null; // the nearest open cell past this one, and the first (Shift: the last) of them all
+    const better = (at, than) => than == null || (back ? at > than : at < than);
+    const consider = (r, c) => {
+      const at = r * width + c;
+      const ahead = (back ? at < here : at > here) && better(at, next);
+      if (!ahead && !better(at, round)) return; // nothing to gain: its style is not read
+      if (!open(r, c)) return;
+      if (ahead) next = at;
+      if (better(at, round)) round = at;
+    };
+    for (const [key, cell] of s.cells) {
+      if (cell.s?.locked !== false) continue;
+      const comma = key.indexOf(',');
+      consider(Number(key.slice(0, comma)), Number(key.slice(comma + 1)));
+    }
+    for (const c of cols) for (let r = 0; r <= lastRow; r++) consider(r, c);
+    for (const r of rows) for (let c = 0; c <= lastCol; c++) consider(r, c);
+    const to = next ?? round;
+    return to == null ? null : { r: Math.floor(to / width), c: to % width };
+  }
+
   /** Tab or Shift+Tab: one cell along. Only a run from a single cell has an origin; inside a range Enter walks the range. */
   function tabStep(back) {
+    const unlocked = unlockedStep(back);
+    if (unlocked) { tabOrigin = null; setSelection(S.single(unlocked.r, unlocked.c), { scrollActive: true }); return; }
     const { r, c } = sel.active;
     const origin = S.isSingle(sel) && !extras.length ? (tabOrigin?.r === r ? tabOrigin : { r, c }) : null;
     const walked = stepAreas('right', back);
