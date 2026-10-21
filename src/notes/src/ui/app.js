@@ -867,7 +867,7 @@ export class App {
         { label: 'New Section Group', icon: 'sectionGroup', run: () => this.store.createGroup(this.state.notebookId, { parentId: node.id }) },
         { label: 'Move or Copy...', icon: 'folderOpen', run: () => this.moveDialog('group', node.id) },
         { type: 'sep' },
-        { label: 'Delete', icon: 'trash', danger: true, run: () => this.deleteSection(node.id) },
+        { label: 'Delete', icon: 'trash', danger: true, run: () => this.nav.refocusAfter('section', this.deleteSection(node.id)) },
       ], { label: node.name });
       return;
     }
@@ -883,7 +883,7 @@ export class App {
       { label: 'New Section', icon: 'newSection', run: () => this.newSection() },
       { label: 'New Section Group', icon: 'sectionGroup', run: () => this.newSectionGroup() },
       { type: 'sep' },
-      { label: 'Delete', icon: 'trash', danger: true, shortcut: 'Delete', run: () => this.deleteSection(node.id) },
+      { label: 'Delete', icon: 'trash', danger: true, shortcut: 'Delete', run: () => this.nav.refocusAfter('section', this.deleteSection(node.id)) },
     ], { label: node.name });
   }
 
@@ -918,7 +918,7 @@ export class App {
       } },
       { label: 'Copy Link to Page', icon: 'link', run: () => this.copyLink('page', meta.id) },
       { type: 'sep' },
-      { label: 'Delete Page', icon: 'trash', danger: true, shortcut: 'Delete', run: () => this.deletePage(meta.id) },
+      { label: 'Delete Page', icon: 'trash', danger: true, shortcut: 'Delete', run: () => this.nav.refocusAfter('page', this.deletePage(meta.id)) },
     ], { label: meta.title || 'Untitled Page' });
   }
 

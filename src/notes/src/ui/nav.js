@@ -412,8 +412,7 @@ export class Nav {
           break;
         case 'Delete':
           e.preventDefault();
-          if (kind === 'page') this.app.deletePage(row.dataset.id);
-          else this.app.deleteSection(row.dataset.id);
+          this.refocusAfter(kind, kind === 'page' ? this.app.deletePage(row.dataset.id) : this.app.deleteSection(row.dataset.id));
           break;
         case 'ContextMenu':
           e.preventDefault();
@@ -425,6 +424,17 @@ export class Nav {
             this.openRowMenu(row);
           }
       }
+    });
+  }
+
+  /**
+   * Deleting the focused row drops focus on the page body; once `done`
+   * settles, put it on the row that is now selected instead.
+   */
+  refocusAfter(kind, done) {
+    Promise.resolve(done).then(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) this.list(kind).querySelector('.row[tabindex="0"]')?.focus();
     });
   }
 

@@ -55,6 +55,18 @@ describe('App shell', () => {
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
   });
 
+  it('keeps focus in the page list after deleting a page with the Delete key', async () => {
+    app.newPage({ title: 'Two' });
+    app.newPage({ title: 'Three' });
+    await tick();
+    const rows = () => [...app.nav.pagesList.querySelectorAll('.row')];
+    rows()[1].focus();
+    keydown(rows()[1], 'Delete');
+    await tick();
+    expect(rows().map((r) => r.textContent)).toEqual(['Untitled Page', 'Three']);
+    expect(document.activeElement).toBe(app.nav.pagesList.querySelector('.row[aria-selected="true"]'));
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
