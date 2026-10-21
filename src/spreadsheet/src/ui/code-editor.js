@@ -467,9 +467,10 @@ export function createCodeEditor({ value = '', label = 'Script code', onChange =
     const needle = findInput.value;
     matches = [];
     if (needle) {
-      const hay = caseButton.getAttribute('aria-pressed') === 'true' ? textarea.value : textarea.value.toLowerCase();
-      const n = caseButton.getAttribute('aria-pressed') === 'true' ? needle : needle.toLowerCase();
-      for (let i = hay.indexOf(n); i >= 0 && matches.length < 5000; i = hay.indexOf(n, i + Math.max(1, n.length))) matches.push([i, i + n.length]);
+      // Searched in the code itself, not a lowered copy: a letter that lowers to two characters (İ) would put every
+      // position after it one place off, and Replace would write over the wrong characters.
+      const re = new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), caseButton.getAttribute('aria-pressed') === 'true' ? 'g' : 'gi');
+      for (let m = re.exec(textarea.value); m && matches.length < 5000; m = re.exec(textarea.value)) matches.push([m.index, m.index + m[0].length]);
     }
     if (current >= matches.length) current = matches.length - 1;
     findCount.textContent = !needle ? '' : matches.length ? `${current < 0 ? 0 : current + 1} of ${matches.length}` : 'No results';
