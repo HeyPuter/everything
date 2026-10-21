@@ -314,6 +314,42 @@ describe('sanitizeDocument', () => {
     expect(doc.catalog.has(n('Outlines'))).toBe(false);
   });
 
+  it('removes images and drawings that resources list but nothing draws', async () => {
+    // An editor took a drawing and a picture off the page but left them in its resources.
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const page = doc.addPage([400, 400]);
+    const drawing = (text) =>
+      doc.context.register(
+        doc.context.stream(`BT /F1 12 Tf 10 10 Td (${text}) Tj ET`, {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, 400, 400],
+          Resources: { Font: { F1: font.ref } },
+        }),
+      );
+    const picture = doc.context.register(
+      doc.context.stream('LEFTOVERPIXELS', {
+        Type: 'XObject',
+        Subtype: 'Image',
+        Width: 14,
+        Height: 1,
+        ColorSpace: 'DeviceGray',
+        BitsPerComponent: 8,
+      }),
+    );
+    const resources = { Font: { F1: font.ref } };
+    resources.XObject = { Kept: drawing('Shown'), Old: drawing('LEFTOVERTEXT'), Pic: picture };
+    page.node.set(n('Resources'), doc.context.obj(resources));
+    page.node.set(n('Contents'), doc.context.register(doc.context.stream('q /Kept Do Q')));
+    const { bytes, report } = await sanitize(await doc.save());
+    expect(report.unusedContent).toBe(2);
+    const corpus = await recoverable(bytes);
+    expect(corpus).not.toContain('LEFTOVERTEXT');
+    expect(corpus).not.toContain('LEFTOVERPIXELS');
+    expect((await textItems(bytes)).map((item) => item.str)).toEqual(['Shown']);
+  });
+
   it('has Acrobat-like defaults', () => {
     expect(
       Object.entries(SANITIZE_DEFAULTS)

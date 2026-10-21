@@ -8441,6 +8441,7 @@ export function createEditor({
       formFields: 'Form fields',
       hiddenLayers: 'Hidden layers',
       alternateImages: 'Alternate images',
+      unusedContent: 'Images and drawings the pages do not use',
       bookmarks: 'Bookmarks',
     };
     const boxes = Object.entries(LABELS).map(([key, label]) => ({

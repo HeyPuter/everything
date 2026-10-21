@@ -1,7 +1,7 @@
 import { PDFArray, PDFDict, PDFName, PDFRef, PDFStream } from 'pdf-lib';
-import { pageSource, setPageSource } from './text-edit.js';
+import { decode, pageSource, setPageSource } from './text-edit.js';
 import { annotationList, annotationsOf } from './structure.js';
-import { contentReport, filterContent } from './content-filter.js';
+import { contentReport, filterContent, tokenize } from './content-filter.js';
 import { removeStructReferences } from './redact.js';
 
 /**
@@ -22,6 +22,7 @@ import { removeStructReferences } from './redact.js';
  *  - formFields: the form and its widgets (flatten first to keep the filled-in look)
  *  - hiddenLayers: content, annotations, and groups of layers that are off by default
  *  - alternateImages: alternate versions of images (Alternates, OPI)
+ *  - unusedContent: images and drawings that resources list but nothing draws
  * Overlapping objects and cropped content are not examined.
  * Resolves to a report of counts per category, plus `warnings`.
  */
@@ -39,6 +40,7 @@ export const SANITIZE_DEFAULTS = Object.freeze({
   formFields: true,
   hiddenLayers: true,
   alternateImages: true,
+  unusedContent: true,
   bookmarks: false,
 });
 
@@ -244,6 +246,62 @@ function pruneLayers(doc, layers, dicts) {
   return gone.size;
 }
 
+/**
+ * Drop images and drawings that pages and drawings list in their resources but never draw (an
+ * editor's leftovers, still in the file). A name counts as used when any content stream of the
+ * document draws it, whatever resources it reads; nothing goes when a stream cannot be read.
+ */
+function pruneUnusedXObjects(doc) {
+  const streams = [];
+  const owners = [];
+  for (const page of doc.getPages()) {
+    const contents = page.node.Contents();
+    for (const ref of contents instanceof PDFArray
+      ? contents.asArray()
+      : contents
+        ? [contents]
+        : [])
+      streams.push(doc.context.lookup(ref));
+    owners.push(page.node.Resources());
+  }
+  for (const [, object] of doc.context.enumerateIndirectObjects()) {
+    if (!(object instanceof PDFStream)) {
+      // Type 3 glyphs are drawn by content streams too.
+      const procs = object instanceof PDFDict ? get(object, 'CharProcs') : null;
+      if (procs instanceof PDFDict)
+        for (const [, proc] of procs.entries()) streams.push(doc.context.lookup(proc));
+      continue;
+    }
+    const subtype = get(object.dict, 'Subtype');
+    if (subtype === name('Form') || get(object.dict, 'PatternType')?.asNumber?.() === 1) {
+      streams.push(object);
+      if (subtype === name('Form')) owners.push(get(object.dict, 'Resources'));
+    }
+  }
+  const drawn = new Set();
+  for (const stream of streams) {
+    if (!(stream instanceof PDFStream)) continue;
+    try {
+      for (const command of tokenize(decode(stream)))
+        if (command.op === 'Do' && command.args[0]?.type === 'name')
+          drawn.add(command.args[0].value);
+    } catch {
+      return 0;
+    }
+  }
+  let removed = 0;
+  for (const resources of new Set(owners)) {
+    const xobjects = get(resources, 'XObject');
+    if (!(xobjects instanceof PDFDict)) continue;
+    for (const key of xobjects.keys())
+      if (!drawn.has(key.decodeText())) {
+        xobjects.delete(key);
+        removed++;
+      }
+  }
+  return removed;
+}
+
 /** Terminal fields in a field tree (fields whose kids, if any, are only widgets). */
 function countFields(doc, fields) {
   let count = 0;
@@ -281,6 +339,7 @@ export async function sanitizeDocument(doc, options = {}) {
     formFields: 0,
     hiddenLayers: 0,
     alternateImages: 0,
+    unusedContent: 0,
     bookmarks: 0,
     warnings: [],
   };
@@ -568,6 +627,8 @@ export async function sanitizeDocument(doc, options = {}) {
     report.warnings.push(...filtered.warnings);
   }
   if (o.hiddenLayers) report.hiddenLayers += pruneLayers(doc, layers, dicts);
+  // After hidden content went: what it drew is unused now, too.
+  if (o.unusedContent) report.unusedContent = pruneUnusedXObjects(doc);
 
   removeStructReferences(doc, removedAnnotations, structKeys);
 
