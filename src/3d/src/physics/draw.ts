@@ -17,6 +17,7 @@ import {
   RGFormat,
   UnsignedByteType,
   LinearFilter,
+  NearestFilter,
   Vector3,
   FrontSide,
   BackSide,
@@ -27,6 +28,7 @@ import { viewportExtensions } from '../editors/view3d/hooks';
 import { renderContext } from '../render/context';
 import { particleDraw, type ParticleDraw } from './particles';
 import { smokeDraw, type SmokeDraw } from './fluid';
+import { replacesVolume } from './fluidoverlay';
 
 const pointMaterial = () =>
   new ShaderMaterial({
@@ -128,6 +130,9 @@ const volumeMaterial = () =>
       uColor: { value: new Color() },
       uDensity: { value: 1 },
       uFire: { value: 1 },
+      uRes: { value: new Vector3(1, 1, 1) },
+      uCubic: { value: 0 },
+      uSteps: { value: 0 },
     },
     transparent: true,
     depthWrite: false,
@@ -142,8 +147,31 @@ const volumeMaterial = () =>
       precision highp sampler3D;
       uniform sampler3D uTex;
       uniform vec3 uCam, uBMin, uBMax, uColor;
-      uniform float uDensity, uFire;
+      uniform float uDensity, uFire, uCubic, uSteps;
+      uniform vec3 uRes;
       varying vec3 vLocal;
+      // cubic B-spline filtering from eight linear fetches (smooth display of coarse grids)
+      vec2 sampleGrid(vec3 uvw) {
+        if (uCubic < 0.5) return texture(uTex, uvw).rg;
+        vec3 coord = uvw * uRes - 0.5;
+        vec3 i = floor(coord);
+        vec3 f = coord - i;
+        vec3 f2 = f * f, f3 = f2 * f;
+        vec3 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;
+        vec3 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+        vec3 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;
+        vec3 w3 = f3 / 6.0;
+        vec3 g0 = w0 + w1, g1 = w2 + w3;
+        vec3 h0 = (i - 0.5 + w1 / g0) / uRes;
+        vec3 h1 = (i + 1.5 + w3 / g1) / uRes;
+        vec2 t000 = texture(uTex, vec3(h0.x, h0.y, h0.z)).rg, t100 = texture(uTex, vec3(h1.x, h0.y, h0.z)).rg;
+        vec2 t010 = texture(uTex, vec3(h0.x, h1.y, h0.z)).rg, t110 = texture(uTex, vec3(h1.x, h1.y, h0.z)).rg;
+        vec2 t001 = texture(uTex, vec3(h0.x, h0.y, h1.z)).rg, t101 = texture(uTex, vec3(h1.x, h0.y, h1.z)).rg;
+        vec2 t011 = texture(uTex, vec3(h0.x, h1.y, h1.z)).rg, t111 = texture(uTex, vec3(h1.x, h1.y, h1.z)).rg;
+        vec2 a = mix(mix(t100, t000, g0.x), mix(t110, t010, g0.x), g1.y);
+        vec2 b = mix(mix(t101, t001, g0.x), mix(t111, t011, g0.x), g1.y);
+        return mix(b, a, g0.z);
+      }
       void main() {
         vec3 dir = normalize(vLocal - uCam);
         vec3 inv = 1.0 / dir;
@@ -153,15 +181,18 @@ const volumeMaterial = () =>
         float b = min(min(tmax.x, tmax.y), tmax.z);
         if (a >= b) discard;
         vec3 size = uBMax - uBMin;
-        float stepLen = length(size) / 160.0;
+        // samples per cell ("slice per voxel"), limited to 512 samples along the ray
+        vec3 cell = size / uRes;
+        float stepLen = uSteps > 0.0 ? min(min(cell.x, cell.y), cell.z) / uSteps : length(size) / 160.0;
+        stepLen = max(stepLen, (b - a) / 512.0);
         float T = 1.0;
         vec3 col = vec3(0.0);
         float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
-        for (int i = 0; i < 200; i++) {
+        for (int i = 0; i < 512; i++) {
           float t = a + (float(i) + jitter) * stepLen;
           if (t > b || T < 0.01) break;
           vec3 uvw = (uCam + dir * t - uBMin) / size;
-          vec2 s = texture(uTex, uvw).rg;
+          vec2 s = sampleGrid(uvw);
           float alpha = 1.0 - exp(-s.r * uDensity * stepLen);
           // cheap self shadowing: denser smoke above is darker below
           float shade = 0.55 + 0.45 * (1.0 - texture(uTex, uvw + vec3(0.0, 0.0, 0.06)).r);
@@ -222,6 +253,14 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     }
     const mat = e.mesh.material as ShaderMaterial;
     const u = mat.uniforms;
+    const filter = d.interpolation === 'CLOSEST' ? NearestFilter : LinearFilter;
+    if (e.tex.minFilter !== filter) {
+      e.tex.minFilter = e.tex.magFilter = filter;
+      e.tex.needsUpdate = true;
+    }
+    u.uRes.value.set(d.nx, d.ny, d.nz);
+    u.uCubic.value = d.interpolation === 'CUBIC' ? 1 : 0;
+    u.uSteps.value = d.slicePerVoxel ?? 0;
     u.uTex.value = e.tex;
     u.uBMin.value.set(...d.bmin);
     u.uBMax.value.set(...d.bmax);
@@ -237,7 +276,8 @@ function syncVolumes(localView: Set<string> | null, camera: Camera) {
     const inside = _cam.x > d.bmin[0] && _cam.x < d.bmax[0] && _cam.y > d.bmin[1] && _cam.y < d.bmax[1] && _cam.z > d.bmin[2] && _cam.z < d.bmax[2];
     mat.side = inside ? BackSide : FrontSide;
     mat.depthTest = !inside;
-    e.mesh.visible = true;
+    // a slice or color-ramp view of the domain replaces the smoke volume
+    e.mesh.visible = !replacesVolume(d.settings);
   }
   for (const [key, e] of volumes)
     if (!seen.has(key)) {

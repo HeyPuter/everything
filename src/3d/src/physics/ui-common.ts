@@ -108,7 +108,7 @@ export function cachePanel(id: string, key: string, pc: { frame_start: number; f
 }
 
 /** Field weights panel: gravity, all fields, and each field type. */
-export function fieldWeightsPanel(id: string, owner: { effector_weights_gravity?: number; effector_weights_all?: number; effector_weights_types?: Record<string, number> }, disabled = false): Child {
+export function fieldWeightsPanel(id: string, owner: { effector_weights_gravity?: number; effector_weights_all?: number; effector_weights_types?: Record<string, number> }, disabled = false, sub = false): Child {
   return panel(
     id,
     'Field Weights',
@@ -121,7 +121,7 @@ export function fieldWeightsPanel(id: string, owner: { effector_weights_gravity?
         FIELD_TYPES.map(([t, label]) => num(types, t, label, { min: 0, max: 1, slider: true, disabled })),
       ];
     },
-    { closed: true },
+    { closed: true, sub },
   );
 }
 

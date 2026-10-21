@@ -2,9 +2,10 @@
 // Cloth, Soft Body, Rigid Body and Rigid Body Constraint.
 import { h, type Child } from '../ui/h';
 import { app } from '../app/app';
-import { panel, checkbox, button, enumMenu } from '../ui/widgets';
-import { num, bool, enumProp, splitRow, colorProp } from '../ui/props';
-import { defaultDomainSettings, defaultFlowSettings, fluidCacheKey, type FluidModifier } from './fluid';
+import { panel, checkbox, button } from '../ui/widgets';
+import { num, bool, enumProp } from '../ui/props';
+import type { FluidModifier } from './fluid';
+import { fluidPanels } from './ui-fluid';
 import { icon } from '../ui/icons';
 import { modifierExtraUI } from '../editors/properties/stack';
 import type { ModifierBase, ObjectData } from '../data/types';
@@ -292,115 +293,7 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
   ];
 }
 
-// ---------------------------------------------------------------------------
-// Fluid (gas)
-
 const fluidOf = (o: ObjectData) => o.modifiers.find((m) => m.type === 'FLUID') as FluidModifier | undefined;
-
-function fluidPanels(ob: ObjectPhysics, m: FluidModifier): Child[] {
-  const out: Child[] = [
-    panel('ph-fluid', 'Fluid', () => [
-      splitRow(
-        'Type',
-        enumMenu(`fluid-type-${m.id}`, [{ value: 'NONE', label: 'None' }, { value: 'DOMAIN', label: 'Domain' }, { value: 'FLOW', label: 'Flow' }, { value: 'EFFECTOR', label: 'Effector' }], m.fluid_type, (v) => {
-          m.fluid_type = v as FluidModifier['fluid_type'];
-          // the domain box is shown as a wireframe so the smoke inside stays visible
-          if (v === 'DOMAIN') ob.display_type = 'WIRE';
-          else if (ob.display_type === 'WIRE') ob.display_type = 'TEXTURED';
-          changed('Fluid Type');
-        }),
-      ),
-    ]),
-  ];
-  if (m.fluid_type === 'DOMAIN') {
-    const s = fillDefaults(m.domain_settings, defaultDomainSettings()),
-      pc = m.point_cache,
-      d = pc.is_baked;
-    out.push(
-      panel('ph-fl-settings', 'Settings', () => [
-        d ? note('Domain is baked: delete the bake to change settings') : null,
-        enumProp(s, 'domain_type', 'Domain Type', [['GAS', 'Gas'], ['LIQUID', 'Liquid']], {
-          disabled: d,
-          onChange: () => {
-            // liquid stays inside the domain (closed borders) and shows its surface instead of a wire box
-            const liquid = s.domain_type === 'LIQUID';
-            for (const k of ['front', 'back', 'right', 'left', 'top', 'bottom'] as const) (s as unknown as Record<string, boolean>)[`use_collision_border_${k}`] = liquid;
-            ob.display_type = liquid ? 'TEXTURED' : 'WIRE';
-          },
-        }),
-        num(s, 'resolution_max', 'Resolution Divisions', { int: true, min: 8, max: 128, disabled: d }),
-        num(s, 'time_scale', 'Time Scale', { min: 0.01, max: 10, disabled: d }),
-        panel('ph-fl-border', 'Border Collisions', () => [
-          bool(s, 'use_collision_border_front', 'Front', { disabled: d }),
-          bool(s, 'use_collision_border_back', 'Back', { disabled: d }),
-          bool(s, 'use_collision_border_right', 'Right', { disabled: d }),
-          bool(s, 'use_collision_border_left', 'Left', { disabled: d }),
-          bool(s, 'use_collision_border_top', 'Top', { disabled: d }),
-          bool(s, 'use_collision_border_bottom', 'Bottom', { disabled: d }),
-        ], { sub: true, closed: true }),
-        s.domain_type === 'LIQUID'
-          ? panel('ph-fl-liquid', 'Liquid', () => [
-              num(s, 'flip_ratio', 'FLIP Ratio', { min: 0, max: 1, slider: true, disabled: d, tip: '1 keeps the motion lively (FLIP), 0 smooths it (PIC)' }),
-              num(s, 'particle_number', 'Particles per Cell', { int: true, min: 1, max: 4, disabled: d, tip: 'Particles along each axis of an emitting cell' }),
-              num(s, 'particle_randomness', 'Randomness', { min: 0, max: 1, slider: true, disabled: d }),
-              panel('ph-fl-diff', 'Diffusion', () => [
-                num(s, 'viscosity_base', 'Base', { min: 0, max: 10, disabled: d || !s.use_diffusion, tip: 'Viscosity = base × 10^-exponent (m²/s)' }),
-                num(s, 'viscosity_exponent', 'Exponent', { int: true, min: 0, max: 10, disabled: d || !s.use_diffusion }),
-              ], { sub: true, closed: true, header: headerCheck(`fl-diff-${m.id}`, s as never, 'use_diffusion', 'Diffusion', d) }),
-              panel('ph-fl-mesh', 'Mesh', () => [
-                num(s, 'mesh_scale', 'Upres Factor', { int: true, min: 1, max: 4, disabled: !s.use_mesh }),
-                num(s, 'mesh_particle_radius', 'Particle Radius', { min: 0.5, max: 4, disabled: !s.use_mesh, tip: 'Radius of every particle in cells when building the surface' }),
-              ], { sub: true, header: headerCheck(`fl-mesh-${m.id}`, s as never, 'use_mesh', 'Mesh') }),
-            ], { sub: true })
-          : null,
-        s.domain_type === 'LIQUID' ? null : panel('ph-fl-gas', 'Gas', () => [
-          num(s, 'alpha', 'Buoyancy Density', { min: -5, max: 5, disabled: d }),
-          num(s, 'beta', 'Heat', { min: -5, max: 5, disabled: d }),
-          num(s, 'vorticity', 'Vorticity', { min: 0, max: 4, disabled: d }),
-        ], { sub: true }),
-      ]),
-      panel('ph-fl-colls', 'Collections', () => [
-        collectionRow(`fl-fgrp-${m.id}`, s as never, 'fluid_group', 'Flow', 'All flows', d),
-        collectionRow(`fl-egrp-${m.id}`, s as never, 'effector_group', 'Effector', 'All effectors', d),
-      ], { closed: true }),
-      s.domain_type === 'LIQUID' ? null : panel('ph-fl-dissolve', 'Dissolve', () => [num(s, 'dissolve_speed', 'Time', { int: true, min: 1, max: 10000, disabled: d || !s.use_dissolve_smoke })], { header: headerCheck(`fl-dis-${m.id}`, s as never, 'use_dissolve_smoke', 'Dissolve', d), closed: true }),
-      s.domain_type === 'LIQUID' ? null : panel('ph-fl-fire', 'Fire', () => [
-        num(s, 'burning_rate', 'Reaction Speed', { min: 0.01, max: 4, disabled: d }),
-        num(s, 'flame_smoke', 'Flame Smoke', { min: 0, max: 8, disabled: d }),
-        num(s, 'flame_vorticity', 'Vorticity', { min: 0, max: 2, disabled: d }),
-        num(s, 'flame_max_temp', 'Temperature Maximum', { min: 1, max: 10, disabled: d }),
-      ], { closed: true }),
-      s.domain_type === 'LIQUID' ? null : panel('ph-fl-display', 'Viewport Display', () => [num(s, 'display_thickness', 'Thickness', { min: 0.001, max: 1000, softMax: 5 })], { closed: true }),
-      fieldWeightsPanel('ph-fl-fw', s as never, d),
-      cachePanel('ph-fl-cache', fluidCacheKey(ob, m), pc),
-    );
-  } else if (m.fluid_type === 'FLOW') {
-    const s = fillDefaults(m.flow_settings, defaultFlowSettings());
-    out.push(
-      panel('ph-fl-flow', 'Settings', () => [
-        enumProp(s, 'flow_type', 'Flow Type', [['SMOKE', 'Smoke'], ['BOTH', 'Fire + Smoke'], ['FIRE', 'Fire'], ['LIQUID', 'Liquid']]),
-        enumProp(s, 'flow_behavior', 'Flow Behavior', [['INFLOW', 'Inflow'], ['GEOMETRY', 'Geometry'], ['OUTFLOW', 'Outflow']]),
-        bool(s, 'use_flow', 'Use Flow'),
-        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? colorProp(s, 'smoke_color', 'Smoke Color') : null,
-        s.flow_type !== 'SMOKE' && s.flow_type !== 'LIQUID' ? num(s, 'fuel_amount', 'Fuel', { min: 0, max: 10 }) : null,
-        s.flow_type !== 'LIQUID' ? num(s, 'temperature', 'Temperature Difference', { min: -10, max: 10 }) : null,
-        s.flow_type !== 'FIRE' && s.flow_type !== 'LIQUID' ? num(s, 'density', 'Density', { min: 0, max: 10 }) : null,
-      ]),
-      panel('ph-fl-source', 'Flow Source', () => [
-        num(s, 'surface_distance', 'Surface Emission', { min: 0, max: 10, tip: 'Emission distance from the mesh surface (in grid cells)' }),
-        s.flow_type !== 'LIQUID' ? num(s, 'volume_density', 'Volume Emission', { min: 0, max: 1, slider: true }) : null,
-      ]),
-      panel('ph-fl-vel', 'Initial Velocity', () => [
-        num(s, 'velocity_factor', 'Source', { min: -2, max: 2, disabled: !s.use_initial_velocity, tip: 'Multiplier of the flow object velocity' }),
-        num(s, 'velocity_normal', 'Normal', { min: -2, max: 2, disabled: !s.use_initial_velocity }),
-      ], { header: headerCheck(`fl-iv-${m.id}`, s as never, 'use_initial_velocity', 'Initial Velocity'), closed: true }),
-    );
-  } else if (m.fluid_type === 'EFFECTOR') {
-    const s = m.effector_settings;
-    out.push(panel('ph-fl-eff', 'Settings', () => [enumProp(s, 'effector_type', 'Effector Type', [['COLLISION', 'Collision']]), bool(s, 'use_effector', 'Enabled')]));
-  }
-  return out;
-}
 
 // ---------------------------------------------------------------------------
 // Rigid body
