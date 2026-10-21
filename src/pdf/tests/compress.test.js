@@ -727,6 +727,33 @@ describe('reducing file size', { timeout: 60000 }, () => {
     sweepUnreferenced(intact.context);
     expect(intact.context.enumerateIndirectObjects().length).toBe(count);
   });
+  it('keeps a PDF/A-1 file free of object streams', async () => {
+    const { convertToPdfA, pdfaSaveOptions, preflightPdfA } = await import('../src/core/pdfa.js');
+    const { readFileSync } = await import('node:fs');
+    const assets = new URL('../node_modules/pdfjs-dist/', import.meta.url);
+    const source = await PDFDocument.create();
+    source.setTitle('Archive');
+    const page = source.addPage([300, 300]);
+    page.drawText('Kept text', { x: 20, y: 200, size: 20 });
+    page.node.set(PDFName.of('Thumb'), source.context.register(source.context.stream('thumb')));
+    const doc = await PDFDocument.load(await source.save());
+    const report = await convertToPdfA(doc, {
+      part: 1,
+      conformance: 'b',
+      loadAsset: async (path) => new Uint8Array(readFileSync(new URL(path, assets))),
+    });
+    expect(report.compliant).toBe(true);
+    const result = await compressPdf(await doc.save(pdfaSaveOptions(1)), {
+      level: 'balanced',
+      codec,
+    });
+    expect(result.thumbnails).toBe(1);
+    const shrunk = await PDFDocument.load(result.bytes, { updateMetadata: false });
+    const issues = preflightPdfA(shrunk, { part: 1, conformance: 'b', bytes: result.bytes })
+      .issues.filter((issue) => issue.severity === 'error')
+      .map((issue) => issue.message);
+    expect(issues).toEqual([]);
+  });
   it('reports when nothing worth saving is left and rejects unknown levels', async () => {
     const compact = (await compressPdf(await samplePdf(), { level: 'balanced', codec })).bytes;
     const again = await compressPdf(compact, { level: 'balanced', codec });

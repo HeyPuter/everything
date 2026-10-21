@@ -403,7 +403,16 @@ export async function compressPdf(bytes, options = {}) {
     (await import('./details.js')).synchronizeDocumentMetadata(doc);
   signal?.throwIfAborted();
   if (!synchronized) doc.setModificationDate(new Date());
-  const next = await savePdf(doc);
+  // A file that claims PDF/A keeps the file structure its part requires (no object streams
+  // in PDF/A-1).
+  let saveOptions;
+  if (doc.catalog.has(PDFName.of('Metadata'))) {
+    const { pdfaIdentification, pdfaSaveOptions } = await import('./pdfa.js');
+    const claim = pdfaIdentification(doc);
+    if (claim) saveOptions = pdfaSaveOptions(claim.part);
+    signal?.throwIfAborted();
+  }
+  const next = await savePdf(doc, saveOptions);
   signal?.throwIfAborted();
   return { bytes: next, before: bytes.length, after: next.length, ...stats };
 }
