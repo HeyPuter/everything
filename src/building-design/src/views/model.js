@@ -202,7 +202,7 @@ export class ModelController {
       sun = sunDirection(this.app.doc.get('project')).dir;
       if (sun[2] > 0.01) light = sun;
     }
-    vp.r3.draw(cam, vp.theme, { style, clip: this.clipPlanes(), light, sun, edgeWidth: this.app.settings.thinLines ? 1 : 1.15 });
+    vp.r3.draw(cam, vp.theme, { style, clip: this.clipPlanes(), light, sun, edges: view.renderEdges === true ? true : undefined, edgeWidth: this.app.settings.thinLines ? 1 : 1.15 });
     if (!this.is3D) {
       this.syncAnnotations();
       const { cx, cy, zoom } = this.cam;

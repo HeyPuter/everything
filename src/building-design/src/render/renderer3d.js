@@ -558,6 +558,8 @@ export class Renderer3D {
     const gl = this.gl;
     const b = this.bounds();
     if (!b) return false;
+    // Draw into the shadow map, then back into whatever was bound (the screen or an off-screen image).
+    const target = gl.getParameter(gl.FRAMEBUFFER_BINDING);
     if (!this.shadow) {
       // Unit 1: unit 0 holds the element state texture.
       const tex = gl.createTexture();
@@ -614,7 +616,7 @@ export class Renderer3D {
       gl.drawArrays(gl.TRIANGLES, 0, ch.opaque);
     }
     gl.disable(gl.POLYGON_OFFSET_FILL);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target);
     if (this.viewportRect) gl.viewport(...this.viewportRect);
     else gl.viewport(0, 0, cam.width, cam.height);
     return true;

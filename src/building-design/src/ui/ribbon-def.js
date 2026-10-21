@@ -233,7 +233,7 @@ export const RIBBON = [
           { cmd: 'tempReset' },
         ],
       },
-      { title: 'Presentation', items: [{ cmd: 'shadows', size: 'lg' }, { cmd: 'sunSettings', size: 'lg' }] },
+      { title: 'Presentation', items: [{ cmd: 'render', size: 'lg' }, { cmd: 'shadows', size: 'lg' }, { cmd: 'sunSettings', size: 'lg' }] },
       {
         title: 'Create',
         items: [

@@ -12,7 +12,7 @@ import { isFlatView } from '../core/doc.js';
  * Render a view to a canvas of w x h pixels. fit: zoom to extents first.
  * opts.camera: a camera to use instead (copied).
  */
-export function renderViewImage(app, view, w, h, { fit = true, camera = null, transparent = false } = {}) {
+export function renderViewImage(app, view, w, h, { fit = true, camera = null, transparent = false, viewPatch = null } = {}) {
   const vp = app.viewport;
   const gl = vp.gl;
   w = Math.max(1, Math.round(w));
@@ -35,6 +35,11 @@ export function renderViewImage(app, view, w, h, { fit = true, camera = null, tr
   const saved = app.viewStates.get(view.id);
   const c = new C(app, view);
   c.vp = fake;
+  // Render with some view settings changed (style, shadows), without editing the view.
+  if (viewPatch) {
+    const patched = { ...app.doc.get(view.id), ...viewPatch };
+    Object.defineProperty(c, 'view', { get: () => patched });
+  }
   if (camera) c.cam = structuredClone(camera);
   else if (fit || !c.cam) {
     if (view.kind !== 'view3d') c.cam = null;
