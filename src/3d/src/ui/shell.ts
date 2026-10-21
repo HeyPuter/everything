@@ -93,19 +93,19 @@ export class Shell {
     this.setWorkspace('Layout', false);
     projectUiState.save = () => ({
       workspace: this.active,
-      workspaces: this.workspaces.map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene || undefined, scene: w.pinScene ? (w.name === this.active ? activeSceneId(app.doc) : w.scene) : undefined })),
+      workspaces: this.workspaces.map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene || undefined, scene: w.pinScene ? (w.name === this.active ? activeSceneId(app.doc) : w.scene) : undefined, use_filter_by_owner: w.use_filter_by_owner || undefined, owner_ids: w.owner_ids?.length ? w.owner_ids : undefined })),
       layouts: Object.fromEntries([...this.layouts.entries(), [this.active, this.screen.serialize()]]),
     });
     projectUiState.load = (s) => {
       const layouts = s.layouts as Record<string, LayoutNode> | undefined;
       if (layouts) for (const [k, v] of Object.entries(layouts)) this.layouts.set(k, v);
       // custom workspace lists (added, renamed, deleted or reordered workspaces)
-      const list = s.workspaces as { name: string; mode?: Workspace['mode']; pinScene?: boolean; scene?: string }[] | undefined;
+      const list = s.workspaces as { name: string; mode?: Workspace['mode']; pinScene?: boolean; scene?: string; use_filter_by_owner?: boolean; owner_ids?: string[] }[] | undefined;
       if (Array.isArray(list) && list.length && layouts) {
         const defaults = defaultWorkspaces();
         this.workspaces = list
           .filter((w) => layouts[w.name] || defaults.some((d) => d.name === w.name))
-          .map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene, scene: w.scene, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
+          .map((w) => ({ name: w.name, mode: w.mode, pinScene: w.pinScene, scene: w.scene, use_filter_by_owner: w.use_filter_by_owner, owner_ids: Array.isArray(w.owner_ids) ? w.owner_ids.filter((x) => typeof x === 'string') : undefined, layout: layouts[w.name] ?? defaults.find((d) => d.name === w.name)!.layout }));
       }
       if (typeof s.workspace === 'string' && this.workspaces.some((w) => w.name === s.workspace)) {
         this.active = '';

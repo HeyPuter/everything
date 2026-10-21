@@ -7,7 +7,7 @@ import { icon, iconNames } from '../ui/icons';
 import { app, operators } from '../app/app';
 import { numberField, checkbox, textField, colorSwatch, panel } from '../ui/widgets';
 import { sidebarTabs } from '../editors/view3d/sidebar';
-import { scriptPanels, panelListeners, UILayout, type LayoutItem, type ScriptPanelSpec } from './registry';
+import { scriptPanels, panelListeners, panelVisibility, UILayout, type LayoutItem, type ScriptPanelSpec } from './registry';
 import { VecBase, Color, Euler } from './mathutils';
 import { isIntKey, isIdWrapper } from './rna';
 import { output } from './runner';
@@ -22,7 +22,7 @@ const pretty = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toU
 
 function panelsFor(category: string): ScriptPanelSpec[] {
   return [...scriptPanels.values()]
-    .filter((p) => p.category === category)
+    .filter((p) => p.category === category && panelVisibility.test(p.idname))
     .filter((p) => {
       try {
         return !p.poll || p.poll();

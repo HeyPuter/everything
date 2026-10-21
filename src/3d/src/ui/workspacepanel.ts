@@ -48,7 +48,10 @@ export function workspaceRows(idPrefix = 'ws'): VNode[] {
   ];
 }
 
+/** More rows of the Workspace panel (e.g. the add-on filter, from the Preferences module). */
+export const workspacePanelExtras: ((idPrefix: string) => VNode | null)[] = [];
+
 /** The Workspace panel. */
 export function workspacePanel(id = 'sb-workspace', opts: { closed?: boolean } = {}): VNode {
-  return panel(id, 'Workspace', () => h('div', { class: 'ws-panel' }, workspaceRows(id)), opts);
+  return panel(id, 'Workspace', () => h('div', { class: 'ws-panel' }, workspaceRows(id), workspacePanelExtras.map((f) => f(id))), opts);
 }

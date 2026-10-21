@@ -21,6 +21,7 @@ import './theme_ui';
 import './lights_ui';
 import './addons';
 import './extensions';
+import './addons_filter';
 import './ndof';
 import './filepaths';
 import './fonts';

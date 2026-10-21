@@ -124,3 +124,30 @@ test('Reload Scripts runs the enabled add-ons again', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).app.run('wm.hello_extension_greet'))).toBe('FINISHED');
   await expectNoErrors(errors);
 });
+
+test('workspace add-on filter hides the panels of add-ons not listed', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const { installAddon } = await import('/src/prefs/addons.ts');
+    const { EXAMPLE_ADDON } = await import('/src/prefs/addon_example.ts');
+    await installAddon(EXAMPLE_ADDON.filename, EXAMPLE_ADDON.source);
+  });
+  const visible = () => page.evaluate(async () => (await import('/src/scripting/registry.ts')).panelVisibility.test([...(await import('/src/scripting/registry.ts')).scriptPanels.keys()][0]));
+  expect(await visible()).toBe(true);
+  // turn the filter on for the active workspace: the add-on's panel hides until listed
+  await page.evaluate(async () => {
+    const ws = (await import('/src/ui/shellref.ts')).shellRef.current!;
+    ws.workspaces.find((w: any) => w.name === ws.active)!.use_filter_by_owner = true;
+  });
+  expect(await visible()).toBe(false);
+  await run(page, 'wm.owner_enable', { owner_id: 'scatter_cubes' });
+  expect(await visible()).toBe(true);
+  await run(page, 'wm.owner_disable', { owner_id: 'scatter_cubes' });
+  expect(await visible()).toBe(false);
+  // the Workspace panel of the 3D view's Tool tab lists the add-on
+  await page.locator('.area[data-editor="VIEW_3D"]').hover();
+  await page.keyboard.press('n');
+  await page.locator('.v3d-sidebar .sb-tab', { hasText: 'Tool' }).click();
+  await expect(page.locator('.v3d-sidebar .panel.sub', { hasText: 'Filter Add-ons' })).toBeVisible();
+  await expectNoErrors(errors);
+});

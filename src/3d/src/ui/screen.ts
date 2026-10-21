@@ -1159,6 +1159,9 @@ export interface Workspace {
   pinScene?: boolean;
   /** the remembered scene (id) of a pinned workspace */
   scene?: string;
+  /** show only the interface of the add-ons listed in `owner_ids` */
+  use_filter_by_owner?: boolean;
+  owner_ids?: string[];
 }
 
 export const A = (type: EditorTypeId, state?: unknown): LayoutNode => ({ area: { id: newAreaId(), type, state } });
