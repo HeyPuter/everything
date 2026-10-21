@@ -174,3 +174,21 @@ export function expandValue(f: number, threshold: number, o: ExpandOptions = {})
   const g = x <= t ? 1 - x / t : 0;
   return o.invert ? 1 - g : g;
 }
+
+/**
+ * Field offset by a texture: every value moves by (texture − ½) × strength, then the field is
+ * normalized again. `tex` gives the texture intensity (0..1) of a vertex.
+ */
+export function distortField(field: Float32Array, strength: number, tex: (v: number) => number): Float32Array {
+  if (strength <= 0) return field;
+  const out = new Float32Array(field.length);
+  for (let v = 0; v < field.length; v++) out[v] = Math.max(0, field[v] + (tex(v) - 0.5) * strength);
+  return normalizeField(out);
+}
+
+/** Vertices inside the current expansion (sources of a recursion step). */
+export function expandSources(field: Float32Array, threshold: number, o: ExpandOptions = {}): number[] {
+  const out: number[] = [];
+  for (let v = 0; v < field.length; v++) if (expandInside(field[v], threshold, o)) out.push(v);
+  return out;
+}

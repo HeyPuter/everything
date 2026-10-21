@@ -10,7 +10,10 @@ import { invalidatePaintAttributes, maskChanged } from './display';
 import { faceCount, faceSetsOf, hiddenFacesOf, maxFaceSet } from './fsdata';
 import { sculptPoll } from './facesetops';
 import { editableMask } from './gestureops';
-import { expandInside, expandValue, faceNeighbors, geodesicDistances, normalAngles, normalizeField, sphericalDistances, topologySteps, type ExpandFalloff } from './expandmath';
+import { distortField, expandInside, expandSources, expandValue, faceNeighbors, geodesicDistances, normalAngles, normalizeField, sphericalDistances, topologySteps, type ExpandFalloff } from './expandmath';
+import { activeBrush } from './brushes';
+import { falloff as brushFalloff } from './math';
+import { proceduralTex3, sampleTex, textureActive } from './brushtex';
 
 const FALLOFFS: [ExpandFalloff, string, string][] = [
   ['GEODESIC', 'Geodesic', 'Distance along the surface'],
@@ -107,6 +110,12 @@ interface ExpandState {
 function applyExpand(st: ExpandState, p: Record<string, unknown>) {
   const { me, s, field } = st;
   const opts = { invert: !!p.invert, gradient: !!p.use_falloff_gradient, loops: p.loop_count as number };
+  // the gradient can follow the falloff curve of the active brush
+  const fo = p.use_brush_gradient && opts.gradient ? activeBrush('SCULPT')?.falloff : null;
+  const value = (f: number) => {
+    const x = expandValue(f, thr, opts);
+    return fo && x > 0 && x < 1 ? brushFalloff(fo, 1 - x) : x;
+  };
   const thr = p.threshold as number;
   const hid = s.hiddenV;
   // snapping: whole face sets join as soon as one of their vertices is reached
@@ -127,7 +136,7 @@ function applyExpand(st: ExpandState, p: Record<string, unknown>) {
     const mask = me.sculpt_mask!;
     for (let v = 0; v < s.nv; v++) {
       if (hid?.[v]) continue;
-      const val = snapIn ? snapIn[v] : expandValue(field[v], thr, opts);
+      const val = snapIn ? snapIn[v] : value(field[v]);
       const o = st.origMask ? st.origMask[v] : 0;
       mask[v] = p.use_mask_preserve ? Math.max(o, val) : val;
     }
@@ -201,8 +210,8 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
         const u = vertexUnder(s, v, q.x, q.y);
         if (u) {
           p.origin = u.vert;
-          st = { ...st, field: expandField(s, me, p.falloff_type as ExpandFalloff, u.vert, p.active_face_set as number) };
-          applyExpand(st, p);
+          setField(expandField(s, me, p.falloff_type as ExpandFalloff, u.vert, p.active_face_set as number));
+          applyExpand(st!, p);
           app.changed('ui');
         }
         return;
@@ -214,9 +223,36 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
     applyExpand(st, p);
     app.changed('ui');
   };
+  // texture distortion of the field (T / Y) with the active brush's texture
+  const texAt = (vi: number) => {
+    const b = activeBrush('SCULPT');
+    if (!b || !textureActive(b)) return 0.5;
+    const t = b.texture_slot!;
+    const sc = Math.max(1e-3, t.scale);
+    const x = s.positions[vi * 3] / sc,
+      y = s.positions[vi * 3 + 1] / sc,
+      z = s.positions[vi * 3 + 2] / sc;
+    return t.source === 'IMAGE' ? sampleTex(t, x, y) : proceduralTex3(t.source, x, y, z);
+  };
+  let base: Float32Array | null = null;
+  const setField = (f: Float32Array) => {
+    base = f;
+    if (st) st = { ...st, field: distortField(f, (p.texture_distortion as number) || 0, texAt) };
+  };
   const recompute = (f: ExpandFalloff) => {
     p.falloff_type = f;
-    if (st) st = { ...st, field: expandField(s, me, f, p.origin as number, p.active_face_set as number) };
+    if (st) setField(expandField(s, me, f, p.origin as number, p.active_face_set as number));
+    update();
+  };
+  // recursion: the current expansion becomes the origin of a new field
+  const recurse = (topology: boolean) => {
+    if (!st) return;
+    const opts = { invert: !!p.invert, loops: p.loop_count as number };
+    let src = expandSources(st.field, p.threshold as number, opts);
+    if (!src.length) src = [p.origin as number];
+    const nb = s.neighbors;
+    setField(normalizeField(topology ? topologySteps(nb.offsets, nb.neighbors, src, s.hiddenV) : geodesicDistances(s.positions, nb.offsets, nb.neighbors, src, s.hiddenV)));
+    p.threshold = 0;
     update();
   };
   app.startModal({
@@ -241,7 +277,13 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
       if (k === 'f') p.invert = !p.invert;
       else if (k === 'e') p.use_mask_preserve = !p.use_mask_preserve;
       else if (k === 'g') p.use_falloff_gradient = !p.use_falloff_gradient;
-      else if (k === 'w') p.loop_count = Math.min(20, (p.loop_count as number) + 1);
+      else if (k === 'r') return recurse(e.altKey), true;
+      else if (k === 'b') p.use_brush_gradient = !p.use_brush_gradient;
+      else if (k === 'y' || k === 't') {
+        p.texture_distortion = Math.max(0, Math.round((((p.texture_distortion as number) || 0) + (k === 'y' ? 0.1 : -0.1)) * 10) / 10);
+        if (st) setField(base ?? st.field);
+        if (!activeBrush('SCULPT') || !textureActive(activeBrush('SCULPT')!)) app.report('INFO', 'Texture distortion uses the texture of the active brush');
+      } else if (k === 'w') p.loop_count = Math.min(20, (p.loop_count as number) + 1);
       else if (k === 'q') p.loop_count = Math.max(1, (p.loop_count as number) - 1);
       else if (k === '1') return recompute('GEODESIC'), true;
       else if (k === '2') return recompute('TOPOLOGY'), true;
@@ -259,7 +301,7 @@ function startExpand(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL
       renderContext?.engine.requestDraw();
     },
     header: () =>
-      `Expand ${p.target === 'MASK' ? 'Mask' : 'Face Set'} (${FALLOFFS.find((f) => f[0] === p.falloff_type)?.[1]}): move to grow, click to apply · F invert${p.invert ? ' ✓' : ''} · E preserve${p.use_mask_preserve ? ' ✓' : ''} · G gradient${p.use_falloff_gradient ? ' ✓' : ''} · Q/W loops ${p.loop_count} · 1-4 falloff · Space move · Ctrl snap`,
+      `Expand ${p.target === 'MASK' ? 'Mask' : 'Face Set'} (${FALLOFFS.find((f) => f[0] === p.falloff_type)?.[1]}): move to grow, click to apply · F invert${p.invert ? ' ✓' : ''} · E preserve${p.use_mask_preserve ? ' ✓' : ''} · G gradient${p.use_falloff_gradient ? ' ✓' : ''} · B brush gradient${p.use_brush_gradient ? ' ✓' : ''} · Q/W loops ${p.loop_count} · R / Alt R recurse · T/Y distortion ${((p.texture_distortion as number) || 0).toFixed(1)} · 1-4 falloff · Space move · Ctrl snap`,
     redoOp: { idname: 'sculpt.expand', props: p },
   });
   void cow;
@@ -293,6 +335,8 @@ registerOperators([
       { id: 'active_face_set', label: 'Active Face Set', type: 'int', default: 1, hidden: true },
       { id: 'use_auto_mask', label: 'Auto Create', type: 'bool', default: false, hidden: true },
       { id: 'use_snap', label: 'Snap to Face Sets', type: 'bool', default: false },
+      { id: 'use_brush_gradient', label: 'Brush Gradient', type: 'bool', default: false, hidden: true },
+      { id: 'texture_distortion', label: 'Texture Distortion', type: 'float', default: 0, min: 0, max: 10, hidden: true },
     ],
     poll: sculptPoll,
     invoke: (ctx, p) => startExpand(ctx, p),
