@@ -40,7 +40,7 @@ test('a callout dragged to the left or straight up keeps its box clear of its po
     // Up and to the right, as before.
     { from: [80, 450], to: [180, 380], text: 'Right' },
   ];
-  for (const { from, to, text } of drags) {
+  for (const [index, { from, to, text }] of drags.entries()) {
     await page.mouse.move(box.x + from[0], box.y + from[1]);
     await page.mouse.down();
     await page.mouse.move(box.x + to[0], box.y + to[1], { steps: 5 });
@@ -48,6 +48,9 @@ test('a callout dragged to the left or straight up keeps its box clear of its po
     const dialog = page.getByRole('dialog', { name: 'Callout' });
     await dialog.getByLabel('Text').fill(text);
     await dialog.getByRole('button', { name: 'Add', exact: true }).click();
+    // The comment is added after the dialog closes; a drag begun before then is lost when the
+    // page is drawn again, so wait for the comment itself rather than an idle editor.
+    await expect(page.getByRole('tab', { name: `Comments (${index + 1})` })).toBeVisible();
     await settled(page);
     await expect(page.locator('#toast')).not.toContainText('outside its text box');
   }
