@@ -66,4 +66,4 @@ All dependencies are permissively licensed (checked by `npm run check:licenses` 
 
 ## License
 
-Video Studio, including all its contents, modules, and components, is licensed under [AGPL-3.0](LICENSE) (Copyright (c) 2026 Puter Technologies Inc.) unless explicitly stated otherwise. This differs from the rest of this repository, which is licensed under [MIT](../../LICENSE). Third-party libraries and assets included in Video Studio remain under their own licenses (see Licenses above).
+Video Studio, including all its contents, modules, and components, is licensed under [AGPL-3.0](LICENSE) (Copyright (c) 2026 Puter Technologies Inc.) unless explicitly stated otherwise. Third-party libraries and assets included in Video Studio remain under their own licenses (see Licenses above).
