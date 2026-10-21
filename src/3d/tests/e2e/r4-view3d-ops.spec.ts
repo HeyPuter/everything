@@ -103,3 +103,30 @@ test('transform.from_gizmo starts the handle under the pointer', async ({ page }
   expect(Math.abs(loc[0]) + Math.abs(loc[1])).toBeLessThan(1e-6);
   await expectNoErrors(errors);
 });
+
+test('ruler_add with Ctrl snaps the ends to vertices', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  const sp = (p: number[]) =>
+    page.evaluate((pt) => {
+      const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const v = (a.hoverArea ?? a.activeArea).editor;
+      const r = v.el.getBoundingClientRect();
+      const s = v.project(v.nav.pivot.clone().set(pt[0], pt[1], pt[2]));
+      return { x: r.left + s.x, y: r.top + s.y };
+    }, p);
+  const a = await sp([1, -1, 1]),
+    b = await sp([1, 1, 1]);
+  expect(await run(page, 'view3d.ruler_add', {}, { invoke: true })).toBe('RUNNING_MODAL');
+  await page.keyboard.down('Control');
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x + 3, b.y - 2, { steps: 5 });
+  await page.mouse.up();
+  await page.keyboard.up('Control');
+  const rulers = await get<{ a: number[]; b: number[] }[]>(page, 'app.doc.scene.rulers');
+  expect(rulers.length).toBe(1);
+  const len = Math.hypot(...rulers[0].a.map((x, i) => x - rulers[0].b[i]));
+  expect(len).toBeCloseTo(2, 4);
+  await expectNoErrors(errors);
+});
