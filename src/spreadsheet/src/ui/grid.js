@@ -3100,10 +3100,18 @@ export function createGrid(opts) {
         const height = parseFloat(listButton.style.height);
         listButton.style.clipPath = `inset(${Math.max(0, topEdge - vy)}px 0 ${Math.max(0, vy + height - view.vh)}px 0)`;
       }
-      if (p.el === promptPop) {
-        // An input message keeps inside the window: under a cell near its right edge (on a phone, most cells) it slides left.
+      if (p.el === promptPop || p.el === linkPop || p.el === notePop) {
+        // An input message, a link's address and a note keep inside the window: under (or beside) a cell near its
+        // right edge (on a phone, most cells) they slide left. A note that does not fit beside the cell goes to its
+        // left, or with no room there either, under it (below an input message or link shown there), so it does
+        // not cover the cell.
         const left = frozenCell ? rowHeaderW : view.sl;
-        x = Math.max(left, Math.min(x, left + view.vw - p.el.offsetWidth - 4));
+        const right = left + view.vw - p.el.offsetWidth - 4;
+        if (p.el === notePop && x > right) {
+          if (x - p.dx - p.el.offsetWidth - 6 >= left) x -= p.dx + p.el.offsetWidth + 6;
+          else y += p.box.height + 4 + [promptPop, linkPop].filter((pop) => !pop.hidden).reduce((h, pop) => h + pop.offsetHeight + 4, 0);
+        }
+        x = Math.max(left, Math.min(x, right));
       }
       p.el.classList.toggle('offscreen', off);
       p.el.style.transform = `translate(${x}px, ${y}px)`;
