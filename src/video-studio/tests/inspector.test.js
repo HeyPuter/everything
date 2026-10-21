@@ -246,6 +246,27 @@ describe('video basic', () => {
     expect(env.store.time).toBe(3 * US);
   });
 
+  it('a keyframed value does not change with the playhead off the clip', () => {
+    env.store.seek(1 * US);
+    field('Scale').querySelector('.kf-btn').click();
+    env.store.seek(3 * US);
+    drag(range('Scale'), [200]);
+    env.store.seek(8 * US);
+    expect(range('Scale').value).toBe('200');
+    const undo = env.store.history.undoStack.length;
+    const before = JSON.stringify(clip(env.v1.id));
+    range('Scale').focus();
+    drag(range('Scale'), [250, 300]);
+    expect(JSON.stringify(clip(env.v1.id))).toBe(before);
+    expect(env.store.history.undoStack.length).toBe(undo);
+    // The slider goes back to the value shown and a note says why.
+    expect(range('Scale').value).toBe('200');
+    expect(field('Scale').querySelector('.num-input').value).toBe('200');
+    const notes = [...document.querySelectorAll('.toast')].filter((t) => t.textContent.includes('Move the playhead over the clip'));
+    expect(notes).toHaveLength(1);
+    notes.forEach((t) => t.remove());
+  });
+
   it('applied filter shows intensity and can be removed', () => {
     expect(env.el.querySelector('.applied-filter-none').hidden).toBe(false);
     env.ctx.actions.addFilter('warm');

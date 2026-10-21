@@ -28,6 +28,13 @@ export function createActions(ctx) {
 
   const sel = () => store.selectedIds;
   const at = () => store.time;
+  // Once per drag or run of edits, not on every step.
+  let hintAt = -Infinity;
+  const playheadHint = () => {
+    const now = performance.now();
+    if (now - hintAt > 4000) toast('Move the playhead over the clip to change a keyframed setting.', { kind: 'info' });
+    hintAt = now;
+  };
 
   function addClipAndSelect(label, clip, opts) {
     const ok = store.update(label, (p) => {
@@ -305,18 +312,24 @@ export function createActions(ctx) {
 
     /**
      * Set a keyframable property. When the clip already has keys for it, the
-     * value becomes a key at the playhead; otherwise the base value changes.
+     * value becomes a key at the playhead (which must be over the clip: the
+     * base value would change nothing that shows); otherwise the base value
+     * changes.
      */
     setAnimatable(id, prop, value, opts = {}) {
-      return actions.editClip(id, opts.label || 'Edit', (c) => {
+      let off = false;
+      const ok = actions.editClip(id, opts.label || 'Edit', (c) => {
         const local = Math.round(at() - c.start);
         const tol = Math.round(US / store.fps / 2);
-        if (c.keyframes?.[prop]?.length && local >= 0 && local <= c.duration) {
-          setKey(c.keyframes, prop, local, value, 'linear', tol);
-        } else {
-          setBaseValue(c, prop, value);
+        if (!c.keyframes?.[prop]?.length) setBaseValue(c, prop, value);
+        else if (local >= 0 && local <= c.duration) setKey(c.keyframes, prop, local, value, 'linear', tol);
+        else {
+          off = true;
+          return false;
         }
       }, opts);
+      if (off) playheadHint();
+      return ok;
     },
 
     /**

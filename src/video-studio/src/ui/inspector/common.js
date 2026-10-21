@@ -179,6 +179,14 @@ export function slider(view, { label, min, max, step = 1, unit = '', decimals, g
   };
   let last = get(c);
   let lastKey = null;
+  // After a drag, show what was stored: an edit can be limited or refused
+  // (a keyed value with the playhead off the clip).
+  range.addEventListener('change', () => {
+    const clip = view.clip;
+    if (!clip) return;
+    last = get(clip);
+    write(last);
+  });
   view.bind(() => {
     const clip = view.clip;
     if (!clip) return;
