@@ -2493,7 +2493,8 @@ export function createGrid(opts) {
         if (cell.f != null) formulas++;
         hashCell(r, c, cell.f != null ? wb.getValue(sheetId, r, c) : cell.v, cell.s);
       }
-      for (const sp of wb.spillEntries(sheetId)) if (inRange(sp.r, sp.c)) { formulas++; hashCell(sp.r, sp.c, sp.value, s.cells.get(cellKey(sp.r, sp.c))?.s); }
+      // Only the results spilled into the range: an array over the whole sheet spills more than any list holds.
+      for (const sp of wb.spillEntries(sheetId, { r1: n.r1, c1: n.c1, r2, c2 })) if (inRange(sp.r, sp.c)) { formulas++; hashCell(sp.r, sp.c, sp.value, s.cells.get(cellKey(sp.r, sp.c))?.s); }
     } else {
       for (let r = n.r1; r <= r2; r++) {
         for (let c = n.c1; c <= c2; c++) {
