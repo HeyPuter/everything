@@ -3041,6 +3041,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'moveSheet': {
         // Among the tabs on show, as the tab menu moves them: past a hidden sheet would not move the tab visibly.
+        if (!committed()) return;
         const id = arg?.id || sheetId;
         const visible = wb.visibleSheets;
         const at = visible.findIndex((s) => s.id === id);
@@ -3058,7 +3059,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'sheetColor': {
-        // The tab strip's swatches, beside the active tab's options button (or the element asked from).
+        // The tab strip's swatches, beside the active tab's options button (or the element asked from), for the
+        // sheet of an open entry, which goes in first as for the tab strip's other actions.
+        if (!committed()) return;
         const sheet = wb.sheet(sheetId);
         if (sheet) sheetTabs.colorMenu(sheet, arg instanceof HTMLElement ? arg : sheetTabs.el.querySelector('.tab-menu-btn'));
         return;
@@ -3267,7 +3270,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'errorCheckingOptions': openErrorCheckingOptions({ ...ctx, refreshErrorTag: () => errorTag.sync() }); return;
       case 'circleInvalid': {
-        // Red circles around the cells that break their validation rule; they go as each is fixed.
+        // Red circles around the cells that break their validation rule; they go as each is fixed. The entry goes in
+        // first, as for the other commands on lines, so the sheet circled is its own.
+        if (!committed()) return;
         const found = invalidCells(wb, sheetId);
         circledSheet = found.cells.length ? sheetId : null;
         grid.setHighlights(found.cells.map((cell) => ({ ...cell, kind: 'invalid' })), -1);
@@ -3347,10 +3352,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       case 'addWatch': {
-        // Add Watch: the selected cells, as many as the Watch Window lists for a selection (the first 100).
+        // Add Watch: the selected cells, as many as the Watch Window lists for a selection (the first 100). The entry
+        // goes in first: a formula showing another sheet to pick references on watched the cells picked there.
+        if (!committed()) return;
         const cells = [];
         for (const rg of grid.ranges) for (let rr = rg.r1; rr <= rg.r2 && cells.length < 100; rr++) for (let cc = rg.c1; cc <= rg.c2 && cells.length < 100; cc++) cells.push({ r: rr, c: cc });
-        const added = wb.addWatches(grid.sheetId, cells);
+        const added = wb.addWatches(sheetId, cells);
         watchWindow.show();
         if (!added) toast('Those cells are already watched', { icon: 'info', duration: 2000 });
         return;
@@ -3550,7 +3557,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'zoomSelection': {
-        // Zoom to Selection: the largest zoom at which the selected range fits the visible grid.
+        // Zoom to Selection: the largest zoom at which the selected range fits the visible grid. The entry goes in
+        // first: a formula showing another sheet to pick references on fitted the range picked there.
+        if (!committed()) return;
         const rg = grid.range;
         const zs = wb.sheet(sheetId);
         const w = lineSpan(zs, 'col', rg.c1, rg.c2, zs.defaultColWidth ?? wb.colWidth(sheetId, -1));

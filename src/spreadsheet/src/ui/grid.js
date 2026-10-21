@@ -869,9 +869,10 @@ export function createGrid(opts) {
    * cell is the window's top-left one), or remove the split when there is one. Splitting unfreezes panes.
    */
   function toggleSplit() {
+    // The entry goes in first: a formula showing another sheet to pick references on comes home with it.
+    if (edit && !commitEdit()) return;
     const s = sheet();
     if (!s || s.kind === 'chart') return;
-    if (edit && !commitEdit()) return;
     if (s.split && !s.frozenRows && !s.frozenCols) { wb.setSplit(sheetId, null); return; }
     ensureOffsets();
     const view = viewMetrics();
