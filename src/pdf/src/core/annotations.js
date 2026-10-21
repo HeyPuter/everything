@@ -497,6 +497,20 @@ function repliesOf(id, threads, seen = new Set([id])) {
       };
     });
 }
+/**
+ * Whether this module can draw the comment again from its dictionary: not a measurement or a
+ * captioned line, whose value, caption, and leader lines only its own drawing holds.
+ */
+function redrawable(dict, subtype) {
+  if (!DRAWABLE.has(subtype)) return false;
+  const intent = dict.lookup(name('IT'))?.decodeText?.() ?? '';
+  return !(
+    intent.endsWith('Dimension') ||
+    dict.has(name('Measure')) ||
+    dict.lookup(name('Cap'))?.asBoolean?.() ||
+    (dict.lookup(name('LL'))?.asNumber?.() ?? 0) !== 0
+  );
+}
 const boxObject = (r) => r && { x: r[0], y: r[1], width: r[2] - r[0], height: r[3] - r[1] };
 
 function describe(doc, { id, dict }, threads) {
@@ -532,7 +546,7 @@ function describe(doc, { id, dict }, threads) {
     locked: !!(flags & FLAGS.locked),
     lockedContents: !!(flags & FLAGS.lockedcontents),
     // Whether this module can redraw it after a change of style or geometry.
-    editable: DRAWABLE.has(subtype),
+    editable: redrawable(dict, subtype),
     ...statesOf(id, threads),
     replies: repliesOf(id, threads),
   };
@@ -684,7 +698,11 @@ export async function editAnnotation(doc, page, id, changes = {}) {
   const textChanged = body !== undefined && String(body) !== text(original, 'Contents');
   if (textChanged && flags & FLAGS.lockedcontents)
     throw new Error('The text of this comment is locked.');
-  const allowed = original.has(name('IRT')) ? [] : EDITS[subtype] || [];
+  const allowed = original.has(name('IRT'))
+    ? []
+    : redrawable(original, subtype)
+      ? EDITS[subtype] || []
+      : (EDITS[subtype] || []).filter((key) => key === 'rect');
   const refused = properties.find((key) => !allowed.includes(key));
   if (refused) throw new Error(`The ${refused} of this kind of comment cannot be changed.`);
   if (!textChanged && !properties.length) return id;

@@ -655,6 +655,11 @@ describe('editing', () => {
     );
     doc.getPage(0).node.set(PDFName.of('Annots'), doc.context.obj([line]));
     const [entry] = listAnnotations(doc, 0);
+    // Its look cannot be drawn again here, so it can be moved but not restyled.
+    expect(entry.editable).toBe(false);
+    await expect(editAnnotation(doc, 0, entry.id, { color: '#ff0000' })).rejects.toThrow(
+      'cannot be changed',
+    );
     await editAnnotation(doc, 0, entry.id, {
       rect: { ...entry.rect, x: entry.rect.x + 50, y: entry.rect.y + 200 },
     });
