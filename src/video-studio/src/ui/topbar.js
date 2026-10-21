@@ -44,11 +44,11 @@ export function accountButton({ user, picture, env, onSignOut, onSignIn, extraIt
   return btn;
 }
 
-/** Give el a tooltip with its full text while it is cut off, else the fallback tooltip (if any). */
+/** Give el a tooltip with its full text while it is cut off or shortened (.compact), else the fallback tooltip (if any). */
 function tipWhenCut(el, fallback = null, fullText = () => el.textContent) {
   // pointerover reaches el before the document's tooltip listener reads data-tip.
   const sync = () => {
-    const tip = el.scrollWidth > el.clientWidth ? fullText() : fallback;
+    const tip = el.scrollWidth > el.clientWidth || el.classList.contains('compact') ? fullText() : fallback;
     if (tip) el.setAttribute('data-tip', tip);
     else el.removeAttribute('data-tip');
   };
@@ -251,9 +251,18 @@ export function createTopbar(ctx) {
     else {
       const where = local ? 'Saved in this browser' : 'Auto saved';
       statusText = `${where}: ${fmt(at)}`;
-      status.replaceChildren(h('span.save-status-long', `${where}: `), h('span.save-status-short', 'Saved '), fmt(at));
+      status.replaceChildren(h('span.save-status-long', `${where}: `), h('span.save-status-short', { 'aria-hidden': 'true' }, 'Saved '), fmt(at));
     }
+    fitStatus();
   };
+  // Say just "Saved" and the time only when the full status does not fit. The status's width
+  // does not depend on its text (contain: inline-size), so measuring here cannot loop.
+  const fitStatus = () => {
+    status.classList.remove('compact');
+    if (status.querySelector('.save-status-short') && status.scrollWidth > status.clientWidth) status.classList.add('compact');
+  };
+  const statusObserver = new ResizeObserver(fitStatus);
+  statusObserver.observe(status);
   ctx.saver.on('status', setStatus);
   setStatus({ status: 'saved', at: ctx.saver.lastSaved });
   const uploads = h('span.upload-status', { role: 'status' });
@@ -264,5 +273,11 @@ export function createTopbar(ctx) {
     else uploads.textContent = pending ? `Uploading ${pending} file${pending === 1 ? '' : 's'}...` : '';
   });
   el.querySelector('.topbar-left').append(uploads);
-  return { el, dispose: offUploads };
+  return {
+    el,
+    dispose() {
+      offUploads?.();
+      statusObserver.disconnect();
+    },
+  };
 }

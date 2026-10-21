@@ -126,4 +126,53 @@ describe('top bar tooltips', () => {
       editor.dispose();
     }
   });
+
+  it('shorten the save status only when the full text does not fit, and keep the full text in its tooltip', async () => {
+    vi.useRealTimers();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { Library } = await import('../src/storage/library.js');
+    const { memoryBackend } = await import('../src/storage/backends.js');
+    const { Editor } = await import('../src/ui/editor.js');
+    const { fixture, clip, onMain } = await import('./helpers.js');
+    const root = h('div');
+    document.body.append(root);
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const lib = new Library(memoryBackend());
+    await lib.saveProject(p);
+    const editor = new Editor(root, { library: lib, project: p, account: { user: { username: 'sam' } }, onExit() {}, onNewProject() {} });
+    vi.useFakeTimers();
+    const status = root.querySelector('.save-status');
+    // The full text needs 200px; the short form 110px.
+    let room = 300;
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function w() {
+      return this === status ? room : 0;
+    });
+    vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function w() {
+      return this === status ? (status.classList.contains('compact') ? 110 : 200) : 0;
+    });
+    const saved = () => editor.saver.emit('status', { status: 'saved', at: Date.now() });
+    const tip = () => {
+      hover(status);
+      vi.advanceTimersByTime(500);
+      const text = document.querySelector('.tooltip')?.firstChild?.textContent;
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      return text;
+    };
+    try {
+      saved();
+      expect(status.classList.contains('compact')).toBe(false);
+      expect(tip()).toBeUndefined();
+      room = 150;
+      saved();
+      expect(status.classList.contains('compact')).toBe(true);
+      expect(tip()).toMatch(/^Auto saved: \d/);
+      room = 250;
+      saved();
+      expect(status.classList.contains('compact')).toBe(false);
+    } finally {
+      vi.restoreAllMocks();
+      editor.dispose();
+    }
+  });
 });
