@@ -857,9 +857,33 @@ export function emailPage(app) {
   const page = app.editor.page;
   if (!page) return;
   app.editor.flush();
-  const body = pageText(page).replace(page.title || '', '').trim();
-  const url = `mailto:?subject=${encodeURIComponent(page.title || 'Notes page')}&body=${encodeURIComponent(body.slice(0, 1800))}`;
+  const { url, truncated } = mailtoForPage(page);
+  if (truncated) toast('This page is too long for an email link, so only its beginning is in the message. Export the page to send all of it.', { duration: 8000 });
   window.location.href = url;
+}
+
+// Mail apps and browsers drop or refuse mailto: links much longer than
+// about 2,000 characters (counted after URL encoding).
+const MAILTO_MAX = 2000;
+
+/** A mailto: link for a page, its text cut to fit; truncated says whether it was. */
+export function mailtoForPage(page) {
+  const title = page.title || '';
+  const subject = encodeURIComponent(Array.from(title || 'Notes page').slice(0, 200).join(''));
+  const head = `mailto:?subject=${subject}&body=`;
+  const body = pageText(page).replace(title, '').trim();
+  const fits = (text) => head.length + encodeURIComponent(text).length <= MAILTO_MAX;
+  if (fits(body)) return { url: head + encodeURIComponent(body), truncated: false };
+  // Cut by code points so an emoji is never split into a lone surrogate.
+  const chars = Array.from(body);
+  let lo = 0;
+  let hi = chars.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(`${chars.slice(0, mid).join('')}\u2026`)) lo = mid;
+    else hi = mid - 1;
+  }
+  return { url: head + encodeURIComponent(`${chars.slice(0, lo).join('').trimEnd()}\u2026`), truncated: true };
 }
 
 function download(name, blob) {

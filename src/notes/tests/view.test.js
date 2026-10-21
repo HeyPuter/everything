@@ -4,6 +4,7 @@ import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
 import { closeAllMenus } from '../src/ui/menu.js';
 import { setTheme } from '../src/ui/prefs.js';
+import { mailtoForPage } from '../src/ui/features.js';
 
 let app;
 
@@ -186,5 +187,24 @@ describe('theme', () => {
     expect([...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.content)).toEqual(['#1c1c1c', '#1c1c1c']);
     setTheme('light');
     expect([...document.querySelectorAll('meta[name="theme-color"]')].map((m) => m.content)).toEqual(['#f5f5f5', '#f5f5f5']);
+  });
+});
+
+describe('email page', () => {
+  const page = (text) => ({ title: 'Trip', outlines: [{ id: 'a', x: 0, y: 0, w: 300, html: `<p>${text}</p>` }] });
+
+  it('keeps a short page whole', () => {
+    const { url, truncated } = mailtoForPage(page('Pack the tent'));
+    expect(truncated).toBe(false);
+    expect(decodeURIComponent(url.split('&body=')[1])).toBe('Pack the tent');
+  });
+
+  it('cuts a long page to a safe link length and says so', () => {
+    const { url, truncated } = mailtoForPage(page('Zelt einpacken und Wasser kaufen. 🏕️ '.repeat(200)));
+    expect(truncated).toBe(true);
+    expect(url.length).toBeLessThanOrEqual(2000);
+    const body = decodeURIComponent(url.split('&body=')[1]);
+    expect(body.endsWith('\u2026')).toBe(true);
+    expect(body.startsWith('Zelt einpacken')).toBe(true);
   });
 });
