@@ -3,7 +3,7 @@ import { ensureBlocks, fixNesting, blocksInRange, rangeFromOffsets, textOffset, 
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
-import { setBlockStyle, indent, retag, moveBlock } from '../src/editor/format.js';
+import { setBlockStyle, indent, retag, moveBlock, insertNode } from '../src/editor/format.js';
 import { textToHtml, ruleImage } from '../src/editor/page-editor.js';
 
 function body(html) {
@@ -113,6 +113,18 @@ describe('embeds', () => {
     expect(html).not.toContain('role=');
     expect(html).not.toContain('Plan.pdf</span>');
     expect(html).toContain('data-name="Plan.pdf"');
+  });
+
+  it('puts an embed inside the paragraph when the caret sits after it', () => {
+    const el = body('<p><br></p>');
+    caretIn(el, 1); // where a new container's caret lands
+    insertNode(fileSpan({ asset: 'a2.pdf', name: 'Plan.pdf' }));
+    expect(el.innerHTML).toMatch(/^<p><span class="nt-file"[^>]*><\/span>&nbsp;<\/p>$/);
+    const two = body('<p>One</p>');
+    caretIn(two, 1);
+    insertNode(fileSpan({ asset: 'a3.pdf', name: 'B.pdf' }));
+    expect(two.firstChild.textContent.startsWith('One')).toBe(true);
+    expect(two.children.length).toBe(1);
   });
 
   it('treats a lone placeholder as empty', () => {

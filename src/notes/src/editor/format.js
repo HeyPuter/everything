@@ -261,6 +261,18 @@ export function insertNode(node, { spaceAfter = true } = {}) {
   const root = range && editableRoot(range.commonAncestorContainer);
   if (!root) return false;
   range.deleteContents();
+  // A caret between the body's blocks (a new container's caret sits after
+  // its empty paragraph) goes into the neighboring paragraph, so the embed
+  // doesn't end up outside any block.
+  if (range.collapsed && range.startContainer === root) {
+    const before = root.childNodes[range.startOffset - 1];
+    const block = before || root.childNodes[range.startOffset];
+    if (block?.nodeType === 1 && /^(P|H[1-6]|BLOCKQUOTE|PRE)$/.test(block.nodeName)) {
+      if (block.childNodes.length === 1 && block.firstChild.nodeName === 'BR') block.replaceChildren();
+      range.selectNodeContents(block);
+      range.collapse(!before);
+    }
+  }
   range.insertNode(node);
   const after = document.createTextNode(spaceAfter ? '\u00a0' : '');
   node.after(after);
