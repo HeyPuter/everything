@@ -84,11 +84,12 @@ const radiusItem: MenuItem = { label: 'Radius', op: 'transform.transform', props
 
 function curveMenu(): MenuItem[] {
   return [
-    transformSubmenu([radiusItem]),
+    transformSubmenu([radiusItem], true),
     mirrorSubmenu(),
     snapSubmenu(),
     { separator: true },
-    { label: 'Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Spin', op: 'curve.spin' },
+    { label: 'Add Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
     { separator: true },
     { label: 'Split', op: 'curve.split', shortcut: 'Y' },
     { label: 'Separate', op: 'curve.separate', shortcut: 'P' },
@@ -138,7 +139,7 @@ export function curveContextMenu(): MenuItem[] {
     { label: 'Subdivide', op: 'curve.subdivide' },
     { label: 'Extrude Curve and Move', op: 'curve.extrude_move', shortcut: 'E' },
     { label: 'Make Segment', op: 'curve.make_segment', shortcut: 'F' },
-    { label: 'Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Add Duplicate', op: 'curve.duplicate_move', shortcut: 'Shift D' },
     { separator: true },
     radiusItem,
     { label: 'Tilt', op: 'transform.tilt', shortcut: 'Ctrl T' },

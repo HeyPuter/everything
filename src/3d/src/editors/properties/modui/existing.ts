@@ -5,7 +5,9 @@ import { enumRow, enumMenu } from '../../../ui/widgets';
 import { app } from '../../../app/app';
 import { modifierFields, modifierExtraUI } from '../stack';
 import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget, flagToggles } from './kit';
-import type { ModifierBase } from '../../../data/types';
+import type { ModifierBase, ObjectData } from '../../../data/types';
+import { uvMaps } from '../../../mesh/uvmaps';
+import { validAttributes } from '../../../mesh/attributes';
 
 type Rec = Record<string, unknown>;
 
@@ -66,9 +68,11 @@ modifierExtraUI.BEVEL = (ob, m) => {
     enumProp(r, 'limit_method', 'Limit Method', [
       ['NONE', 'None'],
       ['ANGLE', 'Angle'],
+      ['WEIGHT', 'Weight'],
       ['VGROUP', 'Vertex Group'],
     ]),
     r.limit_method === 'ANGLE' ? num(r, 'angle_limit', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,
+    r.limit_method === 'WEIGHT' ? weightAttrRow(ob, r, r.affect === 'VERTICES' ? 'vertex_weight' : 'edge_weight') : null,
     r.limit_method === 'VGROUP' ? vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group') : null,
     sub(m, 'profile', 'Profile', () => [num(r, 'profile', 'Shape', { min: 0, max: 1, slider: true })]),
     sub(m, 'geometry', 'Geometry', () => [bool(r, 'use_clamp_overlap', 'Clamp Overlap')]),
@@ -202,17 +206,7 @@ modifierExtraUI.DISPLACE = (ob, m) => {
   const axis = r.direction === 'X' || r.direction === 'Y' || r.direction === 'Z';
   return [
     textureRows(m, 'texture'),
-    r.texture
-      ? [
-          enumProp(r, 'texture_coords', 'Coordinates', [
-            ['LOCAL', 'Local'],
-            ['GLOBAL', 'Global'],
-            ['OBJECT', 'Object'],
-            ['UV', 'UV'],
-          ]),
-          r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
-        ]
-      : null,
+    texCoordRows(ob, r),
     enumProp(r, 'direction', 'Direction', [
       ['X', 'X'],
       ['Y', 'Y'],
@@ -253,6 +247,9 @@ modifierExtraUI.WIREFRAME = (ob, m) => {
     bool(r, 'use_replace', 'Replace Original'),
     h('div', { class: 'sub-label' }, 'Thickness'),
     bool(r, 'use_even_offset', 'Even'),
+    bool(r, 'use_relative_offset', 'Relative'),
+    bool(r, 'use_crease', 'Crease Edges'),
+    r.use_crease ? num(r, 'crease_weight', 'Crease Weight', { min: 0, max: 1, slider: true }) : null,
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     r.vertex_group ? num(r, 'thickness_vertex_group', 'Factor', { min: 0, max: 1, slider: true }) : null,
     num(r, 'material_offset', 'Material Offset', { int: true }),
@@ -330,8 +327,31 @@ modifierExtraUI.CAST = (ob, m) => {
     bool(r, 'use_radius_as_size', 'Size from Radius'),
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     objRow(r, 'object', 'Control Object', (o) => o.id !== ob.id),
+    r.object ? bool(r, 'use_transform', 'Use Transform') : null,
   ];
 };
+
+/** Texture coordinate rows of a modifier with a texture (Displace, Warp, Wave). */
+function texCoordRows(ob: ObjectData, r: Rec): Child {
+  if (!r.texture) return null;
+  return [
+    enumProp(r, 'texture_coords', 'Coordinates', [
+      ['LOCAL', 'Local'],
+      ['GLOBAL', 'Global'],
+      ['OBJECT', 'Object'],
+      ['UV', 'UV'],
+    ]),
+    r.texture_coords === 'OBJECT' ? objRow(r, 'texture_coords_object', 'Object', (o) => o.id !== ob.id) : null,
+    r.texture_coords === 'UV' ? uvMapRow(ob, r) : null,
+  ];
+}
+
+/** UV map picker of a modifier (the mesh's UV maps by name; empty: the active one). */
+function uvMapRow(ob: ObjectData, r: Rec) {
+  const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+  const items = [{ value: '', label: '—' }, ...(me ? uvMaps(me).map((u) => ({ value: u.name, label: u.name })) : [])];
+  return splitRow('UV Map', enumMenu(`uvmap.${String(r.id)}`, items, String(r.uv_layer ?? ''), (v) => ((r.uv_layer = v), touch('UV Map'))));
+}
 
 modifierFields.SMOOTH = [];
 modifierExtraUI.SMOOTH = (ob, m) => {
@@ -391,6 +411,7 @@ modifierExtraUI.WAVE = (ob, m) => {
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     sub(m, 'start', 'Start Position', () => [objRow(r, 'start_position_object', 'Object', (o) => o.id !== ob.id), !r.start_position_object ? [num(r, 'start_position_x', 'Start Position X', { unit: 'distance' }), num(r, 'start_position_y', 'Y', { unit: 'distance' })] : null]),
     sub(m, 'time', 'Time', () => [num(r, 'time_offset', 'Offset', { anim: a('time_offset') }), num(r, 'lifetime', 'Life', { min: 0 }), num(r, 'damping_time', 'Damping', { min: 0 }), num(r, 'speed', 'Speed', { softMin: -1, softMax: 1, anim: a('speed') })]),
+    sub(m, 'texture', 'Texture', () => [textureRows(m, 'texture'), texCoordRows(ob, r)]),
   ];
 };
 
@@ -429,7 +450,7 @@ modifierExtraUI.WARP = (ob, m) => {
     num(r, 'strength', 'Strength', { softMin: -100, softMax: 100, anim: { ob, path: `modifiers["${m.name}"].strength` } }),
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
     sub(m, 'falloff', 'Falloff', () => [enumProp(r, 'falloff_type', 'Type', FALLOFF_TYPES), r.falloff_type !== 'NONE' ? num(r, 'falloff_radius', 'Radius', { unit: 'distance', min: 0 }) : null, r.falloff_type === 'CURVE' ? curveWidget(m, 'falloff_curve') : null]),
-    sub(m, 'texture', 'Texture', () => textureRows(m, 'texture')),
+    sub(m, 'texture', 'Texture', () => [textureRows(m, 'texture'), texCoordRows(ob, r)]),
   ];
 };
 
@@ -474,6 +495,7 @@ modifierExtraUI.SHRINKWRAP = (ob, m) => {
             ['BACK', 'Back'],
           ]),
           r.cull_face !== 'OFF' ? bool(r, 'use_invert_cull', 'Invert Cull') : null,
+          objRow(r, 'auxiliary_target', 'Auxiliary Target', (o) => o.type === 'MESH' && o.id !== ob.id),
         ]
       : null,
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
@@ -502,7 +524,26 @@ modifierExtraUI.DECIMATE = (ob, m) => {
         (v) => ((r.decimate_type = v), touch('Change Decimate Type')),
       ),
     ),
-    type === 'COLLAPSE' ? [num(r, 'ratio', 'Ratio', { min: 0, max: 1, slider: true }), bool(r, 'use_collapse_triangulate', 'Triangulate')] : null,
+    type === 'COLLAPSE'
+      ? [
+          num(r, 'ratio', 'Ratio', { min: 0, max: 1, slider: true }),
+          bool(r, 'use_collapse_triangulate', 'Triangulate'),
+          bool(r, 'use_symmetry', 'Symmetry'),
+          r.use_symmetry
+            ? splitRow(
+                'Axis',
+                enumRow(
+                  `${m.id}.symmetry_axis`,
+                  ['X', 'Y', 'Z'].map((a) => ({ value: a, label: a })),
+                  String(r.symmetry_axis ?? 'X'),
+                  (v) => ((r.symmetry_axis = v), touch('Symmetry Axis')),
+                ),
+              )
+            : null,
+          vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),
+          r.vertex_group ? num(r, 'vertex_group_factor', 'Factor', { min: 0, max: 1000, softMax: 10 }) : null,
+        ]
+      : null,
     type === 'UNSUBDIV' ? num(r, 'iterations', 'Iterations', { int: true, min: 0, max: 32767, softMax: 100 }) : null,
     type === 'DISSOLVE'
       ? [
@@ -552,3 +593,12 @@ modifierExtraUI.REMESH = (_ob, m) => {
     bool(r, 'use_smooth_shade', 'Smooth Shading'),
   ];
 };
+
+/** Weight attribute of the Bevel modifier: the built-in bevel weights or a float attribute of the mesh. */
+function weightAttrRow(ob: ObjectData, r: Rec, key: 'edge_weight' | 'vertex_weight') {
+  const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+  const builtin = key === 'edge_weight' ? 'bevel_weight_edge' : 'bevel_weight_vert';
+  const domain = key === 'edge_weight' ? 'EDGE' : 'POINT';
+  const names = [builtin, ...(me ? validAttributes(me).filter((a) => a.domain === domain && a.data_type === 'FLOAT').map((a) => a.name) : [])];
+  return splitRow(key === 'edge_weight' ? 'Edge Weight' : 'Vertex Weight', enumMenu(`bvw.${String(r.id)}.${key}`, names.map((n) => ({ value: n, label: n })), String(r[key] ?? builtin), (v) => ((r[key] = v), touch('Bevel Weight Attribute'))));
+}

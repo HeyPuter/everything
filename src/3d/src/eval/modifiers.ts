@@ -36,8 +36,14 @@ export interface SubdivOptions {
   uvSmooth?: string;
 }
 
+/** Crease weight (0..1) → subdivision sharpness (levels that stay sharp; fractional parts blend). */
+export const creaseToSharpness = (c: number) => 10 * c * c;
+const sharpnessToCrease = (s: number) => Math.sqrt(Math.max(0, Math.min(10, s)) / 10);
+
 export function catmullClark(m: EvalMesh, levels: number, simple = false, useCreases = true, opts: SubdivOptions = {}): EvalMesh {
-  let mesh = m;
+  // creases travel through the levels as sharpness (each level uses up one unit)
+  const toSharp = (a: Float32Array | undefined) => (a ? Float32Array.from(a, creaseToSharpness) : undefined);
+  let mesh: EvalMesh = useCreases && !simple && levels > 0 ? { ...m, creases: toSharp(m.creases), crease_vert: toSharp(m.crease_vert) } : m;
   const boundary = opts.boundary ?? 'SMOOTH';
   const uvMode = !simple && opts.uvSmooth && opts.uvSmooth !== 'NONE' ? opts.uvSmooth : null;
   let uvMesh = uvMode && levels > 0 ? uvTopology(m) : null;
@@ -47,6 +53,10 @@ export function catmullClark(m: EvalMesh, levels: number, simple = false, useCre
     if (uvMesh) uvMesh = subdivideOnce(uvMesh, false, false, uvBoundary);
   }
   if (levels > 0 && !simple && opts.limit) mesh = { ...mesh, positions: limitPositions(mesh, boundary, useCreases) };
+  if (mesh !== m && useCreases && !simple && levels > 0) {
+    const back = (a: Float32Array | undefined) => (a && a.some((x) => x > 0) ? Float32Array.from(a, sharpnessToCrease) : undefined);
+    mesh = { ...mesh, creases: back(mesh.creases), crease_vert: back(mesh.crease_vert) };
+  }
   if (uvMesh) {
     const P = opts.limit ? limitPositions(uvMesh, uvBoundary, false) : uvMesh.positions;
     const uvs = new Float32Array(mesh.indices.length * 2);
@@ -163,6 +173,7 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
   if (useCreases && m.creases) for (let c = 0; c < m.indices.length; c++) crease[et.cornerEdge[c]] = Math.max(crease[et.cornerEdge[c]], m.creases[c]);
   const boundaryEdge = new Uint8Array(ne);
   for (let e = 0; e < ne; e++) if (et.faceOffsets[e + 1] - et.faceOffsets[e] !== 2) boundaryEdge[e] = 1;
+  const vsharp = useCreases && m.crease_vert && m.crease_vert.length === nv ? m.crease_vert : null;
   // edge points
   const ep = new Float64Array(ne * 3);
   for (let e = 0; e < ne; e++) {
@@ -234,6 +245,9 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       const w = Math.min(1, creaseSum[v] / ccount[v]);
       out = smooth.map((s, k) => s + (P[v * 3 + k] - s) * w);
     }
+    // vertex sharpness pulls the vertex towards its own position (a corner)
+    const vs = vsharp ? vsharp[v] : 0;
+    if (vs > 0) out = out.map((s, k) => s + (P[v * 3 + k] - s) * Math.min(1, vs));
     for (let k = 0; k < 3; k++) vp[v * 3 + k] = out[k];
   }
   // emit vertices: original, edge, face
@@ -300,7 +314,14 @@ function subdivideOnce(m: EvalMesh, simple: boolean, useCreases: boolean, bounda
       b.addFace([m.indices[c], ebase + eNext, fbase + f, ebase + ePrev], uv, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, { seams: seam, sharp, creases, colors });
     }
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle, instances: m.instances });
+  if (vsharp && vsharp.some((x) => x > 1)) {
+    // original vertices keep what is left of their sharpness; new vertices are smooth
+    const cv = new Float32Array(out.positions.length / 3);
+    for (let v = 0; v < nv; v++) cv[v] = Math.max(0, vsharp[v] - 1);
+    out.crease_vert = cv;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -421,9 +442,12 @@ function mirrorMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
       ov = num(mod, 'offset_v');
     if (bool(mod, 'use_mirror_u') || bool(mod, 'use_mirror_v') || ou || ov) {
       const uv = local.uvs.slice();
+      // UDIM: flip within each corner's own tile (whole numbers stay on their tile edge)
+      const udim = bool(mod, 'use_mirror_udim');
+      const flipU = (u: number) => (udim ? Math.ceil(u) - (u - Math.floor(u)) : 1 - u);
       for (let i = 0; i < uv.length; i += 2) {
-        if (bool(mod, 'use_mirror_u')) uv[i] = 1 - uv[i] + num(mod, 'mirror_offset_u');
-        if (bool(mod, 'use_mirror_v')) uv[i + 1] = 1 - uv[i + 1] + num(mod, 'mirror_offset_v');
+        if (bool(mod, 'use_mirror_u')) uv[i] = flipU(uv[i]) + num(mod, 'mirror_offset_u');
+        if (bool(mod, 'use_mirror_v')) uv[i + 1] = flipU(uv[i + 1]) + num(mod, 'mirror_offset_v');
         uv[i] += ou;
         uv[i + 1] += ov;
       }
@@ -725,7 +749,7 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const rim = bool(mod, 'use_rim', true),
     rimOnly = bool(mod, 'use_rim_only');
   const flip = bool(mod, 'use_flip_normals');
-  const vn = vertexNormals(m);
+  const vn = bool(mod, 'use_quality_normals') ? qualityNormals(m) : vertexNormals(m);
   const P = m.positions,
     nv = P.length / 3;
   const groups = m.weights?.length ?? 0;
@@ -746,23 +770,31 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
     }
   }
   if (even) {
-    // even thickness: scale by 1/cos(angle) between vertex normal and adjacent face normals
-    const vf = vertexFaces(m);
+    // even thickness: the mean of 1/cos(face normal, vertex normal) over the faces around a vertex,
+    // each face weighted by its turning angle at the corner (pi minus the corner angle)
+    const sum = new Float64Array(nv),
+      wsum = new Float64Array(nv);
     const n: [number, number, number] = [0, 0, 0];
-    for (let v = 0; v < nv; v++) {
-      let sum = 0,
-        k = 0;
-      for (let i = vf.offsets[v]; i < vf.offsets[v + 1]; i++) {
-        const f = vf.faces[i];
-        polyNormal(P, m.indices.subarray(m.offsets[f], m.offsets[f + 1]), n);
-        sum += Math.max(0.2, n[0] * vn[v * 3] + n[1] * vn[v * 3 + 1] + n[2] * vn[v * 3 + 2]);
-        k++;
+    for (let f = 0; f + 1 < m.offsets.length; f++) {
+      const s0 = m.offsets[f],
+        e0 = m.offsets[f + 1];
+      polyNormal(P, m.indices.subarray(s0, e0), n);
+      for (let k = s0; k < e0; k++) {
+        const v = m.indices[k],
+          vp = m.indices[k > s0 ? k - 1 : e0 - 1],
+          vx = m.indices[k + 1 < e0 ? k + 1 : s0];
+        const ang = cornerAngle(P, vp, v, vx);
+        const w = Math.PI - ang;
+        const d = n[0] * vn[v * 3] + n[1] * vn[v * 3 + 1] + n[2] * vn[v * 3 + 2];
+        sum[v] += w / Math.max(0.05, d);
+        wsum[v] += w;
       }
-      if (k) scale[v] /= sum / k;
     }
+    for (let v = 0; v < nv; v++) if (wsum[v] > 0) scale[v] *= sum[v] / wsum[v];
   }
   const clamp = num(mod, 'thickness_clamp', 0);
   if (clamp > 0) {
+    // the offset never exceeds the shortest edge at the vertex divided by the clamp factor
     const et = edgeTopology(m);
     const minLen = new Float32Array(nv).fill(Infinity);
     for (let e = 0; e < et.count; e++) {
@@ -772,7 +804,10 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
       minLen[x] = Math.min(minLen[x], l);
       minLen[y] = Math.min(minLen[y], l);
     }
-    for (let v = 0; v < nv; v++) if (Number.isFinite(minLen[v]) && Math.abs(t * scale[v]) > minLen[v] * clamp) scale[v] = (Math.sign(scale[v]) * minLen[v] * clamp) / Math.abs(t || 1);
+    for (let v = 0; v < nv; v++) {
+      const limit = minLen[v] / clamp;
+      if (Number.isFinite(limit) && Math.abs(t * scale[v]) > limit) scale[v] = (Math.sign(scale[v]) * limit) / Math.abs(t || 1);
+    }
   }
   const shellG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'shell_vertex_group') && !!g.name);
   const rimG = (m.vertex_groups ?? []).findIndex((g) => g.name === str(mod, 'rim_vertex_group') && !!g.name);
@@ -824,6 +859,70 @@ function solidify(m: EvalMesh, mod: ModifierBase): EvalMesh {
   return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
 }
 
+/** Angle at vertex v between the edges to a and b. */
+function cornerAngle(P: ArrayLike<number>, a: number, v: number, b: number): number {
+  const ax = P[a * 3] - P[v * 3],
+    ay = P[a * 3 + 1] - P[v * 3 + 1],
+    az = P[a * 3 + 2] - P[v * 3 + 2];
+  const bx = P[b * 3] - P[v * 3],
+    by = P[b * 3 + 1] - P[v * 3 + 1],
+    bz = P[b * 3 + 2] - P[v * 3 + 2];
+  const l = Math.hypot(ax, ay, az) * Math.hypot(bx, by, bz);
+  return l > 0 ? Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / l))) : 0;
+}
+
+/**
+ * High quality vertex normals for Solidify: the direction that is equally far from the planes of all
+ * faces around the vertex (least squares with the minimum-norm solution: two faces give their bisector).
+ */
+function qualityNormals(m: EvalMesh): Float32Array {
+  const P = m.positions,
+    nv = P.length / 3;
+  const M = new Float64Array(nv * 6),
+    R = new Float64Array(nv * 3);
+  const n: [number, number, number] = [0, 0, 0];
+  for (let f = 0; f + 1 < m.offsets.length; f++) {
+    polyNormal(P, m.indices.subarray(m.offsets[f], m.offsets[f + 1]), n);
+    for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
+      const v = m.indices[c];
+      const o = v * 6;
+      M[o] += n[0] * n[0];
+      M[o + 1] += n[0] * n[1];
+      M[o + 2] += n[0] * n[2];
+      M[o + 3] += n[1] * n[1];
+      M[o + 4] += n[1] * n[2];
+      M[o + 5] += n[2] * n[2];
+      R[v * 3] += n[0];
+      R[v * 3 + 1] += n[1];
+      R[v * 3 + 2] += n[2];
+    }
+  }
+  const out = vertexNormals(m);
+  for (let v = 0; v < nv; v++) {
+    const o = v * 6;
+    // Tikhonov-regularised normal equations approximate the pseudo-inverse
+    const eps = 1e-7 * (M[o] + M[o + 3] + M[o + 5] || 1);
+    const A = [
+      [M[o] + eps, M[o + 1], M[o + 2]],
+      [M[o + 1], M[o + 3] + eps, M[o + 4]],
+      [M[o + 2], M[o + 4], M[o + 5] + eps],
+    ];
+    const r = [R[v * 3], R[v * 3 + 1], R[v * 3 + 2]];
+    const det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1]) - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0]) + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    if (!(Math.abs(det) > 1e-30)) continue;
+    const solve = (col: number) => {
+      const B = A.map((row, i) => row.map((x, j) => (j === col ? r[i] : x)));
+      return (B[0][0] * (B[1][1] * B[2][2] - B[1][2] * B[2][1]) - B[0][1] * (B[1][0] * B[2][2] - B[1][2] * B[2][0]) + B[0][2] * (B[1][0] * B[2][1] - B[1][1] * B[2][0])) / det;
+    };
+    const x = solve(0),
+      y = solve(1),
+      z = solve(2);
+    const l = Math.hypot(x, y, z);
+    if (l > 1e-12 && Number.isFinite(l)) out.set([x / l, y / l, z / l], v * 3);
+  }
+  return out;
+}
+
 /** Split a quad into two triangles (local corner indices) by the chosen rule. */
 function quadSplit(P: ArrayLike<number>, q: ArrayLike<number>, method: string, face: number, out: number[]) {
   const d = (a: number, b: number) => Math.hypot(P[q[a] * 3] - P[q[b] * 3], P[q[a] * 3 + 1] - P[q[b] * 3 + 1], P[q[a] * 3 + 2] - P[q[b] * 3 + 2]);
@@ -853,12 +952,22 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions;
   for (let v = 0; v < P.length / 3; v++) b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  // the original corner behind every new corner (edge flags follow the original edges, diagonals get none)
+  const src: number[] = [];
+  const flagsFor = (cs: number[], s: number, e: number) => {
+    const next = (c: number) => (c + 1 < e ? c + 1 : s);
+    const on = (c: number, d: number) => next(c) === d;
+    const pick = (arr: ArrayLike<number> | undefined) => (arr ? cs.map((c, i) => (on(c, cs[(i + 1) % cs.length]) ? arr[c] : 0)) : undefined);
+    return { seams: pick(m.seams), sharp: pick(m.sharp), creases: pick(m.creases), colors: m.colors ? cs.flatMap((c) => Array.from(m.colors!.subarray(c * 4, c * 4 + 4))) : undefined };
+  };
   const tmp: number[] = [];
   for (let f = 0; f < m.offsets.length - 1; f++) {
     const s = m.offsets[f],
       e = m.offsets[f + 1];
     if (e - s < minVerts) {
-      b.addFace(Array.from(m.indices.subarray(s, e)), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+      const cs = Array.from({ length: e - s }, (_, i) => s + i);
+      b.addFace(Array.from(m.indices.subarray(s, e)), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, flagsFor(cs, s, e));
+      src.push(...cs);
       continue;
     }
     tmp.length = 0;
@@ -866,10 +975,18 @@ function triangulateMeshMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     else triangulatePoly(P, m.indices.subarray(s, e), tmp, 0);
     for (let i = 0; i < tmp.length; i += 3) {
       const cs = [s + tmp[i], s + tmp[i + 1], s + tmp[i + 2]];
-      b.addFace(cs.map((c) => m.indices[c]), cs.flatMap((c) => [m.uvs[c * 2], m.uvs[c * 2 + 1]]), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+      b.addFace(cs.map((c) => m.indices[c]), cs.flatMap((c) => [m.uvs[c * 2], m.uvs[c * 2 + 1]]), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0, flagsFor(cs, s, e));
+      src.push(...cs);
     }
   }
-  return b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
+  const out = b.build({ vertex_groups: m.vertex_groups, auto_smooth_angle: m.auto_smooth_angle });
+  // Keep Normals: the triangles keep the custom normals of the corners they come from
+  if (bool(mod, 'keep_custom_normals') && m.custom_normals && src.length === out.indices.length) {
+    const cn = new Float32Array(src.length * 3);
+    src.forEach((c, i) => cn.set(m.custom_normals!.subarray(c * 3, c * 3 + 3), i * 3));
+    out.custom_normals = cn;
+  }
+  return out;
 }
 
 function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -912,6 +1029,7 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     ids.push(row);
   }
   const smooth = bool(mod, 'use_smooth_shade', true) ? 1 : 0;
+  if (bool(mod, 'use_normal_calculate') && pairs.length) pairs = orientProfile(pairs, P, pivot, ax, angle);
   const flip = bool(mod, 'use_normal_flip') || bool(mod, 'use_flip'); // (older files used use_flip)
   const su = bool(mod, 'use_stretch_u'),
     sv = bool(mod, 'use_stretch_v');
@@ -935,6 +1053,61 @@ function screw(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   return out;
 }
 
+/**
+ * Screw "Calculate Order": direct the profile edges along their chains, then turn each connected
+ * chain so the swept faces face away from the axis.
+ */
+function orientProfile(pairs: number[], P: ArrayLike<number>, pivot: Vector3, ax: Vector3, angle: number): number[] {
+  const ne = pairs.length / 2;
+  const byVert = new Map<number, number[]>();
+  for (let e = 0; e < ne; e++) for (const v of [pairs[e * 2], pairs[e * 2 + 1]]) (byVert.get(v) ?? byVert.set(v, []).get(v)!).push(e);
+  const out = pairs.slice();
+  const done = new Uint8Array(ne);
+  const comp = new Int32Array(ne).fill(-1);
+  let nc = 0;
+  for (let s = 0; s < ne; s++) {
+    if (done[s]) continue;
+    // walk the component, each edge leaving the vertex the previous one arrived at
+    const stack = [s];
+    done[s] = 1;
+    comp[s] = nc;
+    while (stack.length) {
+      const e = stack.pop()!;
+      const [a, b] = [out[e * 2], out[e * 2 + 1]];
+      for (const [v, outgoing] of [
+        [b, true],
+        [a, false],
+      ] as [number, boolean][])
+        for (const f of byVert.get(v) ?? []) {
+          if (done[f]) continue;
+          done[f] = 1;
+          comp[f] = nc;
+          // continuing from b: f starts at b; reaching back from a: f ends at a
+          const starts = out[f * 2] === v;
+          if (starts !== outgoing) [out[f * 2], out[f * 2 + 1]] = [out[f * 2 + 1], out[f * 2]];
+          stack.push(f);
+        }
+    }
+    nc++;
+  }
+  // face direction of each component: (q - p) x (sweep direction at p) against the radial direction
+  const score = new Float64Array(nc);
+  const p = new Vector3(),
+    q = new Vector3(),
+    t = new Vector3(),
+    r = new Vector3();
+  for (let e = 0; e < ne; e++) {
+    p.set(P[out[e * 2] * 3], P[out[e * 2] * 3 + 1], P[out[e * 2] * 3 + 2]).sub(pivot);
+    q.set(P[out[e * 2 + 1] * 3], P[out[e * 2 + 1] * 3 + 1], P[out[e * 2 + 1] * 3 + 2]).sub(pivot);
+    r.copy(p).add(q).multiplyScalar(0.5);
+    r.addScaledVector(ax, -r.dot(ax));
+    t.copy(ax).cross(r).multiplyScalar(Math.sign(angle) || 1);
+    score[comp[e]] += q.clone().sub(p).cross(t).dot(r);
+  }
+  for (let e = 0; e < ne; e++) if (score[comp[e]] < 0) [out[e * 2], out[e * 2 + 1]] = [out[e * 2 + 1], out[e * 2]];
+  return out;
+}
+
 function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   let w = groupWeights(m, str(mod, 'vertex_group'));
   if (str(mod, 'mode', 'VERTEX_GROUP') === 'ARMATURE') {
@@ -950,6 +1123,7 @@ function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   if (!w) return m;
   const thr = num(mod, 'threshold', 0),
     invert = bool(mod, 'invert_vertex_group');
+  if (bool(mod, 'use_smooth') && str(mod, 'mode', 'VERTEX_GROUP') === 'VERTEX_GROUP') return maskSmooth(m, w, thr, invert);
   const keep = (v: number) => (w![v] > thr) !== invert;
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions,
@@ -961,6 +1135,59 @@ function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
     let ok = true;
     for (let c = s; c < e; c++) if (map[m.indices[c]] < 0) ok = false;
     if (ok) b.addFace(Array.from(m.indices.subarray(s, e), (v) => map[v]), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+  }
+  return b.build({ vertex_groups: m.vertex_groups });
+}
+
+/** Mask with Smooth: faces are cut along the line where the weight crosses the threshold. */
+function maskSmooth(m: EvalMesh, w: Float32Array, thr: number, invert: boolean): EvalMesh {
+  const side = (v: number) => (invert ? thr - w[v] : w[v] - thr);
+  const P = m.positions,
+    nv = P.length / 3;
+  const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
+  const map = new Int32Array(nv).fill(-1);
+  for (let v = 0; v < nv; v++) if (side(v) >= 0) map[v] = b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  const cuts = new Map<string, number>();
+  const cut = (a: number, c: number) => {
+    const k = a < c ? `${a}:${c}` : `${c}:${a}`;
+    let id = cuts.get(k);
+    if (id === undefined) {
+      const t = side(a) / (side(a) - side(c));
+      const wa = weightsOf(m, a),
+        wc = weightsOf(m, c);
+      id = b.addVert(
+        P[a * 3] + (P[c * 3] - P[a * 3]) * t,
+        P[a * 3 + 1] + (P[c * 3 + 1] - P[a * 3 + 1]) * t,
+        P[a * 3 + 2] + (P[c * 3 + 2] - P[a * 3 + 2]) * t,
+        -1,
+        wa && wc ? wa.map((x, i) => x + (wc[i] - x) * t) : undefined,
+      );
+      cuts.set(k, id);
+    }
+    return id;
+  };
+  for (let f = 0; f + 1 < m.offsets.length; f++) {
+    const s0 = m.offsets[f],
+      e0 = m.offsets[f + 1];
+    const verts: number[] = [],
+      uvs: number[] = [];
+    for (let c = s0; c < e0; c++) {
+      const d = c + 1 < e0 ? c + 1 : s0;
+      const a = m.indices[c],
+        n = m.indices[d];
+      const sa = side(a),
+        sn = side(n);
+      if (sa >= 0) {
+        verts.push(map[a]);
+        uvs.push(m.uvs[c * 2], m.uvs[c * 2 + 1]);
+      }
+      if ((sa > 0 && sn < 0) || (sa < 0 && sn > 0)) {
+        const t = sa / (sa - sn);
+        verts.push(cut(a, n));
+        uvs.push(m.uvs[c * 2] + (m.uvs[d * 2] - m.uvs[c * 2]) * t, m.uvs[c * 2 + 1] + (m.uvs[d * 2 + 1] - m.uvs[c * 2 + 1]) * t);
+      }
+    }
+    if (verts.length >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
   return b.build({ vertex_groups: m.vertex_groups });
 }
@@ -1077,6 +1304,25 @@ function wireframe(m: EvalMesh, mod: ModifierBase): EvalMesh {
       inv = bool(mod, 'invert_vertex_group');
     for (let v = 0; v < nv; v++) scale[v] = f + (1 - f) * (inv ? 1 - gw[v] : gw[v]);
   }
+  // relative: the thickness scales with the mean length of the edges around each vertex
+  if (bool(mod, 'use_relative_offset')) {
+    const et0 = edgeTopology(m);
+    const len = new Float64Array(nv),
+      cnt = new Uint32Array(nv);
+    for (let e = 0; e < et0.count; e++) {
+      const a = et0.verts[e * 2],
+        c = et0.verts[e * 2 + 1];
+      const l = Math.hypot(P[a * 3] - P[c * 3], P[a * 3 + 1] - P[c * 3 + 1], P[a * 3 + 2] - P[c * 3 + 2]);
+      len[a] += l;
+      len[c] += l;
+      cnt[a]++;
+      cnt[c]++;
+    }
+    for (let v = 0; v < nv; v++) if (cnt[v]) scale[v] *= len[v] / cnt[v];
+  }
+  // crease: the edges running from each corner's inset point to the tube's top / bottom vertices
+  const cw = bool(mod, 'use_crease') ? num(mod, 'crease_weight', 1) : 0;
+  const cx = cw ? { creases: [0, cw, 0, cw] } : undefined;
   const even = bool(mod, 'use_even_offset', true);
   const replace = bool(mod, 'use_replace', true);
   const matOff = Math.round(num(mod, 'material_offset', 0));
@@ -1137,15 +1383,15 @@ function wireframe(m: EvalMesh, mod: ModifierBase): EvalMesh {
         c = m.indices[s + ((i + 1) % k)];
       const ia = inset[i],
         ic = inset[(i + 1) % k];
-      b.addFace([ia, ic, bot[c], bot[a]], undefined, smooth, mat);
-      b.addFace([ic, ia, top[a], top[c]], undefined, smooth, mat);
+      b.addFace([ia, ic, bot[c], bot[a]], undefined, smooth, mat, cx);
+      b.addFace([ic, ia, top[a], top[c]], undefined, smooth, mat, cx);
       if (et) {
         const edge = et.cornerEdge[s + i];
         if (et.faceOffsets[edge + 1] - et.faceOffsets[edge] === 1) {
           const oa = outer[i],
             oc = outer[(i + 1) % k];
-          b.addFace([oc, oa, bot[a], bot[c]], undefined, smooth, mat);
-          b.addFace([oa, oc, top[c], top[a]], undefined, smooth, mat);
+          b.addFace([oc, oa, bot[a], bot[c]], undefined, smooth, mat, cx);
+          b.addFace([oa, oc, top[c], top[a]], undefined, smooth, mat, cx);
         }
       }
     }
@@ -1357,21 +1603,22 @@ function cast(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     type = str(mod, 'cast_type', 'SPHERE');
   const use = [bool(mod, 'use_x', true), bool(mod, 'use_y', true), bool(mod, 'use_z', true)];
   const radius = num(mod, 'radius', 0);
-  // an object (e.g. an empty) can be the center and orientation of the effect
-  const space = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  // an object (e.g. an empty) is the center of the effect; with Use Transform also its orientation and scale
+  const full = mod.object ? objectSpaceOf(ctx, mod.object) : null;
+  const space = full && !bool(mod, 'use_transform') ? new Matrix4().copyPosition(full) : full;
   const toS = space ? space.clone().invert() : null;
   const P0 = m.positions;
   const P = toS ? transformMesh(m, toS).positions : P0;
   const nv = P.length / 3;
   let size = bool(mod, 'use_radius_as_size', true) ? radius : num(mod, 'size', 0);
-  // without a size: the average distance from the center (per axis extents for cuboids)
+  // without a size: the average distance from the center (measured without the control object's
+  // rotation and scale), per axis extents for cuboids
   const ext = [0, 0, 0];
   if (!size) {
+    const off = full ? new Vector3().setFromMatrixPosition(full) : new Vector3();
     let sum = 0;
-    for (let i = 0; i < P.length; i += 3) {
-      sum += Math.hypot(P[i], P[i + 1], P[i + 2]);
-      for (let k = 0; k < 3; k++) ext[k] = Math.max(ext[k], Math.abs(P[i + k]));
-    }
+    for (let i = 0; i < P0.length; i += 3) sum += Math.hypot(P0[i] - off.x, P0[i + 1] - off.y, P0[i + 2] - off.z);
+    for (let i = 0; i < P.length; i += 3) for (let k = 0; k < 3; k++) ext[k] = Math.max(ext[k], Math.abs(P[i + k]));
     size = sum / (nv || 1);
   } else ext.fill(size);
   const out = deform({ ...m, positions: P }, mod, (p) => {
@@ -1492,6 +1739,7 @@ function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const minfac = 1 / Math.exp(width * narrow * width * narrow);
   const vn = bool(mod, 'use_normal') ? vertexNormals(m) : null;
   const nAxes = [bool(mod, 'use_normal_x', true), bool(mod, 'use_normal_y', true), bool(mod, 'use_normal_z', true)];
+  const texAt = textureSampler(m, mod, ctx);
   return deform(m, mod, (p, i) => {
     const dx = p.x - sx,
       dy = p.y - sy;
@@ -1508,13 +1756,50 @@ function wave(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
     if (cyclic && x <= -width) x = (((x + width) % (2 * width)) + 2 * width) % (2 * width) - width;
     if (x <= -width) return;
     const a = x * narrow;
-    const amp = height * (1 / Math.exp(a * a) - minfac) * life * fall;
+    const amp = height * (1 / Math.exp(a * a) - minfac) * life * fall * (texAt ? texAt(p, i) : 1);
     if (vn) {
       if (nAxes[0]) p.x += vn[i * 3] * amp;
       if (nAxes[1]) p.y += vn[i * 3 + 1] * amp;
       if (nAxes[2]) p.z += vn[i * 3 + 2] * amp;
     } else p.z += amp;
   });
+}
+
+/**
+ * The modifier's texture sampled at a vertex in its texture coordinates (Local, Global, Object or a UV
+ * map), or null without a texture.
+ */
+function textureSampler(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): ((p: Vector3, i: number) => number) | null {
+  const tex = (mod.texture as Record<string, unknown> | null) ?? null;
+  if (!tex || !tex.type) return null;
+  const coords = str(mod, 'texture_coords', 'LOCAL');
+  const world = ctx.graph?.get(ctx.ob.id)?.world;
+  const objMat = coords === 'OBJECT' && typeof mod.texture_coords_object === 'string' ? objectSpaceOf(ctx, mod.texture_coords_object)?.invert() ?? null : null;
+  // per-vertex UVs (first corner of each vertex)
+  let vuv: Float32Array | null = null;
+  if (coords === 'UV') {
+    // a named UV map of the original mesh (same corners), else the evaluated one
+    const src = ctx.source;
+    const layer = str(mod, 'uv_layer');
+    const named = layer && src && src.indices === m.indices ? (src.uv_map_name === layer ? src.uvs : src.uv_layers_extra?.find((u) => u.name === layer)?.data) : undefined;
+    const uvs = named && named.length === m.indices.length * 2 ? named : m.uvs;
+    vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
+    for (let c = 0; c < m.indices.length; c++) {
+      const v = m.indices[c];
+      if (Number.isNaN(vuv[v * 2])) {
+        vuv[v * 2] = uvs[c * 2] * 2 - 1;
+        vuv[v * 2 + 1] = uvs[c * 2 + 1] * 2 - 1;
+      }
+    }
+  }
+  const q = new Vector3();
+  return (p, i) => {
+    q.copy(p);
+    if (coords === 'GLOBAL' && world) q.applyMatrix4(world);
+    else if (objMat) q.applyMatrix4(objMat);
+    else if (vuv) q.set(vuv[i * 2] || 0, vuv[i * 2 + 1] || 0, 0);
+    return proceduralTexture(tex, q.x, q.y, q.z);
+  };
 }
 
 function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
@@ -1534,22 +1819,8 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
       }
     }
   }
-  const tex = (mod.texture as Record<string, unknown> | null) ?? null;
-  const coords = str(mod, 'texture_coords', 'LOCAL');
+  const texAt = textureSampler(m, mod, ctx);
   const world = ctx.graph?.get(ctx.ob.id)?.world;
-  const objMat = coords === 'OBJECT' && typeof mod.texture_coords_object === 'string' ? objectSpaceOf(ctx, mod.texture_coords_object)?.invert() ?? null : null;
-  // per-vertex UVs (first corner of each vertex)
-  let vuv: Float32Array | null = null;
-  if (tex && coords === 'UV') {
-    vuv = new Float32Array((m.positions.length / 3) * 2).fill(NaN);
-    for (let c = 0; c < m.indices.length; c++) {
-      const v = m.indices[c];
-      if (Number.isNaN(vuv[v * 2])) {
-        vuv[v * 2] = m.uvs[c * 2] * 2 - 1;
-        vuv[v * 2 + 1] = m.uvs[c * 2 + 1] * 2 - 1;
-      }
-    }
-  }
   // X/Y/Z in global space: the world axis expressed in local coordinates
   let axis: Vector3 | null = null;
   if (dir === 'X' || dir === 'Y' || dir === 'Z') {
@@ -1557,14 +1828,7 @@ function displace(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
     if (str(mod, 'space', 'LOCAL') === 'GLOBAL' && world) axis.transformDirection(world.clone().invert());
   }
   return deform(m, mod, (p, i) => {
-    let value = 1;
-    if (tex && tex.type) {
-      let q = p;
-      if (coords === 'GLOBAL' && world) q = p.clone().applyMatrix4(world);
-      else if (objMat) q = p.clone().applyMatrix4(objMat);
-      else if (vuv) q = new Vector3(vuv[i * 2] || 0, vuv[i * 2 + 1] || 0, 0);
-      value = proceduralTexture(tex, q.x, q.y, q.z);
-    }
+    const value = texAt ? texAt(p, i) : 1;
     const d = (value - mid) * strength;
     if (vn) p.addScaledVector(new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]), d);
     else if (axis) p.addScaledVector(axis, d);
@@ -1621,6 +1885,43 @@ export function latticeWeights(t: number, type: string, out: number[]) {
   }
 }
 
+/**
+ * The point positions a lattice deforms with: with Outside, inner points follow the outer ones (each
+ * axis interpolates between the two outer points of its line, the three are averaged); points of the
+ * lattice's vertex group scale their offset by their weight.
+ */
+export function latticeEffectivePoints(lat: import('../data/types').LatticeData): Float32Array {
+  const { points_u: U, points_v: V, points_w: W } = lat;
+  const src = lat.points;
+  const rest = (i: number, n: number) => (n > 1 ? i / (n - 1) - 0.5 : 0);
+  const gi = lat.vertex_group ? (lat.vertex_groups ?? []).findIndex((g) => g.name === lat.vertex_group) : -1;
+  const wts = gi >= 0 ? lat.weights?.[gi] : undefined;
+  if (!lat.use_outside && !wts) return src;
+  const idx = (i: number, j: number, k: number) => (k * V + j) * U + i;
+  const disp = (p: number, i: number, j: number, k: number): [number, number, number] => [src[p * 3] - rest(i, U), src[p * 3 + 1] - rest(j, V), src[p * 3 + 2] - rest(k, W)];
+  const out = new Float32Array(src.length);
+  for (let k = 0; k < W; k++)
+    for (let j = 0; j < V; j++)
+      for (let i = 0; i < U; i++) {
+        const p = idx(i, j, k);
+        let d = disp(p, i, j, k);
+        const inner = i > 0 && i < U - 1 && j > 0 && j < V - 1 && k > 0 && k < W - 1;
+        if (lat.use_outside && inner) {
+          const lines: [number, number, number][] = [];
+          const lerp = (a: [number, number, number], b: [number, number, number], t: number) => [0, 1, 2].map((c) => a[c] + (b[c] - a[c]) * t) as [number, number, number];
+          lines.push(lerp(disp(idx(0, j, k), 0, j, k), disp(idx(U - 1, j, k), U - 1, j, k), i / (U - 1)));
+          lines.push(lerp(disp(idx(i, 0, k), i, 0, k), disp(idx(i, V - 1, k), i, V - 1, k), j / (V - 1)));
+          lines.push(lerp(disp(idx(i, j, 0), i, j, 0), disp(idx(i, j, W - 1), i, j, W - 1), k / (W - 1)));
+          d = [0, 1, 2].map((c) => (lines[0][c] + lines[1][c] + lines[2][c]) / 3) as [number, number, number];
+        }
+        const f = wts ? (wts[p] ?? 0) : 1;
+        out[p * 3] = rest(i, U) + d[0] * f;
+        out[p * 3 + 1] = rest(j, V) + d[1] * f;
+        out[p * 3 + 2] = rest(k, W) + d[2] * f;
+      }
+  return out;
+}
+
 function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh {
   const lt = typeof mod.object === 'string' ? ctx.graph.get(mod.object) : undefined;
   const lat = lt?.ob.data ? ctx.doc.lattices[lt.ob.data] : undefined;
@@ -1628,14 +1929,16 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const toLat = lt.world.clone().invert().multiply(own);
   const back = toLat.clone().invert();
-  const { points_u: U, points_v: V, points_w: W, points } = lat;
+  const { points_u: U, points_v: V, points_w: W } = lat;
+  const points = latticeEffectivePoints(lat);
   const rest = (i: number, n: number) => (n > 1 ? i / (n - 1) - 0.5 : 0);
   const strength = num(mod, 'strength', 1);
-  const type = lat.interpolation ?? 'KEY_BSPLINE';
+  const base = lat.interpolation ?? 'KEY_BSPLINE';
+  const types = [lat.interpolation_type_u ?? base, lat.interpolation_type_v ?? base, lat.interpolation_type_w ?? base];
   const wu = [0, 0, 0, 0],
     wv = [0, 0, 0, 0],
     ww = [0, 0, 0, 0];
-  const setup = (x: number, n: number, w: number[]): number => {
+  const setup = (x: number, n: number, w: number[], axis: number): number => {
     if (n <= 1) {
       w.fill(0);
       w[1] = 1;
@@ -1643,15 +1946,15 @@ function latticeMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
     }
     const u = (x + 0.5) * (n - 1);
     const i = Math.floor(u);
-    latticeWeights(u - i, type, w);
+    latticeWeights(u - i, types[axis], w);
     return i;
   };
   const clampI = (i: number, n: number) => Math.max(0, Math.min(n - 1, i));
   return deform(m, mod, (p) => {
     p.applyMatrix4(toLat);
-    const iu = setup(p.x, U, wu),
-      iv = setup(p.y, V, wv),
-      iw = setup(p.z, W, ww);
+    const iu = setup(p.x, U, wu, 0),
+      iv = setup(p.y, V, wv, 1),
+      iw = setup(p.z, W, ww, 2);
     let dx = 0,
       dy = 0,
       dz = 0;
@@ -1767,11 +2070,11 @@ function warpMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMesh
   const idQ = new Quaternion(),
     one = new Vector3(1, 1, 1),
     zero = new Vector3();
-  const tex = mod.texture as Record<string, unknown> | null | undefined;
-  return deform(m, mod, (p) => {
+  const texAt = textureSampler(m, mod, ctx);
+  return deform(m, mod, (p, i) => {
     const d = p.distanceTo(pf);
     let f = (radius > 0 ? falloffFactor(ftype, 1 - d / radius, mod.falloff_curve) : 1) * strength;
-    if (tex && tex.type) f *= proceduralTexture(tex, p.x, p.y, p.z);
+    if (texAt) f *= texAt(p, i);
     if (!f) return;
     if (preserve) {
       // interpolate the transform itself (rotations stay rotations)
@@ -1846,28 +2149,41 @@ function shrinkwrapMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
     const limit = num(mod, 'project_limit', 0) || Infinity;
     const cull = str(mod, 'cull_face', 'OFF');
     const invCull = bool(mod, 'use_invert_cull');
-    const accept = (hit: { tri: [number, number, number] } | null, dir: Vector3) => {
+    // an auxiliary target is projected onto as well (the nearer hit wins)
+    const auxOb = typeof mod.auxiliary_target === 'string' && mod.auxiliary_target !== mod.target ? ctx.graph.get(mod.auxiliary_target) : undefined;
+    const aux = auxOb?.mesh ? new SurfaceQuery(auxOb.mesh, own.clone().invert().multiply(auxOb.world)) : null;
+    const hitNormal = (hit: { tri: [number, number, number] }, q: SurfaceQuery) => {
+      a.fromArray(q.positions, hit.tri[0] * 3);
+      b.fromArray(q.positions, hit.tri[1] * 3);
+      c.fromArray(q.positions, hit.tri[2] * 3);
+      return tn.subVectors(b, a).cross(c.sub(a)).normalize();
+    };
+    const cast = (p: Vector3, d: Vector3) => {
+      const h = query.raycast(p, d, limit, true);
+      const ha = aux && !aux.empty ? aux.raycast(p, d, limit, true) : null;
+      const pick = h && accept(h, d, query) ? h : null;
+      const pickA = ha && accept(ha, d, aux!) ? ha : null;
+      if (pickA && (!pick || pickA.distance < pick.distance)) return { hit: pickA, n: hitNormal(pickA, aux!).clone() };
+      return pick ? { hit: pick, n: hitNormal(pick, query).clone() } : null;
+    };
+    const accept = (hit: { tri: [number, number, number] } | null, dir: Vector3, q: SurfaceQuery) => {
       if (!hit) return false;
       if (cull === 'OFF') return true;
-      const front = triNormal(hit.tri).dot(dir) < 0;
+      const front = hitNormal(hit, q).dot(dir) < 0;
       const culled = cull === 'FRONT' ? front : !front;
       return invCull ? culled : !culled;
     };
     return deform(m, mod, (p, i) => {
       const d = vn ? new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]) : axis.clone();
       if (d.lengthSq() < 1e-12) return;
-      let best: ReturnType<SurfaceQuery['raycast']> = null;
-      if (pos) {
-        const h = query.raycast(p, d, limit, true);
-        if (accept(h, d)) best = h;
-      }
+      let best: ReturnType<typeof cast> = null;
+      if (pos) best = cast(p, d);
       if (neg) {
-        const nd = d.clone().negate();
-        const h = query.raycast(p, nd, limit, true);
-        if (accept(h, nd) && (!best || h!.distance < best.distance)) best = h;
+        const h = cast(p, d.clone().negate());
+        if (h && (!best || h.hit.distance < best.hit.distance)) best = h;
       }
       if (!best) return;
-      snap(p, best.point, triNormal(best.tri).clone());
+      snap(p, best.hit.point, best.n);
     });
   }
   return deform(m, mod, (p) => {
@@ -1922,47 +2238,95 @@ function curveMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const toMesh = own.clone().invert().multiply(t.world);
   const toCurve = toMesh.clone().invert();
-  const pts = curvePolyline(cu).map((p) => new Vector3(...p));
+  const smp = sampleSpline(cu.splines[0], cu.resolution_u);
+  const pts = smp.points.map((p) => new Vector3(...p));
   if (pts.length < 2) return m;
   const n = pts.length;
   const lens = [0];
   for (let i = 1; i < n; i++) lens.push(lens[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const total = lens[n - 1] || 1;
-  // tangent at each point: the average of the neighbouring segment directions
-  const seg = (i: number) => pts[i + 1].clone().sub(pts[i]).normalize();
-  const tans = pts.map((_, i) => (i === 0 ? seg(0) : i === n - 1 ? seg(n - 2) : seg(i - 1).add(seg(i)).normalize()));
+  // frames along the curve (least twist, or Z up for flat curves), the ends follow the exact end tangents
+  const fr = frames(smp.points, false, cu.dimensions === '2D');
+  const sp0 = cu.splines[0];
+  const tans = bezierTangents(sp0, cu.resolution_u, n) ?? fr.T.map((x) => new Vector3(...x));
+  const ups = fr.N.map((x) => new Vector3(...x));
+  // beyond the ends the object continues along the first / last segment
+  const dirStart = pts[1].clone().sub(pts[0]).normalize(),
+    dirEnd = pts[n - 1].clone().sub(pts[n - 2]).normalize();
   const axis = ['POS_X', 'POS_Y', 'POS_Z', 'NEG_X', 'NEG_Y', 'NEG_Z'].indexOf(str(mod, 'deform_axis', 'POS_X'));
   const ai = axis % 3,
     neg = axis >= 3;
-  const zUp = new Vector3(0, 0, 1),
-    xUp = new Vector3(1, 0, 0);
+  const useRadius = cu.use_radius !== false,
+    stretch = !!cu.use_stretch,
+    bounds = !!cu.use_deform_bounds;
+  // the mesh's extent along the axis (in the curve's space) for Stretch and Bounds Clamp
+  let bmin = Infinity,
+    bmax = -Infinity;
+  if (stretch || bounds) {
+    const v = new Vector3();
+    for (let i = 0; i < m.positions.length; i += 3) {
+      v.set(m.positions[i], m.positions[i + 1], m.positions[i + 2]).applyMatrix4(toCurve);
+      const c = (neg ? -1 : 1) * v.getComponent(ai);
+      bmin = Math.min(bmin, c);
+      bmax = Math.max(bmax, c);
+    }
+  }
+  const lo = bounds ? bmin : 0;
+  const span = (bounds ? bmax - bmin : bmax) || 1;
+  const scale = stretch ? total / span : 1;
   return deform(m, mod, (p) => {
     p.applyMatrix4(toCurve);
     const c = [p.x, p.y, p.z];
-    const s = neg ? -c[ai] : c[ai];
+    let s = ((neg ? -c[ai] : c[ai]) - lo) * scale;
+    if (bounds) s = Math.max(0, Math.min(total, s));
     const d = Math.max(0, Math.min(total, s));
     let i = 1;
     while (i < n - 1 && lens[i] < d) i++;
     const k = (d - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
     const pos = pts[i - 1].clone().lerp(pts[i], k);
-    // turn the tangent smoothly from one point's to the next
+    // turn the frame smoothly from one point's to the next
     const q = new Quaternion().setFromUnitVectors(tans[i - 1], tans[i]);
     const tan = tans[i - 1].clone().applyQuaternion(new Quaternion().slerp(q, k)).normalize();
-    const up = Math.abs(tan.z) < 0.99 ? zUp : xUp;
+    let up = ups[i - 1].clone().applyQuaternion(new Quaternion().slerp(q, k));
+    up.sub(tan.clone().multiplyScalar(up.dot(tan)));
+    if (up.lengthSq() < 1e-12) up = Math.abs(tan.z) < 0.99 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0);
+    up.normalize();
     const side = new Vector3().crossVectors(up, tan).normalize();
-    const nup = new Vector3().crossVectors(tan, side);
+    // tilt turns the cross-section, radius scales it
+    const tilt = smp.tilt[i - 1] + (smp.tilt[i] - smp.tilt[i - 1]) * k;
+    const rad = useRadius ? smp.radius[i - 1] + (smp.radius[i] - smp.radius[i - 1]) * k : 1;
+    const ct = Math.cos(tilt),
+      st = Math.sin(tilt);
+    const s1 = side.clone().multiplyScalar(ct).addScaledVector(up, st),
+      u1 = up.clone().multiplyScalar(ct).addScaledVector(side, -st);
     // the other two coordinates become offsets across the curve (mirrored for negative axes)
-    const o1 = neg ? -c[(ai + 2) % 3] : c[(ai + 1) % 3],
-      o2 = neg ? -c[(ai + 1) % 3] : c[(ai + 2) % 3];
+    const o1 = (neg ? -c[(ai + 2) % 3] : c[(ai + 1) % 3]) * rad,
+      o2 = (neg ? -c[(ai + 1) % 3] : c[(ai + 2) % 3]) * rad;
     const extra = s - d; // beyond either end: continue straight
-    pos.addScaledVector(tan, extra).addScaledVector(side, o1).addScaledVector(nup, o2);
+    pos.addScaledVector(extra < 0 ? dirStart : extra > 0 ? dirEnd : tan, extra).addScaledVector(s1, o1).addScaledVector(u1, o2);
     p.copy(pos).applyMatrix4(toMesh);
   });
 }
 
-import { sampleSpline } from './curve';
-function curvePolyline(cu: import('../data/types').CurveData) {
-  return sampleSpline(cu.splines[0], cu.resolution_u).points;
+import { sampleSpline, frames } from './curve';
+
+/** Exact tangents of a Bézier spline at its evaluated points (null when it doesn't match the sampling). */
+function bezierTangents(sp: import('../data/types').Spline, resolution: number, count: number): Vector3[] | null {
+  if (sp.type !== 'BEZIER' || sp.bezier_points.length < 2) return null;
+  const bp = sp.bezier_points,
+    nb = bp.length;
+  const res = Math.max(1, sp.resolution_u || resolution);
+  const segs = sp.use_cyclic_u ? nb : nb - 1;
+  const out: Vector3[] = [];
+  const tangent = (a: (typeof bp)[number], b: (typeof bp)[number], t: number) => {
+    const m = 1 - t;
+    const d = [0, 1, 2].map((k) => 3 * m * m * (a.handle_right[k] - a.co[k]) + 6 * m * t * (b.handle_left[k] - a.handle_right[k]) + 3 * t * t * (b.co[k] - b.handle_left[k]));
+    const v = new Vector3(d[0], d[1], d[2]);
+    return v.lengthSq() > 1e-14 ? v.normalize() : new Vector3(...b.co).sub(new Vector3(...a.co)).normalize();
+  };
+  for (let i = 0; i < segs; i++) for (let k = 0; k < res; k++) out.push(tangent(bp[i], bp[(i + 1) % nb], k / res));
+  if (!sp.use_cyclic_u) out.push(tangent(bp[nb - 2], bp[nb - 1], 1));
+  return out.length === count ? out : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1981,7 +2345,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   BUILD: { type: 'BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: base({ frame_start: 1, frame_duration: 100, use_random_order: false, seed: 0, use_reverse: false }), timeDependent: () => true, apply: build },
   EDGE_SPLIT: { type: 'EDGE_SPLIT', label: 'Edge Split', category: 'GENERATE', icon: 'mod_edgesplit', defaults: base({ use_edge_angle: true, split_angle: (30 * Math.PI) / 180, use_edge_sharp: true }), apply: edgeSplit },
-  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', armature: null, vertex_group: '', invert_vertex_group: false, threshold: 0 }), deps: (m) => [m.armature as string], signature: (m, c) => {
+  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', armature: null, vertex_group: '', invert_vertex_group: false, threshold: 0, use_smooth: false }), deps: (m) => [m.armature as string], signature: (m, c) => {
     const arm = typeof m.armature === 'string' ? c.doc.objects[m.armature] : undefined;
     const ad = arm?.data ? c.doc.armatures[arm.data] : undefined;
     return m.mode === 'ARMATURE' && ad ? ad.bones.filter((b) => b.select).map((b) => b.name).join(',') : '';
@@ -1991,12 +2355,12 @@ export const modifierTypes: Record<string, ModifierType> = {
     label: 'Mirror',
     category: 'GENERATE',
     icon: 'mod_mirror',
-    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, mirror_offset_u: 0, mirror_offset_v: 0, offset_u: 0, offset_v: 0, bisect_threshold: 0.001, use_mirror_vertex_groups: true }),
+    defaults: base({ use_axis: [true, false, false], use_bisect_axis: [false, false, false], use_bisect_flip_axis: [false, false, false], mirror_object: null, use_clip: false, use_mirror_merge: true, merge_threshold: 0.001, use_mirror_u: false, use_mirror_v: false, use_mirror_udim: false, mirror_offset_u: 0, mirror_offset_v: 0, offset_u: 0, offset_v: 0, bisect_threshold: 0.001, use_mirror_vertex_groups: true }),
     deps: (m) => [m.mirror_object as string],
     supportsEditMode: true,
     apply: mirrorMesh,
   },
-  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', object: null, use_object_screw_offset: false, use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_normal_flip: false, use_stretch_u: false, use_stretch_v: false }), deps: (m) => [m.object as string], apply: screw },
+  SCREW: { type: 'SCREW', label: 'Screw', category: 'GENERATE', icon: 'mod_screw', defaults: base({ angle: Math.PI * 2, steps: 16, render_steps: 16, screw_offset: 0, iterations: 1, axis: 'Z', object: null, use_object_screw_offset: false, use_merge_vertices: false, merge_threshold: 0.01, use_smooth_shade: true, use_normal_flip: false, use_normal_calculate: false, use_stretch_u: false, use_stretch_v: false }), deps: (m) => [m.object as string], apply: screw },
   SOLIDIFY: {
     type: 'SOLIDIFY',
     label: 'Solidify',
@@ -2019,12 +2383,12 @@ export const modifierTypes: Record<string, ModifierType> = {
         uvSmooth: str(mod, 'uv_smooth', 'PRESERVE_BOUNDARIES'),
       }),
   },
-  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4 }), apply: triangulateMeshMod },
+  TRIANGULATE: { type: 'TRIANGULATE', label: 'Triangulate', category: 'GENERATE', icon: 'mod_triangulate', defaults: base({ quad_method: 'SHORTEST_DIAGONAL', ngon_method: 'BEAUTY', min_vertices: 4, keep_custom_normals: false }), apply: triangulateMeshMod },
   WELD: { type: 'WELD', label: 'Weld', category: 'GENERATE', icon: 'automerge_off', defaults: base({ merge_threshold: 0.001, mode: 'ALL', loose_edges: false, vertex_group: '', invert_vertex_group: false }), apply: weldMod },
-  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0 }), apply: wireframe },
+  WIREFRAME: { type: 'WIREFRAME', label: 'Wireframe', category: 'GENERATE', icon: 'mod_wireframe', defaults: base({ thickness: 0.02, offset: 0, use_replace: true, use_boundary: false, use_even_offset: true, material_offset: 0, vertex_group: '', invert_vertex_group: false, thickness_vertex_group: 0, use_relative_offset: false, use_crease: false, crease_weight: 1 }), apply: wireframe },
   // Deform
   ARMATURE: { type: 'ARMATURE', label: 'Armature', category: 'DEFORM', icon: 'mod_armature', deformOnly: true, defaults: base({ object: null, use_vertex_groups: true, use_bone_envelopes: false, use_deform_preserve_volume: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: armatureMod },
-  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
+  CAST: { type: 'CAST', label: 'Cast', category: 'DEFORM', icon: 'mod_cast', deformOnly: true, defaults: base({ cast_type: 'SPHERE', factor: 0.5, radius: 0, size: 0, use_radius_as_size: true, object: null, use_transform: false, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: cast },
   CURVE: { type: 'CURVE', label: 'Curve', category: 'DEFORM', icon: 'mod_curve', deformOnly: true, defaults: base({ object: null, deform_axis: 'POS_X', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object as string], apply: curveMod },
   DISPLACE: {
     type: 'DISPLACE',
@@ -2032,7 +2396,7 @@ export const modifierTypes: Record<string, ModifierType> = {
     category: 'DEFORM',
     icon: 'mod_displace',
     deformOnly: true,
-    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', space: 'LOCAL', texture_coords: 'LOCAL', texture_coords_object: null, vertex_group: '', invert_vertex_group: false, texture: null }),
+    defaults: base({ strength: 1, mid_level: 0.5, direction: 'NORMAL', space: 'LOCAL', texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false, texture: null }),
     deps: (m) => [m.texture_coords_object as string],
     apply: displace,
   },
@@ -2045,21 +2409,21 @@ export const modifierTypes: Record<string, ModifierType> = {
     category: 'DEFORM',
     icon: 'mod_shrinkwrap',
     deformOnly: true,
-    defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', wrap_mode: 'ON_SURFACE', offset: 0, project_limit: 0, use_project_x: false, use_project_y: false, use_project_z: false, use_negative_direction: false, use_positive_direction: true, cull_face: 'OFF', use_invert_cull: false, vertex_group: '', invert_vertex_group: false }),
-    deps: (m) => [m.target as string],
+    defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', wrap_mode: 'ON_SURFACE', offset: 0, project_limit: 0, use_project_x: false, use_project_y: false, use_project_z: false, use_negative_direction: false, use_positive_direction: true, cull_face: 'OFF', use_invert_cull: false, auxiliary_target: null, vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.target as string, m.auxiliary_target as string],
     apply: shrinkwrapMod,
   },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
-  SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '' }), apply: smoothMesh },
-  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string], apply: warpMod },
+  SMOOTH: { type: 'SMOOTH', label: 'Smooth', category: 'DEFORM', icon: 'mod_smooth', deformOnly: true, defaults: base({ factor: 0.5, iterations: 1, use_x: true, use_y: true, use_z: true, vertex_group: '', invert_vertex_group: false }), apply: smoothMesh },
+  WARP: { type: 'WARP', label: 'Warp', category: 'DEFORM', icon: 'mod_warp', deformOnly: true, defaults: base({ object_from: null, bone_from: '', object_to: null, bone_to: '', strength: 1, falloff_type: 'SMOOTH', falloff_radius: 1, use_volume_preserve: false, texture: null, texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.object_from as string, m.object_to as string, m.texture_coords_object as string], apply: warpMod },
   WAVE: {
     type: 'WAVE',
     label: 'Wave',
     category: 'DEFORM',
     icon: 'mod_wave',
     deformOnly: true,
-    defaults: base({ use_x: true, use_y: true, use_cyclic: true, use_normal: false, use_normal_x: true, use_normal_y: true, use_normal_z: true, falloff_radius: 0, height: 0.5, width: 1.5, narrowness: 1.5, start_position_x: 0, start_position_y: 0, start_position_object: null, time_offset: 0, lifetime: 0, damping_time: 10, speed: 0.25, vertex_group: '', invert_vertex_group: false }),
-    deps: (m) => [m.start_position_object as string],
+    defaults: base({ use_x: true, use_y: true, use_cyclic: true, use_normal: false, use_normal_x: true, use_normal_y: true, use_normal_z: true, falloff_radius: 0, height: 0.5, width: 1.5, narrowness: 1.5, start_position_x: 0, start_position_y: 0, start_position_object: null, time_offset: 0, lifetime: 0, damping_time: 10, speed: 0.25, texture: null, texture_coords: 'LOCAL', texture_coords_object: null, uv_layer: '', vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.start_position_object as string, m.texture_coords_object as string],
     timeDependent: () => true,
     apply: wave,
   },

@@ -30,7 +30,7 @@ test('curve edit mode: menus, selection helpers, split, dissolve, hide', async (
   expect(await get(page, 'app.doc.mode')).toBe('EDIT');
   // header menus
   const curveItems = await headerMenu(page, 'Curve');
-  for (const l of ['Transform', 'Mirror', 'Snap', 'Duplicate', 'Split', 'Separate', 'Toggle Cyclic', 'Set Spline Type', 'Show/Hide', 'Clean Up', 'Delete']) expect(curveItems).toContain(l);
+  for (const l of ['Transform', 'Mirror', 'Snap', 'Add Duplicate', 'Split', 'Separate', 'Toggle Cyclic', 'Set Spline Type', 'Show/Hide', 'Clean Up', 'Delete']) expect(curveItems).toContain(l);
   const sel = await headerMenu(page, 'Select');
   for (const l of ['Select Random', 'Checker Deselect', 'More', 'Less', 'Select Similar', '(De)select First', 'Select Next']) expect(sel).toContain(l);
   const cp = await headerMenu(page, 'Control Points');
@@ -335,7 +335,7 @@ test('lattice edit mode: select more / mirror, menus, edit-mode mirror', async (
   const items = await headerMenu(page, 'Select');
   for (const l of ['Select Mirror', 'Select Random', 'More', 'Less']) expect(items).toContain(l);
   const lat = await headerMenu(page, 'Lattice');
-  for (const l of ['Transform', 'Mirror', 'Snap', 'Flip (Distortion)', 'Make Regular']) expect(lat).toContain(l);
+  for (const l of ['Transform', 'Mirror', 'Snap', 'Flip (Distortion Free)', 'Make Regular']) expect(lat).toContain(l);
   // mirror the selected points across the 3D cursor X
   await page.evaluate(() => {
     const a = (window as any).app;
@@ -458,6 +458,9 @@ test('bevel object gives a curve its cross-section', async ({ page }) => {
   await run(page, 'object.select_all', { action: 'DESELECT' });
   await run(page, 'curve.primitive_bezier_curve_add');
   await page.locator('.rail-tab[data-tab="DATA"]').first().click();
+  // the Geometry panel starts closed
+  const geo = page.locator('[data-panel="cu-geometry"]').first();
+  if (!(await geo.evaluate((el) => el.classList.contains('open')))) await geo.locator('.panel-header').first().click();
   await expect(page.locator('.sr-label', { hasText: 'Taper Object' })).toBeVisible();
   const faces = await page.evaluate((id) => {
     const a = (window as any).app;

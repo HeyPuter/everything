@@ -139,6 +139,53 @@ export function ripEdge(m: MeshEdit, score: (v: number) => number): number {
   return created.length;
 }
 
+/** Rip the selection away from the side nearest the mouse; false when nothing could be ripped. */
+function ripAtMouse(ev: { x: number; y: number } | undefined, fill: boolean): boolean {
+  const v = activeView3D();
+  if (!v) return false;
+  const r = v.el.getBoundingClientRect();
+  const mx = (ev?.x ?? app.pointer.x) - r.left,
+    my = (ev?.y ?? app.pointer.y) - r.top;
+  let total = 0;
+  withEdit((m, ob) => {
+    const w: Matrix4 = worldMatrix(ob);
+    const centre = (fi: number) => {
+      const c = new Vector3();
+      for (const vi of m.faces[fi].verts) c.add(new Vector3(...m.p(vi)));
+      c.multiplyScalar(1 / m.faces[fi].verts.length).applyMatrix4(w);
+      const s = v.project(c);
+      return Math.hypot(s.x - mx, s.y - my);
+    };
+    const ripMap = new Map<number, number>();
+    const n = ripSelection(m, centre, ripMap);
+    if (n && fill) ripFill(m, ripMap);
+    total += n;
+    return n > 0;
+  });
+  if (!total) app.report('WARNING', 'Cannot rip selected faces or vertices without connected geometry');
+  return total > 0;
+}
+
+/** Extend the selected boundary vertices towards the mouse; false when nothing was extended. */
+function ripEdgeAtMouse(ev: { x: number; y: number } | undefined): boolean {
+  const v = activeView3D();
+  if (!v) return false;
+  const r = v.el.getBoundingClientRect();
+  const mx = (ev?.x ?? app.pointer.x) - r.left,
+    my = (ev?.y ?? app.pointer.y) - r.top;
+  return withEdit((m, ob) => {
+    const w = worldMatrix(ob);
+    const dist = (vi: number) => {
+      const s = v.project(new Vector3(...m.p(vi)).applyMatrix4(w));
+      return Math.hypot(s.x - mx, s.y - my);
+    };
+    return ripEdge(m, dist) > 0;
+  });
+}
+
+// the mouse position a rip was invoked at, so the redo panel can repeat it
+let lastRipMouse: { x: number; y: number } | undefined;
+
 registerOperators([
   {
     idname: 'mesh.rip_move',
@@ -147,34 +194,33 @@ registerOperators([
     props: [{ id: 'use_fill', label: 'Fill', type: 'bool', default: false }],
     poll: inMeshEdit,
     invoke: (ctx, p) => {
-      const v = activeView3D();
-      if (!v) return 'CANCELLED';
-      const r = v.el.getBoundingClientRect();
-      const mx = (ctx.event?.x ?? app.pointer.x) - r.left,
-        my = (ctx.event?.y ?? app.pointer.y) - r.top;
-      let total = 0;
-      withEdit((m, ob) => {
-        const w: Matrix4 = worldMatrix(ob);
-        const centre = (fi: number) => {
-          const c = new Vector3();
-          for (const vi of m.faces[fi].verts) c.add(new Vector3(...m.p(vi)));
-          c.multiplyScalar(1 / m.faces[fi].verts.length).applyMatrix4(w);
-          const s = v.project(c);
-          return Math.hypot(s.x - mx, s.y - my);
-        };
-        const ripMap = new Map<number, number>();
-        const n = ripSelection(m, centre, ripMap);
-        if (n && p.use_fill) ripFill(m, ripMap);
-        total += n;
-        return n > 0;
-      });
-      if (!total) {
-        app.report('WARNING', 'Cannot rip selected faces or vertices without connected geometry');
-        return 'CANCELLED';
-      }
+      if (!ripAtMouse(ctx.event, !!p.use_fill)) return 'CANCELLED';
       app.flush();
       return startTransform('TRANSLATION', { event: ctx.event, label: 'Rip' }) ? 'RUNNING_MODAL' : 'CANCELLED';
     },
+  },
+  {
+    idname: 'mesh.rip',
+    label: 'Rip',
+    description: 'Tear the selection loose from the faces on the side nearest the mouse, leaving it in place',
+    props: [{ id: 'use_fill', label: 'Fill', type: 'bool', default: false }],
+    poll: inMeshEdit,
+    invoke: (ctx, p) => {
+      lastRipMouse = ctx.event ?? { ...app.pointer };
+      return ripAtMouse(lastRipMouse, !!p.use_fill) ? 'FINISHED' : 'CANCELLED';
+    },
+    exec: (_ctx, p) => (ripAtMouse(lastRipMouse, !!p.use_fill) ? 'FINISHED' : 'CANCELLED'),
+  },
+  {
+    idname: 'mesh.rip_edge',
+    label: 'Extend Vertices',
+    description: 'Extend the selected boundary vertices with new faces on the side nearest the mouse, leaving them in place',
+    poll: inMeshEdit,
+    invoke: (ctx) => {
+      lastRipMouse = ctx.event ?? { ...app.pointer };
+      return ripEdgeAtMouse(lastRipMouse) ? 'FINISHED' : 'CANCELLED';
+    },
+    exec: () => (ripEdgeAtMouse(lastRipMouse) ? 'FINISHED' : 'CANCELLED'),
   },
 ]);
 
@@ -225,20 +271,7 @@ registerOperators([
     description: 'Extend the selected boundary vertices with new faces and move the new vertices',
     poll: inMeshEdit,
     invoke: (ctx) => {
-      const v = activeView3D();
-      if (!v) return 'CANCELLED';
-      const r = v.el.getBoundingClientRect();
-      const mx = (ctx.event?.x ?? app.pointer.x) - r.left,
-        my = (ctx.event?.y ?? app.pointer.y) - r.top;
-      const ok = withEdit((m, ob) => {
-        const w = worldMatrix(ob);
-        const dist = (vi: number) => {
-          const s = v.project(new Vector3(...m.p(vi)).applyMatrix4(w));
-          return Math.hypot(s.x - mx, s.y - my);
-        };
-        return ripEdge(m, dist) > 0;
-      });
-      if (!ok) return 'CANCELLED';
+      if (!ripEdgeAtMouse(ctx.event)) return 'CANCELLED';
       app.flush();
       return startTransform('TRANSLATION', { event: ctx.event, label: 'Extend Vertices' }) ? 'RUNNING_MODAL' : 'CANCELLED';
     },

@@ -4,9 +4,9 @@ import { h } from '../../ui/h';
 import { app } from '../../app/app';
 import { dataEvaluators } from '../../eval/depsgraph';
 import { curveToMesh, sampleSpline, type CurveShapeOptions } from '../../eval/curve';
-import { curveGeometryRows } from '../../editors/properties/tabs';
+import { curveGeometryRows, curveBevelRows } from '../../editors/properties/tabs';
 import { splitRow } from '../../ui/props';
-import { enumMenu } from '../../ui/widgets';
+import { enumMenu, enumRow } from '../../ui/widgets';
 import type { CurveData, DocumentData, ObjectData, Spline, Vec3 } from '../../data/types';
 import { Vector3 } from 'three';
 import type { Depsgraph } from '../../eval/depsgraph';
@@ -96,6 +96,8 @@ for (const type of ['CURVE', 'FONT'] as const)
       const cu = doc.curves[ob.data!];
       const opts = shapeFor(doc, ob, cu, graph, type === 'FONT').opts;
       if (type === 'CURVE') opts.splines ??= hookedSplines(ob, cu, graph) ?? undefined;
+      // final renders use the render resolution when it is set
+      if (graph.render && (cu.render_resolution_u ?? 0) > 0) opts.resolution = cu.render_resolution_u;
       return curveToMesh(cu, type === 'FONT', opts);
     },
   };
@@ -109,10 +111,11 @@ function objectPicker(id: string, cu: CurveData, key: 'bevel_object' | 'taper_ob
   });
 }
 
-curveGeometryRows.push((ob, cu) => [
-  splitRow(
-    'Bevel Mode',
-    enumMenu(
+curveBevelRows.push((ob, cu) => [
+  h(
+    'div',
+    { class: 'enum-tabs' },
+    enumRow(
       'cu-bevel-mode',
       [
         { value: 'ROUND', label: 'Round' },
@@ -126,7 +129,8 @@ curveGeometryRows.push((ob, cu) => [
       },
     ),
   ),
-  cu.bevel_mode === 'OBJECT' ? splitRow('Bevel Object', objectPicker('cu-bevel-ob', cu, 'bevel_object', ob)) : null,
-  splitRow('Taper Object', objectPicker('cu-taper-ob', cu, 'taper_object', ob)),
+  cu.bevel_mode === 'OBJECT' ? splitRow('Object', objectPicker('cu-bevel-ob', cu, 'bevel_object', ob)) : null,
   cu.bevel_mode === 'OBJECT' && !cu.bevel_object ? h('div', { class: 'prop-note' }, 'Pick a curve object as the cross-section.') : null,
 ]);
+
+curveGeometryRows.push((ob, cu) => splitRow('Taper Object', objectPicker('cu-taper-ob', cu, 'taper_object', ob)));

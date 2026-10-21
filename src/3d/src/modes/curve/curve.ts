@@ -477,6 +477,47 @@ function selectPointFull(sp: Spline, i: number, on = true) {
   } else sp.points[i].select = on;
 }
 
+/** Add a point after each selected open end (copies of the ends, which become the selection). */
+function extrudeEnds(cu: CurveData): number {
+  let added = 0;
+  const ends = cu.splines.map((sp) => {
+    const n = splinePointCount(sp);
+    return !sp.use_cyclic_u && n ? { last: pointSelected(sp, n - 1), first: n > 1 && pointSelected(sp, 0) } : { last: false, first: false };
+  });
+  if (!ends.some((e) => e.last || e.first)) return 0;
+  // only the new points stay selected
+  for (const sp of cu.splines) for (let i = 0; i < splinePointCount(sp); i++) selectPointFull(sp, i, false);
+  for (const [si, sp] of cu.splines.entries()) {
+    const { last, first } = ends[si];
+    const n = splinePointCount(sp);
+    if (!last && !first) continue;
+    if (sp.type === 'BEZIER') {
+      if (last) {
+        sp.bezier_points.push(newBezierPoint(sp.bezier_points[n - 1].co, 'AUTO'));
+        selectPointFull(sp, sp.bezier_points.length - 1);
+        added++;
+      }
+      if (first) {
+        sp.bezier_points.unshift(newBezierPoint(sp.bezier_points[0].co, 'AUTO'));
+        selectPointFull(sp, 0);
+        added++;
+      }
+    } else {
+      if (last) {
+        const p = sp.points[n - 1];
+        sp.points.push({ co: [...p.co] as SplinePoint['co'], radius: p.radius, tilt: p.tilt, select: true });
+        added++;
+      }
+      if (first) {
+        const p = sp.points[0];
+        sp.points.unshift({ co: [...p.co] as SplinePoint['co'], radius: p.radius, tilt: p.tilt, select: true });
+        added++;
+      }
+    }
+  }
+  return added;
+}
+
 registerOperators([
   {
     idname: 'curve.select_all',
@@ -504,41 +545,7 @@ registerOperators([
     props: [{ id: 'release_confirm', label: 'Confirm on Release', type: 'bool', default: false, hidden: true }],
     poll,
     invoke: (ctx, p) => {
-      const { cu } = activeCurve()!;
-      let added = 0;
-      for (const sp of cu.splines) {
-        if (sp.use_cyclic_u) continue;
-        const n = splinePointCount(sp);
-        if (!n) continue;
-        const last = pointSelected(sp, n - 1),
-          first = n > 1 && pointSelected(sp, 0);
-        for (let i = 0; i < n; i++) selectPointFull(sp, i, false);
-        if (sp.type === 'BEZIER') {
-          if (last) {
-            const b = newBezierPoint(sp.bezier_points[n - 1].co, 'AUTO');
-            sp.bezier_points.push(b);
-            selectPointFull(sp, sp.bezier_points.length - 1);
-            added++;
-          }
-          if (first) {
-            sp.bezier_points.unshift(newBezierPoint(sp.bezier_points[0].co, 'AUTO'));
-            selectPointFull(sp, 0);
-            added++;
-          }
-        } else {
-          if (last) {
-            const p = sp.points[n - 1];
-            sp.points.push({ co: [...p.co] as SplinePoint['co'], radius: p.radius, tilt: p.tilt, select: true });
-            added++;
-          }
-          if (first) {
-            const p = sp.points[0];
-            sp.points.unshift({ co: [...p.co] as SplinePoint['co'], radius: p.radius, tilt: p.tilt, select: true });
-            added++;
-          }
-        }
-      }
-      if (!added) {
+      if (!extrudeEnds(activeCurve()!.cu)) {
         app.report('WARNING', 'Select an end point of an open spline to extrude');
         return 'CANCELLED';
       }
@@ -546,6 +553,20 @@ registerOperators([
       app.flush();
       startTransform('TRANSLATION', { event: ctx.event, label: 'Extrude', release_confirm: !!p.release_confirm });
       return 'RUNNING_MODAL';
+    },
+  },
+  {
+    idname: 'curve.extrude',
+    label: 'Extrude',
+    description: 'Extrude the selected end points into new points at the same place (the new points become the selection)',
+    props: [{ id: 'mode', label: 'Mode', type: 'enum', default: 'TRANSLATION', items: [['TRANSLATION', 'Translation']] }],
+    poll,
+    exec: () => {
+      if (!extrudeEnds(activeCurve()!.cu)) {
+        app.report('WARNING', 'Select an end point of an open spline to extrude');
+        return 'CANCELLED';
+      }
+      app.changed('doc', 'geometry');
     },
   },
   {

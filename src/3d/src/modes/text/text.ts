@@ -4,7 +4,7 @@
 import { Matrix4, Vector3 } from 'three';
 import { app, registerOperators } from '../../app/app';
 import { editModeHooks } from '../../editors/view3d/hooks';
-import { keyInputHooks } from '../../app/keymap';
+import { keyInputHooks, addKeys, keymaps, keyName, type KeyItem } from '../../app/keymap';
 import { modeMenus } from '../../editors/view3d/modemenus';
 import { activeTools } from '../../app/prefs';
 import { toolsByMode, COMMON_TOOLS } from '../../editors/view3d/toolbar';
@@ -13,7 +13,7 @@ import { h } from '../../ui/h';
 import type { CharFormat, CurveData, ObjectData } from '../../data/types';
 import { layoutText, fontLoadListeners } from '../../io/fonts';
 import { pickFile } from '../../io/native';
-import { promptText, type MenuItem } from '../../ui/menu';
+import { promptText, openMenu, type MenuItem } from '../../ui/menu';
 import type { View3D } from '../../editors/view3d/view3d';
 import * as T from './textops';
 import { textBender } from '../curve/bevel';
@@ -521,77 +521,86 @@ registerOperators([
 ]);
 
 // ---------------------------------------------------------------------------
-// keyboard: printable characters go straight into the text, the rest maps to operators
+// keyboard: the Font keymap (rebindable in Preferences) runs first, printable characters go straight
+// into the text and everything else (Tab, F-keys, Ctrl Z …) falls through to the other keymaps
 
-const KEYS: Record<string, [string, Record<string, unknown>]> = {
-  Home: ['font.move', { type: 'LINE_BEGIN' }],
-  End: ['font.move', { type: 'LINE_END' }],
-  ArrowLeft: ['font.move', { type: 'PREVIOUS_CHARACTER' }],
-  ArrowRight: ['font.move', { type: 'NEXT_CHARACTER' }],
-  ArrowUp: ['font.move', { type: 'PREVIOUS_LINE' }],
-  ArrowDown: ['font.move', { type: 'NEXT_LINE' }],
-  PageUp: ['font.move', { type: 'PREVIOUS_PAGE' }],
-  PageDown: ['font.move', { type: 'NEXT_PAGE' }],
-};
-const WORD: Record<string, string> = { ArrowLeft: 'PREVIOUS_WORD', ArrowRight: 'NEXT_WORD', Home: 'TEXT_BEGIN', End: 'TEXT_END' };
+type FK = { key: string; op?: string; props?: Record<string, unknown>; shift?: boolean; ctrl?: boolean; alt?: boolean; repeat?: boolean; action?: () => void };
+const fontKeys: FK[] = [
+  { key: 'B', ctrl: true, op: 'font.style_toggle', props: { style: 'BOLD' }, repeat: false },
+  { key: 'I', ctrl: true, op: 'font.style_toggle', props: { style: 'ITALIC' }, repeat: false },
+  { key: 'U', ctrl: true, op: 'font.style_toggle', props: { style: 'UNDERLINE' }, repeat: false },
+  { key: 'P', ctrl: true, op: 'font.style_toggle', props: { style: 'SMALL_CAPS' }, repeat: false },
+  { key: 'DEL', op: 'font.delete', props: { type: 'NEXT_OR_SELECTION' } },
+  { key: 'DEL', ctrl: true, op: 'font.delete', props: { type: 'NEXT_WORD' } },
+  { key: 'BACK_SPACE', op: 'font.delete', props: { type: 'PREVIOUS_OR_SELECTION' } },
+  { key: 'BACK_SPACE', shift: true, op: 'font.delete', props: { type: 'PREVIOUS_OR_SELECTION' } },
+  { key: 'BACK_SPACE', ctrl: true, op: 'font.delete', props: { type: 'PREVIOUS_WORD' } },
+  ...(
+    [
+      ['HOME', 'LINE_BEGIN', false],
+      ['END', 'LINE_END', false],
+      ['LEFT_ARROW', 'PREVIOUS_CHARACTER', false],
+      ['RIGHT_ARROW', 'NEXT_CHARACTER', false],
+      ['LEFT_ARROW', 'PREVIOUS_WORD', true],
+      ['RIGHT_ARROW', 'NEXT_WORD', true],
+      ['UP_ARROW', 'PREVIOUS_LINE', false],
+      ['DOWN_ARROW', 'NEXT_LINE', false],
+      ['PAGE_UP', 'PREVIOUS_PAGE', false],
+      ['PAGE_DOWN', 'NEXT_PAGE', false],
+      ['HOME', 'TEXT_BEGIN', true],
+      ['END', 'TEXT_END', true],
+    ] as const
+  ).flatMap(([key, type, ctrl]) => [
+    { key, ctrl, op: 'font.move', props: { type } },
+    { key, ctrl, shift: true, op: 'font.move_select', props: { type } },
+  ]),
+  { key: 'LEFT_ARROW', alt: true, op: 'font.change_spacing', props: { delta: -1 } },
+  { key: 'RIGHT_ARROW', alt: true, op: 'font.change_spacing', props: { delta: 1 } },
+  { key: 'LEFT_ARROW', alt: true, shift: true, op: 'font.change_spacing', props: { delta: -0.1 } },
+  { key: 'RIGHT_ARROW', alt: true, shift: true, op: 'font.change_spacing', props: { delta: 0.1 } },
+  { key: 'UP_ARROW', alt: true, op: 'font.change_character', props: { delta: 1 } },
+  { key: 'DOWN_ARROW', alt: true, op: 'font.change_character', props: { delta: -1 } },
+  { key: 'A', ctrl: true, op: 'font.select_all', repeat: false },
+  { key: 'C', ctrl: true, op: 'font.text_copy', repeat: false },
+  { key: 'X', ctrl: true, op: 'font.text_cut', repeat: false },
+  { key: 'V', ctrl: true, op: 'font.text_paste' },
+  { key: 'RET', op: 'font.line_break' },
+  { key: 'NUMPAD_ENTER', op: 'font.line_break' },
+  // the next typed character gets an accent (or is combined with the previous one)
+  { key: 'BACK_SPACE', alt: true, op: 'font.text_insert', props: { accent: true } },
+];
+addKeys(
+  'Font',
+  fontKeys.map((k) => ({ ...k, when: inTextEdit })),
+);
+
+const matchKey = (k: KeyItem, name: string, e: KeyboardEvent) => !k.inactive && k.key === name && (k.any || (!!k.shift === e.shiftKey && !!k.ctrl === (e.ctrlKey || e.metaKey) && !!k.alt === e.altKey));
 
 keyInputHooks.push((e) => {
   if (!inTextEdit()) return false;
-  // keep Tab (leave edit mode) and F-keys for the keymaps
-  if (e.key === 'Tab' || /^F\d+$/.test(e.key)) return false;
-  const ctrl = e.ctrlKey || e.metaKey;
-  const run = (op: string, props: Record<string, unknown> = {}) => (app.run(op, props), true);
-  if (e.altKey && !ctrl) {
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') return run('font.change_spacing', { delta: (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 0.1 : 1) });
-    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') return run('font.change_character', { delta: e.key === 'ArrowUp' ? 1 : -1 });
-    if (e.key === 'Backspace') {
-      pendingAccent = true;
-      return true;
-    }
+  const name = keyName(e);
+  for (const k of keymaps.Font ?? []) {
+    if (!matchKey(k, name, e) || (e.repeat && k.repeat === false) || (k.value && k.value !== 'PRESS') || (k.when && !k.when())) continue;
+    if (k.action) k.action();
+    else if (k.menu) openMenu(k.menu(), { x: app.pointer.x, y: app.pointer.y });
+    else if (k.op === 'font.text_insert' && k.props?.accent && !k.props.text) pendingAccent = true;
+    else if (k.op) app.run(k.op, k.props ?? {}, { invoke: k.op === 'font.text_paste' });
+    else continue;
+    return true;
   }
-  const nav = KEYS[e.key];
-  if (nav) {
-    const type = ctrl && WORD[e.key] ? WORD[e.key] : (nav[1].type as string);
-    return run(e.shiftKey ? 'font.move_select' : 'font.move', { type });
+  if (e.key === 'Escape' && selAnchor !== null) {
+    selAnchor = null;
+    app.changed('ui');
+    return false;
   }
-  switch (e.key) {
-    case 'Backspace':
-      return run('font.delete', { type: ctrl ? 'PREVIOUS_WORD' : 'PREVIOUS_OR_SELECTION' });
-    case 'Delete':
-      return run('font.delete', { type: ctrl ? 'NEXT_WORD' : 'NEXT_OR_SELECTION' });
-    case 'Enter':
-      return run('font.line_break');
-    case 'Escape':
-      selAnchor = null;
-      app.changed('ui');
-      return false;
-  }
-  if (ctrl) {
-    const k = e.key.toLowerCase();
-    if (e.shiftKey) return false;
-    const map: Record<string, [string, Record<string, unknown>?]> = {
-      a: ['font.select_all'],
-      c: ['font.text_copy'],
-      x: ['font.text_cut'],
-      v: ['font.text_paste'],
-      b: ['font.style_toggle', { style: 'BOLD' }],
-      i: ['font.style_toggle', { style: 'ITALIC' }],
-      u: ['font.style_toggle', { style: 'UNDERLINE' }],
-      p: ['font.style_toggle', { style: 'SMALL_CAPS' }],
-    };
-    const m = map[k];
-    if (m) {
-      app.run(m[0], m[1] ?? {}, { invoke: m[0] !== 'font.text_paste' ? false : true });
-      return true;
-    }
-    return false; // Ctrl+Z etc. go to the keymaps
-  }
-  if (e.key.length === 1 && !e.altKey) {
+  // typed characters
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
     if (pendingAccent) {
       pendingAccent = false;
       if (app.run('font.text_insert', { text: e.key, accent: true }) === 'FINISHED') return true;
     }
-    return run('font.text_insert', { text: e.key });
+    app.run('font.text_insert', { text: e.key });
+    return true;
   }
   return false;
 });
@@ -767,7 +776,6 @@ function textMenu(): MenuItem[] {
     { separator: true },
     { label: 'To Uppercase', op: 'font.case_set', props: { case: 'UPPER' } },
     { label: 'To Lowercase', op: 'font.case_set', props: { case: 'LOWER' } },
-    { label: 'Toggle Case', op: 'font.case_toggle' },
     { separator: true },
     { label: 'Insert Unicode…', op: 'font.text_insert_unicode' },
     { label: 'Special Characters', submenu: specialMenu },

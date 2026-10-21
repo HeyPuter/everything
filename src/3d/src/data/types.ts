@@ -19,6 +19,7 @@ export type ObjectType =
   | 'MESH'
   | 'CURVE'
   | 'FONT'
+  | 'SURFACE'
   | 'EMPTY'
   | 'LIGHT'
   | 'CAMERA'
@@ -75,6 +76,10 @@ export interface ShapeKey {
   vertex_group?: string;
   /** protected from edits (Edit Mode shape editing, sculpting) */
   lock_shape?: boolean;
+  /** absolute shape keys: the evaluation time at which this key is reached */
+  frame?: number;
+  /** absolute shape keys: interpolation from this key to the next */
+  interpolation?: 'KEY_LINEAR' | 'KEY_CARDINAL' | 'KEY_CATMULL_ROM' | 'KEY_BSPLINE';
 }
 
 export interface ColorAttribute {
@@ -82,6 +87,17 @@ export interface ColorAttribute {
   domain: 'POINT' | 'CORNER';
   /** RGBA, linear. */
   data: Float32Array;
+}
+
+/** Data types of generic mesh attributes (colors live in color_attributes, the UV map in uvs). */
+export type AttributeType = 'FLOAT' | 'INT' | 'INT8' | 'BOOLEAN' | 'FLOAT2' | 'INT32_2D' | 'FLOAT_VECTOR' | 'QUATERNION' | 'FLOAT4X4';
+
+/** A named data layer on one domain. EDGE values are stored per face corner (the edge starting there), then per loose edge. */
+export interface MeshAttribute {
+  name: string;
+  domain: 'POINT' | 'EDGE' | 'FACE' | 'CORNER';
+  data_type: AttributeType;
+  data: Float32Array | Int32Array | Uint8Array;
 }
 
 export interface MeshData {
@@ -103,6 +119,12 @@ export interface MeshData {
   sharp?: Uint32Array;
   /** per-corner edge crease weight (0..1) for subdivision */
   creases?: Float32Array;
+  /** per-corner edge bevel weight (0..1), the edge starting at this corner (Bevel modifier "Weight" limit) */
+  bevel_weight_edge?: Float32Array;
+  /** per-vertex bevel weight (0..1) for vertex bevels limited by weight */
+  bevel_weight_vert?: Float32Array;
+  /** per-vertex subdivision crease (0..1): sharpens the subdivided surface at the vertex */
+  crease_vert?: Float32Array;
   /** custom split normals, xyz per face corner (overrides the computed shading normals) */
   custom_normals?: Float32Array;
   /** per face: split this quad along the other diagonal than the automatic choice */
@@ -124,14 +146,30 @@ export interface MeshData {
   shape_keys: ShapeKey[];
   active_shape_key_index: number;
   use_shape_key_edit_mode?: boolean;
+  /** shape keys blend relative to their reference key (default); false: absolute keys reached in turn by `eval_time` */
+  use_relative?: boolean;
+  /** absolute shape keys: evaluation time (animatable as data.shape_keys.eval_time) */
+  eval_time?: number;
   color_attributes: ColorAttribute[];
   active_color_index: number;
+  /** generic attributes (Attributes panel, geometry nodes Named Attribute, scripts) */
+  attributes?: MeshAttribute[];
+  /** name of the active attribute of the Attributes list */
+  active_attribute?: string;
   uv_map_name: string;
+  /** the other UV maps (per corner u, v), in list order with the active map left out */
+  uv_layers_extra?: { name: string; data: Float32Array }[];
+  /** position of the active map (uvs / uv_map_name) in the UV Maps list */
+  uv_active_index?: number;
+  /** name of the UV map used for rendering (default: the first map) */
+  uv_render_name?: string;
   /** Material slots (material ids or null for empty slot). */
   materials: (ID | null)[];
   /** Auto smooth by angle (radians); undefined = off. */
   auto_smooth_angle?: number;
   remesh_voxel_size?: number;
+  /** Remesh panel: voxel remesh or quad remesh */
+  remesh_mode?: 'VOXEL' | 'QUAD';
   /** Sculpt mode mask, one value per vertex (0 = unmasked, 1 = fully masked). */
   sculpt_mask?: Float32Array;
   /** Sculpt face sets, one id per face (ids start at 1). */
@@ -199,6 +237,18 @@ export interface Spline {
   resolution_u: number;
   order_u: number;
   use_endpoint_u?: boolean;
+  /** NURBS knots in Bézier segments (interior knots repeated order-1 times) */
+  use_bezier_u?: boolean;
+  /** NURBS surfaces: `points` is a grid of point_count_u × point_count_v (U varies fastest) */
+  point_count_u?: number;
+  point_count_v?: number;
+  order_v?: number;
+  resolution_v?: number;
+  use_cyclic_v?: boolean;
+  use_endpoint_v?: boolean;
+  use_bezier_v?: boolean;
+  /** hidden in Edit Mode */
+  hide?: boolean;
   use_smooth: boolean;
   material_index: number;
 }
@@ -216,6 +266,27 @@ export interface CurveData {
   eval_time?: number;
   splines: Spline[];
   resolution_u: number;
+  /** data of NURBS surface objects */
+  surface?: boolean;
+  /** how the profile turns along 3D curves, and how much that turning is smoothed */
+  twist_mode?: 'MINIMUM' | 'Z_UP' | 'TANGENT';
+  twist_smooth?: number;
+  /** the part of each spline the bevel covers, and how the factors are measured */
+  bevel_factor_start?: number;
+  bevel_factor_end?: number;
+  bevel_factor_mapping_start?: 'RESOLUTION' | 'SEGMENTS' | 'SPLINE';
+  bevel_factor_mapping_end?: 'RESOLUTION' | 'SEGMENTS' | 'SPLINE';
+  /** how the taper object's value combines with the point radius; map it to the covered part only */
+  taper_radius_mode?: 'OVERRIDE' | 'MULTIPLY' | 'ADD';
+  use_map_taper?: boolean;
+  /** curve deform: scale by the curve radius, stretch the deformed object over the whole curve, clamp to its bounds */
+  use_radius?: boolean;
+  use_stretch?: boolean;
+  use_deform_bounds?: boolean;
+  /** surfaces: preview resolution along V; render resolutions (0 = use the preview ones) */
+  resolution_v?: number;
+  render_resolution_u?: number;
+  render_resolution_v?: number;
   bevel_depth: number;
   bevel_resolution: number;
   extrude: number;
@@ -488,8 +559,22 @@ export interface LatticeData {
   /** deformed point positions (u*v*w*3), in lattice local space ±0.5 */
   points: Float32Array;
   interpolation: 'KEY_LINEAR' | 'KEY_BSPLINE';
+  /** interpolation per axis (default: `interpolation`) */
+  interpolation_type_u?: LatticeInterpolation;
+  interpolation_type_v?: LatticeInterpolation;
+  interpolation_type_w?: LatticeInterpolation;
+  /** only the outer points deform; inner points follow them */
+  use_outside?: boolean;
+  /** vertex group whose weights scale each point's influence */
+  vertex_group?: string;
+  /** lattice vertex groups and their weights per point */
+  vertex_groups?: { name: string }[];
+  weights?: Float32Array[];
+  active_vertex_group_index?: number;
   users?: number;
 }
+
+export type LatticeInterpolation = 'KEY_LINEAR' | 'KEY_CARDINAL' | 'KEY_CATMULL_ROM' | 'KEY_BSPLINE';
 
 // ---------------------------------------------------------------------------
 // Node trees (shader, geometry, compositor, world)

@@ -1,6 +1,7 @@
 // Mesh conversion. Reads geometry from generic attributes (5.x AttributeStorage, or
 // 3.x/4.x CustomData layers) with a fallback to the legacy MVert/MEdge/MPoly/MLoop structs.
-import type { ColorAttribute, MeshData, ShapeKey } from '../../data/types';
+import type { AttributeType, ColorAttribute, MeshAttribute, MeshData, ShapeKey } from '../../data/types';
+import { attrWidth, makeAttrArray } from '../../mesh/attributes';
 import { newMeshData } from '../../data/defaults';
 import { polyNormal } from '../../mesh/mesh';
 import type { BStruct } from './reader';
@@ -359,6 +360,8 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   const uvAttrs = attrs.filter((a) => a.kind === 'float2' && a.domain === 'CORNER' && !a.name.startsWith('.'));
   const activeUvName = me.cstr('active_uv_map_attribute') || me.cstr('default_uv_map_attribute');
   let uvs = new Float32Array(totloop * 2);
+  const extraUVs: { name: string; data: Float32Array }[] = [];
+  let uvActiveIndex = 0;
   let uvName = 'UVMap';
   const uvChoice = uvAttrs.find((a) => a.name === activeUvName) ?? uvAttrs[0];
   if (uvChoice) {
@@ -366,8 +369,13 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
     if (v) uvs = Float32Array.from(v);
     uvName = uvChoice.name;
     for (const a of uvAttrs) used.add(a);
-    const others = uvAttrs.filter((a) => a !== uvChoice).map((a) => a.name);
-    if (others.length) ctx.warn.add('Additional UV maps dropped (only the active UV map is kept)', `${name}: ${others.join(', ')}`);
+    // the other maps, in their order, around the active one
+    for (const a of uvAttrs) {
+      if (a === uvChoice) continue;
+      const v = reader.read(a);
+      if (v && v.length === totloop * 2) extraUVs.push({ name: a.name, data: Float32Array.from(v) });
+    }
+    uvActiveIndex = uvAttrs.indexOf(uvChoice);
   } else {
     const uvLayers = legacy.structs.filter((s) => s.type === 'MLoopUV');
     if (uvLayers.length) {
@@ -390,9 +398,21 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
 
   const mesh = newMeshData(name, { positions, offsets, indices, uvs, normals, smooth, material_index });
   mesh.uv_map_name = uvName;
+  if (extraUVs.length) {
+    mesh.uv_layers_extra = extraUVs;
+    mesh.uv_active_index = uvActiveIndex;
+    const render = me.cstr('default_uv_map_attribute');
+    if (render) mesh.uv_render_name = render;
+  }
   if (seams) mesh.seams = Uint32Array.from(seams);
   if (sharp) mesh.sharp = Uint32Array.from(sharp);
   if (creases) mesh.creases = Float32Array.from(creases);
+  const bevelE = edgeToCorner(take(get('bevel_weight_edge', 'EDGE')), false);
+  if (bevelE) mesh.bevel_weight_edge = Float32Array.from(bevelE);
+  for (const key of ['bevel_weight_vert', 'crease_vert'] as const) {
+    const vals = take(get(key, 'POINT'));
+    if (vals && vals.length === totvert && Array.prototype.some.call(vals, (x: number) => x > 0)) mesh[key] = Float32Array.from(vals);
+  }
   const hideV = take(get('.hide_vert', 'POINT'));
   if (hideV && hideV.some((x) => x)) mesh.hide_vert = Uint8Array.from(hideV);
   const selV = take(get('.select_vert', 'POINT'));
@@ -465,7 +485,13 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
 
   // --- shape keys
   const key = me.ref('key');
-  if (key) mesh.shape_keys = convertShapeKeys(key, ctx, name, totvert);
+  if (key) {
+    mesh.shape_keys = convertShapeKeys(key, ctx, name, totvert);
+    if (key.num('type') === 0 && mesh.shape_keys.length > 1) {
+      mesh.use_relative = false;
+      mesh.eval_time = key.num('ctime');
+    }
+  }
 
   // --- materials
   const totcol = Math.max(0, Math.min(32767, me.num('totcol')));
@@ -476,20 +502,42 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
   const vs = me.num('remesh_voxel_size');
   if (vs > 0) mesh.remesh_voxel_size = vs;
 
-  // unmapped generic attributes
+  // the other generic attributes (colors and UV maps were taken above)
+  const GENERIC: Partial<Record<Kind, AttributeType>> = { bool: 'BOOLEAN', int8: 'INT8', int32: 'INT', int2: 'INT32_2D', float: 'FLOAT', float2: 'FLOAT2', float3: 'FLOAT_VECTOR', quat: 'QUATERNION', float4x4: 'FLOAT4X4' };
+  const generic: MeshAttribute[] = [];
   for (const a of attrs) {
     if (used.has(a) || a.name.startsWith('.')) continue;
-    if (['position', 'material_index', 'sharp_edge', 'uv_seam', 'crease_edge', 'crease_vert', 'bevel_weight_edge', 'bevel_weight_vert'].includes(a.name) && used.has(a)) continue;
-    ctx.warn.add('Generic mesh attributes not imported', `${name}.${a.name}`);
+    if (['position', 'material_index', 'sharp_edge', 'uv_seam', 'crease_edge', 'crease_vert', 'bevel_weight_edge', 'bevel_weight_vert'].includes(a.name)) continue;
+    const type = GENERIC[a.kind];
+    const vals = type ? take(a) : null;
+    if (!type || !vals || (a.domain === 'EDGE' && !cornerEdge)) {
+      ctx.warn.add('Generic mesh attributes not imported', `${name}.${a.name}`);
+      continue;
+    }
+    const w = attrWidth(type);
+    let data: MeshAttribute['data'];
+    if (a.domain === 'EDGE') {
+      // stored per face corner: the value of the edge that starts at the corner
+      data = makeAttrArray(type, totloop * w);
+      for (let c = 0; c < totloop; c++) {
+        const e = cornerEdge![c];
+        if (e >= 0) for (let k = 0; k < w; k++) data[c * w + k] = vals[e * w + k];
+      }
+    } else {
+      data = makeAttrArray(type, vals.length);
+      for (let i = 0; i < vals.length; i++) data[i] = vals[i];
+    }
+    generic.push({ name: a.name, domain: a.domain, data_type: type, data });
   }
+  if (generic.length) mesh.attributes = generic;
   return mesh;
 }
 
 function convertShapeKeys(key: BStruct, ctx: Ctx, meshName: string, totvert: number): ShapeKey[] {
   const blocks = key.list('block', 10_000);
   if (!blocks.length) return [];
-  // Key.type: 0 = absolute keys (not supported), 1 = relative
-  if (key.num('type') === 0 && blocks.length > 1) ctx.warn.add('Absolute shape keys imported as relative', meshName);
+  // Key.type: 0 = absolute keys (frames and interpolation per key), 1 = relative
+  const absolute = key.num('type') === 0 && blocks.length > 1;
   const names = blocks.map((b) => b.str('name'));
   const out: ShapeKey[] = [];
   for (const kb of blocks) {
@@ -515,6 +563,11 @@ function convertShapeKeys(key: BStruct, ctx: Ctx, meshName: string, totvert: num
     };
     const vg = kb.str('vgroup');
     if (vg) sk.vertex_group = vg;
+    if (absolute) {
+      // KeyBlock.pos is the key's place on the evaluation time axis (stored / 100), type its interpolation
+      sk.frame = Math.round(kb.num('pos') * 100 * 1e4) / 1e4;
+      sk.interpolation = (['KEY_LINEAR', 'KEY_CARDINAL', 'KEY_BSPLINE', 'KEY_CATMULL_ROM'] as const)[kb.num('type')] ?? 'KEY_LINEAR';
+    }
     out.push(sk);
   }
   return out;

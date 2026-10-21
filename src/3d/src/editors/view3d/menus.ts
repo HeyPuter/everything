@@ -160,11 +160,14 @@ export function selectMenu(): MenuItem[] {
 /** Extra Add menu entries (e.g. Grease Pencil), inserted after Point Cloud. */
 export const addMenuHooks: (() => MenuItem[])[] = [];
 
+/** Items of Add ▸ Surface (set by the surface module). */
+export const surfaceAddHook: { items?: () => MenuItem[] } = {};
+
 export function addMenu(): MenuItem[] {
   return [
     { label: 'Mesh', icon: 'outliner_ob_mesh', submenu: meshAddMenu },
     { label: 'Curve', icon: 'outliner_ob_curve', submenu: curveAddMenu },
-    { label: 'Surface', icon: 'outliner_ob_curve', submenu: () => [{ label: 'NURBS Curve', icon: 'curve_data', op: 'curve.primitive_nurbs_curve_add' }, { label: 'NURBS Circle', icon: 'circle', op: 'curve.primitive_nurbs_circle_add' }] },
+    { label: 'Surface', icon: surfaceAddHook.items ? 'outliner_ob_surface' : 'outliner_ob_curve', submenu: () => surfaceAddHook.items?.() ?? [{ label: 'NURBS Curve', icon: 'curve_data', op: 'curve.primitive_nurbs_curve_add' }, { label: 'NURBS Circle', icon: 'circle', op: 'curve.primitive_nurbs_circle_add' }] },
     { label: 'Metaball', icon: 'outliner_ob_meta', submenu: () =>
       [
         ['BALL', 'Ball', 'meta_ball'],

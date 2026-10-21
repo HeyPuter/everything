@@ -582,6 +582,10 @@ function rebuildFromPieces(m: MeshEdit, keepFaces: number[], pieces: Piece[], do
   out.weights = m.weights.map(() => []);
   out.keys = m.keys.map(() => []);
   out.pcolors = m.pcolors.map(() => []);
+  out.vfloat = Object.fromEntries(Object.keys(m.vfloat).map((k) => [k, []]));
+  out.gattrs = m.gattrs.map((g) => ({ ...g }));
+  out.vgen = m.gattrs.map(() => []);
+  if (m.skin) out.skin = [];
   // unchanged faces/vertices are copied as they are
   const vmap = new Map<number, number>();
   const copyVert = (v: number) => {
@@ -594,6 +598,9 @@ function rebuildFromPieces(m: MeshEdit, keepFaces: number[], pieces: Piece[], do
       m.weights.forEach((w, i) => out.weights[i].push(w[v] ?? 0));
       m.keys.forEach((k, i) => out.keys[i].push(k[v * 3], k[v * 3 + 1], k[v * 3 + 2]));
       m.pcolors.forEach((c, i) => out.pcolors[i].push(...c.slice(v * 4, v * 4 + 4)));
+      for (const k in m.vfloat) out.vfloat[k].push(m.vfloat[k][v] ?? 0);
+      m.gattrs.forEach((g, k) => g.domain === 'POINT' && out.vgen[k].push(...m.vgen[k].slice(v * g.width, (v + 1) * g.width)));
+      if (m.skin && out.skin) out.skin.push(...m.skin.slice(v * 4, v * 4 + 4));
       vmap.set(v, n);
     }
     return n;
@@ -656,7 +663,12 @@ function rebuildFromPieces(m: MeshEdit, keepFaces: number[], pieces: Piece[], do
   for (let v = vmap.size; v < out.vcount; v++) fresh.add(v);
   dissolveCollinearVerts(out, fresh, 1e-4);
   // replace the mesh content
-  Object.assign(m, { pos: out.pos, sel: out.sel, hide: out.hide, weights: out.weights, keys: out.keys, pcolors: out.pcolors, faces: out.faces, looseEdges: out.looseEdges });
+  const ebw = new Map<string, number>();
+  for (const [k, w] of m.ebw) {
+    const [a, b] = k.split(':').map((x) => vmap.get(+x));
+    if (a !== undefined && b !== undefined) ebw.set(edgeKey(a, b), w);
+  }
+  Object.assign(m, { pos: out.pos, sel: out.sel, hide: out.hide, weights: out.weights, keys: out.keys, pcolors: out.pcolors, vfloat: out.vfloat, vgen: out.vgen, skin: out.skin, ebw, ebwMid: new Map(), faces: out.faces, looseEdges: out.looseEdges });
   m.compact();
 }
 

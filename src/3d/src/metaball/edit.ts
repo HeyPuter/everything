@@ -310,10 +310,11 @@ function metaballMenu(): MenuItem[] {
     mirrorSubmenu(),
     snapSubmenu(),
     { separator: true },
-    { label: 'Delete', op: 'mball.delete_metaelems', shortcut: 'X' },
-    { label: 'Duplicate Metaball Elements', op: 'mball.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate Metaball Elements', op: 'mball.duplicate_metaelems' },
     { separator: true },
     { label: 'Show/Hide', submenu: showHideMenu },
+    { separator: true },
+    { label: 'Delete', op: 'mball.delete_metaelems', shortcut: 'X' },
   ];
 }
 
@@ -338,12 +339,12 @@ function addElementMenu(): MenuItem[] {
 
 function contextMenu(): MenuItem[] {
   return [
-    { label: 'Duplicate Metaball Elements', op: 'mball.duplicate_move', shortcut: 'Shift D' },
+    { label: 'Duplicate', op: 'mball.duplicate_move', shortcut: 'Shift D' },
     { separator: true },
     mirrorSubmenu(),
     snapSubmenu(),
     { separator: true },
-    { label: 'Delete Metaball Elements', op: 'mball.delete_metaelems', shortcut: 'X' },
+    { label: 'Delete', op: 'mball.delete_metaelems', shortcut: 'X' },
   ];
 }
 

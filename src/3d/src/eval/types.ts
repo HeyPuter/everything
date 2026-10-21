@@ -20,6 +20,10 @@ export interface EvalMesh {
   seams?: Uint32Array;
   sharp?: Uint32Array;
   creases?: Float32Array;
+  /** per-corner edge bevel weight, per-vertex bevel weight and per-vertex crease (when the mesh has them) */
+  bevel_weight_edge?: Float32Array;
+  bevel_weight_vert?: Float32Array;
+  crease_vert?: Float32Array;
   /** vertex colors per corner RGBA (active color attribute) */
   colors?: Float32Array;
   /** per-vertex weights for each vertex group (aligned with MeshData.vertex_groups) */

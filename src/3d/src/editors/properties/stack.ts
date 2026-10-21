@@ -33,7 +33,7 @@ export const modifierFields: Record<string, Field[]> = {
   ],
   BUILD: [['frame_start', 'Start', 'num'], ['frame_duration', 'Length', 'num'], ['use_reverse', 'Reversed', 'bool'], ['use_random_order', 'Randomize', 'bool'], ['seed', 'Seed', 'int']],
   EDGE_SPLIT: [['use_edge_angle', 'Edge Angle', 'bool'], ['split_angle', 'Angle', 'angle'], ['use_edge_sharp', 'Sharp Edges', 'bool']],
-  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor']],
+  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor'], ['use_smooth', 'Smooth', 'bool']],
   MIRROR: [
     ['use_axis', 'Axis', 'axes'],
     ['use_bisect_axis', 'Bisect', 'axes'],
@@ -48,6 +48,7 @@ export const modifierFields: Record<string, Field[]> = {
     ['mirror_offset_u', 'Flip U Offset', 'num', { min: -1, max: 1, slider: true }],
     ['use_mirror_v', 'Mirror V', 'bool'],
     ['mirror_offset_v', 'Flip V Offset', 'num', { min: -1, max: 1, slider: true }],
+    ['use_mirror_udim', 'Flip UDIM', 'bool'],
     ['offset_u', 'Offset U', 'num', { softMin: -1, softMax: 1, slider: true }],
     ['offset_v', 'V', 'num', { softMin: -1, softMax: 1, slider: true }],
     ['use_mirror_vertex_groups', 'Vertex Groups', 'bool'],
@@ -65,6 +66,7 @@ export const modifierFields: Record<string, Field[]> = {
     ['merge_threshold', 'Distance', 'dist'],
     ['heading', 'Normals', 'heading'],
     ['use_smooth_shade', 'Smooth Shading', 'bool'],
+    ['use_normal_calculate', 'Calculate Order', 'bool'],
     ['use_normal_flip', 'Flip', 'bool'],
     ['heading', 'Texture Coordinates', 'heading'],
     ['use_stretch_u', 'Stretch U', 'bool'],
@@ -72,7 +74,7 @@ export const modifierFields: Record<string, Field[]> = {
   ],
   SOLIDIFY: [['thickness', 'Thickness', 'dist'], ['offset', 'Offset', 'num', { min: -1, max: 1, slider: true }], ['use_even_offset', 'Even Thickness', 'bool'], ['use_rim', 'Fill Rim', 'bool'], ['use_rim_only', 'Only Rim', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup'], ['material_offset', 'Material Offset', 'int'], ['material_offset_rim', 'Rim', 'int']],
   SUBSURF: [['subdivision_type', 'Type', 'enum', [['CATMULL_CLARK', 'Catmull-Clark'], ['SIMPLE', 'Simple']]], ['levels', 'Levels Viewport', 'int', { min: 0, max: 6 }], ['render_levels', 'Render', 'int', { min: 0, max: 6 }], ['use_creases', 'Use Creases', 'bool']],
-  TRIANGULATE: [['quad_method', 'Quad Method', 'enum', [['BEAUTY', 'Beauty'], ['FIXED', 'Fixed'], ['FIXED_ALTERNATE', 'Fixed Alternate'], ['SHORTEST_DIAGONAL', 'Shortest Diagonal'], ['LONGEST_DIAGONAL', 'Longest Diagonal']]], ['ngon_method', 'N-gon Method', 'enum', [['BEAUTY', 'Beauty'], ['CLIP', 'Clip']]], ['min_vertices', 'Minimum Vertices', 'int', { min: 4, max: 1000 }]],
+  TRIANGULATE: [['quad_method', 'Quad Method', 'enum', [['BEAUTY', 'Beauty'], ['FIXED', 'Fixed'], ['FIXED_ALTERNATE', 'Fixed Alternate'], ['SHORTEST_DIAGONAL', 'Shortest Diagonal'], ['LONGEST_DIAGONAL', 'Longest Diagonal']]], ['ngon_method', 'N-gon Method', 'enum', [['BEAUTY', 'Beauty'], ['CLIP', 'Clip']]], ['min_vertices', 'Minimum Vertices', 'int', { min: 4, max: 1000 }], ['keep_custom_normals', 'Keep Normals', 'bool']],
   WELD: [['mode', 'Mode', 'enum', [['ALL', 'All'], ['CONNECTED', 'Connected']]], ['merge_threshold', 'Distance', 'dist'], ['loose_edges', 'Only Loose Edges', 'bool'], ['vertex_group', 'Vertex Group', 'vgroup']],
   WIREFRAME: [['thickness', 'Thickness', 'dist']],
   ARMATURE: [['object', 'Object', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['use_deform_preserve_volume', 'Preserve Volume', 'bool'], ['heading', 'Bind To', 'heading'], ['use_vertex_groups', 'Vertex Groups', 'bool'], ['use_bone_envelopes', 'Bone Envelopes', 'bool']],
@@ -244,7 +246,7 @@ function modifierPanel(ob: ObjectData, m: ModifierBase, i: number): Child {
   );
 }
 
-const MESH_LIKE = ['MESH', 'CURVE', 'FONT', 'LATTICE'];
+const MESH_LIKE = ['MESH', 'CURVE', 'FONT', 'SURFACE', 'LATTICE'];
 /** Whether a modifier type can be added to an object type. */
 export const modifierAllowed = (type: string, obType: string | undefined) => !!obType && (modifierTypes[type]?.objectTypes ?? MESH_LIKE).includes(obType);
 
@@ -276,7 +278,7 @@ registerTab({
   group: 3,
   poll: () => {
     const o = app.activeObject;
-    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'LATTICE' || o.type === 'GREASEPENCIL');
+    return !!o && (o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' || o.type === 'SURFACE' || o.type === 'LATTICE' || o.type === 'GREASEPENCIL');
   },
   draw: () => {
     const o = app.activeObject!;
@@ -308,7 +310,7 @@ registerOperators([
     idname: 'object.modifier_add',
     label: 'Add Modifier',
     props: [{ id: 'type', label: 'Type', type: 'string', default: 'SUBSURF' }],
-    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'LATTICE', 'GREASEPENCIL'].includes(app.activeObject.type),
+    poll: () => !!app.activeObject && ['MESH', 'CURVE', 'FONT', 'SURFACE', 'LATTICE', 'GREASEPENCIL'].includes(app.activeObject.type),
     exec: (_ctx, p) => {
       const ob = app.activeObject!;
       if (!modifierTypes[p.type as string] || !modifierAllowed(p.type as string, ob.type)) return 'CANCELLED';

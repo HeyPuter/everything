@@ -33,3 +33,4 @@ export function registerModules() {
   // modules register on import; this function exists to make the dependency explicit
 }
 import './editors/properties/more/index';
+import './surface/index';

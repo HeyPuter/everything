@@ -1,4 +1,6 @@
 // Properties tabs: scene, world, collection, object, data, material.
+import { uvMaps, setActiveUV, renameUV } from '../../mesh/uvmaps';
+import { shapeKeyFrame } from '../../eval/depsgraph';
 import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
 import { checkNum } from '../../render/final/props/common';
@@ -402,7 +404,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
           label: k.name,
           icon: 'shapekey_data',
           rightSize: 'wide' as const,
-          right: [
+          right: me.use_relative === false ? [h('span', { class: 'ul-meta' }, shapeKeyFrame(me, i).toFixed(3))] : [
             i > 0 ? numberField({ id: `sk.${me.id}.${i}`, value: k.value, min: k.slider_min, max: k.slider_max, slider: true, set: (v, f) => ((k.value = v), app.changed('doc'), f && app.pushUndo('Shape Key Value')) }) : null,
             i > 0 ? checkbox(`sk-mute.${me.id}.${i}`, '', !k.mute, (v) => ((k.mute = !v), changed('Shape Key Mute'))) : null,
             lockToggle(!!k.lock_shape, 'Lock shape against edits', () => ((me.shape_keys[i] = { ...k, lock_shape: !k.lock_shape }), changed('Lock Shape Key'))),
@@ -422,7 +424,14 @@ function meshData(o: ObjectData, me: MeshData): Child {
           },
         },
       ),
-      me.shape_keys[me.active_shape_key_index] && me.active_shape_key_index > 0
+      me.shape_keys.length && me.use_relative === false
+        ? [
+            num(me as never, 'eval_time' as never, 'Evaluation Time', { min: 0, softMax: Math.max(10, shapeKeyFrame(me, me.shape_keys.length - 1)), anim: { ob: o, path: 'data.shape_keys.eval_time' } }),
+            me.shape_keys[me.active_shape_key_index]
+              ? splitRow('Interpolation', enumMenu('sk-interp', [['KEY_LINEAR', 'Linear'], ['KEY_CARDINAL', 'Cardinal'], ['KEY_CATMULL_ROM', 'Catmull-Rom'], ['KEY_BSPLINE', 'BSpline']].map(([value, label]) => ({ value, label })), me.shape_keys[me.active_shape_key_index].interpolation ?? 'KEY_LINEAR', (v) => ((me.shape_keys[me.active_shape_key_index] = { ...me.shape_keys[me.active_shape_key_index], interpolation: v as 'KEY_LINEAR' }), changed('Shape Key Interpolation'))))
+              : null,
+          ]
+        : me.shape_keys[me.active_shape_key_index] && me.active_shape_key_index > 0
         ? (() => {
             const k = me.shape_keys[me.active_shape_key_index];
             return [
@@ -437,9 +446,48 @@ function meshData(o: ObjectData, me: MeshData): Child {
         : me.shape_keys.length
           ? h('div', { class: 'prop-note' }, 'The Basis key is the rest shape.')
           : null,
-      me.shape_keys.length ? [bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'), bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode')] : null,
+      me.shape_keys.length
+        ? [
+            splitRow('', checkbox('sk-relative', 'Relative', me.use_relative !== false, (v) => ((me.use_relative = v ? undefined : false), changed('Relative Shape Keys')), { tip: 'Keys blend over their reference key; off: the keys are reached one after another by the evaluation time' })),
+            bool(o as never, 'show_only_shape_key' as never, 'Pin Active Shape Key'),
+            bool(me as never, 'use_shape_key_edit_mode' as never, 'Shape Key Edit Mode'),
+          ]
+        : null,
     ]),
-    panel('me-uvmaps', 'UV Maps', () => [uiList('uv', [{ key: me.uv_map_name, label: me.uv_map_name, icon: 'uv' }], 0, () => {}, { rename: (_i, name) => ((me.uv_map_name = name), changed('Rename UV Map')) })]),
+    panel('me-uvmaps', 'UV Maps', () => {
+      const rows = uvMaps(me);
+      return [
+        uiList(
+          'uv',
+          rows.map((r) => ({
+            key: r.name,
+            label: r.name,
+            icon: 'uv',
+            rightSize: 'compact' as const,
+            right: h(
+              'button',
+              {
+                class: { 'icon-btn': true, on: r.render },
+                'data-tip': 'Use this UV map for rendering',
+                onclick: (e: MouseEvent) => {
+                  e.stopPropagation();
+                  me.uv_render_name = r.name;
+                  changed('Set Render UV Map');
+                },
+              },
+              icon(r.render ? 'restrict_render_off' : 'restrict_render_on'),
+            ),
+          })),
+          rows.findIndex((r) => r.active),
+          (i) => setActiveUV(me, i) && changed('Set Active UV Map'),
+          {
+            add: () => app.run('mesh.uv_texture_add'),
+            remove: () => app.run('mesh.uv_texture_remove'),
+            rename: (i, name) => renameUV(me, i, name) && changed('Rename UV Map'),
+          },
+        ),
+      ];
+    }, { closed: true }),
     panel('me-colors', 'Color Attributes', () => [
       uiList(
         'ca',
@@ -449,6 +497,11 @@ function meshData(o: ObjectData, me: MeshData): Child {
         {
           add: () => app.run('geometry.color_attribute_add'),
           remove: () => app.run('geometry.color_attribute_remove'),
+          specials: () => [
+            { label: 'Duplicate Color Attribute', op: 'geometry.color_attribute_duplicate' },
+            { label: 'Convert Color Attribute', op: 'geometry.color_attribute_convert' },
+            { label: 'Set Render Color', op: 'geometry.color_attribute_render_set', props: { name: me.color_attributes[me.active_color_index]?.name ?? '' } },
+          ],
           rename: (i, name) => {
             name = name.trim();
             if (!name || me.color_attributes.some((c, j) => j !== i && c.name === name)) return;
@@ -457,12 +510,32 @@ function meshData(o: ObjectData, me: MeshData): Child {
           },
         },
       ),
-    ]),
-    panel('me-remesh', 'Remesh', () => [
-      splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
-      h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
     ], { closed: true }),
-    panel('me-geodata', 'Geometry Data', () => [h('div', { class: 'btn-row' }, opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data'))], { closed: true }),
+    panel('me-remesh', 'Remesh', () => [
+      splitRow('Mode', enumRow('me-remesh-mode', [{ value: 'VOXEL', label: 'Voxel' }, { value: 'QUAD', label: 'Quad' }], me.remesh_mode ?? 'VOXEL', (v) => ((me.remesh_mode = v as 'VOXEL'), changed('Remesh Mode')))),
+      (me.remesh_mode ?? 'VOXEL') === 'VOXEL'
+        ? [
+            splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
+            h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
+          ]
+        : h('div', { class: 'btn-row' }, opButton('object.quadriflow_remesh', 'QuadriFlow Remesh')),
+    ], { closed: true }),
+    panel(
+      'me-geodata',
+      'Geometry Data',
+      () => [
+        h(
+          'div',
+          { class: 'btn-row btn-stack' },
+          opButton('mesh.customdata_mask_clear', 'Clear Sculpt Mask Data', {}, { icon: 'x' }),
+          opButton('mesh.customdata_face_sets_clear', 'Clear Sculpt Face Sets', {}, { icon: 'x' }),
+          me.skin_vertices ? opButton('mesh.customdata_skin_clear', 'Clear Skin Data', {}, { icon: 'x' }) : opButton('mesh.customdata_skin_add', 'Add Skin Data', {}, { icon: 'add' }),
+          opButton('mesh.reorder_vertices_spatial', 'Reorder Mesh Spatially'),
+          me.custom_normals ? opButton('mesh.customdata_custom_splitnormals_clear', 'Clear Custom Split Normals Data', {}, { icon: 'x' }) : opButton('mesh.customdata_custom_splitnormals_add', 'Add Custom Split Normals Data', {}, { icon: 'add' }),
+        ),
+      ],
+      { closed: true },
+    ),
     panel('me-normals', 'Normals', () => [
       splitRow('Auto Smooth', checkbox('me-autosmooth', '', me.auto_smooth_angle !== undefined, (v) => ((me.auto_smooth_angle = v ? (30 * Math.PI) / 180 : undefined), changed('Auto Smooth')))),
       me.auto_smooth_angle !== undefined ? num(me as never, 'auto_smooth_angle' as never, 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,
@@ -505,22 +578,137 @@ function cameraData(o: ObjectData, ca: CameraData): Child {
   return [dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }), cameraPanels(o, ca)];
 }
 
+/** Fill in the curve settings documents from before they existed (so the panels show values). */
+function curveDefaults(cu: CurveData) {
+  cu.render_resolution_u ??= 0;
+  cu.twist_mode ??= 'MINIMUM';
+  cu.twist_smooth ??= 0;
+  cu.bevel_factor_start ??= 0;
+  cu.bevel_factor_end ??= 1;
+  cu.bevel_factor_mapping_start ??= 'RESOLUTION';
+  cu.bevel_factor_mapping_end ??= 'RESOLUTION';
+  cu.taper_radius_mode ??= 'OVERRIDE';
+  cu.use_map_taper ??= false;
+  cu.path_duration ??= 100;
+  cu.eval_time ??= 0;
+}
+
 function curveData(o: ObjectData, cu: CurveData): Child {
   const isText = o.type === 'FONT';
+  curveDefaults(cu);
+  const is3D = cu.dimensions === '3D' && !isText;
+  const fillItems: [string, string][] = is3D
+    ? [
+        ['FULL', 'Full'],
+        ['BACK', 'Back'],
+        ['FRONT', 'Front'],
+        ['HALF', 'Half'],
+      ]
+    : [
+        ['NONE', 'None'],
+        ['BACK', 'Back'],
+        ['FRONT', 'Front'],
+        ['BOTH', 'Both'],
+      ];
+  const mapping: [string, string][] = [
+    ['RESOLUTION', 'Resolution'],
+    ['SEGMENTS', 'Segments'],
+    ['SPLINE', 'Spline'],
+  ];
   return [
     dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
-      ? fontDataPanels.map((f) => f(o, cu))
-      : panel('cu-shape', 'Shape', () => [enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => ((cu.dimensions = v as '2D'), changed('Dimensions'))), num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }), cu.dimensions === '2D' ? enumProp(cu, 'fill_mode', 'Fill Mode', [['NONE', 'None'], ['BACK', 'Back'], ['FRONT', 'Front'], ['BOTH', 'Both']]) : null]),
-    panel('cu-geometry', 'Geometry', () => [
-      num(cu, 'offset', 'Offset', { min: -10, max: 10 }),
-      num(cu, 'extrude', 'Extrude', { unit: 'distance', min: 0 }),
-      h('div', { class: 'sub-label' }, 'Bevel'),
-      num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }),
-      num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 }),
-      bool(cu, 'use_fill_caps', 'Fill Caps'),
-      ...curveGeometryRows.map((f) => f(o, cu)),
-    ]),
+      ? [
+          panel(
+            'cu-text-shape',
+            'Shape',
+            () => [
+              num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }),
+              num(cu as never, 'render_resolution_u' as never, 'Render U', { int: true, min: 0, max: 1024, tip: 'Resolution used for rendering (0: the preview resolution)' }),
+              enumProp(cu, 'fill_mode', 'Fill Mode', fillItems),
+            ],
+            { closed: true },
+          ),
+          fontDataPanels.map((f) => f(o, cu)),
+        ]
+      : panel('cu-shape', 'Shape', () => [
+          enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => {
+            cu.dimensions = v as '2D';
+            // the fill modes differ between flat and 3D curves
+            if (v === '3D' && !['FULL', 'BACK', 'FRONT', 'HALF'].includes(cu.fill_mode)) cu.fill_mode = 'FULL';
+            if (v === '2D' && !['NONE', 'BACK', 'FRONT', 'BOTH'].includes(cu.fill_mode)) cu.fill_mode = 'BOTH';
+            changed('Dimensions');
+          }),
+          num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }),
+          num(cu as never, 'render_resolution_u' as never, 'Render U', { int: true, min: 0, max: 1024, tip: 'Resolution used for rendering (0: the preview resolution)' }),
+          is3D
+            ? [
+                enumProp(cu as never, 'twist_mode' as never, 'Twist Method', [
+                  ['Z_UP', 'Z-Up'],
+                  ['MINIMUM', 'Minimum'],
+                  ['TANGENT', 'Tangent'],
+                ]),
+                num(cu as never, 'twist_smooth' as never, 'Smooth', { min: 0, softMax: 20 }),
+              ]
+            : null,
+          enumProp(cu, 'fill_mode', 'Fill Mode', fillItems),
+          h('div', { class: 'sub-label' }, 'Curve Deform'),
+          splitRow('', checkbox('cu-def-radius', 'Radius', cu.use_radius !== false, (v) => ((cu.use_radius = v), changed('Curve Deform Radius')), { tip: 'Scale objects deformed by this curve with its radius' })),
+          splitRow('', checkbox('cu-def-stretch', 'Stretch', !!cu.use_stretch, (v) => ((cu.use_stretch = v), changed('Curve Deform Stretch')), { tip: 'Stretch deformed objects over the whole curve' })),
+          splitRow('', checkbox('cu-def-bounds', 'Bounds Clamp', !!cu.use_deform_bounds, (v) => ((cu.use_deform_bounds = v), changed('Curve Deform Bounds')), { tip: 'Measure deformed objects from their bounds and keep them on the curve' })),
+        ]),
+    panel(
+      'cu-geometry',
+      'Geometry',
+      () => [
+        num(cu, 'offset', 'Offset', { min: -10, max: 10 }),
+        num(cu, 'extrude', 'Extrude', { unit: 'distance', min: 0 }),
+        ...curveGeometryRows.map((f) => f(o, cu)),
+        cu.taper_object
+          ? [
+              enumProp(cu as never, 'taper_radius_mode' as never, 'Taper Radius', [
+                ['OVERRIDE', 'Override'],
+                ['MULTIPLY', 'Multiply'],
+                ['ADD', 'Add'],
+              ]),
+              bool(cu as never, 'use_map_taper' as never, 'Map Taper'),
+            ]
+          : null,
+        panel(
+          'cu-bevel',
+          'Bevel',
+          () => [
+            ...curveBevelRows.map((f) => f(o, cu)),
+            cu.bevel_mode !== 'OBJECT' ? [num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }), num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 })] : null,
+            bool(cu, 'use_fill_caps', 'Fill Caps'),
+          ],
+          { sub: true },
+        ),
+        panel(
+          'cu-bevel-factor',
+          'Start & End Mapping',
+          () => [
+            num(cu as never, 'bevel_factor_start' as never, 'Factor Start', { min: 0, max: 1, slider: true }),
+            num(cu as never, 'bevel_factor_end' as never, 'End', { min: 0, max: 1, slider: true }),
+            enumProp(cu as never, 'bevel_factor_mapping_start' as never, 'Mapping Start', mapping),
+            enumProp(cu as never, 'bevel_factor_mapping_end' as never, 'End', mapping),
+          ],
+          { sub: true, closed: true },
+        ),
+      ],
+      { closed: true },
+    ),
+    isText
+      ? null
+      : panel(
+          'cu-path',
+          'Path Animation',
+          () => [
+            num(cu as never, 'path_duration' as never, 'Frames', { int: true, min: 1, max: 1048574 }),
+            num(cu as never, 'eval_time' as never, 'Evaluation Time', { anim: { ob: o, path: 'data.eval_time' } }),
+          ],
+          { closed: true },
+        ),
     ...curveDataPanels.map((f) => f(o, cu)),
   ];
 }
@@ -530,6 +718,9 @@ export const dataTabDrawers: Record<string, (o: ObjectData) => Child> = {};
 
 /** Extra panels at the end of the curve / text Object Data tab (e.g. Active Spline). */
 export const curveDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
+
+/** Extra rows at the top of the Bevel sub-panel of curves (bevel mode and object). */
+export const curveBevelRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
 
 /** Extra rows at the end of the curve Geometry panel (bevel / taper objects). */
 export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];

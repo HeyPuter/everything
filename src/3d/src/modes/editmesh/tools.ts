@@ -148,6 +148,26 @@ const pressTools: Record<string, (v: View3D, e: PointerEvent) => boolean> = {
   'builtin.poly_build': (v, e) => polyBuild(v, e),
 };
 
+/**
+ * Tools started by a drag finish when the mouse button is released (like a click would confirm them),
+ * so one drag is one complete operation.
+ */
+export function confirmOnRelease() {
+  const started = app.modal;
+  if (!started) return;
+  const up = (ev: PointerEvent) => {
+    removeEventListener('pointerup', up, true);
+    if (ev.button !== 0) return;
+    // let the modal see the release first (some confirm on it themselves)
+    setTimeout(() => {
+      if (app.modal !== started) return;
+      const r = started.onPointerDown?.(ev);
+      if (r === 'FINISHED' || r === 'CANCELLED') app.endModal(r);
+    }, 0);
+  };
+  addEventListener('pointerup', up, true);
+}
+
 editModeHooks.pointer.push((v, e) => {
   if (!inMeshEdit() || e.button !== 0) return false;
   const tool = activeTools.EDIT;
@@ -160,6 +180,7 @@ editModeHooks.pointer.push((v, e) => {
     if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
     cleanup();
     run(v, { x: sx, y: sy });
+    confirmOnRelease();
   };
   const up = () => {
     cleanup();

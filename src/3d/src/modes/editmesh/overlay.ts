@@ -33,6 +33,7 @@ const C = {
   seam: new Color().setRGB(0.831, 0.189, 0.081).convertSRGBToLinear(),
   sharp: new Color().setRGB(0.094, 0.942, 0.986).convertSRGBToLinear(),
   crease: new Color().setRGB(0.8, 0.012, 0.564).convertSRGBToLinear(),
+  bevel: new Color().setRGB(0.0, 0.63, 0.98).convertSRGBToLinear(),
   faceSel: new Color().setRGB(0.962, 0.668, 0.015).convertSRGBToLinear(),
   active: new Color(1, 1, 1),
   normal: new Color().setRGB(0.212, 0.835, 0.868).convertSRGBToLinear(),
@@ -78,7 +79,7 @@ const scene = new Scene();
 scene.matrixWorldAutoUpdate = false;
 
 function aidKey(me: MeshData) {
-  return [me.positions, me.indices, me.select_vert, me.hide_vert, me.seams, me.sharp, me.creases].map((a) => (a ? idOf(a) : 0)).join(',');
+  return [me.positions, me.indices, me.select_vert, me.hide_vert, me.seams, me.sharp, me.creases, me.bevel_weight_edge].map((a) => (a ? idOf(a) : 0)).join(',');
 }
 const ids = new WeakMap<object, number>();
 let next = 1;
@@ -88,7 +89,7 @@ function idOf(o: object) {
   return i;
 }
 
-function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean; crease: boolean; faceDots: boolean; normals: boolean; normalLen: number; vnormals: boolean }, obId: string): Group {
+function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean; crease: boolean; bevel: boolean; faceDots: boolean; normals: boolean; normalLen: number; vnormals: boolean }, obId: string): Group {
   const g = new Group();
   g.matrixAutoUpdate = false;
   const P = me.positions;
@@ -191,6 +192,7 @@ function build(me: MeshData, xray: boolean, ov: { seams: boolean; sharp: boolean
         if (ov.seams && flagAt(me.seams, c)) ca = cb = C.seam;
         else if (ov.sharp && flagAt(me.sharp, c)) ca = cb = C.sharp;
         else if (ov.crease && flagAt(me.creases, c) > 0) ca = cb = C.crease;
+        else if (ov.bevel && flagAt(me.bevel_weight_edge, c) > 0) ca = cb = C.bevel;
       }
       ecol.push(ca.r, ca.g, ca.b, cb.r, cb.g, cb.b);
     }
@@ -272,7 +274,7 @@ export function drawEditOverlay(v: View3D, camera: Camera) {
   if (!r) return;
   const xray = v.shading.type === 'WIREFRAME' ? v.shading.show_xray_wireframe : v.shading.show_xray;
   const o = v.overlay;
-  const ov = { seams: o.show_edge_seams, sharp: o.show_edge_sharp, crease: o.show_edge_crease, faceDots: o.show_face_center, normals: o.show_face_normals, normalLen: o.normals_length, vnormals: o.show_vertex_normals };
+  const ov = { seams: o.show_edge_seams, sharp: o.show_edge_sharp, crease: o.show_edge_crease, bevel: (o as { show_edge_bevel_weight?: boolean }).show_edge_bevel_weight !== false, faceDots: o.show_face_center, normals: o.show_face_normals, normalLen: o.normals_length, vnormals: o.show_vertex_normals };
   scene.clear();
   const live = new Set<string>();
   for (const { ob, me } of editMeshObjects()) {

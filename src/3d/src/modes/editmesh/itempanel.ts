@@ -1,5 +1,6 @@
 // Sidebar Item tab in mesh Edit Mode: median / vertex coordinates (local or global), mean edge
-// crease of the selected edges, and the vertex group weights of the active vertex.
+// crease / bevel weight of the selected edges, vertex bevel weight / crease, and the vertex group
+// weights of the active vertex.
 import { Matrix4, Vector3 } from 'three';
 import { h } from '../../ui/h';
 import { app } from '../../app/app';
@@ -85,6 +86,66 @@ function computeMeanCrease(me: MeshData): number | null {
   return seen.size ? sum / seen.size : null;
 }
 
+/** Mean of a per-vertex layer over the selected vertices (null: nothing selected). */
+function meanVertLayer(me: MeshData, key: 'crease_vert' | 'bevel_weight_vert'): number | null {
+  const s = me.select_vert;
+  if (!s) return null;
+  const l = me[key];
+  let sum = 0,
+    n = 0;
+  for (let v = 0; v < s.length; v++)
+    if (s[v] && !me.hide_vert?.[v]) {
+      sum += l?.[v] ?? 0;
+      n++;
+    }
+  return n ? sum / n : null;
+}
+
+/** Mean bevel weight of the selected edges. */
+function meanEdgeBevel(me: MeshData): number | null {
+  const sel = selectedEdgeSet(me);
+  if (!sel.size) return null;
+  const bw = me.bevel_weight_edge;
+  if (!bw) return 0;
+  const per = new Map<string, number>();
+  for (let f = 0; f < me.offsets.length - 1; f++) {
+    const s0 = me.offsets[f],
+      e = me.offsets[f + 1];
+    for (let c = s0; c < e; c++) {
+      const k = edgeKey(me.indices[c], me.indices[c + 1 < e ? c + 1 : s0]);
+      if (sel.has(k)) per.set(k, Math.max(per.get(k) ?? 0, bw[c] ?? 0));
+    }
+  }
+  let sum = 0;
+  for (const k of sel) sum += per.get(k) ?? 0;
+  return sum / sel.size;
+}
+
+function setVertLayer(key: 'crease_vert' | 'bevel_weight_vert', value: number, final: boolean, label: string) {
+  for (const { me } of editMeshObjects()) {
+    const m = MeshEdit.from(me);
+    const l = m.vertLayer(key);
+    for (const v of m.selectedVerts()) l[v] = Math.max(0, Math.min(1, value));
+    m.write(me);
+  }
+  app.changed('geometry');
+  if (final) app.pushUndo(label);
+}
+
+function setEdgeBevel(value: number, final: boolean) {
+  for (const { me } of editMeshObjects()) {
+    const m = MeshEdit.from(me);
+    for (const [a, b] of m.selectedEdges()) {
+      const w = Math.max(0, Math.min(1, value));
+      if (w > 0) m.ebw.set(edgeKey(a, b), w);
+      else m.ebw.delete(edgeKey(a, b));
+    }
+    m.write(me);
+  }
+  app.changed('geometry');
+  if (final) app.pushUndo('Edge Bevel Weight');
+}
+
 function setCrease(value: number, final: boolean) {
   for (const { me } of editMeshObjects()) {
     const m = MeshEdit.from(me);
@@ -103,6 +164,9 @@ itemPanels.push(() => {
   const ob = app.activeObject!;
   const me = app.doc.meshes[ob.data!];
   const crease = meanCrease(me);
+  const vBevel = meanVertLayer(me, 'bevel_weight_vert'),
+    vCrease = meanVertLayer(me, 'crease_vert');
+  const eBevel = crease !== null ? meanEdgeBevel(me) : null;
   const activeVert = active.kind === 'VERT' && active.objectId === ob.id ? active.index : -1;
   const groups = activeVert >= 0 && me.select_vert?.[activeVert] ? me.vertex_groups.map((g, gi) => ({ name: g.name, gi, w: me.weights[gi]?.[activeVert] ?? 0 })).filter((x) => x.w > 0) : [];
   return [
@@ -125,7 +189,20 @@ itemPanels.push(() => {
                 app.changed('ui');
               },
             ),
-            crease !== null ? [h('div', { class: 'sb-label' }, 'Edge Data:'), numberField({ id: 'em-crease', label: 'Mean Crease', value: crease, min: 0, max: 1, unit: 'factor', slider: true, set: (x, final) => setCrease(x, final) })] : null,
+            vBevel !== null && vCrease !== null
+              ? [
+                  h('div', { class: 'sb-label' }, 'Vertex Data:'),
+                  numberField({ id: 'em-vbevel', label: med.count === 1 ? 'Bevel Weight' : 'Mean Bevel Weight', value: vBevel, min: 0, max: 1, unit: 'factor', slider: true, set: (x, final) => setVertLayer('bevel_weight_vert', x, final, 'Vertex Bevel Weight') }),
+                  numberField({ id: 'em-vcrease', label: med.count === 1 ? 'Vertex Crease' : 'Mean Vertex Crease', value: vCrease, min: 0, max: 1, unit: 'factor', slider: true, set: (x, final) => setVertLayer('crease_vert', x, final, 'Vertex Crease') }),
+                ]
+              : null,
+            crease !== null
+              ? [
+                  h('div', { class: 'sb-label' }, 'Edge Data:'),
+                  numberField({ id: 'em-ebevel', label: 'Mean Bevel Weight', value: eBevel ?? 0, min: 0, max: 1, unit: 'factor', slider: true, set: (x, final) => setEdgeBevel(x, final) }),
+                  numberField({ id: 'em-crease', label: 'Mean Crease', value: crease, min: 0, max: 1, unit: 'factor', slider: true, set: (x, final) => setCrease(x, final) }),
+                ]
+              : null,
           ]
         : h('div', { class: 'sb-empty' }, 'Nothing selected'),
     ),

@@ -1,4 +1,5 @@
 // Object-mode operators.
+import { circlePoints } from '../surface/nurbs';
 import { Matrix4, Vector3, Quaternion, Euler } from 'three';
 import { app, registerOperators, type OpContext, type PropDef } from '../app/app';
 import type { DocumentData, ObjectData, MeshData, Mode, ObjectType, ID, Spline } from '../data/types';
@@ -897,7 +898,7 @@ registerOperators([
         void m;
         const me = objectData(doc, ob);
         if (me) transformMeshData(me, apply);
-        else if ((ob.type === 'CURVE' || ob.type === 'FONT') && ob.data) transformCurve(doc.curves[ob.data].splines, apply);
+        else if ((ob.type === 'CURVE' || ob.type === 'FONT' || ob.type === 'SURFACE') && ob.data) transformCurve(doc.curves[ob.data].splines, apply);
         else if (ob.type === 'LIGHT' || ob.type === 'CAMERA' || ob.type === 'EMPTY') {
           if (p.scale && ob.type === 'EMPTY') ob.empty_display_size *= Math.max(...ob.scale.map(Math.abs));
         }
@@ -1473,7 +1474,7 @@ registerOperators([
       for (const hk of convertHooks) targets = hk(doc, targets, !!p.keep_original);
       for (const ob of targets) {
         const ev = app.graph.get(ob.id);
-        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META')) continue;
+        if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META' && ob.type !== 'SURFACE')) continue;
         const m = ev.mesh;
         let target = ob;
         if (p.keep_original) target = duplicateObject(doc, ob, true);
@@ -1777,22 +1778,18 @@ function curveAddOps() {
     };
   };
   const nurbs = (cyclic: boolean, path: boolean, radius: number): Spline => {
+    // a circle: 8 rational points (corners weighted √½) in Bézier knots, an exact circle
     const pts = cyclic
-      ? Array.from({ length: 8 }, (_, i) => {
-          const a = (i / 8) * Math.PI * 2;
-          const w = i % 2 ? Math.SQRT1_2 : 1;
-          const r = i % 2 ? radius * Math.SQRT2 : radius;
-          return { co: [Math.cos(a) * r, Math.sin(a) * r, 0, w] as [number, number, number, number], radius: 1, tilt: 0 };
-        })
+      ? circlePoints(radius).map((co) => ({ co, radius: 1, tilt: 0 }))
       : path
         ? Array.from({ length: 5 }, (_, i) => ({ co: [(i - 2) * radius, 0, 0, 1] as [number, number, number, number], radius: 1, tilt: 0 }))
         : [
-            [-1.5, -0.5],
-            [-0.5, 0.5],
-            [0.5, 0.5],
-            [1.5, -0.5],
+            [-1.5, 0],
+            [-1, 1],
+            [1, 1],
+            [1.5, 0],
           ].map(([x, y]) => ({ co: [x * radius, y * radius, 0, 1] as [number, number, number, number], radius: 1, tilt: 0 }));
-    return { type: 'NURBS', bezier_points: [], points: pts, use_cyclic_u: cyclic, resolution_u: 12, order_u: path ? 5 : 4, use_endpoint_u: path, use_smooth: true, material_index: 0 };
+    return { type: 'NURBS', bezier_points: [], points: pts, use_cyclic_u: cyclic, resolution_u: 12, order_u: cyclic ? 3 : path ? 5 : 4, use_endpoint_u: path || cyclic, use_bezier_u: cyclic, use_smooth: true, material_index: 0 };
   };
   const make = (idname: string, label: string, name: string, spline: (r: number) => Spline, dims: '2D' | '3D' = '3D') => ({
     idname,

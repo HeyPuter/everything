@@ -2,10 +2,14 @@
 // and carries per-vertex (weights, shape keys, point colors, selection, hidden) and
 // per-face (smooth, material, corner UVs/seams/sharp/creases/colors) attributes through
 // topology changes.
-import type { MeshData } from '../../data/types';
+import type { MeshData, MeshAttribute } from '../../data/types';
+import { attrWidth, attrDomainSize, isDiscreteAttr, makeAttrArray } from '../../mesh/attributes';
 import { buildMesh, polyNormal } from '../../mesh/mesh';
 import { exclusionsOf, setExclusions } from './selset';
 import type { Vec3 } from '../../data/types';
+
+/** Per-vertex float layers of MeshData that Edit Mode carries through topology changes. */
+export const VERT_FLOAT_LAYERS = ['crease_vert', 'bevel_weight_vert'] as const;
 
 export interface EFace {
   verts: number[];
@@ -28,6 +32,20 @@ export interface EFace {
   fsFace?: boolean;
   /** face strength for weighted normals (0 weak, 1 medium, 2 strong) */
   strength?: number;
+  /** generic FACE attribute values, per attribute index (see MeshEdit.gattrs) */
+  fattr?: (number[] | undefined)[];
+  /** generic CORNER attribute values (width per corner), per attribute index */
+  cattr?: (number[] | undefined)[];
+}
+
+/** A generic attribute carried through Edit Mode. */
+export interface GAttr {
+  name: string;
+  domain: MeshAttribute['domain'];
+  data_type: MeshAttribute['data_type'];
+  width: number;
+  /** an inactive UV map (stored in MeshData.uv_layers_extra) */
+  uvMap?: boolean;
 }
 
 export class MeshEdit {
@@ -51,6 +69,16 @@ export class MeshEdit {
   fsEdges = new Set<string>();
   /** vertices added on marked edges (the edge's ends), so the split parts stay marked */
   fsMid = new Map<number, [number, number]>();
+  /** per-vertex float layers (VERT_FLOAT_LAYERS: vertex crease, vertex bevel weight) */
+  vfloat: Record<string, number[]> = {};
+  /** edge bevel weights by vertex pair key */
+  ebw = new Map<string, number>();
+  /** vertices added on weighted edges (the edge's ends), so the split parts keep the weight */
+  ebwMid = new Map<number, [number, number]>();
+  /** generic attributes: metadata, POINT values (by attribute index) and EDGE values by vertex pair key */
+  gattrs: GAttr[] = [];
+  vgen: number[][] = [];
+  egen: Map<string, number[]>[] = [];
 
   get vcount() {
     return this.pos.length / 3;
@@ -89,6 +117,19 @@ export class MeshEdit {
     }
     const loose = me.loose_edges;
     if (loose) for (let i = 0; i < loose.length; i += 2) m.looseEdges.push([loose[i], loose[i + 1]]);
+    const rec = me as unknown as Record<string, Float32Array | undefined>;
+    for (const key of VERT_FLOAT_LAYERS) {
+      const a = rec[key];
+      if (a && a.length === nv) m.vfloat[key] = Array.from(a);
+    }
+    const bw = me.bevel_weight_edge;
+    if (bw && bw.length === me.indices.length)
+      for (let f = 0; f < me.offsets.length - 1; f++) {
+        const a = me.offsets[f],
+          b = me.offsets[f + 1];
+        for (let c = a; c < b; c++) if (bw[c] > 0) m.ebw.set(edgeKey(me.indices[c], me.indices[c + 1 < b ? c + 1 : a]), Math.max(bw[c], m.ebw.get(edgeKey(me.indices[c], me.indices[c + 1 < b ? c + 1 : a])) ?? 0));
+      }
+    m.readGeneric(me);
     const ex = exclusionsOf(me);
     if (ex) {
       for (const f of ex.faces) if (m.faces[f]) m.faces[f].selX = true;
@@ -132,6 +173,15 @@ export class MeshEdit {
       return { ...c, data };
     });
     me.loose_edges = this.looseEdges.length ? Uint32Array.from(this.looseEdges.flat()) : undefined;
+    const rec = me as unknown as Record<string, Float32Array | undefined>;
+    const nv = this.vcount;
+    for (const key of VERT_FLOAT_LAYERS) {
+      const l = this.vfloat[key];
+      rec[key] = l && l.some((x) => x) ? Float32Array.from({ length: nv }, (_, i) => l[i] ?? 0) : undefined;
+    }
+    this.writeGeneric(me);
+    me.bevel_weight_edge = this.ebw.size ? Float32Array.from(this.faces.flatMap((f) => f.verts.map((v, i) => this.edgeBevelWeight(v, f.verts[(i + 1) % f.verts.length])))) : undefined;
+    if (me.bevel_weight_edge && !me.bevel_weight_edge.some(Boolean)) me.bevel_weight_edge = undefined;
     me.custom_normals = this.customNormals();
     me.face_strength = this.faces.some((f) => f.strength !== undefined && f.strength !== 1) ? Uint8Array.from(this.faces, (f) => f.strength ?? 1) : undefined;
     me.quad_flip = this.faces.some((f) => f.flip && f.verts.length === 4) ? Uint8Array.from(this.faces, (f) => (f.flip && f.verts.length === 4 ? 1 : 0)) : undefined;
@@ -207,7 +257,13 @@ export class MeshEdit {
     c.edgeExcl = new Set(this.edgeExcl);
     c.fsEdges = new Set(this.fsEdges);
     c.fsMid = new Map(this.fsMid);
-    c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: f.cnormals ? [...f.cnormals] : undefined }));
+    c.vfloat = Object.fromEntries(Object.entries(this.vfloat).map(([k, v]) => [k, v.slice()]));
+    c.gattrs = this.gattrs.map((g) => ({ ...g }));
+    c.vgen = this.vgen.map((v) => v.slice());
+    c.egen = this.egen.map((e) => new Map([...e].map(([k, v]) => [k, v.slice()])));
+    c.ebw = new Map(this.ebw);
+    c.ebwMid = new Map(this.ebwMid);
+    c.faces = this.faces.map((f) => ({ ...f, verts: [...f.verts], uvs: [...f.uvs], seams: [...f.seams], sharp: [...f.sharp], creases: [...f.creases], colors: f.colors ? [...f.colors] : undefined, cnormals: f.cnormals ? [...f.cnormals] : undefined, fattr: f.fattr?.map((a) => a?.slice()), cattr: f.cattr?.map((a) => a?.slice()) }));
     return c;
   }
 
@@ -231,6 +287,35 @@ export class MeshEdit {
       const pair = [...new Set([...a, ...b])];
       if (pair.length === 2 && this.fsEdges.has(edgeKey(pair[0], pair[1]))) this.fsMid.set(i, [pair[0], pair[1]]);
     }
+    if (this.ebw.size && from.length === 2) {
+      const ends = (v: number) => this.ebwMid.get(v) ?? [v, v];
+      const pair = [...new Set([...ends(from[0][0]), ...ends(from[1][0])])];
+      if (pair.length === 2 && this.ebw.has(edgeKey(pair[0], pair[1]))) this.ebwMid.set(i, [pair[0], pair[1]]);
+    }
+    for (const l of Object.values(this.vfloat)) {
+      let v = 0;
+      for (const [s, t] of from) v += (l[s] ?? 0) * t;
+      l.push(v);
+    }
+    this.gattrs.forEach((g, k) => {
+      if (g.domain !== 'POINT') return;
+      const l = this.vgen[k];
+      if (!from.length) {
+        for (let j = 0; j < g.width; j++) l.push(0);
+        return;
+      }
+      if (isDiscreteAttr(g.data_type)) {
+        // integers / booleans come from the strongest source
+        const [s] = from.reduce((a, b) => (b[1] > a[1] ? b : a));
+        for (let j = 0; j < g.width; j++) l.push(l[s * g.width + j] ?? 0);
+        return;
+      }
+      for (let j = 0; j < g.width; j++) {
+        let v = 0;
+        for (const [s, t] of from) v += (l[s * g.width + j] ?? 0) * t;
+        l.push(v);
+      }
+    });
     this.pos.push(p[0], p[1], p[2]);
     this.sel.push(select);
     this.hide.push(0);
@@ -287,6 +372,9 @@ export class MeshEdit {
       creases: new Array(n).fill(0),
       colors: template?.colors ? new Array(n * 4).fill(1) : undefined,
       fsFace: template?.fsFace,
+      // new faces take the face values of their template and its first corner's values on every corner
+      fattr: template?.fattr?.map((a) => a?.slice()),
+      cattr: template?.cattr?.map((a, k) => (a ? Array.from({ length: n }, () => a.slice(0, this.gattrs[k]?.width ?? 0)).flat() : undefined)),
     };
   }
 
@@ -315,6 +403,8 @@ export class MeshEdit {
     this.keys = this.keys.map((k) => pick(k, 3));
     this.pcolors = this.pcolors.map((c) => pick(c, 4));
     if (this.skin) this.skin = pick(this.skin, 4);
+    for (const k in this.vfloat) this.vfloat[k] = pick(this.vfloat[k], 1);
+    this.gattrs.forEach((g, k) => g.domain === 'POINT' && (this.vgen[k] = pick(this.vgen[k], g.width)));
     for (const f of this.faces) f.verts = f.verts.map((v) => map[v]);
     this.faces = this.faces.filter((f) => f.verts.every((v) => v >= 0));
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a >= 0 && b >= 0);
@@ -331,6 +421,7 @@ export class MeshEdit {
         sharp: number[] = [],
         creases: number[] = [],
         colors: number[] = [];
+      const cattr = f.cattr ? f.cattr.map(() => [] as number[]) : null;
       f.verts.forEach((v, i) => {
         const nv = map[v];
         if (verts.length && verts[verts.length - 1] === nv) return;
@@ -340,6 +431,7 @@ export class MeshEdit {
         sharp.push(f.sharp[i]);
         creases.push(f.creases[i]);
         if (f.colors) colors.push(...f.colors.slice(i * 4, i * 4 + 4));
+        if (cattr) f.cattr!.forEach((a, k) => a && cattr[k].push(...a.slice(i * this.gattrs[k].width, (i + 1) * this.gattrs[k].width)));
       });
       while (verts.length > 1 && verts[0] === verts[verts.length - 1]) {
         verts.pop();
@@ -348,6 +440,7 @@ export class MeshEdit {
         sharp.pop();
         creases.pop();
         if (f.colors) colors.length -= 4;
+        if (cattr) cattr.forEach((a, k) => (a.length -= this.gattrs[k]?.width ?? 0));
       }
       f.verts = verts;
       f.uvs = uvs;
@@ -355,11 +448,103 @@ export class MeshEdit {
       f.sharp = sharp;
       f.creases = creases;
       if (f.colors) f.colors = colors;
+      if (cattr) f.cattr = f.cattr!.map((a, k) => (a ? cattr[k] : undefined));
     }
     this.faces = this.faces.filter((f) => new Set(f.verts).size >= 3 && f.verts.length === new Set(f.verts).size);
     this.looseEdges = this.looseEdges.map(([a, b]) => [map[a], map[b]] as [number, number]).filter(([a, b]) => a !== b);
     this.remapEdgeExcl(map);
     this.compact();
+  }
+
+  /** Load the mesh's generic attributes (those whose size matches the mesh). */
+  readGeneric(me: MeshData) {
+    const nc = me.indices.length;
+    const loose = me.loose_edges;
+    const uvExtra: MeshAttribute[] = (me.uv_layers_extra ?? []).filter((u) => u.data.length === nc * 2).map((u) => ({ name: u.name, domain: 'CORNER', data_type: 'FLOAT2', data: u.data }));
+    for (const a of [...(me.attributes ?? []), ...uvExtra]) {
+      const width = attrWidth(a.data_type);
+      if (a.data.length !== attrDomainSize(me, a.domain) * width) continue;
+      const k = this.gattrs.length;
+      this.gattrs.push({ name: a.name, domain: a.domain, data_type: a.data_type, width, uvMap: uvExtra.includes(a) || undefined });
+      this.vgen.push(a.domain === 'POINT' ? Array.from(a.data) : []);
+      const emap = new Map<string, number[]>();
+      if (a.domain === 'EDGE') {
+        for (let f = 0; f < me.offsets.length - 1; f++) {
+          const s0 = me.offsets[f],
+            e = me.offsets[f + 1];
+          for (let c = s0; c < e; c++) emap.set(edgeKey(me.indices[c], me.indices[c + 1 < e ? c + 1 : s0]), Array.from(a.data.subarray(c * width, (c + 1) * width)));
+        }
+        if (loose) for (let i = 0; i + 1 < loose.length; i += 2) emap.set(edgeKey(loose[i], loose[i + 1]), Array.from(a.data.subarray((nc + i / 2) * width, (nc + i / 2 + 1) * width)));
+      }
+      this.egen.push(emap);
+      if (a.domain === 'FACE' || a.domain === 'CORNER')
+        this.faces.forEach((f, fi) => {
+          const arr = (a.domain === 'FACE' ? (f.fattr ??= []) : (f.cattr ??= []));
+          arr[k] = a.domain === 'FACE' ? Array.from(a.data.subarray(fi * width, (fi + 1) * width)) : Array.from(a.data.subarray(me.offsets[fi] * width, me.offsets[fi + 1] * width));
+        });
+    }
+  }
+
+  /** Store the generic attributes back (missing values become zero). */
+  writeGeneric(me: MeshData) {
+    if (!this.gattrs.length) {
+      if (me.attributes?.length) me.attributes = me.attributes.filter((a) => a.data.length === attrDomainSize(me, a.domain) * attrWidth(a.data_type));
+      if (me.uv_layers_extra?.length) me.uv_layers_extra = me.uv_layers_extra.filter((u) => u.data.length === me.indices.length * 2);
+      return;
+    }
+    const nf = this.faces.length;
+    const nc = this.faces.reduce((n, f) => n + f.verts.length, 0);
+    const all = this.gattrs.map((g, k) => {
+      const w = g.width;
+      const size = g.domain === 'POINT' ? this.vcount : g.domain === 'FACE' ? nf : g.domain === 'CORNER' ? nc : nc + this.looseEdges.length;
+      const data = makeAttrArray(g.data_type, size * w);
+      if (g.domain === 'POINT') {
+        const l = this.vgen[k];
+        for (let i = 0; i < size * w; i++) data[i] = l[i] ?? 0;
+      } else if (g.domain === 'FACE') this.faces.forEach((f, fi) => f.fattr?.[k]?.forEach((x, j) => j < w && (data[fi * w + j] = x)));
+      else if (g.domain === 'CORNER') {
+        let c = 0;
+        for (const f of this.faces) {
+          const a = f.cattr?.[k];
+          if (a && a.length === f.verts.length * w) for (let j = 0; j < a.length; j++) data[c * w + j] = a[j];
+          c += f.verts.length;
+        }
+      } else {
+        const e = this.egen[k];
+        let c = 0;
+        for (const f of this.faces)
+          for (let i = 0; i < f.verts.length; i++, c++) {
+            const v = e.get(edgeKey(f.verts[i], f.verts[(i + 1) % f.verts.length]));
+            if (v) for (let j = 0; j < w; j++) data[c * w + j] = v[j] ?? 0;
+          }
+        this.looseEdges.forEach(([a, b], i) => {
+          const v = e.get(edgeKey(a, b));
+          if (v) for (let j = 0; j < w; j++) data[(nc + i) * w + j] = v[j] ?? 0;
+        });
+      }
+      return { name: g.name, domain: g.domain, data_type: g.data_type, data };
+    });
+    me.attributes = all.filter((_, k) => !this.gattrs[k].uvMap);
+    const uvs = all.filter((_, k) => this.gattrs[k].uvMap).map((a) => ({ name: a.name, data: a.data as Float32Array }));
+    if (uvs.length || me.uv_layers_extra) me.uv_layers_extra = uvs;
+  }
+
+  /** Bevel weight of the edge u–v (directly, or inherited from the weighted edge it was split from). */
+  edgeBevelWeight(u: number, v: number): number {
+    const w = this.ebw.get(edgeKey(u, v));
+    if (w !== undefined) return w;
+    if (!this.ebwMid.size || !(this.ebwMid.has(u) || this.ebwMid.has(v))) return 0;
+    const a = this.ebwMid.get(u) ?? [u, u],
+      b = this.ebwMid.get(v) ?? [v, v];
+    const ends = [...new Set([...a, ...b])];
+    return ends.length === 2 ? (this.ebw.get(edgeKey(ends[0], ends[1])) ?? 0) : 0;
+  }
+
+  /** Per-vertex float layer (created on demand, zero-filled). */
+  vertLayer(key: (typeof VERT_FLOAT_LAYERS)[number]): number[] {
+    const l = (this.vfloat[key] ??= []);
+    while (l.length < this.vcount) l.push(0);
+    return l;
   }
 
   /** Is the edge u–v marked for line rendering (directly, or as part of a split marked edge)? */
@@ -387,6 +572,31 @@ export class MeshEdit {
       const mid = new Map<number, [number, number]>();
       for (const [k, [a, b]] of this.fsMid) if (map[k] >= 0 && map[a] >= 0 && map[b] >= 0) mid.set(map[k], [map[a], map[b]]);
       this.fsMid = mid;
+    }
+    this.egen = this.egen.map((e) => {
+      if (!e.size) return e;
+      const out = new Map<string, number[]>();
+      for (const [k, w] of e) {
+        const [a, b] = k.split(':').map(Number);
+        const x = map[a],
+          y = map[b];
+        if (x >= 0 && y >= 0 && x !== y && x !== undefined && y !== undefined) out.set(edgeKey(x, y), w);
+      }
+      return out;
+    });
+    if (this.ebw.size) {
+      // resolve inherited weights before the indices change
+      const out = new Map<string, number>();
+      for (const [k, w] of this.ebw) {
+        const [a, b] = k.split(':').map(Number);
+        const x = map[a],
+          y = map[b];
+        if (x >= 0 && y >= 0 && x !== y && x !== undefined && y !== undefined) out.set(edgeKey(x, y), Math.max(w, out.get(edgeKey(x, y)) ?? 0));
+      }
+      const mid = new Map<number, [number, number]>();
+      for (const [k, [a, b]] of this.ebwMid) if (map[k] >= 0 && map[a] >= 0 && map[b] >= 0) mid.set(map[k], [map[a], map[b]]);
+      this.ebw = out;
+      this.ebwMid = mid;
     }
     if (!this.edgeExcl.size) return;
     this.edgeExcl = remapSet(this.edgeExcl);

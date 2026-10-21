@@ -767,13 +767,6 @@ registerOperators([
     exec: (_ctx, p) => void withEdit((m) => setEdgeFlag(m, 'seams', p.clear ? 0 : 1)),
   },
   {
-    idname: 'transform.edge_crease',
-    label: 'Edge Crease',
-    props: [{ id: 'value', label: 'Factor', type: 'float', default: 1, min: -1, max: 1, subtype: 'factor' }],
-    poll: editPoll,
-    exec: (_ctx, p) => void withEdit((m) => setEdgeFlag(m, 'creases', Math.max(0, Math.min(1, p.value as number)))),
-  },
-  {
     idname: 'mesh.faces_shade_smooth',
     label: 'Shade Smooth',
     poll: editPoll,

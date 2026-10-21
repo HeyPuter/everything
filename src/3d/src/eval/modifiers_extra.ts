@@ -11,6 +11,7 @@ import { modifierFields } from '../editors/properties/stack';
 import { buildMesh, edgeTopology, triangulatePoly, type PolyFace } from '../mesh/mesh';
 import { MeshEdit, edgeKey } from '../modes/editmesh/meshedit';
 import { bevelEdges } from '../modes/editmesh/bevel';
+import { validAttributes } from '../mesh/attributes';
 import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
 import { unsubdivide } from './mods/multires';
@@ -43,6 +44,9 @@ function toMeshEdit(m: EvalMesh): MeshEdit {
     seams: m.seams,
     sharp: m.sharp,
     creases: m.creases,
+    bevel_weight_edge: m.bevel_weight_edge,
+    bevel_weight_vert: m.bevel_weight_vert,
+    crease_vert: m.crease_vert,
     weights: m.weights ?? [],
     shape_keys: [],
     color_attributes: [],
@@ -65,7 +69,33 @@ function faceNormal(P: ArrayLike<number>, idx: ArrayLike<number>, s: number, e: 
 // ---------------------------------------------------------------------------
 // Bevel
 
-function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
+/**
+ * Weights for the Bevel modifier's Weight limit: the edge / vertex layers named by the modifier (the
+ * built-in bevel weights, or a float attribute of the original mesh when its corners are unchanged).
+ */
+function bevelWeightSource(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext | undefined): { edge: ((a: number, b: number) => number) | null; vert: ArrayLike<number> | null } {
+  const ename = str(mod, 'edge_weight', 'bevel_weight_edge'),
+    vname = str(mod, 'vertex_weight', 'bevel_weight_vert');
+  const src = ctx?.source && ctx.source.indices === m.indices ? ctx.source : null;
+  const attr = (name: string, domain: 'EDGE' | 'POINT') => (src ? validAttributes(src).find((a) => a.name === name && a.domain === domain && a.data_type === 'FLOAT') : undefined);
+  let edge: ((a: number, b: number) => number) | null = null;
+  if (ename !== 'bevel_weight_edge') {
+    const a = attr(ename, 'EDGE');
+    if (a) {
+      const map = new Map<string, number>();
+      for (let f = 0; f + 1 < m.offsets.length; f++)
+        for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
+          const n = c + 1 < m.offsets[f + 1] ? c + 1 : m.offsets[f];
+          map.set(edgeKey(m.indices[c], m.indices[n]), Math.max(map.get(edgeKey(m.indices[c], m.indices[n])) ?? 0, a.data[c]));
+        }
+      edge = (x, y) => map.get(edgeKey(x, y)) ?? 0;
+    } else edge = () => 0;
+  }
+  const vert = vname !== 'bevel_weight_vert' ? (attr(vname, 'POINT')?.data ?? new Float32Array(m.positions.length / 3)) : (m.bevel_weight_vert ?? null);
+  return { edge, vert };
+}
+
+function bevelMod(m: EvalMesh, mod: ModifierBase, ctx?: ModifierContext): EvalMesh {
   const offsetType = str(mod, 'offset_type', 'OFFSET') as 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
   const width = offsetType === 'PERCENT' ? num(mod, 'width_pct', 0.1) : num(mod, 'width', 0.1);
   if (width <= 0) return m;
@@ -83,14 +113,21 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     inGroup = (v) => ((w?.[v] ?? 0) > 0) !== inv;
   }
   const before = new Set(e.faces);
+  // weight limit: only weighted elements, their amount scaled by the weight
+  const ws = limit === 'WEIGHT' ? bevelWeightSource(m, mod, ctx) : { edge: null, vert: null };
+  const vw = limit === 'WEIGHT' && ws.vert && ws.vert.length === m.positions.length / 3 ? ws.vert : null;
+  const edgeW = (a: number, b: number) => (ws.edge ? ws.edge(a, b) : e.edgeBevelWeight(a, b));
   if (str(mod, 'affect', 'EDGES') === 'VERTICES') {
     const off = offsetType === 'PERCENT' ? (width / 100) * averageEdgeLength(m) : width;
-    return bevelMeshVertices(m, (v) => !inGroup || inGroup(v), off, segments, profile, Math.round(num(mod, 'material', -1)));
+    if (limit === 'WEIGHT' && !vw) return m;
+    return bevelMeshVertices(m, (v) => (!inGroup || inGroup(v)) && (limit !== 'WEIGHT' || (vw?.[v] ?? 0) > 0), off, segments, profile, Math.round(num(mod, 'material', -1)));
   } else {
     const ef = e.edgeFaces();
     const chosen: [number, number][] = [];
     for (const [a, b] of e.edges()) {
-      if (limit === 'ANGLE') {
+      if (limit === 'WEIGHT') {
+        if (!(edgeW(a, b) > 0)) continue;
+      } else if (limit === 'ANGLE') {
         const fs = ef.get(edgeKey(a, b)) ?? [];
         if (fs.length !== 2) continue;
         const n0 = new Vector3(...(e.faceNormal(e.faces[fs[0][0]]) as [number, number, number])),
@@ -111,6 +148,7 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       markSeam: bool(mod, 'mark_seam'),
       markSharp: bool(mod, 'mark_sharp'),
       harden: bool(mod, 'harden_normals'),
+      edgeScale: limit === 'WEIGHT' ? edgeW : undefined,
     });
     if (!ok) return m;
   }
@@ -280,7 +318,14 @@ function booleanMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalM
 // Decimate
 
 /** Quadric-error edge collapse on the triangulated mesh until `ratio` of the faces remain. */
-export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
+export interface CollapseOptions {
+  /** Per-vertex weights: 0 keeps a vertex in place, higher weights collapse more readily. */
+  weights?: ArrayLike<number>;
+  /** Vertices that may only move within a plane (a symmetry plane): axis index; such vertices stay on it. */
+  planeAxis?: number;
+}
+
+export function decimateCollapse(m: EvalMesh, ratio: number, opts: CollapseOptions = {}): EvalMesh {
   // triangulate
   const tris: number[] = [];
   const triUv: number[] = [];
@@ -359,6 +404,16 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
       addQ(b, q);
     }
   }
+  // locked vertices (weight 0) never move; plane vertices only collapse onto plane positions
+  const W = opts.weights;
+  const locked = new Uint8Array(nv),
+    onPlane = new Uint8Array(nv);
+  if (W) for (let v = 0; v < nv; v++) locked[v] = (W[v] ?? 0) <= 0 ? 1 : 0;
+  if (opts.planeAxis !== undefined) {
+    let ext = 0;
+    for (let v = 0; v < nv; v++) ext = Math.max(ext, Math.abs(P[v * 3]), Math.abs(P[v * 3 + 1]), Math.abs(P[v * 3 + 2]));
+    for (let v = 0; v < nv; v++) onPlane[v] = Math.abs(P[v * 3 + opts.planeAxis]) <= 1e-6 * Math.max(1, ext) ? 1 : 0;
+  }
   const err = (q: Float64Array | number[], o: number, x: number, y: number, z: number) =>
     q[o] * x * x + 2 * q[o + 1] * x * y + 2 * q[o + 2] * x * z + 2 * q[o + 3] * x + q[o + 4] * y * y + 2 * q[o + 5] * y * z + 2 * q[o + 6] * y + q[o + 7] * z * z + 2 * q[o + 8] * z + q[o + 9];
   // union-find style remap
@@ -383,20 +438,24 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
   const evalEdge = (a: number, b: number): Cand => {
     const q = new Float64Array(10);
     for (let i = 0; i < 10; i++) q[i] = Q[a * 10 + i] + Q[b * 10 + i];
-    const opts = [
-      [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]],
-      [P[b * 3], P[b * 3 + 1], P[b * 3 + 2]],
-      [(P[a * 3] + P[b * 3]) / 2, (P[a * 3 + 1] + P[b * 3 + 1]) / 2, (P[a * 3 + 2] + P[b * 3 + 2]) / 2],
-    ];
-    let best = opts[0],
+    const pa = [P[a * 3], P[a * 3 + 1], P[a * 3 + 2]],
+      pb = [P[b * 3], P[b * 3 + 1], P[b * 3 + 2]];
+    // a fixed end (locked, or on the plane while the other is not) is where the edge collapses to
+    const fixA = locked[a] || (onPlane[a] && !onPlane[b]),
+      fixB = locked[b] || (onPlane[b] && !onPlane[a]);
+    if ((locked[a] && locked[b]) || (fixA && fixB)) return { a, b, cost: Infinity, x: pa[0], y: pa[1], z: pa[2] };
+    const choices = fixA ? [pa] : fixB ? [pb] : [pa, pb, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2, (pa[2] + pb[2]) / 2]];
+    let best = choices[0],
       bc = Infinity;
-    for (const o of opts) {
+    for (const o of choices) {
       const c = err(q, 0, o[0], o[1], o[2]);
       if (c < bc) {
         bc = c;
         best = o;
       }
     }
+    // weighted: lighter vertices are more expensive to remove
+    if (W) bc /= Math.max(1e-6, Math.min(W[a] ?? 0, W[b] ?? 0) || Math.max(W[a] ?? 0, W[b] ?? 0));
     return { a, b, cost: bc, x: best[0], y: best[1], z: best[2] };
   };
   // binary heap
@@ -432,19 +491,32 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
   };
   for (const key of edgeCount.keys()) {
     const [a, b] = key.split(':').map(Number);
-    push(evalEdge(a, b));
+    const c = evalEdge(a, b);
+    if (c.cost < Infinity) push(c);
   }
   const version = new Int32Array(nv);
   const stamp = new Map<Cand, [number, number]>();
   void stamp;
+  const constrained = !!W || opts.planeAxis !== undefined;
   while (liveCount > target && heap.length) {
-    const c = pop()!;
+    let c = pop()!;
     const a = find(c.a),
       b = find(c.b);
     if (a === b) continue;
     if (a !== c.a || b !== c.b) {
-      push(evalEdge(a, b));
+      const r = evalEdge(a, b);
+      if (r.cost < Infinity) push(r);
       continue;
+    }
+    if (constrained) {
+      // locks and plane flags change as vertices merge: an outdated candidate is re-queued
+      const r = evalEdge(a, b);
+      if (r.cost === Infinity) continue;
+      if (Math.abs(r.cost - c.cost) > 1e-12 * (1 + Math.abs(c.cost)) || r.x !== c.x || r.y !== c.y || r.z !== c.z) {
+        push(r);
+        continue;
+      }
+      c = r;
     }
     // reject collapses that flip a surviving triangle
     const np = new Vector3(c.x, c.y, c.z);
@@ -463,6 +535,9 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
     if (flips) continue;
     // collapse b into a
     remap[b] = a;
+    locked[a] |= locked[b];
+    onPlane[a] |= onPlane[b];
+    if (W) (W as Float32Array)[a] = Math.min(W[a] ?? 0, W[b] ?? 0);
     P[a * 3] = c.x;
     P[a * 3 + 1] = c.y;
     P[a * 3 + 2] = c.z;
@@ -480,7 +555,10 @@ export function decimateCollapse(m: EvalMesh, ratio: number): EvalMesh {
       }
       for (const v of vs) if (v !== a) neighbours.add(v);
     }
-    for (const n of neighbours) push(evalEdge(a, n));
+    for (const n of neighbours) {
+      const r = evalEdge(a, n);
+      if (r.cost < Infinity) push(r);
+    }
   }
   // rebuild
   const used = new Int32Array(nv).fill(-1);
@@ -608,6 +686,101 @@ export function decimateDissolve(m: EvalMesh, angle: number, delimit: string[] =
   return buildMesh(positions, faces) as EvalMesh;
 }
 
+/** The part of a mesh on the positive side of an axis plane (faces cut at the plane). */
+function positiveHalf(m: EvalMesh, axis: number, weights?: Float32Array): { mesh: EvalMesh; weights?: Float32Array } {
+  const P = m.positions,
+    nv = P.length / 3;
+  const pos: number[] = [],
+    w: number[] = [];
+  const keep = new Int32Array(nv).fill(-1);
+  const vert = (v: number) => {
+    if (keep[v] < 0) {
+      keep[v] = pos.length / 3;
+      pos.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]);
+      if (weights) w.push(weights[v]);
+    }
+    return keep[v];
+  };
+  const cuts = new Map<string, number>();
+  const cut = (a: number, b: number, t: number) => {
+    const k = edgeKey(a, b);
+    let id = cuts.get(k);
+    if (id === undefined) {
+      id = pos.length / 3;
+      const p = [0, 1, 2].map((i) => P[a * 3 + i] + (P[b * 3 + i] - P[a * 3 + i]) * t);
+      p[axis] = 0;
+      pos.push(...p);
+      if (weights) w.push(weights[a] + (weights[b] - weights[a]) * t);
+      cuts.set(k, id);
+    }
+    return id;
+  };
+  const faces: PolyFace[] = [];
+  for (let f = 0; f + 1 < m.offsets.length; f++) {
+    const s = m.offsets[f],
+      e = m.offsets[f + 1],
+      n = e - s;
+    const verts: number[] = [],
+      uvs: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const c = s + i,
+        d = s + ((i + 1) % n);
+      const a = m.indices[c],
+        b = m.indices[d];
+      const sa = P[a * 3 + axis],
+        sb = P[b * 3 + axis];
+      if (sa >= 0) {
+        verts.push(vert(a));
+        uvs.push(m.uvs[c * 2] ?? 0, m.uvs[c * 2 + 1] ?? 0);
+      }
+      if ((sa > 0 && sb < 0) || (sa < 0 && sb > 0)) {
+        const t = sa / (sa - sb);
+        verts.push(cut(a, b, t));
+        uvs.push((m.uvs[c * 2] ?? 0) + ((m.uvs[d * 2] ?? 0) - (m.uvs[c * 2] ?? 0)) * t, (m.uvs[c * 2 + 1] ?? 0) + ((m.uvs[d * 2 + 1] ?? 0) - (m.uvs[c * 2 + 1] ?? 0)) * t);
+      }
+    }
+    if (verts.length >= 3) faces.push({ verts, uvs, material: m.material_index?.[f] ?? 0, smooth: !!m.smooth?.[f] });
+  }
+  return { mesh: buildMesh(pos, faces) as EvalMesh, weights: weights ? Float32Array.from(w) : undefined };
+}
+
+/** Mirror a mesh across an axis plane, sharing the vertices on the plane. */
+function mirrorWeld(m: EvalMesh, axis: number): EvalMesh {
+  const nv = m.positions.length / 3;
+  let ext = 0;
+  for (let i = 0; i < m.positions.length; i++) ext = Math.max(ext, Math.abs(m.positions[i]));
+  const eps = 1e-6 * Math.max(1, ext);
+  const pos = Array.from(m.positions);
+  const map: number[] = [];
+  for (let v = 0; v < nv; v++) {
+    if (Math.abs(pos[v * 3 + axis]) <= eps) {
+      pos[v * 3 + axis] = 0;
+      map.push(v);
+    } else {
+      map.push(pos.length / 3);
+      const q = pos.slice(v * 3, v * 3 + 3);
+      q[axis] = -q[axis];
+      pos.push(...q);
+    }
+  }
+  const faces: PolyFace[] = [];
+  for (const mirror of [false, true])
+    for (let f = 0; f + 1 < m.offsets.length; f++) {
+      const s = m.offsets[f],
+        e = m.offsets[f + 1];
+      let verts = Array.from(m.indices.subarray(s, e));
+      let uvs = Array.from(m.uvs.subarray(s * 2, e * 2));
+      if (mirror) {
+        verts = verts.map((v) => map[v]).reverse();
+        const pairs: number[][] = [];
+        for (let i = 0; i < uvs.length; i += 2) pairs.push([uvs[i], uvs[i + 1]]);
+        uvs = pairs.reverse().flat();
+      }
+      faces.push({ verts, uvs, material: m.material_index?.[f] ?? 0, smooth: !!m.smooth?.[f] });
+    }
+  return buildMesh(pos, faces) as EvalMesh;
+}
+
 function decimateMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   const type = str(mod, 'decimate_type', 'COLLAPSE');
   if (type === 'DISSOLVE') return decimateDissolve(m, num(mod, 'angle_limit', (5 * Math.PI) / 180), (mod.delimit as string[] | undefined) ?? []);
@@ -623,7 +796,21 @@ function decimateMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   }
   const ratio = Math.max(0, Math.min(1, num(mod, 'ratio', 1)));
   if (ratio >= 1) return m;
-  const out = decimateCollapse(m, ratio);
+  // vertex group: weight 0 keeps a vertex, the factor scales the influence
+  let weights: Float32Array | undefined;
+  const gi = str(mod, 'vertex_group') ? (m.vertex_groups?.findIndex((g) => g.name === str(mod, 'vertex_group')) ?? -1) : -1;
+  if (gi >= 0 && m.weights?.[gi]) {
+    const inv = bool(mod, 'invert_vertex_group'),
+      f = num(mod, 'vertex_group_factor', 1);
+    weights = Float32Array.from(m.weights[gi], (w) => Math.min(1, (inv ? 1 - w : w) * f));
+  }
+  let out: EvalMesh;
+  if (bool(mod, 'use_symmetry')) {
+    // decimate the positive half (the plane vertices stay on the plane), then mirror it back
+    const axis = ['X', 'Y', 'Z'].indexOf(str(mod, 'symmetry_axis', 'X'));
+    const half = positiveHalf(m, axis, weights);
+    out = mirrorWeld(decimateCollapse(half.mesh, ratio, { weights: half.weights, planeAxis: axis }), axis);
+  } else out = decimateCollapse(m, ratio, { weights });
   return bool(mod, 'use_collapse_triangulate') ? out : quadsFromTriangles(out);
 }
 
@@ -822,7 +1009,7 @@ registerModifier({
   label: 'Bevel',
   category: 'GENERATE',
   icon: 'mod_bevel',
-  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, width_pct: 0.1, segments: 1, limit_method: 'ANGLE', angle_limit: (30 * Math.PI) / 180, vertex_group: '', invert_vertex_group: false, profile_type: 'SUPERELLIPSE', profile: 0.5, use_clamp_overlap: true, harden_normals: false, mark_seam: false, mark_sharp: false, material: -1 }),
+  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, width_pct: 0.1, segments: 1, limit_method: 'ANGLE', edge_weight: 'bevel_weight_edge', vertex_weight: 'bevel_weight_vert', angle_limit: (30 * Math.PI) / 180, vertex_group: '', invert_vertex_group: false, profile_type: 'SUPERELLIPSE', profile: 0.5, use_clamp_overlap: true, harden_normals: false, mark_seam: false, mark_sharp: false, material: -1 }),
   apply: bevelMod,
 });
 registerModifier({
@@ -839,7 +1026,7 @@ registerModifier({
   label: 'Decimate',
   category: 'GENERATE',
   icon: 'mod_decim',
-  defaults: base({ decimate_type: 'COLLAPSE', ratio: 1, use_collapse_triangulate: false, iterations: 0, angle_limit: (5 * Math.PI) / 180, delimit: [] }),
+  defaults: base({ decimate_type: 'COLLAPSE', ratio: 1, use_collapse_triangulate: false, iterations: 0, angle_limit: (5 * Math.PI) / 180, delimit: [], use_symmetry: false, symmetry_axis: 'X', vertex_group: '', invert_vertex_group: false, vertex_group_factor: 1 }),
   apply: decimateMod,
 });
 registerModifier({
@@ -863,7 +1050,7 @@ modifierFields.BEVEL = [
   ['affect', 'Affect', 'enum', [['EDGES', 'Edges']]],
   ['width', 'Amount', 'dist'],
   ['segments', 'Segments', 'int', { min: 1, max: 100 }],
-  ['limit_method', 'Limit Method', 'enum', [['NONE', 'None'], ['ANGLE', 'Angle']]],
+  ['limit_method', 'Limit Method', 'enum', [['NONE', 'None'], ['ANGLE', 'Angle'], ['WEIGHT', 'Weight'], ['VGROUP', 'Vertex Group']]],
   ['angle_limit', 'Angle', 'angle'],
   ['profile', 'Shape', 'factor'],
   ['harden_normals', 'Harden Normals', 'bool'],

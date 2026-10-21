@@ -5,7 +5,8 @@ import { app } from '../app/app';
 import { addKeys } from '../app/keymap';
 import { genericEditMode } from './editxform';
 
-export function transformSubmenu(extra: MenuItem[] = []): MenuItem {
+/** Edit-mode Transform submenu; `keys`: the mode's keymap binds Shear / Bend (their shortcuts are shown). */
+export function transformSubmenu(extra: MenuItem[] = [], keys = false): MenuItem {
   return {
     label: 'Transform',
     submenu: () => [
@@ -14,6 +15,8 @@ export function transformSubmenu(extra: MenuItem[] = []): MenuItem {
       { label: 'Scale', op: 'transform.resize', shortcut: 'S' },
       { separator: true },
       { label: 'To Sphere', op: 'transform.tosphere', shortcut: 'Shift Alt S' },
+      { label: 'Shear', op: 'transform.shear', shortcut: keys ? 'Shift Ctrl Alt S' : undefined },
+      { label: 'Bend', op: 'transform.bend', shortcut: keys ? 'Shift W' : undefined },
       { label: 'Push/Pull', op: 'transform.push_pull' },
       ...(extra.length ? [{ separator: true } as MenuItem, ...extra] : []),
     ],
@@ -43,6 +46,12 @@ export function showHideSubmenu(prefix: string, reveal: string, hide: string): M
 export function mirrorMenuItems(): MenuItem[] {
   return ['X', 'Y', 'Z'].map((a, i) => ({ label: `${a} Global`, op: 'transform.mirror', props: { axis: i } }));
 }
+
+// Lattice Edit Mode: Shear and Bend (meshes and curves bind them with the view3d transform keys)
+addKeys('Lattice', [
+  { key: 'W', shift: true, op: 'transform.bend', when: () => genericEditMode() && app.activeObject?.type === 'LATTICE' },
+  { key: 'S', shift: true, ctrl: true, alt: true, op: 'transform.shear', when: () => genericEditMode() && app.activeObject?.type === 'LATTICE' },
+]);
 
 for (const km of ['Curve', 'Armature', 'Lattice', 'Metaball'])
   addKeys(km, [

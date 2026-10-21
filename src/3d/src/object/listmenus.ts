@@ -33,6 +33,7 @@ export function shapeKeySpecials(): MenuItem[] {
     { label: 'Duplicate Shape Key', icon: 'duplicate', op: 'object.shape_key_copy' },
     { label: 'Copy Shape Key from Selected', op: 'object.shape_key_transfer' },
     { label: 'Clear Shape Key Values', op: 'object.shape_key_clear' },
+    { label: 'Re-Time Shape Keys', op: 'object.shape_key_retime' },
     { separator: true },
     { label: 'New from Objects', op: 'object.join_shapes', props: { use_mirror: false } },
     { label: 'New from Objects Flipped', op: 'object.join_shapes', props: { use_mirror: true } },

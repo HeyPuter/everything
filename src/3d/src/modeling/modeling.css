@@ -1,0 +1,9 @@
+/* Attributes list: domain and type columns */
+.attr-meta {
+  display: flex;
+  gap: 10px;
+}
+.attr-meta > span {
+  min-width: 52px;
+  text-align: left;
+}
