@@ -18,6 +18,7 @@ import './props/presets';
 import './renderops';
 import './script';
 import './lightcolor';
+import './worldops';
 import '../realtime';
 
 export { renderResult } from './result';

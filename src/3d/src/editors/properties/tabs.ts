@@ -10,7 +10,7 @@ import { registerTab } from './properties';
 import { panel, enumMenu, button, opButton, textField, enumRow, checkbox, numberField } from '../../ui/widgets';
 import { num, bool, enumProp, colorProp, vecProp, splitRow, textProp, boolHeading, oid, objectProp } from '../../ui/props';
 import type { ObjectData, MaterialData, MeshData, WorldData, LightData, CameraData, CurveData } from '../../data/types';
-import { newMaterial, uid, newWorld } from '../../data/defaults';
+import { newMaterial, uid } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
@@ -138,12 +138,7 @@ registerTab({
       Object.values(app.doc.worlds),
       w?.id ?? null,
       (id) => ((s.world = id), changed('Assign World')),
-      () => {
-        const nw = newWorld(uniqueName(app.doc, 'World', 'actions' as never));
-        app.doc.worlds[nw.id] = nw;
-        s.world = nw.id;
-        changed('New World');
-      },
+      () => app.run('world.new'),
     );
     if (!w) return [selector];
     const bg = worldBackground(w);
