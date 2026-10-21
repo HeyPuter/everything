@@ -121,7 +121,8 @@ export function patchLightLinking(src: string): string | null {
       if ( ptLinkOn == 0 || light < 0 || light >= ${PT_LINK_LIGHTS} ) return true;
       vec2 L = ptLinkL[ light ];
       int g = ( ptMatFlags( m ) >> 4 ) & 31;
-      int mask = int( ( ch == 0 ? L.x : L.y ) + 0.5 );
+      // round, not +0.5: all 24 group bits (16777215) are exact but 16777215.5 is not
+      int mask = int( round( ch == 0 ? L.x : L.y ) );
       return ( ( mask >> g ) & 1 ) != 0;
     }
   `;
@@ -166,6 +167,9 @@ export function patchLightLinking(src: string): string | null {
   body = body.replace(hit, `${hit} ptLinkTest( int( i ), ptCurMat, 0 ) &&`);
   return head + body;
 }
+
+/** Link group mask with every group (as exact in the float uniforms). */
+const PT_ALL_GROUPS = 0xffffff;
 
 /** Lights with individual link masks in the path tracer (later lights are not linked). */
 export const PT_LINK_LIGHTS = 64;
@@ -392,7 +396,20 @@ export class PathTracerCore {
     if (!this.linkPatched) return;
     const u = this.inner.material.uniforms;
     const mats = ((this.pt as unknown as { _materials?: Material[] })._materials ?? []) as Material[];
-    const d = pathTracerLinkHook.data && rs.vis ? pathTracerLinkHook.data(rs, tracerLights(rs.scene), mats) : null;
+    const lights = tracerLights(rs.scene);
+    let d = pathTracerLinkHook.data && rs.vis ? pathTracerLinkHook.data(rs, lights, mats) : null;
+    // lights with Cast Shadow off: nothing blocks them
+    const noShadow = lights.map((l) => !!l.userData.noShadow);
+    if (noShadow.some(Boolean)) {
+      if (!d?.on) {
+        const L = new Float32Array(Math.max(1, lights.length) * 4);
+        for (let i = 0; i < lights.length; i++) L[i * 4] = L[i * 4 + 1] = PT_ALL_GROUPS;
+        d = { lights: L, on: true };
+      }
+      noShadow.forEach((off, i) => {
+        if (off) d!.lights[i * 4 + 1] = 0;
+      });
+    }
     const key = d && d.on ? `${Array.from(d.lights).join(',')}|${mats.length}` : '';
     if (key === this.linkKey) return;
     this.linkKey = key;

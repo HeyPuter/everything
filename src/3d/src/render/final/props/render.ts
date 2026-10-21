@@ -7,6 +7,9 @@ import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
+import { prefs } from '../../../app/prefs';
+import { setPref } from '../../../prefs/store';
+import { app } from '../../../app/app';
 import { pathTraceMainPanels } from './pathtrace';
 import { SHUTTER_SHAPES } from '../renderops';
 import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
@@ -166,7 +169,24 @@ function rasterPanels(r: RenderSettings): Child {
       ],
       { closed: true },
     ),
-    panel('rs-perf', 'Performance', () => [performanceViewport(r)], { closed: true }),
+    panel(
+      'rs-perf',
+      'Performance',
+      () => [
+        splitRow(
+          'Anisotropic Filtering',
+          enumMenu(
+            'rs-aniso',
+            ['1', '2', '4', '8', '16'].map((v) => ({ value: v, label: v === '1' ? 'Off' : `${v}×` })),
+            String(prefs.anisotropic_filter ?? 8),
+            (v) => (setPref('anisotropic_filter', Number(v)), app.changed('ui')),
+            { tip: 'Sharper textures on surfaces seen at a grazing angle (a preference: applies to every file)' },
+          ),
+        ),
+        performanceViewport(r),
+      ],
+      { closed: true },
+    ),
   ];
 }
 

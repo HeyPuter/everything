@@ -489,8 +489,12 @@ function lightData(o: ObjectData, la: LightData): Child {
           ]
         : null,
       la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')], { sub: true }) : null,
-      (ensureLightDefaults(la), [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
+      // shadow map options belong to the realtime engine; the path tracer only casts or not
+      (ensureLightDefaults(la), app.doc.scene.render.engine === 'PATHTRACE' ? [lightInfluencePanel(o, la)] : [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
     ]),
+    app.doc.scene.render.engine === 'PATHTRACE'
+      ? panel('la-pt-settings', 'Settings', () => [bool(la, 'use_shadow', 'Cast Shadow', { tip: 'Surfaces block this light (off: it shines through everything)' })])
+      : null,
   ];
 }
 
