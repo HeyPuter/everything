@@ -4,7 +4,7 @@
  * always accurate.
  */
 import { matchShortcut } from '../lib/platform.js';
-import { US } from '../lib/time.js';
+import { US, frameIndex } from '../lib/time.js';
 import { editPoint, findClip } from '../model/timeline.js';
 import { isMulticam } from '../model/multicam.js';
 import { prefs, setPref } from './prefs.js';
@@ -20,8 +20,8 @@ export function createCommands(ctx) {
   const { store, actions } = ctx;
   const player = () => ctx.player;
   const timeline = () => ctx.timeline;
-  // From the frame shown (and in the timecode) to the start of another, at the export's whole-microsecond frame times.
-  const step = (frames) => store.seek(Math.round(((Math.round((store.time * store.fps) / US) + frames) * US) / store.fps));
+  // From the frame on screen to the start of another, at the export's whole-microsecond frame times.
+  const step = (frames) => store.seek(Math.round(((frameIndex(store.time, store.fps) + frames) * US) / store.fps));
   const hasSel = () => store.selection.size > 0;
   const multicamSel = () => isMulticam(store.selected?.clip);
   const stepTimeline = (dir) => {

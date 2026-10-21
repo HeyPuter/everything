@@ -24,6 +24,11 @@ export function frameIndex(t, fps) {
   return Math.floor((t + 1) / (US / fps));
 }
 
+/** Start of the frame containing time t (the frame on screen), at the export's frame times. */
+export function frameStartAt(t, fps) {
+  return Math.round((frameIndex(t, fps) * US) / fps);
+}
+
 const pad = (n, w = 2) => String(Math.floor(n)).padStart(w, '0');
 
 /** "HH:MM:SS:FF" timecode, the format used under the player. */

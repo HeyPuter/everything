@@ -3,7 +3,7 @@
  * Renders on demand while paused and every animation frame while playing.
  */
 import { Emitter } from '../lib/emitter.js';
-import { US, snapToFrame } from '../lib/time.js';
+import { US, frameStartAt } from '../lib/time.js';
 import { Compositor } from './compositor.js';
 import { MediaPool } from './media-pool.js';
 import { AudioGraph } from './audio-graph.js';
@@ -209,11 +209,13 @@ export class Player extends Emitter {
 
   pause() {
     if (!this.playing) return;
+    const end = this._stopAt();
     this.playing = false;
     this.playRange = false;
     this.pool.pauseAll();
-    // Stop on a whole frame, so the picture and the timecode show the same one.
-    this.store.seek(snapToFrame(this.store.time, this.store.fps));
+    // Stop at the start of the frame on screen, so the timecode shows that frame too. At the
+    // end it stays put, so Play starts over.
+    if (this.store.time < end - 1000) this.store.seek(frameStartAt(this.store.time, this.store.fps));
     this.emit('play', { playing: false });
     this.invalidate();
   }

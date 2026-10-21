@@ -92,17 +92,31 @@ describe('preview playback through transitions', () => {
 });
 
 describe('pausing', () => {
-  it('stops on a whole frame, the one the timecode shows', () => {
+  it('stops at the start of the frame on screen, so the timecode shows it too', () => {
     const p = fixture();
     onMain(p, clip('video', 0, 5));
     const { player } = setup(p);
+    player.playing = true;
     player.store.seek(1_234_567); // 37.04 frames at 30 fps
     player.pause();
     expect(player.store.time).toBe(1_233_333);
     player.playing = true;
-    player.store.seek(1_250_000); // 37.5: the next frame is nearest
+    player.store.seek(1_265_000); // 37.95: frame 37 is still on screen
     player.pause();
-    expect(player.store.time).toBe(1_266_667);
+    expect(player.store.time).toBe(1_233_333);
+  });
+
+  it('stays at an end between frames, so Play starts over', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2.48)); // ends between frames 74 and 75
+    const { player } = setup(p);
+    player.playing = true;
+    player.store.seek(player.store.duration);
+    player.pause();
+    expect(player.store.time).toBe(2_480_000);
+    player.play();
+    expect(player.store.time).toBe(0);
+    player.pause();
   });
 });
 
