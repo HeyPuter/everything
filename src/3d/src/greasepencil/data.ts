@@ -412,6 +412,12 @@ export function newGPMaterial(name: string, o: Partial<MaterialGPencilStyle> = {
 // ---------------------------------------------------------------------------
 // document access
 
+/** Whether a stroke draws its line and its fill: its own stroke type, else its material's switches. */
+export function strokeShows(st: MaterialGPencilStyle | null | undefined, strokeType = 0): { stroke: boolean; fill: boolean } {
+  if (strokeType) return { stroke: (strokeType & 1) !== 0, fill: (strokeType & 2) !== 0 };
+  return { stroke: st ? st.show_stroke : true, fill: !!st?.show_fill };
+}
+
 export function gpTable(doc: DocumentData): Record<ID, GreasePencilData> {
   return (doc.grease_pencils ??= {});
 }

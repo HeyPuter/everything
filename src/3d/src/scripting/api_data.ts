@@ -10,6 +10,7 @@ import { newConstraint, constraintTypes, boneOnlyConstraints } from '../eval/con
 import { boneRestMatrix } from '../eval/armature';
 import type { GPDrawing, GPFrame, GPLayer, GreasePencilData } from '../greasepencil/types';
 import { emptyDrawing, fromStrokes, newGreasePencil, newLayer as newGPLayer, newPoint, newStroke, toStrokes } from '../greasepencil/data';
+import { setCurveType } from '../greasepencil/curvefit';
 import { FX_TYPES, newEffect } from '../greasepencil/fxtypes';
 import { defaultSpeaker, type SpeakerSettings } from '../object/speakerdata';
 import { maskTable, newLayer as newMaskLayer, newMask, newPoint as newMaskPoint } from '../mask/types';
@@ -495,7 +496,33 @@ class GPStrokes extends PropCollection<unknown> {
       },
       toString: () => `<bpy_struct, GreasePencilStroke at ${self.__path}[${si}]>`,
     };
-    return Object.defineProperties(o, { cyclic: curveField('cyclic', true), material_index: curveField('material_index'), start_cap: curveField('start_cap'), end_cap: curveField('end_cap'), fill_opacity: curveField('fill_opacity') });
+    return Object.defineProperties(o, {
+      cyclic: curveField('cyclic', true),
+      material_index: curveField('material_index'),
+      start_cap: curveField('start_cap'),
+      end_cap: curveField('end_cap'),
+      fill_opacity: curveField('fill_opacity'),
+      // spline type as an int (0 Catmull-Rom, 1 poly, 2 Bézier, 3 NURBS)
+      curve_type: {
+        get: () => d().curve_type?.[si] ?? 1,
+        set: (v: unknown) => {
+          const list = toStrokes(d());
+          list[si] = setCurveType(list[si], Math.max(0, Math.min(3, Math.round(Number(v)))), false);
+          writeDrawing(gpOf(self.gpId), self.di, fromStrokes(list));
+        },
+        enumerable: true,
+      },
+      hide_stroke: {
+        get: () => ((d().stroke_type?.[si] ?? 0) === 2),
+        set: (v: unknown) => {
+          const list = toStrokes(d());
+          const prev = list[si].stroke_type ?? 0;
+          list[si] = { ...list[si], stroke_type: v ? 2 : prev === 2 ? 3 : prev };
+          writeDrawing(gpOf(self.gpId), self.di, fromStrokes(list));
+        },
+        enumerable: true,
+      },
+    });
   }
 }
 
