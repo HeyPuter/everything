@@ -13,7 +13,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 ## Features
 
 **Modeling**
-- Walls drawn as chains, rectangles or along picked lines, with a choice of location line (centerline, exterior or interior face), base and top constraints, and typed lengths. Walls join cleanly at corners, T junctions and multi-wall nodes, and their layers (finish, structure, insulation, air space...) show in plan at fine detail.
+- Walls drawn as chains, rectangles or along picked lines, mitered or butted at corners, with a choice of location line (centerline, exterior or interior face), base and top constraints, and typed lengths. Walls join cleanly at corners, T junctions and multi-wall nodes, and their layers (finish, structure, insulation, air space...) show in plan at fine detail.
 - Curtain walls with a regular grid of mullions and glass panels; grid lines placed per wall, mullion segments removed or restored, and panels made solid, empty or doors.
 - Wall sweeps and reveals (cornices, string courses, skirtings, grooves) along either face, stopping at openings.
 - Doors (single, double, sliding, pocket, bifold, overhead, cased opening) and windows (fixed, casement, double hung, sliding, awning, picture) hosted in walls, with swing and facing controls. Rectangular wall openings.
@@ -67,6 +67,7 @@ It runs entirely in the browser, with [Puter](https://puter.com) for sign-in, cl
 - Ribbon with contextual tabs, options bar, Properties palette with type selector and type editor (including wall, floor, roof and ceiling layer structures), Project Browser, view tabs, view control bar and status bar.
 - Two-letter keyboard shortcuts (for example WA wall, DR door, WN window, MV move) that you can reassign, export and import, command search (Ctrl+K), context menus and a full keyboard path through the panels.
 - An Options dialog for preferences such as tooltip detail, selection behaviour and live updates.
+- An assistant panel: ask about the project or ask for changes in plain words (through Puter's AI); every change it makes can be undone. AI spell checking for notes and names.
 - Light, dark and system themes. Works with mouse, trackpad, touch and keyboard, on desktops, tablets and phones.
 
 ## Getting around
