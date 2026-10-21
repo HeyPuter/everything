@@ -8,6 +8,8 @@ import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { createBin, moveAssets } from '../src/model/bins.js';
 import { allClips, mainTrack } from '../src/model/timeline.js';
+import { makeClip } from '../src/model/project.js';
+import { createCompound } from '../src/model/compound.js';
 import { fixture } from './helpers.js';
 
 const KEY = 'video-studio:prefs';
@@ -226,6 +228,24 @@ describe('media tab', () => {
     expect(store.history.undoStack.length).toBe(before + 1);
     store.undo();
     expect(allClips(store.project)).toHaveLength(0);
+  });
+
+  it('will not delete media from inside a compound clip when clips outside it use the media', async () => {
+    const p = fixture();
+    const [a, b] = [makeClip('video', { assetId: 'vid', start: 0, duration: 5e6 }), makeClip('video', { assetId: 'silent', start: 5e6, duration: 5e6 })];
+    mainTrack(p).clips.push(a, b);
+    const comp = createCompound(p, [b.id], { ripple: true, linkOverlays: true });
+    mount(p);
+    store.openCompound(comp.id);
+    tab.el.querySelector('[data-cat="project"]').click();
+    const byName = (n) => [...tab.el.querySelectorAll('.tile')].find((t) => t.querySelector('.tile-label')?.textContent === n);
+    byName('vid').click();
+    await flush();
+    tab.el.querySelector('.media-selbar [data-tip="Delete"]').click();
+    await flush();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(document.querySelector('.toast')?.textContent).toContain('vid is also used outside this compound clip');
+    expect(store.project.assets.vid).toBeTruthy();
   });
 
   it('describes media facts', () => {

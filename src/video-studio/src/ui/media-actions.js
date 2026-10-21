@@ -61,7 +61,8 @@ export function createMediaActions(ctx) {
   const { store } = ctx;
   const a = {
     async removeUnusedMedia() {
-      const list = unusedAssets(store.project);
+      // Inside a compound clip, media used anywhere in the project counts.
+      const list = unusedAssets(store.projectForSave ? store.projectForSave() : store.project);
       if (!list.length) {
         toast('Every item in the media library is used on the timeline.', { kind: 'info' });
         return 0;
@@ -73,6 +74,22 @@ export function createMediaActions(ctx) {
       }, { structural: false });
       announce(`${list.length} unused items removed`);
       return list.length;
+    },
+
+    /**
+     * The asset ids in ids that clips outside the compound clip being edited
+     * use: deleting them from inside would leave those clips without media.
+     */
+    usedOutsideCompound(ids) {
+      if (!store.nest?.length) return [];
+      const uses = (p) => {
+        const n = new Map();
+        for (const c of allClipsDeep(p)) if (c.assetId) n.set(c.assetId, (n.get(c.assetId) || 0) + 1);
+        return n;
+      };
+      const all = uses(store.projectForSave());
+      const here = uses(store.project);
+      return ids.filter((id) => (all.get(id) || 0) > (here.get(id) || 0));
     },
 
     /** Select every clip using an asset and jump to the first. */

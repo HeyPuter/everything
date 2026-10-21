@@ -301,6 +301,12 @@ export function mediaTab(ctx) {
   }
 
   async function removeAssets(list) {
+    const outside = actions.usedOutsideCompound?.(list.map((a) => a.id)) || [];
+    if (outside.length) {
+      const what = outside.length === 1 ? `${store.project.assets[outside[0]]?.name || 'This item'} is` : `${outside.length} of these are`;
+      toast(`${what} also used outside this compound clip. Close the compound clip to delete ${outside.length === 1 ? 'it' : 'them'}.`, { kind: 'info' });
+      return;
+    }
     const used = new Set(allClipsDeep(store.project).map((c) => c.assetId));
     const inUse = list.filter((a) => used.has(a.id));
     const title = list.length === 1 ? 'Delete media?' : `Delete ${list.length} items?`;

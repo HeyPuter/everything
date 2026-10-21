@@ -3,6 +3,7 @@ import { unusedAssets, swapAsset, createMediaActions } from '../src/ui/media-act
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
+import { createCompound } from '../src/model/compound.js';
 import { fixture, clip, onMain, addAsset, s } from './helpers.js';
 
 afterEach(() => document.querySelectorAll('dialog').forEach((d) => d.remove()));
@@ -62,5 +63,42 @@ describe('find missing media', () => {
     library.uploads.set('h3', new Promise(() => {}));
     const missing = await actions.findMissingMedia();
     expect(missing.map((a) => a.id)).toEqual(['silent']);
+  });
+});
+
+describe('media actions while a compound clip is open', () => {
+  function setup() {
+    const p = fixture();
+    const [, b] = onMain(p, clip('video', 0, 5), clip('video', 5, 5, { assetId: 'silent' }));
+    const comp = createCompound(p, [b.id], { ripple: true, linkOverlays: true });
+    const store = new EditorStore(p);
+    store.openCompound(comp.id);
+    return { store, actions: createMediaActions({ store, library: null }) };
+  }
+  const confirm = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Remove').click();
+  };
+
+  it('Remove unused media keeps media used outside the compound clip, and undo brings removed media back', async () => {
+    const { store, actions } = setup();
+    const done = actions.removeUnusedMedia();
+    await confirm();
+    expect(await done).toBe(2);
+    expect(Object.keys(store.project.assets).sort()).toEqual(['silent', 'vid']);
+    store.undo();
+    expect(Object.keys(store.project.assets).sort()).toEqual(['aud', 'img', 'silent', 'vid']);
+    store.redo();
+    store.closeCompound();
+    expect(Object.keys(store.project.assets).sort()).toEqual(['silent', 'vid']);
+    store.undo();
+    expect(Object.keys(store.project.assets).sort()).toEqual(['aud', 'img', 'silent', 'vid']);
+  });
+
+  it('knows which media clips outside the compound clip use', () => {
+    const { store, actions } = setup();
+    expect(actions.usedOutsideCompound(['vid', 'silent', 'aud'])).toEqual(['vid']);
+    store.closeCompound();
+    expect(actions.usedOutsideCompound(['vid', 'silent'])).toEqual([]);
   });
 });
