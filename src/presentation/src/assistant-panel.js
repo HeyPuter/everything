@@ -1023,6 +1023,16 @@ export function createAssistantPanel(env) {
     close,
     /** Opens the chat and sends `text` as if the user had typed it. */
     ask(text) {
+      // While a reply is under way the request waits in the message box,
+      // after anything already written there, to be sent when it is done.
+      if (agent.busy) {
+        const draft = input.value.trimEnd();
+        open({ prompt: draft ? `${draft}\n\n${text}` : text });
+        toast(
+          "The assistant is still answering. Your request is in the message box: send it when the reply is done.",
+        );
+        return;
+      }
       open({ focus: false });
       submit(text);
     },

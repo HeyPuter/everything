@@ -227,6 +227,42 @@ test("a question to allow a change leaves the next message being typed alone", a
   await expect(page.locator(".slide-thumb")).toHaveCount(2);
 });
 
+test("a request made while the assistant answers waits in the message box", async ({
+  page,
+}, info) => {
+  test.skip(info.project.name !== "desktop", "one layout covers the flow");
+  await page.getByRole("button", { name: "Ask AI" }).click();
+  const panel = page.locator("#ai-panel");
+  const box = page.getByRole("textbox", { name: "Message the assistant" });
+  await reply(page, [
+    { type: "text", text: "Thinking… " },
+    { type: "gate" },
+    { type: "text", text: "There." },
+  ]);
+  await box.fill("Summarize the deck");
+  await box.press("Enter");
+  await expect(panel.getByText("Thinking…")).toBeVisible();
+  await box.fill("Also check");
+  await (await ribbonButton(page, "Home", "new-slide-prompt")).click();
+  const dialog = page.getByRole("dialog", { name: "New Slide from Prompt" });
+  await dialog
+    .getByRole("textbox", { name: "Describe the slide" })
+    .fill("Our goals for next year");
+  await dialog.getByRole("button", { name: "Draft Slide" }).click();
+  // Not dropped: it follows what was written, ready to send.
+  await expect(box).toHaveValue(/^Also check\n\nAdd one new slide right after/);
+  await expect(box).toHaveValue(/Our goals for next year$/);
+  await expect(page.locator("#toast")).toContainText("still answering");
+  await page.evaluate(() => window.__gate());
+  await expect(panel.getByText("There.")).toBeVisible();
+  await box.press("Enter");
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__requests.at(-1).messages.at(-1).content),
+    )
+    .toMatch(/Our goals for next year$/);
+});
+
 test("a reply's Undo turns off once the user edits after it", async ({
   page,
 }, info) => {
