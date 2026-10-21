@@ -338,7 +338,7 @@
 }
 
 .editor[data-layout='phone'] .player-bar .ratio-btn,
-.editor[data-layout='phone'] .player-bar-right > [aria-label='Zoom to fit'] {
+.editor[data-layout='phone'] .player-bar .zoom-btn {
   display: none;
 }
 
