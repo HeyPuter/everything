@@ -97,14 +97,33 @@ function primitiveOp(idname: string, label: string, name: string, props: PropDef
         if (add) return add(build(p), p);
         return 'CANCELLED';
       }
-      const me = newMeshData(uniqueName(doc, name, 'meshes'), build(p));
+      const arrays = build(p);
+      // the Scale property sizes the new mesh itself (the object keeps a scale of 1)
+      if (Array.isArray(p.scale) && (p.scale as number[]).some((x) => x !== 1)) {
+        const sc = p.scale as number[];
+        const P = new Float32Array(arrays.positions);
+        for (let i = 0; i < P.length; i++) P[i] *= sc[i % 3];
+        arrays.positions = P;
+        // flat corner normals follow the inverse scale
+        const N = new Float32Array(arrays.normals);
+        for (let i = 0; i < N.length; i += 3) {
+          const x = N[i] / (sc[0] || 1),
+            y = N[i + 1] / (sc[1] || 1),
+            z = N[i + 2] / (sc[2] || 1),
+            l = Math.hypot(x, y, z) || 1;
+          N[i] = x / l;
+          N[i + 1] = y / l;
+          N[i + 2] = z / l;
+        }
+        arrays.normals = N;
+      }
+      const me = newMeshData(uniqueName(doc, name, 'meshes'), arrays);
       if (smooth && me.smooth) me.smooth.fill(1);
       doc.meshes[me.id] = me;
       const ob = newObject(name, 'MESH', me.id);
       if (p.location === null) p.location = [...doc.scene.cursor.location];
       if (p.rotation === null) delete p.rotation;
       addObjectToScene(doc, ob, p);
-      if (Array.isArray(p.scale)) ob.scale = [...(p.scale as number[])] as [number, number, number];
       if (!p.rotation) p.rotation = [...ob.rotation_euler];
       return 'FINISHED';
     },
@@ -1022,8 +1041,10 @@ registerOperators([
           }
         }
         if (p.keep_transform) {
-          ob.matrix_parent_inverse = [...IDENTITY];
-          applyMatrixToObject(ob, pw.clone().invert().multiply(w));
+          // the current world transform becomes the object's own values (dropping what an earlier
+          // parent contributed), then the parent inverse cancels the new parent as usual
+          applyMatrixToObject(ob, w);
+          ob.matrix_parent_inverse = fromMatrix4(pw.clone().invert());
         } else ob.matrix_parent_inverse = fromMatrix4(pw.clone().invert().multiply(w).multiply(localMatrix(ob).invert()));
         const deformer = (type: string) => {
           if (ob.modifiers.some((m) => m.type === type && m.object === parent.id)) return;

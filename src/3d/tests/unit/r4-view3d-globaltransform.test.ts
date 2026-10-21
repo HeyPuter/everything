@@ -100,3 +100,29 @@ describe('global transform operators', () => {
     expect(act.fcurves.filter((f) => f.data_path === 'location').length).toBe(0);
   });
 });
+
+describe('object add / parent numerics', () => {
+  it('primitive Scale sizes the mesh, the object keeps scale 1', () => {
+    run('mesh.primitive_cube_add', { location: [0, 0, 0], scale: [2, 1, 1] });
+    const ob = app.activeObject!;
+    expect(ob.scale).toEqual([1, 1, 1]);
+    const P = app.doc.meshes[ob.data!].positions;
+    let maxX = 0;
+    for (let i = 0; i < P.length; i += 3) maxX = Math.max(maxX, P[i]);
+    expect(maxX).toBeCloseTo(2, 6);
+  });
+
+  it('parenting with Keep Transform keeps the values and sets the parent inverse', () => {
+    run('mesh.primitive_cube_add', { location: [1, 2, 3], rotation: [0.3, 0.2, 0.1], scale: [2, 1, 1] });
+    const p = app.activeObject!;
+    run('mesh.primitive_cube_add', { location: [-1, 0.5, 0], rotation: [0, 0.4, 0] });
+    const c = app.activeObject!;
+    select(p, c);
+    for (const o of Object.values(app.doc.objects)) o.select = o === p || o === c;
+    app.doc.scene.active_object = p.id;
+    app.graph.evaluate(app.doc, false);
+    run('object.parent_set', { type: 'OBJECT', keep_transform: true });
+    expect(c.location.map((v) => +v.toFixed(5) + 0)).toEqual([-1, 0.5, 0]);
+    expect(worldPos(c).toArray().map((v) => +v.toFixed(4) + 0)).toEqual([-1, 0.5, 0]);
+  });
+});
