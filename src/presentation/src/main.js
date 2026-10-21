@@ -125,6 +125,12 @@ import { createInsertFeatures } from "./insert/index.js";
 import { createShowFeatures } from "./show/index.js";
 import { createAnimationTools } from "./animations/editor.js";
 import { createViews, readingBar, placeReadingDialog } from "./views/index.js";
+import {
+  groupSlides,
+  addSectionAt,
+  renameSectionAt,
+  removeSectionAt,
+} from "./views/sections-model.js";
 import "./chrome/chrome.css";
 import { NO_CHANGE } from "./assistant-tools.js";
 import { AI_MODEL } from "./assistant.js";
@@ -5655,41 +5661,34 @@ function setSelectionSize(axis, inches) {
   });
 }
 // The Section command: sections group the slides in the thumbnails pane.
+// It changes them as the Slide Sorter does, through views/sections-model.js.
 function sectionMenu() {
-  const sections = (() => {
-    try {
-      return P.getSlideSections(doc.pres) || [];
-    } catch {
-      return [];
-    }
-  })();
-  const part = P.getSlidePartName(slide());
-  const here = sections.find((sec) =>
-    sec.slides?.some((s) => P.getSlidePartName(s) === part),
-  );
+  const sections = sectionList();
+  const here = sectionIndexOf(sections);
   return [
     { label: "Add Section", icon: "o:section", onSelect: run(addSection) },
     {
       label: "Rename Section",
       icon: "Pencil",
-      disabled: !here,
+      disabled: here < 0,
       onSelect: run(() => renameSection(here)),
     },
     {
       label: "Remove Section",
       icon: "Trash2",
-      disabled: !here,
-      onSelect: () => removeSections(here ? [here] : []),
+      disabled: here < 0,
+      onSelect: () => removeSection(here),
     },
     { separator: true },
     {
       label: "Remove All Sections",
       icon: "Trash2",
       disabled: !sections.length,
-      onSelect: () => removeSections(sections),
+      onSelect: () => writeSections([]),
     },
   ];
 }
+const slideOrder = () => P.getSlides(doc.pres).map(P.getSlidePartName);
 function sectionList() {
   try {
     return (P.getSlideSections(doc.pres) || []).map((sec) => ({
@@ -5699,6 +5698,14 @@ function sectionList() {
   } catch {
     return [];
   }
+}
+// The index of the current slide's section, or -1 without sections.
+function sectionIndexOf(sections) {
+  if (!sections.length) return -1;
+  const part = P.getSlidePartName(slide());
+  return groupSlides(slideOrder(), sections).findIndex((g) =>
+    g.slides.includes(part),
+  );
 }
 function writeSections(list) {
   mutate(() => {
@@ -5719,65 +5726,28 @@ async function addSection() {
     confirm: "Rename",
   });
   if (!name) return;
-  const parts = P.getSlides(doc.pres).map(P.getSlidePartName);
-  const at = Math.max(0, index);
-  let list = sectionList();
-  if (!list.length) {
-    list =
-      at > 0
-        ? [
-            { name: "Default Section", slides: parts.slice(0, at) },
-            { name, slides: parts.slice(at) },
-          ]
-        : [{ name, slides: parts }];
-  } else {
-    const part = parts[at];
-    const i = list.findIndex((sec) => sec.slides.includes(part));
-    const sec = list[i];
-    const k = sec.slides.indexOf(part);
-    const head = { ...sec, slides: sec.slides.slice(0, k) };
-    const tail = { name, slides: sec.slides.slice(k) };
-    list.splice(i, 1, ...(head.slides.length ? [head, tail] : [tail]));
-  }
-  writeSections(list);
+  const plan = addSectionAt(
+    slideOrder(),
+    sectionList(),
+    P.getSlidePartName(slide()),
+    name,
+  );
+  writeSections(plan.sections);
 }
-async function renameSection(section) {
-  if (!section) return;
-  const name = await promptName("Rename Section", section.name, null, {
-    confirm: "Rename",
-  });
+async function renameSection(i) {
+  const name = await promptName(
+    "Rename Section",
+    groupSlides(slideOrder(), sectionList())[i]?.name ?? "",
+    null,
+    { confirm: "Rename" },
+  );
   if (!name) return;
-  const list = sectionList();
-  const first = P.getSlidePartName(section.slides[0]);
-  const target = list.find(
-    (sec) => sec.slides[0] === first && sec.name === section.name,
-  );
-  if (target) target.name = name;
-  writeSections(list);
+  const plan = renameSectionAt(slideOrder(), sectionList(), i, name);
+  if (plan) writeSections(plan.sections);
 }
-function removeSections(sections) {
-  if (!sections.length) return;
-  const names = new Set(
-    sections.map(
-      (sec) => `${sec.name}|${P.getSlidePartName(sec.slides[0] || slide())}`,
-    ),
-  );
-  const list = sectionList();
-  const kept = [];
-  for (const sec of list) {
-    if (
-      names.has(`${sec.name}|${sec.slides[0] || P.getSlidePartName(slide())}`)
-    ) {
-      // A removed section's slides join the section before it.
-      if (kept.length) kept.at(-1).slides.push(...sec.slides);
-      else if (list.length > 1) kept.push({ ...sec, name: "Default Section" });
-    } else kept.push(sec);
-  }
-  writeSections(
-    kept.length === list.length - sections.length || kept.length
-      ? kept.filter((s) => s.slides.length)
-      : [],
-  );
+function removeSection(i) {
+  const plan = removeSectionAt(slideOrder(), sectionList(), i);
+  if (plan) writeSections(plan.sections);
 }
 // The Symbol command: a grid of characters to insert at the text cursor.
 const SYMBOLS =

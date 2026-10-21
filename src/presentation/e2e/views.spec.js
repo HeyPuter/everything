@@ -286,6 +286,40 @@ test("sections follow slides moved, deleted and added outside a drag", async ({
   );
 });
 
+// The Insert menu's Section commands change sections as the Sorter does:
+// removing the first section left it in place, and Remove All Sections
+// left every slide in a "Default Section".
+test("the Section menu removes a section or all of them", async ({ page }) => {
+  await start(page);
+  await addSlides(page, 3);
+  await view(page, "sorter");
+  const cards = page.locator(".sorter-card");
+  await cards.nth(2).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Add Section" }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill("Later");
+  await page.getByRole("dialog").getByRole("button", { name: "Add" }).click();
+  await expect(page.locator(".sorter-section")).toHaveCount(2);
+  await cards.nth(0).click();
+  const section = async (name) => {
+    await barMenu(page, "Insert");
+    await page.getByRole("menuitem", { name: "Section", exact: true }).click();
+    await page.getByRole("menuitem", { name, exact: true }).click();
+  };
+  const sections = async () =>
+    P.getSlideSections((await download(page)).p).map((s) => [
+      s.name,
+      s.slides.length,
+    ]);
+  await section("Remove Section");
+  await expect(page.locator(".sorter-section")).toHaveCount(1);
+  expect(await sections()).toEqual([["Later", 4]]);
+  await page.keyboard.press(`${mod}+z`);
+  await expect(page.locator(".sorter-section")).toHaveCount(2);
+  await section("Remove All Sections");
+  await expect(page.locator(".sorter-section")).toHaveCount(0);
+  expect(await sections()).toEqual([]);
+});
+
 test("Notes Page edits the notes on a page of the notes size", async ({
   page,
 }) => {
