@@ -37,7 +37,7 @@ import { drawPlaneTracks, planeCornerDown, planeBodyDown } from './planeops';
 import { drawGraph, drawDopesheet, graphPointer, dopesheetPointer, frameGraphAll, frameDopesheetAll } from './graphs';
 import { jobState } from './jobs';
 import { lastOpPanel } from '../ui/redo';
-import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost } from '../mask/clipmask';
+import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, type MaskHost, type MaskDisplayType } from '../mask/clipmask';
 import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar, maskProportionalHeader } from '../mask/maskui';
 import { maskTable } from '../mask/types';
@@ -65,6 +65,9 @@ export interface ClipOverlays {
   /** mask mode: draw splines, and show the mask as a matte over (or instead of) the footage */
   show_mask_spline?: boolean;
   mask_overlay_mode?: 'NONE' | 'COMBINED' | 'ALPHACHANNEL';
+  /** how splines are drawn, and how dark the outside of a Combined overlay gets */
+  mask_display_type?: MaskDisplayType;
+  blend_factor?: number;
   /** master switch of everything drawn over the footage (Shift Alt Z) */
   show_overlays?: boolean;
   /** footage channels shown, and a black-and-white display */
@@ -478,10 +481,10 @@ export class ClipEditor implements Editor {
     ctx.closePath();
     ctx.stroke();
     if (this.overlays.show_overlays === false) {
-      if (this.mode === 'MASK') drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
+      if (this.mode === 'MASK') drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
     } else if (this.mode === 'MASK') {
-      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
-      drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+      drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
+      drawMask(this, ctx, this.overlays.show_mask_spline !== false, this.overlays.mask_display_type ?? 'OUTLINE');
       this.drawCursor(ctx);
     } else {
       drawPlaneTracks(this, ctx, T);
@@ -666,8 +669,8 @@ export class ClipEditor implements Editor {
     ctx.fillRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
     ctx.strokeStyle = 'rgba(0, 0, 0,0.6)';
     ctx.strokeRect(a[0] + 0.5, a[1] + 0.5, b[0] - a[0], b[1] - a[1]);
-    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE');
-    drawMask(this, ctx, this.overlays.show_mask_spline !== false);
+    drawMaskMatte(this, ctx, this.overlays.mask_overlay_mode ?? 'NONE', this.overlays.blend_factor ?? 0.5);
+    drawMask(this, ctx, this.overlays.show_mask_spline !== false, this.overlays.mask_display_type ?? 'OUTLINE');
     this.drawCursor(ctx);
     ctx.font = '11px var(--mono, monospace)';
     ctx.fillStyle = '#9a9b9c';
@@ -1809,7 +1812,12 @@ function overlayMenu(ed: ClipEditor): MenuItem[] {
     return [
       { heading: 'Mask Display' },
       { label: 'Spline', checked: ov.show_mask_spline !== false, keepOpen: true, action: () => ((ov.show_mask_spline = ov.show_mask_spline === false), ed.draw()) },
+      {
+        label: 'Spline Display',
+        submenu: () => (['OUTLINE', 'DASH', 'BLACK', 'WHITE'] as const).map((v) => ({ label: v[0] + v.slice(1).toLowerCase(), active: (ov.mask_display_type ?? 'OUTLINE') === v, action: () => ((ov.mask_display_type = v), ed.draw()) })),
+      },
       { label: 'Overlay', submenu: () => maskModes.map(([v, l]) => ({ label: l, active: (ov.mask_overlay_mode ?? 'NONE') === v, action: () => ((ov.mask_overlay_mode = v), ed.draw()) })) },
+      { label: 'Blending Factor', submenu: () => [0.25, 0.5, 0.75, 1].map((v) => ({ label: `${Math.round(v * 100)}%`, active: (ov.blend_factor ?? 0.5) === v, action: () => ((ov.blend_factor = v), ed.draw()) })) },
       { separator: true },
       { heading: 'Clip Display' },
       tog('Mute', 'use_mute_footage', 'Ctrl H'),

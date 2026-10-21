@@ -82,7 +82,9 @@ const showsHandles = (p: MaskPoint) => p.select && p.handle_type !== 'AUTO' && p
 // ---------------------------------------------------------------------------
 // drawing
 
-export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = true) {
+export type MaskDisplayType = 'OUTLINE' | 'DASH' | 'BLACK' | 'WHITE';
+
+export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = true, style: MaskDisplayType = 'OUTLINE') {
   const m = hostMask(ed);
   if (!m) return;
   if (!splines) return drawSelectShape(g, ed.shapeOverlay);
@@ -119,16 +121,31 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
       void sp0;
       const selected = sp.points.some((p) => p.select);
       const active = isAct && layer.active_spline === si;
-      g.lineWidth = active ? 2 : 1.5;
-      g.strokeStyle = '#000000';
+      const tint = selected ? (active ? '#fcb454' : '#fa9404') : null;
       g.beginPath();
       line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
       if (sp.use_cyclic) g.closePath();
-      g.stroke();
-      g.setLineDash([4, 4]);
-      g.strokeStyle = selected ? (active ? '#fcb454' : '#fa9404') : '#d1d2d4';
-      g.stroke();
-      g.setLineDash([]);
+      if (style === 'OUTLINE') {
+        // light curve with a dark border
+        g.lineWidth = active ? 4 : 3;
+        g.strokeStyle = '#000000';
+        g.stroke();
+        g.lineWidth = active ? 2 : 1.5;
+        g.strokeStyle = tint ?? '#e8e9ea';
+        g.stroke();
+      } else if (style === 'DASH') {
+        g.lineWidth = active ? 2 : 1.5;
+        g.strokeStyle = '#000000';
+        g.stroke();
+        g.setLineDash([4, 4]);
+        g.strokeStyle = tint ?? '#d1d2d4';
+        g.stroke();
+        g.setLineDash([]);
+      } else {
+        g.lineWidth = active ? 2 : 1.2;
+        g.strokeStyle = tint ?? (style === 'BLACK' ? '#000000' : '#ffffff');
+        g.stroke();
+      }
       if (layer.hide_select) continue;
       for (const p of sp.points) {
         if (p.hide) continue;
@@ -184,7 +201,7 @@ export function drawSelectShape(g: CanvasRenderingContext2D, sh: MaskHost['shape
 let matte: { key: string; canvas: HTMLCanvasElement } | null = null;
 
 /** The rasterized mask over the frame: darkening outside it, or as the matte alone. */
-export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: 'NONE' | 'COMBINED' | 'ALPHACHANNEL') {
+export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: 'NONE' | 'COMBINED' | 'ALPHACHANNEL', blend = 0.5) {
   const m = hostMask(ed);
   if (!m || mode === 'NONE') return;
   const [W, H] = ed.frameSize();
@@ -195,7 +212,7 @@ export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: '
     sh = Math.max(16, Math.round((sw * H) / W));
   const f = app.doc.scene.frame_current;
   const res = parentResolver(app.doc);
-  const key = `${maskKey(m, f, res)}|${sw}x${sh}|${mode}`;
+  const key = `${maskKey(m, f, res)}|${sw}x${sh}|${mode}|${blend}`;
   if (matte?.key !== key) {
     const c = matte?.canvas ?? document.createElement('canvas');
     rasterizeMask(m, f, sw, sh, true, c, res);
@@ -203,7 +220,9 @@ export function drawMaskMatte(ed: MaskHost, g: CanvasRenderingContext2D, mode: '
       // inside stays white, outside becomes half grey: multiplied over the footage
       const x = c.getContext('2d')!;
       x.globalCompositeOperation = 'screen';
-      x.fillStyle = '#7f8082';
+      // the blending factor: how dark the outside gets (1: black)
+      const v = Math.round(255 * (1 - Math.max(0, Math.min(1, blend))));
+      x.fillStyle = `rgb(${v}, ${v}, ${v})`;
       x.fillRect(0, 0, sw, sh);
       x.globalCompositeOperation = 'source-over';
     }

@@ -29,7 +29,7 @@ import { toolHeaderSettings } from '../../paint/ui';
 import { activeTools } from '../../app/prefs';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
-import { drawMask, drawMaskMatte, hostMask, type MaskHost } from '../../mask/clipmask';
+import { drawMask, drawMaskMatte, hostMask, type MaskHost, type MaskDisplayType } from '../../mask/clipmask';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar, maskProportionalHeader } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
 import './imageextra';
@@ -126,7 +126,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
   viewTool: 'sample' | AnnotateTool = 'sample';
   private lastAnnotate: AnnotateTool = 'annotate';
   /** Overlays popover: master switch and the mask display */
-  overlays = { show_overlays: true, show_mask_spline: true, mask_overlay_mode: 'NONE' as 'NONE' | 'COMBINED' | 'ALPHACHANNEL' };
+  overlays = { show_overlays: true, show_mask_spline: true, mask_display_type: 'OUTLINE' as MaskDisplayType, mask_overlay_mode: 'NONE' as 'NONE' | 'COMBINED' | 'ALPHACHANNEL', blend_factor: 0.5 };
   showToolbar = true;
   /** View mode: show the Sample tool's settings over the image */
   showToolSettings = true;
@@ -582,8 +582,8 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
     const m = hostMask(this);
     if (m) {
       const mode = this.overlays.mask_overlay_mode;
-      drawMaskMatte(this, ctx, mode);
-      drawMask(this, ctx, this.overlays.show_mask_spline);
+      drawMaskMatte(this, ctx, mode, this.overlays.blend_factor);
+      drawMask(this, ctx, this.overlays.show_mask_spline, this.overlays.mask_display_type);
     }
     const [W, H] = this.frameSize();
     const [cx, cy] = this.toScreen(this.cursor[0] * W, (1 - this.cursor[1]) * H);
@@ -958,6 +958,17 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
         ? [
             h('div', { class: 'pop-title' }, 'Mask Display'),
             checkbox('ie-ov-spline', 'Spline', ov.show_mask_spline, (v) => ((ov.show_mask_spline = v), redraw())),
+            enumRow(
+              'ie-ov-mdisplay',
+              [
+                { value: 'OUTLINE', label: 'Outline', description: 'Light splines with a dark border' },
+                { value: 'DASH', label: 'Dash', description: 'Dashed splines' },
+                { value: 'BLACK', label: 'Black', description: 'Thin black splines' },
+                { value: 'WHITE', label: 'White', description: 'Thin white splines' },
+              ],
+              ov.mask_display_type,
+              (v) => ((ov.mask_display_type = v as MaskDisplayType), redraw()),
+            ),
             splitRow(
               'Overlay',
               enumMenu(
@@ -971,6 +982,7 @@ export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
                 (v) => ((ov.mask_overlay_mode = v as 'NONE'), redraw()),
               ),
             ),
+            numberField({ id: 'ie-ov-blend', label: 'Blending Factor', value: ov.blend_factor, min: 0, max: 1, slider: true, unit: 'factor', set: (v) => ((ov.blend_factor = v), this.draw()) }),
           ]
         : null,
     );
