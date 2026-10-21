@@ -659,3 +659,25 @@ describe('copying and pasting embeds', () => {
     host.remove();
   });
 });
+
+describe('editor bookkeeping', () => {
+  it('does not pile up DOM records while the user only types', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>words</p>' }], ink: [] });
+    const p = host.querySelector('.outline-body p');
+    for (let i = 0; i < 50; i++) {
+      // A link made as you type replaces a text node with an <a>.
+      const a = document.createElement('a');
+      a.textContent = `www.example${i}.com`;
+      p.append(a, ' ');
+      await Promise.resolve();
+      p.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: ' ' }));
+    }
+    await Promise.resolve();
+    expect(ed.addedRecords.length + ed.additions.takeRecords().length).toBeLessThan(3);
+    ed.destroy();
+    host.remove();
+  });
+});

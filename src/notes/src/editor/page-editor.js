@@ -490,10 +490,15 @@ export class PageEditor extends Emitter {
       if (this.selectedImage.isConnected) this.placeImageHandle?.();
       else this.clearImageSelection();
     }
-    // Plain typing adds no styled elements; skip the bookkeeping for it.
+    // Plain typing adds no styled elements: skip the cleanup, and drop what
+    // was recorded meanwhile (links made as you type, for one) so the
+    // records don't pile up through a long typing session.
     if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText' && !e.isComposing) {
       const added = this.takeAdded();
       if (e.isTrusted && added.size) dropRedundantStyles(added);
+    } else if (this.addedRecords.length) {
+      this.addedRecords = [];
+      this.additions.takeRecords();
     }
     if (e.inputType === 'insertText' && e.data === ' ') {
       this.autoLink();
