@@ -217,6 +217,19 @@ test('the status bar counts the selection, picks a language that saves into the 
   expect(strFromU8(unzipSync(readFileSync(path))['word/document.xml'])).toContain('<w:lang w:val="de-DE"/>');
 });
 
+test('the ContextMenu key on the status bar starts its Customize menu on the first item', async ({ page }) => {
+  await openEditor(page);
+  await page.locator('.ed-statusbar .ed-word-count').focus();
+  await page.keyboard.press('ContextMenu');
+  const menu = page.getByRole('menu', { name: 'Customize Status Bar' });
+  await expect(menu.getByRole('menuitemcheckbox', { name: 'Page Number' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  // A right-click still opens it with no item chosen.
+  await page.locator('.ed-statusbar').click({ button: 'right', position: { x: 300, y: 10 } });
+  await expect(menu).toBeFocused();
+});
+
 test('the Language list is one tab stop that the arrow keys move through', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Bonjour');

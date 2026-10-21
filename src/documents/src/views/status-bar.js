@@ -69,7 +69,8 @@ export function createStatusBar({ w, a, parts, help }) {
   footer.addEventListener('contextmenu', e => {
     if (e.target.closest('input, select')) return;
     e.preventDefault();
-    openMenu({ anchor: footer, x: e.clientX, y: e.clientY, label: 'Customize Status Bar', minWidth: 230, pointer: true, items: [
+    // The ContextMenu key (Chrome reports no button, -1) starts on the first item; a right-click on none.
+    openMenu({ anchor: footer, x: e.clientX, y: e.clientY, label: 'Customize Status Bar', minWidth: 230, pointer: e.button !== -1, items: [
       { header: 'Show in the status bar' },
       ...STATUS_ITEMS.filter(([id]) => items[id]).map(([id, label]) => ({ label, checked: !hidden.has(id), onSelect: () => toggle(id) })),
     ] });
