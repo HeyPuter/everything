@@ -560,6 +560,8 @@ export class App {
     let body;
     if (kind === 'locked') {
       body = h('div', icon('lock', 32), h('h2', 'This section is password protected'), h('p', 'Enter its password to see its pages.'), h('button.btn.primary', { type: 'button', onclick: () => section && this.selectSection(section.id) }, 'Unlock'));
+    } else if (!this.store.notebook(this.state.notebookId)) {
+      body = h('div', icon('notebook', 32), h('h2', 'No notebooks yet'), h('p', 'Add a notebook to start writing.'), h('button.btn.primary', { type: 'button', onclick: () => this.newNotebook() }, 'Add notebook'));
     } else if (!section) {
       body = h('div', icon('notebook', 32), h('h2', 'No sections yet'), h('p', 'Add a section to start writing.'), h('button.btn.primary', { type: 'button', onclick: () => this.newSection() }, 'Add section'));
     } else {

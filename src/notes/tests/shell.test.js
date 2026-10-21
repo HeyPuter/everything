@@ -202,6 +202,16 @@ describe('App shell', () => {
     expect(document.activeElement.querySelector('.result-title').textContent).toBe('Untitled Page');
   });
 
+  it('offers to add a notebook once the last notebook is deleted', () => {
+    store.deleteNotebook(app.state.notebookId);
+    app.state.notebookId = null;
+    app.ensureSelection();
+    const empty = app.canvasCol.querySelector('.canvas-empty');
+    expect(empty.querySelector('h2').textContent).toBe('No notebooks yet');
+    expect(empty.querySelector('button').textContent).toBe('Add notebook');
+    expect(app.nav.sectionsList.textContent).not.toContain('This notebook');
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

@@ -138,7 +138,7 @@ export class Nav {
     if (nb) walk(nb.sections, 0);
     this.sectionsList.setAttribute('role', 'tree');
     this.sectionsList.replaceChildren(...rows);
-    if (!rows.length) this.setEmpty(this.sectionsList, 'This notebook has no sections yet. Add one to start writing.');
+    if (!rows.length) this.setEmpty(this.sectionsList, nb ? 'This notebook has no sections yet. Add one to start writing.' : 'You have no notebooks. Add one to start writing.');
     this.fixRoving(this.sectionsList, state.sectionId);
   }
 
