@@ -1660,13 +1660,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'fontSize': {
         let px = Number(arg);
         if (arg == null) {
+          // The size is written and read with the regional format's decimal mark (10,5 in German), as a cell's number is.
+          const { decimal } = localeInfo();
+          const points = (value) => { const t = String(value).trim().replace(decimal, '.'); return /^\d+(?:\.\d+)?$/.test(t) ? Number(t) : NaN; };
           const text = await promptDialog({
-            title: 'Custom font size', label: 'Font size', value: String(pxToPt(ctx.style().size || 13)), confirmLabel: 'OK', inputMode: 'decimal',
+            title: 'Custom font size', label: 'Font size', value: String(pxToPt(ctx.style().size || 13)).replace('.', decimal), confirmLabel: 'OK', inputMode: 'decimal',
             hint: 'Enter a size from 1 to 409 points. Decimals are supported.',
-            validate: (value) => /^\d+(?:\.\d+)?$/.test(value) && Number(value) >= 1 && Number(value) <= 409 ? null : 'Enter a number from 1 to 409.',
+            validate: (value) => points(value) >= 1 && points(value) <= 409 ? null : 'Enter a number from 1 to 409.',
           });
           if (text == null) { keepFocus(); return; }
-          px = ptToPx(Number(text));
+          px = ptToPx(points(text));
         }
         if (!Number.isFinite(px) || px <= 0) return;
         wb.transaction('Font size', () => {
