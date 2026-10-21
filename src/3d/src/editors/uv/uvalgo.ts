@@ -490,7 +490,12 @@ function dot(a: number[], b: number[]) {
 }
 
 /** Scale islands so they all have the same texel density (UV area per 3D area). */
-export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: number[][]): number {
+/**
+ * Average the islands' scale so their UV area matches their 3D area relative to each other.
+ * `scaleUV`: also stretch each island along U and V separately so its edge lengths follow the 3D
+ * ones (least squares over the island's edges).
+ */
+export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: number[][], scaleUV = false): number {
   const me: MeshData = { ...t.me, uvs } as MeshData;
   const info = islands.map((faces) => {
     let a2 = 0,
@@ -509,13 +514,48 @@ export function averageIslandsScale(t: UVTopo, uvs: Float32Array, islands: numbe
   for (const i of info) {
     if (i.a2 <= 1e-20 || i.a3 <= 1e-20) continue;
     const s = Math.sqrt((density * i.a3) / i.a2);
+    let su = s,
+      sv = s;
+    if (scaleUV) {
+      // a = su², b = sv² from Σ (a·du² + b·dv² − density·L²)² → 2 × 2 normal equations
+      let m11 = 0,
+        m12 = 0,
+        m22 = 0,
+        r1 = 0,
+        r2 = 0;
+      const P = t.me.positions;
+      for (const f of i.faces)
+        for (let c = t.me.offsets[f]; c < t.me.offsets[f + 1]; c++) {
+          const n = t.next(c);
+          const du2 = (uvs[n * 2] - uvs[c * 2]) ** 2,
+            dv2 = (uvs[n * 2 + 1] - uvs[c * 2 + 1]) ** 2;
+          const va = t.me.indices[c] * 3,
+            vb = t.me.indices[n] * 3;
+          const L2 = (P[vb] - P[va]) ** 2 + (P[vb + 1] - P[va + 1]) ** 2 + (P[vb + 2] - P[va + 2]) ** 2;
+          const target = density * L2;
+          m11 += du2 * du2;
+          m12 += du2 * dv2;
+          m22 += dv2 * dv2;
+          r1 += target * du2;
+          r2 += target * dv2;
+        }
+      const det = m11 * m22 - m12 * m12;
+      if (Math.abs(det) > 1e-30) {
+        const a = (r1 * m22 - r2 * m12) / det,
+          b = (m11 * r2 - m12 * r1) / det;
+        if (a > 0 && b > 0) {
+          su = Math.sqrt(a);
+          sv = Math.sqrt(b);
+        }
+      }
+    }
     const corners = islandCorners(t, i.faces);
     const b = cornersBounds(uvs, corners);
     const cu = (b[0] + b[2]) / 2,
       cv = (b[1] + b[3]) / 2;
     for (const k of corners) {
-      uvs[k * 2] = cu + (uvs[k * 2] - cu) * s;
-      uvs[k * 2 + 1] = cv + (uvs[k * 2 + 1] - cv) * s;
+      uvs[k * 2] = cu + (uvs[k * 2] - cu) * su;
+      uvs[k * 2 + 1] = cv + (uvs[k * 2 + 1] - cv) * sv;
     }
     n++;
   }

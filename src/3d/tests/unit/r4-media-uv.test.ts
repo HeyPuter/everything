@@ -123,3 +123,27 @@ describe('UV shortest path fill', () => {
     expect(fill.length).toBe(9);
   });
 });
+
+describe('average islands scale (non-uniform)', () => {
+  it('stretches an island along U and V to follow its 3D edge lengths', async () => {
+    const { averageIslandsScale } = await import('../../src/editors/uv/uvalgo');
+    // a 2 × 1 rectangle in 3D mapped to a square in UV, next to a unit square mapped 1:1
+    const arr = buildMesh(
+      [0, 0, 0, 2, 0, 0, 2, 1, 0, 0, 1, 0, 5, 0, 0, 6, 0, 0, 6, 1, 0, 5, 1, 0],
+      [
+        { verts: [0, 1, 2, 3], uvs: [0.1, 0.1, 0.3, 0.1, 0.3, 0.3, 0.1, 0.3] },
+        { verts: [4, 5, 6, 7], uvs: [0.6, 0.6, 0.8, 0.6, 0.8, 0.8, 0.6, 0.8] },
+      ],
+    );
+    const me = newMeshData('R', arr);
+    me.select_vert = new Uint8Array(8).fill(1);
+    const t = new UVTopo(layer(me));
+    const out = new Float32Array(me.uvs);
+    averageIslandsScale(t, out, t.islandFaces(), true);
+    const a = cornersBounds(out, [0, 1, 2, 3]),
+      b = cornersBounds(out, [4, 5, 6, 7]);
+    // the rectangle becomes twice as wide as tall, the square stays square
+    expect((a[2] - a[0]) / (a[3] - a[1])).toBeCloseTo(2, 3);
+    expect((b[2] - b[0]) / (b[3] - b[1])).toBeCloseTo(1, 3);
+  });
+});

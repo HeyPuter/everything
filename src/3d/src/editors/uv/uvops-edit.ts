@@ -389,8 +389,9 @@ registerOperators([
     idname: 'uv.average_islands_scale',
     label: 'Average Islands Scale',
     description: 'Scale islands so their UV area matches their 3D area relative to each other',
+    props: [{ id: 'scale_uv', label: 'Non-Uniform', type: 'bool', default: false }],
     poll: uvEditPoll,
-    exec: (ctx) => (editUVs((t, uvs, sel) => averageIslandsScale(t, uvs, opIslands(ctx, t, sel)), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
+    exec: (ctx, p) => (editUVs((t, uvs, sel) => averageIslandsScale(t, uvs, opIslands(ctx, t, sel), !!p.scale_uv), opLayers(ctx)) ? 'FINISHED' : 'CANCELLED'),
   },
   {
     idname: 'uv.arrange_islands',
