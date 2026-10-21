@@ -265,4 +265,14 @@ addKeys('Pose', [
   { key: 'H', alt: true, op: 'pose.reveal', when: pose },
   { key: 'M', menu: () => collectionMenuItems(true), menuTitle: 'Move to Collection', when: pose },
   { key: 'M', shift: true, menu: () => collectionMenuItems(false), menuTitle: 'Add to Collection', when: pose },
+  { key: 'P', ctrl: true, menu: poseParentMenu, menuTitle: 'Set Parent To', when: pose },
 ]);
+
+/** Pose Mode ▸ Ctrl P: parent the other selected objects to the armature or its active bone. */
+function poseParentMenu(): MenuItem[] {
+  return [
+    { label: 'Object', op: 'object.parent_set', props: { type: 'OBJECT' } },
+    { label: 'Object (Keep Transform)', op: 'object.parent_set', props: { type: 'OBJECT', keep_transform: true } },
+    { label: 'Bone', op: 'object.parent_set', props: { type: 'BONE' } },
+  ];
+}

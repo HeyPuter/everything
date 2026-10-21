@@ -985,7 +985,8 @@ registerOperators([
       },
       { id: 'keep_transform', label: 'Keep Transform', type: 'bool', default: false },
     ],
-    poll: (ctx) => ctx.doc.mode === 'OBJECT' && !!app.activeObject && app.selectedObjects().length > 1,
+    // in Pose Mode the active armature parents the other selected objects (e.g. to its active bone)
+    poll: (ctx) => (ctx.doc.mode === 'OBJECT' || (ctx.doc.mode === 'POSE' && app.activeObject?.type === 'ARMATURE')) && !!app.activeObject && app.selectedObjects().length > 1,
     exec: (ctx, p) => {
       const parent = app.activeObject!;
       const pw = app.graph.get(parent.id)!.world.clone();

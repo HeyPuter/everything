@@ -142,3 +142,19 @@ describe('Auto IK', () => {
     expect(pose.use_auto_ik).toBe(false);
   });
 });
+
+describe('Pose Mode parenting', () => {
+  it('Ctrl P ▸ Bone parents the selected objects to the active bone without moving them', () => {
+    build([['Bone', [0, 0, 0], [0, 0, 1], 0, null, false]]);
+    const cube = Object.values(app.doc.objects).find((o) => o.name === 'Cube')!;
+    const before = app.graph.get(cube.id)!.world.clone();
+    cube.select = true;
+    ob.select = true;
+    arm.active_bone = 'Bone';
+    expect(app.run('object.parent_set', { type: 'BONE' }, { invoke: false })).toBe('FINISHED');
+    app.evaluate();
+    expect([cube.parent, cube.parent_type, cube.parent_bone]).toEqual([ob.id, 'BONE', 'Bone']);
+    const after = app.graph.get(cube.id)!.world;
+    after.elements.forEach((x, i) => expect(x).toBeCloseTo(before.elements[i], 6));
+  });
+});

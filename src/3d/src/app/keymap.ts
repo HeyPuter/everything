@@ -87,6 +87,10 @@ const CODE_MAP: Record<string, string> = {
   AltRight: 'RIGHT_ALT',
   MetaLeft: 'OSKEY',
   MetaRight: 'OSKEY',
+  MediaPlayPause: 'MEDIA_PLAY',
+  MediaStop: 'MEDIA_STOP',
+  MediaTrackNext: 'MEDIA_LAST',
+  MediaTrackPrevious: 'MEDIA_FIRST',
 };
 
 /** Modifier keys (never bound on their own by the dispatcher's click detection). */
@@ -126,6 +130,10 @@ const NICE: Record<string, string> = {
   NUMPAD_MINUS: 'Numpad -',
   NUMPAD_SLASH: 'Numpad /',
   NUMPAD_ASTERIX: 'Numpad *',
+  MEDIA_PLAY: 'Media Play',
+  MEDIA_STOP: 'Media Stop',
+  MEDIA_LAST: 'Media Next',
+  MEDIA_FIRST: 'Media Previous',
 };
 
 export function keyLabel(k: KeyItem) {
