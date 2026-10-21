@@ -1505,7 +1505,8 @@ export function createGrid(opts) {
       picture = true;
     }
     if (picture || checkbox) text = '';
-    if (!spill && (cell?.f != null || typeof value === 'string')) {
+    // Text may be an address, a formula a HYPERLINK; any other value is a link only when one was put on it.
+    if (!spill && (cell?.f != null || typeof value === 'string' || cell?.hyperlink)) {
       const link = wb.linkAt(s.id, r, c);
       if (link) { node.classList.add('link'); node.title = link.url; }
     }
