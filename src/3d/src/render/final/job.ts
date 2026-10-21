@@ -27,6 +27,7 @@ import { icon } from '../../ui/icons';
 import { curveTable, type ViewSettings } from './colormanage';
 import { renderViews, multiview, stereoResult, viewFileName, type RenderViewPlan } from './stereo';
 import { outputView } from './outputview';
+import { isExr, resultExr } from './renderexr';
 import { viewCamera } from './stereocamera';
 import type { RenderSettings } from '../../data/types';
 import { passesFromGuide } from './passes';
@@ -902,8 +903,16 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
         } else if (zip) {
           const fmt = format as FileFormat;
           const opts = { colorMode: r.color_mode, quality: (r.quality ?? 90) / 100, view, dither: r.dither_intensity };
-          const name = frameFileName(r.filepath, f, EXT[fmt], r.use_file_extension !== false);
-          if (result.views?.length && !combined) {
+          const exr = isExr(format) ? format : null;
+          const name = frameFileName(r.filepath, f, exr ? 'exr' : EXT[fmt], r.use_file_extension !== false);
+          if (exr) {
+            // scene-linear float data (no view transform), one file per view
+            const layerName = ensureViewLayers(doc.scene)[activeLayerIndex(doc.scene)]?.name ?? 'ViewLayer';
+            const list = result.views?.length ? result.views.map((v) => ({ suffix: v.suffix, res: { ...result, passes: v.passes, viewLayer: v.viewLayer } })) : [{ suffix: '', res: result }];
+            for (const v of list) zip.add(v.suffix ? viewFileName(name, v.suffix) : name, resultExr(v.res, r, exr, layerName));
+            // View Animation plays a display-converted preview
+            animationRecorder.addFrame(f, await encodeResult(list[0].res, 'PNG', opts), MIME.PNG);
+          } else if (result.views?.length && !combined) {
             // individual views: one file per view, named with the view's suffix
             for (const v of result.views) {
               const bytes = await encodeResult({ ...result, passes: v.passes }, fmt, opts);

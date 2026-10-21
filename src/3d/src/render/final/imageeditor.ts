@@ -15,6 +15,11 @@ import { renderResult, passToRGBA8, samplePixel, encodeRGBA8, canvasBytes, downl
 import { stereoResult } from './stereo';
 import { stereoDisplay } from './stereoops';
 import { outputView } from './outputview';
+import { activeLayerIndex, ensureViewLayers } from '../../scenes/viewlayers';
+import { isExr, resultExr, type ExrFormat } from './renderexr';
+
+/** Formats the Save As dialog offers (OpenEXR for render results). */
+type SaveFormat = FileFormat | ExrFormat;
 import { renderSize } from './units';
 import { LOOKS, displayPixel } from './colormanage';
 import { pngWithText } from './stamp';
@@ -928,12 +933,12 @@ export class ImageEditor implements Editor, View2D {
     return encodeRGBA8(px, src.width, src.height, format, { alpha: false, quality });
   }
 
-  private defaultName(format: FileFormat) {
+  private defaultName(format: SaveFormat) {
     const base = this.image?.name.replace(/\.[a-z0-9]+$/i, '') ?? (this.result ? `render_${this.result.info.frame}${this.pass !== 'Combined' ? '_' + this.pass.toLowerCase() : ''}` : 'image');
-    return `${base}.${EXT[format]}`;
+    return `${base}.${isExr(format) ? 'exr' : EXT[format]}`;
   }
 
-  private outputDefaults(): { format: FileFormat; colorMode: 'BW' | 'RGB' | 'RGBA' } {
+  private outputDefaults(): { format: SaveFormat; colorMode: 'BW' | 'RGB' | 'RGBA' } {
     const r = app.doc.scene.render;
     if (this.result) return { format: r.file_format === 'WEBM' ? 'PNG' : r.file_format, colorMode: r.color_mode };
     const img = this.image;
@@ -948,8 +953,17 @@ export class ImageEditor implements Editor, View2D {
     await this.saveWith(format, colorMode, 0.9, this.defaultName(format));
   }
 
-  private async saveWith(format: FileFormat, colorMode: 'BW' | 'RGB' | 'RGBA', quality: number, name: string) {
+  private async saveWith(format: SaveFormat, colorMode: 'BW' | 'RGB' | 'RGBA', quality: number, name: string) {
     try {
+      if (isExr(format)) {
+        // render results as scene-linear OpenEXR (all passes for MultiLayer)
+        const res = this.imageId === RENDER_RESULT ? resultView(renderResult.get(), this.view) : this.result;
+        if (!res) return void app.report('ERROR', 'OpenEXR is available for render results');
+        const sc = app.doc.scene;
+        download(resultExr(res, { ...sc.render, color_mode: colorMode }, format, ensureViewLayers(sc)[activeLayerIndex(sc)]?.name), name, 'image/x-exr');
+        app.report('INFO', `Saved "${name}"`);
+        return;
+      }
       const bytes = await this.encode(format, colorMode, quality);
       if (!bytes) return;
       download(bytes, name, `image/${EXT[format] === 'jpg' ? 'jpeg' : EXT[format]}`);
@@ -980,11 +994,12 @@ export class ImageEditor implements Editor, View2D {
                 { value: 'PNG', label: 'PNG' },
                 { value: 'JPEG', label: 'JPEG' },
                 { value: 'WEBP', label: 'WebP' },
+                ...(this.result ? [{ value: 'OPEN_EXR', label: 'EXR' }, { value: 'OPEN_EXR_MULTILAYER', label: 'EXR Layers', description: 'OpenEXR with every render pass' }] : []),
               ],
               p.format,
               (v) => {
-                p.format = v as FileFormat;
-                p.name = p.name.replace(/\.[a-z0-9]+$/i, '') + '.' + EXT[p.format];
+                p.format = v as SaveFormat;
+                p.name = p.name.replace(/\.[a-z0-9]+$/i, '') + '.' + (isExr(p.format) ? 'exr' : EXT[p.format]);
                 if (p.format === 'JPEG' && p.colorMode === 'RGBA') p.colorMode = 'RGB';
                 pop.redraw();
               },
@@ -1003,7 +1018,7 @@ export class ImageEditor implements Editor, View2D {
               (v) => ((p.colorMode = v as 'RGB'), pop.redraw()),
             ),
           ),
-          p.format !== 'PNG' ? splitRow('Quality', numberField({ id: 'ie-save-q', value: p.quality, int: true, min: 1, max: 100, unit: 'percentage', slider: true, set: (v) => ((p.quality = v), pop.redraw()) })) : null,
+          p.format !== 'PNG' && !isExr(p.format) ? splitRow('Quality', numberField({ id: 'ie-save-q', value: p.quality, int: true, min: 1, max: 100, unit: 'percentage', slider: true, set: (v) => ((p.quality = v), pop.redraw()) })) : null,
           h(
             'div',
             { class: 'ie-dialog-buttons' },

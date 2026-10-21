@@ -1075,7 +1075,10 @@ export interface RenderSettings extends RealtimeRenderSettings, MultiviewSetting
   film_transparent: boolean;
   fps: number;
   fps_base: number;
-  file_format: 'PNG' | 'JPEG' | 'WEBP' | 'WEBM';
+  file_format: 'PNG' | 'JPEG' | 'WEBP' | 'WEBM' | 'OPEN_EXR' | 'OPEN_EXR_MULTILAYER';
+  /** OpenEXR: half (16) or full (32) floats, and the compression */
+  color_depth?: '16' | '32';
+  exr_codec?: 'NONE' | 'ZIPS' | 'ZIP';
   color_mode: 'BW' | 'RGB' | 'RGBA';
   filepath: string;
   // sampling

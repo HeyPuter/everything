@@ -84,16 +84,31 @@ function frameRangePanel(r: RenderSettings): Child {
 
 function outputPanel(r: RenderSettings): Child {
   const fmt = r.file_format;
+  const exr = fmt === 'OPEN_EXR' || fmt === 'OPEN_EXR_MULTILAYER';
+  r.color_depth ??= '16';
+  r.exr_codec ??= 'ZIP';
   const colors: [string, string][] = fmt === 'JPEG' || fmt === 'WEBM' ? [['BW', 'BW'], ['RGB', 'RGB']] : [['BW', 'BW'], ['RGB', 'RGB'], ['RGBA', 'RGBA']];
   if (r.color_mode === 'RGBA' && colors.length === 2) r.color_mode = 'RGB';
   return panel('out-output', 'Output', () => [
     textProp(r, 'filepath', 'Output Path'),
     h('div', { class: 'sub-label' }, 'Saving'),
     bool(r, 'use_file_extension', 'File Extensions', { tip: 'Add the file format extension to rendered file names' }),
-    enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['WEBM', 'WebM Video']]),
+    enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['OPEN_EXR', 'OpenEXR'], ['OPEN_EXR_MULTILAYER', 'OpenEXR MultiLayer'], ['WEBM', 'WebM Video']]),
     enumProp(r, 'color_mode', 'Color', colors),
-    fmt !== 'PNG' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
-    fmt === 'PNG' ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.') : fmt === 'WEBM' ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.') : null,
+    exr
+      ? [
+          enumProp(r, 'color_depth' as never, 'Color Depth', [['16', 'Float (Half)'], ['32', 'Float (Full)']], { tip: 'Bits per channel of the stored floats' }),
+          enumProp(r, 'exr_codec' as never, 'Codec', [['NONE', 'None'], ['ZIPS', 'ZIP (single scanline)'], ['ZIP', 'ZIP']], { tip: 'Lossless compression of the image data' }),
+        ]
+      : null,
+    fmt !== 'PNG' && !exr ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
+    fmt === 'PNG'
+      ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.')
+      : fmt === 'WEBM'
+        ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.')
+        : exr
+          ? h('div', { class: 'prop-note' }, fmt === 'OPEN_EXR_MULTILAYER' ? 'Scene-linear floats of every render pass, without the view transform.' : 'Scene-linear floats of the image, without the view transform.')
+          : null,
     viewsSubPanel(r),
     outputColorPanel(r),
   ]);
