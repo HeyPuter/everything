@@ -14255,11 +14255,14 @@ const slideLabel = (s) =>
 // scheme would run in the page the moment it was followed while presenting.
 const OPENABLE_URL = /^\s*(https?:|mailto:|tel:)/i;
 const canOpenUrl = (url) => OPENABLE_URL.test(String(url || ""));
-// Web addresses without a scheme are taken as https.
+// Web addresses without a scheme are taken as https, and a mail address
+// typed alone as one to write to.
 function normalizeUrl(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   if (canOpenUrl(trimmed)) return trimmed;
+  if (/^[^\s@/:?#]+@[^\s@/:?#]+\.[^\s@/:?#]+$/.test(trimmed))
+    return `mailto:${trimmed}`;
   // Another scheme is refused; "localhost:3000" or "example.com:8080/x"
   // carry a port, not a scheme.
   if (/^[a-z][a-z0-9+.-]*:(?!\d+(\/|$))/i.test(trimmed)) return null;

@@ -13634,6 +13634,23 @@ test("deleting a slide removes the links to it", async ({ page }) => {
   expect(P.getShapeXmlString(title)).not.toContain("hlinksldjump");
 });
 
+// A mail address typed alone took the web's scheme, so the link opened the
+// address's domain as a web page instead of a message to it.
+test("a mail address typed as a link writes to it", async ({ page }) => {
+  await story(page);
+  await page.locator('[data-object="1"]').click();
+  await page.keyboard.press("Control+k");
+  const dialog = page.getByRole("dialog", { name: "Add link" });
+  await dialog
+    .getByRole("textbox", { name: "Web address" })
+    .fill("team@example.com");
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await paneTab(page, "Size & Properties");
+  await expect(panel(page).locator(".link-target")).toHaveText(
+    "mailto:team@example.com",
+  );
+});
+
 // Find counted matches in the flattened text while Replace found them run
 // by run, so the counts disagreed and Replace could change the wrong one.
 test("find counts the matches that Replace can reach", async ({ page }) => {
