@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { PDFDocument, PDFName, PDFString, decodePDFRawStream } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { documentDetails, setDocumentDetails } from '../src/core/details.js';
+import {
+  documentDetails,
+  setDocumentDetails,
+  synchronizeDocumentMetadata,
+} from '../src/core/details.js';
 import { PdfSession, rotatePage } from '../src/core/document.js';
 
 const n = PDFName.of;
@@ -342,6 +346,19 @@ describe('XMP document details', () => {
     );
     expect(documentDetails(doc).title).toBe('Original');
     expect(doc.catalog.get(n('Metadata'))).toBe(original);
+  });
+
+  it('edits the details of a file whose Info title has characters XML cannot hold', async () => {
+    const doc = await fixture(packet('<pdf:Producer>Writer</pdf:Producer>'));
+    doc.setTitle('Report\0');
+    setDocumentDetails(doc, { author: 'Ada' });
+    expect(documentDetails(doc)).toMatchObject({ title: 'Report', author: 'Ada' });
+    expect(xmlOf(doc)).toContain('>Report</rdf:li>');
+    // Edits elsewhere keep both stores in step too.
+    const other = await fixture(packet('<pdf:Producer>Writer</pdf:Producer>'));
+    other.setTitle('Summary\u0001');
+    expect(synchronizeDocumentMetadata(other)).toBe(true);
+    expect(xmlOf(other)).toContain('>Summary</rdf:li>');
   });
 
   it('reads XMP-only values using namespace URIs and the first creator', async () => {

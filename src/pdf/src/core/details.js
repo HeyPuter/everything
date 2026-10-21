@@ -48,6 +48,19 @@ export function documentDetails(doc, bytes) {
   };
 }
 const EDITABLE = ['title', 'author', 'subject', 'keywords'];
+// Info strings can hold characters XML cannot (a title ending in a NUL is common). A value
+// carried over unchanged drops them, so it does not block writing the XMP beside it.
+const xmlSafe = (values) =>
+  Object.fromEntries(
+    Object.entries(values).map(([key, value]) => [
+      key,
+      typeof value === 'string'
+        ? value
+            .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '')
+            .replace(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g, '')
+        : value,
+    ]),
+  );
 const now = () => new Date(Math.floor(Date.now() / 1000) * 1000);
 function writeMetadata(doc, packet, next, strict = true) {
   let modified;
@@ -86,7 +99,7 @@ export function synchronizeDocumentMetadata(doc) {
   const packet = readXmp(doc);
   // A damaged packet must not prevent unrelated page/content edits.
   if (!packet || packet.error) return false;
-  return writeMetadata(doc, packet, { ...metadata(doc, packet), modified: now() }, false);
+  return writeMetadata(doc, packet, { ...xmlSafe(metadata(doc, packet)), modified: now() }, false);
 }
 /**
  * Write the editable details. Returns false when nothing changed so the edit leaves no
@@ -104,5 +117,9 @@ export function setDocumentDetails(doc, values) {
     updates[key] = value;
   }
   if (!Object.keys(updates).length) return false;
-  writeMetadata(doc, packet, { ...current, ...updates, modified: now() });
+  writeMetadata(doc, packet, {
+    ...xmlSafe(current),
+    ...updates,
+    modified: now(),
+  });
 }
