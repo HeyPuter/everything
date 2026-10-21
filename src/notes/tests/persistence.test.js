@@ -143,3 +143,19 @@ describe('Removing a password while offline', () => {
     expect(section.locked).toBeTruthy();
   });
 });
+
+describe('Tags Summary', () => {
+  it('checks off the to-do it lists even after the page changed', async () => {
+    const { app, store } = await mount();
+    const todo = (text) => `<p><span class="nt-tag" data-tag="todo" data-done="false"></span>${text}</p>`;
+    const meta = store.createPage(app.state.sectionId, { title: 'Chores', outlines: [{ id: 'o1', x: 40, y: 120, w: null, html: todo('Buy milk') + todo('Call mom') }] });
+    const listed = (await store.collectTags(`page:${meta.id}`)).find((t) => t.text === 'Call mom');
+    // A new to-do goes in above it after the summary was made.
+    const page = await store.loadPage(meta.id);
+    page.outlines[0].html = todo('Water plants') + page.outlines[0].html;
+    store.pageChanged(page);
+    await app.taskPanes.setDone(listed, true);
+    const done = (await store.collectTags(`page:${meta.id}`)).filter((t) => t.done).map((t) => t.text);
+    expect(done).toEqual(['Call mom']);
+  });
+});

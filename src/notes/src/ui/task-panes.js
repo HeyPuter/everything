@@ -1,7 +1,7 @@
 import { h } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { formatRelative } from '../lib/dates.js';
-import { TAG_BY_ID, tagLabel, setTagDoneInHtml } from '../data/tags.js';
+import { TAG_BY_ID, tagLabel, setTagDoneInHtml, extractTags } from '../data/tags.js';
 import { pageText } from '../data/store.js';
 import { insertHtml } from '../editor/format.js';
 import { textToHtml } from '../editor/page-editor.js';
@@ -131,7 +131,9 @@ export class TaskPanes {
     const row = h('div.result', { role: 'listitem', style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } });
     if (def?.kind === 'check') {
       const box = h('input', { type: 'checkbox', checked: t.done, 'aria-label': `Mark "${t.text}" as ${t.done ? 'not done' : 'done'}`, style: { marginTop: '2px', accentColor: 'var(--accent)' } });
-      box.addEventListener('change', () => this.setDone(t, box.checked));
+      box.addEventListener('change', async () => {
+        if ((await this.setDone(t, box.checked)) === false) box.checked = !box.checked;
+      });
       row.append(box);
     } else row.append(glyph);
     const open = h('button.link-btn', { type: 'button', style: { fontWeight: '400', color: 'var(--text)', textAlign: 'left', flex: '1', textDecoration: t.done ? 'line-through' : 'none' } },
@@ -145,10 +147,18 @@ export class TaskPanes {
 
   async setDone(t, done) {
     const page = await this.app.store.loadPage(t.meta.id);
-    const outline = page.outlines.find((o) => o.id === t.outlineId);
-    if (!outline) return;
     if (this.app.state.pageId === page.id) this.app.editor.flush();
-    outline.html = setTagDoneInHtml(outline.html, t.index, done);
+    const outline = page.outlines.find((o) => o.id === t.outlineId);
+    // The note may have changed since the list was made: find the listed
+    // tag again rather than trusting its old position.
+    const now = outline ? extractTags([outline]) : [];
+    const same = (c) => c.tag === t.tag && c.text === t.text;
+    const index = now[t.index] && same(now[t.index]) ? t.index : now.findIndex(same);
+    if (index < 0) {
+      toast('That note has changed. Refresh Results and try again.');
+      return false;
+    }
+    outline.html = setTagDoneInHtml(outline.html, index, done);
     this.app.store.pageChanged(page);
     if (this.app.state.pageId === page.id) await this.app.editor.render();
     t.done = done;
