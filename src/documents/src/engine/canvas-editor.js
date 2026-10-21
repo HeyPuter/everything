@@ -7,6 +7,7 @@ import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
 
 export const PASTED_PICTURE = /^image\/(png|jpeg|tiff)$/i;
+const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
 import { inlineControlCaret, adjacentInlineControl, moveInlineControlCaret, documentStartControlCaret, moveInlineControlHomeEnd, emptyControlPointerCaret, pointerControlSelection } from './content-control-caret.js';
 import { paintControlCarets } from './canvas-control-caret.js';
 import { paintStoryChrome, storyBoundaries } from './canvas-story-chrome.js';
@@ -1048,7 +1049,8 @@ export class CanvasEditor {
     return true;
   }
   pointerDown(e, tapped = false) {
-    if (e.button !== 0) return;
+    // Control+click is a Mac's secondary click: the context menu follows, and the selection it acts on stays.
+    if (e.button !== 0 || MAC && e.ctrlKey) return;
     // A press during composition commits it and goes on to place the caret, as in a native field;
     // returning would let the press take focus from the document, losing what is typed next.
     if (this.composition) this.finishComposition();

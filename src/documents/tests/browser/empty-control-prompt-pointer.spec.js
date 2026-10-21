@@ -80,5 +80,7 @@ for (const key of ['Control', 'Alt', 'Meta']) test(`${key} click retains the exi
   await open(page, 'tail.docx'); await click(page, 1);
   await page.keyboard.down(key);
   try { await click(page, 4, 100); } finally { await page.keyboard.up(key); }
-  expect(await page.evaluate(() => window.promptEditor.model.range)).toEqual([1, 360]);
+  // On a Mac, Control+click is the secondary click: like a right-click past the line's end, it puts the caret there.
+  const secondary = key === 'Control' && await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || ''));
+  expect(await page.evaluate(() => window.promptEditor.model.range)).toEqual(secondary ? [4, 4] : [1, 360]);
 });

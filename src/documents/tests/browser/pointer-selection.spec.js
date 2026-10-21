@@ -140,3 +140,20 @@ test('a click in Text mode moves the selection the toolbar acts on', async ({ pa
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.some(r => r.bold))).toBe(false);
 });
+
+test('on a Mac, Control+click keeps the selection for the context menu it opens', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Hello world again');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(6, 11); e.syncInput(); e.paint(); });
+  const canvas = page.locator('canvas.canvas-page').first(), box = await canvas.boundingBox();
+  const at = await page.evaluate(() => { const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0]; return { x: line.stops.find(s => s.offset === 8).x * e.zoom, y: (line.y + line.height / 2) * e.zoom }; });
+  // A Mac reports Control+click as a primary press with Control held, then a context menu event.
+  const point = { clientX: box.x + at.x, clientY: box.y + at.y, ctrlKey: true, button: 0, bubbles: true, cancelable: true };
+  await canvas.dispatchEvent('pointerdown', { ...point, pointerId: 1, pointerType: 'mouse', isPrimary: true });
+  await canvas.dispatchEvent('pointerup', { ...point, pointerId: 1, pointerType: 'mouse', isPrimary: true });
+  await canvas.evaluate((el, point) => el.dispatchEvent(new MouseEvent('contextmenu', point)), point);
+  expect(await selected(page)).toBe('world');
+  await expect(page.getByRole('menuitem', { name: 'Copy', exact: true })).toBeEnabled();
+});
