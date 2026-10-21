@@ -455,9 +455,10 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
     if (span) {
       ctx.fillStyle = '#898a8c';
       ctx.textAlign = 'right';
-      ctx.fillText(`${span[1] - span[0] + 1}`, CHANNEL_W - 8, y + 14);
+      ctx.fillText(`${span[1] - span[0] + 1}`, CHANNEL_W - 28, y + 14);
       ctx.textAlign = 'left';
     }
+    drawLockGlyph(ctx, CHANNEL_W - 18, y + ROW_H / 2 - 1, t.lock);
   });
   ctx.restore();
   ctx.fillStyle = '#9a9b9c';
@@ -470,6 +471,20 @@ export function drawDopesheet(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: 
   ctx.stroke();
 }
 
+/** Small padlock (closed when locked) for the channel list. */
+function drawLockGlyph(ctx: CanvasRenderingContext2D, x: number, y: number, locked: boolean) {
+  ctx.save();
+  ctx.strokeStyle = locked ? '#e1e2e4' : '#7d7e80';
+  ctx.fillStyle = locked ? '#e1e2e4' : '#7d7e80';
+  ctx.lineWidth = 1.2;
+  ctx.fillRect(x - 4, y, 8, 6);
+  ctx.beginPath();
+  if (locked) ctx.arc(x, y, 3, Math.PI, 0);
+  else ctx.arc(x + 3, y - 1, 3, Math.PI, 0);
+  ctx.stroke();
+  ctx.restore();
+}
+
 export function dopesheetPointer(ed: ClipEditor, e: PointerEvent, p: { x: number; y: number }) {
   const c = ed.clip;
   if (p.x < CHANNEL_W) {
@@ -477,6 +492,13 @@ export function dopesheetPointer(ed: ClipEditor, e: PointerEvent, p: { x: number
     const i = Math.floor((p.y - HEAD_H + ed.dopesheetScroll) / ROW_H);
     const t = sortedTracks(ed)[i];
     if (!t) return;
+    if (p.x >= CHANNEL_W - 26) {
+      // the padlock: lock / unlock the track
+      t.lock = !t.lock;
+      app.pushUndo(t.lock ? 'Lock Track' : 'Unlock Track');
+      app.changed('doc');
+      return;
+    }
     if (e.shiftKey || e.ctrlKey) t.select = !t.select;
     else {
       for (const o of tobj(c).tracks) o.select = false;
