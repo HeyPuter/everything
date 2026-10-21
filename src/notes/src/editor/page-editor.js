@@ -7,8 +7,8 @@ import { modKey } from '../lib/platform.js';
 import { PAGE_COLORS } from '../data/colors.js';
 import { History, snapshotOf, applySnapshot } from './history.js';
 import { hydrate, serialize, fileSpan } from './embeds.js';
-import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf, isBlock } from './selection.js';
-import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles, applyingColor } from './format.js';
+import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf, isBlock, blocksInRange } from './selection.js';
+import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles, applyingColor, ownStyleRuns } from './format.js';
 import { moveCell } from './table.js';
 import { setDone } from './tag-edit.js';
 import { InkTools } from './tools.js';
@@ -485,6 +485,8 @@ export class PageEditor extends Emitter {
 
   onInput(e) {
     if (this.readOnly || !this.page) return;
+    const own = this.ownStyles;
+    if (e.inputType !== 'deleteByDrag') this.ownStyles = null;
     // The first change since the last undo step: remember the selection it
     // started from (selectionchange has not seen the edit yet).
     if (!this.dirty.size && !this.commitSoon.pending() && this.caretBefore === undefined) this.caretBefore = this.selBefore?.caret ?? this.caretAt(this.selBefore?.points);
@@ -506,7 +508,7 @@ export class PageEditor extends Emitter {
     // records don't pile up through a long typing session.
     if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText' && !e.isComposing) {
       const added = this.takeAdded();
-      if (added.size && freezesStyles(e)) dropRedundantStyles(added);
+      if (added.size && freezesStyles(e)) dropRedundantStyles(added, { own: own?.runs });
     } else if (this.addedRecords.length) {
       this.addedRecords = [];
       this.additions.takeRecords();
@@ -605,7 +607,37 @@ export class PageEditor extends Emitter {
     } else if (e.inputType === 'historyRedo') {
       e.preventDefault();
       this.redo();
+    } else this.noteOwnStyles(e);
+  }
+
+  /**
+   * Before a join (Backspace or Delete across two paragraphs, a selection
+   * deleted across several) or a drag-move, notes the formatting set on
+   * the text it moves (ownStyleRuns), so the cleanup of Chrome's frozen
+   * spans keeps it. A drag-move's drop comes after its delete.
+   */
+  noteOwnStyles(e) {
+    if (e.inputType === 'insertFromDrop' && this.ownStyles?.drag) return;
+    this.ownStyles = null;
+    if (!e.inputType?.startsWith('delete') || !e.getTargetRanges) return;
+    const blocks = new Set();
+    for (const t of e.getTargetRanges()) {
+      const root = editableRoot(t.startContainer);
+      if (!root?.classList.contains('outline-body') || !root.contains(t.endContainer)) continue;
+      const first = blockOf(t.startContainer, root) || root;
+      const last = blockOf(t.endContainer, root) || root;
+      // Deleting inside one paragraph adds no spans.
+      if (first === last && e.inputType !== 'deleteByDrag') continue;
+      const range = document.createRange();
+      try {
+        range.setStart(t.startContainer, t.startOffset);
+        range.setEnd(t.endContainer, t.endOffset);
+      } catch {
+        continue;
+      }
+      for (const b of [first, last, ...blocksInRange(range, root)]) blocks.add(b);
     }
+    if (blocks.size) this.ownStyles = { runs: ownStyleRuns(blocks), drag: e.inputType === 'deleteByDrag' };
   }
 
   onKeyDown(e) {
@@ -781,6 +813,8 @@ export class PageEditor extends Emitter {
 
   async onPaste(e) {
     if (this.readOnly) return;
+    // Pasted text is new: nothing of it was the user's own formatting here.
+    this.ownStyles = null;
     const inBody = e.target.closest?.('.outline-body');
     const inTitle = e.target.closest?.('.page-title');
     if (inTitle) return; // plaintext-only handles it

@@ -3,7 +3,7 @@ import { ensureBlocks, fixNesting, blocksInRange, blockOf, rangeFromOffsets, tex
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
-import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles, toggleInline, clearFormatting, setColor, setHighlight } from '../src/editor/format.js';
+import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles, ownStyleRuns, toggleInline, clearFormatting, setColor, setHighlight } from '../src/editor/format.js';
 import { textToHtml, ruleImage, PageEditor, cleanPastedHtml, freezesStyles } from '../src/editor/page-editor.js';
 
 function body(html) {
@@ -280,6 +280,53 @@ describe('paragraph formatting', () => {
     expect(document.getSelection().anchorNode).toBe(text);
     expect(document.getSelection().anchorOffset).toBe(3);
     document.head.innerHTML = '';
+  });
+
+  it('keeps the formatting a join or drag-move carries over from the moved text', () => {
+    document.head.innerHTML = '<style>.outline-body{font-size:11pt;color:rgb(27, 27, 27)} .outline-body h1{font-size:16pt;color:rgb(30, 78, 140)}</style>';
+    // Before: a heading line with the user's 11pt words, and a paragraph.
+    const before = body('<h1>two <span style="font-size: 11pt;">tiny</span></h1><p>para <span style="color: rgb(27, 27, 27);">x</span></p>');
+    const own = ownStyleRuns([...before.children]);
+    expect(own.map((r) => [r.prop, r.text])).toEqual([['font-size', 'tiny'], ['color', 'x']]);
+    // After Chrome's join: its frozen spans, and the user's span rebuilt.
+    const el = body('<h1>Big<span style="font-size: 16pt; background-color: transparent;">two </span><span style="background-color: transparent; font-size: 11pt;">tiny</span>'
+      + '<span style="color: rgb(27, 27, 27); font-size: 11pt; background-color: transparent;">para </span></h1>');
+    dropRedundantStyles([...el.querySelectorAll('span')], { own });
+    expect(el.innerHTML).toBe('<h1>Bigtwo <span style="font-size: 11pt;">tiny</span>para </h1>');
+    // Without the notes taken before the edit (a paste), all of it is cleaned.
+    const pasted = body('<h1>Big<span style="font-size: 11pt;">tiny</span></h1>');
+    dropRedundantStyles([...pasted.querySelectorAll('span')]);
+    expect(pasted.innerHTML).toBe('<h1>Bigtiny</h1>');
+    document.head.innerHTML = '';
+  });
+
+  it('notes the formatting in the paragraphs a join or drag-move touches, not on plain deletes', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<h1>Big</h1><h1>two <span style="font-size: 11pt;">tiny</span></h1>' }], ink: [] });
+    const [h1, h2] = host.querySelectorAll('.outline-body h1');
+    const before = (inputType, range) => {
+      const e = new InputEvent('beforeinput', { bubbles: true, cancelable: true, inputType });
+      e.getTargetRanges = () => [range];
+      h1.dispatchEvent(e);
+    };
+    // Backspace at the start of the second heading joins it to the first.
+    before('deleteContentBackward', { startContainer: h1.firstChild, startOffset: 3, endContainer: h2.firstChild, endOffset: 0 });
+    expect(ed.ownStyles.runs.map((r) => r.text)).toEqual(['tiny']);
+    // A Backspace inside one line notes nothing, and an edit clears the notes.
+    before('deleteContentBackward', { startContainer: h2.firstChild, startOffset: 1, endContainer: h2.firstChild, endOffset: 2 });
+    expect(ed.ownStyles).toBe(null);
+    before('deleteByDrag', { startContainer: h2.querySelector('span').firstChild, startOffset: 0, endContainer: h2.querySelector('span').firstChild, endOffset: 4 });
+    expect(ed.ownStyles.drag).toBe(true);
+    h2.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteByDrag' }));
+    // The drop after a drag-move keeps the notes from its delete.
+    before('insertFromDrop', { startContainer: h1.firstChild, startOffset: 1, endContainer: h1.firstChild, endOffset: 1 });
+    expect(ed.ownStyles.runs.map((r) => r.text)).toEqual(['tiny']);
+    h1.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromDrop' }));
+    expect(ed.ownStyles).toBe(null);
+    ed.destroy();
+    host.remove();
   });
 
   it("leaves the formatting the user applies to Chrome's frozen-style cleanup alone", () => {

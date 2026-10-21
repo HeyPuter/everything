@@ -371,7 +371,31 @@ export function insertNode(node, { spaceAfter = true } = {}) {
 const CLEAR_BACKGROUNDS = new Set(['transparent', 'initial', 'rgba(0, 0, 0, 0)']);
 const BASE_PROPS = ['font-size', 'color', 'font-family'];
 
-export function dropRedundantStyles(elements) {
+/*
+ * Chrome's frozen spans are new elements on new text, so they can't be told
+ * from the user's own spans by node; but a join or drag-move that freezes
+ * the user's own formatting (11pt text in a heading) carries the same value
+ * over the same text. ownStyleRuns notes, before such an edit, the font
+ * sizes, colors and fonts set on the text of the blocks it touches;
+ * dropRedundantStyles keeps a value one of those runs held over that text.
+ */
+export function ownStyleRuns(blocks) {
+  const runs = [];
+  for (const block of blocks) {
+    for (const el of block.querySelectorAll('[style]')) {
+      if (isBlock(el) || el.closest('.nt-tag, .nt-file, .nt-math')) continue;
+      const text = el.textContent;
+      if (!text) continue;
+      for (const prop of BASE_PROPS) {
+        if (el.style.getPropertyValue(prop)) runs.push({ prop, value: getComputedStyle(el).getPropertyValue(prop), text });
+      }
+    }
+  }
+  return runs;
+}
+
+/** own: runs from ownStyleRuns, taken before the edit that added the elements. */
+export function dropRedundantStyles(elements, { own = null } = {}) {
   const sel = document.getSelection();
   const bases = new Map();
   let points = null;
@@ -390,7 +414,8 @@ export function dropRedundantStyles(elements) {
     for (const prop of BASE_PROPS) {
       if (!style.getPropertyValue(prop)) continue;
       const value = getComputedStyle(el).getPropertyValue(prop);
-      if (value === getComputedStyle(el.parentElement).getPropertyValue(prop) || value === base.getPropertyValue(prop)) style.removeProperty(prop);
+      if (value === getComputedStyle(el.parentElement).getPropertyValue(prop)) style.removeProperty(prop);
+      else if (value === base.getPropertyValue(prop) && !own?.some((r) => r.prop === prop && r.value === value && r.text.includes(el.textContent))) style.removeProperty(prop);
     }
     if (el.getAttribute('style') !== '') continue;
     el.removeAttribute('style');
