@@ -8426,6 +8426,13 @@ function renderSlideArea(refreshNavigator = true) {
     list
       .querySelector(".slide-item.active, .master-pane-item.active")
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // The keyboard follows a slide made current from another thumbnail, one
+    // added with Enter or duplicated there, so Delete and the arrows go on
+    // from the slide shown rather than the one before it.
+    const focused = focusTarget || document.activeElement;
+    if (list.contains(focused) && focused.matches(".slide-thumb"))
+      focusTarget =
+        list.querySelector(".slide-item.active .slide-thumb") || focusTarget;
   }
   updateSlideCount();
   document.querySelector("#slide-label").textContent = masterView.active

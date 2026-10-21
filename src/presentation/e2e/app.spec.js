@@ -13361,6 +13361,33 @@ test("Delete in the navigator removes the focused slide", async ({ page }) => {
   ).toHaveCount(0);
 });
 
+// A slide added with Enter in the navigator became current while the focus
+// stayed on the thumbnail before it: the next Enter added a slide in front
+// of the new one, and Delete removed the slide the new one was added after.
+test("the keyboard follows a slide added from the navigator", async ({
+  page,
+}) => {
+  await story(page);
+  const thumbs = page.locator(".slide-thumb");
+  await thumbs.first().click();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#slide-count")).toHaveText("6");
+  await expect(thumbs.nth(1)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#slide-count")).toHaveText("7");
+  await expect(page.locator("#slide-position")).toHaveText("Slide 3 of 7");
+  await expect(thumbs.nth(2)).toBeFocused();
+  // Delete takes the new slide, not the first one it was added after.
+  await page.keyboard.press("Delete");
+  await expect(page.locator("#slide-count")).toHaveText("6");
+  await expect(thumbs.first()).toHaveAttribute(
+    "aria-label",
+    /YOUR NEXT CHAPTER/,
+  );
+  await expect(thumbs.nth(1)).toHaveAttribute("aria-label", /^Slide 2: Blank/);
+  await expect(thumbs.nth(2)).toHaveAttribute("aria-label", /THE CONTEXT/);
+});
+
 // The link region sat where the unrotated object would be.
 test("a rotated object's link region turns with it while presenting", async ({
   page,
