@@ -220,3 +220,20 @@ describe('Page Versions', () => {
     expect(app.editor.page.outlines.some((o) => o.html.includes('Earlier'))).toBe(false);
   });
 });
+
+describe('Opening a page', () => {
+  it('says a damaged page file is damaged, and a failed read is a connection problem', async () => {
+    const { app, store, backend } = await mount();
+    const a = store.createPage(app.state.sectionId, { title: 'Broken' });
+    const b = store.createPage(app.state.sectionId, { title: 'Far away' });
+    await store.flush();
+    store.pages.delete(a.id);
+    store.pages.delete(b.id);
+    backend.files.set(`pages/${a.id}.json`, '{"id":"' + a.id + '","outl');
+    await app.openPage(a.id);
+    expect(toasts()).toContain("Couldn't open this page: its file is damaged.");
+    backend.failNext = 1;
+    await app.openPage(b.id);
+    expect(toasts()).toContain("Couldn't open this page. Check your connection and try again.");
+  });
+});

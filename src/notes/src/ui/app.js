@@ -519,7 +519,8 @@ export class App {
     this.showCanvas();
     const page = await this.store.loadPage(id).catch((err) => {
       console.error(err);
-      toast("Couldn't open this page. Check your connection and try again.", { kind: 'error' });
+      // A file that is there but can't be parsed won't load on a retry.
+      toast(err instanceof SyntaxError ? "Couldn't open this page: its file is damaged." : "Couldn't open this page. Check your connection and try again.", { kind: 'error' });
       return null;
     });
     if (!page || this.state.pageId !== id) return;
