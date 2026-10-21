@@ -151,6 +151,7 @@ export function renderMenu(): MenuItem[] {
 export function windowMenu(sh: Shell): MenuItem[] {
   return [
     { label: 'New Window', op: 'wm.window_new' },
+    { label: 'New Main Window', op: 'wm.window_new_main' },
     { separator: true },
     { label: 'Toggle Window Fullscreen', icon: 'fullscreen_enter', op: 'wm.window_fullscreen_toggle' },
     { separator: true },
