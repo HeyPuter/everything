@@ -7976,6 +7976,8 @@ function besselK01(nu, x) {
     }
     return Math.sqrt(Math.PI / (2 * x)) * Math.exp(-x) * sum;
   }
+  // Below 1E-300 the cut 42 / x overflows and the rule would never reach it; there the leading terms are the values to rounding.
+  if (x < 1e-300) return nu ? 1 / x : -(Math.log(x / 2) + EULER);
   const h = (Math.PI * Math.PI) / (2 * x + 40);
   const end = Math.acosh(1 + 42 / x);
   let sum = 0.5 * Math.exp(-x);
