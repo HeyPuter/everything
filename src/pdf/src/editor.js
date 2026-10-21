@@ -8944,6 +8944,11 @@ export function createEditor({
       ),
     );
   }
+  /** "the page" or "N pages" for a page range, which can name a page more than once. */
+  const pagesPhrase = (indices) => {
+    const count = new Set(indices).size;
+    return count === 1 ? 'the page' : `${count} pages`;
+  };
   /** Stamp a centered text watermark on the chosen pages. */
   function watermarkDialog() {
     if (!pdf) return;
@@ -9006,7 +9011,7 @@ export function createEditor({
             hex: colorPick.value,
             opacity: Number(opacity.value) / 100,
           }),
-        `Watermark added to ${indices.length === 1 ? 'the page' : `${indices.length} pages`}.`,
+        `Watermark added to ${pagesPhrase(indices)}.`,
       );
     });
     form.onsubmit = (e) => {
@@ -9128,7 +9133,7 @@ export function createEditor({
                 }
               : null,
           }),
-        `Header and footer added to ${indices.length === 1 ? 'the page' : `${indices.length} pages`}.`,
+        `Header and footer added to ${pagesPhrase(indices)}.`,
       );
     });
     form.onsubmit = (e) => {
@@ -9205,7 +9210,7 @@ export function createEditor({
             start: start.value,
             size: size.value,
           }),
-        `Page numbers added to ${indices.length === 1 ? 'the page' : `${indices.length} pages`}.`,
+        `Page numbers added to ${pagesPhrase(indices)}.`,
       );
     });
     form.onsubmit = (e) => {

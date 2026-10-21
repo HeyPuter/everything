@@ -365,3 +365,29 @@ for (const submit of ['button', 'Enter'])
     await settled(page);
     await expect(pageView(page).getByText('Fractional header', { exact: true })).toHaveCount(0);
   });
+
+test('page marks count a page named twice in the range once', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  await openPdf(page, await threePages());
+  for (const [item, title, buttonName, message] of [
+    ['Watermark…', 'Add watermark', 'Add watermark', 'Watermark added to 2 pages.'],
+    ['Page numbers…', 'Add page numbers', 'Add page numbers', 'Page numbers added to 2 pages.'],
+    [
+      'Header and footer…',
+      'Header and footer',
+      'Add header and footer',
+      'Header and footer added to the page.',
+    ],
+  ]) {
+    await menu(page, item);
+    const dialog = page.getByRole('dialog', { name: title });
+    if (title === 'Header and footer') await dialog.getByLabel('Top left').fill('Report');
+    await dialog.getByRole('radio', { name: 'Pages', exact: true }).check();
+    await dialog.getByLabel('Page range').fill(title === 'Header and footer' ? '3, 3' : '1-2, 2');
+    await dialog.getByRole('button', { name: buttonName, exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('#toast')).toHaveText(message);
+    await settled(page);
+  }
+});
