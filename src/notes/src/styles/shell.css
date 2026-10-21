@@ -1176,7 +1176,8 @@
   .rb-gallery {
     display: none;
   }
-  .rb-gallery-fallback {
+  /* (Outranks the hidden-by-default rule further down.) */
+  .ribbon-panel .rb-gallery-fallback {
     display: inline-flex !important;
   }
   .workspace {
