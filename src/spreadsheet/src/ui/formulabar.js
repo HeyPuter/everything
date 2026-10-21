@@ -217,6 +217,11 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     }
   });
   nameBox.addEventListener('focus', () => nameBox.select());
+  // Left without Enter, the box names the selection again rather than keeping what was typed, as in Excel; the
+  // names menu opened from it keeps the typing, for Escape to give back.
+  nameBox.addEventListener('blur', () => setTimeout(() => {
+    if (document.activeElement !== nameBox && !document.activeElement?.closest?.('.menu')) refresh();
+  }, 0));
   nameBox.addEventListener('keydown', (e) => { if (isComposing(e)) return; if (e.key === 'ArrowDown' && e.altKey) { e.preventDefault(); openNamesMenu(nameMenuBtn); } });
 
   /**
