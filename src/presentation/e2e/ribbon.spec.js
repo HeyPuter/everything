@@ -516,6 +516,25 @@ test("a font size the box turns down gives way to the current size", async ({
   await expect(size).toHaveValue("40");
 });
 
+test("Escape from a ribbon box puts its value back and returns to the slide", async ({
+  page,
+}) => {
+  await start(page);
+  await textBox(page, "Size");
+  await tab(page, "Home");
+  const size = await reveal(page, "font-size");
+  // A folded group's drop-down takes Escape itself, closing over its button.
+  test.skip(
+    (await page.locator(".ribbon-fold-panel").count()) > 0,
+    "the Font group is folded at this width",
+  );
+  const current = await size.inputValue();
+  await size.fill("40");
+  await size.press("Escape");
+  await expect(size).toHaveValue(current);
+  await expect(page.locator("#main")).toBeFocused();
+});
+
 test("a command from the menu bar hands the keyboard back to the slide", async ({
   page,
 }) => {

@@ -164,6 +164,13 @@ export function createRibbon({
     all[(at + step + all.length) % all.length]?.focus();
   });
 
+  // Escape from a box puts its value back and hands the keyboard to the
+  // slide, rather than dropping it onto the page.
+  function leave(input) {
+    const next = focusFallback?.();
+    if (next) next.focus({ preventScroll: true });
+    else input.blur();
+  }
   function focusables(panel) {
     return [
       ...panel.querySelectorAll(
@@ -525,7 +532,7 @@ export function createRibbon({
           item.afterCommit?.();
         } else if (e.key === "Escape") {
           input.value = input.dataset.value || "";
-          input.blur();
+          leave(input);
         } else if (e.key === "ArrowDown" && e.altKey) {
           e.preventDefault();
           openList();
@@ -628,7 +635,7 @@ export function createRibbon({
           nudge(e.key === "ArrowUp" ? 1 : -1);
         } else if (e.key === "Escape") {
           input.value = input.dataset.value || "";
-          input.blur();
+          leave(input);
         }
       },
       onchange: () => commit(),
