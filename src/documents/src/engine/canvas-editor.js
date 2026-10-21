@@ -1508,6 +1508,11 @@ export class CanvasEditor {
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.model.tableContext) {
       e.preventDefault(); this.execute(() => this.model.moveCell(e.shiftKey ? -1 : 1)); return;
     }
+    // At the start of list items, Tab demotes them and Shift+Tab promotes them, as in other word processors.
+    // At the top level Shift+Tab still moves focus on.
+    if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.listTab(e.shiftKey ? -1 : 1)) {
+      e.preventDefault(); this.changeListLevel(e.shiftKey ? -1 : 1); return;
+    }
     if (e.key === 'Tab' && !e.shiftKey && !mod && !e.altKey && !leaveWithTab) {
       e.preventDefault(); this.insertTab(); return;
     }
@@ -1524,6 +1529,11 @@ export class CanvasEditor {
       if (e.key === 'Delete' && e.shiftKey && this.model.range[0] !== this.model.range[1]) return;
       e.preventDefault(); this.deleteText(e.key === 'Backspace' ? -1 : 1);
     }
+  }
+  /** Whether Tab changes the level of the selected list items: the selection starts a list item and the level can move. */
+  listTab(delta) {
+    const targets = this.model.selectedParagraphs, [start] = this.model.range;
+    return locate(this.model.paragraphs, start).offset === 0 && targets.every(p => p.list && p.list.level + delta >= 0 && p.list.level + delta <= 8);
   }
   beforeInput(e) {
     if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
