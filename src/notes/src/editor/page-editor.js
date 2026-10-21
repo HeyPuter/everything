@@ -58,6 +58,14 @@ export class PageEditor extends Emitter {
     this.additions = new MutationObserver((records) => this.addedRecords.push(...records));
     this.additions.observe(this.outlinesEl, { childList: true, subtree: true });
 
+    // Leaving a list or a heading with Enter makes a <p> like every other
+    // paragraph, not a <div> that the next list nests inside.
+    try {
+      document.execCommand('defaultParagraphSeparator', false, 'p');
+    } catch {
+      /* not an editing browser (tests) */
+    }
+
     this.ink = new InkTools(this);
     this.bind();
     this.resizeObserver = new ResizeObserver(() => this.layout());

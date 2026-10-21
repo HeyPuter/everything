@@ -4,7 +4,7 @@ import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
 import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles } from '../src/editor/format.js';
-import { textToHtml, ruleImage } from '../src/editor/page-editor.js';
+import { textToHtml, ruleImage, PageEditor } from '../src/editor/page-editor.js';
 
 function body(html) {
   document.body.innerHTML = '';
@@ -361,5 +361,25 @@ describe('shortcut matching', () => {
     expect(matchShortcut(new KeyboardEvent('keydown', { key: 'PageDown', code: 'PageDown', ctrlKey: true }), 'Ctrl+PageDown')).toBe(true);
     expect(matchShortcut(new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', ctrlKey: true, altKey: true }), 'Mod+Alt+N')).toBe(true);
     expect(matchShortcut(new KeyboardEvent('keydown', { key: 'n', code: 'KeyN', ctrlKey: true }), 'Mod+Alt+N')).toBe(false);
+  });
+});
+
+describe('page editor setup', () => {
+  it('makes Enter create <p> paragraphs, not <div>s', () => {
+    const calls = [];
+    const original = document.execCommand;
+    document.execCommand = (...args) => {
+      calls.push(args);
+      return true;
+    };
+    try {
+      const host = document.createElement('div');
+      document.body.append(host);
+      const ed = new PageEditor({ store: {}, host });
+      ed.destroy();
+    } finally {
+      document.execCommand = original;
+    }
+    expect(calls).toContainEqual(['defaultParagraphSeparator', false, 'p']);
   });
 });
