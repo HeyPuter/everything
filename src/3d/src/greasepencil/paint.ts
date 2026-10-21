@@ -458,6 +458,22 @@ editModeHooks.pointer.unshift((v, e) => {
   return false;
 });
 
+// the eraser end of a tablet pen erases in Draw Mode whatever the tool (the viewport only passes
+// the main button to the tool hooks, so catch it on the way down)
+if (typeof window !== 'undefined')
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.pointerType !== 'pen' || e.button !== 5 || !inDrawMode() || app.modal) return;
+      const v = activeView3D();
+      if (!v || !v.el.contains(e.target as Node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startErase(v, e);
+    },
+    true,
+  );
+
 editModeHooks.hover.push((v, e) => {
   if (!inDrawMode() && app.doc.mode !== 'SCULPT_GREASE_PENCIL' && app.doc.mode !== 'VERTEX_GREASE_PENCIL' && app.doc.mode !== 'WEIGHT_GREASE_PENCIL') return;
   const p = v.local(e);
