@@ -242,6 +242,7 @@ function startFlight(kind: 'WALK' | 'FLY') {
   // fly: pan with MMB, free look with Ctrl, axis locks
   let panning = false;
   let lockZ = true;
+  let walkLockZ = true;
   let lockX = false;
   if (kind === 'WALK') {
     try {
@@ -296,7 +297,8 @@ function startFlight(kind: 'WALK' | 'FLY') {
       return;
     }
     const fwd = nav.forward;
-    if (kind === 'WALK') fwd.z = 0;
+    // walking keeps to the horizontal plane unless the Z axis lock is off (and gravity is off)
+    if (kind === 'WALK' && (walkLockZ || gravity)) fwd.z = 0;
     fwd.normalize();
     const right = nav.right;
     const move = new Vector3();
@@ -361,7 +363,7 @@ function startFlight(kind: 'WALK' | 'FLY') {
   };
   const header = () =>
     kind === 'WALK'
-      ? `Walk: speed ${speed.toFixed(2)}${gravity ? ' · gravity on' : ''} · WASD move · Q/E down/up · Tab gravity · V jump · Space teleport · Shift fast · Alt slow`
+      ? `Walk: speed ${speed.toFixed(2)}${gravity ? ' · gravity on' : ''}${walkLockZ ? '' : ' · Z unlocked'} · WASD move · Q/E down/up · R/F local up/down · Tab gravity · V jump · Space teleport · Z axis lock · Shift fast · Alt slow`
       : `Fly: speed ${speed.toFixed(2)} · mouse steers · W/S or wheel speed · A/D strafe · E/Q up/down · MMB pan · Ctrl free look${lockZ ? ' · Z level' : ''}${lockX ? ' · X pitch lock' : ''}`;
   app.startModal({
     label: kind === 'WALK' ? 'Walk Navigation' : 'Fly Navigation',
@@ -376,6 +378,8 @@ function startFlight(kind: 'WALK' | 'FLY') {
             ['Tab', 'Gravity'],
             ['V', 'Jump'],
             ['Space', 'Teleport'],
+            ['Z', 'Z Axis Lock'],
+            ['Shift / Alt', 'Fast / Slow'],
             ['Wheel', 'Speed'],
           ]
         : [
@@ -448,6 +452,11 @@ function startFlight(kind: 'WALK' | 'FLY') {
         }
         if (k === 'SPACE') {
           doTeleport();
+          return true;
+        }
+        if (code === 'Z') {
+          walkLockZ = !walkLockZ;
+          app.changed('ui');
           return true;
         }
       } else {

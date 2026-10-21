@@ -1,0 +1,103 @@
+/* 3D Viewport additions: shading popover rows, data gizmos */
+.sh-light-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+.sh-light-row > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.sh-light-row > .icon-btn.on {
+  background: var(--c-accent, #4772b3);
+}
+.v3d-svg .ogz {
+  cursor: pointer;
+}
+/* Viewport Overlays popover rows */
+.ov-guides-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 0 10px;
+}
+.ov-guides-row .ov-axes {
+  justify-content: flex-end;
+}
+.ov-scale-row,
+.ov-wire-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  align-items: center;
+}
+.ov-wire-row {
+  grid-template-columns: auto 1fr 1fr;
+}
+/* sidebar View tab: a checkbox followed by a picker on one row */
+.sb-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.sb-inline > :last-child {
+  flex: 1;
+  min-width: 0;
+}
+/* navigation buttons sit on a faint rounded strip */
+.nav-buttons {
+  background: rgba(var(--hl-rgb, 255, 255, 255), 0.045);
+  border-radius: 15px;
+  padding: 3px 1px;
+}
+/* transform tool settings in the tool header */
+.th-transform {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.th-transform .enum-menu,
+.th-transform > button {
+  min-width: 124px;
+}
+/* statistics sit a little below the view name lines */
+.v3d-info .v3d-stats {
+  margin-top: 8px;
+}
+/* 4×4 matrix fields (Parent Inverse Transform) */
+.matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+/* object names and axes (Object ▸ Viewport Display) */
+.v3d-svg .ob-name-label {
+  font: 500 11px var(--font);
+  fill: var(--t-ee, #f0f1f2);
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 2px;
+}
+.v3d-svg .ob-name-label.sel {
+  fill: #ffaf29;
+}
+.v3d-svg .ob-axis-label {
+  font: 600 10px var(--font);
+}
+.ov-scale-row.sh-dir-row {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.sh-world-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+.sh-world-row > :last-child {
+  flex: 1;
+}
+.sh-world-row > .icon-btn.on {
+  background: var(--c-accent, #4772b3);
+}

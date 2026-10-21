@@ -25,6 +25,7 @@ import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
 import { placeCursor, cursorToolSettings } from '../../ops/view3d';
+import { TOOL_KIND, toolDragAction } from './transformtool';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
@@ -44,6 +45,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   localCamera: string | null = null;
   /** the view follows the 3D cursor (Lock to 3D Cursor) */
   lockCursor = false;
+  /** offset of a locked view's centre from its lock target (panning a locked view) */
+  lockOffset = new Vector3();
+  private lockOffsetKey = '';
   /** Clipping Region planes (world space [nx, ny, nz, constant], inward normals) */
   clipPlanes: number[][] | null = null;
   /** the view direction cannot be changed (the fixed views of Quad View) */
@@ -70,6 +74,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   showToolGizmo = true;
   /** transform handles shown whatever tool is active (Object Gizmos) */
   objectGizmos = { translate: false, rotate: false, scale: false };
+  /** gizmos of the active object's data (lights, cameras, image empties; editors/view3d/datagizmos.ts) */
+  dataGizmos = { activeObject: true, light_size: true, light_look_at: true, camera_lens: true, camera_focus_distance: true, empty_image: true, empty_force_field: true };
   showNavGizmo = true;
   sidebarTab = 'Item';
   overlapHeader = true;
@@ -104,7 +110,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     this.infoEl = document.createElement('div');
     this.infoEl.className = 'v3d-info';
     this.el.append(this.regionEl, this.svg, this.infoEl, this.ui, this.boxEl);
-    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; localCamera?: string; lockRotation?: boolean; quad?: View3D['quad']; quadSync?: boolean; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos'] };
+    const st = (state ?? {}) as { shading?: string | Partial<Shading>; matcap?: boolean; camera?: boolean; camZoom?: number; camOffset?: { x: number; y: number }; nav?: ReturnType<NavCamera['serialize']>; overlay?: Partial<Overlay>; toolbar?: boolean; sidebar?: boolean; clip?: number[][]; lockObject?: string; lockCursor?: boolean; localCamera?: string; lockRotation?: boolean; quad?: View3D['quad']; quadSync?: boolean; toolGizmo?: boolean; objectGizmos?: View3D['objectGizmos']; dataGizmos?: Partial<View3D['dataGizmos']> };
     if (typeof st.shading === 'string') this.shading.type = st.shading as Shading['type'];
     else if (st.shading) Object.assign(this.shading, st.shading);
     if (st.matcap) this.shading.light = 'MATCAP';
@@ -127,6 +133,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (st.quadSync) this.quadSync = true;
     if (st.toolGizmo === false) this.showToolGizmo = false;
     if (st.objectGizmos) Object.assign(this.objectGizmos, st.objectGizmos);
+    if (st.dataGizmos) Object.assign(this.dataGizmos, st.dataGizmos);
     this.nav.lens = prefs.view_lens;
     this.nav.autoPersp = prefs.use_auto_perspective;
     this.bindInput();
@@ -157,11 +164,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   draw(_engine: RenderEngine, x: number, y: number, w: number, h: number) {
     if (!renderContext) return;
     // View Lock to Object: keep the locked object's origin as the view pivot
-    if (this.lockObject && !this.cameraView) {
-      const ev = app.graph.get(this.lockObject);
-      if (ev) this.nav.pivot.setFromMatrixPosition(ev.world);
-      else this.lockObject = null;
-    } else if (this.lockCursor && !this.cameraView) this.nav.pivot.fromArray(app.doc.scene.cursor.location);
+    const lockAt = this.lockTarget();
+    if (lockAt) this.nav.pivot.copy(lockAt).add(this.lockOffset);
     const hadCamera = !!this.sceneCamera;
     this.updateSceneCamera();
     // the navigation gizmo follows the scene camera once camera view is first resolved
@@ -321,7 +325,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const col = ob ? Object.values(doc.collections).find((c) => c.objects.includes(ob.id) && c.id !== doc.scene.collection) : undefined;
     const lines = [viewName, `(${doc.scene.frame_current}) ${col ? col.name + ' | ' : 'Scene Collection | '}${ob?.name ?? ''}${doc.mode === 'POSE' && ob?.data ? ' : ' + (doc.armatures[ob.data]?.active_bone ?? '') : ''}`];
     const kf = ob?.animation_data?.action ? doc.actions[ob.animation_data.action]?.fcurves.some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5)) : false;
-    const stats = this.overlay.show_stats ? statsLines() : [];
+    const stats = this.overlay.show_stats ? statsLines({ selected: true }) : [];
     const fps = app.playing && prefs.show_playback_fps ? playbackFpsLabel() : '';
     patch(this.infoEl, this.overlay.show_overlays && this.overlay.show_text
       ? [fps ? h('div', { class: { 'v3d-info-line': true, 'v3d-fps': true, slow: fps.startsWith('!') } }, fps.replace(/^!/, '')) : null, prefs.show_view_name ? h('div', { class: 'v3d-info-line' }, lines[0]) : null, prefs.show_object_info ? h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]) : null, stats.length ? h('div', { class: 'v3d-stats' }, stats.flatMap(([k, v]) => [h('span', { class: 'v3d-stat-k' }, k), h('span', { class: 'v3d-stat-v' }, v)])) : null, app.modal?.header ? null : null]
@@ -334,7 +338,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   }
 
   serialize() {
-    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, localCamera: this.useLocalCamera && this.localCamera ? this.localCamera : undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined, quadSync: this.quadSync || undefined };
+    return { nav: this.nav.serialize(), shading: { ...this.shading }, overlay: { ...this.overlay }, camera: this.cameraView, camZoom: this.camZoom, camOffset: { ...this.camOffset }, toolbar: this.showToolbar, sidebar: this.showSidebar, toolGizmo: this.showToolGizmo ? undefined : false, objectGizmos: Object.values(this.objectGizmos).some(Boolean) ? { ...this.objectGizmos } : undefined, dataGizmos: Object.values(this.dataGizmos).every(Boolean) ? undefined : { ...this.dataGizmos }, clip: this.clipPlanes ?? undefined, lockObject: this.lockObject ?? undefined, lockCursor: this.lockCursor || undefined, localCamera: this.useLocalCamera && this.localCamera ? this.localCamera : undefined, lockRotation: this.lockRotation || undefined, quad: this.quad ?? undefined, quadSync: this.quadSync || undefined };
   }
 
   dispose() {
@@ -601,7 +605,30 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
   }
 
+  /** Where a locked view is centred (View Lock to object / 3D cursor), or null. */
+  lockTarget(): Vector3 | null {
+    if (this.cameraView) return null;
+    let at: Vector3 | null = null;
+    if (this.lockObject) {
+      const ev = app.graph.get(this.lockObject);
+      if (ev) at = new Vector3().setFromMatrixPosition(ev.world);
+      else this.lockObject = null;
+    }
+    if (!at && this.lockCursor) at = new Vector3().fromArray(app.doc.scene.cursor.location);
+    // a new lock target starts centred: the view jumps onto it
+    const key = this.lockObject ?? (this.lockCursor ? '\u0000cursor' : '');
+    if (key !== this.lockOffsetKey) {
+      this.lockOffsetKey = key;
+      this.lockOffset.set(0, 0, 0);
+      if (at) this.nav.pivot.copy(at);
+    }
+    return at;
+  }
+
   afterNav() {
+    // panning a locked view keeps an offset from the lock target (View Lock Center clears it)
+    const lockAt = this.lockTarget();
+    if (lockAt) this.lockOffset.copy(this.nav.pivot).sub(lockAt);
     if (this.cameraView && this.lockCameraToView) this.applyViewToCamera();
     if (this.quad && this.quadSync && this.quad.role !== 'USER') this.syncQuad();
     renderContext?.engine.requestDraw();
@@ -628,6 +655,22 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (!ob) return;
     this.nav.update();
     const world = new Matrix4().compose(this.nav.eye, this.nav.rot, new Vector3(1, 1, 1));
+    // Camera Parent Lock: the camera's parent moves instead, carrying the camera along
+    const pob = ob.parent ? app.doc.objects[ob.parent] : undefined;
+    const camEv = app.graph.get(ob.id);
+    if ((ob as { use_camera_lock_parent?: boolean }).use_camera_lock_parent && pob && camEv && app.graph.get(pob.id)) {
+      const camWorld = camEv.world.clone();
+      const sc = new Vector3().setFromMatrixScale(camWorld);
+      const want = world.clone().scale(sc);
+      const delta = want.multiply(camWorld.invert());
+      const pw = delta.multiply(app.graph.get(pob.id)!.world);
+      const gp = pob.parent ? app.graph.get(pob.parent) : undefined;
+      applyMatrixToObject(pob, gp ? gp.world.clone().multiply(new Matrix4().fromArray(pob.matrix_parent_inverse)).invert().multiply(pw) : pw);
+      app.changed('doc');
+      clearTimeout(this.lockTimer);
+      this.lockTimer = window.setTimeout(() => app.pushUndo('Camera Lock to View'), 400);
+      return;
+    }
     const parent = ob.parent ? app.graph.get(ob.parent) : undefined;
     const local = parent ? parent.world.clone().multiply(new Matrix4().fromArray(ob.matrix_parent_inverse)).invert().multiply(world) : world;
     applyMatrixToObject(ob, local);
@@ -721,7 +764,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       addEventListener('pointerup', upFn);
       return;
     }
-    if (tool === 'builtin.select_circle') {
+    // the transform tools' Drag setting: what dragging away from the gizmo does
+    const drag = TOOL_KIND[tool] ? toolDragAction(tool) : null;
+    if (tool === 'builtin.select_circle' || drag === 'SELECT_CIRCLE') {
       circlePaint(this, e, modeFromEvent(e));
       return;
     }
@@ -732,17 +777,19 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       const q = this.local(ev);
       if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;
-        if (tool === 'builtin.select_lasso') {
+        if (tool === 'builtin.select_lasso' || drag === 'SELECT_LASSO') {
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
           lassoDrag(this, e, modeFromEvent(ev));
           return;
         }
-        if (tool === 'builtin.select') {
+        if (tool === 'builtin.select' || drag === 'TWEAK') {
           // tweak: select under cursor then move
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
-          selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
+          // dragging an object that is already selected moves the whole selection
+          const under = app.doc.mode === 'OBJECT' ? this.pick(start.x, start.y, 8)?.id : null;
+          if (!(under && app.doc.objects[under]?.select)) selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
           // Preferences ▸ Input ▸ Release Confirms: letting go of the button ends the move
           app.run('transform.translate', { release_confirm: prefs.use_drag_immediately }, { event: { x: ev.clientX, y: ev.clientY } });
           return;
@@ -801,6 +848,23 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
     // free rotation while Alt snaps the displayed view to the nearest axis view
     let freeRot: Quaternion | null = null;
+    // the right button cancels the navigation: the view goes back to where the drag started
+    const startState = { pivot: this.nav.pivot.clone(), rot: this.nav.rot.clone(), distance: this.nav.distance, view: this.nav.view, ortho: this.nav.ortho };
+    // (a second button pressed during a drag arrives as a pointer move with the button set)
+    const cancel = (ev: PointerEvent) => {
+      if (ev.button !== 2 || !(ev.buttons & 2)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.nav.pivot.copy(startState.pivot);
+      this.nav.rot.copy(startState.rot);
+      this.nav.distance = startState.distance;
+      this.nav.view = startState.view;
+      this.nav.ortho = startState.ortho;
+      up();
+      this.afterNav();
+    };
+    addEventListener('pointerdown', cancel, true);
+    addEventListener('pointermove', cancel, true);
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - last.x,
         dy = ev.clientY - last.y;
@@ -827,6 +891,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       this.el.removeEventListener('pointermove', move);
       this.el.removeEventListener('pointerup', up);
       this.el.removeEventListener('pointercancel', up);
+      removeEventListener('pointerdown', cancel, true);
+      removeEventListener('pointermove', cancel, true);
     };
     this.el.addEventListener('pointermove', move);
     this.el.addEventListener('pointerup', up);
@@ -907,7 +973,7 @@ function editStats(me: { positions: ArrayLike<number>; offsets: ArrayLike<number
 }
 
 /** Statistics overlay rows for the current mode: [label, value] (also shown in the status bar). */
-export function statsLines(): [string, string][] {
+export function statsLines(opts: { selected?: boolean } = {}): [string, string][] {
   const doc = app.doc;
   const fmt = (n: number) => n.toLocaleString();
   const mode = doc.mode;
@@ -945,29 +1011,33 @@ export function statsLines(): [string, string][] {
       ['Triangles', fmt(tris)],
     ];
   }
+  // Object Mode: geometry of the selected objects / of everything visible
   let objects = 0,
-    sel = 0,
-    verts = 0,
-    edges = 0,
-    faces = 0,
-    tris = 0;
+    sel = 0;
+  const all = [0, 0, 0, 0],
+    chosen = [0, 0, 0, 0];
   for (const ev of app.graph.objects.values()) {
     if (!ev.visible) continue;
     objects++;
     if (ev.ob.select) sel++;
     if (ev.mesh) {
-      verts += ev.mesh.positions.length / 3;
-      faces += ev.mesh.offsets.length - 1;
-      edges += edgeCount(ev.mesh.offsets, ev.mesh.indices as ArrayLike<number> & object);
+      let tris = 0;
       for (let f = 0; f < ev.mesh.offsets.length - 1; f++) tris += ev.mesh.offsets[f + 1] - ev.mesh.offsets[f] - 2;
+      const c = [ev.mesh.positions.length / 3, edgeCount(ev.mesh.offsets, ev.mesh.indices as ArrayLike<number> & object), ev.mesh.offsets.length - 1, tris];
+      for (let i = 0; i < 4; i++) {
+        all[i] += c[i];
+        if (ev.ob.select) chosen[i] += c[i];
+      }
     }
   }
+  // the viewport overlay shows "selected / total", the status bar the totals
+  const pair = (i: number) => (opts.selected ? `${fmt(chosen[i])} / ${fmt(all[i])}` : fmt(all[i]));
   return [
     ['Objects', `${sel} / ${objects}`],
-    ['Vertices', fmt(verts)],
-    ['Edges', fmt(edges)],
-    ['Faces', fmt(faces)],
-    ['Triangles', fmt(tris)],
+    ['Vertices', pair(0)],
+    ['Edges', pair(1)],
+    ['Faces', pair(2)],
+    ['Triangles', pair(3)],
   ];
 }
 

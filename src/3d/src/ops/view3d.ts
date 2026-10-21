@@ -493,7 +493,18 @@ registerOperators([
     exec: (ctx) => {
       const b = selectionBox();
       if (b.isEmpty()) return 'CANCELLED';
-      const c = selectionMedian() ?? b.getCenter(new Vector3());
+      // the Bounding Box Center pivot snaps to the middle of the selection's bounds, otherwise its median
+      let bounds = b;
+      if (ctx.doc.mode === 'OBJECT') {
+        // in Object Mode the bounds are those of the object origins
+        bounds = new Box3();
+        for (const ob of app.selectedObjects()) {
+          const ev = app.graph.get(ob.id);
+          if (ev) bounds.expandByPoint(new Vector3().setFromMatrixPosition(ev.world));
+        }
+        if (bounds.isEmpty()) bounds = b;
+      }
+      const c = ctx.doc.scene.tool_settings.transform_pivot_point === 'BOUNDING_BOX_CENTER' ? bounds.getCenter(new Vector3()) : selectionMedian() ?? bounds.getCenter(new Vector3());
       ctx.doc.scene.cursor.location = [c.x, c.y, c.z];
     },
   },
@@ -503,7 +514,9 @@ registerOperators([
     poll: () => !!app.activeObject,
     exec: (ctx) => {
       // in edit modes the active element, otherwise the active object's origin
-      const p = (ctx.doc.mode !== 'OBJECT' ? activeElementPosition() : null) ?? new Vector3().setFromMatrixPosition(app.graph.get(app.activeObject!.id)!.world);
+      // (an object added in the same script is evaluated first)
+      const ev = app.graph.get(app.activeObject!.id) ?? (app.flush(), app.graph.get(app.activeObject!.id));
+      const p = (ctx.doc.mode !== 'OBJECT' ? activeElementPosition() : null) ?? (ev ? new Vector3().setFromMatrixPosition(ev.world) : new Vector3(...app.activeObject!.location));
       ctx.doc.scene.cursor.location = [p.x, p.y, p.z];
     },
   },

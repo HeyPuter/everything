@@ -574,7 +574,11 @@ registerOperators([
           sc = new Vector3();
         new Matrix4().fromArray(m).decompose(pos, q, sc);
         const e = new Euler().setFromQuaternion(q, 'ZYX');
-        Object.assign(props, { location: pos.toArray(), rotation: [e.x, e.y, e.z], scale: sc.toArray() });
+        Object.assign(props, { location: pos.toArray(), rotation: [e.x, e.y, e.z] });
+        // the matrix places the object: its size becomes the object's scale (the cube mesh stays unit)
+        const r = cube.exec?.(ctx, props) ?? 'CANCELLED';
+        if (r !== 'CANCELLED' && app.activeObject) app.activeObject.scale = sc.toArray() as [number, number, number];
+        return r;
       }
       return cube.exec?.(ctx, props) ?? 'CANCELLED';
     },

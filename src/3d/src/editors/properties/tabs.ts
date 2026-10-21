@@ -24,6 +24,7 @@ import { materialSpecials, shapeKeySpecials, vertexGroupSpecials } from '../../o
 import { propertiesCollection } from '../../object/relations';
 import { objectCollectionsPanel } from '../../object/collections';
 import { customPropsPanelBody } from '../../ui/customprops';
+import { parentInversePanel, boundsRow } from '../../object/parentinverse';
 
 /** Small lock toggle used inside list rows. */
 function lockToggle(on: boolean, tip: string, toggle: () => void): Child {
@@ -269,6 +270,7 @@ registerTab({
         ),
         vecProp(o, 'scale', 'Scale', { anim: { ob: o, path: 'scale' }, lock: { owner: o, key: 'lock_scale' } }),
         panel('ob-delta', 'Delta Transform', () => [vecProp(o, 'delta_location', 'Delta Location', { unit: 'distance' }), vecProp(o, 'delta_rotation_euler', 'Delta Rotation', { unit: 'angle' }), vecProp(o, 'delta_scale', 'Delta Scale')], { sub: true, closed: true }),
+        parentInversePanel(o),
       ]),
       panel('ob-relations', 'Relations', () => [
         splitRow('Parent', enumMenu('ob-parent', [{ value: '', label: '—' }, ...parents.map((p) => ({ value: p.id, label: p.name, icon: 'object' }))], o.parent ?? '', (v) => {
@@ -278,6 +280,7 @@ registerTab({
         })),
         o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex'], ['VERTEX_3', '3 Vertices']]) : null,
         o.parent && o.parent_type === 'BONE' ? textProp(o, 'parent_bone', 'Parent Bone') : null,
+        o.parent && o.type === 'CAMERA' ? bool(o as never, 'use_camera_lock_parent' as never, 'Camera Parent Lock', { tip: 'Camera Parent Lock\nWith Lock Camera to View, navigating moves the parent instead of the camera' }) : null,
         num(o as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
       ], { closed: true }),
       panel('ob-collections', 'Collections', () => objectCollectionsPanel(o), { closed: true }),
@@ -301,9 +304,13 @@ registerTab({
         bool(o, 'show_name', 'Name'),
         bool(o, 'show_axis', 'Axes'),
         o.type === 'MESH' ? bool(o, 'show_wire', 'Wireframe') : null,
+        o.type === 'MESH' ? bool(o as never, 'show_all_edges' as never, 'All Edges', { tip: 'All Edges\nThe wireframe shows every edge, whatever the wireframe threshold' }) : null,
+        o.type === 'MESH' || o.type === 'CURVE' || o.type === 'FONT' ? bool(o as never, 'show_texture_space' as never, 'Texture Space', { tip: 'Texture Space\nDraw the box generated texture coordinates are mapped to' }) : null,
+        bool({ get v() { return (o as { display_show_shadows?: boolean }).display_show_shadows !== false; }, set v(x: boolean) { (o as { display_show_shadows?: boolean }).display_show_shadows = x; } } as { v: boolean }, 'v', 'Shadow', { tip: 'Shadow\nThe object casts a shadow in Solid shading' }),
         bool(o, 'show_in_front', 'In Front'),
         enumProp(o, 'display_type', 'Display As', [['BOUNDS', 'Bounds'], ['WIRE', 'Wire'], ['SOLID', 'Solid'], ['TEXTURED', 'Textured']]),
         colorProp(o, 'color', 'Color', { alpha: true }),
+        boundsRow(o),
         o.type === 'EMPTY' ? [enumProp(o, 'empty_display_type', 'Display As', [['PLAIN_AXES', 'Plain Axes'], ['ARROWS', 'Arrows'], ['SINGLE_ARROW', 'Single Arrow'], ['CIRCLE', 'Circle'], ['CUBE', 'Cube'], ['SPHERE', 'Sphere'], ['CONE', 'Cone'], ['IMAGE', 'Image']]), num(o, 'empty_display_size', 'Size', { unit: 'distance', min: 0 })] : null,
       ], { closed: true }),
       panel('ob-custom', 'Custom Properties', () => customPropsPanelBody(o as never, 'object'), { closed: true }),

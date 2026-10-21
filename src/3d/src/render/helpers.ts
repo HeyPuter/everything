@@ -1,6 +1,7 @@
 // Wire shapes for non-geometry objects (cameras, lights, empties, bones, lattices).
 import { BufferGeometry, Float32BufferAttribute } from 'three';
 import type { CameraData, LightData, ObjectData, ArmatureData, LatticeData } from '../data/types';
+import { lightWireShape } from '../editors/view3d/lightshapes';
 
 type Seg = number[]; // flat xyz pairs
 
@@ -81,25 +82,12 @@ export function cameraWire(ca: CameraData, aspect: number, mist?: { start: numbe
   for (let i = 0; i < 4; i++) line(out, c[i], c[(i + 1) % 4]);
   if (ca.type !== 'ORTHO') for (let i = 0; i < 4; i++) line(out, [0, 0, 0], c[i]);
   else for (let i = 0; i < 4; i++) line(out, [c[i][0], c[i][1], 0], c[i]);
-  // "up" triangle
-  const ty = h + sy + h * 0.15,
-    th = h * 0.6;
-  line(out, [-w * 0.55 + sx, ty, -d], [w * 0.55 + sx, ty, -d]);
-  line(out, [-w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
-  line(out, [w * 0.55 + sx, ty, -d], [sx, ty + th, -d]);
-  const r = Math.max(0.02, s * 0.15);
-  if (ca.show_limits) {
-    // the clipping range along the view axis, and the focus distance when depth of field is on
-    line(out, [0, 0, -ca.clip_start], [0, 0, -ca.clip_end]);
-    axisCross(out, ca.clip_start, r);
-    axisCross(out, ca.clip_end, r);
-    if (ca.dof?.use_dof) axisCross(out, ca.dof.focus_distance, r * 1.5);
-  }
-  if (ca.show_mist && mist) {
-    dashedLine(out, [0, 0, -mist.start], [0, 0, -(mist.start + mist.depth)], Math.max(0.05, mist.depth / 40));
-    axisCross(out, mist.start, r);
-    axisCross(out, mist.start + mist.depth, r);
-  }
+  // "up" triangle above the frame: base 1.4 and height 0.7 frame half-widths
+  const ty = h + sy + w * 0.1,
+    th = w * 0.7;
+  line(out, [-w * 0.7 + sx, ty, -d], [w * 0.7 + sx, ty, -d]);
+  line(out, [-w * 0.7 + sx, ty, -d], [sx, ty + th, -d]);
+  line(out, [w * 0.7 + sx, ty, -d], [sx, ty + th, -d]);
   return out;
 }
 
@@ -117,62 +105,23 @@ export function cameraTriangle(ca: CameraData, aspect: number): Seg {
     w = half;
     h = w / aspect;
   }
-  const ty = h + h * 0.15,
-    th = h * 0.6;
-  return [-w * 0.55, ty, -s, w * 0.55, ty, -s, 0, ty + th, -s];
+  const sx = ca.shift_x * 2 * Math.max(w, h),
+    sy = ca.shift_y * 2 * Math.max(w, h);
+  const ty = h + sy + w * 0.1,
+    th = w * 0.7;
+  return [-w * 0.7 + sx, ty, -s, w * 0.7 + sx, ty, -s, sx, ty + th, -s];
 }
 
+/** Object-space lines of a light; the screen-facing marker is added by the viewport (editors/view3d/lightdraw.ts). */
 export function lightWire(la: LightData, groundZ: number | null): Seg {
-  const out: Seg = [];
-  const r = 0.1;
-  circle(out, r, 24, 'xy');
-  if (la.type === 'POINT') {
-    circle(out, r * 1.6, 24, 'xy', 0, 0, 0, true);
-    circle(out, Math.max(la.shadow_soft_size, 0.001), 24, 'xy');
-  } else if (la.type === 'SUN') {
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      line(out, [Math.cos(a) * r * 1.5, Math.sin(a) * r * 1.5, 0], [Math.cos(a) * r * 2.4, Math.sin(a) * r * 2.4, 0]);
-    }
-    line(out, [0, 0, 0], [0, 0, -3]);
-  } else if (la.type === 'SPOT') {
-    const len = 1.5,
-      rr = Math.tan(la.spot_size / 2) * len;
-    circle(out, rr, 32, 'xy', 0, 0, -len);
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      line(out, [0, 0, 0], [Math.cos(a) * rr, Math.sin(a) * rr, -len]);
-    }
-    if (la.spot_blend > 0) circle(out, rr * (1 - la.spot_blend), 32, 'xy', 0, 0, -len, true);
-    line(out, [0, 0, 0], [0, 0, -len]);
-  } else if (la.type === 'AREA') {
-    const sx = la.size / 2,
-      sy = (la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? la.size_y : la.size) / 2;
-    if (la.shape === 'DISK' || la.shape === 'ELLIPSE') {
-      for (let i = 0; i < 32; i++) {
-        const a0 = (i / 32) * Math.PI * 2,
-          a1 = ((i + 1) / 32) * Math.PI * 2;
-        line(out, [Math.cos(a0) * sx, Math.sin(a0) * sy, 0], [Math.cos(a1) * sx, Math.sin(a1) * sy, 0]);
-      }
-    } else {
-      const c = [
-        [-sx, -sy, 0],
-        [sx, -sy, 0],
-        [sx, sy, 0],
-        [-sx, sy, 0],
-      ];
-      for (let i = 0; i < 4; i++) line(out, c[i], c[(i + 1) % 4]);
-    }
-    line(out, [0, 0, 0], [0, 0, -1]);
-  }
   void groundZ;
-  return out;
+  return lightWireShape(la);
 }
 
-/** Vertical dashed line to the ground plane drawn in world space for point/spot/area lights. */
+/** Thin vertical line to the ground plane drawn in world space for point/spot/area lights. */
 export function groundLine(x: number, y: number, z: number): Seg {
   const out: Seg = [];
-  dashedLine(out, [x, y, z], [x, y, 0], 0.15);
+  line(out, [x, y, z], [x, y, 0]);
   return out;
 }
 
@@ -181,19 +130,44 @@ export function emptyWire(ob: ObjectData): Seg {
   const s = ob.empty_display_size;
   switch (ob.empty_display_type) {
     case 'ARROWS':
-      line(out, [0, 0, 0], [s, 0, 0]);
-      line(out, [0, 0, 0], [0, s, 0]);
-      line(out, [0, 0, 0], [0, 0, s]);
+      // three axes with small arrow heads (their letters are drawn screen-facing by the viewport)
+      for (const ax of [0, 1, 2]) {
+        const tip = [0, 0, 0];
+        tip[ax] = s;
+        line(out, [0, 0, 0], tip);
+        const u = (ax + 1) % 3,
+          w = (ax + 2) % 3;
+        for (const [du, dw] of [
+          [1, 0],
+          [0, 1],
+          [-1, 0],
+          [0, -1],
+        ]) {
+          const b = [0, 0, 0];
+          b[ax] = s * 0.94;
+          b[u] = du * s * 0.025;
+          b[w] = dw * s * 0.025;
+          line(out, tip, b);
+        }
+      }
       break;
-    case 'SINGLE_ARROW':
+    case 'SINGLE_ARROW': {
+      // shaft along Z with a cone tip
       line(out, [0, 0, 0], [0, 0, s]);
-      line(out, [0, 0, s], [s * 0.08, 0, s * 0.85]);
-      line(out, [0, 0, s], [-s * 0.08, 0, s * 0.85]);
-      line(out, [0, 0, s], [0, s * 0.08, s * 0.85]);
-      line(out, [0, 0, s], [0, -s * 0.08, s * 0.85]);
+      const n = 8,
+        r = s * 0.035,
+        z = s * 0.75;
+      for (let i = 0; i < n; i++) {
+        const a0 = (i / n) * Math.PI * 2,
+          a1 = ((i + 1) / n) * Math.PI * 2;
+        line(out, [Math.cos(a0) * r, Math.sin(a0) * r, z], [Math.cos(a1) * r, Math.sin(a1) * r, z]);
+        if (i % 2 === 0) line(out, [Math.cos(a0) * r, Math.sin(a0) * r, z], [0, 0, s]);
+      }
       break;
+    }
     case 'CIRCLE':
-      circle(out, s, 32, 'xy');
+      // stands in the XZ plane (faces the front view)
+      circle(out, s, 32, 'xz');
       break;
     case 'CUBE': {
       const c = [-s, s];
@@ -211,9 +185,10 @@ export function emptyWire(ob: ObjectData): Seg {
       circle(out, s, 32, 'yz');
       break;
     case 'CONE': {
-      circle(out, s, 16, 'xz');
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * Math.PI * 2;
+      // octagonal base in the XZ plane, apex along +Y
+      circle(out, s, 8, 'xz');
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
         line(out, [Math.cos(a) * s, 0, Math.sin(a) * s], [0, 2 * s, 0]);
       }
       break;

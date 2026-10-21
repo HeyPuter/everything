@@ -44,7 +44,6 @@ function editWeights(me: MeshData, g: number, fn: (w: Float32Array) => void) {
   me.weights = me.weights.map((x, i) => (i === g ? w : x));
 }
 
-let globalMatrix: number[] | null = null;
 
 registerIcons({
   // clipboard with a downward arrow: spread a value to the selection
@@ -134,36 +133,6 @@ registerOperators([
       });
     },
   },
-  {
-    idname: 'object.copy_global_transform',
-    label: 'Copy Global Transform',
-    description: 'Remember the active object’s world-space transform',
-    poll: () => !!app.activeObject,
-    exec: () => {
-      const m = app.graph.get(app.activeObject!.id)?.world;
-      if (!m) return 'CANCELLED';
-      globalMatrix = m.toArray();
-      try {
-        void navigator.clipboard?.writeText(JSON.stringify(globalMatrix));
-      } catch {
-        // the clipboard is optional
-      }
-    },
-    undo: false,
-  },
-  {
-    idname: 'object.paste_transform',
-    label: 'Paste Global Transform',
-    description: 'Move the selected objects to the copied world-space transform',
-    poll: () => !!globalMatrix && app.doc.mode === 'OBJECT' && app.selectedObjects().length > 0,
-    exec: () => {
-      const target = new Matrix4().fromArray(globalMatrix!);
-      for (const ob of app.selectedObjects()) {
-        const parentInv = ob.parent ? (app.graph.get(ob.parent)?.world.clone() ?? new Matrix4()).multiply(toMatrix4(ob.matrix_parent_inverse)).invert() : new Matrix4();
-        applyMatrixToObject(ob, parentInv.multiply(target));
-      }
-    },
-  },
 ]);
 
 function vertexWeightsPanel(): Child {
@@ -203,9 +172,4 @@ function vertexWeightsPanel(): Child {
   ]);
 }
 
-function globalTransformPanel(): Child {
-  if (app.doc.mode !== 'OBJECT' || !app.activeObject) return null;
-  return panel('sb-global-transform', 'Global Transform', () => [h('div', { class: 'btn-row' }, opButton('object.copy_global_transform', 'Copy'), opButton('object.paste_transform', 'Paste'))], { closed: true });
-}
-
-itemPanels.push(() => vertexWeightsPanel(), () => globalTransformPanel());
+itemPanels.push(() => vertexWeightsPanel());

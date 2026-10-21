@@ -6,6 +6,7 @@ import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { prefs } from '../../app/prefs';
 import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
+import { gizmoOrientationSlot, setGizmoOrientationSlot } from './transformtool';
 import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
@@ -63,9 +64,11 @@ const SNAP_ELEMENTS = [
   ['GRID', 'Grid', 'snap_grid'],
   ['VERTEX', 'Vertex', 'snap_vertex'],
   ['EDGE', 'Edge', 'snap_edge'],
-  ['FACE', 'Face Project', 'snap_face'],
+  ['FACE', 'Face', 'snap_face'],
   ['VOLUME', 'Volume', 'snap_volume'],
-  ['EDGE_MIDPOINT', 'Edge Center', 'snap_edge'],
+  ['EDGE_MIDPOINT', 'Edge Center', 'snap_midpoint'],
+  ['EDGE_PERPENDICULAR', 'Edge Perpendicular', 'snap_perpendicular'],
+  ['FACE_CENTER', 'Face Center', 'snap_face_center'],
 ] as const;
 
 function iconDrop(id: string, iconName: string, tip: string, onDown: (el: HTMLElement) => void, extraClass = '') {
@@ -238,10 +241,22 @@ export function viewHeader(v: View3D): Child {
             h('div', { class: 'pop-title' }, 'Viewport Gizmos'),
             checkbox('nav-g', 'Navigate', v.showNavGizmo, (x) => ((v.showNavGizmo = x), v.drawUI())),
             checkbox('tool-g', 'Active Tools', v.showToolGizmo, (x) => ((v.showToolGizmo = x), v.drawSvg(), app.changed('ui'))),
+            checkbox('act-g', 'Active Object', v.dataGizmos.activeObject, (x) => ((v.dataGizmos.activeObject = x), v.drawSvg(), app.changed('ui'))),
             h('div', { class: 'pop-title' }, 'Object Gizmos'),
+            enumMenu(
+              'obg-orient',
+              [{ value: 'DEFAULT', label: 'Default' }, ...ORIENTATIONS.map(([value, label, ic]) => ({ value, label, icon: ic })), ...customOrientations().map((c) => ({ value: c.name, label: c.name }))],
+              gizmoOrientationSlot('move'),
+              (x) => {
+                for (const k of ['move', 'rotate', 'scale'] as const) setGizmoOrientationSlot(k, x);
+                v.drawSvg();
+              },
+              { tip: 'Orientation\nOrientation of the object gizmos' },
+            ),
             checkbox('obg-move', 'Move', v.objectGizmos.translate, (x) => ((v.objectGizmos.translate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-rot', 'Rotate', v.objectGizmos.rotate, (x) => ((v.objectGizmos.rotate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-scale', 'Scale', v.objectGizmos.scale, (x) => ((v.objectGizmos.scale = x), v.drawSvg(), app.changed('ui'))),
+            ...dataGizmoRows(v),
           ),
         ),
       'hidden-icon'),
@@ -285,6 +300,24 @@ export function viewHeader(v: View3D): Child {
   );
 }
 
+/** Gizmos popover rows for the object data gizmos (editors/view3d/datagizmos.ts). */
+function dataGizmoRows(v: View3D): Child[] {
+  const g = v.dataGizmos;
+  const row = (key: keyof View3D['dataGizmos'], label: string) => checkbox(`dg-${key}`, label, g[key], (x) => ((g[key] = x), v.drawSvg(), app.changed('ui')));
+  const off = !g.activeObject;
+  return [
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Empty'),
+    row('empty_image', 'Image'),
+    row('empty_force_field', 'Force Field'),
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Light'),
+    row('light_size', 'Size'),
+    row('light_look_at', 'Look At'),
+    h('div', { class: { 'pop-title': true, disabled: off } }, 'Camera'),
+    row('camera_lens', 'Lens'),
+    row('camera_focus_distance', 'Focus Distance'),
+  ];
+}
+
 /** Transform orientation dropdown: built-in and custom orientations, create / delete. */
 function orientationMenu(): MenuItem[] {
   const cur = currentOrientation();
@@ -298,17 +331,20 @@ function orientationMenu(): MenuItem[] {
   ];
 }
 
-type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number };
+type SnapExtras = { use_snap_grid_absolute?: boolean; snap_angle_increment_3d?: number; snap_angle_increment_3d_precision?: number; use_snap_backface_culling?: boolean; use_snap_selectable?: boolean; use_snap_translate?: boolean; use_snap_rotate?: boolean; use_snap_scale?: boolean };
 
 /** Snapping popover (header snap dropdown, Shift Ctrl Tab). */
 export function snappingPopover(): Child {
   const ts = app.doc.scene.tool_settings;
   const tx = ts as typeof ts & SnapExtras;
   const deg = Math.PI / 180;
+  const flag = (k: keyof SnapExtras, def = false) => (tx[k] as boolean | undefined) ?? def;
   return h(
     'div',
-    { class: 'pop-panel' },
-    h('div', { class: 'pop-title' }, 'Snap Target for Individual Elements'),
+    { class: 'pop-panel snap-pop' },
+    h('div', { class: 'pop-title' }, 'Snap Base'),
+    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    h('div', { class: 'pop-title' }, 'Snap Target'),
     h(
       'div',
       { class: 'pop-list' },
@@ -322,6 +358,7 @@ export function snappingPopover(): Child {
             onclick: (e: MouseEvent) => {
               if (e.shiftKey) ts.snap_elements = ts.snap_elements.includes(id) ? ts.snap_elements.filter((x) => x !== id) : [...ts.snap_elements, id];
               else ts.snap_elements = [id];
+              if (!ts.snap_elements.length) ts.snap_elements = ['INCREMENT'];
               app.pushUndo('Snap Element');
               app.changed('ui');
             },
@@ -331,13 +368,30 @@ export function snappingPopover(): Child {
         ),
       ),
     ),
-    ts.snap_elements.includes('INCREMENT') ? checkbox('snap-abs', 'Absolute Grid Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x)) : null,
-    ts.snap_elements.includes('FACE') ? checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x)) : null,
-    h('div', { class: 'pop-title' }, 'Snap With'),
-    enumRow('snap-target', [['CLOSEST', 'Closest'], ['CENTER', 'Center'], ['MEDIAN', 'Median'], ['ACTIVE', 'Active']].map(([value, label]) => ({ value, label })), ts.snap_target, (x) => setTool('snap_target', x)),
+    checkbox('snap-abs', 'Absolute Increment Snap', !!tx.use_snap_grid_absolute, (x) => setTool('use_snap_grid_absolute', x), { disabled: !ts.snap_elements.includes('INCREMENT'), tip: 'Absolute Increment Snap\nIncrements land on the grid instead of stepping from where the move started' }),
+    checkbox('snap-align', 'Align Rotation to Target', !!ts.use_snap_align_rotation, (x) => setTool('use_snap_align_rotation', x), { disabled: !ts.snap_elements.includes('FACE'), tip: 'Align Rotation to Target\nTurn the moved objects to the surface they snap to' }),
+    checkbox('snap-cull', 'Backface Culling', flag('use_snap_backface_culling'), (x) => setTool('use_snap_backface_culling', x), { tip: 'Backface Culling\nIgnore faces turned away from the view' }),
+    h('div', { class: 'pop-title' }, 'Target Selection'),
+    h('button', { class: { 'pop-item': true, on: flag('use_snap_selectable') }, 'data-tip': 'Exclude Non-Selectable\nDo not snap to objects that cannot be selected', onclick: () => setTool('use_snap_selectable', !flag('use_snap_selectable')) }, icon('restrict_select_off'), 'Exclude Non-Selectable'),
+    h('div', { class: 'pop-title' }, 'Affect'),
+    h(
+      'div',
+      { class: 'enum-row snap-affect' },
+      (
+        [
+          ['use_snap_translate', 'Move', true],
+          ['use_snap_rotate', 'Rotate', false],
+          ['use_snap_scale', 'Scale', false],
+        ] as const
+      ).map(([k, label, def]) => h('button', { key: k, class: { on: flag(k, def) }, onclick: () => setTool(k, !flag(k, def)) }, label)),
+    ),
     h('div', { class: 'pop-title' }, 'Rotation Increment'),
-    numberField({ id: 'snap-rot', label: 'Angle', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d', x) }),
-    numberField({ id: 'snap-rotp', label: 'Precision', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
+    h(
+      'div',
+      { class: 'ov-scale-row' },
+      numberField({ id: 'snap-rot', value: tx.snap_angle_increment_3d ?? 5 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', tip: 'Rotation Increment\nAngle step of rotation snapping', set: (x) => setTool('snap_angle_increment_3d', x) }),
+      numberField({ id: 'snap-rotp', value: tx.snap_angle_increment_3d_precision ?? 1 * deg, min: 0.01 * deg, max: Math.PI, unit: 'angle', tip: 'Precision Rotation Increment\nAngle step while Shift is held', set: (x) => setTool('snap_angle_increment_3d_precision', x) }),
+    ),
   );
 }
 
@@ -352,6 +406,11 @@ export const overlayPopoverHooks: ((v: View3D) => Child)[] = [];
 /** Extra sections of the Mesh Edit Mode overlays popover. */
 export const editOverlayHooks: ((v: View3D) => Child)[] = [];
 
+/** Is the viewport showing an orthographic axis view (where the Grid rather than the Floor applies)? */
+function axisViewOf(v: View3D) {
+  return v.nav.ortho && !v.cameraView && v.nav.view !== 'USER';
+}
+
 function overlayPopover(v: View3D): Child {
   const o = v.overlay;
   const set = (k: keyof typeof o) => (x: unknown) => {
@@ -364,8 +423,20 @@ function overlayPopover(v: View3D): Child {
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Overlays'),
     panel('ov-guides', 'Guides', () => [
-      h('div', { class: 'pop-grid ov-guides' }, checkbox('o-grid', 'Grid', o.show_floor, set('show_floor')), h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z')))),
-      numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+      // the Grid (orthographic axis views) and Floor (other views) switches apply to one kind of view each
+      h(
+        'div',
+        { class: 'ov-guides-row' },
+        checkbox('o-ogrid', 'Grid', o.show_ortho_grid, set('show_ortho_grid'), { tip: 'Grid\nShow the grid in orthographic side views', disabled: !axisViewOf(v) }),
+        checkbox('o-grid', 'Floor', o.show_floor, set('show_floor'), { tip: 'Floor\nShow the ground plane grid', disabled: axisViewOf(v) }),
+        h('div', { class: 'ov-axes' }, h('span', { class: 'ov-axes-label' }, 'Axes'), h('div', { class: 'enum-row' }, axisBtn('show_axis_x', 'X'), axisBtn('show_axis_y', 'Y'), axisBtn('show_axis_z', 'Z'))),
+      ),
+      h(
+        'div',
+        { class: 'ov-scale-row' },
+        numberField({ id: 'o-gscale', label: 'Scale', value: o.grid_scale, min: 0.001, max: 1000, set: (x) => set('grid_scale')(x) }),
+        numberField({ id: 'o-gsub', label: 'Subdivisions', value: o.grid_subdivisions ?? 10, min: 2, max: 1024, step: 1, int: true, disabled: !axisViewOf(v), set: (x) => set('grid_subdivisions')(Math.round(x)) }),
+      ),
       h('div', { class: 'pop-grid' }, checkbox('o-cursor', '3D Cursor', o.show_cursor, set('show_cursor')), checkbox('o-ann', 'Annotations', o.show_annotation, set('show_annotation'))),
     ], { sub: true }),
     panel('ov-text', 'Text', () => [
@@ -373,10 +444,16 @@ function overlayPopover(v: View3D): Child {
       v.shading.type === 'MATERIAL' || v.shading.type === 'RENDERED' ? checkbox('o-lookdev', 'HDRI Preview', !!o.show_look_dev, set('show_look_dev'), { tip: 'HDRI Preview\nShow a matte and a mirror sphere lit by the current environment' }) : null,
     ], { sub: true }),
     panel('ov-objects', 'Objects', () => [
-      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-mpaths', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), h('span'), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
+      h('div', { class: 'pop-grid' }, checkbox('o-extras', 'Extras', o.show_extras, set('show_extras')), checkbox('o-bones', 'Bones', o.show_bones, set('show_bones')), checkbox('o-lcol', 'Light Colors', !!o.show_light_colors, set('show_light_colors'), { tip: 'Light Colors\nDraw lights in the colour of their light', disabled: !o.show_extras }), checkbox('o-mpaths2', 'Motion Paths', o.show_motion_paths !== false, set('show_motion_paths')), checkbox('o-rel', 'Relationship Lines', o.show_relationship_lines, set('show_relationship_lines')), checkbox('o-orig', 'Origins', o.show_object_origins, set('show_object_origins')), checkbox('o-outline', 'Outline Selected', o.show_outline_selected, set('show_outline_selected')), checkbox('o-origall', 'Origins (All)', o.show_object_origins_all, set('show_object_origins_all'))),
     ], { sub: true }),
     panel('ov-geometry', 'Geometry', () => [
-      h('div', { class: 'row-split' }, checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }), numberField({ id: 'o-wireop', label: 'Wireframe Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) })),
+      h(
+        'div',
+        { class: 'ov-wire-row' },
+        checkbox('o-wire', '', o.show_wireframes, set('show_wireframes'), { tip: 'Wireframe\nShow the wireframe of every object' }),
+        numberField({ id: 'o-wireth', label: 'Wireframe', value: o.wireframe_threshold ?? 1, min: 0, max: 1, slider: true, tip: 'Wireframe Threshold\nLower values show only the edges between faces that meet at sharper angles', set: (x) => set('wireframe_threshold')(x) }),
+        numberField({ id: 'o-wireop', label: 'Opacity', value: o.wireframe_opacity, min: 0, max: 1, slider: true, set: (x) => set('wireframe_opacity')(x) }),
+      ),
       checkbox('o-faceor', 'Face Orientation', o.show_face_orientation, set('show_face_orientation')),
     ], { sub: true }),
     overlayPopoverSections.map((f) => f(v)),
@@ -448,20 +525,58 @@ function shadingPopover(v: View3D): Child {
     'div',
     { class: 'pop-panel' },
     h('div', { class: 'pop-title' }, 'Viewport Shading'),
-    panel('sh-light', 'Lighting', () => [enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')), solidLightingChooser(v)], { sub: true }),
-    panel('sh-color', 'Color', () => [
-      h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['VERTEX', 'Attribute'], ['SINGLE', 'Single'], ['RANDOM', 'Random'], ['TEXTURE', 'Texture']]), s.color_type, set('color_type'))),
-      s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,
+    panel('sh-light', 'Lighting', () => [
+      enumRow('s-light', items([['STUDIO', 'Studio'], ['MATCAP', 'MatCap'], ['FLAT', 'Flat']]), s.light, set('light')),
+      h('div', { class: 'sh-light-row' }, solidLightingChooser(v), s.light === 'MATCAP' ? h('button', { class: { 'icon-btn': true, on: !!s.matcap_flip }, 'data-tip': 'Flip MatCap\nMirror the MatCap left to right', onclick: () => app.run('view3d.toggle_matcap_flip') }, icon('mod_mirror')) : null, s.light !== 'FLAT' ? h('button', { class: 'icon-btn', 'data-tip': 'Preferences\nEdit studio lights and MatCaps', onclick: () => app.run('screen.userpref_show', { section: 'LIGHTS' }) }, icon('preferences')) : null),
+      s.light === 'STUDIO'
+        ? h(
+            'div',
+            { class: 'sh-world-row' },
+            h('button', { class: { 'icon-btn': true, on: !!s.use_world_space_lighting }, 'data-tip': 'World Space Lighting\nKeep the studio lights fixed to the scene instead of the view', onclick: () => set('use_world_space_lighting')(!s.use_world_space_lighting) }, icon('world')),
+            numberField({ id: 's-srot', label: 'Rotation', value: s.studiolight_rotate_z ?? 0, min: -Math.PI, max: Math.PI, unit: 'angle', slider: true, disabled: !s.use_world_space_lighting, set: (x) => set('studiolight_rotate_z')(x) }),
+          )
+        : null,
     ], { sub: true }),
-    panel('sh-bg', 'Background', () => [
-      enumRow('s-bg', items([['THEME', 'Theme'], ['WORLD', 'World'], ['VIEWPORT', 'Viewport']]), s.background_type, set('background_type')),
+    panel('sh-color', 'Color', () => [
+      h('div', { class: 'pop-label' }, 'Wireframe'),
+      enumRow('s-wcolor', items([['THEME', 'Theme'], ['OBJECT', 'Object'], ['RANDOM', 'Random']]), s.wireframe_color_type, set('wireframe_color_type')),
+      h('div', { class: 'pop-label' }, 'Object'),
+      h('div', { class: 'enum-grid' }, enumRow('s-color', items([['MATERIAL', 'Material'], ['OBJECT', 'Object'], ['RANDOM', 'Random'], ['VERTEX', 'Attribute'], ['TEXTURE', 'Texture'], ['SINGLE', 'Custom']]), s.color_type, set('color_type'))),
+      s.color_type === 'SINGLE' ? colorSwatch('s-single', s.single_color, (c) => set('single_color')(c.slice(0, 3))) : null,
+      h('div', { class: 'pop-label' }, 'Background'),
+      enumRow('s-bg', items([['THEME', 'Theme'], ['WORLD', 'World'], ['VIEWPORT', 'Custom']]), s.background_type, set('background_type')),
       s.background_type === 'VIEWPORT' ? colorSwatch('s-bgc', s.background_color, (c) => set('background_color')(c.slice(0, 3))) : null,
     ], { sub: true }),
     panel('sh-opt', 'Options', () => [
-      h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
       checkbox('s-cull', 'Backface Culling', s.show_backface_culling, set('show_backface_culling')),
-      checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')),
+      h('div', { class: 'row-split' }, checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')), colorSwatch('s-outc', s.object_outline_color ?? [0, 0, 0], (c) => set('object_outline_color')(c.slice(0, 3)))),
       checkbox('s-spec', 'Specular Lighting', s.show_specular_highlight, set('show_specular_highlight')),
+      h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
+      h('div', { class: 'row-split' }, checkbox('s-shadow', 'Shadow', s.show_shadows, set('show_shadows'), { tip: 'Shadow\nObjects cast shadows from a fixed light direction' }), numberField({ id: 's-shadow-i', value: s.shadow_intensity ?? 0.5, min: 0, max: 1, slider: true, disabled: !s.show_shadows, tip: 'Shadow\nDarkness of the shadows', set: (x) => set('shadow_intensity')(x) })),
+      s.show_shadows
+        ? h(
+            'div',
+            { class: 'ov-scale-row sh-dir-row' },
+            ...([0, 1, 2] as const).map((i) =>
+              numberField({ id: `s-ldir-${i}`, label: 'XYZ'[i], value: (s.light_direction ?? [0.5774, -0.5774, 0.5774])[i], min: -1, max: 1, slider: true, tip: 'Light Direction\nDirection the shadow light comes from', set: (x) => {
+                const d = [...(s.light_direction ?? [0.5774, -0.5774, 0.5774])] as [number, number, number];
+                d[i] = x;
+                set('light_direction')(d);
+              } }),
+            ),
+          )
+        : null,
+      s.show_shadows ? numberField({ id: 's-shadow-f', label: 'Focus', value: s.shadow_focus ?? 1, min: 0, max: 1, slider: true, tip: 'Focus\nSharpness of the shadow edges', set: (x) => set('shadow_focus')(x) }) : null,
+      checkbox('s-dof', 'Depth of Field', !!s.use_dof, set('use_dof'), { tip: 'Depth of Field\nIn camera view, blur by the camera’s depth of field' }),
+      checkbox('s-cavity', 'Cavity', s.show_cavity, set('show_cavity'), { tip: 'Cavity\nLighten convex edges and darken creases' }),
+      s.show_cavity
+        ? h(
+            'div',
+            { class: 'ov-scale-row' },
+            numberField({ id: 's-ridge', label: 'Ridge', value: s.cavity_ridge_factor ?? 1, min: 0, max: 2.5, slider: true, set: (x) => set('cavity_ridge_factor')(x) }),
+            numberField({ id: 's-valley', label: 'Valley', value: s.cavity_valley_factor ?? 1, min: 0, max: 2.5, slider: true, set: (x) => set('cavity_valley_factor')(x) }),
+          )
+        : null,
     ], { sub: true }),
   );
 }

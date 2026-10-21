@@ -11,6 +11,9 @@ import { surfaceHit, cursorToolSettings } from '../../ops/view3d';
 import { toolSettingsRenderers } from './toolbar';
 import { formatNumber, enumMenu, opButton, checkbox } from '../../ui/widgets';
 import { addKeys } from '../../app/keymap';
+import { findSnapTarget } from '../../ops/snap';
+import { activeView3D } from './view3d';
+
 import type { SceneData } from '../../data/types';
 
 export type AnnotationArrow = 'NONE' | 'ARROW' | 'ARROW_OPEN' | 'ARROW_OPEN_INVERTED' | 'DIAMOND';
@@ -145,10 +148,11 @@ editModeHooks.svg.push((v) => {
 // ---------------------------------------------------------------------------
 // Measure
 
-function measurePointer(v: View3D, e: PointerEvent): boolean {
+export function measurePointer(v: View3D, e: PointerEvent): boolean {
   const sc = scene();
   const { x, y } = localXY(v, e);
-  const snap = (ev: PointerEvent, px: number, py: number, depth: Vector3) => (ev.ctrlKey ? surfaceHit(v, px, py) ?? v.unproject(px, py, depth) : v.unproject(px, py, depth));
+  // Ctrl snaps to vertices, edges (and their middles) and surfaces of any object
+  const snap = (ev: PointerEvent, px: number, py: number, depth: Vector3) => (ev.ctrlKey ? findSnapTarget(v, { x: px, y: py }, ['VERTEX', 'EDGE_MIDPOINT', 'EDGE'], true)?.point ?? surfaceHit(v, px, py) ?? v.unproject(px, py, depth) : v.unproject(px, py, depth));
   // grab an existing point? dragging a ruler's midpoint turns it into a protractor
   let grab: { i: number; end: 'a' | 'b' | 'c' } | null = null;
   (sc.rulers ?? []).forEach((r, i) => {
@@ -178,7 +182,7 @@ function measurePointer(v: View3D, e: PointerEvent): boolean {
     }
     activeRuler = g.i;
   } else {
-    const p = surfaceHit(v, x, y) ?? v.unproject(x, y, new Vector3(...app.doc.scene.cursor.location));
+    const p = (e.ctrlKey ? findSnapTarget(v, { x, y }, ['VERTEX', 'EDGE_MIDPOINT', 'EDGE'], true)?.point : null) ?? surfaceHit(v, x, y) ?? v.unproject(x, y, new Vector3(...app.doc.scene.cursor.location));
     ruler = { a: [p.x, p.y, p.z], b: [p.x, p.y, p.z] };
     sc.rulers = [...(sc.rulers ?? []), ruler];
     activeRuler = sc.rulers.length - 1;
@@ -241,6 +245,28 @@ registerOperators([
     },
   },
   {
+    idname: 'view3d.ruler_add',
+    label: 'Ruler Add',
+    description: 'Add a ruler by dragging (or drag an existing ruler point); Ctrl snaps',
+    undo: false,
+    poll: () => !!activeView3D(),
+    invoke: () => {
+      const v = activeView3D()!;
+      app.startModal({
+        label: 'Ruler Add',
+        header: () => 'Ruler: drag with the left mouse button to measure · Ctrl snaps · RMB / Esc to cancel',
+        onPointerDown(e) {
+          if (e.button !== 0) return 'CANCELLED';
+          measurePointer(v, e);
+          return 'CANCELLED';
+        },
+        onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : true),
+        cancel() {},
+      });
+      return 'RUNNING_MODAL';
+    },
+  },
+  {
     idname: 'view3d.ruler_clear',
     label: 'Clear Rulers',
     poll: () => !!scene().rulers?.length,
@@ -257,7 +283,7 @@ addKeys('3D View', [
 ]);
 
 toolSettingsRenderers['builtin.measure'] = () =>
-  h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · drag a midpoint to measure an angle · Ctrl snaps to surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));
+  h('span', { class: 'th-settings' }, h('span', { class: 'th-label' }, 'Drag to measure · drag a midpoint to measure an angle · Ctrl snaps to vertices, edges and surfaces · X removes the active ruler'), opButton('view3d.ruler_clear', 'Clear Rulers'));
 
 
 
@@ -279,3 +305,4 @@ toolSettingsRenderers['builtin.cursor'] = () =>
       (o) => ((cursorToolSettings.orientation = o as typeof cursorToolSettings.orientation), app.changed('ui')),
     ),
   );
+

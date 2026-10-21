@@ -760,6 +760,8 @@ export function startTransform(
     redoSelf?: boolean;
     /** label for the undo step */
     label?: string;
+    /** pivot to transform around instead of the pivot point setting (e.g. the Scale Cage's opposite handle) */
+    center?: Vector3;
   } = {},
 ): boolean {
   const v = activeView3D();
@@ -770,6 +772,10 @@ export function startTransform(
   const rect = v.el.getBoundingClientRect();
   const start = opts.event ? { x: opts.event.x - rect.left, y: opts.event.y - rect.top } : { x: app.pointer.x - rect.left, y: app.pointer.y - rect.top };
   const proportional = proportionalEnabled();
+  if (opts.center) {
+    s.pivot.copy(opts.center);
+    s.individual = false;
+  }
   const pivot0 = s.pivot.clone();
   const sel0 = s.sel;
   // Snap With: Closest uses the bounding-box corners of moved objects (captured before moving)
@@ -795,6 +801,8 @@ export function startTransform(
   const active0 = s.data.active;
   /** Snap source point (Snap With: closest / center / median / active). */
   const snapSource = (target: Vector3 | null): Vector3 => {
+    // a snap base picked with B during the transform wins
+    if (customSource) return customSource.clone();
     const st = ts.snap_target;
     if (st === 'ACTIVE' && active0) return active0.clone();
     if (st === 'MEDIAN') {
@@ -830,7 +838,21 @@ export function startTransform(
   const num = new NumInput();
   let snapBase = ts.use_snap;
   let snapInvert = false;
-  const snapOn = () => snapBase !== snapInvert;
+  /** B: picking the snap base on the moving geometry; the picked point (original position) */
+  let editingSource = false;
+  let customSource: Vector3 | null = null;
+  /** A: snap points added so far (the target becomes their average with the current one) */
+  const addedPoints: Vector3[] = [];
+  let lastTarget: Vector3 | null = null;
+  // the snap toggle applies to the transforms chosen under Snapping ▸ Affect; Ctrl always inverts
+  const affects = () => {
+    const t = ts as { use_snap_translate?: boolean; use_snap_rotate?: boolean; use_snap_scale?: boolean };
+    if (curMode === 'TRANSLATION') return t.use_snap_translate !== false;
+    if (curMode === 'ROTATION' || curMode === 'TRACKBALL') return !!t.use_snap_rotate;
+    if (curMode === 'RESIZE') return !!t.use_snap_scale;
+    return true;
+  };
+  const snapOn = () => (snapBase && affects()) !== snapInvert;
   let precise = false;
   let propSize = ts.proportional_size;
   /** MMB auto-constraint: active while the middle button is held */
@@ -882,7 +904,20 @@ export function startTransform(
     const ps = pivotScreen();
     const st: TState = { mode: curMode, value: [], axes: constraint ? [...constraint.axes] : null, orientType: orient, basis, orientAxis: 2, orientAxisOrtho: 0 };
     snapIndicator.point = null;
+    snapIndicator.added = addedPoints;
+    snapIndicator.source = customSource;
+    snapIndicator.editingSource = editingSource;
     overlay.helpFrom = null;
+    if (editingSource) {
+      // B: show the point under the mouse on any geometry (the moving one included); nothing moves
+      const els = (ts.snap_elements.filter((e) => e !== 'INCREMENT' && e !== 'GRID') as SnapElement[]).concat(['VERTEX', 'EDGE_MIDPOINT'] as SnapElement[]);
+      const hit = findSnapTarget(v, mouse, [...new Set(els)], true);
+      snapIndicator.point = hit?.point ?? null;
+      snapIndicator.kind = hit?.kind ?? null;
+      renderContext?.engine.requestDraw();
+      v.drawSvg();
+      return;
+    }
     if (curMode === 'TRANSLATION') {
       let delta = new Vector3();
       if (vals) {
@@ -927,9 +962,19 @@ export function startTransform(
             if (!free[2]) lv.z = 0;
             return lv.applyMatrix3(basis);
           };
-          const target = els.some((e) => e !== 'INCREMENT' && e !== 'GRID') ? findSnapTarget(v, mouse, els) : null;
+          const target = els.some((e) => e !== 'INCREMENT' && e !== 'GRID') ? findSnapTarget(v, mouse, els, false, snapSource(null)) : null;
+          lastTarget = target?.point.clone() ?? null;
+          if (addedPoints.length) {
+            // the target is the average of the added points and the one under the mouse
+            const pts = target ? [...addedPoints, target.point] : addedPoints;
+            const avg = pts.reduce((a, p) => a.add(p), new Vector3()).multiplyScalar(1 / pts.length);
+            if (target) target.point = avg;
+          }
           const inc = (precise ? 0.1 : 1) * (v.overlay.grid_scale || 1);
-          if (target) {
+          if (!target && addedPoints.length) {
+            const avg = addedPoints.reduce((a, p) => a.add(p), new Vector3()).multiplyScalar(1 / addedPoints.length);
+            delta = keepFree(avg.sub(snapSource(avg)));
+          } else if (target) {
             // move the snap source (closest / center / median / active) onto the target
             delta = keepFree(target.point.clone().sub(snapSource(target.point)));
             snapIndicator.point = target.point;
@@ -1078,6 +1123,16 @@ export function startTransform(
     v.drawSvg();
   };
 
+  /** End B (snap base editing): the point under the mouse, back at its position before the move, becomes the snap base. */
+  const pickSource = () => {
+    editingSource = false;
+    const p = snapIndicator.point;
+    if (!p) return;
+    const moved = new Vector3(state.value[0] ?? 0, state.value[1] ?? 0, state.value[2] ?? 0).applyMatrix3(state.basis);
+    customSource = p.clone().sub(curMode === 'TRANSLATION' ? moved : new Vector3());
+    snapIndicator.point = null;
+  };
+
   /** Pressing an axis key: first press uses the header orientation, the second the alternative, the third clears. */
   const setConstraint = (axis: number, plane: boolean) => {
     const key = `${axis}${plane}`;
@@ -1209,6 +1264,7 @@ export function startTransform(
       if (curMode === 'MIRROR') hints.push(['X Y Z', 'Mirror Axis'], ['Shift X Y Z', 'Mirror Plane']);
       if (curMode === 'SHEAR') hints.push(['X Y', 'Direction']);
       hints.push(['Ctrl', 'Invert Snap'], ['Shift Tab', 'Snap Toggle'], ['Shift', 'Precision'], ['G R S', 'Mode']);
+      if (curMode === 'TRANSLATION') hints.push(['B', editingSource ? 'Set Snap Base (click)' : 'Snap Base'], ['A / Alt A', 'Add / Remove Snap Point']);
       if (proportional) hints.push(['Wheel/PgUp PgDn', 'Proportional Size']);
       hints.push(['Alt MMB/Wheel', 'Navigate']);
       return hints;
@@ -1245,6 +1301,11 @@ export function startTransform(
       compute();
     },
     onPointerDown(e: PointerEvent) {
+      if (e.button === 0 && editingSource) {
+        pickSource();
+        compute();
+        return undefined;
+      }
       if (e.button === 0) return 'FINISHED';
       if (e.button === 2) return 'CANCELLED';
       if (e.button === 1 && e.altKey) {
@@ -1283,7 +1344,7 @@ export function startTransform(
         compute();
         return;
       }
-      setPropSize(propSize * (e.deltaY > 0 ? 1.1 : 1 / 1.1));
+      if (proportional) setPropSize(propSize * (e.deltaY > 0 ? 1.1 : 1 / 1.1));
     },
     onKey(e: KeyboardEvent) {
       const k = e.key;
@@ -1330,6 +1391,18 @@ export function startTransform(
           // typed values move to the newly constrained fields
           if (num.idx >= numFields()) num.idx = 0;
         }
+        compute();
+        return true;
+      }
+      if (code === 'KeyB' && curMode === 'TRANSLATION' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (editingSource) pickSource();
+        else editingSource = true;
+        compute();
+        return true;
+      }
+      if (code === 'KeyA' && curMode === 'TRANSLATION' && !e.metaKey) {
+        if (e.altKey) addedPoints.pop();
+        else if (lastTarget && snapOn()) addedPoints.push(lastTarget.clone());
         compute();
         return true;
       }
@@ -1421,6 +1494,9 @@ function cleanupOverlay() {
   overlay.mouse = null;
   overlay.helpFrom = null;
   snapIndicator.point = null;
+  snapIndicator.added = [];
+  snapIndicator.source = null;
+  snapIndicator.editingSource = false;
 }
 
 // constraint lines, proportional circle and the dashed help line while transforming

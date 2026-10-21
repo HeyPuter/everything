@@ -2,21 +2,26 @@
 import { app } from '../../app/app';
 import type { View3D } from './view3d';
 import { editModeHooks, type PickOptions } from './hooks';
+import { openSelectMenu } from './selectops';
 
 let cycleState: { x: number; y: number; order: string[]; index: number } | null = null;
 
 export function selectPick(v: View3D, x: number, y: number, o: PickOptions) {
+  // Alt+click in Object / Pose Mode lists everything under the pointer to choose from
+  if (o.cycle && (app.doc.mode === 'OBJECT' || app.doc.mode === 'POSE') && openSelectMenu(v, x, y, { extend: o.extend && !o.toggle, toggle: o.toggle, deselect: o.deselect })) {
+    cycleState = null;
+    return;
+  }
   for (const hk of editModeHooks.pick) if (hk(v, x, y, o)) return;
   const doc = app.doc;
   const hit = v.pick(x, y, 8);
   let id = hit?.id ?? null;
-  // Alt-click / repeated click at the same spot cycles through overlapping objects
-  if (hit && o.cycle) {
-    if (cycleState && Math.hypot(cycleState.x - x, cycleState.y - y) < 4) {
-      cycleState.index = (cycleState.index + 1) % hit.order.length;
-      id = hit.order[cycleState.index];
-    } else cycleState = { x, y, order: hit.order, index: 0 };
-  } else cycleState = null;
+  // clicking again at the same spot cycles through the overlapping objects there
+  const again = !!cycleState && Math.hypot(cycleState.x - x, cycleState.y - y) < 4;
+  if (hit && hit.order.length > 1 && again && !o.deselect && !o.toggle && !o.extend) {
+    cycleState!.index = (cycleState!.index + 1) % cycleState!.order.length;
+    id = cycleState!.order[cycleState!.index];
+  } else cycleState = hit ? { x, y, order: hit.order, index: 0 } : null;
   if (doc.mode !== 'OBJECT' && doc.mode !== 'POSE' && id && id !== doc.scene.active_object) {
     // clicking another object outside object mode is ignored (no mode switching via click)
     return;

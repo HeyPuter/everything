@@ -14,9 +14,23 @@ export interface Shading {
   xray_alpha_wireframe: number;
   show_backface_culling: boolean;
   show_shadows: boolean;
+  /** blur by the camera's depth of field when looking through it */
+  use_dof?: boolean;
+  /** Shadow: darkness of the shadows (0..1) and the direction towards the light */
+  shadow_intensity?: number;
+  light_direction?: [number, number, number];
+  /** Shadow edge sharpness (1 crisp, 0 soft) */
+  shadow_focus?: number;
   show_cavity: boolean;
+  /** Cavity: how much ridges lighten and valleys darken (0..2.5) */
+  cavity_ridge_factor?: number;
+  cavity_valley_factor?: number;
   show_specular_highlight: boolean;
   show_object_outline: boolean;
+  /** colour of the Solid shading object outline (display colour) */
+  object_outline_color?: [number, number, number];
+  /** MatCap mirrored left to right */
+  matcap_flip?: boolean;
   use_scene_lights: boolean;
   use_scene_world: boolean;
   use_scene_lights_render: boolean;
@@ -26,6 +40,8 @@ export interface Shading {
   /** blur of the studio HDRI drawn behind the scene (0 sharp … 1 soft) */
   studiolight_background_blur?: number;
   studiolight_rotate_z: number;
+  /** studio lights fixed to the world instead of the view */
+  use_world_space_lighting?: boolean;
   /** Preferences ▸ Lights entries used by Solid (studio light, matcap) and Material Preview (HDRI) */
   studio_light?: string;
   studio_matcap?: string;
@@ -40,6 +56,10 @@ export interface Overlay {
   show_axis_y: boolean;
   show_axis_z: boolean;
   grid_scale: number;
+  /** grid subdivisions of orthographic axis views */
+  grid_subdivisions?: number;
+  /** lights drawn in their light colour */
+  show_light_colors?: boolean;
   show_cursor: boolean;
   show_object_origins: boolean;
   show_object_origins_all: boolean;

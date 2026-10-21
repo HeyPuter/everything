@@ -300,12 +300,40 @@ export function objectMenu(): MenuItem[] {
     { label: 'Clean Up', submenu: cleanUpMenu },
     { separator: true },
     { label: 'Delete', op: 'object.delete', props: { use_global: false }, shortcut: 'X' },
-    { label: 'Delete Globally', op: 'object.delete', props: { use_global: true }, shortcut: 'Shift X' },
+    { label: 'Delete Global', op: 'object.delete', props: { use_global: true }, shortcut: 'Shift X' },
   ];
 }
 
 /** Right click / W in Object Mode. */
-export function objectModeContextMenu(): MenuItem[] {
+/** Drag-to-adjust entries for a value of the selected objects' data. */
+const adjust = (label: string, path: string, scale: number, header: string): MenuItem => ({ label, op: 'wm.context_modal_mouse', props: { data_path_iter: 'selected_editable_objects', data_path_item: path, input_scale: scale, header_text: header } });
+
+/** The first entries of the object context menu, by the active object's type. */
+function contextMenuHead(): MenuItem[] {
+  const ob = app.activeObject;
+  const t = ob?.type;
+  if (t === 'LIGHT' && ob?.data) {
+    const la = app.doc.lights[ob.data];
+    return [
+      adjust('Adjust Light Power', 'data.energy', 1, 'Light Power: %.3f W'),
+      ...(la?.type === 'AREA' ? [] : [adjust('Adjust Light Radius', 'data.shadow_soft_size', 0.01, 'Light Radius: %.3f m')]),
+      ...(la?.type === 'SPOT' ? [adjust('Adjust Spot Light Beam Angle', 'data.spot_size', 0.01, 'Spot Size: %.3f'), adjust('Adjust Spot Light Blend', 'data.spot_blend', 0.01, 'Spot Blend: %.3f')] : []),
+      ...(la?.type === 'AREA' ? [adjust('Adjust Area Light Size', 'data.size', 0.01, 'Area Size: %.3f m')] : []),
+      { label: 'Interactive Light Track', op: 'object.transform_axis_target', shortcut: 'Shift T' },
+      { separator: true },
+    ];
+  }
+  if (t === 'CAMERA' && ob?.data) {
+    const ca = app.doc.cameras[ob.data];
+    return [
+      { label: 'Set Active Camera', op: 'view3d.object_as_camera' },
+      ca?.type === 'ORTHO' ? adjust('Adjust Orthographic Scale', 'data.ortho_scale', 0.01, 'Orthographic Scale: %.3f') : adjust('Adjust Focal Length', 'data.lens', 0.1, 'Focal Length: %.1f mm'),
+      ...(ca?.dof?.use_dof && !ca.dof.focus_object ? [adjust('Adjust Focus Distance', 'data.dof.focus_distance', 0.02, 'Focus Distance: %.3f m')] : []),
+      { label: 'Interactive Camera Track', op: 'object.transform_axis_target', shortcut: 'Shift T' },
+      { separator: true },
+    ];
+  }
+  if (t === 'EMPTY') return [adjust('Adjust Empty Display Size', 'empty_display_size', 0.01, 'Empty Display Size: %.3f'), { separator: true }];
   return [
     { label: 'Shade Smooth', op: 'object.shade_smooth' },
     { label: 'Shade Auto Smooth', op: 'object.shade_auto_smooth' },
@@ -314,6 +342,12 @@ export function objectModeContextMenu(): MenuItem[] {
     { label: 'Convert To', submenu: convertMenu },
     { label: 'Set Origin', submenu: originMenu },
     { separator: true },
+  ];
+}
+
+export function objectModeContextMenu(): MenuItem[] {
+  return [
+    ...contextMenuHead(),
     { label: 'Copy Objects', op: 'view3d.copybuffer', shortcut: 'Ctrl C' },
     { label: 'Paste Objects', op: 'view3d.pastebuffer', shortcut: 'Ctrl V' },
     { separator: true },

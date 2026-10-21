@@ -7,7 +7,7 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import { h } from '../ui/h';
 import type { EvalMesh } from '../eval/types';
 
-export type SnapElement = 'INCREMENT' | 'VERTEX' | 'EDGE' | 'FACE' | 'VOLUME' | 'EDGE_MIDPOINT' | 'GRID';
+export type SnapElement = 'INCREMENT' | 'VERTEX' | 'EDGE' | 'FACE' | 'VOLUME' | 'EDGE_MIDPOINT' | 'GRID' | 'EDGE_PERPENDICULAR' | 'FACE_CENTER';
 
 interface Candidate {
   id: string;
@@ -20,15 +20,21 @@ interface Candidate {
 const SNAP_PX = 18;
 
 /** Geometry that may be snapped to: everything visible except what is being transformed. */
-function candidates(v: View3D): Candidate[] {
+function candidates(v: View3D, includeMoving = false): Candidate[] {
   const out: Candidate[] = [];
   const mode = app.doc.mode;
   for (const ev of app.graph.objects.values()) {
     if (!ev.visible || !ev.mesh || ev.mesh.offsets.length < 2) continue;
     if (v.localView && !v.localView.has(ev.id)) continue;
     const ob = ev.ob;
-    if (mode === 'OBJECT' && ob.select) continue;
+    if (mode === 'OBJECT' && ob.select && !includeMoving) continue;
+    // Target Selection ▸ Exclude Non-Selectable
+    if ((app.doc.scene.tool_settings as { use_snap_selectable?: boolean }).use_snap_selectable && !ev.selectable) continue;
     if (mode === 'EDIT' && app.graph.editObjects.has(ev.id) && ob.type === 'MESH' && ob.data) {
+      if (includeMoving) {
+        out.push({ id: ev.id, mesh: app.doc.meshes[ob.data], world: ev.world });
+        continue;
+      }
       // snap to the unselected part of the edited mesh itself
       const me = app.doc.meshes[ob.data];
       out.push({ id: ev.id, mesh: me, world: ev.world, skip: me.select_vert });
@@ -47,8 +53,8 @@ export interface SnapHit {
 }
 
 /** Find the snap target under the mouse for the enabled element types. */
-export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, elements: SnapElement[]): SnapHit | null {
-  const cands = candidates(v);
+export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, elements: SnapElement[], includeMoving = false, from?: Vector3 | null): SnapHit | null {
+  const cands = candidates(v, includeMoving);
   if (!cands.length) return null;
   let best: { d: number; hit: SnapHit } | null = null;
   const consider = (d: number, point: Vector3, kind: SnapElement) => {
@@ -56,8 +62,33 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
   };
   const wantV = elements.includes('VERTEX'),
     wantE = elements.includes('EDGE'),
-    wantM = elements.includes('EDGE_MIDPOINT');
-  if (wantV || wantE || wantM) {
+    wantM = elements.includes('EDGE_MIDPOINT'),
+    // Edge Perpendicular: the foot of the perpendicular from where the selection starts (the snap source)
+    wantP = elements.includes('EDGE_PERPENDICULAR') && !!from,
+    wantFC = elements.includes('FACE_CENTER');
+  if (wantFC) {
+    for (const c of cands) {
+      const P = c.mesh.positions,
+        O = c.mesh.offsets,
+        I = c.mesh.indices;
+      for (let f = 0; f < O.length - 1; f++) {
+        const ctr = new Vector3();
+        let skip = false;
+        for (let k = O[f]; k < O[f + 1]; k++) {
+          if (c.skip?.[I[k]]) skip = true;
+          ctr.x += P[I[k] * 3];
+          ctr.y += P[I[k] * 3 + 1];
+          ctr.z += P[I[k] * 3 + 2];
+        }
+        if (skip) continue;
+        ctr.multiplyScalar(1 / Math.max(1, O[f + 1] - O[f])).applyMatrix4(c.world);
+        const s = v.project(ctr);
+        if (s.z > 1 || s.z < -1) continue;
+        consider(Math.hypot(s.x - mouse.x, s.y - mouse.y), ctr, 'FACE_CENTER');
+      }
+    }
+  }
+  if (wantV || wantE || wantM || wantP) {
     const p = new Vector3();
     for (const c of cands) {
       const P = c.mesh.positions,
@@ -76,7 +107,7 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
         ok[i] = 1;
         if (wantV) consider(Math.hypot(s.x - mouse.x, s.y - mouse.y), p.clone(), 'VERTEX');
       }
-      if (!wantE && !wantM) continue;
+      if (!wantE && !wantM && !wantP) continue;
       const O = c.mesh.offsets,
         I = c.mesh.indices;
       for (let f = 0; f < O.length - 1; f++)
@@ -91,6 +122,20 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
           const wa = new Vector3(P[a * 3], P[a * 3 + 1], P[a * 3 + 2]).applyMatrix4(c.world),
             wb = new Vector3(P[b * 3], P[b * 3 + 1], P[b * 3 + 2]).applyMatrix4(c.world);
           if (wantM) consider(Math.hypot((ax + bx) / 2 - mouse.x, (ay + by) / 2 - mouse.y) - 0.5, wa.clone().lerp(wb, 0.5), 'EDGE_MIDPOINT');
+          if (wantP) {
+            // the edge is picked by the mouse; the point is where the perpendicular from the source meets it
+            const dx = bx - ax,
+              dy = by - ay,
+              l2 = dx * dx + dy * dy || 1;
+            const t = Math.max(0, Math.min(1, ((mouse.x - ax) * dx + (mouse.y - ay) * dy) / l2));
+            const dEdge = Math.hypot(ax + dx * t - mouse.x, ay + dy * t - mouse.y);
+            const ab = wb.clone().sub(wa);
+            const tt = Math.max(0, Math.min(1, from!.clone().sub(wa).dot(ab) / Math.max(1e-12, ab.lengthSq())));
+            const foot = wa.clone().addScaledVector(ab, tt);
+            const fs = v.project(foot);
+            // only when the foot is near the pointer along that edge
+            if (dEdge <= SNAP_PX && Math.hypot(fs.x - mouse.x, fs.y - mouse.y) < SNAP_PX * 3) consider(dEdge + 0.5, foot, 'EDGE_PERPENDICULAR');
+          }
           if (wantE) {
             const dx = bx - ax,
               dy = by - ay,
@@ -119,6 +164,7 @@ export function findSnapTarget(v: View3D, mouse: { x: number; y: number }, eleme
 /** All ray/triangle intersections under the mouse, nearest first. */
 function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[]) {
   const { origin, dir } = v.ray(mouse.x, mouse.y);
+  const cull = !!(app.doc.scene.tool_settings as { use_snap_backface_culling?: boolean }).use_snap_backface_culling;
   const hits: { t: number; point: Vector3; id: string; normal: Vector3 }[] = [];
   const a = new Vector3(),
     b = new Vector3(),
@@ -159,6 +205,8 @@ function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[])
         if (w < 0 || u + w > 1) continue;
         const t = e2.dot(qv) * id;
         if (t <= 1e-6) continue;
+        // Backface Culling: faces seen from behind are not snapped to
+        if (cull && new Vector3().crossVectors(e1, e2).dot(d) > 0) continue;
         const local = o.clone().addScaledVector(d, t);
         const world = local.applyMatrix4(cand.world);
         const normal = new Vector3().crossVectors(e1, e2).applyMatrix3(new Matrix3().getNormalMatrix(cand.world)).normalize();
@@ -173,15 +221,26 @@ function rayHits(v: View3D, mouse: { x: number; y: number }, cands: Candidate[])
 // ---------------------------------------------------------------------------
 // indicator (drawn while a transform modal is snapping)
 
-export const snapIndicator: { point: Vector3 | null; kind: SnapElement | null } = { point: null, kind: null };
+export const snapIndicator: { point: Vector3 | null; kind: SnapElement | null; added?: Vector3[]; source?: Vector3 | null; editingSource?: boolean } = { point: null, kind: null };
 
 editModeHooks.svg.push((v) => {
-  if (!app.modal || !snapIndicator.point) return null;
+  if (!app.modal) return null;
+  // points added with A (the target is their average) and a snap base chosen with B
+  const extra: ReturnType<typeof h>[] = [];
+  for (const p of snapIndicator.added ?? []) {
+    const q = v.project(p);
+    if (q.z <= 1) extra.push(h('circle', { cx: q.x, cy: q.y, r: 4, fill: '#ffffff', stroke: '#000000', 'stroke-width': 1 }));
+  }
+  if (snapIndicator.source) {
+    const q = v.project(snapIndicator.source);
+    if (q.z <= 1) extra.push(h('path', { d: `M${q.x - 6} ${q.y}H${q.x + 6}M${q.x} ${q.y - 6}V${q.y + 6}`, stroke: '#ffffff', 'stroke-width': 1.5 }));
+  }
+  if (!snapIndicator.point) return extra.length ? h('g', { class: 'snap-indicator' }, ...extra) : null;
   const s = v.project(snapIndicator.point);
-  if (s.z > 1) return null;
+  if (s.z > 1) return extra.length ? h('g', { class: 'snap-indicator' }, ...extra) : null;
   const shape =
     snapIndicator.kind === 'EDGE' || snapIndicator.kind === 'EDGE_MIDPOINT'
       ? h('rect', { x: s.x - 5, y: s.y - 5, width: 10, height: 10, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5, transform: snapIndicator.kind === 'EDGE_MIDPOINT' ? `rotate(45 ${s.x} ${s.y})` : undefined })
       : h('circle', { cx: s.x, cy: s.y, r: 6, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.5 });
-  return h('g', { class: 'snap-indicator' }, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#ffffff' }));
+  return h('g', { class: { 'snap-indicator': true, 'snap-source-edit': !!snapIndicator.editingSource } }, ...extra, shape, h('circle', { cx: s.x, cy: s.y, r: 1.5, fill: '#ffffff' }));
 });

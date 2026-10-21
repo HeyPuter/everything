@@ -14,7 +14,7 @@ async function headerMenu(page: Page, label: string) {
 test('object menu structure and shortcuts open the right menus', async ({ page }) => {
   const errors = await openApp(page);
   await headerMenu(page, 'Object');
-  for (const label of ['Set Origin', 'Apply', 'Collection', 'Relations', 'Parent', 'Modifiers', 'Link/Transfer Data', 'Convert', 'Clean Up', 'Delete Globally']) await expect(item(page, label).first()).toBeVisible();
+  for (const label of ['Set Origin', 'Apply', 'Collection', 'Relations', 'Parent', 'Modifiers', 'Link/Transfer Data', 'Convert', 'Clean Up', 'Delete Global']) await expect(item(page, label).first()).toBeVisible();
   await item(page, 'Apply').first().hover();
   await expect(item(page, 'Rotation to Deltas')).toBeVisible();
   await expect(item(page, 'Animated Transforms to Deltas')).toBeVisible();

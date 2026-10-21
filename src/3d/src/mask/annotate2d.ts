@@ -6,7 +6,7 @@
 // button alone.
 import { app, type ModalHandler } from '../app/app';
 import { h, type Child } from '../ui/h';
-import { icon, registerIcons } from '../ui/icons';
+import { icon } from '../ui/icons';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { panel, numberField, colorSwatch, button } from '../ui/widgets';
 import { splitRow } from '../ui/props';
@@ -16,11 +16,6 @@ import { eraseAt, type Annotation2DStroke, type Annotation2DOwner } from './anno
 export type { Annotation2DStroke, Annotation2DOwner } from './annotate2dcore';
 export { eraseAt, segmentDistance } from './annotate2dcore';
 
-registerIcons({
-  annotate_line: '<path class="s" d="M3 13L13 3" stroke-width="1.6" stroke-linecap="round"/><circle class="f" cx="3" cy="13" r="1.6"/><circle class="f" cx="13" cy="3" r="1.6"/>',
-  annotate_poly: '<path class="s" d="M2.5 12.5L5 4l5.5 2.5 3-3.5" fill="none" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><circle class="f" cx="5" cy="4" r="1.3"/><circle class="f" cx="10.5" cy="6.5" r="1.3"/>',
-  annotate_eraser: '<path class="s" d="M6 13.5h7.5M2.8 9.6l6.3-6.3a1.4 1.4 0 0 1 2 0l2.1 2.1a1.4 1.4 0 0 1 0 2l-6.3 6.3H5.4L2.8 11.6a1.4 1.4 0 0 1 0-2z" fill="none" stroke-width="1.2" stroke-linejoin="round"/><path class="f" d="M2.8 9.6l3.2-3.2 4.1 4.1-3.2 3.2H5.4L2.8 11.6a1.4 1.4 0 0 1 0-2z" opacity=".55"/>',
-});
 
 /** What an editor provides for annotating. */
 export interface Annotate2DHost {
@@ -41,7 +36,7 @@ export type AnnotateTool = 'annotate' | 'annotate_line' | 'annotate_polygon' | '
 export const ANNOTATE_TOOLS: { id: AnnotateTool; mode: AnnotateMode; label: string; icon: string; tip: string }[] = [
   { id: 'annotate', mode: 'DRAW', label: 'Annotate', icon: 'annotate', tip: 'Draw freehand notes over the picture (Ctrl erases)' },
   { id: 'annotate_line', mode: 'DRAW_STRAIGHT', label: 'Annotate Line', icon: 'annotate_line', tip: 'Drag to draw straight lines (Ctrl erases)' },
-  { id: 'annotate_polygon', mode: 'DRAW_POLY', label: 'Annotate Polygon', icon: 'annotate_poly', tip: 'Click to add corners; Enter, a double click or right click finishes (Ctrl erases)' },
+  { id: 'annotate_polygon', mode: 'DRAW_POLY', label: 'Annotate Polygon', icon: 'annotate_polygon', tip: 'Click to add corners; Enter, a double click or right click finishes (Ctrl erases)' },
   { id: 'annotate_eraser', mode: 'ERASER', label: 'Annotate Eraser', icon: 'annotate_eraser', tip: 'Drag over notes to erase them' },
 ];
 export const isAnnotateTool = (t: string): t is AnnotateTool => ANNOTATE_TOOLS.some((x) => x.id === t);

@@ -1,6 +1,6 @@
 // Viewport drawing: scene pass (per shading mode), grid & overlays, ID pass,
 // selection outline compositing.
-import { applyStudioLighting, hdriEnvironment } from '../../render/studiolights';
+import { applyStudioLighting, hdriEnvironment, studioUniforms } from '../../render/studiolights';
 import {
   Color,
   Scene,
@@ -28,6 +28,10 @@ import {
   FrontSide,
   DoubleSide,
   PerspectiveCamera,
+  ShaderMaterial,
+  CanvasTexture,
+  BackSide,
+  SRGBColorSpace,
 } from 'three';
 import type { RenderContext } from '../../render/context';
 import { createGrid } from '../../render/grid';
@@ -41,6 +45,13 @@ import type { DocumentData, ObjectData, WorldData } from '../../data/types';
 import type { SyncedObject } from '../../render/scene';
 import { evaluateWorldForViewport } from '../../render/world';
 import { drawEnvironmentBackground, drawLookdevSpheres } from './lookdev';
+import { drawObjectOutlines } from './objoutline';
+import { thresholdEdges } from './wirethreshold';
+import { dashedLineMaterial, dashedSegments, syncDashViewport } from './dashline';
+import { drawCavity } from './cavity';
+import { drawSolidShadow } from './solidshadow';
+import { drawViewportDof } from './viewdof';
+import { cameraDof } from '../../render/final/camera';
 
 export interface DrawView {
   nav: NavCamera;
@@ -115,20 +126,177 @@ const fsScene = new Scene();
 fsScene.add(fsQuad);
 const fsCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
+/** Round object origin dots with a dark rim (size in CSS pixels, scaled by the device pixel ratio). */
+function originDotMaterial(color: number, size: number) {
+  return new ShaderMaterial({
+    uniforms: { uColor: { value: new Color(color) }, uSize: { value: size }, uDpr: { value: 1 } },
+    vertexShader: /* glsl */ `
+      uniform float uSize;
+      uniform float uDpr;
+      void main() {
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = uSize * uDpr;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uColor;
+      uniform float uSize;
+      uniform float uDpr;
+      void main() {
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        if (r > 1.0) discard;
+        float rim = 1.0 - 1.6 / (uSize * uDpr);
+        vec3 c = r > rim ? vec3(0.0) : uColor;
+        gl_FragColor = vec4(c, r > rim ? 0.75 : 1.0);
+        #include <colorspace_fragment>
+      }
+    `,
+    depthTest: false,
+    transparent: true,
+  });
+}
 const originGeo = new BufferGeometry();
-const originPts = new Points(originGeo, new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0xfca41d, depthTest: false, transparent: true }));
+const originPts = new Points(originGeo, originDotMaterial(0xfca41d, 8));
 originPts.renderOrder = 10;
 const originGeoSel = new BufferGeometry();
-const originPtsSel = new Points(originGeoSel, new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0xe16003, depthTest: false, transparent: true }));
+const originPtsSel = new Points(originGeoSel, originDotMaterial(0xe16003, 8));
 const originGeoAll = new BufferGeometry();
-const originPtsAll = new Points(originGeoAll, new PointsMaterial({ size: 5, sizeAttenuation: false, color: 0xbbbcbe, depthTest: false, transparent: true }));
-const relLines = new LineSegments(new BufferGeometry(), new LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4 }));
+const originPtsAll = new Points(originGeoAll, originDotMaterial(0xbbbcbe, 7));
+// relationship lines: dashed in screen space, hidden behind surfaces
+const relLines = new LineSegments(new BufferGeometry(), dashedLineMaterial);
 const originScene = new Scene();
 originScene.add(originPtsAll, originPtsSel, originPts, relLines);
 
 function objectColorState(app: App, ob: ObjectData): 0 | 1 | 2 {
   if (app.doc.scene.active_object === ob.id && ob.select) return 2;
   return ob.select ? 1 : 0;
+}
+
+/**
+ * Render the synced scene with "In Front" objects (Object ▸ Viewport Display) drawn last over
+ * everything else: the rest first, then the depth cleared and only those objects again.
+ */
+function renderWithInFront(r: RenderContext['engine']['renderer'], ctx: RenderContext, scene: Scene, camera: Camera, keepDepth = false) {
+  const front: SyncedObject[] = [];
+  for (const so of ctx.sync.objects.values()) if (so.ev.ob.show_in_front && so.root.visible) front.push(so);
+  if (!front.length) {
+    r.render(scene, camera);
+    return;
+  }
+  for (const so of front) so.root.visible = false;
+  r.render(scene, camera);
+  for (const so of front) so.root.visible = true;
+  // everything else is hidden for the second render, except the light sources themselves
+  const restore: { o: { visible: boolean }; v: boolean }[] = [];
+  const hide = (o: { visible: boolean } | undefined) => {
+    if (!o) return;
+    restore.push({ o, v: o.visible });
+    o.visible = false;
+  };
+  for (const so of ctx.sync.objects.values()) {
+    if (!so.root.visible || front.includes(so)) continue;
+    if (so.light) for (const c of so.root.children) c !== so.light && hide(c);
+    else hide(so.root);
+  }
+  const bg = scene.background;
+  scene.background = null;
+  r.clearDepth();
+  r.render(scene, camera);
+  for (const x of restore) x.o.visible = x.v;
+  if (keepDepth) {
+    // put the other objects' depth back so the overlays drawn next are hidden behind them
+    for (const so of front) so.root.visible = false;
+    scene.overrideMaterial = depthOnlyMaterial;
+    r.render(scene, camera);
+    scene.overrideMaterial = null;
+    for (const so of front) so.root.visible = true;
+  }
+  scene.background = bg;
+}
+const depthOnlyMaterial = new MeshBasicMaterial({ colorWrite: false, side: DoubleSide });
+
+/** Wire geometries limited by the wireframe threshold, per full wire geometry and threshold. */
+const thresholdCache = new WeakMap<BufferGeometry, { t: number; g: BufferGeometry }>();
+function thresholdWire(full: BufferGeometry, mesh: { offsets: Uint32Array | ArrayLike<number>; indices: Uint32Array | ArrayLike<number>; positions: Float32Array | ArrayLike<number> }, t: number): BufferGeometry {
+  const hit = thresholdCache.get(full);
+  if (hit && hit.t === t) return hit.g;
+  const g = new BufferGeometry();
+  g.setAttribute('position', full.getAttribute('position'));
+  g.setIndex(Array.from(thresholdEdges(mesh as Parameters<typeof thresholdEdges>[0], t)));
+  hit?.g.dispose();
+  thresholdCache.set(full, { t, g });
+  return g;
+}
+const swappedGeometry: [LineSegments, BufferGeometry][] = [];
+const swappedMaterials: [Mesh, Material | Material[]][] = [];
+function swapMaterial(o: Mesh, m: Material) {
+  swappedMaterials.push([o, o.material]);
+  o.material = Array.isArray(o.material) ? o.material.map(() => m) : m;
+}
+/** Back faces in red, drawn over the shaded surfaces (the blend matches the usual display look). */
+const faceOrientationMaterial = new MeshBasicMaterial({ color: new Color().setRGB(1, 0.235, 0.235, SRGBColorSpace), transparent: true, opacity: 0.75, side: BackSide, depthWrite: false });
+function swapGeometry(o: LineSegments, g: BufferGeometry) {
+  swappedGeometry.push([o, o.geometry]);
+  o.geometry = g;
+}
+
+/**
+ * World Space Lighting: the studio lights stay fixed to the scene (turned by the Rotation)
+ * instead of following the view. The built-in studio light becomes one key light from above.
+ */
+function worldSpaceStudio(rotateZ: number, camera: Camera) {
+  const u = studioUniforms;
+  camera.updateMatrixWorld();
+  const toView = new Matrix4().extractRotation(camera.matrixWorldInverse).multiply(new Matrix4().makeRotationZ(rotateZ));
+  if (!u.uStudioCustom.value) {
+    // same weights as the default look, with the key light fixed in the world
+    u.uStudioCustom.value = 1;
+    u.uAmbient.value.set(0.11, 0.11, 0.11);
+    u.uLightDir.value.forEach((d, i) => {
+      d.set(-0.42, -0.45, 0.79).normalize();
+      u.uLightDiffuse.value[i].setScalar(i === 0 ? 0.293 : 0);
+      u.uLightSpecular.value[i].setScalar(i === 0 ? 0.08 : 0);
+      u.uLightSmooth.value[i] = 0;
+    });
+  }
+  for (const d of u.uLightDir.value) d.applyMatrix4(toView).normalize();
+}
+
+/** MatCap mirrored left to right (Shading ▸ Flip MatCap): a mirrored copy of the MatCap image. */
+const flippedMatcaps = new WeakMap<object, { version: number; tex: CanvasTexture }>();
+function flipMatcap() {
+  const src = studioUniforms.uMatcap.value as (CanvasTexture & { image: HTMLCanvasElement }) | null;
+  if (!src?.image) return;
+  let f = flippedMatcaps.get(src);
+  if (!f || f.version !== src.version) {
+    const c = f?.tex.image ?? document.createElement('canvas');
+    c.width = src.image.width;
+    c.height = src.image.height;
+    const g = c.getContext('2d')!;
+    g.setTransform(-1, 0, 0, 1, c.width, 0);
+    g.drawImage(src.image, 0, 0);
+    if (!f) {
+      const tex = new CanvasTexture(c);
+      tex.colorSpace = src.colorSpace;
+      tex.minFilter = src.minFilter;
+      tex.magFilter = src.magFilter;
+      f = { version: src.version, tex };
+      flippedMatcaps.set(src, f);
+    } else f.version = src.version;
+    f.tex.needsUpdate = true;
+  }
+  studioUniforms.uMatcap.value = f.tex;
+}
+
+/** Unselected wire colour in Wireframe shading (Color ▸ Wireframe: theme, object or random). */
+function wireframeColor(ob: ObjectData, sh: Shading): Color {
+  if (sh.wireframe_color_type === 'OBJECT') return new Color().setRGB(ob.color[0], ob.color[1], ob.color[2]);
+  if (sh.wireframe_color_type === 'RANDOM') {
+    let hh = 0;
+    for (let i = 0; i < ob.name.length; i++) hh = (hh * 31 + ob.name.charCodeAt(i)) >>> 0;
+    return new Color().setHSL((hh % 360) / 360, 0.5, 0.55);
+  }
+  return new Color(0, 0, 0);
 }
 
 function solidColor(doc: DocumentData, ob: ObjectData, shading: Shading, slot: number, so: SyncedObject): [number, number, number] {
@@ -240,6 +408,8 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
   let bg: Color = theme.bg;
   // the studio light / matcap this view uses (shared shader uniforms)
   applyStudioLighting(sh);
+  if (sh.light === 'MATCAP' && sh.matcap_flip) flipMatcap();
+  if (sh.light === 'STUDIO' && sh.use_world_space_lighting) worldSpaceStudio(sh.studiolight_rotate_z ?? 0, view.sceneCamera ?? nav.camera);
   const rendered = sh.type === 'RENDERED';
   const material = sh.type === 'MATERIAL';
   const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;
@@ -282,6 +452,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
 
   // --- rendered view drawn by the attached render engine (render/final); it returns false to
   // fall back to the built-in pass (e.g. for the Solid render engine)
+  let dofAfterScene: (() => void) | null = null;
   if (rendered && view.pathTracer && view.pathTracer.render(camera, w, h)) {
     // drawn by the render engine
   } else {
@@ -304,8 +475,21 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
       hide(so.points);
     }
     const afterScene = runPassHooks('SCENE', view, camera);
-    r.render(scene, camera);
+    renderWithInFront(r, ctx, scene, camera, true);
+    // Solid shading ▸ Cavity
+    // Shading ▸ Depth of Field (looking through a camera with depth of field)
+    if (view.sceneCamera && sh.use_dof && (sh.type === 'SOLID' || sh.type === 'WIREFRAME' || sh.type === 'MATERIAL')) {
+      const camId = (view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera;
+      const dof = cameraDof(app, camId);
+      const ca = camId ? doc.cameras[doc.objects[camId]?.data ?? ''] : undefined;
+      if (dof && ca) dofAfterScene = () => drawViewportDof(r, scene, camera, { x, y, w, h }, engine.dpr, { focus: dof.focus, lens: ca.lens, sensor: ca.sensor_fit === 'VERTICAL' ? ca.sensor_height : ca.sensor_width, fstop: ca.dof.aperture_fstop });
+    }
+    // Solid shading ▸ Shadow
+    if (sh.type === 'SOLID' && sh.show_shadows) drawSolidShadow(r, ctx, scene, camera, { x, y, w, h }, sh.light_direction ?? [0.5774, -0.5774, 0.5774], sh.shadow_intensity ?? 0.5, sh.shadow_focus ?? 1);
+    if (sh.type === 'SOLID' && sh.show_cavity) drawCavity(r, scene, camera, { x, y, w, h }, engine.dpr, sh.cavity_ridge_factor ?? 1, sh.cavity_valley_factor ?? 1);
     afterScene();
+    // the depth of field blur works on the shaded scene, before the overlays
+    dofAfterScene?.();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
   }
 
@@ -320,9 +504,30 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
     drawOverlays(app, ctx, view, camera, editing);
   }
 
-  // --- ID pass (also used for picking)
-  if (ov.show_overlays && ov.show_outline_selected && sh.show_object_outline !== false) drawOutline(app, ctx, view, camera, x, y, w, h);
-  else view.idDirty = true;
+  // --- ID pass (also used for picking): object outlines (Solid shading option) and selection outlines (overlay)
+  const objOutline = sh.type === 'SOLID' && sh.show_object_outline;
+  const selOutline = ov.show_overlays && ov.show_outline_selected;
+  if (objOutline || selOutline) {
+    const dpr = engine.dpr;
+    const W = Math.round(w * dpr),
+      H = Math.round(h * dpr);
+    renderIdPass(app, ctx, view, camera, W, H);
+    if (objOutline) drawObjectOutlines(r, outlinedObjects(app, ctx, view), view.idTarget!.texture, W, H, { x, y, w, h }, sh.object_outline_color ?? [0, 0, 0], dpr);
+    if (selOutline) drawOutline(app, ctx, view, camera, x, y, w, h, false);
+  } else view.idDirty = true;
+}
+
+/** ID-pass indices of the objects drawn as surfaces (they get the Solid shading outline). */
+function outlinedObjects(app: App, ctx: RenderContext, view: DrawView): number[] {
+  const out: number[] = [];
+  for (const so of ctx.sync.objects.values()) {
+    const ob = so.ev.ob;
+    if (!so.root.visible || !so.mesh || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || view.hiddenTypes?.has(ob.type)) continue;
+    if (!so.mesh.geometry.index?.count && !so.mesh.geometry.getAttribute('position')?.count) continue;
+    out.push(ctx.sync.objectIndex(ob.id));
+  }
+  void app;
+  return out;
 }
 
 function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Camera, editing: boolean) {
@@ -348,6 +553,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     u.uOrtho.value = ortho ? 1 : 0;
     u.uFade.value = ortho ? Math.max(50, nav.distance * 10) : Math.max(40, Math.min(1000, nav.distance * 8 + Math.abs(cam.z) * 6));
     u.uScale.value = ov.grid_scale;
+    // subdivisions of the orthographic axis-view grid (the perspective floor steps by ten)
+    u.uSubdiv.value = axisView ? Math.max(2, ov.grid_subdivisions ?? 10) : 10;
     u.uShowAxes.value.set(axisView ? 1 : ov.show_axis_x ? 1 : 0, axisView ? 1 : ov.show_axis_y ? 1 : 0, axisView ? 1 : ov.show_axis_z ? 1 : 0);
     u.uShowFloor.value = axisView || ov.show_floor ? 1 : 0;
     grid.mesh.matrixWorld.identity();
@@ -364,11 +571,14 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   for (const so of ctx.sync.objects.values()) {
     const ob = so.ev.ob;
     const shown = so.root.visible;
-    set(so.mesh, false);
+    // Face Orientation: faces seen from behind are tinted red (front faces stay as they are)
+    const faceOrient = ov.show_face_orientation && shown && !!so.mesh && sh.type !== 'WIREFRAME' && ob.display_type !== 'WIRE' && ob.display_type !== 'BOUNDS';
+    set(so.mesh, faceOrient);
+    if (faceOrient && so.mesh) swapMaterial(so.mesh, faceOrientationMaterial);
     so.instances && set(so.instances, false);
     so.duplis && set(so.duplis, false);
     if (so.light) set(so.light, so.light.visible);
-    const col = helperColor(app, ob, theme.wire);
+    const col = ov.show_light_colors && ob.type === 'LIGHT' && !ob.select && ob.data && doc.lights[ob.data] ? new Color().setRGB(...(doc.lights[ob.data].color as [number, number, number])) : helperColor(app, ob, theme.wire);
     const inEdit = editing && app.graph.editObjects.has(ob.id);
     // the camera being looked through is not drawn (only its frame, as the passepartout)
     const lookingThrough = !!view.sceneCamera && ob.id === ((view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera);
@@ -380,13 +590,14 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
       (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.display_type === 'BOUNDS' || ob.show_wire || ov.show_wireframes || (ob.type !== 'MESH' && !so.mesh?.geometry.index?.count));
     if (so.wire) {
       set(so.wire, showWire);
+      if (showWire && ob.type === 'MESH' && so.ev.mesh && (ov.wireframe_threshold ?? 1) < 1 && !(ob as { show_all_edges?: boolean }).show_all_edges) swapGeometry(so.wire, thresholdWire(so.wire.geometry, so.ev.mesh, ov.wireframe_threshold));
       const m = so.wire.material as LineBasicMaterial;
       const st = objectColorState(app, ob);
       if (inEdit) {
         m.color.copy(theme.wire);
         m.opacity = 1;
       } else if (sh.type === 'WIREFRAME' || ob.display_type === 'WIRE' || ob.type !== 'MESH') {
-        m.color.copy(st ? col : sh.type === 'WIREFRAME' ? new Color(0, 0, 0) : theme.wire);
+        m.color.copy(st ? col : sh.type === 'WIREFRAME' ? wireframeColor(ob, sh) : theme.wire);
         m.opacity = st ? 1 : sh.type === 'WIREFRAME' ? 0.85 : 1;
       } else {
         m.color.copy(st ? col : theme.wire);
@@ -404,7 +615,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
       (so.helper.material as LineBasicMaterial).color.copy(col);
     }
     if (so.helperFill) {
-      set(so.helperFill, shown && ov.show_extras && !lookingThrough);
+      // only the scene's active camera has a filled "up" triangle
+      set(so.helperFill, shown && ov.show_extras && !lookingThrough && ob.id === doc.scene.camera);
       (so.helperFill.material as MeshBasicMaterial).color.copy(col);
     }
     if (so.ground) set(so.ground, shown && ov.show_extras);
@@ -442,6 +654,10 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   afterOverlay();
   s.background = overlayBg;
   for (const v of visible) v.o.visible = v.v;
+  for (const [o, g] of swappedGeometry) o.geometry = g;
+  swappedGeometry.length = 0;
+  for (const [o, m] of swappedMaterials) o.material = m;
+  swappedMaterials.length = 0;
 
   // extra overlays (edit mesh, sculpt cursor, etc)
   for (const fn of view.extraOverlays) fn(s, camera);
@@ -481,19 +697,23 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
     originGeo.setAttribute('position', new Float32BufferAttribute(act, 3));
     originGeoSel.setAttribute('position', new Float32BufferAttribute(sel, 3));
     originGeoAll.setAttribute('position', new Float32BufferAttribute(all, 3));
-    relLines.geometry.setAttribute('position', new Float32BufferAttribute(rel, 3));
-    relLines.geometry.setDrawRange(0, rel.length / 3);
+    dashedSegments(relLines.geometry, rel);
+    syncDashViewport(r, ctx.engine.dpr);
+    // theme colours and the pixel ratio for the dot size
+    (originPts.material as ShaderMaterial).uniforms.uColor.value.copy(theme.active);
+    (originPtsSel.material as ShaderMaterial).uniforms.uColor.value.copy(theme.selected);
+    for (const p of [originPts, originPtsSel, originPtsAll]) (p.material as ShaderMaterial).uniforms.uDpr.value = ctx.engine.dpr;
     originScene.updateMatrixWorld(true);
     r.render(originScene, camera);
   }
 }
 
-function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camera, x: number, y: number, w: number, h: number) {
+function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camera, x: number, y: number, w: number, h: number, idPass = true) {
   const r = ctx.engine.renderer;
   const dpr = ctx.engine.dpr;
   const W = Math.round(w * dpr),
     H = Math.round(h * dpr);
-  renderIdPass(app, ctx, view, camera, W, H);
+  if (idPass) renderIdPass(app, ctx, view, camera, W, H);
   // selection state texture
   if (!selTex) {
     selTex = new DataTexture(selData, 4096, 64, RedFormat, UnsignedByteType);
@@ -512,6 +732,9 @@ function drawOutline(app: App, ctx: RenderContext, view: DrawView, camera: Camer
   }
   selTex.needsUpdate = true;
   const u = outlineMaterial.uniforms;
+  // theme colours are linear; the outline shader encodes its output for the display
+  u.uSelColor.value.copy(theme.selected);
+  u.uActColor.value.copy(theme.active);
   u.tId.value = view.idTarget!.texture;
   u.tSel.value = selTex;
   u.uSize.value.set(W, H, 1);
@@ -551,7 +774,7 @@ export function renderIdPass(app: App, ctx: RenderContext, view: DrawView, camer
     }
     if (so.wire) swap(so.wire, vis && (view.shading.type === 'WIREFRAME' || ob.display_type === 'WIRE' || (ob.type !== 'MESH' && !!so.ev.mesh?.curves)));
     swap(so.helper, vis && view.overlay.show_extras);
-    swap(so.helperFill, vis && view.overlay.show_extras);
+    swap(so.helperFill, vis && view.overlay.show_extras && ob.id === app.doc.scene.camera);
     swap(so.imagePlane, vis && so.imagePlane?.visible !== false);
     swap(so.points, vis);
     if (so.bones) {
@@ -568,7 +791,7 @@ export function renderIdPass(app: App, ctx: RenderContext, view: DrawView, camer
   r.setClearColor(0x000000, 0);
   r.clear(true, true, true);
   const afterId = runPassHooks('ID', view, camera);
-  r.render(scene, camera);
+  renderWithInFront(r, ctx, scene, camera);
   afterId();
   r.setRenderTarget(null);
   for (const s of saved.reverse()) {

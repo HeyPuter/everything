@@ -2904,7 +2904,8 @@ export class Context {
   }
   get space_data() {
     const a = app.hoverArea ?? app.activeArea;
-    return a ? { __kind: 'struct', __type: 'Space', type: a.type } : null;
+    if (!a) return null;
+    return spaceDataProviders[a.type]?.(a.editor) ?? { __kind: 'struct', __type: 'Space', type: a.type };
   }
   get material() {
     const ob = app.activeObject;
@@ -2929,6 +2930,9 @@ export class Context {
     return '<bpy_struct, Context>';
   }
 }
+
+/** Space structs of bpy.context.space_data by editor type (modules register theirs). */
+export const spaceDataProviders: Record<string, (editor: unknown) => unknown> = {};
 
 // ---------------------------------------------------------------------------
 // bpy.data

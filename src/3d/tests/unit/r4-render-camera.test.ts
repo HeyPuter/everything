@@ -73,19 +73,6 @@ describe('panoramic cameras', () => {
 });
 
 describe('camera display', () => {
-  it('draws the clipping limits and the mist range along the view axis', async () => {
-    const { cameraWire } = await import('../../src/render/helpers');
-    const ca = newCamera('Cam');
-    const base = cameraWire(ca, 16 / 9).length;
-    ca.show_limits = true;
-    const lim = cameraWire(ca, 16 / 9);
-    expect(lim.length).toBeGreaterThan(base);
-    // the axis line reaches the far clip distance
-    expect(Math.min(...lim.filter((_, i) => i % 3 === 2))).toBeCloseTo(-ca.clip_end);
-    ca.show_mist = true;
-    expect(cameraWire(ca, 16 / 9, { start: 5, depth: 25 }).length).toBeGreaterThan(lim.length);
-  });
-
   it('outlines the sensor inside the camera frame', async () => {
     const { sensorRect } = await import('../../src/render/final/cameraoverlay');
     const f = { x: 0, y: 0, w: 160, h: 90 };
