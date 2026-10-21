@@ -340,3 +340,30 @@ it.each([true, false])('resolves only the changes Show Markup shows (accept=%s),
   session.run(m => m.resolveRevisions(accept, undefined, undefined, { only: change => change.author !== 'Bea' }));
   expect(body.revisions.map(r => [r.type, r.author, body.text.slice(r.start, r.end)])).toEqual([['ins', 'Bea', ' big']]);
 });
+
+describe('Accept All and Reject All on a long reviewed document', () => {
+  const reviewed = count => {
+    const revision = type => ({ type, author: 'Ada', date: '2026-01-01T00:00:00Z' });
+    const paragraphs = Array.from({ length: count }, (_, i) => {
+      const p = paragraph(`Item ${i} reads`);
+      p.runs.push({ ...p.runs[0], text: ' old', revision: revision('del') }, { ...p.runs[0], text: ' new', revision: revision('ins') }, { ...p.runs[0], text: ' text.' });
+      // A bookmark around the final word moves with the text before it.
+      const length = p.runs.reduce((n, r) => n + r.text.length, 0);
+      p.bookmarks = [{ id: `b${i}`, name: `Item${i}`, edge: 'start', offset: length - 5 }, { id: `b${i}`, edge: 'end', offset: length - 1 }];
+      return p;
+    });
+    const pkg = createDocx(paragraphs);
+    return new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  };
+  it.each([true, false])('resolves thousands of changes in linear time (accept=%s)', accept => {
+    const doc = reviewed(2000);
+    const started = performance.now();
+    expect(doc.resolveRevisions(accept)).toBe(true);
+    // It took over a minute when every change walked or rewrote the document from its start.
+    expect(performance.now() - started).toBeLessThan(15000);
+    expect(doc.revisions).toEqual([]);
+    const kept = accept ? 'new' : 'old';
+    expect(doc.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(Array.from({ length: 2000 }, (_, i) => `Item ${i} reads ${kept} text.`));
+    expect(doc.bookmarks.map(b => doc.text.slice(b.start, b.end))).toEqual(Array(2000).fill('text'));
+  }, 90000);
+});

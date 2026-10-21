@@ -2035,33 +2035,49 @@ export class TextDocument {
       // range still holds; then the removals, from the last, so each earlier range stays where it was.
       // Removing first left a paragraph's formatting change reaching into the next paragraph.
       const removes = r => r.type !== 'format' && (r.type === 'ins' ? !accept : accept);
+      // Paragraph starts, measured once: kept changes and formatting move no text, and removals run from
+      // the last, so the starts before each stay valid. Walking from the document's start for every change
+      // made Accept All and Reject All on a long reviewed document take minutes.
+      const starts = []; let offset = 0;
+      for (const p of this.paragraphs) { starts.push(offset); offset += paragraphLength(p) + 1; }
+      const indexAt = position => { let low = 0, high = starts.length - 1; while (low < high) { const middle = (low + high + 1) >> 1; if (starts[middle] <= position) low = middle; else high = middle - 1; } return low; };
+      const visitWithin = (from, to, visit) => { const first = indexAt(from); eachRevisionTarget(this.paragraphs.slice(first, indexAt(to) + 1), from - starts[first], to - starts[first], visit); };
+      // Text removed from within one paragraph that holds no fields, controls or note marks needs none of
+      // replace's work across the document.
+      const plain = !this.hasContentControls && !this.hasBlockControls && !this.hasPlainTextControls && !this.hasMacroButtons;
       for (const r of [...targets.filter(r => !removes(r)), ...targets.filter(removes).reverse()]) {
         if (r.type === 'format') {
           // Rejecting re-applies the recorded former formatting; a change recorded without it is kept.
           const resolve = (target, kind) => { if (accept) acceptFormatChange(target, kind); else if (!rejectFormatChange(target)) this.formatRejectSkipped = true; else if (kind === 'run') acceptFormatChange(target, 'run'); };
-          let at = 0;
-          for (const p of this.paragraphs) {
-            const size = p.runs.reduce((n, run) => n + run.text.length, 0);
-            if (at + size + 1 > r.start && at < r.end) {
-              let touched = false;
-              const change = paragraphFormatChange(p);
-              if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
-              eachRevisionTarget(this.paragraphs, Math.max(r.start, at), Math.min(r.end, at + size), ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); touched = true; } });
-              if (touched && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
-            }
-            at += size + 1;
-            if (at > r.end) break;
+          for (let i = indexAt(r.start); i < this.paragraphs.length && starts[i] < r.end; i++) {
+            const p = this.paragraphs[i], at = starts[i], size = paragraphLength(p);
+            let touched = false;
+            const change = paragraphFormatChange(p);
+            if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
+            eachRevisionTarget([p], Math.max(r.start, at) - at, Math.min(r.end, at + size) - at, ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); touched = true; } });
+            if (touched && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
           }
           continue;
         }
         const keep = r.type === 'ins' ? accept : !accept;
         // Rejecting a deletion of another reviewer's insertion restores that insertion.
         const kept = revision => revision?.inserted && !accept ? { type: 'ins', ...revision.inserted } : undefined;
-        if (keep) eachRevisionTarget(this.paragraphs, r.start, r.end, ({ paragraph, run, mark }) => {
+        if (keep) visitWithin(r.start, r.end, ({ paragraph, run, mark }) => {
           const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision', next = kept(target[key]);
           if (next) target[key] = next; else delete target[key];
         });
         else {
+          const index = indexAt(r.start), p = this.paragraphs[index], from = r.start - starts[index], to = r.end - starts[index];
+          if (plain && to <= paragraphLength(p) && !p.fieldMarkers?.length && !p.runs.some(run => run.noteMark)) {
+            const next = { ...copy(p), runs: normalize([...sliceRuns(p.runs, 0, from, true), ...sliceRuns(p.runs, to)]) };
+            replaceBookmarkMarkers([p], [next], from, to, 0);
+            for (const change of hyperlinkBoundaryChanges(next.runs)) {
+              next.runs = normalize([...sliceRuns(next.runs, 0, change.start), ...sliceRuns(next.runs, change.start, change.end).map(run => { const piece = { ...run }; if (change.link) piece.link = { ...change.link }; else delete piece.link; return piece; }), ...sliceRuns(next.runs, change.end)]);
+            }
+            if (this.stylesEnabled) resolveStyledParagraph(next, this.styles, this.numbering);
+            this.paragraphs[index] = next;
+            continue;
+          }
           // A removed paragraph mark merges its paragraph with the next one.
           const limit = documentLength(this.paragraphs);
           this.selection = { anchor: r.start, focus: Math.min(r.end, limit) };
