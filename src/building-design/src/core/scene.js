@@ -129,7 +129,7 @@ export class Scene {
   /** Inputs a 3D mesh depends on. */
   deps3D(el) {
     const doc = this.doc;
-    const d = [el, doc.get(el.typeId), doc.get(el.levelId), doc.get(el.topLevelId)];
+    const d = [el, doc.get(el.typeId), doc.get(el.levelId), doc.get(el.topLevelId), doc.get(el.paintId)];
     if (el.kind === 'wall') {
       if (el.attachTopId) {
         const roof = doc.get(el.attachTopId);
@@ -158,6 +158,7 @@ export class Scene {
     let mesh = null;
     try {
       mesh = el.kind === 'link' ? this.linkMesh(el) : build3D(this.ctx3d(), el);
+      if (mesh && el.paintId) mesh = painted(mesh, this.doc.get(el.paintId));
     } catch (err) {
       console.warn('Could not build', el.kind, el.id, err);
     }
@@ -304,6 +305,21 @@ export class Scene {
     }
     return out;
   }
+}
+
+/** A mesh with every surface in a painted material's colour (and its transparency). */
+function painted(mesh, mat) {
+  if (mat?.kind !== 'material') return mesh;
+  const n = parseInt(String(mat.color || '#c8c8c8').slice(1, 7), 16) || 0;
+  const a = Math.round(255 * Math.max(0.05, Math.min(1, mat.opacity ?? 1)));
+  const col = new Uint8Array(mesh.col.length);
+  for (let i = 0; i < col.length; i += 4) {
+    col[i] = (n >> 16) & 255;
+    col[i + 1] = (n >> 8) & 255;
+    col[i + 2] = n & 255;
+    col[i + 3] = a;
+  }
+  return { ...mesh, col };
 }
 
 /** Demolished elements: every line dashed, cut fills left out. */

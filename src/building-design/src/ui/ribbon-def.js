@@ -336,7 +336,7 @@ export const RIBBON = [
           { cmd: 'cutClip' },
         ],
       },
-      { title: 'Geometry', items: [{ cmd: 'wallJoins', size: 'lg' }] },
+      { title: 'Geometry', items: [{ cmd: 'wallJoins', size: 'lg' }, { cmd: 'paint', size: 'lg', variants: [{ cmd: 'paint', label: 'Paint' }, { cmd: 'removePaint', label: 'Remove Paint' }] }] },
       MODIFY_PANEL(),
       { title: 'View', items: [{ cmd: 'hideEl' }, { cmd: 'tempIsolate' }, { cmd: 'tempHide' }] },
       { title: 'Measure', items: [{ cmd: 'measure', size: 'lg' }, { cmd: 'dimension', size: 'lg' }] },

@@ -682,8 +682,14 @@ export function instanceParams(el) {
 const WS_VIEWS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section']);
 
 /** Workset of an element, and per-view workset settings, once worksets are on. */
+/** The paint on a model element, once it has some. */
+function paintParams(doc, el) {
+  if (!el.paintId) return [];
+  return [P('paintId', 'Painted With', 'Materials and Finishes', 'select', { options: (c) => [{ value: '', label: 'Not painted' }, ...c.doc.all('material').map((m) => ({ value: m.id, label: m.name }))], set: (e, v) => ({ paintId: v || null }) })];
+}
+
 export function worksetParams(doc, el) {
-  const out = [...optionParams(doc, el), ...scopeParams(doc, el)];
+  const out = [...optionParams(doc, el), ...scopeParams(doc, el), ...paintParams(doc, el)];
   if (!worksharingOn(doc)) return out;
   if (WS_VIEWS.has(el.kind))
     return [

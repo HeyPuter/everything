@@ -57,6 +57,7 @@ import * as spelling from './ui/spelling.js';
 import { ScopeBoxTool } from './editor/scopebox.js';
 import { ModelTextTool } from './editor/modeltext.js';
 import { WallJoinsTool } from './editor/walljoins.js';
+import { PaintTool } from './editor/paint.js';
 import * as sunui from './ui/sun.js';
 import * as analyze from './ui/analyze.js';
 import * as globalsui from './ui/globals.js';
@@ -427,6 +428,8 @@ export const COMMANDS = {
   purge: { label: 'Purge Unused', icon: 'purge', run: (app) => app.purgeDialog() },
   tileViews: { label: 'Tile Views', icon: 'tileViews', keys: 'WT', toggle: (app) => app.viewport?.tiled, run: (app) => app.tileViews(), desc: 'Show the open views side by side' },
   tabViews: { label: 'Tab Views', icon: 'tabViews', keys: 'TW', run: (app) => app.tabViews(), desc: 'Show one view at a time, with tabs' },
+  paint: { label: 'Paint', icon: 'paint', run: tool(PaintTool), desc: 'Finish elements in a material' },
+  removePaint: { label: 'Remove Paint', icon: 'paint', run: tool(PaintTool, { remove: true }), desc: 'Take the paint off elements' },
   wallJoins: { label: 'Wall Joins', icon: 'wallJoins', run: tool(WallJoinsTool), desc: 'Choose a miter or butt join at a corner of two walls' },
   checkSpelling: { label: 'Check Spelling', icon: 'spellcheck', run: (app) => spelling.checkSpelling(app), desc: 'Find spelling mistakes in notes, room, view and sheet names, and fix them' },
   assistant: { label: 'Assistant', icon: 'sparkles', run: (app) => app.toggleAssistant(), desc: 'Ask about the project or ask for changes in plain words' },

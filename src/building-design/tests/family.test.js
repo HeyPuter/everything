@@ -3,6 +3,22 @@ import { project } from './helpers.js';
 import { solidsFromMasses } from '../src/core/families.js';
 import { Scene } from '../src/core/scene.js';
 
+describe('paint', () => {
+  it('turns every surface of an element to the material colour, and comes off', () => {
+    const { doc, wall } = project();
+    const w = wall([0, 0], [3000, 0]);
+    const scene = new Scene(doc);
+    doc.transact('paint', () => doc.update(w.id, { paintId: 'mat-concrete' }));
+    const mat = doc.get('mat-concrete');
+    const n = parseInt(mat.color.slice(1), 16);
+    const col = scene.mesh(doc.get(w.id)).col;
+    for (let i = 0; i < col.length; i += 400) expect([col[i], col[i + 1], col[i + 2]]).toEqual([(n >> 16) & 255, (n >> 8) & 255, n & 255]);
+    doc.transact('unpaint', () => doc.update(w.id, { paintId: null }));
+    const plain = scene.mesh(doc.get(w.id)).col;
+    expect(plain.some((v, i) => i % 4 === 0 && v !== ((n >> 16) & 255))).toBe(true);
+  });
+});
+
 describe('custom families', () => {
   it('take their solids from masses, around the centre and lowest base', () => {
     const masses = [
