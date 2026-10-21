@@ -104,6 +104,8 @@ export abstract class AnimEditor implements Editor {
   hiddenTypes: string[] = [];
   /** Filters popover: objects in alphabetical order */
   sortByName = true;
+  /** Marker ▸ Sync Markers: selected markers move with transformed keys */
+  syncMarkers = false;
   /** what transforms snap to, and whether keys snap to it (absolute) or move by whole steps */
   snapMode: 'FRAME' | 'SECOND' | 'MARKER' = 'FRAME';
   snapAbsolute = false;
@@ -321,6 +323,7 @@ export abstract class AnimEditor implements Editor {
       filterCollection: this.filterCollection,
       hiddenTypes: this.hiddenTypes,
       sortByName: this.sortByName,
+      syncMarkers: this.syncMarkers,
       snapMode: this.snapMode,
       snapAbsolute: this.snapAbsolute,
       view: {
@@ -353,6 +356,7 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.filterCollection === 'string') this.filterCollection = s.filterCollection;
     if (Array.isArray(s.hiddenTypes)) this.hiddenTypes = s.hiddenTypes.filter((x): x is string => typeof x === 'string');
     if (typeof s.sortByName === 'boolean') this.sortByName = s.sortByName;
+    if (typeof s.syncMarkers === 'boolean') this.syncMarkers = s.syncMarkers;
     if (s.snapMode === 'FRAME' || s.snapMode === 'SECOND' || s.snapMode === 'MARKER') this.snapMode = s.snapMode;
     if (typeof s.snapAbsolute === 'boolean') this.snapAbsolute = s.snapAbsolute;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;

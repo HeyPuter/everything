@@ -127,7 +127,11 @@ export class DopeSheet extends AnimEditor {
       ),
       menuButton('View', () => this.viewMenu()),
       menuButton('Select', () => selectMenu('action')),
-      menuButton('Marker', markerMenu),
+      menuButton('Marker', () => [
+        ...markerMenu(),
+        { separator: true },
+        { label: 'Sync Markers', checked: this.syncMarkers, description: 'Move the selected markers along with transformed keyframes', action: () => ((this.syncMarkers = !this.syncMarkers), app.changed('ui')) },
+      ]),
       menuButton('Channel', () => channelMenu('action')),
       menuButton('Key', () => keyMenu('action')),
       this.mode === 'ACTION' ? menuButton('Action', actionMenu) : null,
@@ -378,6 +382,7 @@ export class DopeSheet extends AnimEditor {
       handlesVisible: () => true,
       proportional: proportionalOf('use_proportional_action'),
       autoMerge: this.autoMerge,
+      syncMarkers: this.syncMarkers ? this.markerList().filter((m) => m.select) : undefined,
     };
   }
 

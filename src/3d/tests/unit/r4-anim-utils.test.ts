@@ -83,3 +83,32 @@ describe('transform constraint animation update', () => {
     expect(to.data_path).toBe('constraints["Transformation"].to_max_x');
   });
 });
+
+describe('sync markers and auto-merge', () => {
+  it('selected markers move with transformed keys; auto-merge off keeps both keys', async () => {
+    const { transformKeys } = await import('../../src/animation/transformkeys');
+    const { insertKeyframe } = await import('../../src/anim/fcurve');
+    const fc = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT' as const, modifiers: [] };
+    insertKeyframe(fc, 1, 0);
+    insertKeyframe(fc, 10, 1);
+    fc.keyframe_points.forEach((k: { select_control_point?: boolean }, i: number) => (k.select_control_point = i === 0));
+    const act = { id: 'a', name: 'A', fcurves: [fc] };
+    const marker = { name: 'M', frame: 5, select: true };
+    const host = {
+      transformCurves: () => [{ ob: cube, action: act, fc }],
+      graph: false,
+      ppf: () => 10,
+      ppv: () => 10,
+      toDisp: (_f: unknown, v: number) => v,
+      fromDisp: (_f: unknown, d: number) => d,
+      screen: (x: number, d: number) => ({ x, y: d }),
+      autoSnap: true,
+      handlesVisible: () => true,
+      autoMerge: false,
+      syncMarkers: [marker],
+    };
+    transformKeys(host as never, { mode: 'TIME_TRANSLATE', value: [9, 0], constraint: 'NONE' } as never);
+    expect(marker.frame).toBe(14);
+    expect(fc.keyframe_points.map((k: { co: number[] }) => k.co[0])).toEqual([10, 10]);
+  });
+});
