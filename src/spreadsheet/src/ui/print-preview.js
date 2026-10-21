@@ -12,7 +12,8 @@ import { printPaperBox, expandPrintText, splitPrintSections, printPageText, shee
 import { printBands, printTitleBands } from './print-pagination.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { fontColorCss } from '../core/font-color.js';
-import { fontStack, fontKeyFor, borderCss, getLocale } from '../core/format.js';
+import { fontStack, fontKeyFor, borderCss, getLocale, defaultAlign } from '../core/format.js';
+import { readsRightToLeft } from '../core/bidi.js';
 import { hasHeaderFormatting, parsePrintHeader } from '../core/print-header.js';
 import { colName } from '../core/cell.js';
 import { conditionalFontStyle } from '../core/style-values.js';
@@ -352,7 +353,8 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       if (checkbox) tickBox(rule, value === true, cx, cy, cw, ch);
       const text = checkbox || cf?.barOnly || cf?.iconOnly ? '' : wb.getDisplay(shown, r, c);
       if (text) {
-        const align = st.align || (typeof value === 'number' ? 'right' : 'left');
+        // With no alignment of its own, as the print sets it: logical values and errors centred, text written right to left at the right.
+        const align = st.align || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
         g.save();
         g.beginPath(); g.rect(cx, cy, cw, ch); g.clip();
         g.fillStyle = fontColorCss(cf?.color || st.color) || '#000000';
