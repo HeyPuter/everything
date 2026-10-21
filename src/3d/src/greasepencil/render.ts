@@ -138,6 +138,37 @@ void main() {
   vec2 nrm = vec2(-dir.y, dir.x);
   vec2 pix;
   float z;
+  if (kind == 4) {
+    // corner join: bevel triangle on the outer side, plus the miter tip when the corner is
+    // not sharper than the limit (aN1.w)
+    vec4 cn = mvp * vec4(aN1.xyz, 1.0);
+    vec2 sp = s1, sc = s0;
+    vec2 sn = cn.w > 1e-6 ? (cn.xy / cn.w * 0.5 + 0.5) * uViewport : s0;
+    vec2 da = sc - sp, db = sn - sc;
+    da = length(da) > 1e-4 ? normalize(da) : vec2(1.0, 0.0);
+    db = length(db) > 1e-4 ? normalize(db) : da;
+    float turn = da.x * db.y - da.y * db.x;
+    vec2 oa = turn > 0.0 ? vec2(da.y, -da.x) : vec2(-da.y, da.x);
+    vec2 ob = turn > 0.0 ? vec2(db.y, -db.x) : vec2(-db.y, db.x);
+    // half a pixel wider (like the segments' anti-aliased edge) and reaching a pixel into the
+    // segments, so no seam shows where they meet
+    float r = max(r0, 0.5) + 0.5;
+    float theta = acos(clamp(dot(-da, db), -1.0, 1.0));
+    int id = int(aCorner.x + 0.5) * 2 + (aCorner.y > 0.0 ? 1 : 0);
+    vec2 va = sc + oa * r - da, vb = sc + ob * r + db;
+    vec2 tip = vb;
+    if (theta >= aN1.w && theta > 0.01) {
+      vec2 m = oa + ob;
+      float ml = length(m);
+      if (ml > 1e-4) tip = sc + m / ml * (r / max(sin(theta * 0.5), 0.05));
+    }
+    pix = id == 0 ? sc - (oa + ob) * 0.5 : id == 1 ? va : id == 2 ? vb : tip;
+    vS0 = sc;
+    z = c0.z / c0.w;
+    vPix = pix;
+    gl_Position = vec4(pix / uViewport * 2.0 - 1.0, clamp(z, -1.0, 1.0), 1.0);
+    return;
+  }
   if (kind >= 2) {
     float R = max(r0, 0.5) * (kind == 3 ? 1.42 : 1.0) + 1.5;
     pix = s0 + vec2(aCorner.x * 2.0 - 1.0, aCorner.y) * R;
@@ -216,6 +247,9 @@ void main() {
     col = mix(vC0, vC1, t);
     col.a *= cov;
     zReal = mix(vZ.x, vZ.y, t);
+  } else if (kind == 4) {
+    col = vC0;
+    zReal = vZ.x;
   } else {
     vec2 p = vPix - vS0;
     float r = vR.x;
@@ -496,8 +530,10 @@ export const gpDisplay = {
   onionDefault: true,
 };
 
+/** Onion skins are built for the active object in the drawing modes, and for every object in Object Mode (views filter them). */
 function wantOnion(doc: DocumentData, obId: string) {
-  return doc.scene.active_object === obId && ONION_MODES.has(doc.mode) && !app.playing;
+  if (app.playing) return false;
+  return doc.mode === 'OBJECT' || (doc.scene.active_object === obId && ONION_MODES.has(doc.mode));
 }
 
 const tmpV = new Vector3();
@@ -859,9 +895,10 @@ function drawObjects(view: DrawView, camera: Camera) {
     prevAlpha = r.getClearAlpha();
   const prevShadow = r.shadowMap.autoUpdate;
   r.shadowMap.autoUpdate = false;
+  const activeOnly = !!(view.overlay as { use_gpencil_onion_skin_active_object?: boolean }).use_gpencil_onion_skin_active_object;
   for (const s of list) {
     const hidden: GPMesh[] = [];
-    if (!onion)
+    if (!onion || (activeOnly && s.id !== app.doc.scene.active_object))
       for (const m of s.meshes)
         if (m.userData.onion && m.visible) {
           m.visible = false;

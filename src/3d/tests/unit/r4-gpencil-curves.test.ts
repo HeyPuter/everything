@@ -238,3 +238,24 @@ describe('pen edits', () => {
     expect(seen).toEqual([H_VECTOR, H_ALIGN, H_FREE, H_AUTO]);
   });
 });
+
+describe('corner joins', () => {
+  it('points with a miter angle cut their segments and add a join', () => {
+    const LINE: StrokeStyle = { stroke: true, fill: false, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'LINE' };
+    const pts = [newPoint([0, 0, 0], 0.1), newPoint([1, 0, 1], 0.1), newPoint([2, 0, 0], 0.1)];
+    const round = buildStrokeBuffers(fromStrokes([newStroke(pts)]), [LINE]);
+    expect(round.vertexCount).toBe(8);
+    const sharp = pts.map((p) => ({ ...p, miter_angle: Math.PI / 4 }));
+    const b = buildStrokeBuffers(fromStrokes([newStroke(sharp)]), [LINE]);
+    // two segments plus one join (the end points are not corners)
+    expect(b.vertexCount).toBe(12);
+    const kinds = [...b.info].filter((_, i) => i % 4 === 0);
+    expect(kinds.filter((k) => k === 4).length).toBe(4);
+    // the segments are cut at the corner: end flag on the first, start flag on the second
+    const flags = [...b.info].filter((_, i) => i % 4 === 2);
+    expect(flags[0] & 2).toBe(2);
+    expect(flags[4] & 1).toBe(1);
+    // the join carries the miter limit in its second neighbour slot
+    expect(b.nbr1[8 * 4 + 3]).toBeCloseTo(Math.PI / 4);
+  });
+});

@@ -106,7 +106,9 @@ export const GUIDE_COLOR: RGBA = [0.1, 0.75, 0.95, 0.9];
 export const KIND_FILL = 0,
   KIND_SEGMENT = 1,
   KIND_DOT = 2,
-  KIND_SQUARE = 3;
+  KIND_SQUARE = 3,
+  /** a flat or pointed corner between two segments (screen-space bevel / miter wedge) */
+  KIND_JOIN = 4;
 
 export interface StrokeBuffers {
   p0: Float32Array; // 3
@@ -336,6 +338,9 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     }
     const cyclic = !!d.cyclic[s] && n > 2;
     const segs = n === 1 ? 1 : cyclic ? n : n - 1;
+    // corners: points with a miter angle get a cut join (flat, or pointed up to the limit)
+    const miter = d.miter_angle && d.miter_angle.length === nPts ? d.miter_angle : null;
+    const cut = (i: number) => !!miter && miter[i] > 0 && n > 2 && (cyclic || (i !== a && i !== b - 1));
     for (let k = 0; k < segs; k++) {
       const i = a + k;
       const j = n === 1 ? i : a + ((k + 1) % n);
@@ -344,6 +349,8 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       let flags = 0;
       if (!cyclic && k === 0 && d.start_cap[s]) flags |= 1;
       if (!cyclic && k === segs - 1 && d.end_cap[s]) flags |= 2;
+      if (cut(i)) flags |= 1;
+      if (cut(j)) flags |= 2;
       // neighbours (for single-coverage joins): the point before i and the point after j
       const hasPrev = n > 1 && (k > 0 || cyclic),
         hasNext = n > 1 && (k < segs - 1 || cyclic);
@@ -353,6 +360,15 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       const n1 = hasNext ? [P[nj * 3], P[nj * 3 + 1], P[nj * 3 + 2], R(nj)] : NONE;
       quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1);
     }
+    if (miter)
+      for (let i = a; i < b; i++) {
+        if (!cut(i)) continue;
+        const pi = i > a ? i - 1 : b - 1,
+          ni = i < b - 1 ? i + 1 : a;
+        pointColor(d, i, st.color, ca);
+        // p0: the corner, p1: the previous point, next point + miter limit in the second neighbour slot
+        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(i), R(i), ca, ca, KIND_JOIN, 0, s, NONE, [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], miter[i]]);
+      }
     order++;
   }
   return {
