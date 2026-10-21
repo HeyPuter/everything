@@ -293,6 +293,13 @@
   line-height: 1.7;
   outline: none;
 }
+/* The text takes focus (Space reads it aloud): show it when reached by
+   keyboard. */
+.reader-content:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-m);
+}
 .reader[data-font="serif"] .reader-content {
   font-family: Georgia, "Times New Roman", serif;
 }
