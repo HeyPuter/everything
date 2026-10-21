@@ -190,6 +190,28 @@ test("timed loops restart at the first visible slide", async ({ page }) => {
   await expect(counter(page)).toHaveText("2 / 2");
 });
 
+test("a kiosk's timed loop plays through before an idle restart", async ({
+  page,
+}) => {
+  const pres = deck([
+    { effect: "none", advanceAfterMs: 2000 },
+    { effect: "none", advanceAfterMs: 2000 },
+    { effect: "none", advanceAfterMs: 2000 },
+    { effect: "none" },
+  ]);
+  P.setSlideShowSetup(pres, { showType: "kiosk", kioskRestartMs: 3000 });
+  await load(page, pres);
+  await page.clock.runFor(4000);
+  await expect(counter(page)).toHaveText("3 / 4");
+  await page.clock.runFor(2000);
+  await expect(counter(page)).toHaveText("4 / 4");
+  // The last slide waits for no one: once idle, the show starts over.
+  await page.clock.runFor(2999);
+  await expect(counter(page)).toHaveText("4 / 4");
+  await page.clock.runFor(1);
+  await expect(counter(page)).toHaveText("1 / 4");
+});
+
 test("the advance clock waits for the actual incoming transition to finish", async ({
   page,
 }) => {
