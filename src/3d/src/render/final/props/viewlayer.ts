@@ -41,7 +41,9 @@ registerTab({
         ]),
         sub('vl-passes-light', 'Light', () => [
           bool(r, 'use_pass_diffuse_color', 'Diffuse Color', { tip: 'Base colour of diffuse surfaces' }),
+          bool(r, 'use_pass_transmission_color', 'Transmission Color', { tip: 'Colour of the light let through by glass and other transmissive surfaces' }),
           bool(r, 'use_pass_emit', 'Emission', { tip: 'Light emitted by surfaces' }),
+          bool(r, 'use_pass_environment', 'Environment', { tip: 'The world as the camera sees it where no surface is in front' }),
           bool(r, 'use_pass_ambient_occlusion', 'Ambient Occlusion', { tip: 'How open each surface point is to its surroundings (1 open, 0 occluded)' }),
           r.use_pass_ambient_occlusion ? num(r, 'ambient_occlusion_distance', 'AO Distance', { unit: 'distance', min: 0, softMax: 100, tip: 'Distance of objects that occlude in the Ambient Occlusion pass' }) : null,
         ]),

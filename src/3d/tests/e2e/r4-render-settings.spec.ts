@@ -263,3 +263,21 @@ test('Light spread and cast shadow for the path tracer', async ({ page }) => {
   expect(res.mean).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('Environment and Transmission Color passes reach the result and the Render Layers node', async ({ page }) => {
+  const errors = await start(page);
+  const res = await render(page, { use_pass_environment: true, use_pass_transmission_color: true });
+  expect(res.reports.join(' ')).toMatch(/Render finished/);
+  const info = await page.evaluate(async (imp) => {
+    const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+    const r = renderResult.get();
+    const env = r.viewLayer?.Env ?? r.passes.Env;
+    // the default cube covers the centre: no environment there, the world around it
+    const at = (x: number, y: number) => env[(y * r.width + x) * 4];
+    return { has: !!env && !!(r.viewLayer?.TransCol ?? r.passes.TransCol), centre: at(Math.floor(r.width / 2), Math.floor(r.height / 2)), corner: at(1, 1) };
+  }, IMPORT);
+  expect(info.has).toBe(true);
+  expect(info.centre).toBe(0);
+  expect(info.corner).toBeGreaterThan(0);
+  await expectNoErrors(errors);
+});

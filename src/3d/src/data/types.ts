@@ -1118,6 +1118,8 @@ export interface RenderSettings extends RealtimeRenderSettings, MultiviewSetting
   use_pass_mist: boolean;
   use_pass_ambient_occlusion?: boolean;
   use_pass_emit?: boolean;
+  use_pass_environment?: boolean;
+  use_pass_transmission_color?: boolean;
   use_pass_diffuse_color?: boolean;
   use_pass_object_index?: boolean;
   use_compositing: boolean;
