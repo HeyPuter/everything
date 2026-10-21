@@ -1,6 +1,8 @@
-// Popup menus: submenu and context menu placement.
+// Popup menus: submenu and context menu placement, focus return from submenus.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { showMenu, closeMenus } from '../src/ui/menu.js';
+
+const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
 
 let restoreRect;
 beforeEach(() => {
@@ -22,6 +24,7 @@ afterEach(() => {
 function rootMenu() {
   const opener = document.createElement('button');
   document.body.append(opener);
+  opener.focus();
   const handle = showMenu(opener, [
     { label: 'Layout', submenu: [{ label: 'Default', onSelect() {} }, { label: 'Large details panel', onSelect() {} }] },
     { label: 'Zoom in timeline', onSelect() {} },
@@ -50,6 +53,31 @@ describe('submenus', () => {
     } finally {
       window.innerWidth = 1024;
     }
+  });
+
+  it('ArrowLeft closes the submenu and returns focus to the item that opened it', () => {
+    const { layout } = rootMenu();
+    layout.focus();
+    key(layout, 'ArrowRight');
+    const sub = document.querySelectorAll('.menu')[1];
+    expect(sub.contains(document.activeElement)).toBe(true);
+    key(document.activeElement, 'ArrowLeft');
+    expect(document.querySelectorAll('.menu').length).toBe(1);
+    expect(document.activeElement).toBe(layout);
+    expect(layout.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('Escape in a submenu returns focus to its opener item, not the first item', () => {
+    // The submenu item is second, so "first item" and "opener" differ.
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    const h2 = showMenu(opener, [{ label: 'Zoom in timeline', onSelect() {} }, { label: 'Theme', submenu: [{ label: 'Dark', onSelect() {} }] }]);
+    const theme = [...h2.el.querySelectorAll('.menu-item')].find((b) => b.textContent.includes('Theme'));
+    theme.focus();
+    key(theme, 'ArrowRight');
+    key(document.activeElement, 'Escape');
+    expect(document.querySelectorAll('.menu').length).toBe(1);
+    expect(document.activeElement).toBe(theme);
   });
 });
 

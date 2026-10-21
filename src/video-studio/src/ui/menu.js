@@ -39,6 +39,8 @@ export function showMenu(anchor, items, opts = {}) {
   const menu = h('div.menu', { role: 'menu', tabindex: '-1', 'aria-label': opts.label || null });
   const entries = [];
   let child = null;
+  // Where focus goes back to on close: the menu button, or the item that opened a submenu.
+  const returnTo = anchor instanceof Element ? anchor : opts.opener || null;
   const handle = {
     el: menu,
     close(returnFocus = true) {
@@ -49,7 +51,7 @@ export function showMenu(anchor, items, opts = {}) {
       window.removeEventListener('resize', onBlur);
       if (anchor instanceof Element) anchor.setAttribute('aria-expanded', 'false');
       if (openMenu === handle) openMenu = null;
-      if (returnFocus && anchor instanceof Element && document.contains(anchor)) anchor.focus({ preventScroll: true });
+      if (returnFocus && returnTo && document.contains(returnTo)) returnTo.focus({ preventScroll: true });
       opts.onClose?.();
     },
   };
@@ -85,7 +87,7 @@ export function showMenu(anchor, items, opts = {}) {
     const openSub = () => {
       child?.close(false);
       const rect = btn.getBoundingClientRect();
-      child = showMenu(rect, typeof it.submenu === 'function' ? it.submenu() : it.submenu, { nested: true, side: 'right', label: it.label, onClose: () => btn.setAttribute('aria-expanded', 'false'), parent: handle });
+      child = showMenu(rect, typeof it.submenu === 'function' ? it.submenu() : it.submenu, { nested: true, side: 'right', label: it.label, opener: btn, onClose: () => btn.setAttribute('aria-expanded', 'false'), parent: handle });
       btn.setAttribute('aria-expanded', 'true');
       return child;
     };
@@ -134,7 +136,6 @@ export function showMenu(anchor, items, opts = {}) {
       e.preventDefault();
       e.stopPropagation();
       handle.close(true);
-      if (handle.parent) handle.parent.focusFirst?.();
     } else if (e.key === 'ArrowRight') {
       const entry = entries.find((x) => x.btn === document.activeElement);
       if (entry?.it.submenu) {
@@ -143,7 +144,7 @@ export function showMenu(anchor, items, opts = {}) {
       }
     } else if (e.key === 'ArrowLeft' && handle.parent) {
       e.preventDefault();
-      handle.close(false);
+      handle.close(true);
     } else if (e.key === 'Tab') {
       e.preventDefault();
       let root = handle;
