@@ -20,6 +20,11 @@ describe('htmlToMarkdown', () => {
     expect(htmlToMarkdown('<ul><li>one</li><ul><li>two</li><ol><li>deep</li></ol></ul><li>three</li></ul>')).toBe('- one\n  - two\n    1. deep\n- three');
   });
 
+  it('exports the blocks inside <div> containers', () => {
+    expect(htmlToMarkdown('<p>Intro</p><div><ol><li>first</li><li>second</li></ol><div>After</div></div>')).toBe('Intro\n\n1. first\n2. second\n\nAfter');
+    expect(htmlToMarkdown('<div><h2>T</h2>Some <b>bold</b> text<ul><li>x</li></ul></div>')).toBe('## T\n\nSome **bold** text\n\n- x');
+  });
+
   it('escapes Markdown characters in text', () => {
     expect(htmlToMarkdown('<p>2*3 = 6_x</p>')).toBe('2\\*3 = 6\\_x');
   });
