@@ -141,3 +141,59 @@ describe('project files', () => {
     expect(await lib2.listProjects()).toEqual([]);
   });
 });
+
+describe('project files with fonts and LUTs', () => {
+  const CUBE = 'TITLE "Warm"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n';
+
+  async function setup() {
+    const lib = new Library(memoryBackend());
+    const p = createProject({ name: 'Styled' });
+    const fontBlob = new Blob(['font-bytes'], { type: 'font/ttf' });
+    const hash = await fingerprint(fontBlob);
+    p.fonts = [{ id: 'f1', family: `My Font ${hash.slice(0, 6)}`, name: 'My Font', hash, ext: 'ttf', mime: 'font/ttf', size: fontBlob.size }];
+    lib.backend.files.set(`fonts/${hash}.ttf`, fontBlob);
+    const { entry } = await lib.importLut(new File([CUBE], 'warm.cube'));
+    const img = await lib.addMediaBlob({ kind: 'image', name: 'pic.png', ext: 'png', mime: 'image/png', width: 10, height: 10 }, new Blob([new Uint8Array([1, 2])], { type: 'image/png' }));
+    p.assets[img.id] = img;
+    const c = makeClip('image', { assetId: img.id, start: 0, duration: 2_000_000 });
+    c.grade = { lut: { id: entry.id, name: 'Warm', intensity: 80 } };
+    mainTrack(p).clips.push(c);
+    await lib.saveProject(p);
+    return { lib, p, hash, lutId: entry.id };
+  }
+
+  it('packs uploaded fonts and imported LUTs and restores them in another library', async () => {
+    const { lib, p, hash, lutId } = await setup();
+    const { blob, missing } = await exportProjectBundle(lib, p.id);
+    expect(missing).toEqual([]);
+    const names = (await readZip(blob)).map((e) => e.name);
+    expect(names).toContain(`fonts/${hash}.ttf`);
+    expect(names).toContain(`luts/${lutId}.cube`);
+    const other = new Library(memoryBackend());
+    const res = await importProjectBundle(other, blob);
+    expect(res.missing).toEqual([]);
+    expect(await text(other.backend.files.get(`fonts/${hash}.ttf`))).toBe('font-bytes');
+    expect(res.project.fonts.map((f) => f.hash)).toEqual([hash]);
+    expect((await other.listLuts()).map((x) => [x.id, x.name])).toEqual([[lutId, 'Warm']]);
+    expect((await other.readLut(lutId)).text).toBe(CUBE);
+    expect(mainTrack(res.project).clips[0].grade.lut.id).toBe(lutId);
+  });
+
+  it('lists fonts and LUTs it could not read as missing', async () => {
+    const { lib, p, hash, lutId } = await setup();
+    lib.backend.files.delete(`fonts/${hash}.ttf`);
+    lib.backend.files.delete(`luts/${lutId}.cube`);
+    const { missing } = await exportProjectBundle(lib, p.id);
+    expect(missing.sort()).toEqual(['My Font', 'Warm']);
+  });
+
+  it('does not take a font whose content does not match its name', async () => {
+    const { lib, p, hash } = await setup();
+    lib.backend.files.set(`fonts/${hash}.ttf`, new Blob(['tampered']));
+    const { blob } = await exportProjectBundle(lib, p.id);
+    const other = new Library(memoryBackend());
+    const res = await importProjectBundle(other, blob);
+    expect(other.backend.files.has(`fonts/${hash}.ttf`)).toBe(false);
+    expect(res.missing).toEqual(['My Font']);
+  });
+});

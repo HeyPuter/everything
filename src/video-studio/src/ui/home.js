@@ -24,6 +24,8 @@ import { templateCard, templatesView, openTemplateDialog } from './home-template
 import { TemplatePreview } from './template-preview.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+/** "a, b, c and 2 more" for toasts. */
+const fewNames = (list) => `${list.slice(0, 3).join(', ')}${list.length > 3 ? ` and ${list.length - 3} more` : ''}`;
 const QUICK_RATIOS = ['16:9', '9:16', '1:1', '4:3', '3:4', '4:5', '21:9'];
 const VIEWS = [
   { id: 'home', label: 'Home', icon: () => icon('home', 18) },
@@ -566,7 +568,7 @@ export class Home {
       return;
     }
     pr.close();
-    if (res.missing.length) toast(`${res.missing.length} media file${res.missing.length === 1 ? ' was' : 's were'} missing and left out.`, { kind: 'error' });
+    if (res.missing.length) toast(`${res.missing.length} file${res.missing.length === 1 ? ' was' : 's were'} missing and left out: ${fewNames(res.missing)}`, { kind: 'error' });
     this.deliver(res);
   }
 
@@ -614,7 +616,7 @@ export class Home {
         });
         last = project;
         pr.close();
-        if (missing.length) toast(`${project.name}: ${missing.length} media file${missing.length === 1 ? ' is' : 's are'} not in the project file.`, { kind: 'error' });
+        if (missing.length) toast(`${project.name}: ${missing.length} file${missing.length === 1 ? ' is' : 's are'} not in the project file: ${fewNames(missing)}`, { kind: 'error' });
       } catch (err) {
         pr.close();
         toast(`${file.name}: ${err?.message || "Couldn't open this project file."}`, { kind: 'error' });
