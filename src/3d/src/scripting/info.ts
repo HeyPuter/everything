@@ -74,14 +74,14 @@ export class InfoEditor implements Editor {
       'div',
       { class: 'hdr-row' },
       menu('View', () => [
-        { label: 'Scroll to Bottom', action: () => this.scrollBottom() },
-        { label: 'Area', submenu: () => this.area.areaMenu() },
-        { separator: true },
-        { separator: true },
         { label: 'Show Operators', checked: this.showOps, action: () => ((this.showOps = !this.showOps), this.draw()) },
         { label: 'Show Info', checked: this.showInfo, action: () => ((this.showInfo = !this.showInfo), this.draw()) },
         { label: 'Show Warnings', checked: this.showWarnings, action: () => ((this.showWarnings = !this.showWarnings), this.draw()) },
         { label: 'Show Errors', checked: this.showErrors, action: () => ((this.showErrors = !this.showErrors), this.draw()) },
+        { separator: true },
+        { label: 'Scroll to Bottom', action: () => this.scrollBottom() },
+        { separator: true },
+        { label: 'Area', submenu: () => this.area.areaMenu() },
       ]),
       menu('Info', () => [
         { label: 'Select All', shortcut: 'A', op: 'info.select_all', props: { action: 'SELECT' } },
