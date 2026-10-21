@@ -234,6 +234,38 @@ describe('paragraph formatting', () => {
     expect(el.innerHTML).toBe('<p>Title</p>');
   });
 
+  it('keeps the caret where it was when a style changes the block', () => {
+    const el = body('<p>Head</p><p><br></p>');
+    const text = el.firstChild.firstChild;
+    caretIn(text, 4);
+    setBlockStyle('h1');
+    const sel = document.getSelection();
+    expect(el.firstChild.tagName).toBe('H1');
+    expect(sel.anchorNode).toBe(text);
+    expect(sel.anchorOffset).toBe(4);
+    setBlockStyle('cite');
+    expect(sel.anchorNode).toBe(text);
+    expect(sel.anchorOffset).toBe(4);
+    // An empty paragraph: the caret sits on the block element itself.
+    caretIn(el.children[1], 0);
+    setBlockStyle('h2');
+    expect(el.children[1].tagName).toBe('H2');
+    expect(sel.anchorNode).toBe(el.children[1]);
+    expect(sel.anchorOffset).toBe(0);
+    // A list item gets a styled paragraph inside it; the caret follows.
+    const li = body('<ul><li>item</li></ul>').querySelector('li');
+    const t = li.firstChild;
+    caretIn(t, 2);
+    setBlockStyle('h3');
+    expect(li.innerHTML).toBe('<h3>item</h3>');
+    expect(sel.anchorNode).toBe(t);
+    expect(sel.anchorOffset).toBe(2);
+    setBlockStyle('normal');
+    expect(li.innerHTML).toBe('item');
+    expect(sel.anchorNode).toBe(t);
+    expect(sel.anchorOffset).toBe(2);
+  });
+
   it('indents plain paragraphs with a margin', () => {
     const el = body('<p>x</p>');
     caretIn(el.firstChild.firstChild, 0);

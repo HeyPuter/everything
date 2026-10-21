@@ -154,7 +154,11 @@ export function setBlockStyle(id) {
   const root = range && editableRoot(range.commonAncestorContainer);
   if (!style || !root || !root.classList.contains('outline-body')) return;
   const blocks = blocksInRange(range, root);
-  const saved = range.cloneRange();
+  // Plain boundary points, not a live Range: moving a block's children into
+  // its replacement would collapse a live range to the start of the outline.
+  const points = [[range.startContainer, range.startOffset], [range.endContainer, range.endOffset]];
+  // Maps a point inside an element this command replaced to where it is now.
+  const moved = new Map();
   for (const block of blocks) {
     if (block.tagName === 'TD' || block.tagName === 'TH') continue;
     let target = block;
@@ -164,18 +168,40 @@ export function setBlockStyle(id) {
         block.classList.remove(...STYLE_CLASSES);
         continue;
       }
+      const existing = block.firstElementChild;
+      const before = block.childNodes.length;
       target = wrapLiContent(block);
+      if (target !== existing) {
+        // The item's leading content moved into a new paragraph.
+        const taken = before - block.childNodes.length + 1;
+        const p = target;
+        moved.set(block, (offset) => (offset <= taken ? [p, offset] : [block, offset - taken + 1]));
+      }
     }
     const replaced = retag(target, style.tag);
+    if (replaced !== target) moved.set(target, (offset) => [replaced, offset]);
     replaced.classList.remove(...STYLE_CLASSES);
     if (style.cls) replaced.classList.add(style.cls);
     if (!replaced.getAttribute('class')) replaced.removeAttribute('class');
-    if (replaced.parentElement?.tagName === 'LI' && style.tag === 'P' && !style.cls) unwrap(replaced);
+    if (replaced.parentElement?.tagName === 'LI' && style.tag === 'P' && !style.cls) {
+      const li = replaced.parentElement;
+      const index = [...li.childNodes].indexOf(replaced);
+      moved.set(replaced, (offset) => [li, index + offset]);
+      unwrap(replaced);
+    }
   }
+  const place = ([node, offset]) => {
+    for (let hops = 0; moved.has(node) && hops < 4; hops++) [node, offset] = moved.get(node)(offset);
+    return [node, Math.min(offset, node.nodeType === 3 ? node.length : node.childNodes.length)];
+  };
   try {
-    selectRange(saved);
+    const [start, end] = points.map(place);
+    const r = document.createRange();
+    r.setStart(...start);
+    r.setEnd(...end);
+    selectRange(r);
   } catch {
-    /* range nodes may have moved */
+    /* the caret's nodes left the outline */
   }
   root.dispatchEvent(new Event('input', { bubbles: true }));
 }
