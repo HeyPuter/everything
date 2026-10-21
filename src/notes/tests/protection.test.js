@@ -382,6 +382,32 @@ describe('copies and their pictures', () => {
   });
 });
 
+describe('page versions and protected sections', () => {
+  const versionsOf = (backend, id) => [`versions/${id}.json`].filter((k) => backend.files.has(k));
+  it('deletes the plaintext versions of a page moved into a protected section', async () => {
+    const { backend, store, meta } = await setup();
+    await store.addVersion(meta.id, { id: meta.id, title: 'Old plans', outlines: [], ink: [] });
+    const safe = store.createSection(store.notebooks[0].id, { name: 'Safe' });
+    await store.protectSection(safe.id, 'pw');
+    store.movePage(meta.id, { sectionId: safe.id });
+    await new Promise((r) => setTimeout(r, 20));
+    await store.flush();
+    expect(versionsOf(backend, meta.id)).toEqual([]);
+    expect(allText(backend)).not.toContain('Old plans');
+  });
+
+  it('deletes them for a page restored into a protected section', async () => {
+    const { backend, store, section, meta } = await setup();
+    await store.addVersion(meta.id, { id: meta.id, title: 'Old plans', outlines: [], ink: [] });
+    const entry = store.deletePage(meta.id);
+    await store.protectSection(section.id, 'pw');
+    store.restore(entry.id);
+    await new Promise((r) => setTimeout(r, 20));
+    await store.flush();
+    expect(versionsOf(backend, meta.id)).toEqual([]);
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');

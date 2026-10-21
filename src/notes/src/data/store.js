@@ -604,6 +604,7 @@ export class Store extends Emitter {
     if (target.notebook !== f.notebook) this.touchNotebook(target.notebook);
     if ((f.section.locked || target.node.locked) && f.section !== target.node) {
       for (const m of group) {
+        if (target.node.locked) this.dropVersions(m.id).catch(() => {});
         this.loadPage(m.id).then((page) => {
           this.rekeyAssets(page);
           this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
@@ -720,6 +721,7 @@ export class Store extends Emitter {
       // Saved for the section they left; re-save them encrypted (or not) for this one.
       if ((entry.lockedSection || null) !== (section.locked ? section.id : null)) {
         for (const m of restored) {
+          if (section.locked) this.dropVersions(m.id).catch(() => {});
           this.loadPage(m.id).then(async (page) => {
             await this.rekeyAssets(page);
             this.schedule(`pages/${m.id}.json`, () => this.pages.get(m.id), 0);
@@ -809,6 +811,14 @@ export class Store extends Emitter {
       if (this.versionJobs.get(page.id) === job) this.versionJobs.delete(page.id);
     });
     this.versionJobs.set(page.id, job);
+  }
+
+  /** Deletes a page's versions: a page in a protected section keeps none (they would be plaintext). */
+  async dropVersions(pageId) {
+    // A version being written right now would land after the removal.
+    await this.versionJobs.get(pageId);
+    this.loadedSnapshots.delete(pageId);
+    await this.backend.remove(`versions/${pageId}.json`);
   }
 
   async addVersion(pageId, snapshot) {
