@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { US } from '../src/lib/time.js';
 import {
   outputSize, videoBitrate, frameCount, frameTime, estimateSize, reconcile, audioCodecFor, safeFileName, formatBytes,
-  describeError, CONTAINERS, DEFAULT_SETTINGS,
+  describeError, CONTAINERS, DEFAULT_SETTINGS, encoderDelay,
 } from '../src/engine/exporter.js';
 
 describe('output size', () => {
@@ -119,5 +119,58 @@ describe('size estimate and names', () => {
     expect(describeError(new DOMException('x', 'AbortError'))).toMatch(/canceled/);
     expect(describeError(new RangeError('Array buffer allocation failed'))).toMatch(/memory/);
     expect(describeError(new Error('Encoder configuration not supported'), { codec: 'hevc' })).toMatch(/HEVC/);
+  });
+});
+
+describe('encoder delay', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** WebCodecs stand-ins: an encoder that puts `priming` samples of silence first and a decoder that plays chunks back. */
+  function fakeCodecs(priming) {
+    vi.stubGlobal('AudioData', class {
+      constructor({ numberOfFrames, data }) {
+        this.numberOfFrames = numberOfFrames;
+        this.plane = data.subarray(0, numberOfFrames);
+      }
+      copyTo(dest) { dest.set(this.plane); }
+      close() {}
+    });
+    vi.stubGlobal('AudioEncoder', class {
+      constructor({ output }) { this.output = output; }
+      configure(config) { this.config = config; }
+      encode(d) {
+        const all = new Float32Array(priming + d.numberOfFrames);
+        all.set(d.plane, priming);
+        for (let i = 0; i < all.length; i += 1024) this.output({ samples: all.subarray(i, i + 1024) }, i ? undefined : { decoderConfig: { codec: this.config.codec } });
+      }
+      async flush() {}
+      close() {}
+    });
+    vi.stubGlobal('AudioDecoder', class {
+      constructor({ output }) { this.output = output; }
+      configure() {}
+      decode(chunk) { this.output({ numberOfFrames: chunk.samples.length, copyTo: (dest) => dest.set(chunk.samples), close() {} }); }
+      async flush() {}
+      close() {}
+    });
+  }
+
+  it('measures the AAC priming so the sound can be stamped that much earlier', async () => {
+    fakeCodecs(2112);
+    expect(await encoderDelay('aac', { sampleRate: 48000, numberOfChannels: 2 })).toBeCloseTo(2112 / 48000, 9);
+  });
+
+  it('leaves Opus and other codecs alone', async () => {
+    fakeCodecs(312);
+    expect(await encoderDelay('opus')).toBe(0);
+    expect(await encoderDelay('flac')).toBe(0);
+  });
+
+  it('falls back to no shift when the measurement fails', async () => {
+    fakeCodecs(0);
+    vi.stubGlobal('AudioEncoder', class {
+      configure() { throw new Error('unsupported'); }
+    });
+    expect(await encoderDelay('aac', { sampleRate: 44100, numberOfChannels: 1 })).toBe(0);
   });
 });

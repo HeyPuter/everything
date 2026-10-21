@@ -513,6 +513,81 @@ export async function renderStill(project, library, t = 0, { maxWidth = 640 } = 
   }
 }
 
+/* Encoder delay --------------------------------------------------------------- */
+
+const encoderDelays = new Map(); // `${codec}/${sampleRate}/${channels}` -> Promise<seconds>
+
+/**
+ * Silence an AAC encoder puts before the sound (priming, 2112 samples on
+ * macOS), in seconds. Measured once by encoding a click and decoding it
+ * again; the sound is then stamped this much earlier so the file's edit
+ * list trims the priming off and the sound lines up with the picture.
+ * Opus carries its own pre-skip, so other codecs get 0, as does a failed
+ * measurement.
+ */
+export function encoderDelay(codec, { sampleRate = 48000, numberOfChannels = 2 } = {}) {
+  if (codec !== 'aac' || typeof AudioEncoder === 'undefined' || typeof AudioDecoder === 'undefined') return Promise.resolve(0);
+  const key = `${codec}/${sampleRate}/${numberOfChannels}`;
+  let p = encoderDelays.get(key);
+  if (!p) {
+    p = measureDelay('mp4a.40.2', sampleRate, numberOfChannels).catch(() => 0);
+    encoderDelays.set(key, p);
+  }
+  return p;
+}
+
+async function measureDelay(codec, sampleRate, numberOfChannels) {
+  const frames = Math.round(sampleRate / 2);
+  const at = Math.round(sampleRate / 5);
+  const width = 48;
+  const chunks = [];
+  let config = null;
+  let failed = null;
+  const enc = new AudioEncoder({
+    output: (chunk, meta) => {
+      chunks.push(chunk);
+      if (meta?.decoderConfig) config = meta.decoderConfig;
+    },
+    error: (e) => (failed = e),
+  });
+  enc.configure({ codec, sampleRate, numberOfChannels, bitrate: AUDIO_BITRATE.aac });
+  const data = new Float32Array(frames * numberOfChannels);
+  for (let c = 0; c < numberOfChannels; c++) for (let i = 0; i < width; i++) data[c * frames + at + i] = 0.9 * Math.sin((i / width) * Math.PI);
+  const input = new AudioData({ format: 'f32-planar', sampleRate, numberOfFrames: frames, numberOfChannels, timestamp: 0, data });
+  enc.encode(input);
+  input.close();
+  await enc.flush();
+  enc.close();
+  if (failed || !config) throw failed || new Error('No decoder config');
+  let index = 0;
+  let peak = -1;
+  let best = 0;
+  const dec = new AudioDecoder({
+    output: (d) => {
+      const f = new Float32Array(d.numberOfFrames);
+      d.copyTo(f, { planeIndex: 0, format: 'f32-planar' });
+      for (let i = 0; i < f.length; i++) {
+        if (Math.abs(f[i]) > best) {
+          best = Math.abs(f[i]);
+          peak = index + i;
+        }
+      }
+      index += f.length;
+      d.close();
+    },
+    error: (e) => (failed = e),
+  });
+  dec.configure(config);
+  for (const c of chunks) dec.decode(c);
+  await dec.flush();
+  dec.close();
+  if (failed) throw failed;
+  const delay = peak - (at + width / 2);
+  // The click comes back where it went in, give or take a sample, plus the priming.
+  if (best < 0.3 || delay < -1 || delay > sampleRate / 4) return 0;
+  return Math.max(0, delay) / sampleRate;
+}
+
 /* Targets --------------------------------------------------------------------- */
 
 const LARGE_OUTPUT = 400 * 1024 * 1024;
@@ -612,6 +687,8 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
   }
   const sampleRate = 48000;
   const totalSamples = Math.round((duration * sampleRate) / US);
+  // Sound is stamped early by the encoder's priming, which the edit list then trims (see encoderDelay).
+  const audioLead = audioCodec ? await encoderDelay(audioCodec, { sampleRate, numberOfChannels: 2 }) : 0;
   const estimated = estimateSize({ ...s, audio: false }, duration, { projW: project.settings.width, projH: project.settings.height });
   const sink = await openTarget(estimated, forceTarget);
   const fileTarget = sink.kind === 'file';
@@ -655,7 +732,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
         const { channels, frames } = r.value;
         const data = new Float32Array(frames * channels.length);
         channels.forEach((ch, c) => data.set(ch, c * frames));
-        const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels.length, sampleRate, timestamp: audioAt });
+        const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels.length, sampleRate, timestamp: audioAt - audioLead });
         await audioSource.add(sample);
         sample.close();
         audioAt += frames / sampleRate;
@@ -744,10 +821,11 @@ async function exportAudio(project, library, s, duration, base, { onProgress, si
     output.setMetadataTags({ title: s.name || project.name, date: new Date() });
     await output.start();
     let at = 0;
+    const lead = await encoderDelay(f.codec, { sampleRate, numberOfChannels: channels });
     for await (const chunk of mixChunks(project, library, { end: duration, sampleRate, channels, signal, onProgress: report })) {
       const data = new Float32Array(chunk.frames * channels);
       chunk.channels.forEach((ch, c) => data.set(ch, c * chunk.frames));
-      const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels, sampleRate, timestamp: at });
+      const sample = new AudioSample({ data, format: 'f32-planar', numberOfChannels: channels, sampleRate, timestamp: at - lead });
       await source.add(sample);
       sample.close();
       at += chunk.frames / sampleRate;
