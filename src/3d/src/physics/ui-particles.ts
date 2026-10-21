@@ -48,7 +48,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
       num(s, 'frame_end', 'End', { min: -100000, max: 100000, disabled: d }),
       num(s, 'lifetime', 'Lifetime', { min: 1, max: 100000, disabled: d }),
       num(s, 'lifetime_random', 'Lifetime Randomness', { min: 0, max: 1, slider: true, disabled: d }),
-      panel('pa-source', 'Source', () => [enumProp(s, 'emit_from', 'Emit From', [['VERT', 'Verts'], ['FACE', 'Faces'], ['VOLUME', 'Volume']], { disabled: d })], { sub: true }),
+      sourcePanel(s, d),
     ]),
     panel('pa-vel', 'Velocity', () => [
       num(s, 'normal_factor', 'Normal', { min: -1000, max: 1000, softMin: -10, softMax: 10, disabled: d }),
@@ -86,20 +86,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
     ]),
     renderPanel(ob, s),
     displayPanel(s),
-    panel('pa-children', 'Children', () => [
-      h('div', { class: 'enum-row', style: { margin: '2px 8px' } },
-        (['NONE', 'SIMPLE'] as const).map((t) => h('button', { key: t, class: { on: (s.child_type ?? 'NONE') === t }, onclick: () => ((s.child_type = t), changed('Child Type')) }, t === 'NONE' ? 'None' : 'Simple')),
-      ),
-      s.child_type === 'SIMPLE'
-        ? [
-            num(s, 'child_nbr', 'Display Amount', { int: true, min: 0, max: 100000, softMax: 100 }),
-            num(s, 'rendered_child_count', 'Render Amount', { int: true, min: 0, max: 100000, softMax: 100 }),
-            num(s, 'child_radius', 'Radius', { min: 0, max: 100000, softMax: 10, unit: 'distance' }),
-            num(s, 'child_size', 'Size', { min: 0.01, max: 100000, softMax: 10 }),
-            num(s, 'child_size_random', 'Randomize Size', { min: 0, max: 1, slider: true }),
-          ]
-        : null,
-    ], { closed: true }),
+    childrenPanel(s, false),
     vertexGroupsPanel(ob, ps, false),
     fieldWeightsPanel('pa-fw', s, d),
     cachePanel('pa-cache', key, pc),
@@ -197,7 +184,7 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
       num(ps, 'seed', 'Seed', { int: true, min: 0 }),
       num(s, 'hair_length', 'Hair Length', { min: 0, max: 1000, unit: 'distance', disabled: edited }),
       num(s, 'hair_step', 'Segments', { int: true, min: 1, max: 50 }),
-      panel('pa-source', 'Source', () => [enumProp(s, 'emit_from', 'Emit From', [['VERT', 'Verts'], ['FACE', 'Faces'], ['VOLUME', 'Volume']])], { sub: true }),
+      sourcePanel(s, edited),
     ]),
     panel('pa-vel', 'Velocity', () => [
       note('Hair grows along the emission velocity direction.'),
@@ -210,21 +197,9 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
     displayPanel(s),
     vertexGroupsPanel(ob, ps, true),
     hairDynamicsPanel(ob, ps, m),
-    panel('pa-children', 'Children', () => [
-      h('div', { class: 'enum-row', style: { margin: '2px 8px' } },
-        (['NONE', 'SIMPLE'] as const).map((t) => h('button', { key: t, class: { on: (s.child_type ?? 'NONE') === t }, onclick: () => ((s.child_type = t), changed('Child Type')) }, t === 'NONE' ? 'None' : 'Simple')),
-      ),
-      s.child_type === 'SIMPLE'
-        ? [
-            num(s, 'rendered_child_count', 'Display Amount', { int: true, min: 0, max: 1000 }),
-            num(s, 'child_radius', 'Radius', { min: 0, max: 10, unit: 'distance' }),
-            subHeading('Clumping'),
-            num(s, 'clump_factor', 'Clump', { min: -1, max: 1, slider: true }),
-            subHeading('Roughness'),
-            num(s, 'roughness_1', 'Uniform', { min: 0, max: 100000, softMax: 1 }),
-          ]
-        : null,
-    ]),
+    childrenPanel(s, true),
+    pathPanel(s),
+    hairShapePanel(s),
   ];
 }
 
@@ -443,6 +418,109 @@ function relationsPanel(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSetti
       : null,
     keyed ? bool(ps, 'use_keyed_timing', 'Use Timing', { disabled: d, tip: 'Use the times and durations of the targets instead of spreading them over the lifetime' }) : null,
   ], { sub: true });
+}
+
+
+/** Source sub panel: where the particles start and how they spread over the emitter. */
+function sourcePanel(s: ParticleSettingsX, d: boolean): Child {
+  const faces = s.emit_from !== 'VERT';
+  const dist = s.distribution ?? 'JIT';
+  return panel('pa-source', 'Source', () => [
+    enumProp(s, 'emit_from', 'Emit From', [['VERT', 'Vertices'], ['FACE', 'Faces'], ['VOLUME', 'Volume']], { disabled: d }),
+    faces ? enumProp(s, 'distribution', 'Distribution', [['JIT', 'Jittered'], ['RAND', 'Random'], ['GRID', 'Grid']], { disabled: d }) : null,
+    dist !== 'GRID' || !faces ? bool(s, 'use_emit_random', 'Random Order', { disabled: d, tip: 'Emit in random order (else face by face)' }) : null,
+    faces && dist !== 'GRID' ? bool(s, 'use_even_distribution', 'Even Distribution', { disabled: d, tip: 'Spread by face area (else every face gets the same share)' }) : null,
+    faces && dist === 'JIT' ? [num(s, 'userjit', 'Particles/Face', { int: true, min: 0, max: 1000, disabled: d, tip: 'Places in the jitter pattern per face (0: automatic)' }), num(s, 'jitter_factor', 'Jittering Amount', { min: 0, max: 2, slider: true, disabled: d })] : null,
+    faces && dist === 'GRID'
+      ? [
+          num(s, 'grid_resolution', 'Resolution', { int: true, min: 1, max: 250, disabled: d, tip: 'Grid cells along the longest side (sets the number of particles)' }),
+          num(s, 'grid_random', 'Random', { min: 0, max: 1, slider: true, disabled: d }),
+          bool(s, 'hexagonal_grid', 'Hexagonal', { disabled: d }),
+          s.emit_from === 'VOLUME' ? bool(s, 'invert_grid', 'Invert Grid', { disabled: d, tip: 'Fill the outside of the volume instead' }) : null,
+        ]
+      : null,
+  ], { sub: true });
+}
+
+/** Children panel (simple for emitters; simple or interpolated with clumping, kink, parting and roughness for hair). */
+function childrenPanel(s: ParticleSettingsX, hair: boolean): Child {
+  const types: ('NONE' | 'SIMPLE' | 'INTERPOLATED')[] = hair ? ['NONE', 'SIMPLE', 'INTERPOLATED'] : ['NONE', 'SIMPLE'];
+  const t = s.child_type ?? 'NONE';
+  const kink = s.kink ?? 'NO';
+  return panel('pa-children', 'Children', () => [
+    h('div', { class: 'enum-row', style: { margin: '2px 8px' } }, types.map((x) => h('button', { key: x, class: { on: t === x }, onclick: () => ((s.child_type = x), changed('Child Type')) }, x === 'NONE' ? 'None' : x === 'SIMPLE' ? 'Simple' : 'Interpolated'))),
+    t === 'NONE'
+      ? null
+      : [
+          num(s, (hair ? 'child_percent' : 'child_nbr') as never, 'Display Amount', { int: true, min: 0, max: 100000, softMax: 100, tip: 'Children per parent in the viewport' }),
+          num(s, 'rendered_child_count', 'Render Amount', { int: true, min: 0, max: 100000, softMax: 1000, tip: 'Children per parent in renders' }),
+          !hair
+            ? [num(s, 'child_radius', 'Radius', { min: 0, max: 100000, softMax: 10, unit: 'distance' }), num(s, 'child_size', 'Size', { min: 0.01, max: 100000, softMax: 10 }), num(s, 'child_size_random', 'Randomize Size', { min: 0, max: 1, slider: true })]
+            : [
+                num(s, 'child_length', 'Length', { min: 0, max: 1, slider: true, tip: 'Length of the shortened children' }),
+                num(s, 'child_length_threshold', 'Threshold', { min: 0, max: 1, slider: true, tip: 'Share of the children that keep their full length' }),
+                num(s, 'child_seed', 'Seed', { int: true, min: 0 }),
+                t === 'SIMPLE' ? [num(s, 'child_radius', 'Radius', { min: 0, max: 100000, softMax: 10, unit: 'distance' }), num(s, 'child_roundness', 'Roundness', { min: 0, max: 1, slider: true, tip: 'Spread children into a ball around the parent instead of a disc' })] : null,
+                t === 'INTERPOLATED' ? num(s, 'virtual_parents', 'Virtual Parents', { min: 0, max: 1, slider: true, tip: 'Share of the children others clump to' }) : null,
+                panel('pa-ch-clump', 'Clumping', () => [
+                  num(s, 'clump_factor', 'Clump', { min: -1, max: 1, slider: true, tip: 'Pull the children to their parent (negative: spread them out)' }),
+                  num(s, 'clump_shape', 'Shape', { min: -0.999, max: 0.999, slider: true }),
+                  bool(s, 'use_clump_noise', 'Clump Noise'),
+                  s.use_clump_noise ? num(s, 'clump_noise_size', 'Clump Noise Size', { min: 0.00001, max: 100000, softMax: 10 }) : null,
+                ], { sub: true }),
+                panel('pa-ch-kink', 'Kink', () => [
+                  enumProp(s, 'kink', 'Kink Type', [['NO', 'Nothing'], ['CURL', 'Curl'], ['RADIAL', 'Radial'], ['WAVE', 'Wave'], ['BRAID', 'Braid'], ['SPIRAL', 'Spiral']]),
+                  kink !== 'NO'
+                    ? [
+                        num(s, 'kink_amplitude', 'Amplitude', { min: -100000, max: 100000, softMin: -1, softMax: 1, unit: 'distance' }),
+                        num(s, 'kink_amplitude_clump', 'Clump', { min: 0, max: 1, slider: true, tip: 'How much clumping reduces the amplitude' }),
+                        num(s, 'kink_flat', 'Flatness', { min: 0, max: 1, slider: true }),
+                        num(s, 'kink_frequency', 'Frequency', { min: -100000, max: 100000, softMin: -10, softMax: 10, tip: 'Kinks along the hair' }),
+                        num(s, 'kink_shape', 'Shape', { min: -0.999, max: 0.999, slider: true }),
+                        num(s, 'kink_amplitude_random', 'Amplitude Random', { min: 0, max: 1, slider: true }),
+                        kink === 'WAVE' ? [enumProp(s, 'kink_axis', 'Axis', [['X', 'X'], ['Y', 'Y'], ['Z', 'Z']]), num(s, 'kink_axis_random', 'Axis Random', { min: 0, max: 1, slider: true })] : null,
+                      ]
+                    : null,
+                ], { sub: true, closed: true }),
+                t === 'INTERPOLATED'
+                  ? panel('pa-ch-part', 'Parting', () => [
+                      num(s, 'child_parting_factor', 'Parting', { min: 0, max: 1, slider: true, tip: 'Children keep to one parent where parents point different ways' }),
+                      num(s, 'child_parting_min', 'Min', { min: 0, max: 180, tip: 'Angle between parents (degrees) where parting starts' }),
+                      num(s, 'child_parting_max', 'Max', { min: 0, max: 180, tip: 'Angle where parting is complete' }),
+                    ], { sub: true, closed: true })
+                  : null,
+                panel('pa-ch-rough', 'Roughness', () => [
+                  num(s, 'roughness_1', 'Uniform', { min: 0, max: 100000, softMax: 1 }),
+                  num(s, 'roughness_1_size', 'Size', { min: 0.01, max: 100000, softMax: 10 }),
+                  num(s, 'roughness_endpoint', 'Endpoint', { min: 0, max: 100000, softMax: 1 }),
+                  num(s, 'roughness_end_shape', 'Shape', { min: 0, max: 10 }),
+                  num(s, 'roughness_2', 'Random', { min: 0, max: 100000, softMax: 1 }),
+                  num(s, 'roughness_2_size', 'Size', { min: 0.01, max: 100000, softMax: 10 }),
+                  num(s, 'roughness_2_threshold', 'Threshold', { min: 0, max: 1, slider: true, tip: 'Share of the children without random roughness' }),
+                ], { sub: true, closed: true }),
+              ],
+        ],
+  ], { closed: t === 'NONE' });
+}
+
+/** Path panel (hair): smoothing and subdivision of the displayed and rendered strands. */
+function pathPanel(s: ParticleSettingsX): Child {
+  return panel('pa-path', 'Path', () => [
+    bool(s, 'use_hair_bspline', 'B-Spline', { tip: 'Smooth the strands between their keys' }),
+    num(s, 'display_step', 'Steps', { int: true, min: 0, max: 10, tip: 'Viewport subdivisions per segment (2^steps)' }),
+    num(s, 'render_step', 'Render Steps', { int: true, min: 0, max: 20, tip: 'Subdivisions per segment in renders (2^steps)' }),
+  ], { closed: true });
+}
+
+/** Hair Shape panel: thickness of the rendered strands. */
+function hairShapePanel(s: ParticleSettingsX): Child {
+  return panel('pa-hairshape', 'Hair Shape', () => [
+    num(s, 'shape', 'Strand Shape', { min: -1, max: 1, slider: true, tip: 'How the thickness changes from root to tip' }),
+    num(s, 'root_radius', 'Diameter Root', { min: 0, max: 1000, softMax: 10 }),
+    num(s, 'tip_radius', 'Tip', { min: 0, max: 1000, softMax: 10 }),
+    num(s, 'radius_scale', 'Scaling', { min: 0, max: 1000, softMax: 1, unit: 'distance', tip: 'Diameters are multiplied by this' }),
+    bool(s, 'use_close_tip', 'Close Tip'),
+  ], { closed: true });
 }
 
 insertTabAfter('CONSTRAINT', {

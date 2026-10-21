@@ -13,9 +13,9 @@ import { applyGuides, guidesOf, newGuideState, type GuideState } from './guides'
 import { activeBoidState, boidAccelerations, boidDamage, defaultBoidSettings, ruleObjects, type BoidOthers, type BoidSettings } from './boids';
 import { defaultParticleFluid, relaxFluid, type ParticleFluidSettings } from './sph';
 import { keyedPosition, keyedPositionTimed, keyedTargetPositions, psysTargets, targetParticles } from './keyed';
-import { collectEffectors, effectorForce, fieldsKey, valueNoise } from './fields';
+import { collectEffectors, effectorForce, fieldsKey } from './fields';
 import { buildColliders, collidersKey, segmentHit, newHit } from './colliders';
-import { MeshSampler, newSample, valueAt, type Sample } from './sampling';
+import { MeshSampler, distributionKey, newSample, planSamples, valueAt, type Sample } from './sampling';
 import { groupWeights } from '../eval/meshbuild';
 import { hairDynKey, hairWithDynamics } from './hairdyn';
 import { physicsDoc } from './state';
@@ -24,6 +24,8 @@ import { fps, gravityOf, simDeps } from './meshsim';
 import { defaultParticleSettings, defaultPointCache, type CollisionSettingsX, type ParticleSettingsX, type ParticleSystemX } from './types';
 import { simplifyChildParticles } from '../eval/simplify';
 import { boundKeys } from './hairbind';
+import { smoothStrands } from './hairpaths';
+import { childSettings, childStrands, describeChildren, type ChildDesc, type ChildSettings } from './children';
 
 export interface ParticleDraw {
   objectId: string;
@@ -39,6 +41,9 @@ export interface ParticleDraw {
 
 /** Latest evaluated draw data per `${object id}:${modifier id}` (viewport evaluation only). */
 export const particleDraw = new Map<string, ParticleDraw>();
+
+/** Hair paths for the render engines per `${object id}:${modifier id}` (latest evaluation). */
+export const hairRenderData = new Map<string, { objectId: string; points: Float32Array; per: number; first: number; settings: ParticleSettingsX; materialSlot: number }>();
 
 export function settingsOf(doc: DocumentData, psys: ParticleSystemX): ParticleSettingsX | null {
   const s = doc.particles[psys.settings] as ParticleSettingsX | undefined;
@@ -84,6 +89,15 @@ const SIM_KEYS: (keyof ParticleSettingsX)[] = [
   'use_size_deflect',
   'use_die_on_collision',
   'collision_collection',
+  'distribution',
+  'use_emit_random',
+  'use_even_distribution',
+  'userjit',
+  'jitter_factor',
+  'grid_resolution',
+  'grid_random',
+  'hexagonal_grid',
+  'invert_grid',
 ];
 
 /** Weights of one of the particle system's vertex groups (inverted when asked), or null. */
@@ -188,8 +202,20 @@ export interface EmitterResult {
   sizeMul: Float32Array | null;
 }
 
+/** Number of particles: the count, or the grid's points for grid distributions. */
+export function particleCount(s: ParticleSettingsX, mesh: EvalMesh, psys: ParticleSystemX | undefined, seed: number): number {
+  if (s.distribution !== 'GRID' || s.emit_from === 'VERT') return Math.max(0, Math.floor(s.count));
+  const key = `${distributionKey(s as never)}:${mesh.positions.length}:${arrayChecksum(mesh.positions)}`;
+  const hit = gridCounts.get(mesh.positions);
+  if (hit && hit.key === key) return hit.n;
+  const n = planSamples(new MeshSampler(mesh, psys ? psysGroup(mesh, psys, 'density') : null), s as never, seed, 0).length;
+  gridCounts.set(mesh.positions, { key, n });
+  return n;
+}
+const gridCounts = new WeakMap<Float32Array, { key: string; n: number }>();
+
 function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: ParticleSystemX): PLive {
-  const n = Math.max(0, Math.floor(s.count));
+  const n = particleCount(s, mesh, psys, seed);
   const birth = new Float32Array(n),
     life = new Float32Array(n);
   const span = s.frame_end - s.frame_start;
@@ -200,11 +226,12 @@ function initLive(s: ParticleSettingsX, seed: number, mesh: EvalMesh, psys?: Par
   const samples: Sample[] = [];
   const sizeMul = sizeW ? new Float32Array(n) : null,
     velMul = velW ? new Float32Array(n) : null;
+  const plan = planSamples(sampler, s as never, seed, n);
   for (let i = 0; i < n; i++) {
     birth[i] = s.frame_start + (n > 0 ? (span * i) / n : 0);
     life[i] = Math.max(1, s.lifetime * (1 - s.lifetime_random * rand01(seed, i, 1)));
-    const sm = newSample();
-    if (!sampler.sample(s.emit_from, seed, i, sm)) {
+    const sm = plan[i] ?? newSample();
+    if (!plan[i] || Number.isNaN(sm.px)) {
       // nothing to emit from (e.g. a density group without weights): never born
       sm.px = sm.py = sm.pz = 0;
       birth[i] = Infinity;
@@ -554,7 +581,7 @@ export function evaluateEmitter(ob: ObjectData, m: ModifierBase, psys: ParticleS
   cache.baked = pc.is_baked;
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const hash = simHash(doc, ob, m, psys, s, mesh, ctx.source);
-  const count = Math.max(0, Math.floor(s.count));
+  const count = particleCount(s, mesh, psys, seed);
   const usable = pc.is_baked && cache.frames.size > 0 && cache.frames.values().next().value?.state.length === count;
   if (!usable && cache.hash !== hash) cache.reset(hash);
   const f = Math.min(Math.max(frameOf(ctx.graph), pc.frame_start), pc.frame_end);
@@ -601,9 +628,13 @@ export interface HairResult {
   segments: number;
   strands: number;
   parents: number;
-  /** per child: parent index, offset x y z and its noise seed (to rebuild children around moved parents) */
-  children?: Float32Array;
+  /** how the children are made (to rebuild them around moved parents) */
+  childDesc?: ChildDesc;
+  childSettings?: ChildSettings;
 }
+
+/** Settings the child strands depend on. */
+const CHILD_KEYS = ['child_type', 'child_nbr', 'child_percent', 'rendered_child_count', 'child_radius', 'child_roundness', 'child_length', 'child_length_threshold', 'child_seed', 'virtual_parents', 'clump_factor', 'clump_shape', 'use_clump_noise', 'clump_noise_size', 'kink', 'kink_amplitude', 'kink_amplitude_clump', 'kink_amplitude_random', 'kink_frequency', 'kink_shape', 'kink_flat', 'kink_axis', 'kink_axis_random', 'child_parting_factor', 'child_parting_min', 'child_parting_max', 'roughness_1', 'roughness_1_size', 'roughness_endpoint', 'roughness_end_shape', 'roughness_2', 'roughness_2_size', 'roughness_2_threshold'];
 
 const hairCache = new Map<string, { hash: string; result: HairResult }>();
 
@@ -644,12 +675,13 @@ export function resampleKeys(co: ArrayLike<number>, a: number, b: number, n: num
  * Edit mode, otherwise they are generated on the mesh (density / length vertex groups apply).
  * Children follow their parent's path.
  */
-export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1): HairResult {
+export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSystemX, s: ParticleSettingsX, mesh: EvalMesh, childFactor = 1, render = false): HairResult {
   const key = particleCacheKey(ob, m);
   const ed = psys.edited_hair ?? null;
   const hash = strHash(
     [
-      JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.child_type, s.rendered_child_count, s.child_radius, s.clump_factor, s.roughness_1, s.seed, childFactor]),
+      JSON.stringify([s.count, s.emit_from, s.normal_factor, s.object_align_factor, s.factor_random, s.hair_length, s.hair_step, s.seed, childFactor, render, CHILD_KEYS.map((k) => (s as unknown as Record<string, unknown>)[k])]),
+      distributionKey(s),
       psys.seed,
       ed
         ? `E${ed.key_offsets.length}:${arrayChecksum(ed.co)}:${arrayChecksum(ed.hide)}:${psys.hair_binding ? `B${psys.hair_binding.tri.length}:${arrayChecksum(mesh.positions)}` : ''}`
@@ -661,7 +693,9 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
   const seed = hashSeed(psys.seed, s.seed ?? 0);
   const seg = Math.max(1, Math.round(s.hair_step ?? 5));
   const per = seg + 1;
-  const children = s.child_type === 'SIMPLE' ? Math.max(0, Math.round((s.rendered_child_count ?? 0) * childFactor)) : 0;
+  // children per parent: the display amount in the viewport, the render amount in renders
+  const perParent = render ? (s.rendered_child_count ?? 100) : ((s as { child_percent?: number }).child_percent ?? s.child_nbr ?? 10);
+  const children = s.child_type === 'SIMPLE' || s.child_type === 'INTERPOLATED' ? Math.max(0, Math.round(perParent * childFactor)) : 0;
   const parentPts: number[] = [];
   let parents = 0;
   if (ed) {
@@ -676,13 +710,14 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       parents++;
     }
   } else {
-    const n = Math.max(0, Math.floor(s.count));
     const sampler = new MeshSampler(mesh, psysGroup(mesh, psys, 'density'));
+    const n = particleCount(s, mesh, psys, seed);
+    const plan = planSamples(sampler, s as never, seed, n);
     const lengthW = psysGroup(mesh, psys, 'length');
-    const sm = newSample();
     const dir = new Vector3();
-    for (let i = 0; i < n; i++) {
-      if (!sampler.sample(s.emit_from, seed, i, sm)) continue;
+    for (let i = 0; i < plan.length; i++) {
+      const sm = plan[i];
+      if (Number.isNaN(sm.px)) continue;
       dir.set(sm.nx, sm.ny, sm.nz).multiplyScalar(s.normal_factor);
       dir.add(new Vector3(...s.object_align_factor));
       if (s.factor_random) dir.add(new Vector3(rand01(seed, i, 30) * 2 - 1, rand01(seed, i, 31) * 2 - 1, rand01(seed, i, 32) * 2 - 1).multiplyScalar(s.factor_random));
@@ -696,51 +731,20 @@ export function evaluateHair(ob: ObjectData, m: ModifierBase, psys: ParticleSyst
       parents++;
     }
   }
-  const total = parents * (1 + children);
-  const pts = new Float32Array(total * per * 3);
-  pts.set(parentPts);
-  let w = parentPts.length;
-  const d = new Vector3(),
-    tan = new Vector3(),
-    bit = new Vector3(),
-    up = new Vector3();
-  const childInfo: number[] = [];
-  for (let i = 0; i < parents && children; i++) {
-    const b = i * per * 3;
-    d.set(pts[b + 3] - pts[b], pts[b + 4] - pts[b + 1], pts[b + 5] - pts[b + 2]);
-    if (d.lengthSq() < 1e-16) d.set(0, 0, 1);
-    d.normalize();
-    let len = 0;
-    for (let k = 1; k <= seg; k++) len += Math.hypot(pts[b + k * 3] - pts[b + k * 3 - 3], pts[b + k * 3 + 1] - pts[b + k * 3 - 2], pts[b + k * 3 + 2] - pts[b + k * 3 - 1]);
-    up.set(Math.abs(d.z) < 0.9 ? 0 : 1, 0, Math.abs(d.z) < 0.9 ? 1 : 0);
-    tan.crossVectors(d, up).normalize();
-    bit.crossVectors(d, tan).normalize();
-    for (let c = 0; c < children; c++) {
-      const ang = rand01(seed, i, c, 60) * Math.PI * 2;
-      const rad = Math.sqrt(rand01(seed, i, c, 61)) * (s.child_radius ?? 0.2);
-      const ox = tan.x * Math.cos(ang) * rad + bit.x * Math.sin(ang) * rad;
-      const oy = tan.y * Math.cos(ang) * rad + bit.y * Math.sin(ang) * rad;
-      const oz = tan.z * Math.cos(ang) * rad + bit.z * Math.sin(ang) * rad;
-      childInfo.push(i, ox, oy, oz, seed + c);
-      for (let k = 0; k <= seg; k++) {
-        const u = k / seg;
-        const clump = 1 - (s.clump_factor ?? 0) * u;
-        let x = pts[b + k * 3] + ox * clump,
-          y = pts[b + k * 3 + 1] + oy * clump,
-          z = pts[b + k * 3 + 2] + oz * clump;
-        const r = (s.roughness_1 ?? 0) * u * len;
-        if (r) {
-          x += valueNoise(x * 4, y * 4, z * 4, seed + c, 0) * r;
-          y += valueNoise(x * 4, y * 4, z * 4, seed + c, 1) * r;
-          z += valueNoise(x * 4, y * 4, z * 4, seed + c, 2) * r;
-        }
-        pts[w++] = x;
-        pts[w++] = y;
-        pts[w++] = z;
-      }
-    }
+  const parentArr = Float32Array.from(parentPts);
+  let childPts: Float32Array | null = null;
+  let childDesc: ChildDesc | undefined;
+  let childCfg: ChildSettings | undefined;
+  if (children && parents) {
+    childCfg = childSettings(s as unknown as Record<string, unknown>, children);
+    childDesc = describeChildren(parentArr, per, parents, childCfg, seed, childCfg.type === 'INTERPOLATED' ? new MeshSampler(mesh, psysGroup(mesh, psys, 'density')) : null);
+    childPts = childStrands(parentArr, per, childDesc, childCfg);
   }
-  const result: HairResult = { points: w === pts.length ? pts : pts.slice(0, w), segments: seg, strands: w / 3 / per, parents, children: childInfo.length ? Float32Array.from(childInfo) : undefined };
+  const pts = new Float32Array(parentArr.length + (childPts?.length ?? 0));
+  pts.set(parentArr);
+  if (childPts) pts.set(childPts, parentArr.length);
+  const w = pts.length;
+  const result: HairResult = { points: pts, segments: seg, strands: w / 3 / per, parents, childDesc, childSettings: childCfg };
   hairCache.set(key, { hash, result });
   return result;
 }
@@ -855,8 +859,10 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const s = psys ? settingsOf(doc, psys) : null;
   if (!psys || !s || ctx.editMode) {
     if (!ctx.render) particleDraw.delete(key);
+    hairRenderData.delete(key);
     return mesh;
   }
+  if (s.type !== 'HAIR') hairRenderData.delete(key);
   const owner = (ctx.graph as Depsgraph).get(ob.id)?.world ?? new Matrix4();
   const show = ctx.render ? 'RENDER' : s.display_method ?? 'RENDER';
   const color = materialColor(doc, ob, s.material_slot ?? 1) ?? [0.9, 0.9, 0.9];
@@ -895,21 +901,30 @@ export function particleModifierApply(mesh: EvalMesh, m: ModifierBase, ctx: Modi
   const instances: GeometryInstance[] = [];
   let draw: ParticleDraw | null = null;
   if (s.type === 'HAIR') {
-    let hair = evaluateHair(ob, m, psys, s, mesh, simplifyChildParticles(doc, ctx.render));
+    let hair = evaluateHair(ob, m, psys, s, mesh, simplifyChildParticles(doc, ctx.render), ctx.render);
     if (psys.use_hair_dynamics) hair = hairWithDynamics(ob, m, psys, s, hair, ctx) ?? hair;
     const per = hair.segments + 1;
     const hpct = ctx.render ? 100 : (s.display_percentage ?? 100);
     const hvis = (i: number) => hpct >= 100 || rand01(psys.seed, i, 90) * 100 < hpct;
+    // paths: subdivided (and smoothed with B-Spline) by the display / render steps
+    const path = smoothStrands(hair.points, per, ctx.render ? (s.render_step ?? 3) : (s.display_step ?? 2), !!s.use_hair_bspline);
+    const pper = path.per,
+      pseg = pper - 1;
+    if (s.render_type === 'PATH') {
+      // strands for the render engines (tubes); parents are left out when children show
+      const first = hair.childDesc && !s.use_parent_particles ? hair.parents : 0;
+      hairRenderData.set(key, { objectId: ob.id, points: path.points, per: pper, first, settings: s, materialSlot: s.material_slot ?? 1 });
+    } else hairRenderData.delete(key);
     if (show !== 'NONE' && (s.render_type === 'PATH' || show === 'DOT' || !wantInstances)) {
       let shown = 0;
       for (let i = 0; i < hair.strands; i++) if (hvis(i)) shown++;
-      const lines = new Float32Array(shown * hair.segments * 6);
+      const lines = new Float32Array(shown * pseg * 6);
       let w = 0;
       for (let i = 0; i < hair.strands; i++) {
         if (!hvis(i)) continue;
-        for (let k = 0; k < hair.segments; k++) {
-          const a = (i * per + k) * 3;
-          lines.set(hair.points.subarray(a, a + 6), w);
+        for (let k = 0; k < pseg; k++) {
+          const a = (i * pper + k) * 3;
+          lines.set(path.points.subarray(a, a + 6), w);
           w += 6;
         }
       }

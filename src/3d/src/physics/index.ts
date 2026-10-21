@@ -5,7 +5,7 @@ import { preEvaluateHooks } from '../eval/depsgraph';
 import { rapierReady, loadRapier } from './engine';
 import { simBudget, startBudget, caches } from './common';
 import { freeRigidBodyLive } from './rigidbody';
-import { particleDraw } from './particles';
+import { particleDraw, hairRenderData } from './particles';
 import { smokeDraw } from './fluid';
 import { physicsState } from './runtime';
 import './ops';
@@ -15,6 +15,7 @@ import './draw';
 import './timelinecache';
 import './fluiddraw';
 import './particleops';
+import './hairrender';
 import './oceanbake';
 import './dpbake';
 
@@ -47,7 +48,7 @@ function pruneCaches() {
       caches.delete(key);
     }
   }
-  for (const map of [particleDraw, smokeDraw] as Map<string, unknown>[])
+  for (const map of [particleDraw, smokeDraw, hairRenderData] as Map<string, unknown>[])
     for (const key of map.keys()) {
       const [ob, mod] = key.split(':');
       if (!alive(ob, mod)) map.delete(key);

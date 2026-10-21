@@ -251,6 +251,61 @@ export interface ParticleSettingsX extends ParticleSettings {
   integrator?: 'EULER' | 'VERLET' | 'MIDPOINT' | 'RK4';
   effector_weights_all?: number;
   use_collision?: boolean;
+  // --- emission distribution
+  distribution?: 'JIT' | 'RAND' | 'GRID';
+  use_emit_random?: boolean;
+  use_even_distribution?: boolean;
+  userjit?: number;
+  jitter_factor?: number;
+  grid_resolution?: number;
+  grid_random?: number;
+  hexagonal_grid?: boolean;
+  invert_grid?: boolean;
+  // --- children
+  child_percent?: number;
+  child_roundness?: number;
+  child_length?: number;
+  child_length_threshold?: number;
+  child_seed?: number;
+  virtual_parents?: number;
+  clump_shape?: number;
+  use_clump_noise?: boolean;
+  clump_noise_size?: number;
+  kink?: 'NO' | 'CURL' | 'RADIAL' | 'WAVE' | 'BRAID' | 'SPIRAL';
+  kink_amplitude?: number;
+  kink_amplitude_clump?: number;
+  kink_amplitude_random?: number;
+  kink_frequency?: number;
+  kink_shape?: number;
+  kink_flat?: number;
+  kink_axis?: 'X' | 'Y' | 'Z';
+  kink_axis_random?: number;
+  child_parting_factor?: number;
+  child_parting_min?: number;
+  child_parting_max?: number;
+  roughness_1_size?: number;
+  roughness_endpoint?: number;
+  roughness_end_shape?: number;
+  roughness_2?: number;
+  roughness_2_size?: number;
+  roughness_2_threshold?: number;
+  // --- paths and display
+  display_step?: number;
+  render_step?: number;
+  use_hair_bspline?: boolean;
+  color_maximum?: number;
+  show_unborn?: boolean;
+  use_parent_particles?: boolean;
+  use_absolute_path_time?: boolean;
+  path_start?: number;
+  path_end?: number;
+  length_random?: number;
+  // --- hair shape (strand thickness in renders)
+  root_radius?: number;
+  tip_radius?: number;
+  radius_scale?: number;
+  shape?: number;
+  use_close_tip?: boolean;
 }
 
 /** Hand-edited hair (Particle Edit mode): keys per strand in the emitter's object space. */
@@ -529,7 +584,6 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     use_rotations: false,
     angular_velocity_factor: 0,
     seed: 0,
-    display_color: [0.9, 0.9, 0.9],
     display_method: 'RENDER',
     display_size: 0.05,
     use_dead: false,
@@ -566,6 +620,58 @@ export function defaultParticleSettings(id: string, name: string): ParticleSetti
     instance_collection: null,
     use_whole_collection: false,
     use_collection_pick_random: false,
+    distribution: 'JIT',
+    use_emit_random: true,
+    use_even_distribution: true,
+    userjit: 0,
+    jitter_factor: 1,
+    grid_resolution: 10,
+    grid_random: 0,
+    hexagonal_grid: false,
+    invert_grid: false,
+    child_percent: 10,
+    child_roundness: 0,
+    child_length: 1,
+    child_length_threshold: 0,
+    child_seed: 0,
+    virtual_parents: 0,
+    clump_shape: 0,
+    use_clump_noise: false,
+    clump_noise_size: 1,
+    kink: 'NO',
+    kink_amplitude: 0.2,
+    kink_amplitude_clump: 1,
+    kink_amplitude_random: 0,
+    kink_frequency: 2,
+    kink_shape: 0,
+    kink_flat: 0,
+    kink_axis: 'Z',
+    kink_axis_random: 0,
+    child_parting_factor: 0,
+    child_parting_min: 0,
+    child_parting_max: 0,
+    roughness_1_size: 1,
+    roughness_endpoint: 0,
+    roughness_end_shape: 1,
+    roughness_2: 0,
+    roughness_2_size: 1,
+    roughness_2_threshold: 0,
+    display_step: 2,
+    render_step: 3,
+    use_hair_bspline: false,
+    display_color: 'MATERIAL',
+    color_maximum: 1,
+    show_unborn: false,
+    use_parent_particles: false,
+    use_absolute_path_time: false,
+    path_start: 0,
+    path_end: 1,
+    length_random: 0,
+    root_radius: 1,
+    tip_radius: 0,
+    radius_scale: 0.01,
+    shape: 0,
+    use_close_tip: true,
   };
 }
 

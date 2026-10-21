@@ -196,3 +196,92 @@ describe('connected hair', () => {
     void Vector3;
   });
 });
+
+import { childSettings, childStrands, describeChildren, shapeCurve } from '../../src/physics/children';
+import { smoothStrands, strandRadii } from '../../src/physics/hairpaths';
+import { MeshSampler, planSamples } from '../../src/physics/sampling';
+import { grid as gridPrim } from '../../src/mesh/primitives';
+
+describe('hair children', () => {
+  // two straight parents 1 m apart, 1 m long, 5 points each
+  const parents = new Float32Array([0, 0, 0, 0, 0, 0.25, 0, 0, 0.5, 0, 0, 0.75, 0, 0, 1, 1, 0, 0, 1, 0, 0.25, 1, 0, 0.5, 1, 0, 0.75, 1, 0, 1]);
+  const base = (over: Record<string, unknown>) => childSettings({ child_type: 'SIMPLE', child_radius: 0.2, ...over }, 8);
+  it('simple children surround their parent and clumping pulls the tips in', () => {
+    const cs = base({});
+    const d = describeChildren(parents, 5, 2, cs, 1, null);
+    expect(d.n).toBe(16);
+    const free = childStrands(parents, 5, d, cs);
+    const tipDist = (pts: Float32Array, c: number) => Math.hypot(pts[c * 15 + 12] - (c < 8 ? 0 : 1), pts[c * 15 + 13], pts[c * 15 + 14] - 1);
+    const clumped = childStrands(parents, 5, d, { ...cs, clump: 1 });
+    for (let c = 0; c < 16; c++) {
+      expect(tipDist(free, c)).toBeLessThanOrEqual(0.2001);
+      expect(tipDist(clumped, c)).toBeLessThan(1e-5);
+    }
+  });
+
+  it('kinks displace the children periodically; length shortens them', () => {
+    const cs = base({ kink: 'RADIAL', kink_amplitude: 0.1, kink_frequency: 2 });
+    const d = describeChildren(parents, 5, 2, cs, 1, null);
+    const plain = childStrands(parents, 5, d, base({}));
+    const k = childStrands(parents, 5, d, cs);
+    let moved = 0;
+    for (let i = 0; i < k.length; i++) if (Math.abs(k[i] - plain[i]) > 1e-4) moved++;
+    expect(moved).toBeGreaterThan(10);
+    const half = childStrands(parents, 5, describeChildren(parents, 5, 2, base({ child_length: 0.5 }), 1, null), base({ child_length: 0.5 }));
+    // the tip ends half way up
+    expect(half[14]).toBeCloseTo(0.5, 3);
+    expect(shapeCurve(0.5, 0)).toBeCloseTo(0.5, 6);
+    expect(shapeCurve(0.5, 0.5)).toBeGreaterThan(0.5);
+  });
+
+  it('interpolated children grow from the surface between parents', () => {
+    const mesh = { positions: new Float32Array([-0.5, -0.5, 0, 1.5, -0.5, 0, 1.5, 0.5, 0, -0.5, 0.5, 0]), offsets: new Uint32Array([0, 4]), indices: new Uint32Array([0, 1, 2, 3]), uvs: new Float32Array(0), normals: new Float32Array(0) };
+    const cs = childSettings({ child_type: 'INTERPOLATED' }, 10);
+    const d = describeChildren(parents, 5, 2, cs, 3, new MeshSampler(mesh as never));
+    const pts = childStrands(parents, 5, d, cs);
+    for (let c = 0; c < d.n; c++) {
+      // roots on the surface, tips one metre up (both parents are straight up)
+      expect(pts[c * 15 + 2]).toBeCloseTo(0, 5);
+      expect(pts[c * 15 + 14]).toBeCloseTo(1, 4);
+      expect(pts[c * 15]).toBeGreaterThanOrEqual(-0.5 - 1e-6);
+      expect(pts[c * 15]).toBeLessThanOrEqual(1.5 + 1e-6);
+    }
+  });
+
+  it('paths are subdivided by the steps and smoothed with B-Spline; strands taper', () => {
+    const r = smoothStrands(parents, 5, 2, false);
+    expect(r.per).toBe(17);
+    expect(r.points[16 * 3 + 2]).toBeCloseTo(1, 6);
+    // Catmull-Rom goes through the keys
+    expect(r.points[4 * 3 + 2]).toBeCloseTo(0.25, 6);
+    const b = smoothStrands(parents, 5, 1, true);
+    expect(b.points[2]).toBeCloseTo(0, 6);
+    const radii = strandRadii(5, { root_radius: 1, tip_radius: 0, radius_scale: 0.02 });
+    expect(radii[0]).toBeCloseTo(0.01, 6);
+    expect(radii[4]).toBe(0);
+    expect(radii[2]).toBeLessThan(radii[1]);
+  });
+});
+
+describe('emission distributions', () => {
+  const mesh = () => {
+    const me = newMeshData('g', gridPrim(4, 4, 2));
+    return { positions: me.positions, offsets: me.offsets, indices: me.indices, uvs: new Float32Array(0), normals: new Float32Array(0) };
+  };
+  it('jittered spreads the particles evenly over the faces, grid makes its own count', () => {
+    const sm = new MeshSampler(mesh() as never);
+    const jit = planSamples(sm, { emit_from: 'FACE', distribution: 'JIT', use_emit_random: false }, 1, 160);
+    expect(jit.length).toBe(160);
+    // 16 equal faces: 10 particles in each quarter of the plane
+    const q = [0, 0, 0, 0];
+    for (const s of jit) q[(s.px > 0 ? 1 : 0) + (s.py > 0 ? 2 : 0)]++;
+    expect(q).toEqual([40, 40, 40, 40]);
+    const rnd = planSamples(sm, { emit_from: 'FACE', distribution: 'RAND' }, 1, 160);
+    expect(rnd.length).toBe(160);
+    const g = planSamples(sm, { emit_from: 'FACE', distribution: 'GRID', grid_resolution: 4 }, 1, 999);
+    expect(g.length).toBe(25);
+    // vertices in order
+    const v = planSamples(sm, { emit_from: 'VERT', use_emit_random: false }, 1, 30);
+    expect(v[3].px).toBeCloseTo(sm.mesh.positions[9], 6);
+  });
+});

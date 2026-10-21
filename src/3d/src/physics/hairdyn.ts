@@ -11,7 +11,7 @@ import { buildColliders, collidersKey } from './colliders';
 import { initState, stepFrame, KIND_STRUCT, KIND_BEND, type PBDParams, type PBDState, type Topology } from './pbd';
 import { fps, gravityOf } from './meshsim';
 import { compliance, MESH_SIM_FRAME_TIME } from './cloth';
-import { valueNoise } from './fields';
+import { childStrands } from './children';
 import { defaultHairDynamics, defaultPointCache, type ParticleSettingsX, type ParticleSystemX } from './types';
 import type { HairResult } from './particles';
 
@@ -130,33 +130,6 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
   const inv = (ev ? ev.world.clone() : new Matrix4()).invert();
   const points = new Float32Array(hair.points.length);
   points.set(toWorld(out, inv));
-  if (hair.children) {
-    const C = hair.children;
-    let w = nParentPts * 3;
-    for (let c = 0; c < C.length; c += 5) {
-      const pi = C[c],
-        ox = C[c + 1],
-        oy = C[c + 2],
-        oz = C[c + 3],
-        cs = C[c + 4];
-      for (let k = 0; k <= seg; k++) {
-        const u = k / seg;
-        const clump = 1 - (s.clump_factor ?? 0) * u;
-        const q = (pi * per + k) * 3;
-        let x = points[q] + ox * clump,
-          y = points[q + 1] + oy * clump,
-          z = points[q + 2] + oz * clump;
-        const r = (s.roughness_1 ?? 0) * u * s.hair_length;
-        if (r) {
-          x += valueNoise(x * 4, y * 4, z * 4, cs, 0) * r;
-          y += valueNoise(x * 4, y * 4, z * 4, cs, 1) * r;
-          z += valueNoise(x * 4, y * 4, z * 4, cs, 2) * r;
-        }
-        points[w++] = x;
-        points[w++] = y;
-        points[w++] = z;
-      }
-    }
-  }
+  if (hair.childDesc && hair.childSettings) points.set(childStrands(points.subarray(0, nParentPts * 3), per, hair.childDesc, hair.childSettings), nParentPts * 3);
   return { ...hair, points };
 }

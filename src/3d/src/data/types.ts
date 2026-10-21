@@ -892,7 +892,8 @@ export interface ParticleSettings {
   use_rotations?: boolean;
   angular_velocity_factor?: number;
   seed?: number;
-  display_color?: Color;
+  /** how particles are coloured in the viewport */
+  display_color?: 'NONE' | 'MATERIAL' | 'VELOCITY' | 'ACCELERATION';
   child_type?: 'NONE' | 'SIMPLE' | 'INTERPOLATED';
   rendered_child_count?: number;
   clump_factor?: number;
