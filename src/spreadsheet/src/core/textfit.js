@@ -22,6 +22,9 @@ export function cellLayoutText(text, wrap) {
 }
 
 /** Width of the longest explicit line, as displayed by a multiline cell. */
+/** A number's text as the grid draws it, in tabular figures: every digit as wide as a 0, which is how it is measured to fit. */
+export const tabularDigits = (text) => String(text).replace(/[0-9]/g, '0');
+
 export function maxLineWidth(text, measure) {
   let width = 0;
   for (const line of String(text ?? '').split(/\r\n?|\n/)) width = Math.max(width, measure(line));

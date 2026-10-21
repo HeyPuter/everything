@@ -159,7 +159,7 @@ import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef,
 import { parseRefText, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
 import { stepCodeDecimals } from '../core/numfmt.js';
-import { maxLineWidth, cellLayoutText } from '../core/textfit.js';
+import { maxLineWidth, cellLayoutText, tabularDigits } from '../core/textfit.js';
 import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
@@ -4261,7 +4261,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       st = conditionalFontStyle(st, wb.conditionalStyle(sheetId, r, c, value));
       const bold = st?.bold;
       canvas.font = `${st?.italic ? 'italic ' : ''}${bold ? '600 ' : ''}${st?.size || baseSize}px ${fontStack(st?.font) || family}`;
-      const width = maxLineWidth(cellLayoutText(formatValue(value, st), st?.wrap), (line) => canvas.measureText(line).width);
+      // A number is drawn in tabular figures, every digit as wide as a 0, and the grid measures it so to fit.
+      const width = maxLineWidth(cellLayoutText(formatValue(value, st), st?.wrap), (line) => canvas.measureText(typeof value === 'number' ? tabularDigits(line) : line).width);
       const indent = indentWidth(value, st, grid.indentUnit);
       widths.set(c, Math.max(widths.get(c), width + (14 + indent)));
       measured.add(c);

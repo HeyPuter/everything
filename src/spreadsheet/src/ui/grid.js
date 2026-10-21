@@ -60,7 +60,7 @@ import { codeColor } from '../core/numfmt.js';
 import * as S from '../core/selection.js';
 import { createFormulaHints } from './autocomplete.js';
 import { shrinkCellText } from '../core/shrink-text.js';
-import { maxLineWidth, cellLayoutText, CELL_TEXT_INSET, cellHorizontalPadding } from '../core/textfit.js';
+import { maxLineWidth, cellLayoutText, CELL_TEXT_INSET, cellHorizontalPadding, tabularDigits } from '../core/textfit.js';
 import { chartData, chartTitles, CHART_MIN_W, CHART_MIN_H, IMAGE_MIN, TEXT_MIN, textBoxStyle, textBoxText, imageTransform } from '../core/charts.js';
 import { renderChartSvg, renderSparklineSvg, chartCornerRadius, themeSeriesKey } from './chartsvg.js';
 import { equationBody } from './equation-view.js';
@@ -4937,7 +4937,8 @@ export function createGrid(opts) {
     const font = `${st?.italic ? 'italic ' : ''}${st?.bold ? '600 ' : ''}${size}px ${family}`;
     const indent = cellIndent(value, st);
     const parts = numberFormatParts(value, st);
-    const width = parts ? measureFormatParts(parts, line => textWidth(line, font)) : maxLineWidth(text, (line) => textWidth(line, font));
+    // Measured in the tabular figures the number is drawn in, as buildCell measures it to fit.
+    const width = parts ? measureFormatParts(parts, line => textWidth(line, font)) : maxLineWidth(text, (line) => textWidth(tabularDigits(line), font));
     const current = fitted ? s.colWidths.get(c) : s.defaultColWidth;
     const next = Math.min(500, Math.ceil(width + (14 + indent)));
     if (width + cellHorizontalPadding(indent) + 1 <= current || next <= current) return false;
@@ -4959,7 +4960,9 @@ export function createGrid(opts) {
       // The filter button, dropdown chevron, chip or icon drawn in the cell asks for its room too.
       const rule = s.validations.length ? wb.validationAt(sheetId, r, c) : null;
       const parts = numberFormatParts(value, style, wb.getCell(sheetId, r, c)?.richText);
-      let width = parts ? measureFormatParts(parts, richTextMeasure(font, textWidth)) : maxLineWidth(cellLayoutText(text, style?.wrap), (line) => textWidth(line, font));
+      // A number is drawn in tabular figures, every digit as wide as a 0, and measured so to fit (buildCell).
+      const plain = typeof value === 'number' ? (line) => textWidth(tabularDigits(line), font) : (line) => textWidth(line, font);
+      let width = parts ? measureFormatParts(parts, richTextMeasure(font, textWidth)) : maxLineWidth(cellLayoutText(text, style?.wrap), plain);
       if (style?.rot) {
         // Rotated text needs the width of its turned bounding box, as fitting the row needs its height.
         const rad = (Math.abs(style.rot) * Math.PI) / 180;
