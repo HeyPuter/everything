@@ -18,8 +18,9 @@
   height: var(--topbar-h);
   flex: none;
   display: grid;
-  /* The buttons on the right always fit; the name and then the left side give way. */
-  grid-template-columns: minmax(0, 1fr) auto minmax(max-content, 1fr);
+  /* The buttons on the right and the menus on the left always fit; then the project
+     name gets its width, and the save status takes what is left. */
+  grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr);
   align-items: center;
   padding: 0 8px;
   gap: 8px;
@@ -78,16 +79,19 @@
   color: var(--danger);
 }
 
-/* A narrow left side says just "Saved" and the time. */
-.editor:not([data-layout='phone']) .topbar-left {
-  container: topbar-left / inline-size;
+/* The save status asks for no width of its own: it fills the room the name leaves,
+   and where that is narrow it says just "Saved" and the time. */
+.save-status {
+  flex: 1 1 auto;
+  min-width: 0;
+  container: save-status / inline-size;
 }
 
 .save-status-short {
   display: none;
 }
 
-@container topbar-left (max-width: 470px) {
+@container save-status (max-width: 209.98px) {
   .save-status-long {
     display: none;
   }
@@ -98,8 +102,7 @@
 }
 
 .project-name {
-  /* On narrow windows it leaves room for the menu bar, save status and buttons. */
-  max-width: min(40vw, calc(100vw - 760px));
+  max-width: 40vw;
   height: 28px;
   padding: 0 10px;
   border-radius: var(--radius-sm);
