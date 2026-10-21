@@ -5546,7 +5546,8 @@ export function createGrid(opts) {
       const whole = a === b;
       const part = whole ? input.value.slice(1) : input.value.slice(a, b);
       if (!part.trim()) return;
-      const raw = wb.evaluateText(sheetId, edit.r, edit.c, part);
+      // On the formula's own sheet, which another sheet shown to pick references on is not.
+      const raw = wb.evaluateText(edit.sheetId, edit.r, edit.c, part);
       const value = raw && typeof raw === 'object' && raw.range ? raw.values?.[0]?.[0] ?? null : raw;
       const text = value && typeof value === 'object' && value.error ? value.error
         : typeof value === 'string' ? `"${value.replace(/"/g, '""')}"` : typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : value == null ? '0' : formatGeneral(value);
