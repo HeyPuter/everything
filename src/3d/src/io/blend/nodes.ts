@@ -83,8 +83,8 @@ function curveMapping(cm: BStruct, kind: 'RGB' | 'VECTOR' | 'FLOAT', props: Reco
   const n = kind === 'RGB' ? 4 : kind === 'VECTOR' ? 3 : 1;
   props.curve_kind = kind;
   props.curve_active = 0;
-  // flag bit 1<<? for extrapolation is not relied upon: default horizontal
-  props.curve_extend = 'HORIZONTAL';
+  // flag bit 16: extend by extrapolating the end tangents
+  props.curve_extend = cm.num('flag') & 16 ? 'EXTRAPOLATED' : 'HORIZONTAL';
   for (let i = 0; i < n; i++) {
     // RGB curves store C in slot 3 and R,G,B in 0..2
     const map = cm.sub('cm', kind === 'RGB' ? (i === 0 ? 3 : i - 1) : i);
