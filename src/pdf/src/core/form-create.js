@@ -1047,19 +1047,30 @@ function applyFieldProps(doc, field, props) {
       if (values.length > 1 && !(flagsOf(dict) & MULTI_SELECT))
         throw new Error('This list accepts one selection.');
       writeChoiceValue(doc, dict, values);
-    } else if (listChanged) {
+    } else if (
+      listChanged ||
+      // A list that now takes one selection keeps the first of several it held.
+      (props.multiSelect === false &&
+        ['V', 'DV'].some((key) => {
+          const value = inherited(dict, key);
+          return value instanceof PDFArray && value.size() > 1;
+        }))
+    ) {
       // Keep the selection and the default that are still on the list, each on its own,
       // with indices into the new order.
       const options = choiceOptionsOf(dict);
+      const single = field instanceof PDFOptionList && !(flagsOf(dict) & MULTI_SELECT);
       const kept = (key) => {
         const value = inherited(dict, key);
         return (
           value instanceof PDFArray
             ? value.asArray().map((e) => textOf(dict.context.lookup(e)))
             : [textOf(value)]
-        ).filter(
-          (v) => v !== undefined && (flagsOf(dict) & EDIT || options.some((o) => o.value === v)),
-        );
+        )
+          .filter(
+            (v) => v !== undefined && (flagsOf(dict) & EDIT || options.some((o) => o.value === v)),
+          )
+          .slice(0, single ? 1 : undefined);
       };
       const defaults = kept('DV');
       writeChoiceValue(doc, dict, kept('V'), { initial: false });
@@ -1340,7 +1351,6 @@ const UNDRAWN = new Set([
   'spellcheck',
   'scroll',
   'editable',
-  'multiSelect',
   'action',
 ]);
 /**

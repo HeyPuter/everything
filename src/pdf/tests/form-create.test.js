@@ -1,6 +1,15 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
-import { PDFArray, PDFDict, PDFDocument, PDFName, StandardFonts, degrees, rgb } from 'pdf-lib';
+import {
+  PDFArray,
+  PDFDict,
+  PDFDocument,
+  PDFName,
+  StandardFonts,
+  decodePDFRawStream,
+  degrees,
+  rgb,
+} from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import {
@@ -442,6 +451,36 @@ it('keeps the picture of a button when it is renamed, retitled, or moved', async
   // A new size is drawn anew.
   await moveFormWidget(doc, 'Brand', 0, rect(80, 500, 96, 64));
   expect(drawing()).not.toBe(original);
+});
+
+it('keeps the first of several selections when a list stops taking several', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  await addFormField(doc, 0, {
+    type: 'listbox',
+    name: 'Toppings',
+    rect: rect(50, 600, 120, 60),
+    options: ['Olives', 'Cheese', 'Ham'],
+    multiSelect: true,
+    defaultValue: ['Cheese', 'Ham'],
+  });
+  await fillFields(doc, { Toppings: ['Olives', 'Ham'] });
+  await updateFormField(doc, 'Toppings', { multiSelect: false });
+  const bytes = await doc.save();
+  const reopened = await PDFDocument.load(bytes);
+  const [field] = listFormFields(reopened);
+  expect(field.props).toMatchObject({
+    multiSelect: false,
+    value: ['Olives'],
+    defaultValue: ['Cheese'],
+  });
+  expect(reopened.getForm().getOptionList('Toppings').acroField.dict.has(name('I'))).toBe(false);
+  expect(listFields(reopened)[0]).toMatchObject({ multiple: false, value: ['Olives'] });
+  // Only the row still chosen is painted as selected.
+  const widget = reopened.getForm().getOptionList('Toppings').acroField.getWidgets()[0];
+  const drawing = reopened.context.lookup(widget.getNormalAppearance());
+  const operators = new TextDecoder().decode(decodePDFRawStream(drawing).decode());
+  expect(operators.match(/0\.6 0\.7\d* 0\.8\d* rg/g)).toHaveLength(1);
 });
 
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
