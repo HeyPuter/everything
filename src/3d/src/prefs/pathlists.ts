@@ -82,20 +82,22 @@ export function scriptDirectoriesPanel(): Child {
 export function excludedPathsRows(): Child {
   const paths = prefs.autoexec_paths ?? [];
   return [
-    h('div', { class: 'pl-subtitle' }, 'Excluded Paths'),
-    h(
-      'div',
-      { class: 'pl-list' },
-      paths.map((p, i) =>
-        h(
-          'div',
-          { key: `ae${i}`, class: 'pl-item' },
-          textField(`pl-ae-${i}`, p, (v) => setPref('autoexec_paths', paths.map((x, j) => (j === i ? v : x))), { placeholder: 'Project name or pattern (e.g. downloads_*)', className: 'pl-name' }),
-          h('button', { class: 'btn icon-btn', 'data-tip': 'Remove', 'aria-label': 'Remove excluded path', onclick: () => app.run('preferences.autoexec_path_remove', { index: i }) }, icon('remove')),
+    splitRow(
+      'Excluded Paths',
+      h(
+        'div',
+        { class: 'pl-col' },
+        paths.map((p, i) =>
+          h(
+            'div',
+            { key: `ae${i}`, class: 'pl-item' },
+            textField(`pl-ae-${i}`, p, (v) => setPref('autoexec_paths', paths.map((x, j) => (j === i ? v : x))), { placeholder: 'Project name or pattern (e.g. downloads_*)', className: 'pl-name' }),
+            h('button', { class: 'btn icon-btn', 'data-tip': 'Remove', 'aria-label': 'Remove excluded path', onclick: () => app.run('preferences.autoexec_path_remove', { index: i }) }, icon('remove')),
+          ),
         ),
+        h('button', { class: 'btn pl-add', onclick: () => app.run('preferences.autoexec_path_add') }, icon('add'), 'Add Path'),
       ),
     ),
-    h('div', { class: 'prefs-btn-row left' }, h('button', { class: 'btn', onclick: () => app.run('preferences.autoexec_path_add') }, icon('add'), 'Add Excluded Path')),
-    splitRow('', note('Registered scripts of projects whose name matches a pattern never run automatically.')),
+    note('Registered scripts of projects whose name matches a pattern never run automatically.'),
   ];
 }

@@ -82,7 +82,7 @@ test('Preferences sections follow the reference order; keymap and path operators
   expect(r.report).toMatch(/key conflict|No key conflicts/);
   // excluded auto-run paths
   await run(page, 'screen.userpref_show', { section: 'SAVE_LOAD' });
-  await page.locator('.btn', { hasText: 'Add Excluded Path' }).click();
+  await page.locator('.btn', { hasText: 'Add Path' }).click();
   await expect(page.locator('.pl-item input')).toHaveCount(1);
   await page.locator('.pl-item input').fill('downloads_*');
   await page.locator('.pl-item input').press('Enter');

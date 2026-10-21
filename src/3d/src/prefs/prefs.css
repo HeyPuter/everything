@@ -720,3 +720,16 @@ body.no-region-toggles .area-header-reveal {
 .ad-item.off .ad-name {
   color: var(--c-text-dim);
 }
+.pl-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.pl-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
