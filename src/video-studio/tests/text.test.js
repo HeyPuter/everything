@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { normalizeClip, normalizeProject, makeClip, createProject, DEFAULT_TEXT_STYLE } from '../src/model/project.js';
 import { normTextExtras, caseOf, applyCase, COLOR_KEYS, textColorAt, hexToRgb, rgbToHex, DECOR_KEYS } from '../src/model/text-style.js';
 import { TEXT_PRESETS, TEXT_EFFECTS, applyTextEffect, findTextLook } from '../src/model/text-presets.js';
@@ -7,6 +7,8 @@ import { BUBBLES, bubbleGeometry, drawBubble, hasBubble, shade } from '../src/en
 import { wrapLines, lineGlyphs, indexGlyphs, arcLayout, placedBounds, MAX_ARC } from '../src/engine/text-layout.js';
 import { TEXT_ANIMS, stagger, glyphState, activeWord, animKey, scrambleChar, hash01, isGlyphAnim, animMargin } from '../src/engine/text-anim.js';
 import { applyAnimations, clipLayer } from '../src/engine/scene.js';
+import { TextCache } from '../src/engine/text.js';
+import { mockContext } from './canvas-mock.js';
 import { s } from './helpers.js';
 
 const textClip = (fields = {}) => makeClip('text', { start: 0, duration: s(4), text: 'Hello big world', ...fields });
@@ -369,5 +371,30 @@ describe('letter and word animations', () => {
     expect(l.textAnim).toEqual([{ id: 'karaoke', phase: 'loop', p: 0.75 }]);
     expect(clipLayer(null, textClip(), s(1), 0).textAnim).toBe(null);
     expect(animMargin([{ id: 'letters-drop' }])).toBeGreaterThan(animMargin([{ id: 'wave' }]));
+  });
+});
+
+describe('text raster cache', () => {
+  it('drops rasters of clips that are no longer drawn', () => {
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => mockContext());
+    try {
+      const cache = new TextCache();
+      const clips = Array.from({ length: 30 }, (_, i) => makeClip('text', { text: `Caption ${i}`, start: s(i), duration: s(1) }));
+      const layer = (clip) => ({ kind: 'text', clip, scale: 1, reveal: 1 });
+      // Play through every caption, then keep showing only the last one.
+      for (const c of clips) {
+        cache.get(layer(c), 0.5);
+        cache.sweep();
+      }
+      expect(cache.entries.size).toBe(30);
+      const last = clips.at(-1);
+      for (let i = 0; i < 400; i++) {
+        cache.get(layer(last), 0.5);
+        cache.sweep();
+      }
+      expect([...cache.entries.keys()]).toEqual([last.id]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

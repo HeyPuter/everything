@@ -423,6 +423,7 @@ export class Player extends Emitter {
     const layers = evaluate(project, t);
     this._frameElements = this._syncMedia(t, layers);
     this.compositor.render(layers, { settings: project.settings, time: t / US });
+    this.text.sweep();
     this.lastLayers = layers;
     this.emit('frame', { time: t });
   }

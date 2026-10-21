@@ -477,6 +477,7 @@ class FrameRenderer {
     const layers = evaluate(this.project, t);
     await this.media.prepare(layers);
     if (!this.compositor.render(layers, { settings: this.project.settings, time: t / US })) throw new Error('WebGL context lost while rendering');
+    this.text.sweep();
     await this.media.sweep();
   }
 

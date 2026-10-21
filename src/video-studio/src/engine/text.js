@@ -441,14 +441,19 @@ export function rasterizeAvatar(layer, scale, reuse = null) {
 /** What an avatar raster depends on besides its pose. */
 const avatarLookKey = (a) => `${a.character}|${a.framing}|${a.background}|${a.bgColor}|${a.seed}`;
 
+/** Rendered frames a raster may go unused before it is dropped (sweep). */
+const KEEP_FRAMES = 240;
+
 /**
  * Cache of rasterized text/sticker layers keyed by clip id; redraws when the
  * content, reveal step, animation frame or resolution bucket changes, or
- * when a font finishes loading.
+ * when a font finishes loading. Rasters not drawn for a while (clips left
+ * behind or deleted) are dropped by sweep(), called once per rendered frame.
  */
 export class TextCache {
   constructor({ onFontLoaded } = {}) {
     this.entries = new Map();
+    this.frame = 0;
     this.onFontLoaded = onFontLoaded;
     this.pendingFonts = new Set();
     this.fontEpoch = 0;
@@ -496,6 +501,7 @@ export class TextCache {
       e = { sig, base, version: (e?.version || 0) + 1, ...r };
       this.entries.set(clip.id, e);
     }
+    e.used = this.frame;
     return { key: `txt:${clip.id}`, source: e.canvas, width: e.width, height: e.height, projW: e.projW, projH: e.projH, version: e.version };
   }
 
@@ -512,6 +518,7 @@ export class TextCache {
       e = { sig, version: (e?.version || 0) + 1, ...r };
       this.entries.set(clip.id, e);
     }
+    e.used = this.frame;
     return { key: `txt:${clip.id}`, source: e.canvas, width: e.width, height: e.height, projW: e.projW, projH: e.projH, version: e.version };
   }
 
@@ -524,6 +531,13 @@ export class TextCache {
 
   drop(id) {
     this.entries.delete(id);
+  }
+
+  /** End of a rendered frame: every so often, forget rasters unused for KEEP_FRAMES frames. */
+  sweep() {
+    this.frame++;
+    if (this.frame % 120 !== 0) return;
+    for (const [id, e] of this.entries) if (this.frame - e.used > KEEP_FRAMES) this.entries.delete(id);
   }
 
   clear() {
