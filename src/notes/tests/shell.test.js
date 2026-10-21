@@ -188,6 +188,20 @@ describe('App shell', () => {
     }
   });
 
+  it('keeps focus on a Recent Notes item after opening its page', async () => {
+    const first = app.state.pageId;
+    app.newPage({ title: 'Two' });
+    await tick();
+    app.setRailView('recent');
+    const item = [...app.recent.el.querySelectorAll('.result')].find((r) => r.querySelector('.result-title').textContent === 'Untitled Page');
+    item.focus();
+    item.click();
+    await tick();
+    expect(app.state.pageId).toBe(first);
+    expect(document.activeElement.classList.contains('result')).toBe(true);
+    expect(document.activeElement.querySelector('.result-title').textContent).toBe('Untitled Page');
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

@@ -29,7 +29,7 @@ function highlightSnippet(text, terms) {
 
 function resultRow(app, { notebook, section, meta, snippet }, terms, find) {
   const color = app.nav.colorOf(section.color);
-  const btn = h('button.result', { type: 'button', 'aria-current': String(meta.id === app.state.pageId) },
+  const btn = h('button.result', { type: 'button', 'aria-current': String(meta.id === app.state.pageId), dataset: { id: meta.id } },
     h('div.result-title', meta.title?.trim() || 'Untitled Page'),
     h('div.result-path', h('span.dot', { style: { '--sec-color': color } }), `${notebook.name} › ${section.name}`, h('span', { style: { marginLeft: 'auto' } }, formatRelative(meta.modified || meta.created))),
   );
@@ -171,6 +171,9 @@ export class RecentPanel {
       nodes.push(h('div.group-label', label));
       nodes.push(...list.map((r) => resultRow(this.app, r, [])));
     }
+    // Opening a page redraws this list; keep focus on the same item.
+    const focused = this.list.contains(document.activeElement) ? document.activeElement.closest('.result')?.dataset.id : null;
     this.list.replaceChildren(...nodes);
+    if (focused) this.list.querySelector(`.result[data-id="${CSS.escape(focused)}"]`)?.focus();
   }
 }
