@@ -22,6 +22,7 @@ const TYPE_GROUPS = [
   { label: 'Stairs', typeKind: 'stairType', kind: 'stair' },
   { label: 'Ramps', typeKind: 'rampType', kind: 'ramp' },
   { label: 'Railings', typeKind: 'railingType', kind: 'railing' },
+  { label: 'Model Groups', typeKind: 'groupType', kind: 'group' },
 ];
 
 export class ProjectBrowser {

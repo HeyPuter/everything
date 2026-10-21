@@ -7,7 +7,7 @@ import { Tool } from './tool.js';
 import { gripsFor } from './grips.js';
 import { drawGrip, drawFlipArrows } from '../views/overlay.js';
 import { sub, eq, add } from '../core/geom.js';
-import { transformPatch, translation } from '../core/ops.js';
+import { transformPatch, translation, expandGroups } from '../core/ops.js';
 import { wallAxis } from '../core/model.js';
 import { dot } from '../core/geom.js';
 
@@ -72,7 +72,7 @@ export class SelectTool extends Tool {
       this.drag = { kind: 'grip', grip, x: ev.x, y: ev.y, started: false };
       return;
     }
-    const hits = vc.hitTest(ev.x, ev.y);
+    const hits = this.app.pickTargets(vc.hitTest(ev.x, ev.y));
     const hit = hits.length ? (this.cands.length && this.cands[this.candIdx] && hits.includes(this.cands[this.candIdx]) ? this.cands[this.candIdx] : hits[0]) : null;
     if (hit) {
       const sel = this.app.selection;
@@ -129,7 +129,7 @@ export class SelectTool extends Tool {
     const vc = this.vc;
     const grip = this.gripAt(ev.x, ev.y);
     this.app.shell.canvasWrap.style.cursor = grip ? (grip.click ? 'pointer' : 'move') : '';
-    const hits = vc.hitTest(ev.x, ev.y);
+    const hits = this.app.pickTargets(vc.hitTest(ev.x, ev.y));
     if (hits.join() !== this.cands.join()) {
       this.cands = hits;
       this.candIdx = 0;
@@ -139,7 +139,7 @@ export class SelectTool extends Tool {
   }
 
   beginMove(d) {
-    const sel = [...this.app.selection].map((id) => this.doc.get(id)).filter((el) => el && !el.pinned && el.kind !== 'level' && el.id !== 'project');
+    const sel = [...expandGroups(this.doc, this.app.selection)].map((id) => this.doc.get(id)).filter((el) => el && !el.pinned && el.kind !== 'level' && el.id !== 'project');
     if (!sel.length || !this.vc.is2D) {
       d.kind = 'none';
       return;
@@ -222,7 +222,7 @@ export class SelectTool extends Tool {
         const b = vc.screenToModel(Math.max(d.x, d.x2), Math.min(d.y, d.y2));
         ids = vc.boxSelect({ x0: a[0], y0: a[1], x1: b[0], y1: b[1] }, crossing);
       } else ids = vc.boxSelectScreen({ x0: Math.min(d.x, d.x2), y0: Math.min(d.y, d.y2), x1: Math.max(d.x, d.x2), y1: Math.max(d.y, d.y2) }, crossing);
-      this.app.select(ids, d.subtract ? 'remove' : d.additive ? 'add' : 'replace');
+      this.app.select(this.app.pickTargets(ids), d.subtract ? 'remove' : d.additive ? 'add' : 'replace');
       this.app.setPrompt(this.prompt);
       this.app.requestRender();
       return;
@@ -254,7 +254,7 @@ export class SelectTool extends Tool {
 
   dblclick(ev) {
     const vc = this.vc;
-    const hits = vc.hitTest(ev.x, ev.y);
+    const hits = this.app.pickTargets(vc.hitTest(ev.x, ev.y));
     const id = hits[0];
     if (!id) {
       if (!vc.is2D) vc.zoomExtents?.();

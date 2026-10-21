@@ -125,16 +125,62 @@ export class Ribbon {
     this.renderBody();
   }
 
-  renderBody() {
+  renderBody(collapse = 0) {
     clear(this.body);
     this.buttons = [];
     this.body.setAttribute('aria-labelledby', `rbtab-${this.active}`);
     const tab = this.tabs.find((t) => t.id === this.active) ?? RIBBON[0];
     if (!tab.contextual) this.lastStatic = tab.id;
     const scroller = h('div.rb-scroller');
-    for (const p of tab.panels) scroller.append(this.renderPanel(p));
+    const n = tab.panels.length;
+    tab.panels.forEach((p, i) => scroller.append(i >= n - collapse && p.items.length > 1 ? this.collapsedPanel(p) : this.renderPanel(p)));
     this.body.append(scroller);
+    this.collapse = collapse;
     this.refresh();
+    if (!collapse) this.fit();
+    if (!this.resizeObs && typeof ResizeObserver !== 'undefined') {
+      let w = 0;
+      this.resizeObs = new ResizeObserver(() => {
+        const nw = this.body.clientWidth;
+        if (Math.abs(nw - w) < 2) return;
+        w = nw;
+        cancelAnimationFrame(this.fitFrame);
+        this.fitFrame = requestAnimationFrame(() => this.renderBody());
+      });
+      this.resizeObs.observe(this.body);
+    }
+  }
+
+  /** Collapse panels from the right, one at a time, until the tab fits. */
+  fit() {
+    const tab = this.tabs.find((t) => t.id === this.active) ?? RIBBON[0];
+    for (let k = 0; k <= tab.panels.length; k++) {
+      if (k) this.renderBody(k);
+      const s = this.body.querySelector('.rb-scroller');
+      if (!s || !s.clientWidth || s.scrollWidth <= s.clientWidth + 1) return;
+    }
+  }
+
+  /** A panel shown as one button that opens its commands in a menu. */
+  collapsedPanel(p) {
+    const first = p.items[0];
+    const d = this.def(this.current(first).cmd);
+    const items = () => {
+      const out = [];
+      for (const it of p.items)
+        for (const v of it.variants || [{ cmd: it.cmd }]) {
+          const vd = this.def(v.cmd);
+          if (vd) out.push({ label: v.label || vd.label, icon: vd.icon, disabled: vd.enabled ? !vd.enabled(this.app) : false, checked: this.app.isCommandActive(v.cmd) || undefined, action: () => this.app.run(v.cmd) });
+        }
+      return out;
+    };
+    const btn = h(
+      'button.rb-lg.rb-collapsed',
+      { type: 'button', 'aria-haspopup': 'menu', 'aria-label': `${p.title} commands`, 'data-tip': p.title, onClick: (e) => showMenu(e.currentTarget, items(), { label: p.title }) },
+      icon(d?.icon || 'more', 28),
+      h('span.rb-lg-label', p.title, icon('chevron-down', 11)),
+    );
+    return h('section.rb-panel.collapsed', { 'aria-label': p.title }, h('div.rb-panel-body', h('div.rb-lg-wrap', btn)), h('div.rb-panel-title', p.title));
   }
 
   renderPanel(p) {
@@ -194,14 +240,18 @@ export class Ribbon {
       const d = this.def(cur.cmd);
       if (!d) return;
       const label = d.label;
-      const main = h('button.rb-lg', { type: 'button', 'aria-label': label, ...commandTip(d, label), onClick: () => this.app.run(cur.cmd) }, icon(d.icon, 28), h('span.rb-lg-label', label));
-      this.buttons.push({ btn: main, cmd: cur.cmd });
       if (!it.variants) {
+        const main = h('button.rb-lg', { type: 'button', 'aria-label': label, ...commandTip(d, label), onClick: () => this.app.run(cur.cmd) }, icon(d.icon, 28), h('span.rb-lg-label', label));
+        this.buttons.push({ btn: main, cmd: cur.cmd });
         wrap.append(main);
         return;
       }
+      // Split: the icon runs the command, the label below opens the variants.
+      const main = h('button.rb-lg', { type: 'button', 'aria-label': label, ...commandTip(d, label), onClick: () => this.app.run(cur.cmd) }, icon(d.icon, 28));
+      const more = h('button.rb-lg-arrow', { type: 'button', 'aria-label': `${label}: more options`, 'aria-haspopup': 'menu', onClick: (e) => this.variantMenu(it, e.currentTarget, render) }, h('span.rb-lg-label', label, icon('chevron-down', 11)));
+      this.buttons.push({ btn: main, cmd: cur.cmd }, { btn: more, cmd: cur.cmd, menu: true });
       wrap.classList.add('split');
-      wrap.append(main, h('button.rb-lg-arrow', { type: 'button', 'aria-label': `${label} options`, 'aria-haspopup': 'menu', onClick: (e) => this.variantMenu(it, e.currentTarget, render) }, icon('chevron-down', 12)));
+      wrap.append(main, more);
     };
     render();
     return wrap;
@@ -217,9 +267,10 @@ export class Ribbon {
 
   /** Update enabled and pressed states. */
   refresh() {
-    for (const { btn, cmd } of this.buttons) {
+    for (const { btn, cmd, menu } of this.buttons) {
       const d = this.def(cmd);
       if (!d) continue;
+      if (menu) continue;
       btn.disabled = d.enabled ? !d.enabled(this.app) : false;
       const pressed = this.app.isCommandActive(cmd);
       if (pressed != null) btn.setAttribute('aria-pressed', String(pressed));

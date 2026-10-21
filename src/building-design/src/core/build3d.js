@@ -403,12 +403,21 @@ function dedupe(loop) {
   return out;
 }
 
-/** Curtain wall grid: equal panels between mullions. */
-export function curtainGrid(axisLength, height, type) {
+/**
+ * Curtain wall grid line positions: `us` along the wall and `vs` up from
+ * its base, both including the two ends. The type spaces panels equally;
+ * a wall's own grid lines (curtainU, curtainV) replace that layout.
+ */
+export function curtainGrid(axisLength, height, type, wall = null) {
   const c = type.curtain || {};
-  const nu = Math.max(1, Math.round(axisLength / (+c.hSpacing || 1500)));
-  const nv = Math.max(1, Math.round(height / (+c.vSpacing || 1200)));
-  return { nu, nv, du: axisLength / nu, dv: height / nv };
+  const lines = (own, total, spacing) => {
+    if (own?.length) return [0, ...[...new Set(own.map((x) => Math.round(+x)))].filter((x) => x > 1 && x < total - 1).sort((a, b) => a - b), total];
+    const n = Math.max(1, Math.round(total / spacing));
+    return Array.from({ length: n + 1 }, (_, i) => (total * i) / n);
+  };
+  const us = lines(wall?.curtainU, axisLength, +c.hSpacing || 1500);
+  const vs = lines(wall?.curtainV, height, +c.vSpacing || 1200);
+  return { us, vs, nu: us.length - 1, nv: vs.length - 1 };
 }
 
 function buildCurtainWall(ctx, w, g, type) {
@@ -422,23 +431,23 @@ function buildCurtainWall(ctx, w, g, type) {
   const glass = materialColor(ctx, 'mat-glass');
   const L = axis.length;
   const H = top - base;
-  const { nu, nv, du, dv } = curtainGrid(L, H, type);
+  const { us, vs, nu, nv } = curtainGrid(L, H, type, w);
   const frame = new Frame(axis.a, Math.atan2(dir[1], dir[0]), base);
   const box = (x0, y0, z0, x1, y1, z1, col) => b.prism([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map((p) => frame.apply(p)), [], base + z0, base + z1, col);
   for (let i = 0; i <= nu; i++) {
-    const u = Math.min(L - mw / 2, Math.max(mw / 2, i * du));
+    const u = Math.min(L - mw / 2, Math.max(mw / 2, us[i]));
     box(u - mw / 2, -md / 2, 0, u + mw / 2, md / 2, H, mul);
   }
   for (let j = 0; j <= nv; j++) {
-    const z = Math.min(H - mw / 2, Math.max(mw / 2, j * dv));
-    for (let i = 0; i < nu; i++) box(i * du + mw / 2, -md / 2 + 10, z - mw / 2, (i + 1) * du - mw / 2, md / 2 - 10, z + mw / 2, mul);
+    const z = Math.min(H - mw / 2, Math.max(mw / 2, vs[j]));
+    for (let i = 0; i < nu; i++) box(us[i] + mw / 2, -md / 2 + 10, z - mw / 2, us[i + 1] - mw / 2, md / 2 - 10, z + mw / 2, mul);
   }
   for (let i = 0; i < nu; i++)
     for (let j = 0; j < nv; j++) {
-      const x0 = i * du + mw / 2;
-      const x1 = (i + 1) * du - mw / 2;
-      const z0 = j * dv + mw / 2;
-      const z1 = (j + 1) * dv - mw / 2;
+      const x0 = us[i] + mw / 2;
+      const x1 = us[i + 1] - mw / 2;
+      const z0 = vs[j] + mw / 2;
+      const z1 = vs[j + 1] - mw / 2;
       if (x1 - x0 < 1 || z1 - z0 < 1) continue;
       const pts = [
         [x0, -6],

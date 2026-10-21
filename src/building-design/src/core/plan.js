@@ -128,6 +128,7 @@ function tint(hex, a) {
 /** Is this element hidden in the view by category or by element? */
 export function hiddenInView(doc, view, el) {
   if (view.hiddenIds?.includes(el.id)) return true;
+  if (el.groupId && view.hiddenIds?.includes(el.groupId)) return true;
   const cat = categoryOf(el, doc);
   return !!(cat && view.hiddenCats?.includes(cat));
 }
@@ -384,14 +385,14 @@ function planCurtain(pc, w, g, type, b, cut) {
   const c = type.curtain || {};
   const mw = +c.mullionWidth || 50;
   const md = +c.mullionDepth || 150;
-  const { nu, du } = curtainGrid(axis.length, top - base, type);
+  const { us } = curtainGrid(axis.length, top - base, type, w);
   const wt = cut ? W.medium : W.thin;
   const P0 = (u, y) => add(add(axis.a, scale(axis.dir, u)), scale(axis.n, y));
   b.line(P0(0, 0), P0(axis.length, 0), W.thin);
   b.line(P0(0, -6), P0(axis.length, -6), W.thin);
   b.line(P0(0, 6), P0(axis.length, 6), W.thin);
-  for (let i = 0; i <= nu; i++) {
-    const u = Math.min(axis.length - mw / 2, Math.max(mw / 2, i * du));
+  for (const gu of us) {
+    const u = Math.min(axis.length - mw / 2, Math.max(mw / 2, gu));
     const r = [P0(u - mw / 2, -md / 2), P0(u + mw / 2, -md / 2), P0(u + mw / 2, md / 2), P0(u - mw / 2, md / 2)];
     if (cut) b.fill(r, [], INK(160));
     b.poly(r, true, wt);

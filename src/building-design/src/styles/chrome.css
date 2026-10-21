@@ -359,18 +359,34 @@ button.rb-panel-title:hover {
 }
 
 .rb-lg-wrap.split .rb-lg {
-  height: 58px;
+  height: 38px;
+  min-width: 100%;
+  justify-content: center;
   border-radius: var(--r-md) var(--r-md) 0 0;
 }
 
 .rb-lg-arrow {
-  height: 14px;
+  height: 32px;
+  min-width: 48px;
+  max-width: 72px;
+  padding: 0 4px 2px;
   border: 1px solid transparent;
   border-radius: 0 0 var(--r-md) var(--r-md);
   background: transparent;
-  color: var(--fg-muted);
+  color: var(--fg);
+  font-size: var(--fs-xs);
+  line-height: 1.15;
+  text-align: center;
   display: grid;
-  place-items: center;
+  place-items: start center;
+}
+
+.rb-collapsed .rb-lg-label .icon,
+.rb-lg-arrow .rb-lg-label .icon {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-left: 1px;
+  color: var(--fg-muted);
 }
 
 .rb-lg:hover,

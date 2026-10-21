@@ -36,10 +36,24 @@ export const RIBBON = [
           { cmd: 'ceiling', size: 'lg' },
           { cmd: 'floor', size: 'lg' },
           { cmd: 'curtainWall', size: 'lg' },
+          { cmd: 'curtainGrid', size: 'lg' },
         ],
       },
       { title: 'Circulation', items: [{ cmd: 'railing', size: 'lg' }, { cmd: 'ramp', size: 'lg' }, { cmd: 'stair', size: 'lg' }] },
-      { title: 'Model', items: [{ cmd: 'modelLine', size: 'lg' }] },
+      {
+        title: 'Model',
+        items: [
+          { cmd: 'modelLine', size: 'lg' },
+          {
+            cmd: 'groupCreate',
+            size: 'lg',
+            variants: [
+              { cmd: 'groupCreate', label: 'Create Group' },
+              { cmd: 'groupPlace', label: 'Place Group' },
+            ],
+          },
+        ],
+      },
       {
         title: 'Room & Area',
         items: [
@@ -171,10 +185,18 @@ export function MODIFY_PANEL() {
   };
 }
 
+/** Shown while a model group is being edited. */
+export const GROUP_EDIT_PANEL = {
+  title: 'Edit Group',
+  items: [{ cmd: 'groupAdd', size: 'lg' }, { cmd: 'groupRemove', size: 'lg' }, { cmd: 'groupFinish', size: 'lg' }, { cmd: 'groupCancel', size: 'lg' }],
+};
+
 /** Panels of the contextual tab for a selection of one category. */
 export function contextualPanels(kinds) {
   const panels = [{ title: 'Properties', items: [{ cmd: 'editType', size: 'lg' }] }, MODIFY_PANEL()];
   const k = kinds.length === 1 ? kinds[0] : null;
+  if (k === 'group') panels.push({ title: 'Group', items: [{ cmd: 'groupEdit', size: 'lg' }, { cmd: 'ungroup', size: 'lg' }, { cmd: 'groupPlace', size: 'lg' }] });
+  else panels.push({ title: 'Create', items: [{ cmd: 'groupCreate', size: 'lg' }] });
   if (k === 'wall') panels.push({ title: 'Wall', items: [{ cmd: 'flip', size: 'lg' }, { cmd: 'attachTop', size: 'lg' }, { cmd: 'detachTop', size: 'lg' }] });
   if (k === 'door' || k === 'window') panels.push({ title: 'Opening', items: [{ cmd: 'flip', size: 'lg' }] });
   if (k === 'floor' || k === 'roof' || k === 'ceiling' || k === 'railing') panels.push({ title: 'Mode', items: [{ cmd: 'editBoundary', size: 'lg' }] });

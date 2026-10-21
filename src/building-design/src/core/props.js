@@ -244,6 +244,13 @@ const INSTANCE = {
     comments,
   ],
   areaBoundary: [ro('scheme', 'Area Scheme', 'Identity Data', (el) => schemeLabel(el.scheme), 'text'), ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b))],
+  group: [
+    ro('level', 'Reference Level', 'Constraints', (el, c) => c.doc.get(el.levelId)?.name ?? '', 'text'),
+    P('rotation', 'Rotation', 'Constraints', 'angle', { ro: () => true }),
+    ro('members', 'Members', 'Identity Data', (el, c) => String(c.doc.filter((x) => x.groupId === el.id).length), 'text'),
+    ro('instances', 'Instances of Group', 'Identity Data', (el, c) => String(c.doc.all('group').filter((g) => g.typeId === el.typeId).length), 'text'),
+    comments,
+  ],
 };
 
 export const LINE_STYLES = ['thin', 'medium', 'wide', 'dashed', 'hidden', 'center'].map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));

@@ -17,7 +17,7 @@ const POLY_FIELDS = ['boundary', 'path'];
  * tags, dimension references, views of deleted levels and their content.
  * Returns the set of deleted ids.
  */
-export function deleteElements(doc, ids) {
+export function deleteElements(doc, ids, { keepEmptyGroups = false } = {}) {
   const gone = new Set();
   const queue = [...ids];
   while (queue.length) {
@@ -27,11 +27,17 @@ export function deleteElements(doc, ids) {
     const el = doc.get(id);
     for (const other of doc.items.values()) {
       if (gone.has(other.id)) continue;
-      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id) queue.push(other.id);
+      if (other.hostId === id || other.targetId === id || other.viewId === id || other.placedId === id || other.groupId === id) queue.push(other.id);
       else if (el.kind === 'level' && (other.levelId === id || (isView(other) && other.levelId === id))) queue.push(other.id);
     }
   }
+  const emptied = new Set([...gone].map((id) => doc.get(id)?.groupId).filter(Boolean));
   for (const id of gone) doc.remove(id);
+  // A group whose last member is gone goes too.
+  if (emptied.size && !keepEmptyGroups) {
+    for (const el of doc.items.values()) if (el.groupId) emptied.delete(el.groupId);
+    for (const g of emptied) doc.remove(g);
+  }
   // Clean up references held by survivors.
   for (const other of [...doc.items.values()]) {
     if (other.kind === 'dimension' && other.refs?.some((r) => gone.has(r.id))) {
@@ -62,7 +68,7 @@ export function transformPatch(el, xf) {
     if (el.dir) patch.dir = norm(sub(xf.point(add(el.line, el.dir)), xf.point(el.line)));
   }
   const deg = ((xf.angle || 0) * 180) / Math.PI;
-  if (el.kind === 'component' || el.kind === 'column' || el.kind === 'text') {
+  if (el.kind === 'component' || el.kind === 'column' || el.kind === 'text' || el.kind === 'group') {
     let r = +el.rotation || 0;
     if (xf.mirror) r = xf.mirrorAngle(r);
     else r += deg;
@@ -102,9 +108,17 @@ export function mirrorAcross(a, b) {
   return { point: (p) => reflect(p, a, b), mirror: true, mirrorAngle: (r) => 2 * axisDeg - r };
 }
 
+/** Ids plus the members of any groups among them. */
+export function expandGroups(doc, ids) {
+  const set = new Set(ids);
+  const groups = new Set([...set].filter((id) => doc.get(id)?.kind === 'group'));
+  if (groups.size) for (const el of doc.items.values()) if (groups.has(el.groupId)) set.add(el.id);
+  return set;
+}
+
 /** Elements that move with their hosts are skipped when their host moves too. */
 function movable(doc, ids) {
-  const set = new Set(ids);
+  const set = expandGroups(doc, ids);
   return [...set].map((id) => doc.get(id)).filter((el) => el && el.id !== 'project' && !(el.hostId && set.has(el.hostId)) && el.kind !== 'level' && !el.pinned);
 }
 
@@ -136,7 +150,7 @@ export function moveElements(doc, ids, d) {
  * along. Returns the ids of the new elements (top-level copies first).
  */
 export function copyElements(doc, ids, xf, { levelId = null } = {}) {
-  const set = new Set(ids);
+  const set = expandGroups(doc, ids);
   const map = new Map();
   const out = [];
   const levelElev = levelId ? doc.get(levelId)?.elevation ?? 0 : 0;
@@ -184,6 +198,11 @@ export function copyElements(doc, ids, xf, { levelId = null } = {}) {
         out.push(c.id);
       }
     }
+  }
+  // Copied members belong to the copied group; members copied alone leave their group.
+  for (const [oldId, newId] of map) {
+    const g = doc.get(oldId)?.groupId;
+    if (g) doc.update(newId, { groupId: map.get(g) ?? doc.addDefaults?.fields?.groupId ?? null });
   }
   return out;
 }

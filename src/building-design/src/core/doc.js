@@ -201,8 +201,13 @@ export class Doc {
 
   // Edits ---------------------------------------------------------------------
 
+  /**
+   * Fields merged into elements added while set (for example the group being
+   * edited). `addDefaults.accept(item)` decides which items get them.
+   */
   add(item) {
-    const it = Object.freeze({ ...item, id: item.id || newId(prefixFor(item.kind)) });
+    const extra = this.addDefaults?.accept(item) ? this.addDefaults.fields : null;
+    const it = Object.freeze({ ...item, ...extra, id: item.id || newId(prefixFor(item.kind)) });
     if (!it.kind) throw new Error('Item needs a kind');
     this._record(it.id);
     this._put(it.id, it);

@@ -4,7 +4,7 @@
  */
 import { buildShell, buildCube } from './ui/shell.js';
 import { Ribbon } from './ui/ribbon.js';
-import { contextualPanels } from './ui/ribbon-def.js';
+import { contextualPanels, GROUP_EDIT_PANEL } from './ui/ribbon-def.js';
 import { PropertiesPanel, pluralLabel } from './ui/properties.js';
 import { ProjectBrowser } from './ui/browser.js';
 import { installTooltips, hideTooltip } from './ui/tooltip.js';
@@ -22,7 +22,8 @@ import { describe as describeEl } from './core/props.js';
 import { formatArea, formatLength, parseLength } from './core/units.js';
 import { temporaryDimensions } from './editor/tempdims.js';
 import { drawTempDim } from './views/overlay.js';
-import { deleteElements, moveElements, uniqueName } from './core/ops.js';
+import { deleteElements, moveElements, uniqueName, expandGroups } from './core/ops.js';
+import { groupable, createGroup, propagateGroup, ungroup } from './core/groups.js';
 import { Viewport } from './views/viewport.js';
 import { PlanController } from './views/plan.js';
 import { ModelController } from './views/model.js';
@@ -147,6 +148,7 @@ export class App {
     this.viewport.r3.origin = [0, 0, 0];
     this.originSet = false;
     upgradeDoc(doc);
+    this.groupEdit = null;
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');
@@ -394,8 +396,16 @@ export class App {
     const t = this.temp.get(this.activeViewId);
     const reveal = this.reveal.has(this.activeViewId);
     clear(b);
-    b.hidden = !t && !reveal;
-    if (t) b.append(h('span', t.mode === 'isolate' ? 'Temporary isolate' : 'Temporary hide'), h('button.btn.sm', { type: 'button', onClick: () => this.temporary('reset') }, 'Reset'));
+    const ge = this.groupEdit;
+    b.hidden = !t && !reveal && !ge;
+    if (ge) {
+      const type = this.doc.get(this.doc.get(ge.groupId)?.typeId);
+      b.append(
+        h('span', `Editing group: ${type?.name || 'Group'}`),
+        h('button.btn.sm.primary', { type: 'button', onClick: () => this.finishGroupEdit(true) }, 'Finish'),
+        h('button.btn.sm', { type: 'button', onClick: () => this.finishGroupEdit(false) }, 'Cancel'),
+      );
+    } else if (t) b.append(h('span', t.mode === 'isolate' ? 'Temporary isolate' : 'Temporary hide'), h('button.btn.sm', { type: 'button', onClick: () => this.temporary('reset') }, 'Reset'));
     else if (reveal) b.append(h('span', 'Revealing hidden elements'), h('button.btn.sm', { type: 'button', onClick: () => this.toggleReveal() }, 'Close'));
   }
 
@@ -526,10 +536,11 @@ export class App {
       return;
     }
     const sel = [...this.selection].map((id) => this.doc.get(id)).filter(Boolean);
-    if (!sel.length) return this.ribbon.setContextual(null);
+    const groupPanel = this.groupEdit ? [GROUP_EDIT_PANEL] : [];
+    if (!sel.length) return this.ribbon.setContextual(this.groupEdit ? { id: 'ctx-groupedit', label: 'Modify | Edit Group', panels: groupPanel } : null);
     const kinds = [...new Set(sel.map((e) => e.kind))];
     const label = kinds.length === 1 ? pluralLabel(kinds[0]) : 'Multi-Select';
-    this.ribbon.setContextual({ id: `ctx-${kinds.length === 1 ? kinds[0] : 'multi'}`, label: `Modify | ${label}`, panels: contextualPanels(kinds) });
+    this.ribbon.setContextual({ id: `ctx-${kinds.length === 1 ? kinds[0] : 'multi'}`, label: `Modify | ${label}`, panels: [...groupPanel, ...contextualPanels(kinds)] });
   }
 
   updateSelInfo() {
@@ -554,6 +565,12 @@ export class App {
     if (this.selection.has(id)) f |= FLAG.selected;
     if (this.hoverId === id) f |= FLAG.hover;
     const view = this.activeView;
+    const gid = this.doc?.get(id)?.groupId;
+    if (gid) {
+      if (this.selection.has(gid)) f |= FLAG.selected;
+      if (this.hoverId === gid) f |= FLAG.hover;
+    }
+    if (this.groupEdit && gid !== this.groupEdit.groupId && groupable(this.doc.get(id))) f |= FLAG.dim;
     if (view) {
       const el = this.doc.get(id);
       const reveal = this.reveal.has(view.id);
@@ -570,6 +587,7 @@ export class App {
 
   hiddenInView(view, el) {
     if (view.hiddenIds?.includes(el.id)) return true;
+    if (el.groupId && view.hiddenIds?.includes(el.groupId)) return true;
     const cat = categoryOf(el, this.doc);
     if (cat && view.hiddenCats?.includes(cat)) return true;
     if (el.hostId) {
@@ -621,6 +639,78 @@ export class App {
 
   selectInstancesOfType(typeId) {
     this.select(this.doc.filter((e) => e.typeId === typeId).map((e) => e.id));
+  }
+
+  // Groups ---------------------------------------------------------------------------------------
+
+  /** What a click on elements selects: a member's group, unless that group is being edited. */
+  pickTargets(ids) {
+    const out = [];
+    for (const id of ids) {
+      const el = this.doc.get(id);
+      let t = id;
+      if (this.groupEdit) {
+        // While a group is edited, only its members (and annotations) can be picked.
+        if (groupable(el) && el.groupId !== this.groupEdit.groupId) continue;
+      } else if (el?.groupId && this.doc.has(el.groupId)) t = el.groupId;
+      if (!out.includes(t)) out.push(t);
+    }
+    return out;
+  }
+
+  async createGroup() {
+    const ids = [...this.selection];
+    if (!ids.length) return this.toast('Select the elements to group first.', { kind: 'error' });
+    const names = this.doc.all('groupType').map((t) => t.name);
+    const name = await promptDialog('Create Model Group', 'Group name', uniqueName(names, `Group ${names.length + 1}`), { okLabel: 'Create', validate: (v) => (!v ? 'Enter a name.' : names.includes(v) ? 'A group with this name exists.' : null) });
+    if (!name) return;
+    let g = null;
+    this.commit('Create group', () => (g = createGroup(this.doc, ids, { name, levelId: this.activeLevelId() })));
+    if (!g) return this.toast('None of the selected elements can be grouped (views, levels, grids and annotations cannot).', { kind: 'error' });
+    this.select([g.id]);
+    this.setPrompt(`Created ${name}. Place more copies with Place Group, and edit them all at once with Edit Group.`);
+  }
+
+  startGroupEdit(groupId) {
+    const g = this.doc.get(groupId || [...this.selection][0]);
+    if (g?.kind !== 'group') return this.toast('Select a model group to edit.', { kind: 'error' });
+    this.cancelTool(true);
+    this.groupEdit = { groupId: g.id, undoDepth: this.doc.undoStack.length };
+    this.doc.addDefaults = { fields: { groupId: g.id }, accept: (it) => groupable(it) && !it.groupId };
+    this.select([]);
+    this.flagsVersion++;
+    this.updateContextual();
+    this.renderBanner();
+    this.requestRender();
+    this.setPrompt('Editing the group: change its members, add or remove elements, then click Finish.');
+  }
+
+  finishGroupEdit(keep = true) {
+    const ge = this.groupEdit;
+    if (!ge) return;
+    this.doc.addDefaults = null;
+    this.groupEdit = null;
+    this.cancelTool(true);
+    if (!keep) {
+      while (this.doc.undoStack.length > ge.undoDepth && this.doc.canUndo) this.doc.undo();
+    } else if (this.doc.has(ge.groupId)) {
+      let n = 0;
+      this.commit('Finish group', () => (n = propagateGroup(this.doc, ge.groupId)));
+      if (n) this.toast(`Updated ${n} other instance${n === 1 ? '' : 's'} of the group.`, { kind: 'success' });
+    }
+    this.select(this.doc.has(ge.groupId) ? [ge.groupId] : []);
+    this.flagsVersion++;
+    this.updateContextual();
+    this.renderBanner();
+    this.requestRender();
+  }
+
+  ungroupSelection() {
+    const groups = [...this.selection].filter((id) => this.doc.get(id)?.kind === 'group');
+    if (!groups.length) return this.toast('Select a model group.', { kind: 'error' });
+    const members = groups.flatMap((g) => this.doc.filter((el) => el.groupId === g).map((el) => el.id));
+    this.commit('Ungroup', () => groups.forEach((g) => ungroup(this.doc, g)));
+    this.select(members);
   }
 
   viewName(v) {
@@ -793,7 +883,7 @@ export class App {
 
   placeType(type, kind) {
     this.setCurrentType(kind, type.id);
-    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', ramp: 'ramp', railing: 'railing', component: 'component' }[kind];
+    const cmd = { wall: 'wall', door: 'door', window: 'window', floor: 'floor', roof: 'roof', ceiling: 'ceiling', column: 'column', beam: 'beam', stair: 'stair', ramp: 'ramp', railing: 'railing', component: 'component', group: 'groupPlace' }[kind];
     if (cmd) this.run(cmd);
   }
 
@@ -807,6 +897,7 @@ export class App {
     const el = this.doc.get(id);
     if (!el) return;
     if (el.kind === 'section' || el.kind === 'elevation') return this.openView(el.id);
+    if (el.kind === 'group') return this.startGroupEdit(el.id);
     if (el.kind === 'floor' || el.kind === 'roof' || el.kind === 'ceiling' || el.kind === 'railing') {
       this.select([id]);
       return this.editBoundary();
@@ -1077,7 +1168,7 @@ export class App {
   // Clipboard ------------------------------------------------------------------------------------
 
   copyToClipboard(cut = false) {
-    const ids = [...this.selection];
+    const ids = [...expandGroups(this.doc, this.selection)];
     const items = ids.map((id) => this.doc.get(id)).filter((el) => el && !isView(el) && el.kind !== 'level' && el.id !== 'project');
     if (!items.length) return;
     // Hosted elements of copied walls come along.
@@ -1117,11 +1208,13 @@ export class App {
       }
       for (const it of cb.items) {
         if (!it.hostId || !map.has(it.hostId)) continue;
-        const { id: _id, ...rest } = it;
-        void _id;
+        const { id, ...rest } = it;
         const n = this.doc.add({ ...rest, hostId: map.get(it.hostId) });
+        map.set(id, n.id);
         ids.push(n.id);
       }
+      // Pasted members belong to the pasted copy of their group.
+      for (const it of cb.items) if (it.groupId && map.has(it.id)) this.doc.update(map.get(it.id), { groupId: map.get(it.groupId) ?? this.doc.addDefaults?.fields?.groupId ?? null });
     });
     this.select(ids);
     this.setPrompt(`Pasted ${ids.length} element${ids.length === 1 ? '' : 's'}. Use Move (MV) to position them.`);

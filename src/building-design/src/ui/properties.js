@@ -11,6 +11,7 @@ import { instanceParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../c
 import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
 import { isView, VIEW_LABEL } from '../core/doc.js';
+import { swapGroupType } from '../core/groups.js';
 
 
 export class PropertiesPanel {
@@ -329,7 +330,8 @@ export class PropertiesPanel {
           checked: current?.id === t.id,
           radio: true,
           action: () => {
-            if (items.length && app.selection.size) app.commit('Change type', () => items.forEach((el) => app.doc.update(el.id, { typeId: t.id })));
+            if (items.length && app.selection.size && kind === 'group') app.commit('Change group type', () => swapGroupType(app.doc, items.map((el) => el.id), t));
+            else if (items.length && app.selection.size) app.commit('Change type', () => items.forEach((el) => app.doc.update(el.id, { typeId: t.id })));
             app.setCurrentType(kind, t.id);
             this.render();
           },

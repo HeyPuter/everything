@@ -39,6 +39,8 @@ import {
   ZoomRegionTool,
 } from './editor/modify.js';
 import { deleteElements } from './core/ops.js';
+import { PlaceGroupTool, GroupMemberTool } from './editor/groups.js';
+import { CurtainGridTool } from './editor/curtain.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
 const hasSel = (app) => app.selection.size > 0;
@@ -95,6 +97,7 @@ export const COMMANDS = {
       app.startTool(WallTool, {});
     },
   },
+  curtainGrid: { label: 'Curtain Grid', icon: 'curtainGrid', run: tool(CurtainGridTool), desc: 'Add or remove grid lines on a curtain wall, in plans, elevations and sections' },
   door: { label: 'Door', icon: 'door', keys: 'DR', run: tool(HostedTool, { kind: 'door' }), desc: 'Place doors in walls' },
   window: { label: 'Window', icon: 'window', keys: 'WN', run: tool(HostedTool, { kind: 'window' }), desc: 'Place windows in walls' },
   shaft: { label: 'Shaft Opening', icon: 'shaft', run: tool(SketchTool, { kind: 'shaft' }), desc: 'Cut an opening through the floor above and the ceiling of this level' },
@@ -110,6 +113,14 @@ export const COMMANDS = {
   areaPlan: { label: 'Area Plan', icon: 'areaPlan', run: (app) => app.areaPlanDialog(), desc: 'Create area plans for gross or rentable areas' },
   areaBoundary: { label: 'Area Boundary', icon: 'areaBoundary', run: tool(LineTool, { kind: 'areaBoundary' }), desc: 'Draw or pick the lines that bound areas' },
   tagRoom: { label: 'Tag Room', icon: 'roomTag', keys: 'RT', run: tool(LabelTool), desc: 'Move the label of a room or area' },
+  groupCreate: { label: 'Create Group', icon: 'group', keys: 'GP', enabled: hasSel, run: (app) => app.createGroup(), desc: 'Make a model group from the selection, to place and edit as one' },
+  groupPlace: { label: 'Place Group', icon: 'groupPlace', run: tool(PlaceGroupTool), desc: 'Place another instance of a model group' },
+  groupEdit: { label: 'Edit Group', icon: 'groupEdit', keys: 'EG', run: (app) => app.startGroupEdit(), desc: 'Edit the members of a group; every instance updates when you finish' },
+  ungroup: { label: 'Ungroup', icon: 'ungroup', keys: 'UG', enabled: hasSel, run: (app) => app.ungroupSelection(), desc: 'Turn a group back into separate elements' },
+  groupAdd: { label: 'Add', icon: 'plus', run: tool(GroupMemberTool), desc: 'Add elements to the group being edited' },
+  groupRemove: { label: 'Remove', icon: 'minus', run: tool(GroupMemberTool, { remove: true }), desc: 'Take members out of the group being edited' },
+  groupFinish: { label: 'Finish', icon: 'finish', run: (app) => app.finishGroupEdit(true), desc: 'Finish editing and update every instance' },
+  groupCancel: { label: 'Cancel', icon: 'cancel', run: (app) => app.finishGroupEdit(false), desc: 'Discard the changes made to the group' },
   openingFace: { label: 'Opening by Face', icon: 'openingFace', run: tool(SketchTool, { kind: 'vopening' }), desc: 'Cut an opening through a floor, roof or ceiling' },
   beam: { label: 'Beam', icon: 'beam', keys: 'BM', run: tool(LineTool, { kind: 'beam' }) },
   floor: { label: 'Floor', icon: 'floor', keys: 'SB', run: tool(SketchTool, { kind: 'floor' }), desc: 'Sketch a floor boundary' },
