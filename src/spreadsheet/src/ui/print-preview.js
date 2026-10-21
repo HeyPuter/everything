@@ -415,16 +415,31 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         const pad = 3 * s;
         const tx = align === 'right' ? cx + cw - pad : align === 'center' ? cx + cw / 2 : cx + pad;
         const ty = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + ch / 2 : cy + ch - pad;
+        // Underlined or struck-through text is drawn so, as it prints: a line under (or through) each line of it.
+        const size = Math.max(2, (st.size || 13) * s);
+        const write = (line, y) => {
+          g.fillText(line, tx, y);
+          const width = (st.underline || st.strike) && (g.measureText?.(line)?.width || 0);
+          if (!width) return;
+          const x = align === 'right' ? tx - width : align === 'center' ? tx - width / 2 : tx;
+          const base = g.textBaseline;
+          g.strokeStyle = g.fillStyle;
+          g.lineWidth = Math.max(0.5, size / 14);
+          g.beginPath();
+          if (st.underline) { const u = base === 'top' ? y + size * 0.95 : base === 'middle' ? y + size * 0.45 : y - size * 0.15; g.moveTo(x, u); g.lineTo(x + width, u); }
+          if (st.strike) { const t = base === 'top' ? y + size * 0.5 : base === 'middle' ? y : y - size * 0.6; g.moveTo(x, t); g.lineTo(x + width, t); }
+          g.stroke();
+        };
         // Wrapped text in the lines it prints in, set at the top, middle or bottom of its cell; unwrapped, on one line.
         const shownText = cellLayoutText(text, st.wrap);
         if (st.wrap) {
-          const lineHeight = Math.max(2, (st.size || 13) * s) * 1.3;
+          const lineHeight = size * 1.3;
           const lines = wrapLines(shownText, Math.max(1, cw - 2 * pad), (t) => g.measureText?.(t)?.width || 0);
           const block = lines.length * lineHeight;
           let y = st.valign === 'top' ? cy + pad : st.valign === 'middle' ? cy + (ch - block) / 2 : cy + ch - pad - block;
           g.textBaseline = 'top';
-          for (const line of lines) { g.fillText(line, tx, y); y += lineHeight; }
-        } else g.fillText(shownText, tx, ty);
+          for (const line of lines) { write(line, y); y += lineHeight; }
+        } else write(shownText, ty);
         g.restore();
       }
       // Each cell's borders on its own edges; inside a merged block, only those on the block's outline.
