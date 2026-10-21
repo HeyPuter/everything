@@ -3387,16 +3387,18 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         toast(wb.structureProtected ? 'Workbook structure protected: sheets cannot be added, moved, renamed or deleted' : 'Workbook structure unprotected', { icon: 'lock', duration: 2600 });
         notify(); keepFocus();
         return;
-      case 'wordArtMenu': if (refusedByProtection('insert WordArt')) return; openWordArtMenu(ctx, arg instanceof HTMLElement ? arg : null); return;
-      case 'insertEquation': if (refusedByProtection('insert an equation')) return; runInsertEquation(ctx, arg); return;
+      // The entry goes in first for these, as for the other inserts: a formula showing another sheet to pick references
+      // on had that sheet asked whether it was protected, and given the equation or text box.
+      case 'wordArtMenu': if (!committed() || refusedByProtection('insert WordArt')) return; openWordArtMenu(ctx, arg instanceof HTMLElement ? arg : null); return;
+      case 'insertEquation': if (!committed() || refusedByProtection('insert an equation')) return; runInsertEquation(ctx, arg); return;
       case 'themesMenu': case 'themeColorsMenu': case 'themeFontsMenu': case 'themeEffectsMenu': {
         const open = { themesMenu: openThemesMenu, themeColorsMenu: openThemeColorsMenu, themeFontsMenu: openThemeFontsMenu, themeEffectsMenu: openThemeEffectsMenu }[cmd];
         open(ctx, arg instanceof HTMLElement ? arg : null);
         return;
       }
       case 'drawTool': case 'drawPenMenu': case 'drawAddPen': case 'drawInkToShape': case 'drawTouch': ink.command(cmd, arg); return;
-      case 'shapesMenu': if (refusedByProtection('insert a shape')) return; openShapesMenu(arg instanceof HTMLElement ? arg : null, run); return;
-      case 'iconsDialog': if (refusedByProtection('insert icons')) return; openIconsDialog(ctx); return;
+      case 'shapesMenu': if (!committed() || refusedByProtection('insert a shape')) return; openShapesMenu(arg instanceof HTMLElement ? arg : null, run); return;
+      case 'iconsDialog': if (!committed() || refusedByProtection('insert icons')) return; openIconsDialog(ctx); return;
       case 'insertShape': case 'insertIcons': {
         // Shapes and icons go on the sheet as pictures at the active cell, each beside the last, the newest selected.
         if (!committed() || refusedByProtection('insert a picture')) return;
@@ -3414,7 +3416,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'symbolDialog':
-        if (refusedByProtection('insert a symbol')) return;
+        // Mid-entry the symbol goes in at the caret, on the entry's own sheet, whatever sheet is showing.
+        if (!grid.editing && refusedByProtection('insert a symbol')) return;
         openSymbolDialog(ctx);
         return;
       case 'insertSymbol': {
@@ -3842,7 +3845,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         else if (chart && chart.type !== 'image') openChartDialog(ctx, { chart });
         return;
       }
-      case 'insertTextBox': openTextBoxDialog(ctx); return;
+      case 'insertTextBox': if (!committed()) return; openTextBoxDialog(ctx); return;
       case 'deleteChart': {
         const id = arg || grid.selectedChart;
         if (!id) return;
@@ -4026,8 +4029,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       // A protected sheet is said before the dialog opens, not when it is submitted.
-      case 'note': if (refusedByProtection('add a note')) return; if (ctx.comments?.hasThread()) { run('replyComment'); return; } openNoteDialog(); return;
-      case 'link': if (refusedByProtection('add a link')) return; openLinkDialog(); return;
+      case 'note': if (!committed() || refusedByProtection('add a note')) return; if (ctx.comments?.hasThread()) { run('replyComment'); return; } openNoteDialog(); return;
+      case 'link': if (!committed() || refusedByProtection('add a link')) return; openLinkDialog(); return;
       case 'unlink':
         // The link of the cell the entry goes into, as Link… commits and edits that cell's; a formula shown
         // on another sheet would otherwise unlink that sheet's active cell.
