@@ -452,6 +452,38 @@ test("playing a recording back keeps one copy of it, let go on closing", async (
   expect(await live()).toBe(before);
 });
 
+test("media playing on the canvas stops when the slide show starts", async ({
+  page,
+}) => {
+  // Every media element asked to play, kept after it leaves the page.
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    window.played = [];
+    HTMLMediaElement.prototype.play = function () {
+      window.played.push(this);
+      return play.call(this);
+    };
+  });
+  const sounding = () =>
+    page.evaluate(() => window.played.filter((m) => !m.paused).length);
+  await start(page);
+  await choose(
+    page,
+    async () => {
+      await commandMenu(page, "audio", "Audio sources");
+      await page.getByRole("menuitem", { name: "Audio from File…" }).click();
+    },
+    { name: "tone.wav", mimeType: "audio/wav", buffer: wav(5) },
+  );
+  await tab(page, "Playback");
+  await command(page, "playback-play");
+  await expect.poll(sounding).toBe(1);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(page.locator(".presenter-counter")).toHaveText("1 / 1");
+  // The show's own copy waits for its click.
+  expect(await sounding()).toBe(0);
+});
+
 test("header and footer apply to every slide", async ({ page }) => {
   await start(page);
   await command(page, "insert-new-slide");

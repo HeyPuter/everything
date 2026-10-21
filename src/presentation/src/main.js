@@ -16228,6 +16228,8 @@ async function present(options = {}) {
   }
   const releaseFonts = retainDocumentFonts(pres);
   document.body.append(d);
+  // Media playing on the editing canvas stops: the show plays its own.
+  insertFeatures.leaveSlide();
   try {
     show(n);
     d.showModal();
