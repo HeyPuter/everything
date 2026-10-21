@@ -821,10 +821,8 @@ test('the Signatures panel leaves out the revision of a signature it cannot plac
   await expect(panel.locator('dd')).not.toContainText(['null']);
 });
 
-test('declining to edit a signed PDF does not report that it has no watermarks', async ({
-  page,
-}) => {
-  await openPdf(page, await numberedPdf(1));
+/** Sign the open PDF with a new digital ID; the tools pane is left on the certificate tool. */
+async function signWithNewId(page) {
   await page.getByRole('button', { name: 'Tools', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Tools' });
   await pane.getByRole('button', { name: 'View more' }).click();
@@ -843,6 +841,14 @@ test('declining to edit a signed PDF does not report that it has no watermarks',
     .click();
   await settled(page);
   await expect(page.locator('.signature-bar')).toContainText('Signed');
+  return pane;
+}
+
+test('declining to edit a signed PDF does not report that it has no watermarks', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  const pane = await signWithNewId(page);
   await pane.getByRole('button', { name: 'Back to all tools' }).click();
   await pane.getByRole('button', { name: 'Edit a PDF', exact: true }).click();
   await page.locator('#toast').evaluate((node) => (node.textContent = ''));
@@ -852,6 +858,22 @@ test('declining to edit a signed PDF does not report that it has no watermarks',
   await settled(page);
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
   await expect(page.locator('#toast')).not.toContainText('no watermarks');
+});
+
+test('declining to edit a signed PDF does not report that its page is not cropped', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(1));
+  await signWithNewId(page);
+  await page.locator('#toast').evaluate((node) => (node.textContent = ''));
+  const bar = page.getByRole('menubar', { name: 'PDF menus' });
+  await bar.getByRole('menuitem', { name: 'Page', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Remove crop', exact: true }).click();
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await settled(page);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 300)));
+  await expect(page.locator('#toast')).not.toContainText('not cropped');
 });
 
 test('Find text and redact removes the matched words from the saved file', async ({ page }) => {

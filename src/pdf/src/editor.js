@@ -7752,12 +7752,13 @@ export function createEditor({
         icon: 'Expand',
         disabled: busy,
         onSelect: pageAction(async () => {
-          let changed = false;
+          // Stays null when the edit was declined (a signed PDF asks first).
+          let changed = null;
           await mutate(
             (doc) => (changed = resetCrop(doc, [index])),
             'The full page is shown again.',
           );
-          if (!changed) toast('This page is not cropped.');
+          if (changed === false && !destroyed) toast('This page is not cropped.');
         }),
       },
       { separator: true },
