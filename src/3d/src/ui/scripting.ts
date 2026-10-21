@@ -1,5 +1,5 @@
 // Scripting access to the window manager: `bpy.context.workspace` (name, object_mode,
-// use_pin_scene), live on the active workspace tab.
+// use_pin_scene, use_filter_by_owner), live on the active workspace tab.
 import { app, onAppReady } from '../app/app';
 import { Context } from '../scripting/api';
 import { mixin, pyError } from '../scripting/rna';
@@ -32,6 +32,13 @@ export class WorkspaceWrapper {
   }
   set use_pin_scene(v: boolean) {
     if (!!v !== !!this.ws.pinScene) app.run('workspace.scene_pin_toggle', { name: this.ws.name });
+  }
+  get use_filter_by_owner() {
+    return !!this.ws.use_filter_by_owner;
+  }
+  set use_filter_by_owner(v: boolean) {
+    this.ws.use_filter_by_owner = !!v;
+    app.changed('ui');
   }
 }
 
