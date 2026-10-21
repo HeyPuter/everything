@@ -45,7 +45,8 @@ export function createPlayerView(ctx) {
     role: 'group',
     'aria-label': 'Video preview. Click a clip to select it. Arrow keys move the selected clip.',
     'aria-roledescription': 'preview',
-    'data-own-arrows': '',
+    // No data-own-arrows: arrows nudge a selected clip (the keydown handler below
+    // stops them), and otherwise step frames as anywhere else.
     'data-space-plays': '',
   }, frame, decor, overlay, guidesHost, rulerTop, rulerLeft, rulerCorner, zoomBadge);
   const unsupported = player.supported ? null : h('div.player-unsupported', icon('alert', 24), h('p', 'Preview needs WebGL2, which this browser does not provide.'));
