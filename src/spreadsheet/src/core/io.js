@@ -4,7 +4,8 @@ import { createExternalFormulaLinks } from './external-formula-links.js';
 import { savedExternalResult, externalFormulaHasCaches, externalFormulaHasLinks, rebaseExternalWorkbooks } from './external-workbooks.js';
 import { readXlsxExternalWorkbooks } from './xlsx-external-workbooks.js';
 import { bindNativePivotRules } from './native-pivot-rule-bindings.js';
-import { decodeXlsxString } from './xlsx-string.js';
+import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
+import { xmlText } from './xlsx-export-styles.js';
 import { readNativeSparklineGroups } from './xlsx-sparklines.js';
 import { importXlsxSlicers } from './xlsx-import-slicers.js';
 import { importNativePivotSlicerCaches } from './native-pivot-slicer-storage.js';
@@ -37,7 +38,7 @@ import { legacyCommentText } from './comments.js';
 import { Workbook, DEFAULT_COL_WIDTH, DEFAULT_ROW_HEIGHT, MAX_STORED_COL_WIDTH, MAX_STORED_ROW_HEIGHT, safeSheetName, MAX_ROWS, MAX_COLS } from './workbook.js';
 import { cellKey, cellName, parseKey, MAX_TEXT, parseCellRef, parseRange } from './cell.js';
 import { styleToNumFmt, numFmtToStyle, formatValue, dateTimeKind, fontKeyFor, ymdToSerial, NUMBER_FORMAT_KEYS, HORIZONTAL_ALIGNS } from './format.js';
-import { readXlsxStyles, xlsxAlignment, xlsxColumnPixels, xlsxColor, xlsxAttr, xlsxLayoutDigitWidth, xlsxWidthFromPixels } from './xlsx-styles.js';
+import { readXlsxStyles, xlsxAlignment, xlsxColumnPixels, xlsxColor, xlsxAttr, xlsxText, xlsxLayoutDigitWidth, xlsxWidthFromPixels } from './xlsx-styles.js';
 import { importXlsxScrollControls } from './xlsx-scroll-controls.js';
 import { readXlsxCharts } from './xlsx-charts.js';
 import { reconcileDrawings } from './xlsx-drawing-reconcile.js';
@@ -838,7 +839,9 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, histo
       // Native prefixes and spill syntax decode without metadata. Only table
       // conversion and unsupported ODS name scopes need the original expression saved.
       if (dynamicRef !== n.ref) structuredNames.push({ name: n.name, ref: n.ref, fileRef: ref, ...(n.sheet ? { sheet: n.sheet } : {}) });
-      return { Name: n.name, Ref: ref, ...(n.hidden ? { Hidden: true } : {}), ...(n.sheet ? { Sheet: wb.sheets.findIndex((s) => s.name === n.sheet) } : {}) };
+      // The writer copies a comment into its attribute as it is given: escape it here.
+      return { Name: n.name, Ref: ref, ...(n.hidden ? { Hidden: true } : {}), ...(n.sheet ? { Sheet: wb.sheets.findIndex((s) => s.name === n.sheet) } : {}),
+        ...(n.comment && !ods ? { Comment: xmlText(encodeXlsxAttribute(n.comment)) } : {}) };
     });
   }
   for (const [i, sheet] of wb.sheets.entries()) {
@@ -2641,7 +2644,9 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
         return parsed;
       });
       else relative = relativeNames.get(nameKey(n.Name, scope)) === formula;
-      return { name: n.Name, ref: formula, ...(n.Hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(relative ? { relative: true } : {}) };
+      // The reader leaves a name's comment as the attribute spells it.
+      const comment = typeof n.Comment === 'string' ? decodeXlsxString(xlsxText(n.Comment)) : '';
+      return { name: n.Name, ref: formula, ...(n.Hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(relative ? { relative: true } : {}), ...(comment ? { comment } : {}) };
     });
   const externalLinks = createExternalFormulaLinks(names, externalWorkbooks);
   const sheets = book.SheetNames

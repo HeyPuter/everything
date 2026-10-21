@@ -1301,7 +1301,7 @@ export class Workbook extends EventTarget {
       // through editing APIs without silently discarding stored definitions.
       const scope = n?.sheet == null ? null : this.sheetByName(n.sheet)?.name;
       if (n?.sheet != null && !scope) continue;
-      if (n?.name && n?.ref && !this.validateName(n.name, null, { allowTableName: true, sheet: scope })) this.names.push({ name: n.name, ref: String(n.ref), ...(n.hidden === true ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(n.relative === true ? { relative: true } : {}) });
+      if (n?.name && n?.ref && !this.validateName(n.name, null, { allowTableName: true, sheet: scope })) this.names.push({ name: n.name, ref: String(n.ref), ...(n.hidden === true ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(n.relative === true ? { relative: true } : {}), ...(typeof n.comment === 'string' && n.comment ? { comment: n.comment } : {}) });
     }
   }
 
@@ -11141,7 +11141,7 @@ export class Workbook extends EventTarget {
     if (existing && existing.ref === text && existing.name === t) return null; // saved as it was: nothing to undo
     const next = this.names.filter((n) => n !== existing);
     // The spelling as now typed: formulas find the name whatever its case, so a change of case needs no rewrite.
-    next.push({ name: t, ref: text, ...(existing?.hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(existing?.relative ? { relative: true } : {}) });
+    next.push({ name: t, ref: text, ...(existing?.hidden ? { hidden: true } : {}), ...(scope ? { sheet: scope } : {}), ...(existing?.relative ? { relative: true } : {}), ...(existing?.comment ? { comment: existing.comment } : {}) });
     next.sort((a, b) => a.name.localeCompare(b.name));
     this._setNames(next, 'Define name');
     return null;
@@ -11215,7 +11215,7 @@ export class Workbook extends EventTarget {
         if (charts.some((chart, i) => chart !== owner.charts[i])) this._setCharts(owner, charts, label);
       }
       const next = this.names.filter((n) => (n.sheet || null) !== scope || n.name.toLowerCase() !== key);
-      next.push({ name: to, ref: text, ...(scope ? { sheet: scope } : {}), ...(existing.relative ? { relative: true } : {}) });
+      next.push({ name: to, ref: text, ...(scope ? { sheet: scope } : {}), ...(existing.relative ? { relative: true } : {}), ...(existing.comment ? { comment: existing.comment } : {}) });
       next.sort((a, b) => a.name.localeCompare(b.name));
       this._setNames(next, label);
     });
