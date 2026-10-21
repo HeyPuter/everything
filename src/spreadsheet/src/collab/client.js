@@ -300,8 +300,9 @@ export class RoomClient extends EventTarget {
   }
 
   /**
-   * Write a checkpoint now; with `file`, the .xlsx goes with it, for the worker to write over the owner's file. The owner
-   * passes `at`, the file as it is now ({ path, uid }), which the worker writes from then on (it may have been renamed or moved).
+   * Write a checkpoint now; with `file`, the .xlsx goes with it, for the worker to write over the owner's file (and comes
+   * back as `blob`). The owner passes `at`, the file as it is now ({ path, uid }), which the worker writes from then on (it
+   * may have been renamed or moved).
    */
   async checkpoint({ file = false, at = null } = {}) {
     if (!this.canEdit || this.replica.pending.length) return { ok: false };
@@ -309,9 +310,10 @@ export class RoomClient extends EventTarget {
     try {
       const rev = this.replica.rev;
       const state = await packState(this.replica.checkpoint());
-      let xlsx;
+      let xlsx, blob;
       if (file && this.o.toXlsx) {
-        const bytes = new Uint8Array(await (await this.o.toXlsx(this.wb)).arrayBuffer());
+        blob = await this.o.toXlsx(this.wb);
+        const bytes = new Uint8Array(await blob.arrayBuffer());
         let text = '';
         for (let n = 0; n < bytes.length; n += 8192) text += String.fromCharCode(...bytes.subarray(n, n + 8192));
         xlsx = btoa(text);
@@ -319,7 +321,7 @@ export class RoomClient extends EventTarget {
       const res = await this.request({ op: 'checkpoint', rev, state, ...(xlsx ? { xlsx } : {}), ...(xlsx && at?.path ? { file: { path: at.path, uid: at.uid ?? null } } : {}) });
       this.lastCheckpoint = Math.max(this.lastCheckpoint, rev);
       this.lastCheckpointAt = Date.now();
-      return res;
+      return blob ? { ...res, blob } : res;
     } finally {
       this.checkpointing = false;
     }

@@ -1002,8 +1002,14 @@ export class Doc extends EventTarget {
     try {
       // The owner's browser tells the room where the file is now, so that it writes there, not where the file was when sharing started.
       const res = await client.checkpoint({ file: true, ...(this.isOwner && this.path && this.isXlsxPath ? { at: this.file } : {}) });
-      // The worker writes the owner's file when Puter lets it; the owner's own browser can always.
-      if (this.isOwner && this.path && this.isXlsxPath && !res?.wrote) await P.writeFile(this.path, await workbookToXlsx(this.wb), { overwrite: true });
+      if (this.isOwner && this.path && this.isXlsxPath) {
+        const blob = res?.blob ?? await workbookToXlsx(this.wb);
+        // The worker writes the owner's file when Puter lets it; the owner's own browser can always.
+        if (!res?.wrote) await P.writeFile(this.path, blob, { overwrite: true });
+        // The file's history keeps its snapshots as for any file's save, in the background (a rename waits for it).
+        const versioning = this._autoVersion(blob).catch(() => {}).finally(() => { if (this._versioning === versioning) this._versioning = null; });
+        this._versioning = versioning;
+      }
       this.lastSaved = Date.now();
       this.wb.markClean();
       this._setStatus('saved');
