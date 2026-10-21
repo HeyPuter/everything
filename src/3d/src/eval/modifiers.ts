@@ -1120,6 +1120,7 @@ function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   if (!w) return m;
   const thr = num(mod, 'threshold', 0),
     invert = bool(mod, 'invert_vertex_group');
+  if (bool(mod, 'use_smooth') && str(mod, 'mode', 'VERTEX_GROUP') === 'VERTEX_GROUP') return maskSmooth(m, w, thr, invert);
   const keep = (v: number) => (w![v] > thr) !== invert;
   const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
   const P = m.positions,
@@ -1131,6 +1132,59 @@ function maskMesh(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
     let ok = true;
     for (let c = s; c < e; c++) if (map[m.indices[c]] < 0) ok = false;
     if (ok) b.addFace(Array.from(m.indices.subarray(s, e), (v) => map[v]), Array.from(m.uvs.subarray(s * 2, e * 2)), m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
+  }
+  return b.build({ vertex_groups: m.vertex_groups });
+}
+
+/** Mask with Smooth: faces are cut along the line where the weight crosses the threshold. */
+function maskSmooth(m: EvalMesh, w: Float32Array, thr: number, invert: boolean): EvalMesh {
+  const side = (v: number) => (invert ? thr - w[v] : w[v] - thr);
+  const P = m.positions,
+    nv = P.length / 3;
+  const b = new MeshBuilder(m.weights?.length ?? 0, !!m.colors);
+  const map = new Int32Array(nv).fill(-1);
+  for (let v = 0; v < nv; v++) if (side(v) >= 0) map[v] = b.addVert(P[v * 3], P[v * 3 + 1], P[v * 3 + 2], m.origIndex?.[v] ?? v, weightsOf(m, v));
+  const cuts = new Map<string, number>();
+  const cut = (a: number, c: number) => {
+    const k = a < c ? `${a}:${c}` : `${c}:${a}`;
+    let id = cuts.get(k);
+    if (id === undefined) {
+      const t = side(a) / (side(a) - side(c));
+      const wa = weightsOf(m, a),
+        wc = weightsOf(m, c);
+      id = b.addVert(
+        P[a * 3] + (P[c * 3] - P[a * 3]) * t,
+        P[a * 3 + 1] + (P[c * 3 + 1] - P[a * 3 + 1]) * t,
+        P[a * 3 + 2] + (P[c * 3 + 2] - P[a * 3 + 2]) * t,
+        -1,
+        wa && wc ? wa.map((x, i) => x + (wc[i] - x) * t) : undefined,
+      );
+      cuts.set(k, id);
+    }
+    return id;
+  };
+  for (let f = 0; f + 1 < m.offsets.length; f++) {
+    const s0 = m.offsets[f],
+      e0 = m.offsets[f + 1];
+    const verts: number[] = [],
+      uvs: number[] = [];
+    for (let c = s0; c < e0; c++) {
+      const d = c + 1 < e0 ? c + 1 : s0;
+      const a = m.indices[c],
+        n = m.indices[d];
+      const sa = side(a),
+        sn = side(n);
+      if (sa >= 0) {
+        verts.push(map[a]);
+        uvs.push(m.uvs[c * 2], m.uvs[c * 2 + 1]);
+      }
+      if ((sa > 0 && sn < 0) || (sa < 0 && sn > 0)) {
+        const t = sa / (sa - sn);
+        verts.push(cut(a, n));
+        uvs.push(m.uvs[c * 2] + (m.uvs[d * 2] - m.uvs[c * 2]) * t, m.uvs[c * 2 + 1] + (m.uvs[d * 2 + 1] - m.uvs[c * 2 + 1]) * t);
+      }
+    }
+    if (verts.length >= 3) b.addFace(verts, uvs, m.smooth?.[f] ?? 0, m.material_index?.[f] ?? 0);
   }
   return b.build({ vertex_groups: m.vertex_groups });
 }
@@ -2262,7 +2316,7 @@ export const modifierTypes: Record<string, ModifierType> = {
   },
   BUILD: { type: 'BUILD', label: 'Build', category: 'GENERATE', icon: 'mod_build', defaults: base({ frame_start: 1, frame_duration: 100, use_random_order: false, seed: 0, use_reverse: false }), timeDependent: () => true, apply: build },
   EDGE_SPLIT: { type: 'EDGE_SPLIT', label: 'Edge Split', category: 'GENERATE', icon: 'mod_edgesplit', defaults: base({ use_edge_angle: true, split_angle: (30 * Math.PI) / 180, use_edge_sharp: true }), apply: edgeSplit },
-  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', armature: null, vertex_group: '', invert_vertex_group: false, threshold: 0 }), deps: (m) => [m.armature as string], signature: (m, c) => {
+  MASK: { type: 'MASK', label: 'Mask', category: 'GENERATE', icon: 'mod_mask', defaults: base({ mode: 'VERTEX_GROUP', armature: null, vertex_group: '', invert_vertex_group: false, threshold: 0, use_smooth: false }), deps: (m) => [m.armature as string], signature: (m, c) => {
     const arm = typeof m.armature === 'string' ? c.doc.objects[m.armature] : undefined;
     const ad = arm?.data ? c.doc.armatures[arm.data] : undefined;
     return m.mode === 'ARMATURE' && ad ? ad.bones.filter((b) => b.select).map((b) => b.name).join(',') : '';

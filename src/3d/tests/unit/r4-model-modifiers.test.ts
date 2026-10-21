@@ -134,3 +134,19 @@ describe('Screw: Calculate Order (recorded orientations)', () => {
     [[0, 1, 2, 1, 2, 3], true, true, -24],
   ] as [number[], boolean, boolean, number][])('edges %j calc %s flip %s', (E, calc, flip, want) => expect(outward(E, calc, flip)).toBe(want));
 });
+
+describe('Mask: Smooth cuts along the threshold (recorded)', () => {
+  const src = buildMesh([0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 1, 0, 1, 1, 0, 2, 1, 0], [{ verts: [0, 1, 4, 3] }, { verts: [1, 2, 5, 4] }]);
+  const mesh = { ...src, vertex_groups: [{ name: 'G' }], weights: [Float32Array.from([1, 0.6, 0, 1, 0.2, 0])] } as unknown as EvalMesh;
+  const key = (x: number, y: number) => `${x.toFixed(3)},${y.toFixed(3)}`;
+  it.each([
+    [false, ['0.000,0.000', '1.000,0.000', '0.000,1.000', '1.000,0.500', '0.750,1.000', '1.333,0.000'], [5, 3]],
+    [true, ['2.000,0.000', '1.000,1.000', '2.000,1.000', '1.000,0.500', '0.750,1.000', '1.333,0.000'], [3, 5]],
+  ] as [boolean, string[], number[]][])('invert %s', (inv, verts, sizes) => {
+    const t = modifierTypes.MASK;
+    const out = t.apply(mesh, { ...t.defaults(), vertex_group: 'G', threshold: 0.4, use_smooth: true, invert_vertex_group: inv } as never, {} as ModifierContext);
+    const ours = Array.from({ length: out.positions.length / 3 }, (_, i) => key(out.positions[i * 3], out.positions[i * 3 + 1]));
+    expect(ours.sort()).toEqual([...verts].sort());
+    expect(Array.from({ length: out.offsets.length - 1 }, (_, f) => out.offsets[f + 1] - out.offsets[f])).toEqual(sizes);
+  });
+});

@@ -33,7 +33,7 @@ export const modifierFields: Record<string, Field[]> = {
   ],
   BUILD: [['frame_start', 'Start', 'num'], ['frame_duration', 'Length', 'num'], ['use_reverse', 'Reversed', 'bool'], ['use_random_order', 'Randomize', 'bool'], ['seed', 'Seed', 'int']],
   EDGE_SPLIT: [['use_edge_angle', 'Edge Angle', 'bool'], ['split_angle', 'Angle', 'angle'], ['use_edge_sharp', 'Sharp Edges', 'bool']],
-  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor']],
+  MASK: [['mode', 'Mode', 'enum', [['VERTEX_GROUP', 'Vertex Group'], ['ARMATURE', 'Armature']]], ['armature', 'Armature', 'object', 'ARMATURE'], ['vertex_group', 'Vertex Group', 'vgroup'], ['threshold', 'Threshold', 'factor'], ['use_smooth', 'Smooth', 'bool']],
   MIRROR: [
     ['use_axis', 'Axis', 'axes'],
     ['use_bisect_axis', 'Bisect', 'axes'],
