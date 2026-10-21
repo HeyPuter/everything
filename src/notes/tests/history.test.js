@@ -31,6 +31,36 @@ describe('History', () => {
     expect(h.stack.length).toBe(3);
   });
 
+  it('drops the oldest entries when the snapshots grow too large', () => {
+    const h = new History(200, { budget: 100, keep: 3 });
+    h.reset('a'.repeat(30));
+    for (const c of 'bcdefg') h.push(c.repeat(30));
+    // 7 x 30 characters is over the budget: only the newest that fit stay.
+    expect(h.stack.map((e) => e.snapshot[0]).join('')).toBe('efg');
+    expect(h.index).toBe(2);
+    expect(h.undo().snapshot[0]).toBe('f');
+    // A single huge page still keeps the minimum number of steps.
+    const big = new History(200, { budget: 10, keep: 3 });
+    big.reset('x'.repeat(50));
+    for (const c of 'yzw') big.push(c.repeat(50));
+    expect(big.stack).toHaveLength(3);
+  });
+
+  it('applies the size budget to page snapshots, counting shared ink once', () => {
+    const page = { title: 'T', outlines: [{ id: 'o', html: 'x'.repeat(40) }], ink: [{ id: 'i', type: 'stroke', points: Array.from({ length: 50 }, (_, k) => [k, k, 0.5]) }] };
+    const ink = JSON.stringify(page.ink).length;
+    const doc = snapshotOf(page).doc.length;
+    // Room for the ink once plus four page texts, not for the ink per entry.
+    const h = new History(200, { budget: ink + doc * 4 + 2, keep: 2 });
+    h.reset(snapshotOf(page));
+    for (const c of 'abcdef') {
+      page.outlines[0].html = c.repeat(40);
+      h.push(snapshotOf(page));
+    }
+    expect(h.stack).toHaveLength(4);
+    expect(JSON.parse(h.stack[0].snapshot.doc).outlines[0].html[0]).toBe('c');
+  });
+
   it('snapshots only the editable page state', () => {
     const page = { id: 'p', title: 'T', created: 'c', outlines: [{ id: 'o', html: 'x' }], ink: [], color: null, rules: 'college', ruleColor: null };
     const snap = snapshotOf(page);
