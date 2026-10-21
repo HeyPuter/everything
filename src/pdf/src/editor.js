@@ -10227,6 +10227,13 @@ export function createEditor({
     }
     if (!destroyed && accessibilityChecked) await runAccessibilityCheck();
   }
+  /** Resolves once `dialog` has closed and the edit it saved, if any, is in place. */
+  const dialogFinished = (dialog, saving) =>
+    new Promise((resolve) =>
+      dialog.addEventListener('close', () => resolve(saving()?.catch(() => {})), {
+        once: true,
+      }),
+    );
   /** Alternate text for every figure the tags list. */
   async function altTextDialog() {
     const { listFigures, setFigureAltText } = await import('./core/accessibility.js');
@@ -10251,12 +10258,14 @@ export function createEditor({
         .map((figure, i) => [figure.ref, inputs[i].value.trim(), figure.alt || ''])
         .filter(([, value, before]) => value !== before);
       if (!changes.length) return d.close();
-      await mutateDialog(
+      saving = mutateDialog(
         d,
         (doc) => changes.forEach(([ref, value]) => setFigureAltText(doc, ref, value)),
         `Alternate text set for ${changes.length} ${changes.length === 1 ? 'figure' : 'figures'}.`,
       );
+      await saving;
     });
+    let saving = null;
     const d = modal(
       'Alternate text',
       el(
@@ -10268,6 +10277,7 @@ export function createEditor({
       ),
       [button('Cancel', null, () => d.close()), button('Save', null, save, 'btn primary')],
     );
+    return dialogFinished(d, () => saving);
   }
   /** Tooltips that name each form field for screen reader users. */
   async function fieldDescriptionsDialog() {
@@ -10287,8 +10297,14 @@ export function createEditor({
           .map(([fieldName, value]) => [fieldName, value]),
       );
       if (!Object.keys(descriptions).length) return d.close();
-      await mutateDialog(d, (doc) => setFieldDescriptions(doc, descriptions), 'Fields described.');
+      saving = mutateDialog(
+        d,
+        (doc) => setFieldDescriptions(doc, descriptions),
+        'Fields described.',
+      );
+      await saving;
     });
+    let saving = null;
     const d = modal(
       'Field descriptions',
       el(
@@ -10298,6 +10314,7 @@ export function createEditor({
       ),
       [button('Cancel', null, () => d.close()), button('Save', null, save, 'btn primary')],
     );
+    return dialogFinished(d, () => saving);
   }
   /* ---------- PDF standards ---------- */
   function showStandardsBar() {
