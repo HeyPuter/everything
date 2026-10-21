@@ -300,7 +300,7 @@ export function objectMenu(): MenuItem[] {
     { label: 'Clean Up', submenu: cleanUpMenu },
     { separator: true },
     { label: 'Delete', op: 'object.delete', props: { use_global: false }, shortcut: 'X' },
-    { label: 'Delete Globally', op: 'object.delete', props: { use_global: true }, shortcut: 'Shift X' },
+    { label: 'Delete Global', op: 'object.delete', props: { use_global: true }, shortcut: 'Shift X' },
   ];
 }
 

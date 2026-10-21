@@ -148,7 +148,7 @@ export function selectMenu(): MenuItem[] {
     { label: 'Select Mirror', op: 'object.select_mirror', shortcut: 'Shift Ctrl M' },
     { label: 'Select Random', op: 'object.select_random' },
     { separator: true },
-    { label: 'Select More/Less', submenu: selectMoreLessMenu },
+    { label: 'More/Less', submenu: selectMoreLessMenu },
     { separator: true },
     { label: 'Select All by Type', submenu: selectByTypeMenu },
     { label: 'Select Grouped', submenu: selectGroupedMenu, shortcut: 'Shift G' },
