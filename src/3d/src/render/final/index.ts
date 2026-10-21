@@ -17,6 +17,7 @@ import './props/viewlayer';
 import './props/presets';
 import './renderops';
 import './script';
+import './lightcolor';
 import '../realtime';
 
 export { renderResult } from './result';

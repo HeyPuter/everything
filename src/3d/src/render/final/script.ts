@@ -9,6 +9,7 @@ import { ptSettings } from './ptsettings';
 import { ensureRealtimeDefaults } from '../realtime/props';
 import { defaultPanorama, panorama, PANORAMA_TYPES } from './ptcamera';
 import { cameraStereo } from './stereo';
+import { temperatureColor, ensureLightColorDefaults } from './lightcolor';
 
 writableTypeStructs.add('Camera');
 writableTypeStructs.add('Light');
@@ -89,3 +90,31 @@ for (const key of Object.keys(defaultPanorama())) {
   });
 }
 (ID_MIXINS.cameras ??= []).push(CameraRenderMixin);
+
+// Light data: colour temperature, exposure and normalisation (filled with defaults on first use)
+class LightRenderMixin {
+  get temperature_color() {
+    const la = app.doc.lights[(this as unknown as { __id: string }).__id];
+    return la ? temperatureColor(la.temperature ?? 6500) : [1, 1, 1];
+  }
+}
+for (const key of ['use_temperature', 'temperature', 'exposure', 'normalize'] as const) {
+  Object.defineProperty(LightRenderMixin.prototype, key, {
+    configurable: true,
+    enumerable: true,
+    get(this: { __id: string }) {
+      const la = app.doc.lights[this.__id];
+      if (!la) return undefined;
+      ensureLightColorDefaults(la);
+      return la[key];
+    },
+    set(this: { __id: string }, v: unknown) {
+      const la = app.doc.lights[this.__id];
+      if (!la) return;
+      ensureLightColorDefaults(la);
+      (la as unknown as Raw)[key] = typeof la[key] === 'boolean' ? !!v : key === 'temperature' ? Math.max(800, Math.min(20000, Number(v))) : Number(v);
+      touched();
+    },
+  });
+}
+(ID_MIXINS.lights ??= []).push(LightRenderMixin);

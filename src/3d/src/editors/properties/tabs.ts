@@ -1,6 +1,8 @@
 // Properties tabs: scene, world, collection, object, data, material.
 import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
+import { checkNum } from '../../render/final/props/common';
+import { ensureLightColorDefaults } from '../../render/final/lightcolor';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -478,8 +480,11 @@ function lightData(o: ObjectData, la: LightData): Child {
     dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}, { noUnlink: true }),
     panel('la-light', 'Light', () => [
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
+      (ensureLightColorDefaults(la), checkNum(la, 'use_temperature', 'temperature', 'Temperature', { min: 800, max: 20000, precision: 0, step: 100, tip: 'Colour of the light from the temperature of a glowing black body (kelvin); it tints the colour below' })),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
       la.type === 'SUN' ? num(la, 'energy', 'Strength', { min: 0, softMax: 10, anim: anim('energy') }) : num(la, 'energy', 'Power', { unit: 'power', min: 0, softMax: 10000, anim: anim('energy') }),
+      num(la, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10, tip: 'Brightness scale in stops: each step doubles or halves the light' }),
+      la.type === 'AREA' ? bool(la, 'normalize', 'Normalize', { tip: 'Keep the light’s total power when its size changes (off: the power is per square metre, so larger lights are brighter)' }) : null,
       la.type === 'SUN' ? num(la, 'angle', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : la.type !== 'AREA' ? num(la, 'shadow_soft_size', 'Radius', { unit: 'distance', min: 0 }) : null,
       la.type === 'AREA'
         ? [

@@ -307,6 +307,13 @@ export interface LightData extends RealtimeLightSettings {
   diffuse_factor: number;
   specular_factor: number;
   volume_factor: number;
+  /** colour from a black body temperature (kelvin), multiplied with `color` */
+  use_temperature?: boolean;
+  temperature?: number;
+  /** brightness scale in stops (2^exposure) */
+  exposure?: number;
+  /** area lights: keep the total power when the size changes (off: power per square metre) */
+  normalize?: boolean;
   users?: number;
 }
 

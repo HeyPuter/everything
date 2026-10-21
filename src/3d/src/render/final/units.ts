@@ -4,12 +4,13 @@
 // area light radiance L = P / (π · A).
 import type { LightData, RenderSettings, SceneData } from '../../data/types';
 
-export function lightIntensity(la: Pick<LightData, 'type' | 'energy' | 'shape' | 'size' | 'size_y'>): number {
+export function lightIntensity(la: Pick<LightData, 'type' | 'energy' | 'shape' | 'size' | 'size_y' | 'normalize'>): number {
   switch (la.type) {
     case 'SUN':
       return la.energy;
     case 'AREA':
-      return la.energy / (Math.PI * Math.max(1e-6, areaLightArea(la)));
+      // without normalisation the power is given per square metre of the light
+      return la.energy / (Math.PI * (la.normalize === false ? 1 : Math.max(1e-6, areaLightArea(la))));
     default:
       return la.energy / (4 * Math.PI);
   }
