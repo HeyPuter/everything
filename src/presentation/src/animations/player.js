@@ -903,6 +903,9 @@ export function createAnimationPlayer({
   reducedMotion = prefersReducedMotion(),
   onChange = null,
   sounds = true,
+  // Media steps of the sequence (play, pause or stop a video or sound):
+  // called with the effect as its time comes; the caller plays the media.
+  onMedia = null,
 }) {
   const mainEffects = effects.filter((e) => e.trigger === undefined);
   const mainItems = expandItems(slide, mainEffects);
@@ -926,7 +929,12 @@ export function createAnimationPlayer({
       s.groups.flatMap((g) => g.items),
     ),
   ];
-  const runs = piecesOf(pres, slide, allItems);
+  // Media steps change nothing drawn: the object stays in its picture.
+  const runs = piecesOf(
+    pres,
+    slide,
+    allItems.filter((item) => item.effect.presetClass !== "mediacall"),
+  );
   const root = document.createElement("div");
   root.className = "anim-stage";
   root.setAttribute("aria-hidden", "true");
@@ -1062,6 +1070,19 @@ export function createAnimationPlayer({
         scheduled.push({ item, piece, plan });
       }
     }
+    if (!instant && onMedia)
+      for (const item of items) {
+        if (item.effect.presetClass !== "mediacall") continue;
+        if (!item.at) {
+          onMedia(item.effect);
+          continue;
+        }
+        const id = setTimeout(() => {
+          soundTimers.delete(id);
+          if (alive) onMedia(item.effect);
+        }, item.at);
+        soundTimers.add(id);
+      }
     if (instant || !scheduled.length) {
       for (const [piece, state] of planned) {
         piece.state = state;

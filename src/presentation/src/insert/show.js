@@ -29,6 +29,7 @@ export function createShowExtras(ctx, show) {
   const viewed = [];
   let sound = null;
   let pendingMedia = []; // media waiting for clicks, in order
+  let slideMedia = new Map(); // shape id -> the current slide's media player
   const playing = new Set(); // { element, across }
   let selfJump = false;
 
@@ -341,6 +342,7 @@ export function createShowExtras(ctx, show) {
       frame.querySelector(".presenter-slide:not(.presenter-leaving)")?.focus();
     for (const p of [...playing]) if (!p.across) p.stop();
     pendingMedia = [];
+    slideMedia = new Map();
     layer = el("div", { class: "presenter-objects" });
     frame.append(layer);
     const parents = groupParents(slide);
@@ -352,6 +354,7 @@ export function createShowExtras(ctx, show) {
         const player = mediaPlayer(shape, parents);
         if (!player) continue;
         layer.append(player.node);
+        slideMedia.set(String(P.getShapeId(shape)), player);
         if (player.options.start === "automatically") autoplay.push(player);
         else if (player.options.start === "inClickSequence")
           pendingMedia.push(player);
@@ -410,6 +413,17 @@ export function createShowExtras(ctx, show) {
     }, 50);
   }
 
+  /** A media step of the slide's animations: Play, Pause or Stop. The
+   * media no longer waits for a click of its own. */
+  function mediaStep(effect) {
+    const player = slideMedia.get(String(effect.shapeId));
+    if (!player) return;
+    pendingMedia = pendingMedia.filter((p) => p !== player);
+    if (effect.presetId === 2) player.toggle();
+    else if (effect.presetId === 3) player.pause();
+    else player.play();
+  }
+
   /** The slide to go to instead of `i`; null when the step was used up.
    * `step` is "click" or "auto" (the show's timer) for a plain advance and
    * unset for a jump to a slide. */
@@ -441,5 +455,13 @@ export function createShowExtras(ctx, show) {
     urls.forEach((u) => URL.revokeObjectURL(u));
   }
 
-  return { prepare, imageFor, slideShown, navigate, claims, dispose };
+  return {
+    prepare,
+    imageFor,
+    slideShown,
+    mediaStep,
+    navigate,
+    claims,
+    dispose,
+  };
 }

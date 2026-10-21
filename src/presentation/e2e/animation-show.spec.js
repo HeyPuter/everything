@@ -158,6 +158,73 @@ test("Reading View's menu steps through builds and opens slides at their start",
   await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
 });
 
+test("media in the click sequence plays at its own click among the builds", async ({
+  page,
+}) => {
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  // A second of silence; inserted media plays on the next click by default.
+  const wav = new Uint8Array(44 + 8000);
+  const view = new DataView(wav.buffer);
+  const tag = (at, s) =>
+    [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+  tag(0, "RIFF");
+  view.setUint32(4, 36 + 8000, true);
+  tag(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  tag(36, "data");
+  view.setUint32(40, 8000, true);
+  wav.fill(128, 44);
+  P.addSlideMedia(
+    slide,
+    { kind: "audio", data: wav, contentType: "audio/wav" },
+    { x: 6 * 914400, y: 914400, w: 914400, h: 914400 },
+  );
+  // The box comes in on the click after the sound.
+  const box = shape(slide, 1, 1, 2, 1.5, "#2266cc");
+  P.setSlideAnimations(slide, [
+    ...P.getSlideAnimations(slide),
+    {
+      shapeId: String(P.getShapeId(box)),
+      presetClass: "entr",
+      presetId: 10,
+      presetSubtype: 0,
+      start: "click",
+      delayMs: 0,
+      durationMs: 300,
+    },
+  ]);
+  P.addBlankSlide(pres);
+  await page.addInitScript(() => {
+    const play = HTMLMediaElement.prototype.play;
+    window.played = [];
+    HTMLMediaElement.prototype.play = function () {
+      window.played.push(this);
+      return play.call(this);
+    };
+  });
+  const sounding = () =>
+    page.evaluate(() => window.played.filter((m) => !m.paused).length);
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const counter = page.locator(".presenter-counter");
+  await expect.poll(() => visibleLayers(page)).toEqual([false]);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(sounding).toBe(1);
+  expect(await visibleLayers(page)).toEqual([false]);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => visibleLayers(page)).toEqual([true]);
+  await expect(counter).toHaveText("1 / 2");
+  await page.keyboard.press("ArrowRight");
+  await expect(counter).toHaveText("2 / 2");
+});
+
 test("a timed advance plays the slide's remaining click steps first", async ({
   page,
 }) => {

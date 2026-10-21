@@ -15665,7 +15665,11 @@ async function present(options = {}) {
     if (!ended && animator?.next()) {
       syncPrevious();
       session?.stepped(1);
-      if (timeUp) advanceClock.select(0, animator.played);
+      // A step with nothing to wait for (media, which the timer passes by)
+      // moves straight on.
+      if (timeUp)
+        if (animator.playing) advanceClock.select(0, animator.played);
+        else advance(true);
       return;
     }
     show(n + 1, { step: auto ? "auto" : "click" });
@@ -15827,7 +15831,15 @@ async function present(options = {}) {
     // distant ones render once here and are kept for the navigator.
     image.src = arriving;
     image.alt = slideDescription(all[n], pres) || `Slide ${n + 1}`;
-    animator = createSlideAnimator({ pres, slide: all[n], frame, image });
+    animator = createSlideAnimator({
+      pres,
+      slide: all[n],
+      frame,
+      image,
+      // Only a click plays media: once a slide's time is up, the show
+      // moves past it.
+      onMedia: (effect) => timeUp || showInserted.mediaStep(effect),
+    });
     // Set Up Show can show every slide without its animations.
     if (backward || !plan.setup.showAnimation) animator.finish();
     else {

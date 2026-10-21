@@ -2,11 +2,12 @@
 // for each advance before it moves to the next slide, so a slide with click
 // steps uses its clicks first.
 //
-//   createSlideAnimator({ pres, slide, frame, image, reducedMotion })
+//   createSlideAnimator({ pres, slide, frame, image, reducedMotion, onMedia })
 //
 // `frame` is the show's slide container and `image` the slide's rendered
 // picture inside it; the animator may lay pictures of its own over or in
-// place of `image`, and must remove them in `destroy()`.
+// place of `image`, and must remove them in `destroy()`. `onMedia(effect)`
+// plays, pauses or stops a video or sound when its click step comes.
 //
 // The returned animator:
 //   steps          the number of click steps on the slide
@@ -56,13 +57,17 @@ export function createSlideAnimator({
   frame,
   image,
   reducedMotion = prefersReducedMotion(),
+  onMedia = null,
 }) {
   let effects;
   try {
-    // Media start and pause steps belong to the show's media players
-    // (src/insert/show.js), which take their clicks after the animations'.
+    // Media in the click sequence takes its click among the animations'.
+    // Media that plays by itself or when clicked belongs to the show's media
+    // players (src/insert/show.js).
     effects = P.getSlideAnimations(slide).filter(
-      (e) => e.presetClass !== "mediacall",
+      (e) =>
+        e.presetClass !== "mediacall" ||
+        (!!onMedia && e.trigger === undefined && e.start === "click"),
     );
   } catch {
     effects = [];
@@ -76,6 +81,7 @@ export function createSlideAnimator({
       frame,
       effects,
       reducedMotion,
+      onMedia,
       renderLayer: (layer) => preview(pres, slide, layer),
     });
   } catch {
