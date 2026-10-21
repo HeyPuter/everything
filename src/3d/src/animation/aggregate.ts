@@ -27,6 +27,13 @@ export interface AggRow {
 
 const q = (f: number) => Math.round(f * 1000) / 1000;
 
+/** Handle types from the least to the most automatic (columns show the first present). */
+const HANDLE_ORDER = ['FREE', 'AUTO', 'VECTOR', 'ALIGNED', 'AUTO_CLAMPED'];
+const handleRank = (h: string) => {
+  const i = HANDLE_ORDER.indexOf(h);
+  return i < 0 ? -1 : i;
+};
+
 export function aggregate(curves: FCurve[]): AggRow {
   const map = new Map<number, AggKey>();
   for (const fc of curves)
@@ -45,7 +52,8 @@ export function aggregate(curves: FCurve[]): AggRow {
       else {
         cur.selected ||= !!k.select_control_point;
         if (cur.type !== k.type) cur.type = 'KEYFRAME';
-        if (cur.handle !== handle) cur.handle = 'MIXED';
+        // a column shows the least smooth handle type among its keys
+        if (cur.handle !== handle) cur.handle = handleRank(handle) < handleRank(cur.handle) ? handle : cur.handle;
         if (cur.interp !== k.interpolation) cur.interp = 'MIXED';
       }
     }
@@ -86,16 +94,16 @@ export function aggregate(curves: FCurve[]): AggRow {
       });
     const sel = keys[i].selected && keys[i + 1].selected;
     if (allHold && anyReal) holds.push({ a, b, selected: sel });
-    // interpolation display: all curves keyed at `a` share one non-Bézier mode
+    // interpolation display: a curve keyed at `a` interpolates without Bézier handles
     let mode: Interpolation | null = null;
-    let consistent = true;
     for (const c of keyed) {
       const k = c.keyframe_points.find((kk) => Math.abs(kk.co[0] - a) < 1e-3);
-      if (!k) continue;
-      if (mode === null) mode = k.interpolation;
-      else if (mode !== k.interpolation) consistent = false;
+      if (k && k.interpolation !== 'BEZIER') {
+        mode = k.interpolation;
+        break;
+      }
     }
-    if (consistent && mode && mode !== 'BEZIER') interps.push({ a, b, selected: sel, interp: mode });
+    if (mode) interps.push({ a, b, selected: sel, interp: mode });
   }
   return { keys, holds, interps };
 }
