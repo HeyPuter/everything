@@ -180,3 +180,39 @@ test('World: new world and converting the world volume to a mesh', async ({ page
   expect(r.scale).toBeGreaterThanOrEqual(5);
   await expectNoErrors(errors);
 });
+
+test('Freestyle style modules draw lines from a script', async ({ page }) => {
+  const errors = await start(page);
+  await page.evaluate(() => {
+    const a = (window as any).app;
+    a.doc.scene.render.use_freestyle = true;
+    a.changed('doc');
+  });
+  const props = page.locator('.properties').first();
+  await props.locator('.rail-tab[data-tab="VIEW_LAYER"]').click();
+  // Control Mode ▸ Script shows the style modules
+  await props.locator('[data-id="fs-mode"]').dispatchEvent('pointerdown');
+  await page.locator('.menu .menu-item', { hasText: /^Script$/ }).click();
+  await props.getByRole('button', { name: 'Add' }).first().click();
+  await props.locator('.fs-module .fs-mod-btn').first().click();
+  const mod = await page.evaluate(() => {
+    const d = (window as any).app.doc;
+    const fs = d.scene.render.freestyle_settings;
+    return { mode: fs.mode, n: fs.modules.length, text: d.texts[fs.modules[0].script]?.name };
+  });
+  expect(mod).toEqual({ mode: 'SCRIPT', n: 1, text: 'style_module.js' });
+  await page.evaluate(() => {
+    (window as any).app.doc.scene.render.freestyle_settings.as_render_pass = true;
+  });
+  const res = await render(page, { engine: 'RASTER', resolution_percentage: 20 });
+  expect(res.reports.join(' ')).toMatch(/Render finished/);
+  const alpha = await page.evaluate(async (imp) => {
+    const { renderResult } = await (0, eval)(imp)('/src/render/final/result.ts');
+    const p = renderResult.get().passes.Freestyle;
+    let s = 0;
+    for (let i = 3; i < p.length; i += 4) s += p[i];
+    return s;
+  }, IMPORT);
+  expect(alpha).toBeGreaterThan(10);
+  await expectNoErrors(errors);
+});

@@ -125,3 +125,7 @@
   flex: 1;
   min-width: 0;
 }
+.fs-module { display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 3px; margin-bottom: 2px; }
+.fs-module.active { background: rgba(255, 255, 255, 0.05); }
+.fs-module > .enum-menu { flex: 1; min-width: 0; }
+.fs-module > .btn.fs-mod-btn { width: 22px; height: 20px; padding: 0; flex: none; justify-content: center; }
