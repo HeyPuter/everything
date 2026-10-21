@@ -9850,12 +9850,20 @@ export function createEditor({
         null,
         'annotate',
       );
-      if (result)
+      if (!result) return;
+      const { imported, skipped } = result;
+      const added = imported
+        ? `${imported} ${imported === 1 ? 'comment' : 'comments'} imported.`
+        : skipped
+          ? 'No comments were imported.'
+          : 'There were no new comments to import.';
+      // Comments left out must not pass by unnoticed: they are missing from the PDF.
+      if (skipped)
         toast(
-          result.imported
-            ? `${result.imported} ${result.imported === 1 ? 'comment' : 'comments'} imported.`
-            : 'There were no new comments to import.',
+          `${added} ${skipped} ${skipped === 1 ? 'comment' : 'comments'} in the file could not be added.`,
+          { error: true },
         );
+      else toast(added);
     });
     input.click();
   }
