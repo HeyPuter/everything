@@ -64,6 +64,11 @@ export async function shareForReview({ puter, project, library, scope = 'all', t
     const clientId = randomId('pub');
     const ext = CONTAINERS[settings.format]?.ext || 'mp4';
     const item = await puter.fs.write(reviewFilePath(project.id, clientId, ext), result.blob, { overwrite: false, dedupeName: true, createMissingParents: true });
+    if (signal?.aborted) {
+      // Cancelled while saving: nothing is published, and the copy isn't left behind.
+      await puter.fs.delete(item.path).catch(() => {});
+      throw new DOMException('Canceled', 'AbortError');
+    }
     onPhase('publish');
     const video = { path: item.path, mime: CONTAINERS[settings.format]?.mime || 'video/mp4', fps: settings.fps, duration: result.duration, width: result.width, height: result.height, range };
     const input = { op: 'review.publish', clientId, projectId: project.id, title: cleanTitle(title || project.name), video };

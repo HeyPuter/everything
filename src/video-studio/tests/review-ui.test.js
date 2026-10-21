@@ -191,6 +191,17 @@ describe('share for review (owner flow)', () => {
     expect(r2.version).toBe(2);
     expect(r2.review.versions[1]).toMatchObject({ range: { in: s(1), out: s(4) }, duration: s(3) });
   });
+
+  it('publishes nothing when cancelled while the copy is being saved, and removes the saved copy', async () => {
+    const env = await setup();
+    const p = projectWithClips();
+    const ctl = new AbortController();
+    const deps = { exportProject: fakeExport(), detectCapabilities: caps };
+    const run = shareForReview({ puter: env.sdk.alice, project: p, library: null, title: 'Launch film', signal: ctl.signal, deps, onPhase: (ph) => ph === 'save' && ctl.abort() });
+    await expect(run).rejects.toMatchObject({ name: 'AbortError' });
+    expect((await env.as('alice')('review.find', { projectId: p.id })).review).toBe(null);
+    expect([...env.world.storage.tables.get('files').keys()].filter((k) => k.includes('/reviews/'))).toEqual([]);
+  });
 });
 
 describe('share dialog', () => {

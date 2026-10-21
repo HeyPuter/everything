@@ -154,6 +154,8 @@ export function openShareDialog(ctx, { deps = {} } = {}) {
             progressPhase.textContent = `Saving to your Puter files (${formatBytes(info.bytes)})...`;
             setBar(0.9);
           } else if (phase === 'publish') {
+            // Too late to take back: the version is being published.
+            stop.disabled = true;
             progressPhase.textContent = 'Publishing...';
             setBar(0.97);
           }
