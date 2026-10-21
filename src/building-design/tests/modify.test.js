@@ -1,6 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { project } from './helpers.js';
-import { splitLinear, transformElements, scaling } from '../src/core/ops.js';
+import { splitLinear, transformElements, scaling, arrayRadial } from '../src/core/ops.js';
+
+describe('radial array', () => {
+  it('spreads copies evenly around a full turn, or over an angle', () => {
+    const { doc, add, L1 } = project();
+    const c = add({ kind: 'column', typeId: doc.all('columnType')[0].id, levelId: L1.id, at: [1000, 0], rotation: 0 });
+    let copies;
+    doc.transact('arr', () => (copies = arrayRadial(doc, [c.id], [0, 0], 4)));
+    const pts = copies.map((id) => doc.get(id).at.map((v) => Math.round(v) + 0));
+    expect(pts).toEqual([
+      [0, 1000],
+      [-1000, 0],
+      [0, -1000],
+    ]);
+    doc.transact('arr2', () => (copies = arrayRadial(doc, [c.id], [0, 0], 3, Math.PI)));
+    expect(doc.get(copies.at(-1)).at.map((v) => Math.round(v) + 0)).toEqual([-1000, 0]);
+  });
+});
 
 describe('split with a gap', () => {
   it('leaves the gap between the two parts of a wall, and doors stay put', () => {

@@ -332,6 +332,15 @@ export function offsetElement(doc, el, distance, toward) {
 }
 
 /** Linear array: count total items (including the original) spaced by d. */
+/** Copies turned about a center, spread over `sweep` radians (a full turn spaces them evenly). */
+export function arrayRadial(doc, ids, center, count, sweep = Math.PI * 2) {
+  const out = [];
+  const full = Math.abs(Math.abs(sweep) - Math.PI * 2) < 1e-6;
+  const step = full ? sweep / count : sweep / Math.max(1, count - 1);
+  for (let i = 1; i < count; i++) out.push(...copyElements(doc, ids, rotation(center, step * i)));
+  return out;
+}
+
 export function arrayLinear(doc, ids, d, count) {
   const out = [];
   for (let i = 1; i < count; i++) out.push(...copyElements(doc, ids, translation(scale(d, i))));

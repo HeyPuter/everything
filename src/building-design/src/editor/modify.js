@@ -7,6 +7,7 @@ import { add, sub, scale, dot, norm, perp, dist, len, angleOf, closestOnSegment,
 import {
   transformElements,
   copyElements,
+  arrayRadial,
   translation,
   rotation,
   mirrorAcross,
@@ -345,21 +346,47 @@ export class ArrayTool extends SelectionTool {
     return 'Array';
   }
 
+  get o() {
+    return this.app.toolOptions('array', { count: 3, mode: 'linear', angle: 360 });
+  }
+
   get prompt() {
+    if (this.o.mode === 'radial') return 'Click the center to turn the copies about';
     return this.base ? 'Click the position of the second item' : 'Click the start point';
   }
 
   options() {
-    const o = this.app.toolOptions('array', { count: 3 });
+    const o = this.o;
     const inp = h('input.input.sm.num', { type: 'number', min: 2, max: 200, value: o.count, 'aria-label': 'Number of items' });
     inp.addEventListener('change', () => (o.count = this.count = Math.max(2, Math.min(200, Math.round(+inp.value || 2)))));
     inp.addEventListener('keydown', (e) => e.stopPropagation());
-    return [h('div.ob-group', h('label', 'Number of items'), inp)];
+    const mode = h('select.input.sm', { 'aria-label': 'Array type' }, h('option', { value: 'linear' }, 'Linear'), h('option', { value: 'radial' }, 'Radial'));
+    mode.value = o.mode;
+    mode.addEventListener('change', () => {
+      o.mode = mode.value;
+      this.base = null;
+      this.app.renderOptions();
+      this.app.setPrompt(this.prompt);
+    });
+    const out = [h('div.ob-group', h('label', 'Type'), mode), h('div.ob-group', h('label', 'Number of items'), inp)];
+    if (o.mode === 'radial') {
+      const ang = h('input.input.sm.num', { type: 'number', min: -360, max: 360, value: o.angle, 'aria-label': 'Total angle in degrees' });
+      ang.addEventListener('change', () => (o.angle = Math.max(-360, Math.min(360, +ang.value || 360))));
+      ang.addEventListener('keydown', (e) => e.stopPropagation());
+      out.push(h('div.ob-group', h('label', 'Angle'), ang));
+    }
+    return out;
   }
 
   down(ev) {
     const p = this.snap(ev, this.base, { exclude: this.exclude });
     if (!p) return;
+    if (this.o.mode === 'radial') {
+      const o = this.o;
+      this.app.commit('Radial array', () => arrayRadial(this.doc, this.ids, p, o.count, (o.angle * Math.PI) / 180));
+      this.app.cancelTool();
+      return;
+    }
     if (!this.base) {
       this.base = p;
       this.app.setPrompt(this.prompt);
@@ -376,7 +403,13 @@ export class ArrayTool extends SelectionTool {
   }
 
   drawOverlay(ctx, vc, vp) {
-    if (this.base && this.cursor) {
+    if (this.o.mode === 'radial' && this.cursor) {
+      const o = this.o;
+      const sweep = (o.angle * Math.PI) / 180;
+      const full = Math.abs(Math.abs(sweep) - Math.PI * 2) < 1e-6;
+      const step = full ? sweep / o.count : sweep / Math.max(1, o.count - 1);
+      for (let i = 1; i < Math.min(o.count, 60); i++) this.preview(ctx, vc, vp, rotation(this.cursor, step * i));
+    } else if (this.base && this.cursor) {
       const d = sub(this.cursor, this.base);
       for (let i = 1; i < Math.min(this.count, 30); i++) this.preview(ctx, vc, vp, translation(scale(d, i)));
       const S = (p) => vc.modelToScreen(p);
