@@ -19,4 +19,3 @@ import './nlamods';
 import './nlasound';
 import './clickops';
 import './animutils';
-import './framewheel';
