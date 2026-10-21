@@ -60,6 +60,8 @@ The workbook's own Undo would put back whole sheets, including other people's ed
 
 Every pending change is kept in IndexedDB (`spreadsheet-collab`, one record per account and room: the revision the changes apply on top of, and the changes). Another account signed in on the same browser never reads them (they would reach the room as its own), and signing out removes the account's. Without a connection the status says **Offline · N changes waiting**; work continues locally. When the connection returns (or the tab becomes visible again) the browser fetches what others did, rebases its changes on it and sends them. After a reload, opening the shared workbook loads the checkpoint at or before the saved revision, applies the log up to it, puts the saved changes back on top, and rebases them through the rest. A change the worker refuses for good (access removed, invalid) is taken back with the later ones, which may build on it, and the person is told.
 
+The owner opening the file while the shared workbook cannot be reached gets the file to view only (saving says why, and Save a copy keeps changes made meanwhile): the room writes the file as people work, and would write over anything saved into it apart from the room. A room that is closed or gone writes the file no more, and the file opens as any file does.
+
 One tab per shared workbook keeps the outbox; two tabs of the same shared workbook in one browser each send their own changes while open, but only the latest one's unsent changes survive closing both while offline.
 
 ## The room worker

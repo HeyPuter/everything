@@ -185,6 +185,8 @@ const SHARED_FILE_MS = 15_000;
 export const SIGN_IN_TO_SAVE = 'Sign in to Puter to save this spreadsheet';
 /** Why a spreadsheet shared with the user only to view is not saved. */
 export const VIEW_ONLY = 'You can view this spreadsheet, but not change it. Use File > Save a copy to keep your changes';
+/** Why the owner's file of a shared workbook, opened while its room could not be reached, is not saved (see holdForRoom). */
+export const SHARED_FILE = 'This spreadsheet is shared for editing together, and the shared workbook could not be reached: it writes this file, and would write over changes saved here. Open the spreadsheet again once connected, or use File > Save a copy to keep your changes';
 
 /** A Puter FSItem's modified time in milliseconds (the API gives seconds), or null. */
 function modifiedMs(item) {
@@ -546,6 +548,11 @@ export class Doc extends EventTarget {
   }
 
   async _doSave(auto, force = false) {
+    if (this.roomFile) {
+      this._setStatus('error', SHARED_FILE);
+      if (!auto) throw new Error(SHARED_FILE);
+      return false;
+    }
     try {
       // A failed check cannot establish that overwriting is safe. Keep the
       // edits dirty and use the normal save-error/retry path in that case.
@@ -914,6 +921,7 @@ export class Doc extends EventTarget {
     this.path = P.canonicalPath(target, written);
     this.uid = written?.uid || written?.id || null; // another file, with its own decision
     this.viewOnly = false; // the copy is the user's own
+    this.roomFile = false;
     this.name = clean;
     this._lastVersionAt = undefined;
     this._moveDraft(oldKey);
@@ -985,6 +993,17 @@ export class Doc extends EventTarget {
     // (by saving), or a save by anyone else would write a new file at the old address.
     if (owner && doc.path && client.file?.path && doc.path !== client.file.path) doc.save({ auto: true }).catch(() => {});
     return doc;
+  }
+
+  /**
+   * The owner's file of a shared workbook, opened on its own because the room could not be reached. The room writes
+   * the file as people work, and would write over whatever is saved into it here, so nothing is: it opens to view, as
+   * a file shared only to view does, and Save a copy keeps changes made meanwhile. Nor is it shared again from here,
+   * which would make a second room write the same file.
+   */
+  holdForRoom() {
+    this.roomFile = true;
+    this.viewOnly = true;
   }
 
   get isOwner() {

@@ -290,7 +290,13 @@ async function route({ reload = false, file = null, draftKey = null } = {}) {
           return;
         } catch (e) {
           console.warn('The shared workbook could not be opened; opening the file instead', e);
-          toast('This spreadsheet is shared for editing together, but the shared copy could not be reached. Opening the file', { icon: 'info', duration: 5000 });
+          // Closed or deleted (from another device, say), the room writes the file no more: it opens as any file does.
+          if ([404, 410].includes(e?.status)) toast('This spreadsheet is no longer shared for editing together. Opening the file', { icon: 'info', duration: 5000 });
+          else {
+            // Otherwise the room still writes the file, over whatever would be saved into it here (see Doc.holdForRoom).
+            doc.holdForRoom();
+            toast('This spreadsheet is shared for editing together, but the shared workbook could not be reached. The file opens to view only: open it again once connected, or use File > Save a copy to keep changes', { icon: 'info', duration: 8000 });
+          }
         }
       }
       openEditor(doc, range);
