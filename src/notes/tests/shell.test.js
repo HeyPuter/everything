@@ -90,6 +90,25 @@ describe('App shell', () => {
     setPref('pageSort', 'manual');
   });
 
+  it('keeps typing on the new page after Next or Previous Page from a note', async () => {
+    const section = store.section(app.state.sectionId);
+    const first = store.createPage(section.id, { title: 'First' });
+    const second = store.createPage(section.id, { title: 'Second' });
+    for (const p of [first, second]) {
+      const page = await store.loadPage(p.id);
+      page.outlines.push({ id: `o${p.id}`, x: 48, y: 140, w: 400, html: `<p>${p.title} text</p>` });
+    }
+    await app.openPage(first.id);
+    app.editor.outlinesEl.querySelector('.outline-body').focus();
+    app.runCommand('nextPage');
+    await tick();
+    expect(app.state.pageId).toBe(second.id);
+    expect(document.activeElement.closest('.outline-body')?.textContent).toBe('Second text');
+    app.runCommand('prevPage');
+    await tick();
+    expect(document.activeElement.closest('.outline-body')?.textContent).toBe('First text');
+  });
+
   it('steps on from an open subpage whose parent is collapsed', async () => {
     const section = store.section(app.state.sectionId);
     for (const title of ['Parent', 'Child', 'After']) store.createPage(section.id, { title });

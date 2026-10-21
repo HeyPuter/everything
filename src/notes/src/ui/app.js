@@ -614,7 +614,12 @@ export class App {
     do i += dir;
     while (i >= 0 && i < ids.length && !shown.has(ids[i]));
     const next = ids[i];
-    if (next) this.openPage(next);
+    // Opening the page replaces the one being typed in; carry on writing in
+    // the new page (as opening it from the page list with Enter does)
+    // rather than leave focus on nothing.
+    const active = document.activeElement;
+    const typing = !active || active === document.body || this.editor.scroller.contains(active);
+    if (next) this.openPage(next, { focus: typing });
   }
 
   isUnlocked(id) {
