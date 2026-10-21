@@ -1,21 +1,21 @@
 import { h, debounce, escapeHtml } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { formatRelative } from '../lib/dates.js';
-import { normalize } from '../data/store.js';
+import { normalize, foldWithOffsets } from '../data/store.js';
 
 function highlightSnippet(text, terms) {
-  let html = escapeHtml(text);
-  const flat = normalize(text);
+  const html = escapeHtml(text);
+  const { flat, from, to } = foldWithOffsets(text);
   // Mark matches by position on the accent-folded copy.
   const marks = [];
   for (const t of terms) {
     let i = flat.indexOf(t);
     while (i >= 0 && marks.length < 20) {
-      marks.push([i, i + t.length]);
+      marks.push([from(i), to(i + t.length)]);
       i = flat.indexOf(t, i + t.length);
     }
   }
-  if (!marks.length || flat.length !== text.length) return html;
+  if (!marks.length) return html;
   marks.sort((a, b) => a[0] - b[0]);
   let out = '';
   let pos = 0;

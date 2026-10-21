@@ -1352,6 +1352,32 @@ export function normalize(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
+/**
+ * normalize() with a way back to the original text: a match at [s, e) in
+ * `flat` covers text.slice(from(s), to(e)). Folding can change the length
+ * (Hangul syllables split into letters), so offsets are mapped per
+ * character then.
+ */
+export function foldWithOffsets(s) {
+  const text = String(s || '');
+  const flat = normalize(text);
+  if (flat.length === text.length) return { flat, from: (i) => i, to: (i) => i };
+  let out = '';
+  const starts = [];
+  const ends = [];
+  let at = 0;
+  for (const ch of text) {
+    const f = normalize(ch);
+    for (let k = 0; k < f.length; k++) {
+      starts.push(at);
+      ends.push(at + ch.length);
+    }
+    out += f;
+    at += ch.length;
+  }
+  return { flat: out, from: (i) => (i < starts.length ? starts[i] : text.length), to: (i) => (i > 0 ? ends[i - 1] : 0) };
+}
+
 function countOf(hay, term) {
   let n = 0;
   let i = hay.indexOf(term);
@@ -1365,13 +1391,14 @@ function countOf(hay, term) {
 /** A short excerpt around the first match. */
 export function snippet(text, terms, radius = 60) {
   const flat = text.replace(/\s+/g, ' ');
-  const hay = normalize(flat);
+  const { flat: hay, from } = foldWithOffsets(flat);
   let at = -1;
   for (const t of terms) {
     const i = hay.indexOf(t);
     if (i >= 0 && (at < 0 || i < at)) at = i;
   }
   if (at < 0) return flat.slice(0, radius * 2);
+  at = from(at);
   const start = Math.max(0, at - radius);
   const end = Math.min(flat.length, at + radius);
   return (start > 0 ? '…' : '') + flat.slice(start, end).trim() + (end < flat.length ? '…' : '');

@@ -1,6 +1,6 @@
 import { h, debounce, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
-import { normalize } from '../data/store.js';
+import { normalize, foldWithOffsets } from '../data/store.js';
 
 /**
  * Find on page (Mod+F). Matches are painted with the CSS Custom Highlight
@@ -74,14 +74,12 @@ export class FindBar {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let n;
       while ((n = walker.nextNode())) {
-        const text = n.nodeValue;
-        const hay = normalize(text);
-        if (hay.length !== text.length) continue;
+        const { flat: hay, from, to } = foldWithOffsets(n.nodeValue);
         let i = hay.indexOf(q);
         while (i >= 0) {
           const r = document.createRange();
-          r.setStart(n, i);
-          r.setEnd(n, i + q.length);
+          r.setStart(n, from(i));
+          r.setEnd(n, to(i + q.length));
           this.ranges.push(r);
           i = hay.indexOf(q, i + q.length);
         }
