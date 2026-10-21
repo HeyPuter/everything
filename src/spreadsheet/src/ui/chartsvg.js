@@ -457,6 +457,16 @@ function renderChartContent(data, chart, width, height) {
   if (SPECIAL_CHART_TYPES.has(chart.type)) return renderSpecialChart(data, chart, width, height);
   if (chart.type === 'radar' && chart.appearance?.radar) return renderNativeRadar(data, chart, width, height);
   if (['pie', 'donut'].includes(chart.type) && chart.appearance?.pie) return renderStyledPie(data, chart, width, height);
+  // A histogram in the default style is a column chart of its bins' counts, and is drawn as one in that style, so its
+  // fonts, axes, number formats and colours (Format pane, Chart Styles) show as they do on the other charts.
+  if (chart.type === 'histogram' && chart.appearance) {
+    const binned = histogramBins(data.series.flatMap((s) => s.values), chart.bins, data.valueStyle || null);
+    if (binned.counts.length) {
+      return renderStyledCartesian({ ...data, categories: binned.categories, series: [{ name: 'Count', values: binned.counts, style: null }], valueStyle: null, x: null },
+        // Its bins nearly touch, as they always have (Format Data Series offers a histogram no gap width of its own).
+        { ...chart, type: 'column', stacked: false, stack100: false, secondaryAxis: false, appearance: { ...chart.appearance, gapWidth: 6, overlap: 0 } }, width, height);
+    }
+  }
   if (['line', 'area', 'column', 'bar', 'combo', 'scatter', 'bubble'].includes(chart.type) && chart.appearance
     && (chart.type !== 'line' || (!chart.stacked && !chart.stack100) || chart.appearance.excelLayout)) return renderStyledCartesian(data, chart, width, height);
   const W = Math.max(120, width);
