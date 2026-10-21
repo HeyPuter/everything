@@ -253,6 +253,24 @@ test("presenter view counts a slide's clicks after jumping back to it", async ({
   await expect(next).toHaveText(/^Next click: animation 1 of 3/);
 });
 
+test("presenter view counts the last slide's clicks before the end", async ({
+  page,
+}) => {
+  const pres = animatedDeck();
+  P.removeSlide(pres, P.getSlides(pres)[1]);
+  await load(page, pres);
+  await page.keyboard.press("Alt+F5");
+  const next = page.locator(".show-console-next-label");
+  await expect(next).toHaveText(
+    "Next click: animation 1 of 3 on this slide, then the end of the slide show",
+  );
+  await page.keyboard.press("ArrowRight");
+  await expect(next).toHaveText(/^Next click: animation 2 of 3/);
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await expect(next).toHaveText("End of slide show");
+});
+
 test("with an audience window the presenter's copy follows the builds", async ({
   page,
   context,

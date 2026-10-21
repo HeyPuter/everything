@@ -768,14 +768,15 @@ export function createShowSession(ctx, show) {
         nextImage.hidden = false;
         const at = all.indexOf(coming);
         nextLabel.textContent = `Slide ${at + 1}${show.title(coming) ? `: ${show.title(coming)}` : ""}`;
-        const steps = show.animationSteps?.() ?? 0;
-        if (step < steps)
-          nextLabel.textContent = `Next click: animation ${step + 1} of ${steps} on this slide, then ${nextLabel.textContent}`;
       } else {
         nextImage.removeAttribute("src");
         nextImage.hidden = true;
         nextLabel.textContent = "End of slide show";
       }
+      // The last slide's builds come before the end, too.
+      const steps = ended ? 0 : (show.animationSteps?.() ?? 0);
+      if (step < steps)
+        nextLabel.textContent = `Next click: animation ${step + 1} of ${steps} on this slide, then ${coming ? nextLabel.textContent : "the end of the slide show"}`;
       const notes = ended ? "" : P.getSlideNotes(all[n]) || "";
       notesText.textContent = notes || "No notes for this slide.";
       notesText.classList.toggle("empty", !notes);
