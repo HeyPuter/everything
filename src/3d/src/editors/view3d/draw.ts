@@ -603,7 +603,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
       (so.helper.material as LineBasicMaterial).color.copy(col);
     }
     if (so.helperFill) {
-      set(so.helperFill, shown && ov.show_extras && !lookingThrough);
+      // only the scene's active camera has a filled "up" triangle
+      set(so.helperFill, shown && ov.show_extras && !lookingThrough && ob.id === doc.scene.camera);
       (so.helperFill.material as MeshBasicMaterial).color.copy(col);
     }
     if (so.ground) set(so.ground, shown && ov.show_extras);
@@ -761,7 +762,7 @@ export function renderIdPass(app: App, ctx: RenderContext, view: DrawView, camer
     }
     if (so.wire) swap(so.wire, vis && (view.shading.type === 'WIREFRAME' || ob.display_type === 'WIRE' || (ob.type !== 'MESH' && !!so.ev.mesh?.curves)));
     swap(so.helper, vis && view.overlay.show_extras);
-    swap(so.helperFill, vis && view.overlay.show_extras);
+    swap(so.helperFill, vis && view.overlay.show_extras && ob.id === app.doc.scene.camera);
     swap(so.imagePlane, vis && so.imagePlane?.visible !== false);
     swap(so.points, vis);
     if (so.bones) {
