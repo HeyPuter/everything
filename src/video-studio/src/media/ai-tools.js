@@ -224,9 +224,10 @@ const LABELS = {
  * when the call asks to be allowed (the prompt it would send, for one).
  * `videoModel`: the id of the model chosen for video; a video call names the
  * model it will be made with (another, when the chosen one can't start from a
- * picture), its length and about what it costs.
+ * picture), its length and about what it costs. `seconds`: the length the
+ * call will ask for when it names none (an animated image clip's own).
  */
-export function describeCall(name, args = {}, { videoModel = null } = {}) {
+export function describeCall(name, args = {}, { videoModel = null, seconds } = {}) {
   const a = args && typeof args === 'object' ? args : {};
   let label;
   try {
@@ -242,7 +243,7 @@ export function describeCall(name, args = {}, { videoModel = null } = {}) {
     if (videoModel) {
       const { model, fallback } = modelForFrames(videoModel, frames);
       const shortest = !model.seconds ? null : Array.isArray(model.seconds) ? model.seconds[0] : model.seconds.min;
-      const want = Number.isFinite(num(a.seconds)) ? num(a.seconds) : name === 'generate_transition' ? shortest : undefined;
+      const want = Number.isFinite(num(a.seconds)) ? num(a.seconds) : Number.isFinite(seconds) ? seconds : name === 'generate_transition' ? shortest : undefined;
       const len = fitSeconds(model, want);
       const bits = [`with ${model.label}${fallback ? ' (the chosen model can\'t start from a picture)' : ''}`, len ? `${len}s long` : 'at the length the model picks', a.aspect].filter(Boolean).join(', ');
       parts.push(`Made ${bits}. About ${formatCents(estimateCents(model, want))} in Puter credits.`);

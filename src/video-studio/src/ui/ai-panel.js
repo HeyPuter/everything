@@ -112,7 +112,7 @@ export function createAiPanel(ctx, { chat = null, services = {}, readFile = read
   const agent = createAgent({
     chat: (messages, options) => chatFn()(messages, options),
     runTool: (name, args, control) => runner.run(name, args, control),
-    describe: (name, args) => describeCall(name, args, { videoModel: settings.videoModel }),
+    describe: (name, args) => describeCall(name, args, { videoModel: settings.videoModel, seconds: runner.videoSeconds(name, args) }),
     approve: (step) => askApproval(step),
     snapshot: () => projectSnapshot(assistState(store), { videoModel: modelSummary(settings.videoModel), imageModel: imageModel(settings.imageModel).label }),
     settings: () => settings,

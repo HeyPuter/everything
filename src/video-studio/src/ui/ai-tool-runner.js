@@ -58,7 +58,7 @@ export async function framePicture(ctx, t) {
 }
 
 /**
- * createAiToolRunner(ctx, services) -> { run(name, args, control) }
+ * createAiToolRunner(ctx, services) -> { run(name, args, control), videoSeconds(name, args) }
  * services replace the slow or paid steps (tests): generateVideo(opts),
  * generateImage(prompt, opts), editPicture(picture, instruction),
  * synthesize(text, voice), picture(clip, time), frame(time), editDeps (for
@@ -121,6 +121,21 @@ export function createAiToolRunner(ctx, services = {}) {
     else t = clip.start;
     t = Math.min(Math.max(t, clip.start), clip.start + clip.duration);
     return { picture: await svc.picture(clip, t), from: `clip ${clip.id} at ${secs(t)}`, clip };
+  }
+
+  /**
+   * The length in seconds a video call asks for, before it is fitted to the
+   * model: the one it names, else an animated image clip's own length
+   * (undefined: the default). The Allow card shows the same.
+   */
+  function videoSeconds(name, args) {
+    const a = args && typeof args === 'object' ? args : {};
+    if (Number.isFinite(num(a.seconds))) return num(a.seconds);
+    if (name === 'animate_image') {
+      const f = oneClip(a.clip, (c) => c.type === 'image', 'image clip');
+      if (!f.error) return f.clip.duration / US;
+    }
+    return undefined;
   }
 
   // ---- Putting media in the project ----------------------------------------------
@@ -302,7 +317,7 @@ export function createAiToolRunner(ctx, services = {}) {
       } catch (err) {
         return fail(err.message);
       }
-      const seconds = Number.isFinite(num(a.seconds)) ? num(a.seconds) : f.clip.duration / US;
+      const seconds = videoSeconds('animate_image', a);
       return makeVideo(control, { prompt, seconds, firstFrame: picture, sound: typeof a.sound === 'boolean' ? a.sound : undefined }, 'Animate picture', (asset) => {
         const now = T.findClip(store.project, id);
         if (!now || now.track.locked) return place(asset, { place: 'end' });
@@ -465,7 +480,7 @@ export function createAiToolRunner(ctx, services = {}) {
     }
   }
 
-  return { run };
+  return { run, videoSeconds };
 }
 
 const VIDEO_PAUSE = new Set(['animate_image', 'extend_clip', 'generate_transition', 'edit_image']);

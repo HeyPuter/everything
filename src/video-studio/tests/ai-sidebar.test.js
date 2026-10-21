@@ -177,6 +177,18 @@ describe('AI sidebar tools', () => {
     expect(v.costly).toBe(true);
   });
 
+  it('names the length and cost of animating an image clip that will be asked for', async () => {
+    const { ctx, main } = setup(clip('image', 0, 12));
+    const { runner, services } = runnerFor(ctx);
+    const args = { clip: main().clips[0].id, prompt: 'sway' };
+    const card = describeCall('animate_image', args, { videoModel: 'seedance25', seconds: runner.videoSeconds('animate_image', args) });
+    expect(card.detail).toBe('"sway" Made with Seedance 2.5, 12s long. About $2.78 in Puter credits.');
+    await runner.run('animate_image', args);
+    expect(services.generateVideo.mock.calls[0][0].seconds).toBe(12);
+    expect(runner.videoSeconds('animate_image', { ...args, seconds: 6 })).toBe(6);
+    expect(runner.videoSeconds('generate_video', { prompt: 'x' })).toBe(undefined);
+  });
+
   it('tells the model the project and its media', () => {
     const { store } = setup(clip('video', 0, 4));
     const snap = projectSnapshot(assistState(store), { now: new Date(2026, 9, 17), videoModel: 'Wan 2.7' });
