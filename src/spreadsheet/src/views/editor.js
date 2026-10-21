@@ -3183,7 +3183,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (grid.editing && !grid.acceptsRef() && !grid.commitEdit()) return; // mid-formula, the other sheet is for picking references
         const visible = wb.visibleSheets;
         const i = visible.findIndex((s) => s.id === wb.activeSheetId);
-        const next = visible[(i + (arg === 'prev' ? -1 : 1) + visible.length) % visible.length];
+        // At the first or last sheet it stays, as Excel does: held down, the keys go to the end, not round again.
+        const next = visible[i + (arg === 'prev' ? -1 : 1)];
         if (next && next.id !== wb.activeSheetId) wb.setActiveSheet(next.id);
         return;
       }
