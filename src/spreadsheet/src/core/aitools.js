@@ -994,6 +994,10 @@ function addDropdown(wb, args, env) {
 
 function manageSheet(wb, args, env) {
   const action = args.action;
+  // The workbook refuses these without a reason under Protect Workbook: an add read as done, a delete as the last sheet.
+  if (wb.structureProtected && ['add', 'rename', 'duplicate', 'delete'].includes(action)) {
+    throw new ToolError('The workbook\'s structure is protected, so sheets cannot be added, deleted, renamed or copied. The user can turn this off with Review ▸ Protect Workbook.');
+  }
   if (action === 'add') {
     const name = args.sheet ? String(args.sheet).trim() : null;
     if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
