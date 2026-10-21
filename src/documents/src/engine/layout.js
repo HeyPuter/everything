@@ -263,11 +263,12 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const textMeasure = page.rotatedCellText ? (text, style) => rotatedCellTextMetrics(measure(text, style), style) : measure;
         const hints = page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) };
         const run = () => measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges, hints, !cellEdges && keepBoundaryLine);
-        // Cells, rows wrapping around drawings, unequal columns and drawings themselves (whose objects
-        // keep their identity) are always measured again.
+        // A cell paragraph's key adds its cell edges and neighbours. Rows wrapping around drawings,
+        // unequal columns and drawings themselves (whose objects keep their identity) are always
+        // measured again.
         let key = null;
-        if (paragraphCache && !cellEdges && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
-          try { key = JSON.stringify([block.paragraph, pageKey(page), markers[block.index] ?? null, keepBoundaryLine, sharedKey]); } catch { key = null; }
+        if (paragraphCache && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
+          try { key = JSON.stringify([block.paragraph, pageKey(page), markers[block.index] ?? null, !cellEdges && keepBoundaryLine, edges ?? null, sharedKey]); } catch { key = null; }
         }
         const measured = key === null ? run() : paragraphCache.measure(key, block.offset, run);
         // Removing a floating frame from body flow must not join paragraph

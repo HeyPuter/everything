@@ -123,6 +123,30 @@ it('keeps reusing paragraphs on pages a square-wrapped picture does not reach', 
   expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
 });
 
+it('reuses table cell paragraphs that did not change, with the same layout as a fresh measurement', () => {
+  const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
+  doc.select(6); doc.insertTable(60, 3);
+  doc.paragraphs.filter(p => p.cellId).forEach((p, i) => { p.runs = [{ ...doc.paragraphs[0].runs[0], text: `Cell ${i} ${sentence(i)}` }]; });
+  const { measure, calls, cache } = cachedMeasure();
+  lay(doc, measure);
+  doc.select(2); doc.replace('typed ');
+  calls.length = 0;
+  cache.nextGeneration();
+  const edited = lay(doc, measure);
+  expect(edited.cells.length).toBeGreaterThanOrEqual(180);
+  expect(calls.some(text => text.includes('Cell 90 '))).toBe(false);
+  expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
+  // Typing in a cell measures that cell's paragraph again.
+  const cell = doc.text.indexOf('Cell 90 ') + 6;
+  doc.select(cell); doc.replace('x');
+  calls.length = 0;
+  cache.nextGeneration();
+  const typed = lay(doc, measure);
+  expect(calls.some(text => text.includes('Cell 9x0'))).toBe(true);
+  expect(calls.some(text => text.includes('Cell 91 '))).toBe(false);
+  expect(plain(typed)).toEqual(plain(lay(doc, metrics)));
+});
+
 afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); });
 it('the canvas editor forgets measured paragraphs whenever it forgets measurements', () => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
