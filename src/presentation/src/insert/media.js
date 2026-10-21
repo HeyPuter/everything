@@ -314,6 +314,7 @@ export function createMediaFeatures(ctx) {
       recorder = new MediaRecorder(stream);
       recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
       recorder.onstop = () => {
+        releasePlayer();
         blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         stopStream();
         status.textContent = `Recorded ${time.textContent}. Play it back, record again, or insert it.`;
@@ -335,10 +336,23 @@ export function createMediaFeatures(ctx) {
       stopBtn.focus();
     };
     stopBtn.onclick = () => recorder?.state === "recording" && recorder.stop();
+    // One URL plays the recording back however often Play is pressed; it
+    // goes with the recording.
+    let playUrl = null;
+    const releasePlayer = () => {
+      player?.pause();
+      player = null;
+      if (playUrl) URL.revokeObjectURL(playUrl);
+      playUrl = null;
+    };
     playBtn.onclick = () => {
       if (!blob) return;
-      player?.pause();
-      player = new Audio(URL.createObjectURL(blob));
+      if (!playUrl) {
+        playUrl = URL.createObjectURL(blob);
+        player = new Audio(playUrl);
+      }
+      player.pause();
+      player.currentTime = 0;
       player.play().catch(() => {});
     };
     let chosen = false;
@@ -363,7 +377,7 @@ export function createMediaFeatures(ctx) {
     });
     if (recorder?.state === "recording") recorder.stop();
     stopStream();
-    player?.pause();
+    releasePlayer();
     if (!chosen || !blob) return;
     // Recordings become WAV, which every presentation app plays.
     const decodeCtx = new AudioContext();

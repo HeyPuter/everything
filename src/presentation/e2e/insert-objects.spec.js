@@ -382,6 +382,41 @@ test("audio from a file and from a recording is saved as media", async ({
   expect(strFromU8(recorded.slice(0, 4))).toBe("RIFF");
 });
 
+test("playing a recording back keeps one copy of it, let go on closing", async ({
+  page,
+}) => {
+  // Every blob URL the page makes and has not revoked.
+  await page.addInitScript(() => {
+    const live = (window.liveBlobUrls = new Set());
+    const make = URL.createObjectURL;
+    const revoke = URL.revokeObjectURL;
+    URL.createObjectURL = (blob) => {
+      const url = make(blob);
+      live.add(url);
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      live.delete(url);
+      revoke(url);
+    };
+  });
+  await start(page);
+  const live = () => page.evaluate(() => window.liveBlobUrls.size);
+  const before = await live();
+  await commandMenu(page, "audio", "Audio sources");
+  await page.getByRole("menuitem", { name: "Record Audio…" }).click();
+  const record = page.getByRole("dialog", { name: "Record Sound" });
+  await record.getByRole("button", { name: "Record" }).click();
+  await page.waitForTimeout(700);
+  await record.getByRole("button", { name: "Stop" }).click();
+  for (let i = 0; i < 3; i++)
+    await record.getByRole("button", { name: "Play" }).click();
+  expect(await live()).toBe(before + 1);
+  await record.getByRole("button", { name: "Cancel" }).click();
+  await expect(record).toHaveCount(0);
+  expect(await live()).toBe(before);
+});
+
 test("header and footer apply to every slide", async ({ page }) => {
   await start(page);
   await command(page, "insert-new-slide");
