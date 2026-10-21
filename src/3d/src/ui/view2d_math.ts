@@ -63,3 +63,16 @@ export function edgePanSpeed(r: { left: number; top: number; right: number; bott
   if (x < r.left - far || x > r.right + far || y < r.top - far || y > r.bottom + far) return [0, 0];
   return [axis(x, r.left, r.right) * max, axis(y, r.top, r.bottom) * max];
 }
+
+/**
+ * Scroll bar position for a visible range [v0, v1] inside a content range [t0, t1] (the content
+ * is extended to include the visible range), on a track `track` pixels long.
+ */
+export function scrollerGeometry(ext: [number, number, number, number], track: number): { start: number; size: number } {
+  const [v0, v1, t0, t1] = ext;
+  const lo = Math.min(t0, v0),
+    hi = Math.max(t1, v1);
+  const span = Math.max(1e-9, hi - lo);
+  const t = Math.max(0, track);
+  return { start: ((v0 - lo) / span) * t, size: ((v1 - v0) / span) * t };
+}

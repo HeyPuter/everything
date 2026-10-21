@@ -35,3 +35,13 @@ describe('view2d math', () => {
     expect(edgePanSpeed(r, 2000, 150)).toEqual([0, 0]);
   });
 });
+
+describe('2D view scrollers', () => {
+  it('place the bar for the visible part of the content', async () => {
+    const { scrollerGeometry } = await import('../../src/ui/view2d_math');
+    expect(scrollerGeometry([0, 50, 0, 100], 200)).toEqual({ start: 0, size: 100 });
+    expect(scrollerGeometry([25, 75, 0, 100], 200)).toEqual({ start: 50, size: 100 });
+    // the content grows to include a view past its end
+    expect(scrollerGeometry([50, 150, 0, 100], 300)).toEqual({ start: 100, size: 200 });
+  });
+});

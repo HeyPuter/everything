@@ -21,6 +21,7 @@ import { assistantOpen } from '../assistant';
 import './screenops';
 import './view2d';
 import './view2d_hosts';
+import './view2d_scrollers';
 import { installRegionScale } from './regionscale';
 import { activeSceneId, sceneById } from '../scenes/scenes';
 import { switchScene } from '../scenes/switch';
@@ -216,6 +217,7 @@ export class Shell {
     }
     this.screen.update(new Set(['doc', 'ui']));
     this.drawTop();
+    app.changed('ui');
   }
 
   drawTop() {

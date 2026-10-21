@@ -138,3 +138,32 @@ test('View2D Buttons List: page keys scroll lists, Home resets', async ({ page }
   expect(await top()).toBeGreaterThan(0);
   await expectNoErrors(errors);
 });
+
+test('2D view scrollers: dragging the bar pans, dragging its end zooms', async ({ page }) => {
+  const errors = await openApp(page);
+  const bar = page.locator('.area[data-editor="TIMELINE"] .v2d-scroller.x');
+  await expect(bar).toBeVisible();
+  await hoverCanvas(page, 'TIMELINE');
+  const v0 = await timelineView(page);
+  const b = (await bar.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b.x + b.width / 2 - 40, b.y + b.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await hoverCanvas(page, 'TIMELINE');
+  const v1 = await timelineView(page);
+  // the bar moved left: the view shows earlier frames, same zoom
+  expect(v1.x0).toBeLessThan(v0.x0);
+  expect(v1.ppf).toBeCloseTo(v0.ppf, 6);
+  const b1 = (await bar.boundingBox())!;
+  await page.mouse.move(b1.x + b1.width - 2, b1.y + b1.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(b1.x + b1.width - 82, b1.y + b1.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await hoverCanvas(page, 'TIMELINE');
+  const v2 = await timelineView(page);
+  // shrinking the bar zooms in, keeping its left end
+  expect(v2.ppf).toBeGreaterThan(v1.ppf);
+  expect(v2.x0).toBeCloseTo(v1.x0, 3);
+  await expectNoErrors(errors);
+});

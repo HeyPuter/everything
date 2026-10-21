@@ -1,7 +1,7 @@
 // View2D hosts for the existing 2D editors, recognised by shape so the editors need no changes:
 // time/value views (Dope Sheet, Timeline, Graph, Drivers, NLA), the Sequencer timeline and the
 // scrolling button/row regions (Properties, Preferences, Outliner, Info, File Browser, Spreadsheet).
-import type { AreaLike } from '../app/app';
+import { app, type AreaLike } from '../app/app';
 import { view2dAdapters, type View2DHost, type ViewRect } from './view2d';
 
 interface TimeView {
@@ -85,7 +85,9 @@ function animHost(ed: AnimLike): View2DHost {
       const v = ed.view;
       const x0 = v.x0,
         x1 = v.xf(v.width);
-      const out: ReturnType<NonNullable<View2DHost['extent']>> = { x: [x0, x1, Math.min(x0, 0), Math.max(x1, 250)] };
+      // the content along time: the scene's frame range
+      const sc = app?.doc?.scene;
+      const out: ReturnType<NonNullable<View2DHost['extent']>> = { x: [x0, x1, sc?.frame_start ?? 1, sc?.frame_end ?? 250] };
       if (rows() && ed.list && ed.rowH) {
         const total = ed.list.rows.length * ed.rowH;
         const s = ed.scrollY ?? 0;
@@ -142,6 +144,10 @@ function seqHost(ed: SeqLike): View2DHost {
         ed.chH = Math.max(18, Math.min(56, H() / (r.ymax - r.ymin)));
         ed.cy0 = r.ymin;
       }
+    },
+    extent: () => {
+      const sc = app?.doc?.scene;
+      return { x: [ed.x0, ed.xf(W()), sc?.frame_start ?? 1, sc?.frame_end ?? 250] };
     },
     redraw: () => ed.redraw(),
   };

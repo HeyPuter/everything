@@ -270,3 +270,29 @@ body.edge-drag-hv,
 body.edge-drag-hv * {
   cursor: move !important;
 }
+
+/* View2D scrollers: thin bars along the bottom / right of 2D views */
+.v2d-scrollers {
+  position: absolute;
+  pointer-events: none;
+  z-index: 2;
+}
+.v2d-scroller {
+  position: absolute;
+  pointer-events: auto;
+  border-radius: 3px;
+  background: rgb(from var(--g-ff, #ffffff) r g b / 0.12);
+  transition: background 0.15s;
+}
+.v2d-scroller.x {
+  bottom: 3px;
+  height: 5px;
+}
+.v2d-scroller.y {
+  right: 3px;
+  width: 5px;
+}
+.v2d-scroller:hover,
+.v2d-scrollers.dragging .v2d-scroller {
+  background: rgb(from var(--g-ff, #ffffff) r g b / 0.3);
+}
