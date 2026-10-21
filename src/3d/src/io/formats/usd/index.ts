@@ -1,7 +1,8 @@
 // USD registration: File ▸ Import / Export ▸ Universal Scene Description (.usd*)
 import { zipSync } from 'three/examples/jsm/libs/fflate.module.js';
-import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, reportWarnings, APPLY_MODIFIERS } from '../glue';
-import { baseName } from '../common';
+import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, importCollection, reportWarnings, APPLY_MODIFIERS } from '../glue';
+import { exportTypes, filterExport, filterImport } from '../irfilter';
+import { baseName, stripExt } from '../common';
 import { readUsd, usdExternalFiles } from './read';
 import { packUsdz, writeUsda } from './write';
 import { app } from '../../../app/app';
@@ -15,6 +16,13 @@ defineFormat({
     { id: 'scale', label: 'Scale', type: 'float', default: 1, min: 0.0001, max: 10000 },
     { id: 'import_animation', label: 'Animation', type: 'bool', default: true },
     { id: 'set_frame_range', label: 'Set Frame Range', type: 'bool', default: true, description: 'Use the file\'s time range as the scene frame range' },
+    { id: 'import_meshes', label: 'Meshes', type: 'bool', default: true },
+    { id: 'import_cameras', label: 'Cameras', type: 'bool', default: true },
+    { id: 'import_lights', label: 'Lights', type: 'bool', default: true },
+    { id: 'import_materials', label: 'Materials', type: 'bool', default: true },
+    { id: 'read_mesh_uvs', label: 'UV Coordinates', type: 'bool', default: true },
+    { id: 'read_mesh_colors', label: 'Color Attributes', type: 'bool', default: true },
+    { id: 'create_collection', label: 'Create Collection', type: 'bool', default: false, description: 'Put the imported objects in a new collection named after the file' },
     {
       id: 'shading',
       label: 'Shading',
@@ -50,6 +58,13 @@ defineFormat({
       ],
     },
     APPLY_MODIFIERS,
+    { id: 'export_meshes', label: 'Meshes', type: 'bool', default: true },
+    { id: 'export_lights', label: 'Lights', type: 'bool', default: true },
+    { id: 'export_cameras', label: 'Cameras', type: 'bool', default: true },
+    { id: 'export_curves', label: 'Curves', type: 'bool', default: true },
+    { id: 'export_uvmaps', label: 'UV Maps', type: 'bool', default: true },
+    { id: 'export_mesh_colors', label: 'Color Attributes', type: 'bool', default: true },
+    { id: 'export_materials', label: 'Materials', type: 'bool', default: true },
     { id: 'export_armatures', label: 'Armatures (UsdSkel)', type: 'bool', default: true },
     { id: 'export_shapekeys', label: 'Shape Keys', type: 'bool', default: true },
     { id: 'export_animation', label: 'Animation', type: 'bool', default: false, description: 'Write the animation of the scene frame range as time samples' },
@@ -67,8 +82,8 @@ defineFormat({
   importData(src, o) {
     const ir = readUsd(src.bytes, { resources: src.resources });
     ir.unitScale *= Number(o.scale) || 1;
-    if (!o.import_animation) ir.animations = [];
-    commitToApp(ir, { shading: o.shading as 'NORMALS', setFrameRange: !!o.set_frame_range });
+    filterImport(ir, { animation: !!o.import_animation, meshes: !!o.import_meshes, cameras: !!o.import_cameras, lights: !!o.import_lights, materials: !!o.import_materials, uvs: !!o.read_mesh_uvs, colors: !!o.read_mesh_colors });
+    commitToApp(ir, { shading: o.shading as 'NORMALS', setFrameRange: !!o.set_frame_range, collection: o.create_collection ? importCollection(stripExt(src.name)) : undefined });
   },
   exportData(o, target) {
     const scene = exportSceneFromApp({
@@ -78,7 +93,9 @@ defineFormat({
       skins: !!o.export_armatures,
       shapeKeys: !!o.export_shapekeys,
       animation: !!o.export_animation,
+      types: exportTypes({ meshes: !!o.export_meshes, lights: !!o.export_lights, cameras: !!o.export_cameras, curves: !!o.export_curves, armatures: !!o.export_armatures }),
     });
+    filterExport(scene, { uvs: !!o.export_uvmaps, colors: !!o.export_mesh_colors, materials: !!o.export_materials });
     const out = writeUsda(scene, { upAxis: o.up_axis as 'Z', animation: !!o.export_animation, encodeImage: encodeImagePng });
     reportWarnings(out.warnings);
     const base = target.base;

@@ -1,8 +1,9 @@
 // glTF 2.0 registration: File ▸ Import / Export ▸ glTF 2.0 (.glb/.gltf)
-import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, packMetallicRoughnessPng, reportWarnings, APPLY_MODIFIERS } from '../glue';
+import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, importCollection, packMetallicRoughnessPng, reportWarnings, APPLY_MODIFIERS } from '../glue';
 import { externalUris, parseContainer, readGltf } from './read';
 import { writeGltf } from './write';
-import { baseName } from '../common';
+import { baseName, stripExt } from '../common';
+import { filterExport } from '../irfilter';
 
 defineFormat({
   id: 'gltf',
@@ -10,6 +11,8 @@ defineFormat({
   extensions: ['.glb', '.gltf'],
   description: 'Khronos glTF 2.0 binary or JSON (embedded or with external .bin/textures)',
   importOptions: [
+    { id: 'import_scene_as_collection', label: 'Create Collection', type: 'bool', default: false, description: 'Put the imported objects in a new collection named after the file' },
+    { id: 'import_select_created_objects', label: 'Select Imported Objects', type: 'bool', default: true },
     { id: 'merge_vertices', label: 'Merge Vertices', type: 'bool', default: false, description: 'Weld vertices with identical positions (sharp edges are kept where normals differ)' },
     {
       id: 'shading',
@@ -67,6 +70,18 @@ defineFormat({
       showIf: (v) => !!v.animation,
     },
     { id: 'scene_range', label: 'Use Scene Frame Range', type: 'bool', default: false, showIf: (v) => !!v.animation },
+    { id: 'export_texcoords', label: 'UVs', type: 'bool', default: true },
+    {
+      id: 'export_materials',
+      label: 'Materials',
+      type: 'enum',
+      default: 'EXPORT',
+      items: [
+        ['EXPORT', 'Export'],
+        ['PLACEHOLDER', 'Placeholder'],
+        ['NONE', 'No Export'],
+      ],
+    },
     { id: 'export_cameras', label: 'Cameras', type: 'bool', default: false },
     { id: 'export_lights', label: 'Punctual Lights', type: 'bool', default: false },
     { id: 'extras', bpy: 'export_extras', label: 'Custom Properties', type: 'bool', default: true },
@@ -91,7 +106,13 @@ defineFormat({
   },
   importData(src, o) {
     const ir = readGltf(src.bytes, { resources: src.resources });
-    commitToApp(ir, { mergeVertices: !!o.merge_vertices, shading: o.shading as 'NORMALS', boneDirection: o.bone_heuristic as 'AUTO' });
+    commitToApp(ir, {
+      mergeVertices: !!o.merge_vertices,
+      shading: o.shading as 'NORMALS',
+      boneDirection: o.bone_heuristic as 'AUTO',
+      select: !!o.import_select_created_objects,
+      collection: o.import_scene_as_collection ? importCollection(stripExt(src.name)) : undefined,
+    });
   },
   exportData(o, target) {
     const scene = exportSceneFromApp({
@@ -104,6 +125,9 @@ defineFormat({
       sceneFrameRange: !!o.scene_range,
       types: ['MESH', 'CURVE', 'FONT', 'EMPTY', 'ARMATURE', ...(o.export_cameras ? (['CAMERA'] as const) : []), ...(o.export_lights ? (['LIGHT'] as const) : [])],
     });
+    // "Placeholder" keeps the material slots (a default material) without their settings
+    filterExport(scene, { uvs: !!o.export_texcoords, materials: o.export_materials !== 'NONE' });
+    if (o.export_materials === 'PLACEHOLDER') for (const m of scene.materials.values()) Object.assign(m, { baseColor: [0.8, 0.8, 0.8, 1], metallic: 0, roughness: 0.5, baseColorTex: undefined, metallicTex: undefined, roughnessTex: undefined, normalTex: undefined, emissiveTex: undefined, emissive: undefined, alphaTex: undefined });
     // a written path ending in .gltf asks for the JSON variant
     const glb = target.path && /\.gltf$/i.test(target.path) ? false : o.format !== 'GLTF_EMBEDDED';
     const res = writeGltf(scene, {

@@ -183,3 +183,32 @@ describe('format operators', () => {
     expect(out.split('\n')).toEqual(['8', '3']);
   });
 });
+
+describe('content options', () => {
+  it('leaves cameras, lights or materials out of imports and exports', () => {
+    js(`
+      for (const o of [...bpy.data.objects]) bpy.data.objects.remove(o);
+      bpy.ops.mesh.primitive_cube_add();
+      const m = bpy.data.materials.new('Red');
+      bpy.context.object.data.materials.append(m);
+      bpy.ops.object.camera_add({ location: [0, -5, 0] });
+      bpy.ops.object.light_add({ type: 'POINT' });
+      bpy.ops.wm.usd_export({ filepath: '/tmp/all.usda' });
+      bpy.ops.wm.usd_export({ filepath: '/tmp/nocam.usda', export_cameras: false, export_materials: false });
+      bpy.ops.export_scene.gltf({ filepath: '/tmp/nomat.gltf', export_materials: 'NONE' });
+    `);
+    const all = new TextDecoder().decode(vfsRead('/tmp/all.usda')!);
+    const nocam = new TextDecoder().decode(vfsRead('/tmp/nocam.usda')!);
+    expect(all).toMatch(/def Camera/);
+    expect(nocam).not.toMatch(/def Camera/);
+    expect(nocam).not.toMatch(/def Material/);
+    expect(JSON.parse(new TextDecoder().decode(vfsRead('/tmp/nomat.gltf')!)).materials ?? []).toEqual([]);
+    js(`
+      for (const o of [...bpy.data.objects]) bpy.data.objects.remove(o);
+      bpy.ops.wm.usd_import({ filepath: '/tmp/all.usda', import_cameras: false, import_lights: false, create_collection: true });
+    `);
+    const types = Object.values(app.doc.objects).map((o) => o.type).sort();
+    expect(types.filter((t) => t === 'CAMERA' || t === 'LIGHT')).toEqual([]);
+    expect(Object.values(app.doc.collections).some((c) => c.name === 'all')).toBe(true);
+  });
+});

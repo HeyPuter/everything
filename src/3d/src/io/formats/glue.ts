@@ -5,6 +5,8 @@ import type { ImageData } from '../../data/types';
 import { imageCanvas, imageReady } from '../../render/images';
 import { encodePngRgba } from './pngsync';
 import { activeCollection, setMode } from '../../ops/object';
+import { newCollection } from '../../data/defaults';
+import { uniqueName } from './common';
 import { commitScene, type CommitOptions } from './to-document';
 import type { IRScene } from './ir';
 import { buildExportScene, type ExportOptions, type ExportScene } from './scene-builder';
@@ -21,6 +23,15 @@ export function commitToApp(ir: IRScene, opts: CommitOptions = {}) {
   if (!res.objects.length) app.report('WARNING', 'The file contained no importable objects');
   app.changed('doc', 'select');
   return res;
+}
+
+/** A new collection (child of the active one) that an import goes into ("Create Collection"). */
+export function importCollection(name: string): string {
+  const doc = app.doc;
+  const c = newCollection(uniqueName(doc, name || 'Import', 'collections'));
+  doc.collections[c.id] = c;
+  doc.collections[activeCollection(doc)]?.children.push(c.id);
+  return c.id;
 }
 
 export function exportSceneFromApp(opts: ExportOptions): ExportScene {
