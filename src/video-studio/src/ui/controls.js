@@ -100,9 +100,10 @@ export function sliderField({ label, min = 0, max = 100, step = 1, value = 0, un
   return {
     el,
     input: range,
+    /** Show a stored value; a focused control keeps its text but steps from v. */
     set(v) {
-      if (document.activeElement === range || document.activeElement === num) return;
       last = Number(v);
+      if (document.activeElement === range || document.activeElement === num) return;
       range.value = String(v);
       num.value = fmt(v);
       pct(range);

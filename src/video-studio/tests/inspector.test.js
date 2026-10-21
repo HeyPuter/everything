@@ -603,4 +603,24 @@ describe('number boxes', () => {
     arrow(field('Rotate').querySelector('.num-input'), 'ArrowDown');
     expect(clip(env.v1.id).transform.rotation).toBe(719);
   });
+
+  it('arrow keys step from the current value after undo and playhead moves', () => {
+    env.store.select(env.v1.id);
+    drag(range('Scale'), [279]);
+    range('Scale').focus();
+    env.store.undo();
+    const num = field('Scale').querySelector('.num-input');
+    num.focus();
+    arrow(num, 'ArrowUp');
+    expect(clip(env.v1.id).transform.scale).toBeCloseTo(1.01);
+    // A keyframed value follows the playhead.
+    env.store.seek(1 * US);
+    field('Scale').querySelector('.kf-btn').click();
+    env.store.seek(3 * US);
+    drag(range('Scale'), [300]);
+    num.focus();
+    env.store.seek(1 * US);
+    arrow(num, 'ArrowUp');
+    expect(clip(env.v1.id).keyframes.scale.find((k) => k.t === 1 * US).v).toBeCloseTo(1.02);
+  });
 });
