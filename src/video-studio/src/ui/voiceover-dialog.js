@@ -37,6 +37,8 @@ export function openVoiceoverDialog(ctx) {
   let countdownTimer = 0;
   let tick = 0;
   let startAt = 0;
+  let opening = 0; // newest microphone request; older ones are stopped when they arrive
+  let closed = false;
   const recorder = new VoiceRecorder();
 
   const message = h('div.vo-message', { role: 'alert' });
@@ -111,15 +113,19 @@ export function openVoiceoverDialog(ctx) {
 
   async function reopen() {
     if (state !== 'idle') return;
+    const my = ++opening;
+    const stale = () => closed || my !== opening;
     closeStream();
     if (!recordingSupported()) {
       showError(globalThis.isSecureContext === false ? 'Recording needs a secure (https) connection.' : 'Your browser cannot record audio.', false);
       return;
     }
     status.textContent = 'Waiting for microphone access...';
+    let mic;
     try {
-      stream = await openMicrophone(opts);
+      mic = await openMicrophone(opts);
     } catch (err) {
+      if (stale()) return;
       // A remembered device that is gone falls back to the default one.
       if (opts.deviceId && (err?.name === 'OverconstrainedError' || err?.name === 'NotFoundError')) {
         opts.deviceId = '';
@@ -130,13 +136,16 @@ export function openVoiceoverDialog(ctx) {
       showError(micErrorMessage(err));
       return;
     }
-    if (!open) {
-      closeStream();
+    if (stale()) {
+      stopStream(mic);
       return;
     }
+    stream = mic;
     clearError();
     status.textContent = '';
     const mics = await listMicrophones();
+    // Closing or a newer request has already stopped this stream.
+    if (stale()) return;
     const current = stream.getAudioTracks()[0]?.getSettings?.().deviceId || opts.deviceId;
     micSelect.replaceChildren(...(mics.length ? mics : [{ deviceId: '', label: 'Default microphone' }]).map((m) => h('option', { value: m.deviceId, selected: m.deviceId === current }, m.label)));
     try {
@@ -270,6 +279,7 @@ export function openVoiceoverDialog(ctx) {
   function cleanup() {
     prompter.dispose();
     open = null;
+    closed = true;
     clearTimeout(countdownTimer);
     clearInterval(tick);
     offTime();

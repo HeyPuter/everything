@@ -233,7 +233,12 @@ export function openRecordDialog(ctx, { mode, folder = null } = {}) {
       }
       if (opts.screenMic && opts.micId !== 'none') {
         try {
-          micStream = await openMic(opts.micId);
+          const mic = await openMic(opts.micId);
+          if (!open || my !== opening) {
+            stopStream(mic);
+            return;
+          }
+          micStream = mic;
         } catch (err) {
           if (my !== opening) return;
           showError(captureErrorMessage(err, 'camera').replace(/camera/gi, 'microphone'));
