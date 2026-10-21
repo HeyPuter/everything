@@ -256,7 +256,7 @@ export function createTopbar(ctx) {
     fitStatus();
     // Where the status has no room (phones, narrow tablets), a failed save still has to be seen.
     if (s === 'error' && !errorNote && status.clientWidth < 40) errorNote = toast("Couldn't save your changes. Retrying...", { kind: 'error', duration: 8000 });
-    else if (s !== 'error' && errorNote) {
+    else if (s === 'saved' && errorNote) {
       errorNote.remove();
       errorNote = null;
     }

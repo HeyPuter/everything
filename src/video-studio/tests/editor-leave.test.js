@@ -191,8 +191,10 @@ describe('a failed save where the status has no room', () => {
     await open();
     document.querySelectorAll('.toast').forEach((t) => t.remove());
     editor.saver.emit('status', { status: 'error' });
-    editor.saver.emit('status', { status: 'error' }); // the retry failed too: still one note
+    editor.saver.emit('status', { status: 'saving' }); // the retry...
+    editor.saver.emit('status', { status: 'error' }); // ...failed too: still one note
     expect(errorToasts()).toEqual(["Couldn't save your changes. Retrying..."]);
+    expect(document.querySelectorAll('.toast.error')).toHaveLength(1); // not taken away and shown again
     editor.saver.emit('status', { status: 'saved', at: Date.now() });
     await settle(250);
     expect(errorToasts()).toEqual([]);
