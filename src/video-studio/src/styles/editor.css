@@ -433,6 +433,11 @@
   margin-top: -4px;
 }
 
+.tile-sub.missing,
+.media-row-used.missing {
+  color: var(--danger);
+}
+
 .tile-badge {
   position: absolute;
   right: 4px;

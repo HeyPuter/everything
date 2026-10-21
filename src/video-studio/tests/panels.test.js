@@ -11,6 +11,7 @@ import { allClips, mainTrack } from '../src/model/timeline.js';
 import { makeClip } from '../src/model/project.js';
 import { createCompound } from '../src/model/compound.js';
 import { fixture } from './helpers.js';
+import { Emitter } from '../src/lib/emitter.js';
 
 const KEY = 'video-studio:prefs';
 const stored = () => JSON.parse(localStorage.getItem(KEY) || '{}');
@@ -157,10 +158,12 @@ describe('media tab', () => {
 
   function mount(p = fixture()) {
     store = new EditorStore(p);
-    const ctx = { store, player: null, library: { backend: { kind: 'memory' } }, media: { poster: () => Promise.resolve(null) } };
+    const media = Object.assign(new Emitter(), { poster: () => Promise.resolve(null), missing: new Set() });
+    const ctx = { store, player: null, library: { backend: { kind: 'memory' } }, media };
     ctx.actions = createActions(ctx);
     actions = ctx.actions;
     tab = mediaTab(ctx);
+    tab.ctx = ctx;
     document.body.append(tab.el);
     return tab;
   }
@@ -246,6 +249,21 @@ describe('media tab', () => {
     expect(document.querySelector('dialog[open]')).toBeNull();
     expect(document.querySelector('.toast')?.textContent).toContain('vid is also used outside this compound clip');
     expect(store.project.assets.vid).toBeTruthy();
+  });
+
+  it('marks media whose file is missing', async () => {
+    mount();
+    tab.el.querySelector('[data-cat="project"]').click();
+    const vidTile = () => [...tab.el.querySelectorAll('.tile')].find((t) => t.querySelector('.tile-label')?.textContent === 'vid');
+    expect(vidTile().querySelector('.tile-sub.missing')).toBeNull();
+    const media = tab.ctx.media;
+    store.project.assets.vid.hash = 'hv';
+    media.missing = new Set(['hv']);
+    media.emit('missing');
+    await flush();
+    await new Promise((r) => setTimeout(r, 120));
+    expect(vidTile().querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+    expect(vidTile().getAttribute('aria-label')).toContain('file missing');
   });
 
   it('describes media facts', () => {

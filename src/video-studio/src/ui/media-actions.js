@@ -89,6 +89,15 @@ const ACCEPT = { video: 'video/*,.mkv,.mov,.m4v,.webm', audio: 'audio/*,.mp3,.wa
 
 export function createMediaActions(ctx) {
   const { store } = ctx;
+  /** Tell the media panel which files are missing. */
+  const markMissing = (list) => {
+    const media = ctx.media;
+    if (!media?.missing) return;
+    const next = new Set(list.map((x) => x.hash));
+    if (next.size === media.missing.size && [...next].every((x) => media.missing.has(x))) return;
+    media.missing = next;
+    media.emit?.('missing');
+  };
   const a = {
     async removeUnusedMedia() {
       // Inside a compound clip, media used anywhere in the project counts.
@@ -165,6 +174,26 @@ export function createMediaActions(ctx) {
       return asset;
     },
 
+    /**
+     * Find the project's media whose file is missing and mark it in the media
+     * panel. notify: say so with a way to relink (when a project opens).
+     * Resolves the number missing (0 when the check could not run).
+     */
+    async checkMissingMedia({ notify = false } = {}) {
+      const assets = Object.values(store.project.assets);
+      if (!assets.length) return 0;
+      let missing;
+      try {
+        missing = await ctx.library.missingMedia(assets);
+      } catch {
+        return 0;
+      }
+      markMissing(missing);
+      const n = missing.length;
+      if (n && notify) toast(`${n} media file${n === 1 ? ' is' : 's are'} missing. Their clips show as black or silent.`, { kind: 'error', duration: 10000, action: { label: 'Find files', onClick: () => a.findMissingMedia() } });
+      return n;
+    },
+
     /** Check every asset's file in storage and offer to relink the missing ones. */
     async findMissingMedia() {
       let missing;
@@ -175,6 +204,7 @@ export function createMediaActions(ctx) {
         toast("Couldn't check the media files. Check your connection and try again.", { kind: 'error' });
         return [];
       }
+      markMissing(missing);
       if (!missing.length) {
         toast('All media files are present.', { kind: 'success' });
         return [];

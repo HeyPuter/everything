@@ -453,20 +453,25 @@ export function mediaTab(ctx) {
     return { kind: 'asset', assetId: a.id, assetIds: ids };
   }
 
+  /** The file of this media is not in storage (see actions.checkMissingMedia). */
+  const isMissing = (a) => Boolean(a.hash && media?.missing?.has(a.hash));
+
   function assetTile(a, used, showFolder) {
+    const missing = isMissing(a);
     const t = tile({
       label: a.name,
       preview: a.kind === 'audio' ? h('span.tile-audio', icon('music', 26)) : posterCanvas(a, 160, 90),
       badge: a.kind === 'image' ? null : clock(a.duration),
-      sub: used ? 'Added' : showFolder && a.folder ? findBin(store.project, a.folder)?.name : null,
+      sub: missing ? 'File missing' : used ? 'Added' : showFolder && a.folder ? findBin(store.project, a.folder)?.name : null,
       selected: selection.has(a.id),
       onSelect: (e) => clickAsset(a, e),
       onAdd: () => actions.addAsset(a),
       drag: () => dragData(a),
-      addLabel: `${a.name}, ${assetFacts(a)}${used ? ', on the timeline' : ''}. Press Enter to add to the timeline`,
+      addLabel: `${a.name}, ${assetFacts(a)}${missing ? ', file missing' : ''}${used ? ', on the timeline' : ''}. Press Enter to add to the timeline`,
       plusLabel: `Add ${a.name} to timeline`,
     });
     t.dataset.asset = a.id;
+    if (missing) t.querySelector('.tile-sub')?.classList.add('missing');
     if (canProxy(a)) paintProxy(t.querySelector('.tile-preview').appendChild(proxyBadge(a)));
     t.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -476,12 +481,13 @@ export function mediaTab(ctx) {
   }
 
   function assetRow(a, used, showFolder) {
+    const missing = isMissing(a);
     const thumb = a.kind === 'audio' ? h('span.media-row-thumb.audio', icon('music', 16)) : h('span.media-row-thumb', posterCanvas(a, 64, 36));
     const btn = h(`button.media-row${selection.has(a.id) ? '.selected' : ''}`, {
       type: 'button',
       draggable: 'true',
       'aria-pressed': String(selection.has(a.id)),
-      'aria-label': `${a.name}, ${assetFacts(a)}${used ? ', on the timeline' : ''}. Press Enter to add to the timeline`,
+      'aria-label': `${a.name}, ${assetFacts(a)}${missing ? ', file missing' : ''}${used ? ', on the timeline' : ''}. Press Enter to add to the timeline`,
       'data-asset': a.id,
     },
     thumb,
@@ -490,7 +496,7 @@ export function mediaTab(ctx) {
       h('span.media-row-facts', { 'aria-hidden': 'true' }, icon(KIND_ICON[a.kind] || 'film', 12), assetFacts(a), showFolder && a.folder ? ` · ${findBin(store.project, a.folder)?.name || ''}` : ''),
     ),
     canProxy(a) ? proxyBadge(a) : null,
-    used ? h('span.media-row-used', { 'aria-hidden': 'true' }, 'Added') : null,
+    missing ? h('span.media-row-used.missing', { 'aria-hidden': 'true' }, 'File missing') : used ? h('span.media-row-used', { 'aria-hidden': 'true' }, 'Added') : null,
     );
     btn.addEventListener('click', (e) => clickAsset(a, e));
     btn.addEventListener('dblclick', () => actions.addAsset(a));
@@ -765,6 +771,7 @@ export function mediaTab(ctx) {
   });
 
   const offProxies = proxies?.on('change', ({ hash } = {}) => repaintProxies(hash));
+  const offMissing = media?.on?.('missing', refreshSoon);
 
   return {
     el: layout.el,
@@ -773,6 +780,7 @@ export function mediaTab(ctx) {
     dispose() {
       off();
       offProxies?.();
+      offMissing?.();
       gen?.dispose?.();
       layout.dispose();
     },

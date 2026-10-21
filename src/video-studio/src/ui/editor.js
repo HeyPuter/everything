@@ -173,6 +173,8 @@ export class Editor {
     this._coverTimer = null;
     store.on('change', () => this._scheduleCover());
     this._watchProxies();
+    // Media whose file is gone would just show black: say so and offer to relink.
+    ctx.actions.checkMissingMedia?.({ notify: true });
   }
 
   _resizer(dir, which) {

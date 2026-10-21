@@ -149,3 +149,21 @@ describe('closing the editor', () => {
     expect(svc.posters.size).toBe(0);
   });
 });
+
+describe('opening the editor', () => {
+  it('checks for missing media files and marks them in the media panel', async () => {
+    const library = new Library(memoryBackend());
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    p.assets.vid.hash = 'hv';
+    p.assets.vid.ext = 'mp4';
+    for (const id of ['silent', 'aud', 'img']) delete p.assets[id];
+    await library.saveProject(p);
+    editor = new Editor(root, { library, project: p, account: {}, onExit() {}, onNewProject() {} });
+    await settle(150);
+    expect(editor.media.missing.has('hv')).toBe(true);
+    root.querySelector('[data-cat="project"]')?.click();
+    await settle(50);
+    expect(root.querySelector('.tile-sub.missing')?.textContent).toBe('File missing');
+  });
+});

@@ -3,6 +3,7 @@ import { unusedAssets, swapAsset, createMediaActions } from '../src/ui/media-act
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
+import { MediaService } from '../src/media/media-service.js';
 import { createCompound } from '../src/model/compound.js';
 import { normalizeAsset, normalizeProject } from '../src/model/project.js';
 import { fixture, clip, onMain, addAsset, s } from './helpers.js';
@@ -101,6 +102,32 @@ describe('find missing media', () => {
     expect(missing.map((a) => a.id).sort()).toEqual(['img', 'silent']);
     expect(reads).toBe(0);
     expect(document.querySelector('dialog[open]')?.textContent).toContain('2 files are missing');
+  });
+
+  it('checks on open, marks the missing files and offers to find them', async () => {
+    const { store, library } = setup();
+    const media = new MediaService(library);
+    const events = [];
+    media.on('missing', () => events.push([...media.missing].sort()));
+    const actions = createMediaActions({ store, library, media });
+    expect(await actions.checkMissingMedia({ notify: true })).toBe(2);
+    expect(events).toEqual([['h3', 'h4']]);
+    const t = [...document.querySelectorAll('.toast')].at(-1);
+    expect(t.textContent).toContain('2 media files are missing');
+    t.querySelector('.toast-action').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('dialog[open]')?.textContent).toContain('Missing media');
+  });
+
+  it('says nothing on open when every file is there', async () => {
+    const { store, library, backend } = setup();
+    backend.files.set('media/h3.mp4', new Blob(['i']));
+    backend.files.set('media/h4.mp4', new Blob(['s']));
+    const before = document.querySelectorAll('.toast').length;
+    const media = new MediaService(library);
+    expect(await createMediaActions({ store, library, media }).checkMissingMedia({ notify: true })).toBe(0);
+    expect(document.querySelectorAll('.toast').length).toBe(before);
+    expect(media.missing.size).toBe(0);
   });
 
   it('does not count files that are still uploading as missing', async () => {
