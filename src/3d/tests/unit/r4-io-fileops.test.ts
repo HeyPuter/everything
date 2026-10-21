@@ -105,3 +105,24 @@ describe('collection exporters', () => {
     expect(new TextDecoder().decode(vfsRead('/tmp/props.stl')!)).toMatch(/^solid/);
   });
 });
+
+describe('cache files and sounds', () => {
+  it('mixes channels down to mono', async () => {
+    const { downmix } = await import('../../src/io/cacheops');
+    expect(Array.from(downmix([Float32Array.from([1, 0]), Float32Array.from([0, 1])]))).toEqual([0.5, 0.5]);
+  });
+  it('reloads an Alembic cache from the session files', async () => {
+    const { reloadCache } = await import('../../src/io/cacheops');
+    js(`
+      for (const o of [...bpy.data.objects]) bpy.data.objects.remove(o);
+      bpy.ops.mesh.primitive_cube_add();
+      bpy.ops.wm.alembic_export({ filepath: '/tmp/cache.abc' });
+    `);
+    const ob = Object.values(app.doc.objects)[0];
+    const m = { type: 'MESH_SEQUENCE_CACHE', filepath: 'cache.abc' } as never;
+    expect(reloadCache(m)).toBe(true);
+    expect((m as { _abc_paths: string[] })._abc_paths.length).toBe(1);
+    expect(reloadCache({ type: 'MESH_SEQUENCE_CACHE', filepath: 'missing.abc' } as never)).toBe(false);
+    void ob;
+  });
+});

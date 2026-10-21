@@ -12,3 +12,4 @@ import '../blend/index';
 // File-level operators of the io area (External Data, Data Previews, collection exporters)
 import '../fileops';
 import '../collectionexport';
+import '../cacheops';
