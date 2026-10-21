@@ -3089,6 +3089,11 @@ export function createEditor({
   }
   const onFullscreen = () => {
     editorRoot.classList.toggle('full-screen', !!document.fullscreenElement);
+    // Full screen shows the pages alone. A control left with the focus outside them (the View
+    // menu's name, after choosing it there) would take the keys meant for reading on.
+    const shown = document.fullscreenElement;
+    if (shown && editorRoot.contains(shown) && !shown.contains(document.activeElement))
+      workspace.focus({ preventScroll: true });
     setTimeout(refitPage, 50);
   };
   document.addEventListener('fullscreenchange', onFullscreen);

@@ -97,3 +97,14 @@ test('closing the PDF from full screen keeps the message box for the library', a
     await page.evaluate(() => document.querySelector('#toast').parentElement === document.body),
   ).toBe(true);
 });
+
+test('full screen chosen from the View menu reads on with the keyboard', async ({ page }) => {
+  await openLinkedPdf(page);
+  // Full screen shows the pages alone: the menu name that had the focus is out of sight there.
+  await enterFullScreen(page);
+  await expect
+    .poll(() => page.evaluate(() => document.fullscreenElement.contains(document.activeElement)))
+    .toBe(true);
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+});
