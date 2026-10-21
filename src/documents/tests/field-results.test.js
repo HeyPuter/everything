@@ -96,6 +96,24 @@ it.each([
   expect(bodyFieldRanges(doc.paragraphs).map(r => [r.field.type, doc.text.slice(r.start, r.end), r.parentId ?? null])).toEqual([[type, result, null], ['DATE', '2026', null]]);
 });
 
+it('deletes the text between two fields inserted out of text order, and saves them side by side', async () => {
+  const { pkg, doc } = blank();
+  doc.replace('Start middle end');
+  doc.select(13); insertBodyField(doc, fieldInstruction({ name: 'DATE' }), '2026');
+  doc.select(6); insertBodyField(doc, fieldInstruction({ name: 'AUTHOR' }), 'Sam');
+  const fields = d => bodyFieldRanges(d.paragraphs).map(r => [r.field.type, d.text.slice(r.start, r.end)]);
+  const [author, date] = bodyFieldRanges(doc.paragraphs);
+  // The fields' ends met at one position and crossed: "Unmatched body field boundary."
+  doc.select(author.end, date.start); doc.replace('');
+  expect(doc.text).toBe('Start Sam2026end');
+  expect(fields(doc)).toEqual([['AUTHOR', 'Sam'], ['DATE', '2026']]);
+  // Emptied the same way, a field stays before the one that followed it.
+  doc.select(6, 9); doc.replace('');
+  expect(fields(doc)).toEqual([['AUTHOR', ''], ['DATE', '2026']]);
+  const reopened = await DocxPackage.open(new Uint8Array(await (await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets)).arrayBuffer()));
+  expect(fields(new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets))).toEqual(fields(doc));
+});
+
 it('inserts DATE and AUTHOR fields that save as fields, reopen editable and update in place', async () => {
   const { pkg, doc } = blank();
   doc.replace('Signed on  by .');

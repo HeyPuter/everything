@@ -76,7 +76,27 @@ export function replacedBodyFields(ranges, start, end, inserted, discardContaine
     else if (r.start <= start && end <= r.end) result.push({ ...r, end:r.end+delta });
     else throw new Error('Editing across part of a body field boundary is not supported yet.');
   }
-  return result;
+  return inTextOrder(ranges, result);
+}
+
+// Markers at one position are ordered by their `order`, which follows the order fields were inserted in,
+// not their order in the text. Field boundaries an edit brings together (deleting the text between two
+// fields) keep the order they had in the text: the order values they hold are handed out again in it.
+function inTextOrder(before, after) {
+  const old = new Map(before.map(r => [r.field.id, r])), atPosition = new Map();
+  for (const [index, r] of after.entries()) for (const key of ['start', 'end']) {
+    const was = old.get(r.field.id), marker = { index, key: key + 'Order', order: r[key + 'Order'] ?? 0, was: [was[key], was[key + 'Order'] ?? 0] };
+    if (!atPosition.has(r[key])) atPosition.set(r[key], []);
+    atPosition.get(r[key]).push(marker);
+  }
+  for (const group of atPosition.values()) {
+    if (group.length < 2) continue;
+    const orders = group.map(m => m.order).sort((a, b) => a - b);
+    group.sort((a, b) => a.was[0] - b.was[0] || a.was[1] - b.was[1]).forEach((m, i) => {
+      if (m.order !== orders[i]) after[m.index] = { ...after[m.index], [m.key]: orders[i] };
+    });
+  }
+  return after;
 }
 
 export function macroButtonSelection(ranges, start, end) {
