@@ -347,10 +347,19 @@ it('joins a radio button to the group it is named after, as placed buttons are g
   const second = await place(80);
   const third = await place(110);
   expect(await updateFormField(doc, second, { name: first, widgetIndex: 0 })).toBe(first);
-  // An export value asked for at the same time is kept.
+  // An export value asked for at the same time is kept. A button on in its own group is off
+  // in a group that has another value.
+  await updateFormField(doc, third, { checked: true, widgetIndex: 0 });
   expect(
     await updateFormField(doc, third, { name: first, widgetIndex: 0, exportValue: 'Other' }),
   ).toBe(first);
+  const states = () =>
+    doc
+      .getForm()
+      .getRadioGroup(first)
+      .acroField.getWidgets()
+      .map((w) => w.getAppearanceState()?.decodeText());
+  expect(states()).toEqual(['Off', 'Off', 'Off']);
   expect(listFormFields(doc).map((f) => [f.name, f.props.exportValue])).toEqual([
     [first, 'Choice 1'],
     [first, 'Choice 2'],
@@ -414,6 +423,25 @@ it('keeps the drawing of a signed signature field when it is moved or changed', 
   await moveFormWidget(doc, 'Sig', 0, rect(60, 50, 150, 40));
   expect(widget.dict.lookup(name('AP')).get(name('N'))).toBe(drawing);
   expect(listFormFields(doc)[0].props).toMatchObject({ signed: true, tooltip: 'Signed by Ada' });
+});
+
+it('keeps the picture of a button when it is renamed, retitled, or moved', async () => {
+  await mockTextFont();
+  const source = await blank();
+  const logo = await source.embedPng(await readFile(new URL('../icon.png', import.meta.url)));
+  const button = source.getForm().createButton('Logo');
+  button.addToPage('', source.getPage(0), { x: 50, y: 600, width: 64, height: 64 });
+  button.setImage(logo);
+  const doc = await PDFDocument.load(await source.save());
+  const widget = () => doc.getForm().getFields()[0].acroField.getWidgets()[0];
+  const drawing = () => widget().dict.lookup(name('AP')).get(name('N'));
+  const original = drawing();
+  await updateFormField(doc, 'Logo', { tooltip: 'Company logo', required: true, name: 'Brand' });
+  await moveFormWidget(doc, 'Brand', 0, rect(80, 500, 64, 64));
+  expect(drawing()).toBe(original);
+  // A new size is drawn anew.
+  await moveFormWidget(doc, 'Brand', 0, rect(80, 500, 96, 64));
+  expect(drawing()).not.toBe(original);
 });
 
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {

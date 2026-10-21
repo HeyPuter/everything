@@ -1327,6 +1327,22 @@ export function listFormFields(doc) {
   });
 }
 
+/** Properties that do not change how a field is drawn. */
+const UNDRAWN = new Set([
+  'name',
+  'widgetIndex',
+  'tooltip',
+  'required',
+  'readOnly',
+  'format',
+  'decimals',
+  'dateFormat',
+  'spellcheck',
+  'scroll',
+  'editable',
+  'multiSelect',
+  'action',
+]);
 /**
  * Change a field's properties and redraw it. Accepts the props addFormField takes, plus
  * `name` (rename: dots move the field to that group; a taken name gets _2...), `label`
@@ -1411,7 +1427,10 @@ export async function updateFormField(doc, fieldName, props = {}) {
       if (!props.checked) dict.delete(name('DV'));
     }
   }
-  await refreshAppearances(doc, wrapField(doc, field.ref));
+  // A drawing is redone only for what it shows: a picture on a button, or the look another
+  // tool gave a check box, stays when only the name, tooltip, or behavior changes.
+  if (Object.entries(props).some(([key, value]) => value !== undefined && !UNDRAWN.has(key)))
+    await refreshAppearances(doc, wrapField(doc, field.ref));
   return result;
 }
 
@@ -1437,7 +1456,10 @@ function joinRadioGroup(doc, field, group, props) {
     const asked = props.exportValue !== undefined && (props.widgetIndex ?? 0) === i;
     let value = asked ? String(props.exportValue) : exports[i];
     for (let n = index + 1; !asked && taken.has(value); n++) value = `Choice ${n}`;
-    renameState(doc, group, widgets[index], setWidgetExport(doc, group, index, value));
+    const state = setWidgetExport(doc, group, index, value);
+    renameState(doc, group, widgets[index], state);
+    // A button that was on in its own group is on here only when the group's value is its.
+    widgets[index].setAppearanceState(inherited(group.acroField.dict, 'V') === state ? state : OFF);
     if (i === (props.widgetIndex ?? 0)) chosen = index;
   });
   return chosen;
@@ -1459,7 +1481,13 @@ export async function moveFormWidget(doc, fieldName, widgetIndex = 0, rect) {
     name('Rect'),
     doc.context.obj([box.x, box.y, box.x + box.width, box.y + box.height].map(round)),
   );
-  await refreshAppearances(doc, field);
+  // A widget moved without resizing shows its drawing as it was, wherever it now sits.
+  if (
+    !before ||
+    Math.abs(before.width - box.width) > 1e-3 ||
+    Math.abs(before.height - box.height) > 1e-3
+  )
+    await refreshAppearances(doc, field);
 }
 
 /**
