@@ -25,6 +25,7 @@ if (puter && !puter.workers) {
     async write(path, value) { files.set(path, typeof value === 'string' ? value : await value.arrayBuffer()); return { path }; },
     async read(path) { if (!files.has(path)) throw new Error('missing'); return new Blob([files.get(path)]); },
     async stat(path) { if (!files.has(path)) throw new Error('missing'); return { path }; },
+    async delete(path) { if (!files.delete(path)) throw new Error('missing'); },
   };
   const service = new RoomService({ kv, fs: workerFs, auth: { getUser: async () => me }, authToken: `h.${btoa(JSON.stringify({ app_uid: 'app-sheet' }))}.s`, APIOrigin: 'https://api.puter.test' });
   const sdkFor = (user, base = {}) => Object.assign(base, {
