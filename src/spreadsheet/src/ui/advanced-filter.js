@@ -14,7 +14,7 @@ export function openAdvancedFilter(ctx) {
   const list = ctx.dataRange();
   const sheetName = quoteSheet(wb.sheet(sheetId)?.name || '');
   const inPlace = el('input', { type: 'radio', name: fieldId('af-action'), id: fieldId('af-in-place'), checked: true });
-  const copy = el('input', { type: 'radio', name: fieldId('af-action'), id: fieldId('af-copy') });
+  const copy = el('input', { type: 'radio', name: inPlace.name, id: fieldId('af-copy') });
   const listInput = el('input.input', { type: 'text', id: fieldId('af-list'), value: list && list.r2 > list.r1 ? `${sheetName}!${absolute(list)}` : '', autocomplete: 'off', spellcheck: false });
   const criteriaInput = el('input.input', { type: 'text', id: fieldId('af-criteria'), autocomplete: 'off', spellcheck: false });
   const copyInput = el('input.input', { type: 'text', id: fieldId('af-copy-to'), autocomplete: 'off', spellcheck: false, disabled: true });
