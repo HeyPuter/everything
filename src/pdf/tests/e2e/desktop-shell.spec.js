@@ -832,6 +832,21 @@ test('the Combine files list keeps the keyboard focus on the button that was pre
   await expect(dialog.getByRole('button', { name: /Add files/ })).toBeFocused();
 });
 
+test('Bates numbering asks for a start number instead of starting at zero', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Bates numbering', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Bates numbering' });
+  await dialog.getByLabel('Start number').fill('');
+  await dialog.getByRole('button', { name: 'Add header and footer' }).click();
+  await expect(dialog.locator('.dialog-error')).toHaveText(
+    'Start Bates numbers between 0 and 999,999,999.',
+  );
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+});
+
 test('Bates numbering stamps padded numbers across the chosen pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(3));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

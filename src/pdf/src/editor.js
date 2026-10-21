@@ -9027,7 +9027,8 @@ export function createEditor({
               ? {
                   prefix: batesFields.prefix.value,
                   suffix: batesFields.suffix.value,
-                  start: Number(batesFields.start.value),
+                  // An emptied field is no number, not zero.
+                  start: batesFields.start.value.trim() ? Number(batesFields.start.value) : NaN,
                   digits: Number(batesFields.digits.value),
                 }
               : null,
