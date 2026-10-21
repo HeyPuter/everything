@@ -78,6 +78,12 @@ const resolve = (base, target) => {
 /** Column letters to a 0-based index: A → 0, AB → 27. */
 export const columnIndex = letters => [...letters.toUpperCase()].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) - 1;
 
+/**
+ * A cell string as Excel means it (ST_Xstring, ECMA-376 Part 1 §22.9.2.19): a character XML cannot hold, such
+ * as the carriage return of a line break, is written _xHHHH_, and an underscore that would start one _x005F_.
+ */
+const cellString = text => text.replace(/_x([0-9a-f]{4})_/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+
 const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
 /** A spreadsheet serial day number as an ISO date (1900 date system). */
 export function serialDate(serial, date1904 = false) {
@@ -108,7 +114,7 @@ export function readWorkbook(bytes) {
     for (const si of byName(parse(parts[resolve(workbookPath, sharedRel.getAttribute('Target'))]), 'si')) {
       // Rich text keeps its runs' text; phonetic guides are not part of the value.
       const texts = [...si.getElementsByTagNameNS(SHEET_NS, 't')].filter(t => t.parentNode.localName !== 'rPh');
-      shared.push(texts.map(t => t.textContent).join(''));
+      shared.push(texts.map(t => cellString(t.textContent)).join(''));
     }
   }
   // Which cell styles show dates, so serial numbers read back as dates.
@@ -144,9 +150,10 @@ export function readWorkbook(bytes) {
         const type = cell.getAttribute('t'), v = [...cell.children].find(n => n.localName === 'v')?.textContent ?? '';
         let value;
         if (type === 's') value = shared[Number(v)] ?? '';
-        else if (type === 'inlineStr') value = [...cell.getElementsByTagNameNS(SHEET_NS, 't')].map(t => t.textContent).join('');
+        else if (type === 'inlineStr') value = [...cell.getElementsByTagNameNS(SHEET_NS, 't')].map(t => cellString(t.textContent)).join('');
         else if (type === 'b') value = v === '1' ? 'TRUE' : 'FALSE';
-        else if (type === 'str' || type === 'e') value = v;
+        else if (type === 'str') value = cellString(v);
+        else if (type === 'e') value = v;
         else if (v !== '' && dateStyles.has(Number(cell.getAttribute('s') || 0))) value = serialDate(Number(v), date1904);
         else value = v === '' ? '' : String(Number(v)) === v || !Number.isFinite(Number(v)) ? v : String(Number(Number(v).toPrecision(15)));
         values[col] = value;

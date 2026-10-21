@@ -77,6 +77,17 @@ describe('workbooks', () => {
     expect(columnIndex('A')).toBe(0); expect(columnIndex('AB')).toBe(27);
     expect(serialDate(46082)).toBe('2026-03-01');
   });
+  it('reads the escapes Excel writes for characters XML cannot hold', () => {
+    // A carriage return in a cell is written _x000D_, and an underscore that would start an escape _x005F_.
+    const S = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const bytes = zipSync({
+      'xl/workbook.xml': strToU8(`<workbook xmlns="${S}" xmlns:r="${R}"><sheets><sheet name="People" r:id="a"/></sheets></workbook>`),
+      'xl/_rels/workbook.xml.rels': strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="a" Type="${R}/worksheet" Target="sheet.xml"/><Relationship Id="b" Type="${R}/sharedStrings" Target="strings.xml"/></Relationships>`),
+      'xl/strings.xml': strToU8(`<sst xmlns="${S}"><si><t>Address</t></si><si><t>1 Pier Rd_x000D_\nUnit 4</t></si><si><r><t>code_x005F_x0041_</t></r><r><t>_x0041_</t></r></si></sst>`),
+      'xl/sheet.xml': strToU8(`<worksheet xmlns="${S}"><sheetData><row><c t="s"><v>0</v></c><c t="inlineStr"><is><t>Code</t></is></c></row><row><c t="s"><v>1</v></c><c t="s"><v>2</v></c><c t="inlineStr"><is><t>tab_x0009_here</t></is></c></row></sheetData></worksheet>`),
+    });
+    expect(readWorkbook(bytes)[0].rows[1]).toEqual(['1 Pier Rd\r\nUnit 4', 'code_x0041_A', 'tab\there']);
+  });
 });
 
 describe('email messages', () => {
