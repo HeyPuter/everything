@@ -40,9 +40,12 @@ export function polygonArea(points) {
 
 const round = (value) => {
   const digits = Math.abs(value) >= 100 ? 1 : 2;
+  // The label is drawn on the page in fonts with Western digits only: a locale's own digits
+  // (Arabic-Indic, Bengali, …) would leave the measurement without a label.
   return value.toLocaleString(undefined, {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
+    numberingSystem: 'latn',
   });
 };
 
