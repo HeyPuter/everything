@@ -61,7 +61,7 @@ test('Render Result: empty state, metadata burn-in, sidebar tabs and passes', as
   expect(res.metadata).toEqual(expect.arrayContaining(['Frame', 'Camera', 'Scene', 'Note']));
   expect(res.overlay).toBe(true);
   const tabs = page.locator('.ie-sidebar .sb-tab');
-  await expect(tabs).toHaveText(['Image', 'View', 'Scopes', 'Metadata']);
+  await expect(tabs).toHaveText(['Tool', 'Image', 'View', 'Scopes', 'Metadata']);
   await tabs.filter({ hasText: 'Metadata' }).click();
   await expect(page.locator('.ie-sidebar').getByText('Take 3')).toBeVisible();
   await tabs.filter({ hasText: 'View' }).click();
