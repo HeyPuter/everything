@@ -305,22 +305,28 @@ function rangeTotal(values) {
 const worksheetMean = (values) => worksheetSum(values) / values.length;
 
 /**
- * An aggregate of the numbers of its arguments. A column measured against one range, =B2-AVERAGE($B$2:$B$20000) or a
- * z-score's STDEV filled down, reads that range in every row: the array read is shared within a calculation (and
- * replaced by any change), so the answer for a range alone is kept with it, and every row after the first looks it up
- * rather than going over the 20,000 numbers again, as SUM's running totals and LARGE's sorted lists already do.
+ * A function of the cells it is given that keeps the number it answers for a single range. A column measured against
+ * one range, =B2-AVERAGE($B$2:$B$20000), a z-score's STDEV or =B2/COUNTA($B:$B) filled down, reads that range in
+ * every row: the array read is shared within a calculation (and replaced by any change), so the answer for it is kept
+ * with it, and every row after the first looks it up rather than going over the 20,000 cells again, as SUM's running
+ * totals and LARGE's sorted lists already do.
  */
-const num = (f) => {
+function alone(f) {
   const answers = new WeakMap(); // values array → the number answered for that range alone
-  return (args) => {
-    const alone = args.length === 1 && isRange(args[0]) ? args[0].values : null;
-    if (alone) { const known = answers.get(alone); if (known !== undefined) return known; }
-    const list = numbers(args);
-    const answer = isError(list) ? list : f(list);
-    if (alone && typeof answer === 'number') answers.set(alone, answer);
+  return (args, ctx) => {
+    const one = args.length === 1 && isRange(args[0]) ? args[0].values : null;
+    if (one) { const known = answers.get(one); if (known !== undefined) return known; }
+    const answer = f(args, ctx);
+    if (one && typeof answer === 'number') answers.set(one, answer);
     return answer;
   };
-};
+}
+
+/** An aggregate of the numbers of its arguments, kept for a single range (see alone). */
+const num = (f) => alone((args) => {
+  const list = numbers(args);
+  return isError(list) ? list : f(list);
+});
 const sumOf = num(worksheetSum);
 
 /**
@@ -1689,7 +1695,7 @@ export const FUNCTIONS = {
   COUNT: {
     refArgs: true, // a referenced text or boolean cell is skipped, whether the reference is one cell or a range
     tolerant: true, // an error given directly is a value that is not a number, as one in a range is, not the answer
-    fn: (args) => {
+    fn: alone((args) => {
       let n = 0;
       for (const v of args) {
         if (isRange(v)) {
@@ -1704,12 +1710,12 @@ export const FUNCTIONS = {
         else if (typeof v === 'boolean') n++;
       }
       return n;
-    },
+    }),
   },
   // COUNTA counts every non-empty cell, including a formula's "" result.
   COUNTA: {
     tolerant: true, // an error given directly is counted as a value, as one in a range is, rather than answered
-    fn: (args) => {
+    fn: alone((args) => {
       let n = 0;
       for (const v of args) {
         if (isRange(v)) {
@@ -1721,7 +1727,7 @@ export const FUNCTIONS = {
         } else if (v != null) n++;
       }
       return n;
-    },
+    }),
   },
   COUNTBLANK: {
     tolerant: true, // a cell holding an error is not blank, given alone as in a range, rather than the answer
