@@ -9747,18 +9747,23 @@ export function createEditor({
     });
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-    const replies = (entry.replies || []).map((reply) =>
-      el(
-        'li',
-        {},
+    // Replies to a reply sit beneath it, as in the thread they belong to.
+    const replyItems = (items) =>
+      items.map((reply) =>
         el(
-          'span',
-          { class: 'reply-meta muted' },
-          [reply.author, when(reply.modified)].filter(Boolean).join(' · '),
+          'li',
+          {},
+          el(
+            'span',
+            { class: 'reply-meta muted' },
+            [reply.author, when(reply.modified)].filter(Boolean).join(' · '),
+          ),
+          el('span', {}, reply.contents || ''),
+          reply.replies?.length > 0 &&
+            el('ul', { class: 'annotation-replies' }, ...replyItems(reply.replies)),
         ),
-        el('span', {}, reply.contents || ''),
-      ),
-    );
+      );
+    const replies = replyItems(entry.replies || []);
     const panel = el(
       'div',
       { class: 'annotation-props' },
