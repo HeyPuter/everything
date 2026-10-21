@@ -83,6 +83,8 @@ export class PageEditor extends Emitter {
     this.selectedOutlines.clear();
     this.ink.clearSelection();
     this.history.reset(snapshotOf(page));
+    this.caretBefore = undefined;
+    this.selBefore = null;
     await this.render();
     this.scroller.scrollTo(0, 0);
   }
@@ -270,6 +272,11 @@ export class PageEditor extends Emitter {
       const range = currentRange();
       if (range && this.scroller.contains(range.commonAncestorContainer) && editableRoot(range.commonAncestorContainer)) {
         this.lastRange = range.cloneRange();
+        // Where the selection was before the next change, for undo to put it
+        // back. A selection is measured now (a formatting command splits its
+        // text nodes); a caret is kept as a node and offset, which typing
+        // leaves valid, and measured only when an edit starts there.
+        this.selBefore = range.collapsed ? { points: [range.startContainer, range.startOffset] } : { caret: this.caretAt([range.startContainer, range.startOffset, range.endContainer, range.endOffset]) };
         this.emit('selection');
       }
     };
@@ -467,6 +474,9 @@ export class PageEditor extends Emitter {
 
   onInput(e) {
     if (this.readOnly || !this.page) return;
+    // The first change since the last undo step: remember the selection it
+    // started from (selectionchange has not seen the edit yet).
+    if (!this.dirty.size && !this.commitSoon.pending() && this.caretBefore === undefined) this.caretBefore = this.selBefore?.caret ?? this.caretAt(this.selBefore?.points);
     if (e.target === this.titleEl) {
       this.commitSoon();
       this.emit('title-input', this.titleEl.textContent.replace(/\n/g, ' '));
@@ -1044,9 +1054,13 @@ export class PageEditor extends Emitter {
       this.page.title = titleNow;
       any = true;
     }
-    if (!any) return;
+    if (!any) {
+      this.caretBefore = undefined;
+      return;
+    }
     this.store.pageChanged(this.page, { title: this.page.title });
-    this.history.push(snapshotOf(this.page), this.caret());
+    this.history.push(snapshotOf(this.page), this.caret(), this.caretBefore);
+    this.caretBefore = undefined;
     this.emit('change', {});
   }
 
@@ -1077,12 +1091,20 @@ export class PageEditor extends Emitter {
 
   caret() {
     const range = currentRange();
-    if (!range) return null;
-    const root = editableRoot(range.startContainer);
+    return range ? this.caretAt([range.startContainer, range.startOffset, range.endContainer, range.endOffset]) : null;
+  }
+
+  /** A selection's boundary points as character offsets in its container (or the title). */
+  caretAt(points) {
+    const [sc, so, ec = sc, eo = so] = points || [];
+    const root = sc?.isConnected && editableRoot(sc);
     if (!root || !this.scroller.contains(root)) return null;
-    if (root === this.titleEl) return { title: true, start: textOffset(root, range.startContainer, range.startOffset) };
+    const fits = (n, o) => o <= (n.nodeType === 3 ? n.length : n.childNodes.length);
+    if (!fits(sc, so) || !fits(ec, eo)) return null;
+    if (root === this.titleEl) return { title: true, start: textOffset(root, sc, so) };
     const outline = root.closest('.outline');
-    return { outlineId: outline.dataset.id, start: textOffset(root, range.startContainer, range.startOffset), end: textOffset(root, range.endContainer, range.endOffset) };
+    const end = ec?.isConnected && root.contains(ec) ? textOffset(root, ec, eo) : textOffset(root, sc, so);
+    return { outlineId: outline.dataset.id, start: textOffset(root, sc, so), end };
   }
 
   restoreCaret(caret) {

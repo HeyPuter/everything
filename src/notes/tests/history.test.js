@@ -118,3 +118,37 @@ describe('PageEditor undo', () => {
     host.remove();
   });
 });
+
+describe('PageEditor undo selection', () => {
+  it('puts back the selection a formatting change started from', async () => {
+    const { PageEditor } = await import('../src/editor/page-editor.js');
+    const host = document.createElement('div');
+    document.body.append(host);
+    const ed = new PageEditor({ store: { pageChanged() {}, assetUrl: async () => null }, host });
+    await ed.open({ id: 'p', title: '', created: new Date().toISOString(), outlines: [{ id: 'o1', x: 40, y: 140, w: null, html: '<p>alpha beta gamma</p>' }], ink: [] });
+    const bodyEl = host.querySelector('.outline-body');
+    bodyEl.focus();
+    const text = bodyEl.querySelector('p').firstChild;
+    const sel = document.getSelection();
+    sel.setBaseAndExtent(text, 6, text, 10);
+    ed.onSelectionChange();
+    // Italic the way Chrome does it: the original text node keeps the tail.
+    const head = document.createTextNode('alpha ');
+    const i = document.createElement('i');
+    i.textContent = 'beta';
+    text.nodeValue = ' gamma';
+    text.before(head, i);
+    sel.setBaseAndExtent(i.firstChild, 0, i.firstChild, 4);
+    bodyEl.dispatchEvent(new Event('input', { bubbles: true }));
+    ed.commit();
+    expect(ed.history.stack.length).toBe(2);
+    // The caret moves on, then undo.
+    sel.setBaseAndExtent(text, 6, text, 6);
+    ed.onSelectionChange();
+    await ed.undo();
+    expect(host.querySelector('.outline-body').innerHTML).toBe('<p>alpha beta gamma</p>');
+    expect(document.getSelection().toString()).toBe('beta');
+    ed.destroy();
+    host.remove();
+  });
+});

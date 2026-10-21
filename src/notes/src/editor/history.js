@@ -23,7 +23,7 @@ export class History {
   }
 
   /** Records a new state; returns false when nothing changed. */
-  push(snapshot, caret = null) {
+  push(snapshot, caret = null, caretBefore = null) {
     const current = this.stack[this.index];
     if (current && sameSnapshot(current.snapshot, snapshot)) {
       current.caret = caret;
@@ -33,7 +33,8 @@ export class History {
     // instead of keeping one per entry (it can be megabytes).
     if (current && typeof snapshot === 'object' && current.snapshot?.ink === snapshot.ink) snapshot = { ...snapshot, ink: current.snapshot.ink };
     this.stack.length = this.index + 1;
-    this.stack.push({ snapshot, caret });
+    // caretBefore: the selection the change started from, which undo restores.
+    this.stack.push({ snapshot, caret, caretBefore });
     while (this.stack.length > this.limit || (this.stack.length > this.keep && this.size() > this.budget)) this.stack.shift();
     this.index = this.stack.length - 1;
     return true;
