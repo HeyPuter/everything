@@ -1,3 +1,5 @@
+import { isVolatile } from './formula/evaluator.js';
+
 /** OOXML CT_CalcPr defaults; iteration is opt-in, never inferred from a cycle. */
 export function normalizeIteration(value) {
   if (!value || ![true, 1, '1', 'true'].includes(value.iterate)) return null;
@@ -50,6 +52,15 @@ function dependentsOf(state, members) {
   return keys;
 }
 
+function volatileFormula(wb, cell) {
+  try { return isVolatile(wb._cellAst(cell)); } catch (e) { if (e instanceof RangeError) return false; throw e; }
+}
+
+/** A name defined as =RAND() or =TODAY() makes every formula using it volatile, though none of them names the function. */
+function volatileName(wb) {
+  return wb.names.some(n => !wb.parseNamedRef(n.ref) && isVolatile(wb._astOrNull(n.ref)));
+}
+
 /**
  * Circular references are discovered first, then iterated sheet by sheet.
  * Read order in the grid must not choose the initial guesses or iteration order.
@@ -85,16 +96,19 @@ export function calculateIteratively(wb) {
     state.discovery = false;
     const seed = e => e.cell.v ?? 0;
     for (const key of state.members) wb._cache.set(key, seed(state.entries.get(key)));
-    // Ordinary formulas independent of a cycle keep their discovery result.
-    // Volatile expressions and dynamic spills require a workbook-wide pass.
-    const all = wb.hasVolatileFormulas() || [...wb._spills.values()].some(s => s.anchors.size);
+    // Ordinary formulas independent of a cycle keep their discovery result. A volatile formula is worked out again on
+    // every pass, with whatever reads it; the rest of the book is not, where one TODAY() anywhere used to recalculate
+    // every formula of it on every pass. A volatile name, which any formula may use unseen, and dynamic spills, whose
+    // state every pass clears, still require a workbook-wide pass.
+    const volatileCells = entries.filter(e => volatileFormula(wb, e.cell)).map(e => e.key);
+    const all = volatileName(wb) || [...wb._spills.values()].some(s => s.anchors.size);
     let known = null, knownEdges = -1, knownMembers = -1;
     const affected = () => {
       if (all) return new Set(entries.map(e => e.key));
       if (known && knownEdges === state.edges && knownMembers === state.members.size) return known;
       knownEdges = state.edges;
       knownMembers = state.members.size;
-      return (known = dependentsOf(state, state.members));
+      return (known = dependentsOf(state, [...state.members, ...volatileCells]));
     };
     for (let pass = 0; pass < wb.iteration.iterateCount; pass++) {
       const previous = new Map([...state.members].map(key => [key, wb._cache.get(key)]));
