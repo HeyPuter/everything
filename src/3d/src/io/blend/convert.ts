@@ -4,6 +4,7 @@ import { Quaternion, Vector3 } from 'three';
 import type { RenderSettings, ArmatureData, Bone, CameraData, CollectionData, CurveData, DocumentData, ID, ImageData, LatticeData, LightData, MaterialData, ObjectData, ObjectType, PoseBone, RotationMode, Spline, WorldData, BezierPoint, HandleType, AnimData, SceneData } from '../../data/types';
 import { defaultScene, emptyDocument, newArmature, newCamera, newCollection, newCurve, newLight, newMaterial, newObject, newWorld, uid } from '../../data/defaults';
 import { activateScene, ensureSceneIds } from '../../scenes/scenes';
+import { convertHairCurves, convertPointCloud, convertVolume } from './geometry';
 import { resolve } from '../../data/rna';
 import { BlendFile, BlendError, type BStruct } from './reader';
 import { Warnings, finite, mat4, vec3, type Ctx } from './context';
@@ -32,7 +33,7 @@ const ROT_MODES: Record<number, RotationMode> = { [-1]: 'AXIS_ANGLE', 0: 'QUATER
 const EMPTY_DRAW: ObjectData['empty_display_type'][] = ['PLAIN_AXES', 'ARROWS', 'PLAIN_AXES', 'CIRCLE', 'SINGLE_ARROW', 'CUBE', 'SPHERE', 'CONE', 'IMAGE'];
 const HANDLE_TYPES: HandleType[] = ['FREE', 'AUTO', 'VECTOR', 'ALIGNED', 'AUTO'];
 const COLOR_TAGS: CollectionData['color_tag'][] = ['COLOR_01', 'COLOR_02', 'COLOR_03', 'COLOR_04', 'COLOR_05', 'COLOR_06', 'COLOR_07', 'COLOR_08'];
-const OB_TYPE_NAMES: Record<number, string> = { 3: 'Surface', 5: 'Metaball', 9: 'Grease Pencil (legacy)', 12: 'Speaker', 13: 'Light Probe', 26: 'Curves (hair)', 27: 'Point Cloud', 28: 'Volume', 30: 'Grease Pencil' };
+const OB_TYPE_NAMES: Record<number, string> = { 3: 'Surface', 5: 'Metaball', 12: 'Speaker', 13: 'Light Probe', 26: 'Grease Pencil (legacy)', 27: 'Curves (hair)', 28: 'Point Cloud', 29: 'Volume', 30: 'Grease Pencil' };
 
 /** Parse and convert a .blend file. Throws BlendError on unreadable files. */
 export async function readBlend(bytes: Uint8Array): Promise<BlendImport> {
@@ -449,6 +450,15 @@ export function convertBlend(f: BlendFile): BlendImport {
       case 25:
         type = 'ARMATURE';
         break;
+      case 27:
+        type = 'CURVES';
+        break;
+      case 28:
+        type = 'POINTCLOUD';
+        break;
+      case 29:
+        type = 'VOLUME';
+        break;
       case 0:
         break;
       default:
@@ -486,6 +496,18 @@ export function convertBlend(f: BlendFile): BlendImport {
         const lt = convertLattice(d);
         doc.lattices[lt.id] = lt;
         id = lt.id;
+      } else if (type === 'POINTCLOUD' && d.type === 'PointCloud') {
+        const pc = convertPointCloud(d, ctx);
+        (doc.pointclouds ??= {})[pc.id] = pc;
+        id = pc.id;
+      } else if (type === 'CURVES' && d.type === 'Curves') {
+        const cv = convertHairCurves(d, ctx);
+        (doc.hair_curves ??= {})[cv.id] = cv;
+        id = cv.id;
+      } else if (type === 'VOLUME' && d.type === 'Volume') {
+        const vo = convertVolume(d, ctx);
+        (doc.volumes ??= {})[vo.id] = vo;
+        id = vo.id;
       }
       if (id) dataCache.set(d.offset, id);
     }

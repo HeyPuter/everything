@@ -8,15 +8,15 @@ import type { BHead } from './container';
 import type { Ctx } from './context';
 
 type Domain = 'POINT' | 'EDGE' | 'FACE' | 'CORNER';
-type Kind = 'bool' | 'int8' | 'int32' | 'int2' | 'int16_2d' | 'float' | 'float2' | 'float3' | 'color' | 'bytecolor' | 'quat' | 'float4x4';
+export type Kind = 'bool' | 'int8' | 'int32' | 'int2' | 'int16_2d' | 'float' | 'float2' | 'float3' | 'color' | 'bytecolor' | 'quat' | 'float4x4';
 
-const KIND_SIZE: Record<Kind, number> = { bool: 1, int8: 1, int32: 4, int2: 8, int16_2d: 4, float: 4, float2: 8, float3: 12, color: 16, bytecolor: 4, quat: 16, float4x4: 64 };
-const KIND_COMPS: Record<Kind, number> = { bool: 1, int8: 1, int32: 1, int2: 2, int16_2d: 2, float: 1, float2: 2, float3: 3, color: 4, bytecolor: 4, quat: 4, float4x4: 16 };
+export const KIND_SIZE: Record<Kind, number> = { bool: 1, int8: 1, int32: 4, int2: 8, int16_2d: 4, float: 4, float2: 8, float3: 12, color: 16, bytecolor: 4, quat: 16, float4x4: 64 };
+export const KIND_COMPS: Record<Kind, number> = { bool: 1, int8: 1, int32: 1, int2: 2, int16_2d: 2, float: 1, float2: 2, float3: 3, color: 4, bytecolor: 4, quat: 4, float4x4: 16 };
 /** AttributeStorage data_type values as written by 5.x files */
-const ATTR_TYPE_5X: Record<number, Kind> = { 0: 'bool', 1: 'int8', 2: 'int16_2d', 3: 'int32', 4: 'int2', 5: 'float', 6: 'float2', 7: 'float3', 8: 'float4x4', 9: 'bytecolor', 10: 'color', 11: 'quat' };
+export const ATTR_TYPE_5X: Record<number, Kind> = { 0: 'bool', 1: 'int8', 2: 'int16_2d', 3: 'int32', 4: 'int2', 5: 'float', 6: 'float2', 7: 'float3', 8: 'float4x4', 9: 'bytecolor', 10: 'color', 11: 'quat' };
 /** CustomData layer types for generic attributes (3.x/4.x) */
-const CD_TYPE: Record<number, Kind> = { 10: 'float', 11: 'int32', 17: 'bytecolor', 45: 'int8', 46: 'int2', 47: 'color', 48: 'float3', 49: 'float2', 50: 'bool', 52: 'quat' };
-const CD_STRUCT: Record<string, Kind> = { MFloatProperty: 'float', MIntProperty: 'int32', MLoopCol: 'bytecolor', MPropCol: 'color', vec3f: 'float3', vec2f: 'float2', vec2i: 'int2', MInt8Property: 'int8', MBoolProperty: 'bool', MStringProperty: 'int8' };
+export const CD_TYPE: Record<number, Kind> = { 10: 'float', 11: 'int32', 17: 'bytecolor', 45: 'int8', 46: 'int2', 47: 'color', 48: 'float3', 49: 'float2', 50: 'bool', 52: 'quat' };
+export const CD_STRUCT: Record<string, Kind> = { MFloatProperty: 'float', MIntProperty: 'int32', MLoopCol: 'bytecolor', MPropCol: 'color', vec3f: 'float3', vec2f: 'float2', vec2i: 'int2', MInt8Property: 'int8', MBoolProperty: 'bool', MStringProperty: 'int8' };
 const DOMAINS: Domain[] = ['POINT', 'EDGE', 'FACE', 'CORNER'];
 
 interface Attr {
@@ -33,13 +33,13 @@ function srgbToLinear(c: number) {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 }
 
-class AttrReader {
+export class AttrReader {
   constructor(
     private ctx: Ctx,
-    private counts: Record<Domain, number>,
+    private counts: Record<string, number>,
   ) {}
   /** Values as numbers, expanded to the domain size (`comps` per element). */
-  read(a: Attr): Float64Array | null {
+  read(a: { domain: string; kind: Kind; offset: number; stored: number }): Float64Array | null {
     const n = this.counts[a.domain];
     const comps = KIND_COMPS[a.kind];
     const size = KIND_SIZE[a.kind];
@@ -83,7 +83,7 @@ class AttrReader {
   }
 }
 
-function dataBlockOf(ctx: Ctx, holder: BStruct, field: string): { offset: number; len: number; block: BHead } | null {
+export function dataBlockOf(ctx: Ctx, holder: BStruct, field: string): { offset: number; len: number; block: BHead } | null {
   const a = holder.ptr(field);
   if (a === 0) return null;
   return ctx.f.rawAt(a, holder.block);
