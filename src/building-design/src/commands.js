@@ -385,6 +385,8 @@ export const COMMANDS = {
   types: { label: 'Types', icon: 'types', run: (app) => app.typesDialog() },
   snaps: { label: 'Snaps', icon: 'snaps', keys: 'SN', run: (app) => app.snapsDialog() },
   purge: { label: 'Purge Unused', icon: 'purge', run: (app) => app.purgeDialog() },
+  tileViews: { label: 'Tile Views', icon: 'tileViews', keys: 'WT', toggle: (app) => app.viewport?.tiled, run: (app) => app.tileViews(), desc: 'Show the open views side by side' },
+  tabViews: { label: 'Tab Views', icon: 'tabViews', keys: 'TW', run: (app) => app.tabViews(), desc: 'Show one view at a time, with tabs' },
   shortcuts: { label: 'Keyboard Shortcuts', icon: 'keyboard', run: (app) => app.shortcutsDialog(), desc: 'See and change the two-letter shortcuts' },
   options: { label: 'Options', icon: 'settings', run: (app) => app.optionsDialog(), desc: 'Your preferences: theme, tooltips, selection, navigation and more' },
   help: { label: 'Help', icon: 'help', accel: 'F1', run: (app) => app.helpDialog() },

@@ -29,6 +29,10 @@ export class Viewport {
     this.dpr = 1;
     this.pending = false;
     this.pointers = new Map();
+    // Tiled windows: view ids shown side by side (null: one view).
+    this.tileIds = null;
+    this.tiles = [];
+    this.proxies = new Map();
     this.readTheme();
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(wrap);
@@ -99,6 +103,7 @@ export class Viewport {
     const c = this.controller;
     const gl = this.gl;
     if (!c || !c.graphical) return;
+    if (this.tileIds?.length > 1) return this.renderTiles();
     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
     const bg = this.theme.bg;
     gl.clearColor(bg[0], bg[1], bg[2], 1);
@@ -122,11 +127,159 @@ export class Viewport {
     }
   }
 
+  // Tiles ------------------------------------------------------------------------------
+
+  get tiled() {
+    return this.tileIds?.length > 1;
+  }
+
+  /** Lay the tiled views out in a grid that fills the canvas. */
+  layoutTiles() {
+    const ids = this.tileIds || [];
+    const n = ids.length;
+    const landscape = this.width >= this.height;
+    const cols = landscape ? Math.ceil(Math.sqrt(n)) : Math.ceil(n / Math.ceil(Math.sqrt(n)));
+    const rows = Math.ceil(n / cols);
+    const gap = 3;
+    const w = (this.width - gap * (cols - 1)) / cols;
+    const hgt = (this.height - gap * (rows - 1)) / rows;
+    this.tiles = ids.map((viewId, i) => {
+      const r = Math.floor(i / cols);
+      const inRow = r === rows - 1 ? n - cols * (rows - 1) : cols;
+      // The last row shares its width among fewer tiles.
+      const rw = (this.width - gap * (inRow - 1)) / inRow;
+      const c = i - r * cols;
+      return { viewId, x: Math.round(c * (rw + gap)), y: Math.round(r * (hgt + gap)), w: Math.round(r === rows - 1 ? rw : w), h: Math.round(hgt) };
+    });
+    return this.tiles;
+  }
+
+  tileAt(x, y) {
+    return this.tiles.find((t) => x >= t.x && x < t.x + t.w && y >= t.y && y < t.y + t.h) || null;
+  }
+
+  /** A stand-in viewport the size of one tile, for the controller drawn in it. */
+  proxyFor(t) {
+    let p = this.proxies.get(t.viewId);
+    if (!p) {
+      p = Object.create(this);
+      // Drawing is always of the whole canvas.
+      p.requestRender = () => this.requestRender();
+      p.render = () => this.render();
+      this.proxies.set(t.viewId, p);
+    }
+    p.width = t.w;
+    p.height = t.h;
+    p.canvas = { width: Math.round(t.w * this.dpr), height: Math.round(t.h * this.dpr) };
+    p.tile = t;
+    return p;
+  }
+
+  /** Show these views side by side (null or one view: back to a single view). */
+  setTiles(ids) {
+    const app = this.app;
+    this.tileIds = ids && ids.length > 1 ? ids : null;
+    if (!this.tileIds) {
+      for (const c of app.controllers.values()) if (c.vp !== this) c.vp = this;
+      this.proxies.clear();
+      this.tiles = [];
+      this.controller?.resized?.();
+    }
+    this.requestRender();
+  }
+
+  renderTiles() {
+    const app = this.app;
+    const gl = this.gl;
+    const dpr = this.dpr;
+    const ctx = this.ctx;
+    const tiles = this.layoutTiles();
+    gl.disable(gl.SCISSOR_TEST);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+    const border = this.theme.ink;
+    gl.clearColor(border[0] * 0.25 + 0.6, border[1] * 0.25 + 0.6, border[2] * 0.25 + 0.6, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.overlay.width, this.overlay.height);
+    // The active view last, so picking and element states belong to it.
+    const order = [...tiles].sort((a, b) => (a.viewId === app.activeViewId) - (b.viewId === app.activeViewId));
+    gl.enable(gl.SCISSOR_TEST);
+    for (const t of order) {
+      const view = app.doc.get(t.viewId);
+      const c = view && app.controllerFor(view);
+      if (!c?.graphical) continue;
+      const proxy = this.proxyFor(t);
+      if (c.vp !== proxy) {
+        c.vp = proxy;
+        c.resized?.();
+      }
+      const rect = [Math.round(t.x * dpr), Math.round((this.height - t.y - t.h) * dpr), proxy.canvas.width, proxy.canvas.height];
+      gl.scissor(...rect);
+      gl.viewport(...rect);
+      this.r3.viewportRect = rect;
+      const bg = this.theme.bg;
+      gl.clearColor(bg[0], bg[1], bg[2], 1);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      app.updateStateFlags(c);
+      try {
+        c.render(proxy);
+      } catch (err) {
+        console.error(err);
+      }
+      gl.viewport(...rect);
+      const active = t.viewId === app.activeViewId;
+      ctx.save();
+      ctx.setTransform(dpr, 0, 0, dpr, t.x * dpr, t.y * dpr);
+      ctx.beginPath();
+      ctx.rect(0, 0, t.w, t.h);
+      ctx.clip();
+      try {
+        c.drawOverlay?.(ctx, proxy);
+        if (active) {
+          app.tool?.drawOverlay?.(ctx, c, proxy);
+          app.drawSelectionOverlay?.(ctx, c, proxy);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+      // Title and frame; the active view is outlined in the selection colour.
+      ctx.font = `600 11px ${this.theme.font}`;
+      const label = view.name;
+      const lw = ctx.measureText(label).width + 12;
+      ctx.fillStyle = active ? this.theme.selCss : 'rgba(110,118,130,0.85)';
+      ctx.fillRect(0, 0, lw, 18);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, 6, 13);
+      if (active) {
+        ctx.strokeStyle = this.theme.selCss;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(1, 1, t.w - 2, t.h - 2);
+      }
+      ctx.restore();
+    }
+    gl.disable(gl.SCISSOR_TEST);
+    this.r3.viewportRect = null;
+  }
+
   // Input -----------------------------------------------------------------------------
 
+  /** Pointer position in the active view (in its tile when views are tiled). */
   local(e) {
     const r = this.overlay.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    if (this.tiled) {
+      const t = this.tiles.find((x) => x.viewId === this.app.activeViewId);
+      if (t) return { x: p.x - t.x, y: p.y - t.y };
+    }
+    return p;
+  }
+
+  /** With tiled views, pressing or scrolling in a tile makes its view active. */
+  focusTileAt(e) {
+    if (!this.tiled) return;
+    const r = this.overlay.getBoundingClientRect();
+    const t = this.tileAt(e.clientX - r.left, e.clientY - r.top);
+    if (t && t.viewId !== this.app.activeViewId) this.app.activateView(t.viewId);
   }
 
   event(e, kind) {
@@ -159,6 +312,7 @@ export class Viewport {
       // back from inputs a tool opens during this event.
       el.focus({ preventScroll: true });
       e.preventDefault();
+      this.focusTileAt(e);
       const c = this.controller;
       if (!c) return;
       this.pointers.set(e.pointerId, this.local(e));
@@ -259,6 +413,7 @@ export class Viewport {
     el.addEventListener(
       'wheel',
       (e) => {
+        this.focusTileAt(e);
         const c = this.controller;
         if (!c?.zoomAt) return;
         e.preventDefault();

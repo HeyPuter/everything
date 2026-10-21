@@ -326,7 +326,30 @@ export class App {
     const view = this.doc.get(id);
     if (!view || !isView(view)) return;
     if (!this.openViews.includes(id)) this.openViews.push(id);
+    // While views are tiled, a newly opened drawing view joins them.
+    const tiles = this.viewport.tileIds;
+    if (tiles && !tiles.includes(id) && this.controllerFor(view)?.graphical) this.viewport.setTiles([...tiles, id]);
     this.activateView(id);
+  }
+
+  /** Show the open drawing views side by side. */
+  tileViews() {
+    const ids = this.openViews.filter((id) => {
+      const v = this.doc.get(id);
+      return v && this.controllerFor(v)?.graphical;
+    });
+    if (ids.length < 2) return this.toast('Open two or more plans, sections, elevations, 3D views or sheets to tile them.');
+    this.shell.viewcube.hidden = true;
+    this.viewport.setTiles(ids);
+    this.setPrompt('Views tiled. Click or scroll in a view to work in it; Tab Views (TW) shows one view again.');
+    this.ribbon.refresh();
+  }
+
+  tabViews() {
+    this.viewport.setTiles(null);
+    this.vc?.updateCube?.();
+    this.ribbon.refresh();
+    this.requestRender();
   }
 
   activateView(id) {
@@ -362,6 +385,8 @@ export class App {
     const i = this.openViews.indexOf(id);
     if (i < 0) return;
     this.openViews.splice(i, 1);
+    const tiles = this.viewport.tileIds;
+    if (tiles?.includes(id)) this.viewport.setTiles(tiles.filter((x) => x !== id));
     const c = this.controllers.get(id);
     if (c) {
       c.deactivate?.();
@@ -705,19 +730,19 @@ export class App {
     this.requestRender();
   }
 
-  /** Flags for an element in the active view: selection, hover, hidden, isolate. */
-  flagsOf(id) {
+  /** Flags for an element in a view (the active one by default): selection, hover, hidden, isolate. */
+  flagsOf(id, view = this.activeView) {
     if (typeof id === 'string' && id.startsWith('u:')) return FLAG.dim;
     let f = 0;
     if (this.selection.has(id)) f |= FLAG.selected;
     if (this.hoverId === id) f |= FLAG.hover;
-    const view = this.activeView;
     const gid = this.doc?.get(id)?.groupId;
     if (gid) {
       if (this.selection.has(gid)) f |= FLAG.selected;
       if (this.hoverId === gid) f |= FLAG.hover;
     }
     if (this.groupEdit && gid !== this.groupEdit.groupId && groupable(this.doc.get(id))) f |= FLAG.dim;
+    const active = view?.id === this.activeViewId;
     if (view) {
       const el = this.doc.get(id);
       const reveal = this.reveal.has(view.id);
@@ -733,7 +758,7 @@ export class App {
         const inSet = t.ids.has(id) || (el?.hostId && t.ids.has(el.hostId));
         if ((t.mode === 'hide' && inSet) || (t.mode === 'isolate' && !inSet && !(el?.kind === 'level' || el?.kind === 'grid'))) f |= reveal ? FLAG.halftone : FLAG.hidden;
       }
-      if (el && this.tool?.dimOthers && !this.tool.dimOthers.has(id)) f |= FLAG.dim;
+      if (active && el && this.tool?.dimOthers && !this.tool.dimOthers.has(id)) f |= FLAG.dim;
     }
     return f;
   }
@@ -751,8 +776,9 @@ export class App {
   }
 
   /** Refresh the per-element state texture before drawing. */
-  updateStateFlags() {
-    const key = `${this.flagsVersion}|${this.activeViewId}|${this.scene?.version}`;
+  updateStateFlags(c = null) {
+    const view = c?.view || this.activeView;
+    const key = `${this.flagsVersion}|${view?.id}|${this.scene?.version}`;
     if (this.flagsKey === key) return;
     this.flagsKey = key;
     this.phaseCount = this.doc?.count('phase') ?? 0;
@@ -760,11 +786,10 @@ export class App {
     const scene = this.scene;
     if (!scene) return;
     // 3D views show colour and transparency overrides on surfaces.
-    const view = this.activeView;
     const surfaces = view && !isPlanView(view) && view.kind !== 'drafting' && view.kind !== 'legend' && !!(view.overrides || view.filters?.length || view.elOverrides);
     for (let i = 0; i < scene.ids.length; i++) {
       const id = scene.ids[i];
-      let f = this.flagsOf(id);
+      let f = this.flagsOf(id, view);
       let rgba = null;
       if (surfaces && !(f & FLAG.hidden)) {
         const el = this.doc.get(id);

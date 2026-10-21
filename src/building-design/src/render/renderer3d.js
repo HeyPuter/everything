@@ -615,7 +615,8 @@ export class Renderer3D {
     }
     gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, cam.width, cam.height);
+    if (this.viewportRect) gl.viewport(...this.viewportRect);
+    else gl.viewport(0, 0, cam.width, cam.height);
     return true;
   }
 
@@ -663,6 +664,8 @@ export class Renderer3D {
     if (!cam) return 0;
     const t = this.ensurePickTarget(cam.width, cam.height);
     gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
+    const scissor = gl.isEnabled(gl.SCISSOR_TEST);
+    gl.disable(gl.SCISSOR_TEST);
     if (this.pickDirty) {
       gl.viewport(0, 0, t.w, t.h);
       gl.clearBufferuiv(gl.COLOR, 0, new Uint32Array([0, 0, 0, 0]));
@@ -687,6 +690,7 @@ export class Renderer3D {
     const py = Math.max(0, Math.min(t.h - 1, Math.round(t.h - 1 - y)));
     gl.readPixels(px, py, 1, 1, gl.RGBA_INTEGER, gl.UNSIGNED_INT, out);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (scissor) gl.enable(gl.SCISSOR_TEST);
     gl.disable(gl.DEPTH_TEST);
     return out[0];
   }
