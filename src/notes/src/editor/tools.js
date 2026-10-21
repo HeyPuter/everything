@@ -170,6 +170,7 @@ export class InkTools {
       this.overlay.removeEventListener('pointermove', move);
       this.overlay.removeEventListener('pointerup', up);
       this.overlay.removeEventListener('pointercancel', up);
+      this.overlay.removeEventListener('lostpointercapture', up);
       this.active = null;
     };
     const up = (ev) => {
@@ -180,6 +181,9 @@ export class InkTools {
     this.overlay.addEventListener('pointermove', move);
     this.overlay.addEventListener('pointerup', up);
     this.overlay.addEventListener('pointercancel', up);
+    // If the overlay loses the pointer, its pointerup may land elsewhere:
+    // finish now rather than glue the next stroke onto this one.
+    this.overlay.addEventListener('lostpointercapture', up);
     this.active = {
       pointerType: e.pointerType,
       cancel: () => {

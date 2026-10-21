@@ -103,3 +103,17 @@ describe('pen eraser', () => {
     expect(app.editor.page.ink.length).toBe(0);
   });
 });
+
+describe('lost pointer', () => {
+  it('finishes the stroke when the overlay loses the pointer', () => {
+    pointer('pointerdown', 1, 'mouse', 100, 100);
+    pointer('pointermove', 1, 'mouse', 150, 120);
+    pointer('lostpointercapture', 1, 'mouse', 150, 120);
+    expect(app.editor.page.ink.length).toBe(1);
+    // The next press starts a new stroke instead of extending the old one.
+    pointer('pointerdown', 1, 'mouse', 100, 300);
+    pointer('pointermove', 1, 'mouse', 150, 320);
+    pointer('pointerup', 1, 'mouse', 150, 320);
+    expect(app.editor.page.ink.length).toBe(2);
+  });
+});
