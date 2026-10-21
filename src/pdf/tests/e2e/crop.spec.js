@@ -43,8 +43,7 @@ async function menu(page, name) {
   throw new Error(`No menu item named ${name}`);
 }
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
-const canvasBox = (page) =>
-  page.locator('.workspace .paper > canvas').first().boundingBox();
+const canvasBox = (page) => page.locator('.workspace .paper > canvas').first().boundingBox();
 async function squarePages() {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -155,6 +154,24 @@ test('typed margins crop every page and undo brings the pages back', async ({ pa
   await expect(page.getByRole('dialog', { name: 'Crop pages' }).getByRole('alert')).toHaveText(
     'Keep at least half an inch of the page.',
   );
+});
+
+test('typed margins for some of the pages say how many were cropped', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await squarePages();
+  doc.addPage([400, 400]);
+  await openPdf(page, doc);
+  await menu(page, 'Crop pages…');
+  await page.getByRole('button', { name: 'Margins…', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Crop pages' });
+  await dialog.getByLabel('Top (pt)').fill('100');
+  await dialog.getByRole('radio', { name: 'Pages', exact: true }).check();
+  // Page 2 named twice is still one page.
+  await dialog.getByLabel('Page range').fill('1-2, 2');
+  await dialog.getByRole('button', { name: 'Crop', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#toast')).toHaveText('2 pages cropped.');
 });
 
 test('typed crop margins retain their point sizes on a scaled PDF page', async ({ page }) => {

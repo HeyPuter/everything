@@ -4364,10 +4364,16 @@ export function createEditor({
       if (!form.reportValidity()) return;
       const margins = Object.fromEntries(fields.map((f) => [f.key, Number(f.input.value)]));
       const indices = choices.indices();
+      // A range can name a page twice; "All" is said only when every page was chosen.
+      const count = new Set(indices).size;
       const committed = await mutateDialog(
         d,
         (doc) => cropPages(doc, indices, margins),
-        indices.length > 1 ? `All ${indices.length} pages cropped.` : 'Page cropped.',
+        count === 1
+          ? 'Page cropped.'
+          : count === pdf.numPages
+            ? `All ${count} pages cropped.`
+            : `${count} pages cropped.`,
       );
       if (committed && !destroyed && tool === 'crop') await setTool('select');
     });
