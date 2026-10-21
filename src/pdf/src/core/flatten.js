@@ -48,6 +48,8 @@ const KEEP = new Set(['Link', 'Popup', 'Widget']);
 const HIDDEN = 2,
   PRINT = 4,
   NO_VIEW = 32;
+/** Replies and review states belong to their comment's thread and are not counted apart. */
+const isReply = (dict) => dict.has(name('IRT'));
 const invisible = (flags) => !!(flags & HIDDEN) || !!(flags & NO_VIEW && !(flags & PRINT));
 /** Reuse at most two visibility groups for an entire flatten operation. */
 function visibilityLayer(doc, flags, layers) {
@@ -356,7 +358,7 @@ export function flattenDocument(doc, { fields = true, annotations = true } = {})
         remove.add(ref);
         const popup = dict.get(name('Popup'));
         if (popup) remove.add(popup);
-        counts.annotations++;
+        if (!isReply(dict)) counts.annotations++;
       }
       if (remove.size) annots = annotationList(page);
       for (let i = annots.size() - 1; i >= 0; i--) {
@@ -396,7 +398,8 @@ export function flattenCounts(doc) {
     for (const ref of annots.asArray()) {
       const dict = doc.context.lookup(ref);
       const subtype = dict instanceof PDFDict ? dict.lookup(name('Subtype')) : null;
-      if (subtype instanceof PDFName && !KEEP.has(subtype.decodeText())) annotations++;
+      if (subtype instanceof PDFName && !KEEP.has(subtype.decodeText()) && !isReply(dict))
+        annotations++;
     }
   }
   return { fields: formFields(doc)?.length ?? 0, annotations };

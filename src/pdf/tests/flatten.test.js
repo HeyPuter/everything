@@ -9,6 +9,7 @@ import { addNote, listNotes } from '../src/core/notes.js';
 import { addHighlight, listHighlights, rectQuad } from '../src/core/highlight.js';
 import { addLink, listLinks } from '../src/core/links.js';
 import { extractPages } from '../src/core/pages.js';
+import { addReply, addShapeAnnotation, setReviewState } from '../src/core/annotations.js';
 
 afterEach(() => vi.restoreAllMocks());
 async function view(bytes, intent = 'display') {
@@ -80,6 +81,20 @@ describe('flattening', () => {
     expect(after.pixels[i]).toBeGreaterThan(200);
     expect(after.pixels[i + 2]).toBeLessThan(200);
     expect(flattenDocument(reopened)).toBe(false);
+  });
+  it('counts a comment with its replies and review states as one', async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage([300, 300]);
+    const id = addShapeAnnotation(doc, 0, {
+      kind: 'square',
+      rect: { x: 50, y: 50, width: 100, height: 80 },
+      text: 'Check',
+    });
+    addReply(doc, 0, addReply(doc, 0, id, { text: 'Done' }), { text: 'Thanks' });
+    setReviewState(doc, 0, id, { state: 'Completed', author: 'Ada' });
+    expect(flattenCounts(doc)).toEqual({ fields: 0, annotations: 1 });
+    expect(flattenDocument(doc)).toEqual({ fields: 0, annotations: 1 });
+    expect(doc.getPage(0).node.Annots()?.size() ?? 0).toBe(0);
   });
   it('flattens only what was asked for', async () => {
     const onlyFields = await reviewed();
