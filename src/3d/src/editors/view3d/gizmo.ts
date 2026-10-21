@@ -107,12 +107,12 @@ export function transformGizmo(v: View3D): VNode | null {
         h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 2.2, 'data-gizmo': `move:${i}`, class: 'gz' }),
         h('path', { d: `M${e.x + ux * 12} ${e.y + uy * 12} L${e.x - uy * 5} ${e.y + ux * 5} L${e.x + uy * 5} ${e.y - ux * 5}Z`, fill: COLORS[i], 'data-gizmo': `move:${i}`, class: 'gz' }),
       );
-      // plane handles
-      const j = (i + 1) % 3;
-      const a = axisEnd(j, 0.28),
-        b = axisEnd((i + 2) % 3, 0.28);
-      const c = v.project(f.pivot.clone().add(new Vector3(j === 0 ? 1 : 0, j === 1 ? 1 : 0, j === 2 ? 1 : 0).applyMatrix3(basis).multiplyScalar(f.size * 0.28)).add(new Vector3((i + 2) % 3 === 0 ? 1 : 0, (i + 2) % 3 === 1 ? 1 : 0, (i + 2) % 3 === 2 ? 1 : 0).applyMatrix3(basis).multiplyScalar(f.size * 0.28)));
-      parts.push(h('path', { d: `M${x} ${y}L${a.x} ${a.y}L${c.x} ${c.y}L${b.x} ${b.y}Z`, fill: COLORS[i], 'fill-opacity': 0.35, stroke: COLORS[i], 'stroke-width': 1, 'data-gizmo': `plane:${i}`, class: 'gz plane' }));
+      // plane handles: small squares away from the centre, in the plane of the other two axes
+      const ua = new Vector3(...[0, 1, 2].map((k) => (k === (i + 1) % 3 ? 1 : 0))).applyMatrix3(basis).normalize(),
+        va = new Vector3(...[0, 1, 2].map((k) => (k === (i + 2) % 3 ? 1 : 0))).applyMatrix3(basis).normalize();
+      const corner = (du: number, dv: number) => v.project(f.pivot.clone().addScaledVector(ua, f.size * du).addScaledVector(va, f.size * dv));
+      const q = [corner(0.26, 0.26), corner(0.4, 0.26), corner(0.4, 0.4), corner(0.26, 0.4)];
+      parts.push(h('path', { d: `M${q[0].x} ${q[0].y}L${q[1].x} ${q[1].y}L${q[2].x} ${q[2].y}L${q[3].x} ${q[3].y}Z`, fill: COLORS[i], 'fill-opacity': 0.55, stroke: COLORS[i], 'stroke-width': 1, 'data-gizmo': `plane:${i}`, class: 'gz plane' }));
     }
     parts.push(h('circle', { cx: x, cy: y, r: 10, fill: 'transparent', stroke: '#ffffff', 'stroke-width': 1.4, 'data-gizmo': 'view', class: 'gz' }));
   }
@@ -126,10 +126,23 @@ export function transformGizmo(v: View3D): VNode | null {
       if (l < 4) continue;
       const ux = dx / l,
         uy = dy / l;
-      if (kind === 'scale') parts.push(h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 2.2, 'data-gizmo': `scale:${i}`, class: 'gz' }));
+      if (kind === 'scale') parts.push(h('line', { x1: x + ux * 14, y1: y + uy * 14, x2: e.x, y2: e.y, stroke: COLORS[i], 'stroke-width': 1.8, 'data-gizmo': `scale:${i}`, class: 'gz' }));
       parts.push(h('rect', { x: e.x - 5, y: e.y - 5, width: 10, height: 10, fill: COLORS[i], 'data-gizmo': `scale:${i}`, class: 'gz' }));
+      if (kind === 'scale') {
+        // plane handles scale along the two other axes
+        const ua = new Vector3(...[0, 1, 2].map((k) => (k === (i + 1) % 3 ? 1 : 0))).applyMatrix3(basis).normalize(),
+          va = new Vector3(...[0, 1, 2].map((k) => (k === (i + 2) % 3 ? 1 : 0))).applyMatrix3(basis).normalize();
+        const corner = (du: number, dv: number) => v.project(f.pivot.clone().addScaledVector(ua, f.size * du).addScaledVector(va, f.size * dv));
+        const q = [corner(0.26, 0.26), corner(0.4, 0.26), corner(0.4, 0.4), corner(0.26, 0.4)];
+        parts.push(h('path', { d: `M${q[0].x} ${q[0].y}L${q[1].x} ${q[1].y}L${q[2].x} ${q[2].y}L${q[3].x} ${q[3].y}Z`, fill: COLORS[i], 'fill-opacity': 0.55, stroke: COLORS[i], 'stroke-width': 1, 'data-gizmo': `scaleplane:${i}`, class: 'gz plane' }));
+      }
     }
-    if (kind === 'scale') parts.push(h('circle', { cx: x, cy: y, r: 30, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.2, 'data-gizmo': 'scale:all', class: 'gz', opacity: 0.8 }));
+    if (kind === 'scale') {
+      // uniform scale: the outer ring and the small ring at the centre
+      const R = (f.size / v.nav.pixelSize(f.pivot)) * 1.2;
+      parts.push(h('circle', { cx: x, cy: y, r: R, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.6, 'data-gizmo': 'scale:all', class: 'gz', opacity: 0.85 }));
+      parts.push(h('circle', { cx: x, cy: y, r: 10, fill: 'transparent', stroke: '#ffffff', 'stroke-width': 1.4, 'data-gizmo': 'scale:all', class: 'gz' }));
+    }
   }
   if (show.rotate) {
     basis = orientationBasis(gizmoOrientation('rotate'));
@@ -148,7 +161,7 @@ export function transformGizmo(v: View3D): VNode | null {
         const s = v.project(p);
         pts.push(`${facing ? 'M' : k === 0 ? 'M' : 'L'}${s.x.toFixed(1)} ${s.y.toFixed(1)}`);
       }
-      parts.push(h('path', { d: pts.join(''), fill: 'none', stroke: COLORS[i], 'stroke-width': 2.2, 'data-gizmo': `rotate:${i}`, class: 'gz' }));
+      parts.push(h('path', { d: pts.join(''), fill: 'none', stroke: COLORS[i], 'stroke-width': 2.8, 'data-gizmo': `rotate:${i}`, class: 'gz' }));
     }
     const R = (f.size / v.nav.pixelSize(f.pivot)) * 1.2;
     parts.push(h('circle', { cx: x, cy: y, r: R, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.4, 'data-gizmo': 'rotate:view', class: 'gz' }));
@@ -167,9 +180,9 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   e.preventDefault();
   e.stopPropagation();
   const i = Number(axis);
-  const constraint = Number.isInteger(i) ? (kind === 'plane' ? [0, 1, 2].map((k) => k !== i) : [0, 1, 2].map((k) => k === i)) : undefined;
+  const constraint = Number.isInteger(i) ? (kind === 'plane' || kind === 'scaleplane' ? [0, 1, 2].map((k) => k !== i) : [0, 1, 2].map((k) => k === i)) : undefined;
   const ev = { x: e.clientX, y: e.clientY };
-  const mode = kind === 'move' || kind === 'plane' || kind === 'view' ? 'TRANSLATION' : kind === 'scale' ? 'RESIZE' : kind === 'trackball' ? 'TRACKBALL' : 'ROTATION';
+  const mode = kind === 'move' || kind === 'plane' || kind === 'view' ? 'TRANSLATION' : kind === 'scale' || kind === 'scaleplane' ? 'RESIZE' : kind === 'trackball' ? 'TRACKBALL' : 'ROTATION';
   const orient = gizmoOrientation(mode === 'RESIZE' ? 'scale' : mode === 'ROTATION' || mode === 'TRACKBALL' ? 'rotate' : 'move');
   if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient, redoSelf: true })) {
     const up = (pe: PointerEvent) => {
