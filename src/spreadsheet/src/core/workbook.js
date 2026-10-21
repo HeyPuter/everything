@@ -11523,7 +11523,11 @@ export class Workbook extends EventTarget {
     const set = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
     // Any line of the grid can be hidden, reached by scrolling or not.
     const total = axis === 'row' ? gridLimits(sheet).rows : gridLimits(sheet).cols;
-    const list = [...new Set(indices)].filter((i) => i >= 0 && i < total && set.has(i) !== hidden);
+    // Lines listed in order, as the selection gives them, have no repeats to drop: a million of them, from under a
+    // list to the sheet's end, cost a set of their own before anything was hidden.
+    let ascending = Array.isArray(indices);
+    for (let k = 1; ascending && k < indices.length; k++) ascending = indices[k] > indices[k - 1];
+    const list = (ascending ? indices : [...new Set(indices)]).filter((i) => i >= 0 && i < total && set.has(i) !== hidden);
     if (!list.length) return false;
     // Never hide every line: the sheet must keep something to click on. Lines a collapsed group hid past
     // the sheet's end are not among the ones it shows, so they do not count.
