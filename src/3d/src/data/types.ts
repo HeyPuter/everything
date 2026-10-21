@@ -266,6 +266,21 @@ export interface CurveData {
   resolution_u: number;
   /** data of NURBS surface objects */
   surface?: boolean;
+  /** how the profile turns along 3D curves, and how much that turning is smoothed */
+  twist_mode?: 'MINIMUM' | 'Z_UP' | 'TANGENT';
+  twist_smooth?: number;
+  /** the part of each spline the bevel covers, and how the factors are measured */
+  bevel_factor_start?: number;
+  bevel_factor_end?: number;
+  bevel_factor_mapping_start?: 'RESOLUTION' | 'SEGMENTS' | 'SPLINE';
+  bevel_factor_mapping_end?: 'RESOLUTION' | 'SEGMENTS' | 'SPLINE';
+  /** how the taper object's value combines with the point radius; map it to the covered part only */
+  taper_radius_mode?: 'OVERRIDE' | 'MULTIPLY' | 'ADD';
+  use_map_taper?: boolean;
+  /** curve deform: scale by the curve radius, stretch the deformed object over the whole curve, clamp to its bounds */
+  use_radius?: boolean;
+  use_stretch?: boolean;
+  use_deform_bounds?: boolean;
   /** surfaces: preview resolution along V; render resolutions (0 = use the preview ones) */
   resolution_v?: number;
   render_resolution_u?: number;

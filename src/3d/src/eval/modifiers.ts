@@ -1982,47 +1982,95 @@ function curveMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): EvalMes
   const own = ctx.graph.get(ctx.ob.id)!.world;
   const toMesh = own.clone().invert().multiply(t.world);
   const toCurve = toMesh.clone().invert();
-  const pts = curvePolyline(cu).map((p) => new Vector3(...p));
+  const smp = sampleSpline(cu.splines[0], cu.resolution_u);
+  const pts = smp.points.map((p) => new Vector3(...p));
   if (pts.length < 2) return m;
   const n = pts.length;
   const lens = [0];
   for (let i = 1; i < n; i++) lens.push(lens[i - 1] + pts[i].distanceTo(pts[i - 1]));
   const total = lens[n - 1] || 1;
-  // tangent at each point: the average of the neighbouring segment directions
-  const seg = (i: number) => pts[i + 1].clone().sub(pts[i]).normalize();
-  const tans = pts.map((_, i) => (i === 0 ? seg(0) : i === n - 1 ? seg(n - 2) : seg(i - 1).add(seg(i)).normalize()));
+  // frames along the curve (least twist, or Z up for flat curves), the ends follow the exact end tangents
+  const fr = frames(smp.points, false, cu.dimensions === '2D');
+  const sp0 = cu.splines[0];
+  const tans = bezierTangents(sp0, cu.resolution_u, n) ?? fr.T.map((x) => new Vector3(...x));
+  const ups = fr.N.map((x) => new Vector3(...x));
+  // beyond the ends the object continues along the first / last segment
+  const dirStart = pts[1].clone().sub(pts[0]).normalize(),
+    dirEnd = pts[n - 1].clone().sub(pts[n - 2]).normalize();
   const axis = ['POS_X', 'POS_Y', 'POS_Z', 'NEG_X', 'NEG_Y', 'NEG_Z'].indexOf(str(mod, 'deform_axis', 'POS_X'));
   const ai = axis % 3,
     neg = axis >= 3;
-  const zUp = new Vector3(0, 0, 1),
-    xUp = new Vector3(1, 0, 0);
+  const useRadius = cu.use_radius !== false,
+    stretch = !!cu.use_stretch,
+    bounds = !!cu.use_deform_bounds;
+  // the mesh's extent along the axis (in the curve's space) for Stretch and Bounds Clamp
+  let bmin = Infinity,
+    bmax = -Infinity;
+  if (stretch || bounds) {
+    const v = new Vector3();
+    for (let i = 0; i < m.positions.length; i += 3) {
+      v.set(m.positions[i], m.positions[i + 1], m.positions[i + 2]).applyMatrix4(toCurve);
+      const c = (neg ? -1 : 1) * v.getComponent(ai);
+      bmin = Math.min(bmin, c);
+      bmax = Math.max(bmax, c);
+    }
+  }
+  const lo = bounds ? bmin : 0;
+  const span = (bounds ? bmax - bmin : bmax) || 1;
+  const scale = stretch ? total / span : 1;
   return deform(m, mod, (p) => {
     p.applyMatrix4(toCurve);
     const c = [p.x, p.y, p.z];
-    const s = neg ? -c[ai] : c[ai];
+    let s = ((neg ? -c[ai] : c[ai]) - lo) * scale;
+    if (bounds) s = Math.max(0, Math.min(total, s));
     const d = Math.max(0, Math.min(total, s));
     let i = 1;
     while (i < n - 1 && lens[i] < d) i++;
     const k = (d - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
     const pos = pts[i - 1].clone().lerp(pts[i], k);
-    // turn the tangent smoothly from one point's to the next
+    // turn the frame smoothly from one point's to the next
     const q = new Quaternion().setFromUnitVectors(tans[i - 1], tans[i]);
     const tan = tans[i - 1].clone().applyQuaternion(new Quaternion().slerp(q, k)).normalize();
-    const up = Math.abs(tan.z) < 0.99 ? zUp : xUp;
+    let up = ups[i - 1].clone().applyQuaternion(new Quaternion().slerp(q, k));
+    up.sub(tan.clone().multiplyScalar(up.dot(tan)));
+    if (up.lengthSq() < 1e-12) up = Math.abs(tan.z) < 0.99 ? new Vector3(0, 0, 1) : new Vector3(1, 0, 0);
+    up.normalize();
     const side = new Vector3().crossVectors(up, tan).normalize();
-    const nup = new Vector3().crossVectors(tan, side);
+    // tilt turns the cross-section, radius scales it
+    const tilt = smp.tilt[i - 1] + (smp.tilt[i] - smp.tilt[i - 1]) * k;
+    const rad = useRadius ? smp.radius[i - 1] + (smp.radius[i] - smp.radius[i - 1]) * k : 1;
+    const ct = Math.cos(tilt),
+      st = Math.sin(tilt);
+    const s1 = side.clone().multiplyScalar(ct).addScaledVector(up, st),
+      u1 = up.clone().multiplyScalar(ct).addScaledVector(side, -st);
     // the other two coordinates become offsets across the curve (mirrored for negative axes)
-    const o1 = neg ? -c[(ai + 2) % 3] : c[(ai + 1) % 3],
-      o2 = neg ? -c[(ai + 1) % 3] : c[(ai + 2) % 3];
+    const o1 = (neg ? -c[(ai + 2) % 3] : c[(ai + 1) % 3]) * rad,
+      o2 = (neg ? -c[(ai + 1) % 3] : c[(ai + 2) % 3]) * rad;
     const extra = s - d; // beyond either end: continue straight
-    pos.addScaledVector(tan, extra).addScaledVector(side, o1).addScaledVector(nup, o2);
+    pos.addScaledVector(extra < 0 ? dirStart : extra > 0 ? dirEnd : tan, extra).addScaledVector(s1, o1).addScaledVector(u1, o2);
     p.copy(pos).applyMatrix4(toMesh);
   });
 }
 
-import { sampleSpline } from './curve';
-function curvePolyline(cu: import('../data/types').CurveData) {
-  return sampleSpline(cu.splines[0], cu.resolution_u).points;
+import { sampleSpline, frames } from './curve';
+
+/** Exact tangents of a Bézier spline at its evaluated points (null when it doesn't match the sampling). */
+function bezierTangents(sp: import('../data/types').Spline, resolution: number, count: number): Vector3[] | null {
+  if (sp.type !== 'BEZIER' || sp.bezier_points.length < 2) return null;
+  const bp = sp.bezier_points,
+    nb = bp.length;
+  const res = Math.max(1, sp.resolution_u || resolution);
+  const segs = sp.use_cyclic_u ? nb : nb - 1;
+  const out: Vector3[] = [];
+  const tangent = (a: (typeof bp)[number], b: (typeof bp)[number], t: number) => {
+    const m = 1 - t;
+    const d = [0, 1, 2].map((k) => 3 * m * m * (a.handle_right[k] - a.co[k]) + 6 * m * t * (b.handle_left[k] - a.handle_right[k]) + 3 * t * t * (b.co[k] - b.handle_left[k]));
+    const v = new Vector3(d[0], d[1], d[2]);
+    return v.lengthSq() > 1e-14 ? v.normalize() : new Vector3(...b.co).sub(new Vector3(...a.co)).normalize();
+  };
+  for (let i = 0; i < segs; i++) for (let k = 0; k < res; k++) out.push(tangent(bp[i], bp[(i + 1) % nb], k / res));
+  if (!sp.use_cyclic_u) out.push(tangent(bp[nb - 2], bp[nb - 1], 1));
+  return out.length === count ? out : null;
 }
 
 // ---------------------------------------------------------------------------

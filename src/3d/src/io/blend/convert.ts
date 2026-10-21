@@ -288,6 +288,30 @@ export function convertBlend(f: BlendFile): BlendImport {
     c.bevel_resolution = cu.num('bevresol');
     c.offset = cu.num('width') - 1;
     c.materials = cu.ptrArray('mat', Math.max(0, cu.num('totcol'))).map((a) => (a === 0 ? null : convertMaterial(cu.at(a)!)));
+    // bevel / taper objects
+    const taperOb = cu.ref('taperobj'),
+      bevelOb = cu.ref('bevobj');
+    if (taperOb) c.taper_object = ctx.objectRef(taperOb);
+    if (bevelOb) {
+      c.bevel_object = ctx.objectRef(bevelOb);
+      if (cu.num('bevel_mode') === 1 || !cu.has('bevel_mode')) c.bevel_mode = 'OBJECT';
+    }
+    // twist, bevel factors, taper and curve deform options
+    c.twist_mode = ({ 0: 'Z_UP', 3: 'MINIMUM', 4: 'TANGENT' } as Record<number, CurveData['twist_mode']>)[cu.num('twist_mode', 3)] ?? 'MINIMUM';
+    c.twist_smooth = cu.num('twist_smooth');
+    c.taper_radius_mode = (['OVERRIDE', 'MULTIPLY', 'ADD'] as const)[cu.num('taper_radius_mode')] ?? 'OVERRIDE';
+    if (cu.has('bevfac1')) {
+      const maps = ['RESOLUTION', 'SEGMENTS', 'SPLINE'] as const;
+      c.bevel_factor_start = cu.num('bevfac1');
+      c.bevel_factor_end = cu.num('bevfac2', 1);
+      c.bevel_factor_mapping_start = maps[cu.num('bevfac1_mapping')] ?? 'RESOLUTION';
+      c.bevel_factor_mapping_end = maps[cu.num('bevfac2_mapping')] ?? 'RESOLUTION';
+    }
+    c.use_map_taper = (flag & 0x8000) !== 0;
+    c.use_radius = (flag & 0x1000) !== 0;
+    c.use_stretch = (flag & 0x80) !== 0;
+    c.use_deform_bounds = (flag & 0x40) === 0;
+    if (cu.num('resolu_ren') > 0) c.render_resolution_u = cu.num('resolu_ren');
     if (isFont) {
       const len = Math.max(0, cu.num('len'));
       const raw = len ? f.bytesAt(cu.ptr('str'), len, cu.block) : null;

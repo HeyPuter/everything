@@ -572,22 +572,125 @@ function cameraData(o: ObjectData, ca: CameraData): Child {
   return [dataBlockSelector('ca', 'camera_data', Object.values(doc.cameras), ca.id, (id) => id && ((o.data = id), changed('Assign Camera')), () => {}, { noUnlink: true }), cameraPanels(o, ca)];
 }
 
+/** Fill in the curve settings documents from before they existed (so the panels show values). */
+function curveDefaults(cu: CurveData) {
+  cu.render_resolution_u ??= 0;
+  cu.twist_mode ??= 'MINIMUM';
+  cu.twist_smooth ??= 0;
+  cu.bevel_factor_start ??= 0;
+  cu.bevel_factor_end ??= 1;
+  cu.bevel_factor_mapping_start ??= 'RESOLUTION';
+  cu.bevel_factor_mapping_end ??= 'RESOLUTION';
+  cu.taper_radius_mode ??= 'OVERRIDE';
+  cu.use_map_taper ??= false;
+  cu.path_duration ??= 100;
+  cu.eval_time ??= 0;
+}
+
 function curveData(o: ObjectData, cu: CurveData): Child {
   const isText = o.type === 'FONT';
+  curveDefaults(cu);
+  const is3D = cu.dimensions === '3D' && !isText;
+  const fillItems: [string, string][] = is3D
+    ? [
+        ['FULL', 'Full'],
+        ['BACK', 'Back'],
+        ['FRONT', 'Front'],
+        ['HALF', 'Half'],
+      ]
+    : [
+        ['NONE', 'None'],
+        ['BACK', 'Back'],
+        ['FRONT', 'Front'],
+        ['BOTH', 'Both'],
+      ];
+  const mapping: [string, string][] = [
+    ['RESOLUTION', 'Resolution'],
+    ['SEGMENTS', 'Segments'],
+    ['SPLINE', 'Spline'],
+  ];
   return [
     dataBlockSelector('cu', 'curve_data', Object.values(app.doc.curves), cu.id, (id) => id && ((o.data = id), changed('Assign Curve')), () => {}, { noUnlink: true }),
     isText
       ? fontDataPanels.map((f) => f(o, cu))
-      : panel('cu-shape', 'Shape', () => [enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => ((cu.dimensions = v as '2D'), changed('Dimensions'))), num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }), cu.dimensions === '2D' ? enumProp(cu, 'fill_mode', 'Fill Mode', [['NONE', 'None'], ['BACK', 'Back'], ['FRONT', 'Front'], ['BOTH', 'Both']]) : null]),
-    panel('cu-geometry', 'Geometry', () => [
-      num(cu, 'offset', 'Offset', { min: -10, max: 10 }),
-      num(cu, 'extrude', 'Extrude', { unit: 'distance', min: 0 }),
-      h('div', { class: 'sub-label' }, 'Bevel'),
-      num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }),
-      num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 }),
-      bool(cu, 'use_fill_caps', 'Fill Caps'),
-      ...curveGeometryRows.map((f) => f(o, cu)),
-    ]),
+      : panel('cu-shape', 'Shape', () => [
+          enumRow('cu-dims', [{ value: '2D', label: '2D' }, { value: '3D', label: '3D' }], cu.dimensions, (v) => {
+            cu.dimensions = v as '2D';
+            // the fill modes differ between flat and 3D curves
+            if (v === '3D' && !['FULL', 'BACK', 'FRONT', 'HALF'].includes(cu.fill_mode)) cu.fill_mode = 'FULL';
+            if (v === '2D' && !['NONE', 'BACK', 'FRONT', 'BOTH'].includes(cu.fill_mode)) cu.fill_mode = 'BOTH';
+            changed('Dimensions');
+          }),
+          num(cu, 'resolution_u', 'Resolution Preview U', { int: true, min: 1, max: 1024 }),
+          num(cu as never, 'render_resolution_u' as never, 'Render U', { int: true, min: 0, max: 1024, tip: 'Resolution used for rendering (0: the preview resolution)' }),
+          is3D
+            ? [
+                enumProp(cu as never, 'twist_mode' as never, 'Twist Method', [
+                  ['Z_UP', 'Z-Up'],
+                  ['MINIMUM', 'Minimum'],
+                  ['TANGENT', 'Tangent'],
+                ]),
+                num(cu as never, 'twist_smooth' as never, 'Smooth', { min: 0, softMax: 20 }),
+              ]
+            : null,
+          enumProp(cu, 'fill_mode', 'Fill Mode', fillItems),
+          h('div', { class: 'sub-label' }, 'Curve Deform'),
+          splitRow('', checkbox('cu-def-radius', 'Radius', cu.use_radius !== false, (v) => ((cu.use_radius = v), changed('Curve Deform Radius')), { tip: 'Scale objects deformed by this curve with its radius' })),
+          splitRow('', checkbox('cu-def-stretch', 'Stretch', !!cu.use_stretch, (v) => ((cu.use_stretch = v), changed('Curve Deform Stretch')), { tip: 'Stretch deformed objects over the whole curve' })),
+          splitRow('', checkbox('cu-def-bounds', 'Bounds Clamp', !!cu.use_deform_bounds, (v) => ((cu.use_deform_bounds = v), changed('Curve Deform Bounds')), { tip: 'Measure deformed objects from their bounds and keep them on the curve' })),
+        ]),
+    panel(
+      'cu-geometry',
+      'Geometry',
+      () => [
+        num(cu, 'offset', 'Offset', { min: -10, max: 10 }),
+        num(cu, 'extrude', 'Extrude', { unit: 'distance', min: 0 }),
+        ...curveGeometryRows.map((f) => f(o, cu)),
+        cu.taper_object
+          ? [
+              enumProp(cu as never, 'taper_radius_mode' as never, 'Taper Radius', [
+                ['OVERRIDE', 'Override'],
+                ['MULTIPLY', 'Multiply'],
+                ['ADD', 'Add'],
+              ]),
+              bool(cu as never, 'use_map_taper' as never, 'Map Taper'),
+            ]
+          : null,
+        panel(
+          'cu-bevel',
+          'Bevel',
+          () => [
+            ...curveBevelRows.map((f) => f(o, cu)),
+            cu.bevel_mode !== 'OBJECT' ? [num(cu, 'bevel_depth', 'Depth', { unit: 'distance', min: 0 }), num(cu, 'bevel_resolution', 'Resolution', { int: true, min: 0, max: 32 })] : null,
+            bool(cu, 'use_fill_caps', 'Fill Caps'),
+          ],
+          { sub: true },
+        ),
+        panel(
+          'cu-bevel-factor',
+          'Start & End Mapping',
+          () => [
+            num(cu as never, 'bevel_factor_start' as never, 'Factor Start', { min: 0, max: 1, slider: true }),
+            num(cu as never, 'bevel_factor_end' as never, 'End', { min: 0, max: 1, slider: true }),
+            enumProp(cu as never, 'bevel_factor_mapping_start' as never, 'Mapping Start', mapping),
+            enumProp(cu as never, 'bevel_factor_mapping_end' as never, 'End', mapping),
+          ],
+          { sub: true, closed: true },
+        ),
+      ],
+      { closed: true },
+    ),
+    isText
+      ? null
+      : panel(
+          'cu-path',
+          'Path Animation',
+          () => [
+            num(cu as never, 'path_duration' as never, 'Frames', { int: true, min: 1, max: 1048574 }),
+            num(cu as never, 'eval_time' as never, 'Evaluation Time', { anim: { ob: o, path: 'data.eval_time' } }),
+          ],
+          { closed: true },
+        ),
     ...curveDataPanels.map((f) => f(o, cu)),
   ];
 }
@@ -597,6 +700,9 @@ export const dataTabDrawers: Record<string, (o: ObjectData) => Child> = {};
 
 /** Extra panels at the end of the curve / text Object Data tab (e.g. Active Spline). */
 export const curveDataPanels: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
+
+/** Extra rows at the top of the Bevel sub-panel of curves (bevel mode and object). */
+export const curveBevelRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
 
 /** Extra rows at the end of the curve Geometry panel (bevel / taper objects). */
 export const curveGeometryRows: ((ob: ObjectData, cu: CurveData) => Child)[] = [];
