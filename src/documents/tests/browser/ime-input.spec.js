@@ -47,3 +47,20 @@ test('a toolbar command during IME composition commits it and applies instead of
   await expect(input(page)).toHaveValue('Hello world你x');
   expect(await state(page)).toMatchObject({ composing: false, focused: true });
 });
+
+test('with Track Changes on, text composed over a selection leaves the caret after it', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Hello world again');
+  await input(page).press('ControlOrMeta+Shift+e');
+  await expect.poll(() => page.evaluate(() => !!window.__docs.current.view.engine.model.trackChanges)).toBe(true);
+  await input(page).evaluate(el => { el.setSelectionRange(6, 11); el.dispatchEvent(new Event('select')); });
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['n', 'ni', '你好']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  await cdp.send('Input.insertText', { text: '你好' });
+  // The replaced word stays, struck out, before the composed text; typing goes on after that text.
+  await page.keyboard.type('X');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.map(r => [r.text, r.revision?.type || null])))
+    .toEqual([['Hello ', null], ['world', 'del'], ['你好', 'ins'], ['X', 'ins'], [' again', null]]);
+  expect(await state(page)).toMatchObject({ text: 'Hello world你好X again', range: [14, 14], composing: false });
+});

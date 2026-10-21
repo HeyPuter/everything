@@ -1660,12 +1660,7 @@ export class CanvasEditor {
       this.session.run(() => {
         const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
         this.reconcile(value, false, { caret: a === b ? a : null, backward: /Backward$/.test(e?.inputType || '') });
-        const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
-        if (this.inputText === value) {
-          const selection = this.model.selection;
-          this.model.select(a, b, a === selection.anchor && b === selection.focus ? selection.controlCaret : undefined, a === selection.anchor && b === selection.focus ? selection.controlSelection : undefined);
-        }
-        this.model.typingFormat = typingFormat; this.model.typingStyle = typingStyle; this.model.typingDirectCleared = typingDirectCleared;
+        this.followNativeSelection(value, a, b);
       }, () => { this.validateStory(); this.relayout(); this.revealCaret(); }, { record: !this.composition });
       if (!this.composition && revision !== this.session.revision) this.onChange();
     } catch (e) {
@@ -1673,11 +1668,31 @@ export class CanvasEditor {
       this.onError(e); this.relayout();
     }
   }
+  /**
+   * Take the native field's selection once its value is in the model. During a composition with Track
+   * Changes on, the text it replaced stays in the document, struck out, but not in the native field;
+   * that text lies before the composition, so the selection maps across by the text after it.
+   */
+  followNativeSelection(value, a, b) {
+    const text = this.inputText, shift = text.length - value.length;
+    if (text !== value && !(this.composition && shift > 0 && text.endsWith(value.slice(a)))) return;
+    a += shift; b += shift;
+    const selection = this.model.selection, same = a === selection.anchor && b === selection.focus;
+    const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
+    this.model.select(a, b, same ? selection.controlCaret : undefined, same ? selection.controlSelection : undefined);
+    this.model.typingFormat = typingFormat; this.model.typingStyle = typingStyle; this.model.typingDirectCleared = typingDirectCleared;
+  }
   finishComposition() {
     if (!this.composition) return;
     const before = this.composition;
-    try { this.session.run(() => this.reconcile(this.input.value, false), () => this.validateStory(), { record: false }); }
-    catch (e) { this.session.restore(before); this.onError(e); }
+    try {
+      this.session.run(() => {
+        const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        this.reconcile(value, false);
+        // Committing re-reads the text the composition replaced, which leaves the caret before it.
+        if (this.inputText !== value) this.followNativeSelection(value, a, b);
+      }, () => this.validateStory(), { record: false });
+    } catch (e) { this.session.restore(before); this.onError(e); }
     this.composition = null;
     const changed = JSON.stringify(before.state.paragraphs) !== JSON.stringify(this.model.paragraphs);
     if (changed) this.session.record(before);
