@@ -10,7 +10,8 @@ import type { ActionData, Keyframe, ObjectData, ShapeKey, TimelineMarker } from 
 import { findSlot, slotIdType, slotName, slotUsers } from '../anim/slots';
 import { objectSlotBinding, renameSlotEverywhere, slotSelector } from './slotops';
 import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable, type SidebarTab } from './animeditor';
-import type { Channel, SpaceKind } from './channels';
+import type { Channel, CurveRef, SpaceKind } from './channels';
+import { insertMaskKeys } from './maskmode';
 import { C, drawKey, shapeFor } from './theme';
 import { aggregate } from './aggregate';
 import { setKeySelected, selectAll, selectColumns, keyBounds } from './keyedit';
@@ -21,7 +22,7 @@ import { lassoGesture } from './selecttools';
 import { actionSelector } from './actionui';
 import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
 
-export type DopeSheetMode = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY';
+export type DopeSheetMode = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY' | 'MASK';
 
 const MODES: {
   value: DopeSheetMode;
@@ -46,6 +47,12 @@ const MODES: {
     label: 'Shape Key Editor',
     icon: 'shapekey_data',
     description: 'Edit keyframes in active object’s Shape Keys action',
+  },
+  {
+    value: 'MASK',
+    label: 'Mask',
+    icon: 'mod_mask',
+    description: 'Edit the timing of mask shape keys',
   },
 ];
 
@@ -74,7 +81,7 @@ export class DopeSheet extends AnimEditor {
   constructor(area: Area, state?: unknown) {
     super(area, state);
     const s = (state ?? {}) as Record<string, unknown>;
-    if (s.mode === 'ACTION' || s.mode === 'SHAPEKEY' || s.mode === 'DOPESHEET') this.mode = s.mode;
+    if (s.mode === 'ACTION' || s.mode === 'SHAPEKEY' || s.mode === 'DOPESHEET' || s.mode === 'MASK') this.mode = s.mode;
     if (typeof s.showHandlesInterp === 'boolean') this.showHandlesInterp = s.showHandlesInterp;
     if (typeof s.showPoseMarkers === 'boolean') this.showPoseMarkers = s.showPoseMarkers;
     if (typeof s.showExtremes === 'boolean') this.showExtremes = s.showExtremes;
@@ -132,7 +139,7 @@ export class DopeSheet extends AnimEditor {
         { separator: true },
         { label: 'Sync Markers', checked: this.syncMarkers, description: 'Move the selected markers along with transformed keyframes', action: () => ((this.syncMarkers = !this.syncMarkers), app.changed('ui')) },
       ]),
-      menuButton('Channel', () => channelMenu('action')),
+      this.mode === 'MASK' ? null : menuButton('Channel', () => channelMenu('action')),
       menuButton('Key', () => keyMenu('action')),
       this.mode === 'ACTION' ? menuButton('Action', actionMenu) : null,
       this.mode === 'ACTION' && ob ? actionSelector(ob) : null,
@@ -217,6 +224,13 @@ export class DopeSheet extends AnimEditor {
 
   protected footer(): Child | null {
     return playbackFooter(null, true);
+  }
+
+  /** Mask mode: I keys the layers' current point positions. */
+  insertKeys(curves: CurveRef[], _type: Keyframe['type']): boolean {
+    if (this.mode !== 'MASK') return false;
+    if (!insertMaskKeys(curves, app.doc.scene.frame_current)) app.report('WARNING', 'No mask layers with points to key');
+    return true;
   }
 
   // ---------------------------------------------------------------- channels
@@ -638,6 +652,7 @@ function rowColor(ch: Channel) {
     case 'SUMMARY':
       return C.summary;
     case 'OBJECT':
+    case 'MASK':
       return C.objectRow;
     case 'ACTION':
       return C.actionRow;

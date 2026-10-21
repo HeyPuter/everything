@@ -55,3 +55,11 @@
   flex: 1;
   min-width: 0;
 }
+
+/* Dope Sheet ▸ Mask rows */
+.anim-ch-rows .anim-ch-row.k-mask {
+  background: rgb(24, 79, 129);
+}
+.anim-ch-rows .anim-ch-row.k-mask_layer {
+  background: rgb(18, 18, 18);
+}

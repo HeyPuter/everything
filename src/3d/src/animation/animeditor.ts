@@ -734,6 +734,14 @@ export abstract class AnimEditor implements Editor {
         if (fc) fc.data_path = `data.shape_keys.key_blocks["${v.replace(/"/g, '\\"')}"].value`;
         void ob;
       };
+    } else if (ch.kind === 'MASK' && ch.mask) {
+      const m = ch.mask;
+      current = m.name;
+      apply = (v) => (m.name = v);
+    } else if (ch.kind === 'MASK_LAYER' && ch.maskLayer) {
+      const l = ch.maskLayer;
+      current = l.name;
+      apply = (v) => (l.name = v);
     }
     if (!apply) return;
     const doApply = apply;
@@ -764,7 +772,7 @@ export abstract class AnimEditor implements Editor {
 
   /** Whether a channel can be renamed in place. */
   canRename(ch: Channel) {
-    return ['OBJECT', 'ACTION', 'SLOT', 'NLA_ACTION', 'GROUP', 'NLA_TRACK', 'SHAPEKEY'].includes(ch.kind) && (ch.kind !== 'ACTION' && ch.kind !== 'NLA_ACTION' ? true : !!ch.action);
+    return ['OBJECT', 'ACTION', 'SLOT', 'NLA_ACTION', 'GROUP', 'NLA_TRACK', 'SHAPEKEY', 'MASK', 'MASK_LAYER'].includes(ch.kind) && (ch.kind !== 'ACTION' && ch.kind !== 'NLA_ACTION' ? true : !!ch.action);
   }
 
   protected channelDown(e: PointerEvent, ch: Channel) {
@@ -963,13 +971,14 @@ export abstract class AnimEditor implements Editor {
 
   /** standard mute/lock toggles */
   protected muteLockToggles(ch: Channel): Child {
-    if (!['GROUP', 'FCURVE', 'SHAPEKEY'].includes(ch.kind)) return null;
+    if (!['GROUP', 'FCURVE', 'SHAPEKEY', 'MASK_LAYER'].includes(ch.kind)) return null;
     const fcs = channelCurves(ch);
     if (!fcs.length) return null;
     const muted = fcs.every((f) => f.mute);
     const locked = fcs.every((f) => f.lock);
     return [
-      h(
+      // mask layers can only be locked
+      ch.kind === 'MASK_LAYER' ? null : h(
         'button',
         {
           key: 'mute',

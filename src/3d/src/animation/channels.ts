@@ -6,8 +6,8 @@ import { curveSlot, isSlotted, objectCurves, slotCurves, slotIdType, slotName, s
 import { channelLabel, dataBlock } from '../data/rna';
 import { driverAction } from './drivercurves';
 
-export type SpaceKind = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY' | 'GRAPH' | 'DRIVERS' | 'NLA';
-export type ChannelKind = 'SUMMARY' | 'OBJECT' | 'ACTION' | 'SLOT' | 'GROUP' | 'FCURVE' | 'SHAPEKEY' | 'DRIVERS' | 'DRIVER' | 'NLA_ACTION' | 'NLA_TRACK';
+export type SpaceKind = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY' | 'GRAPH' | 'DRIVERS' | 'NLA' | 'MASK';
+export type ChannelKind = 'SUMMARY' | 'OBJECT' | 'ACTION' | 'SLOT' | 'GROUP' | 'FCURVE' | 'SHAPEKEY' | 'DRIVERS' | 'DRIVER' | 'NLA_ACTION' | 'NLA_TRACK' | 'MASK' | 'MASK_LAYER';
 
 export interface CurveRef {
   ob: ObjectData;
@@ -32,6 +32,9 @@ export interface Channel {
   driverIndex?: number;
   track?: NlaTrack;
   trackIndex?: number;
+  /** MASK / MASK_LAYER rows (Dope Sheet ▸ Mask) */
+  mask?: import('../mask/types').MaskData;
+  maskLayer?: import('../mask/types').MaskLayer;
   /** the channel's property can't be found */
   error?: boolean;
   /** F-Curves summarized by this row (keys drawn/edited through it) */
@@ -232,7 +235,12 @@ export interface ChannelList {
   curves: CurveRef[];
 }
 
+/** Channel lists of spaces built by other modules (e.g. Dope Sheet ▸ Mask). */
+export const spaceChannelBuilders: Partial<Record<SpaceKind, (doc: DocumentData, f: ChannelFilter) => ChannelList>> = {};
+
 export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFilter): ChannelList {
+  const custom = spaceChannelBuilders[space];
+  if (custom) return custom(doc, f);
   if (space === 'GRAPH' && f.usePins === undefined) f = { ...f, usePins: true };
   const rows: Channel[] = [];
   const curves: CurveRef[] = [];
@@ -515,6 +523,8 @@ export function channelSelected(ch: Channel): boolean {
       return ch.fc ? !!ch.fc.select : channelState.selectedDrivers.has(ch.key);
     case 'NLA_TRACK':
       return !!ch.track?.select;
+    case 'MASK_LAYER':
+      return !!ch.fc?.select;
     default:
       return false;
   }
@@ -547,6 +557,9 @@ export function setChannelSelected(ch: Channel, value: boolean) {
       break;
     case 'NLA_TRACK':
       if (ch.track) ch.track.select = value;
+      break;
+    case 'MASK_LAYER':
+      if (ch.fc) ch.fc.select = value;
       break;
   }
 }
