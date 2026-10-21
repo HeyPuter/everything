@@ -63,6 +63,14 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Each paragraph takes its direction from its own text, so an Arabic or
+   Hebrew line reads right to left (and starts at the right) among
+   English ones. */
+.page-title,
+.outline-body,
+.outline-body :is(p, div, h1, h2, h3, h4, h5, h6, li, blockquote, pre, td, th) {
+  unicode-bidi: plaintext;
+}
 .page-title:empty::before {
   content: attr(data-placeholder);
   color: var(--text-3);
