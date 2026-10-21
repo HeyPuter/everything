@@ -3,6 +3,7 @@ import { Store, snippet, foldWithOffsets } from '../src/data/store.js';
 import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
 import { closeAllMenus } from '../src/ui/menu.js';
+import { setPref } from '../src/ui/prefs.js';
 
 // App shell and navigation: panes, routing, search, menus and dialogs.
 
@@ -65,6 +66,28 @@ describe('App shell', () => {
     await tick();
     expect(rows().map((r) => r.textContent)).toEqual(['Untitled Page', 'Three']);
     expect(document.activeElement).toBe(app.nav.pagesList.querySelector('.row[aria-selected="true"]'));
+  });
+
+  it('steps to the next and previous page in the order the page list shows', async () => {
+    const section = store.section(app.state.sectionId);
+    store.createPage(section.id, { title: 'C' });
+    store.createPage(section.id, { title: 'A' });
+    store.createPage(section.id, { title: 'B' });
+    setPref('pageSort', 'alpha');
+    app.renderNav();
+    const a = section.pages.find((p) => p.title === 'A');
+    await app.openPage(a.id);
+    const titles = [];
+    for (let i = 0; i < 3; i++) {
+      app.runCommand('nextPage');
+      await tick();
+      titles.push(store.findPage(app.state.pageId).meta.title || 'Untitled Page');
+    }
+    expect(titles).toEqual(['B', 'C', 'Untitled Page']);
+    app.runCommand('prevPage');
+    await tick();
+    expect(store.findPage(app.state.pageId).meta.title).toBe('C');
+    setPref('pageSort', 'manual');
   });
 
   it('follows a page link pasted into the address bar of the open app', async () => {

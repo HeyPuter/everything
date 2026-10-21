@@ -561,9 +561,11 @@ export class App {
   stepPage(dir) {
     const section = this.store.section(this.state.sectionId);
     if (!section) return;
-    const i = section.pages.findIndex((p) => p.id === this.state.pageId);
-    const next = section.pages[i + dir];
-    if (next) this.openPage(next.id);
+    // Follow the page list as shown: its sort order, without the subpages
+    // of collapsed pages.
+    const ids = [...this.nav.pagesList.querySelectorAll('.row')].map((r) => r.dataset.id);
+    const next = ids[ids.indexOf(this.state.pageId) + dir];
+    if (next) this.openPage(next);
   }
 
   isUnlocked(id) {
