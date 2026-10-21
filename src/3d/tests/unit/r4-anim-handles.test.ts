@@ -24,3 +24,19 @@ describe('automatic handles match the reference', () => {
     });
   }
 });
+
+describe('clamped Continuous Acceleration limits overshooting handles', () => {
+  it('matches the reference handles of a longer curve', () => {
+    const VALS = [0, 0.1, 0.25, 1.2, 1.0, 0.9, 2.5, 2.4, 2.6, 0.3, -0.5, 0.0, 0.05, 1.5, 1.6];
+    // recorded handle values (left, right) of the reference run
+    const REF = [[0, 0], [0.075, 0.125], [0.1, 0.4], [1.2, 1.2], [1.075, 0.925], [0.9, 0.9], [2.5, 2.5], [2.4, 2.4], [2.6, 2.6], [1.075, -0.475], [-0.5, -0.5], [-0.05, 0.05], [0, 0.1], [1.4, 1.6], [1.6, 1.6]];
+    const fc: FCurve = { data_path: 'location', array_index: 0, keyframe_points: [], extrapolation: 'CONSTANT', modifiers: [], auto_smoothing: 'CONT_ACCEL' };
+    VALS.forEach((v, i) => insertKeyframe(fc, 1 + i * 2, v));
+    calcHandles(fc);
+    fc.keyframe_points.forEach((k, i) => {
+      expect(k.handle_left[1], `left ${i}`).toBeCloseTo(REF[i][0], 4);
+      expect(k.handle_right[1], `right ${i}`).toBeCloseTo(REF[i][1], 4);
+    });
+  });
+});
+

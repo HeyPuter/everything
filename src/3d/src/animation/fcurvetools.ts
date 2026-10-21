@@ -350,7 +350,8 @@ export function butterworthSmooth(
     blend = o.blend ?? 1,
     inOut = Math.max(0, o.blendInOut ?? 1),
     fps = o.fps ?? 24;
-  const secs = butterworthSections(order, cutoff, fps * spf);
+  // the filter order counts second-order sections (each section is a pair of poles)
+  const secs = butterworthSections(order * 2, cutoff, fps * spf);
   let n = 0;
   for (const seg of selectedSegments(curves)) {
     const keys = segKeys(seg);
@@ -358,12 +359,18 @@ export function butterworthSmooth(
     const copy: FCurve = { ...seg.fc, keyframe_points: seg.fc.keyframe_points.map(cloneKey), modifiers: [] };
     const f0 = keys[0].co[0],
       f1 = keys[keys.length - 1].co[0];
-    const count = Math.max(2, Math.round((f1 - f0) * spf) + 1);
+    // the curve is sampled from the key before the selection to the key after it
+    const nb = neighbours(seg);
+    const s0 = Math.min(f0, nb.left.co[0]),
+      s1 = Math.max(f1, nb.right.co[0]);
+    const count = Math.max(2, Math.round((s1 - s0) * spf) + 1);
     const samples: number[] = [];
-    for (let i = 0; i < count; i++) samples.push(evaluateFCurve(copy, f0 + i / spf));
-    const filtered = filtfilt(samples, secs, Math.min(count - 1, 3 * (order + 1) * spf));
+    for (let i = 0; i < count; i++) samples.push(evaluateFCurve(copy, s0 + i / spf));
+    // held ends: the samples are padded with the first / last value on both sides
+    const ext = [...new Array<number>(count).fill(samples[0]), ...samples, ...new Array<number>(count).fill(samples[count - 1])];
+    const filtered = filtfilt(ext, secs, 0).slice(count, 2 * count);
     const sampleAt = (f: number) => {
-      const t = (f - f0) * spf;
+      const t = (f - s0) * spf;
       const i = Math.max(0, Math.min(count - 2, Math.floor(t)));
       return lerp(filtered[i], filtered[i + 1], Math.max(0, Math.min(1, t - i)));
     };

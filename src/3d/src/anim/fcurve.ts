@@ -100,8 +100,8 @@ export function calcHandles(fc: FCurve) {
  */
 export function continuousSlopes(k: Keyframe[]): (number | null)[] {
   const n = k.length;
-  const out: (number | null)[] = new Array(n).fill(null);
   const auto = k.map((x) => isAuto(x.handle_left_type) && isAuto(x.handle_right_type) && x.interpolation === 'BEZIER');
+  const clampedKey = (i: number) => k[i].handle_left_type === 'AUTO_CLAMPED' || k[i].handle_right_type === 'AUTO_CLAMPED';
   // fixed slopes: curve ends, clamped extremes and non-automatic keys
   const fixed: (number | null)[] = k.map((x, i) => {
     if (!auto[i]) {
@@ -109,10 +109,48 @@ export function continuousSlopes(k: Keyframe[]): (number | null)[] {
       return Math.abs(hx) > 1e-9 ? (x.handle_right[1] - x.co[1]) / hx : 0;
     }
     if (i === 0 || i === n - 1) return 0;
-    const clamped = x.handle_left_type === 'AUTO_CLAMPED' || x.handle_right_type === 'AUTO_CLAMPED';
-    return clamped && isExtreme(k, i) ? 0 : null;
+    return clampedKey(i) && isExtreme(k, i) ? 0 : null;
   });
-  for (let i = 0; i < n; i++) if (auto[i] && fixed[i] !== null) out[i] = fixed[i];
+  // clamped keys whose handles would overshoot a neighbour get the steepest slope that does not,
+  // and the other slopes are solved again around them
+  for (let pass = 0; pass < n; pass++) {
+    const m = solveSlopeRuns(k, fixed);
+    // the worst overshoot is limited first, then the others are solved again
+    let worst = -1,
+      worstBy = 1e-12,
+      worstSlope = 0;
+    for (let i = 1; i < n - 1; i++) {
+      if (fixed[i] !== null || !clampedKey(i)) continue;
+      const y = k[i].co[1];
+      const hl = (k[i].co[0] - k[i - 1].co[0]) / 3,
+        hr = (k[i + 1].co[0] - k[i].co[0]) / 3;
+      const pv = k[i - 1].co[1],
+        nv = k[i + 1].co[1];
+      const left = y - m[i] * hl,
+        right = y + m[i] * hr;
+      const overL = Math.max(0, Math.min(y, pv) - left, left - Math.max(y, pv)),
+        overR = Math.max(0, Math.min(y, nv) - right, right - Math.max(y, nv));
+      if (overL > worstBy && overL >= overR) {
+        worst = i;
+        worstBy = overL;
+        worstSlope = (y - pv) / hl;
+      } else if (overR > worstBy) {
+        worst = i;
+        worstBy = overR;
+        worstSlope = (nv - y) / hr;
+      }
+    }
+    if (worst < 0) return k.map((_, i) => (auto[i] ? m[i] : null));
+    fixed[worst] = worstSlope;
+  }
+  const m = solveSlopeRuns(k, fixed);
+  return k.map((_, i) => (auto[i] ? m[i] : null));
+}
+
+/** Slopes of each run of free keys (tridiagonal C2 system) between fixed slopes. */
+function solveSlopeRuns(k: Keyframe[], fixed: (number | null)[]): number[] {
+  const n = k.length;
+  const out = fixed.map((f) => f ?? 0);
   let i = 0;
   while (i < n) {
     if (fixed[i] !== null) {
