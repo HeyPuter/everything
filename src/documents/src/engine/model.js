@@ -321,7 +321,6 @@ export class TextDocument {
     // Display permission applies only to initial resolution, never mutations.
     if (styles) for (const p of this.paragraphs) resolveStyledParagraph(p, this.styles, this.numbering, { displayOnly });
     documentBlocks(this.paragraphs, this.tables);
-    this.hasColumnBookmarks = bookmarkEntries(this.paragraphs, this.tables).some(entry => entry.columnRange);
     this.pageSettings = validatePageSettings(pageSettings);
     // Section breaks inserted later copy the source section they split (see insertSectionBreakAt).
     this.sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;
@@ -333,6 +332,16 @@ export class TextDocument {
     this.typingFormat = {}; this.typingStyle = null; this.typingDirectCleared = false;
     this.history = [];
     this.future = [];
+    this.findContentFeatures();
+    this.revision = 0;
+  }
+  /**
+   * Note which content needs its own handling in edits (controls, fields, note marks). Edits only ever add
+   * such content through commands that set these, so they are found again only when content is replaced
+   * wholesale: a restored version or undo step can bring back fields an edit would otherwise misplace.
+   */
+  findContentFeatures() {
+    this.hasColumnBookmarks = bookmarkEntries(this.paragraphs, this.tables).some(entry => entry.columnRange);
     this.hasPlainTextControls = this.paragraphs.some(p => p.blockControls?.some(c => c.plainText) || p.runs.some(r => r.contentControl?.plainText));
     this.hasContentControls = this.paragraphs.some(p => p.runs.some(r => r.contentControl));
     this.hasPersistentControls = this.paragraphs.some(p => p.runs.some(r => r.contentControl?.persistent));
@@ -345,7 +354,6 @@ export class TextDocument {
     this.hasHyperlinkFields=fields.some(r=>r.field.type==='HYPERLINK');
     this.hasMacroButtons=fields.some(r=>r.field.type==='MACROBUTTON');
     this.hasNoteMarks=this.paragraphs.some(p=>p.runs.some(r=>r.noteMark));
-    this.revision = 0;
   }
   didChange(preservedBlockControls) {
     if(this.hasBodyFields){
@@ -1238,6 +1246,7 @@ export class TextDocument {
     this.pageSettings = validatePageSettings(state.pageSettings);
     this.selection = { ...state.selection };
     this.typingFormat = { ...state.typingFormat }; this.typingStyle = copy(state.typingStyle || null); this.typingDirectCleared = !!state.typingDirectCleared;
+    this.findContentFeatures();
     this.didChange();
   }
   checkpoint() {

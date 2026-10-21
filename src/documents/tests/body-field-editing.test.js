@@ -95,3 +95,15 @@ it('retains a simple wrapper for result edits and converts it only when split ac
  d.select(r.start+1);d.replace('\n');const split=await save(p,d),again=model(await DocxPackage.open(split)),field=bodyFieldRanges(again.paragraphs)[2];expect(again.text.slice(field.start,field.end)).toBe('4\n2');expect(field.field.simple).toBeUndefined();
  d.undo();d.undo();expect(unzipSync(await save(p,d))).toEqual(p.parts);
 });
+
+// Restoring a version while co-editing replaces the content of a model that may have had no fields.
+it('keeps a restored version\'s fields in place as the text around them is edited',async()=>{
+ const p=await DocxPackage.open(source),version=model(p),fields=bodyFieldRanges(version.paragraphs).map(r=>version.text.slice(r.start,r.end));
+ const current=new TextDocument([{id:'plain',runs:[{text:'Plain text',properties:'',overrides:{}}]}]);
+ current.restore({...version.snapshot(),selection:{anchor:0,focus:0}});
+ // Typed in the first field's paragraph, before the field.
+ const at=current.text.indexOf('Body PAGE:');current.select(at);current.replace('Typed first. ');
+ expect(bodyFieldRanges(current.paragraphs).map(r=>current.text.slice(r.start,r.end))).toEqual(fields);
+ const bytes=await save(p,current),again=model(await DocxPackage.open(bytes));
+ expect(bodyFieldRanges(again.paragraphs).map(r=>again.text.slice(r.start,r.end))).toEqual(fields);
+});
