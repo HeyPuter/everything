@@ -145,6 +145,56 @@ const SNAPSHOT_CELLS = 1_000_000;
 // a list to the sheet's end (a million of them) went into every structural step at 8 MB a time, unweighed, so two
 // hundred steps of history could hold gigabytes.
 const hiddenLinesWeight = (n) => Math.ceil(n / 8);
+
+/**
+ * Renumber a set of hidden lines in place as `move` renumbers the sheet's lines (an insertMap's or a deleteMap's move:
+ * null for a line deleted), dropping those that land past `limit`. The move keeps the order of the lines it keeps, so
+ * each run of neighbouring lines lands as a few runs of neighbours and only the lines at their ends change: rows
+ * hidden from under a list to the sheet's end (a million of them) were a new set of a million on every row inserted.
+ */
+export function remapLines(set, move, limit) {
+  if (!set.size) return set;
+  const sorted = Array.from(set);
+  for (let k = 1; k < sorted.length; k++) if (sorted[k] < sorted[k - 1]) { sorted.sort((a, b) => a - b); break; }
+  const before = [];
+  for (const i of sorted) {
+    const run = before[before.length - 1];
+    if (run && i === run[1] + 1) run[1] = i; else before.push([i, i]);
+  }
+  // Where each run lands: whole, when its ends moved apart by its own length (nothing went in or out inside it).
+  const after = [];
+  const place = (a, b) => {
+    const ma = move(a), mb = move(b);
+    if (ma != null && mb != null && mb - ma === b - a) {
+      if (ma > limit) return;
+      const run = after[after.length - 1];
+      if (run && ma === run[1] + 1) run[1] = Math.min(mb, limit); else after.push([ma, Math.min(mb, limit)]);
+      return;
+    }
+    if (a === b) return;
+    const mid = Math.floor((a + b) / 2);
+    place(a, mid);
+    place(mid + 1, b);
+  };
+  for (const [a, b] of before) place(a, b);
+  // The lines in one list and not the other, found by walking both in order.
+  const changes = (from, to, apply) => {
+    let k = 0;
+    for (const [a, b] of from) {
+      let i = a;
+      while (i <= b) {
+        while (k < to.length && to[k][1] < i) k++;
+        if (k < to.length && to[k][0] <= i) { i = to[k][1] + 1; continue; }
+        const end = k < to.length ? Math.min(b, to[k][0] - 1) : b;
+        for (let j = i; j <= end; j++) apply(j);
+        i = end + 1;
+      }
+    }
+  };
+  changes(before, after, (i) => set.delete(i));
+  changes(after, before, (i) => set.add(i));
+  return set;
+}
 // The changes kept on record, newest last, for a listener asking what changed since a version it knows (see changesSince).
 const CHANGE_LOG = 256;
 // Formulas that read other files or the web; a file from elsewhere may not run them until the user allows it.
@@ -6689,7 +6739,7 @@ export class Workbook extends EventTarget {
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
       const lastLine = axis === 'row' ? MAX_ROW : MAX_COL;
       // Lines pushed past the grid's last one are gone; the grid never grows past A1:XFD1048576.
-      const shiftedHidden = new Set([...hidden].map(move).filter((i) => i <= lastLine));
+      const shiftedHidden = remapLines(hidden, move, lastLine);
       const groupKey = axis === 'row' ? 'rows' : 'cols';
       // Lines inserted inside a collapsed group join it hidden like the rest of it, rather than showing
       // through a group whose button says it is closed; lines at its first line move it down instead.
@@ -6935,7 +6985,7 @@ export class Workbook extends EventTarget {
       }
       if (axis === 'row') sheet.rowStyles = shiftedStyles; else sheet.colStyles = shiftedStyles;
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
-      const shiftedHidden = new Set([...hidden].map((i) => lines.move(i)).filter((i) => i != null));
+      const shiftedHidden = remapLines(hidden, lines.move, Infinity);
       const lo = axis === 'row' ? 'r1' : 'c1';
       const hi = axis === 'row' ? 'r2' : 'c2';
       // A range loses the lines deleted inside it; an end inside a run stops at the last line kept before it.
