@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { speechChunks } from '../src/core/speech.js';
+import { pageSpeechText, speechChunks } from '../src/core/speech.js';
 
 it('keeps short text whole and empty text silent', () => {
   expect(speechChunks('  One line.\nAnd another.  ')).toEqual(['One line. And another.']);
@@ -26,4 +26,15 @@ it('breaks a sentence longer than a piece between words, or anywhere without spa
   expect(chunks.join(' ')).toBe(words);
   const unbroken = '字'.repeat(250);
   expect(speechChunks(unbroken, { max: 100 }).map((chunk) => chunk.length)).toEqual([100, 100, 50]);
+});
+
+it('speaks a word hyphenated at the end of a line whole', () => {
+  expect(
+    pageSpeechText([
+      { str: 'an exam-', hasEOL: true },
+      { str: 'ple of a well-' },
+      { str: '', hasEOL: true },
+      { str: 'Known word' },
+    ]),
+  ).toBe('an example of a well-\nKnown word');
 });

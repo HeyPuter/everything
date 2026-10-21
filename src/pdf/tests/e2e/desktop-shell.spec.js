@@ -468,6 +468,42 @@ test('Read out loud speaks a PDF in the language it is written in', async ({ pag
     .toEqual([{ text: 'Bonjour tout le monde.', lang: 'fr-FR' }]);
 });
 
+test('Read out loud joins a word hyphenated at the end of a line', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const sheet = doc.addPage([600, 800]);
+  ['Here is an exam-', 'ple of a well-', 'Known word.'].forEach((line, i) =>
+    sheet.drawText(line, { x: 40, y: 700 - i * 20, size: 14, font }),
+  );
+  await openPdf(page, doc);
+  await page.evaluate(() => {
+    window.spoken = [];
+    window.SpeechSynthesisUtterance = class {
+      constructor(text) {
+        this.text = text;
+      }
+    };
+    Object.defineProperty(window, 'speechSynthesis', {
+      configurable: true,
+      value: {
+        paused: false,
+        speak(utterance) {
+          window.spoken.push(utterance.text);
+          setTimeout(() => utterance.onend?.(), 0);
+        },
+        cancel() {},
+      },
+    });
+  });
+  await page.getByRole('menuitem', { name: 'View', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Read out loud' }).click();
+  await page.getByRole('menuitem', { name: 'Read this page', exact: true }).click();
+  // A capital after the hyphen is a hyphenated name or compound, which keeps its hyphen.
+  await expect
+    .poll(() => page.evaluate(() => window.spoken.join(' ')))
+    .toBe('Here is an example of a well- Known word.');
+});
+
 test('Organize pages selects, turns, moves, and deletes several pages', async ({ page }) => {
   await openPdf(page, await numberedPdf(4));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

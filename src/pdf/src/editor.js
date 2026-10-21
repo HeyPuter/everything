@@ -30,7 +30,7 @@ import { signatureDialog } from './signature-dialog.js';
 import { drawSignature } from './core/signature.js';
 import { enableThumbnailReorder } from './page-organizer.js';
 import { addNote, listNotes, editNote, NOTE_SIZE } from './core/notes.js';
-import { speechChunks } from './core/speech.js';
+import { pageSpeechText, speechChunks } from './core/speech.js';
 import { createOutlinePanel, destinationPage, destinationTarget } from './outline.js';
 import { createCommentsPanel } from './comments.js';
 import { createAttachmentsPanel, createLayersPanel } from './side-panels.js';
@@ -10934,12 +10934,7 @@ export function createEditor({
   const canSpeak = () => !!globalThis.speechSynthesis && access().accessibility;
   async function pageWords(index) {
     const page = await pdf.getPage(index + 1);
-    const content = await page.getTextContent();
-    return content.items
-      .map((item) => item.str + (item.hasEOL ? '\n' : ''))
-      .join('')
-      .replace(/[ \t]+/g, ' ')
-      .trim();
+    return pageSpeechText((await page.getTextContent()).items);
   }
   async function readAloud(toEnd = false) {
     if (!canSpeak()) throw new Error('Reading aloud is not available here.');

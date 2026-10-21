@@ -1,4 +1,16 @@
 /**
+ * The words of a page's text items, line by line. A word hyphenated at the end of a line is
+ * spoken whole, as it is found by Find: a voice reads "exam- ple" as two words.
+ */
+export function pageSpeechText(items) {
+  return items
+    .map((item) => (item.str ?? '') + (item.hasEOL ? '\n' : ''))
+    .join('')
+    .replace(/(\p{L})[-\u00ad\u2010]\n[ \t]*(?=\p{Ll})/gu, '$1')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+}
+/**
  * Page text cut into pieces to speak one after another, whole sentences where they fit.
  * Chrome stops speaking a long utterance after about fifteen seconds without ever ending it,
  * so a page read as one utterance fell silent partway and Read to end never moved on.
