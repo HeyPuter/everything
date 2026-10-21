@@ -5,10 +5,10 @@ import { addShapeAnnotation, listAnnotations } from '../../src/core/annotations.
 
 const settled = (page) => expect(page.locator('.editor')).toHaveAttribute('aria-busy', 'false');
 
-async function openWithRectangle(page, flags = null) {
+async function openWithRectangle(page, flags = null, pages = 1) {
   await page.route('https://js.puter.com/**', (route) => route.abort());
   const doc = await PDFDocument.create();
-  doc.addPage([400, 500]);
+  for (let i = 0; i < pages; i++) doc.addPage([400, 500]);
   addShapeAnnotation(doc, 0, { kind: 'square', rect: { x: 100, y: 300, width: 80, height: 60 } });
   if (flags !== null)
     doc.context
@@ -24,7 +24,7 @@ async function openWithRectangle(page, flags = null) {
     mimeType: 'application/pdf',
     buffer: Buffer.from(await doc.save()),
   });
-  await expect(page.locator('.page-caption')).toHaveText('Page 1 of 1');
+  await expect(page.locator('.page-caption')).toHaveText(`Page 1 of ${pages}`);
   await settled(page);
   await page.getByRole('button', { name: 'Select', exact: true }).click();
   return page.getByRole('button', { name: 'Rectangle', exact: true });
@@ -88,3 +88,19 @@ for (const [label, flags] of [
     await expect(target).toHaveCount(1);
     await expect(target).toBeFocused();
   });
+
+// Alt with an arrow key is the shortcut for the previous or next page, not a nudge.
+test('Alt with an arrow key turns the page without moving the comment in focus', async ({
+  page,
+}) => {
+  const target = await openWithRectangle(page, null, 2);
+  await target.click();
+  await expect(target).toBeFocused();
+  const [before] = await savedRectangles(page);
+  await target.focus();
+  await page.keyboard.press('Alt+ArrowRight');
+  await expect(page.locator('.page-caption')).toHaveText('Page 2 of 2');
+  await settled(page);
+  const [after] = await savedRectangles(page);
+  expect(after.box).toEqual(before.box);
+});

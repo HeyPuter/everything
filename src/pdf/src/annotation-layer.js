@@ -131,7 +131,14 @@ export function createAnnotationLayer({ onSelect, onMove, onDelete }) {
             } else if (e.key === 'Escape') {
               e.preventDefault();
               select(null);
-            } else if (e.key.startsWith('Arrow') && movable(entry)) {
+            } else if (
+              e.key.startsWith('Arrow') &&
+              !e.altKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              movable(entry)
+            ) {
+              // Alt with an arrow turns the page; Shift moves ten points.
               e.preventDefault();
               const step = e.shiftKey ? 10 : 1;
               const dx = { ArrowLeft: -step, ArrowRight: step }[e.key] || 0,
