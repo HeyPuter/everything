@@ -4,7 +4,7 @@ import { toDelimited, parseDelimited, parseClipboard } from '../src/core/tsv.js'
 describe('delimited text', () => {
   it('quotes only what needs quoting', () => {
     expect(toDelimited([['a', 'b'], ['c\td', 'say "hi"'], [null, 'x\ny']]))
-      .toBe('a\tb\n"c\td"\t"say ""hi"""\n\t"x\ny"');
+      .toBe('a\tb\n"c\td"\tsay "hi"\n\t"x\ny"');
     expect(toDelimited([['1,2', 'x']], ',')).toBe('"1,2",x');
   });
 
