@@ -653,6 +653,22 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (!ob) return;
     this.nav.update();
     const world = new Matrix4().compose(this.nav.eye, this.nav.rot, new Vector3(1, 1, 1));
+    // Camera Parent Lock: the camera's parent moves instead, carrying the camera along
+    const pob = ob.parent ? app.doc.objects[ob.parent] : undefined;
+    const camEv = app.graph.get(ob.id);
+    if ((ob as { use_camera_lock_parent?: boolean }).use_camera_lock_parent && pob && camEv && app.graph.get(pob.id)) {
+      const camWorld = camEv.world.clone();
+      const sc = new Vector3().setFromMatrixScale(camWorld);
+      const want = world.clone().scale(sc);
+      const delta = want.multiply(camWorld.invert());
+      const pw = delta.multiply(app.graph.get(pob.id)!.world);
+      const gp = pob.parent ? app.graph.get(pob.parent) : undefined;
+      applyMatrixToObject(pob, gp ? gp.world.clone().multiply(new Matrix4().fromArray(pob.matrix_parent_inverse)).invert().multiply(pw) : pw);
+      app.changed('doc');
+      clearTimeout(this.lockTimer);
+      this.lockTimer = window.setTimeout(() => app.pushUndo('Camera Lock to View'), 400);
+      return;
+    }
     const parent = ob.parent ? app.graph.get(ob.parent) : undefined;
     const local = parent ? parent.world.clone().multiply(new Matrix4().fromArray(ob.matrix_parent_inverse)).invert().multiply(world) : world;
     applyMatrixToObject(ob, local);

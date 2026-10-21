@@ -212,3 +212,29 @@ test('right button cancels a middle-button orbit', async ({ page }) => {
   await expect(page.locator('.menu')).toHaveCount(0);
   await expectNoErrors(errors);
 });
+
+test('Camera Parent Lock moves the camera parent when navigating a locked camera view', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const cam = a.doc.objects[a.doc.scene.camera];
+    a.run('object.empty_add', { location: [0, 0, 0] });
+    const rig = a.activeObject;
+    cam.parent = rig.id;
+    cam.use_camera_lock_parent = true;
+    a.changed('doc');
+    a.flush();
+    a.run('view3d.view_camera');
+    const v = (a.hoverArea ?? a.activeArea).editor;
+    v.lockCameraToView = true;
+  });
+  const before = await get<number[]>(page, 'app.doc.objects[app.doc.scene.camera].location.slice()');
+  await view(page, '(v.leaveCameraIfNeeded?.(), v.nav.pan(60, 0), v.afterNav(), 0)');
+  await page.evaluate(() => (window as any).app.flush()); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const after = await get<number[]>(page, 'app.doc.objects[app.doc.scene.camera].location.slice()');
+  const rig = await get<number[]>(page, 'app.doc.objects[app.doc.objects[app.doc.scene.camera].parent].location.slice()');
+  after.forEach((x, i) => expect(x).toBeCloseTo(before[i], 4));
+  expect(Math.hypot(...rig)).toBeGreaterThan(0.01);
+  await expectNoErrors(errors);
+});

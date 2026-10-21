@@ -280,6 +280,7 @@ registerTab({
         })),
         o.parent ? enumProp(o, 'parent_type', 'Parent Type', [['OBJECT', 'Object'], ['BONE', 'Bone'], ['VERTEX', 'Vertex'], ['VERTEX_3', '3 Vertices']]) : null,
         o.parent && o.parent_type === 'BONE' ? textProp(o, 'parent_bone', 'Parent Bone') : null,
+        o.parent && o.type === 'CAMERA' ? bool(o as never, 'use_camera_lock_parent' as never, 'Camera Parent Lock', { tip: 'Camera Parent Lock\nWith Lock Camera to View, navigating moves the parent instead of the camera' }) : null,
         num(o as never, 'pass_index' as never, 'Pass Index', { int: true, min: 0 }),
       ], { closed: true }),
       panel('ob-collections', 'Collections', () => objectCollectionsPanel(o), { closed: true }),
