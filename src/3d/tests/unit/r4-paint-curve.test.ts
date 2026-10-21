@@ -76,3 +76,23 @@ describe('bone picking in weight paint', () => {
     expect(segmentDistance2D(1, 1, 1, 1, 1, 1)).toBe(0);
   });
 });
+
+import { fillGradientT, gradientAt, strokeGradientT } from '../../src/paint/gradient';
+
+describe('gradient brushes', () => {
+  const b = { color_type: 'GRADIENT' as const, gradient: { color_ramp: [0, 1, 0, 0, 1, 1, 0, 0, 1, 1] }, grad_spacing: 100 };
+  it('reads the ramp', () => {
+    expect(gradientAt(b, 0).slice(0, 3)).toEqual([1, 0, 0]);
+    expect(gradientAt(b, 1).slice(0, 3)).toEqual([0, 0, 1]);
+  });
+  it('walks the ramp by pressure or along the stroke', () => {
+    expect(strokeGradientT(b, 0.3, 500)).toBeCloseTo(0.3);
+    expect(strokeGradientT({ ...b, gradient_stroke_mode: 'SPACING_REPEAT' }, 1, 250)).toBeCloseTo(0.5);
+    expect(strokeGradientT({ ...b, gradient_stroke_mode: 'SPACING_CLAMP' }, 1, 250)).toBe(1);
+  });
+  it('places fill points along or around the dragged line', () => {
+    expect(fillGradientT('LINEAR', 0, 0, 10, 0, 5, 7)).toBeCloseTo(0.5);
+    expect(fillGradientT('LINEAR', 0, 0, 10, 0, -3, 0)).toBe(0);
+    expect(fillGradientT('RADIAL', 0, 0, 10, 0, 0, 5)).toBeCloseTo(0.5);
+  });
+});

@@ -34,6 +34,10 @@ import { brushFalloff, falloffPresetPoints, linearToSrgb, srgbToLinear } from '.
 import { curveWidget } from '../render/final/props/curvewidget';
 import { hsvToRgb, rgbToHsv, type ColorJitter } from './paintmath';
 import { brushThumb } from './brushthumbs';
+import { gradientProps, usesGradient } from './gradient';
+import { drawRamp } from '../nodes/editor/rampui';
+import type { NodeDrawContext } from '../nodes/types';
+import type { NodeData } from '../data/types';
 import { NORMAL_ANGLE, type NormalFalloff } from './vgather';
 import { paintHooks } from './painthooks';
 import { paintCurvesOf } from './paintcurve';
@@ -246,6 +250,60 @@ function sampleScreen(v: View3D, x: number, y: number): boolean {
   const d = g.getImageData(0, 0, 1, 1).data;
   app.doc.scene.tool_settings.unified_paint.color = [srgbToLinear(d[0] / 255), srgbToLinear(d[1] / 255), srgbToLinear(d[2] / 255)];
   return true;
+}
+
+/** Color / Gradient switch of the Texture Paint brushes. */
+function colorTypeRow(b: PaintBrush): Child {
+  return enumRow(
+    'pt-ctype',
+    [
+      { value: 'COLOR', label: 'Color', description: 'Paint with the brush color' },
+      { value: 'GRADIENT', label: 'Gradient', description: 'Paint with colors from a gradient (by pressure or along the stroke; the Fill brush fills along a dragged line)' },
+    ],
+    b.color_type ?? 'COLOR',
+    (x) => ((b.color_type = x as 'COLOR'), app.pushUndo('Color Type'), changed()),
+  );
+}
+
+/** Gradient editor and how the brushes walk through it. */
+function gradientRows(b: PaintBrush): Child[] {
+  const node = { props: gradientProps(b) } as unknown as NodeData;
+  const ctx = { node, tree: null, where: 'properties', key: `pt-grad-${b.id}`, changed: (label: string, final = true) => (final ? app.pushUndo(label) : null, changed()) } as unknown as NodeDrawContext;
+  return [
+    drawRamp(ctx),
+    b.sculpt_tool === 'FILL'
+      ? row(
+          'Gradient Type',
+          enumMenu(
+            'pt-gfill',
+            [
+              { value: 'LINEAR', label: 'Linear' },
+              { value: 'RADIAL', label: 'Radial' },
+            ],
+            b.gradient_fill_mode ?? 'LINEAR',
+            (x) => ((b.gradient_fill_mode = x as 'LINEAR'), changed()),
+            { tip: 'Drag a line: the gradient runs along it (linear) or around its start (radial)' },
+          ),
+        )
+      : [
+          row(
+            'Mode',
+            enumMenu(
+              'pt-gmode',
+              [
+                { value: 'PRESSURE', label: 'Pressure', description: 'Pen pressure picks the color' },
+                { value: 'SPACING_REPEAT', label: 'Repeat', description: 'The stroke runs through the gradient and starts over' },
+                { value: 'SPACING_CLAMP', label: 'Clamp', description: 'The stroke runs through the gradient once, then keeps its last color' },
+              ],
+              b.gradient_stroke_mode ?? 'PRESSURE',
+              (x) => ((b.gradient_stroke_mode = x as 'PRESSURE'), changed()),
+            ),
+          ),
+          (b.gradient_stroke_mode ?? 'PRESSURE') !== 'PRESSURE'
+            ? numberField({ id: 'pt-gsp', label: 'Gradient Spacing', value: b.grad_spacing ?? 100, min: 1, max: 10000, int: true, unit: 'pixel', tip: 'Stroke length for one pass through the gradient', set: (x) => ((b.grad_spacing = Math.round(x)), changed()) })
+            : null,
+        ],
+  ];
 }
 
 /** Weight Paint settings beyond the shared tool settings. */
@@ -1032,7 +1090,7 @@ function brushPanels(mode: BrushMode): Child[] {
       ]),
     );
     if (paintsColor(mode, b)) {
-      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => [colorPicker('pt-cp'), panel(`pt-cjit-${mode}`, 'Randomize Color', () => colorJitterRows('pt-cj'), { sub: true, closed: true })]));
+      out.push(panel(`pt-color-${mode}`, 'Color Picker', () => [mode === 'TEXTURE_PAINT' ? colorTypeRow(b) : null, mode === 'TEXTURE_PAINT' && usesGradient(b) ? gradientRows(b) : colorPicker('pt-cp'), panel(`pt-cjit-${mode}`, 'Randomize Color', () => colorJitterRows('pt-cj'), { sub: true, closed: true })]));
       out.push(panel(`pt-palette-${mode}`, 'Color Palette', () => paletteRows(mode, 'pt-pal'), { closed: true }));
     }
   } else if (tool === 'builtin.sample_weight') out.push(panel('pt-sw', 'Sample Weight', () => [weightField('pt-sw-w')]));

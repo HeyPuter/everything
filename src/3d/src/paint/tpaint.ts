@@ -15,6 +15,7 @@ import { download } from '../io/native';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, sampleTable, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { cavityValues } from './maskmath';
+import { fillGradientT, gradientAt, strokeGradientT, usesGradient } from './gradient';
 import { activeMeshData, meshSession, type MeshSession } from './session';
 import { brushRadiusPx, normalAngleOf } from './vgather';
 import { runStroke } from './stroke';
@@ -325,17 +326,38 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
   const mode = (b.blend ?? 'MIX') as BlendMode;
   let lastUV: [number, number] | null = null;
   let filled = false;
+  // gradient colors: the Paint brush by pressure / stroke distance, the Fill brush along a line
+  const gradDraw = !maskTool && usesGradient(b) && tool === 'TEXDRAW';
+  const gradFill = !maskTool && usesGradient(b) && tool === 'FILL';
+  let fillLine: { ax: number; ay: number; bx: number; by: number } | null = null;
+  let strokeDist = 0;
+  let lastDab: { x: number; y: number } | null = null;
+  const gradientColor = (pressure: number) => {
+    const c = gradientAt(b, strokeGradientT(b, pressure, strokeDist));
+    return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+  };
   let dabCount = 0;
   runStroke(v, e, {
     spacing: () => (tool === 'FILL' ? 0 : Math.max(1, b.spacing || 10)),
     radiusPx: () => b.radius,
-    settings: () => (tool === 'FILL' ? {} : b),
+    // a gradient fill is dragged as a line (start to end of the ramp)
+    settings: () => (tool === 'FILL' ? (gradFill ? { stroke_method: 'LINE' } : {}) : b),
     dab: (d) => {
       if (tool === 'FILL') {
+        if (gradFill) {
+          if (d.first || !fillLine) fillLine = { ax: d.x, ay: d.y, bx: d.x, by: d.y };
+          else {
+            fillLine.bx = d.x;
+            fillLine.by = d.y;
+          }
+          return;
+        }
         if (!filled) fillAll(s, me, st, color, mode, b.strength);
         filled = true;
         return;
       }
+      if (lastDab) strokeDist += Math.hypot(d.x - lastDab.x, d.y - lastDab.y);
+      lastDab = { x: d.x, y: d.y };
       const hit = s.raycast(v, d.x, d.y);
       if (!hit) {
         lastUV = null;
@@ -349,7 +371,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         hitLocal: hit.point,
         strength: Math.max(0, b.strength) * d.pressure,
         tool,
-        color: dabColor(d.pressure),
+        color: gradDraw ? gradientColor(d.pressure) : dabColor(d.pressure),
         mode,
         uvDelta: delta,
         radius: brushRadiusPx(b, s, v, hit.world) * (d.sizeFactor ?? 1),
@@ -368,6 +390,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
       flushCanvas(st);
     },
     end: () => {
+      if (gradFill && fillLine) fillGradient(s, v, me, st, b, fillLine, mode);
       flushCanvas(st);
       void commitImage(st.img, 'Texture Paint');
     },
@@ -761,6 +784,41 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
         markDirty(st, x, y);
       });
     }
+  }
+}
+
+/** Gradient fill: every visible texel gets the ramp color for its place along the dragged line. */
+function fillGradient(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: PaintBrush, line: { ax: number; ay: number; bx: number; by: number }, mode: BlendMode) {
+  const M = screenMatrix(s, v).elements;
+  const Wv = v.width,
+    Hv = v.height;
+  const P = s.positions;
+  const data = st.work.data,
+    orig = st.orig;
+  const dst = [0, 0, 0, 1],
+    out = [0, 0, 0, 1],
+    tmp = [0, 0, 0];
+  const fm = b.gradient_fill_mode ?? 'LINEAR';
+  const strength = Math.min(1, Math.max(0, b.strength));
+  const ntri = s.tris.length / 3;
+  for (let t = 0; t < ntri; t++) {
+    if (s.paintFaces && !s.paintFaces[s.triFace[t]]) continue;
+    const i0 = s.tris[t * 3] * 3,
+      i1 = s.tris[t * 3 + 1] * 3,
+      i2 = s.tris[t * 3 + 2] * 3;
+    rasterTri(st, me, s, t, (ti, x, y, b0, b1, b2) => {
+      const lx = P[i0] * b0 + P[i1] * b1 + P[i2] * b2,
+        ly = P[i0 + 1] * b0 + P[i1 + 1] * b1 + P[i2 + 1] * b2,
+        lz = P[i0 + 2] * b0 + P[i1 + 2] * b1 + P[i2 + 2] * b2;
+      if (!proj(M, lx, ly, lz, Wv, Hv, tmp)) return;
+      const c = gradientAt(b, fillGradientT(fm, line.ax, line.ay, line.bx, line.by, tmp[0], tmp[1]));
+      const col = [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
+      const p = ti * 4;
+      for (let k = 0; k < 4; k++) dst[k] = orig[p + k] / 255;
+      blendColor(mode, dst, col, strength * (c[3] ?? 1), out);
+      for (let k = 0; k < 4; k++) data[p + k] = Math.round(out[k] * 255);
+      markDirty(st, x, y);
+    });
   }
 }
 

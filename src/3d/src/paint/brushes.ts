@@ -6,9 +6,10 @@ import { activeTools } from '../app/prefs';
 import { defaultBrushes } from '../data/defaults';
 import type { Falloff } from './math';
 import type { StencilSettings } from './brushtex';
+import type { GradientSettings } from './gradient';
 
 /** Brush settings beyond the core BrushData fields (stored on the same data-block). */
-export interface PaintBrush extends BrushData, StencilSettings {
+export interface PaintBrush extends BrushData, StencilSettings, GradientSettings {
   falloff_shape?: 'SPHERE' | 'PROJECTED';
   use_frontface?: boolean;
   /** clay/flatten/fill/scrape plane offset (fraction of the radius) */
