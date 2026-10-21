@@ -63,8 +63,9 @@ describe('Solidify options', () => {
     const out = run('SOLIDIFY', m, { thickness: 0.1, vertex_group: 'G', thickness_vertex_group: 0.5, use_rim: false });
     const zs = Array.from({ length: 4 }, (_, i) => out.positions[(4 + i) * 3 + 2]);
     expect(zs.map((z) => Math.round(z * 1000) / 1000)).toEqual([-0.1, -0.1, -0.05, -0.05]);
+    // the clamp limits the offset to the shortest edge (2) divided by the clamp factor
     const clamped = run('SOLIDIFY', plane(), { thickness: 5, thickness_clamp: 0.5, use_rim: false });
-    expect(clamped.positions[4 * 3 + 2]).toBeCloseTo(-1, 5);
+    expect(clamped.positions[4 * 3 + 2]).toBeCloseTo(-4, 5);
   });
 });
 
