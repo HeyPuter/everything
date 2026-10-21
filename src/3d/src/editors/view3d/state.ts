@@ -15,6 +15,9 @@ export interface Shading {
   show_backface_culling: boolean;
   show_shadows: boolean;
   show_cavity: boolean;
+  /** Cavity: how much ridges lighten and valleys darken (0..2.5) */
+  cavity_ridge_factor?: number;
+  cavity_valley_factor?: number;
   show_specular_highlight: boolean;
   show_object_outline: boolean;
   /** colour of the Solid shading object outline (display colour) */

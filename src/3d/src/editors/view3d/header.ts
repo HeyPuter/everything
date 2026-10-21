@@ -520,6 +520,15 @@ function shadingPopover(v: View3D): Child {
       h('div', { class: 'row-split' }, checkbox('s-outline', 'Outline', s.show_object_outline, set('show_object_outline')), colorSwatch('s-outc', s.object_outline_color ?? [0, 0, 0], (c) => set('object_outline_color')(c.slice(0, 3)))),
       checkbox('s-spec', 'Specular Lighting', s.show_specular_highlight, set('show_specular_highlight')),
       h('div', { class: 'row-split' }, checkbox('s-xray', 'X-Ray', s.show_xray, set('show_xray')), numberField({ id: 's-xa', value: s.xray_alpha, min: 0, max: 1, slider: true, set: (x) => set('xray_alpha')(x) })),
+      checkbox('s-cavity', 'Cavity', s.show_cavity, set('show_cavity'), { tip: 'Cavity\nLighten convex edges and darken creases' }),
+      s.show_cavity
+        ? h(
+            'div',
+            { class: 'ov-scale-row' },
+            numberField({ id: 's-ridge', label: 'Ridge', value: s.cavity_ridge_factor ?? 1, min: 0, max: 2.5, slider: true, set: (x) => set('cavity_ridge_factor')(x) }),
+            numberField({ id: 's-valley', label: 'Valley', value: s.cavity_valley_factor ?? 1, min: 0, max: 2.5, slider: true, set: (x) => set('cavity_valley_factor')(x) }),
+          )
+        : null,
     ], { sub: true }),
   );
 }

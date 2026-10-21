@@ -82,6 +82,9 @@ test('shading popover: wireframe colour, outline colour, MatCap flip', async ({ 
   await pop.locator('button', { hasText: /^MatCap$/ }).first().click();
   await pop.locator('[data-tip^="Flip MatCap"]').click();
   expect(await view(page, 'v.shading.matcap_flip')).toBe(true);
+  await pop.locator('.checkbox', { hasText: 'Cavity' }).click();
+  expect(await view(page, 'v.shading.show_cavity')).toBe(true);
+  await expect(pop).toContainText('Valley');
   await page.waitForTimeout(200);
   await expectNoErrors(errors);
 });
