@@ -498,7 +498,9 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       const num = children(data, 'numDim').find(d => ['val', 'size'].includes(d.attrs.type));
       // Cached levels stand in for references a file left out: the innermost level names the points.
       const cached = dim => children(child(dim, 'lvl'), 'pt').reduce((out, pt) => { const i = Number(pt.attrs.idx); if (Number.isInteger(i) && i >= 0 && i < 5000) out[i] = text(pt); return out; }, []);
-      const levelCount = Number(child(num, 'lvl')?.attrs.ptCount) || 0;
+      // The file's own point count, held to the 5,000 points a cache is read to: a count of billions
+      // ran the tab out of memory filling the empty points.
+      const levelCount = Math.min(5000, Number(child(num, 'lvl')?.attrs.ptCount) || 0);
       const literal = {};
       if (!text(child(cat, 'f')) && cat) literal.categories = Array.from({ length: Math.max(levelCount, cached(cat).length) }, (_, i) => cached(cat)[i] ?? '');
       if (!text(child(num, 'f')) && num) literal.values = Array.from({ length: Math.max(levelCount, cached(num).length) }, (_, i) => (cached(num)[i] != null && Number.isFinite(Number(cached(num)[i])) ? Number(cached(num)[i]) : null));
