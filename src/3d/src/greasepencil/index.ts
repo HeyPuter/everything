@@ -44,6 +44,7 @@ import './fillguides';
 import './brushshelf';
 import './brushpicker';
 import './brushstroke';
+import './itempanel';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

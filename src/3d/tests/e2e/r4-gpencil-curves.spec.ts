@@ -237,3 +237,28 @@ test('multi-frame editing with falloff moves far keyframes less', async ({ page 
   expect(d11).toBeLessThan(0.9);
   await expectNoErrors(errors);
 });
+
+test('edit mode sidebar: median, mean radius and the active stroke settings', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'object.select_all', { action: 'SELECT' });
+  await run(page, 'object.delete');
+  await run(page, 'object.grease_pencil_add', { type: 'STROKE' });
+  await run(page, 'object.mode_set', { mode: 'EDIT' });
+  await run(page, 'grease_pencil.select_all', { action: 'SELECT' });
+  await hoverViewport(page);
+  await page.keyboard.press('n');
+  await expect(page.locator('[data-panel="gp-item-tf"]')).toBeVisible();
+  await expect(page.locator('[data-panel="gp-item-stroke"]')).toBeVisible();
+  // doubling the mean radius doubles every selected radius
+  const before = (await get(page, `${gp}.drawings.reduce((a, d) => a + d.radius.reduce((x, y) => x + y, 0), 0)`)) as number;
+  const mean = page.locator('[data-panel="gp-item-tf"] .num-field', { hasText: 'Mean Radius' }).first();
+  const value = (await get(page, `${gp}.drawings.reduce((a, d) => a + d.radius.reduce((x, y) => x + y, 0), 0) / ${gp}.drawings.reduce((a, d) => a + d.radius.length, 0)`)) as number;
+  await mean.dblclick();
+  const input = page.locator('input.editing');
+  await expect(input).toBeVisible();
+  await input.fill(String(value * 2));
+  await input.press('Enter');
+  const after = (await get(page, `${gp}.drawings.reduce((a, d) => a + d.radius.reduce((x, y) => x + y, 0), 0)`)) as number;
+  expect(after / before).toBeCloseTo(2, 2);
+  await expectNoErrors(errors);
+});
