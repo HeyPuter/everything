@@ -1,5 +1,5 @@
 import { xmlTag, fontColorXml, fillColorXml } from './xlsx-export-styles.js';
-import { fontName } from './format.js';
+import { fontName, HORIZONTAL_ALIGNS, XLSX_BORDER_STYLES } from './format.js';
 import { normalizeFontColor } from './font-color.js';
 import { encodeXlsxAttribute } from './xlsx-string.js';
 import { MAX_FORMAT_CODE_LENGTH } from './numfmt.js';
@@ -60,7 +60,7 @@ export function writeNativePivotPaint(style, { numberFormatId = null, palette = 
   }
   const alignment = {};
   if (has('align')) {
-    if (style.align !== null && !['left', 'center', 'right'].includes(style.align)) fail('horizontal alignment');
+    if (style.align !== null && !HORIZONTAL_ALIGNS.includes(style.align)) fail('horizontal alignment');
     alignment.horizontal = style.align === null ? 'general' : style.align;
   }
   if (has('valign')) {
@@ -88,7 +88,7 @@ export function writeNativePivotPaint(style, { numberFormatId = null, palette = 
     if (pen != null && (typeof pen !== 'object' || Array.isArray(pen) || Object.keys(pen).some(k => !['bs', 'bc'].includes(k)))) fail('border pen');
     if (!style[key]) { if (pen != null) fail('pen on cleared edge'); border += xmlTag(side); continue; }
     const stroke = pen?.bs ?? style.bs ?? 'thin', color = pen && Object.hasOwn(pen, 'bc') ? pen.bc : style.bc;
-    if (!['thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(stroke)) fail('border stroke');
+    if (!XLSX_BORDER_STYLES.includes(stroke)) fail('border stroke');
     border += xmlTag(side, { style: stroke }, color == null ? xmlTag('color', { auto: 1 }) : xmlTag('color', { rgb: rgb(color) }));
   }
   // CT_Dxf and Excel's border/font child ordering must remain stable.

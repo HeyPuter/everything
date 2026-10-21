@@ -45,7 +45,7 @@ it('retains theme font identity and resolves border tint without reading comment
 });
 it.each([
   '<fill><gradientFill/></fill>', '<font><shadow/></font>', '<font><u val="double"/></font>',
-  '<alignment horizontal="distributed"/>', '<border><left style="dashDot"/></border>', '<border diagonalUp="1"/>',
+  '<alignment horizontal="start"/>', '<border><left style="wavy"/></border>', '<border diagonalUp="1"/>',
   '<border outline="0"><horizontal/></border>', '<extLst/>', '<font><other xmlns="urn:extension"/></font>',
 ])('refuses unimplemented differential effects %s', body => {
   expect(() => readNativePivotPaint(dxf(body))).toThrow(/not implemented/);
@@ -119,7 +119,7 @@ it.each([
   '<alignment/><alignment/>',
 ])('rejects malformed typography %s', body => { expect(() => readNativePivotPaint(dxf(body))).toThrow(); });
 it.each([
-  '<alignment horizontal="fill"/>', '<alignment vertical="distributed"/>', '<alignment relativeIndent="1"/>',
+  '<alignment horizontal="start"/>', '<alignment vertical="distributed"/>', '<alignment relativeIndent="1"/>',
   '<alignment textRotation="255"/>', '<alignment readingOrder="2"/>',
   '<alignment xmlns:q="urn:future" q:wrapText="1"/>', '<alignment><extLst/></alignment>',
 ])('does not approximate unsupported alignment %s', body => { expect(() => readNativePivotPaint(dxf(body))).toThrow(/not implemented/); });

@@ -53,7 +53,7 @@ it.each([
   { wrap: 1 }, { indent: 251 }, { indent: -1 }, { indent: 0.5 }, { rot: 91 }, { unknown: true },
   { fmt: 'currency' }, { code: '0' }, { fmt: 'custom', code: 42 },
   { bs: 'thin' }, { blBorder: { bs: 'thin' } }, { bl: false, blBorder: { bs: 'thin' } },
-  { bl: true, bs: 'dashDot' }, { bl: true, blBorder: { future: true } }, { bl: true, bc: '#abc' }, { bh: 'true' },
+  { bl: true, bs: 'wavy' }, { bl: true, blBorder: { future: true } }, { bl: true, bc: '#abc' }, { bh: 'true' },
 ])('rejects unresolved or unrepresentable paint %j without modifying it', style => {
   const before = structuredClone(style); expect(() => write(style)).toThrow(); expect(style).toEqual(before);
 });

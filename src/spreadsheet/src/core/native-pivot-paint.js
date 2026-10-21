@@ -1,4 +1,5 @@
 import { decodeXlsxString } from './xlsx-string.js';
+import { HORIZONTAL_ALIGNS, XLSX_BORDER_STYLES } from './format.js';
 import { parseModelXml, modelChildren, standaloneModelXml } from './data-model-metadata.js';
 import { readXlsxDifferentialStyle, xlsxColor, xlsxTextRotation } from './xlsx-styles.js';
 import { forEachRangeRecordAt } from './range-records.js';
@@ -73,7 +74,7 @@ export function readNativePivotPaint(xml, themes, { numberFormats = {} } = {}) {
   // wrapping and zero indentation must reset an earlier layer's value.
   if (alignment?.hasAttribute('horizontal')) {
     const value = alignment.getAttribute('horizontal').trim();
-    if (!['general', 'left', 'center', 'right'].includes(value)) throw new Error('Pivot extended horizontal alignment paint is not implemented');
+    if (value !== 'general' && !HORIZONTAL_ALIGNS.includes(value)) throw new Error('Pivot extended horizontal alignment paint is not implemented');
     out.align = value === 'general' ? null : value;
   }
   if (alignment?.hasAttribute('vertical')) {
@@ -111,7 +112,7 @@ export function readNativePivotPaint(xml, themes, { numberFormats = {} } = {}) {
     const edge = one(border, side); if (!edge) continue;
     allowed(edge, ['color']);
     const style = edge.getAttribute('style') || 'none';
-    if (!['none', 'thin', 'medium', 'thick', 'dashed', 'dotted', 'double'].includes(style)) throw new Error(`Pivot border ${style} paint is not implemented`);
+    if (style !== 'none' && !XLSX_BORDER_STYLES.includes(style)) throw new Error(`Pivot border ${style} paint is not implemented`);
     const color = one(edge, 'color'); allowed(color, []);
     const bc = color ? xlsxColor(standaloneModelXml(color), themes) : null;
     if (style !== 'none' && color && !bc && !['1', 'true'].includes(color.getAttribute('auto'))) fail('unresolved border color');

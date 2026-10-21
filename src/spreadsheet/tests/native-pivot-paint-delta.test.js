@@ -71,7 +71,7 @@ it('owns its nested style values without modifying inputs', () => {
 it.each([
   [{ rot: 91 }, ['rot']], [{ clip: true }, ['clip']], [{}, ['unknown']], [{ bold: 'true' }, ['bold']],
   [{ size: 0 }, ['size']], [{ bg: '#abc' }, ['bg']], [{ indent: 251 }, ['indent']], [{ fmt: 'unknown' }, ['fmt']],
-  [{ align: 'justify' }, ['align']], [{ bl: 1 }, ['bl']], [{ bl: true, bs: 'dashDot' }, ['bl']],
+  [{ align: 'start' }, ['align']], [{ bl: 1 }, ['bl']], [{ bl: true, bs: 'wavy' }, ['bl']],
   [{ bl: true, blBorder: { bad: true } }, ['bl']], [{ fmt: 'custom', code: '0'.repeat(256) }, ['fmt']],
 ])('rejects unsupported or unresolved edits %j', (after, keys) => {
   const before = structuredClone(after); expect(() => delta(after, keys)).toThrow(); expect(after).toEqual(before);
