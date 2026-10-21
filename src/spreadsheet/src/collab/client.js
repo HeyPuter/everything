@@ -424,7 +424,9 @@ export class RoomClient extends EventTarget {
 
   tick() {
     let changed = false;
-    for (const [s, p] of this.people) if (Date.now() - p.at > (this.connectedPeers() ? PEOPLE_TTL : 120_000)) { this.people.delete(s); changed = true; }
+    // Without links, people are heard of at check-ins, which a background tab makes about once a minute; offline, of nobody.
+    const ttl = this.connectedPeers() || this.status.state === 'offline' ? PEOPLE_TTL : 120_000;
+    for (const [s, p] of this.people) if (Date.now() - p.at > ttl) { this.people.delete(s); changed = true; }
     if (changed) this.dispatchEvent(new CustomEvent('people'));
     // A quiet pulse keeps this person's presence alive for linked peers; without links, others are asked for often.
     if (this.connectedPeers()) { if (this.presence && Date.now() - (this.lastPresenceSent || 0) > 3000) this.sendPresence(true); }
