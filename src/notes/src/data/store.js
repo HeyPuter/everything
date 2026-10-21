@@ -715,10 +715,18 @@ export class Store extends Emitter {
     const pageIds = trashPageIds(entry).filter((id) => !this.findPage(id));
     this.scheduleTrash();
     this.emit('change', { type: 'purge' });
-    await Promise.all(pageIds.map((id) => this.dropPageFiles(id)));
-    if (entry.kind === 'notebook' && !this.notebook(entry.notebook.id)) {
-      this.cancel(`notebooks/${entry.notebook.id}.json`);
-      await this.backend.remove(`notebooks/${entry.notebook.id}.json`);
+    try {
+      await Promise.all(pageIds.map((id) => this.dropPageFiles(id)));
+      if (entry.kind === 'notebook' && !this.notebook(entry.notebook.id)) {
+        this.cancel(`notebooks/${entry.notebook.id}.json`);
+        await this.backend.remove(`notebooks/${entry.notebook.id}.json`);
+      }
+    } catch (err) {
+      // Files are left behind: keep the entry so deleting can be tried again.
+      if (!this.trash.some((t) => t.id === entry.id)) this.trash.splice(Math.min(i, this.trash.length), 0, entry);
+      this.scheduleTrash();
+      this.emit('change', { type: 'purge' });
+      throw err;
     }
   }
 

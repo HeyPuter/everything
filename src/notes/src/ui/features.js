@@ -632,6 +632,10 @@ export function pageDateDialog(app) {
 export function deletedNotesDialog(app) {
   const store = app.store;
   const list = h('div.trash-list');
+  const purgeFailed = (what) => (err) => {
+    console.error(err);
+    toast(`Couldn't ${what}. Check your connection and try again.`, { kind: 'error' });
+  };
   let dlg = null;
   const render = () => {
     list.setAttribute('role', store.trash.length ? 'list' : 'presentation');
@@ -649,7 +653,7 @@ export function deletedNotesDialog(app) {
         h('button.btn.small', { type: 'button', onclick: async () => { if (await app.restoreTrash(t.id)) { render(); toast(`Restored "${name}"`); } } }, 'Restore'),
         h('button.btn.small.danger', { type: 'button', 'aria-label': `Delete "${name}" permanently`, onclick: async () => {
           if (!(await confirmDialog({ title: 'Delete permanently?', message: `"${name}" will be deleted for good. This can't be undone.`, okLabel: 'Delete', danger: true }))) return;
-          await store.purge(t.id);
+          await store.purge(t.id).catch(purgeFailed(`delete "${name}" permanently`));
           render();
         } }, 'Delete'),
       );
@@ -664,7 +668,7 @@ export function deletedNotesDialog(app) {
       { label: 'Empty Deleted Notes', danger: true, run: async () => {
         if (!store.trash.length) return false;
         if (!(await confirmDialog({ title: 'Empty Deleted Notes?', message: 'Everything in Deleted Notes will be deleted for good.', okLabel: 'Empty', danger: true }))) return false;
-        await store.emptyTrash();
+        await store.emptyTrash().catch(purgeFailed('empty Deleted Notes'));
         render();
         return false;
       } },

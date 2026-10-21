@@ -158,6 +158,18 @@ describe('Store: pages', () => {
     expect(store.backend.files.has(`pages/${a.id}.json`)).toBe(false);
   });
 
+  it('keeps an entry in Deleted Notes when deleting its files fails', async () => {
+    const a = store.createPage(section.id, { title: 'Stuck' });
+    await store.flush();
+    const entry = store.deletePage(a.id);
+    store.backend.failNext = 1;
+    await expect(store.purge(entry.id)).rejects.toThrow();
+    expect(store.trash.some((t) => t.id === entry.id)).toBe(true);
+    await store.purge(entry.id);
+    expect(store.trash.some((t) => t.id === entry.id)).toBe(false);
+    expect(store.backend.files.has(`pages/${a.id}.json`)).toBe(false);
+  });
+
   it('takes down the shared link of a page deleted for good', async () => {
     const a = store.createPage(section.id, { title: 'Shared' });
     await store.flush();
