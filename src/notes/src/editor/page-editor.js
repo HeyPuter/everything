@@ -185,7 +185,12 @@ export class PageEditor extends Emitter {
       right = Math.max(right, inkB.x + inkB.w);
       bottom = Math.max(bottom, inkB.y + inkB.h);
     }
-    const w = Math.max(viewW, right + 240, 960);
+    // Room to the right to click and start another note. Phones (the app's
+    // 760px breakpoint) have no room to spare: there the page is as wide as
+    // the screen unless its content is wider, so it does not always scroll
+    // sideways. Note positions are absolute either way.
+    const phone = window.innerWidth <= 760;
+    const w = Math.max(viewW, right + (phone ? 16 : 240), phone ? 0 : 960);
     const hgt = Math.max(viewH, bottom + 320);
     this.pageEl.style.width = `${w}px`;
     this.pageEl.style.height = `${hgt}px`;

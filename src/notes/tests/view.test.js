@@ -208,3 +208,21 @@ describe('email page', () => {
     expect(body.startsWith('Zelt einpacken')).toBe(true);
   });
 });
+
+describe('page width', () => {
+  const width = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  afterEach(() => {
+    Object.defineProperty(window, 'innerWidth', width);
+    app?.destroy();
+  });
+
+  it('does not make an empty page wider than a phone screen', async () => {
+    await mount();
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    app.editor.layout();
+    expect(parseFloat(app.editor.pageEl.style.width)).toBeLessThan(390);
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 });
+    app.editor.layout();
+    expect(app.editor.pageEl.style.width).toBe('960px');
+  });
+});
