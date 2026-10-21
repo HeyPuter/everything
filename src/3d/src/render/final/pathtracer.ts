@@ -8,6 +8,7 @@ import { bounceSettings } from './units';
 import { filterGLSL, filterTable, type PixelFilter } from './filter';
 import { applySssUniforms, applyVolumeUniforms, patchVolumeShader, ptVolumeSets, volumeUniforms } from './ptvolume';
 import { patchIntegrator, integratorUniforms, applyIntegrator, seedOffset } from './ptintegrator';
+import { patchPanorama, panoramaUniforms, applyPanorama, type PanoramaParams } from './ptcamera';
 import { integratorValues, adaptiveCheckpoints, updateAdaptiveMask } from './ptsettings';
 import { AlwaysStencilFunc, DataTexture, NearestFilter, NotEqualStencilFunc, RedFormat, ReplaceStencilOp, ShaderMaterial, UnsignedByteType, type Data3DTexture } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
@@ -245,6 +246,14 @@ export class PathTracerCore {
       mat.needsUpdate = true;
       this.linkPatched = true;
     }
+    // panoramic cameras
+    const pano = patchPanorama(mat.fragmentShader);
+    if (pano) {
+      this.pano = panoramaUniforms();
+      Object.assign(mat.uniforms, this.pano);
+      mat.fragmentShader = pano;
+      mat.needsUpdate = true;
+    } else console.warn('Path tracer: panoramic cameras unavailable (unexpected shader layout)');
     // integrator options: adaptive sampling, bounce kinds, caustics, fast GI, transparent glass
     const integ = patchIntegrator(mat.fragmentShader);
     if (integ) {
@@ -278,6 +287,7 @@ export class PathTracerCore {
   }
 
   private integ: ReturnType<typeof integratorUniforms> | null = null;
+  private pano: ReturnType<typeof panoramaUniforms> | null = null;
   private integKey = '';
   private seed = 0;
   private adaptive: { threshold: number; min: number; checkpoints: number[]; half: Float32Array | null; mask: Uint8Array | null; active: number } | null = null;
@@ -532,10 +542,11 @@ export class PathTracerCore {
 
   private cameraKey(camera: Camera) {
     camera.updateMatrixWorld();
-    return camera.matrixWorld.elements.join(',') + '|' + (camera as unknown as { projectionMatrix: Matrix4 }).projectionMatrix.elements.join(',') + '|' + ((camera as unknown as { focusDistance?: number }).focusDistance ?? '') + ((camera as unknown as { fStop?: number }).fStop ?? '');
+    return camera.matrixWorld.elements.join(',') + '|' + (camera as unknown as { projectionMatrix: Matrix4 }).projectionMatrix.elements.join(',') + '|' + ((camera as unknown as { focusDistance?: number }).focusDistance ?? '') + ((camera as unknown as { fStop?: number }).fStop ?? '') + '|' + JSON.stringify(camera.userData.panorama ?? null);
   }
 
   private storeCamera(camera: Camera) {
+    if (this.pano) applyPanorama(this.pano, (camera.userData.panorama as PanoramaParams | undefined) ?? null);
     this.camKey = this.cameraKey(camera);
     this.camMatrix.copy(camera.matrixWorld);
     this.camProj.copy((camera as unknown as { projectionMatrix: Matrix4 }).projectionMatrix);

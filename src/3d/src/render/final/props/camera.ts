@@ -6,6 +6,7 @@ import { panel, numberField, checkbox } from '../../../ui/widgets';
 import { num, bool, enumProp, splitRow, objectProp } from '../../../ui/props';
 import type { CameraData, ObjectData, SceneData } from '../../../data/types';
 import { DEFAULT_SAFE_AREAS } from '../cameraoverlay';
+import { panorama, PANORAMA_TYPES } from '../ptcamera';
 import { changed, headerToggle, sub } from './common';
 
 function safeAreas(): NonNullable<SceneData['safe_areas']> {
@@ -39,6 +40,31 @@ function margins(owner: Record<string, [number, number]>, key: string, label: st
 /** Panels other modules add after the built-in camera data panels. */
 export const cameraExtraPanels: ((o: ObjectData, ca: CameraData) => Child)[] = [];
 
+/** Lens rows of panoramic cameras (rendered by the path tracer). */
+function panoramaRows(ca: CameraData): Child {
+  const p = panorama(ca);
+  const t = p.panorama_type;
+  const ang = (k: keyof typeof p & string, label: string, min: number, max: number) => num(p, k, label, { unit: 'angle', min, max });
+  return [
+    enumProp(p, 'panorama_type', 'Panorama Type', PANORAMA_TYPES, { tip: 'Projection of the panoramic camera (rendered by the path tracer; other engines show a perspective view)' }),
+    t === 'FISHEYE_EQUIDISTANT' ? ang('fisheye_fov', 'Field of View', 0.1745, Math.PI * 2) : null,
+    t === 'FISHEYE_EQUISOLID' ? [num(p, 'fisheye_lens', 'Lens', { unit: 'none', min: 0.01, max: 100, softMax: 15, precision: 2, tip: 'Focal length of the fisheye lens (mm)' }), ang('fisheye_fov', 'Field of View', 0.1745, Math.PI * 2)] : null,
+    t === 'EQUIRECTANGULAR' ? [ang('latitude_min', 'Latitude Min', -Math.PI / 2, Math.PI / 2), ang('latitude_max', 'Max', -Math.PI / 2, Math.PI / 2), ang('longitude_min', 'Longitude Min', -Math.PI, Math.PI), ang('longitude_max', 'Max', -Math.PI, Math.PI)] : null,
+    t === 'FISHEYE_LENS_POLYNOMIAL'
+      ? (['fisheye_polynomial_k0', 'fisheye_polynomial_k1', 'fisheye_polynomial_k2', 'fisheye_polynomial_k3', 'fisheye_polynomial_k4'] as const).map((k, i) => num(p, k, `K${i}`, { precision: 6, step: 0.0001, tip: 'Coefficient of the lens polynomial: angle from the radius on the sensor (mm)' }))
+      : null,
+    t === 'CENTRAL_CYLINDRICAL'
+      ? [
+          ang('central_cylindrical_range_u_min', 'Range U Min', -Math.PI * 2, Math.PI * 2),
+          ang('central_cylindrical_range_u_max', 'Max', -Math.PI * 2, Math.PI * 2),
+          num(p, 'central_cylindrical_range_v_min', 'Range V Min', { unit: 'distance', softMin: -10, softMax: 10 }),
+          num(p, 'central_cylindrical_range_v_max', 'Max', { unit: 'distance', softMin: -10, softMax: 10 }),
+          num(p, 'central_cylindrical_radius', 'Radius', { unit: 'distance', min: 1e-5, softMax: 10 }),
+        ]
+      : null,
+  ];
+}
+
 export function cameraPanels(o: ObjectData, ca: CameraData): Child {
   const dof = ca.dof as CameraData['dof'] & { aperture_rotation: number; aperture_ratio: number };
   dof.aperture_rotation ??= 0;
@@ -56,12 +82,14 @@ export function cameraPanels(o: ObjectData, ca: CameraData): Child {
   return [
     panel('ca-lens', 'Lens', () => [
       enumProp(ca, 'type', 'Type', [['PERSP', 'Perspective'], ['ORTHO', 'Orthographic'], ['PANO', 'Panoramic']]),
-      ca.type === 'ORTHO'
+      ca.type === 'PANO'
+        ? panoramaRows(ca)
+        : ca.type === 'ORTHO'
         ? num(ca, 'ortho_scale', 'Orthographic Scale', { min: 0.001, anim: { ob: o, path: 'data.ortho_scale' } })
         : ca.lens_unit === 'FOV'
           ? splitRow('Field of View', numberField({ id: 'ca-fov', value: 2 * Math.atan(ca.sensor_width / 2 / ca.lens), unit: 'angle', min: 0.0064, max: 3.0107, set: (v, f) => ((ca.lens = ca.sensor_width / 2 / Math.tan(v / 2)), app.changed('doc'), f && app.pushUndo('Field of View')) }))
           : num(ca, 'lens', 'Focal Length', { min: 1, max: 5000, softMax: 500, precision: 1, anim: { ob: o, path: 'data.lens' } }),
-      enumProp(ca, 'lens_unit', 'Lens Unit', [['MILLIMETERS', 'Millimeters'], ['FOV', 'Field of View']]),
+      ca.type !== 'PANO' ? enumProp(ca, 'lens_unit', 'Lens Unit', [['MILLIMETERS', 'Millimeters'], ['FOV', 'Field of View']]) : null,
       num(ca, 'shift_x', 'Shift X', { min: -10, max: 10, step: 0.01 }),
       num(ca, 'shift_y', 'Y', { min: -10, max: 10, step: 0.01 }),
       num(ca, 'clip_start', 'Clip Start', { unit: 'distance', min: 1e-6 }),

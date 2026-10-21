@@ -38,17 +38,17 @@ const remodulate = new ShaderMaterial({
   blending: NoBlending,
   depthTest: false,
   depthWrite: false,
-  uniforms: { tColor: { value: null }, tAlbedo: { value: null }, tRaw: { value: null }, tGuide: { value: null }, uTexel: { value: new Vector2() }, uUse: { value: 1 } },
+  uniforms: { tColor: { value: null }, tAlbedo: { value: null }, tRaw: { value: null }, tGuide: { value: null }, uTexel: { value: new Vector2() }, uUse: { value: 1 }, uGuideOn: { value: 1 } },
   vertexShader: vert,
   fragmentShader: /* glsl */ `
-    uniform sampler2D tColor; uniform sampler2D tAlbedo; uniform sampler2D tRaw; uniform sampler2D tGuide; uniform vec2 uTexel; uniform float uUse; varying vec2 vUv;
+    uniform sampler2D tColor; uniform sampler2D tAlbedo; uniform sampler2D tRaw; uniform sampler2D tGuide; uniform vec2 uTexel; uniform float uUse; uniform float uGuideOn; varying vec2 vUv;
     void main() {
       vec4 c = texture2D(tColor, vUv);
       vec4 a = uUse > 0.5 ? texture2D(tAlbedo, vUv) : vec4(0.0);
       vec3 alb = a.a > 0.5 ? max(a.rgb, vec3(0.02)) : vec3(1.0);
       vec4 den = vec4(c.rgb * alb, c.a);
       vec4 g = texture2D(tGuide, vUv);
-      float cover = g.a > 0.0 ? length(g.xyz) : 1.0;
+      float cover = uGuideOn < 0.5 ? 1.0 : g.a > 0.0 ? length(g.xyz) : 1.0;
       // partial background coverage also shows up in alpha
       float edge = clamp((0.995 - cover) * 25.0, 0.0, 1.0);
       if (edge > 0.0) {
@@ -121,7 +121,8 @@ const atrous = new ShaderMaterial({
       vec4 c0 = texture2D(tColor, vUv);
       vec4 g0 = texture2D(tGuide, vUv);
       vec3 t0 = tm(c0.rgb);
-      bool bg0 = g0.a <= 0.0;
+      // without guides, empty (alpha 0) pixels are told apart by the colour's alpha
+      bool bg0 = uNormalPower > 0.0 ? g0.a <= 0.0 : c0.a <= 0.0;
       vec4 sum = vec4(0.0);
       float wsum = 0.0;
       // noisier neighbourhoods (local deviation of the compressed colour) are filtered harder
@@ -142,7 +143,7 @@ const atrous = new ShaderMaterial({
           vec4 c = texture2D(tColor, uv);
           vec4 g = texture2D(tGuide, uv);
           float w = taps[i + 2] * taps[j + 2];
-          bool bg = g.a <= 0.0;
+          bool bg = uNormalPower > 0.0 ? g.a <= 0.0 : c.a <= 0.0;
           if (bg != bg0) continue;
           if (!bg0 && uNormalPower > 0.0) {
             w *= pow(max(dot(g0.xyz, g.xyz), 0.0), uNormalPower);
@@ -214,6 +215,7 @@ export class Denoiser {
     remodulate.uniforms.tColor.value = src.texture;
     remodulate.uniforms.tAlbedo.value = useAlbedo ? albedo : null;
     remodulate.uniforms.uUse.value = useAlbedo ? 1 : 0;
+    remodulate.uniforms.uGuideOn.value = opts.normal === false ? 0 : 1;
     remodulate.uniforms.tRaw.value = color;
     remodulate.uniforms.tGuide.value = guide;
     remodulate.uniforms.uTexel.value.set(1 / w, 1 / h);

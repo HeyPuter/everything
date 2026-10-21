@@ -420,7 +420,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         renderer.shadowMap.enabled = false;
         renderOverride(renderer, rs.scene, camera, guide, normalDepthMaterial);
         renderAlbedo(renderer, rs.scene, camera, albedo);
-        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples, denoiseOptions(r, src.kind !== 'final'));
+        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples, { ...denoiseOptions(r, src.kind !== 'final'), ...(camera.userData.panorama ? { albedo: false, normal: false } : {}) });
         resultRT = denoiser.out!;
         guide.dispose();
         albedo.dispose();

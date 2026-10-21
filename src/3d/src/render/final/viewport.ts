@@ -224,7 +224,7 @@ export class ViewportRender {
     }
     const d = (this.denoiser ??= new Denoiser());
     if (this.denoisedSamples !== n || !d.out) {
-      d.run(renderer, this.core!.texture, this.guide!.texture, this.albedo!.texture, W, H, n, denoiseOptions(app.doc.scene.render, true));
+      d.run(renderer, this.core!.texture, this.guide!.texture, this.albedo!.texture, W, H, n, { ...denoiseOptions(app.doc.scene.render, true), ...(cam.userData.panorama ? { albedo: false, normal: false } : {}) });
       this.denoisedSamples = n;
     }
     return d.out!.texture;
@@ -237,6 +237,7 @@ export class ViewportRender {
     if (!(sc instanceof PhysicalCamera) || !(camera instanceof PerspectiveCamera)) return camera;
     const p = new PhysicalCamera();
     p.copy(camera);
+    p.userData = { ...camera.userData, panorama: sc.userData.panorama };
     p.focusDistance = sc.focusDistance;
     p.fStop = sc.fStop;
     p.apertureBlades = sc.apertureBlades;
