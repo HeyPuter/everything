@@ -455,7 +455,9 @@ export class Nav {
       done = true;
       const v = input.value.trim();
       if (save && (v || allowEmpty) && v !== value) commit(v);
-      else this.app.renderNav();
+      // Renaming the open page changes its title without redrawing the
+      // list, so put the label back whenever the box is still there.
+      if (input.isConnected) this.app.renderNav();
       setTimeout(() => this.focusRow(row.dataset.id));
     };
     input.addEventListener('keydown', (e) => {
