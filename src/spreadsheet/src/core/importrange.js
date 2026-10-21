@@ -211,8 +211,11 @@ export function rowsFromXml(text, xpath, parseInput) {
 
 /**
  * A file name for something fetched from a URL, so the importer knows the
- * format: the address's last path segment, or "Imported.xlsx" / "Imported.csv"
- * by sniffing the bytes (a zip signature means a spreadsheet file).
+ * format: the address's last path segment, or "Imported.xlsx" / "Imported.xls" /
+ * "Imported.csv" by sniffing the bytes. A zip is a spreadsheet package; a compound
+ * file or markup (a web page's table, an Excel 2003 XML sheet, as an "export as
+ * Excel" link often serves) is named .xls, so the importer reads it by its bytes
+ * rather than as delimited text, which a .csv name would make of it.
  */
 export function importNameFor(url, bytes = null) {
   let name = '';
@@ -220,8 +223,10 @@ export function importNameFor(url, bytes = null) {
   name = name.replace(/[\\/:*?"<>|]/g, '').trim();
   if (isSpreadsheetFile(name)) return name;
   const zip = bytes && bytes.length > 3 && bytes[0] === 0x50 && bytes[1] === 0x4b;
+  const cfb = bytes && bytes.length > 3 && bytes[0] === 0xd0 && bytes[1] === 0xcf && bytes[2] === 0x11 && bytes[3] === 0xe0;
+  const markup = bytes && /^<[!?a-z]/i.test(new TextDecoder().decode(bytes.subarray(0, 512)).replace(/^\ufeff/, '').trimStart());
   const base = name.replace(/\.[^.]*$/, '') || 'Imported';
-  return `${base}.${zip ? 'xlsx' : 'csv'}`;
+  return `${base}.${zip ? 'xlsx' : cfb || markup ? 'xls' : 'csv'}`;
 }
 
 /** The MIME type of image bytes by their signature (PNG, JPEG, GIF, WebP, SVG), or null. */
