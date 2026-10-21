@@ -612,11 +612,9 @@ export async function tabsDialog({ tabs: initial, defaultTab }) {
   let spacing = defaultTab / IN;
   let position = 1;
   let align = "l";
-  const list = el("ul", {
-    class: "fmt-tab-list",
-    role: "listbox",
-    "aria-label": "Tab stops",
-  });
+  // A plain list: each stop is read out with its Clear button, which a
+  // listbox's options could not hold.
+  const list = el("ul", { class: "fmt-tab-list", "aria-label": "Tab stops" });
   const label = (a) =>
     ({ l: "Left", ctr: "Center", r: "Right", dec: "Decimal" })[a];
   const render = () => {
@@ -625,7 +623,7 @@ export async function tabsDialog({ tabs: initial, defaultTab }) {
       ...stops.map((stop, i) =>
         el(
           "li",
-          { role: "option", "aria-selected": "false" },
+          {},
           el("span", {}, `${(stop.pos / IN).toFixed(2)}″`),
           el("span", { class: "muted" }, label(stop.align)),
           el(

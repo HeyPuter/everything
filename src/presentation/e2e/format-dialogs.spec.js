@@ -2,6 +2,7 @@
 // the ribbon's bullet and numbering galleries, checked by what they write to
 // the downloaded file.
 import { test, expect } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
 import {
   P,
   addTextBox,
@@ -85,7 +86,13 @@ test("the Paragraph and Tabs dialogs set alignment, indents, spacing and tab sto
   await number(tabs, "Tab stop position", 2);
   await tabs.getByRole("radio", { name: "Right" }).click();
   await tabs.getByRole("button", { name: "Set", exact: true }).click();
-  await expect(tabs.getByRole("option")).toHaveCount(1);
+  await expect(
+    tabs.getByRole("list", { name: "Tab stops" }).getByRole("listitem"),
+  ).toHaveCount(1);
+  const axe = await new AxeBuilder({ page })
+    .include(".format-dialog")
+    .analyze();
+  expect(axe.violations).toEqual([]);
   await tabs.getByRole("button", { name: "OK" }).click();
   await dialog.getByRole("button", { name: "OK" }).click();
   await expect(dialog).toBeHidden();
