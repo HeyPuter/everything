@@ -46,6 +46,14 @@ export interface ChannelFilter {
   search: string;
   /** match every word of the search separately (in any order) */
   multiWord?: boolean;
+  /** only objects of this collection (and its children) */
+  collection?: Set<string> | null;
+  /** hidden channel types: object types (MESH, CAMERA, …) and TRANSFORMS / MODIFIERS / MATERIALS / SHAPEKEYS / DATA */
+  hiddenTypes?: Set<string>;
+  /** objects in alphabetical order (else in scene order) */
+  sortByName?: boolean;
+  /** the Dope Sheet's Summary row */
+  noSummary?: boolean;
   onlyErrors?: boolean;
   isVisible: (ob: ObjectData) => boolean;
   activeObject: ObjectData | null;
@@ -118,7 +126,18 @@ export function activeAction(doc: DocumentData, ob: ObjectData | null | undefine
 
 const boneOf = (path: string) => /^pose\.bones\["([^"]+)"\]/.exec(path)?.[1];
 
+/** The channel type an F-Curve counts as for Filter by Type. */
+export function curveCategory(path: string): string {
+  if (/(^|\.)(location|rotation_euler|rotation_quaternion|rotation_axis_angle|scale|delta_location|delta_rotation_euler|delta_rotation_quaternion|delta_scale)$/.test(path)) return 'TRANSFORMS';
+  if (path.startsWith('modifiers[')) return 'MODIFIERS';
+  if (/key_blocks\[/.test(path)) return 'SHAPEKEYS';
+  if (/^(active_material|material_slots|material)\b/.test(path)) return 'MATERIALS';
+  if (path.startsWith('data.')) return 'DATA';
+  return 'OTHER';
+}
+
 function curveVisibleForFilter(doc: DocumentData, ob: ObjectData, fc: FCurve, f: ChannelFilter) {
+  if (f.hiddenTypes?.size && f.hiddenTypes.has(curveCategory(fc.data_path))) return false;
   if (f.onlyErrors && f.curveError && !f.curveError(ob, fc)) return false;
   if (f.onlySelected && doc.mode === 'POSE' && ob.pose) {
     const bone = boneOf(fc.data_path);
@@ -138,7 +157,24 @@ export function searchMatches(f: Pick<ChannelFilter, 'search' | 'multiWord'>, ..
 }
 
 function filteredObjects(doc: DocumentData, f: ChannelFilter): ObjectData[] {
-  return doc.object_order.map((id) => doc.objects[id]).filter((ob) => ob && (f.showHidden || f.isVisible(ob)) && (!f.onlySelected || ob.select));
+  const list = doc.object_order
+    .map((id) => doc.objects[id])
+    .filter((ob) => ob && (f.showHidden || f.isVisible(ob)) && (!f.onlySelected || ob.select) && (!f.collection || f.collection.has(ob.id)) && !f.hiddenTypes?.has(ob.type));
+  return f.sortByName ? list.sort((a, b) => a.name.localeCompare(b.name)) : list;
+}
+
+/** Objects of a collection and its child collections (for the Filters popover's collection). */
+export function collectionObjects(doc: DocumentData, id: string): Set<string> {
+  const out = new Set<string>();
+  const visit = (cid: string, seen: Set<string>) => {
+    const c = doc.collections[cid];
+    if (!c || seen.has(cid)) return;
+    seen.add(cid);
+    for (const o of c.objects) out.add(o);
+    for (const ch of c.children) visit(ch, seen);
+  };
+  visit(id, new Set());
+  return out;
 }
 
 /** Rows for the groups and F-Curves of an action (the given curves of it: one slot). */
@@ -394,7 +430,7 @@ export function buildChannels(doc: DocumentData, space: SpaceKind, f: ChannelFil
     return { rows, curves };
   }
   // DOPESHEET / GRAPH
-  const withSummary = space === 'DOPESHEET';
+  const withSummary = space === 'DOPESHEET' && !f.noSummary;
   const sum: Channel | null = withSummary
     ? {
         key: 'summary',

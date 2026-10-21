@@ -154,6 +154,7 @@ export class NlaEditor extends AnimEditor {
         'Show Hidden\nInclude channels from objects/bone that are not visible',
         () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')),
       ),
+      this.filtersHeader(),
       this.snapHeader('strips'),
     );
   }

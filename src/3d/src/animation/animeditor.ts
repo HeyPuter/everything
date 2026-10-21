@@ -5,8 +5,9 @@ import { h, patch, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, type ChangeKind } from '../app/app';
 import type { Area, Editor } from '../ui/screen';
-import { openMenu, promptText, type MenuItem } from '../ui/menu';
-import { textField, numberField } from '../ui/widgets';
+import { openMenu, openPopover, promptText, type MenuItem } from '../ui/menu';
+import './anim.css';
+import { textField, numberField, checkbox, enumMenu } from '../ui/widgets';
 import { getValue, setValue } from '../data/rna';
 import { keyProperty } from '../anim/keyframes';
 import type { ObjectData, TimelineMarker } from '../data/types';
@@ -14,7 +15,7 @@ import { View2D, frameStep, formatSeconds } from './view2d';
 import { C } from './theme';
 import { curveSlot, slotName } from '../anim/slots';
 import { renameSlotEverywhere } from './slotops';
-import { buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
+import { collectionObjects, buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
 import { markerMenu, markerAt, markersLocked } from './markers';
 import { playbackOptions } from './footer';
@@ -97,6 +98,12 @@ export abstract class AnimEditor implements Editor {
   autoMerge = true;
   /** the channel search matches every word separately (View ▸ Multi-Word Match Search) */
   multiWordSearch = false;
+  /** Filters popover: only objects of this collection ('' for all) */
+  filterCollection = '';
+  /** Filters popover: channel types not shown */
+  hiddenTypes: string[] = [];
+  /** Filters popover: objects in alphabetical order */
+  sortByName = true;
   /** what transforms snap to, and whether keys snap to it (absolute) or move by whole steps */
   snapMode: 'FRAME' | 'SECOND' | 'MARKER' = 'FRAME';
   snapAbsolute = false;
@@ -311,6 +318,9 @@ export abstract class AnimEditor implements Editor {
       showChannels: this.showChannels,
       autoMerge: this.autoMerge,
       multiWordSearch: this.multiWordSearch,
+      filterCollection: this.filterCollection,
+      hiddenTypes: this.hiddenTypes,
+      sortByName: this.sortByName,
       snapMode: this.snapMode,
       snapAbsolute: this.snapAbsolute,
       view: {
@@ -340,6 +350,9 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.showChannels === 'boolean') this.showChannels = s.showChannels;
     if (typeof s.autoMerge === 'boolean') this.autoMerge = s.autoMerge;
     if (typeof s.multiWordSearch === 'boolean') this.multiWordSearch = s.multiWordSearch;
+    if (typeof s.filterCollection === 'string') this.filterCollection = s.filterCollection;
+    if (Array.isArray(s.hiddenTypes)) this.hiddenTypes = s.hiddenTypes.filter((x): x is string => typeof x === 'string');
+    if (typeof s.sortByName === 'boolean') this.sortByName = s.sortByName;
     if (s.snapMode === 'FRAME' || s.snapMode === 'SECOND' || s.snapMode === 'MARKER') this.snapMode = s.snapMode;
     if (typeof s.snapAbsolute === 'boolean') this.snapAbsolute = s.snapAbsolute;
     if (typeof s.scrollY === 'number') this.scrollY = s.scrollY;
@@ -359,6 +372,9 @@ export abstract class AnimEditor implements Editor {
       showHidden: this.showHidden,
       search: this.search,
       multiWord: this.multiWordSearch,
+      collection: this.filterCollection && app.doc.collections[this.filterCollection] ? collectionObjects(app.doc, this.filterCollection) : null,
+      hiddenTypes: new Set(this.hiddenTypes),
+      sortByName: this.sortByName,
       onlyErrors: this.onlyErrors,
       curveError: (ob, fc) => !!fc.disabled || (fc.data_path !== '' && getValue(app.doc, ob, fc.data_path, fc.array_index) === undefined),
       isVisible: (ob: ObjectData) => app.isVisible(ob.id),
@@ -491,6 +507,76 @@ export abstract class AnimEditor implements Editor {
   }
 
   /** Header snapping toggle with its options popover. */
+  /** extra rows at the top of the Filters popover (e.g. the Dope Sheet's Summary toggle) */
+  protected filterExtras(): Child {
+    return null;
+  }
+
+  /** Header ▸ Filters popover: what the channel list includes. */
+  filtersHeader(): Child {
+    const types: [string, string][] = [
+      ['MESH', 'Meshes'],
+      ['CAMERA', 'Cameras'],
+      ['LIGHT', 'Lights'],
+      ['ARMATURE', 'Armatures'],
+      ['CURVE', 'Curves'],
+      ['EMPTY', 'Empties'],
+      ['GREASEPENCIL', 'Grease Pencil'],
+      ['SPEAKER', 'Speakers'],
+    ];
+    const kinds: [string, string][] = [
+      ['TRANSFORMS', 'Transforms'],
+      ['MODIFIERS', 'Modifiers'],
+      ['MATERIALS', 'Materials'],
+      ['SHAPEKEYS', 'Shape Keys'],
+      ['DATA', 'Object Data'],
+    ];
+    const toggleType = (t: string, on: boolean) => {
+      this.hiddenTypes = on ? this.hiddenTypes.filter((x) => x !== t) : [...this.hiddenTypes, t];
+      this.refresh();
+      app.changed('ui');
+    };
+    const body = (): Child => {
+      const cols = Object.values(app.doc.collections).filter((c) => c.id !== app.doc.scene.collection);
+      return h(
+        'div',
+        { class: 'pop-panel anim-filters' },
+        h('div', { class: 'pop-title' }, 'Filters'),
+        this.filterExtras(),
+        checkbox('af-onlysel', 'Only Show Selected', this.onlySelected, (v) => ((this.onlySelected = v), this.refresh(), app.changed('ui'))),
+        checkbox('af-hidden', 'Show Hidden', this.showHidden, (v) => ((this.showHidden = v), this.refresh(), app.changed('ui'))),
+        checkbox('af-errors', 'Only Show Errors', this.onlyErrors, (v) => ((this.onlyErrors = v), this.refresh(), app.changed('ui'))),
+        h('div', { class: 'opt-head' }, 'Collection'),
+        enumMenu(
+          'af-coll',
+          [{ value: '', label: 'All Collections' }, ...cols.map((c) => ({ value: c.id, label: c.name, icon: 'outliner_collection' }))],
+          this.filterCollection,
+          (v) => ((this.filterCollection = v), this.refresh(), app.changed('ui')),
+        ),
+        h('div', { class: 'opt-head' }, 'Filter by Type'),
+        h('div', { class: 'anim-filter-grid' }, types.map(([t, l]) => checkbox(`af-t-${t}`, l, !this.hiddenTypes.includes(t), (v) => toggleType(t, v)))),
+        h('div', { class: 'anim-filter-grid' }, kinds.map(([t, l]) => checkbox(`af-k-${t}`, l, !this.hiddenTypes.includes(t), (v) => toggleType(t, v)))),
+        h('div', { class: 'opt-head' }, 'Options'),
+        checkbox('af-sort', 'Sort Data-Blocks', this.sortByName, (v) => ((this.sortByName = v), this.refresh(), app.changed('ui')), { tip: 'Objects are listed alphabetically (otherwise in scene order)' }),
+      );
+    };
+    const active = !!this.filterCollection || this.hiddenTypes.length > 0 || this.onlyErrors;
+    return h(
+      'button',
+      {
+        key: 'filters',
+        class: { 'hdr-toggle': true, 'anim-filters-btn': true, on: active },
+        'data-tip': 'Filters\nWhich channels are listed',
+        onpointerdown: (e: PointerEvent) => {
+          e.preventDefault();
+          openPopover(e.currentTarget as HTMLElement, body, { width: 250 });
+        },
+      },
+      icon('filter'),
+      icon('down_arrow_hlt', 'tiny'),
+    );
+  }
+
   snapHeader(what = 'keyframes'): Child {
     const modes: [AnimEditor['snapMode'], string][] = [
       ['FRAME', 'Frame'],

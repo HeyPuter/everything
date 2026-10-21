@@ -58,6 +58,14 @@ export class DopeSheet extends AnimEditor {
   mode: DopeSheetMode = 'DOPESHEET';
   showHandlesInterp = true;
   showSummary = true;
+  protected filterExtras(): Child {
+    return this.mode === 'DOPESHEET' ? checkbox('af-summary', 'Summary', this.showSummary, (v) => ((this.showSummary = v), this.refresh(), app.changed('ui'))) : null;
+  }
+
+  get filter() {
+    return { ...super.filter, noSummary: !this.showSummary };
+  }
+
   /** View ▸ Show Extremes: mark keys where the value turns */
   showExtremes = false;
   /** Action Editor: the marker row shows the action's pose markers */
@@ -144,6 +152,7 @@ export class DopeSheet extends AnimEditor {
             () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')),
           )
         : null,
+      this.filtersHeader(),
       this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_action'),
     );

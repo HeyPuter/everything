@@ -1,0 +1,16 @@
+/* Animation editors: header Filters popover. */
+.anim-filters .anim-filter-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 6px;
+  margin-bottom: 4px;
+}
+.anim-filters > .checkbox,
+.anim-filters .enum-menu {
+  margin: 1px 0;
+}
+.anim-filters-btn {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
