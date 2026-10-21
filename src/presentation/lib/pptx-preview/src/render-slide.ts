@@ -2059,6 +2059,7 @@ interface ParaData {
   readonly spcAftPct?: number;
   readonly indent: ReturnType<typeof getParagraphIndent>;
   readonly tabs?: ReturnType<typeof getParagraphLayout>;
+  readonly rtl?: boolean;
 }
 
 // Collapses every ST_TextUnderlineType token onto the 3 styles the SVG text
@@ -2427,6 +2428,7 @@ export const buildSvgTextInput = (a: SvgTextArgs): TextBodyInput => {
       ...(para.spcAftPct !== undefined ? { spcAftPct: para.spcAftPct } : {}),
       lineSpacing,
       lineSpacingReduction: a.lineSpacingReduction,
+      ...(para.rtl ? { rtl: true } : {}),
       bullet: buildBullet(a, para, pi, resolveFamily),
       pieces,
       fallbackSizePx:
@@ -2958,6 +2960,7 @@ export const resolveTextBodyModel = (
     paraData.push({
       ...(emptyLineFormat ? { emptyLineFormat } : {}),
       align,
+      ...(effective.rtl ? { rtl: true } : {}),
       level,
       bulletStyle,
       bulletDetail,

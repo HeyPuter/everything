@@ -260,6 +260,10 @@ export interface ParaInput {
   }[];
   /** Spacing of the default tab stops past the last custom one. */
   readonly defaultTabPx?: number;
+  /** Right-to-left paragraph (`<a:pPr rtl="1">`): its lines take the RTL
+   *  base direction, so mixed runs and punctuation are ordered as in a
+   *  Hebrew or Arabic sentence. Alignment and margins are unchanged. */
+  readonly rtl?: boolean;
 }
 
 /** Normalized text direction the engine understands. render-slide maps the
@@ -335,6 +339,8 @@ export interface Line {
   extent: number;
   anchorX: number;
   textAnchor: "start" | "middle" | "end";
+  /** The paragraph's base direction is right-to-left. */
+  rtl?: boolean;
   bullet: { x: number; baselineDy: number; b: BulletInput } | null;
 }
 
@@ -869,6 +875,7 @@ export const layoutCore = (
           extent: 0,
           anchorX: lineLeft,
           textAnchor: "start",
+          ...(para.rtl ? { rtl: true } : {}),
           bullet: null,
         };
         if (para.align === "center") {
@@ -1171,7 +1178,16 @@ const emitLine = (line: Line, baselineY: number, dx: number): string => {
     .join("");
   if (tspans === "") return "";
   const x0 = line.anchorX + dx;
-  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${line.textAnchor}" xml:space="preserve">${tspans}</text>`;
+  // textAnchor names the side of the line x0 is on; under the RTL base
+  // direction SVG reads start and end from the right.
+  const anchor = !line.rtl
+    ? line.textAnchor
+    : line.textAnchor === "start"
+      ? "end"
+      : line.textAnchor === "end"
+        ? "start"
+        : "middle";
+  const text = `<text x="${fmt(x0)}" y="${fmt(baselineY)}" text-anchor="${anchor}"${line.rtl ? ' direction="rtl"' : ""} xml:space="preserve">${tspans}</text>`;
   return (
     text +
     emitWavyUnderlines(groups, line.textAnchor, x0, baselineY) +
