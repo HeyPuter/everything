@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText, parseJsonArray, translateLines } from '../src/media/transcript.js';
 import { removeRange, mainTrack, addClip } from '../src/model/timeline.js';
 import { normalizeProject } from '../src/model/project.js';
-import { fixture, clip, onMain, s } from './helpers.js';
+import { fixture, clip, onMain, s, noOverlaps } from './helpers.js';
 
 const W = (list) => list.map(([text, a, b]) => ({ text, start: s(a), end: s(b) }));
 
@@ -84,6 +84,36 @@ describe('removeRange', () => {
     removeRange(p, s(2), s(4), { close: false });
     expect(mainTrack(p).clips.map((c) => [c.start / 1e6, c.duration / 1e6])).toEqual([[0, 2], [4, 4]]);
     expect(p.tracks.find((t) => t.kind === 'audio').clips[0].duration).toBe(s(8));
+  });
+
+  const layout = (track) => track.clips.map((c) => [c.start / 1e6, c.duration / 1e6, c.in / 1e6]);
+
+  it('takes whole clips when a cut ends just past an edit point', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2), clip('video', 2, 2, { in: s(2) }), clip('video', 4, 2, { in: s(4) }));
+    removeRange(p, s(1), s(2.01));
+    expect(layout(mainTrack(p))).toEqual([[0, 1, 0], [1, 2, 2], [3, 2, 4]]);
+  });
+
+  it('takes whole clips when a cut starts just before an edit point', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 2), clip('video', 2, 2, { in: s(2) }), clip('video', 4, 2, { in: s(4) }));
+    removeRange(p, s(1.99), s(3));
+    expect(layout(mainTrack(p))).toEqual([[0, 2, 0], [2, 1, 3], [3, 2, 4]]);
+    removeRange(p, s(2.01), s(2.5));
+    expect(layout(mainTrack(p))).toEqual([[0, 2, 0], [2, 0.5, 3.5], [2.5, 2, 4]]);
+  });
+
+  it('shaves slivers off other tracks so nothing overlaps after the cut', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 10));
+    addClip(p, clip('audio', 0, 2.01), { ripple: false });
+    addClip(p, clip('audio', 2.01, 3, { in: s(5) }), { ripple: false });
+    addClip(p, clip('audio', 5.01, 1), { ripple: false });
+    removeRange(p, s(2), s(5));
+    expect(noOverlaps(p)).toBe(true);
+    const audio = p.tracks.find((t) => t.kind === 'audio');
+    expect(layout(audio)).toEqual([[0, 2, 0], [2.01, 1, 0]]);
   });
 
   it('keeps transcripts through normalization', () => {

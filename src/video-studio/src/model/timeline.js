@@ -1093,14 +1093,47 @@ export function keyEaseAt(clip, t, tol = 0) {
 // ---- Removing a span of time ----------------------------------------------
 
 /**
+ * t moved onto a base-track clip edge less than MIN_CLIP away, so a cut near
+ * an edit point takes whole clips there instead of leaving a sliver.
+ */
+function snapToMainEdge(project, t) {
+  const main = mainTrack(project);
+  if (!main || main.locked) return t;
+  let best = t;
+  let gap = MIN_CLIP;
+  for (const c of main.clips) {
+    for (const e of [c.start, clipEnd(c)]) {
+      if (Math.abs(e - t) < gap) {
+        gap = Math.abs(e - t);
+        best = e;
+      }
+    }
+  }
+  return best;
+}
+
+/** Cut `cut` µs off the start or end of a clip (a piece too short to split off). */
+function shave(clip, edge, cut) {
+  if (edge === 'start') {
+    windowSource(clip, cut, clip.duration);
+    if (clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, -cut, clip.duration - cut);
+    clip.start += cut;
+  } else {
+    windowSource(clip, 0, clip.duration - cut);
+    if (clip.keyframes) clip.keyframes = shiftKeyframes(clip.keyframes, 0, clip.duration - cut);
+  }
+  clip.duration -= cut;
+}
+
+/**
  * Remove [a, b) from every unlocked track: clips crossing an edge are split,
  * the pieces inside go, and (with close = true) everything after b moves left
  * by b - a so the gap closes. Markers, the in/out range and the transcript
  * follow. Returns the number of clips removed or shortened.
  */
 export function removeRange(project, a, b, { close = true } = {}) {
-  const lo = Math.max(0, Math.round(Math.min(a, b)));
-  const hi = Math.round(Math.max(a, b));
+  const lo = snapToMainEdge(project, Math.max(0, Math.round(Math.min(a, b))));
+  const hi = snapToMainEdge(project, Math.round(Math.max(a, b)));
   const span = hi - lo;
   if (span < 1000) return 0;
   let changed = 0;
@@ -1113,8 +1146,16 @@ export function removeRange(project, a, b, { close = true } = {}) {
     for (const c of [...track.clips]) {
       if (c.start < hi && clipEnd(c) > hi && clipEnd(c) - hi >= MIN_CLIP && hi - c.start >= MIN_CLIP) splitClip(project, c.id, hi);
     }
+    // A clip that pokes into the range by less than MIN_CLIP could not be split:
+    // shave that sliver off. One that pokes out by less than that goes with the range.
+    for (const c of track.clips) {
+      if (c.start < lo && clipEnd(c) > lo && clipEnd(c) < hi + MIN_CLIP && lo - c.start >= MIN_CLIP) shave(c, 'end', clipEnd(c) - lo);
+      else if (c.start > lo - MIN_CLIP && c.start < hi && clipEnd(c) - hi >= MIN_CLIP) shave(c, 'start', hi - c.start);
+      else continue;
+      changed++;
+    }
     const before = track.clips.length;
-    track.clips = track.clips.filter((c) => !(c.start >= lo - 1 && clipEnd(c) <= hi + 1));
+    track.clips = track.clips.filter((c) => !(c.start > lo - MIN_CLIP && clipEnd(c) < hi + MIN_CLIP));
     changed += before - track.clips.length;
     if (close) {
       for (const c of track.clips) if (c.start >= hi - 1) c.start = Math.max(0, c.start - span);
