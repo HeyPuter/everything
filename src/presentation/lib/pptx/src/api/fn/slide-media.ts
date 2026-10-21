@@ -14,6 +14,7 @@ import type { Emu } from "../units.ts";
 import { REL_TYPES } from "../../internal/presentationml/index.ts";
 import {
   NS,
+  allChildElements,
   firstChildElement,
   getAttrValue,
   qname,
@@ -363,6 +364,31 @@ const isMediaCall = (e: XmlElement, spid: number) =>
   attrOf(e, "presetClass") === "mediacall" &&
   targets(e, spid);
 
+// Does the step of the main sequence holding `call` start as the slide
+// opens? A call With or After Previous in a later step plays at that step's
+// click, in the click sequence, not as the slide opens.
+const startsWithSlide = (timing: XmlElement, call: XmlElement): boolean => {
+  const main = findElement(
+    timing,
+    (e) => isNamed(e, NS.pml, "cTn") && attrOf(e, "nodeType") === "mainSeq",
+  );
+  const steps =
+    main && firstChildElement(main, qname("p", "childTnLst", NS.pml));
+  const step = steps?.children.find(
+    (c): c is XmlElement =>
+      c.kind === "element" && !!findElement(c, (e) => e === call),
+  );
+  const stepTn = step && firstChildElement(step, qname("p", "cTn", NS.pml));
+  const conditions =
+    stepTn && firstChildElement(stepTn, qname("p", "stCondLst", NS.pml));
+  if (!conditions) return true;
+  const conds = allChildElements(conditions, qname("p", "cond", NS.pml));
+  return (
+    conds.some((c) => attrOf(c, "evt") === "onBegin") ||
+    !conds.some((c) => attrOf(c, "delay") === "indefinite")
+  );
+};
+
 const readTiming = (
   slide: SlideData,
   spid: number,
@@ -402,7 +428,7 @@ const readTiming = (
     const nodeType = attrOf(call, "nodeType");
     out.start = interactive
       ? "whenClicked"
-      : nodeType === "clickEffect"
+      : nodeType === "clickEffect" || !startsWithSlide(timing!, call)
         ? "inClickSequence"
         : "automatically";
   } else if (node) out.start = "whenClicked";
