@@ -535,7 +535,8 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
     if (isComposing(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault(); e.stopPropagation();
-      panels[active].querySelector('select, input')?.focus();
+      // The panel's first control in reading order: on the Border tab that is the line style in use, a radio button.
+      [...panels[active].querySelectorAll('select, input, button, textarea')].find((node) => !node.disabled && node.tabIndex !== -1)?.focus();
       return;
     }
     let next;
