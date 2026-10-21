@@ -304,10 +304,24 @@ function rangeTotal(values) {
 }
 const worksheetMean = (values) => worksheetSum(values) / values.length;
 
-const num = (f) => (args) => {
-  const list = numbers(args);
-  return isError(list) ? list : f(list);
+/**
+ * An aggregate of the numbers of its arguments. A column measured against one range, =B2-AVERAGE($B$2:$B$20000) or a
+ * z-score's STDEV filled down, reads that range in every row: the array read is shared within a calculation (and
+ * replaced by any change), so the answer for a range alone is kept with it, and every row after the first looks it up
+ * rather than going over the 20,000 numbers again, as SUM's running totals and LARGE's sorted lists already do.
+ */
+const num = (f) => {
+  const answers = new WeakMap(); // values array → the number answered for that range alone
+  return (args) => {
+    const alone = args.length === 1 && isRange(args[0]) ? args[0].values : null;
+    if (alone) { const known = answers.get(alone); if (known !== undefined) return known; }
+    const list = numbers(args);
+    const answer = isError(list) ? list : f(list);
+    if (alone && typeof answer === 'number') answers.set(alone, answer);
+    return answer;
+  };
 };
+const sumOf = num(worksheetSum);
 
 /**
  * The numbers of a range in ascending order, or an error: what LARGE, RANK, PERCENTILE and their
@@ -1641,7 +1655,7 @@ export const FUNCTIONS = {
   GTE: { localeContext: false, fn: relation((c) => c >= 0) },
   LT: { localeContext: false, fn: relation((c) => c < 0) },
   LTE: { localeContext: false, fn: relation((c) => c <= 0) },
-  SUM: { refArgs: true, fn: (args) => (args.length === 1 && isRange(args[0]) && args[0].ref && !args[0].areas ? rangeTotal(args[0].values) : num(worksheetSum)(args)) },
+  SUM: { refArgs: true, fn: (args) => (args.length === 1 && isRange(args[0]) && args[0].ref && !args[0].areas ? rangeTotal(args[0].values) : sumOf(args)) },
   AVERAGE: { refArgs: true, fn: num((l) => (l.length ? worksheetMean(l) : err('#DIV/0!'))) },
   MIN: { refArgs: true, fn: num((l) => (l.length ? minimum(l) : 0)) },
   MAX: { refArgs: true, fn: num((l) => (l.length ? maximum(l) : 0)) },
