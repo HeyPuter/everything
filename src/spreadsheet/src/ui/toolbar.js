@@ -247,7 +247,9 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
       const st = ctx.style();
       // The pen picks up the active cell's border color and style.
       // In lower case, as the swatches are spelt: a colour from a file may be in upper case, and is the same colour.
-      if (st.bt || st.bb || st.bl || st.br) { pen.color = st.bc ? String(st.bc).toLowerCase() : null; pen.style = st.bs || 'thin'; }
+      // A side drawn with a pen of its own (by Format Cells or the pens below) is read in that pen.
+      const side = ['bt', 'bb', 'bl', 'br'].find((key) => st[key]);
+      if (side) { const edge = st[`${side}Border`] || st; pen.color = edge.bc ? String(edge.bc).toLowerCase() : null; pen.style = edge.bs || 'thin'; }
       openMenu({
         anchor, label: 'Borders', minWidth: 220,
         items: [
