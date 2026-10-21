@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as Y from 'yjs';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
@@ -70,6 +70,20 @@ describe('changes the room refuses', () => {
     expect(sent.every(size => size <= 600)).toBe(true);
     expect(ann.engine.model.text).toBe(bob.engine.model.text);
     expect(ann.engine.model.text).toContain('5'.repeat(120));
+  });
+
+  it('keeps a change the room could not verify the sender of and sends it again', async () => {
+    const { people: [ann, bob] } = await room('Start');
+    // The worker answers 401 when it cannot check the request's credential (an expired one, Puter unreachable).
+    const send = bob.transport.send;
+    let refusals = 1;
+    bob.transport.send = update => (refusals-- > 0 ? Promise.reject(Object.assign(new Error('Could not verify this collaboration request.'), { status: 401 })) : send(update));
+    bob.engine.execute(m => { m.select(5); m.replace(' kept'); });
+    await settle();
+    expect(bob.errors).toEqual([]);
+    expect(bob.engine.model.text).toBe('Start kept');
+    await vi.waitFor(() => expect(ann.engine.model.text).toBe('Start kept'), { timeout: 5000 });
+    expect(bob.client.outbox.size).toBe(0);
   });
 
   it('refuses one change larger than the limit without blocking the next', async () => {
