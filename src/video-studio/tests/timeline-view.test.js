@@ -88,3 +88,29 @@ describe('timeline drags', () => {
     tl.dispose();
   });
 });
+
+describe('timeline focus', () => {
+  it('a click on empty track space keeps the view where it is; Tab brings the clip into view', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 2), clip('video', 2, 2));
+    const { tl, tracks, scroller, pointer, node } = mountTimeline(p);
+    scroller.scrollLeft = 3000;
+    // jsdom does not scroll on focus, so check that every focus asks not to.
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    pointer(tracks, 'pointerdown', 3200, 300);
+    tracks.dispatchEvent(new FocusEvent('focus')); // the browser focuses the lanes on mousedown
+    pointer(tracks, 'pointerup', 3200, 300);
+    expect(focus.mock.calls.length).toBeGreaterThan(0);
+    for (const [opts] of focus.mock.calls) expect(opts?.preventScroll).toBe(true);
+    expect(scroller.scrollLeft).toBe(3000);
+    expect(document.activeElement).toBe(node(a.id));
+    focus.mockRestore();
+    await new Promise((r) => setTimeout(r));
+    // Keyboard focus (no pointer involved) scrolls to the clip it lands on.
+    document.body.focus();
+    tracks.focus();
+    expect(document.activeElement).toBe(node(a.id));
+    expect(scroller.scrollLeft).toBe(0);
+    tl.dispose();
+  });
+});

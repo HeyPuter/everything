@@ -770,8 +770,13 @@ export function createTimeline(ctx) {
     const p = contentPoint(e);
     if (e.button === 2) return; // context menu handles it
     if (!clipNode) {
-      // Empty area: seek and start a marquee.
-      tracksEl.focus?.();
+      // Empty area: seek and start a marquee. Focus stays where the view is.
+      // (The browser focuses the lanes again on the mousedown that follows.)
+      pointerFocus = true;
+      setTimeout(() => {
+        pointerFocus = false;
+      });
+      tracksEl.focus?.({ preventScroll: true });
       startMarquee(e, p);
       return;
     }
@@ -1596,14 +1601,19 @@ export function createTimeline(ctx) {
   tracksEl.tabIndex = 0;
   tracksEl.setAttribute('aria-label', 'Tracks. Use arrow keys to move between clips.');
   tracksEl.setAttribute('role', 'group');
+  // A click on empty space focuses too, but must not scroll the view to that clip.
+  let pointerFocus = false;
   tracksEl.addEventListener('focus', (e) => {
     if (e.target !== tracksEl) return;
     const sel = store.selectedIds[0];
     const first = sel || T.mainTrack(store.project)?.clips[0]?.id || T.allClips(store.project)[0]?.id;
     if (!first) return;
+    const fromPointer = pointerFocus;
     activeId = first;
     render();
-    clipEls.get(first)?.node.focus();
+    clipEls.get(first)?.node.focus({ preventScroll: true });
+    const clip = T.findClip(store.project, first)?.clip;
+    if (!fromPointer && clip) ensureVisible(clip);
   });
 
   // ---- Drops from the assets panel and the desktop ----------------------
