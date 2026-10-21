@@ -22,6 +22,14 @@ import { defaultLength } from './preferences-dialog.js';
 import { createClipEffectActions } from './clip-effects-actions.js';
 
 
+/** Copies of clips for the clipboard, marked with whether they were on the base track. */
+function clipBoard(project, ids) {
+  return ids
+    .map((id) => T.findClip(project, id))
+    .filter(Boolean)
+    .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main) }));
+}
+
 export function createActions(ctx) {
   const { store } = ctx;
   let clipboard = [];
@@ -432,8 +440,15 @@ export function createActions(ctx) {
       if (!ids.length) return;
       const made = [];
       store.update('Duplicate', (p) => {
-        for (const id of ids) {
-          const c = T.duplicateClip(p, id, store.opts);
+        if (ids.length > 1) {
+          // Several clips are copied as a block right after them (after their
+          // base track clips, if any), keeping their layout and their groups.
+          const board = clipBoard(p, ids);
+          const base = board.filter((c) => c._main);
+          const end = Math.max(...(base.length ? base : board).map((c) => T.clipEnd(c)));
+          made.push(...T.pasteClips(p, board, end, store.opts).map((c) => c.id));
+        } else {
+          const c = T.duplicateClip(p, ids[0], store.opts);
           if (c) made.push(c.id);
         }
         return made.length > 0;
@@ -444,10 +459,7 @@ export function createActions(ctx) {
     copy() {
       const ids = sel();
       if (!ids.length) return false;
-      clipboard = ids
-        .map((id) => T.findClip(store.project, id))
-        .filter(Boolean)
-        .map(({ clip, track }) => ({ ...structuredClone(clip), _main: Boolean(track.main) }));
+      clipboard = clipBoard(store.project, ids);
       announce(clipboard.length === 1 ? 'Copied clip' : `Copied ${clipboard.length} clips`);
       return true;
     },

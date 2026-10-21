@@ -95,6 +95,27 @@ describe('clipboard actions', () => {
     expect(main().clips[1].assetId).toBe(a.assetId);
   });
 
+  it('duplicates a group (base clip and its title) as a new group after it', () => {
+    const { store, actions, main } = setup(clip('video', 0, 5), clip('video', 5, 5));
+    const t = actions.addText('plain', { start: s(1), duration: s(2) });
+    const [a] = main().clips;
+    store.select([a.id, t.id]);
+    actions.group();
+    actions.duplicate();
+    const made = store.selectedIds.map((id) => findClip(store.project, id).clip);
+    const v = made.find((c) => c.type === 'video');
+    const tx = made.find((c) => c.type === 'text');
+    expect(v.start).toBe(s(5));
+    expect(tx.start).toBe(s(6));
+    expect(v.group).toBeTruthy();
+    expect(tx.group).toBe(v.group);
+    expect(v.group).not.toBe(a.group);
+    expect(spans(main())).toEqual([[0, 5], [5, 5], [10, 5]]);
+    expect(findClip(store.project, t.id).clip.start).toBe(s(1));
+    store.undo();
+    expect(main().clips).toHaveLength(2);
+  });
+
   it('copies and pastes at the playhead, keeping base-track clips on the base track', () => {
     const { store, actions, main } = setup(clip('video', 0, 2));
     const text = actions.addText('plain', { start: s(0.5) });
