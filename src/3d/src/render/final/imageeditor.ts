@@ -25,7 +25,7 @@ import { makeTiled, makeSingle, openImageFiles, saveTiles } from './udimops';
 import { drawPaintOverlay, imagePaintRightDown, imagePaintStroke, paintBrush } from './imagepaint';
 import { paintImage } from '../../paint/tpaint';
 import { BRUSH_LISTS } from '../../paint/brushes';
-import { paintToolPanels, toolHeaderSettings } from '../../paint/ui';
+import { imagePaintKey, paintToolPanels, toolHeaderSettings } from '../../paint/ui';
 import { activeTools } from '../../app/prefs';
 import { formatTime } from './units';
 import type { ViewSettings } from './colormanage';
@@ -1355,6 +1355,8 @@ export class ImageEditor implements Editor, View2D {
   onKey(e: KeyboardEvent): boolean {
     if (e.type !== 'keydown') return false;
     const ctrl = e.ctrlKey || e.metaKey;
+    // Paint mode: brush keys (swap colors, brush size, stroke method, stabilizer...)
+    if (this.paintMode() && imagePaintKey(e)) return true;
     if (e.code === 'KeyN' && !ctrl && !e.altKey && !e.shiftKey) return this.toggleSidebar(), true;
     if (e.code === 'KeyT' && !ctrl && !e.altKey && !e.shiftKey && this.paintMode()) return ((this.showToolbar = !this.showToolbar), this.drawUI()), true;
 
