@@ -38,3 +38,16 @@ describe('inserting pictures', () => {
     expect(html).toContain('data-name="photo.heic"');
   });
 });
+
+describe('picture selection', () => {
+  it('removes the resize handle when the selected picture is deleted', () => {
+    const el = app.editor.createOutlineAt(100, 200, '<p>x<img data-asset="a1.png" alt="p"></p>');
+    const img = el.querySelector('img');
+    app.editor.selectImage(img);
+    expect(el.querySelector('.img-handle')).toBeTruthy();
+    img.remove();
+    el.querySelector('.outline-body').dispatchEvent(new Event('input', { bubbles: true }));
+    expect(el.querySelector('.img-handle')).toBeNull();
+    expect(app.editor.selectedImage).toBeNull();
+  });
+});

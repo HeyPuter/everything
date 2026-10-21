@@ -417,6 +417,11 @@ export class PageEditor extends Emitter {
     const outline = e.target.closest?.('.outline');
     if (!outline) return;
     this.dirty.add(outline);
+    // The resize handle follows its picture, and goes when the picture is deleted.
+    if (this.selectedImage) {
+      if (this.selectedImage.isConnected) this.placeImageHandle?.();
+      else this.clearImageSelection();
+    }
     if (e.inputType === 'insertText' && e.data === ' ') {
       this.autoLink();
       this.autoFormat(outline);
@@ -781,6 +786,7 @@ export class PageEditor extends Emitter {
     outline.append(handle);
     placeHandle();
     this.imageHandle = handle;
+    this.placeImageHandle = placeHandle;
     handle.addEventListener('pointerdown', (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -816,6 +822,7 @@ export class PageEditor extends Emitter {
     this.selectedImage = null;
     this.imageHandle?.remove();
     this.imageHandle = null;
+    this.placeImageHandle = null;
   }
 
   // ------------------------------------------------------------ commit/undo
