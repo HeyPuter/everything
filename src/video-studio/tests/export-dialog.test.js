@@ -8,10 +8,12 @@ vi.mock('../src/engine/exporter.js', async (orig) => {
     ...real,
     detectCapabilities: vi.fn(async () => ({ video: ['avc', 'vp9'], audio: ['aac', 'opus'], audioFormats: ['wav', 'm4a', 'ogg'] })),
     renderStill: vi.fn(async () => null),
+    exportProject: vi.fn(real.exportProject),
   };
 });
 
 const { openExportDialog } = await import('../src/ui/export-dialog.js');
+const { exportProject } = await import('../src/engine/exporter.js');
 
 function ctxWith(project) {
   return { store: { project, time: 0 }, library: { backend: { kind: 'opfs' } }, account: { user: null } };
@@ -125,5 +127,68 @@ describe('export dialog', () => {
     expect(opened).toEqual([short]);
     expect(ctx.openExport).toHaveBeenCalled();
     expect(d.el.isConnected).toBe(false);
+  });
+});
+
+describe('export dialog with several files', () => {
+  const twoJobs = async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage() {} });
+    const p = createProject({ name: 'Trip' });
+    p.tracks[0].clips.push(makeClip('image', { assetId: 'a', duration: 2 * US }));
+    p.assets.a = { id: 'a', kind: 'image', width: 100, height: 100 };
+    const d = openExportDialog(ctxWith(p));
+    await flush();
+    const section = (title) => [...d.el.querySelectorAll('.export-section')].find((x) => x.querySelector('.export-section-title').textContent === title);
+    const audio = section('Audio file').querySelector('.export-check');
+    if (!audio.checked) audio.click();
+    return d;
+  };
+  const released = [];
+  const video = { kind: 'video', blob: new Blob(['mp4']), fileName: 'Trip.mp4', width: 1920, height: 1080, duration: 2 * US, elapsed: 1, release: () => released.push('video') };
+  const button = (d, text) => [...d.el.querySelectorAll('button')].find((b) => b.textContent.trim() === text);
+
+  it('keeps the finished video when the next file is canceled', async () => {
+    exportProject.mockImplementation(async (project, library, settings, { kind, signal }) => {
+      if (kind === 'video') return video;
+      await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Export canceled', 'AbortError'))));
+      return null;
+    });
+    try {
+      const d = await twoJobs();
+      button(d, 'Export').click();
+      await flush();
+      await flush();
+      button(d, 'Cancel').click();
+      await flush();
+      expect(d.el.querySelector('.dialog-title').textContent).toBe('Export canceled');
+      expect([...d.el.querySelectorAll('.export-file-name')].map((x) => x.textContent)).toEqual(['Trip.mp4']);
+      expect(d.el.textContent).toContain('The audio file was canceled.');
+      expect(button(d, 'Download')).toBeTruthy();
+      d.close();
+    } finally {
+      exportProject.mockReset();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('keeps the finished video when the next file fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    exportProject.mockImplementation(async (project, library, settings, { kind }) => {
+      if (kind === 'video') return video;
+      throw new Error('boom');
+    });
+    try {
+      const d = await twoJobs();
+      button(d, 'Export').click();
+      await flush();
+      await flush();
+      expect(d.el.querySelector('.dialog-title').textContent).toBe('Export failed');
+      expect([...d.el.querySelectorAll('.export-file-name')].map((x) => x.textContent)).toEqual(['Trip.mp4']);
+      expect(d.el.querySelector('[role=alert]').textContent).toMatch(/audio file could not be exported.*boom/);
+      d.close();
+    } finally {
+      exportProject.mockReset();
+      vi.restoreAllMocks();
+    }
   });
 });
