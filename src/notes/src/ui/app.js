@@ -986,6 +986,14 @@ export class App {
     ed.on('title-input', (title) => {
       if (this.state.pageId) this.nav.updatePageTitle(this.state.pageId, title);
     });
+    // A sorted page list takes a new title into account once the title
+    // loses focus, not on every key, so it doesn't move while you type.
+    // Focus going into the panes is a click there, which redraws them.
+    ed.titleEl.addEventListener('blur', (e) => {
+      if (prefs().pageSort === 'manual' || !this.state.pageId || this.nav.el.contains(e.relatedTarget)) return;
+      ed.flush();
+      this.nav.renderPages();
+    });
     ed.on('navigate', ({ kind, id }) => {
       if (kind === 'page') {
         if (this.store.findPage(id)) this.openPage(id);

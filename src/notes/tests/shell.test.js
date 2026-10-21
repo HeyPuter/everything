@@ -343,6 +343,30 @@ describe('App shell', () => {
     expect([...app.search.results.querySelectorAll('.result-title')].map((t) => t.textContent)).toEqual(['Beta apple']);
   });
 
+  it('re-sorts an alphabetical page list once a typed title loses focus', async () => {
+    const section = store.section(app.state.sectionId);
+    store.createPage(section.id, { title: 'C' });
+    store.createPage(section.id, { title: 'M' });
+    const b = app.newPage({ title: 'B' });
+    await tick();
+    setPref('pageSort', 'alpha');
+    try {
+      app.renderNav();
+      const titles = () => [...app.nav.pagesList.querySelectorAll('.row')].map((r) => r.textContent);
+      expect(titles()).toEqual(['B', 'C', 'M', 'Untitled Page']);
+      const title = app.editor.titleEl;
+      title.focus();
+      title.textContent = 'Zed';
+      title.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(titles()).toEqual(['Zed', 'C', 'M', 'Untitled Page']);
+      title.blur();
+      expect(titles()).toEqual(['C', 'M', 'Untitled Page', 'Zed']);
+      expect(app.state.pageId).toBe(b.id);
+    } finally {
+      setPref('pageSort', 'manual');
+    }
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
