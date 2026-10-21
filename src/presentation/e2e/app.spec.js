@@ -15250,10 +15250,14 @@ test("shortcuts that leave the object alone work while its text is edited", asyn
   const fontSize = () =>
     editor.evaluate((node) => parseFloat(node.style.fontSize));
   const fitSize = await fontSize();
+  // The text's size on the slide at a canvas width, kept legible at 14px or
+  // more (a phone's fitted slide is below that).
+  const points = await editor.evaluate((node) => Number(node.dataset.points));
+  const sizeAt = (w) => Math.max(14, (points * w) / 13.333 / 72);
   await page.keyboard.press("ControlOrMeta+=");
   await expect.poll(width).toBeGreaterThan(fitWidth);
   // The text being edited grows with the slide.
-  const zoomed = (fitSize * (await width())) / fitWidth;
+  const zoomed = (fitSize * sizeAt(await width())) / sizeAt(fitWidth);
   await expect.poll(fontSize).toBeCloseTo(zoomed, 0);
   await page.keyboard.press("ControlOrMeta+0");
   await expect.poll(fontSize).toBeCloseTo(fitSize, 1);
