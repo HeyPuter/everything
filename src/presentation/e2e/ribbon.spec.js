@@ -683,3 +683,20 @@ test("a command run from a folded group keeps the keyboard on the ribbon", async
   await expect(page.locator(".ribbon-fold-panel")).toHaveCount(0);
   await expect(fold).toBeFocused();
 });
+
+test("no ribbon command shows the stand-in for a missing icon", async ({
+  page,
+}) => {
+  await start(page);
+  // Lucide's presentation screen stands in for an icon name the app lacks.
+  const standIns = await page
+    .locator('.ribbon-btn svg:not([data-icon]) path[d="M2 3h20"]')
+    .evaluateAll((paths) =>
+      paths.map(
+        (p) =>
+          p.closest(".ribbon-btn").getAttribute("title") ||
+          p.closest(".ribbon-btn").getAttribute("aria-label"),
+      ),
+    );
+  expect(standIns).toEqual([]);
+});

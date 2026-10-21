@@ -816,7 +816,7 @@ export function createMediaFeatures(ctx) {
       {
         id: "playback-preview",
         label: "Preview",
-        icon: "play",
+        icon: "mediaPlay",
         items: [
           {
             type: "large",
