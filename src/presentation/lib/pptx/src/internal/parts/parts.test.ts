@@ -159,6 +159,27 @@ describe("OpcPackage authoring", () => {
     ).toThrow();
   });
 
+  it("finds parts after the part list is changed directly", () => {
+    const pkg = OpcPackage.empty();
+    const bytes = new Uint8Array();
+    for (const n of ["/a.xml", "/b.xml", "/c.xml"])
+      pkg.addPart(partName(n), "application/xml", bytes);
+    expect(pkg.getPart(partName("/C.xml"))?.name).toBe("/c.xml");
+    pkg.parts.splice(0, 1);
+    expect(pkg.getPart(partName("/a.xml"))).toBeNull();
+    expect(pkg.getPart(partName("/c.xml"))?.name).toBe("/c.xml");
+    pkg.parts.reverse();
+    expect(pkg.getPart(partName("/b.xml"))).toBe(pkg.parts[1]);
+    const replaced = { name: partName("/d.xml"), contentType: "", data: bytes };
+    pkg.parts[0] = replaced;
+    expect(pkg.getPart(partName("/c.xml"))).toBeNull();
+    expect(pkg.getPart(partName("/d.xml"))).toBe(replaced);
+    pkg.parts.length = 0;
+    pkg.parts.push(replaced);
+    expect(pkg.getPart(partName("/b.xml"))).toBeNull();
+    expect(pkg.getPart(partName("/d.xml"))).toBe(replaced);
+  });
+
   it("removes a part and its Override entry", () => {
     const pkg = OpcPackage.empty();
     pkg.addPart(
