@@ -97,6 +97,9 @@
 .page.read-only .page-meta button {
   pointer-events: none;
 }
+.page.read-only .page-meta span {
+  padding: 1px 2px;
+}
 
 /* note containers */
 .outline {

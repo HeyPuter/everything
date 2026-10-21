@@ -28,6 +28,13 @@ describe('shared page view', () => {
     expect(root.querySelector('.outline-body').textContent).toBe('Pack the tent');
     expect(root.dataset.mobileView).toBe('page');
   });
+
+  it('shows the date and time as text, not as buttons that do nothing', async () => {
+    const root = await openShared(PAGE);
+    const meta = root.querySelector('.page-meta');
+    expect(meta.querySelectorAll('button')).toHaveLength(0);
+    expect(meta.textContent).toContain('2026');
+  });
 });
 
 describe('shared page view with a malformed snapshot', () => {

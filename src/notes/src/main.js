@@ -142,6 +142,9 @@ async function viewShared(url) {
   });
   const page = { id: 'shared', title, created: data.created, color: str(data.color) || null, rules: str(data.rules) || null, ink, outlines };
   await editor.open(page);
+  // The date and time edit the page in the app; here they are plain text,
+  // not buttons that take a Tab stop and do nothing.
+  for (const btn of [editor.dateBtn, editor.timeBtn]) btn.replaceWith(h('span', btn.textContent));
 }
 
 async function boot() {
