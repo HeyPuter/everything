@@ -187,7 +187,15 @@ export function createChartUi(ctx) {
         'gridlines-y': ['gridlines', { axis: chart.type === 'bar' ? 'vertical' : 'horizontal', on: false }],
         'gridlines-x': ['gridlines', { axis: chart.type === 'bar' ? 'horizontal' : 'vertical', on: false }],
       }[element] || (/^dataLabels:/.test(element) ? ['dataLabels', 'none'] : null);
-      if (!removal) return /^(series|point):/.test(element) ? (e.preventDefault(), true) : false;
+      // The secondary axis goes on its own; the plot area, a series or a point has nothing to delete, and
+      // the key must not reach the grid, which would delete the whole chart.
+      if (element === 'y2Axis' && chart.appearance) {
+        e.preventDefault();
+        ctx.run('chart', { action: 'patch', patch: { appearance: { ...chart.appearance, hideY2Axis: true } }, label: 'Delete axis' });
+        setElement('chartArea', { announce: false });
+        return true;
+      }
+      if (!removal) return /^(series|point):|^plotArea$/.test(element) ? (e.preventDefault(), true) : false;
       e.preventDefault();
       ctx.run('chart', { action: 'element', element: removal[0], value: removal[1] });
       setElement('chartArea', { announce: false });
