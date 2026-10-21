@@ -1345,6 +1345,15 @@
   margin-left: auto;
 }
 
+/* A people model's status, with Try again after a failed load */
+.model-status {
+  margin: 2px 0 10px;
+}
+
+.model-status .asset-hint {
+  margin: 0 0 6px;
+}
+
 /* Color > Basic: apply to */
 .color-target {
   margin: 4px 0 10px;

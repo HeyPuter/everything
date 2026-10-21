@@ -19,7 +19,7 @@ const model = lazyModel(async () => {
   );
 }, 'Hair color could not start in this browser.');
 
-export const hairModelReady = () => model.ready();
+export const hairModelReady = (opts) => model.ready(opts);
 export const hairModelState = () => model.state();
 export const hairModelError = () => model.error();
 export const onHairModelChange = (fn) => model.onChange(fn);

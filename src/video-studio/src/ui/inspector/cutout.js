@@ -11,6 +11,7 @@ import { slider, toggle, propSection } from './common.js';
 import { CUTOUT_DEFAULT } from '../../model/cutout.js';
 import { canvasSection } from './video-extras.js';
 import { ready, segmenterState, segmenterError, onSegmenterChange } from '../../media/segmenter.js';
+import { modelStatusLine } from './model-status.js';
 
 const remembered = new Map();
 
@@ -69,7 +70,7 @@ export function cutoutTab(view) {
     announce('Cutout fixes cleared');
   });
   const refineRow = h('div.cutout-refine', refine, fixes, clearFixes);
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const tip = h('p.asset-hint', 'Works best with people in clear view. Raise Edge position to trim halos; lower it to keep loose hair. Turn on Canvas below to put a color, a gradient or a blurred copy of the shot behind them.');
   const params = h('div.chroma-params', feather.el, shrink.el, smooth.el, refineRow, tip);
 
@@ -85,12 +86,11 @@ export function cutoutTab(view) {
     fixes.textContent = n ? `${n} fix${n === 1 ? '' : 'es'}` : '';
     clearFixes.hidden = !n;
     const s = segmenterState();
-    status.textContent = !on ? '' : s === 'loading' ? 'Getting background removal ready...' : s === 'failed' ? segmenterError() : '';
-    status.hidden = !status.textContent;
+    status.set(!on ? '' : s === 'loading' ? 'Getting background removal ready...' : s === 'failed' ? segmenterError() : '');
   };
   render();
   view.bind(render);
-  const section = h('div', propSection('Background removal', [enable.el, status, params], {
+  const section = h('div', propSection('Background removal', [enable.el, status.el, params], {
     onReset: () => view.edit('Reset background removal', (c) => {
       if (c.cutout) c.cutout = { ...CUTOUT_DEFAULT };
       remembered.delete(c.id);

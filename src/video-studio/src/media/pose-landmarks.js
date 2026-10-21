@@ -30,7 +30,7 @@ const model = lazyModel(async () => {
   );
 }, 'Body detection could not start in this browser.');
 
-export const poseModelReady = () => model.ready();
+export const poseModelReady = (opts) => model.ready(opts);
 export const poseModelState = () => model.state();
 export const poseModelError = () => model.error();
 export const onPoseModelChange = (fn) => model.onChange(fn);

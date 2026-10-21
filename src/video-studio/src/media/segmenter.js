@@ -25,8 +25,8 @@ const model = lazyModel(async () => {
 export const onSegmenterChange = (fn) => model.onChange(fn);
 export const segmenterState = () => model.state();
 export const segmenterError = () => model.error();
-/** Load the model (once). Resolves to true when segment() can be used. */
-export const ready = () => model.ready();
+/** Load the model (once). Resolves to true when segment() can be used. { retry: true } tries again after a failure. */
+export const ready = (opts) => model.ready(opts);
 
 /**
  * Person confidence (0..255 per pixel, SEG_SIZE x SEG_SIZE, rows top to

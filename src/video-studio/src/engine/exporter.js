@@ -494,6 +494,8 @@ async function thumbnail(canvas, maxW = 360) {
   return createImageBitmap(canvas, { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' }).catch(() => null);
 }
 
+const PEOPLE_TOOLS_FAILED = "The people tools this video uses (background removal, retouch or body effects) couldn't load. Check your connection and try again.";
+
 /** Render one frame of the project at time t to an ImageBitmap (previews and thumbnails). */
 export async function renderStill(project, library, t = 0, { maxWidth = 640 } = {}) {
   const snap = structuredClone(project);
@@ -503,7 +505,7 @@ export async function renderStill(project, library, t = 0, { maxWidth = 640 } = 
   try {
     await preloadFonts(snap);
     await ensureLuts(snap, library).catch(() => {});
-    await ensureCutout(snap);
+    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
     await r.render(Math.max(0, t));
     return await createImageBitmap(r.canvas);
   } finally {
@@ -638,7 +640,7 @@ async function exportVideo(project, library, s, duration, base, { onProgress, si
     await output.start();
     await preloadFonts(project);
     await ensureLuts(project, library).catch(() => {});
-    await ensureCutout(project);
+    if (!(await ensureCutout(project, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
 
     let audioAt = 0; // seconds of sound handed to the encoder
     let audioDone = !audioSource;
@@ -773,6 +775,7 @@ export async function* renderFrames(project, library, { width, height, fps, star
   const r = new FrameRenderer(snap, library, even(width), even(height));
   try {
     await preloadFonts(snap);
+    if (!(await ensureCutout(snap, { retry: true }))) throw new Error(PEOPLE_TOOLS_FAILED);
     for (let i = 0; i < total; i++) {
       if (signal?.aborted) throw abortError();
       await r.render(Math.min(stop - 1, start + Math.round((i * US) / fps)));

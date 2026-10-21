@@ -24,9 +24,13 @@ export function lazyModel(create, failMessage) {
       listeners.add(fn);
       return () => listeners.delete(fn);
     },
-    /** Load the model (once). Resolves to true when it can be used. */
-    ready() {
+    /**
+     * Load the model (once). Resolves to true when it can be used. A failed
+     * load stays failed (frames ask on every draw) until { retry: true }.
+     */
+    ready({ retry = false } = {}) {
       if (instance) return Promise.resolve(true);
+      if (failure && retry && !loading) failure = null;
       if (failure) return Promise.resolve(false);
       if (!loading) {
         loading = (async () => {

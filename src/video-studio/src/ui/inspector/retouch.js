@@ -29,6 +29,7 @@ import { ready, segmenterState, segmenterError, onSegmenterChange } from '../../
 import { faceModelReady, faceModelState, faceModelError, onFaceModelChange } from '../../media/face-landmarks.js';
 import { hairModelReady, hairModelState, hairModelError, onHairModelChange } from '../../media/hair-segmenter.js';
 import { poseModelReady, poseModelState, poseModelError, onPoseModelChange } from '../../media/pose-landmarks.js';
+import { modelStatusLine } from './model-status.js';
 
 const SKIN = [
   { key: 'smooth', label: 'Smooth skin' },
@@ -123,15 +124,14 @@ function skinSection(view) {
   });
   const sliders = SKIN.map((f) => field(f, false));
   const fixes = FIXES.map((f) => field(f, true));
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const tip = h('p.asset-hint', 'Works on the skin of people in the shot; the background is left alone. The fixes below the line find faces first.');
   const render = () => {
     const c = view.clip;
     if (!c) return;
     const basic = retouchAmounts(c.retouch) ? modelStatus(segmenterState(), segmenterError(), 'Finding people in the shot...') : '';
     const face = skinFixAmounts(c.retouch) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') : '';
-    status.textContent = basic || face;
-    status.hidden = !status.textContent;
+    status.set(basic || face);
   };
   render();
   view.bind(render);
@@ -139,7 +139,7 @@ function skinSection(view) {
     ...sliders.map((s) => s.el),
     h('hr.retouch-rule', { 'aria-hidden': 'true' }),
     ...fixes.map((s) => s.el),
-    status,
+    status.el,
     tip,
   ], {
     onReset: () => {
@@ -183,17 +183,16 @@ function faceSection(view) {
       if (v) faceModelReady();
     },
   }));
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const tip = h('p.asset-hint', 'Small amounts look most natural. Negative values go the other way (fuller face, smaller eyes, a frown).');
   const render = () => {
     const c = view.clip;
     if (!c) return;
-    status.textContent = faceShapeAmounts(c.faceShape) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') : '';
-    status.hidden = !status.textContent;
+    status.set(faceShapeAmounts(c.faceShape) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') : '');
   };
   render();
   view.bind(render);
-  const el = propSection('Face shape', [h('div.field', h('span.field-label', 'Which faces'), which.el), ...sliders.map((s) => s.el), status, tip], {
+  const el = propSection('Face shape', [h('div.field', h('span.field-label', 'Which faces'), which.el), ...sliders.map((s) => s.el), status.el, tip], {
     onReset: () => {
       view.edit('Reset face shape', (c) => {
         if (!c.faceShape) return false;
@@ -233,17 +232,16 @@ function bodySection(view) {
       if (v) poseModelReady();
     },
   }));
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const tip = h('p.asset-hint', 'Small amounts look most natural; negative values go the other way. Straight lines stay straight except right next to the body, and longer legs stretch the rows below the hips evenly.');
   const render = () => {
     const c = view.clip;
     if (!c) return;
-    status.textContent = bodyShapeAmounts(c.bodyShape) ? modelStatus(poseModelState(), poseModelError(), 'Finding people in the shot...') : '';
-    status.hidden = !status.textContent;
+    status.set(bodyShapeAmounts(c.bodyShape) ? modelStatus(poseModelState(), poseModelError(), 'Finding people in the shot...') : '');
   };
   render();
   view.bind(render);
-  const el = propSection('Body shape', [h('div.field', h('span.field-label', 'Which people'), which.el), ...sliders.map((s) => s.el), status, tip], {
+  const el = propSection('Body shape', [h('div.field', h('span.field-label', 'Which people'), which.el), ...sliders.map((s) => s.el), status.el, tip], {
     onReset: () => {
       view.edit('Reset body shape', (c) => {
         if (!c.bodyShape) return false;
@@ -340,21 +338,20 @@ function makeupGroup(view, title, keys) {
 }
 
 function makeupSections(view) {
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const render = () => {
     const c = view.clip;
     if (!c) return;
-    status.textContent = makeupAmounts(c.makeup) || c.retouch?.lips ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') : '';
-    status.hidden = !status.textContent;
+    status.set(makeupAmounts(c.makeup) || c.retouch?.lips ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') : '');
   };
   render();
   view.bind(render);
-  follow(status, onFaceModelChange, render);
+  follow(status.el, onFaceModelChange, render);
   return [
     lipsSection(view),
     makeupGroup(view, 'Eyes', ['eyeshadow', 'eyeliner', 'brows']),
     makeupGroup(view, 'Cheeks', ['blush', 'contour', 'highlight']),
-    status,
+    status.el,
     h('p.asset-hint', 'Placed on each face the landmarks find and follows it as it moves. Pick a shade to start at a medium amount.'),
   ];
 }
@@ -390,19 +387,18 @@ function hairSection(view) {
     get: (c) => Math.round(cur(c).strength),
     set: (v, final) => edit('Hair color strength', 'strength', { strength: v }, final),
   });
-  const status = h('p.asset-hint.cutout-status', { role: 'status' });
+  const status = modelStatusLine();
   const render = () => {
     const c = view.clip;
     if (!c) return;
     const col = cur(c).color;
     swatches.querySelectorAll('.marker-swatch').forEach((b, i) => b.setAttribute('aria-checked', String(HAIR_SWATCHES[i].color === col && hairColorOn(c.hairColor))));
-    status.textContent = hairColorOn(c.hairColor) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') || modelStatus(hairModelState(), hairModelError(), 'Finding hair...') : '';
-    status.hidden = !status.textContent;
+    status.set(hairColorOn(c.hairColor) ? modelStatus(faceModelState(), faceModelError(), 'Finding faces...') || modelStatus(hairModelState(), hairModelError(), 'Finding hair...') : '');
   };
   render();
   view.bind(render);
   const tip = h('p.asset-hint', 'Recolors the hair around each face in the shot.');
-  const el = propSection('Hair', [h('div.field', h('span.field-label', 'Presets'), swatches), picker.el, strength.el, status, tip], {
+  const el = propSection('Hair', [h('div.field', h('span.field-label', 'Presets'), swatches), picker.el, strength.el, status.el, tip], {
     onReset: () => {
       view.edit('Reset hair color', (c) => {
         if (!c.hairColor) return false;

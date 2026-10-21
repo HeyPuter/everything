@@ -54,7 +54,7 @@ export async function openCutoutRefine(ctx, clipId = ctx.store.selected?.clip.id
   const t = clamp(store.time, clip.start, T.clipEnd(clip) - 1);
   let frame;
   try {
-    const [ok, fr] = await Promise.all([ready(), sourceFrame(ctx, clip, t)]);
+    const [ok, fr] = await Promise.all([ready({ retry: true }), sourceFrame(ctx, clip, t)]);
     if (!ok) throw new Error(segmenterError() || 'Background removal could not start in this browser.');
     frame = fr;
   } catch (err) {

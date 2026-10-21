@@ -75,10 +75,10 @@ export function faceModelsIn(project) {
   return out;
 }
 
-/** Load the face, hair and pose models a project needs. Resolves to whether they can render. */
-export async function ensureFaceModels(project) {
+/** Load the face, hair and pose models a project needs. Resolves to whether they can render. opts as for ready(). */
+export async function ensureFaceModels(project, opts) {
   const n = faceModelsIn(project);
-  const ok = await Promise.all([n.face ? faceModelReady() : true, n.hair ? hairModelReady() : true, n.pose ? poseModelReady() : true]);
+  const ok = await Promise.all([n.face ? faceModelReady(opts) : true, n.hair ? hairModelReady(opts) : true, n.pose ? poseModelReady(opts) : true]);
   return ok.every(Boolean);
 }
 

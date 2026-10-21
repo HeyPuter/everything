@@ -30,9 +30,9 @@ export function usesCutout(project) {
   return n.face || n.hair || n.pose;
 }
 
-/** Load the models a project needs. Resolves to whether its people tools can render. */
-export async function ensureCutout(project) {
-  const ok = await Promise.all([usesPersonMatte(project) ? ready() : true, ensureFaceModels(project)]);
+/** Load the models a project needs. Resolves to whether its people tools can render. { retry: true } tries failed ones again. */
+export async function ensureCutout(project, opts) {
+  const ok = await Promise.all([usesPersonMatte(project) ? ready(opts) : true, ensureFaceModels(project, opts)]);
   return ok.every(Boolean);
 }
 

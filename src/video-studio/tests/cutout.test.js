@@ -14,6 +14,11 @@ vi.mock('../src/media/segmenter.js', () => {
     }),
     segmenterState: () => state,
     segmenterError: () => 'nope',
+    // Tests: the model download failed.
+    failLoad: () => {
+      state = 'failed';
+      for (const fn of listeners) fn(state);
+    },
     onSegmenterChange: (fn) => {
       listeners.add(fn);
       return () => listeners.delete(fn);
@@ -177,6 +182,22 @@ describe('cutout panel', () => {
     expect(clip().cutout.feather).toBe(70);
     env.store.undo();
     expect(clip().cutout).toBeUndefined();
+  });
+
+  it('offers Try again when background removal could not load', async () => {
+    tab('Cutout').click();
+    env.el.querySelector('.video-tab [role=switch], .video-tab input[type=checkbox]').click();
+    const seg = await import('../src/media/segmenter.js');
+    const again = () => [...env.el.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+    expect(again().hidden).toBe(true);
+    seg.failLoad();
+    expect(env.el.querySelector('.cutout-status').textContent).toBe('nope');
+    expect(again().hidden).toBe(false);
+    seg.ready.mockClear();
+    again().click();
+    expect(seg.ready).toHaveBeenCalledWith({ retry: true });
+    expect(env.el.querySelector('.cutout-status').textContent).toMatch(/ready/);
+    expect(again().hidden).toBe(true);
   });
 
   it('shows and clears brush fixes', () => {

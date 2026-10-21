@@ -31,7 +31,7 @@ const model = lazyModel(async () => {
   );
 }, 'Face detection could not start in this browser.');
 
-export const faceModelReady = () => model.ready();
+export const faceModelReady = (opts) => model.ready(opts);
 export const faceModelState = () => model.state();
 export const faceModelError = () => model.error();
 export const onFaceModelChange = (fn) => model.onChange(fn);
