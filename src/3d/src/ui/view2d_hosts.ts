@@ -222,3 +222,48 @@ view2dAdapters.push((editor, area) => {
   if (LIST_EDITORS.has(area.type) && ed.el instanceof HTMLElement) return listHost(area, ed as unknown as ZoomableList & { el: HTMLElement });
   return null;
 });
+
+// Middle-drag in list regions scrolls them (Ctrl: zooms regions that scale, e.g. the Properties).
+if (typeof window !== 'undefined')
+  addEventListener(
+    'pointerdown',
+    (e) => {
+      if (e.button !== 1 || app?.modal) return;
+      const t = e.target as HTMLElement | null;
+      if (!t || t.closest('input, textarea, .popup-layer, canvas')) return;
+      const areaEl = t.closest<HTMLElement>('.area');
+      const area = (app?.hoverArea as (AreaLike & { el: HTMLElement }) | null) ?? null;
+      if (!areaEl || !area || area.el !== areaEl || !t.closest('.area-main')) return;
+      // resolve the host for the element under the pointer
+      const host = (() => {
+        for (const f of view2dAdapters) {
+          const h = f(area.editor, area);
+          if (h) return h;
+        }
+        return null;
+      })();
+      if (!host || host.kind !== 'list') return;
+      e.preventDefault();
+      e.stopPropagation();
+      let lx = e.clientX,
+        ly = e.clientY;
+      const zoom = (e.ctrlKey || e.metaKey) && !!host.zoom;
+      const move = (ev: PointerEvent) => {
+        const dx = ev.clientX - lx,
+          dy = ev.clientY - ly;
+        lx = ev.clientX;
+        ly = ev.clientY;
+        if (zoom) host.zoom!(Math.exp(-dy * 0.01), Math.exp(-dy * 0.01), 0, 0);
+        else host.pan(dx, dy);
+      };
+      const up = () => {
+        removeEventListener('pointermove', move, true);
+        removeEventListener('pointerup', up, true);
+        document.body.classList.remove('v2d-panning');
+      };
+      document.body.classList.add('v2d-panning');
+      addEventListener('pointermove', move, true);
+      addEventListener('pointerup', up, true);
+    },
+    true,
+  );

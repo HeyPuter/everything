@@ -296,3 +296,7 @@ body.edge-drag-hv * {
 .v2d-scrollers.dragging .v2d-scroller {
   background: rgb(from var(--g-ff, #ffffff) r g b / 0.3);
 }
+body.v2d-panning,
+body.v2d-panning * {
+  cursor: grabbing !important;
+}

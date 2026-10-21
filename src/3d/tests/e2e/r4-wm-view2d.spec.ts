@@ -167,3 +167,20 @@ test('2D view scrollers: dragging the bar pans, dragging its end zooms', async (
   expect(v2.x0).toBeCloseTo(v1.x0, 3);
   await expectNoErrors(errors);
 });
+
+test('middle-drag scrolls list regions such as the Properties editor', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 520 });
+  const errors = await openApp(page);
+  await page.locator('.rail-tab[data-tab="RENDER"]').click();
+  const body = page.locator('.area[data-editor="PROPERTIES"] .prop-body');
+  expect(await body.evaluate((el) => el.scrollHeight > el.clientHeight + 100)).toBe(true);
+  await page.evaluate(() => ((document.querySelector('.area[data-editor="PROPERTIES"] .prop-body') as HTMLElement).scrollTop = 0));
+  const b = (await body.boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - 120, { steps: 4 });
+  await page.mouse.up({ button: 'middle' });
+  const top = await body.evaluate((el) => el.scrollTop);
+  expect(top).toBeGreaterThan(60);
+  await expectNoErrors(errors);
+});
