@@ -81,7 +81,7 @@ export class BlendFile {
   readonly bytes: Uint8Array;
   readonly dv: DataView;
   readonly compression: 'none' | 'gzip' | 'zstd';
-  /** address → block(s); Blender 5.x may reuse the same address in different IDs */
+  /** address → block(s); 5.x files may reuse the same address in different IDs */
   private byAddr = new Map<AddrKey, BHead | BHead[]>();
   /** index of the owning ID block for every block (DATA blocks follow their ID) */
   readonly owner = new Map<BHead, number>();

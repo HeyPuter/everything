@@ -74,7 +74,7 @@ function rollFromMatrix(head: number[], tail: number[], m: number[] | null, fall
 
 export function convertBlend(f: BlendFile): BlendImport {
   const version = f.header.version;
-  if (version < 250) throw new BlendError(`Blender ${Math.floor(version / 100)}.${version % 100} files are too old (2.50 or newer required)`);
+  if (version < 250) throw new BlendError(`.blend files of version ${Math.floor(version / 100)}.${version % 100} are too old (2.50 or newer required)`);
   const warn = new Warnings();
   const doc = emptyDocument();
   const defaultWorld = doc.scene.world;
@@ -140,7 +140,7 @@ export function convertBlend(f: BlendFile): BlendImport {
       ids.set(im.offset, '');
       return null; // viewer / render result images are runtime-only
     } else {
-      warn.add('External image files are not embedded (pack them in Blender: File ▸ External Data ▸ Pack Resources)', `${img.name}${filepath ? ` (${filepath})` : ''}`);
+      warn.add('External image files are not embedded (pack them into the .blend file before saving it, or use File ▸ External Data ▸ Find Missing Files)', `${img.name}${filepath ? ` (${filepath})` : ''}`);
     }
     doc.images[id] = img;
     ids.set(im.offset, id);

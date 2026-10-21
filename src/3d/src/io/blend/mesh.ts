@@ -1,4 +1,4 @@
-// Mesh conversion. Reads geometry from generic attributes (Blender 5.x AttributeStorage, or
+// Mesh conversion. Reads geometry from generic attributes (5.x AttributeStorage, or
 // 3.x/4.x CustomData layers) with a fallback to the legacy MVert/MEdge/MPoly/MLoop structs.
 import type { ColorAttribute, MeshData, ShapeKey } from '../../data/types';
 import { newMeshData } from '../../data/defaults';
@@ -12,7 +12,7 @@ type Kind = 'bool' | 'int8' | 'int32' | 'int2' | 'int16_2d' | 'float' | 'float2'
 
 const KIND_SIZE: Record<Kind, number> = { bool: 1, int8: 1, int32: 4, int2: 8, int16_2d: 4, float: 4, float2: 8, float3: 12, color: 16, bytecolor: 4, quat: 16, float4x4: 64 };
 const KIND_COMPS: Record<Kind, number> = { bool: 1, int8: 1, int32: 1, int2: 2, int16_2d: 2, float: 1, float2: 2, float3: 3, color: 4, bytecolor: 4, quat: 4, float4x4: 16 };
-/** AttributeStorage data_type values as written by Blender 5.x */
+/** AttributeStorage data_type values as written by 5.x files */
 const ATTR_TYPE_5X: Record<number, Kind> = { 0: 'bool', 1: 'int8', 2: 'int16_2d', 3: 'int32', 4: 'int2', 5: 'float', 6: 'float2', 7: 'float3', 8: 'float4x4', 9: 'bytecolor', 10: 'color', 11: 'quat' };
 /** CustomData layer types for generic attributes (3.x/4.x) */
 const CD_TYPE: Record<number, Kind> = { 10: 'float', 11: 'int32', 17: 'bytecolor', 45: 'int8', 46: 'int2', 47: 'color', 48: 'float3', 49: 'float2', 50: 'bool', 52: 'quat' };
@@ -89,7 +89,7 @@ function dataBlockOf(ctx: Ctx, holder: BStruct, field: string): { offset: number
   return ctx.f.rawAt(a, holder.block);
 }
 
-/** Generic attributes stored in Blender 5.x AttributeStorage. */
+/** Generic attributes stored in 5.x AttributeStorage. */
 function attributesFromStorage(me: BStruct, ctx: Ctx, counts: Record<Domain, number>): Attr[] {
   const as = me.sub('attribute_storage');
   if (!as) return [];
@@ -228,7 +228,7 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
       const polys = structArray(mp, 'MPoly', totpoly);
       polyFlags = [];
       polyMat = [];
-      // MPoly stores loopstart/totloop; assume contiguous ascending corners (Blender guarantees this)
+      // MPoly stores loopstart/totloop; assume contiguous ascending corners (the format guarantees this)
       polys.forEach((p, i) => {
         offsets[i] = p.num('loopstart');
         polyFlags!.push(p.num('flag'));

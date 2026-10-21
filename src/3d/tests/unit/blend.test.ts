@@ -113,7 +113,7 @@ describe('container', () => {
 
 describe('robustness', () => {
   it('rejects non-blend data with a clear error', async () => {
-    await expect(readBlend(new TextEncoder().encode('hello world, not a blend'))).rejects.toThrow(/Not a Blender file/);
+    await expect(readBlend(new TextEncoder().encode('hello world, not a blend'))).rejects.toThrow(/Not a .blend file/);
     await expect(readBlend(new Uint8Array(0))).rejects.toThrow(BlendError);
   });
   it('rejects truncated files', async () => {
