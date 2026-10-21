@@ -13,7 +13,8 @@ import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '
 import { renderContext } from '../render/context';
 import { download } from '../io/native';
 import { activeBrush, type PaintBrush } from './brushes';
-import { blendColor, cachedCurveTable, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
+import { blendColor, cachedCurveTable, falloff, linearToSrgb, sampleTable, srgbToLinear, symmetryPasses, type BlendMode } from './math';
+import { cavityValues } from './maskmath';
 import { activeMeshData, meshSession, type MeshSession } from './session';
 import { brushRadiusPx, normalAngleOf } from './vgather';
 import { runStroke } from './stroke';
@@ -52,6 +53,9 @@ export function paintImage(ob: ObjectData | null = app.activeObject): Img | null
 /** Texture Paint settings stored on the scene (tool_settings.image_paint). */
 export interface ImagePaintSettings {
   palette?: string | null;
+  /** cavity mask: paint lands in the dips of the surface (curve maps cavity to strength) */
+  use_cavity?: boolean;
+  cavity_curve?: [number, number][];
   /** normal falloff: faces turning away from the view get less paint */
   use_normal_falloff?: boolean;
   normal_angle?: number;
@@ -296,6 +300,20 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
     const c = jit(colLin, pressure);
     return [linearToSrgb(c[0]), linearToSrgb(c[1]), linearToSrgb(c[2])];
   };
+  // cavity mask: per-vertex concavity (0 flat or bumps .. 1 deepest dip), through the curve
+  let cavity: Float32Array | null = null;
+  if (!maskTool && imagePaintSettings().use_cavity) {
+    const nb = s.neighbors;
+    const cav = cavityValues(s.positions, s.vn, nb.offsets, nb.neighbors);
+    let mx = 0;
+    for (const c of cav) mx = Math.max(mx, c);
+    const curve = cachedCurveTable(imagePaintSettings().cavity_curve);
+    cavity = new Float32Array(cav.length);
+    for (let v = 0; v < cav.length; v++) {
+      const c = Math.max(0, Math.min(1, mx > 0 ? cav[v] / mx : 0));
+      cavity[v] = curve ? Math.max(0, Math.min(1, sampleTable(curve, c))) : c;
+    }
+  }
   // the stencil mask limits every other tool (white: paint lands, black: blocked; or inverted)
   let stencil: DabOpts['stencil'] = null;
   const sm = !maskTool ? stencilMaskImage() : null;
@@ -338,6 +356,7 @@ export function texturePaintStroke(v: View3D, e: PointerEvent): boolean {
         clone,
         index: dabCount++,
         stencil,
+        cavity,
       });
       lastUV = uv;
     },
@@ -413,6 +432,8 @@ interface DabOpts {
   clone?: { data: Uint8ClampedArray; W: number; H: number; du: number; dv: number };
   /** dab number in the stroke (random texture mapping) */
   index?: number;
+  /** cavity mask factor per vertex */
+  cavity?: Float32Array | null;
   /** stencil mask pixels (luminance limits the paint) */
   stencil?: { data: Uint8ClampedArray; W: number; H: number; invert: boolean } | null;
 }
@@ -628,6 +649,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
     const texF = o.tool === 'TEXDRAW' ? dabMaskAt(b, place) : dabTextureAt(b, place);
     const trgba = [1, 1, 1, 1];
     const sten = o.stencil;
+    const cav = o.cavity;
     const tcol = [0, 0, 0];
     for (let ci = 0; ci < cand.length; ci++) {
       const t = cand[ci],
@@ -659,6 +681,7 @@ function paintDab(s: MeshSession, v: View3D, me: MeshData, st: TexStroke, b: Pai
           }
         }
         let a = best * o.strength * tf;
+        if (cav) a *= cav[i0 / 3] * b0 + cav[i1 / 3] * b1 + cav[i2 / 3] * b2;
         if (texF) a *= texF(tmp[0], tmp[1], lx, ly, lz);
         if (sten) {
           const q = (Math.min(sten.H - 1, Math.floor((y * sten.H) / st.H)) * sten.W + Math.min(sten.W - 1, Math.floor((x * sten.W) / st.W))) * 4;

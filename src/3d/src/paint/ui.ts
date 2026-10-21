@@ -189,6 +189,26 @@ function colorJitterRows(p: string): Child[] {
   ];
 }
 
+/** Texture Paint cavity mask: on/off and the curve from cavity to strength. */
+function cavityRows(): Child[] {
+  const st = imagePaintSettings();
+  return [
+    checkbox('pt-cav', 'Cavity Mask', !!st.use_cavity, (x) => ((st.use_cavity = x), changed()), { tip: 'Paint mostly into the dips of the surface' }),
+    st.use_cavity
+      ? curveWidget(
+          'pt-cav-curve',
+          () =>
+            st.cavity_curve ?? [
+              [0, 0],
+              [1, 1],
+            ],
+          (pts) => ((st.cavity_curve = pts), changed()),
+          'Cavity (left: flat, right: deepest dip) to paint strength',
+        )
+      : null,
+  ];
+}
+
 /** Weight Paint settings beyond the shared tool settings. */
 const wpOpts = () => ((app.doc.scene.tool_settings as unknown as { weight_paint?: { use_group_restrict?: boolean } }).weight_paint ??= {});
 
@@ -1028,7 +1048,7 @@ function brushPanels(mode: BrushMode): Child[] {
           opButton('paint.project_image', 'Apply Camera Image', {}, { tip: 'Project an image onto the texture from the current view' }),
         ], { sub: true, closed: true }),
       ], { closed: true }),
-      panel('pt-tp-mask', 'Masking', () => [panel('pt-tp-stencil', 'Stencil Mask', () => stencilMaskRows(), { sub: true })], { closed: true }),
+      panel('pt-tp-mask', 'Masking', () => [panel('pt-tp-stencil', 'Stencil Mask', () => stencilMaskRows(), { sub: true }), panel('pt-tp-cavity', 'Cavity Mask', () => cavityRows(), { sub: true, closed: true })], { closed: true }),
     );
   if (mode === 'TEXTURE_PAINT') {
     const am = activeMeshData();
