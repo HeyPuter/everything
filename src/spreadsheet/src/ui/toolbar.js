@@ -605,6 +605,7 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
   const compactButtons = new Set([undoBtn, redoBtn, fmtBtn, boldBtn, italicBtn, fillBtn]);
   let narrow = false;
   let expanded = false;
+  let toolsScrolled = false; // whether the tools were laid out as a scrolling area at the last refresh
   const expandBtn = el('button.tb-btn.tb-expand', {
     type: 'button', tabindex: -1, 'aria-expanded': 'false', 'aria-controls': toolContent.id,
     onclick: () => {
@@ -765,7 +766,11 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     if (chartSheet) { if (chartTools.parentNode !== root) root.append(chartTools); } else chartTools.remove();
     root.classList.toggle('toolbar-narrow', narrow);
     root.classList.toggle('toolbar-expanded', expanded && !chartSheet);
-    if (!narrow || !expanded || chartSheet) tools.scrollTop = 0;
+    // The tools scroll only while expanded in a narrow window; leaving that, they start from the top the next time.
+    // Writing scrollTop lays the whole page out, so it is written on that change alone, not on every edit and move.
+    const scrolling = narrow && expanded && !chartSheet;
+    if (toolsScrolled && !scrolling) tools.scrollTop = 0;
+    toolsScrolled = scrolling;
     if (narrow && !chartSheet) {
       if (expandBtn.parentNode !== tools) tools.append(expandBtn);
       expandBtn.setAttribute('aria-expanded', String(expanded));
@@ -780,7 +785,9 @@ export function createToolbar(ctx, { ribbon = false, ribbonExtras = {} } = {}) {
     if (focused && !available.includes(focused)) next?.focus({ preventScroll: true });
   }
 
-  const unsubscribe = ctx.subscribe(refresh);
+  // On the ribbon's Home tab the ribbon refreshes the toolbar with the rest of itself: subscribed too, every edit
+  // refreshed it twice.
+  const unsubscribe = ribbon ? () => {} : ctx.subscribe(refresh);
   // Measure the toolbar itself, so a narrow editor in a split window or embedded view gets the
   // same treatment. A detached/hidden toolbar has no width yet and keeps its last layout.
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(() => {

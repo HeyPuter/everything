@@ -139,7 +139,7 @@ it('collapses and expands on a double-click of a tab, as the collapse button say
 });
 
 it('removes component subscriptions on destruction', () => {
-  const { listeners } = setup(); expect(listeners.size).toBe(2); ribbon.destroy(); ribbon = null;
+  const { listeners } = setup(); expect(listeners.size).toBe(1); ribbon.destroy(); ribbon = null;
   expect(listeners.size).toBe(0);
 });
 
