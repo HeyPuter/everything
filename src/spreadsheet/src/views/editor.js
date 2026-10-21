@@ -3036,8 +3036,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'openFile': { if (arg && await flush() && !destroyed) openPath(arg); return; }
       case 'copyAbove': {
         // Ctrl+' brings the formula (or text) of the cell above down as written, its references unshifted
-        // (Ctrl+D is the one that shifts them); Ctrl+Shift+" brings its value.
-        const { r, c } = grid.active;
+        // (Ctrl+D is the one that shifts them); Ctrl+Shift+" brings its value. Mid-entry it is the cell above the one
+        // being typed in, on its own sheet, whatever sheet is showing to pick references on.
+        const entry = grid.editing ? grid.editState : null;
+        if (entry) sheetId = entry.sheetId;
+        const { r, c } = entry || grid.active;
         if (r === 0) return;
         const stored = wb.getCell(sheetId, r - 1, c);
         const above = stored && (stored.v != null || stored.f != null) ? stored : null;
