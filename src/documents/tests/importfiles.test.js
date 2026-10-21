@@ -33,6 +33,12 @@ it('names the file that could not be imported even after the user moved on', asy
   expect(calls.modals[0].content.textContent).toBe('broken.docx: Disk full');
 });
 
+it('keeps the extension of templates and macro-enabled documents written into the folder', async () => {
+  await importFiles([docx('Plan.docx'), docx('Letter.dotx'), docx('Macros.docm')], { openFile: vi.fn() });
+  // Under .docx, Word refuses a template's or macro-enabled document's content.
+  expect(calls.written).toEqual(['Documents/Plan.docx', 'Documents/Letter.dotx', 'Documents/Macros.docm']);
+});
+
 it('reports the same details when the user stayed', async () => {
   const onImported = vi.fn();
   await importFiles([docx('Good.docx'), docx('broken.docx')], { openFile: vi.fn(), onImported });

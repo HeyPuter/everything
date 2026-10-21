@@ -249,10 +249,11 @@ export async function fileExists(path) {
   return !!(await statFile(path));
 }
 
-/** A name that does not collide with an existing file in the folder. */
+/** A name that does not collide with an existing file in the folder: a .docx, or a template or macro-enabled document kept as one. */
 export async function uniqueName(base) {
+  const ext = (/\.(dotx|docm)$/i.exec(String(base || ''))?.[0] || '.docx').toLowerCase();
   const stem = stripExtension(base) || 'Untitled document';
-  let name = `${stem}.docx`;
+  let name = `${stem}${ext}`;
   if (!await fileExists(`${FOLDER}/${name}`)) return name;
   // Read collisions together: many untitled documents must not turn the first
   // autosave into hundreds of sequential cloud round trips. Creation still
@@ -261,7 +262,7 @@ export async function uniqueName(base) {
   try { names = new Set((await listFolder(FOLDER)).map((item) => item.name)); }
   catch { /* Keep stat-based naming available when listing is not permitted. */ }
   let n = 2;
-  do { name = `${stem} ${n++}.docx`; }
+  do { name = `${stem} ${n++}${ext}`; }
   while (names ? names.has(name) : await fileExists(`${FOLDER}/${name}`));
   return name;
 }

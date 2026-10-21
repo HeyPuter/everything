@@ -60,7 +60,11 @@ export async function importFiles(fileList, {
     try {
       const converted = HANWORD_IMPORTABLE.test(f.name) ? await importHanword(f) : null;
       if (converted?.warnings.length) issues.push(`${f.name}: ${converted.warnings.join(' ')}`);
-      const name = await P.uniqueName(P.ensureDocx(P.stripExtension(f.name) || 'Untitled document'));
+      // A template or macro-enabled document is written as it is, so it keeps its extension: under .docx, Word
+      // refuses its content. A converted Hanword file is a .docx.
+      const kind = !converted && /\.(dotx|docm)$/i.exec(f.name)?.[0];
+      const stem = P.stripExtension(f.name) || 'Untitled document';
+      const name = await P.uniqueName(kind ? `${P.sanitizeName(stem) || 'Untitled document'}${kind}` : P.ensureDocx(stem));
       // Another tab or import may claim the checked name before this write.
       await P.writeFile(`${P.FOLDER}/${name}`, converted?.blob || f, { dedupe: true });
       saved += 1;

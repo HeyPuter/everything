@@ -76,6 +76,12 @@ describe('files', () => {
     expect(await P.uniqueName('')).toBe('Untitled document.docx');
   });
 
+  it('keeps a template\'s or macro-enabled document\'s own extension when finding a free name', async () => {
+    expect(await P.uniqueName('old.dotx')).toBe('old 2.dotx');
+    expect(await P.uniqueName('Macros.DOCM')).toBe('Macros.docm');
+    expect(await P.uniqueName('Notes.txt')).toBe('Notes.docx');
+  });
+
   it('finds a free name among many copies without a cloud request per collision', async () => {
     entries = Array.from({ length: 1000 }, (_, i) => {
       const name = `Report${i ? ` ${i + 1}` : ''}.docx`;
