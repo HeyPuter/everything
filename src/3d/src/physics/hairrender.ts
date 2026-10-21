@@ -53,7 +53,8 @@ renderSceneHooks.push((rs, appRef, o) => {
     if (!m) {
       m = new Mesh(geo, mat);
       m.matrixAutoUpdate = false;
-      m.userData.id = ev.id;
+      // (not userData.id: that marks the object's own surface meshes)
+      m.userData.hairOf = ev.id;
       rs.scene.add(m);
       byKey.set(key, m);
       changed = true;
