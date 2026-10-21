@@ -7741,7 +7741,11 @@ export class Workbook extends EventTarget {
     this._outlineStep(sheet, axis === 'row' ? 'Ungroup rows' : 'Ungroup columns', () => {
       sheet.groups = normalizeGroups({ ...sheet.groups, [key]: list.filter((g) => !gone.includes(g)) });
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
-      for (const g of gone) if (g.collapsed) for (let i = g.from; i <= g.to; i++) if (!this._insideCollapsed(sheet, key, i)) hidden.delete(i);
+      for (const g of gone) {
+        if (!g.collapsed) continue;
+        const held = this._collapsedLines(sheet, key, g.from, g.to);
+        for (let i = g.from; i <= g.to; i++) if (!held.has(i)) hidden.delete(i);
+      }
     });
     return gone.length;
   }
@@ -7763,9 +7767,10 @@ export class Workbook extends EventTarget {
     this._outlineStep(sheet, collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
       group.collapsed = collapse;
       const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
+      const held = collapse ? null : this._collapsedLines(sheet, key, group.from, group.to);
       for (let i = group.from; i <= group.to; i++) {
         if (collapse) hidden.add(i);
-        else if (!this._insideCollapsed(sheet, key, i)) hidden.delete(i);
+        else if (!held.has(i)) hidden.delete(i);
       }
       if (sheetFilters(sheet).length) this._applyFilter(sheet);
     });
@@ -7827,9 +7832,17 @@ export class Workbook extends EventTarget {
     return true;
   }
 
-  /** Is line i inside some group that is (still) collapsed? */
-  _insideCollapsed(sheet, key, i) {
-    return sheet.groups[key].some((g) => g.collapsed && g.from <= i && g.to >= i);
+  /**
+   * The lines from..to inside some group that is (still) collapsed, found in one pass over the groups: asked line by
+   * line, expanding the outer group of an outline of 20,000 groups compared every line with every group, for seconds.
+   */
+  _collapsedLines(sheet, key, from, to) {
+    const held = new Set();
+    for (const g of sheet.groups[key]) {
+      if (!g.collapsed || g.to < from || g.from > to) continue;
+      for (let i = Math.max(from, g.from); i <= Math.min(to, g.to); i++) held.add(i);
+    }
+    return held;
   }
 
   /** How deeply nested the groups on an axis go (0 when there are none). */
