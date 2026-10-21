@@ -564,6 +564,37 @@ test('Organize pages keeps the duplicated pages selected', async ({ page }) => {
   expect(doc.getPages().map((p) => p.getRotation().angle)).toEqual([0, 90, 0, 0, 90, 0, 0]);
 });
 
+test('Organize pages drops a page dragged into the gap between two pages there', async ({
+  page,
+}) => {
+  const doc = await PDFDocument.create();
+  for (let i = 0; i < 6; i++) doc.addPage([400 + i, 500]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  await page
+    .getByRole('complementary', { name: 'Tools' })
+    .getByRole('button', { name: 'Organize pages', exact: true })
+    .click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  const tile = (n) => grid.getByRole('option', { name: `Page ${n}`, exact: true });
+  const [second, third, area] = await Promise.all([
+    tile(2).boundingBox(),
+    tile(3).boundingBox(),
+    grid.boundingBox(),
+  ]);
+  expect(third.y).toBe(second.y);
+  // The narrow space between pages 2 and 3 belongs to neither tile.
+  await tile(1).dragTo(grid, {
+    targetPosition: {
+      x: (second.x + second.width + third.x) / 2 - area.x,
+      y: second.y + second.height / 2 - area.y,
+    },
+  });
+  await settled(page);
+  const saved = await PDFDocument.load(await downloaded(page));
+  expect(saved.getPages().map((p) => p.getWidth())).toEqual([401, 400, 402, 403, 404, 405]);
+});
+
 test('batch text recognition lets each PDF go before reading the next', async ({ page }) => {
   // Count the documents PDF.js holds open: each GetDocRequest opens one, Terminate closes it.
   await page.evaluate(() => {

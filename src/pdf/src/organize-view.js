@@ -246,9 +246,22 @@ export function createOrganizeView({
   }
 
   function dropIndex(e) {
-    // The gap nearest the pointer, from the tile under it.
-    const tile = e.target.closest?.('.organize-tile');
-    if (!tile) return tiles.length;
+    // The gap nearest the pointer, from the tile under it, or else from the nearest tile of the
+    // nearest row: the spaces between and around the tiles are not the end of the document.
+    let tile = e.target.closest?.('.organize-tile');
+    if (!tile) {
+      let nearest = Infinity;
+      for (const candidate of tiles) {
+        const box = candidate.getBoundingClientRect();
+        const dy = Math.max(box.top - e.clientY, 0, e.clientY - box.bottom);
+        const dx = Math.max(box.left - e.clientX, 0, e.clientX - box.right);
+        if (dy * 1e6 + dx < nearest) {
+          nearest = dy * 1e6 + dx;
+          tile = candidate;
+        }
+      }
+      if (!tile) return tiles.length;
+    }
     const i = Number(tile.dataset.index);
     const box = tile.getBoundingClientRect();
     return e.clientX < box.left + box.width / 2 ? i : i + 1;
