@@ -519,6 +519,12 @@ export async function sanitizeDocument(doc, options = {}) {
       dict.delete(name('AF'));
       report.attachments++;
     }
+    // Files embedded elsewhere (media of rich media and screen annotations, for example).
+    if (o.attachments && dict.has(name('EF'))) {
+      dict.delete(name('EF'));
+      dict.delete(name('RF'));
+      report.attachments++;
+    }
     if (o.alternateImages && get(dict, 'Subtype') === name('Image'))
       for (const key of ['Alternates', 'OPI'])
         if (dict.has(name(key))) {

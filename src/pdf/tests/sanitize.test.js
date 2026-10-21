@@ -350,6 +350,29 @@ describe('sanitizeDocument', () => {
     expect((await textItems(bytes)).map((item) => item.str)).toEqual(['Shown']);
   });
 
+  it('removes files embedded in rich media annotations', async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 400]);
+    const file = doc.context.register(
+      doc.context.stream('EMBEDDEDCLIP', { Type: 'EmbeddedFile', Subtype: 'video/mp4' }),
+    );
+    const spec = doc.context.obj({ Type: 'Filespec', F: 'clip.mp4', EF: { F: file } });
+    const media = doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'RichMedia',
+      Rect: [0, 0, 100, 100],
+      RichMediaContent: {
+        Type: 'RichMediaContent',
+        Assets: { Names: [PDFString.of('clip.mp4'), spec] },
+        Configurations: [],
+      },
+    });
+    page.node.set(n('Annots'), doc.context.obj([doc.context.register(media)]));
+    const { bytes, report } = await sanitize(await doc.save());
+    expect(report.attachments).toBe(1);
+    expect(await recoverable(bytes)).not.toContain('EMBEDDEDCLIP');
+  });
+
   it('has Acrobat-like defaults', () => {
     expect(
       Object.entries(SANITIZE_DEFAULTS)
