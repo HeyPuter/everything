@@ -176,8 +176,15 @@ export function openOptionsDialog(ctx, { section = 'general' } = {}) {
         count.value = String(it.iterateCount); delta.value = String(it.iterateDelta);
         count.disabled = delta.disabled = !wb.iteration;
       };
+      // As the other number options take them: a box left empty keeps its value, and a number past the limits stops at
+      // the nearest one (Excel's most is 32,767 rounds). The workbook takes anything else as no number, and 100 rounds.
+      const within = (input, now, min, max, whole) => {
+        const n = input.value.trim() ? Number(input.value) : NaN;
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, whole ? Math.round(n) : n)) : now;
+      };
       const commitIter = () => {
-        wb.setIteration(iterate.checked ? { iterate: true, iterateCount: count.value, iterateDelta: delta.value } : null);
+        const it = iter();
+        wb.setIteration(iterate.checked ? { iterate: true, iterateCount: within(count, it.iterateCount, 1, 32767, true), iterateDelta: within(delta, it.iterateDelta, 0, Infinity, false) } : null);
         syncIter();
         ctx.afterCalcChange?.();
       };
