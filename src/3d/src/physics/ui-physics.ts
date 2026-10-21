@@ -241,14 +241,22 @@ function clothPanels(ob: ObjectPhysics, m: ClothModifier): Child[] {
       vgroupRow(ob, s as never, 'vertex_group_shrink', 'Shrinking Group', d),
       num(s, 'shrink_min', 'Shrinking Factor', { min: -1, max: 0.99, disabled: d }),
       s.vertex_group_shrink ? num(s, 'shrink_max', 'Max Shrinking', { min: -1, max: 0.99, disabled: d }) : null,
+      bool(s as never, 'use_dynamic_mesh', 'Dynamic Mesh', { disabled: d, tip: 'The rest shape follows the animated mesh' }),
     ]),
     panel('ph-cloth-col', 'Collisions', () => [
       num(c, 'collision_quality', 'Quality', { int: true, min: 1, max: 20, disabled: d }),
       panel('ph-cloth-objcol', 'Object Collisions', () => [
         num(c, 'distance_min', 'Distance', { min: 0.001, max: 1, unit: 'distance', disabled: d || !c.use_collision }),
+        num(c as never, 'impulse_clamp', 'Impulse Clamping', { min: 0, max: 100, disabled: d || !c.use_collision, tip: 'Most speed a collision may give a vertex (0: no limit)' }),
+        vgroupRow(ob, c as never, 'vertex_group_object_collisions', 'Vertex Group', d || !c.use_collision),
         collectionRow(`cl-coll-${m.id}`, c as never, 'collection', 'Collision Collection', 'All colliders', d || !c.use_collision),
       ], { sub: true, header: headerCheck(`cl-oc-${m.id}`, c as never, 'use_collision', 'Object Collisions', d) }),
-      panel('ph-cloth-selfcol', 'Self Collisions', () => [num(c, 'self_friction', 'Friction', { min: 0, max: 80, disabled: d || !c.use_self_collision }), num(c, 'self_distance_min', 'Distance', { min: 0.001, max: 0.5, unit: 'distance', disabled: d || !c.use_self_collision })], { sub: true, header: headerCheck(`cl-sc-${m.id}`, c as never, 'use_self_collision', 'Self Collisions', d) }),
+      panel('ph-cloth-selfcol', 'Self Collisions', () => [
+        num(c, 'self_friction', 'Friction', { min: 0, max: 80, disabled: d || !c.use_self_collision }),
+        num(c, 'self_distance_min', 'Distance', { min: 0.001, max: 0.5, unit: 'distance', disabled: d || !c.use_self_collision }),
+        num(c as never, 'self_impulse_clamp', 'Impulse Clamping', { min: 0, max: 100, disabled: d || !c.use_self_collision }),
+        vgroupRow(ob, c as never, 'vertex_group_self_collisions', 'Vertex Group', d || !c.use_self_collision),
+      ], { sub: true, header: headerCheck(`cl-sc-${m.id}`, c as never, 'use_self_collision', 'Self Collisions', d) }),
     ], { closed: true }),
     panel('ph-cloth-pw', 'Property Weights', () => [
       vgroupRow(ob, s as never, 'vertex_group_structural_stiffness', 'Structural Group', d),

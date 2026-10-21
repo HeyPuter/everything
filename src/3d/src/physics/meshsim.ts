@@ -22,6 +22,8 @@ export interface MeshSimSetup {
   collection?: string | null;
   /** loose edges pull their vertices together */
   sewing?: boolean;
+  /** rest lengths follow the (animated) mesh every frame */
+  dynamicMesh?: boolean;
   /** per-vertex scale of the edge (stretch / compression) stiffness */
   springScale?: ArrayLike<number> | null;
 
@@ -129,6 +131,16 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
       cache.last = pc.frame_start;
     }
     const live = cache.live;
+    // dynamic mesh: the springs take the lengths of the mesh as it is now
+    if (st.dynamicMesh) {
+      const T = live.topo,
+        L = local;
+      for (let c = 0; c < T.a.length; c++) {
+        const a = T.a[c] * 3,
+          b = T.b[c] * 3;
+        T.rest[c] = Math.hypot(L[a] - L[b], L[a + 1] - L[b + 1], L[a + 2] - L[b + 2]);
+      }
+    }
     if (st.weights) applyPropertyWeights(st, live.topo);
     if (st.springScale) applySpringScale(st, live.topo);
     const restShape = st.useRestShape ? local : undefined;

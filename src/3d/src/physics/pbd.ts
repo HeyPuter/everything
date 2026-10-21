@@ -329,6 +329,12 @@ export interface PBDParams {
   choke?: number;
   /** self collision push strength 0..1 (soft body ball stiffness) */
   selfStiffness?: number;
+  /** most a collision may move a vertex per second (0: no limit), for colliders / self collision */
+  impulseClamp?: number;
+  selfImpulseClamp?: number;
+  /** vertices taking part in collisions (weight > 0), for colliders / self collision */
+  collideWeights?: ArrayLike<number> | null;
+  selfWeights?: ArrayLike<number> | null;
 }
 
 export function initState(world: Float32Array): PBDState {
@@ -646,10 +652,14 @@ export function stepFrame(
       for (let pass = 0; pass < Math.max(1, P.collision.quality); pass++)
         for (let i = 0; i < n; i++) {
           if (w[i] === 0) continue;
+          if (P.collideWeights && !((P.collideWeights[i] ?? 0) > 0)) continue;
           const k = i * 3;
           let px = p[k],
             py = p[k + 1],
             pz = p[k + 2];
+          const p0x = px,
+            p0y = py,
+            p0z = pz;
           const ox = x[k],
             oy = x[k + 1],
             oz = x[k + 2];
@@ -699,13 +709,46 @@ export function stepFrame(
               collided[i] = 1;
             }
           }
+          // impulse clamping: a collision moves a vertex by at most this speed
+          if (P.impulseClamp && P.impulseClamp > 0) {
+            const cx = px - p0x,
+              cy = py - p0y,
+              cz = pz - p0z;
+            const cl = Math.hypot(cx, cy, cz),
+              mx = P.impulseClamp * h;
+            if (cl > mx) {
+              px = p0x + (cx / cl) * mx;
+              py = p0y + (cy / cl) * mx;
+              pz = p0z + (cz / cl) * mx;
+            }
+          }
           p[k] = px;
           p[k + 1] = py;
           p[k + 2] = pz;
         }
     }
     // 5. self collision (vertex-vertex)
-    if (P.self && P.self.distance > 0) selfCollide(p, x, w, P.self.distance, P.self.friction, restShape ?? targets1, P.selfStiffness ?? 1);
+    if (P.self && P.self.distance > 0) {
+      const before = P.selfImpulseClamp ? Float64Array.from(p) : null;
+      // vertices outside the self collision group do not collide with each other
+      const ws = P.selfWeights ? Float64Array.from(w, (x, i) => ((P.selfWeights![i] ?? 0) > 0 ? x : 0)) : w;
+      selfCollide(p, x, ws, P.self.distance, P.self.friction, restShape ?? targets1, P.selfStiffness ?? 1);
+      if (before) {
+        const mx = P.selfImpulseClamp! * h;
+        for (let i = 0; i < n; i++) {
+          const k = i * 3;
+          const cx = p[k] - before[k],
+            cy = p[k + 1] - before[k + 1],
+            cz = p[k + 2] - before[k + 2];
+          const cl = Math.hypot(cx, cy, cz);
+          if (cl > mx) {
+            p[k] = before[k] + (cx / cl) * mx;
+            p[k + 1] = before[k + 1] + (cy / cl) * mx;
+            p[k + 2] = before[k + 2] + (cz / cl) * mx;
+          }
+        }
+      }
+    }
     // 6. velocities
     for (let i = 0; i < n * 3; i++) {
       v[i] = (p[i] - x[i]) / h;

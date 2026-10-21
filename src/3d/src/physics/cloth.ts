@@ -41,6 +41,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
   return {
     shear: true,
     bend: true,
+    dynamicMesh: !!s.use_dynamic_mesh,
     collide: c.use_collision,
     collection: c.collection ?? null,
     sewing: !!s.use_sewing_springs,
@@ -70,6 +71,10 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
       fieldWeight: s.effector_weights_all,
       collision: c.use_collision ? { distance: c.distance_min, quality: Math.max(1, Math.round(c.collision_quality)) } : null,
       self: c.use_self_collision ? { distance: c.self_distance_min, friction: c.self_friction } : null,
+      impulseClamp: c.impulse_clamp ?? 0,
+      selfImpulseClamp: c.self_impulse_clamp ?? 0,
+      collideWeights: c.vertex_group_object_collisions ? groupWeights(mesh, c.vertex_group_object_collisions) : null,
+      selfWeights: c.vertex_group_self_collisions ? groupWeights(mesh, c.vertex_group_self_collisions) : null,
       restScale: 1 - Math.min(0.99, Math.max(-1, s.shrink_min)),
       internalCompliance: [compliance(s.internal_tension_stiffness ?? 15), compliance(s.internal_compression_stiffness ?? 15)],
       // sewing force 0 = as strong as possible

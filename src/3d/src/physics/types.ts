@@ -157,6 +157,8 @@ export interface ClothSettings {
   shear_stiffness_max?: number;
   vertex_group_bending?: string;
   bending_stiffness_max?: number;
+  /** the rest shape follows the animated / deformed mesh */
+  use_dynamic_mesh?: boolean;
 }
 
 export interface ClothCollisionSettings {
@@ -168,6 +170,12 @@ export interface ClothCollisionSettings {
   use_self_collision: boolean;
   self_distance_min: number;
   self_friction: number;
+  /** most speed a collision may give a vertex (0: no limit) */
+  impulse_clamp?: number;
+  self_impulse_clamp?: number;
+  /** only vertices of these groups collide (with objects / with each other) */
+  vertex_group_object_collisions?: string;
+  vertex_group_self_collisions?: string;
 }
 
 export interface ClothModifier extends ModifierBase {
