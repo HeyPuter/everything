@@ -341,7 +341,9 @@ test("presenter view counts the last slide's clicks before the end", async ({
 test("with an audience window the presenter's copy follows the builds", async ({
   page,
   context,
-}) => {
+}, info) => {
+  // Phones have no second screen and do not offer an audience window.
+  test.skip(info.project.name === "mobile", "no audience window on a phone");
   await load(page, animatedDeck());
   await page.keyboard.press("Alt+F5");
   const opened = context.waitForEvent("page");
