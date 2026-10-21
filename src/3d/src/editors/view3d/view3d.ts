@@ -325,7 +325,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     const col = ob ? Object.values(doc.collections).find((c) => c.objects.includes(ob.id) && c.id !== doc.scene.collection) : undefined;
     const lines = [viewName, `(${doc.scene.frame_current}) ${col ? col.name + ' | ' : 'Scene Collection | '}${ob?.name ?? ''}${doc.mode === 'POSE' && ob?.data ? ' : ' + (doc.armatures[ob.data]?.active_bone ?? '') : ''}`];
     const kf = ob?.animation_data?.action ? doc.actions[ob.animation_data.action]?.fcurves.some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5)) : false;
-    const stats = this.overlay.show_stats ? statsLines() : [];
+    const stats = this.overlay.show_stats ? statsLines({ selected: true }) : [];
     const fps = app.playing && prefs.show_playback_fps ? playbackFpsLabel() : '';
     patch(this.infoEl, this.overlay.show_overlays && this.overlay.show_text
       ? [fps ? h('div', { class: { 'v3d-info-line': true, 'v3d-fps': true, slow: fps.startsWith('!') } }, fps.replace(/^!/, '')) : null, prefs.show_view_name ? h('div', { class: 'v3d-info-line' }, lines[0]) : null, prefs.show_object_info ? h('div', { class: { 'v3d-info-line': true, keyed: !!kf } }, lines[1]) : null, stats.length ? h('div', { class: 'v3d-stats' }, stats.flatMap(([k, v]) => [h('span', { class: 'v3d-stat-k' }, k), h('span', { class: 'v3d-stat-v' }, v)])) : null, app.modal?.header ? null : null]
@@ -934,7 +934,7 @@ function editStats(me: { positions: ArrayLike<number>; offsets: ArrayLike<number
 }
 
 /** Statistics overlay rows for the current mode: [label, value] (also shown in the status bar). */
-export function statsLines(): [string, string][] {
+export function statsLines(opts: { selected?: boolean } = {}): [string, string][] {
   const doc = app.doc;
   const fmt = (n: number) => n.toLocaleString();
   const mode = doc.mode;
@@ -972,29 +972,33 @@ export function statsLines(): [string, string][] {
       ['Triangles', fmt(tris)],
     ];
   }
+  // Object Mode: geometry of the selected objects / of everything visible
   let objects = 0,
-    sel = 0,
-    verts = 0,
-    edges = 0,
-    faces = 0,
-    tris = 0;
+    sel = 0;
+  const all = [0, 0, 0, 0],
+    chosen = [0, 0, 0, 0];
   for (const ev of app.graph.objects.values()) {
     if (!ev.visible) continue;
     objects++;
     if (ev.ob.select) sel++;
     if (ev.mesh) {
-      verts += ev.mesh.positions.length / 3;
-      faces += ev.mesh.offsets.length - 1;
-      edges += edgeCount(ev.mesh.offsets, ev.mesh.indices as ArrayLike<number> & object);
+      let tris = 0;
       for (let f = 0; f < ev.mesh.offsets.length - 1; f++) tris += ev.mesh.offsets[f + 1] - ev.mesh.offsets[f] - 2;
+      const c = [ev.mesh.positions.length / 3, edgeCount(ev.mesh.offsets, ev.mesh.indices as ArrayLike<number> & object), ev.mesh.offsets.length - 1, tris];
+      for (let i = 0; i < 4; i++) {
+        all[i] += c[i];
+        if (ev.ob.select) chosen[i] += c[i];
+      }
     }
   }
+  // the viewport overlay shows "selected / total", the status bar the totals
+  const pair = (i: number) => (opts.selected ? `${fmt(chosen[i])} / ${fmt(all[i])}` : fmt(all[i]));
   return [
     ['Objects', `${sel} / ${objects}`],
-    ['Vertices', fmt(verts)],
-    ['Edges', fmt(edges)],
-    ['Faces', fmt(faces)],
-    ['Triangles', fmt(tris)],
+    ['Vertices', pair(0)],
+    ['Edges', pair(1)],
+    ['Faces', pair(2)],
+    ['Triangles', pair(3)],
   ];
 }
 

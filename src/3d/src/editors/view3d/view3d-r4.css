@@ -61,3 +61,7 @@
 .th-transform > button {
   min-width: 124px;
 }
+/* statistics sit a little below the view name lines */
+.v3d-info .v3d-stats {
+  margin-top: 8px;
+}
