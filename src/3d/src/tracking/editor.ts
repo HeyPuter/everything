@@ -122,7 +122,7 @@ export class ClipEditor implements Editor {
   v2 = new View2D();
   v2Fitted = false;
   graphShow = { motion: true, speed_x: true, speed_y: true };
-  dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' = 'NAME';
+  dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' | 'AVERAGE_ERROR' | 'START' | 'END' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
   /** Annotation toolbar tool in use (left button draws notes instead of editing markers) */
@@ -1393,6 +1393,9 @@ export class ClipEditor implements Editor {
               { value: 'NAME', label: 'Name', description: 'Sort channels by their names' },
               { value: 'LONGEST', label: 'Longest', description: 'Sort channels by longest tracked segment' },
               { value: 'TOTAL', label: 'Total', description: 'Sort channels by overall amount of tracked segments' },
+              { value: 'AVERAGE_ERROR', label: 'Average Error', description: 'Sort channels by the average reprojection error of their tracks after a solve' },
+              { value: 'START', label: 'Start Frame', description: 'Sort channels by the first frame they are tracked on' },
+              { value: 'END', label: 'End Frame', description: 'Sort channels by the last frame they are tracked on' },
             ],
             this.dopesheetSort,
             (v) => ((this.dopesheetSort = v as 'NAME'), this.draw(), this.area.drawHeader()),

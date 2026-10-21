@@ -350,6 +350,9 @@ export function sortedTracks(ed: ClipEditor): MovieTrackingTrack[] {
   const total = (t: MovieTrackingTrack) => segments(t).reduce((s, [a, b]) => s + b - a + 1, 0);
   if (ed.dopesheetSort === 'NAME') list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   else if (ed.dopesheetSort === 'LONGEST') list.sort((a, b) => longest(b) - longest(a));
+  else if (ed.dopesheetSort === 'AVERAGE_ERROR') list.sort((a, b) => (b.average_error ?? 0) - (a.average_error ?? 0));
+  else if (ed.dopesheetSort === 'START') list.sort((a, b) => (a.markers[0]?.frame ?? Infinity) - (b.markers[0]?.frame ?? Infinity));
+  else if (ed.dopesheetSort === 'END') list.sort((a, b) => (a.markers[a.markers.length - 1]?.frame ?? -Infinity) - (b.markers[b.markers.length - 1]?.frame ?? -Infinity));
   else list.sort((a, b) => total(b) - total(a));
   if (ed.dopesheetInvert) list.reverse();
   return list;
