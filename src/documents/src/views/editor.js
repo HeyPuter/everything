@@ -1395,10 +1395,17 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     updateWordCount();
     statusBar?.refresh();
   }
+  // The counts last shown, with the text and selection they were taken from: every caret move and each keystroke
+  // (twice) refresh the status bar, and splitting a long document into words takes milliseconds each time.
+  let counted = { text: null, a: 0, b: 0, total: 0, chosen: null };
   function updateWordCount() {
-    const total = engine.model.text.trim().split(/\s+/u).filter(Boolean).length;
-    const [a, b] = engine.model.range;
-    const chosen = a !== b ? engine.model.text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
+    const text = engine.model.text, [a, b] = engine.model.range;
+    if (text !== counted.text || a !== counted.a || b !== counted.b) {
+      const total = text === counted.text ? counted.total : text.trim().split(/\s+/u).filter(Boolean).length;
+      const chosen = a !== b ? text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
+      counted = { text, a, b, total, chosen };
+    }
+    const { total, chosen } = counted;
     words.textContent = chosen !== null ? `${chosen} of ${total} ${total === 1 ? 'word' : 'words'}` : `${total} ${total === 1 ? 'word' : 'words'}`;
   }
   function renderStatus(label, name, state = '') {
