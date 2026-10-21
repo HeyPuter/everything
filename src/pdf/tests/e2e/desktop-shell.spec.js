@@ -1208,6 +1208,24 @@ test('an edit made by shortcut leaves the focus on View more', async ({ page }) 
   await expect(more).toBeFocused();
 });
 
+test('a command chosen from the keyboard in the tools pane keeps the focus through its edit', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(3));
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const rotate = pane.getByRole('button', { name: 'Rotate clockwise', exact: true });
+  await rotate.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await settled(page);
+  // The command is disabled while the edit runs; once it is done the focus is back on it.
+  await expect(rotate).toBeFocused();
+  await page.keyboard.press('Enter');
+  await settled(page);
+  await expect(rotate).toBeFocused();
+});
+
 test('removing an attachment hands the focus to the file that takes its place', async ({
   page,
 }) => {

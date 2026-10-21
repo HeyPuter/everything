@@ -16,6 +16,7 @@ import { toolIcon } from './icons.js';
 export function createToolsPanel({ catalog, can = () => true, onClose, onChange, onAct }) {
   let current = null; // the open tool's id, or null for the list
   let expanded = false;
+  let waitingFocus = null; // the command a refresh could not give the focus back to
   const heading = el('h2', { class: 'tools-panel-title', id: 'tools-panel-title' }, 'All tools');
   const back = iconButton('Back to all tools', 'ArrowLeft', () => showAll(true), {
     class: 'icon-btn tools-back',
@@ -190,6 +191,7 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
     if (current && current !== id) find(current)?.leave?.();
     const entering = current !== id;
     current = id;
+    waitingFocus = null;
     render();
     if (entering) tool.enter?.();
     onChange?.(current);
@@ -201,6 +203,7 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
   function showAll(focus = false) {
     if (current) find(current)?.leave?.();
     current = null;
+    waitingFocus = null;
     render();
     onChange?.(null);
     if (focus) body.querySelector('.tool-row')?.focus();
@@ -222,12 +225,18 @@ export function createToolsPanel({ catalog, can = () => true, onClose, onChange,
         b.classList?.contains('tools-more')
           ? 'tools-more'
           : b.querySelector?.('.tool-command-label, .tool-row-label')?.textContent;
-      const key = body.contains(focused) ? keyOf(focused) : null;
+      // A command is disabled while the edit it started runs, and cannot hold the focus then;
+      // it takes the focus back once enabled, unless the reader has moved it on meanwhile.
+      const key = body.contains(focused)
+        ? keyOf(focused)
+        : focused === document.body
+          ? waitingFocus
+          : null;
+      waitingFocus = null;
       render();
-      if (key)
-        [...body.querySelectorAll('button')]
-          .find((b) => keyOf(b) === key)
-          ?.focus({ preventScroll: true });
+      const next = key && [...body.querySelectorAll('button')].find((b) => keyOf(b) === key);
+      if (next?.disabled) waitingFocus = key;
+      else next?.focus({ preventScroll: true });
     },
   };
 }
