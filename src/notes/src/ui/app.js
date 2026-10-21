@@ -605,9 +605,15 @@ export class App {
     const section = this.store.section(this.state.sectionId);
     if (!section) return;
     // Follow the page list as shown: its sort order, without the subpages
-    // of collapsed pages.
-    const ids = [...this.nav.pagesList.querySelectorAll('.row')].map((r) => r.dataset.id);
-    const next = ids[ids.indexOf(this.state.pageId) + dir];
+    // of collapsed pages. The open page may itself be such a hidden
+    // subpage: step from its place in the full order then.
+    const shown = new Set([...this.nav.pagesList.querySelectorAll('.row')].map((r) => r.dataset.id));
+    const ids = this.nav.sortedPages(section).map((p) => p.meta.id);
+    let i = ids.indexOf(this.state.pageId);
+    if (i < 0) return;
+    do i += dir;
+    while (i >= 0 && i < ids.length && !shown.has(ids[i]));
+    const next = ids[i];
     if (next) this.openPage(next);
   }
 

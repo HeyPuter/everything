@@ -90,6 +90,23 @@ describe('App shell', () => {
     setPref('pageSort', 'manual');
   });
 
+  it('steps on from an open subpage whose parent is collapsed', async () => {
+    const section = store.section(app.state.sectionId);
+    for (const title of ['Parent', 'Child', 'After']) store.createPage(section.id, { title });
+    section.pages.find((p) => p.title === 'Child').level = 1;
+    const id = (title) => section.pages.find((p) => p.title === title).id;
+    await app.openPage(id('Child'));
+    store.togglePageCollapsed(id('Parent'));
+    await tick();
+    expect(app.nav.pagesList.querySelector(`.row[data-id="${id('Child')}"]`)).toBe(null);
+    app.runCommand('nextPage');
+    await tick();
+    expect(app.state.pageId).toBe(id('After'));
+    app.runCommand('prevPage');
+    await tick();
+    expect(app.state.pageId).toBe(id('Parent'));
+  });
+
   it('opens the top result for what is typed, not for the previous search, on a quick Enter', async () => {
     const budget = app.newPage({ title: 'Budget plan' });
     const travel = app.newPage({ title: 'Travel ideas' });
