@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { PDFDocument, PDFName, PDFNumber, PDFString, StandardFonts } from 'pdf-lib';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const PUTER_MOCK = `window.puter = { env: 'web', auth: { isSignedIn: () => true, getUser: async () => ({username:'test-user'}), signIn: async () => {}, signOut: async () => {} }, fs: { readdir: async () => [], write: async () => ({}) }, ui: { onLaunchedWithItems: () => {}, onItemsOpened: () => {} } };`;
 async function mockPuter(page) {
@@ -1408,6 +1408,27 @@ test('removing a file from Batch process keeps the keyboard focus in the dialog'
   await page.keyboard.press('Enter');
   await expect(dialog.getByRole('button', { name: 'Remove b.pdf' })).toHaveCount(0);
   await expect(dialog.getByRole('button', { name: 'Add PDFs…' })).toBeFocused();
+});
+
+test('the Batch process list shows the files added before one that is too large', async ({
+  page,
+}, testInfo) => {
+  const large = testInfo.outputPath('large.pdf');
+  await writeFile(large, Buffer.alloc(100 * 1024 * 1024 + 1));
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  const small = testInfo.outputPath('small.pdf');
+  await writeFile(small, await (await numberedPdf(1)).save());
+  await (await chooser).setFiles([small, large]);
+  await expect(dialog.locator('.dialog-error')).toContainText('large.pdf is larger than 100 MB.');
+  // What will be processed is what the list shows.
+  await expect(dialog.locator('.combine-name')).toHaveText(['small.pdf']);
 });
 
 test('Prepare a form adds fields, edits their properties, and detects blanks', async ({ page }) => {

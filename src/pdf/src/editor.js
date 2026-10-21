@@ -10757,11 +10757,15 @@ export function createEditor({
     const addFiles = () => {
       const input = el('input', { type: 'file', multiple: true, accept: '.pdf,application/pdf' });
       input.onchange = safe(async () => {
-        for (const file of input.files) {
-          if (file.size > MAX_FILE_SIZE) throw new Error(`${file.name} is larger than 100 MB.`);
-          files.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+        // A file that cannot be added stops the rest, but those already added are listed.
+        try {
+          for (const file of input.files) {
+            if (file.size > MAX_FILE_SIZE) throw new Error(`${file.name} is larger than 100 MB.`);
+            files.push({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+          }
+        } finally {
+          renderFiles();
         }
-        renderFiles();
       });
       input.click();
     };
