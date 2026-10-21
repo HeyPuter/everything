@@ -6568,10 +6568,14 @@ export function createGrid(opts) {
       schedule();
     },
     selectChart,
-    /** Ink: the canvas point (zoomed pixels, as objects are laid out) under a client point; a frozen pane has not scrolled. */
+    /**
+     * Ink: the canvas point (zoomed pixels, as objects are laid out) under a client point; a frozen pane has not
+     * scrolled, and a split window's panes each have their own scroll, as for cellAtPoint.
+     */
     canvasPoint(clientX, clientY) {
-      const vp = viewport.getBoundingClientRect(), vx = clientX - vp.left, vy = clientY - vp.top;
-      return { x: vx < frozen.w ? vx : vx + viewport.scrollLeft, y: vy < frozen.h ? vy : vy + viewport.scrollTop };
+      ensureOffsets();
+      const vp = viewport.getBoundingClientRect();
+      return { x: contentX(clientX - vp.left), y: contentY(clientY - vp.top) };
     },
     /** Ink: the cell an object with its top-left corner at canvas point (x, y) is anchored to, and its offset there at 100%. */
     placeAt(x, y) {
