@@ -21,6 +21,7 @@ import {
 import { documentFontFamilyForCss } from "./document-font-resources.js";
 import { REL_TYPES } from "../lib/pptx/src/internal/presentationml/index.ts";
 import {
+  parseRels,
   relsPartNameFor,
   resolveTarget,
 } from "../lib/pptx/src/internal/opc/index.ts";
@@ -1652,26 +1653,51 @@ export function slideDescription(slide, pres) {
     .filter(Boolean)
     .join("\n");
 }
-// Removing a picture leaves its image part behind: the library keeps parts
-// another slide may still show. Drop the slide's relationships nothing on the
-// slide refers to any more, then the media parts nothing refers to at all,
-// so a deleted image does not travel on in every save.
+// Removing a picture, chart or SmartArt leaves its parts behind: the library
+// keeps parts another slide may still show. Drop the slide's relationships
+// nothing on the slide refers to any more, then the parts only they led to
+// (a chart's workbook, a diagram's data) and the media nothing refers to at
+// all, so a deleted object does not travel on in every save.
+const OBJECT_RELATIONSHIP =
+  /\/(image|audio|video|media|chart|diagramData|diagramLayout|diagramQuickStyle|diagramColors|oleObject|package)$/;
 export function pruneUnusedMedia(pres, slide = null) {
   const pkg = P._internalPackageOf(pres);
+  const dropped = [];
   for (const target of slide ? [slide] : P.getSlides(pres)) {
     const part = P.getSlidePartName(target);
     const rels = pkg.getRels(part);
     if (!rels) continue;
     const xml = P.getSlideXmlString(target);
-    const kept = rels.items.filter(
-      (rel) =>
-        rel.targetMode !== "Internal" ||
-        !/\/(image|audio|video|media)$/.test(rel.type) ||
-        xml.includes(`="${rel.id}"`),
+    const used = (rel) =>
+      rel.targetMode !== "Internal" ||
+      !OBJECT_RELATIONSHIP.test(rel.type) ||
+      xml.includes(`="${rel.id}"`);
+    // A diagram's drawing is named by its data part rather than the slide.
+    const data = rels.items
+      .filter((rel) => rel.type.endsWith("/diagramData") && used(rel))
+      .map((rel) => {
+        try {
+          const found = pkg.getPart(resolveTarget(part, rel.target));
+          return found ? new TextDecoder().decode(found.data) : "";
+        } catch {
+          return "";
+        }
+      })
+      .join();
+    const kept = rels.items.filter((rel) =>
+      rel.type.endsWith("/diagramDrawing") && rel.targetMode === "Internal"
+        ? xml.includes(`="${rel.id}"`) || data.includes(`="${rel.id}"`)
+        : used(rel),
     );
-    if (kept.length !== rels.items.length)
-      pkg.setRels(part, { ...rels, items: kept });
+    if (kept.length === rels.items.length) continue;
+    for (const rel of rels.items)
+      if (!kept.includes(rel))
+        try {
+          dropped.push(resolveTarget(part, rel.target));
+        } catch {}
+    pkg.setRels(part, { ...rels, items: kept });
   }
+  removeUnreachable(pkg, partsReachedFrom(pkg, dropped));
   return P.compactPackage(pres).removed;
 }
 // A new slide shows the date, footer and slide number the slides around it
@@ -1693,20 +1719,41 @@ export function matchHeaderFooter(pres, slide, previous, number) {
   if (settings.date || settings.footer !== null || settings.slideNumber)
     P.applySlideHeaderFooter(slide, settings, number);
 }
+// Removes the parts in `reached` (lowercase names) that nothing in the
+// presentation leads to any more, with their relationships.
+function removeUnreachable(pkg, reached) {
+  // Media nothing refers to is left to compactPackage, which needs no walk.
+  if (![...reached].some((name) => !name.startsWith("/ppt/media/"))) return;
+  const used = partsReachedFrom(pkg, ["/"]);
+  for (const part of [...pkg.parts]) {
+    const name = part.name.toLowerCase();
+    if (!reached.has(name) || used.has(name)) continue;
+    pkg.removePart(relsPartNameFor(part.name));
+    pkg.removePart(part.name);
+  }
+}
 // The parts (by lowercase name) `starts` lead to through their internal
 // relationships, `starts` among them; "/" starts at the package's own.
 function partsReachedFrom(pkg, starts) {
+  const relsParts = new Map(
+    pkg.parts
+      .filter((p) => p.name.endsWith(".rels"))
+      .map((p) => [p.name.toLowerCase(), p]),
+  );
   const seen = new Set();
   const queue = [...starts];
   while (queue.length) {
     const name = queue.pop();
     if (seen.has(name.toLowerCase())) continue;
     seen.add(name.toLowerCase());
-    let rels = null;
+    let items = [];
     try {
-      rels = name === "/" ? pkg.rootRels() : pkg.getRels(name);
+      const part = relsParts.get(
+        (name === "/" ? "/_rels/.rels" : relsPartNameFor(name)).toLowerCase(),
+      );
+      if (part) items = parseRels(new TextDecoder().decode(part.data)).items;
     } catch {}
-    for (const rel of rels?.items ?? []) {
+    for (const rel of items) {
       if (rel.targetMode === "External") continue;
       try {
         queue.push(resolveTarget(name, rel.target));
@@ -1757,13 +1804,7 @@ export function removeSlides(pres, slides) {
     if (kept.length !== rels.items.length)
       pkg.setRels(part, { ...rels, items: kept });
   }
-  const used = partsReachedFrom(pkg, ["/"]);
-  for (const part of [...pkg.parts]) {
-    const name = part.name.toLowerCase();
-    if (!reached.has(name) || used.has(name)) continue;
-    pkg.removePart(relsPartNameFor(part.name));
-    pkg.removePart(part.name);
-  }
+  removeUnreachable(pkg, reached);
   pruneUnusedMedia(pres);
 }
 // Pasting an object imported from another package brings its picture along as

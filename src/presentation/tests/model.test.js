@@ -25,6 +25,7 @@ import {
   slideRotation,
   ownRotation,
   pruneUnusedMedia,
+  removeAnyShape,
   removeSlides,
   dedupeSlideMedia,
   relativePartName,
@@ -632,6 +633,53 @@ it("gives a copied group's children ids of their own", async () => {
   expect(P.validatePresentation(saved)).toEqual([]);
 });
 describe("deleted media", () => {
+  it("drops a deleted chart's workbook and a deleted SmartArt's parts, keeping the others'", async () => {
+    const pres = createDeck("blank");
+    const [slide] = P.getSlides(pres);
+    const box = { x: 0, y: 0, w: P.inches(3), h: P.inches(2) };
+    const smartArt = (text) =>
+      P.addSlideSmartArt(slide, {
+        ...box,
+        model: {
+          layout: "arrow-steps",
+          colors: P.DEFAULT_SMARTART_COLORS,
+          style: P.DEFAULT_SMARTART_STYLE,
+          items: [{ text, level: 0 }],
+        },
+      });
+    const chart = P.addSlideChart(slide, {
+      ...box,
+      spec: {
+        kind: "bar",
+        categories: ["Q1"],
+        series: [{ name: "Revenue", values: [42] }],
+      },
+    });
+    const gone = smartArt("Gone");
+    smartArt("Kept");
+    const parts = async () =>
+      Object.keys(unzipSync(await P.savePresentation(pres)))
+        .filter((n) => /^ppt\/(charts|embeddings|diagrams)\/[^_]/.test(n))
+        .sort();
+    // Nothing goes while everything is still on the slide.
+    pruneUnusedMedia(pres, slide);
+    expect(await parts()).toHaveLength(12);
+    removeAnyShape(slide, chart);
+    removeAnyShape(slide, gone);
+    pruneUnusedMedia(pres, slide);
+    expect(await parts()).toEqual([
+      "ppt/diagrams/colors2.xml",
+      "ppt/diagrams/data2.xml",
+      "ppt/diagrams/drawing2.xml",
+      "ppt/diagrams/layout2.xml",
+      "ppt/diagrams/quickStyle2.xml",
+    ]);
+    const saved = await parseDeck(await P.savePresentation(pres));
+    expect(P.validatePresentation(saved)).toEqual([]);
+    const svg = decodeURIComponent(preview(saved, P.getSlides(saved)[0]));
+    expect(svg).toContain("Kept");
+    expect(svg).not.toContain("Gone");
+  });
   it("takes a deleted slide's notes, comments, chart and SmartArt out of the file", async () => {
     const pres = createDeck("story");
     const [kept, gone] = P.getSlides(pres);
