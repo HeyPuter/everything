@@ -598,6 +598,30 @@ p:has(> .nt-tag[data-done="true"]) {
 .read-only-banner .spacer {
   flex: 1;
 }
+.read-only-banner .banner-narrow {
+  display: none;
+}
+@media (max-width: 760px) {
+  /* One line on phones: a short label and the bare date. */
+  .read-only-banner {
+    gap: 8px;
+    padding: 8px 12px;
+    white-space: nowrap;
+  }
+  .read-only-banner .banner-wide {
+    display: none;
+  }
+  .read-only-banner .banner-narrow {
+    display: inline;
+  }
+  .read-only-banner .banner-published {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
 
 @media (max-width: 760px) {
   .page-header {

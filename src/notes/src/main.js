@@ -122,7 +122,7 @@ async function viewShared(url) {
   document.title = `${title || 'Shared page'} - Notes`;
   const host = h('div.canvas-col');
   root.replaceChildren(h('div.shared-view',
-    h('header.read-only-banner', { role: 'banner' }, h('img', { src: './favicon.svg', alt: '', width: 20, height: 20 }), h('strong', 'Notes'), h('span', 'Shared read-only page'), h('span.spacer'), Number.isNaN(published.getTime()) ? null : h('span', `Published ${published.toLocaleDateString()}`)),
+    h('header.read-only-banner', { role: 'banner' }, h('img', { src: './favicon.svg', alt: '', width: 20, height: 20 }), h('strong', 'Notes'), h('span.banner-wide', 'Shared read-only page'), h('span.banner-narrow', 'Read-only'), h('span.spacer'), Number.isNaN(published.getTime()) ? null : h('span', h('span.banner-published', 'Published '), published.toLocaleDateString())),
     h('main#main.main', host),
   ));
   installTooltips(document);
