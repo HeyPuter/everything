@@ -216,8 +216,10 @@ export function chartStylePatch(chart, id, { seriesCount = 1 } = {}) {
   const old = chart.appearance || {};
   const font = old.titleStyle?.font || 'calibri';
   const fresh = excelChartAppearance(subtype, { font });
-  // Elements the user added stay; only their look changes.
-  const keep = ['lines', 'lineDefault', 'dataTable', 'hideXAxis', 'hideYAxis', 'xGridlines', 'yFormat', 'xFormat', 'yStep', 'xStep', 'yUnits', 'blanks', 'plot', 'title', 'legend', 'legendPos', 'pointColors', 'seriesTypes', 'seriesGroups'];
+  // Elements the user added stay, and so do the axes' scales (Format Axis); only their look changes.
+  const keep = ['lines', 'lineDefault', 'dataTable', 'hideXAxis', 'hideYAxis', 'hideY2Axis', 'xGridlines', 'yFormat', 'xFormat', 'y2Format', 'yStep', 'xStep', 'y2Step',
+    'yUnits', 'xUnits', 'y2Units', 'yLogBase', 'xLogBase', 'xMin', 'xMax', 'y2Min', 'y2Max', 'reverseValues', 'reverseCategories', 'reverseSecondaryValues',
+    'axisCrossings', 'dateAxis', 'xBaseTimeUnit', 'xTimeUnit', 'blanks', 'plot', 'title', 'legend', 'legendPos', 'legendHidden', 'pointColors', 'seriesTypes', 'seriesGroups'];
   const a = { ...fresh, ...Object.fromEntries(keep.filter(k => old[k] !== undefined).map(k => [k, old[k]])) };
   if (a.pie && old.pie) a.pie = { ...a.pie, labels: { ...a.pie.labels, ...old.pie.labels, style: a.pie.labels.style } };
   const text = (color, scale = 1) => ['textStyle', 'titleStyle', 'legendStyle', 'xStyle', 'yStyle', 'y2Style'].forEach(k => { a[k] = { ...a[k], color, size: Math.round(a[k].size * scale * 100) / 100 }; });
