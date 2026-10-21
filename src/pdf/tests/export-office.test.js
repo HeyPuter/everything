@@ -1059,3 +1059,19 @@ it('keeps the numbers of an HTML list after a nested list and across pages', asy
     await loading.destroy();
   }
 });
+
+it('keeps text that looks like an Excel character escape as it reads', async () => {
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  doc.addPage([400, 200]).drawText('Column field_x0020_name', { x: 40, y: 100, size: 12, font });
+  const bytes = await doc.save();
+  const loading = pdfjs.getDocument({ data: bytes.slice(), verbosity: 0 });
+  try {
+    const files = await unzip((await exportDocument(await loading.promise, bytes, 'xlsx')).bytes);
+    const strings = elements(parseXml(text(files['xl/sharedStrings.xml']), 'sst'), 't');
+    // Excel turns "_x0020_" into a space unless its underscore is escaped as "_x005F_".
+    expect(strings.map((t) => t.textContent)).toEqual(['Column field_x005F_x0020_name']);
+  } finally {
+    await loading.destroy();
+  }
+});

@@ -451,7 +451,14 @@ export async function writeXlsx(model, options = {}) {
   const sst =
     XML_HEADER +
     `<sst xmlns="${MAIN}" count="${references}" uniqueCount="${strings.length}">` +
-    strings.map((s) => `<si><t xml:space="preserve">${xml(s)}</t></si>`).join('') +
+    // Excel reads "_xHHHH_" in a string as an escaped character; text that holds one literally
+    // escapes its underscore (ECMA-376 ST_Xstring).
+    strings
+      .map(
+        (s) =>
+          `<si><t xml:space="preserve">${xml(s.replace(/_(?=x[0-9A-Fa-f]{4}_)/g, '_x005F_'))}</t></si>`,
+      )
+      .join('') +
     `</sst>`;
   parts.push({
     name: 'xl/sharedStrings.xml',
