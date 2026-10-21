@@ -516,6 +516,11 @@ export abstract class AnimEditor implements Editor {
     return null;
   }
 
+  /** Header toggle: list only channels with errors. */
+  errorsToggle(): Child {
+    return hdrToggle('only-errors', 'error', this.onlyErrors, 'Only Show Errors\nOnly include channels whose property (or driver) has an error', () => ((this.onlyErrors = !this.onlyErrors), this.refresh(), app.changed('ui')));
+  }
+
   /** Header ▸ Filters popover: what the channel list includes. */
   filtersHeader(): Child {
     const types: [string, string][] = [

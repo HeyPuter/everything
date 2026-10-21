@@ -211,6 +211,7 @@ export class GraphEditor extends AnimEditor {
         icon(this.pivot === 'CURSOR' ? 'pivot_cursor' : 'pivot_boundbox'),
         icon('down_arrow_hlt', 'tiny'),
       ),
+      this.errorsToggle(),
       this.filtersHeader(),
       this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_fcurve'),

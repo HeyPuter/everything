@@ -156,6 +156,7 @@ export class DopeSheet extends AnimEditor {
             () => ((this.showHidden = !this.showHidden), this.refresh(), app.changed('ui')),
           )
         : null,
+      this.errorsToggle(),
       this.filtersHeader(),
       this.snapHeader('keyframes'),
       proportionalHeader('use_proportional_action'),
