@@ -213,7 +213,17 @@ export function createFormulaHints({ host, onAccept, extraNames = () => [], extr
     switch (e.key) {
       case 'ArrowDown': selected = (selected + 1) % items.length; renderList(); e.preventDefault(); return true;
       case 'ArrowUp': selected = (selected - 1 + items.length) % items.length; renderList(); e.preventDefault(); return true;
-      case 'Tab': case 'Enter': e.preventDefault(); return accept();
+      case 'Tab': case 'Enter': {
+        e.preventDefault();
+        // A name typed out in full, though longer functions start the same way (Price beside PRICEDISC), is
+        // taken as the name spells it and the key goes on to enter the formula, as it does for a name no
+        // function shares: picking it again swallowed the Enter.
+        const name = items[selected];
+        const whole = ctx.kind === 'name' && (!!ctx.sheet || extraNames().includes(name)) && name.toLowerCase() === ctx.prefix.toLowerCase()
+          && !/^[A-Za-z0-9_.]/.test(sourceText.slice(ctx.start + ctx.prefix.length));
+        const accepted = accept();
+        return accepted && !whole;
+      }
       case 'Escape': e.preventDefault(); e.stopPropagation(); close(); return true;
       default: return false;
     }
