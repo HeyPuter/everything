@@ -11,13 +11,13 @@
  *  - "repeat": structural and range-wide edits (insert or delete rows, column
  *    widths, styles applied to a range, borders, merges, clearing, changing
  *    case, a Paste Special operation, removing a link, replacing formulas with
- *    their values, Fill Down, Right, Up or Left and Fill Series) are made again
- *    with the same arguments on each other sheet, so each sheet works out its
- *    own result (its own formulas move, its own cells keep their other
- *    formatting, its own text changes case, its own numbers are added to, its
- *    own link goes, its own formulas become its own values, its own first cell
- *    is filled down or starts the series);
- *  - "replay": cell writes (typing, pasting, dragging the fill handle) are
+ *    their values, Fill Down, Right, Up or Left, Fill Series and the fill
+ *    handle) are made again with the same arguments on each other sheet, so
+ *    each sheet works out its own result (its own formulas move, its own cells
+ *    keep their other formatting, its own text changes case, its own numbers
+ *    are added to, its own link goes, its own formulas become its own values,
+ *    its own first cell is filled down or starts the series);
+ *  - "replay": cell writes (typing, pasting) are
  *    recorded as they land on the active sheet, and each changed cell is then
  *    written on the other sheets: new contents where the contents changed, the
  *    changed style properties where the style changed, both where both did.
@@ -31,13 +31,13 @@ export const GROUP_REPEATED = [
   'insertRows', 'insertCols', 'deleteRows', 'deleteCols', 'deleteLines', 'insertCells', 'deleteCells',
   'setColWidth', 'setRowHeight', 'mergeCells', 'unmergeCells', 'setHidden', 'groupLines', 'ungroupLines',
   'applyStyle', 'applyBorders', 'toggleStyle', 'clearRange', 'transformText', 'pasteOperation', 'removeLink', 'formulasToValues',
-  'fillDirection', 'fillSeries',
+  'fill', 'fillDirection', 'fillSeries',
 ];
 
 /** Cell writes recorded on the active sheet and written again on the others. */
 export const GROUP_REPLAYED = [
   'setInput', 'setCells', 'setCellsWithTableHeaders', 'pasteCells', 'pasteValues', 'pasteLiteralValues', 'pasteStyles',
-  'pasteEntries', 'fill', 'fillInput',
+  'pasteEntries', 'fillInput',
 ];
 
 /**
