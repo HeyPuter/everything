@@ -1,7 +1,7 @@
 // Armature Edit Mode kernels: side names, selection walks, fill / split / dissolve, bone
 // collections and visibility. Pure functions over ArmatureData (unit tested).
 import { Vector3 } from 'three';
-import type { ArmatureData, Bone, BoneCollection, Vec3 } from '../../data/types';
+import type { BoneColor, ArmatureData, Bone, BoneCollection, Vec3 } from '../../data/types';
 
 const V = (a: ArrayLike<number>) => new Vector3(a[0], a[1], a[2]);
 
@@ -321,6 +321,13 @@ export function selectSimilar(arm: ArmatureData, type: SimilarType, threshold: n
 // ---------------------------------------------------------------------------
 // topology
 
+const TEMPLATE_KEYS = ['use_local_location', 'envelope_weight', 'use_envelope_multiply', 'show_wire', 'bbone_x', 'bbone_z', 'bbone_curveinx', 'bbone_curveinz', 'bbone_curveoutx', 'bbone_curveoutz', 'bbone_rollin', 'bbone_rollout', 'use_endroll_as_inroll', 'bbone_scalein', 'bbone_scaleout', 'bbone_easein', 'bbone_easeout', 'use_scale_easing', 'bbone_handle_type_start', 'bbone_handle_type_end', 'bbone_mapping_mode'] as const;
+
+/** A bone colour using the default colours (with custom colours ready to edit). */
+export function defaultBoneColor(): BoneColor {
+  return { palette: 'DEFAULT', custom: { normal: [0.6, 0.1, 0.1], select: [0.85, 0.3, 0.3], active: [1, 0.75, 0.75] } };
+}
+
 export function newBoneLike(arm: ArmatureData, name: string, head: ArrayLike<number>, tail: ArrayLike<number>, parent: Bone | null, connect: boolean, template?: Bone): Bone {
   const b: Bone = {
     name: uniqueBoneName(arm, name),
@@ -336,7 +343,14 @@ export function newBoneLike(arm: ArmatureData, name: string, head: ArrayLike<num
     head_radius: template?.head_radius ?? 0.1,
     tail_radius: template?.tail_radius ?? 0.05,
     bbone_segments: template?.bbone_segments ?? 1,
+    color: template?.color ? structuredClone(template.color) : defaultBoneColor(),
   };
+  // the remaining optional settings carry over from the template (duplicates, extrusions of a copy)
+  if (template)
+    for (const k of TEMPLATE_KEYS) {
+      const v = template[k];
+      if (v !== undefined) (b as unknown as Record<string, unknown>)[k] = structuredClone(v);
+    }
   const cols = template?.collections ?? parent?.collections;
   if (cols?.length) b.collections = [...cols];
   else if (arm.collections?.length) {

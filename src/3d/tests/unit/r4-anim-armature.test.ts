@@ -96,3 +96,25 @@ describe('pose library', () => {
     expect(ob.animation_data!.action).toBe(null);
   });
 });
+
+describe('bone colours', () => {
+  it('copy colours to selected bones; scripts set palettes', async () => {
+    const { runJavaScript } = await import('../../src/scripting/runner');
+    const { effectiveColorSet, BONE_COLOR_SETS } = await import('../../src/modes/armature/bonecolors');
+    const b = arm.bones[0];
+    b.select = b.select_head = false;
+    b.select_tail = true;
+    app.run('armature.extrude', { forked: false });
+    arm.active_bone = 'Bone';
+    arm.bones[0].color = { palette: 'THEME04' };
+    arm.bones[1].select = true;
+    expect(app.run('armature.copy_bone_color_to_selected', { bone_type: 'EDIT' })).toBe('FINISHED');
+    expect(arm.bones[1].color!.palette).toBe('THEME04');
+    expect(effectiveColorSet(arm.bones[1], undefined, false)).toBe(BONE_COLOR_SETS[3]);
+    app.run('object.mode_set', { mode: 'POSE' });
+    const r = runJavaScript(`D.objects['${ob.name}'].pose.bones['Bone.001'].color.palette = 'THEME09';`);
+    expect(r.ok).toBe(true);
+    // the pose bone colour wins over the bone's while posed
+    expect(effectiveColorSet(arm.bones[1], ob.pose!['Bone.001'], true)).toBe(BONE_COLOR_SETS[8]);
+  });
+});

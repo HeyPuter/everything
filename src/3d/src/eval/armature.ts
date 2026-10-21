@@ -54,6 +54,7 @@ export function defaultPoseBone(): PoseBone {
     rotation_axis_angle: [0, 0, 1, 0],
     scale: [1, 1, 1],
     constraints: [],
+    color: { palette: 'DEFAULT', custom: { normal: [0.6, 0.1, 0.1], select: [0.85, 0.3, 0.3], active: [1, 0.75, 0.75] } },
   };
 }
 
