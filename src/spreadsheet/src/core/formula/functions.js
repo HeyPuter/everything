@@ -8507,8 +8507,11 @@ Object.assign(FUNCTIONS, {
       let lo = 0;
       let hi = trials;
       while (lo < hi) {
-        const mid = Math.floor((lo + hi) / 2);
+        // Halved as a distance: lo + hi rounds up past 2^53, and BINOM.INV(2^53,1,1) bisected for ever.
+        const mid = lo + Math.floor((hi - lo) / 2);
+        const width = hi - lo;
         if (binomialCdf(trials, mid, a[1]).p >= a[2] - 1e-12) hi = mid; else lo = mid + 1;
+        if (hi - lo >= width) break; // past 2^53 the counts lie further apart than one: none between to try
       }
       return lo;
     },
