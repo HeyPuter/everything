@@ -127,10 +127,13 @@ function liveHosts(): { el: HTMLElement; host: Host2D }[] {
   return out;
 }
 
-function renderOverlays() {
+/** Draw the overlays that changed; true while some editor shows annotations (keep following its view). */
+function renderOverlays(): boolean {
+  let busy = !!preview || !!eraser;
   for (const { el, host } of liveHosts()) {
     const owner = host.owner();
     const list = owner ? strokesOf(owner) : [];
+    if (list.length) busy = true;
     const p0 = host.toView(0, 0),
       p1 = host.toView(100, 100);
     const sig = `${p0.join(',')}|${p1.join(',')}|${el.clientWidth}x${el.clientHeight}|${list.length}|${aidOf(list)}|${preview?.el === el ? `p${preview.pts.length}${preview.rubber ?? ''}` : ''}|${eraser?.el === el ? `${eraser.x},${eraser.y}` : ''}`;
@@ -159,6 +162,7 @@ function renderOverlays() {
     if (eraser?.el === el) parts.push(h('circle', { cx: eraser.x, cy: eraser.y, r: annotateSettings.eraserRadius, fill: 'none', stroke: '#ffffff', 'stroke-width': 1, opacity: 0.8 }));
     patch(ov.el, [h('svg', { width: '100%', height: '100%' }, parts)]);
   }
+  return busy;
 }
 
 const ids = new WeakMap<object, number>();
@@ -169,20 +173,27 @@ function aidOf(o: object) {
   return i;
 }
 
-let raf = 0;
+// every frame while annotations are shown (they follow pans and zooms), else a slow check
+let raf = 0,
+  idle = 0;
 function loop() {
   raf = 0;
+  idle = 0;
+  let busy = true;
   try {
-    renderOverlays();
+    busy = renderOverlays();
   } catch {
     // an editor in transition (being replaced): try again next frame
   }
-  schedule();
+  if (busy) kick();
+  else idle = window.setTimeout(loop, 300);
 }
-function schedule() {
+function kick() {
+  if (idle) window.clearTimeout(idle);
+  idle = 0;
   if (!raf && typeof requestAnimationFrame !== 'undefined') raf = requestAnimationFrame(loop);
 }
-if (typeof window !== 'undefined') schedule();
+if (typeof window !== 'undefined') kick();
 
 // ---------------------------------------------------------------------------
 // drawing
@@ -198,6 +209,7 @@ function hostAt(clientX: number, clientY: number): { el: HTMLElement; host: Host
 function start2D(e: PointerEvent, mode: 'DRAW' | 'DRAW_STRAIGHT' | 'DRAW_POLY' | 'ERASER'): boolean {
   const hit = hostAt(e.clientX, e.clientY);
   if (!hit) return false;
+  kick();
   const owner = hit.host.owner();
   if (!owner) return false;
   const { el, host } = hit;
