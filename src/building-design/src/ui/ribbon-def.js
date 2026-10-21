@@ -189,7 +189,7 @@ export const RIBBON = [
     label: 'Massing & Site',
     panels: [
       { title: 'Conceptual Mass', items: [{ cmd: 'mass', size: 'lg' }] },
-      { title: 'Model by Face', items: [{ cmd: 'curtainByFace', size: 'lg' }, { cmd: 'roofByFace', size: 'lg' }, { cmd: 'wallByFace', size: 'lg' }, { cmd: 'floorByFace', size: 'lg' }] },
+      { title: 'Model by Face', items: [{ cmd: 'curtainByFace', size: 'lg', label: 'Curtain System' }, { cmd: 'roofByFace', size: 'lg', label: 'Roof' }, { cmd: 'wallByFace', size: 'lg', label: 'Wall' }, { cmd: 'floorByFace', size: 'lg', label: 'Floor' }] },
       { title: 'Model Site', items: [{ cmd: 'topo', size: 'lg' }, { cmd: 'siteComponent', size: 'lg' }, { cmd: 'parkingComponent', size: 'lg' }, { cmd: 'propertyLine', size: 'lg' }] },
     ],
   },
@@ -253,6 +253,7 @@ export const RIBBON = [
       { title: 'Crop', items: [{ cmd: 'cropView' }, { cmd: 'cropShow' }] },
       { title: 'Sheet Composition', items: [{ cmd: 'sheet', size: 'lg' }, { cmd: 'placeView', size: 'lg' }, { cmd: 'revisions', size: 'lg' }] },
       { title: 'Windows', items: [{ cmd: 'closeInactive' }, { cmd: 'toggleProps' }, { cmd: 'toggleBrowser' }] },
+      { title: 'User Interface', items: [{ cmd: 'shortcuts', size: 'lg' }, { cmd: 'options', size: 'lg' }] },
       { title: 'Navigate', items: [{ cmd: 'zoomFit' }, { cmd: 'zoomRegion' }, { cmd: 'sectionBox' }] },
     ],
   },
@@ -361,6 +362,6 @@ export function contextualPanels(kinds) {
   if (k === 'wall') panels.push({ title: 'Wall', items: [{ cmd: 'flip', size: 'lg' }, { cmd: 'attachTop', size: 'lg' }, { cmd: 'detachTop', size: 'lg' }] });
   if (k === 'door' || k === 'window') panels.push({ title: 'Opening', items: [{ cmd: 'flip', size: 'lg' }] });
   if (k === 'floor' || k === 'roof' || k === 'ceiling' || k === 'railing') panels.push({ title: 'Mode', items: [{ cmd: 'editBoundary', size: 'lg' }] });
-  panels.push({ title: 'View', items: [{ cmd: 'hideEl' }, { cmd: 'hideCat' }, { cmd: 'tempIsolate' }, { cmd: 'tempHide' }, { cmd: 'selectSimilar' }] });
+  panels.push({ title: 'View', items: [{ cmd: 'hideEl' }, { cmd: 'hideCat' }, { cmd: 'overrideEl' }, { cmd: 'tempIsolate' }, { cmd: 'tempHide' }, { cmd: 'selectSimilar' }] });
   return panels;
 }

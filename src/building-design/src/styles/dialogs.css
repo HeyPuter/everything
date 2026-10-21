@@ -704,3 +704,126 @@
   gap: 8px;
   align-items: center;
 }
+
+/* Options -------------------------------------------------------------------- */
+
+.opt-layout {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 16px;
+  min-height: 300px;
+}
+
+.opt-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-right: 1px solid var(--border);
+  padding-right: 8px;
+}
+
+.opt-tab {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opt-tab:hover {
+  background: var(--bg-hover);
+}
+
+.opt-tab[aria-selected='true'] {
+  background: var(--bg-active);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.opt-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.opt-panel .dlg-sub {
+  margin: 0;
+}
+
+.opt-row {
+  width: 100%;
+}
+
+.opt-row.check {
+  align-items: flex-start;
+}
+
+.opt-row small.field-hint {
+  display: block;
+  margin-top: 2px;
+}
+
+@media (max-width: 560px) {
+  .opt-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .opt-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 8px;
+  }
+}
+
+/* Keyboard shortcuts editor ----------------------------------------------------- */
+
+.kbd-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.kbd-tools .input[type='search'] {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.kbd-scroll {
+  max-height: min(56vh, 520px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.kbd-scroll .vg-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-group);
+}
+
+.kbd-input {
+  width: 52px;
+  font-family: var(--font-mono);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.kbd-clash .kbd-input {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.vg-table td.muted {
+  color: var(--fg-muted);
+}

@@ -7,12 +7,13 @@ import { Ribbon } from './ui/ribbon.js';
 import { contextualPanels, GROUP_EDIT_PANEL } from './ui/ribbon-def.js';
 import { PropertiesPanel, pluralLabel } from './ui/properties.js';
 import { ProjectBrowser } from './ui/browser.js';
-import { installTooltips, hideTooltip } from './ui/tooltip.js';
+import { installTooltips, hideTooltip, setTooltipMode } from './ui/tooltip.js';
+import * as options from './ui/options.js';
 import { showMenu, closeMenus } from './ui/menu.js';
 import { toast, confirmDialog, promptDialog } from './ui/dialog.js';
 import { h, clear, MOD } from './ui/dom.js';
 import { icon, KIND_ICON } from './ui/icons.js';
-import { COMMANDS } from './commands.js';
+import { COMMANDS, applyShortcuts } from './commands.js';
 import { Scene, MODEL_KINDS } from './core/scene.js';
 import { createProject, default3DView, upgradeDoc } from './core/template.js';
 import { createSampleProject } from './core/sample.js';
@@ -100,6 +101,7 @@ export class App {
 
   async start() {
     this.settingsStore.load();
+    this.applyPreferences();
     this.applyTheme();
     this.shell = buildShell(this);
     this.ribbon = new Ribbon(this);
@@ -130,6 +132,8 @@ export class App {
       if (!ok) return;
       this.renderAccount();
       await this.settingsStore.syncFromCloud();
+      this.applyPreferences();
+      this.ribbon.renderBody();
       this.applyTheme();
       files.handleLaunchItems(this);
     });
@@ -778,6 +782,10 @@ export class App {
         // While a group is edited, only its members (and annotations) can be picked.
         if (groupable(el) && el.groupId !== this.groupEdit.groupId) continue;
       } else if (el?.groupId && this.doc.has(el.groupId)) t = el.groupId;
+      // Selection options in the status bar.
+      const target = this.doc.get(t);
+      if (target?.pinned && this.settings.selectPinned === false) continue;
+      if (this.settings.selectLinks === false && target?.kind === 'link') continue;
       if (!out.includes(t)) out.push(t);
     }
     return out;
@@ -1275,6 +1283,7 @@ export class App {
           { label: 'Elements', action: () => this.hideInView('element') },
           { label: 'Category', action: () => this.hideInView('category') },
         ] },
+        { label: 'Override Graphics in View...', icon: 'wsDisplay', shortcut: 'OG', action: () => this.run('overrideEl') },
         { label: 'Isolate Temporarily', icon: 'isolate', shortcut: 'HI', action: () => this.temporary('isolate') },
         this.reveal.has(this.activeViewId) ? { label: 'Unhide in View', icon: 'eye', action: () => this.unhideSelected() } : null,
         { separator: true },
@@ -1672,6 +1681,8 @@ export class App {
       await signIn();
       await this.renderAccount();
       await this.settingsStore.syncFromCloud();
+      this.applyPreferences();
+      this.ribbon.renderBody();
       this.applyTheme();
       return true;
     } catch {
@@ -1688,6 +1699,16 @@ export class App {
   }
 
   // Menus -------------------------------------------------------------------------------------------
+
+  selectionOptionsMenu(anchor) {
+    const flip = (k) => this.settingsStore.set(k, this.settings[k] === false);
+    showMenu(anchor, [
+      { label: 'Select Pinned Elements', checked: this.settings.selectPinned !== false, action: () => flip('selectPinned') },
+      { label: 'Drag Elements When Selecting', checked: this.settings.dragOnSelect !== false, action: () => flip('dragOnSelect') },
+      { separator: true },
+      { label: 'Options...', icon: 'settings', action: () => this.run('options') },
+    ], { label: 'Selection options' });
+  }
 
   appMenu(anchor) {
     const recent = files.recentFiles().slice(0, 6);
@@ -1707,7 +1728,8 @@ export class App {
         { label: 'Project Information...', icon: 'info', action: () => this.run('projectInfo') },
         { separator: true },
         { label: 'Home', icon: 'house', action: () => this.showHome() },
-        { label: 'Keyboard Shortcuts', icon: 'keyboard', action: () => this.run('shortcuts') },
+        { label: 'Options...', icon: 'settings', action: () => this.run('options') },
+        { label: 'Keyboard Shortcuts...', icon: 'keyboard', action: () => this.run('shortcuts') },
         { label: 'About Building Design', icon: 'info', action: () => this.run('about') },
       ].filter(Boolean),
       { label: 'File', className: 'app-menu' },
@@ -1803,7 +1825,21 @@ export class App {
     return dialogs.purgeDialog(this);
   }
   shortcutsDialog() {
-    return dialogs.shortcutsDialog(this);
+    return options.shortcutsDialog(this);
+  }
+
+  optionsDialog() {
+    return options.optionsDialog(this);
+  }
+
+  elementOverrideDialog() {
+    return dialogs.elementOverrideDialog(this);
+  }
+
+  /** User preferences that live outside the settings object. */
+  applyPreferences() {
+    applyShortcuts(this.settings.shortcuts || {});
+    setTooltipMode(this.settings.tooltips);
   }
   helpDialog() {
     return dialogs.helpDialog(this);

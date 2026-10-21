@@ -137,6 +137,9 @@ export function viewGraphics(doc, view, el) {
     if (f.visible === false) out.hidden = true;
     if (f.override) merge(out, f.override);
   }
+  // Element overrides win over categories and filters.
+  const eo = view.elOverrides?.[el.id];
+  if (eo) merge(out, eo);
   return out;
 }
 

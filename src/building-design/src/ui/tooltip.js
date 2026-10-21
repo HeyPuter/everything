@@ -8,6 +8,12 @@ import { h } from './dom.js';
 let tip = null;
 let timer = 0;
 let current = null;
+let mode = 'full';
+
+/** 'full' (with descriptions), 'short' (names and keys only) or 'off'. */
+export function setTooltipMode(m) {
+  mode = m || 'full';
+}
 
 function ensure() {
   if (!tip) {
@@ -23,8 +29,9 @@ function ensure() {
 
 function show(el) {
   const t = ensure();
+  if (mode === 'off') return;
   t.replaceChildren(h('div.tooltip-title', el.dataset.tip, el.dataset.tipKeys ? h('kbd', el.dataset.tipKeys) : null));
-  if (el.dataset.tipDesc) t.append(h('div.tooltip-desc', el.dataset.tipDesc));
+  if (el.dataset.tipDesc && mode !== 'short') t.append(h('div.tooltip-desc', el.dataset.tipDesc));
   t.classList.add('show');
   const r = el.getBoundingClientRect();
   const w = t.offsetWidth,

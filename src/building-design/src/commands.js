@@ -213,10 +213,10 @@ export const COMMANDS = {
   electricalFixture: { label: 'Device', icon: 'device', run: component('electricalFixtures', 'cpt-receptacle'), desc: 'Receptacles and switches' },
   electricalEquipment: { label: 'Electrical Equipment', icon: 'elecEquipment', run: component('electricalEquipment', 'cpt-panel') },
   mass: { label: 'In-Place Mass', icon: 'mass', keys: 'MS', run: tool(SketchTool, { kind: 'mass' }), desc: 'A volume to study the form of a building before modeling it' },
-  wallByFace: { label: 'Wall', icon: 'wallByFace', run: tool(ByFaceTool, { what: 'wall' }), desc: 'Walls on every level along the sides of a mass' },
-  floorByFace: { label: 'Floor', icon: 'floorByFace', run: tool(ByFaceTool, { what: 'floor' }), desc: 'Floors at every level a mass crosses' },
-  roofByFace: { label: 'Roof', icon: 'roofByFace', run: tool(ByFaceTool, { what: 'roof' }), desc: 'A flat roof on top of a mass' },
-  curtainByFace: { label: 'Curtain System', icon: 'curtainWall', run: tool(ByFaceTool, { what: 'curtain' }), desc: 'Curtain walls around the sides of a mass' },
+  wallByFace: { label: 'Wall by Face', icon: 'wallByFace', run: tool(ByFaceTool, { what: 'wall' }), desc: 'Walls on every level along the sides of a mass' },
+  floorByFace: { label: 'Floor by Face', icon: 'floorByFace', run: tool(ByFaceTool, { what: 'floor' }), desc: 'Floors at every level a mass crosses' },
+  roofByFace: { label: 'Roof by Face', icon: 'roofByFace', run: tool(ByFaceTool, { what: 'roof' }), desc: 'A flat roof on top of a mass' },
+  curtainByFace: { label: 'Curtain System by Face', icon: 'curtainWall', run: tool(ByFaceTool, { what: 'curtain' }), desc: 'Curtain walls around the sides of a mass' },
   topo: { label: 'Toposurface', icon: 'topo', run: tool(TopoTool), desc: 'Ground surface through points at their elevations' },
   propertyLine: { label: 'Property Line', icon: 'propertyLine', run: tool(SketchTool, { kind: 'propertyLine' }) },
   siteComponent: { label: 'Site Component', icon: 'siteComponent', run: component('site', 'cpt-bench') },
@@ -311,6 +311,7 @@ export const COMMANDS = {
   sheet: { label: 'Sheet', icon: 'sheet', run: (app) => app.newSheet() },
   placeView: { label: 'Place View on Sheet', icon: 'sheet', run: (app) => app.placeViewDialog() },
   hideEl: { label: 'Hide Element in View', icon: 'hideEl', keys: 'EH', enabled: hasSel, run: (app) => app.hideInView('element') },
+  overrideEl: { label: 'Override Graphics in View', icon: 'wsDisplay', keys: 'OG', enabled: hasSel, run: (app) => app.elementOverrideDialog(), desc: 'Colour, line weight or halftone for the selected elements in this view' },
   hideCat: { label: 'Hide Category in View', icon: 'hideEl', keys: 'VH', enabled: hasSel, run: (app) => app.hideInView('category') },
   tempHide: { label: 'Hide Temporarily', icon: 'hideEl', keys: 'HH', enabled: hasSel, run: (app) => app.temporary('hide') },
   tempIsolate: { label: 'Isolate Temporarily', icon: 'isolate', keys: 'HI', enabled: hasSel, run: (app) => app.temporary('isolate') },
@@ -347,7 +348,8 @@ export const COMMANDS = {
   types: { label: 'Types', icon: 'types', run: (app) => app.typesDialog() },
   snaps: { label: 'Snaps', icon: 'snaps', keys: 'SN', run: (app) => app.snapsDialog() },
   purge: { label: 'Purge Unused', icon: 'purge', run: (app) => app.purgeDialog() },
-  shortcuts: { label: 'Keyboard Shortcuts', icon: 'keyboard', run: (app) => app.shortcutsDialog() },
+  shortcuts: { label: 'Keyboard Shortcuts', icon: 'keyboard', run: (app) => app.shortcutsDialog(), desc: 'See and change the two-letter shortcuts' },
+  options: { label: 'Options', icon: 'settings', run: (app) => app.optionsDialog(), desc: 'Your preferences: theme, tooltips, selection, navigation and more' },
   help: { label: 'Help', icon: 'help', accel: 'F1', run: (app) => app.helpDialog() },
   about: { label: 'About', icon: 'info', run: (app) => app.aboutDialog() },
   search: { label: 'Search Commands', icon: 'search', accel: 'Ctrl+K', run: (app) => app.commandPalette() },
@@ -376,3 +378,13 @@ export const COMMANDS = {
   navPan: { label: 'Pan', icon: 'hand', run: (app) => app.setNavMode('pan') },
   navOrbit: { label: 'Orbit', icon: 'orbit', run: (app) => app.setNavMode('orbit') },
 };
+
+/** Apply the user's two-letter shortcuts ({ command: 'XY' | '' }) over the defaults. */
+export function applyShortcuts(overrides) {
+  for (const [name, d] of Object.entries(COMMANDS)) {
+    if (!('defaultKeys' in d)) d.defaultKeys = d.keys ?? '';
+    const k = overrides && name in overrides ? overrides[name] : d.defaultKeys;
+    if (k) d.keys = k;
+    else delete d.keys;
+  }
+}

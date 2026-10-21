@@ -79,7 +79,11 @@ export class SelectTool extends Tool {
       const sel = this.app.selection;
       if (ev.ctrl) this.app.select([hit], sel.has(hit) ? 'remove' : 'add');
       else if (ev.shift) this.app.select([hit], 'remove');
-      else if (!sel.has(hit)) this.app.select([hit]);
+      else if (!sel.has(hit)) {
+        this.app.select([hit]);
+        // Optionally, the first click only selects; dragging needs a second press.
+        if (this.app.settings.dragOnSelect === false) return;
+      }
       this.drag = { kind: 'move', x: ev.x, y: ev.y, p: ev.p, started: false, hit };
       return;
     }

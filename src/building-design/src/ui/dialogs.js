@@ -3,7 +3,7 @@
  * project information, units, materials, levels, types, snaps, purge,
  * schedules, sheets, sharing, export, command search, shortcuts and help.
  */
-import { h, clear, MOD } from './dom.js';
+import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { openDialog, toast, confirmDialog, promptDialog } from './dialog.js';
 import { COMMANDS } from '../commands.js';
@@ -347,6 +347,39 @@ function overrideCells(ov, label, onChange) {
   const half = h('input', { type: 'checkbox', checked: !!ov.halftone, 'aria-label': `${label} halftone` });
   half.addEventListener('change', () => ((ov.halftone = half.checked), onChange()));
   return [h('td', colorWrap), h('td', weight), h('td.center', half)];
+}
+
+/** Override the graphics of the selected elements in the active view. */
+export function elementOverrideDialog(app) {
+  const view = app.activeView;
+  const ids = [...app.selection].filter((id) => app.doc.has(id));
+  if (!view || !ids.length) return toast('Select elements in a view first.', { kind: 'error' });
+  const cur = view.elOverrides || {};
+  const ov = { ...(cur[ids[0]] || {}) };
+  const row = h('tr', h('td', `${ids.length} element${ids.length === 1 ? '' : 's'}`), ...overrideCells(ov, 'Selected elements', () => {}));
+  const apply = (value) =>
+    app.commit('Override graphics', () => {
+      const next = { ...(app.doc.get(view.id).elOverrides || {}) };
+      for (const id of ids) {
+        if (value) next[id] = value;
+        else delete next[id];
+      }
+      app.doc.update(view.id, { elOverrides: next });
+    });
+  return openDialog({
+    title: `Graphics of Elements in ${view.name}`,
+    size: 'md',
+    body: h(
+      'div',
+      h('table.vg-table', h('thead', h('tr', h('th', 'Selection'), h('th', 'Lines'), h('th', 'Weight'), h('th.center', 'Halftone'))), h('tbody', row)),
+      h('p.field-hint', 'These settings apply in this view only and win over category and filter settings.'),
+    ),
+    actions: [
+      { label: 'Reset', onClick: () => (apply(null), true) },
+      { label: 'Cancel', value: null },
+      { label: 'OK', primary: true, onClick: () => (apply(cleanOverride(ov)), true) },
+    ],
+  });
 }
 
 function cleanOverride(o) {
@@ -1510,18 +1543,6 @@ export function commandPalette(app) {
 
 // Help -----------------------------------------------------------------------------------------------------------
 
-export function shortcutsDialog() {
-  const rows = Object.values(COMMANDS)
-    .filter((d) => d.keys || d.accel)
-    .sort((a, b) => a.label.localeCompare(b.label))
-    .map((d) => h('div.kbd-row', h('span', d.label), h('span.inline', d.keys ? h('kbd', d.keys) : null, d.accel ? h('kbd', d.accel.replace('Ctrl', MOD)) : null)));
-  return openDialog({
-    title: 'Keyboard Shortcuts',
-    body: h('div', h('p.dialog-text', { style: { marginBottom: '10px' } }, 'Type two-letter shortcuts in the view (no need to press Enter). Enter repeats the last tool, Esc cancels, Tab cycles overlapping elements, Space flips or rotates while placing.'), h('div.kbd-list', rows)),
-    size: 'lg',
-    actions: [{ label: 'Close', primary: true, value: null }],
-  });
-}
 
 export function helpDialog() {
   const sec = (title, items) => [h('h3.dlg-sub', title), h('ul.help-list', items.map((t) => h('li', t)))];

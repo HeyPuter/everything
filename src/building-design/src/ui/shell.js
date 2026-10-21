@@ -93,7 +93,8 @@ export function buildShell(app) {
   const syncBtn = h('button.sb-item.sb-sync', { type: 'button', hidden: true, 'data-tip': 'Shared project', onClick: () => app.run('syncNow') });
   const wsSelect = h('select.sb-select', { 'aria-label': 'Active workset', onChange: (e) => app.setActiveWorkset(e.target.value) });
   const wsWrap = h('label.sb-item.sb-ws', { hidden: true, 'data-tip': 'Active workset', 'data-tip-desc': 'New elements go into this workset' }, icon('worksets', 14), wsSelect);
-  const statusbar = h('footer.statusbar', prompt, selInfo, wsWrap, syncBtn, snapBtn, coords);
+  const selOpts = h('button.sb-item', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Selection options', 'data-tip': 'Selection options', 'data-tip-desc': 'Whether pinned elements can be selected, and whether a click starts a drag', onClick: (e) => app.selectionOptionsMenu(e.currentTarget) }, icon('pointer', 14));
+  const statusbar = h('footer.statusbar', prompt, selInfo, wsWrap, syncBtn, selOpts, snapBtn, coords);
 
   const phonebar = h('nav.phonebar', { 'aria-label': 'Tools' });
   const root = h('div.app-root', titlebar, h('div.ribbon-slot', { style: { display: 'contents' } }), optionsbar, main, statusbar, phonebar);

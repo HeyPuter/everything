@@ -224,7 +224,7 @@ export class Scene {
     let g = null;
     try {
       g = planGraphics(ctx, el);
-      if (g && (view.overrides || view.filters?.length || this.doc.get('project')?.objectStyles)) g = restyle(g, viewGraphics(this.doc, view, el));
+      if (g && (view.overrides || view.filters?.length || view.elOverrides || this.doc.get('project')?.objectStyles)) g = restyle(g, viewGraphics(this.doc, view, el));
       if (g && view.cropOn && view.crop && !el.viewId && !isView(el) && el.kind !== 'section' && el.kind !== 'elevation') g = cropGraphics(g, view.crop);
       if (g && phased(el) && phaseLook(this.doc, view, el) === 'dashed') g = dashed(g);
       if (g && view.wsDisplay === 'worksets' && worksharingOn(this.doc) && worksetable(this.doc, el)) g = restyle(g, { color: worksetColor(this.doc, worksetOf(this.doc, el)?.id) });
