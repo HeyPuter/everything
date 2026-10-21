@@ -192,3 +192,21 @@ test('annotate line, polygon and eraser tools', async ({ page }) => {
   expect((await strokes()).length).toBe(1);
   await expectNoErrors(errors);
 });
+
+test('right button cancels a middle-button orbit', async ({ page }) => {
+  const errors = await openApp(page);
+  const c = await hoverViewport(page);
+  const q0 = (await view(page, 'v.nav.rot.toArray()')) as number[];
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(c.x + 90, c.y + 30, { steps: 5 });
+  const q1 = (await view(page, 'v.nav.rot.toArray()')) as number[];
+  expect(q1.some((x, i) => Math.abs(x - q0[i]) > 0.01)).toBe(true);
+  await page.mouse.down({ button: 'right' });
+  await page.mouse.up({ button: 'right' });
+  await page.mouse.up({ button: 'middle' });
+  const q2 = (await view(page, 'v.nav.rot.toArray()')) as number[];
+  q2.forEach((x, i) => expect(x).toBeCloseTo(q0[i], 5));
+  // no context menu was opened by the cancelling click
+  await expect(page.locator('.menu')).toHaveCount(0);
+  await expectNoErrors(errors);
+});

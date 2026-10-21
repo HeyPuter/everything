@@ -828,6 +828,23 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     }
     // free rotation while Alt snaps the displayed view to the nearest axis view
     let freeRot: Quaternion | null = null;
+    // the right button cancels the navigation: the view goes back to where the drag started
+    const startState = { pivot: this.nav.pivot.clone(), rot: this.nav.rot.clone(), distance: this.nav.distance, view: this.nav.view, ortho: this.nav.ortho };
+    // (a second button pressed during a drag arrives as a pointer move with the button set)
+    const cancel = (ev: PointerEvent) => {
+      if (ev.button !== 2 || !(ev.buttons & 2)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.nav.pivot.copy(startState.pivot);
+      this.nav.rot.copy(startState.rot);
+      this.nav.distance = startState.distance;
+      this.nav.view = startState.view;
+      this.nav.ortho = startState.ortho;
+      up();
+      this.afterNav();
+    };
+    addEventListener('pointerdown', cancel, true);
+    addEventListener('pointermove', cancel, true);
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - last.x,
         dy = ev.clientY - last.y;
@@ -854,6 +871,8 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       this.el.removeEventListener('pointermove', move);
       this.el.removeEventListener('pointerup', up);
       this.el.removeEventListener('pointercancel', up);
+      removeEventListener('pointerdown', cancel, true);
+      removeEventListener('pointermove', cancel, true);
     };
     this.el.addEventListener('pointermove', move);
     this.el.addEventListener('pointerup', up);
