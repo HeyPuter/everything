@@ -1,13 +1,14 @@
 // Properties ▸ Render: engine choice and the settings each engine honours.
 import { h, type Child } from '../../../ui/h';
 import { registerTab } from '../../../editors/properties/properties';
-import { panel, enumMenu, enumRow } from '../../../ui/widgets';
+import { panel, enumMenu, enumRow, opButton } from '../../../ui/widgets';
 import { num, bool, enumProp, colorProp, splitRow } from '../../../ui/props';
 import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
 import { pathTraceMainPanels } from './pathtrace';
+import { SHUTTER_SHAPES } from '../renderops';
 import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
 
 export const ENGINES = [
@@ -175,6 +176,24 @@ function motionBlurPanel(r: RenderSettings): Child {
     () => [
       enumProp(r, 'motion_blur_position' as never, 'Position', [['START', 'Start on Frame'], ['CENTER', 'Center on Frame'], ['END', 'End on Frame']], { tip: 'Where the shutter interval lies relative to the frame' }),
       num(r, 'motion_blur_shutter', 'Shutter', { min: 0, max: 2, softMax: 1, tip: 'Time (in frames) the shutter is open' }),
+      sub(
+        'rs-motion-curve',
+        'Shutter Curve',
+        () => [
+          curveWidget(
+            'rs-shutter-curve',
+            () => r.motion_blur_shutter_curve ?? [[0, 1], [1, 1]],
+            (pts) => (r.motion_blur_shutter_curve = pts),
+            'How far the shutter is open over the motion blur interval',
+          ),
+          h(
+            'div',
+            { class: 'rs-curve-presets' },
+            SHUTTER_SHAPES.map((s) => opButton('render.shutter_curve_preset', '', { shape: s.value }, { icon: s.icon, tip: `${s.label} shutter curve` })),
+          ),
+        ],
+        { closed: true },
+      ),
     ],
     { header: headerToggle(r, 'use_motion_blur', 'Motion Blur'), closed: true },
   );
@@ -192,7 +211,7 @@ function pathTracePanels(r: RenderSettings): Child {
     motionBlurPanel(r),
     main.film,
     panel(
-      'rs-perf',
+      'rs-pt-perf',
       'Performance',
       () => [
         sub('rs-perf-final', 'Final Render', () => [

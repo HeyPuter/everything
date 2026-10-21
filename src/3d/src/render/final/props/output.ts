@@ -2,7 +2,7 @@
 import { h, type Child } from '../../../ui/h';
 import { app } from '../../../app/app';
 import { registerTab } from '../../../editors/properties/properties';
-import { panel, enumMenu, numberField, textField, checkbox } from '../../../ui/widgets';
+import { panel, enumMenu, numberField, textField, checkbox, opButton } from '../../../ui/widgets';
 import { num, bool, enumProp, colorProp, splitRow, textProp } from '../../../ui/props';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
@@ -28,7 +28,11 @@ function formatPanel(r: RenderSettings): Child {
   const preset = fpsPreset(r);
   const showCustom = customFps || preset === 'custom';
   return panel('out-format', 'Format', () => [
-    splitRow('Resolution X', numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
+    splitRow(
+      'Resolution X',
+      numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) }),
+      opButton('render.swap_dimensions', '', {}, { icon: 'rs_swap', className: 'out-swap', tip: 'Swap width and height' }),
+    ),
     splitRow('Y', numberField({ id: 'res-y', value: r.resolution_y, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_y = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     num(r, 'resolution_percentage', '%', { unit: 'percentage', int: true, min: 1, max: 1000, softMax: 100, slider: true }),
     num(r, 'pixel_aspect_x', 'Aspect X', { min: 1, max: 200, tip: 'Horizontal pixel aspect (non-square pixels)' }),

@@ -41,14 +41,14 @@ function denoisePanel(id: string, r: RenderSettings, c: PathTraceSettings, viewp
 }
 
 function samplingPanel(r: RenderSettings, c: PathTraceSettings): Child {
-  return panel('rs-sampling', 'Sampling', () => [
-    sub('rs-samp-vp', 'Viewport', () => [
+  return panel('rs-pt-sampling', 'Sampling', () => [
+    sub('rs-pt-samp-vp', 'Viewport', () => [
       checkNum(c, 'use_preview_adaptive_sampling', 'preview_adaptive_threshold', 'Noise Threshold', { min: 0, max: 1, softMin: 0.001, precision: 4, step: 0.01, tip: 'Pixels stop sampling once their estimated noise is below this level' }),
       num(r, 'preview_samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples of the Rendered viewport' }),
       num(c, 'preview_adaptive_min_samples', 'Min Samples', { int: true, min: 0, max: 4096, disabled: !c.use_preview_adaptive_sampling, tip: 'Samples before pixels may stop (0 chooses from the threshold)' }),
       denoisePanel('rs-samp-vp-denoise', r, c, true),
     ]),
-    sub('rs-samp-render', 'Render', () => [
+    sub('rs-pt-samp-render', 'Render', () => [
       checkNum(c, 'use_adaptive_sampling', 'adaptive_threshold', 'Noise Threshold', { min: 0, max: 1, softMin: 0.001, precision: 4, step: 0.01, tip: 'Pixels stop sampling once their estimated noise is below this level' }),
       num(r, 'samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples per pixel of final renders' }),
       num(c, 'adaptive_min_samples', 'Min Samples', { int: true, min: 0, max: 4096, disabled: !c.use_adaptive_sampling, tip: 'Samples before pixels may stop (0 chooses from the threshold)' }),
@@ -56,7 +56,7 @@ function samplingPanel(r: RenderSettings, c: PathTraceSettings): Child {
       denoisePanel('rs-samp-render-denoise', r, c, false),
     ]),
     sub(
-      'rs-samp-advanced',
+      'rs-pt-samp-advanced',
       'Advanced',
       () => [
         num(c, 'seed', 'Seed', { int: true, min: 0, max: 2147483647, tip: 'Seed of the noise pattern: renders with the same seed have the same noise' }),
@@ -71,7 +71,7 @@ function samplingPanel(r: RenderSettings, c: PathTraceSettings): Child {
 
 function lightPathsPanel(r: RenderSettings, c: PathTraceSettings): Child {
   return panel(
-    'rs-lightpaths',
+    'rs-pt-lightpaths',
     'Light Paths',
     () => [
       sub('rs-lp-bounces', 'Max Bounces', () => [

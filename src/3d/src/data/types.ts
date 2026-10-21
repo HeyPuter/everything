@@ -1116,6 +1116,8 @@ export interface RenderSettings extends RealtimeRenderSettings {
   // --- depth of field / motion blur / film
   use_bokeh_jittered?: boolean;
   motion_blur_position?: 'START' | 'CENTER' | 'END';
+  /** shutter openness over the shutter interval (control points x, y in 0..1); absent = fully open */
+  motion_blur_shutter_curve?: [number, number][];
   filter_size?: number;
   pixel_filter_type?: 'BOX' | 'GAUSSIAN' | 'BLACKMAN_HARRIS';
   filter_width?: number;

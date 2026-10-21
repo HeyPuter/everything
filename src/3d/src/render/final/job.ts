@@ -24,7 +24,8 @@ import { showRenderView } from './renderwindow';
 import { shell, statusWidgets } from '../../ui/shell';
 import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
-import type { ViewSettings } from './colormanage';
+import { curveTable, type ViewSettings } from './colormanage';
+import type { RenderSettings } from '../../data/types';
 import { passesFromGuide } from './passes';
 import { stampFields, burnStampOverlay, pngWithText } from './stamp';
 import { animationRecorder } from './playback';
@@ -55,6 +56,13 @@ let finalCore: PathTracerCore | null = null;
 const raster = new RasterRenderer(4);
 const accum = new Accumulator();
 const denoiser = new Denoiser();
+
+/** Sampled shutter curve of the motion blur settings (null when the shutter is fully open throughout). */
+function shutterTable(r: RenderSettings): Float32Array | null {
+  const pts = r.motion_blur_shutter_curve;
+  if (!pts || pts.length < 2 || pts.every((p) => p[1] >= 0.9999)) return null;
+  return curveTable(pts);
+}
 
 export interface JobState {
   frame: number;
@@ -357,7 +365,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       for (let sl = 0; sl < slices && !timeUp; sl++) {
         const target = Math.max(1, Math.round((maxSamples * (sl + 1)) / slices) - Math.round((maxSamples * sl) / slices));
         if (motion) {
-          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER', shutterTable(r)));
           rs.build(app, opts);
           camera = cameraFor(src, FW, FH, region) ?? camera;
           core.sync(rs, camera, Math.random());
@@ -437,7 +445,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       for (let i = 0; i < maxSamples; i++) {
         check();
         if (motion) {
-          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER', shutterTable(r)));
           rs.build(app, opts);
           camera = cameraFor(src, FW, FH, region) ?? camera;
           base = (camera as PerspectiveCamera).projectionMatrix.clone();
