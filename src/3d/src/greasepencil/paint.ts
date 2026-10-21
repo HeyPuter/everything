@@ -179,16 +179,18 @@ export function materialUsable(c: NonNullable<ReturnType<typeof drawContext>>): 
 export const lazy = { on: false, x: 0, y: 0, cx: 0, cy: 0, view: null as View3D | null };
 let strokeSeed = 1;
 
-function startDraw(v: View3D, e: PointerEvent) {
+/** `guide`: a Fill tool helper line (thin, shown only in the viewport, a boundary for fills). */
+export function startDraw(v: View3D, e: PointerEvent, fillGuide = false) {
   const c = drawContext();
-  if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
-  const b = gpBrush(app.doc, 'builtin.brush.Draw');
+  if (!c || !checkLayer(c.layer) || (!fillGuide && !materialUsable(c))) return;
+  const b0 = gpBrush(app.doc, 'builtin.brush.Draw');
+  const b: GPBrush = fillGuide ? { ...b0, size: 3, use_pressure_size: false, use_pressure_strength: false, strength: 1, use_settings_random: false, use_smooth_stroke: false } : b0;
   const pl = new Placement(v, c.ob, c.gp, c.layer);
   const samples: Sample[] = [];
   const mat = Math.min(c.ob.active_material_index, Math.max(0, c.gp.materials.length - 1));
   const color = brushColorFor(b);
   const seed = strokeSeed++;
-  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat });
+  const build = (list = samples) => newStroke(samplesToPoints(pl, list, b, color, seed), { material_index: mat, ...(fillGuide ? { is_fill_guide: true } : {}) });
   const stab = !!b.use_smooth_stroke;
   const p0 = v.local(e);
   Object.assign(lazy, { on: stab, x: p0.x, y: p0.y, cx: p0.x, cy: p0.y, view: v });
@@ -439,6 +441,11 @@ editModeHooks.pointer.unshift((v, e) => {
     return true;
   }
   if (tool === 'builtin.brush.Fill') {
+    // Alt drag: draw a fill guide (a boundary line that is never rendered)
+    if (e.altKey) {
+      startDraw(v, e, true);
+      return true;
+    }
     const p = v.local(e);
     doFill(v, p.x, p.y, e.ctrlKey || e.metaKey);
     return true;

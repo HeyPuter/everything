@@ -38,6 +38,7 @@ import './annotations';
 import './curveedit';
 import './pen';
 import './texgrad';
+import './fillguides';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [
