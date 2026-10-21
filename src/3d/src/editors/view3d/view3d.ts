@@ -608,19 +608,21 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
   /** Where a locked view is centred (View Lock to object / 3D cursor), or null. */
   lockTarget(): Vector3 | null {
     if (this.cameraView) return null;
-    // a new lock target starts centred
+    let at: Vector3 | null = null;
+    if (this.lockObject) {
+      const ev = app.graph.get(this.lockObject);
+      if (ev) at = new Vector3().setFromMatrixPosition(ev.world);
+      else this.lockObject = null;
+    }
+    if (!at && this.lockCursor) at = new Vector3().fromArray(app.doc.scene.cursor.location);
+    // a new lock target starts centred: the view jumps onto it
     const key = this.lockObject ?? (this.lockCursor ? '\u0000cursor' : '');
     if (key !== this.lockOffsetKey) {
       this.lockOffsetKey = key;
       this.lockOffset.set(0, 0, 0);
+      if (at) this.nav.pivot.copy(at);
     }
-    if (this.lockObject) {
-      const ev = app.graph.get(this.lockObject);
-      if (ev) return new Vector3().setFromMatrixPosition(ev.world);
-      this.lockObject = null;
-      return null;
-    }
-    return this.lockCursor ? new Vector3().fromArray(app.doc.scene.cursor.location) : null;
+    return at;
   }
 
   afterNav() {
