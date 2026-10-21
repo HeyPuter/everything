@@ -67,3 +67,25 @@ test('clip: graph view Lock Time Cursor (L) keeps the current frame centred', as
   expect(centre).toBeCloseTo(25, 3);
   await expectNoErrors(errors);
 });
+
+test('clip: the Annotation toolbar tab draws notes on the clip; Esc stops the tool', async ({ page }) => {
+  const { errors, box } = await trackingWorkspace(page);
+  await page.evaluate(() => {
+    const ed = (window as any).app.hoverArea.editor;
+    ed.showToolbar = true;
+    ed.toolbarTab = 'Annotation';
+    ed.drawUI();
+  });
+  await page.locator('[data-tool="clip-annotate_line"]').click();
+  const cx = box.x + box.width / 2,
+    cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  await page.mouse.move(cx + 40, cy + 20, { steps: 4 });
+  await page.mouse.up();
+  const notes = await page.evaluate(() => ((window as any).app.doc.movieclips.MC_t.annotations_2d ?? []).map((s: any) => s.points.length));
+  expect(notes).toEqual([4]);
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => (window as any).app.hoverArea.editor.annotateTool)).toBe(null);
+  await expectNoErrors(errors);
+});

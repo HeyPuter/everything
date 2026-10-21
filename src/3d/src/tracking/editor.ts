@@ -40,6 +40,7 @@ import { drawMask, drawMaskMatte, drawSelectShape, maskPointerDown, hostMask, ty
 import { clipLasso } from './graphops';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskToolbar, maskSidebar } from '../mask/maskui';
 import { maskTable } from '../mask/types';
+import { annotatePointerDown, annotateKeyHeld, annotateModeOf, drawAnnotations2D, type AnnotateTool, type Annotation2DOwner } from '../mask/annotate2d';
 
 export type ClipView = 'CLIP' | 'GRAPH' | 'DOPESHEET';
 
@@ -121,6 +122,8 @@ export class ClipEditor implements Editor {
   dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
+  /** Annotation toolbar tool in use (left button draws notes instead of editing markers) */
+  annotateTool: AnnotateTool | null = null;
   /** graph / dope sheet: keep the current frame centred while it changes */
   lockTimeCursor = false;
   boxPending = false;
@@ -474,6 +477,7 @@ export class ClipEditor implements Editor {
       this.drawCursor(ctx);
     } else {
       drawPlaneTracks(this, ctx, T);
+      drawAnnotations2D(this, ctx);
       this.drawMarkers(ctx, T);
       if (this.overlays.show_bundles !== false) this.drawBundles(ctx, T);
       drawSelectShape(ctx, this.shapeOverlay);
@@ -987,7 +991,7 @@ export class ClipEditor implements Editor {
     const start = this.local(e);
     const el = this.canvas;
     // pan / zoom with the middle button (or Alt+LMB emulation)
-    if (e.button === 1 || (e.button === 0 && e.altKey && !e.ctrlKey)) {
+    if (e.button === 1 || (e.button === 0 && e.altKey && !e.ctrlKey && !annotateKeyHeld())) {
       e.preventDefault();
       el.setPointerCapture(e.pointerId);
       let last = start;
@@ -1013,6 +1017,12 @@ export class ClipEditor implements Editor {
       };
       el.addEventListener('pointermove', move);
       el.addEventListener('pointerup', up);
+      return;
+    }
+    if (this.view === 'CLIP' && this.clip && ((annotateKeyHeld() && (e.button === 0 || e.button === 2)) || (e.button === 0 && this.annotateTool && !e.altKey))) {
+      if (e.button === 2) this.cursorPlaced = true; // no context menu after erasing
+      const mode = annotateKeyHeld() ? (e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW') : annotateModeOf(this.annotateTool!);
+      annotatePointerDown(this, e, mode);
       return;
     }
     if (e.button === 2 && e.shiftKey && this.view === 'CLIP') {
@@ -1225,6 +1235,11 @@ export class ClipEditor implements Editor {
       if (e.code === 'KeyN') return this.toggleSidebar(), true;
       if (e.code === 'KeyT') return this.toggleToolbar(), true;
     }
+    if (e.code === 'Escape' && this.annotateTool) {
+      this.annotateTool = null;
+      this.drawUI();
+      return true;
+    }
     if (e.code === 'Escape' && (this.boxPending || this.boxRect)) {
       this.boxPending = false;
       this.boxRect = null;
@@ -1369,6 +1384,21 @@ export class ClipEditor implements Editor {
 
   redrawHeader() {
     this.area.drawHeader();
+  }
+
+  // 2D annotations (kept on the movie clip)
+  annToScreen(u: number, v: number): [number, number] {
+    const [W, H] = this.frameSize();
+    return this.toScreen(u * W, (1 - v) * H);
+  }
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const q = this.local({ clientX, clientY });
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toImage(q.x, q.y);
+    return [x / W, 1 - y / H];
+  }
+  annotationOwner(): Annotation2DOwner | null {
+    return this.view === 'CLIP' ? ((this.clip as unknown as Annotation2DOwner | null) ?? null) : null;
   }
 
   setMode(m: 'TRACKING' | 'MASK') {

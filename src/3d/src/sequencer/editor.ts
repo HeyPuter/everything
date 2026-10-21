@@ -37,13 +37,14 @@ import { keysOf, keyValue, fadeProp } from './fades';
 import { keyFrames, KEY_PATHS } from './stripanim';
 import { editedText, endTextEdit, startTextEdit, hitsText, indexAt, textEdit } from './textedit';
 import { prevWord, nextWord } from './textcursor';
+import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, isAnnotateTool, type AnnotateTool } from '../mask/annotate2d';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
 const FONT = '11px Inter, system-ui, sans-serif';
 
 type Tool = 'select_box' | 'select_circle' | 'select_lasso' | 'blade' | 'slip';
-type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale';
+type PreviewTool = 'select' | 'select_circle' | 'select_lasso' | 'cursor' | 'sample' | 'move' | 'rotate' | 'scale' | AnnotateTool;
 
 /** Variants of the select tool slot (box / circle / lasso). */
 const SELECT_VARIANTS = [
@@ -87,6 +88,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
   showToolbar = true;
   tool: Tool = 'select_box';
   pvTool: PreviewTool = 'select';
+  private lastAnnotate: AnnotateTool = 'annotate';
   showSeconds = true;
   showMarkers = true;
   showWaveforms = true;
@@ -190,7 +192,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     for (const k of ['showSidebar', 'showToolbar', 'showSeconds', 'showMarkers', 'showWaveforms', 'showThumbnails', 'showOverlays', 'fitted'] as const) if (typeof s[k] === 'boolean') (this as Record<string, unknown>)[k] = s[k];
     if (typeof s.sidebarTab === 'string') this.sidebarTab = s.sidebarTab;
     if (['blade', 'slip', 'select_box', 'select_circle', 'select_lasso'].includes(s.tool as string)) this.tool = s.tool as Tool;
-    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string)) this.pvTool = s.pvTool as PreviewTool;
+    if (['select', 'select_circle', 'select_lasso', 'cursor', 'sample', 'move', 'rotate', 'scale'].includes(s.pvTool as string) || isAnnotateTool(String(s.pvTool))) this.pvTool = s.pvTool as PreviewTool;
     if (typeof s.previewSize === 'string') this.preview.size = s.previewSize as PreviewSize;
     if (s.previewOverlays && typeof s.previewOverlays === 'object') Object.assign(this.preview.opts, s.previewOverlays);
     if (['IMAGE', 'HISTOGRAM', 'WAVEFORM', 'VECTOR_SCOPE'].includes(s.scopeMode as string)) this.preview.scopeMode = s.scopeMode as ScopeMode;
@@ -530,6 +532,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       tb('pscale', 'transform_scale', this.pvTool === 'scale', 'Scale\nScale the selected strips’ images', () => (this.pvTool = 'scale')),
       h('div', { key: 'sep2', class: 'tb-sep' }),
       tb('psample', 'eyedropper', this.pvTool === 'sample', 'Sample\nShow the colour of the pixel under the pointer while the button is held', () => (this.pvTool = 'sample')),
+      h('div', { key: 'sep3', class: 'tb-sep' }),
+      annotateToolSlot(this.pvTool, this.lastAnnotate, (t) => ((this.pvTool = t), (this.lastAnnotate = t), this.drawToolbars(), app.changed('ui'))),
     ]);
   }
 
@@ -607,7 +611,7 @@ export class SequencerEditor implements Editor, SeqEditorLike {
     const tabs = [
       { id: 'strip', label: 'Strip', draw: stripTab },
       { id: 'modifiers', label: 'Modifiers', draw: modifiersTab },
-      { id: 'view', label: 'View', draw: () => (hasEditor() ? viewTab({ safeAreas: this.preview.opts.safeAreas, setSafeAreas: (v) => ((this.preview.opts.safeAreas = v), this.preview.draw(), this.drawSidebar()) }) : h('div', { class: 'sb-empty' }, 'No sequence editor')) },
+      { id: 'view', label: 'View', draw: () => (hasEditor() ? [viewTab({ safeAreas: this.preview.opts.safeAreas, setSafeAreas: (v) => ((this.preview.opts.safeAreas = v), this.preview.draw(), this.drawSidebar()) }), this.hasPreview() ? annotationsPanel('seq', this.preview) : null] : h('div', { class: 'sb-empty' }, 'No sequence editor')) },
       { id: 'cache', label: 'Proxy & Cache', draw: () => cacheTab({ previewSize: this.preview.size, renderMs: this.preview.renderMs, scale: this.preview.scale }) },
     ];
     const tab = tabs.find((t) => t.id === this.sidebarTab) ?? tabs[0];
@@ -704,7 +708,8 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       a = Math.min(a, ...l.map(S.finalStart));
       b = Math.max(b, ...l.map(S.finalEnd));
       c0 = Math.min(...l.map((s) => s.channel));
-      c1 = Math.max(c1, ...l.map((s) => s.channel));
+      // fit the used channels (at least three rows, so short edits do not get huge strips)
+      c1 = Math.max(Math.min(1, c0) + 2, ...l.map((s) => s.channel));
     }
     this.fitFrames(a, b);
     const avail = this.contentBottom() - RULER_H;
@@ -2063,6 +2068,11 @@ export class SequencerEditor implements Editor, SeqEditorLike {
       };
       addEventListener('pointermove', move);
       addEventListener('pointerup', up);
+      return;
+    }
+    if ((annotateKeyHeld() && (e.button === 0 || e.button === 2)) || (e.button === 0 && isAnnotateTool(this.pvTool) && !editedText())) {
+      const mode = annotateKeyHeld() ? (e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW') : annotateModeOf(this.pvTool as AnnotateTool);
+      annotatePointerDown(this.preview, e, mode);
       return;
     }
     if (e.button === 2) {

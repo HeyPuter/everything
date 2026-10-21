@@ -33,6 +33,7 @@ import { drawMask, drawMaskMatte, hostMask, type MaskHost } from '../../mask/cli
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
 import './imageextra';
+import { annotatePointerDown, annotateKeyHeld, annotateModeOf, annotateToolSlot, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
 
 export const RENDER_RESULT = '__render_result__';
@@ -94,7 +95,7 @@ function sceneView(r: RenderResult | null): ViewSettings {
   return app.doc.scene.render;
 }
 
-export class ImageEditor implements Editor, View2D, MaskHost {
+export class ImageEditor implements Editor, View2D, MaskHost, Annotate2DHost {
   el: HTMLElement;
   get keymaps() {
     return this.maskEditing() ? ['Mask Editing', 'Image Generic', 'Image', 'Frames', 'Window', 'Screen'] : ['Image Generic', 'Image', 'Frames', 'Window', 'Screen'];
@@ -121,6 +122,9 @@ export class ImageEditor implements Editor, View2D, MaskHost {
   maskCircleRadius = 25;
   maskPrimitiveSize = 0.2;
   shapeOverlay: MaskHost['shapeOverlay'] = null;
+  /** View mode tool: Sample or one of the Annotate tools */
+  viewTool: 'sample' | AnnotateTool = 'sample';
+  private lastAnnotate: AnnotateTool = 'annotate';
   /** Overlays popover: master switch and the mask display */
   overlays = { show_overlays: true, show_mask_spline: true, mask_overlay_mode: 'NONE' as 'NONE' | 'COMBINED' | 'ALPHACHANNEL' };
   showToolbar = true;
@@ -160,6 +164,8 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     if (Array.isArray(st.cursor)) this.cursor = [Number(st.cursor[0]) || 0, Number(st.cursor[1]) || 0];
     if (st.pivot) this.pivot = st.pivot;
     if (st.tab) this.sidebarTab = st.tab;
+    const vt = (state as { viewTool?: string } | undefined)?.viewTool;
+    if (vt && isAnnotateTool(vt)) this.viewTool = vt;
     const ov = (state as { overlays?: Partial<ImageEditor['overlays']> } | undefined)?.overlays;
     if (ov) Object.assign(this.overlays, ov);
     if (st.toolbar === false) this.showToolbar = false;
@@ -242,6 +248,23 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     const s = this.imageSize();
     if (s) return s;
     return renderSize(app.doc.scene.render) as [number, number];
+  }
+
+  annToScreen(u: number, v: number): [number, number] {
+    const [W, H] = this.frameSize();
+    return this.toScreen(u * W, (1 - v) * H);
+  }
+
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const q = this.local({ clientX, clientY });
+    const [W, H] = this.frameSize();
+    const [x, y] = this.toImage(q.x, q.y);
+    return [x / W, 1 - y / H];
+  }
+
+  /** Notes are kept on the shown image. */
+  annotationOwner(): Annotation2DOwner | null {
+    return (this.result ? null : (this.image as unknown as Annotation2DOwner | null)) ?? null;
   }
 
   /** image pixel (top-left origin) → editor-local screen pixel */
@@ -502,6 +525,7 @@ export class ImageEditor implements Editor, View2D, MaskHost {
         ctx.stroke();
       }
     }
+    if (this.overlays.show_overlays && !this.host.close) drawAnnotations2D(this, ctx);
     // sample cross-hair
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,
@@ -628,7 +652,9 @@ export class ImageEditor implements Editor, View2D, MaskHost {
             ? h('div', { key: 'ie-maskhdr', class: 'hdr-row ie-toolhdr ie-samplehdr' }, imageMaskToolSettings(this))
             : null
           : this.showToolSettings && (this.image || this.result) && !this.host.close
-            ? this.sampleToolHeader()
+            ? isAnnotateTool(this.viewTool)
+              ? h('div', { key: 'ie-annhdr', class: 'hdr-row ie-toolhdr ie-samplehdr' }, h('span', { class: 'ie-tool-name' }, icon('annotate'), 'Annotate'), h('span', { class: 'ie-tool-label' }, 'D + drag draws with any tool; Ctrl erases'))
+              : this.sampleToolHeader()
             : null,
       paint && this.showToolbar ? this.paintToolbar() : null,
       mask && this.showToolbar ? imageMaskToolbar(this) : null,
@@ -1316,6 +1342,7 @@ export class ImageEditor implements Editor, View2D, MaskHost {
   private toolTab(): Child {
     if (this.paintMode()) return panel('ie-tool-active', 'Active Tool', () => [h('div', { class: 'ie-tool-row' }, toolHeaderSettings('TEXTURE_PAINT'))]);
     if (this.maskEditing()) return panel('ie-tool-active', 'Active Tool', () => [h('div', { class: 'ie-tool-row ie-samplehdr' }, imageMaskToolSettings(this))]);
+    if (isAnnotateTool(this.viewTool)) return annotationsPanel('ie-tool', this);
     return panel('ie-tool-active', 'Active Tool', () => [
       h('div', { class: 'ie-tool-row ie-samplehdr' }, h('span', { class: 'ie-tool-name' }, icon('eyedropper'), 'Sample')),
       splitRow('Sample Size', numberField({ id: 'ie-tool-sample-size', value: this.sampleSize, int: true, min: 1, max: 128, unit: 'pixel', set: (v) => ((this.sampleSize = Math.max(1, Math.round(v))), this.drawUI()) })),
@@ -1335,6 +1362,7 @@ export class ImageEditor implements Editor, View2D, MaskHost {
         r ? splitRow('', checkbox('ie-show-meta', 'Show Metadata', this.showMetadata, (v) => ((this.showMetadata = v), this.drawUI()), { tip: 'Show the render information over the image' })) : null,
         h('div', { class: 'btn-col' }, button('ie-frame-all', 'Frame All', () => this.frameAll(false)), button('ie-frame-fit', 'Frame All Fit', () => this.frameAll(true))),
       ]),
+      !this.host.close && this.annotationOwner() ? annotationsPanel('ie', this) : null,
       this.maskEditing()
         ? panel('ie-view-cursor', '2D Cursor', () => {
             const [W, H] = this.frameSize();
@@ -1405,7 +1433,19 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     return h(
       'div',
       { key: 'ie-view-toolbar', class: 'v3d-toolbar ie-toolbar' },
-      h('button', { key: 'sample', class: 'tb-tool on', 'data-tool': 'sample', 'data-tip': 'Sample\nClick and drag over the image to read pixel values (Ctrl: set the display black point, Shift: the white point)' }, icon('eyedropper')),
+      h(
+        'button',
+        {
+          key: 'sample',
+          class: { 'tb-tool': true, on: this.viewTool === 'sample' },
+          'data-tool': 'sample',
+          'data-tip': 'Sample\nClick and drag over the image to read pixel values (Ctrl: set the display black point, Shift: the white point)',
+          onpointerdown: (e: PointerEvent) => (e.preventDefault(), (this.viewTool = 'sample'), this.drawUI()),
+        },
+        icon('eyedropper'),
+      ),
+      h('div', { key: 'sep', class: 'tb-sep' }),
+      annotateToolSlot(this.viewTool, this.lastAnnotate, (t) => ((this.viewTool = t), (this.lastAnnotate = t), this.drawUI())),
     );
   }
 
@@ -1516,7 +1556,7 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     el.addEventListener('pointerdown', (e) => {
       this.el.focus({ preventScroll: true });
       const start = this.local(e);
-      if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      if (e.button === 1 || (e.button === 0 && e.altKey && !annotateKeyHeld())) {
         e.preventDefault();
         el.setPointerCapture(e.pointerId);
         let last = start;
@@ -1537,6 +1577,15 @@ export class ImageEditor implements Editor, View2D, MaskHost {
         };
         el.addEventListener('pointermove', move);
         el.addEventListener('pointerup', up);
+        return;
+      }
+      if (annotateKeyHeld() && (e.button === 0 || e.button === 2) && !this.host.close) {
+        if (e.button === 2) this.cursorPlaced = true; // no context menu
+        annotatePointerDown(this, e, e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW');
+        return;
+      }
+      if (e.button === 0 && !this.paintMode() && !this.maskEditing() && isAnnotateTool(this.viewTool) && !this.host.close) {
+        annotatePointerDown(this, e, annotateModeOf(this.viewTool));
         return;
       }
       if (this.maskEditing() && e.button === 2 && e.shiftKey) {
@@ -1607,7 +1656,7 @@ export class ImageEditor implements Editor, View2D, MaskHost {
   }
 
   serialize() {
-    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer, mode: this.uiMode ?? undefined, toolbar: this.showToolbar, toolSettings: this.showToolSettings, sampleSize: this.sampleSize, mask: this.maskId, maskTool: this.maskTool, cursor: this.cursor, pivot: this.pivot, tab: this.sidebarTab, overlays: this.overlays };
+    return { image: this.imageId, pass: this.pass, channel: this.channel, zoom: this.zoom, off: [this.offX, this.offY], sidebar: this.showSidebar, layer: this.layer, mode: this.uiMode ?? undefined, toolbar: this.showToolbar, toolSettings: this.showToolSettings, sampleSize: this.sampleSize, mask: this.maskId, maskTool: this.maskTool, cursor: this.cursor, pivot: this.pivot, tab: this.sidebarTab, overlays: this.overlays, viewTool: this.viewTool };
   }
 
   dispose() {

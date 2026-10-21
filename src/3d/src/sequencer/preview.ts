@@ -13,6 +13,7 @@ import { editedText, drawTextEditOverlay } from './textedit';
 import { cursorPoint } from './pvtransform';
 import { drawScope, type ScopeMode } from './scopes';
 import { T } from './theme';
+import { drawAnnotations2D, type Annotate2DHost, type Annotation2DOwner } from '../mask/annotate2d';
 
 /** The frame-overlay reference frame (null when the overlay is off). */
 export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_frame?: number; use_overlay_frame_lock?: boolean; overlay_frame_type?: string }, current: number): number | null {
@@ -22,7 +23,7 @@ export function overlayRefFrame(ed: { show_overlay_frame?: boolean; overlay_fram
 
 export type PreviewSize = 'AUTO' | 'SCENE' | 'PROXY_100' | 'PROXY_75' | 'PROXY_50' | 'PROXY_25';
 
-export class PreviewRegion {
+export class PreviewRegion implements Annotate2DHost {
   el: HTMLElement;
   canvas: HTMLCanvasElement;
   /** last composited frame */
@@ -88,6 +89,20 @@ export class PreviewRegion {
     const left = (w - W * aspect * s) / 2 + this.panX;
     const top = (h - H * s) / 2 + this.panY;
     return { s, sx: s * aspect, left, top, W, H, fit };
+  }
+
+  // 2D annotations of the preview (kept on the scene)
+  annToScreen(u: number, v: number): [number, number] {
+    const L = this.layout();
+    return this.toLocal(u * L.W, v * L.H);
+  }
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const [W, H] = this.res();
+    const [x, y] = this.toFrame(clientX, clientY);
+    return [x / W, y / H];
+  }
+  annotationOwner(): Annotation2DOwner | null {
+    return hasEditor() ? (app.doc.scene as unknown as Annotation2DOwner) : null;
   }
 
   /** client px → output px (y up) */
@@ -316,6 +331,7 @@ export class PreviewRegion {
     g.lineWidth = 1;
     g.strokeRect(Math.round(L.left) - 0.5, Math.round(L.top) - 0.5, Math.round(fw) + 1, Math.round(fh) + 1);
     if (this.showOverlays && hasEditor()) this.drawOverlays(g);
+    if (this.showOverlays) drawAnnotations2D(this, g);
     if (this.boxRect) {
       const b = this.boxRect;
       g.fillStyle = 'rgba(255, 255, 255,0.06)';

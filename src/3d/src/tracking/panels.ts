@@ -13,6 +13,7 @@ import { solveToolbar, objectsPanel, distortionRows } from './solvepanels';
 import { planeTrackPanel } from './planeops';
 import { presetButton } from './presets';
 import { proxyPanel } from './proxypanel';
+import { ANNOTATE_TOOLS, annotationsPanel, type AnnotateTool } from '../mask/annotate2d';
 
 const MODELS: [MotionModel, string][] = [
   ['Loc', 'Location'],
@@ -128,7 +129,7 @@ export function drawToolbar(ed: ClipEditor): Child {
     );
   }
   if (!TOOL_TABS.includes(ed.toolbarTab)) ed.toolbarTab = 'Track';
-  const shown = c && ed.toolbarTab === 'Solve' ? solveToolbar(ed, c) : body;
+  const shown = ed.toolbarTab === 'Annotation' ? annotationToolbar(ed) : c && ed.toolbarTab === 'Solve' ? solveToolbar(ed, c) : body;
   return h(
     'div',
     { key: 'toolbar', class: 'clip-toolbar' },
@@ -141,12 +142,37 @@ export function drawToolbar(ed: ClipEditor): Child {
   );
 }
 
-const TOOL_TABS = ['Track', 'Solve'];
+const TOOL_TABS = ['Track', 'Solve', 'Annotation'];
+
+/** Toolbar ▸ Annotation: the annotate tools (they stay on until switched off or Esc) and settings. */
+function annotationToolbar(ed: ClipEditor): Child[] {
+  const set = (t: AnnotateTool) => {
+    ed.annotateTool = ed.annotateTool === t ? null : t;
+    ed.drawUI();
+  };
+  return [
+    panel('clip-t-annotate', 'Annotation', () => [
+      h(
+        'div',
+        { class: 'btn-row clip-annotate-tools' },
+        ANNOTATE_TOOLS.map((t) =>
+          h(
+            'button',
+            { key: t.id, class: { btn: true, 'icon-btn': true, on: ed.annotateTool === t.id }, 'data-tool': `clip-${t.id}`, 'data-tip': `${t.label}\n${t.tip}\nD + drag draws with any tool`, onclick: () => set(t.id) },
+            icon(t.icon),
+          ),
+        ),
+      ),
+      h('div', { class: 'sb-hint' }, ed.annotateTool ? 'Drawing on the clip: Esc or the button again stops' : 'D + drag draws, D + right drag erases'),
+    ]),
+    annotationsPanel('clip', ed),
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // sidebar
 
-const TABS = ['Track', 'Footage', 'Stabilization', 'View'];
+const TABS = ['Footage', 'Track', 'Stabilization', 'View'];
 
 export function drawSidebar(ed: ClipEditor): Child {
   const c = ed.clip;
