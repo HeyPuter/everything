@@ -352,14 +352,23 @@ function textColorField(view) {
     label: 'Color',
     value: current(view.clip),
     onInput: (v, final) => {
+      let off = false;
       view.edit('Text color', (c) => {
         if (hasColorKeys(c)) {
           const rgb = hexToRgb(v);
           const local = Math.round(view.store.time - c.start);
-          if (local < 0 || local > c.duration) return false;
+          if (local < 0 || local > c.duration) {
+            off = true;
+            return false;
+          }
           COLOR_KEYS.forEach((k, i) => setKey(c.keyframes, k, local, rgb[i], 'linear', view.tol()));
         } else c.style.color = v;
       }, { key: 'style-color', final });
+      if (!off) return;
+      // A keyed color only changes with the playhead over the clip: say so and show the color again.
+      view.actions.playheadHint();
+      const c = view.clip;
+      if (c) field.set(current(c), true);
     },
   });
   const kfBtn = h('button.icon-btn.small.kf-btn', { type: 'button', 'aria-pressed': 'false' }, icon('keyframe', 14));

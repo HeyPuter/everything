@@ -146,8 +146,9 @@ export function colorField({ label, value = '#ffffff', onInput }) {
   const el = h('div.field.color-field', h('label.field-label', { for: id }, label), h('div.color-row', swatch, hex));
   return {
     el,
-    set(v) {
-      if (document.activeElement === hex) return;
+    /** Show v; force also replaces what is being typed in the hex box. */
+    set(v, force = false) {
+      if (document.activeElement === hex && !force) return;
       swatch.value = v;
       hex.value = v.toUpperCase();
     },

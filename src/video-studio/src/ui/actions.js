@@ -310,6 +310,9 @@ export function createActions(ctx) {
       }, { structural: false, ...opts });
     },
 
+    /** Say to move the playhead over the clip (a keyed edit off the clip); once per run of edits. */
+    playheadHint,
+
     /**
      * Set a keyframable property. When the clip already has keys for it, the
      * value becomes a key at the playhead (which must be over the clip: the
