@@ -4,7 +4,7 @@
 import { app, registerOperators, type OpContext } from '../../app/app';
 import type { NodeTreeData } from '../../data/types';
 import { addInterfaceSocket } from '../tree';
-import { addInterfacePanel, addPanelToggle, duplicateInterfaceItem, findPanel, findSocketItem, makePanelToggle, removeInterfaceItem, toggleCandidatePanel, unlinkPanelToggle } from '../iface';
+import { addInterfacePanel, addPanelToggle, duplicateInterfaceItem, findPanel, findSocketItem, makePanelToggle, removeInterfaceItem, socketKey, toggleCandidatePanel, unlinkPanelToggle } from '../iface';
 import { ifaceState } from './sidebar';
 
 /** Tree of the node editor running the operator, when it is a node group with an interface. */
@@ -48,7 +48,7 @@ registerOperators([
         const it = add(tree)(io, io === 'INPUT' ? 'Input' : 'Output');
         if (tree.type !== 'GEOMETRY') it.default_value = 0;
         if (io === 'INPUT' && panel) it.panel = panel.identifier;
-        ifaceState.activeKey = it.identifier;
+        ifaceState.activeKey = socketKey(it);
       }
       app.changed('doc');
     },
@@ -79,7 +79,7 @@ registerOperators([
       const tree = groupTree(ctx)!;
       const copy = duplicateInterfaceItem(tree, active(tree), add(tree));
       if (!copy) return 'CANCELLED';
-      ifaceState.activeKey = copy.identifier;
+      ifaceState.activeKey = socketKey(copy);
       app.changed('doc');
     },
   },

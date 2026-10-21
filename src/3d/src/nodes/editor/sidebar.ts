@@ -10,7 +10,7 @@ import { splitRow } from '../../ui/props';
 import type { NodeTreeData } from '../../data/types';
 import { getNodeType, nodeSockets, interfaceSocketType, SOCKET_IDNAME, SOCKET_COLORS } from '../registry';
 import { nodeById, addInterfaceSocket, uniqueGroupName } from '../tree';
-import { addInterfacePanel, duplicateInterfaceItem, interfaceEntries, moveInterfaceEntry, removeInterfaceItem, setSocketPanel, panelOfToggle } from '../iface';
+import { addInterfacePanel, duplicateInterfaceItem, findSocketItem, interfaceEntries, moveInterfaceEntry, removeInterfaceItem, setSocketPanel, panelOfToggle, socketKey } from '../iface';
 import { propWidget, socketValueWidget, nodeChanged } from './nodeui';
 import { visibleProps } from './layout';
 import type { NodeTypeDef } from '../types';
@@ -296,9 +296,14 @@ function groupProps(ed: Ed): Child {
 function groupTab(tree: NodeTreeData): Child {
   const items = tree.interface ?? [];
   const entries = interfaceEntries(tree);
-  const ids = entries.map((e) => (e.kind === 'socket' ? e.item.identifier : e.panel.identifier));
-  if (!ids.includes(ifaceState.activeKey)) ifaceState.activeKey = ids[0] ?? '';
-  const it = items.find((x) => x.identifier === ifaceState.activeKey);
+  const ids = entries.map((e) => (e.kind === 'socket' ? socketKey(e.item) : e.panel.identifier));
+  // plain identifiers (set before keys carried the direction) resolve to their socket
+  if (!ids.includes(ifaceState.activeKey)) {
+    const hit = findSocketItem(tree, ifaceState.activeKey);
+    ifaceState.activeKey = hit ? socketKey(hit) : (ids[0] ?? '');
+  }
+  const it = findSocketItem(tree, ifaceState.activeKey);
+  void items;
   const activePanel = (tree.interface_panels ?? []).find((p) => p.identifier === ifaceState.activeKey);
   // new inputs go into the selected panel (or the panel of the selected socket)
   const targetPanel = activePanel?.identifier ?? (it?.in_out === 'INPUT' ? it.panel : undefined);
@@ -308,7 +313,7 @@ function groupTab(tree: NodeTreeData): Child {
   const add = (inOut: 'INPUT' | 'OUTPUT') => {
     const item = addInterfaceSocket(tree, inOut, inOut === 'INPUT' ? 'Input' : 'Output', tree.type === 'GEOMETRY' ? 'GEOMETRY' : 'FLOAT', tree.type === 'GEOMETRY' ? undefined : 0);
     if (inOut === 'INPUT' && targetPanel) item.panel = targetPanel;
-    ifaceState.activeKey = item.identifier;
+    ifaceState.activeKey = socketKey(item);
     changed('Add Interface Socket');
   };
   const addPanel = () => {
@@ -321,7 +326,7 @@ function groupTab(tree: NodeTreeData): Child {
   const duplicate = () => {
     const copy = duplicateInterfaceItem(tree, ifaceState.activeKey, (io, name) => addInterfaceSocket(tree, io, name, 'FLOAT'));
     if (!copy) return;
-    ifaceState.activeKey = copy.identifier;
+    ifaceState.activeKey = socketKey(copy);
     changed('Duplicate Interface Item');
   };
   const specials = (): MenuItem[] => [
@@ -341,7 +346,7 @@ function groupTab(tree: NodeTreeData): Child {
         'div',
         { class: 'nd-iface-list' },
         entries.map((e) => {
-          const id = e.kind === 'socket' ? e.item.identifier : e.panel.identifier;
+          const id = e.kind === 'socket' ? socketKey(e.item) : e.panel.identifier;
           return h(
             'div',
             {
@@ -354,7 +359,7 @@ function groupTab(tree: NodeTreeData): Child {
                     draggable: 'true',
                     'data-tip': 'Drag into the editor to add a Group Input node with only this socket',
                     ondragstart: (ev: DragEvent) => {
-                      ifaceState.dragSocket = id;
+                      ifaceState.dragSocket = e.item.identifier;
                       ev.dataTransfer?.setData('text/plain', e.item.name);
                     },
                     ondragend: () => setTimeout(() => (ifaceState.dragSocket = null), 0),
@@ -428,8 +433,8 @@ function groupTab(tree: NodeTreeData): Child {
     it && it.in_out === 'INPUT' && tree.interface_panels?.length
       ? splitRow(
           'Panel',
-          enumMenu(`nd-if-panel-${it.identifier}`, panelItems, it.panel ?? '', (v) => {
-            setSocketPanel(tree, it.identifier, v || undefined);
+          enumMenu(`nd-if-panel-${socketKey(it)}`, panelItems, it.panel ?? '', (v) => {
+            setSocketPanel(tree, socketKey(it), v || undefined);
             changed('Socket Panel');
           }),
         )
@@ -438,16 +443,16 @@ function groupTab(tree: NodeTreeData): Child {
       ? [
           splitRow(
             'Name',
-            textField(`nd-if-name-${it.identifier}`, it.name, (v) => ((it.name = v || it.name), changed('Rename Socket'))),
+            textField(`nd-if-name-${socketKey(it)}`, it.name, (v) => ((it.name = v || it.name), changed('Rename Socket'))),
           ),
           splitRow(
             'Description',
-            textField(`nd-if-desc-${it.identifier}`, it.description ?? '', (v) => ((it.description = v || undefined), changed('Socket Description')), { placeholder: 'Tooltip of the socket' }),
+            textField(`nd-if-desc-${socketKey(it)}`, it.description ?? '', (v) => ((it.description = v || undefined), changed('Socket Description')), { placeholder: 'Tooltip of the socket' }),
           ),
           splitRow(
             'Type',
             enumMenu(
-              `nd-if-type-${it.identifier}`,
+              `nd-if-type-${socketKey(it)}`,
               SOCKET_TYPE_ITEMS.map(([value, label]) => ({ value, label })),
               t.type,
               (v) => ((it.socket_type = SOCKET_IDNAME[v] ?? 'NodeSocketFloat'), (it.default_value = undefined), changed('Socket Type')),
@@ -457,7 +462,7 @@ function groupTab(tree: NodeTreeData): Child {
             ? h(
                 'div',
                 { class: 'nd-side-row' },
-                checkbox(`nd-if-hidev-${it.identifier}`, 'Hide Value', !!it.hide_value, (v) => ((it.hide_value = v || undefined), changed('Hide Socket Value'))),
+                checkbox(`nd-if-hidev-${socketKey(it)}`, 'Hide Value', !!it.hide_value, (v) => ((it.hide_value = v || undefined), changed('Hide Socket Value'))),
               )
             : null,
           t.type === 'FLOAT' || t.type === 'INT'
@@ -465,7 +470,7 @@ function groupTab(tree: NodeTreeData): Child {
                 splitRow(
                   'Default',
                   numberField({
-                    id: `nd-if-def-${it.identifier}`,
+                    id: `nd-if-def-${socketKey(it)}`,
                     value: typeof it.default_value === 'number' ? it.default_value : 0,
                     int: t.type === 'INT',
                     set: (v, f) => ((it.default_value = v), nodeChanged('Socket Default', f)),
@@ -474,7 +479,7 @@ function groupTab(tree: NodeTreeData): Child {
                 splitRow(
                   'Min',
                   numberField({
-                    id: `nd-if-min-${it.identifier}`,
+                    id: `nd-if-min-${socketKey(it)}`,
                     value: it.min_value ?? -3.4e38,
                     int: t.type === 'INT',
                     set: (v, f) => ((it.min_value = v), nodeChanged('Socket Min', f)),
@@ -483,7 +488,7 @@ function groupTab(tree: NodeTreeData): Child {
                 splitRow(
                   'Max',
                   numberField({
-                    id: `nd-if-max-${it.identifier}`,
+                    id: `nd-if-max-${socketKey(it)}`,
                     value: it.max_value ?? 3.4e38,
                     int: t.type === 'INT',
                     set: (v, f) => ((it.max_value = v), nodeChanged('Socket Max', f)),
@@ -494,7 +499,7 @@ function groupTab(tree: NodeTreeData): Child {
           t.type === 'RGBA'
             ? splitRow(
                 'Default',
-                colorSwatch(`nd-if-col-${it.identifier}`, (it.default_value as number[]) ?? [0.8, 0.8, 0.8, 1], (c, f) => ((it.default_value = c), nodeChanged('Socket Default', f))),
+                colorSwatch(`nd-if-col-${socketKey(it)}`, (it.default_value as number[]) ?? [0.8, 0.8, 0.8, 1], (c, f) => ((it.default_value = c), nodeChanged('Socket Default', f))),
               )
             : null,
           t.type === 'VECTOR'
@@ -505,7 +510,7 @@ function groupTab(tree: NodeTreeData): Child {
                   { class: 'col' },
                   [0, 1, 2].map((k) =>
                     numberField({
-                      id: `nd-if-vec-${it.identifier}-${k}`,
+                      id: `nd-if-vec-${socketKey(it)}-${k}`,
                       label: 'XYZ'[k],
                       value: ((it.default_value as number[]) ?? [0, 0, 0])[k],
                       set: (v, f) => {
@@ -523,7 +528,7 @@ function groupTab(tree: NodeTreeData): Child {
             ? h(
                 'div',
                 { class: 'nd-side-row' },
-                checkbox(`nd-if-bool-${it.identifier}`, 'Default', !!it.default_value, (v) => ((it.default_value = v), changed('Socket Default'))),
+                checkbox(`nd-if-bool-${socketKey(it)}`, 'Default', !!it.default_value, (v) => ((it.default_value = v), changed('Socket Default'))),
               )
             : null,
         ]
