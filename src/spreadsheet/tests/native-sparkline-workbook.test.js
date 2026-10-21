@@ -65,7 +65,7 @@ it('renames, duplicates and deletes sheets while keeping source bindings and ind
   expect(groups(wb)[0].sparklines[0].formula).toBe("'O''Brien'!A1:A3");
   const copy = wb.duplicateSheet('view');
   expect(copy.sparklineGroups[0].uid).not.toBe(groups(wb)[0].uid);
-  expect(copy.sparklineGroups[0].sparklines[1].formula).toBe("'View (copy)'!A6:C6");
+  expect(copy.sparklineGroups[0].sparklines[1].formula).toBe("'View (2)'!A6:C6");
   copy.sparklineGroups[0].colorSeries.tint = 0.75;
   expect(groups(wb)[0].colorSeries.tint).toBe(-0.25);
   wb.deleteSheet('data'); expect(groups(wb)[0].dateFormula).toContain('#REF!');

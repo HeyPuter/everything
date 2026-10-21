@@ -46,10 +46,10 @@ it('copies the sheet when Ctrl is held at the drop, and leaves a short press as 
   pointer(tab('Second'), 'pointerdown', 150);
   pointer(tab('Second'), 'pointermove', 20, { ctrlKey: true });
   pointer(tab('Second'), 'pointerup', 20, { ctrlKey: true });
-  expect(names(wb)).toEqual(['Second (copy)', 'First', 'Second', 'Third']);
+  expect(names(wb)).toEqual(['Second (2)', 'First', 'Second', 'Third']);
   pointer(tab('Third'), 'pointerdown', 250);
   pointer(tab('Third'), 'pointerup', 252);
-  expect(names(wb)).toEqual(['Second (copy)', 'First', 'Second', 'Third']);
+  expect(names(wb)).toEqual(['Second (2)', 'First', 'Second', 'Third']);
 });
 
 it('drops a tab back where it was without moving anything', () => {

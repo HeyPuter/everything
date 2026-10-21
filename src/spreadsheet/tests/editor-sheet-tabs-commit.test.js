@@ -126,7 +126,7 @@ describe('a pending edit and the tab strip', () => {
     panel.querySelector('[type="checkbox"]').click();
     panel.querySelector('form').requestSubmit();
     await vi.advanceTimersByTimeAsync(1);
-    expect(wb.sheets.map(s => s.name)).toEqual(['Sheet1', 'Two', 'Three', 'Sheet1 (copy)']);
+    expect(wb.sheets.map(s => s.name)).toEqual(['Sheet1', 'Two', 'Three', 'Sheet1 (2)']);
     expect(wb.getValue(wb.activeSheetId, 0, 0)).toBe('hello');
     expect(document.querySelector('.modal-root:not(.closing)')).toBeNull();
     wb.undo();

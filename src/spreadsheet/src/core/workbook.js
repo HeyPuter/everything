@@ -1764,9 +1764,12 @@ export class Workbook extends EventTarget {
       // click take a second on a book of a sheet per month, for a copy that reads nothing from the others.
       // The copy shows what this person sees, and becomes everyone's: it is in no sheet view of its own.
       const { personalView: _personal, ...json } = { ...sheetShapeJSON(src, { live: true }), cells: Object.fromEntries([...src.cells].map(([k, c]) => [k, cloneCell(c)])) };
-      let name = suffixedSheetName(src.name, ' (copy)');
-      let n = 2;
-      while (this.sheetByName(name)) name = suffixedSheetName(src.name, ` (copy ${n++})`);
+      // Named as Excel names a copy: Sales (2), then Sales (3); a copy of Sales (2) is the next free Sales (n).
+      const numbered = / \((\d{1,9})\)$/.exec(src.name);
+      const base = numbered ? src.name.slice(0, numbered.index) : src.name;
+      let n = numbered ? Number(numbered[1]) + 1 : 2;
+      let name = suffixedSheetName(base, ` (${n})`);
+      while (this.sheetByName(name)) name = suffixedSheetName(base, ` (${++n})`);
       const copy = makeSheet({ ...json, id: null, name, hidden: false, freshIds: true });
       // References to the original sheet inside the copy now point at itself; a 3D span ending at it still
       // runs between the sheets it named, as in Excel, or the copy's totals would take in other sheets.

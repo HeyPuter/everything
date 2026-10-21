@@ -574,7 +574,7 @@ describe('sheets', () => {
     wb.moveSheet(s2.id, 0);
     expect(wb.sheets[0].id).toBe(s2.id);
     const copy = wb.duplicateSheet(s2.id);
-    expect(copy.name).toBe('Q1 Data (copy)');
+    expect(copy.name).toBe('Q1 Data (2)');
     expect(wb.getValue(copy.id, 0, 0)).toBe(7);
     expect(wb.deleteSheet(copy.id)).toBe(true);
     expect(wb.sheets).toHaveLength(2);

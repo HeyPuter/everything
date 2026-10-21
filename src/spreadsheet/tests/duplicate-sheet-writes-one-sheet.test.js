@@ -47,10 +47,10 @@ describe('duplicating a sheet', () => {
     const other = wb.addSheet('Other').id;
     wb.setInput(other, 0, 0, 'elsewhere');
     const copy = wb.duplicateSheet(id);
-    expect(copy.name).toBe('Sheet1 (copy)');
+    expect(copy.name).toBe('Sheet1 (2)');
     expect(shapeOf(wb, copy.id)).toEqual(shapeOf(wb, id));
     expect(wb.getValue(copy.id, 6, 0)).toBe(wb.getValue(id, 6, 0));
-    expect(wb.sheets.map((s) => s.name)).toEqual(['Sheet1', 'Sheet1 (copy)', 'Other']);
+    expect(wb.sheets.map((s) => s.name)).toEqual(['Sheet1', 'Sheet1 (2)', 'Other']);
     // The other sheet is untouched, and the copy is undone whole.
     wb.undo();
     expect(wb.sheets.map((s) => s.name)).toEqual(['Sheet1', 'Other']);

@@ -62,7 +62,7 @@ it('uses the same exact names for adding, renaming, lookup, duplication and undo
   wb.undo();
   expect(wb.sheetByName('Data ').id).toBe(target.id);
   expect(wb.getValue(summary, 0, 0)).toBe(9);
-  expect(wb.duplicateSheet(target.id).name).toBe('Data  (copy)');
+  expect(wb.duplicateSheet(target.id).name).toBe('Data  (2)');
 });
 
 it('still sanitizes invalid names without making truncation produce invalid endings', () => {

@@ -23,7 +23,7 @@ it('rewrites cross-sheet filter criteria while preserving quoted text', () => {
 });
 it('makes a duplicate filter follow copied values as they change', () => {
   const wb = source(), original = wb.sheets[0], copy = wb.duplicateSheet(original.id);
-  expect(copy.filter.criteria[0].formula).toBe("'Data (copy)'!A2>5");
+  expect(copy.filter.criteria[0].formula).toBe("'Data (2)'!A2>5");
   wb.setInput(copy.id, 1, 0, '10'); wb.setInput(copy.id, 2, 0, '1'); wb.reapplyFilter(copy.id);
   expect([...copy.filterHidden]).toEqual([2]); expect([...original.filterHidden]).toEqual([1]);
   expect(original.filter.criteria[0].formula).toBe('Data!A2>5');
@@ -45,7 +45,7 @@ it('rebinds replacement criteria before the filter initializes', () => {
 it('rewrites qualified named expressions used by filter criteria', () => {
   const wb = source('A2>Data!Floor'); wb.defineName('Floor', '5', 'Data');
   const copy = wb.duplicateSheet(wb.activeSheetId);
-  expect(copy.filter.criteria[0].formula).toBe("A2>'Data (copy)'!Floor");
+  expect(copy.filter.criteria[0].formula).toBe("A2>'Data (2)'!Floor");
   wb.defineName('Floor', '1', copy.name); wb.reapplyFilter(copy.id); expect([...copy.filterHidden]).toEqual([]);
 });
 it('leaves nonformula criteria and unrelated references unchanged', () => {

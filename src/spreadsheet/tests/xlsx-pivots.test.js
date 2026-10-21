@@ -491,7 +491,7 @@ it('links copied worksheet PivotCharts to copied reports without changing the or
   const wb = new Workbook(fixture().toJSON()), source = wb.sheets[1];
   source.charts[0].pivotSource = { name: "'[Book.xlsx]REPORT'!summary", standalone: false, formatId: 9 };
   const copy = wb.duplicateSheet(source.id);
-  expect(copy.charts[0].pivotSource).toEqual({ name: "'[Book.xlsx]Report (copy)'!Summary_2", standalone: false, formatId: 9 });
+  expect(copy.charts[0].pivotSource).toEqual({ name: "'[Book.xlsx]Report (2)'!Summary_2", standalone: false, formatId: 9 });
   expect(source.charts[0].pivotSource.name).toBe("'[Book.xlsx]REPORT'!summary");
   const out = await nativeRoundTrip(wb);
   expect(out.wb.sheetByName(copy.name).charts[0].pivotSource.name).toBe(copy.charts[0].pivotSource.name);

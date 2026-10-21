@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 
 // Duplicating the sheet a 3D span ended at moved the span's end onto the copy: a total
-// =SUM(Jan:Feb!B2) on Feb became =SUM(Jan:'Feb (copy)'!B2) on its copy, a span now taking in the
+// =SUM(Jan:Feb!B2) on Feb became =SUM(Jan:'Feb (2)'!B2) on its copy, a span now taking in the
 // copy itself, and in other sheets too once the copy is moved, so the copy's totals changed. The span
 // still runs between the sheets it named, as in Excel; plain references to the sheet follow the copy.
 describe('duplicating a sheet a 3D span ends at', () => {
@@ -21,7 +21,7 @@ describe('duplicating a sheet a 3D span ends at', () => {
     wb.setInput(copy.id, 1, 1, '100');
     expect(wb.getCell(copy.id, 4, 1).f).toBe('SUM(Jan:Feb!B2)');
     expect(wb.getValue(copy.id, 4, 1)).toBe(15);
-    expect(wb.getCell(copy.id, 5, 1).f).toBe("'Feb (copy)'!B2*2");
+    expect(wb.getCell(copy.id, 5, 1).f).toBe("'Feb (2)'!B2*2");
     expect(wb.names.find((n) => n.sheet === copy.name)?.ref).toBe('SUM(Jan:Feb!$B$2)');
   });
 

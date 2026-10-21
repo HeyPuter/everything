@@ -43,10 +43,10 @@ it('copies before the source with self references, styles, names and unique tabl
   const original = wb.toJSON();
   wb.clearHistory();
   const copy = placeSheet(wb, id, { before: id, copy: true });
-  expect(names(wb).slice(0, 2)).toEqual(['First (copy)', 'First']);
+  expect(names(wb).slice(0, 2)).toEqual(['First (2)', 'First']);
   expect(wb.activeSheetId).toBe(copy.id);
   expect(wb.getValue(copy.id, 1, 3)).toBe(24);
-  expect(wb.getCell(copy.id, 1, 3).f).toContain("'First (copy)'!B2");
+  expect(wb.getCell(copy.id, 1, 3).f).toContain("'First (2)'!B2");
   expect(wb.getDisplay(copy.id, 1, 3)).toBe('$24.00');
   expect(wb.styleAt(copy.id, 1, 3).bg).toBe('#ddeeff');
   expect(copy.protected).toBe(true);
@@ -140,7 +140,7 @@ it('preserves a chart sheet and its drawing when copying before a worksheet', ()
   wb.clearHistory();
   const source = wb.sheets[1];
   const copy = placeSheet(wb, source.id, { before: wb.sheets[0].id, copy: true });
-  expect(names(wb)).toEqual(['Overview (copy)', 'Data', 'Overview']);
+  expect(names(wb)).toEqual(['Overview (2)', 'Data', 'Overview']);
   expect(copy.kind).toBe('chart');
   expect(copy.charts[0]).toMatchObject({ title: 'Results', w: 600, h: 300, sourceRefs: source.charts[0].sourceRefs });
   expect(copy.charts[0].id).not.toBe(source.charts[0].id);
