@@ -312,7 +312,7 @@ test('eyedroppers and drops: driver source pick, colour swatch drag, Outliner ob
   const swatches = page.locator('.color-swatch[data-id]');
   await expect(swatches.first()).toBeVisible();
   // the Emission socket panel holds a second colour
-  await page.locator('.panel-header', { hasText: /^Emission$/ }).first().click();
+  await page.locator('.nd-props-panel', { hasText: /^Emission$/ }).first().click();
   await expect(swatches.nth(1)).toBeVisible();
   const n = await swatches.count();
   expect(n).toBeGreaterThan(1);
