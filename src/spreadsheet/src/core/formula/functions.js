@@ -388,6 +388,7 @@ const MAX_PERIODS = 1e6;
 
 /** A cell whose formula reads as another SUBTOTAL or AGGREGATE, which those two leave out. */
 const NESTED_TOTAL = /^\s*(?:_xlfn\.)?(?:SUBTOTAL|AGGREGATE)\s*\(/i;
+export const isNestedTotal = (formula) => NESTED_TOTAL.test(formula);
 
 /**
  * The context to read a range's own sheet through, and the sheet name still to pass with each
@@ -409,8 +410,18 @@ function sheetScope(ctx, ref) {
  */
 function totalRows(rg, ctx, { skipNested, manual }) {
   const { scope, sheet } = sheetScope(ctx, rg.ref);
-  const getFormula = skipNested && rg.ref ? scope?.getFormula : null;
-  const isRowHidden = manual !== null && rg.ref ? scope?.isRowHidden : null;
+  // The nested totals inside the range come from the sheet's index of them, made once per calculation: a
+  // running count down a filtered list, =SUBTOTAL(3,$B$2:B2) filled down, otherwise read the formula of
+  // every cell of every prefix, seconds for a few thousand rows. A context without the index reads each cell's.
+  const index = skipNested && rg.ref ? scope?.nestedTotals?.(sheet) : null;
+  // Over the cells read, which for an emptied table's T[Amt] (r2 above r1) are those of the row it starts on.
+  let width = 0;
+  if (index) for (const row of rg.values) width = Math.max(width, row.length);
+  const nested = index ? nestedTotalsIn(index, { r1: rg.ref.r1, c1: rg.ref.c1, r2: rg.ref.r1 + rg.values.length - 1, c2: rg.ref.c1 + width - 1 }) : null;
+  const getFormula = skipNested && rg.ref && !index ? scope?.getFormula : null;
+  const isRowHidden = manual !== null && rg.ref && scope?.hasHiddenRows?.(sheet, manual) !== false ? scope?.isRowHidden : null;
+  // Nothing to leave out: the range's own array, which SUM's running totals know (see rangeTotal).
+  if (!isRowHidden && !getFormula && !nested?.size) return rg.values;
   const rows = [];
   for (let i = 0; i < rg.values.length; i++) {
     if (isRowHidden && isRowHidden(sheet, rg.ref.r1 + i, manual)) continue;
@@ -424,10 +435,34 @@ function totalRows(rg, ctx, { skipNested, manual }) {
           kept[j] = null;
         }
       }
+    } else if (nested) {
+      for (const c of nested.get(rg.ref.r1 + i) || []) {
+        const j = c - rg.ref.c1;
+        if (j >= row.length) continue;
+        if (kept === row) kept = row.slice();
+        kept[j] = null;
+      }
     }
     rows.push(kept);
   }
   return rows;
+}
+
+/**
+ * The cells of `ref` holding a nested total, as row → columns, from a sheet's index of them: `cols` maps a
+ * column to the ascending rows of its own nested totals, and `areas` lists the array formulas that are one.
+ */
+function nestedTotalsIn(index, ref) {
+  const out = new Map();
+  const add = (r, c) => { const cols = out.get(r); if (cols) cols.push(c); else out.set(r, [c]); };
+  const scan = (c, rows) => { for (let i = lowerBound(rows, ref.r1); i < rows.length && rows[i] <= ref.r2; i++) add(rows[i], c); };
+  if (ref.c2 - ref.c1 < index.cols.size) { for (let c = ref.c1; c <= ref.c2; c++) { const rows = index.cols.get(c); if (rows) scan(c, rows); } }
+  else for (const [c, rows] of index.cols) if (c >= ref.c1 && c <= ref.c2) scan(c, rows);
+  for (const a of index.areas) {
+    const r1 = Math.max(a.r1, ref.r1), r2 = Math.min(a.r2, ref.r2), c1 = Math.max(a.c1, ref.c1), c2 = Math.min(a.c2, ref.c2);
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) add(r, c);
+  }
+  return out;
 }
 
 /* ---------- Criteria (SUMIF, COUNTIF, ...) ---------- */

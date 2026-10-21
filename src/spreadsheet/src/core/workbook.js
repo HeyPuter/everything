@@ -81,7 +81,7 @@ import { normalizeBackground } from './sheet-background.js';
 import { normalizeCustomViews, captureCustomView, MAX_CUSTOM_VIEWS, CUSTOM_VIEW_NAME_MAX } from './custom-views.js';
 import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
-import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows } from './formula/functions.js';
+import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows, isNestedTotal } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
 import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForInsertedLines, insertMap, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
@@ -12930,6 +12930,15 @@ export class Workbook extends EventTarget {
         const target = byName(sheetName);
         return !!target && (target.filterHidden.has(rr) || (manual && target.hiddenRows.has(rr)));
       },
+      hasHiddenRows: (sheetName, manual) => {
+        const target = byName(sheetName);
+        return !!target && (target.filterHidden.size > 0 || (!!manual && target.hiddenRows.size > 0));
+      },
+      // ...and the cells holding another SUBTOTAL or AGGREGATE, as getFormula reads them (see _nestedTotals).
+      nestedTotals: (sheetName) => {
+        const target = byName(sheetName);
+        return target ? this._nestedTotals(target) : null;
+      },
       getValue: (sheetName, rr, cc) => {
         const target = byName(sheetName);
         if (!target || target.kind === 'chart') return err('#REF!');
@@ -13094,6 +13103,34 @@ export class Workbook extends EventTarget {
       return ctx.getRangeValues(ref).map((row, i) => row.map((value, j) => this.getDisplay(target.id, ref.r1 + i, ref.c1 + j, value)));
     };
     return ctx;
+  }
+
+  /**
+   * The cells of a sheet whose formula is a SUBTOTAL or AGGREGATE, which those two leave out of what they total:
+   * `cols` maps a column to the ascending rows of such cells, `areas` lists the array formulas that are one, every
+   * cell of which counts. Found once per calculation, for every total on the sheet to look up.
+   */
+  _nestedTotals(sheet) {
+    const key = `nestedTotals|${sheet.id}`;
+    let index = this._statsCache.get(key);
+    if (index) return index;
+    const arrays = this._fixedArrays(sheet);
+    index = { cols: new Map(), areas: [] };
+    for (const [address, cell] of sheet.cells) {
+      if (typeof cell?.f !== 'string' || !isNestedTotal(cell.f)) continue;
+      const { r, c } = parseKey(address);
+      // A cell inside an array formula reads as the array's formula, whatever it holds itself.
+      const array = arrays.size ? arrays.at(r, c) : null;
+      if (array) {
+        if (array.key === address) index.areas.push({ r1: array.r1, c1: array.c1, r2: array.r2, c2: array.c2 });
+        continue;
+      }
+      const rows = index.cols.get(c);
+      if (rows) rows.push(r); else index.cols.set(c, [r]);
+    }
+    for (const rows of index.cols.values()) rows.sort((a, b) => a - b);
+    this._statsCache.set(key, index);
+    return index;
   }
 
   /**
