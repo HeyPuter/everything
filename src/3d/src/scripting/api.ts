@@ -1442,6 +1442,89 @@ class NodeStruct extends Struct {
   get enum_items() {
     return nodeItemsFor(this.getTree, this.__nid, 'enum_items', `${this.__path}.enum_items`);
   }
+  // optional node fields (absent until set): exposed with their defaults
+  get hide() {
+    return !!this.node.hide;
+  }
+  set hide(v: boolean) {
+    this.node.hide = !!v;
+    touched();
+  }
+  get mute() {
+    return !!this.node.mute;
+  }
+  set mute(v: boolean) {
+    this.node.mute = !!v;
+    touched();
+  }
+  get select() {
+    return !!this.node.select;
+  }
+  set select(v: boolean) {
+    this.node.select = !!v;
+    touched();
+  }
+  get label() {
+    return this.node.label ?? '';
+  }
+  set label(v: string) {
+    this.node.label = String(v ?? '');
+    touched();
+  }
+  get width() {
+    return this.node.width ?? getNodeType(this.node.type)?.width ?? 140;
+  }
+  set width(v: number) {
+    this.node.width = Number(v);
+    touched();
+  }
+  get use_custom_color() {
+    return !!this.node.use_custom_color;
+  }
+  set use_custom_color(v: boolean) {
+    this.node.use_custom_color = !!v;
+    touched();
+  }
+  get color() {
+    const node = () => this.node;
+    const c = node().color ?? [0.608, 0.608, 0.608];
+    return [c[0], c[1], c[2]];
+  }
+  set color(v: unknown) {
+    const a = Array.from(v as ArrayLike<number>).map(Number);
+    this.node.color = [a[0] ?? 0, a[1] ?? 0, a[2] ?? 0] as never;
+    touched();
+  }
+  get show_options() {
+    return !this.node.hide_options;
+  }
+  set show_options(v: boolean) {
+    this.node.hide_options = !v;
+    touched();
+  }
+  get show_preview() {
+    return !!this.node.show_preview;
+  }
+  set show_preview(v: boolean) {
+    this.node.show_preview = !!v;
+    touched();
+  }
+  get parent(): unknown {
+    const id = this.node.parent;
+    return id && this.getTree()?.nodes.some((n) => n.id === id) ? nodeWrapper(this.getTree, id, this.__path.replace(/\[[^\]]*\]$/, '')) : null;
+  }
+  set parent(v: unknown) {
+    if (v === null || v === undefined) this.node.parent = null;
+    else {
+      const id = (v as { __nid?: string }).__nid;
+      const tree = this.getTree();
+      const target = id ? tree?.nodes.find((n) => n.id === id) : undefined;
+      if (!target || target.type !== 'NodeFrame') throw pyError('TypeError', 'Node.parent: expected a Frame node of the same tree');
+      if (target.id === this.__nid) throw pyError('ValueError', 'Node.parent: a node cannot be its own parent');
+      this.node.parent = target.id;
+    }
+    touched();
+  }
   get paired_output(): unknown {
     const id = this.node.props.paired_output;
     return typeof id === 'string' && this.getTree()?.nodes.some((n) => n.id === id) ? nodeWrapper(this.getTree, id, this.__path.replace(/\[[^\]]*\]$/, '')) : undefined;

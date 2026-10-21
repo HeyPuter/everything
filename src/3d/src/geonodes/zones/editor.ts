@@ -177,7 +177,11 @@ interface ZoneRect {
   x1: number;
   y1: number;
   kind: ZoneKind;
+  /** padded corners of the member nodes (node space) */
+  corners: [number, number][];
 }
+
+const ZONE_PAD = 14;
 
 export function zoneRects(ed: NodeEditor, tree: NodeTreeData): ZoneRect[] {
   const out: ZoneRect[] = [];
@@ -191,6 +195,7 @@ export function zoneRects(ed: NodeEditor, tree: NodeTreeData): ZoneRect[] {
       y0 = Infinity,
       x1 = -Infinity,
       y1 = -Infinity;
+    const corners: [number, number][] = [];
     for (const id of ids) {
       const l = ed.layouts.get(id);
       if (!l) continue;
@@ -198,30 +203,64 @@ export function zoneRects(ed: NodeEditor, tree: NodeTreeData): ZoneRect[] {
       y0 = Math.min(y0, l.y);
       x1 = Math.max(x1, l.x + l.w);
       y1 = Math.max(y1, l.y + l.h);
+      const p = ZONE_PAD;
+      corners.push([l.x - p, l.y - p], [l.x + l.w + p, l.y - p], [l.x + l.w + p, l.y + l.h + p], [l.x - p, l.y + l.h + p]);
     }
     if (x0 === Infinity) continue;
-    out.push({ x0, y0, x1, y1, kind: z });
+    out.push({ x0, y0, x1, y1, kind: z, corners });
   }
   // nested zones are drawn over the zones enclosing them
   out.sort((a, b) => (b.x1 - b.x0) * (b.y1 - b.y0) - (a.x1 - a.x0) * (a.y1 - a.y0));
   return out;
 }
 
+/** Convex hull of points (counter-clockwise in screen space, monotone chain). */
+export function convexHull(pts: [number, number][]): [number, number][] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: [number, number][] = [];
+  for (const q of p) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], q) <= 0) lower.pop();
+    lower.push(q);
+  }
+  const upper: [number, number][] = [];
+  for (let i = p.length - 1; i >= 0; i--) {
+    const q = p[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], q) <= 0) upper.pop();
+    upper.push(q);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper);
+}
+
+/** Closed polygon path with rounded corners. */
+function roundedPolygon(g: CanvasRenderingContext2D, pts: [number, number][], r: number) {
+  const n = pts.length;
+  g.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a = pts[(i + n - 1) % n],
+      b = pts[i],
+      c = pts[(i + 1) % n];
+    const m0: [number, number] = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (i === 0) g.moveTo(m0[0], m0[1]);
+    g.arcTo(b[0], b[1], (b[0] + c[0]) / 2, (b[1] + c[1]) / 2, r);
+  }
+  g.closePath();
+}
+
 function drawZones(ed: NodeEditor, g: CanvasRenderingContext2D) {
   const tree = ed.tree();
   if (!tree || !tree.nodes.some((n) => ZONES.some((z) => z.input === n.type))) return;
   const zoom = ed.view().zoom;
-  const pad = 14;
   for (const r of zoneRects(ed, tree)) {
-    const [ax, ay] = ed.toScreen(r.x0 - pad, r.y0 - pad);
-    const [bx, by] = ed.toScreen(r.x1 + pad, r.y1 + pad);
+    const hull = convexHull(r.corners).map(([x, y]) => ed.toScreen(x, y) as [number, number]);
     const [cr, cg, cb] = r.kind.color;
-    const rad = Math.min(12, 10 * zoom);
-    g.beginPath();
-    g.roundRect(ax, ay, bx - ax, by - ay, rad);
+    roundedPolygon(g, hull, Math.min(12, 10 * zoom));
     g.fillStyle = `rgba(${cr},${cg},${cb},0.22)`;
     g.fill();
-    g.strokeStyle = `rgba(${cr},${cg},${cb},0.75)`;
+    g.strokeStyle = `rgba(${cr},${cg},${cb},0.4)`;
     g.lineWidth = 1;
     g.stroke();
   }
@@ -394,3 +433,10 @@ onAppReady(() => {
   installZoneResolver();
   installZoneDrawing();
 });
+
+// both nodes of a zone show the zone's name in their header
+for (const z of ZONES)
+  for (const id of [z.input, z.output]) {
+    const d = getNodeType(id);
+    if (d && !d.dynamicLabel) d.dynamicLabel = () => z.label;
+  }

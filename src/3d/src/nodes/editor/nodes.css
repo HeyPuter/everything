@@ -325,9 +325,9 @@
 /* frames */
 .nd-frame {
   position: absolute;
-  background: var(--frame, rgba(57, 58, 60, 0.45));
+  /* frames darken what is behind them (custom colors tint instead) */
+  background: var(--frame, rgba(4, 8, 4, 0.42));
   border-radius: 6px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
 }
 .nd-frame.sel {
   box-shadow: 0 0 0 1.5px var(--nd-sel);
@@ -341,7 +341,8 @@
 }
 .nd-frame-label {
   padding: 4px 10px;
-  color: rgba(var(--hl-rgb, 255, 255, 255), 0.75);
+  text-align: center;
+  color: rgba(var(--hl-rgb, 255, 255, 255), 0.8);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

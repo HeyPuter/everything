@@ -638,7 +638,8 @@ export class NodeEditor implements Editor {
             l,
             tree,
             {
-              active: tree.active_node === n.id,
+              // the active node is highlighted only while it is selected
+              active: tree.active_node === n.id && !!n.select,
               groupName: n.label ? undefined : groupName,
               highlightSockets: this.highlightSockets(),
               dimSocket: dim,

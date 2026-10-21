@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 // Texture, color and vector nodes evaluated on the CPU by Geometry Nodes: trees from
-// tests/fixtures/geonodes_tex are evaluated and compared with the recorded expected values.
+// tests/fixtures/geonodes_r4 are evaluated and compared with the recorded expected values.
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runSpec, firstMismatch, type GnSpec } from './gnspec';
 import '../../src/geonodes/index';
 
-const dir = join(__dirname, '../fixtures/geonodes_tex');
+const dir = join(__dirname, '../fixtures/geonodes_r4');
 const REPORT = !!process.env.GN_REPORT;
 for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
   const cases = JSON.parse(readFileSync(join(dir, file), "utf8")) as { name: string; spec: GnSpec; expected: Record<string, unknown[]>; eps?: number }[];

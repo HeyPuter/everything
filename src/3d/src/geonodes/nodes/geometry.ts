@@ -195,7 +195,7 @@ gn(
   {
     items: { domain: DELETE_DOMAINS },
     propPatch: {
-      mode: { visible: (n) => ['EDGE', 'FACE'].includes(sprop(n, 'domain')) },
+      mode: { visible: (n) => ['POINT', 'EDGE', 'FACE'].includes(sprop(n, 'domain')) },
     },
   },
 );

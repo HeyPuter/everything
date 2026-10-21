@@ -175,9 +175,11 @@ export function deleteMesh(m: MeshComponent, domain: Domain, del: Uint8Array, mo
     keepE = new Uint8Array(ne).fill(1),
     keepF = new Uint8Array(nf).fill(1);
   if (domain === 'POINT') {
-    for (let v = 0; v < nv; v++) if (del[v]) keepV[v] = 0;
-    for (let e = 0; e < ne; e++) if (!keepV[topo.edges[e * 2]] || !keepV[topo.edges[e * 2 + 1]]) keepE[e] = 0;
-    for (let f = 0; f < nf; f++) for (let c = m.faceOffsets[f]; c < m.faceOffsets[f + 1]; c++) if (!keepV[m.corners[c]]) keepF[f] = 0;
+    // ALL removes the points; EDGE_FACE keeps them but removes their edges and faces;
+    // ONLY_FACE removes just the faces using them
+    if (mode === 'ALL') for (let v = 0; v < nv; v++) if (del[v]) keepV[v] = 0;
+    if (mode !== 'ONLY_FACE') for (let e = 0; e < ne; e++) if (del[topo.edges[e * 2]] || del[topo.edges[e * 2 + 1]]) keepE[e] = 0;
+    for (let f = 0; f < nf; f++) for (let c = m.faceOffsets[f]; c < m.faceOffsets[f + 1]; c++) if (del[m.corners[c]]) keepF[f] = 0;
   } else if (domain === 'EDGE') {
     if (mode === 'ONLY_FACE') {
       for (let f = 0; f < nf; f++) for (let c = m.faceOffsets[f]; c < m.faceOffsets[f + 1]; c++) if (del[topo.cornerEdge[c]]) keepF[f] = 0;
