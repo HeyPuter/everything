@@ -232,7 +232,7 @@ export async function addTextBox(doc, page, options = {}) {
  * the nearest side, and the middle of that side (Acrobat's three-point CL). The knee runs
  * across the page as the reader sees it, so it stays level on turned pages too.
  */
-export function calloutLine(box, anchor, rotation = 0) {
+export function calloutLine(box, anchor, rotation = 0, unit = 1) {
   const [x0, y0, x1, y1] = box;
   const { x, y } = anchor;
   if (x >= x0 && x <= x1 && y >= y0 && y <= y1)
@@ -245,7 +245,7 @@ export function calloutLine(box, anchor, rotation = 0) {
       out = x < x0 ? -1 : 1;
     const end = { x: side, y: (y0 + y1) / 2 };
     const knee = {
-      x: side + out * Math.min(CALLOUT_KNEE, Math.abs(x - side) / 2),
+      x: side + out * Math.min(CALLOUT_KNEE / unit, Math.abs(x - side) / 2),
       y: end.y,
     };
     return [anchor, knee, end];
@@ -255,7 +255,7 @@ export function calloutLine(box, anchor, rotation = 0) {
   const end = { x: (x0 + x1) / 2, y: side };
   const knee = {
     x: end.x,
-    y: side + out * Math.min(CALLOUT_KNEE, Math.abs(y - side) / 2),
+    y: side + out * Math.min(CALLOUT_KNEE / unit, Math.abs(y - side) / 2),
   };
   return [anchor, knee, end];
 }
@@ -273,7 +273,10 @@ export async function addCallout(doc, page, options = {}) {
     intent: 'FreeTextCallout',
   });
   if (rotation) dict.set(name('Rotate'), PDFNumber.of(rotation));
-  dict.set(name('CL'), doc.context.obj(flatPoints(calloutLine(box, anchor, rotation))));
+  dict.set(
+    name('CL'),
+    doc.context.obj(flatPoints(calloutLine(box, anchor, rotation, pageUserUnit(page)))),
+  );
   dict.set(name('LE'), name(endingArg(options.ending ?? 'OpenArrow')));
   setOpacity(dict, options.opacity);
   await refreshAppearance(doc, page, dict, {
@@ -744,14 +747,20 @@ export async function editAnnotation(doc, page, id, changes = {}) {
     if (subtype === 'FreeText') {
       const callout = pointsOf(numbers(dict.lookup(name('CL'))));
       if (callout.length >= 2)
-        dict.set(name('CL'), doc.context.obj(flatPoints(calloutLine(box, callout[0], rotation))));
+        dict.set(
+          name('CL'),
+          doc.context.obj(flatPoints(calloutLine(box, callout[0], rotation, pageUserUnit(page)))),
+        );
     }
   }
   if (changes.anchor) {
     if (subtype !== 'FreeText' || !dict.has(name('CL')))
       throw new Error('Only callouts have a point to move.');
     const [anchor] = pointsArg([changes.anchor], 1, 'where the callout points');
-    dict.set(name('CL'), doc.context.obj(flatPoints(calloutLine(box, anchor, rotation))));
+    dict.set(
+      name('CL'),
+      doc.context.obj(flatPoints(calloutLine(box, anchor, rotation, pageUserUnit(page)))),
+    );
   }
   if (changes.points) {
     if (subtype === 'Ink')

@@ -909,6 +909,50 @@ const essence = (a) => ({
   ),
 });
 
+describe('pages with large units', () => {
+  // The same comments, in points, on Letter paper and on Letter paper in units of ten points.
+  async function placed(unit) {
+    const doc = await blank(1, [612 / unit, 792 / unit]);
+    doc.getPage(0).node.set(PDFName.of('UserUnit'), PDFNumber.of(unit));
+    const at = (x, y) => ({ x: x / unit, y: y / unit });
+    addShapeAnnotation(doc, 0, {
+      kind: 'arrow',
+      points: [at(100, 100), at(300, 100)],
+      width: 1 / unit,
+    });
+    addShapeAnnotation(doc, 0, {
+      kind: 'cloud',
+      rect: { ...at(100, 200), width: 200 / unit, height: 100 / unit },
+      width: 1 / unit,
+    });
+    await addCallout(doc, 0, {
+      rect: { ...at(300, 500), width: 180 / unit, height: 50 / unit },
+      anchor: at(150, 400),
+      text: 'Here',
+      fontSize: 12 / unit,
+      borderWidth: 1 / unit,
+    });
+    addNote(doc, 0, { ...at(100, 700), text: 'Note' });
+    return doc;
+  }
+  it('draws arrowheads, clouds, callouts, and notes at their sizes in points', async () => {
+    const [plain, large] = [await placed(1), await placed(10)];
+    const rects = (doc, unit) =>
+      listAnnotations(doc, 0).map(({ rect }) =>
+        [rect.x, rect.y, rect.width, rect.height].map((v) => Math.round(v * unit)),
+      );
+    expect(rects(large, 10)).toEqual(rects(plain, 1));
+    const points = (doc, unit) =>
+      listAnnotations(doc, 0)[2].points.map(({ x, y }) => [
+        Math.round(x * unit),
+        Math.round(y * unit),
+      ]);
+    expect(points(large, 10)).toEqual(points(plain, 1));
+    const [a, b] = [await render(await plain.save()), await render(await large.save())];
+    expect(difference(signature(b, 48, 48), signature(a, 48, 48))).toBeLessThan(0.02);
+  });
+});
+
 describe('comment exchange', () => {
   it('round-trips every kind of comment through XFDF', async () => {
     const source = await everything();

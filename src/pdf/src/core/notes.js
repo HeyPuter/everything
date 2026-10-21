@@ -4,6 +4,7 @@ import {
   annotationList,
   annotationsOf,
   pageRotation,
+  pageUserUnit,
   removeAnnotationThread,
   sharedPageAnnotations,
 } from './structure.js';
@@ -175,7 +176,10 @@ export function addNote(doc, index, { x, y, text, hex = '#f2c438', author = '' }
   if (body.length > MAX_NOTE_LENGTH) throw new Error('Keep notes under 5,000 characters.');
   if (![x, y].every(Number.isFinite)) throw new Error('Choose where the note goes.');
   const page = doc.getPage(index);
-  const rect = [x, y - NOTE_SIZE, x + NOTE_SIZE, y];
+  // The icon is NOTE_SIZE points across, however large the page's units.
+  const unit = pageUserUnit(page),
+    size = NOTE_SIZE / unit;
+  const rect = [x, y - size, x + size, y];
   const date = pdfDate();
   const dict = doc.context.obj({
     Type: 'Annot',
@@ -203,7 +207,7 @@ export function addNote(doc, index, { x, y, text, hex = '#f2c438', author = '' }
       Type: 'Annot',
       Subtype: 'Popup',
       Parent: ref,
-      Rect: [x + NOTE_SIZE + 4, y - 120, x + NOTE_SIZE + 184, y],
+      Rect: [x + size + 4 / unit, y - 120 / unit, x + size + 184 / unit, y],
       Open: false,
       F: 0,
     }),

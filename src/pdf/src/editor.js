@@ -5264,7 +5264,7 @@ export function createEditor({
       return openNoteEditor({ point: { x: viewport.width * 0.45, y: viewport.height * 0.45 } });
     if (['textbox', 'callout', 'cshape'].includes(tool)) {
       // As if clicked (a text box or callout) or dragged (a shape) about the page's middle.
-      const unit = screenUnit();
+      const unit = screenUnit() / viewport.userUnit;
       const start =
         tool === 'textbox'
           ? { x: viewport.width / 2 - 90 * unit, y: viewport.height / 2 - 25 * unit }
@@ -5600,7 +5600,8 @@ export function createEditor({
     });
     textarea.addEventListener('input', updateStatus);
     // A new icon hangs right and down from the click as the page is shown, turned or not.
-    const corner = entry ? null : readerRect(point, NOTE_SIZE, NOTE_SIZE);
+    const size = NOTE_SIZE / viewport.userUnit;
+    const corner = entry ? null : readerRect(point, size, size);
     noteEdit = {
       entry,
       point: entry ? { x: entry.x, y: entry.y } : { x: corner.x, y: corner.y + corner.height },
@@ -9584,15 +9585,19 @@ export function createEditor({
         'annotate',
       );
     }
-    const fontSize = commentSize / viewport.userUnit;
+    // Sizes in points: a page with a UserUnit has larger units than that.
+    const pt = 1 / viewport.userUnit;
+    const fontSize = commentSize * pt,
+      borderWidth = pt;
     if (g.type === 'textbox') {
       const rect = boxed
         ? normalizeRect(pdfPoint(g.start), pdfPoint(end))
-        : readerRect(g.start, 180, 50);
+        : readerRect(g.start, 180 * pt, 50 * pt);
       const text = await commentTextDialog('Text box');
       if (text == null || destroyed) return;
       return mutate(
-        (doc) => addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, author }),
+        (doc) =>
+          addTextBox(doc, g.page, { rect, text, fontSize, borderColor: hex, borderWidth, author }),
         null,
         'annotate',
       );
@@ -9602,20 +9607,28 @@ export function createEditor({
       const corner = moved ? end : { x: g.start.x + 60, y: g.start.y - 60 };
       // The box grows from the dragged-to corner away from its point, which it must not cover:
       // leftwards when dragged to the left, upwards when dragged straight up.
-      const unit = screenUnit();
+      const unit = screenUnit() * pt;
       const rect = readerRect(
         {
           x: corner.x < g.start.x ? corner.x - 180 * unit : corner.x,
           y: corner.x === g.start.x && corner.y < g.start.y ? corner.y - 50 * unit : corner.y,
         },
-        180,
-        50,
+        180 * pt,
+        50 * pt,
       );
       const text = await commentTextDialog('Callout');
       if (text == null || destroyed) return;
       return mutate(
         (doc) =>
-          addCallout(doc, g.page, { rect, anchor, text, fontSize, borderColor: hex, author }),
+          addCallout(doc, g.page, {
+            rect,
+            anchor,
+            text,
+            fontSize,
+            borderColor: hex,
+            borderWidth,
+            author,
+          }),
         null,
         'annotate',
       );
