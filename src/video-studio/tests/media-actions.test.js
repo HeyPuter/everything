@@ -1,12 +1,16 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { unusedAssets, swapAsset, createMediaActions } from '../src/ui/media-actions.js';
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { EditorStore } from '../src/model/store.js';
 import { createCompound } from '../src/model/compound.js';
+import { normalizeAsset, normalizeProject } from '../src/model/project.js';
 import { fixture, clip, onMain, addAsset, s } from './helpers.js';
 
-afterEach(() => document.querySelectorAll('dialog').forEach((d) => d.remove()));
+afterEach(() => {
+  document.querySelectorAll('dialog').forEach((d) => d.remove());
+  vi.restoreAllMocks();
+});
 
 describe('media housekeeping', () => {
   it('finds assets no clip uses, keeping reversed pairs together', () => {
@@ -30,6 +34,47 @@ describe('media housekeeping', () => {
     expect(a.assetId).toBe('new');
     expect(a.name).toBe('take2.mp4');
     expect(b.name).toBe('Custom');
+  });
+});
+
+describe('replacing a video with a photo', () => {
+  it('turns its video clips into photo clips and drops the clips that played its sound', () => {
+    const p = fixture();
+    const [v] = onMain(p, clip('video', 0, 4, { in: s(2), speed: 2, reversed: true }));
+    p.tracks.push({ id: 'ta', kind: 'audio', locked: false, hidden: false, muted: false, clips: [clip('audio', 0, 4, { assetId: 'vid' })] });
+    const n = swapAsset(p, 'vid', normalizeAsset({ id: 'still', kind: 'image', name: 'still.png', hash: 'h', ext: 'png', width: 100, height: 100 }));
+    expect(n).toBe(1);
+    const reopened = normalizeProject(JSON.parse(JSON.stringify(p)));
+    const clips = reopened.tracks.flatMap((t) => t.clips);
+    expect(clips.map((c) => [c.id, c.type, c.assetId])).toEqual([[v.id, 'image', 'still']]);
+  });
+
+  it('asks first when clips play the video\'s sound', async () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    p.tracks.push({ id: 'ta', kind: 'audio', locked: false, hidden: false, muted: false, clips: [clip('audio', 0, 4, { assetId: 'vid' })] });
+    const store = new EditorStore(p);
+    const library = { importFile: async () => normalizeAsset({ id: 'still', kind: 'image', name: 'still.png', hash: 'h', ext: 'png', width: 10, height: 10 }) };
+    const actions = createMediaActions({ store, library });
+    const pick = () => {
+      const input = document.querySelector('input[type=file]');
+      Object.defineProperty(input, 'files', { value: [new File(['x'], 'still.png', { type: 'image/png' })] });
+      input.dispatchEvent(new Event('change'));
+    };
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const first = actions.replaceAssetFile('vid');
+    pick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.querySelector('dialog[open]').textContent).toContain('1 audio clip');
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Cancel').click();
+    expect(await first).toBeNull();
+    expect(store.project.assets.vid).toBeTruthy();
+    const second = actions.replaceAssetFile('vid');
+    pick();
+    await new Promise((r) => setTimeout(r, 0));
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Replace').click();
+    expect((await second).id).toBe('still');
+    expect(store.project.tracks.flatMap((t) => t.clips).map((c) => c.type)).toEqual(['image']);
   });
 });
 
@@ -93,6 +138,20 @@ describe('media actions while a compound clip is open', () => {
     expect(Object.keys(store.project.assets).sort()).toEqual(['silent', 'vid']);
     store.undo();
     expect(Object.keys(store.project.assets).sort()).toEqual(['aud', 'img', 'silent', 'vid']);
+  });
+
+  it('Replace file switches clips outside the compound clip too', async () => {
+    const { store } = setup();
+    const library = { importFile: async () => normalizeAsset({ id: 'take2', kind: 'video', name: 'take2.mp4', hash: 'h', ext: 'mp4', duration: s(20) }) };
+    const actions = createMediaActions({ store, library });
+    vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(function click() {
+      Object.defineProperty(this, 'files', { value: [new File(['x'], 'take2.mp4', { type: 'video/mp4' })] });
+      this.dispatchEvent(new Event('change'));
+    });
+    await actions.replaceAssetFile('vid');
+    const saved = normalizeProject(JSON.parse(JSON.stringify(store.projectForSave())));
+    expect(saved.tracks.flatMap((t) => t.clips).map((c) => c.assetId)).toEqual(['take2', undefined]);
+    expect(saved.assets.vid).toBeUndefined();
   });
 
   it('knows which media clips outside the compound clip use', () => {

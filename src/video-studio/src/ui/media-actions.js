@@ -7,6 +7,7 @@ import { h, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import * as T from '../model/timeline.js';
 import { allClipsDeep } from '../model/compound.js';
+import { storedTimelineTracks } from '../model/timelines.js';
 import { openDialog, confirmDialog, toast } from './dialog.js';
 
 /** Assets no clip refers to (directly, or through a reversed copy in use). */
@@ -23,15 +24,44 @@ export function unusedAssets(project) {
   return Object.values(project.assets).filter((a) => !used.has(a.id));
 }
 
-/** Point every clip using oldId at a new asset and drop the old one. */
+/** Audio clips playing an asset's sound (they can't use a photo). */
+function soundClips(project, assetId) {
+  return allClipsDeep(project).filter((c) => c.assetId === assetId && c.type === 'audio');
+}
+
+/**
+ * Point every clip using oldId at a new asset and drop the old one. A photo
+ * replacing a video turns its clips into photo clips (as Replace clip does)
+ * and removes the audio clips that played the video's sound.
+ */
 export function swapAsset(project, oldId, asset) {
   const old = project.assets[oldId];
   project.assets[asset.id] = { ...asset, ...(old?.folder ? { folder: old.folder } : {}) };
+  const toImage = asset.kind === 'image' && old?.kind !== 'image';
+  if (toImage && oldId !== asset.id) {
+    const sound = new Set(soundClips(project, oldId).map((c) => c.id));
+    if (sound.size) {
+      const strip = (tracks) => {
+        for (const t of tracks) {
+          t.clips = t.clips.filter((c) => !sound.has(c.id));
+          for (const c of t.clips) if (c.type === 'compound') strip(c.sequence.tracks);
+        }
+      };
+      strip(project.tracks);
+      for (const tracks of storedTimelineTracks(project)) strip(tracks);
+    }
+  }
   let n = 0;
   for (const c of allClipsDeep(project)) {
     if (c.assetId === oldId) {
       c.assetId = asset.id;
       if (c.name === old?.name) c.name = asset.name;
+      if (toImage && c.type === 'video') {
+        c.type = 'image';
+        c.in = 0;
+        c.freeze = false;
+        c.reversed = false;
+      }
       n++;
     }
   }
@@ -121,6 +151,11 @@ export function createMediaActions(ctx) {
         toast(`${file.name} is ${asset.kind === 'audio' ? 'an audio file' : asset.kind === 'image' ? 'a photo' : 'a video'}, not ${old.kind === 'audio' ? 'audio' : old.kind === 'image' ? 'a photo' : 'a video'}.`, { kind: 'error' });
         return null;
       }
+      // A photo can't play the video's sound: its audio clips go, after asking.
+      const sound = asset.kind === 'image' && old.kind === 'video' ? soundClips(store.projectForSave?.() || store.project, assetId).length : 0;
+      if (sound && !(await confirmDialog({ title: 'Replace with a photo?', message: `${sound} audio clip${sound === 1 ? '' : 's'} playing the sound of ${old.name} will be removed, since a photo has no sound.`, confirm: 'Replace', danger: true }))) return null;
+      // Clips outside the compound clip being edited use it too: switch them all.
+      if (a.usedOutsideCompound([assetId]).length) while (store.nest.length) store.closeCompound();
       let n = 0;
       store.update('Replace media file', (p) => {
         n = swapAsset(p, assetId, asset);
