@@ -8,3 +8,4 @@ import './meshdata';
 import './texspace';
 import './attrops';
 import './uvmapops';
+import './quadremeshop';

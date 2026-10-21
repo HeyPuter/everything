@@ -158,6 +158,8 @@ export interface MeshData {
   /** Auto smooth by angle (radians); undefined = off. */
   auto_smooth_angle?: number;
   remesh_voxel_size?: number;
+  /** Remesh panel: voxel remesh or quad remesh */
+  remesh_mode?: 'VOXEL' | 'QUAD';
   /** Sculpt mode mask, one value per vertex (0 = unmasked, 1 = fully masked). */
   sculpt_mask?: Float32Array;
   /** Sculpt face sets, one id per face (ids start at 1). */

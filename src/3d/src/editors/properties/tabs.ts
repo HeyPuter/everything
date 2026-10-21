@@ -475,7 +475,7 @@ function meshData(o: ObjectData, me: MeshData): Child {
           },
         ),
       ];
-    }),
+    }, { closed: true }),
     panel('me-colors', 'Color Attributes', () => [
       uiList(
         'ca',
@@ -485,6 +485,11 @@ function meshData(o: ObjectData, me: MeshData): Child {
         {
           add: () => app.run('geometry.color_attribute_add'),
           remove: () => app.run('geometry.color_attribute_remove'),
+          specials: () => [
+            { label: 'Duplicate Color Attribute', op: 'geometry.color_attribute_duplicate' },
+            { label: 'Convert Color Attribute', op: 'geometry.color_attribute_convert' },
+            { label: 'Set Render Color', op: 'geometry.color_attribute_render_set', props: { name: me.color_attributes[me.active_color_index]?.name ?? '' } },
+          ],
           rename: (i, name) => {
             name = name.trim();
             if (!name || me.color_attributes.some((c, j) => j !== i && c.name === name)) return;
@@ -493,10 +498,15 @@ function meshData(o: ObjectData, me: MeshData): Child {
           },
         },
       ),
-    ]),
+    ], { closed: true }),
     panel('me-remesh', 'Remesh', () => [
-      splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
-      h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
+      splitRow('Mode', enumRow('me-remesh-mode', [{ value: 'VOXEL', label: 'Voxel' }, { value: 'QUAD', label: 'Quad' }], me.remesh_mode ?? 'VOXEL', (v) => ((me.remesh_mode = v as 'VOXEL'), changed('Remesh Mode')))),
+      (me.remesh_mode ?? 'VOXEL') === 'VOXEL'
+        ? [
+            splitRow('Voxel Size', numberField({ id: `me-voxel-${me.id}`, value: me.remesh_voxel_size ?? 0.1, min: 0.0001, max: 10, unit: 'distance', precision: 4, set: (x, final) => ((me.remesh_voxel_size = x), app.changed('ui'), final && app.pushUndo('Voxel Size')) })),
+            h('div', { class: 'btn-row' }, opButton('object.voxel_remesh', 'Voxel Remesh')),
+          ]
+        : h('div', { class: 'btn-row' }, opButton('object.quadriflow_remesh', 'QuadriFlow Remesh')),
     ], { closed: true }),
     panel(
       'me-geodata',
