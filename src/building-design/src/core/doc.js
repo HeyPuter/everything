@@ -131,6 +131,7 @@ export class Doc {
   /** Publish the changes made so far in an open transaction (live preview). */
   flush() {
     if (!this.tx || !this.tx.pending.size) return;
+    this.solve();
     const ids = this.tx.pending;
     this.tx.pending = new Set();
     this.emit({ ids, label: this.tx.label, preview: true, meta: this.tx.meta });
@@ -139,6 +140,7 @@ export class Doc {
   commit() {
     const tx = this.tx;
     if (!tx) return false;
+    this.solve();
     this.tx = null;
     const changes = [];
     for (const [id, c] of tx.changes) {
@@ -156,6 +158,24 @@ export class Doc {
     this.revision++;
     this.emit({ ids: new Set(changes.map((c) => c[0])), label: tx.label, meta: tx.meta });
     return true;
+  }
+
+  /**
+   * Let `this.solver(drivers)` (set by the app: dimension constraints) move
+   * other elements to follow the ones edited in the open transaction.
+   */
+  solve() {
+    const tx = this.tx;
+    if (!this.solver || !tx || tx.solving) return;
+    tx.solved ??= new Set();
+    const drivers = new Set([...tx.changes.keys()].filter((id) => !tx.solved.has(id)));
+    if (!drivers.size) return;
+    tx.solving = true;
+    try {
+      for (const id of this.solver(drivers)) tx.solved.add(id);
+    } finally {
+      tx.solving = false;
+    }
   }
 
   rollback() {

@@ -20,6 +20,7 @@ import { braceHeights } from './build3d.js';
 import { topoBoundary } from './topo.js';
 import { massFloorArea } from './massing.js';
 import { spaceLoads, SPACE_TYPES } from './spaces.js';
+import { lockAll } from './constraints.js';
 import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
 import { optionable, optionLabel } from './designopts.js';
 
@@ -196,7 +197,13 @@ const INSTANCE = {
     ro('length', 'Length', 'Dimensions', (el) => dist(el.a, el.b)),
   ],
   level: [P('name', 'Name', 'Identity Data', 'text'), len('elevation', 'Elevation', 'Constraints')],
-  dimension: [P('override', 'Text Override', 'Text', 'text'), ro('refs', 'References', 'Other', (el) => String(el.refs?.length ?? 0), 'text')],
+  dimension: [
+    P('eq', 'Equal Spacing (EQ)', 'Constraints', 'bool', { get: (el) => !!el.eq, ro: (el) => (el.refs?.length ?? 0) < 3 }),
+    P('eqDisplay', 'EQ Display', 'Constraints', 'select', { get: (el) => el.eqDisplay || 'eq', options: () => [{ value: 'eq', label: 'EQ' }, { value: 'value', label: 'Values' }], ro: (el) => !el.eq }),
+    P('locked', 'Locked', 'Constraints', 'bool', { get: (el) => !!el.locks?.length, set: (el, v, c) => lockAll(c.doc, c.scene?.walls, el, !!v) }),
+    P('override', 'Text Override', 'Text', 'text'),
+    ro('refs', 'References', 'Other', (el) => String(el.refs?.length ?? 0), 'text'),
+  ],
   text: [
     P('text', 'Text', 'Text', 'textarea'),
     P('size', 'Size (mm on paper)', 'Text', 'select', { options: () => [1.8, 2.5, 3.5, 5, 7].map((v) => ({ value: v, label: `${v} mm` })) }),

@@ -977,13 +977,31 @@ function drawDimension(pc, el, b) {
   const ang = readableAngle(angleOf(dir));
   const up = rotate([0, 1], ang);
   const tsz = P(pc, 2.5);
+  const eq = el.eq && el.refs.length >= 3 && el.eqDisplay !== 'value';
   for (let i = 0; i + 1 < sorted.length; i++) {
     const v = sorted[i + 1].s - sorted[i].s;
     if (v < 0.5) continue;
     const m = g.at((sorted[i].s + sorted[i + 1].s) / 2);
-    b.text(add(m, scale(up, tsz * 0.75)), el.override || formatDimension(v, pc.units), { size: tsz, rot: ang });
+    b.text(add(m, scale(up, tsz * 0.75)), eq ? 'EQ' : el.override || formatDimension(v, pc.units), { size: tsz, rot: ang });
+    // A small padlock under locked segments.
+    const a = g.order[i];
+    const c = g.order[i + 1];
+    if (el.locks?.some((lk) => (lk.i === a && lk.j === c) || (lk.i === c && lk.j === a))) drawPadlock(b, add(m, scale(up, -tsz * 1.1)), tsz * 0.9, ang);
   }
   b.pick([add(g.at(first - ext), scale(n, -tsz)), add(g.at(last + ext), scale(n, -tsz)), add(g.at(last + ext), scale(n, tsz * 1.8)), add(g.at(first - ext), scale(n, tsz * 1.8))]);
+}
+
+function drawPadlock(b, c, s, ang) {
+  const R = (p) => add(c, rotate(p, ang));
+  const body = [
+    [-s * 0.6, -s * 0.55],
+    [s * 0.6, -s * 0.55],
+    [s * 0.6, s * 0.2],
+    [-s * 0.6, s * 0.2],
+  ].map(R);
+  b.fill(body, [], INK(255));
+  const arc = arcPoints([0, s * 0.2], s * 0.38, 0, Math.PI, Math.PI / 8).map(R);
+  b.poly(arc, false, W.thin);
 }
 
 function drawText(pc, el, b) {
