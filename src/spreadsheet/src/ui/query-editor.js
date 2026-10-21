@@ -276,7 +276,8 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       removeFirst: ['Remove Top Rows', 'Specify how many rows to remove from the top.'], removeLast: ['Remove Bottom Rows', 'Specify how many rows to remove from the bottom.'] }[type];
     const input = el('input.input', { type: 'number', min: 0, step: 1, value: '' , 'aria-label': 'Number of rows' });
     formDialog({ title: titles[0], fields: [el('p.field-hint', {}, titles[1]), field('Number of rows', input)], submit: () => {
-      const n = Number(input.value);
+      // An empty box is no count: read as 0, Keep Top Rows kept none of them.
+      const n = input.value.trim() === '' ? NaN : Number(input.value);
       if (!Number.isInteger(n) || n < 0) return { field: input, message: 'Enter a whole number' };
       addStep({ type, count: n });
       return null;
