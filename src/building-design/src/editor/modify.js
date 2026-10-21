@@ -10,7 +10,8 @@ import {
   translation,
   rotation,
   mirrorAcross,
-  splitWall,
+  splitLinear,
+  scaling,
   cornerWalls,
   extendToLine,
   offsetElement,
@@ -598,10 +599,26 @@ export class SplitTool extends Tool {
     return 'Click on a wall or line where it should be split';
   }
 
+  get gap() {
+    return this.app.toolOptions('split', { gap: 0 }).gap;
+  }
+
+  options() {
+    const o = this.app.toolOptions('split', { gap: 0 });
+    const input = h('input.input.sm.num', { type: 'text', value: this.fmt(o.gap), 'aria-label': 'Gap' });
+    input.addEventListener('change', () => {
+      const v = this.parseLen(input.value);
+      if (Number.isFinite(v) && v >= 0) o.gap = v;
+      input.value = this.fmt(o.gap);
+    });
+    input.addEventListener('keydown', (e) => e.stopPropagation());
+    return [h('div.ob-group', h('label', 'Gap'), input), h('span.ob-label', o.gap ? 'Leaves a gap of this width at the split.' : 'Set a gap to split with an opening between the parts.')];
+  }
+
   target(ev) {
     for (const id of this.vc.hitTest(ev.x, ev.y)) {
       const el = this.doc.get(id);
-      if (el && ['wall', 'detailLine', 'roomSeparator', 'beam'].includes(el.kind)) return el;
+      if (el && ['wall', 'detailLine', 'roomSeparator', 'beam', 'modelLine', 'refPlane', 'areaBoundary', 'insulation'].includes(el.kind)) return el;
     }
     return null;
   }
@@ -618,18 +635,8 @@ export class SplitTool extends Tool {
     if (!el) return;
     const p = this.snap(ev) || ev.p;
     const c = closestOnSegment(p, el.a, el.b).point;
-    if (el.kind === 'wall') {
-      const r = this.app.commit('Split wall', () => splitWall(this.doc, el, c));
-      if (r === null) this.app.toast('Click away from the ends of the wall.', { kind: 'error' });
-    } else {
-      if (dist(c, el.a) < 1 || dist(c, el.b) < 1) return;
-      this.app.commit('Split', () => {
-        const { id: _id, ...rest } = el;
-        void _id;
-        this.doc.update(el.id, { b: c });
-        this.doc.add({ ...rest, a: c });
-      });
-    }
+    const r = this.app.commit(el.kind === 'wall' ? 'Split wall' : 'Split', () => splitLinear(this.doc, el, c, this.gap));
+    if (r === null) this.app.toast(this.gap ? 'The gap does not fit there. Click farther from the ends.' : 'Click away from the ends.', { kind: 'error' });
   }
 
   drawOverlay(ctx, vc, vp) {
@@ -639,6 +646,108 @@ export class SplitTool extends Tool {
       const S = (p) => vc.modelToScreen(p);
       const k = 14 * vc.mmPerPx();
       strokeModel(ctx, [add(c, scale(n, -k)), add(c, scale(n, k))], S, vp.theme.snap, 2);
+    }
+    this.drawSnap(ctx, vc, vp);
+  }
+}
+
+/**
+ * Scale the selection about a base point: graphically (a reference length,
+ * then the new length) or by a typed factor.
+ */
+export class ScaleTool extends SelectionTool {
+  get title() {
+    return 'Scale';
+  }
+
+  get prompt() {
+    if (!this.base) return 'Click the base point (it stays in place), or type a scale factor in the options bar';
+    if (!this.ref) return 'Click the end of the reference length';
+    return 'Click to set the new length, or type it';
+  }
+
+  options() {
+    const f = h('input.input.sm.num', { type: 'text', placeholder: '2', 'aria-label': 'Scale factor' });
+    f.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        const k = parseFloat(f.value);
+        if (!(k > 0)) return f.setAttribute('aria-invalid', 'true');
+        if (!this.base) {
+          const b = this.vc.extents?.(new Set(this.ids));
+          this.base = b ? [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2] : [0, 0];
+        }
+        this.apply(k);
+      }
+    });
+    return [h('div.ob-group', h('label', 'Factor'), f), h('span.ob-label', 'Positions and lengths scale; the sizes of doors, furniture and other types stay.')];
+  }
+
+  down(ev) {
+    const p = this.snap(ev, this.ref || this.base, { exclude: this.exclude });
+    if (!p) return;
+    if (!this.base) this.base = p;
+    else if (!this.ref) {
+      if (dist(p, this.base) < 1) return;
+      this.ref = p;
+    } else {
+      const k = dist(p, this.base) / dist(this.ref, this.base);
+      if (k > 0) this.apply(k);
+      return;
+    }
+    this.app.setPrompt(this.prompt);
+  }
+
+  apply(k) {
+    this.app.commit('Scale', () => transformElements(this.doc, this.ids, scaling(this.base, k)));
+    this.app.cancelTool();
+  }
+
+  move(ev) {
+    this.cursor = this.snap(ev, this.ref || this.base, { exclude: this.exclude });
+    this.app.requestRender();
+  }
+
+  key(e) {
+    if (this.ref && isNumericStart(e)) {
+      e.preventDefault();
+      const s = this.vc.modelToScreen(this.cursor || this.ref);
+      const input = this.openInput(s.x, s.y, {
+        label: 'New length',
+        onSubmit: (v) => {
+          const L = this.parseLen(v);
+          if (!(L > 0)) return false;
+          this.apply(L / dist(this.ref, this.base));
+          return true;
+        },
+      });
+      input.value = e.key;
+      return true;
+    }
+    return false;
+  }
+
+  cancel() {
+    if (this.ref || this.base) {
+      if (this.ref) this.ref = null;
+      else this.base = null;
+      this.app.setPrompt(this.prompt);
+      return false;
+    }
+    return true;
+  }
+
+  drawOverlay(ctx, vc, vp) {
+    const S = (p) => vc.modelToScreen(p);
+    if (this.base && this.cursor) {
+      strokeModel(ctx, [this.base, this.ref || this.cursor], S, vp.theme.preview, 1.4, [5, 4]);
+      if (this.ref) {
+        const k = dist(this.cursor, this.base) / dist(this.ref, this.base);
+        strokeModel(ctx, [this.base, this.cursor], S, vp.theme.preview, 1.4);
+        this.preview(ctx, vc, vp, scaling(this.base, k));
+        const s = S(this.cursor);
+        drawTag(ctx, s.x + 30, s.y + 20, `x ${Math.round(k * 1000) / 1000}`, { bg: vp.theme.bgCss, fg: vp.theme.inkCss, border: vp.theme.preview });
+      }
     }
     this.drawSnap(ctx, vc, vp);
   }

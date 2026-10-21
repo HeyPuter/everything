@@ -571,7 +571,9 @@ export class App {
 
   updateSelInfo() {
     const n = this.selection.size;
-    this.shell.selInfo.textContent = n ? `${n} selected` : '';
+    const el = this.shell.selInfo;
+    el.hidden = !n;
+    el.replaceChildren(icon('filter', 13), h('span', `${n} selected`));
   }
 
   setHover(id) {
@@ -1218,10 +1220,42 @@ export class App {
     this.ribbon.refresh();
   }
 
-  paste() {
+  /** Paste onto several levels: the clipboard's model elements, aligned with where they were copied. */
+  pasteToLevels() {
     const cb = this.clipboard;
-    if (!cb) return;
-    const levelId = this.activeLevelId();
+    if (!cb) return this.toast('Copy elements first.', { kind: 'error' });
+    dialogs.chooseLevelsDialog(this, 'Paste Aligned to Selected Levels', 'Paste').then((levels) => {
+      if (!levels?.length) return;
+      const all = [];
+      for (const l of levels) all.push(...this.paste(l.id, true));
+      this.select(all);
+      this.setPrompt(`Pasted on ${levels.length} level${levels.length === 1 ? '' : 's'}.`);
+    });
+  }
+
+  /** Start placing another element like the selected one (same kind and type). */
+  createSimilar() {
+    const el = this.doc.get([...this.selection][0]);
+    if (!el) return this.toast('Select an element first.', { kind: 'error' });
+    const type = this.doc.get(el.typeId);
+    if (type) return this.placeType(type, el.kind === 'column' ? 'column' : el.kind);
+    const byKind = { room: 'room', grid: 'grid', level: 'level', text: 'text', dimension: 'dimension', detailLine: 'detailLine', region: 'region', roomSeparator: 'roomSeparator', refPlane: 'refPlane', modelLine: 'modelLine', area: 'area', areaBoundary: 'areaBoundary', revisionCloud: 'revisionCloud', insulation: 'insulation', detailItem: 'detailItem', detailArc: 'detailArc', spot: 'spotElevation', symbol: 'symbol', tag: 'tag', section: 'section', elevation: 'elevation' };
+    const cmd = byKind[el.kind];
+    if (!cmd) return this.toast('There is no tool for this kind of element.', { kind: 'error' });
+    if (el.kind === 'detailLine' || el.kind === 'modelLine') this.toolOptions(el.kind, {}).style = el.style;
+    if (el.kind === 'detailItem') Object.assign(this.toolOptions('detailItem', {}), { family: el.family });
+    if (el.kind === 'symbol') Object.assign(this.toolOptions('symbol', {}), { family: el.family });
+    this.run(cmd);
+  }
+
+  selectionFilterDialog() {
+    return dialogs.selectionFilterDialog(this);
+  }
+
+  paste(toLevelId = null, quiet = false) {
+    const cb = this.clipboard;
+    if (!cb) return [];
+    const levelId = toLevelId || this.activeLevelId();
     const targetView = this.activeViewId;
     const ids = [];
     this.commit('Paste', () => {
@@ -1229,6 +1263,8 @@ export class App {
       for (const it of cb.items) {
         if (it.hostId && cb.items.some((x) => x.id === it.hostId)) continue;
         if (it.hostId && !this.doc.has(it.hostId)) continue;
+        // Pasting to other levels takes the model, not the annotations of the copied view.
+        if (toLevelId && it.viewId) continue;
         const { id, ...rest } = it;
         const patch = {};
         if (rest.levelId && levelId) patch.levelId = levelId;
@@ -1251,8 +1287,10 @@ export class App {
       // Pasted members belong to the pasted copy of their group.
       for (const it of cb.items) if (it.groupId && map.has(it.id)) this.doc.update(map.get(it.id), { groupId: map.get(it.groupId) ?? this.doc.addDefaults?.fields?.groupId ?? null });
     });
+    if (quiet) return ids;
     this.select(ids);
     this.setPrompt(`Pasted ${ids.length} element${ids.length === 1 ? '' : 's'}. Use Move (MV) to position them.`);
+    return ids;
   }
 
   // Keyboard ----------------------------------------------------------------------------------

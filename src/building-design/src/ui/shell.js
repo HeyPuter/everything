@@ -87,7 +87,7 @@ export function buildShell(app) {
 
   // Status bar
   const prompt = h('div.sb-prompt', { role: 'status', 'aria-live': 'polite' });
-  const selInfo = h('span.sb-item', { 'aria-live': 'polite' });
+  const selInfo = h('button.sb-item', { type: 'button', hidden: true, 'aria-live': 'polite', 'data-tip': 'Filter the selection by category', onClick: () => app.selectionFilterDialog() });
   const snapBtn = h('button.sb-item', { type: 'button', 'aria-pressed': 'true', 'data-tip': 'Snaps', 'data-tip-desc': 'Snap to endpoints, midpoints, intersections and angles', onClick: () => app.toggleSnaps() }, icon('magnet', 14), h('span', 'Snaps'));
   const coords = h('span.sb-item.sb-coords', { 'aria-hidden': 'true' });
   const statusbar = h('footer.statusbar', prompt, selInfo, snapBtn, coords);

@@ -95,6 +95,7 @@ export function transformPatch(el, xf) {
     }
   }
   if (el.kind === 'radialDim') patch.angle = rad(+el.angle || 0);
+  if (xf.scale && (el.kind === 'detailArc' || el.kind === 'angularDim' || el.kind === 'radialDim') && el.r) patch.r = el.r * xf.scale;
   if (el.kind === 'elevation') {
     const look = [Math.cos(el.look), Math.sin(el.look)];
     const p0 = xf.point(el.origin);
@@ -122,6 +123,11 @@ export function translation(d) {
 
 export function rotation(center, angle) {
   return { point: (p) => rotate(p, angle, center), angle };
+}
+
+/** Uniform scaling about a base point (positions and lengths; sizes of types stay). */
+export function scaling(base, k) {
+  return { point: (p) => [base[0] + (p[0] - base[0]) * k, base[1] + (p[1] - base[1]) * k], angle: 0, scale: k };
 }
 
 export function mirrorAcross(a, b) {
@@ -229,6 +235,31 @@ export function copyElements(doc, ids, xf, { levelId = null } = {}) {
 }
 
 // Walls ---------------------------------------------------------------------------------
+
+/**
+ * Split a line-like element (wall, line, beam...) at the point nearest p,
+ * leaving a gap of `gap` millimetres centred there. Returns the new piece.
+ */
+export function splitLinear(doc, el, p, gap = 0) {
+  const L = dist(el.a, el.b);
+  const d = norm(sub(el.b, el.a));
+  const t = dot(sub(p, el.a), d);
+  const g = Math.max(0, gap) / 2;
+  if (t - g <= 10 || t + g >= L - 10) return null;
+  if (el.kind === 'wall') {
+    const second = splitWall(doc, el, p);
+    if (!second || !g) return second;
+    doc.update(el.id, { b: sub(doc.get(el.id).b, scale(d, g)) });
+    doc.update(second.id, { a: add(second.a, scale(d, g)) });
+    for (const h of doc.all('door', 'window', 'opening')) if (h.hostId === second.id) doc.update(h.id, { t: h.t - g });
+    return doc.get(second.id);
+  }
+  const m = add(el.a, scale(d, t));
+  const { id: _id, ...rest } = el;
+  void _id;
+  doc.update(el.id, { b: sub(m, scale(d, g)) });
+  return doc.add({ ...rest, a: add(m, scale(d, g)) });
+}
 
 /** Split a wall at the point nearest p; hosted elements go with their half. */
 export function splitWall(doc, wall, p) {

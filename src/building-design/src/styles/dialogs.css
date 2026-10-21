@@ -690,3 +690,17 @@
 .warn-list .icon {
   color: var(--warning, #b7791f);
 }
+
+.filter-sel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.filter-sel .check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

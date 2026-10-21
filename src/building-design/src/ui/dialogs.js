@@ -7,7 +7,7 @@ import { h, clear, MOD } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { openDialog, toast, confirmDialog, promptDialog } from './dialog.js';
 import { COMMANDS } from '../commands.js';
-import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND } from '../core/catalog.js';
+import { CATEGORIES, KIND_LABEL, typeThickness, FAMILY_BY_KIND, categoryOf } from '../core/catalog.js';
 import { TYPE_PARAMS, AREA_SCHEMES, schemeLabel } from '../core/props.js';
 import { AreaSolver } from '../core/rooms.js';
 import { projectParams } from '../core/params.js';
@@ -879,6 +879,66 @@ export function planViewDialog(app) {
           if (last) app.openView(last.id);
         },
       },
+    ],
+  });
+}
+
+/** Pick levels; resolves with the chosen level items (or null). */
+export function chooseLevelsDialog(app, title, okLabel = 'OK') {
+  const doc = app.doc;
+  const checks = doc.levels().map((l) => ({ l, cb: h('input', { type: 'checkbox' }) }));
+  let chosen = null;
+  return openDialog({
+    title,
+    body: h('div', h('div.snap-grid', checks.map(({ l, cb }) => h('label.check', cb, l.name))), h('p.field-hint', 'Elements keep their plan position and their height relative to the level.')),
+    size: 'sm',
+    actions: [
+      { label: 'Cancel', value: null },
+      {
+        label: okLabel,
+        primary: true,
+        onClick: () => {
+          chosen = checks.filter((c) => c.cb.checked).map((c) => c.l);
+          if (!chosen.length) {
+            toast('Choose at least one level.', { kind: 'error' });
+            return false;
+          }
+        },
+      },
+    ],
+  }).then(() => chosen);
+}
+
+/** Keep only some categories of the selection. */
+export function selectionFilterDialog(app) {
+  const doc = app.doc;
+  const sel = [...app.selection].map((id) => doc.get(id)).filter(Boolean);
+  if (!sel.length) return toast('Select elements first.', { kind: 'error' });
+  const groups = new Map();
+  for (const el of sel) {
+    const cat = categoryOf(el, doc);
+    const label = CATEGORIES.find((c) => c.id === cat)?.label || KIND_LABEL[el.kind] || VIEW_LABEL[el.kind] || el.kind;
+    if (!groups.has(label)) groups.set(label, []);
+    groups.get(label).push(el.id);
+  }
+  const rows = [...groups].sort((a, b) => a[0].localeCompare(b[0])).map(([label, ids]) => ({ label, ids, cb: h('input', { type: 'checkbox', checked: true }) }));
+  const total = h('p.field-hint');
+  const update = () => (total.textContent = `${rows.filter((r) => r.cb.checked).reduce((s, r) => s + r.ids.length, 0)} of ${sel.length} selected.`);
+  for (const r of rows) r.cb.addEventListener('change', update);
+  update();
+  const all = (v) => () => (rows.forEach((r) => (r.cb.checked = v)), update());
+  return openDialog({
+    title: 'Filter Selection',
+    body: h(
+      'div',
+      h('div.filter-sel', rows.map((r) => h('label.check', r.cb, h('span.grow', r.label), h('span.file-meta', String(r.ids.length))))),
+      h('div.inline', { style: { gap: '6px', marginTop: '8px' } }, h('button.btn.sm', { type: 'button', onClick: all(true) }, 'Check all'), h('button.btn.sm', { type: 'button', onClick: all(false) }, 'Check none')),
+      total,
+    ),
+    size: 'sm',
+    actions: [
+      { label: 'Cancel', value: null },
+      { label: 'OK', primary: true, onClick: () => app.select(rows.filter((r) => r.cb.checked).flatMap((r) => r.ids)) },
     ],
   });
 }
