@@ -289,6 +289,28 @@ describe('Library media', () => {
     expect(lib.unsavedMedia).toBe(0);
   });
 
+  it('downloads a file once when several parts of the editor ask for it at the same time', async () => {
+    const backend = memoryBackend();
+    backend.files.set('media/h.mp4', new Blob([new Uint8Array(10)]));
+    let reads = 0;
+    const read = backend.readBlob;
+    backend.readBlob = async (path) => {
+      reads++;
+      await new Promise((r) => setTimeout(r, 20));
+      return read(path);
+    };
+    const lib = new Library(backend);
+    const a = { hash: 'h', ext: 'mp4', name: 'x', mime: 'video/mp4' };
+    const [b1, b2, b3] = await Promise.all([lib.mediaBlob(a), lib.mediaBlob(a), lib.mediaBlob(a), lib.mediaURL(a)]);
+    expect(reads).toBe(1);
+    expect(b1).toBe(b2);
+    expect(b2).toBe(b3);
+    // A failed read is not remembered.
+    await expect(lib.mediaBlob({ hash: 'gone', ext: 'mp4', name: 'Gone' })).rejects.toThrow(/missing/);
+    backend.files.set('media/gone.mp4', new Blob(['x']));
+    await expect(lib.mediaBlob({ hash: 'gone', ext: 'mp4', name: 'Gone' })).resolves.toBeTruthy();
+  });
+
   it('reads media from storage when it is not in memory and explains a missing file', async () => {
     const backend = memoryBackend();
     const lib = new Library(backend);

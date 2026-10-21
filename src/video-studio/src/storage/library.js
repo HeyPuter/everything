@@ -36,6 +36,7 @@ export class Library extends Emitter {
     this.cache = cache !== undefined ? cache : backend.kind === 'puter' && opfsAvailable() ? opfsBackend('video-studio-cache') : null;
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
+    this.reads = new Map(); // hash -> Promise<Blob>: files being read, shared by everyone asking
     this.uploads = new Map(); // hash -> Promise
     this.failed = new Map(); // hash -> { asset, blob, tries, timer }: uploads that failed, tried again later
     this.index = null;
@@ -379,6 +380,18 @@ export class Library extends Emitter {
   async mediaBlob(asset) {
     const hit = this.blobs.get(asset.hash);
     if (hit) return hit;
+    // Posters, waveforms, thumbnails and the player ask at once when a project opens: read it once.
+    let read = this.reads.get(asset.hash);
+    if (!read) {
+      read = this._readMedia(asset).finally(() => this.reads.delete(asset.hash));
+      this.reads.set(asset.hash, read);
+    }
+    const blob = await read;
+    this.blobs.set(asset.hash, blob);
+    return blob;
+  }
+
+  async _readMedia(asset) {
     const path = this.mediaPath(asset);
     let blob = this.cache ? await this.cache.readBlob(path).catch(() => null) : null;
     if (!blob) {
@@ -387,7 +400,6 @@ export class Library extends Emitter {
       if (asset.mime && blob.type !== asset.mime) blob = new Blob([blob], { type: asset.mime });
       if (this.cache) this.cache.writeBlob(path, blob).catch(() => {});
     }
-    this.blobs.set(asset.hash, blob);
     return blob;
   }
 
