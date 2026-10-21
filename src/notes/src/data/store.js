@@ -115,8 +115,17 @@ export class Store extends Emitter {
         changed = true;
       } else if (remote.modified > this.notebooks[i].modified) {
         for (const s of this.sectionsOf(remote)) {
-          const key = s.locked && this.keys.get(s.id);
-          if (key && s.sealed) s.pages = await openJSON(key, s.sealed).catch(() => []);
+          const key = this.keys.get(s.id);
+          if (!key) continue;
+          const pages = s.locked && s.sealed ? await openJSON(key, s.sealed).catch(() => null) : null;
+          if (pages) s.pages = pages;
+          else {
+            // Password changed or removed on another device: this key no
+            // longer fits, so the section locks rather than look empty (and
+            // save an empty page list over the real one).
+            this.keys.delete(s.id);
+            if (s.locked) for (const m of this.section(s.id)?.pages || []) this.pages.delete(m.id);
+          }
         }
         this.notebooks[i] = remote;
         changed = true;

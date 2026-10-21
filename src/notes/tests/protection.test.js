@@ -223,6 +223,28 @@ describe('password-protected sections: Deleted Notes', () => {
   });
 });
 
+describe('password-protected sections: other devices', () => {
+  it('locks a section whose password was changed on another device', async () => {
+    const { backend, store, section } = await setup();
+    await store.protectSection(section.id, 'old');
+    const other = new Store(backend, { saveDelay: 0 });
+    await other.load();
+    expect(await other.unlockSection(section.id, 'old')).toBe(true);
+    await new Promise((r) => setTimeout(r, 5));
+    await store.protectSection(section.id, 'new');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(await other.refresh()).toBe(true);
+    expect(other.isLocked(section.id)).toBe(true);
+    // A later save of that notebook must keep the section's pages.
+    other.renameNotebook(other.notebooks[0].id, 'Renamed');
+    await other.flush();
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    expect(await fresh.unlockSection(section.id, 'new')).toBe(true);
+    expect(fresh.section(section.id).pages.map((p) => p.title)).toEqual(['Secret plans']);
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');
