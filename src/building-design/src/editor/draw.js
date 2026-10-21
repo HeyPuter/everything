@@ -1174,6 +1174,7 @@ export class StairTool extends Tool {
   }
 
   get prompt() {
+    if (this.app.toolOptions('stair', { shape: 'straight' }).shape === 'spiral') return this.start ? 'Click to set where the bottom step points' : 'Click the centre of the spiral';
     return this.start ? 'Click to set the direction of the run' : 'Click the start of the run (the bottom step)';
   }
 

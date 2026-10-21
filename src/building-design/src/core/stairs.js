@@ -14,7 +14,27 @@ export const STAIR_SHAPES = [
   { value: 'straight', label: 'Straight' },
   { value: 'l', label: 'L-shaped' },
   { value: 'u', label: 'U-shaped' },
+  { value: 'spiral', label: 'Spiral' },
 ];
+
+/** Radius of a spiral stair's central column. */
+export const SPIRAL_CORE = 100;
+
+/**
+ * Spiral geometry: { c, rin, rout, rwalk, a0, step (radians per tread, signed), treads }.
+ * The tread depth is measured on the walking line, in the middle of the width.
+ */
+export function spiralLayout(el, lay) {
+  const { risers: R, tread: td, width: W } = lay;
+  const rin = SPIRAL_CORE;
+  const rout = rin + W;
+  const rwalk = rin + W / 2;
+  const d0 = sub(el.b, el.a);
+  const a0 = Math.atan2(d0[1], d0[0]);
+  const sign = el.turn === 'right' ? -1 : 1;
+  const step = sign * Math.min(Math.PI / 4, td / rwalk);
+  return { c: el.a, rin, rout, rwalk, a0, step, treads: Math.max(1, R) };
+}
 
 export function stairFlights(doc, el) {
   const lay = stairLayout(doc, el);
@@ -26,6 +46,7 @@ export function stairFlights(doc, el) {
   const shape = el.shape || 'straight';
   const flights = [];
   const landings = [];
+  if (shape === 'spiral') return { ...lay, shape, dir, flights, landings, spiral: spiralLayout(el, lay) };
   if (shape === 'straight' || R < 4) {
     flights.push({ start: el.a, dir, side: left, risers: R, z0: base, run: (R - 1) * td });
     return { ...lay, shape: 'straight', dir, flights, landings };

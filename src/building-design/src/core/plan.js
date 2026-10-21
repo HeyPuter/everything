@@ -772,6 +772,7 @@ function planStair(pc, el, b) {
   const atTop = el.topLevelId === pc.view.levelId;
   if ((!atBase && !atTop) || pc.ceiling) return;
   const g = stairFlights(pc.doc, el);
+  if (g.spiral) return planSpiral(pc, el, g, atBase, b);
   const { riserHeight: rh, tread: td, width: Wd } = g;
   const walk = [];
   let stopped = false;
@@ -855,6 +856,18 @@ function drawTreadNumbers(pc, el, b) {
   if (!stair) return;
   const g = stairFlights(pc.doc, stair);
   const { tread: td, width: Wd } = g;
+  if (g.spiral) {
+    const s = g.spiral;
+    const r = el.side === 'left' ? s.rin + Wd * 0.78 : s.rin + Wd * 0.22;
+    const sz2 = P(pc, 1.8);
+    for (let i = 0; i < s.treads - 1; i++) {
+      const a = s.a0 + s.step * (i + 0.5);
+      const p = [s.c[0] + Math.cos(a) * r, s.c[1] + Math.sin(a) * r];
+      b.text(p, String((+el.start || 1) + i), { size: sz2, mask: true });
+      b.pick([add(p, [-sz2, -sz2]), add(p, [sz2, -sz2]), add(p, [sz2, sz2]), add(p, [-sz2, sz2])]);
+    }
+    return;
+  }
   const w = el.side === 'left' ? Wd * 0.78 : Wd * 0.22;
   const sz = P(pc, 1.8);
   let n = +el.start || 1;
@@ -897,6 +910,48 @@ function planWire(pc, el, b) {
     const pn = scale(perp(norm(sub(q, p))), P(pc, 1));
     b.pick([sub(p, pn), sub(q, pn), add(q, pn), add(p, pn)]);
   }
+}
+
+/** A spiral stair in plan: tread lines, the column, the cut, and the walking line with its arrow. */
+function planSpiral(pc, el, g, atBase, b) {
+  const s = g.spiral;
+  const P = (r, a) => [s.c[0] + Math.cos(a) * r, s.c[1] + Math.sin(a) * r];
+  const n = s.treads;
+  // Treads above the cut plane (in the base plan) are dashed.
+  const cutAt = atBase ? Math.floor((pc.cutZ - g.base) / g.riserHeight) : n;
+  for (let i = 0; i <= n; i++) {
+    // Past a full turn the treads above the cut lie over the ones below it.
+    if (i > cutAt && Math.abs(s.step * i) >= 2 * Math.PI) break;
+    const a = s.a0 + s.step * i;
+    b.line(P(s.rin, a), P(s.rout, a), W.thin, i > cutAt ? 2 : 0);
+  }
+  const aEnd = s.a0 + s.step * n;
+  const lo = Math.min(s.a0, aEnd);
+  const hi = Math.max(s.a0, aEnd);
+  b.arc(s.c, s.rout, lo, hi, W.light);
+  b.circle(s.c, s.rin, W.light);
+  if (cutAt < n) {
+    const ac = s.a0 + s.step * (cutAt + 0.5);
+    b.line(P(s.rin * 0.6, ac), P(s.rout * 1.08, ac), W.light);
+  }
+  // Walking line up to the cut (or all the way in the top plan).
+  const last = Math.min(n, cutAt) - 0.3;
+  const pts = [];
+  for (let k = 0; k <= 24; k++) pts.push(P(s.rwalk, s.a0 + s.step * (0.4 + ((last - 0.4) * k) / 24)));
+  if (pts.length > 1 && last > 0.5) {
+    b.poly(pts, false, W.thin);
+    b.circle(pts[0], P(pc, 0.8), W.thin);
+    const tip = pts.at(-1);
+    const d = norm(sub(tip, pts.at(-2)));
+    const n2 = perp(d);
+    const ah = P(pc, 2.2);
+    b.poly([add(add(tip, scale(d, -ah)), scale(n2, ah * 0.45)), tip, add(add(tip, scale(d, -ah)), scale(n2, -ah * 0.45))], false, W.thin);
+  }
+  b.text(P(s.rwalk, s.a0 - s.step * 0.6), atBase ? 'UP' : 'DN', { size: P(pc, 2.2) });
+  const outline = [];
+  for (let k = 0; k <= 32; k++) outline.push(P(s.rout, lo + ((hi - lo) * k) / 32));
+  outline.push(s.c);
+  b.pick(outline);
 }
 
 function planRailing(pc, el, b) {

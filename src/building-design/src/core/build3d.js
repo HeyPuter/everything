@@ -16,7 +16,7 @@ import { axisParam, hubsOf } from './walls.js';
 import { typeThickness } from './catalog.js';
 import { roofFaces, roofHeightAt, verticalThickness, planeHeight, edgeProfile } from './roof.js';
 import { buildFamily } from './families.js';
-import { stairFlights, flightOutline } from './stairs.js';
+import { stairFlights, flightOutline, SPIRAL_CORE } from './stairs.js';
 import { mepSize, mepPlan, systemOf } from './mep.js';
 import { delaunay } from './topo.js';
 
@@ -964,6 +964,25 @@ function buildStair(ctx, el) {
   const th = +type.thickness || 150;
   const col = materialColor(ctx, type.materialId || 'mat-concrete');
   const b = new MeshBuilder();
+  if (g.spiral) {
+    // Wedge treads around a central column, each at its riser height.
+    const s = g.spiral;
+    const tt = Math.min(th, g.riserHeight * 0.8);
+    const arc = (r, a0, a1) => Array.from({ length: 7 }, (_, k) => {
+      const a = a0 + ((a1 - a0) * k) / 6;
+      return [s.c[0] + Math.cos(a) * r, s.c[1] + Math.sin(a) * r];
+    });
+    for (let i = 0; i < s.treads; i++) {
+      const a0 = s.a0 + s.step * i;
+      const a1 = a0 + s.step * 1.04;
+      const outer = arc(s.rout, a0, a1);
+      const inner = arc(s.rin, a1, a0);
+      const z = g.base + (i + 1) * g.riserHeight;
+      b.prism([...outer, ...inner], [], z - tt, z, col);
+    }
+    b.cylinder(s.c, SPIRAL_CORE, g.base, g.base + g.risers * g.riserHeight + 900, materialColor(ctx, 'mat-steel'), { segments: 16 });
+    return b.build();
+  }
   for (const f of g.flights) buildFlight(b, el, type, f, g, th, col, ctx);
   for (const l of g.landings) b.prism(l.poly, [], l.z - (type.monolithic !== false ? th : 40), l.z, col);
   return b.build();
