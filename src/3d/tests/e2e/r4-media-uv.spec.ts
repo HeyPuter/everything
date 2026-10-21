@@ -150,3 +150,26 @@ test('UV editor: Ctrl B sets a user region, Pack Islands fills it; Constrain to 
   for (const x of await meshUVs(page)) expect(Math.abs(x * 256 - Math.round(x * 256))).toBeLessThan(1e-3);
   await expectNoErrors(errors);
 });
+
+test('UV editor: Select ▸ Select All by Trait ▸ Tile selects the UVs of a UDIM tile', async ({ page }) => {
+  const { errors } = await uvWorkspace(page);
+  const count = () => page.evaluate(() => Array.from(((window as any).app.doc.meshes[(window as any).app.activeObject.data].uv_select ?? []) as Uint8Array).filter(Boolean).length);
+  await page.evaluate(() => {
+    const app = (window as any).app;
+    app.run('uv.select_all', { action: 'DESELECT' });
+    // move one face's UVs into tile 1002
+    const me = app.doc.meshes[app.activeObject.data];
+    const uvs = new Float32Array(me.uvs);
+    for (let c = me.offsets[0]; c < me.offsets[1]; c++) uvs[c * 2] += 1;
+    me.uvs = uvs;
+    app.changed('doc');
+  });
+  await page.evaluate(() => (window as any).app.run('uv.select_tile', { tile: [1, 0] }, { invoke: false }));
+  const inTile = await count();
+  expect(inTile).toBeGreaterThan(0);
+  await page.evaluate(() => (window as any).app.run('uv.select_tile', { tile: [0, 0], extend: true }, { invoke: false }));
+  expect(await count()).toBeGreaterThan(inTile);
+  await page.evaluate(() => (window as any).app.run('uv.select_tile', { tile: [3, 0] }, { invoke: false }));
+  expect(await count()).toBe(0);
+  await expectNoErrors(errors);
+});

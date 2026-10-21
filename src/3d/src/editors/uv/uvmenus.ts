@@ -266,6 +266,7 @@ export function selectMenu(): MenuItem[] {
     {
       label: 'Select All by Trait',
       submenu: () => [
+        { label: 'Tile', op: 'uv.select_tile' },
         { label: 'Pinned', op: 'uv.select_pinned', shortcut: 'Shift P' },
         { label: 'Overlap', op: 'uv.select_overlap' },
         { label: 'Winding', op: 'uv.select_by_winding' },

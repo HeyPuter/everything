@@ -3,11 +3,11 @@
 import { app, registerOperators, type OpContext } from '../../app/app';
 import { addKeys } from '../../app/keymap';
 import type { ImageData } from '../../data/types';
-import { isTiled } from '../../render/udim';
-import { normRegion, tileNumber } from './uvpackregion';
+import { normRegion } from './uvpackregion';
 import { UVTopo, selReader } from './uvcore';
 import { selBounds } from './uvalgo';
-import { ctxUVEditor, type EditLayer } from './uvcontext';
+import { ctxUVEditor, uvCursor, uvEditPoll, type EditLayer } from './uvcontext';
+import { selectByTest } from './uvops-select';
 
 export { packRegion, tileNumber, type PackSource } from './uvpackregion';
 
@@ -120,31 +120,23 @@ registerOperators([
   {
     idname: 'uv.select_tile',
     label: 'Select Tile',
-    description: 'Make the UDIM tile under the pointer the active tile of the image',
+    description: 'Select the UVs inside one UDIM tile (the tile under the pointer, or the one with the 2D cursor)',
     props: [
       { id: 'extend', label: 'Extend', type: 'bool', default: false },
       { id: 'tile', label: 'Tile', type: 'vec2', default: [0, 0] },
     ],
-    poll: (ctx) => !!regionView(ctx) && isTiled(regionView(ctx)!.image()),
+    poll: (ctx) => !!regionView(ctx) && uvEditPoll(),
     invoke: (ctx, p) => {
       const view = regionView(ctx)!;
       const ev = ctx.event ?? app.pointer;
       const r = view.el.getBoundingClientRect();
-      const uv = view.toUV(ev.x - r.left, ev.y - r.top);
+      const inside = ev.x >= r.left && ev.x <= r.right && ev.y >= r.top && ev.y <= r.bottom;
+      const uv = inside ? view.toUV(ev.x - r.left, ev.y - r.top) : { u: uvCursor.u, v: uvCursor.v };
       return app.run('uv.select_tile', { ...p, tile: [Math.floor(uv.u), Math.floor(uv.v)] }, { invoke: false, area: ctx.area });
     },
-    exec: (ctx, p) => {
-      const img = regionView(ctx)?.image();
-      if (!img || !isTiled(img)) return 'CANCELLED';
+    exec: (_ctx, p) => {
       const [u, v] = (p.tile as number[]).map((x) => Math.floor(Number(x) || 0));
-      if (u < 0 || u > 9 || v < 0) return 'CANCELLED';
-      const i = img.tiles!.findIndex((t) => t.number === tileNumber(u, v));
-      if (i < 0) {
-        app.report('INFO', `No tile ${tileNumber(u, v)} in "${img.name}"`);
-        return 'CANCELLED';
-      }
-      img.active_tile_index = i;
-      app.changed('doc');
+      selectByTest((x, y) => x >= u && x < u + 1 && y >= v && y < v + 1, p.extend ? 'ADD' : 'SET');
     },
   },
 ]);
