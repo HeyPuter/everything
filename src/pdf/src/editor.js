@@ -10831,6 +10831,9 @@ export function createEditor({
         ...(includeCurrent.checked ? [{ name, bytes: session.bytes.slice() }] : []),
         ...files,
       ];
+      // Checked while the dialog is open, so the files and steps chosen are still there.
+      if (!inputs.length) throw new Error('Add at least one PDF.');
+      if (!chosen.length) throw new Error('Choose at least one step.');
       if (includeCurrent.checked) requireAccess('copy');
       d.close();
       await runBatchSteps(inputs, chosen);

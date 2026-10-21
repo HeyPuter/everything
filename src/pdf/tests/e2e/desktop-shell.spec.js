@@ -1102,6 +1102,36 @@ test('Batch process applies the same steps to several PDFs', async ({ page }) =>
   expect(labels).toEqual(['LAW000001', 'LAW000002', 'LAW000003', 'LAW000004', 'LAW000005']);
 });
 
+test('Batch process stays open, with its files, until it has files and steps', async ({ page }) => {
+  await openPdf(page, await numberedPdf(1));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Batch process', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Batch process' });
+  const chooser = page.waitForEvent('filechooser');
+  await dialog.getByRole('button', { name: 'Add PDFs…' }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: 'other.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await (await numberedPdf(2)).save()),
+  });
+  await expect(dialog.getByText('other.pdf')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dialog.locator('.dialog-error')).toHaveText('Choose at least one step.');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('other.pdf')).toBeVisible();
+  await dialog.getByLabel('Rotate all pages').check();
+  await dialog.getByLabel('Include test.pdf').uncheck();
+  await dialog.getByRole('button', { name: 'Remove other.pdf' }).click();
+  await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(dialog.locator('.dialog-error')).toHaveText('Add at least one PDF.');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('Rotate all pages')).toBeChecked();
+});
+
 test('Prepare a form adds fields, edits their properties, and detects blanks', async ({ page }) => {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
