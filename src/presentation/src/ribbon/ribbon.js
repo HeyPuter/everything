@@ -318,11 +318,19 @@ export function createRibbon({
       if (e && (pop.contains(e.target) || e.target.closest?.(".menu"))) return;
       document.removeEventListener("pointerdown", close, true);
       document.removeEventListener("keydown", onKey, true);
+      const focused = pop.contains(document.activeElement)
+        ? document.activeElement
+        : null;
       node.insertBefore(content, node.firstChild);
       content.hidden = node._folded;
       pop.remove();
       fit();
       anchor.setAttribute("aria-expanded", "false");
+      // A command chosen in the drop-down keeps the keyboard on the ribbon:
+      // on the group's button, or on the command if the group has unfolded.
+      // A press outside it takes the focus where it lands instead (moving it
+      // here would scroll a phone's ribbon from under that press).
+      if (focused && !e) (node._folded ? anchor : focused).focus();
     };
     // Escape is the panel's while the focus is in it; a command that moved
     // the focus on (into the Format pane, say) leaves Escape to its new

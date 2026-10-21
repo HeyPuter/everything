@@ -663,3 +663,23 @@ test("no tab has two groups of the same name", async ({ page }) => {
   );
   expect(repeated).toEqual([]);
 });
+
+test("a command run from a folded group keeps the keyboard on the ribbon", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await start(page);
+  await textBox(page, "Fold");
+  await tab(page, "Home");
+  const fold = page.locator(
+    '.ribbon-panel:not([hidden]) .ribbon-fold[title="Paragraph"]',
+  );
+  await expect(fold).toBeVisible();
+  await fold.focus();
+  await page.keyboard.press("Enter");
+  const center = page.locator('.ribbon-fold-panel [aria-label="Center"]');
+  await center.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".ribbon-fold-panel")).toHaveCount(0);
+  await expect(fold).toBeFocused();
+});
