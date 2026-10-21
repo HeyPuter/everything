@@ -8,6 +8,7 @@ import { marksForNamed } from '../model/text-marks.js';
 import { MIN_CLIP, clipEnd, sourceTimeAt } from '../model/timeline.js';
 import { localAtSource, sourceSpan } from '../model/speed-curve.js';
 import { audibleClips } from '../engine/scene.js';
+import { expandProject } from '../engine/compound.js';
 
 // ---- Words that follow their media -----------------------------------------
 //
@@ -24,6 +25,19 @@ function speechClips(project) {
     .filter(({ clip }) => !clip.freeze && clip.assetId)
     .sort((x, y) => Number(Boolean(y.track.main)) - Number(Boolean(x.track.main)))
     .map(({ clip }) => clip);
+}
+
+/**
+ * Clips that carry a media's sound, heard or not right now: muting, disabling
+ * or soloing another track only silences a clip, so its words stay. A video
+ * whose sound was detached is left to the audio clip that now carries it.
+ */
+function soundClips(project) {
+  const out = [];
+  for (const t of expandProject(project).tracks) {
+    for (const c of t.clips) if (c.assetId && !c.freeze && (c.type === 'audio' || (c.type === 'video' && !c.audioDetached))) out.push(c);
+  }
+  return out;
 }
 
 /** Anchor timeline words (µs) to the media heard under them in project. */
@@ -48,7 +62,7 @@ export function transcriptWords(project) {
   const words = project?.transcript?.words;
   if (!words?.length) return [];
   if (!words.some((w) => w.a)) return words;
-  const clips = speechClips(project);
+  const clips = soundClips(project);
   const key = clips.map((c) => `${c.assetId}:${c.start}:${c.duration}:${c.in}:${c.speed}:${c.speedCurve ? JSON.stringify(c.speedCurve) : ''}`).join('|');
   const hit = placeCache.get(words);
   if (hit?.key === key) return hit.out;

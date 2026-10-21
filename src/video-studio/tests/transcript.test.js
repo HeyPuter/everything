@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { findFillers, findPauses, rangesForWords, removalOrder, wordAt, transcriptText, parseJsonArray, translateLines, anchorWords, transcriptWords } from '../src/media/transcript.js';
-import { removeRange, mainTrack, addClip, setSpeed } from '../src/model/timeline.js';
+import { removeRange, mainTrack, addClip, setSpeed, detachAudio } from '../src/model/timeline.js';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { removeRanges } from '../src/ui/panels/transcript.js';
@@ -185,6 +185,31 @@ describe('transcript words follow their media', () => {
     a.in = s(1);
     a.duration = s(1);
     expect(placed(p)).toEqual(['gamma@0.5', 'delta@1.5', 'beta@4.25']);
+  });
+
+  it('keeps its words while the speech is muted, disabled or soloed away', () => {
+    const { p, a, b } = talk();
+    const all = ['alpha@0.5', 'beta@1.5', 'gamma@4.5', 'delta@5.5'];
+    a.muted = true;
+    b.disabled = true;
+    expect(placed(p)).toEqual(all);
+    a.muted = false;
+    b.disabled = false;
+    mainTrack(p).muted = true;
+    expect(placed(p)).toEqual(all);
+    mainTrack(p).muted = false;
+    addClip(p, clip('audio', 0, 2), { ripple: false });
+    p.tracks.find((t) => t.kind === 'audio').solo = true;
+    expect(placed(p)).toEqual(all);
+  });
+
+  it('follows sound detached to its own clip, once', () => {
+    const { p, b } = talk();
+    const sound = detachAudio(p, b.id);
+    sound.muted = true;
+    expect(placed(p)).toEqual(['alpha@0.5', 'beta@1.5', 'gamma@4.5', 'delta@5.5']);
+    sound.start = s(10);
+    expect(placed(p)).toEqual(['alpha@0.5', 'beta@1.5', 'gamma@10.5', 'delta@11.5']);
   });
 
   it('survives saving and keeps older transcripts as they were', () => {
