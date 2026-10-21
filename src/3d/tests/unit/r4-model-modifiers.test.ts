@@ -150,3 +150,20 @@ describe('Mask: Smooth cuts along the threshold (recorded)', () => {
     expect(Array.from({ length: out.offsets.length - 1 }, (_, f) => out.offsets[f + 1] - out.offsets[f])).toEqual(sizes);
   });
 });
+
+describe('Shrinkwrap: auxiliary target', () => {
+  const plane = (z: number) => buildMesh([-5, -5, z, 5, -5, z, 5, 5, z, -5, 5, z], [{ verts: [0, 1, 2, 3] }]) as unknown as EvalMesh;
+  it('projects onto the nearer of the target and the auxiliary target', () => {
+    const graph = new Map<string, Any>([
+      ['ob', { world: new Matrix4(), ob: { id: 'ob' } }],
+      ['t', { world: new Matrix4(), mesh: plane(-1) }],
+      ['aux', { world: new Matrix4(), mesh: plane(0.5) }],
+    ]);
+    const m = buildMesh([0, 0, 0], []) as unknown as EvalMesh;
+    const t = modifierTypes.SHRINKWRAP;
+    const run = (aux: string | null) =>
+      t.apply(m, { ...t.defaults(), target: 't', auxiliary_target: aux, wrap_method: 'PROJECT', use_project_z: true, use_negative_direction: true } as never, { ob: { id: 'ob' }, graph } as unknown as ModifierContext).positions[2];
+    expect(run(null)).toBeCloseTo(-1, 5);
+    expect(run('aux')).toBeCloseTo(0.5, 5);
+  });
+});

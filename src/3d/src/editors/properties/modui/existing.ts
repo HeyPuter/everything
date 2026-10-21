@@ -490,6 +490,7 @@ modifierExtraUI.SHRINKWRAP = (ob, m) => {
             ['BACK', 'Back'],
           ]),
           r.cull_face !== 'OFF' ? bool(r, 'use_invert_cull', 'Invert Cull') : null,
+          objRow(r, 'auxiliary_target', 'Auxiliary Target', (o) => o.type === 'MESH' && o.id !== ob.id),
         ]
       : null,
     vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group'),

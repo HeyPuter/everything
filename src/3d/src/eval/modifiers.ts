@@ -2133,28 +2133,41 @@ function shrinkwrapMod(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext): Ev
     const limit = num(mod, 'project_limit', 0) || Infinity;
     const cull = str(mod, 'cull_face', 'OFF');
     const invCull = bool(mod, 'use_invert_cull');
-    const accept = (hit: { tri: [number, number, number] } | null, dir: Vector3) => {
+    // an auxiliary target is projected onto as well (the nearer hit wins)
+    const auxOb = typeof mod.auxiliary_target === 'string' && mod.auxiliary_target !== mod.target ? ctx.graph.get(mod.auxiliary_target) : undefined;
+    const aux = auxOb?.mesh ? new SurfaceQuery(auxOb.mesh, own.clone().invert().multiply(auxOb.world)) : null;
+    const hitNormal = (hit: { tri: [number, number, number] }, q: SurfaceQuery) => {
+      a.fromArray(q.positions, hit.tri[0] * 3);
+      b.fromArray(q.positions, hit.tri[1] * 3);
+      c.fromArray(q.positions, hit.tri[2] * 3);
+      return tn.subVectors(b, a).cross(c.sub(a)).normalize();
+    };
+    const cast = (p: Vector3, d: Vector3) => {
+      const h = query.raycast(p, d, limit, true);
+      const ha = aux && !aux.empty ? aux.raycast(p, d, limit, true) : null;
+      const pick = h && accept(h, d, query) ? h : null;
+      const pickA = ha && accept(ha, d, aux!) ? ha : null;
+      if (pickA && (!pick || pickA.distance < pick.distance)) return { hit: pickA, n: hitNormal(pickA, aux!).clone() };
+      return pick ? { hit: pick, n: hitNormal(pick, query).clone() } : null;
+    };
+    const accept = (hit: { tri: [number, number, number] } | null, dir: Vector3, q: SurfaceQuery) => {
       if (!hit) return false;
       if (cull === 'OFF') return true;
-      const front = triNormal(hit.tri).dot(dir) < 0;
+      const front = hitNormal(hit, q).dot(dir) < 0;
       const culled = cull === 'FRONT' ? front : !front;
       return invCull ? culled : !culled;
     };
     return deform(m, mod, (p, i) => {
       const d = vn ? new Vector3(vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]) : axis.clone();
       if (d.lengthSq() < 1e-12) return;
-      let best: ReturnType<SurfaceQuery['raycast']> = null;
-      if (pos) {
-        const h = query.raycast(p, d, limit, true);
-        if (accept(h, d)) best = h;
-      }
+      let best: ReturnType<typeof cast> = null;
+      if (pos) best = cast(p, d);
       if (neg) {
-        const nd = d.clone().negate();
-        const h = query.raycast(p, nd, limit, true);
-        if (accept(h, nd) && (!best || h!.distance < best.distance)) best = h;
+        const h = cast(p, d.clone().negate());
+        if (h && (!best || h.hit.distance < best.hit.distance)) best = h;
       }
       if (!best) return;
-      snap(p, best.point, triNormal(best.tri).clone());
+      snap(p, best.hit.point, best.n);
     });
   }
   return deform(m, mod, (p) => {
@@ -2380,8 +2393,8 @@ export const modifierTypes: Record<string, ModifierType> = {
     category: 'DEFORM',
     icon: 'mod_shrinkwrap',
     deformOnly: true,
-    defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', wrap_mode: 'ON_SURFACE', offset: 0, project_limit: 0, use_project_x: false, use_project_y: false, use_project_z: false, use_negative_direction: false, use_positive_direction: true, cull_face: 'OFF', use_invert_cull: false, vertex_group: '', invert_vertex_group: false }),
-    deps: (m) => [m.target as string],
+    defaults: base({ target: null, wrap_method: 'NEAREST_SURFACEPOINT', wrap_mode: 'ON_SURFACE', offset: 0, project_limit: 0, use_project_x: false, use_project_y: false, use_project_z: false, use_negative_direction: false, use_positive_direction: true, cull_face: 'OFF', use_invert_cull: false, auxiliary_target: null, vertex_group: '', invert_vertex_group: false }),
+    deps: (m) => [m.target as string, m.auxiliary_target as string],
     apply: shrinkwrapMod,
   },
   SIMPLE_DEFORM: { type: 'SIMPLE_DEFORM', label: 'Simple Deform', category: 'DEFORM', icon: 'mod_simpledeform', deformOnly: true, defaults: base({ deform_method: 'TWIST', angle: (45 * Math.PI) / 180, factor: 0.785398, deform_axis: 'Z', origin: null, limits: [0, 1], lock_x: false, lock_y: false, lock_z: false, vertex_group: '', invert_vertex_group: false }), deps: (m) => [m.origin as string], apply: simpleDeform },
