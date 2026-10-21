@@ -102,3 +102,23 @@ it.each([
  const parts=unzipSync(source);parts['word/document.xml']=strToU8(change(strFromU8(parts['word/document.xml'])));
  await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow(message);
 });
+
+// Independently written: two fields side by side with empty results, as SET and ASK leave them.
+it('fills only the second of two empty fields side by side when text is typed there, and saves both',async()=>{
+ const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main',r=x=>`<w:r>${x}</w:r>`;
+ const field=code=>r('<w:fldChar w:fldCharType="begin"/>')+r(`<w:instrText xml:space="preserve"> ${code} </w:instrText>`)+r('<w:fldChar w:fldCharType="separate"/>')+r('<w:fldChar w:fldCharType="end"/>');
+ const files={
+  '[Content_Types].xml':'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+  '_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+  'word/document.xml':`<w:document xmlns:w="${W}"><w:body><w:p>${r('<w:t xml:space="preserve">Before </w:t>')}${field('DOCPROPERTY Title')}${field('DOCPROPERTY Subject')}${r('<w:t xml:space="preserve"> after</w:t>')}</w:p><w:sectPr/></w:body></w:document>`,
+ };
+ const p=await DocxPackage.open(zipSync(Object.fromEntries(Object.entries(files).map(([k,v])=>[k,strToU8(v)])))),d=model(p);
+ expect(results(d)).toEqual([{code:' DOCPROPERTY Title ',text:''},{code:' DOCPROPERTY Subject ',text:''}]);
+ // Typing there threw "Unmatched body field boundary.", and so did a paragraph break.
+ d.select(7);d.replace('Typed');
+ expect(d.text).toBe('Before Typed after');
+ expect(results(d)).toEqual([{code:' DOCPROPERTY Title ',text:''},{code:' DOCPROPERTY Subject ',text:'Typed'}]);
+ expect(results(model(await DocxPackage.open(await save(p,d))))).toEqual(results(d));
+ d.undo();d.select(7);d.replace('\n');
+ expect(results(d)).toEqual([{code:' DOCPROPERTY Title ',text:''},{code:' DOCPROPERTY Subject ',text:'\n'}]);
+});

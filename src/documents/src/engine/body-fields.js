@@ -56,16 +56,17 @@ export function replacedBodyFields(ranges, start, end, inserted, discardContaine
   // when they share its start/end position. Order distinguishes adjacent fields.
   const growing = new Set();
   // Ranges are in opening order. Walk children before parents without scanning
-  // every field against every empty result on each keystroke.
+  // every field against every empty result on each keystroke. Of empty results
+  // side by side, the last is filled; growing two siblings made them cross.
   if(start===end)for(let i=ranges.length-1;i>=0;i--){
     const r=ranges[i];
-    if(!emptyEntry(r)&&!hiddenResult(r)&&(r.start===start&&r.end===start||growing.has(r.field.id))){
+    if(!emptyEntry(r)&&!hiddenResult(r)&&(r.start===start&&r.end===start&&!growing.size||growing.has(r.field.id))){
       growing.add(r.field.id);if(r.parentId)growing.add(r.parentId);
     }
   }
   for (const r of ranges) {
     if (start === end) {
-      if((emptyEntry(r)||hiddenResult(r)&&r.start===r.end)&&r.start===start)result.push(r);
+      if((emptyEntry(r)||hiddenResult(r)&&r.start===r.end||r.end===start&&!growing.has(r.field.id))&&r.start===start)result.push(r);
       else if (growing.has(r.field.id)) result.push({ ...r, end: r.end+inserted });
       else if (start <= r.start) result.push({ ...r, start:r.start+inserted, end:r.end+inserted });
       else result.push(start < r.end ? { ...r, end:r.end+inserted } : r);
