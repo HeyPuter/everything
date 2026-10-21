@@ -787,10 +787,25 @@ async function editRuns(doc, index, edits) {
       text === run.text && Math.abs(size - run.state.size) < 1e-8 && !changedColor && !variant;
     if (originalAppearance && offset.every((n) => Math.abs(n) < 1e-8)) continue;
     if (text.length > 5000) throw new Error('Keep text edits under 5,000 characters.');
-    const { encoded, font } = originalAppearance
-      ? { encoded: [], font: null }
-      : await prepareText(doc, run, text, variant);
-    prepared.push({ run, text, size, ink, shift, changedColor, originalAppearance, encoded, font });
+    // A new size or color alone keeps the run's own glyph commands, including the kerning that
+    // stands in for the spaces a subset font often lacks; re-encoding would change the face.
+    const sameGlyphs = text === run.text && !variant && !text.includes('\n');
+    const { encoded, font } =
+      originalAppearance || sameGlyphs
+        ? { encoded: [], font: null }
+        : await prepareText(doc, run, text, variant);
+    prepared.push({
+      run,
+      text,
+      size,
+      ink,
+      shift,
+      changedColor,
+      originalAppearance,
+      sameGlyphs,
+      encoded,
+      font,
+    });
   }
   if (!prepared.length) return false;
   // Every run edited together sits in the same content stream.
@@ -848,7 +863,7 @@ async function editRuns(doc, index, edits) {
 }
 /** The text that replaces one run in `source`, and the range of the source it covers. */
 function editAt(
-  { run, text, size, ink, shift, changedColor, originalAppearance, encoded, font },
+  { run, text, size, ink, shift, changedColor, originalAppearance, sameGlyphs, encoded, font },
   source,
   commands,
   copy,
@@ -888,13 +903,13 @@ function editAt(
       : run.op === "'"
         ? 'T*\n'
         : '';
+  const value = original.args.at(-1);
+  const show =
+    run.op === 'Tj' || run.op === 'TJ'
+      ? source.slice(run.start, run.end)
+      : `${source.slice(value.start, value.end)} Tj`;
   let replacement;
   if (originalAppearance) {
-    const value = original.args.at(-1);
-    const show =
-      run.op === 'Tj' || run.op === 'TJ'
-        ? source.slice(run.start, run.end)
-        : `${source.slice(value.start, value.end)} Tj`;
     const line = matrix(s.tm, translation(s.lineX, s.lineY));
     replacement = [
       `q\n1 0 0 1 ${shift.map(number).join(' ')} cm\n${show}\nQ`,
@@ -935,7 +950,7 @@ function editAt(
       `${fontName} ${number(size)} Tf`,
       `${start.map(number).join(' ')} Tm`,
       `${number(size * 1.35)} TL`,
-      encoded.map((value) => `${value} Tj`).join('\nT*\n'),
+      sameGlyphs ? show : encoded.map((value) => `${value} Tj`).join('\nT*\n'),
       ...(changedColor ? ['Q'] : []),
       `${restoreFont} ${number(s.size)} Tf`,
       `${number(s.leading)} TL`,
