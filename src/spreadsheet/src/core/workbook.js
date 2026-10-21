@@ -6201,6 +6201,18 @@ export class Workbook extends EventTarget {
       }), label, true);
       const band = axis === 'row' ? { ...GRID_RANGE, c1: b1, c2: b2 } : { ...GRID_RANGE, r1: b1, r2: b2 };
       sheet.styleResets = shiftStyleResets(sheet.styleResets, axis, at, n, remove, band);
+      // Formatting cleared from the cells before the inserted ones is cleared from them too, as their own formatting is
+      // lent below (the cells of a merged block or a table's header row lend none).
+      if (!remove && !paste && at > 0) {
+        let inherited = sheet.styleResets.flatMap((record) => {
+          const range = intersection(record.range, axis === 'row' ? { r1: at - 1, r2: at - 1, c1: b1, c2: b2 } : { r1: b1, r2: b2, c1: at - 1, c2: at - 1 });
+          return range ? [{ ...record, range }] : [];
+        });
+        for (const m of sheet.merges) inherited = removeStyleResets(inherited, m);
+        if (axis === 'row') for (const t of sheet.tables) if (t.headerRow !== false) inherited = removeStyleResets(inherited, { ...t.range, r2: t.range.r1 });
+        if (inherited.length) sheet.styleResets = compactStyleResets([...sheet.styleResets,
+          ...inherited.map((record) => ({ ...record, range: { ...record.range, [lo]: at, [hi]: Math.min(at + n - 1, limit) } }))]);
+      }
       sheet.ignoredErrors = shiftRangeFlags(sheet.ignoredErrors, axis, at, n, remove, band);
       this._mapCustomViews(sheet.id, axis, { filter: (f) => adjustFilterForEdit(f, { ownerSheet: sheet.name, sheetName: sheet.name, axis, at, count: n, remove,
         bandStart: b1, bandEnd: b2, sheetsBetween: (a, b) => this._editedSpan(a, b), newId }) });
@@ -6212,14 +6224,22 @@ export class Workbook extends EventTarget {
         mapSheetFilters(s, f => adjustFilterForEdit(f, options));
         if (!sheetFilters(s).length) s.filterHidden = new Set();
       }
+      // The cells inserted take the formatting of the cell before them (above, or to the left), as inserted lines do:
+      // its style alone, never its value. A table's header row keeps its look to itself, as does a merged block; cells
+      // inserted from the clipboard bring their own.
+      const lends = (r, c) => !paste && (axis === 'row' ? r : c) === at - 1 && !sheet.merges.some((m) => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2)
+        && !(axis === 'row' && sheet.tables.some((t) => t.headerRow !== false && t.range.r1 === r && c >= t.range.c1 && c <= t.range.c2));
+      const lent = [];
       const moved = new Map();
       for (const [key, cell] of sheet.cells) {
         const { r, c } = parseKey(key);
         if (!inBand(r, c)) { moved.set(key, cell); continue; }
+        if (!remove && cell.s && Object.keys(cell.s).length && lends(r, c)) lent.push({ r, c, s: cell.s });
         const i = moveIndex(axis === 'row' ? r : c);
         if (i == null) continue;
         moved.set(axis === 'row' ? cellKey(i, c) : cellKey(r, i), cell);
       }
+      for (const { r, c, s } of lent) for (let i = at; i < at + n && i <= limit; i++) moved.set(axis === 'row' ? cellKey(i, c) : cellKey(r, i), { v: null, f: null, s: { ...s } });
       sheet.cells = moved;
       const movedNotes = new Map();
       for (const [key, text] of sheet.notes) {
