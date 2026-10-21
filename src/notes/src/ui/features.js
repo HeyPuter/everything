@@ -1269,7 +1269,12 @@ export function passwordDialog(app, section) {
   if (!isNew) {
     actions.push({ label: 'Remove Password', run: async () => {
       if (!(await confirmDialog({ title: 'Remove password?', message: `"${section.name}" will no longer be encrypted. Anyone signed in to your account will be able to read it.`, okLabel: 'Remove' }))) return false;
-      await store.unprotectSection(section.id);
+      try {
+        await store.unprotectSection(section.id);
+      } catch (err) {
+        error.textContent = `Couldn't remove the password: ${err.message}`;
+        return false;
+      }
       app.unlocked.delete(section.id);
       toast('Password removed');
       app.renderNav();

@@ -123,3 +123,23 @@ describe('Renaming while offline', () => {
     expect(store.findPage(meta.id).meta.title).toBe('Recipes');
   });
 });
+
+describe('Removing a password while offline', () => {
+  it('says why it failed and keeps the section protected', async () => {
+    const { app, store, backend } = await mount();
+    const section = store.section(app.state.sectionId);
+    await store.protectSection(section.id, 'pw');
+    app.showEmpty();
+    for (const m of section.pages) store.pages.delete(m.id);
+    const { passwordDialog } = await import('../src/ui/features.js');
+    passwordDialog(app, section);
+    const remove = [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Remove Password');
+    remove.click();
+    await new Promise((r) => setTimeout(r, 0));
+    backend.failNext = 1;
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Remove').click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector('dialog[open] .field-error').textContent).toMatch(/^Couldn't remove the password/);
+    expect(section.locked).toBeTruthy();
+  });
+});
