@@ -710,3 +710,10 @@ body.no-region-toggles .area-header-reveal {
   margin: 8px 0 4px;
   color: var(--c-text-dim);
 }
+.ext-drop {
+  min-height: 100%;
+  border-radius: var(--radius);
+}
+.ext-drop.over {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}

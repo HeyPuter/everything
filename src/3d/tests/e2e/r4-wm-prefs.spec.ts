@@ -151,3 +151,20 @@ test('workspace add-on filter hides the panels of add-ons not listed', async ({ 
   await expect(page.locator('.v3d-sidebar .panel.sub', { hasText: 'Filter Add-ons' })).toBeVisible();
   await expectNoErrors(errors);
 });
+
+test('dropping a package on Get Extensions installs it', async ({ page }) => {
+  const errors = await openApp(page);
+  await run(page, 'screen.userpref_show', { section: 'EXTENSIONS' });
+  await expect(page.locator('.ext-drop')).toBeVisible();
+  await page.evaluate(async () => {
+    const m = await import('/src/prefs/extensions.ts');
+    const bytes = m.examplePackage();
+    const dt = new DataTransfer();
+    dt.items.add(new File([bytes as BlobPart], 'hello_extension.zip', { type: 'application/zip' }));
+    const el = document.querySelector('.ext-drop')!;
+    el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }));
+    el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('.ext-item .ext-name')).toHaveText('Hello Extension');
+  await expectNoErrors(errors);
+});

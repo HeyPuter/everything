@@ -287,7 +287,44 @@ function body(redraw: () => void): Child {
   ];
 }
 
-registerPrefSection({ id: 'EXTENSIONS', label: 'Get Extensions', group: 0.5, draw: (c) => body(c.redraw) });
+/** Drop .zip packages anywhere on the section to install them. */
+function dropZone(redraw: () => void): Child {
+  const zips = (e: DragEvent) => [...(e.dataTransfer?.items ?? [])].some((i) => i.kind === 'file');
+  return h(
+    'div',
+    {
+      class: 'ext-drop',
+      ondragover: (e: DragEvent) => {
+        if (!zips(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        (e.currentTarget as HTMLElement).classList.add('over');
+      },
+      ondragleave: (e: DragEvent) => (e.currentTarget as HTMLElement).classList.remove('over'),
+      ondrop: (e: DragEvent) => {
+        const files = [...(e.dataTransfer?.files ?? [])].filter((f) => /\.zip$/i.test(f.name));
+        (e.currentTarget as HTMLElement).classList.remove('over');
+        if (!files.length) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void (async () => {
+          for (const f of files) {
+            try {
+              const id = await installPackage(new Uint8Array(await f.arrayBuffer()), { filename: f.name });
+              report('INFO', `Installed extension "${extensions.get(id)?.manifest.name ?? id}"`);
+            } catch (err) {
+              report('ERROR', `Could not install ${f.name}: ${(err as Error).message}`);
+            }
+          }
+          redraw();
+        })();
+      },
+    },
+    body(redraw),
+  );
+}
+
+registerPrefSection({ id: 'EXTENSIONS', label: 'Get Extensions', group: 0.5, draw: (c) => dropZone(c.redraw) });
 
 // ---------------------------------------------------------------------------
 // operators
