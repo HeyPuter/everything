@@ -1336,6 +1336,21 @@ export async function updateFormField(doc, fieldName, props = {}) {
   const { widgetIndex } = props;
   if (widgetIndex !== undefined && !widgets[widgetIndex])
     throw new Error('That widget does not exist.');
+  // Radio buttons named after another radio group join it, as buttons sharing a name form one.
+  if (field instanceof PDFRadioGroup && props.name !== undefined) {
+    const wanted = cleanName(props.name);
+    const group = requireFields(doc).find(
+      (other) =>
+        other !== field &&
+        other instanceof PDFRadioGroup &&
+        fullName(other.acroField.dict) === wanted,
+    );
+    if (group) {
+      const index = joinRadioGroup(doc, field, group, props);
+      const rest = { ...props, name: undefined, exportValue: undefined };
+      return updateFormField(doc, wanted, { ...rest, widgetIndex: index });
+    }
+  }
   const targets = widgetIndex === undefined ? widgets : [widgets[widgetIndex]];
   let result = fieldName;
   if (props.name !== undefined && cleanName(props.name) !== fieldName) {
@@ -1392,6 +1407,34 @@ export async function updateFormField(doc, fieldName, props = {}) {
   }
   await refreshAppearances(doc, wrapField(doc, field.ref));
   return result;
+}
+
+/**
+ * Move a radio field's buttons into `group`, each keeping its export value unless the group
+ * has a button with that value already and none was asked for: those get the next free
+ * "Choice n". Returns the group's index of the button `props.widgetIndex` names (or the first).
+ */
+function joinRadioGroup(doc, field, group, props) {
+  const kids = group.acroField.dict.lookup(KIDS);
+  const entries = widgetEntries(field);
+  if (!(kids instanceof PDFArray) || entries.some((entry) => entry.merged || !entry.ref))
+    throw new Error('This radio group cannot take more buttons.');
+  const exports = buttonExports(field);
+  detachField(doc, field.ref, field.acroField.dict);
+  let chosen;
+  entries.forEach((entry, i) => {
+    entry.dict.set(PARENT, group.ref);
+    kids.push(entry.ref);
+    const widgets = group.acroField.getWidgets();
+    const index = widgets.findIndex((widget) => widget.dict === entry.dict);
+    const taken = new Set(buttonExports(group).filter((_, j) => j !== index));
+    const asked = props.exportValue !== undefined && (props.widgetIndex ?? 0) === i;
+    let value = asked ? String(props.exportValue) : exports[i];
+    for (let n = index + 1; !asked && taken.has(value); n++) value = `Choice ${n}`;
+    renameState(doc, group, widgets[index], setWidgetExport(doc, group, index, value));
+    if (i === (props.widgetIndex ?? 0)) chosen = index;
+  });
+  return chosen;
 }
 
 /** Move or resize one widget (rect in unrotated user space) and redraw the field. */

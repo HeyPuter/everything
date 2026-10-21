@@ -9971,7 +9971,7 @@ export function createEditor({
   }
   /** Name, tooltip, flags, and the settings of the field's type. */
   async function fieldPropertiesDialog(field, { created = false } = {}) {
-    const { BUTTON_STYLES, updateFormField } = await loadForms();
+    const { BUTTON_STYLES, listFormFields, updateFormField } = await loadForms();
     const props = field.props || {};
     const checkbox = (id, label, checked) => {
       const box = el('input', { type: 'checkbox', id, checked: !!checked });
@@ -10110,7 +10110,21 @@ export function createEditor({
         d,
         async (doc) => {
           const renamed = await updateFormField(doc, field.name, next);
-          if (renamed !== field.name) designer.renamed(field.name, renamed);
+          if (renamed !== field.name) {
+            // A radio button named after another group joined it, after that group's buttons.
+            const joined =
+              field.type === 'radio'
+                ? listFormFields(doc).findLast(
+                    (entry) =>
+                      entry.name === renamed &&
+                      entry.page === field.page &&
+                      ['x', 'y', 'width', 'height'].every(
+                        (key) => entry.rect?.[key] === field.rect?.[key],
+                      ),
+                  )?.widgetIndex
+                : undefined;
+            designer.renamed(field.name, renamed, joined);
+          }
           return renamed;
         },
         null,

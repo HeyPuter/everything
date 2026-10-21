@@ -337,6 +337,46 @@ it('joins radio buttons into their group, which the fill tool then selects', asy
   ]);
 });
 
+it('joins a radio button to the group it is named after, as placed buttons are grouped', async () => {
+  await mockTextFont();
+  const doc = await blank();
+  // Each button placed with the radio tool starts its own group, with the first choice.
+  const place = (x) =>
+    addFormField(doc, 0, { type: 'radio', rect: rect(x, 700, 14, 14), exportValue: 'Choice 1' });
+  const first = await place(50);
+  const second = await place(80);
+  const third = await place(110);
+  expect(await updateFormField(doc, second, { name: first, widgetIndex: 0 })).toBe(first);
+  // An export value asked for at the same time is kept.
+  expect(
+    await updateFormField(doc, third, { name: first, widgetIndex: 0, exportValue: 'Other' }),
+  ).toBe(first);
+  expect(listFormFields(doc).map((f) => [f.name, f.props.exportValue])).toEqual([
+    [first, 'Choice 1'],
+    [first, 'Choice 2'],
+    [first, 'Other'],
+  ]);
+  await fillFields(doc, { [first]: 'Choice 2' });
+  const bytes = await doc.save();
+  const reopened = await PDFDocument.load(bytes);
+  expect(listFields(reopened).map((f) => f.name)).toEqual([first]);
+  const widgets = reopened.getForm().getRadioGroup(first).acroField.getWidgets();
+  expect(widgets.map((w) => w.getAppearanceState()?.decodeText())).toEqual([
+    'Off',
+    'Choice 2',
+    'Off',
+  ]);
+  const buttons = (await annotations(bytes)).filter((a) => a.radioButton);
+  expect(buttons.map((a) => [a.fieldName, a.buttonValue])).toEqual([
+    [first, 'Choice 1'],
+    [first, 'Choice 2'],
+    [first, 'Other'],
+  ]);
+  // Fields of other kinds still take a free name.
+  const text = await addFormField(doc, 0, { type: 'text', rect: rect(50, 600, 100, 20) });
+  expect(await updateFormField(doc, text, { name: first })).toBe(`${first}_2`);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>

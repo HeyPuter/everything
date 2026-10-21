@@ -197,10 +197,13 @@ export function createFormDesigner({ onMove, onOpen, onDelete, onSelect }) {
     get selected() {
       return fields.find((field) => keyOf(field) === selected) || null;
     },
-    /** A field took another name: its box keeps the selection and gets the pending focus. */
-    renamed(from, to) {
+    /**
+     * A field took another name: its box keeps the selection and gets the pending focus. A
+     * radio button that joined another group gives its place in that group (`widgetIndex`).
+     */
+    renamed(from, to, widgetIndex) {
       const swap = (key) =>
-        key?.startsWith(`${from}#`) ? `${to}#${key.slice(from.length + 1)}` : key;
+        key?.startsWith(`${from}#`) ? `${to}#${widgetIndex ?? key.slice(from.length + 1)}` : key;
       refocus = swap(refocus);
       selected = swap(selected);
     },

@@ -223,6 +223,36 @@ test('the buttons of a radio group are told apart by their export values', async
   ).toHaveAttribute('data-key', 'Size#1');
 });
 
+test('a radio button named after another radio group joins that group', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([600, 500]);
+  const size = doc.getForm().createRadioGroup('Size');
+  size.addOptionToPage('Small', sheet, { x: 40, y: 340, width: 16, height: 16 });
+  size.addOptionToPage('Large', sheet, { x: 80, y: 340, width: 16, height: 16 });
+  size.select('Large');
+  doc
+    .getForm()
+    .createRadioGroup('Extra')
+    .addOptionToPage('Medium', sheet, { x: 120, y: 340, width: 16, height: 16 });
+  await openPdf(page, doc);
+  await prepareForm(page);
+  await designer(page, 'Extra#0').focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Radio button properties' });
+  await dialog.getByLabel('Name', { exact: true }).fill('Size');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeHidden();
+  await settled(page);
+  await expect(page.locator('.designer-field')).toHaveCount(3);
+  await expect(designer(page, 'Size#2')).toBeFocused();
+  await expect(designer(page, 'Size#2')).toHaveAccessibleName('Radio button Size: Medium');
+  const saved = await PDFDocument.load(await downloaded(page));
+  const form = saved.getForm();
+  expect(form.getFields().map((field) => field.getName())).toEqual(['Size']);
+  expect(form.getRadioGroup('Size').getOptions()).toEqual(['Small', 'Large', 'Medium']);
+  expect(form.getRadioGroup('Size').getSelected()).toBe('Large');
+});
+
 test('the keyboard focus stays on the fields after editing or deleting one', async ({ page }) => {
   const doc = await PDFDocument.create();
   const sheet = doc.addPage([600, 400]);
