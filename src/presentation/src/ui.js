@@ -371,7 +371,8 @@ export async function dialog({
     const finish = (result) => {
       d.close();
       d.remove();
-      (returnFocus ? returnFocus() : before)?.focus();
+      if (returnFocus) returnFocus()?.focus();
+      else refocus(before);
       resolve(result);
     };
     d.append(
@@ -966,6 +967,17 @@ const menubarReturns = new WeakMap();
 function handBackFromMenubar(anchor) {
   const bar = anchor?.closest?.('[role="menubar"]');
   if (bar && document.activeElement === anchor) menubarReturns.get(bar)?.();
+}
+/**
+ * Gives the keyboard back to what had it before a dialog opened. A menu bar's
+ * name had it only while the dialog's command was chosen, so from there it
+ * goes on to the document, as it does after a command that opens no dialog.
+ */
+export function refocus(node) {
+  const bar = node?.closest?.('[role="menubar"]');
+  const back = bar && menubarReturns.get(bar);
+  if (back) back();
+  else node?.focus?.();
 }
 export function createMenubar(
   entries,

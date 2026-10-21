@@ -2,7 +2,7 @@
 // labelled number fields with units, selects, checkboxes, color buttons that
 // open the palette, sliders paired with a number, segmented choices, tabs,
 // collapsible sections, galleries, and a modal dialog with OK and Cancel.
-import { el, icon, openMenu, closeMenu } from "../ui.js";
+import { el, icon, openMenu, closeMenu, refocus } from "../ui.js";
 import { colorMenuItems } from "../color-palette.js";
 import "./format.css";
 
@@ -551,7 +551,7 @@ export function formatDialog({
       if (ok && onOk && (await onOk()) === false) return;
       d.close();
       d.remove();
-      before?.focus?.();
+      refocus(before);
       resolve(ok);
     };
     const form = el(

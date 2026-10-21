@@ -562,6 +562,15 @@ test("a command from the menu bar hands the keyboard back to the slide", async (
   await page.keyboard.press("ArrowRight");
   await expect(shape).not.toHaveAttribute("style", before);
   await expect(page.getByRole("menu")).toHaveCount(0);
+  // So does a dialog the menu bar opened, once it closes.
+  await page.getByRole("menuitem", { name: "Format", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Font…", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Font" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Font" })).toHaveCount(0);
+  const moved = await shape.getAttribute("style");
+  await page.keyboard.press("ArrowRight");
+  await expect(shape).not.toHaveAttribute("style", moved);
 });
 
 test("a menu bar command while text is edited leaves the editing going", async ({
