@@ -89,3 +89,27 @@ test('view3d.select_lasso selects inside a path; the Select menu offers its mode
   expect(await get(page, 'Object.values(app.doc.objects).filter(o => o.select).length')).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('tweak-dragging a selected object moves the whole selection', async ({ page }) => {
+  const errors = await openApp(page);
+  await twoCubes(page);
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const inner = a.activeObject;
+    inner.location = [3, 0, 0.2];
+    for (const o of Object.values(a.doc.objects) as any[]) o.select = o.name === 'Cube' || o === inner; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.run('wm.tool_set_by_id', { name: 'builtin.select' });
+    a.changed('doc', 'select');
+  });
+  const c = await screenOf(page, [0, 0, 0]);
+  await page.mouse.move(c.x, c.y);
+  await page.mouse.down();
+  await page.mouse.move(c.x + 40, c.y + 10, { steps: 6 });
+  await page.mouse.up();
+  await page.waitForTimeout(50);
+  if (await get(page, '!!app.modal')) await page.keyboard.press('Enter');
+  const moved = await get<number[]>(page, '[Object.values(app.doc.objects).find(o => o.name === "Cube").location[0], app.activeObject.location[0]]');
+  expect(Math.abs(moved[0])).toBeGreaterThan(0.01);
+  expect(Math.abs(moved[1] - 3)).toBeGreaterThan(0.01);
+  await expectNoErrors(errors);
+});

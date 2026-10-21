@@ -769,7 +769,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
           // tweak: select under cursor then move
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
-          selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
+          // dragging an object that is already selected moves the whole selection
+          const under = app.doc.mode === 'OBJECT' ? this.pick(start.x, start.y, 8)?.id : null;
+          if (!(under && app.doc.objects[under]?.select)) selectPick(this, start.x, start.y, { extend: false, deselectAll: true, toggle: false });
           // Preferences ▸ Input ▸ Release Confirms: letting go of the button ends the move
           app.run('transform.translate', { release_confirm: prefs.use_drag_immediately }, { event: { x: ev.clientX, y: ev.clientY } });
           return;
