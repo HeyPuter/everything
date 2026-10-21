@@ -34,25 +34,28 @@ function shapeParagraphs(pres, shape) {
 
 // The deck's outline, slide by slide.
 export function readOutline(pres) {
-  return P.getSlides(pres).map((slide) => {
-    const { title, body } = P.getSlideOutlineShapes(slide);
-    const titleParagraphs = shapeParagraphs(pres, title);
-    const bodyParagraphs = shapeParagraphs(pres, body);
-    const bodyRows = bodyParagraphs.map((p) => ({
-      text: runText(p),
-      level: Math.min(MAX_LEVEL, (p.level || 0) + 1),
-    }));
-    return {
-      part: P.getSlidePartName(slide),
-      hidden: P.isSlideHidden(slide),
-      hasTitle: !!title,
-      hasBody: !!body,
-      // A title's paragraphs read as lines of one title.
-      title: titleParagraphs.map(runText).join("\n"),
-      // An empty body (one paragraph with no text) has nothing to outline.
-      body: bodyRows.length === 1 && !bodyRows[0].text.trim() ? [] : bodyRows,
-    };
-  });
+  return P.getSlides(pres).map((slide) => readSlideOutline(pres, slide));
+}
+
+// One slide's entry in the outline.
+export function readSlideOutline(pres, slide) {
+  const { title, body } = P.getSlideOutlineShapes(slide);
+  const titleParagraphs = shapeParagraphs(pres, title);
+  const bodyParagraphs = shapeParagraphs(pres, body);
+  const bodyRows = bodyParagraphs.map((p) => ({
+    text: runText(p),
+    level: Math.min(MAX_LEVEL, (p.level || 0) + 1),
+  }));
+  return {
+    part: P.getSlidePartName(slide),
+    hidden: P.isSlideHidden(slide),
+    hasTitle: !!title,
+    hasBody: !!body,
+    // A title's paragraphs read as lines of one title.
+    title: titleParagraphs.map(runText).join("\n"),
+    // An empty body (one paragraph with no text) has nothing to outline.
+    body: bodyRows.length === 1 && !bodyRows[0].text.trim() ? [] : bodyRows,
+  };
 }
 
 export function rowsFromOutline(outline) {

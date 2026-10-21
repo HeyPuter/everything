@@ -6,7 +6,7 @@
 // typing and each structural change is one undo step.
 import { el, icon, openMenu, IS_MAC } from "../ui.js";
 import {
-  readOutline,
+  readSlideOutline,
   rowsFromOutline,
   structureFromRows,
   applyOutline,
@@ -32,21 +32,28 @@ export function createOutlineView(ctx) {
   // The deck's outline as the rows were last read from or written to it.
   let base = null;
   const pres = () => ctx.doc().pres;
-  // The deck's outline, read again only when a slide changed: choosing a
-  // slide redraws the editor without changing any.
-  let cached = { xml: [], outline: null };
+  // The deck's outline, each slide read again only when it changed (or, for
+  // a slide showing its number, moved): choosing a slide redraws the editor
+  // without changing any, and an edit changes one slide of many.
+  let cached = { pres: null, slides: new Map() };
   function outlineOfDeck() {
-    const xml = P.getSlides(pres()).map(
-      (s) => P.getSlidePartName(s) + "\u0000" + P.getSlideXmlString(s),
-    );
-    if (
-      cached.outline &&
-      xml.length === cached.xml.length &&
-      xml.every((x, i) => x === cached.xml[i])
-    )
-      return cached.outline;
-    cached = { xml, outline: readOutline(pres()) };
-    return cached.outline;
+    const deck = pres();
+    const slides = new Map();
+    const outline = P.getSlides(deck).map((s, index) => {
+      const part = P.getSlidePartName(s);
+      const xml = P.getSlideXmlString(s);
+      const hit = cached.pres === deck && cached.slides.get(part);
+      const entry =
+        hit &&
+        hit.xml === xml &&
+        (hit.index === index || !xml.includes('"slidenum"'))
+          ? hit.entry
+          : readSlideOutline(deck, s);
+      slides.set(part, { xml, index, entry });
+      return entry;
+    });
+    cached = { pres: deck, slides };
+    return outline;
   }
   const plaintext = (() => {
     const probe = document.createElement("div");
