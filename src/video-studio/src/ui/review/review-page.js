@@ -566,7 +566,8 @@ export class ReviewPage {
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     const n = e.shiftKey ? 10 : 1;
     if (key === ' ') {
-      if (t.matches?.('button, a, [role=button]') && !t.closest('[data-space-plays]')) return;
+      // Space presses a focused control (a button, a checkbox...) instead of playing.
+      if (t.matches?.('button, a, input, summary, [role=button], [role=checkbox], [role=switch], [role=radio], [role=tab], [role=option], [role=menuitem]') && !t.closest('[data-space-plays]')) return;
       this.toggle();
     } else if (key === 'k') this.video.pause();
     else if (key === 'j' || (key === 'ArrowLeft' && !t.closest?.('[data-own-arrows]'))) this.step(-n);

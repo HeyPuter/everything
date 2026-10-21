@@ -379,6 +379,24 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('toggles a focused checkbox with Space instead of playing', async () => {
+    const { page, root } = await opened();
+    const box = root.querySelector('#rv-show-resolved');
+    box.focus();
+    const e = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    box.dispatchEvent(e);
+    expect(e.defaultPrevented).toBe(false);
+    expect(page.video.paused).toBe(true);
+    // Elsewhere Space still plays, and J/K/L work with the checkbox focused.
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
+    expect(page.video.paused).toBe(false);
+    page.video.pause();
+    page.seek(2_000_000);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'l', bubbles: true, cancelable: true }));
+    expect(page.t).toBe(2_040_000);
+    page.dispose();
+  });
+
   it('offers a version picker and keeps comments with their version', async () => {
     const { env, page, root, rid } = await opened('commenter', { versions: 2 });
     const select = root.querySelector('.rv-version');
