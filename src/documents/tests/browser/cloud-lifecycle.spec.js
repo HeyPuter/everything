@@ -210,3 +210,18 @@ test('a starred document renamed in the editor stays starred', async ({ page }) 
   await page.evaluate(() => { location.hash = '#/home'; });
   await expect(page.locator('.file-row', { hasText: 'Renamed plan' })).toHaveClass(/is-starred/);
 });
+
+test('a name typed just before going back to the documents is kept', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Plan text');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  // Checking that the new name is free takes a moment.
+  await page.evaluate(() => window.__puterFaults.push({ op: 'stat', path: '^Documents/Final plan\\.docx$', delay: 800, times: 1 }));
+  const title = page.getByRole('textbox', { name: 'Document name' });
+  await title.fill('Final plan');
+  await title.press('Enter');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  await expect(page.locator('.file-row', { hasText: 'Final plan' })).toBeVisible();
+  await expect(page.locator('.file-row', { hasText: 'Untitled document' })).toHaveCount(0);
+  await expect(page.locator('.toast-root')).not.toContainText('cancelled');
+});

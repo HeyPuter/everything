@@ -1631,8 +1631,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     async flush() {
       if (destroyed) return true;
       engine?.finishComposition();
-      if (!doc.dirty && doc.status !== 'saving') return true;
-      if (!doc.exporter) return false;
+      // A clean document still waits for a rename or copy under way (doc.flush), or leaving would cancel it.
+      if (doc.dirty && !doc.exporter) return false;
       // A save that never answers (a stalled connection) must not keep the user in the editor: after a while
       // leaving asks, as it does after a failed save, and the save itself goes on.
       const flushing = doc.flush();
