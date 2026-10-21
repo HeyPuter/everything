@@ -105,3 +105,22 @@ describe('pausing', () => {
     expect(player.store.time).toBe(1_266_667);
   });
 });
+
+describe('preview quality', () => {
+  it('renders Full at the project size, within the pixel budget', () => {
+    const p = fixture();
+    const { player } = setup(p);
+    player.layout(552, 311, 1);
+    expect(player.renderScale).toBeCloseTo(0.2875, 4);
+    player.quality = 'half';
+    player.layout(552, 311, 1);
+    expect(player.renderScale).toBeCloseTo(0.14375, 4);
+    player.quality = 'full';
+    player.layout(552, 311, 1);
+    expect(player.renderScale).toBe(1);
+    player.store.project.settings.width = 3840;
+    player.store.project.settings.height = 2160;
+    player.layout(552, 311, 1);
+    expect(3840 * 2160 * player.renderScale ** 2).toBeCloseTo(2_200_000, -3);
+  });
+});

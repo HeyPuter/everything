@@ -147,10 +147,11 @@ export class Player extends Emitter {
     const fit = Math.min(boxW / W, boxH / H);
     const cssW = Math.max(1, Math.floor(W * fit));
     const cssH = Math.max(1, Math.floor(H * fit));
-    // Render no larger than the project and at most ~2.2 MP so 4K projects stay smooth.
+    // Render at the size shown (Full: the project's own size), never larger
+    // than the project and at most ~2.2 MP so 4K projects stay smooth.
     let px = Math.min(1, (cssW * dpr) / W);
     if (this.quality === 'half') px *= 0.5;
-    else if (this.quality === 'full') px = Math.min(1, Math.max(px, (cssW * dpr) / W));
+    else if (this.quality === 'full') px = 1;
     const maxPx = 2_200_000;
     if (W * H * px * px > maxPx) px = Math.sqrt(maxPx / (W * H));
     this.renderScale = px;
