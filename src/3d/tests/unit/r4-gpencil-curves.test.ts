@@ -333,3 +333,22 @@ describe('pen nib', () => {
     expect(nibFactor(0.3, 0.3, 0)).toBe(1);
   });
 });
+
+describe('vertex paint blend modes', () => {
+  it('combines the brush color with the painted one', async () => {
+    const { blendColor } = await import('../../src/greasepencil/drawproc');
+    const base = [0.5, 0.2, 0.8],
+      paint = [0.4, 0.6, 0.1];
+    expect(blendColor('MIX', base, paint)).toEqual([0.4, 0.6, 0.1]);
+    expect(blendColor('DARKEN', base, paint)).toEqual([0.4, 0.2, 0.1]);
+    expect(blendColor('LIGHTEN', base, paint)).toEqual([0.5, 0.6, 0.8]);
+    const mul = blendColor('MUL', base, paint);
+    expect(mul[0]).toBeCloseTo(0.2);
+    expect(blendColor('ADD', base, paint)[1]).toBeCloseTo(0.8);
+    expect(blendColor('SUB', base, paint)[1]).toBe(0);
+    // value keeps the hue and saturation of the base, the brightness of the brush
+    const v = blendColor('LUMINOSITY', [1, 0, 0], [0.5, 0.5, 0.5]);
+    expect(v[0]).toBeCloseTo(0.5);
+    expect(v[1]).toBeCloseTo(0);
+  });
+});

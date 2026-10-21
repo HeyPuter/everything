@@ -246,6 +246,8 @@ export interface GPBrush {
   eraser_mode?: 'SOFT' | 'HARD' | 'STROKE';
   /** Tint */
   vertex_mode?: 'STROKE' | 'FILL' | 'BOTH';
+  /** Vertex Paint: how the brush color combines with the painted colors */
+  blend?: string;
   /** Fill */
   fill_layer_mode?: 'ACTIVE' | 'ABOVE' | 'BELOW' | 'ALL_ABOVE' | 'ALL_BELOW' | 'VISIBLE';
   dilate?: number;
