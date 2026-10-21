@@ -82,11 +82,11 @@ export function drawColorGrid(ctx: CanvasRenderingContext2D, w: number, h: numbe
   }
   // labels
   const size = Math.max(6, Math.round(ch * 0.36));
-  ctx.font = `600 ${size}px "DejaVu Sans Mono", Menlo, Consolas, monospace`;
+  ctx.font = `${size}px "DejaVu Sans Mono", Menlo, Consolas, monospace`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
-  ctx.lineWidth = Math.max(1, size * 0.14);
+  ctx.lineWidth = Math.max(1, size * 0.09);
   ctx.strokeStyle = '#000000';
   ctx.fillStyle = '#ffffff';
   for (let j = 0; j < n; j++)
