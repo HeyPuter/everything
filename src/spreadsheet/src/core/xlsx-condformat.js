@@ -25,6 +25,30 @@ function thresholdReferences(rule, ranges, legacy) {
 
 const BARE_NUMBER = /^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/;
 
+const AREA_BAND = 64; // rows filed together when areas are compared
+const TALL_AREA_BANDS = 256; // an area over more bands than this (whole columns) is compared with every area
+
+/**
+ * The areas of a rule's sqref that lie inside no earlier one, in order. An area is compared only with the
+ * kept areas filed under its first row's band and the few tall ones, so a rule of thousands of areas, as a
+ * sheet edited for years carries, opens in about the time of their count rather than its square.
+ */
+function outermostAreas(areas) {
+  const kept = [], bands = new Map(), tall = [];
+  const within = (g, a) => g.r1 <= a.r1 && g.c1 <= a.c1 && g.r2 >= a.r2 && g.c2 >= a.c2;
+  for (const area of areas) {
+    if (tall.some((g) => within(g, area)) || bands.get(Math.floor(area.r1 / AREA_BAND))?.some((g) => within(g, area))) continue;
+    kept.push(area);
+    const first = Math.floor(area.r1 / AREA_BAND), last = Math.floor(area.r2 / AREA_BAND);
+    if (last - first >= TALL_AREA_BANDS) { tall.push(area); continue; }
+    for (let band = first; band <= last; band++) {
+      const filed = bands.get(band);
+      if (filed) filed.push(area); else bands.set(band, [area]);
+    }
+  }
+  return kept;
+}
+
 /**
  * `dateTargets(ranges)`, given for a file on the 1904 date system, says whether a rule's cells are
  * date-formatted. Their values were moved to this app's 1900 serials, and a bare-number threshold over
@@ -57,6 +81,8 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
     // Excel anchors relative formulas at the bounding top-left of sqref,
     // even when that cell belongs to none of its (possibly unordered) areas.
     const base = ranges.reduce((a, g) => ({ r1: Math.min(a.r1, g.r1), c1: Math.min(a.c1, g.c1) }));
+    // Read once per block: the block holds its whole area list, which a search per area went through again.
+    const pivot = ['1', 'true'].includes(attr(block, 'pivot'));
     for (const source of elements(block, 'cfRule')) {
       const type = attr(source, 'type');
       const priority = Number(attr(source, 'priority'));
@@ -156,11 +182,10 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
       }
       if (!rule || (['formula', 'dup', 'unique'].includes(rule.type) && !style)) continue;
       rule = thresholdReferences(serialStops(rule, targets), targets, legacyThresholds);
-      for (const [i, range] of targets.entries()) {
-        if (targets.slice(0, i).some(g => g.r1 <= range.r1 && g.c1 <= range.c1 && g.r2 >= range.r2 && g.c2 >= range.c2)) continue;
+      for (const range of outermostAreas(targets)) {
         rules.push({
           ...rebaseConditionalPredicate(rule, range.r1 - base.r1, range.c1 - base.c1), range, style: { ...style }, relativeNames: true,
-          ...(['1', 'true'].includes(attr(block, 'pivot')) ? { pivot: true } : {}),
+          ...(pivot ? { pivot: true } : {}),
           priority: Number.isFinite(priority) && priority > 0 ? priority : Infinity,
           stopIfTrue: ['1', 'true'].includes(attr(source, 'stopIfTrue')),
         });
@@ -172,13 +197,14 @@ export function readXlsxConditionalFormats(xml, styles, themes, definedNames, { 
     const ranges = parseRanges(iconXmlContents(elements(block, 'sqref')[0]));
     if (!ranges.length) continue;
     const base = ranges.reduce((a, g) => ({ r1: Math.min(a.r1, g.r1), c1: Math.min(a.c1, g.c1) }));
+    const pivot = ['1', 'true'].includes(attr(block, 'pivot'));
     for (const source of elements(block, 'cfRule')) {
       const priority = Number(attr(source, 'priority'));
       if (attr(source, 'type') !== 'iconSet' || !Number.isInteger(priority) || priority <= 0) continue;
       let rule = readXlsxIcons(source, ranges, definedNames, true);
       if (rule) rule = thresholdReferences(serialStops(rule, ranges), ranges, legacyThresholds);
       if (rule) for (const range of ranges) rules.push({ ...rule, range, style: {}, relativeNames: true, priority,
-        ...(['1', 'true'].includes(attr(block, 'pivot')) ? { pivot: true } : {}),
+        ...(pivot ? { pivot: true } : {}),
         ...(rule.iconActiveFormula ? { iconActiveFormula: shiftFormula(rule.iconActiveFormula, range.r1 - base.r1, range.c1 - base.c1) } : {}),
         stopIfTrue: ['1', 'true'].includes(attr(source, 'stopIfTrue')) });
     }
