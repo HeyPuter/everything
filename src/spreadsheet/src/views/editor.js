@@ -6490,6 +6490,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     e.returnValue = '';
   };
   window.addEventListener('beforeunload', onBeforeUnload);
+  // A phone may close a tab it put in the background without a beforeunload: unsaved edits are copied into this browser
+  // as the page is hidden, not after the pause the options set for the recovery copy (up to five minutes).
+  const onPageHidden = () => { if (document.visibilityState === 'hidden' && wb.dirty) doc.writeDraft(); };
+  document.addEventListener('visibilitychange', onPageHidden);
   // The browser's own Print command (File > Print) prints the sheet the way Ctrl+P does, not the app chrome.
   const uninstallPrint = installPrintFallback(() => {
     if (grid.editing) grid.commitEdit();
@@ -6738,6 +6742,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       clearInterval(volatileTimer);
       clearTimeout(recoveryTimer);
       window.removeEventListener('beforeunload', onBeforeUnload);
+      document.removeEventListener('visibilitychange', onPageHidden);
       uninstallPrint();
       stopSheetFonts();
       document.removeEventListener('keydown', onStrayKey);
