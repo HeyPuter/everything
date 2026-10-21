@@ -982,12 +982,14 @@ button.project-open:focus-visible .project-cover {
   }
 }
 
+/* Narrow phones show only the current view's label; the others keep theirs for screen readers. */
 @media (max-width: 420px) {
-  .nav-label {
-    display: none;
-  }
-
-  .nav-item[aria-current='page'] .nav-label {
-    display: inline;
+  .nav-item:not([aria-current='page']) .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 }
