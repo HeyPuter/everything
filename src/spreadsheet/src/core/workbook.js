@@ -13737,6 +13737,8 @@ export class Workbook extends EventTarget {
         // Zoom is a view preference, not part of a row/column undo step.
         if (was.viewZoom != null) s.viewZoom = was.viewZoom; else delete s.viewZoom;
         if (was.viewMode) s.viewMode = was.viewMode; else delete s.viewMode;
+        // View ▸ Page Breaks is no step of its own (see setShowPageBreaks), so no undo turns it off or on again.
+        if (was.showPageBreaks) s.showPageBreaks = true; else delete s.showPageBreaks;
         if (was.viewSelection) s.viewSelection = normalizeSheetSelection(was.viewSelection); else delete s.viewSelection;
         if (was.viewOrigin) s.viewOrigin = normalizeSheetOrigin(was.viewOrigin); else delete s.viewOrigin;
         if (s.kind === 'chart' && was.kind === 'chart') s.zoomToFit = was.zoomToFit;
