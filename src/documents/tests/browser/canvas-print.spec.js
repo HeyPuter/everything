@@ -64,3 +64,30 @@ test('read-only documents print mixed physical page sizes and keep editing disab
   await page.evaluate(async()=>{window.dispatchEvent(new Event('afterprint'));await window.printPending;window.printProbe.host.remove();window.printProbe.destroy();});
   await expect(page.locator('.print-stage')).toHaveCount(0);
 });
+
+test('hidden text shown with the formatting marks is not printed or saved to PDF', async ({ page }) => {
+  await page.goto('/playground.html');
+  const result = await page.evaluate(async () => {
+    const { createDocx } = await import('/src/engine/docx.js');
+    const { paragraph } = await import('/src/engine/model.js');
+    const { CanvasEditor } = await import('/src/engine/canvas-editor.js');
+    const { setFormattingMarks } = await import('/src/engine/formatting-marks.js');
+    const { pageFragments } = await import('/src/lib/pdf-export.js');
+    const host = document.createElement('div'); document.body.append(host);
+    const editor = new CanvasEditor(host, createDocx([paragraph('Visible secret words')]));
+    try {
+      editor.model.select(8, 14); editor.session.run(model => model.setRunFormat({ vanish: true })); editor.relayout();
+      const screen = () => editor.layout.lines.flatMap(line => line.fragments || []).map(f => f.text || '').join('');
+      // What Save as PDF reads for its text layer, from the pages printing paints.
+      const printed = () => { editor.printSheets(); const { layout, storyLayout } = editor.printedLayout; return pageFragments([...layout.lines, ...storyLayout.lines], 0).map(f => f.text).join(''); };
+      const hidden = { screen: screen(), printed: printed() };
+      setFormattingMarks(editor, true);
+      const shown = { screen: screen(), printed: printed(), after: screen() };
+      return { hidden, shown };
+    } finally { editor.destroy(); host.remove(); }
+  });
+  expect(result).toEqual({
+    hidden: { screen: 'Visible  words', printed: 'Visible  words' },
+    shown: { screen: 'Visible secret words', printed: 'Visible  words', after: 'Visible secret words' },
+  });
+});

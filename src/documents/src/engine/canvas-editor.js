@@ -4,6 +4,7 @@ import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits } from './clipboard-fragment.js';
 import { showLink } from './link-appearance.js';
+import { revisionView } from './revisions.js';
 
 export const PASTED_PICTURE = /^image\/(png|jpeg|tiff)$/i;
 import { inlineControlCaret, adjacentInlineControl, moveInlineControlCaret, documentStartControlCaret, moveInlineControlHomeEnd, emptyControlPointerCaret, pointerControlSelection } from './content-control-caret.js';
@@ -630,14 +631,23 @@ export class CanvasEditor {
   }
   printSheets() {
     this.finishComposition();
-    // Printing always uses the authored pages, whatever view is on screen: lay them out privately and
-    // put the screen layout back afterwards, without touching the page canvases.
-    if (this.view) {
+    // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text,
+    // which is laid out only while the formatting marks show it: lay the pages out privately and put the
+    // screen layout back afterwards, without touching the page canvases.
+    const hidden = revisionView.showHidden && [this.session.body, ...Object.values(this.pageStories?.stories || {})].some(story => story?.paragraphs?.some(p => p.runs.some(r => r.vanish)));
+    if (this.view || hidden) {
       const screen = { view: this.view, layout: this.layout, storyLayout: this.storyLayout, selectionLayout: this.selectionLayout, tablePaintCache: this.tablePaintCache, drawingPageContexts: this.drawingPageContexts };
-      const printed = this.computeLayout(null);
-      Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
-      try { return this.printSheets(); } finally { Object.assign(this, screen); }
+      const shown = revisionView.showHidden;
+      if (hidden) revisionView.showHidden = false;
+      try {
+        const printed = this.computeLayout(null);
+        Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
+        return this.paintSheets();
+      } finally { revisionView.showHidden = shown; Object.assign(this, screen); }
     }
+    return this.paintSheets();
+  }
+  paintSheets() {
     this.printedLayout = { layout: this.layout, storyLayout: this.storyLayout };
     const sheets = this.layout.pages.map(geometry => {
       const canvas = document.createElement('canvas');
