@@ -564,6 +564,8 @@ interface GPMesh extends Mesh {
     inFront?: boolean;
     mode3D?: boolean;
     rootless?: boolean;
+    /** layer blend mode combined in a pass of its own */
+    combine?: 'HARDLIGHT' | 'DIVIDE';
   };
 }
 
@@ -855,7 +857,10 @@ function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D:
   u.uFillTex.value = e.tex?.fillTex ? gpTexture(e.tex.fillTex.image, e.tex.fillTex.clamp) : null;
   u.uStrokeTex.value = e.tex?.strokeTex ? gpTexture(e.tex.strokeTex.image, false) : null;
   u.uTexParams.value.set(e.tex?.strokeTex?.mix ?? 0, e.tex?.strokeTex?.uvFactor ?? 1, e.tex?.fillTex?.clamp ? 1 : 0);
-  setBlend(m.material, e.onion ? 'REGULAR' : e.holdout ? 'HOLDOUT' : e.layer.blend_mode);
+  const blendMode = e.onion ? 'REGULAR' : e.holdout ? 'HOLDOUT' : e.layer.blend_mode;
+  // hard light and divide read what lies below: drawn alone, then combined (renderObjectScene)
+  m.userData.combine = blendMode === 'HARDLIGHT' || blendMode === 'DIVIDE' ? blendMode : undefined;
+  setBlend(m.material, m.userData.combine ? 'REGULAR' : blendMode);
   m.material.depthWrite = !e.holdout;
   m.userData.holdout = !!e.holdout;
   m.userData.onion = e.onion;
@@ -906,7 +911,7 @@ function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData, viewport = tr
   }
   const order = { n: 0 },
     used = { n: 0 };
-  s.masked = entries.some((e) => !!e.masks?.length || !!e.holdout);
+  s.masked = entries.some((e) => !!e.masks?.length || !!e.holdout || (!e.onion && (e.layer.blend_mode === 'HARDLIGHT' || e.layer.blend_mode === 'DIVIDE')));
   s.meshes.forEach((m, i) => {
     const e = entries[i];
     if (!e) {
@@ -920,6 +925,106 @@ function fillSynced(s: GPSynced, entries: Entry[], ob: ObjectData, viewport = tr
   });
   for (let i = used.n; i < s.maskMeshes.length; i++) s.maskMeshes[i].visible = false;
   s.group.updateMatrixWorld(true);
+}
+
+// ---------------------------------------------------------------------------
+// layer blend modes that read the image below (hard light, divide)
+
+let combineDest: WebGLRenderTarget | null = null,
+  combineLayer: WebGLRenderTarget | null = null;
+const combineCam = new OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const copyMat = new ShaderMaterial({
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: 'uniform sampler2D tColor; varying vec2 vUv; void main() { gl_FragColor = texture2D(tColor, vUv); }',
+  uniforms: { tColor: { value: null } },
+  depthTest: false,
+  depthWrite: false,
+  blending: CustomBlending,
+  blendSrc: OneFactor,
+  blendDst: ZeroFactor,
+  blendSrcAlpha: OneFactor,
+  blendDstAlpha: ZeroFactor,
+});
+const combineMat = new ShaderMaterial({
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: /* glsl */ `
+    uniform sampler2D tDest;
+    uniform sampler2D tSrc;
+    uniform int uMode;
+    varying vec2 vUv;
+    void main() {
+      vec4 d = texture2D(tDest, vUv);
+      vec4 s = texture2D(tSrc, vUv);
+      if (s.a <= 0.0) { gl_FragColor = d; return; }
+      vec3 sc = s.rgb / s.a;
+      vec3 base = d.a > 0.0 ? d.rgb / d.a : vec3(0.0);
+      vec3 b;
+      if (uMode == 0) b = mix(2.0 * base * sc, 1.0 - 2.0 * (1.0 - base) * (1.0 - sc), step(0.5, sc));
+      else b = clamp(base / max(sc, vec3(1e-4)), 0.0, 1.0);
+      // over nothing the layer shows as it is
+      vec3 c = mix(sc, b, d.a);
+      gl_FragColor = vec4(c * s.a + d.rgb * (1.0 - s.a), s.a + d.a * (1.0 - s.a));
+    }`,
+  uniforms: { tDest: { value: null }, tSrc: { value: null }, uMode: { value: 0 } },
+  depthTest: false,
+  depthWrite: false,
+  blending: CustomBlending,
+  blendSrc: OneFactor,
+  blendDst: ZeroFactor,
+  blendSrcAlpha: OneFactor,
+  blendDstAlpha: ZeroFactor,
+});
+const combineQuad = new Mesh(new PlaneGeometry(2, 2), copyMat);
+combineQuad.frustumCulled = false;
+const combineScene = new Scene();
+combineScene.add(combineQuad);
+
+/**
+ * Draw a GP object's meshes into `target` (already cleared). Layers blending by hard light or
+ * divide are drawn into an image of their own and combined with what the layers below left.
+ */
+function renderObjectScene(r: WebGLRenderer, s: GPSynced, camera: Camera, target: WebGLRenderTarget) {
+  const special = s.meshes.filter((m) => m.visible && m.userData.combine).sort((a, b) => a.renderOrder - b.renderOrder);
+  if (!special.length) {
+    r.render(s.scene, camera);
+    return;
+  }
+  const all: Mesh[] = [...s.meshes, ...s.maskMeshes].filter((m) => m.visible);
+  const W = target.width,
+    H = target.height;
+  combineDest ??= new WebGLRenderTarget(W, H, { type: target.texture.type });
+  combineLayer ??= new WebGLRenderTarget(W, H, { samples: 4, depthBuffer: true, stencilBuffer: true, type: target.texture.type });
+  if (combineDest.width !== W || combineDest.height !== H) combineDest.setSize(W, H);
+  if (combineLayer.width !== W || combineLayer.height !== H) combineLayer.setSize(W, H);
+  const show = (fn: (m: Mesh) => boolean) => all.forEach((m) => (m.visible = fn(m)));
+  let lo = -Infinity;
+  for (const sp of special) {
+    // the layers below
+    show((m) => m !== sp && m.renderOrder > lo && m.renderOrder < sp.renderOrder);
+    r.setRenderTarget(target);
+    r.render(s.scene, camera);
+    // a copy of them, the layer alone, then both combined
+    combineQuad.material = copyMat;
+    copyMat.uniforms.tColor.value = target.texture;
+    r.setRenderTarget(combineDest);
+    r.render(combineScene, combineCam);
+    // (with the stencil passes of its masks)
+    show((m) => m === sp || (s.maskMeshes.includes(m) && m.renderOrder > lo && m.renderOrder < sp.renderOrder));
+    r.setRenderTarget(combineLayer);
+    r.clear(true, true, true);
+    r.render(s.scene, camera);
+    combineQuad.material = combineMat;
+    combineMat.uniforms.tDest.value = combineDest.texture;
+    combineMat.uniforms.tSrc.value = combineLayer.texture;
+    combineMat.uniforms.uMode.value = sp.userData.combine === 'DIVIDE' ? 1 : 0;
+    r.setRenderTarget(target);
+    r.render(combineScene, combineCam);
+    lo = sp.renderOrder;
+  }
+  show((m) => m.renderOrder > lo);
+  r.setRenderTarget(target);
+  r.render(s.scene, camera);
+  all.forEach((m) => (m.visible = true));
 }
 
 let lastTick = -1;
@@ -1050,7 +1155,7 @@ function drawObjects(view: DrawView, camera: Camera) {
       r.setRenderTarget(rt);
       r.setClearColor(0x000000, 0);
       r.clear(true, true, true);
-      r.render(s.scene, camera);
+      renderObjectScene(r, s, camera, rt);
       r.setRenderTarget(prevTarget);
       let tex: Texture = rt.texture;
       if (fx.length) {
@@ -1174,7 +1279,7 @@ function finalImage(rs: { scene: Scene }, id: string, map: Map<string, FinalImag
     renderer.setRenderTarget(finalRT);
     renderer.setClearColor(0x000000, 0);
     renderer.clear(true, true, true);
-    renderer.render(s.scene, camera);
+    renderObjectScene(renderer, s, camera, finalRT);
     let tex: Texture = finalRT.texture;
     const fx = (app.doc.objects[id]?.shader_effects ?? []).filter((x) => x.show_render);
     tmpV.setFromMatrixPosition(s.group.matrixWorld).project(camera);

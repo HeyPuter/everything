@@ -46,9 +46,11 @@ function toggle(id: string, on: boolean, icOn: string, icOff: string, tip: strin
 
 const BLEND_ITEMS: [string, string][] = [
   ['REGULAR', 'Regular'],
+  ['HARDLIGHT', 'Hard Light'],
   ['ADD', 'Add'],
   ['SUBTRACT', 'Subtract'],
   ['MULTIPLY', 'Multiply'],
+  ['DIVIDE', 'Divide'],
 ];
 
 function layersPanel(gp: GreasePencilData): Child {
