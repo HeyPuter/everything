@@ -252,9 +252,10 @@ export class Home {
     scriptCard.addEventListener('click', () => this.scriptToVideo());
     const ratios = QUICK_RATIOS.map((id) => {
       const r = RATIOS.find((x) => x.id === id);
-      const b = h('button.quick-card.ratio', { type: 'button', 'aria-label': `New ${r.label} project, ${r.hint}` },
+      const b = h('button.quick-card.ratio', { type: 'button', 'aria-label': `${r.label} ${r.hint}, new project` },
         h('span.quick-glyph', ratioGlyph(r.id, 22)),
-        h('span.quick-text', h('strong', r.label), h('span', r.hint)));
+        // The space keeps "16:9 YouTube" apart in the text the accessible name must start with.
+        h('span.quick-text', h('strong', r.label), ' ', h('span', r.hint)));
       b.addEventListener('click', () => this.onCreate({ ratio: r.id }));
       return b;
     });

@@ -56,6 +56,17 @@ describe('home screen', () => {
     expect(h.onCreate.mock.calls).toEqual([[{ ratio: 'original' }], [{ ratio: '9:16' }]]);
   });
 
+  it('names shape cards starting with their visible text', async () => {
+    mount(new Library(memoryBackend()));
+    await settle();
+    for (const card of root.querySelectorAll('.ratio-grid .quick-card')) {
+      const [label, hint] = [...card.querySelectorAll('.quick-text > *')].map((e) => e.textContent);
+      const name = card.getAttribute('aria-label') || `${label} ${hint}`;
+      expect(name.startsWith(hint ? `${label} ${hint}` : label)).toBe(true);
+      expect(name).toMatch(/new project/i);
+    }
+  });
+
   it('moves a deleted project to the Trash, restores it and deletes it for good', async () => {
     const lib = new Library(memoryBackend());
     const p = await lib.createProject({ name: 'Doomed' });
