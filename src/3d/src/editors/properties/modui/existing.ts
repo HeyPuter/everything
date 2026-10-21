@@ -66,6 +66,7 @@ modifierExtraUI.BEVEL = (ob, m) => {
     enumProp(r, 'limit_method', 'Limit Method', [
       ['NONE', 'None'],
       ['ANGLE', 'Angle'],
+      ['WEIGHT', 'Weight'],
       ['VGROUP', 'Vertex Group'],
     ]),
     r.limit_method === 'ANGLE' ? num(r, 'angle_limit', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,
