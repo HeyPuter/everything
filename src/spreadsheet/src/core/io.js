@@ -6,6 +6,7 @@ import { readXlsxExternalWorkbooks } from './xlsx-external-workbooks.js';
 import { bindNativePivotRules } from './native-pivot-rule-bindings.js';
 import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
 import { xmlText } from './xlsx-export-styles.js';
+import { conditionalNumberFormat } from './style-values.js';
 import { readDocumentProperties, writeDocumentProperties } from './document-properties.js';
 import { readNativeSparklineGroups } from './xlsx-sparklines.js';
 import { importXlsxSlicers } from './xlsx-import-slicers.js';
@@ -1096,12 +1097,14 @@ export function sheetToHtml(wb, sheetId, { title = '' } = {}) {
     return n;
   });
   const shown = (i) => cols.slice(0, widths[i]);
-  const texts = rows.map((r, i) => shown(i).map((c) => wb.getDisplay(sheetId, r, c)));
   const cells = rows.map((r, i) => shown(i).map((c) => wb.getCell(sheetId, r, c) || null));
   const values = rows.map((r, i) => shown(i).map((c) => wb.getValue(sheetId, r, c)));
   const styles = rows.map((r, i) => shown(i).map((c) => wb.displayStyleAt(sheetId, r, c)));
   const decorated = sheet.rules.length || sheet.tables?.length;
   const looks = decorated ? rows.map((r, i) => shown(i).map((c) => wb.conditionalStyle(sheetId, r, c, wb.getValue(sheetId, r, c)) || null)) : null;
+  // A rule's number format shows over the cell's own while it matches, as on screen.
+  const texts = rows.map((r, i) => shown(i).map((c, j) => looks?.[i][j]?.fmt != null && values[i][j] != null
+    ? formatValue(values[i][j], conditionalNumberFormat(styles[i][j], looks[i][j])) : wb.getDisplay(sheetId, r, c)));
   let row = 0;
   const table = cellsToHtml(texts, cells, looks, values, null, { clipboard: false, styles, mergeLayout, colorPalette: wb.colorPalette, normalFill: wb.nativeNormalFill, indentUnit: normalIndentUnit(wb.normalFont) })
     .replace(/ data-spreadsheet-[\w-]+="[^"]*"/g, '')

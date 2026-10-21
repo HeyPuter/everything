@@ -2,7 +2,7 @@
 import { Blob as NodeBlob } from 'node:buffer';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as X from '../src/vendor/xlsx.mjs';
-import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
+import { workbookFromFile, workbookToXlsx, sheetToHtml } from '../src/core/io.js';
 import { createGrid } from '../src/ui/grid.js';
 import { buildPrintTable } from '../src/ui/print.js';
 
@@ -84,4 +84,10 @@ it('keeps the earlier rule\'s whole number format where two rules match', async 
     + '<cfRule type="cellIs" dxfId="1" priority="2" operator="greaterThan"><formula>0</formula></cfRule></conditionalFormatting>';
   const wb = await workbookFromFile(excelFile({ dxf, rule }), 'rules.xlsx');
   expect(await shown(wb)).toEqual(['12345.0', '500.00%', '2500.0']);
+});
+
+it('shows the rule\'s number format in a web page of the sheet', async () => {
+  const wb = await workbookFromFile(excelFile(), 'rules.xlsx');
+  const cells = [...new DOMParser().parseFromString(sheetToHtml(wb, wb.activeSheetId), 'text/html').querySelectorAll('td')].map(td => td.textContent);
+  expect(cells).toEqual(expect.arrayContaining(['12.3K', '5', '2.5K']));
 });
