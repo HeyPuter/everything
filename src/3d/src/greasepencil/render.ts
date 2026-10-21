@@ -77,6 +77,7 @@ attribute vec2 aCorner;
 attribute vec4 aInfo;
 attribute vec4 aN0;
 attribute vec4 aN1;
+attribute vec2 aSU;
 uniform vec2 uViewport;
 uniform float uRadiusScale;
 varying vec2 vPix;
@@ -91,6 +92,7 @@ flat varying vec2 vZ;
 flat varying vec3 vN0;
 flat varying vec3 vN1;
 flat varying vec3 vTex;
+flat varying vec2 vSU;
 vec3 screenNbr(mat4 mvp, vec4 n, float k) {
   if (n.w <= 0.0) return vec3(0.0);
   vec4 c = mvp * vec4(n.xyz, 1.0);
@@ -104,6 +106,7 @@ void main() {
   vN1 = vec3(0.0);
   // stroke textures: segment length and world radii (the distance along the stroke is in aInfo.w)
   vTex = vec3(distance(aP0, aP1), aR.x, aR.y);
+  vSU = aSU;
   vC0 = aC0;
   vC1 = aC1;
   mat4 mvp = projectionMatrix * modelViewMatrix;
@@ -215,6 +218,7 @@ flat varying vec2 vZ;
 flat varying vec3 vN0;
 flat varying vec3 vN1;
 flat varying vec3 vTex;
+flat varying vec2 vSU;
 vec4 strokeTexel(vec2 uv, vec4 base) {
   vec4 tc = texture2D(uStrokeTex, uv);
   return vec4(mix(tc.rgb, base.rgb, uTexParams.x), base.a * mix(tc.a, 1.0, uTexParams.x));
@@ -294,12 +298,10 @@ void main() {
     }
     col = mix(vC0, vC1, t);
     if ((flags & 4096) != 0) {
-      // u along the stroke (in stroke widths), v across it
-      float along = vInfo.w + t * vTex.x;
-      float rw = max(mix(vTex.y, vTex.z, t), 1e-6);
+      // u along the stroke (precomputed at the segment ends), v across it
       vec2 nrm = L2 > 1e-8 ? vec2(-ab.y, ab.x) / sqrt(L2) : vec2(0.0, 1.0);
       float side = dot(vPix - (vS0 + ab * t), nrm);
-      col = strokeTexel(vec2(along / (2.0 * rw * max(uTexParams.y, 0.01)), 0.5 + 0.5 * side / max(r, 0.5)), col);
+      col = strokeTexel(vec2(mix(vSU.x, vSU.y, t), 0.5 + 0.5 * side / max(r, 0.5)), col);
     }
     col.a *= cov;
     zReal = mix(vZ.x, vZ.y, t);
@@ -325,13 +327,16 @@ void main() {
         vec2 jd = vN1.z > 0.0 && vN0.z > 0.0 ? vN1.xy - vN0.xy : vN1.z > 0.0 ? vN1.xy - vS0 : vS0 - vN0.xy;
         jd = dot(jd, jd) > 1e-8 ? normalize(jd) : vec2(1.0, 0.0);
         float rw = max(vTex.y, 1e-6), rp = max(r, 0.5);
-        float along = vInfo.w + dot(p, jd) * rw / rp;
-        vC0Tex = strokeTexel(vec2(along / (2.0 * rw * max(uTexParams.y, 0.01)), 0.5 + 0.5 * dot(p, vec2(-jd.y, jd.x)) / rp), vC0);
+        // u at the joint plus the change along the stroke direction (per world unit)
+        vC0Tex = strokeTexel(vec2(vSU.x + dot(p, jd) * rw / rp * vSU.y, 0.5 + 0.5 * dot(p, vec2(-jd.y, jd.x)) / rp), vC0);
       } else {
         // textured dots / squares: the image stamped on each point
         vec2 ab2 = vS1 - vS0;
         vec2 dir2 = dot(ab2, ab2) > 1e-8 ? normalize(ab2) : vec2(1.0, 0.0);
         vec2 q2 = kind == 3 ? vec2(dot(p, dir2), dot(p, vec2(-dir2.y, dir2.x))) : p;
+        // alignment rotation of the stamped image (Texture Mapping)
+        float cr = cos(vSU.x), sr = sin(vSU.x);
+        q2 = vec2(cr * q2.x - sr * q2.y, sr * q2.x + cr * q2.y);
         vC0Tex = strokeTexel(0.5 + q2 / (2.0 * max(r, 0.5)), vC0);
       }
       useTex = true;
@@ -439,7 +444,7 @@ export function resetArrayIds() {
 }
 
 export function drawingKey(d: GPDrawing) {
-  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}.${aid(d.stroke_type)}.${aid(d.is_fill_guide)}.${aid(d.miter_angle)}.${aid(d.uv_translation)}.${aid(d.uv_rotation)}.${aid(d.uv_scale)}.${aid(d.softness)}`;
+  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}.${aid(d.stroke_type)}.${aid(d.is_fill_guide)}.${aid(d.miter_angle)}.${aid(d.uv_translation)}.${aid(d.uv_rotation)}.${aid(d.uv_scale)}.${aid(d.softness)}.${aid(d.uv_stroke)}`;
 }
 
 interface CachedGeo {
@@ -463,6 +468,7 @@ export function geometryFromBuffers(b: StrokeBuffers): BufferGeometry {
   g.setAttribute('aInfo', new BufferAttribute(b.info, 4));
   g.setAttribute('aN0', new BufferAttribute(b.nbr0, 4));
   g.setAttribute('aN1', new BufferAttribute(b.nbr1, 4));
+  g.setAttribute('aSU', new BufferAttribute(b.uv, 2));
   g.setIndex(new BufferAttribute(b.index, 1));
   return g;
 }

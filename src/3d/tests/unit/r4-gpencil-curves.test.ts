@@ -302,3 +302,24 @@ describe('material textures and passes', () => {
     expect(only1.orderEnd).toBe(6);
   });
 });
+
+describe('texture mapping modifier', () => {
+  it('sets the line mapping and moves / scales / turns the fill mapping', async () => {
+    const { kernels } = await import('../../src/greasepencil/modifiers');
+    const sq = newStroke([newPoint([0, 0, 0]), newPoint([2, 0, 0]), newPoint([2, 0, 1]), newPoint([0, 0, 1])], { cyclic: true });
+    const m = { mode: 'STROKE_AND_FILL', fit_method: 'FIT_STROKE', uv_offset: 0.25, uv_scale: 2, alignment_rotation: 0.5, fill_rotation: 0.3, fill_offset: [0.5, 0], fill_scale: 2 } as never;
+    const [o] = kernels.GREASE_PENCIL_TEXTURE([sq], m, {} as never);
+    expect(o.uv_stroke).toEqual([0.25, 2, 1, 0.5]);
+    // bounds-based start: the fill maps 2 × 1 units, halved by the scale
+    expect(o.uv_scale![0]).toBeCloseTo(1);
+    expect(o.uv_scale![1]).toBeCloseTo(0.5);
+    expect(o.uv_rotation).toBeCloseTo(0.3);
+    // the line mapping reaches the GPU buffers: fitted u runs 0..1 along the stroke, offset then scaled
+    const LINE: StrokeStyle = { stroke: true, fill: false, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'LINE', strokeTex: { image: 'im', mix: 0, uvFactor: 1 } };
+    const b = buildStrokeBuffers(fromStrokes([{ ...o, cyclic: false }]), [LINE]);
+    expect(b.uv[0]).toBeCloseTo((0 + 0.25) * 2);
+    // end of the last segment: fully along the open stroke (u = (1 + offset) * scale)
+    const segVerts = 3 * 4;
+    expect(b.uv[(segVerts - 1) * 2 + 1]).toBeCloseTo((1 + 0.25) * 2);
+  });
+});

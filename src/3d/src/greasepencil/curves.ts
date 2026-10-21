@@ -157,6 +157,7 @@ const CURVE_DOMAIN: (keyof GPDrawing)[] = [
   'uv_scale',
   'is_fill_guide',
   'softness',
+  'uv_stroke',
 ];
 
 function evaluate(d: GPDrawing): { out: GPDrawing; controlIndex: Int32Array } {

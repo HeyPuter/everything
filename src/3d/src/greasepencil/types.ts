@@ -63,6 +63,8 @@ export interface GPDrawing {
   is_fill_guide?: Uint8Array;
   /** per stroke edge softness 0 (hard) .. 1 (fades from the center line) */
   softness?: Float32Array;
+  /** per stroke texture mapping of the line (4 per stroke): offset, scale, fit to the stroke (0/1), dot rotation */
+  uv_stroke?: Float32Array;
 }
 
 export interface GPFrame {

@@ -127,6 +127,8 @@ export interface StrokeBuffers {
   /** neighbouring points of a segment (xyz + radius; radius 0 = none): before p0 and after p1 */
   nbr0: Float32Array;
   nbr1: Float32Array;
+  /** stroke texture coordinates: u at both segment ends (dots: rotation, joints: u and du per world unit) */
+  uv: Float32Array;
   index: Uint32Array;
   vertexCount: number;
   /** next free draw order */
@@ -210,7 +212,8 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     corner = new Grow(est * 2),
     info = new Grow(est * 4),
     nb0 = new Grow(est * 4),
-    nb1 = new Grow(est * 4);
+    nb1 = new Grow(est * 4),
+    uvs = new Grow(est * 2);
   let index = new Uint32Array(Math.max(64, nPts * 6 + 64));
   let ni = 0;
   let nv = 0;
@@ -256,9 +259,11 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     s: number,
     n0: number[] = NONE,
     n1: number[] = NONE,
-    infoW?: number,
+    tu0 = 0,
+    tu1 = 0,
   ) => {
     for (let k = 0; k < 4; k++) {
+      uvs.push2(tu0, tu1);
       nb0.push4(n0[0], n0[1], n0[2], n0[3]);
       nb1.push4(n1[0], n1[1], n1[2], n1[3]);
       p0.push3(ax, ay, az);
@@ -267,7 +272,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
       c0.push4(colA[0], colA[1], colA[2], colA[3]);
       c1.push4(colB[0], colB[1], colB[2], colB[3]);
       corner.push2(k >> 1, k & 1 ? 1 : -1);
-      info.push4(kind, order, flags, infoW ?? s);
+      info.push4(kind, order, flags, s);
     }
     pushIndex(nv, nv + 1, nv + 2, nv + 2, nv + 1, nv + 3);
     nv += 4;
@@ -327,6 +332,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
               // fills keep their gradient / texture coordinates and kind (1 linear, 2 radial, 3 texture) in the first neighbour slot
               nb0.push4(t[0], t[1], g ? (g.type === 'RADIAL' ? 2 : 1) : tx ? 3 : 0, g ? g.factor : tx ? tx.mix : 0);
               nb1.push4(0, 0, 0, 0);
+              uvs.push2(0, 0);
               pushIndex(nv++);
             }
             order++;
@@ -340,8 +346,30 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     // edge softness travels in the flag bits above 4 (0..255)
     const softBits = soft ? Math.round(Math.max(0, Math.min(1, soft[s])) * 255) << 4 : 0;
     const texBit = st.strokeTex ? FLAG_STROKE_TEX : 0;
-    // textured lines: distance along the stroke at each segment start (in the last info slot)
-    let along = 0;
+    // stroke texture mapping (Texture Mapping modifier): offset, scale, fit to the stroke, dot rotation
+    const us = d.uv_stroke && d.uv_stroke.length === nStrokes * 4 ? d.uv_stroke : null;
+    const uOff = us ? us[s * 4] : 0,
+      uScale = us ? us[s * 4 + 1] || 1 : 1,
+      uFit = !!us && us[s * 4 + 2] > 0.5,
+      dotRot = us ? us[s * 4 + 3] : 0;
+    // textured lines: u at every point (distance along the stroke in stroke widths, or 0..1 when fitted)
+    let uAt: Float64Array | null = null,
+      dudw = 0;
+    if (texBit && st.mode === 'LINE') {
+      uAt = new Float64Array(n + 1);
+      let meanR = 0;
+      for (let i = a; i < b; i++) meanR += R(i);
+      meanR = Math.max(1e-6, meanR / n);
+      for (let k = 1; k <= n; k++) {
+        const i = a + k - 1,
+          j = k < n ? i + 1 : a;
+        uAt[k] = uAt[k - 1] + Math.hypot(P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]);
+      }
+      const total = (d.cyclic[s] && n > 2 ? uAt[n] : uAt[n - 1]) || 1;
+      const div = uFit ? total : 2 * meanR * Math.max(0.01, st.strokeTex!.uvFactor);
+      dudw = uScale / div;
+      for (let k = 0; k <= n; k++) uAt[k] = (uAt[k] / div + uOff) * uScale;
+    }
     if (st.mode !== 'LINE') {
       const kind = st.mode === 'DOTS' ? KIND_DOT : KIND_SQUARE;
       for (let i = a; i < b; i++) {
@@ -354,7 +382,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
           dz = (P[j * 3 + 2] - P[i * 3 + 2]) * sign;
         if (st.alignment === 'OBJECT') [dx, dy, dz] = [Math.max(R(i), 1e-4), 0, 0];
         // flag 8: screen aligned (fixed)
-        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits | texBit, s);
+        quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3] + dx, P[i * 3 + 1] + dy, P[i * 3 + 2] + dz, R(i), R(i), ca, ca, kind, (st.alignment === 'FIXED' ? 8 : 0) | softBits | texBit, s, NONE, NONE, dotRot);
       }
       order++;
       continue;
@@ -387,15 +415,8 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
         nj = a + ((k + 2) % n);
       const n0 = hasPrev ? [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)] : NONE;
       const n1 = hasNext ? [P[nj * 3], P[nj * 3 + 1], P[nj * 3 + 2], R(nj)] : NONE;
-      quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1, texBit ? along : undefined);
-      along += Math.hypot(P[j * 3] - P[i * 3], P[j * 3 + 1] - P[i * 3 + 1], P[j * 3 + 2] - P[i * 3 + 2]);
+      quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[j * 3], P[j * 3 + 1], P[j * 3 + 2], R(i), R(j), ca, cb, KIND_SEGMENT, flags, s, n0, n1, uAt ? uAt[k] : 0, uAt ? uAt[k + 1] : 0);
     }
-    // distance along the stroke at each point (joint dots of textured strokes)
-    const alongAt = (i: number) => {
-      let acc = 0;
-      for (let k = a; k < i; k++) acc += Math.hypot(P[(k + 1) * 3] - P[k * 3], P[(k + 1) * 3 + 1] - P[k * 3 + 1], P[(k + 1) * 3 + 2] - P[k * 3 + 2]);
-      return acc;
-    };
     if (miter || softStroke)
       for (let i = a; i < b; i++) {
         if (!cut(i)) continue;
@@ -403,7 +424,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
           ni = i < b - 1 ? i + 1 : a;
         pointColor(d, i, st.color, ca);
         if (!(miter && miter[i] > 0)) {
-          quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3], P[i * 3 + 1], P[i * 3 + 2], R(i), R(i), ca, ca, KIND_DOT, softBits | texBit, s, [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)], [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], R(ni)], texBit ? alongAt(i) : undefined);
+          quad(P[i * 3], P[i * 3 + 1], P[i * 3 + 2], P[i * 3], P[i * 3 + 1], P[i * 3 + 2], R(i), R(i), ca, ca, KIND_DOT, softBits | texBit, s, [P[pi * 3], P[pi * 3 + 1], P[pi * 3 + 2], R(pi)], [P[ni * 3], P[ni * 3 + 1], P[ni * 3 + 2], R(ni)], uAt ? uAt[i - a] : 0, dudw);
           continue;
         }
         // p0: the corner, p1: the previous point, next point + miter limit in the second neighbour slot
@@ -421,6 +442,7 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     info: info.done(),
     nbr0: nb0.done(),
     nbr1: nb1.done(),
+    uv: uvs.done(),
     index: index.slice(0, ni),
     vertexCount: nv,
     orderEnd: orderStart + nStrokes * 2,

@@ -52,6 +52,8 @@ export interface GPStroke {
   is_fill_guide?: boolean;
   /** edge softness 0..1 */
   softness?: number;
+  /** line texture mapping: offset, scale, fit to the stroke (0/1), dot rotation */
+  uv_stroke?: [number, number, number, number];
 }
 
 export function newStroke(points: GPPoint[], o: Partial<Omit<GPStroke, 'points'>> = {}): GPStroke {
@@ -105,6 +107,7 @@ const OPT_CURVE: [keyof GPDrawing, number][] = [
   ['uv_scale', 2],
   ['is_fill_guide', 1],
   ['softness', 1],
+  ['uv_stroke', 4],
 ];
 const OPT_POINT: [keyof GPDrawing, number][] = [
   ['handle_left', 3],
@@ -167,7 +170,8 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
     uvr = at(d.uv_rotation, nStr),
     uvs = at(d.uv_scale, nStr * 2),
     guide = at(d.is_fill_guide, nStr),
-    soft = at(d.softness, nStr);
+    soft = at(d.softness, nStr),
+    uvst = at(d.uv_stroke, nStr * 4);
   const hl = at(d.handle_left, nPts * 3),
     hr = at(d.handle_right, nPts * 3),
     htl = at(d.handle_type_left, nPts),
@@ -223,6 +227,7 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
     if (uvs && (uvs[s * 2] !== 1 || uvs[s * 2 + 1] !== 1)) st.uv_scale = [uvs[s * 2], uvs[s * 2 + 1]];
     if (guide?.[s]) st.is_fill_guide = true;
     if (soft?.[s]) st.softness = soft[s];
+    if (uvst && (uvst[s * 4] || uvst[s * 4 + 1] !== 1 || uvst[s * 4 + 2] || uvst[s * 4 + 3])) st.uv_stroke = [uvst[s * 4], uvst[s * 4 + 1], uvst[s * 4 + 2], uvst[s * 4 + 3]];
     out.push(st);
   }
   return out;
@@ -281,6 +286,10 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
   }
   if (list.some((s) => s.is_fill_guide)) d.is_fill_guide = new Uint8Array(c);
   if (list.some((s) => s.softness)) d.softness = new Float32Array(c);
+  if (list.some((s) => s.uv_stroke)) {
+    d.uv_stroke = new Float32Array(c * 4);
+    for (let k = 0; k < c; k++) d.uv_stroke[k * 4 + 1] = 1;
+  }
   if (list.some((s) => s.points.some((p) => p.miter_angle))) d.miter_angle = new Float32Array(n);
   let i = 0;
   list.forEach((s, k) => {
@@ -329,6 +338,7 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
     }
     if (d.is_fill_guide) d.is_fill_guide[k] = s.is_fill_guide ? 1 : 0;
     if (d.softness) d.softness[k] = s.softness ?? 0;
+    if (d.uv_stroke && s.uv_stroke) d.uv_stroke.set(s.uv_stroke, k * 4);
   });
   d.offsets[c] = i;
   if (bez) deriveHandles(d);

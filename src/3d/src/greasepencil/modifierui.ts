@@ -327,6 +327,31 @@ const UI: Record<string, (ob: ObjectData, m: M) => Child> = {
   GREASE_PENCIL_COLOR: (ob, m) => [enumProp(m, 'color_mode', 'Mode', COLOR_MODES), num(m, 'hue', 'Hue', { min: 0, max: 1, slider: true }), num(m, 'saturation', 'Saturation', { min: 0, max: 2, slider: true }), num(m, 'value', 'Value', { min: 0, max: 2, slider: true }), influence(ob, m)],
   GREASE_PENCIL_OPACITY: (ob, m) => [enumProp(m, 'color_mode', 'Mode', COLOR_MODES), bool(m, 'use_uniform_opacity', 'Uniform Opacity'), num(m, 'color_factor', 'Opacity Factor', { min: 0, max: 2, slider: true }), influence(ob, m)],
   GREASE_PENCIL_TINT: (ob, m) => [enumProp(m, 'color_mode', 'Mode', COLOR_MODES), num(m, 'factor', 'Factor', { min: 0, max: 1, slider: true }), colorProp(m, 'color', 'Color'), influence(ob, m)],
+  GREASE_PENCIL_TEXTURE: (ob, m) => [
+    enumProp(m, 'mode', 'Mode', E(['STROKE', 'Stroke'], ['FILL', 'Fill'], ['STROKE_AND_FILL', 'Stroke & Fill'])),
+    m.mode !== 'FILL'
+      ? panel(
+          `${m.id}-tex-stroke`,
+          'Stroke',
+          () => [
+            enumProp(m, 'fit_method', 'Fit Method', E(['CONSTANT_LENGTH', 'Constant Length'], ['FIT_STROKE', 'Stroke Length'])),
+            num(m, 'uv_offset', 'Offset', { step: 0.01 }),
+            num(m, 'alignment_rotation', 'Rotation', { unit: 'angle' }),
+            num(m, 'uv_scale', 'Scale', { min: 0, step: 0.01 }),
+          ],
+          { sub: true },
+        )
+      : null,
+    m.mode !== 'STROKE'
+      ? panel(
+          `${m.id}-tex-fill`,
+          'Fill',
+          () => [num(m, 'fill_rotation', 'Rotation', { unit: 'angle' }), vecProp(m, 'fill_offset', 'Offset', { names: ['X', 'Y'] }), num(m, 'fill_scale', 'Scale', { min: 0.001, step: 0.01 })],
+          { sub: true },
+        )
+      : null,
+    influence(ob, m),
+  ],
 };
 
 /** The hook starts from the object's current transform (no jump). */
