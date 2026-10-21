@@ -22,7 +22,7 @@ import { rasterizeText } from '../../engine/text.js';
 import { FONT_ACCEPT, importFontFile } from '../../media/fonts.js';
 import { segmented, section, colorField } from '../controls.js';
 import { toast } from '../dialog.js';
-import { slider, color, pressButton, propSection, row, choiceGrid, tabSet, uidFor } from './common.js';
+import { slider, color, pressButton, propSection, row, choiceGrid, tabSet, uidFor, keepFocus } from './common.js';
 import { transformSection, blendSection } from './transform.js';
 import { bubbleTab } from './text-bubble.js';
 import { effectsTab } from './text-effects.js';
@@ -99,14 +99,14 @@ function highlightSection(view) {
     const shown = words.slice(0, 120);
     chips.replaceChildren(...shown.map((w, i) => {
       const b = h('button.mark-chip', { type: 'button', 'aria-pressed': String(marks.has(i)) }, w);
-      b.addEventListener('click', () => {
+      b.addEventListener('click', () => keepFocus(() => {
         setMarks(marks.has(i) ? 'Remove highlight' : 'Highlight word', (x) => {
           const m = new Set(x.marks || []);
           if (m.has(i)) m.delete(i);
           else m.add(i);
           return [...m].sort((a, z) => a - z);
         });
-      });
+      }, () => chips.children[i]));
       return b;
     }));
   };

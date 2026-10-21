@@ -360,6 +360,25 @@ export function choiceGrid({ label, items, value, onPick, className = '' }) {
   return { el: grid, set, buttons: btns };
 }
 
+/**
+ * Run fn (an edit that may rebuild the control that has focus), then, if
+ * focus was lost (to the page, or onto a control that is now disabled),
+ * focus the first of finders() that gives a usable element. Keeps the next
+ * Space from playing the timeline instead of pressing a button.
+ */
+export function keepFocus(fn, ...finders) {
+  fn();
+  const a = document.activeElement;
+  if (a && a !== document.body && a.isConnected && !a.disabled) return;
+  for (const find of finders) {
+    const el = find();
+    if (el?.isConnected && !el.disabled && !el.closest('[hidden]')) {
+      el.focus();
+      return;
+    }
+  }
+}
+
 /** Seconds with one decimal, for labels. */
 export const secs = (us) => `${(us / US).toFixed(1)}s`;
 

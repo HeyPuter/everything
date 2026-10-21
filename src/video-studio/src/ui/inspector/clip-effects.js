@@ -9,7 +9,7 @@ import { icon } from '../../lib/icons.js';
 import { EFFECTS, EFFECT_CATEGORIES } from '../../model/catalog.js';
 import { effectParamDefs } from '../../model/effect-params.js';
 import { MAX_CLIP_EFFECTS, setClipEffectParam } from '../../model/clip-effects.js';
-import { slider, color, propSection, createScope, note, uidFor } from './common.js';
+import { slider, color, propSection, createScope, note, uidFor, keepFocus } from './common.js';
 import '../../styles/effects.css';
 
 const effectLabel = (id) => EFFECTS.find((e) => e.id === id)?.label || 'Effect';
@@ -73,21 +73,23 @@ export function clipEffectsTab(view) {
   const clearAll = h('button.icon-btn.small', { type: 'button', 'aria-label': 'Remove all clip effects', 'data-tip': 'Remove all' }, icon('trash', 14));
   clearAll.addEventListener('click', () => actions.clearClipEffects(view.id));
 
+  // The list is rebuilt after each change; focus goes back to the same control of the effect.
+  const control = (i, act) => () => list.children[i]?.querySelector(`[data-act="${act}"]`);
   const item = (e, i, n) => {
     const name = effectLabel(e.id);
-    const on = h('button.switch.small.clipfx-on', { type: 'button', role: 'switch', 'aria-checked': String(!e.off), 'aria-label': `${name} on` });
-    on.addEventListener('click', () => actions.toggleClipEffect(view.id, i, Boolean(e.off)));
-    const btn = (iconName, label, disabled, fn) => {
-      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': label, 'data-tip': label, disabled }, icon(iconName, 14));
+    const on = h('button.switch.small.clipfx-on', { type: 'button', role: 'switch', 'aria-checked': String(!e.off), 'aria-label': `${name} on`, dataset: { act: 'on' } });
+    on.addEventListener('click', () => keepFocus(() => actions.toggleClipEffect(view.id, i, Boolean(e.off)), control(i, 'on')));
+    const btn = (iconName, label, act, disabled, fn) => {
+      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': label, 'data-tip': label, disabled, dataset: { act } }, icon(iconName, 14));
       b.addEventListener('click', fn);
       return b;
     };
     const head = h('div.clipfx-head',
       on,
       h('span.clipfx-name', h('span.clipfx-index', `${i + 1}`), name),
-      btn('arrowUp', `Move ${name} up`, i === 0, () => actions.moveClipEffect(view.id, i, i - 1)),
-      btn('arrowDown', `Move ${name} down`, i === n - 1, () => actions.moveClipEffect(view.id, i, i + 1)),
-      btn('trash', `Remove ${name}`, false, () => actions.removeClipEffect(view.id, i)),
+      btn('arrowUp', `Move ${name} up`, 'up', i === 0, () => keepFocus(() => actions.moveClipEffect(view.id, i, i - 1), control(i - 1, 'up'), control(i - 1, 'down'))),
+      btn('arrowDown', `Move ${name} down`, 'down', i === n - 1, () => keepFocus(() => actions.moveClipEffect(view.id, i, i + 1), control(i + 1, 'down'), control(i + 1, 'up'))),
+      btn('trash', `Remove ${name}`, 'remove', false, () => keepFocus(() => actions.removeClipEffect(view.id, i), control(i, 'remove'), control(i - 1, 'remove'), () => picker)),
     );
     const fields = effectParamFields(scoped.view, {
       id: e.id,

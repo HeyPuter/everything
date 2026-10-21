@@ -13,7 +13,7 @@ import {
   MASK_SHAPES, MASK_MODES, MAX_MASKS, defaultMask, addMask, removeMask, moveMask, cloneMask, changeMaskType, maskProp, MASK_KEYED, fitPathBox,
 } from '../../model/masks.js';
 import { selectField, segmented, switchField } from '../controls.js';
-import { slider, propSection, createScope, note, toggle } from './common.js';
+import { slider, propSection, createScope, note, toggle, keepFocus } from './common.js';
 import { maskEdit } from '../mask-edit-state.js';
 
 const shapeOf = (type) => MASK_SHAPES.find((s) => s.id === type) || MASK_SHAPES[0];
@@ -62,35 +62,37 @@ export function maskTab(view) {
   }
 
   // --- Mask list --------------------------------------------------------------
+  // Rows are rebuilt after each change; focus goes back to the same control of the mask.
+  const control = (i, act) => () => listEl.children[i]?.querySelector(`[data-act="${act}"]`);
   function rowFor(m, i, n) {
     const shape = shapeOf(m.type);
     const selected = i === sel();
     const mode = MASK_MODES.find((x) => x.id === m.mode) || MASK_MODES[0];
-    const pick = h('button.mask-row-main', { type: 'button', 'aria-pressed': String(selected), 'aria-label': `Mask ${i + 1}, ${shape.label}, ${i === 0 ? 'base' : mode.label}${m.hidden ? ', hidden' : ''}` },
+    const pick = h('button.mask-row-main', { type: 'button', dataset: { act: 'pick' }, 'aria-pressed': String(selected), 'aria-label': `Mask ${i + 1}, ${shape.label}, ${i === 0 ? 'base' : mode.label}${m.hidden ? ', hidden' : ''}` },
       h('span.mask-row-icon', icon(shape.icon, 16)),
       h('span.mask-row-name', `${i + 1}. ${shape.label}`),
       i > 0 ? h('span.mask-row-mode', mode.label) : null);
-    pick.addEventListener('click', () => {
+    pick.addEventListener('click', () => keepFocus(() => {
       maskEdit.set({ index: i, point: -1, drawing: false });
       render(true);
-    });
-    const btn = (name, label, fn, disabled = false) => {
-      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': `${label} mask ${i + 1}`, 'data-tip': label, disabled }, icon(name, 14));
+    }, control(i, 'pick')));
+    const btn = (name, label, act, fn, disabled = false) => {
+      const b = h('button.icon-btn.small', { type: 'button', 'aria-label': `${label} mask ${i + 1}`, 'data-tip': label, disabled, dataset: { act } }, icon(name, 14));
       b.addEventListener('click', fn);
       return b;
     };
-    const eye = btn(m.hidden ? 'eyeOff' : 'eye', m.hidden ? 'Show' : 'Hide', () => {
+    const eye = btn(m.hidden ? 'eyeOff' : 'eye', m.hidden ? 'Show' : 'Hide', 'eye', () => keepFocus(() => {
       view.edit(m.hidden ? 'Show mask' : 'Hide mask', (c) => {
         const t = c.masks?.[i];
         if (!t) return false;
         if (t.hidden) delete t.hidden;
         else t.hidden = true;
       });
-    });
+    }, control(i, 'eye')));
     eye.setAttribute('aria-pressed', String(Boolean(m.hidden)));
-    const up = btn('arrowUp', 'Move up', () => move(i, i - 1), i === 0);
-    const down = btn('arrowDown', 'Move down', () => move(i, i + 1), i === n - 1);
-    const dup = btn('duplicate', 'Duplicate', () => {
+    const up = btn('arrowUp', 'Move up', 'up', () => keepFocus(() => move(i, i - 1), control(i - 1, 'up'), control(i - 1, 'down')), i === 0);
+    const down = btn('arrowDown', 'Move down', 'down', () => keepFocus(() => move(i, i + 1), control(i + 1, 'down'), control(i + 1, 'up')), i === n - 1);
+    const dup = btn('duplicate', 'Duplicate', 'dup', () => keepFocus(() => {
       let index = -1;
       view.edit('Duplicate mask', (c) => {
         if (!c.masks?.[i]) return false;
@@ -105,13 +107,13 @@ export function maskTab(view) {
         maskEdit.set({ index, point: -1 });
         render(true);
       }
-    }, n >= MAX_MASKS);
-    const del = btn('trash', 'Delete', () => {
+    }, control(i, 'dup'), control(i, 'pick')), n >= MAX_MASKS);
+    const del = btn('trash', 'Delete', 'delete', () => keepFocus(() => {
       view.edit('Delete mask', (c) => removeMask(c, i));
       maskEdit.set({ index: Math.max(0, i - 1), point: -1, drawing: false });
       announce('Mask deleted');
       render(true);
-    });
+    }, control(i, 'delete'), control(i - 1, 'delete'), () => tiles[0]));
     return h(`div.mask-row${selected ? '.selected' : ''}${m.hidden ? '.is-hidden' : ''}`, { role: 'listitem' }, pick, h('div.mask-row-tools', eye, up, down, dup, del));
   }
 

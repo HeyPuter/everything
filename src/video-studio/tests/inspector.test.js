@@ -624,3 +624,58 @@ describe('number boxes', () => {
     expect(clip(env.v1.id).keyframes.scale.find((k) => k.t === 1 * US).v).toBeCloseTo(1.02);
   });
 });
+
+describe('keyboard focus survives list updates', () => {
+  const press = (selector) => {
+    const b = env.el.querySelector(selector);
+    b.focus();
+    b.click();
+  };
+  const focused = () => document.activeElement;
+
+  it('clip effects: on/off, reorder and remove', () => {
+    env.store.select(env.v1.id);
+    env.ctx.actions.addClipEffect(env.v1.id, 'blur');
+    env.ctx.actions.addClipEffect(env.v1.id, 'glow');
+    tab('Effects').click();
+    press('.clipfx-item:nth-child(1) .clipfx-on');
+    expect(clip(env.v1.id).effects[0].off).toBe(true);
+    expect(focused()).toBe(env.el.querySelector('.clipfx-item:nth-child(1) .clipfx-on'));
+    press('.clipfx-item:nth-child(2) [aria-label$=" up"]');
+    expect(clip(env.v1.id).effects.map((e) => e.id)).toEqual(['glow', 'blur']);
+    // Focus follows the moved effect; at the top its Move up is off, so Move down.
+    expect(focused().getAttribute('aria-label')).toMatch(/^Move .* down$/);
+    expect(focused().closest('.clipfx-item')).toBe(env.el.querySelector('.clipfx-item:nth-child(1)'));
+    press('.clipfx-item:nth-child(2) [aria-label^="Remove"]');
+    expect(clip(env.v1.id).effects).toHaveLength(1);
+    expect(focused().getAttribute('aria-label')).toMatch(/^Remove /);
+    press('.clipfx-item [aria-label^="Remove"]');
+    expect(focused()).toBe(env.el.querySelector('.clipfx-add'));
+  });
+
+  it('masks: hide, select, reorder and delete', () => {
+    env.store.select(env.v1.id);
+    tab('Mask').click();
+    env.el.querySelector('.mask-tile[data-shape=ellipse]').click();
+    env.el.querySelector('.mask-tile[data-shape=rectangle]').click();
+    press('[aria-label="Hide mask 1"]');
+    expect(clip(env.v1.id).masks[0].hidden).toBe(true);
+    expect(focused()).toBe(env.el.querySelector('[aria-label="Show mask 1"]'));
+    press('[aria-label^="Mask 1,"]');
+    expect(focused()).toBe(env.el.querySelector('[aria-label^="Mask 1,"]'));
+    press('[aria-label="Move down mask 1"]');
+    expect(clip(env.v1.id).masks.map((m) => m.type)).toEqual(['rectangle', 'ellipse']);
+    expect(focused()).toBe(env.el.querySelector('[aria-label="Move up mask 2"]'));
+    press('[aria-label="Delete mask 2"]');
+    expect(focused()).toBe(env.el.querySelector('[aria-label="Delete mask 1"]'));
+  });
+
+  it('highlight word chips', () => {
+    env.store.select(env.text.id);
+    env.el.querySelectorAll('.section-toggle[aria-expanded=false]').forEach((x) => x.click());
+    press('.mark-chip');
+    expect(clip(env.text.id).marks).toEqual([0]);
+    expect(focused()).toBe(env.el.querySelector('.mark-chip'));
+    expect(focused().getAttribute('aria-pressed')).toBe('true');
+  });
+});
