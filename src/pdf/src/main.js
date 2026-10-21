@@ -59,7 +59,10 @@ const run =
     } catch (e) {
       // Closing the sign-in dialog is a choice, not a failure worth a red toast.
       if (P.isSignInCancelled(e)) return;
-      toast(e.message || 'Something went wrong. Please try again.', { error: true });
+      // Puter's SDK rejects with plain objects too, at times with the reason nested inside.
+      toast(e?.message || e?.error?.message || 'Something went wrong. Please try again.', {
+        error: true,
+      });
     }
   };
 function sameAccount(first, second) {
