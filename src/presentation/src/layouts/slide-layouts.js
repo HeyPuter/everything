@@ -124,8 +124,10 @@ export function createLayoutCommands(host) {
     });
   }
 
+  // Asked on every toolbar refresh (each keystroke and caret move): count
+  // the layout parts rather than reading every layout.
   const hasLayouts = () =>
-    host.available() && P.getSlideLayouts(host.pres()).length > 0;
+    host.available() && P.getSlideLayoutCount(host.pres()) > 0;
 
   return {
     addSlide,

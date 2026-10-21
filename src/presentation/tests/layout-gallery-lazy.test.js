@@ -52,4 +52,20 @@ describe("layout galleries", () => {
     expect(next.src).not.toBe(first.src);
     expect(templatePicture(pres, part)).toBe(next);
   });
+
+  // The toolbar asks on every keystroke and caret move; reading every layout
+  // to answer cost time in proportion to the template's layouts.
+  it("tell whether layouts apply without reading them", () => {
+    const pres = P.createPresentation();
+    const [master] = P.getSlideMasters(pres);
+    P.addSlide(pres, {
+      layout: P.findSlideLayoutByPartName(pres, master.layouts[0].partName),
+    });
+    // Another layout's bytes are never looked at.
+    P._internalPackageOf(pres).getPart(master.layouts[1].partName).data =
+      new TextEncoder().encode("not xml");
+    const layouts = commands(pres);
+    expect(layouts.canChangeLayout()).toBe(true);
+    expect(layouts.canReset()).toBe(true);
+  });
 });
