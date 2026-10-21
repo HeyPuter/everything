@@ -78,12 +78,13 @@ export function classicMenus(ctx) {
   ]);
 
   async function recentMenu(from, focusFirst) {
-    let list = [];
-    try { list = await w.recentDocuments(); } catch { list = []; }
+    let list = [], failed = false;
+    try { list = await w.recentDocuments(); } catch { failed = true; }
     if (!from.isConnected) return;
     openMenu({ anchor: from, label: 'Open Recent', focusFirst, minWidth: 220, items: list.length
       ? [...list.map(doc => ({ label: doc.name, icon: 'filePlus', hint: doc.when || '', onSelect: () => w.openRecent(doc.path) })), sep, { label: 'More…', onSelect: () => w.openBackstage?.('open') }]
-      : [{ note: 'No recent documents.' }] });
+      // A listing that failed is not an empty one: say so, as the File view's Open page does.
+      : [{ note: failed ? 'Could not load recent documents. Check your connection and try again.' : 'No recent documents.' }] });
   }
 
   const edit = () => {

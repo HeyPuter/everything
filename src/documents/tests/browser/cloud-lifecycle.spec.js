@@ -225,3 +225,11 @@ test('a name typed just before going back to the documents is kept', async ({ pa
   await expect(page.locator('.file-row', { hasText: 'Untitled document' })).toHaveCount(0);
   await expect(page.locator('.toast-root')).not.toContainText('cancelled');
 });
+
+test('Open Recent says when the documents could not be listed', async ({ page }) => {
+  await openEditor(page);
+  await page.evaluate(() => window.__puterFaults.push({ op: 'readdir', path: '^Documents$', message: 'Network error', times: 1 }));
+  await page.locator('.ed-menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Open Recent', exact: true }).click();
+  await expect(page.locator('.menu-note')).toHaveText('Could not load recent documents. Check your connection and try again.');
+});
