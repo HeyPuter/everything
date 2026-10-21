@@ -920,10 +920,15 @@ export class Store extends Emitter {
     if (!f?.node.locked) return true;
     const key = await unlockKey(f.node.locked, password);
     if (!key) return false;
-    this.keys.set(id, key);
+    // Open the page list before keeping the key: a section that holds a key
+    // but no pages would save an empty list over the real one.
+    let pages = f.node.pages;
     if (f.node.sealed) {
-      f.node.pages = await openJSON(key, f.node.sealed);
+      pages = await openJSON(key, f.node.sealed).catch(() => null);
+      if (!Array.isArray(pages)) throw Object.assign(new Error("This section's page list is damaged and can't be opened."), { damaged: true });
     }
+    this.keys.set(id, key);
+    f.node.pages = pages;
     this.emit('change', { type: 'unlock', id });
     return true;
   }

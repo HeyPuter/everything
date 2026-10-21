@@ -237,3 +237,22 @@ describe('Opening a page', () => {
     expect(toasts()).toContain("Couldn't open this page. Check your connection and try again.");
   });
 });
+
+describe('Unlocking a damaged protected section', () => {
+  it('says the page list is damaged instead of "wrong password"', async () => {
+    const { app, store } = await mount();
+    const section = store.section(app.state.sectionId);
+    await store.protectSection(section.id, 'pw');
+    await app.lockSection(section.id);
+    section.sealed = section.sealed.slice(0, -8) + 'AAAAAAAA';
+    const { unlockSection } = await import('../src/ui/features.js');
+    const done = unlockSection(app, section);
+    document.querySelector('dialog[open] input[type="password"]').value = 'pw';
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Unlock').click();
+    for (let i = 0; i < 50 && !document.querySelector('dialog[open] .field-error')?.textContent; i++) await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector('dialog[open] .field-error').textContent).toBe("This section's page list is damaged and can't be opened.");
+    expect(store.isLocked(section.id)).toBe(true);
+    [...document.querySelectorAll('dialog[open] button')].find((b) => b.textContent === 'Cancel').click();
+    expect(await done).toBe(false);
+  });
+});

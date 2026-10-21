@@ -408,6 +408,28 @@ describe('page versions and protected sections', () => {
   });
 });
 
+describe('password-protected sections: damaged page list', () => {
+  it('stays locked and keeps the stored list when it cannot be decrypted', async () => {
+    const { backend, store, section } = await setup();
+    await store.protectSection(section.id, 'pw');
+    await store.lockSection(section.id);
+    await store.flush();
+    const nbId = store.notebooks[0].id;
+    const path = `notebooks/${nbId}.json`;
+    const manifest = JSON.parse(backend.files.get(path));
+    const stored = manifest.sections.find((s) => s.id === section.id);
+    stored.sealed = stored.sealed.slice(0, -8) + 'AAAAAAAA';
+    backend.files.set(path, JSON.stringify(manifest));
+    const fresh = new Store(backend, { saveDelay: 0 });
+    await fresh.load();
+    await expect(fresh.unlockSection(section.id, 'pw')).rejects.toMatchObject({ damaged: true });
+    expect(fresh.isLocked(section.id)).toBe(true);
+    fresh.renameNotebook(nbId, 'Renamed');
+    await fresh.flush();
+    expect(JSON.parse(backend.files.get(path)).sections.find((s) => s.id === section.id).sealed).toBe(stored.sealed);
+  });
+});
+
 describe('asset ids', () => {
   it('only accepts generated names', async () => {
     const { isAssetId } = await import('../src/data/store.js');

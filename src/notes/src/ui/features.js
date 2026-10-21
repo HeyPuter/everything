@@ -1259,8 +1259,16 @@ export function unlockSection(app, section) {
             return false;
           }
           btn.disabled = true;
-          const unlocked = await app.store.unlockSection(section.id, pw.input.value).catch(() => false);
+          let damaged = null;
+          const unlocked = await app.store.unlockSection(section.id, pw.input.value).catch((err) => {
+            if (err?.damaged) damaged = err.message;
+            return false;
+          });
           btn.disabled = false;
+          if (damaged) {
+            error.textContent = damaged;
+            return false;
+          }
           if (!unlocked) {
             error.textContent = 'That password is not correct. Passwords are case-sensitive.';
             pw.input.select();
