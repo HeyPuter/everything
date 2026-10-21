@@ -7,7 +7,7 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { activeTools } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { toolSettingsRenderers, COMMON_TOOLS, toolsByMode, type ToolDef } from '../editors/view3d/toolbar';
+import { toolSettingsRenderers, COMMON_TOOLS, toolsByMode, extraToolLists, type ToolDef } from '../editors/view3d/toolbar';
 import { activeAnnotationLayer, annotateSettings, strokeLook, placePoint, type AnnotationStroke, type AnnotationArrow } from '../editors/view3d/tools3d';
 import { h, type VNode } from '../ui/h';
 import { registerIcons } from '../ui/icons';
@@ -724,6 +724,11 @@ function withAnnotateGroup(list: (ToolDef | null)[]) {
   list.splice(i + 1, 0, ...ANNOTATE_TOOLS.slice(1));
 }
 withAnnotateGroup(COMMON_TOOLS);
+// the sculpt / vertex / weight paint modes of Grease Pencil offer the annotate tools too
+for (const m of ['SCULPT_GREASE_PENCIL', 'VERTEX_GREASE_PENCIL', 'WEIGHT_GREASE_PENCIL']) {
+  const base = extraToolLists[m];
+  if (base) extraToolLists[m] = () => [...base(), null, ...ANNOTATE_TOOLS];
+}
 for (const key of Object.keys(toolsByMode)) withAnnotateGroup(toolsByMode[key]);
 
 const TOOL_MODE: Record<string, AnnotateMode> = {
