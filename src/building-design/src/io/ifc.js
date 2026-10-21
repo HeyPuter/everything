@@ -97,7 +97,7 @@ export function writeIFC(app) {
     return { width: +t.width || 900, height: +t.height || 2100 };
   } };
   for (const k of MODEL_KINDS)
-    for (const el of doc.all(k)) {
+    for (const el of k === 'link' ? [] : doc.all(k)) {
       const m = scene.mesh(el);
       if (!m || !m.pos.length) continue;
       const n = m.pos.length / 3;

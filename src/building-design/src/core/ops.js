@@ -11,7 +11,7 @@ const POINT_FIELDS = ['a', 'b', 'at', 'origin', 'line', 'tagAt', 'c', 'leader'];
 const POLY_FIELDS = ['boundary', 'path', 'leaders'];
 
 /** Kinds whose `rotation` (degrees) turns with them. */
-const ROTATING = new Set(['component', 'column', 'text', 'group', 'symbol', 'detailItem', 'image']);
+const ROTATING = new Set(['component', 'column', 'text', 'group', 'symbol', 'detailItem', 'image', 'link']);
 
 // Deleting ----------------------------------------------------------------------------
 

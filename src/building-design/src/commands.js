@@ -47,6 +47,7 @@ import { DemolishTool, RenumberTool } from './editor/manage.js';
 import { FootingTool, WallFootingTool, BeamSystemTool, TopoTool, ByFaceTool } from './editor/site.js';
 import * as manage from './ui/manage.js';
 import * as collab from './ui/collab.js';
+import * as links from './ui/links.js';
 import { worksharingOn } from './core/worksets.js';
 import { confirmDialog } from './ui/dialog.js';
 import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
@@ -83,6 +84,9 @@ export const COMMANDS = {
   sample: { label: 'Open Sample Project', icon: 'house', run: (app) => app.startProject('sample') },
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
+  linkProject: { label: 'Link Project', icon: 'linkProject', run: (app) => links.linkProject(app), desc: 'Show another project in this one, read-only, to coordinate with it' },
+  manageLinks: { label: 'Manage Links', icon: 'linkProject', run: (app) => links.manageLinksDialog(app), desc: 'Reload or remove linked projects' },
+  reloadLinkFrom: { label: 'Reload Link From', icon: 'refresh', run: (app) => { const id = [...app.selection].find((x) => app.doc.get(x)?.kind === 'link'); if (id) links.reloadLink(app, id, true); } },
   importImage: { label: 'Image', icon: 'imageImport', run: (app) => app.importImage(), desc: 'Place a picture, such as a scanned drawing or site photo, in the active view' },
   syncNow: {
     label: 'Synchronize Now',

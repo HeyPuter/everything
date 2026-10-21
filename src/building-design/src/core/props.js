@@ -281,6 +281,13 @@ const INSTANCE = {
   ],
   detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
   symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
+  link: [
+    P('name', 'Name', 'Identity Data', 'text'),
+    len('z', 'Elevation Offset', 'Constraints'),
+    P('rotation', 'Rotation', 'Constraints', 'angle'),
+    ro('source', 'Source', 'Identity Data', (el) => el.path || 'Device file', 'text'),
+    P('reload', 'Linked Project', 'Identity Data', 'button', { action: 'reloadLinkFrom', text: 'Reload From...' }),
+  ],
   image: [
     P('name', 'Name', 'Identity Data', 'text'),
     len('w', 'Width', 'Dimensions', { set: (el, v) => ({ w: +v, h: (+v * (+el.h || 1)) / (+el.w || 1) }) }),

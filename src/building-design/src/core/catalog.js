@@ -75,6 +75,7 @@ export const CATEGORIES = [
   { id: 'site', label: 'Site', model: true },
   { id: 'parking', label: 'Parking', model: true },
   { id: 'masses', label: 'Mass', model: true },
+  { id: 'links', label: 'Linked Projects', model: true },
   { id: 'propertyLines', label: 'Property Lines', model: false },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
@@ -143,6 +144,7 @@ const KIND_CATEGORY = {
   topo: 'topography',
   propertyLine: 'propertyLines',
   mass: 'masses',
+  link: 'links',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -202,6 +204,7 @@ export const KIND_LABEL = {
   topo: 'Toposurface',
   propertyLine: 'Property Line',
   mass: 'Mass',
+  link: 'Linked Project',
 };
 
 export const TYPE_KIND = {

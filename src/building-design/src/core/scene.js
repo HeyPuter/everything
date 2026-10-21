@@ -20,9 +20,11 @@ import { hiddenByFilters, viewGraphics, restyle, viewFilterItems } from './graph
 import { worksharingOn, worksetable, worksetOf, worksetColor } from './worksets.js';
 import { cropGraphics } from './crop.js';
 import { MEP_KINDS, connected } from './mep.js';
-import { isView } from './doc.js';
+import { isView, Doc } from './doc.js';
+import { upgradeDoc } from './template.js';
+import { linkFrame, linkedLevel, appendPlan, combineMeshes } from './links.js';
 
-export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass'];
+export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass', 'link'];
 export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
 const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
@@ -42,6 +44,7 @@ export class Scene {
     this.areas = new AreaSolver(doc);
     this.meshes = new Map();
     this.plans = new Map();
+    this.links = new Map();
     this.known = new Map();
     this.version = 0;
     this.listeners = new Set();
@@ -153,7 +156,7 @@ export class Scene {
     if (c && sameDeps(c.deps, deps)) return c.mesh;
     let mesh = null;
     try {
-      mesh = build3D(this.ctx3d(), el);
+      mesh = el.kind === 'link' ? this.linkMesh(el) : build3D(this.ctx3d(), el);
     } catch (err) {
       console.warn('Could not build', el.kind, el.id, err);
     }
@@ -223,7 +226,7 @@ export class Scene {
     if (c && sameDeps(c.deps, deps)) return c.g;
     let g = null;
     try {
-      g = planGraphics(ctx, el);
+      g = el.kind === 'link' ? this.linkPlan(view, el) : planGraphics(ctx, el);
       if (g && (view.overrides || view.filters?.length || view.elOverrides || this.doc.get('project')?.objectStyles)) g = restyle(g, viewGraphics(this.doc, view, el));
       if (g && view.cropOn && view.crop && !el.viewId && !isView(el) && el.kind !== 'section' && el.kind !== 'elevation') g = cropGraphics(g, view.crop);
       if (g && phased(el) && phaseLook(this.doc, view, el) === 'dashed') g = dashed(g);
@@ -242,6 +245,61 @@ export class Scene {
   /** Drop caches of views that no longer exist. */
   prune() {
     for (const id of this.plans.keys()) if (!this.doc.has(id)) this.plans.delete(id);
+    for (const id of this.links.keys()) if (!this.doc.has(id)) this.links.delete(id);
+  }
+
+  // Linked projects ---------------------------------------------------------------------
+
+  /** The linked project of a link element: { doc, scene } (parsed once per snapshot). */
+  link(el) {
+    let e = this.links.get(el.id);
+    if (e && e.data === el.data) return e;
+    let doc = null;
+    try {
+      doc = upgradeDoc(Doc.fromJSON(JSON.parse(el.data)));
+    } catch {
+      doc = null;
+    }
+    e = { data: el.data, doc, scene: doc ? new Scene(doc) : null, views: new Map() };
+    this.links.set(el.id, e);
+    return e;
+  }
+
+  linkMesh(el) {
+    const { scene } = this.link(el);
+    if (!scene) return null;
+    const meshes = [];
+    for (const k of MODEL_KINDS) {
+      if (k === 'link') continue;
+      for (const x of scene.doc.all(k)) {
+        const m = scene.mesh(x);
+        if (m?.pos) meshes.push(m);
+      }
+    }
+    return combineMeshes(meshes, linkFrame(el));
+  }
+
+  linkPlan(view, el) {
+    const e = this.link(el);
+    const out = new PlanBuilder();
+    const host = this.doc.get(view.levelId);
+    if (!e.scene || !host) return out;
+    const level = linkedLevel(e.doc, el, host.elevation);
+    if (!level) return out;
+    // One stand-in view per host view, kept while the host view is unchanged (for caching).
+    let v = e.views.get(view.id);
+    if (!v || v.src !== view || v.view.levelId !== level.id) {
+      v = { src: view, view: { id: `${view.id}~${el.id}`, kind: view.kind === 'ceilingPlan' ? 'ceilingPlan' : 'plan', levelId: level.id, name: level.name, scale: view.scale, detail: view.detail, cutHeight: view.cutHeight, viewDepth: view.viewDepth } };
+      e.views.set(view.id, v);
+    }
+    const f = linkFrame(el);
+    const pc = planContext(e.doc, v.view, e.scene.walls, e.scene.rooms, e.scene.areas);
+    for (const x of e.scene.planCandidates(v.view)) {
+      if (x.kind === 'link' || x.viewId || isView(x) || !MODEL_KINDS.includes(x.kind)) continue;
+      const g = e.scene.planOf(v.view, x, pc);
+      if (g) appendPlan(out, g, f);
+    }
+    return out;
   }
 }
 
