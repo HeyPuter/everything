@@ -123,3 +123,22 @@ test('File Browser: the Filter popover limits the listed kinds of files', async 
   await expect(fb.locator('.fb-item .fb-name')).toHaveText('b.txt');
   await expectNoErrors(errors);
 });
+
+test('File Browser: with Open Folders on Single Click a click enters the folder', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    for await (const [name] of (root as any).entries()) await root.removeEntry(name, { recursive: true });
+    await root.getDirectoryHandle('inner', { create: true });
+    const { keyconfig } = await import('/src/prefs/keyconfig.ts');
+    keyconfig.data.options.use_file_single_click = true;
+  });
+  const v = (await page.locator('.area[data-editor="VIEW_3D"]').boundingBox())!;
+  await page.mouse.move(v.x + 300, v.y + 300);
+  await page.evaluate(() => (window as any).app.hoverArea.setType('FILE_BROWSER'));
+  const fb = page.locator('.area[data-editor="FILE_BROWSER"]');
+  await fb.locator('.fb-side-item', { hasText: 'Browser Storage' }).click();
+  await fb.locator('.fb-item', { hasText: 'inner' }).click();
+  await expect(fb.locator('.fb-path')).toHaveText('Browser Storage / inner');
+  await expectNoErrors(errors);
+});

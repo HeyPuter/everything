@@ -17,6 +17,7 @@ import { imageFromFile } from '../ops/imageobjects';
 import { newText } from '../data/defaults';
 import { registerIcons } from '../ui/icons';
 import { kvGet, kvSet } from '../io/session';
+import { keyconfig } from '../prefs/keyconfig';
 import { category as categoryOf, sortEntries, filterEntries, walkIndex, uniqueEntryName, formatSize, moveInList, type Category, type SortBy } from './filebrowser_logic';
 import './filebrowser.css';
 
@@ -698,6 +699,11 @@ export class FileBrowser implements Editor {
   }
 
   private click(it: Item, e: MouseEvent) {
+    // Preferences ▸ Keymap ▸ Open Folders on Single Click
+    if (it.kind === 'dir' && !e.shiftKey && !e.ctrlKey && !e.metaKey && keyconfig.data.options.use_file_single_click) {
+      void this.activate(it);
+      return;
+    }
     const list = this.shown();
     if (e.shiftKey && this.active) {
       const a = list.findIndex((x) => x.name === this.active),

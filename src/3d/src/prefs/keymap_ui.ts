@@ -270,6 +270,8 @@ export class KeymapView {
           (v) => set({ use_key_activate_tools: v === 'TOOL' }),
         ),
       ),
+      h('div', { class: 'pl-subtitle' }, 'File Browser'),
+      splitRow('', checkbox('km-fb-single', 'Open Folders on Single Click', !!o.use_file_single_click, (v) => set({ use_file_single_click: v }), { tip: 'Open Folders on Single Click\nIn the File Browser one click enters a folder' }), undefined, 'check'),
     ], { closed: true });
   }
 
