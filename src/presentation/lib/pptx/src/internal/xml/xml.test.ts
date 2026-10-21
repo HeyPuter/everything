@@ -174,6 +174,17 @@ describe("serializeXml", () => {
     );
   });
 
+  it("writes well-formed XML for text holding control characters", () => {
+    // Text pasted from a PDF separates its pages with form feeds.
+    const e = elem(qname("", "r", ""), {
+      attrs: [attr(qname("", "v", ""), "Alt\vtext\u0007")],
+      children: [text("Page one\fPage two\u0000\u001b")],
+    });
+    const xml = serializeFragment(e);
+    expect(xml).toBe('<r v="Alt text">Page one Page two</r>');
+    expect(textContent(parseFragment(xml))).toBe("Page one Page two");
+  });
+
   it("emits self-closing tags only when there are no children", () => {
     const empty = elem(qname("", "r", ""));
     expect(serializeFragment(empty)).toBe("<r/>");

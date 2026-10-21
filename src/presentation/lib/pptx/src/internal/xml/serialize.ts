@@ -27,18 +27,16 @@ import { NS } from "./namespaces.ts";
 // CR (0x0D). Unlike most escapable characters these cannot be rescued with a
 // numeric reference either — `&#0;` … `&#8;` are themselves illegal because the
 // referenced code point is not a legal `Char` (XML 1.0 §2.2). A value carrying
-// one can only have entered through authoring input (a parsed document could not
-// have held it), so we reject loudly: emitting it raw produces a non-well-formed
-// part that corrupts the entire .pptx, and silently dropping it would be a
-// surprise data loss. Strip the character upstream before authoring.
-const rejectForbiddenControlChar = (c: number): void => {
-  if (c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) {
-    const hex = c.toString(16).toUpperCase().padStart(4, "0");
-    throw new Error(
-      `XML-illegal control character U+${hex} in text; strip control characters before authoring`,
-    );
-  }
-};
+// one can only have entered through authoring input (text pasted from a PDF
+// carries form feeds between its pages, say; a parsed document could not have
+// held it). Emitting it raw would corrupt the entire .pptx, and refusing it
+// would lose the whole edit, so the separators that end a page or a line
+// (form feed, vertical tab) become a space and the others, which show
+// nothing, are left out.
+const forbiddenControlChar = (c: number): boolean =>
+  c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d;
+const replaceForbiddenControlChar = (c: number): string =>
+  c === 0x0b || c === 0x0c ? " " : "";
 
 const escapeAttr = (s: string): string => {
   // Attribute values: escape <, &, and the quote char we use. We always use
@@ -48,8 +46,8 @@ const escapeAttr = (s: string): string => {
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
-    rejectForbiddenControlChar(c);
-    if (c === 38) out += "&amp;";
+    if (forbiddenControlChar(c)) out += replaceForbiddenControlChar(c);
+    else if (c === 38) out += "&amp;";
     else if (c === 60) out += "&lt;";
     else if (c === 62) out += "&gt;";
     else if (c === 34) out += "&quot;";
@@ -66,8 +64,8 @@ const escapeText = (s: string): string => {
   let out = "";
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
-    rejectForbiddenControlChar(c);
-    if (c === 38) out += "&amp;";
+    if (forbiddenControlChar(c)) out += replaceForbiddenControlChar(c);
+    else if (c === 38) out += "&amp;";
     else if (c === 60) out += "&lt;";
     else if (c === 62) out += "&gt;";
     else if (c === 13) out += "&#13;";

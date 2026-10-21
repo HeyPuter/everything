@@ -38,6 +38,23 @@ import {
   SOFT_BREAK,
 } from "../src/model.js";
 describe(".pptx interoperability", () => {
+  it("keeps text pasted with control characters, as a file that opens", async () => {
+    const pres = createDeck("blank");
+    const [slide] = P.getSlides(pres);
+    // Text copied from a PDF separates its pages with form feeds.
+    P.setSlideNotes(slide, "Page one\fPage two\u0007");
+    P.addSlideTextBox(slide, {
+      x: 0,
+      y: 0,
+      w: P.inches(2),
+      h: P.inches(1),
+      text: "Line\u000bbreak",
+    });
+    const loaded = await parseDeck(await P.savePresentation(pres));
+    const [back] = P.getSlides(loaded);
+    expect(P.getSlideNotes(back)).toBe("Page one Page two");
+    expect(P.getSlideText(back)).toContain("Line break");
+  });
   it("omits hidden artwork and group descendants without changing the saved deck", async () => {
     const pres = createDeck();
     const s = P.getSlides(pres)[0];
