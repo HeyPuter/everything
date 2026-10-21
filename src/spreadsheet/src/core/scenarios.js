@@ -116,6 +116,10 @@ export function setScenarios(wb, sheetId, next, label) {
 }
 
 const listOf = (wb, sheetId) => wb.sheet(sheetId)?.scenarios?.list || [];
+
+/** A scenario with Prevent changes on cannot be edited or deleted while its sheet is protected; one with Hide on is not listed then. */
+export const scenarioLocked = (wb, sheetId, scenario) => !!scenario?.locked && wb.isProtected(sheetId);
+export const scenarioHidden = (wb, sheetId, scenario) => !!scenario?.hidden && wb.isProtected(sheetId);
 const stateOf = (wb, sheetId) => wb.sheet(sheetId)?.scenarios || { list: [], current: 0, show: 0, results: [] };
 
 /** Why a scenario cannot be stored as given, or null. */
@@ -134,6 +138,7 @@ export function saveScenario(wb, sheetId, scenario, replacing = null) {
   const problem = scenarioProblem(wb, sheetId, scenario, replacing);
   if (problem) return problem;
   const state = stateOf(wb, sheetId);
+  if (replacing != null && scenarioLocked(wb, sheetId, state.list.find((s) => s.name === replacing))) return 'This scenario is protected: unprotect the sheet to change it';
   const entry = { name: scenario.name.trim(), cells: scenario.cells, values: scenario.values, comment: scenario.comment || '', user: scenario.user || '', locked: scenario.locked !== false, hidden: !!scenario.hidden };
   const at = replacing == null ? -1 : state.list.findIndex((s) => s.name === replacing);
   const list = at < 0 ? [...state.list, entry] : state.list.map((s, i) => (i === at ? entry : s));
@@ -143,6 +148,7 @@ export function saveScenario(wb, sheetId, scenario, replacing = null) {
 
 export function deleteScenario(wb, sheetId, name) {
   const state = stateOf(wb, sheetId);
+  if (scenarioLocked(wb, sheetId, state.list.find((s) => s.name === name))) return false;
   const list = state.list.filter((s) => s.name !== name);
   if (list.length === state.list.length) return false;
   return setScenarios(wb, sheetId, { ...state, list }, 'Delete scenario');

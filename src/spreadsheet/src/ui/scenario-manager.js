@@ -7,7 +7,7 @@ import { openModal, fieldAlert, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import { parseInput, editText } from '../core/format.js';
 import { cellsText, parseChangingCells, saveScenario, deleteScenario, showScenario, mergeScenarios, createScenarioSummary,
-  currentValues, scenarioProblem, MAX_CHANGING_CELLS } from '../core/scenarios.js';
+  currentValues, scenarioProblem, scenarioLocked, scenarioHidden, MAX_CHANGING_CELLS } from '../core/scenarios.js';
 
 const today = () => new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric' });
 /** A stored value as the Values step shows it: as a cell opened for editing would, so it reads back as itself in
@@ -174,7 +174,8 @@ export function openScenarioManager(ctx) {
   const cellsOut = el('output.sm-detail');
   const commentOut = el('output.sm-detail.sm-detail-comment');
   const empty = el('p.small.muted.sm-empty', {}, 'No Scenarios defined. Choose Add to add scenarios.');
-  const scenarios = () => wb.sheet(sheetId)?.scenarios?.list || [];
+  // On a protected sheet a hidden scenario is not listed, and one with Prevent changes cannot be edited or deleted.
+  const scenarios = () => (wb.sheet(sheetId)?.scenarios?.list || []).filter((s) => !scenarioHidden(wb, sheetId, s));
   const selected = () => scenarios().find((s) => s.name === listBox.value) || null;
   const buttons = {};
   const sync = (keep) => {
@@ -188,7 +189,7 @@ export function openScenarioManager(ctx) {
     const s = selected();
     cellsOut.textContent = s ? cellsText(s.cells) : '';
     commentOut.textContent = s ? s.comment : '';
-    for (const key of ['delete', 'edit', 'show']) buttons[key].disabled = !s;
+    for (const key of ['delete', 'edit', 'show']) buttons[key].disabled = !s || (key !== 'show' && scenarioLocked(wb, sheetId, s));
     buttons.summary.disabled = !list.length;
   };
   listBox.addEventListener('change', () => sync());
