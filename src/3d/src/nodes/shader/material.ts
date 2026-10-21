@@ -363,6 +363,8 @@ function build(doc: DocumentData, ma: MaterialData, ct: CompiledTree, key: strin
     patchFx(shader);
   };
   applyRealtimeMaterial(mat, ma);
+  // realtime subsurface scattering pass (render/realtime/sss.ts)
+  mat.userData.ndSss = ct.lib.includes('ND_HAS_SSS');
   mat.customProgramCacheKey = () => `nd:${key}`;
   if (objectBlock) (mat as unknown as { uniformsGroups: UniformsGroup[] }).uniformsGroups = [objectGroup];
   if (objectBlock || barycentric) {

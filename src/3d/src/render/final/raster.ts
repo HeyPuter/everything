@@ -12,6 +12,7 @@ import { TraceBuffer } from '../realtime/trace';
 import { BloomPass, type BloomSettings } from '../realtime/bloom';
 import { beginProbes } from '../realtime/probes/capture';
 import { fxUniforms } from '../realtime/fxshader';
+import { SssPass } from '../realtime/sss';
 
 export interface RasterEffects {
   /** screen effects allowed (tracing / horizon scan); false for quick previews */
@@ -46,6 +47,7 @@ export class RasterRenderer {
   private renderPass: RenderPass | null = null;
   private bloom: BloomPass | null = null;
   private trace = new TraceBuffer();
+  private sss = new SssPass();
   private size = new Vector2();
 
   constructor(private samples = 4) {}
@@ -100,9 +102,13 @@ export class RasterRenderer {
     const restoreProbes = fx.gtao ? beginProbes(renderer, scene, camera, w, h, fx.probeResolution ?? 512) : null;
     const traced = this.trace.prepare(renderer, scene, camera, w, h, fx.gtao && fx.trace ? fx.trace : null, fx.sample ?? 0);
     if (traced) renderer.shadowMap.autoUpdate = false;
+    // subsurface scattering: irradiance of subsurface surfaces, gathered by the main pass
+    const sss = fx.gtao ? this.sss.prepare(renderer, scene, camera, w, h, fx.sample ?? 0, { samples: 24, maxRadius: Math.max(8, 0.2 * Math.max(w, h)) }) : false;
+    if (sss) renderer.shadowMap.autoUpdate = false;
     try {
       composer.render();
     } finally {
+      if (sss) this.sss.disarm();
       if (traced) this.trace.disarm();
       restoreProbes?.();
       fxUniforms.ndClamp.value.set(0, 0, 0, 0);
@@ -118,6 +124,7 @@ export class RasterRenderer {
     this.composer?.dispose();
     this.bloom?.dispose();
     this.trace.dispose();
+    this.sss.dispose();
     this.composer = null;
     this.bloom = null;
     this.size.set(0, 0);

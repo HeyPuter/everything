@@ -6,6 +6,7 @@
 // All effects read shared uniforms (`fxUniforms`). With `ndFx.x == 0` (the default) only the
 // light influence factors apply, so viewports that do not trace (Material Preview) are unchanged.
 import { ShaderChunk, Matrix4, Vector4, Uniform, type Texture, type WebGLProgramParametersWithUniforms } from 'three';
+import { SSS_PARS, SSS_APPLY, SSS_OUTPUT, sssUniforms } from './sss';
 
 /** Maximum lights per type with individual influence factors. */
 export const MAX_LIGHTS = 64;
@@ -386,15 +387,18 @@ export function patchFx(shader: WebGLProgramParametersWithUniforms) {
   let f = shader.fragmentShader;
   if (!f.includes('#include <lights_fragment_begin>') || !f.includes('#include <lights_physical_pars_fragment>')) return;
   f = f
-    .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS}`)
+    .replace('#include <lights_physical_pars_fragment>', `#include <lights_physical_pars_fragment>\n${PARS}\n${SSS_PARS}`)
     .replace('#include <lights_fragment_begin>', lightsBegin)
     .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>\n${FX_MAPS}`)
     .replace('#include <alphahash_fragment>', ALPHA_HASH_TEMPORAL)
-    .replace('#include <fog_fragment>', FOG_FRAGMENT);
+    .replace('#include <fog_fragment>', FOG_FRAGMENT)
+    // subsurface scattering: capture / gather the diffuse light (see sss.ts)
+    .replace('#include <aomap_fragment>', `#include <aomap_fragment>\n${SSS_APPLY}`)
+    .replace('#include <dithering_fragment>', `#include <dithering_fragment>\n${SSS_OUTPUT}`);
   // the refraction lookup is defined after the transmission functions it may fall back to
   if (f.includes('#include <transmission_pars_fragment>')) f = f.replace('#include <transmission_pars_fragment>', transmissionPars);
   shader.fragmentShader = f;
-  Object.assign(shader.uniforms, fxUniforms);
+  Object.assign(shader.uniforms, fxUniforms, sssUniforms);
 }
 
 /** onBeforeCompile for materials that have no other patches (Principled fallback). */

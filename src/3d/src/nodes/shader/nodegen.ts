@@ -5,6 +5,8 @@ import { readRamp, bakeRamp, bakeCurves, type CurveKind } from '../curves';
 import { MATH_SINGLE } from './defs';
 // generators of the nodes added later
 import './extra';
+// realtime subsurface scattering parameters (GLSL chunk nd_sss)
+import '../../render/realtime/sss';
 
 const enumIndex = (items: string[], v: unknown) => Math.max(0, items.indexOf(String(v)));
 const num = (v: unknown, d = 0) => (typeof v === 'number' ? v : typeof v === 'boolean' ? (v ? 1 : 0) : d);
@@ -157,6 +159,10 @@ registerGenerator('ShaderNodeBsdfDiffuse', (g) => g.out('BSDF', 'NdClosure', `nd
 registerGenerator(['ShaderNodeBsdfTranslucent', 'ShaderNodeSubsurfaceScattering'], (g) => {
   const out = g.node.type === 'ShaderNodeSubsurfaceScattering' ? 'BSSRDF' : 'BSDF';
   g.out(out, 'NdClosure', `nd_cl_bsdf(${g.in('Color', 'vec3')}, 0.0, 1.0, 1.5, ${out === 'BSSRDF' ? '0.25' : '0.0'}, ${N(g)})`);
+  if (out === 'BSSRDF' && g.target === 'MATERIAL') {
+    g.lib('nd_sss');
+    g.stmt(`nd_sss_set(1.0, ${g.in('Radius', 'vec3')}, ${g.in('Scale', 'float')});`);
+  }
 });
 registerGenerator('ShaderNodeBsdfAnisotropic', (g) => {
   const c = g.tmp('NdClosure', `nd_cl_bsdf(${g.in('Color', 'vec3')}, 1.0, ${g.in('Roughness', 'float')}, 1.5, 0.5, ${N(g)})`);
@@ -263,6 +269,10 @@ registerGenerator('ShaderNodeBsdfPrincipled', (g) => {
   if (linkedOr(g, 'Subsurface Weight', (v) => v > 0)) {
     // soften: subsurface reduces specular sharpness and brightens diffuse slightly
     g.stmt(`${c}.base = mix(${c}.base, sqrt(max(${c}.base, vec3(0.0))) * ${c}.base, -0.2 * clamp(${g.in('Subsurface Weight', 'float')}, 0.0, 1.0));`);
+    if (g.target === 'MATERIAL') {
+      g.lib('nd_sss');
+      g.stmt(`nd_sss_set(${g.in('Subsurface Weight', 'float')}, ${g.in('Subsurface Radius', 'vec3')}, ${g.in('Subsurface Scale', 'float')});`);
+    }
   }
   g.out('BSDF', 'NdClosure', c);
 });
