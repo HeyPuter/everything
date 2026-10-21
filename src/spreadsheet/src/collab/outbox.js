@@ -29,16 +29,19 @@ function request(req) {
   return new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
 }
 
+// One connection for the page, however many shared workbooks it opens: each outbox opening its own kept it for good.
+// One that could not be opened, or that the browser closed (site data cleared), is asked for again by the next.
+let opened = null;
+const db = () => (opened ??= new Promise((resolve, reject) => {
+  const req = indexedDB.open(DB, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+  req.onsuccess = () => { req.result.onclose = () => { opened = null; }; resolve(req.result); };
+  req.onerror = () => { opened = null; reject(req.error); };
+}));
+
 /** The IndexedDB outbox, or a memory one when this browser has none (private windows of some browsers). */
 export function browserOutbox() {
   if (typeof indexedDB === 'undefined') return memoryOutbox();
-  let opened = null;
-  const db = () => (opened ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  }));
   const run = async (mode, fn) => {
     const tx = (await db()).transaction(STORE, mode);
     return request(fn(tx.objectStore(STORE)));
