@@ -850,6 +850,8 @@ export async function* renderFrames(project, library, { width, height, fps, star
   const snap = structuredClone(project);
   const stop = end ?? projectDuration(snap);
   const total = Math.max(1, frameCount(stop - start, fps));
+  // Imported .cube LUTs, as the video export and stills load them.
+  await ensureLuts(snap, library).catch(() => {});
   const r = new FrameRenderer(snap, library, even(width), even(height));
   try {
     await preloadFonts(snap);
