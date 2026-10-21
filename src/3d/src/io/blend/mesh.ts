@@ -151,7 +151,7 @@ function customDataLayers(me: BStruct, ctx: Ctx, counts: Record<Domain, number>)
         res.dvert = l;
         continue;
       }
-      if (['MVert', 'MEdge', 'MPoly', 'MLoop', 'MLoopUV', 'MFace', 'MTFace', 'MCol'].includes(stName)) {
+      if (['MVert', 'MEdge', 'MPoly', 'MLoop', 'MLoopUV', 'MFace', 'MTFace', 'MCol', 'MVertSkin'].includes(stName)) {
         res.structs.push({ domain, type: stName, holder: l, addr });
         continue;
       }
@@ -443,6 +443,24 @@ export function convertMesh(me: BStruct, ctx: Ctx, fallbackGroupNames: string[])
       }
     }
     mesh.weights = weights;
+  }
+
+  // --- skin modifier radii (radius x / y, root and loose flags per vertex)
+  const skin = legacyStruct('MVertSkin');
+  if (skin) {
+    const items = structArray(skin, 'MVertSkin', totvert);
+    if (items.length === totvert) {
+      const sv = new Float32Array(totvert * 4);
+      items.forEach((it, i) => {
+        const r = it.nums('radius', 3);
+        const fl = it.num('flag');
+        sv[i * 4] = r[0] ?? 0.25;
+        sv[i * 4 + 1] = r[1] ?? 0.25;
+        sv[i * 4 + 2] = fl & 1 ? 1 : 0;
+        sv[i * 4 + 3] = fl & 2 ? 1 : 0;
+      });
+      mesh.skin_vertices = sv;
+    }
   }
 
   // --- shape keys

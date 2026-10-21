@@ -16,7 +16,7 @@ import { DNA_PROP_RULES, type DnaPropRule } from './modprops.gen';
 // generic conversion through the generated DNA rules (types without a hand-written mapping)
 
 /** Physics and particle data live in separate settings blocks: not converted generically. */
-const NO_GENERIC = new Set(['CLOTH', 'COLLISION', 'SOFT_BODY', 'FLUID', 'DYNAMIC_PAINT', 'PARTICLE_SYSTEM', 'PARTICLE_INSTANCE', 'OCEAN', 'SURFACE', 'NODES']);
+const NO_GENERIC = new Set(['CLOTH', 'COLLISION', 'SOFT_BODY', 'FLUID', 'DYNAMIC_PAINT', 'PARTICLE_SYSTEM', 'PARTICLE_INSTANCE', 'SURFACE', 'NODES']);
 
 function fieldOf(d: BStruct, path: string): { s: BStruct; name: string } | null {
   const parts = path.split('.');
