@@ -110,10 +110,13 @@ export function videoBitrate({ width, height, fps, codec = 'avc', level = 'balan
   return Math.max(200_000, Math.round(bps / 1000) * 1000);
 }
 
-/** Number of output frames for a duration (a trailing partial frame counts). */
+/** Number of output frames for a duration: those whose time (frameTime) falls before its end, so a trailing partial frame counts. */
 export function frameCount(durationUs, fps) {
   if (durationUs <= 0) return 0;
-  return Math.max(1, Math.ceil((durationUs * fps) / US - 1e-6));
+  let n = Math.max(1, Math.ceil((durationUs * fps) / US - 1e-6));
+  // Frame times are rounded to whole microseconds: one may land on the end itself.
+  while (n > 1 && frameTime(n - 1, fps) >= durationUs) n--;
+  return n;
 }
 
 /** Timeline time (integer microseconds) of output frame i. */

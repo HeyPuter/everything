@@ -50,6 +50,19 @@ describe('frame timing', () => {
     expect(frameCount(0, 30)).toBe(0);
     expect(frameCount(1, 60)).toBe(1);
   });
+
+  it('never adds a frame at or after the end', () => {
+    for (const fps of [24, 25, 30, 50, 60]) {
+      for (let k = 1; k <= 300; k++) {
+        const dur = Math.round((k * US) / fps); // a timeline ending exactly on a frame
+        const n = frameCount(dur, fps);
+        expect(frameTime(n - 1, fps), `${k} at ${fps}`).toBeLessThan(dur);
+        expect(frameTime(n, fps), `${k} at ${fps}`).toBeGreaterThanOrEqual(dur);
+      }
+    }
+    // A 1.5x clip of 10 s: 6,666,667 us is 200 frames, not 201.
+    expect(frameCount(6_666_667, 30)).toBe(200);
+  });
   it('generates integer microsecond times without drift', () => {
     expect(frameTime(0, 30)).toBe(0);
     expect(frameTime(1, 30)).toBe(33333);
