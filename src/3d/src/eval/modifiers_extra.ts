@@ -11,6 +11,7 @@ import { modifierFields } from '../editors/properties/stack';
 import { buildMesh, edgeTopology, triangulatePoly, type PolyFace } from '../mesh/mesh';
 import { MeshEdit, edgeKey } from '../modes/editmesh/meshedit';
 import { bevelEdges } from '../modes/editmesh/bevel';
+import { validAttributes } from '../mesh/attributes';
 import { bevelMeshVertices } from './mods/vbevel';
 import { voxelRemesh } from '../paint/remesh';
 import { unsubdivide } from './mods/multires';
@@ -68,7 +69,33 @@ function faceNormal(P: ArrayLike<number>, idx: ArrayLike<number>, s: number, e: 
 // ---------------------------------------------------------------------------
 // Bevel
 
-function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
+/**
+ * Weights for the Bevel modifier's Weight limit: the edge / vertex layers named by the modifier (the
+ * built-in bevel weights, or a float attribute of the original mesh when its corners are unchanged).
+ */
+function bevelWeightSource(m: EvalMesh, mod: ModifierBase, ctx: ModifierContext | undefined): { edge: ((a: number, b: number) => number) | null; vert: ArrayLike<number> | null } {
+  const ename = str(mod, 'edge_weight', 'bevel_weight_edge'),
+    vname = str(mod, 'vertex_weight', 'bevel_weight_vert');
+  const src = ctx?.source && ctx.source.indices === m.indices ? ctx.source : null;
+  const attr = (name: string, domain: 'EDGE' | 'POINT') => (src ? validAttributes(src).find((a) => a.name === name && a.domain === domain && a.data_type === 'FLOAT') : undefined);
+  let edge: ((a: number, b: number) => number) | null = null;
+  if (ename !== 'bevel_weight_edge') {
+    const a = attr(ename, 'EDGE');
+    if (a) {
+      const map = new Map<string, number>();
+      for (let f = 0; f + 1 < m.offsets.length; f++)
+        for (let c = m.offsets[f]; c < m.offsets[f + 1]; c++) {
+          const n = c + 1 < m.offsets[f + 1] ? c + 1 : m.offsets[f];
+          map.set(edgeKey(m.indices[c], m.indices[n]), Math.max(map.get(edgeKey(m.indices[c], m.indices[n])) ?? 0, a.data[c]));
+        }
+      edge = (x, y) => map.get(edgeKey(x, y)) ?? 0;
+    } else edge = () => 0;
+  }
+  const vert = vname !== 'bevel_weight_vert' ? (attr(vname, 'POINT')?.data ?? new Float32Array(m.positions.length / 3)) : (m.bevel_weight_vert ?? null);
+  return { edge, vert };
+}
+
+function bevelMod(m: EvalMesh, mod: ModifierBase, ctx?: ModifierContext): EvalMesh {
   const offsetType = str(mod, 'offset_type', 'OFFSET') as 'OFFSET' | 'WIDTH' | 'DEPTH' | 'PERCENT' | 'ABSOLUTE';
   const width = offsetType === 'PERCENT' ? num(mod, 'width_pct', 0.1) : num(mod, 'width', 0.1);
   if (width <= 0) return m;
@@ -87,7 +114,9 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
   }
   const before = new Set(e.faces);
   // weight limit: only weighted elements, their amount scaled by the weight
-  const vw = limit === 'WEIGHT' && m.bevel_weight_vert?.length === m.positions.length / 3 ? m.bevel_weight_vert : null;
+  const ws = limit === 'WEIGHT' ? bevelWeightSource(m, mod, ctx) : { edge: null, vert: null };
+  const vw = limit === 'WEIGHT' && ws.vert && ws.vert.length === m.positions.length / 3 ? ws.vert : null;
+  const edgeW = (a: number, b: number) => (ws.edge ? ws.edge(a, b) : e.edgeBevelWeight(a, b));
   if (str(mod, 'affect', 'EDGES') === 'VERTICES') {
     const off = offsetType === 'PERCENT' ? (width / 100) * averageEdgeLength(m) : width;
     if (limit === 'WEIGHT' && !vw) return m;
@@ -97,7 +126,7 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
     const chosen: [number, number][] = [];
     for (const [a, b] of e.edges()) {
       if (limit === 'WEIGHT') {
-        if (!(e.edgeBevelWeight(a, b) > 0)) continue;
+        if (!(edgeW(a, b) > 0)) continue;
       } else if (limit === 'ANGLE') {
         const fs = ef.get(edgeKey(a, b)) ?? [];
         if (fs.length !== 2) continue;
@@ -119,7 +148,7 @@ function bevelMod(m: EvalMesh, mod: ModifierBase): EvalMesh {
       markSeam: bool(mod, 'mark_seam'),
       markSharp: bool(mod, 'mark_sharp'),
       harden: bool(mod, 'harden_normals'),
-      edgeScale: limit === 'WEIGHT' ? (a, b) => e.edgeBevelWeight(a, b) : undefined,
+      edgeScale: limit === 'WEIGHT' ? edgeW : undefined,
     });
     if (!ok) return m;
   }
@@ -831,7 +860,7 @@ registerModifier({
   label: 'Bevel',
   category: 'GENERATE',
   icon: 'mod_bevel',
-  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, width_pct: 0.1, segments: 1, limit_method: 'ANGLE', angle_limit: (30 * Math.PI) / 180, vertex_group: '', invert_vertex_group: false, profile_type: 'SUPERELLIPSE', profile: 0.5, use_clamp_overlap: true, harden_normals: false, mark_seam: false, mark_sharp: false, material: -1 }),
+  defaults: base({ affect: 'EDGES', offset_type: 'OFFSET', width: 0.1, width_pct: 0.1, segments: 1, limit_method: 'ANGLE', edge_weight: 'bevel_weight_edge', vertex_weight: 'bevel_weight_vert', angle_limit: (30 * Math.PI) / 180, vertex_group: '', invert_vertex_group: false, profile_type: 'SUPERELLIPSE', profile: 0.5, use_clamp_overlap: true, harden_normals: false, mark_seam: false, mark_sharp: false, material: -1 }),
   apply: bevelMod,
 });
 registerModifier({

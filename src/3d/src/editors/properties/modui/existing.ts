@@ -7,6 +7,7 @@ import { modifierFields, modifierExtraUI } from '../stack';
 import { sub, headerCheck, objRow, vgroupRow, touch, textureRows, boolToggles, curveWidget, flagToggles } from './kit';
 import type { ModifierBase, ObjectData } from '../../../data/types';
 import { uvMaps } from '../../../mesh/uvmaps';
+import { validAttributes } from '../../../mesh/attributes';
 
 type Rec = Record<string, unknown>;
 
@@ -71,6 +72,7 @@ modifierExtraUI.BEVEL = (ob, m) => {
       ['VGROUP', 'Vertex Group'],
     ]),
     r.limit_method === 'ANGLE' ? num(r, 'angle_limit', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : null,
+    r.limit_method === 'WEIGHT' ? weightAttrRow(ob, r, r.affect === 'VERTICES' ? 'vertex_weight' : 'edge_weight') : null,
     r.limit_method === 'VGROUP' ? vgroupRow(ob, m, 'vertex_group', 'Vertex Group', 'invert_vertex_group') : null,
     sub(m, 'profile', 'Profile', () => [num(r, 'profile', 'Shape', { min: 0, max: 1, slider: true })]),
     sub(m, 'geometry', 'Geometry', () => [bool(r, 'use_clamp_overlap', 'Clamp Overlap')]),
@@ -563,3 +565,12 @@ modifierExtraUI.REMESH = (_ob, m) => {
     bool(r, 'use_smooth_shade', 'Smooth Shading'),
   ];
 };
+
+/** Weight attribute of the Bevel modifier: the built-in bevel weights or a float attribute of the mesh. */
+function weightAttrRow(ob: ObjectData, r: Rec, key: 'edge_weight' | 'vertex_weight') {
+  const me = ob.type === 'MESH' && ob.data ? app.doc.meshes[ob.data] : undefined;
+  const builtin = key === 'edge_weight' ? 'bevel_weight_edge' : 'bevel_weight_vert';
+  const domain = key === 'edge_weight' ? 'EDGE' : 'POINT';
+  const names = [builtin, ...(me ? validAttributes(me).filter((a) => a.domain === domain && a.data_type === 'FLOAT').map((a) => a.name) : [])];
+  return splitRow(key === 'edge_weight' ? 'Edge Weight' : 'Vertex Weight', enumMenu(`bvw.${String(r.id)}.${key}`, names.map((n) => ({ value: n, label: n })), String(r[key] ?? builtin), (v) => ((r[key] = v), touch('Bevel Weight Attribute'))));
+}
