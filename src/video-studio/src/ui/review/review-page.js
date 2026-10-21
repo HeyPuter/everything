@@ -165,7 +165,9 @@ export class ReviewPage {
     const stage = h('section.rv-stage', { 'aria-label': 'Video' }, wrap, stripWrap, controls);
 
     /* Comments */
-    this.composer = canComment(s.role) ? this._buildComposer() : null;
+    // The comment box is made once the person can comment (also when a role is raised later).
+    this.composer = null;
+    this.viewerNote = h('p.rv-note', 'You can watch this review and read comments.');
     this.countEl = h('h2.rv-count');
     const resolvedId = 'rv-show-resolved';
     const showResolved = h('input', { type: 'checkbox', id: resolvedId, checked: this.showResolved });
@@ -185,12 +187,12 @@ export class ReviewPage {
     });
     this.syncNote = h('p.rv-sync', { role: 'status' });
     const side = h('aside.rv-side', { 'aria-label': 'Comments' },
-      this.composer?.el,
-      canComment(s.role) ? null : h('p.rv-note', 'You can watch this review and read comments.'),
+      this.viewerNote,
       h('div.rv-list-head', this.countEl, h('label.rv-toggle', { for: resolvedId }, showResolved, 'Show resolved')),
       this.threadList.el,
       this.syncNote);
 
+    this.side = side;
     this.el = h('div.rv-page', header, h('main#main.rv-body', { tabindex: '-1' }, stage, side));
     this.root.replaceChildren(this.el);
 
@@ -229,7 +231,14 @@ export class ReviewPage {
     }));
     this.versionSelect.value = String(this.version);
     this.versionSelect.hidden = r.versions.length < 2;
-    if (this.composer) this.composer.el.hidden = !canComment(s.role);
+    const can = canComment(s.role) && !this.el.classList.contains('rv-closed');
+    if (can && !this.composer) {
+      this.composer = this._buildComposer();
+      this.side.prepend(this.composer.el);
+      this.composer.follow();
+    }
+    if (this.composer) this.composer.el.hidden = !can;
+    this.viewerNote.hidden = canComment(s.role);
   }
 
   async setVersion(n, { force = false } = {}) {
@@ -572,7 +581,7 @@ export class ReviewPage {
     } else if (key === 'k') this.video.pause();
     else if (key === 'j' || (key === 'ArrowLeft' && !t.closest?.('[data-own-arrows]'))) this.step(-n);
     else if (key === 'l' || (key === 'ArrowRight' && !t.closest?.('[data-own-arrows]'))) this.step(n);
-    else if (key === 'c' && this.composer) {
+    else if (key === 'c' && this.composer && !this.composer.el.hidden) {
       this.video.pause();
       this.composer.startHere();
     } else return;

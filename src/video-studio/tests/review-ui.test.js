@@ -397,6 +397,26 @@ describe('review page (reviewer flow)', () => {
     page.dispose();
   });
 
+  it('gives a viewer made a commenter the comment box at once', async () => {
+    const { env, page, root, rid } = await opened('viewer');
+    page.seek(2_000_000);
+    await env.as('alice')('member.role', { review: rid, uuid: USERS.bob.uuid, role: 'commenter' });
+    await page.session.sync();
+    await until(() => page.session.role === 'commenter');
+    expect(root.querySelector('.rv-composer')?.hidden).toBe(false);
+    expect(root.querySelector('.rv-note').hidden).toBe(true);
+    expect(root.querySelector('.rv-pin-time').textContent).toBe('00:00:02:00');
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', bubbles: true }));
+    expect(document.activeElement).toBe(root.querySelector('.rv-composer textarea'));
+    // And back: a viewer again loses it.
+    await env.as('alice')('member.role', { review: rid, uuid: USERS.bob.uuid, role: 'viewer' });
+    await page.session.sync();
+    await until(() => page.session.role === 'viewer');
+    expect(root.querySelector('.rv-composer').hidden).toBe(true);
+    expect(root.querySelector('.rv-note').hidden).toBe(false);
+    page.dispose();
+  });
+
   it('offers a version picker and keeps comments with their version', async () => {
     const { env, page, root, rid } = await opened('commenter', { versions: 2 });
     const select = root.querySelector('.rv-version');
