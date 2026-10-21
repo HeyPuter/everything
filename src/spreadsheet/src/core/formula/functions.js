@@ -8880,6 +8880,8 @@ Object.assign(FUNCTIONS, {
     fn: ([value]) => {
       const n = toNumber(value); if (isError(n)) return n;
       const satangs = Math.floor(Math.abs(n) * 100 + 0.5);
+      // Past 1.8E+306 the count of satangs overflows, and dividing Infinity into millions never ended.
+      if (!Number.isFinite(satangs)) return err('#NUM!');
       let baht = Math.floor(satangs / 100);
       const satang = satangs % 100;
       let text = '';
