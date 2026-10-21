@@ -85,3 +85,21 @@ test('shading popover: wireframe colour, outline colour, MatCap flip', async ({ 
   await page.waitForTimeout(200);
   await expectNoErrors(errors);
 });
+
+test('transform.from_gizmo starts the handle under the pointer', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await run(page, 'wm.tool_set_by_id', { name: 'builtin.move' });
+  await page.waitForTimeout(100);
+  const b = (await page.locator('.v3d-svg path[data-gizmo="move:2"]').first().boundingBox())!;
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2);
+  expect(await page.evaluate(([x, y]) => (window as any).app.run('transform.from_gizmo', {}, { event: { x, y } }), [b.x + b.width / 2, b.y + b.height / 2])).toBe('RUNNING_MODAL'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2 - 40, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(50);
+  if (await get(page, '!!app.modal')) await page.keyboard.press('Enter');
+  const loc = await get<number[]>(page, 'app.activeObject.location');
+  expect(loc[2]).toBeGreaterThan(0.05);
+  expect(Math.abs(loc[0]) + Math.abs(loc[1])).toBeLessThan(1e-6);
+  await expectNoErrors(errors);
+});

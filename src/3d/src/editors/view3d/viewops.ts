@@ -61,6 +61,22 @@ function viewDrag(kind: 'ROTATE' | 'PAN', label: string) {
 
 registerOperators([
   {
+    idname: 'transform.from_gizmo',
+    label: 'Transform from Gizmo',
+    description: 'Start the transform of the gizmo handle under the pointer (as if it was dragged)',
+    undo: false,
+    poll: v3d,
+    invoke: (ctx) => {
+      const v = activeView3D()!;
+      const at = ctx.event ?? app.pointer;
+      const el = document.elementsFromPoint(at.x, at.y).find((e) => v.svg.contains(e) && e.closest('[data-gizmo], [data-ogz]'));
+      if (!el) return 'CANCELLED';
+      const target = el.closest('[data-gizmo], [data-ogz]')!;
+      target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: at.x, clientY: at.y, button: 0, buttons: 1 }));
+      return app.modal ? 'RUNNING_MODAL' : 'CANCELLED';
+    },
+  },
+  {
     idname: 'view3d.toggle_matcap_flip',
     label: 'Flip MatCap',
     description: 'Mirror the MatCap of this viewport left to right',
