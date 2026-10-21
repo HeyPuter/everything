@@ -26,6 +26,7 @@ import './ui';
 import './strokeops';
 import './palette';
 import './stencil';
+import './paintcurve';
 import './scripting';
 import './selmask';
 import './sculptmenus';

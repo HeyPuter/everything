@@ -81,7 +81,7 @@ function runStrokeOp(mode: Mode, ctx: OpContext, p: Record<string, unknown>, liv
     return { x: q.x, y: q.y, z: q.z };
   });
   if (!pts.length) return 'CANCELLED';
-  const ok = playStroke(v, pts, (e) => brushStroke(v, e) && lastStrokeStarted, m);
+  const ok = playStroke(v, pts, (e) => brushStroke(v, e, false) && lastStrokeStarted, m);
   if (!ok) {
     app.report('WARNING', 'The stroke does not touch the mesh');
     return 'CANCELLED';

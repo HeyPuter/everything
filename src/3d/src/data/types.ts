@@ -1399,6 +1399,8 @@ export interface DocumentData {
   libraries?: Record<ID, import('../library/types').LibraryData>;
   /** Color palettes of the paint modes (src/paint/palette.ts); absent in older files */
   palettes?: Record<ID, import('../paint/palettemath').PaletteData>;
+  /** Paint curves the Curve stroke method follows (src/paint/paintcurve.ts); absent in older files */
+  paint_curves?: Record<ID, import('../paint/strokemath').PaintCurveData>;
   /** Mode of the active object */
   mode: Mode;
   /** Ordering of object ids for stable iteration */

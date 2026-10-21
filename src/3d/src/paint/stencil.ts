@@ -282,7 +282,8 @@ viewportExtensions.push((v) => {
     if (e.button !== 2 || app.modal || !isBrushMode(app.doc.mode)) return;
     const b = brushNow();
     const mask = e.altKey;
-    if (!isStencil(b, mask)) return;
+    // with the Curve stroke method the right button selects curve points
+    if (!isStencil(b, mask) || b.stroke_method === 'CURVE') return;
     e.preventDefault();
     e.stopPropagation();
     const mode = e.shiftKey ? 'SCALE' : e.ctrlKey || e.metaKey ? 'ROTATION' : 'TRANSLATION';

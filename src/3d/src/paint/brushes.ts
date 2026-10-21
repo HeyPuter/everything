@@ -22,7 +22,9 @@ export interface PaintBrush extends BrushData, StencilSettings {
   /** sculpt mask brush: draw or smooth the mask */
   mask_tool?: 'DRAW' | 'SMOOTH';
   /** how dabs are placed along the stroke */
-  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+  stroke_method?: 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT' | 'CURVE';
+  /** paint curve the Curve stroke method follows */
+  paint_curve?: string | null;
   use_smooth_stroke?: boolean;
   smooth_stroke_radius?: number;
   smooth_stroke_factor?: number;

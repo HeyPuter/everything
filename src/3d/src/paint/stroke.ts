@@ -9,7 +9,7 @@ import { renderContext } from '../render/context';
 import { cursorState } from './cursorstate';
 import { revertToUndoState } from './session';
 
-export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT';
+export type StrokeMethod = 'SPACE' | 'DOTS' | 'AIRBRUSH' | 'LINE' | 'ANCHORED' | 'DRAG_DOT' | 'CURVE';
 
 export interface Dab {
   x: number;
@@ -138,6 +138,9 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   const st = handler.settings?.() ?? {};
   let method: StrokeMethod = st.stroke_method ?? 'SPACE';
   if ((method === 'ANCHORED' || method === 'DRAG_DOT') && !handler.canRestore) method = 'SPACE';
+  // a curve stroke is played back along the curve: plain spacing
+  const curve = method === 'CURVE';
+  if (curve) method = 'SPACE';
   const p0 = v.local(e);
   const rawPressure = (ev: PointerEvent) => (ev.pointerType === 'pen' && ev.pressure > 0 ? tabletPressure(ev.pressure) : 1);
   // pressure drives the strength (unless turned off); size pressure scales the dab radius
@@ -148,7 +151,7 @@ export function runStroke(v: View3D, e: PointerEvent, handler: StrokeHandler) {
   const dabSize = () => (sizeP ? Math.max(0.05, lastRaw) : undefined);
   // stabilized brush position
   const pos = { x: p0.x, y: p0.y };
-  const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED';
+  const smooth = !!st.use_smooth_stroke && method !== 'LINE' && method !== 'ANCHORED' && !curve;
   const smoothR = st.smooth_stroke_radius ?? 75,
     smoothF = Math.min(0.99, Math.max(0, st.smooth_stroke_factor ?? 0.9));
   const follow = (q: { x: number; y: number }) => {

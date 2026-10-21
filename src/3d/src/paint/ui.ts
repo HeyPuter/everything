@@ -33,6 +33,8 @@ import { invalidatePaintAttributes } from './display';
 import { falloff as falloffFn, linearToSrgb, srgbToLinear } from './math';
 import { hsvToRgb, rgbToHsv } from './paintmath';
 import { brushThumb } from './brushthumbs';
+import { paintHooks } from './painthooks';
+import { paintCurvesOf } from './paintcurve';
 import { mapModes, maskTextureActive, sampleTex, sampleTexRGBA, setImageCanvasSource, textureActive, TEX_SOURCES, type BrushTexture } from './brushtex';
 import { imageCanvas, imageReady } from '../render/images';
 import { paletteTemplate, palettesOf, paletteUsers } from './palette';
@@ -558,7 +560,14 @@ function strokeRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
   const m = b.stroke_method ?? 'SPACE';
   return [
     row('Stroke Method', enumMenu(`${p}-sm`, strokeMethods(mode).map(([value, label]) => ({ value, label })), m, (x) => ((b.stroke_method = x as PaintBrush['stroke_method']), changed()), { tip: 'How dabs are placed along the stroke (Alt E)' })),
-    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH'
+    m === 'CURVE'
+      ? [
+          dataBlockSelector(`${p}-pc`, 'curve_draw', Object.values(paintCurvesOf()), b.paint_curve ?? null, (id) => ((b.paint_curve = id), app.pushUndo('Paint Curve'), changed()), () => app.run('paintcurve.new'), {}),
+          opButton('paintcurve.draw', 'Draw Curve', {}, { icon: 'brush_paint_draw', tip: 'Paint along the curve (Enter, or click away from the curve)' }),
+          h('div', { class: 'sb-label' }, 'Ctrl+click adds points · drag moves them · right-click selects'),
+        ]
+      : null,
+    m === 'SPACE' || m === 'LINE' || m === 'AIRBRUSH' || m === 'CURVE'
       ? numberField({ id: `${p}-sp`, label: 'Spacing', value: b.spacing ?? 10, min: 1, max: 1000, int: true, unit: 'percentage', tip: 'Spacing between dabs as a percentage of the brush radius', set: (x) => ((b.spacing = Math.round(x)), changed()) })
       : null,
     m === 'AIRBRUSH' ? numberField({ id: `${p}-rate`, label: 'Rate', value: b.rate ?? 0.1, min: 0.0001, max: 10, precision: 3, unit: 'time', tip: 'Interval between airbrush dabs (seconds)', set: (x) => ((b.rate = x), changed()) }) : null,
@@ -1345,7 +1354,8 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
   if (!isBrushMode(mode)) return false;
   const name = keyName(e);
   if (e.repeat && name !== 'LEFT_BRACKET' && name !== 'RIGHT_BRACKET') return BLOCKED.has(name);
-  for (const k of keymaps[KEYMAP_OF[mode]] ?? []) {
+  const first = paintHooks.priorityKeymaps.filter((k) => k.active()).flatMap((k) => keymaps[k.name] ?? []);
+  for (const k of [...first, ...(keymaps[KEYMAP_OF[mode]] ?? [])]) {
     if (!matchKey(k, name, e)) continue;
     if (k.when && !k.when()) continue;
     if (k.menu) {
@@ -1408,9 +1418,10 @@ editModeHooks.pointer.push((v, e) => {
  * Start a stroke of the active brush of the current paint mode at a pointer press (Ctrl inverts,
  * Shift smooths / blurs, Alt masks in Sculpt Mode). Returns true when the press was used.
  */
-export function brushStroke(v: View3D, e: PointerEvent): boolean {
+export function brushStroke(v: View3D, e: PointerEvent, live = true): boolean {
   const mode = app.doc.mode;
   lastStrokeStarted = false;
+  if (live) for (const f of paintHooks.brushPointer) if (f(v, e)) return true;
   if (mode === 'SCULPT' && e.altKey) {
     // Alt: temporary Mask brush (keeps the current radius); Ctrl+Alt removes mask
     const mb = brushById('brush_mask');
@@ -1444,6 +1455,7 @@ export function brushStroke(v: View3D, e: PointerEvent): boolean {
 
 /** Whether the last `brushStroke` call actually started a stroke (it hit the mesh). */
 export let lastStrokeStarted = false;
+paintHooks.startStroke = (v, e) => brushStroke(v, e, false) && lastStrokeStarted;
 
 // clone source marker
 editModeHooks.svg.push((v) => {
@@ -1555,6 +1567,7 @@ export function strokeMethods(mode: BrushMode): [string, string][] {
     ['AIRBRUSH', 'Airbrush'],
     ['ANCHORED', 'Anchored'],
     ['LINE', 'Line'],
+    ['CURVE', 'Curve'],
   ];
   return mode === 'SCULPT' ? all : all.filter(([m]) => m !== 'ANCHORED' && m !== 'DRAG_DOT');
 }
@@ -1564,7 +1577,7 @@ registerOperators([
     idname: 'paint.brush_stroke_method_set',
     label: 'Set Stroke Method',
     description: 'Choose how the dabs of the active brush are placed along the stroke',
-    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line']] }],
+    props: [{ id: 'method', label: 'Stroke Method', type: 'enum', default: 'SPACE', items: [['DOTS', 'Dots'], ['DRAG_DOT', 'Drag Dot'], ['SPACE', 'Space'], ['AIRBRUSH', 'Airbrush'], ['ANCHORED', 'Anchored'], ['LINE', 'Line'], ['CURVE', 'Curve']] }],
     undo: false,
     poll: () => isBrushMode(app.doc.mode) && !!activeBrush(app.doc.mode as BrushMode),
     exec: (_c, p) => {
