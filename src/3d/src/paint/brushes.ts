@@ -13,6 +13,8 @@ export interface PaintBrush extends BrushData, StencilSettings {
   use_frontface?: boolean;
   /** clay/flatten/fill/scrape plane offset (fraction of the radius) */
   plane_offset?: number;
+  /** layer brush: measure the layer height from the persistent base (kept between strokes) */
+  use_persistent?: boolean;
   /** crease/blob pinch amount */
   crease_pinch_factor?: number;
   /** keep accumulating within a stroke instead of limiting to the brush strength */

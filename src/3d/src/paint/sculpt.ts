@@ -19,6 +19,13 @@ import { geodesicDistances } from './expandmath';
 
 type Sign = [number, number, number];
 
+/** Layer brush base stored with "Set Persistent Base" (object space positions / normals, and the layer height per vertex). */
+export interface PersistentBase {
+  sculpt_persistent_co?: Float32Array;
+  sculpt_persistent_no?: Float32Array;
+  sculpt_persistent_disp?: Float32Array;
+}
+
 interface AnchorPass {
   sign: Sign;
   verts: Int32Array;
@@ -302,6 +309,29 @@ function applyTool(st: StrokeState, tool: string, n: number, c: Vector3, sgnv: S
       break;
     }
     case 'LAYER': {
+      const me = st.me as MeshData & PersistentBase;
+      const persistent = !!st.brush.use_persistent && !!me.sculpt_persistent_co && me.sculpt_persistent_co.length === s.nv * 3;
+      if (persistent) {
+        // layer height relative to the stored base, kept between strokes
+        if (!st.layer) st.layer = cow(me, 'sculpt_persistent_disp') ?? (me.sculpt_persistent_disp = own(new Float32Array(s.nv)));
+        if (!st.layer || st.layer.length !== s.nv) st.layer = me.sculpt_persistent_disp = own(new Float32Array(s.nv));
+        const L = st.layer,
+          O = me.sculpt_persistent_co!,
+          ON = me.sculpt_persistent_no ?? s.vn;
+        const hgt = R * 0.3;
+        for (let i = 0; i < n; i++) {
+          const vi = gv[i],
+            v = vi * 3;
+          L[vi] = Math.max(-1, Math.min(1, L[vi] + gf[i] * 0.5 * sign));
+          const m = st.mask ? 1 - st.mask[vi] : 1;
+          const d = L[vi] * hgt * m;
+          P[v] = O[v] + ON[v] * d;
+          P[v + 1] = O[v + 1] + ON[v + 1] * d;
+          P[v + 2] = O[v + 2] + ON[v + 2] * d;
+          touch(st, vi);
+        }
+        break;
+      }
       if (!st.layer) st.layer = new Float32Array(s.nv);
       if (!st.origN) st.origN = s.vn.slice();
       const L = st.layer,

@@ -546,6 +546,11 @@ function advancedRows(b: PaintBrush, mode: BrushMode, p: string): Child[] {
           ),
         ),
       );
+    if (b.sculpt_tool === 'LAYER')
+      rows.push(
+        checkbox(`${p}-persist`, 'Persistent', !!b.use_persistent, (x) => ((b.use_persistent = x), changed()), { tip: 'Measure the layer height from a stored base shape, so strokes build on the same layer' }),
+        b.use_persistent ? opButton('sculpt.set_persistent_base', 'Set Persistent Base', {}, { tip: 'Store the current shape as the base of the layer' }) : null,
+      );
     if (b.sculpt_tool === 'CREASE') rows.push(numberField({ id: `${p}-pinch`, label: 'Pinch', value: b.crease_pinch_factor ?? 0.5, min: 0, max: 1, slider: true, set: (x) => ((b.crease_pinch_factor = x), changed()) }));
   } else rows.push(numberField({ id: `${p}-hard`, label: 'Hardness', value: b.hardness ?? 0, min: 0, max: 1, slider: true, tip: 'How close the brush falloff starts from the edge', set: (x) => ((b.hardness = x), changed()) }));
   rows.push(checkbox(`${p}-ff`, 'Front Faces Only', !!b.use_frontface, (x) => ((b.use_frontface = x), changed()), { tip: 'Brush only affects vertices facing the viewer' }));

@@ -8,6 +8,7 @@ import type { MeshData } from '../data/types';
 import { activeMeshData, dropSession, meshSession } from './session';
 import { invalidatePaintAttributes, maskChanged } from './display';
 import { voxelRemesh } from './remesh';
+import type { PersistentBase } from './sculpt';
 
 const sculptPoll = () => app.doc.mode === 'SCULPT' && !!activeMeshData();
 
@@ -174,6 +175,21 @@ function remeshActive(voxel: number): string | null {
 }
 
 registerOperators([
+  {
+    idname: 'sculpt.set_persistent_base',
+    label: 'Set Persistent Base',
+    description: 'Remember the current shape as the base the Layer brush measures its height from (with Persistent on)',
+    poll: sculptPoll,
+    exec: () => {
+      const { me } = activeMeshData()!;
+      const s = meshSession();
+      if (!s) return 'CANCELLED';
+      const pb = me as MeshData & PersistentBase;
+      pb.sculpt_persistent_co = own(me.positions.slice());
+      pb.sculpt_persistent_no = own(s.vn.slice());
+      pb.sculpt_persistent_disp = own(new Float32Array(me.positions.length / 3));
+    },
+  },
   {
     idname: 'paint.mask_flood_fill',
     label: 'Mask Flood Fill',
