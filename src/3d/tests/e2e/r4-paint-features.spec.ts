@@ -260,3 +260,40 @@ test('Image Editor paint mode paints along the stroke', async ({ page }) => {
   expect(rev1).toBeGreaterThan(rev0);
   await expectNoErrors(errors);
 });
+
+test('Texture Paint Mask brush blocks later paint where it was drawn', async ({ page }) => {
+  const errors = await openApp(page);
+  const res = await page.evaluate(async () => {
+    const a = (window as unknown as W).app;
+    a.run('view3d.view_axis', { type: 'FRONT' }, { invoke: false });
+    a.run('object.mode_set', { mode: 'TEXTURE_PAINT' });
+    a.doc.scene.tool_settings.sculpt.use_symmetry_x = false;
+    // let the view finish turning to the front
+    await new Promise((r) => setTimeout(r, 600));
+    const { imageCanvas } = await import('/src/render/images.ts' as string);
+    const line = Array.from({ length: 11 }, (_, i) => ({ location: [-0.8 + i * 0.16, -1, 0] }));
+    const red = () => {
+      const ob = a.activeObject;
+      const ma = a.doc.materials[a.doc.meshes[ob.data].materials[0]];
+      const node = ma.tree.nodes.find((n: { type: string }) => n.type === 'ShaderNodeTexImage');
+      const c = imageCanvas(a.doc.images[node.props.image]) as HTMLCanvasElement;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 80) n++;
+      return n;
+    };
+    a.run('paint.brush_select', { brush: 'brush_tex_mask' });
+    // Ctrl: a black mask band, which blocks paint
+    a.run('paint.image_paint', { stroke: line, mode: 'INVERT' }, { invoke: false });
+    a.run('paint.brush_select', { brush: 'brush_texpaint' });
+    a.doc.scene.tool_settings.unified_paint.color = [1, 0, 0];
+    a.run('paint.image_paint', { stroke: line }, { invoke: false });
+    const masked = red();
+    a.doc.scene.tool_settings.image_paint.use_stencil_layer = false;
+    a.run('paint.image_paint', { stroke: line }, { invoke: false });
+    return { masked, free: red() };
+  });
+  expect(res.free).toBeGreaterThan(500);
+  expect(res.masked).toBeLessThan(res.free / 4);
+  await expectNoErrors(errors);
+});
