@@ -143,3 +143,16 @@ describe('apply object transform', () => {
     [0, 3, 7].map(world).forEach((p, k) => expect(p.distanceTo(before[k])).toBeLessThan(1e-5));
   });
 });
+
+describe('convert to mesh', () => {
+  it('turns a wire curve into vertices and loose edges', () => {
+    run('curve.primitive_bezier_circle_add', {});
+    const ob = app.activeObject!;
+    select(ob);
+    expect(run('object.convert', { target: 'MESH' })).toBe('FINISHED');
+    const me = app.doc.meshes[ob.data!];
+    expect(ob.type).toBe('MESH');
+    expect(me.positions.length / 3).toBe(48);
+    expect(me.loose_edges!.length / 2).toBe(48);
+  });
+});

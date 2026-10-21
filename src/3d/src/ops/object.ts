@@ -130,6 +130,20 @@ function primitiveOp(idname: string, label: string, name: string, props: PropDef
   };
 }
 
+/** Vertices and loose edges of curve polylines (evaluated wire curves). */
+export function polylineMesh(curves: { points: ArrayLike<number>; cyclic?: boolean }[]) {
+  const pos: number[] = [];
+  const edges: number[] = [];
+  for (const c of curves) {
+    const base = pos.length / 3,
+      n = c.points.length / 3;
+    for (let i = 0; i < c.points.length; i++) pos.push(c.points[i]);
+    for (let i = 0; i < n - 1; i++) edges.push(base + i, base + i + 1);
+    if (c.cyclic && n > 2) edges.push(base + n - 1, base);
+  }
+  return { positions: new Float32Array(pos), offsets: new Uint32Array([0]), indices: new Uint32Array(0), uvs: new Float32Array(0), normals: new Float32Array(0), looseEdges: new Uint32Array(edges) };
+}
+
 const sizeProp = (d = 2): PropDef => ({ id: 'size', label: 'Size', type: 'float', default: d, min: 0, subtype: 'distance' });
 const radiusProp = (id = 'radius', d = 1, label = 'Radius'): PropDef => ({ id, label, type: 'float', default: d, min: 0, subtype: 'distance' });
 const fillProp: PropDef = { id: 'fill_type', label: 'Fill Type', type: 'enum', default: 'NOTHING', items: [['NOTHING', 'Nothing'], ['NGON', 'N-Gon'], ['TRIFAN', 'Triangle Fan']] };
@@ -1499,7 +1513,9 @@ registerOperators([
       for (const ob of targets) {
         const ev = app.graph.get(ob.id);
         if (!ev?.mesh || (ob.type !== 'MESH' && ob.type !== 'CURVE' && ob.type !== 'FONT' && ob.type !== 'META')) continue;
-        const m = ev.mesh;
+        let m = ev.mesh;
+        // a curve without fill, extrusion or bevel is a set of polylines: they become vertices and loose edges
+        if (m.curves?.length && !m.indices.length) m = { ...m, ...polylineMesh(m.curves) };
         let target = ob;
         if (p.keep_original) target = duplicateObject(doc, ob, true);
         const me = newMeshData(uniqueName(doc, ob.name, 'meshes'), {
@@ -1512,6 +1528,7 @@ registerOperators([
           material_index: m.material_index ? new Uint16Array(m.material_index) : undefined,
         });
         me.materials = [...(ob.data ? (doc.meshes[ob.data] ?? doc.curves[ob.data] ?? doc.metaballs?.[ob.data])?.materials ?? [] : [])];
+        if (m.looseEdges?.length) me.loose_edges = new Uint32Array(m.looseEdges);
         if (m.vertex_groups && m.weights) {
           me.vertex_groups = m.vertex_groups.map((g) => ({ name: g.name }));
           me.weights = m.weights.map((w) => new Float32Array(w));
