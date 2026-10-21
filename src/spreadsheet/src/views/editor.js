@@ -2176,8 +2176,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const to = axis === 'row' ? r.r2 : r.c2;
         const what = axis === 'row' ? 'rows' : 'columns';
         if (cmd === 'group') {
+          const refusal = wb.groupRefusal(sheetId, axis, from, to);
           const ok = wb.groupLines(sheetId, axis, from, to);
-          toast(ok ? `Grouped ${what} ${axis === 'row' ? `${from + 1}–${to + 1}` : `${colName(from)}–${colName(to)}`}. Use the − button beside the headers to collapse` : `Those ${what} cannot be grouped like that (a group may sit inside another, not across one)`, { icon: ok ? 'check' : 'info', duration: 3200 });
+          const why = refusal === 'depth' ? `Those ${what} cannot be grouped again: an outline goes at most eight levels deep`
+            : `Those ${what} cannot be grouped like that (a group may sit inside another, not across one)`;
+          toast(ok ? `Grouped ${what} ${axis === 'row' ? `${from + 1}–${to + 1}` : `${colName(from)}–${colName(to)}`}. Use the − button beside the headers to collapse` : why, { icon: ok ? 'check' : 'info', duration: 3200 });
         } else {
           const n = wb.ungroupLines(sheetId, axis, from, to);
           toast(n ? `Ungrouped ${what}` : `No group of ${what} here`, { icon: n ? 'check' : 'info' });
@@ -2190,7 +2193,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       case 'toggleGroup':
-        if (arg) wb.toggleGroup(sheetId, arg.axis, arg.from, arg.to);
+        if (arg) wb.toggleGroup(sheetId, arg.axis, arg.from, arg.to, arg.level);
         keepFocus();
         return;
       case 'freeze': {

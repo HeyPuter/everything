@@ -1355,7 +1355,8 @@ describe('row and column groups', () => {
   it('groups, nests, collapses, expands, and ungroups', () => {
     const b = book();
     expect(b.wb.groupLines(b.id, 'row', 2, 6)).toBe(true);
-    expect(b.wb.groupLines(b.id, 'row', 2, 6)).toBe(false); // already there
+    expect(b.wb.groupLines(b.id, 'row', 2, 6)).toBe(true); // grouped again: one level deeper, as in Excel
+    expect(b.wb.ungroupLines(b.id, 'row', 2, 6)).toBe(1); // and ungrouped: that level comes off
     expect(b.wb.groupLines(b.id, 'row', 5, 9)).toBe(false); // partial overlap
     expect(b.wb.groupLines(b.id, 'row', 3, 4)).toBe(true);  // nested
     expect(b.wb.outlineDepth(b.id, 'row')).toBe(2);

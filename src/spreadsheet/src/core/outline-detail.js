@@ -22,19 +22,25 @@ function pick(wb, sheetId, axis, index, show) {
  * The group Show Detail (show = true) or Hide Detail would act on for a selection: { axis, from, to }
  * or null. Whole columns selected work on column groups; otherwise row groups first, then columns.
  */
-export function detailGroup(wb, sheetId, { active, wholeColumns = false }, show) {
+export function detailGroup(wb, sheetId, selection, show) {
+  const g = detailLevel(wb, sheetId, selection, show);
+  return g && { axis: g.axis, from: g.from, to: g.to };
+}
+
+/** detailGroup with the group's level, which tells it from a group over the same lines (grouped twice). */
+function detailLevel(wb, sheetId, { active, wholeColumns = false }, show) {
   const axes = wholeColumns ? ['col'] : ['row', 'col'];
   for (const axis of axes) {
     const g = pick(wb, sheetId, axis, axis === 'row' ? active.r : active.c, show);
-    if (g) return { axis, from: g.from, to: g.to };
+    if (g) return { axis, from: g.from, to: g.to, level: g.level };
   }
   return null;
 }
 
 /** Show or hide detail at the selection; false when there is no outline group there. */
 export function toggleDetail(wb, sheetId, selection, show) {
-  const g = detailGroup(wb, sheetId, selection, show);
+  const g = detailLevel(wb, sheetId, selection, show);
   if (!g) return false;
-  wb.toggleGroup(sheetId, g.axis, g.from, g.to);
+  wb.toggleGroup(sheetId, g.axis, g.from, g.to, g.level);
   return true;
 }

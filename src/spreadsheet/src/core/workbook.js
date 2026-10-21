@@ -7625,26 +7625,44 @@ export class Workbook extends EventTarget {
     this._push({ label, undo: () => apply(true), redo: () => apply(false), snapshotCells: deltas.reduce((n, d) => n + d.hid.length + d.showed.length, 0) });
   }
 
+  /** The lines from..to a group would take: within the grid, whose edge it stops at. Null when none. */
+  _groupSpan(sheet, axis, from, to) {
+    const lo = Math.max(0, Math.min(from, to));
+    // A group stops at the grid's edge: collapsing one hides each of its lines, and lines past the grid
+    // are never drawn, so a bound far beyond it would only fill the hidden set and the file.
+    const hi = Math.min(Math.max(from, to), (axis === 'row' ? Math.max(sheet.rows, MAX_ROWS) : Math.max(sheet.cols, MAX_COLS)) - 1);
+    return lo <= hi ? { lo, hi } : null;
+  }
+
   /**
-   * Group lines from..to (rows when axis is 'row'). Groups nest when one
-   * lies inside another; a group that only partly overlaps an existing one
-   * is refused. Returns true when a group was added.
+   * Why lines from..to cannot be grouped, or null when they can: 'across' for a group that would only partly
+   * overlap one already there, 'depth' for one past the eight outline levels (seven groups deep) a file can hold.
+   */
+  groupRefusal(sheetId, axis, from, to) {
+    const sheet = this.sheet(sheetId);
+    const span = sheet && this._groupSpan(sheet, axis, from, to);
+    if (!span) return null;
+    const { lo, hi } = span;
+    const list = sheet.groups[axis === 'row' ? 'rows' : 'cols'];
+    if (list.some((g) => (g.from < lo && g.to >= lo && g.to < hi) || (g.from > lo && g.from <= hi && g.to > hi))) return 'across';
+    if (list.filter((g) => g.from <= lo && g.to >= hi).length >= 7) return 'depth';
+    return null;
+  }
+
+  /**
+   * Group lines from..to (rows when axis is 'row'). Groups nest when one lies inside another, and lines grouped
+   * again go one level deeper, as in Excel; a group that only partly overlaps an existing one is refused, as is
+   * one past the eighth level (see groupRefusal). Returns true when a group was added.
    */
   groupLines(sheetId, axis, from, to) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return false;
     if (this._gridLocked(sheet)) return false;
     const key = axis === 'row' ? 'rows' : 'cols';
-    const lo = Math.max(0, Math.min(from, to));
-    // A group stops at the grid's edge: collapsing one hides each of its lines, and lines past the grid
-    // are never drawn, so a bound far beyond it would only fill the hidden set and the file.
-    const hi = Math.min(Math.max(from, to), (axis === 'row' ? Math.max(sheet.rows, MAX_ROWS) : Math.max(sheet.cols, MAX_COLS)) - 1);
-    if (!(lo <= hi)) return false;
+    const span = this._groupSpan(sheet, axis, from, to);
+    if (!span || this.groupRefusal(sheetId, axis, from, to)) return false;
+    const { lo, hi } = span;
     const list = sheet.groups[key];
-    if (list.some((g) => g.from === lo && g.to === hi)) return false;
-    const partial = list.some((g) => (g.from < lo && g.to >= lo && g.to < hi) || (g.from > lo && g.from <= hi && g.to > hi));
-    if (partial) return false;
-    if (list.filter((g) => g.from <= lo && g.to >= hi).length >= 7) return false; // eight levels, the .xlsx outline limit
     this._outlineStep(sheet, axis === 'row' ? 'Group rows' : 'Group columns', () => {
       sheet.groups = normalizeGroups({ ...sheet.groups, [key]: [...list, { from: lo, to: hi, collapsed: false }] });
     });
@@ -7664,9 +7682,10 @@ export class Workbook extends EventTarget {
     const lo = Math.min(from, to);
     const hi = Math.max(from, to);
     const list = sheet.groups[key];
-    let gone = list.filter((g) => g.from >= lo && g.to <= hi);
+    // Lines grouped twice over lose one level, the deeper group of the two, as Excel takes one level off.
+    let gone = list.filter((g, i) => g.from >= lo && g.to <= hi && !list.some((o, j) => j > i && o.from === g.from && o.to === g.to));
     if (!gone.length) {
-      const around = list.filter((g) => g.from <= lo && g.to >= hi).sort((a, b) => (a.to - a.from) - (b.to - b.from));
+      const around = list.filter((g) => g.from <= lo && g.to >= hi).sort((a, b) => (a.to - a.from) - (b.to - b.from) || list.indexOf(b) - list.indexOf(a));
       if (around.length) gone = [around[0]];
     }
     if (!gone.length) return 0;
@@ -7678,13 +7697,18 @@ export class Workbook extends EventTarget {
     return gone.length;
   }
 
-  /** Collapse (hide its lines) or expand a group identified by its bounds. */
-  toggleGroup(sheetId, axis, from, to) {
+  /**
+   * Collapse (hide its lines) or expand a group identified by its bounds, and by its level (see outlineGroups)
+   * among groups over the same lines.
+   */
+  toggleGroup(sheetId, axis, from, to, level = null) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return;
     if (this._gridLocked(sheet)) return;
     const key = axis === 'row' ? 'rows' : 'cols';
-    const group = sheet.groups[key].find((g) => g.from === from && g.to === to);
+    const levels = this.outlineGroups(sheetId, axis);
+    const at = levels.findIndex((g) => g.from === from && g.to === to && (level == null || g.level === level));
+    const group = sheet.groups[key][at];
     if (!group) return;
     const collapse = !group.collapsed;
     this._outlineStep(sheet, collapse ? (axis === 'row' ? 'Collapse rows' : 'Collapse columns') : (axis === 'row' ? 'Expand rows' : 'Expand columns'), () => {
@@ -7761,20 +7785,18 @@ export class Workbook extends EventTarget {
 
   /** How deeply nested the groups on an axis go (0 when there are none). */
   outlineDepth(sheetId, axis) {
-    const sheet = this.sheet(sheetId);
-    if (!sheet) return 0;
-    const list = sheet.groups[axis === 'row' ? 'rows' : 'cols'];
-    let depth = 0;
-    for (const g of list) depth = Math.max(depth, list.filter((o) => o.from <= g.from && o.to >= g.to).length);
-    return depth;
+    return this.outlineGroups(sheetId, axis).reduce((depth, g) => Math.max(depth, g.level), 0);
   }
 
-  /** The groups on an axis, each with its nesting level (1 = outermost). */
+  /**
+   * The groups on an axis, each with its nesting level (1 = outermost). Of groups over the same lines (grouped
+   * twice), the one listed first is the outer.
+   */
   outlineGroups(sheetId, axis) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return [];
     const list = sheet.groups[axis === 'row' ? 'rows' : 'cols'];
-    return list.map((g) => ({ ...g, level: list.filter((o) => o.from <= g.from && o.to >= g.to).length }));
+    return list.map((g, i) => ({ ...g, level: list.filter((o, j) => o.from <= g.from && o.to >= g.to && (j <= i || o.from !== g.from || o.to !== g.to)).length }));
   }
 
   /** Show or hide the faint lines between cells on a sheet (a view setting that is saved). Undoable. */

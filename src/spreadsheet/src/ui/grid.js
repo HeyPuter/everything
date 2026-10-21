@@ -5921,7 +5921,7 @@ export function createGrid(opts) {
     clip.addEventListener('click', e => {
       const outline = e.target.closest?.('.outline-btn');
       if (!outline || edit && !commitEdit()) return;
-      opts.onCommand?.('toggleGroup', { axis: outline.dataset.axis, from: Number(outline.dataset.from), to: Number(outline.dataset.to) });
+      opts.onCommand?.('toggleGroup', { axis: outline.dataset.axis, from: Number(outline.dataset.from), to: Number(outline.dataset.to), level: Number(outline.dataset.level) });
     });
     clip.addEventListener('pointermove', pointerMove);
     clip.addEventListener('pointerup', pointerUp);
@@ -6024,7 +6024,7 @@ export function createGrid(opts) {
         type: 'button', tabindex: -1,
         'aria-label': `${g.collapsed ? 'Expand' : 'Collapse'} ${axis === 'row' ? 'rows' : 'columns'} ${axis === 'row' ? `${g.from + 1} to ${g.to + 1}` : `${cellName(0, g.from).replace(/\d+$/, '')} to ${cellName(0, g.to).replace(/\d+$/, '')}`}`,
         title: g.collapsed ? 'Expand group' : 'Collapse group',
-        dataset: { axis, from: g.from, to: g.to },
+        dataset: { axis, from: g.from, to: g.to, level: g.level },
       }, g.collapsed ? '+' : '−');
       const center = pos(after) + Math.min(size(after), 26) / 2;
       if (axis === 'row') { btn.style.top = `${center - 7}px`; btn.style.left = `${offset}px`; }
