@@ -100,3 +100,67 @@ for (const ending of ['\r\n', '\r', '\n'])
       page.getByRole('button', { name: 'Edit text: Secondend', exact: true }),
     ).toBeEnabled();
   });
+
+test('external text drops where it is dropped in browsers without caretRangeFromPoint', async ({
+  page,
+}) => {
+  // Firefox finds the caret under the pointer only with caretPositionFromPoint.
+  await page.addInitScript(() => {
+    delete Document.prototype.caretRangeFromPoint;
+  });
+  await page.route('https://js.puter.com/**', (route) => route.fulfill({ body: '' }));
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  const sheet = doc.addPage([400, 400]);
+  const regular = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  sheet.node.set(
+    PDFName.of('Resources'),
+    doc.context.obj({ Font: { F: regular.ref, B: bold.ref } }),
+  );
+  sheet.node.set(
+    PDFName.of('Contents'),
+    doc.context.register(
+      doc.context.flateStream('BT /F 18 Tf 40 300 Td (Start ) Tj /B 18 Tf (end) Tj ET'),
+    ),
+  );
+  const chooser = page.waitForEvent('filechooser');
+  await page.keyboard.press('ControlOrMeta+o');
+  await (
+    await chooser
+  ).setFiles({
+    name: 'drop.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from(await doc.save()),
+  });
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit text: Start end', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Edit text', exact: true });
+  const point = await input.evaluate((node) => {
+    const source = document.createElement('div');
+    source.id = 'external-text-source';
+    source.textContent = 'Drag external text';
+    source.draggable = true;
+    Object.assign(source.style, {
+      position: 'fixed',
+      left: '16px',
+      top: '350px',
+      width: '140px',
+      height: '32px',
+      background: 'white',
+      zIndex: '10000',
+    });
+    source.addEventListener('dragstart', (event) =>
+      event.dataTransfer.setData('text/plain', 'Middle '),
+    );
+    document.body.append(source);
+    const caret = document.createRange();
+    caret.setStart(node.querySelector('[data-part="1"]').firstChild, 0);
+    caret.collapse(true);
+    const rect = caret.getBoundingClientRect();
+    const box = node.getBoundingClientRect();
+    return { x: rect.x - box.x + 0.1, y: rect.y - box.y + rect.height / 2 };
+  });
+  await page.locator('#external-text-source').dragTo(input, { targetPosition: point });
+  await expect.poll(() => input.evaluate((node) => node.value)).toBe('Start Middle end');
+});

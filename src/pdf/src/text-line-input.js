@@ -1,6 +1,7 @@
 import { paragraphLayout } from './paragraph-layout.js';
 import { groupLineHeight } from './core/text-group.js';
 import { koreanDraftFace } from './text-fonts.js';
+import { caretAt } from './text-caret.js';
 
 /**
  * Pasted or dropped text as a draft takes it: one kind of line break, and tabs (copied tables
@@ -280,7 +281,7 @@ export function textLineInput(group) {
     if (dragging) return;
     e.preventDefault();
     // Place plain text at the drop caret; never import arbitrary clipboard markup.
-    const caret = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    const caret = caretAt(e.clientX, e.clientY);
     if (!caret || !input.contains(caret.startContainer)) return;
     const selection = window.getSelection();
     selection.removeAllRanges();

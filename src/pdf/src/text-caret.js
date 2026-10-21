@@ -1,4 +1,5 @@
-function caretAt(x, y) {
+/** The collapsed range under a point, in browsers with either caret lookup. */
+export function caretAt(x, y) {
   const caret = document.caretPositionFromPoint?.(x, y);
   if (caret) {
     const range = document.createRange();
