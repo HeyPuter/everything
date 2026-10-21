@@ -24,6 +24,7 @@ import { panel, opButton } from '../../ui/widgets';
 import { h } from '../../ui/h';
 import { BUILTIN_KEYING_SETS, keyingSetItems } from '../../anim/keyingsets';
 import { flipSideName, autosideName, slideValue, poseRestValue, propagateCurve, type SlideMode, type PropagateMode } from './posemath';
+import { objectCurves } from '../../anim/slots';
 
 const inPose = () => app.doc.mode === 'POSE' && !!activeArmature();
 const posePoll = (_ctx?: OpContext) => inPose();
@@ -48,7 +49,7 @@ function boneAction(ob: ObjectData): ActionData | undefined {
 const bonePath = (name: string) => `pose.bones["${name.replace(/"/g, '\\"')}"]`;
 function boneCurves(ob: ObjectData, name: string): FCurve[] {
   const pre = bonePath(name) + '.';
-  return boneAction(ob)?.fcurves.filter((f) => f.data_path.startsWith(pre)) ?? [];
+  return objectCurves(app.doc, ob).filter((f) => f.data_path.startsWith(pre));
 }
 
 const autoKey = () => app.doc.scene.tool_settings.use_keyframe_insert_auto;

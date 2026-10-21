@@ -5,6 +5,7 @@ import { openMenu, openSearch, captureMenuItems, type SearchEntry, type MenuItem
 import { openRedoPopup } from '../ui/redo';
 import { insertKeyframesForObjects, deleteKeyframesAt, type KeyingSet } from '../anim/keyframes';
 import { shortcutLabel } from '../app/keymap';
+import { objectCurves } from '../anim/slots';
 
 let playRaf = 0;
 let playStart = 0;
@@ -70,8 +71,7 @@ function allKeyFrames(): number[] {
   const obs = app.selectedObjects().length ? app.selectedObjects() : app.activeObject ? [app.activeObject] : [];
   const frames = new Set<number>();
   for (const ob of obs) {
-    const act = ob.animation_data?.action ? doc.actions[ob.animation_data.action] : undefined;
-    for (const fc of act?.fcurves ?? []) for (const k of fc.keyframe_points) frames.add(k.co[0]);
+    for (const fc of objectCurves(doc, ob)) for (const k of fc.keyframe_points) frames.add(k.co[0]);
   }
   for (const m of doc.scene.timeline_markers) frames.add(m.frame);
   return [...frames].sort((a, b) => a - b);

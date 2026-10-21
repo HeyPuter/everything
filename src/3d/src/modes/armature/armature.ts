@@ -22,6 +22,7 @@ import { insertKeyframesForObjects } from '../../anim/keyframes';
 import { boneVisible, newBoneLike, flipSideName, bonePath, uniqueBoneName as kUniqueBoneName } from './armkernels';
 import { inSelectRegion } from '../../editors/view3d/selectshapes';
 import type { SelectRegion } from '../../editors/view3d/hooks';
+import { objectCurves } from '../../anim/slots';
 
 const V = (a: number[]) => new Vector3(a[0], a[1], a[2]);
 
@@ -442,8 +443,7 @@ function renameBone(ob: ObjectData, arm: ArmatureData, oldName: string, newName:
       if (g) g.name = name;
     }
   // F-curves targeting the bone
-  const act = ob.animation_data?.action ? app.doc.actions[ob.animation_data.action] : undefined;
-  for (const fc of act?.fcurves ?? []) {
+  for (const fc of objectCurves(app.doc, ob)) {
     fc.data_path = fc.data_path.replace(`pose.bones["${oldName}"]`, `pose.bones["${name}"]`);
     if (fc.group === oldName) fc.group = name;
   }

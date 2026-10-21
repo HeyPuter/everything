@@ -8,6 +8,8 @@ import { registerEditor } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { numberField, enumMenu, checkbox, textField, panel, button } from '../ui/widgets';
 import type { AnimData, NlaStrip, NlaTrack, ObjectData } from '../data/types';
+import { findSlot, isSlotted, stripSlot } from '../anim/slots';
+import { objectSlotBinding, slotSelector, type SlotBinding } from './slotops';
 import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, overMain, roundRect, type SidebarTab } from './animeditor';
 import { activeAction, type Channel, type SpaceKind } from './channels';
 import { C, drawKey } from './theme';
@@ -407,7 +409,7 @@ export class NlaEditor extends AnimEditor {
           const [a, b] = actionRange(ch.action);
           g.fillStyle = 'rgba(255, 255, 255,0.06)';
           g.fillRect(v.fx(a), y + 2, v.fx(b) - v.fx(a), rh - 5);
-          const agg = aggregate(ch.action.fcurves);
+          const agg = aggregate(ch.curves.map((r) => r.fc));
           for (const k of agg.keys) {
             const x = v.fx(k.frame);
             if (x < -10 || x > W + 10) continue;
@@ -812,6 +814,8 @@ export class NlaEditor extends AnimEditor {
                 e.preventDefault(),
                 browseActions(ref.ob, e.currentTarget as HTMLElement, (id) => {
                   s.action = id;
+                  // the slot is looked up again for the new action
+                  delete s.action_slot_handle;
                   const a = app.doc.actions[id];
                   if (a) {
                     [s.action_frame_start, s.action_frame_end] = actionRange(a);
@@ -826,6 +830,7 @@ export class NlaEditor extends AnimEditor {
             h('span', { class: 'em-arrow' }, icon('down_arrow_hlt')),
           ),
         ),
+        this.stripSlotRow(ref.ob, s),
         row(
           'Frame Start',
           numberField({
@@ -897,6 +902,26 @@ export class NlaEditor extends AnimEditor {
     ];
   }
 
+  /** Slot selector of an action clip strip (actions with slots). */
+  private stripSlotRow(ob: ObjectData, s: NlaStrip): Child {
+    const act = app.doc.actions[s.action];
+    if (!act || !isSlotted(act)) return null;
+    const ad = ob.animation_data!;
+    const track = ad.nla_tracks.findIndex((t) => t.strips.includes(s));
+    const b: SlotBinding = {
+      act,
+      owner: ob,
+      current: findSlot(act, stripSlot(act, s, ob)),
+      assign: (slot) => {
+        s.action_slot_handle = slot ? slot.handle : 0;
+        app.pushUndo('Assign Slot');
+        app.changed('doc');
+      },
+      unassign: ['anim.slot_unassign_from_nla_strip', { object: ob.id, track, strip: track >= 0 ? ad.nla_tracks[track].strips.indexOf(s) : -1 }],
+    };
+    return h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, 'Slot'), h('div', { class: 'sr-value' }, slotSelector('nla-strip-slot', b, 'panel')), h('span', { class: 'decorator-space' }));
+  }
+
   private actionTab(): Child {
     const ob = app.activeObject;
     if (!ob) return h('div', { class: 'sb-empty' }, 'No active object');
@@ -917,6 +942,7 @@ export class NlaEditor extends AnimEditor {
           h('span', { class: 'em-arrow' }, icon('down_arrow_hlt')),
         ),
       ),
+      objectSlotBinding(ob) ? row('Slot', slotSelector('nla-ad-slot', objectSlotBinding(ob)!, 'panel')) : null,
       h(
         'div',
         { class: 'anim-sb-btns' },

@@ -10,6 +10,7 @@ import { h, type VNode } from '../ui/h';
 import { panel, opButton } from '../ui/widgets';
 import { num, bool, enumProp } from '../ui/props';
 import { keyframeFrames } from './keyframes';
+import { objectCurves } from './slots';
 
 export interface MotionPathSettings {
   type: 'RANGE' | 'CURRENT_FRAME';
@@ -121,10 +122,9 @@ const selectedBoneNames = (o: ObMP) => Object.entries(o.pose ?? {}).filter(([, p
 
 /** Frame range of an object's keys (all, or only selected keys). */
 function keyRange(o: ObMP, selectedOnly: boolean): [number, number] | null {
-  const act = o.animation_data?.action ? app.doc.actions[o.animation_data.action] : undefined;
   let a = Infinity,
     b = -Infinity;
-  for (const fc of act?.fcurves ?? [])
+  for (const fc of objectCurves(app.doc, o as ObjectData))
     for (const k of fc.keyframe_points)
       if (!selectedOnly || k.select_control_point) {
         a = Math.min(a, k.co[0]);

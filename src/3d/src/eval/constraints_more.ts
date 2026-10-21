@@ -1,6 +1,7 @@
 // Action, Armature and Geometry Attribute constraints.
 import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
-import type { ActionData, Constraint, DocumentData, RotationMode } from '../data/types';
+import type { ActionData, Constraint, DocumentData, FCurve, RotationMode } from '../data/types';
+import { constraintSlot, slotCurves } from '../anim/slots';
 import type { ConstraintContext, EvalMesh } from './types';
 import { constraintTypes, decompose, eulerToQuat, mixMatrix, quatToEuler } from './constraints';
 import { evaluateFCurve } from '../anim/fcurve';
@@ -12,7 +13,7 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
 // Action
 
 /** Local transform an action produces at a frame for an object (no bone) or a pose bone. */
-export function actionMatrix(action: ActionData, frame: number, bone: string | null, rotationMode: RotationMode = 'XYZ'): Matrix4 {
+export function actionMatrix(action: ActionData, frame: number, bone: string | null, rotationMode: RotationMode = 'XYZ', curves: FCurve[] = action.fcurves): Matrix4 {
   const prefix = bone ? `pose.bones["${bone}"].` : '';
   const loc = [0, 0, 0],
     scale = [1, 1, 1],
@@ -20,7 +21,7 @@ export function actionMatrix(action: ActionData, frame: number, bone: string | n
     quat = [1, 0, 0, 0];
   let hasQuat = false,
     hasEuler = false;
-  for (const fc of action.fcurves) {
+  for (const fc of curves) {
     if (fc.mute || !fc.data_path.startsWith(prefix)) continue;
     const prop = fc.data_path.slice(prefix.length);
     if (prop.includes('.') || prop.includes('[')) continue;
@@ -81,7 +82,7 @@ constraintTypes.ACTION = {
     if (frame === null) return;
     const bone = ctx.pchan && !c.use_bone_object_action ? ctx.pchan.name : null;
     const mode = bone ? ctx.ob.pose?.[bone]?.rotation_mode : ctx.ob.rotation_mode;
-    mixMatrix(owner, actionMatrix(action, frame, bone, mode ?? 'XYZ'), (c.mix_mode as string) ?? 'AFTER');
+    mixMatrix(owner, actionMatrix(action, frame, bone, mode ?? 'XYZ', slotCurves(action, constraintSlot(action, c, ctx.ob))), (c.mix_mode as string) ?? 'AFTER');
   },
 };
 

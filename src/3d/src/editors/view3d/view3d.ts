@@ -25,6 +25,7 @@ import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
 import { placeCursor, cursorToolSettings } from '../../ops/view3d';
+import { objectCurves } from '../../anim/slots';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
@@ -320,7 +321,7 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
     if (this.localView) viewName += ' (Local)';
     const col = ob ? Object.values(doc.collections).find((c) => c.objects.includes(ob.id) && c.id !== doc.scene.collection) : undefined;
     const lines = [viewName, `(${doc.scene.frame_current}) ${col ? col.name + ' | ' : 'Scene Collection | '}${ob?.name ?? ''}${doc.mode === 'POSE' && ob?.data ? ' : ' + (doc.armatures[ob.data]?.active_bone ?? '') : ''}`];
-    const kf = ob?.animation_data?.action ? doc.actions[ob.animation_data.action]?.fcurves.some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5)) : false;
+    const kf = objectCurves(doc, ob).some((f) => f.keyframe_points.some((k) => Math.abs(k.co[0] - doc.scene.frame_current) < 0.5));
     const stats = this.overlay.show_stats ? statsLines() : [];
     const fps = app.playing && prefs.show_playback_fps ? playbackFpsLabel() : '';
     patch(this.infoEl, this.overlay.show_overlays && this.overlay.show_text

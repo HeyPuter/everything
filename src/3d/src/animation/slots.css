@@ -1,0 +1,47 @@
+/* Action slots: slot rows in the Action Editor channel list and the slot selector. */
+.anim-ch-row.k-slot {
+  background: rgba(28, 76, 132, 0.55);
+  color: #e8e9ea;
+}
+.anim-ch-row.k-slot.sel {
+  color: #fcb41d;
+}
+.anim-slotblock .anim-id-name {
+  width: 110px;
+}
+.anim-slotblock .anim-id-new,
+.slot-selector .ids-new {
+  white-space: nowrap;
+}
+.slot-selector .slot-none,
+.anim-slotblock .slot-none {
+  padding: 0 6px;
+  opacity: 0.6;
+}
+.anim-idblock .anim-id-users {
+  min-width: 22px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+}
+/* Object properties ▸ Animation: label + data-block selector rows */
+.anim-ad-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 10px;
+}
+.anim-ad-label {
+  flex: 0 0 auto;
+  min-width: 40px;
+  text-align: right;
+  color: var(--t-bb, #bbbcbe);
+}
+.anim-ad-row > .id-selector {
+  flex: 1;
+  min-width: 0;
+}
+.anim-ad-row > .id-selector .text-field {
+  flex: 1;
+  min-width: 40px;
+}

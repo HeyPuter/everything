@@ -1,5 +1,6 @@
 // Pure NLA strip editing helpers (meta strips, transitions, swap, apply scale, tweak
 // mode bookkeeping), kept free of UI imports for unit testing.
+import { isSlotted, stripSlot } from '../anim/slots';
 import type { ActionData, AnimData, DocumentData, NlaStrip, NlaTrack } from '../data/types';
 import { calcHandles } from '../anim/fcurve';
 import { sortStrips } from './actionops';
@@ -206,8 +207,16 @@ export function enterTweak(doc: DocumentData, ad: AnimData, track: number, strip
   const s = ad.nla_tracks[track]?.strips[strip];
   if (!s || !isClip(s) || !doc.actions[s.action] || ad.tweak) return false;
   alignActionToStrip(doc, s);
-  ad.tweak = { track, strip, prev_action: ad.action, upper };
+  ad.tweak = { track, strip, prev_action: ad.action, upper, prev_slot: ad.action_slot_handle, prev_slot_action: ad.slot_action };
+  // the edited action plays (and is keyed) through the strip's slot
+  const act = doc.actions[s.action];
+  const owner = Object.values(doc.objects).find((o) => o.animation_data === ad);
   ad.action = s.action;
+  if (owner && isSlotted(act)) {
+    const h = stripSlot(act, s, owner);
+    ad.slot_action = act.id;
+    ad.action_slot_handle = h ?? 0;
+  }
   if (isolate) {
     for (const t of ad.nla_tracks) t.is_solo = false;
     ad.nla_tracks[track].is_solo = true;
@@ -219,6 +228,8 @@ export function exitTweak(ad: AnimData, isolate: boolean) {
   const tw = ad.tweak;
   if (!tw) return false;
   ad.action = tw.prev_action;
+  ad.action_slot_handle = tw.prev_slot;
+  ad.slot_action = tw.prev_slot_action;
   if (isolate) ad.nla_tracks[tw.track] && (ad.nla_tracks[tw.track].is_solo = false);
   ad.tweak = null;
   return true;

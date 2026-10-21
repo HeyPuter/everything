@@ -285,28 +285,45 @@ export function evaluateFCurve(fc: FCurve, frame: number): number {
     const w = modifierWeight(m, frame);
     f = w >= 1 ? g : f + (g - f) * w;
   }
-  let v = evaluateRaw(fc, f);
-  if (fc.modifiers.length) {
-    for (const m of fc.modifiers) {
-      if (m.mute) continue;
-      let nv = v;
-      if (m.type === 'CYCLES' && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
-      else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
-      else if (m.type === 'GENERATOR' && m.coefficients) {
-        let p = 0;
-        m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
-        nv = m.use_additive ? v + p : p;
-      } else if (m.type === 'FNGENERATOR') {
-        const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
-        nv = m.use_additive ? v + g : g;
-      } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
-      else if (m.type === 'LIMITS') {
-        if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
-        if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
-      } else continue;
-      const w = modifierWeight(m, frame);
-      v = w >= 1 ? nv : v + (nv - v) * w;
-    }
+  return applyModifiersToValue(fc.modifiers, frame, evaluateRaw(fc, f), fc);
+}
+
+/** Time-domain F-Modifiers (Stepped) applied to a frame, for modifier stacks without keys (NLA strips). */
+export function modifiersTime(mods: FModifier[], frame: number): number {
+  let f = frame;
+  for (const m of mods) {
+    if (m.mute || m.type !== 'STEPPED') continue;
+    const step = m.frame_step || 2,
+      off = m.frame_offset || 0;
+    const g = Math.floor((f - off) / step) * step + off;
+    const w = modifierWeight(m, frame);
+    f = w >= 1 ? g : f + (g - f) * w;
+  }
+  return f;
+}
+
+/** Value-domain F-Modifiers applied to a value at a frame (`fc` gives Cycles' repeat offset). */
+export function applyModifiersToValue(mods: FModifier[], frame: number, value: number, fc?: FCurve): number {
+  let v = value;
+  for (const m of mods) {
+    if (m.mute) continue;
+    let nv = v;
+    if (m.type === 'CYCLES' && fc && (m.mode_before === 'REPEAT_OFFSET' || m.mode_after === 'REPEAT_OFFSET')) nv = v + cycleOffset(fc, m, frame);
+    else if (m.type === 'NOISE') nv = v + noise1((frame - (m.offset ?? 0)) / (m.scale || 1) + (m.phase ?? 1) * 7.31, m.depth ?? 0) * (m.strength ?? 1);
+    else if (m.type === 'GENERATOR' && m.coefficients) {
+      let p = 0;
+      m.coefficients.forEach((c, i) => (p += c * Math.pow(frame, i)));
+      nv = m.use_additive ? v + p : p;
+    } else if (m.type === 'FNGENERATOR') {
+      const g = (m.amplitude ?? 1) * builtinFunction(m.function_type ?? 'SIN', (m.phase_multiplier ?? 1) * frame + (m.phase_offset ?? 0)) + (m.value_offset ?? 0);
+      nv = m.use_additive ? v + g : g;
+    } else if (m.type === 'ENVELOPE') nv = envelopeValue(m, frame, v);
+    else if (m.type === 'LIMITS') {
+      if (m.use_min_y) nv = Math.max(m.min_y ?? 0, nv);
+      if (m.use_max_y) nv = Math.min(m.max_y ?? 0, nv);
+    } else continue;
+    const w = modifierWeight(m, frame);
+    v = w >= 1 ? nv : v + (nv - v) * w;
   }
   return v;
 }

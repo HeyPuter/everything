@@ -7,7 +7,7 @@ import { newObject, uid } from '../data/defaults';
 import { uniqueName } from '../ops/object';
 import { newModifier } from '../eval/modifiers';
 import { applyMatrixToObject, toMatrix4 } from '../eval/transform';
-import { ensureAction, ensureFCurve, rotationPath } from '../anim/keyframes';
+import { keyingTarget, ensureFCurve, rotationPath } from '../anim/keyframes';
 import { insertKeyframe } from '../anim/fcurve';
 import { caches, freeCache, objectWorldAt, startBudget } from './common';
 import { freeRigidBodyLive, loadRapier, rapierLoaded, rigidBodyMatrix, simulateRigidBodies, RB_CACHE } from './rigidbody';
@@ -163,7 +163,7 @@ function bakeToKeyframes(doc: DocumentData, obs: ObjectData[], start: number, en
   }
   for (const ob of obs) {
     const scratch = { ...ob, location: [...ob.location], rotation_euler: [...ob.rotation_euler], rotation_quaternion: [...ob.rotation_quaternion], rotation_axis_angle: [...ob.rotation_axis_angle], scale: [...ob.scale] } as ObjectData;
-    const act = ensureAction(doc, ob);
+    const { act, slot } = keyingTarget(doc, ob);
     const rpath = rotationPath(ob);
     for (let f = start; f <= end; f += step) {
       const world = rigidBodyMatrix(doc, ob.id, f) ?? objectWorldAt(doc, ob, f);
@@ -173,8 +173,8 @@ function bakeToKeyframes(doc: DocumentData, obs: ObjectData[], start: number, en
       applyMatrixToObject(scratch, local);
       const loc = scratch.location;
       const rot = rpath === 'rotation_quaternion' ? scratch.rotation_quaternion : rpath === 'rotation_axis_angle' ? scratch.rotation_axis_angle : scratch.rotation_euler;
-      for (let i = 0; i < 3; i++) insertKeyframe(ensureFCurve(act, 'location', i), f, loc[i]);
-      for (let i = 0; i < rot.length; i++) insertKeyframe(ensureFCurve(act, rpath, i), f, rot[i]);
+      for (let i = 0; i < 3; i++) insertKeyframe(ensureFCurve(act, 'location', i, slot), f, loc[i]);
+      for (let i = 0; i < rot.length; i++) insertKeyframe(ensureFCurve(act, rpath, i, slot), f, rot[i]);
     }
     ob.rigid_body = null;
   }

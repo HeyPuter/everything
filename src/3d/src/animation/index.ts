@@ -14,3 +14,4 @@ import './nlaops';
 import '../anim/keyingsets';
 import './miscops';
 import './driverops';
+import './slotops';

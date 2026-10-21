@@ -729,6 +729,24 @@ export interface FCurve {
   color?: Color;
   /** baked samples (frame, value) used when the curve has no keyframes */
   sampled_points?: [number, number][];
+  /** handle of the action slot this curve animates (actions with slots; the first slot when absent) */
+  slot?: number;
+  /** set when the curve's property could not be found during evaluation ("Revive Disabled F-Curves" clears it) */
+  disabled?: boolean;
+}
+
+/**
+ * A slot of an action: one data-block's worth of animation. Several data-blocks can play
+ * the same action, each through its own slot (or share one).
+ */
+export interface ActionSlot {
+  /** stable number the users refer to (unique within the action) */
+  handle: number;
+  /** two-letter data-block type code ('OB', 'ME', …; 'XX' until first assigned) followed by the name */
+  identifier: string;
+  select?: boolean;
+  /** expanded in the channel list of the Action Editor */
+  show_expanded?: boolean;
 }
 
 export interface ActionData {
@@ -740,6 +758,12 @@ export interface ActionData {
   /** markers stored with the action (shown in the Action Editor with Show Pose Markers) */
   pose_markers?: TimelineMarker[];
   users?: number;
+  /** slots (absent / empty: a single implicit slot playing every curve on whatever uses the action) */
+  slots?: ActionSlot[];
+  /** last slot handle handed out */
+  last_slot_handle?: number;
+  /** handle of the slot shown as active in the Action Editor */
+  active_slot?: number;
 }
 
 export interface NlaStrip {
@@ -759,9 +783,15 @@ export interface NlaStrip {
   select?: boolean;
   extrapolation: 'HOLD' | 'HOLD_FORWARD' | 'NOTHING';
   /** strip kind (action clip when absent) */
-  type?: 'CLIP' | 'TRANSITION' | 'META';
+  type?: 'CLIP' | 'TRANSITION' | 'META' | 'SOUND';
   /** META: the grouped strips, in inner time (action_frame_start..end) */
   strips?: NlaStrip[];
+  /** slot of the action the strip plays (0: none; absent: found through the owner, see anim/slots.ts) */
+  action_slot_handle?: number;
+  /** F-Modifiers acting on every channel the strip produces */
+  modifiers?: FModifier[];
+  /** SOUND strips: the speaker's sound plays from the strip start */
+  sound?: ID | null;
 }
 
 export interface NlaTrack {
@@ -780,7 +810,13 @@ export interface AnimData {
   action_influence?: number;
   drivers: Driver[];
   /** NLA tweak mode: the strip whose action is being edited */
-  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean } | null;
+  tweak?: { track: number; strip: number; prev_action: ID | null; upper: boolean; prev_slot?: number; prev_slot_action?: ID | null } | null;
+  /** slot of `action` this data-block plays (0: none); valid while slot_action equals action */
+  action_slot_handle?: number;
+  /** the action action_slot_handle refers to (when it differs from action, the slot is found again) */
+  slot_action?: ID | null;
+  /** identifier of the slot last assigned, used to find a slot again when another action is assigned */
+  last_slot_identifier?: string;
 }
 
 export type DriverIdType = 'OBJECT' | 'SCENE' | 'MESH' | 'CURVE' | 'LIGHT' | 'CAMERA' | 'ARMATURE' | 'LATTICE' | 'MATERIAL' | 'WORLD' | 'IMAGE' | 'ACTION' | 'NODETREE' | 'TEXT' | 'COLLECTION' | 'PARTICLE';

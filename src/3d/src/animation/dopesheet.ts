@@ -6,7 +6,9 @@ import { registerEditor, type Area } from '../ui/screen';
 import { openMenu, type MenuItem } from '../ui/menu';
 import { numberField, textField, checkbox } from '../ui/widgets';
 import { actionRange } from './actionops';
-import type { ActionData, Keyframe, ShapeKey, TimelineMarker } from '../data/types';
+import type { ActionData, Keyframe, ObjectData, ShapeKey, TimelineMarker } from '../data/types';
+import { findSlot, slotIdType, slotName, slotUsers } from '../anim/slots';
+import { objectSlotBinding, renameSlotEverywhere, slotSelector } from './slotops';
 import { AnimEditor, RULER_H, menuButton, hdrToggle, markerMenu, type Selectable, type SidebarTab } from './animeditor';
 import type { Channel, SpaceKind } from './channels';
 import { C, drawKey, shapeFor } from './theme';
@@ -117,17 +119,9 @@ export class DopeSheet extends AnimEditor {
       menuButton('Marker', markerMenu),
       menuButton('Channel', () => channelMenu('action')),
       menuButton('Key', () => keyMenu('action')),
-      this.mode === 'ACTION'
-        ? menuButton('Action', () => [
-            { label: 'New Action', op: 'action.new' },
-            { label: 'Unlink Action', op: 'action.unlink' },
-            { separator: true },
-            { label: 'Push Down Action', op: 'action.push_down' },
-            { label: 'Stash Action', op: 'action.stash' },
-            { label: 'Stash and Create New', op: 'action.stash_and_create' },
-          ])
-        : null,
+      this.mode === 'ACTION' ? menuButton('Action', actionMenu) : null,
       this.mode === 'ACTION' && ob ? actionSelector(ob) : null,
+      this.mode === 'ACTION' && ob ? this.slotHeader(ob) : null,
       h('div', { class: 'hdr-spacer' }),
       this.mode === 'DOPESHEET'
         ? hdrToggle(
@@ -152,6 +146,12 @@ export class DopeSheet extends AnimEditor {
     );
   }
 
+  /** Slot selector next to the action selector (actions with slots). */
+  private slotHeader(ob: ObjectData): Child {
+    const b = objectSlotBinding(ob);
+    return b ? slotSelector('ds-slot', b, 'header') : null;
+  }
+
   private poseMarkerAction(): ActionData | null {
     if (this.mode !== 'ACTION' || !this.showPoseMarkers) return null;
     const id = app.activeObject?.animation_data?.action;
@@ -172,7 +172,7 @@ export class DopeSheet extends AnimEditor {
   protected sidebarTabs(): SidebarTab[] {
     const ob = app.activeObject;
     const act = ob?.animation_data?.action ? app.doc.actions[ob.animation_data.action] : undefined;
-    return act ? [{ id: 'action', label: 'Action', draw: () => actionPanel(act) }] : [];
+    return act ? [{ id: 'action', label: 'Action', draw: () => [actionPanel(act), slotPanel(act)] }] : [];
   }
 
   viewMenu(): MenuItem[] {
@@ -540,6 +540,50 @@ function actionPanel(act: ActionData): Child {
   );
 }
 
+/** The action's active slot: name and the type of data-block it is for. */
+function slotPanel(act: ActionData): Child {
+  const slot = findSlot(act, act.active_slot) ?? act.slots?.[0];
+  if (!slot) return null;
+  const row = (label: string, c: Child) => h('div', { class: 'split-row' }, h('div', { class: 'sr-label' }, label), h('div', { class: 'sr-value' }, c), h('span'));
+  const t = slotIdType(slot);
+  const users = slotUsers(app.doc, act, slot.handle);
+  return h(
+    'div',
+    { class: 'anim-sb-panel' },
+    h('div', { class: 'anim-sb-title' }, 'Slot'),
+    row(
+      'Name',
+      textField('ds-slot-name', slotName(slot), (v) => {
+        if (!v.trim()) return;
+        renameSlotEverywhere(app.doc, act, slot, v.trim());
+        app.pushUndo('Rename Slot');
+        app.changed('doc');
+      }),
+    ),
+    row('Type', h('span', { class: 'sr-text' }, t === 'UNSPECIFIED' ? 'Not yet assigned' : t.charAt(0) + t.slice(1).toLowerCase())),
+    row('Users', h('span', { class: 'sr-text' }, users.length ? users.map((o) => o.name).join(', ') : 'None')),
+  );
+}
+
+/** Header ▸ Action menu of the Action Editor. */
+function actionMenu(): MenuItem[] {
+  return [
+    { label: 'Merge Animation', op: 'anim.merge_animation' },
+    { label: 'Separate Slots', op: 'anim.separate_slots' },
+    { label: 'Replace Action', op: 'anim.replace_action' },
+    { label: 'Replace with New Action', op: 'anim.replace_action_new' },
+    { separator: true },
+    { label: 'Move Slots to new Action', op: 'anim.slot_channels_move_to_new_action' },
+    { separator: true },
+    { label: 'New Action', op: 'action.new' },
+    { label: 'Unlink Action', op: 'action.unlink' },
+    { separator: true },
+    { label: 'Push Down Action', op: 'action.push_down' },
+    { label: 'Stash Action', op: 'action.stash' },
+    { label: 'Stash and Create New', op: 'action.stash_and_create' },
+  ];
+}
+
 function rowColor(ch: Channel) {
   switch (ch.kind) {
     case 'SUMMARY':
@@ -548,6 +592,8 @@ function rowColor(ch: Channel) {
       return C.objectRow;
     case 'ACTION':
       return C.actionRow;
+    case 'SLOT':
+      return C.objectRow;
     case 'GROUP':
       return ch.ob && ch.action ? C.groupRow : C.groupRow;
     default:

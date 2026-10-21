@@ -10,7 +10,8 @@ import { app } from '../app/app';
 import type { ActionData, AnimData, Driver, DriverVariable, FCurve, FModifier, KeyingSetData, NlaStrip, NlaTrack, ObjectData, TimelineMarker } from '../data/types';
 import { newAction } from '../data/defaults';
 import { getValue } from '../data/rna';
-import { ensureAction, ensureFCurve, keyProperty } from '../anim/keyframes';
+import { ensureFCurve, keyProperty } from '../anim/keyframes';
+import { assignAction, objectCurves, slotCurves } from '../anim/slots';
 import { calcHandles, evaluateFCurve, insertKeyframe, sortKeyframes } from '../anim/fcurve';
 import { animTarget, locateOwner } from '../ui/rnapath';
 import { ActionStruct, ObjectStruct, SceneStruct, uniqueName, wrapId } from './api';
@@ -87,7 +88,7 @@ export function insertKey(t: Target, index: number, frame: unknown, group?: stri
   } finally {
     ts.keyframe_type = prevType;
   }
-  if (group) for (const fc of ensureAction(app.doc, t.ob).fcurves) if (fc.data_path === t.path) fc.group = String(group);
+  if (group) for (const fc of objectCurves(app.doc, t.ob)) if (fc.data_path === t.path) fc.group = String(group);
   touched();
   return true;
 }
@@ -97,13 +98,14 @@ export function deleteKey(t: Target, index: number, frame: unknown) {
   const act = t.ob.animation_data?.action ? app.doc.actions[t.ob.animation_data.action] : null;
   let removed = false;
   if (act) {
-    for (const fc of act.fcurves) {
+    const mine = new Set(objectCurves(app.doc, t.ob));
+    for (const fc of mine) {
       if (fc.data_path !== t.path || (index >= 0 && fc.array_index !== index)) continue;
       const n = fc.keyframe_points.length;
       fc.keyframe_points = fc.keyframe_points.filter((k) => Math.abs(k.co[0] - f) > 1e-4);
       removed ||= fc.keyframe_points.length !== n;
     }
-    act.fcurves = act.fcurves.filter((fc) => fc.keyframe_points.length || fc.data_path !== t.path);
+    act.fcurves = act.fcurves.filter((fc) => !mine.has(fc) || fc.keyframe_points.length || fc.data_path !== t.path);
   }
   if (!removed) throw pyError('RuntimeError', `keyframe_delete: no keyframe at frame ${f} for "${t.path}"`);
   touched();
@@ -254,19 +256,20 @@ const adOf = (id: string) => {
 };
 const obPath = (id: string) => `bpy.data.objects[${q(app.doc.objects[id]?.name ?? '?')}]`;
 
-class AnimDataStruct extends Struct {
+export class AnimDataStruct extends Struct {
   constructor(readonly __obId: string) {
     super('AnimData', () => app.doc.objects[__obId]?.animation_data as unknown as Raw, `${obPath(__obId)}.animation_data`);
   }
   override __hidden() {
-    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action']);
+    return new Set(['id', 'nla_tracks', 'drivers', 'tweak', 'action', 'action_slot_handle', 'slot_action', 'last_slot_identifier']);
   }
   get action() {
     const a = adOf(this.__obId).action;
     return a && app.doc.actions[a] ? wrapId('actions', a) : null;
   }
   set action(v: unknown) {
-    adOf(this.__obId).action = v === null || v === undefined ? null : expectId(v, 'actions', 'Action');
+    // like assigning in the UI: the slot is picked again (last used, own name, or a never-used one)
+    assignAction(app.doc, obOf(this.__obId), adOf(this.__obId), v === null || v === undefined ? null : expectId(v, 'actions', 'Action'));
     touched();
   }
   get action_blend_type() {
@@ -363,6 +366,9 @@ function actionRange(a: ActionData | undefined): [number, number] {
   return [lo, hi > lo ? hi : lo + 1];
 }
 
+/** Extra members of NlaStrip wrappers (e.g. action slots, see api_slots.ts). */
+export const stripStructHooks: ((s: Struct, strip: NlaStrip, obId: string) => void)[] = [];
+
 class NlaStrips extends PropCollection<unknown> {
   constructor(
     readonly obId: string,
@@ -381,6 +387,7 @@ class NlaStrips extends PropCollection<unknown> {
     const s = new Struct('NlaStrip', () => (this.strips().includes(st) ? (st as unknown as Raw) : null), `${this.__path}[${q(st.name)}]`);
     Object.defineProperty(s, '__strip', { value: st });
     const obId = this.obId;
+    for (const hook of stripStructHooks) hook(s, st, obId);
     Object.defineProperty(s, 'strips', { get: () => new NlaStrips(obId, () => (st.strips ??= []), s.__path) });
     // the strip's length follows its action range, scale and repeat
     const span = () => (st.action_frame_end - st.action_frame_start) * st.scale * st.repeat;
@@ -676,12 +683,21 @@ const actOf = (id: string) => {
   return a;
 };
 
-class FCurves extends PropCollection<unknown> {
-  constructor(readonly actId: string) {
-    super(`bpy.data.actions[${q(app.doc.actions[actId]?.name ?? '?')}].fcurves`);
+/** F-Curves of an action (`action.fcurves`), or of one slot of it (a channelbag's `fcurves`). */
+export class FCurves extends PropCollection<unknown> {
+  constructor(
+    readonly actId: string,
+    readonly slot?: number,
+    path?: string,
+  ) {
+    super(path ?? `bpy.data.actions[${q(app.doc.actions[actId]?.name ?? '?')}].fcurves`);
+  }
+  private curves() {
+    const act = actOf(this.actId);
+    return this.slot === undefined ? act.fcurves : slotCurves(act, this.slot);
   }
   list() {
-    return actOf(this.actId).fcurves.map((f) => fcurveWrapper(this.actId, f));
+    return this.curves().map((f) => fcurveWrapper(this.actId, f));
   }
   nameOf(x: unknown) {
     return (x as { data_path: string }).data_path;
@@ -689,15 +705,19 @@ class FCurves extends PropCollection<unknown> {
   new(data_path: string, index = 0, action_group = '') {
     const act = actOf(this.actId);
     const i = Number(index ?? 0);
-    if (act.fcurves.some((f) => f.data_path === data_path && f.array_index === i)) throw pyError('RuntimeError', `Error: F-Curve '${data_path}[${i}]' already exists in action '${act.name}'`);
-    const fc = ensureFCurve(act, String(data_path), i);
+    if (this.curves().some((f) => f.data_path === data_path && f.array_index === i)) throw pyError('RuntimeError', `Error: F-Curve '${data_path}[${i}]' already exists in action '${act.name}'`);
+    const fc = ensureFCurve(act, String(data_path), i, this.slot);
     if (action_group) fc.group = String(action_group);
     touched();
     return fcurveWrapper(this.actId, fc);
   }
   find(data_path: string, index = 0) {
-    const fc = actOf(this.actId).fcurves.find((f) => f.data_path === data_path && f.array_index === Number(index ?? 0));
+    const fc = this.curves().find((f) => f.data_path === data_path && f.array_index === Number(index ?? 0));
     return fc ? fcurveWrapper(this.actId, fc) : null;
+  }
+  /** The F-Curve for data_path/index, created when missing. */
+  ensure(data_path: string, index = 0, group_name = '') {
+    return this.find(data_path, index) ?? this.new(data_path, index, group_name);
   }
   remove(fcurve: unknown) {
     const act = actOf(this.actId);
@@ -708,11 +728,14 @@ class FCurves extends PropCollection<unknown> {
     touched();
   }
   clear() {
-    actOf(this.actId).fcurves = [];
+    const act = actOf(this.actId);
+    const mine = new Set(this.curves());
+    act.fcurves = act.fcurves.filter((f) => !mine.has(f));
     touched();
   }
 }
 kwMethod(FCurves.prototype, 'new', ['data_path', 'index', 'action_group']);
+kwMethod(FCurves.prototype, 'ensure', ['data_path', 'index', 'group_name']);
 kwMethod(FCurves.prototype, 'find', ['data_path', 'index']);
 
 const fcCache = new WeakMap<FCurve, unknown>();

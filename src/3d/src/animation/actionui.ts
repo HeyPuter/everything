@@ -1,5 +1,5 @@
-// Action data-block selector (browse / name / fake user / new / unlink) and
-// the Push Down / Stash buttons used in the Action Editor header.
+// Action data-block selector (browse / name / users / fake user / new / unlink) used in the
+// Action Editor header.
 import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app } from '../app/app';
@@ -9,6 +9,7 @@ import { textField } from '../ui/widgets';
 import type { ObjectData } from '../data/types';
 import { activeAction } from './channels';
 import { ensureAnimData } from './actionops';
+import { actionUsers, assignAction } from '../anim/slots';
 
 export function browseActions(ob: ObjectData, anchor: HTMLElement | { x: number; y: number }, onPick?: (id: string) => void) {
   const acts = Object.values(app.doc.actions).sort((a, b) => a.name.localeCompare(b.name));
@@ -23,7 +24,7 @@ export function browseActions(ob: ObjectData, anchor: HTMLElement | { x: number;
       active: ob.animation_data?.action === a.id,
       action: () => {
         if (onPick) return onPick(a.id);
-        ensureAnimData(ob).action = a.id;
+        assignAction(app.doc, ob, ensureAnimData(ob), a.id);
         app.pushUndo('Assign Action');
         app.changed('doc');
       },
@@ -35,6 +36,7 @@ export function browseActions(ob: ObjectData, anchor: HTMLElement | { x: number;
 
 export function actionSelector(ob: ObjectData): Child {
   const act = activeAction(app.doc, ob);
+  const users = act ? new Set(actionUsers(app.doc, act.id).map((u) => u.ob)).size : 0;
   return h(
     'div',
     {
@@ -72,6 +74,17 @@ export function actionSelector(ob: ObjectData): Child {
             },
             { className: 'anim-id-name' },
           ),
+          users > 1
+            ? h(
+                'button',
+                {
+                  class: 'anim-id-users',
+                  'data-tip': 'Users\nNumber of data-blocks using this action (click to give the active object its own copy)',
+                  onclick: () => app.run('action.new'),
+                },
+                String(users),
+              )
+            : null,
           h(
             'button',
             {
@@ -101,30 +114,5 @@ export function actionSelector(ob: ObjectData): Child {
           ),
         ]
       : h('button', { class: 'anim-id-new', onclick: () => app.run('action.new') }, icon('add'), 'New'),
-    act
-      ? h(
-          'button',
-          {
-            key: 'push',
-            class: 'anim-id-wide',
-            'data-tip': 'Push Down Action\nPush action down onto the top of the NLA stack as a new strip',
-            onclick: () => app.run('action.push_down'),
-          },
-          icon('nla'),
-          'Push Down',
-        )
-      : null,
-    act
-      ? h(
-          'button',
-          {
-            key: 'stash',
-            class: 'anim-id-wide',
-            'data-tip': 'Stash Action\nStore this action in the NLA stack as a non-contributing strip for later use',
-            onclick: () => app.run('action.stash'),
-          },
-          'Stash',
-        )
-      : null,
   );
 }

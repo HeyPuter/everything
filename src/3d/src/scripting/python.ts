@@ -361,7 +361,7 @@ export function loadPython(): Promise<PyodideAPI> {
       inst.FS.writeFile('/home/pyodide/p3d/p3d_runtime.py', runtimePy);
       inst.FS.writeFile('/home/pyodide/p3d/bpy_extras.py', bpyExtrasPy);
       for (const [file, src] of Object.entries(pyModuleFiles)) inst.FS.writeFile(`/home/pyodide/p3d/${file}`, src);
-      inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils");
+      inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils\nsys.modules['bpy_extras.anim_utils'] = bpy_extras.anim_utils");
       runtime = inst.pyimport('p3d_runtime');
       py = inst;
       python.version = String(inst.runPython('import sys; sys.version.split()[0]'));

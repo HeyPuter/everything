@@ -12,6 +12,8 @@ import { keyProperty } from '../anim/keyframes';
 import type { ObjectData, TimelineMarker } from '../data/types';
 import { View2D, frameStep, formatSeconds } from './view2d';
 import { C } from './theme';
+import { curveSlot, slotName } from '../anim/slots';
+import { renameSlotEverywhere } from './slotops';
 import { buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
 import { markerMenu, markerAt, markersLocked } from './markers';
@@ -454,7 +456,10 @@ export abstract class AnimEditor implements Editor {
     channelState.selectedGroups.clear();
     channelState.selectedDrivers.clear();
     channelState.selectedShapeKeys.clear();
-    for (const ch of this.list.rows) if (ch.kind === 'NLA_TRACK' && ch.track) ch.track.select = false;
+    for (const ch of this.list.rows) {
+      if (ch.kind === 'NLA_TRACK' && ch.track) ch.track.select = false;
+      if (ch.kind === 'SLOT' && ch.slot) ch.slot.select = false;
+    }
   }
 
   /** Markers shown in the marker row (the scene's; the Action Editor can show pose markers). */
@@ -567,6 +572,8 @@ export abstract class AnimEditor implements Editor {
       return;
     }
     if (ch.kind === 'ACTION' || ch.kind === 'DRIVERS' || ch.kind === 'NLA_ACTION') return;
+    // a slot row makes its slot the action's active one (shown in the sidebar)
+    if (ch.kind === 'SLOT' && ch.action && ch.slot) ch.action.active_slot = ch.slot.handle;
     const was = channelSelected(ch);
     if (!extend) this.deselectChannels();
     setChannelSelected(ch, extend ? !was : true);
@@ -587,6 +594,11 @@ export abstract class AnimEditor implements Editor {
       const a = ch.action;
       current = a.name;
       apply = (v) => (a.name = v);
+    } else if (ch.kind === 'SLOT' && ch.action && ch.slot) {
+      const a = ch.action,
+        slot = ch.slot;
+      current = slotName(slot);
+      apply = (v) => renameSlotEverywhere(app.doc, a, slot, v);
     } else if (ch.kind === 'NLA_ACTION' && ch.action) {
       const a = ch.action;
       current = a.name;
@@ -595,8 +607,9 @@ export abstract class AnimEditor implements Editor {
       const a = ch.action,
         old = ch.group;
       current = old;
+      const slot = ch.curves[0] ? curveSlot(a, ch.curves[0].fc) : undefined;
       apply = (v) => {
-        for (const fc of a.fcurves) if (fc.group === old) fc.group = v;
+        for (const fc of a.fcurves) if (fc.group === old && (slot === undefined || curveSlot(a, fc) === slot)) fc.group = v;
       };
     } else if (ch.kind === 'NLA_TRACK' && ch.track) {
       const t = ch.track;
@@ -642,7 +655,7 @@ export abstract class AnimEditor implements Editor {
 
   /** Whether a channel can be renamed in place. */
   canRename(ch: Channel) {
-    return ['OBJECT', 'ACTION', 'NLA_ACTION', 'GROUP', 'NLA_TRACK', 'SHAPEKEY'].includes(ch.kind) && (ch.kind !== 'ACTION' && ch.kind !== 'NLA_ACTION' ? true : !!ch.action);
+    return ['OBJECT', 'ACTION', 'SLOT', 'NLA_ACTION', 'GROUP', 'NLA_TRACK', 'SHAPEKEY'].includes(ch.kind) && (ch.kind !== 'ACTION' && ch.kind !== 'NLA_ACTION' ? true : !!ch.action);
   }
 
   protected channelDown(e: PointerEvent, ch: Channel) {
