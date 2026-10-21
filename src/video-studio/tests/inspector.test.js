@@ -581,6 +581,17 @@ describe('video basic extras', () => {
     expect(clip(env.v1.id).transform.x).toBe(0);
   });
 
+  it('a first enhance or relight drag is one undo step', () => {
+    const section = (title) => [...env.el.querySelectorAll('.extra-section')].find((x) => x.querySelector('.section-title').textContent === title);
+    for (const [title, label] of [['Enhance quality', 'Strength'], ['Relight', 'Intensity'], ['Relight', 'Light from']]) {
+      const before = env.store.history.undoStack.length;
+      drag(field(label, section(title)).querySelector('input[type=range]'), [10, 20, 30]);
+      expect(env.store.history.undoStack.length).toBe(before + 1);
+    }
+    expect(clip(env.v1.id).enhance.strength).toBe(30);
+    expect(clip(env.v1.id).relight).toMatchObject({ intensity: 30, angle: 30 });
+  });
+
   it('turns picture sections on and applies the canvas to all clips', () => {
     env.el.querySelector('[aria-label="Apply motion blur"]').click();
     expect(clip(env.v1.id).motionBlur).toEqual({ on: true, amount: 50 });

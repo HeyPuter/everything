@@ -183,7 +183,8 @@ export function enhanceSection(view) {
     get: () => Math.round(view.clip?.enhance ? view.valueOf('enhance.strength') : EXTRA_DEFAULTS.enhance.strength),
     set: (v, final) => {
       if (!view.clip?.enhance) setExtra(view, 'enhance', 'Enhance quality', 'strength', v, final);
-      else view.animate('enhance.strength', v, { label: 'Enhance quality', final });
+      // Same undo key as setExtra: a drag that turns the section on stays one step.
+      else view.animate('enhance.strength', v, { label: 'Enhance quality', final, key: 'enhance-strength' });
     },
   });
   const small = h('p.insp-note.enhance-small', { hidden: true }, icon('info', 14), h('span'));
@@ -214,7 +215,8 @@ function relightSlider(view, field, opts) {
     get: () => Math.round(view.clip?.relight ? view.valueOf(prop) : EXTRA_DEFAULTS.relight[field]),
     set: (v, final) => {
       if (!view.clip?.relight) setExtra(view, 'relight', 'Relight', field, v, final);
-      else view.animate(prop, v, { label: 'Relight', final });
+      // Same undo key as setExtra: a drag that turns the section on stays one step.
+      else view.animate(prop, v, { label: 'Relight', final, key: `relight-${field}` });
     },
   });
 }
