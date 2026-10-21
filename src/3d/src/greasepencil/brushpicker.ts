@@ -38,7 +38,13 @@ export function brushTiles(): Tile[] {
           active: cur === t.id && ts.gpencil_draw_brush === p.id,
           pick: () => {
             ts.gpencil_draw_brush = p.id;
-            Object.assign(gpBrush(app.doc, 'builtin.brush.Draw'), { size: p.size, strength: p.strength, use_pressure_size: p.use_pressure_size, use_pressure_strength: p.use_pressure_strength, pen_smooth_factor: p.smooth });
+            Object.assign(gpBrush(app.doc, 'builtin.brush.Draw'), {
+              size: p.size,
+              strength: p.strength,
+              use_pressure_size: p.use_pressure_size,
+              use_pressure_strength: p.use_pressure_strength,
+              pen_smooth_factor: p.smooth,
+            });
             setActiveTool(t.id);
           },
         });

@@ -7,7 +7,7 @@ import { activeTools } from '../app/prefs';
 import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { activeView3D } from '../editors/view3d/view3d';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
 import { h } from '../ui/h';
 import { renderContext } from '../render/context';
 import type { ObjectData } from '../data/types';
@@ -284,7 +284,7 @@ function eraseDab(v: View3D, x: number, y: number, pressure: number, b: GPBrush,
   app.changed('doc');
 }
 
-function startErase(v: View3D, e: PointerEvent) {
+export function startErase(v: View3D, e: PointerEvent) {
   const b = gpBrush(app.doc, 'builtin.brush.Erase');
   const touched = new Map<GPLayer, number>();
   runStroke(v, e, {
@@ -300,7 +300,7 @@ function startErase(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Tint
 
-function startTint(v: View3D, e: PointerEvent) {
+export function startTint(v: View3D, e: PointerEvent) {
   const c = drawContext();
   if (!c) return;
   const b = gpBrush(app.doc, 'builtin.brush.Tint');
@@ -381,7 +381,7 @@ function startTint(v: View3D, e: PointerEvent) {
 // ---------------------------------------------------------------------------
 // Fill
 
-function doFill(v: View3D, x: number, y: number, ctrl = false) {
+export function doFill(v: View3D, x: number, y: number, ctrl = false) {
   const c = drawContext();
   if (!c || !checkLayer(c.layer) || !materialUsable(c)) return;
   const b = gpBrush(app.doc, 'builtin.brush.Fill');

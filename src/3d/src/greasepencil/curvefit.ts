@@ -415,3 +415,56 @@ export function toggleTarget(strokes: GPStroke[]): number {
 
 /** A stroke counts as selected when a point or a handle of it is. */
 export const strokeSelected = (s: GPStroke) => s.points.some((p) => p.select || p.select_left || p.select_right);
+
+// ---------------------------------------------------------------------------
+// Pen tool edits
+
+const lerp3 = (a: number[], b: number[], t: number): V3 => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+function lerpPoint(p: GPPoint, q: GPPoint, t: number, co: V3): GPPoint {
+  return {
+    co,
+    radius: p.radius + (q.radius - p.radius) * t,
+    opacity: p.opacity + (q.opacity - p.opacity) * t,
+    vertex_color: [0, 1, 2, 3].map((k) => p.vertex_color[k] + (q.vertex_color[k] - p.vertex_color[k]) * t) as [number, number, number, number],
+  };
+}
+
+/** Insert a control point on segment k (point k → k+1) of a stroke at parameter u, keeping the shape. */
+export function insertOnSegment(s: GPStroke, k: number, u: number): { stroke: GPStroke; index: number } {
+  const n = s.points.length;
+  const a = s.points[k],
+    b = s.points[(k + 1) % n];
+  const pts = s.points.map((p) => ({ ...p }));
+  let np: GPPoint;
+  if (s.curve_type === GP_BEZIER && a.handle_right && b.handle_left) {
+    // de Casteljau split of the cubic a, a.R, b.L, b
+    const p01 = lerp3(a.co, a.handle_right, u),
+      p12 = lerp3(a.handle_right, b.handle_left, u),
+      p23 = lerp3(b.handle_left, b.co, u);
+    const p012 = lerp3(p01, p12, u),
+      p123 = lerp3(p12, p23, u);
+    const m = lerp3(p012, p123, u);
+    np = { ...lerpPoint(a, b, u, m), handle_left: p012, handle_right: p123, handle_type_left: H_ALIGN, handle_type_right: H_ALIGN };
+    const A = pts[k],
+      B = pts[(k + 1) % n];
+    A.handle_right = p01;
+    B.handle_left = p23;
+    // derived handles would change the shape: keep them where they are
+    const keep = (t: number | undefined) => (t === H_AUTO ? H_ALIGN : t === H_VECTOR ? H_FREE : t);
+    A.handle_type_right = keep(A.handle_type_right);
+    A.handle_type_left = A.handle_type_left === H_AUTO ? H_ALIGN : A.handle_type_left;
+    B.handle_type_left = keep(B.handle_type_left);
+    B.handle_type_right = B.handle_type_right === H_AUTO ? H_ALIGN : B.handle_type_right;
+  } else np = lerpPoint(a, b, u, lerp3(a.co, b.co, u));
+  np.select = true;
+  pts.splice(k + 1, 0, np);
+  return { stroke: { ...s, points: pts }, index: k + 1 };
+}
+
+const CYCLE = [H_AUTO, H_VECTOR, H_ALIGN, H_FREE];
+export function cycleHandleType(p: GPPoint): GPPoint {
+  const cur = p.handle_type_left ?? H_AUTO;
+  const next = CYCLE[(CYCLE.indexOf(cur) + 1) % CYCLE.length];
+  return { ...p, handle_type_left: next, handle_type_right: next };
+}

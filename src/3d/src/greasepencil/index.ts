@@ -41,6 +41,7 @@ import './pen';
 import './texgrad';
 import './fillguides';
 import './brushpicker';
+import './brushstroke';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

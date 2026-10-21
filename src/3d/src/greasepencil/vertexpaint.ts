@@ -9,7 +9,7 @@ import { editModeHooks } from '../editors/view3d/hooks';
 import type { View3D } from '../editors/view3d/view3d';
 import { extraToolLists, toolSettingsRenderers, type ToolDef } from '../editors/view3d/toolbar';
 import { modeMenus } from '../editors/view3d/modemenus';
-import { runStroke } from '../paint/stroke';
+import { gpRunStroke as runStroke } from './strokereplay';
 import { h } from '../ui/h';
 import { colorSwatch, enumMenu, numberField } from '../ui/widgets';
 import type { MenuItem } from '../ui/menu';
@@ -54,7 +54,7 @@ interface Target {
   world: Matrix4;
 }
 
-function startVertexPaint(v: View3D, e: PointerEvent) {
+export function startVertexPaint(v: View3D, e: PointerEvent) {
   const ob = app.activeObject!;
   const gp = gpOf(app.doc, ob)!;
   const tool = activeTools[app.doc.mode] ?? 'builtin.brush.VertexDraw';

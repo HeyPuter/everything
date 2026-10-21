@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fromStrokes, toStrokes, newStroke, newPoint, copyDrawing, normalizeDrawing, type GPPoint, type GPStroke } from '../../src/greasepencil/data';
 import { evaluatedDrawing, evaluatedControlIndex, GP_BEZIER, GP_CATMULL_ROM, GP_NURBS, GP_POLY, H_ALIGN, H_AUTO, H_FREE, H_VECTOR, withDerived } from '../../src/greasepencil/curves';
-import { setCurveType, convertCurveType, setHandleType, toggleTarget, fitCatmull, evaluatedPoints } from '../../src/greasepencil/curvefit';
+import { setCurveType, convertCurveType, setHandleType, toggleTarget, fitCatmull, evaluatedPoints, insertOnSegment, cycleHandleType } from '../../src/greasepencil/curvefit';
 import { buildStrokeBuffers, KIND_FILL, type StrokeStyle } from '../../src/greasepencil/geometry';
 
 const wave = (n = 120, cyclic = false): GPStroke => {
@@ -199,5 +199,42 @@ describe('handle types', () => {
     const f = setHandleType(r, 'TOGGLE_FREE_ALIGN', toggleTarget([r]))!;
     expect(toggleTarget([f])).toBe(H_ALIGN);
     expect(setHandleType(wave(3), 'AUTO')).toBeNull();
+  });
+});
+
+describe('pen edits', () => {
+  it('inserting a point on a Bézier segment keeps the shape', () => {
+    const s0 = setCurveType(newStroke([newPoint([0, 0, 0]), newPoint([1, 0, 1]), newPoint([2, 0, 0])]), GP_BEZIER, false);
+    s0.points.forEach((p) => (p.handle_type_left = p.handle_type_right = H_AUTO));
+    const s = toStrokes(fromStrokes([{ ...s0, resolution: 64 }]))[0];
+    const { stroke, index } = insertOnSegment(s, 0, 0.5);
+    expect(index).toBe(1);
+    expect(stroke.points.length).toBe(4);
+    expect(stroke.points[1].select).toBe(true);
+    // the new point lies on the old curve
+    const before = evaluatedPoints(s).map((p) => p.co);
+    const m = stroke.points[1].co;
+    const near = Math.min(...before.map((q) => Math.hypot(q[0] - m[0], q[1] - m[1], q[2] - m[2])));
+    expect(near).toBeLessThan(0.02);
+    // and the evaluated curve stays within a small distance of the old one
+    const after = evaluatedPoints(toStrokes(fromStrokes([stroke]))[0]).map((p) => p.co);
+    for (const q of after) expect(Math.min(...before.map((r) => Math.hypot(q[0] - r[0], q[1] - r[1], q[2] - r[2])))).toBeLessThan(0.03);
+  });
+
+  it('inserting on a poly segment interpolates the point', () => {
+    const s = newStroke([newPoint([0, 0, 0], 0.1), newPoint([2, 0, 0], 0.3)]);
+    const r = insertOnSegment(s, 0, 0.25).stroke;
+    expect(r.points[1].co).toEqual([0.5, 0, 0]);
+    expect(r.points[1].radius).toBeCloseTo(0.15);
+  });
+
+  it('cycles handle types', () => {
+    let p = { ...newPoint([0, 0, 0]), handle_type_left: H_AUTO, handle_type_right: H_AUTO };
+    const seen: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      p = cycleHandleType(p);
+      seen.push(p.handle_type_left!);
+    }
+    expect(seen).toEqual([H_VECTOR, H_ALIGN, H_FREE, H_AUTO]);
   });
 });
