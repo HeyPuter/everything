@@ -341,7 +341,9 @@ export class Nav {
         target.focus();
         const id = target.dataset.id;
         // Opening re-renders the list; put focus back on the row it was on.
-        const done = target.dataset.kind === 'page' ? this.app.openPage(id, { focus: false }) : target.dataset.kind === 'section' ? this.app.selectSection(id, { focus: false }) : null;
+        // Arrowing past a locked section doesn't stop to ask for its
+        // password; Enter or Unlock does.
+        const done = target.dataset.kind === 'page' ? this.app.openPage(id, { focus: false }) : target.dataset.kind === 'section' ? this.app.selectSection(id, { focus: false, unlock: false }) : null;
         this.focusRow(id);
         Promise.resolve(done).then(() => this.list(kind).contains(document.activeElement) || document.activeElement === document.body ? this.focusRow(id) : null);
       };

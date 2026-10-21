@@ -286,6 +286,24 @@ describe('App shell', () => {
     expect(app.taskPanes.el.querySelectorAll('[role="listitem"]')).toHaveLength(0);
   });
 
+  it('selects a locked section without asking for its password while arrowing through sections', async () => {
+    const nb = store.notebook(app.state.notebookId);
+    const secret = store.createSection(nb.id, { name: 'Secret' });
+    store.createPage(secret.id, { title: 'hidden' });
+    await store.protectSection(secret.id, 'pw');
+    await app.lockSection(secret.id);
+    const rows = () => [...app.nav.sectionsList.querySelectorAll('.row')];
+    const before = rows()[rows().findIndex((r) => r.dataset.id === secret.id) - 1];
+    before.focus();
+    keydown(before, 'ArrowDown');
+    await tick();
+    expect(document.querySelector('dialog[open]')).toBeNull();
+    expect(app.state.sectionId).toBe(secret.id);
+    expect(app.state.pageId).toBeNull();
+    expect(app.canvasCol.querySelector('.canvas-empty h2').textContent).toBe('This section is password protected');
+    expect(document.activeElement.dataset.id).toBe(secret.id);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

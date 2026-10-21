@@ -481,10 +481,11 @@ export class App {
     if (this.isPhone()) this.setMobileView('sections');
   }
 
-  async selectSection(id, { focus = true } = {}) {
+  /** unlock: false selects a locked section without asking for its password; the page offers Unlock. */
+  async selectSection(id, { focus = true, unlock = true } = {}) {
     const f = this.store.findNode(id);
     if (!f || f.node.type !== 'section') return;
-    if (f.node.locked && !this.isUnlocked(id)) {
+    if (unlock && f.node.locked && !this.isUnlocked(id)) {
       const ok = await features.unlockSection(this, f.node);
       if (!ok) return;
     }
