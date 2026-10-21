@@ -669,7 +669,8 @@ export class Store extends Emitter {
     this.cancel(`pages/${id}.json`);
     this.pages.delete(id);
     this.textCache.delete(id);
-    await Promise.all([this.backend.remove(`pages/${id}.json`), this.backend.remove(`versions/${id}.json`)]);
+    // A shared link must not outlive a page deleted for good.
+    await Promise.all([this.backend.remove(`pages/${id}.json`), this.backend.remove(`versions/${id}.json`), this.backend.remove(`published/${id}.json`)]);
   }
 
   // ---------------------------------------------------------------- versions

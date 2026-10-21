@@ -158,6 +158,17 @@ describe('Store: pages', () => {
     expect(store.backend.files.has(`pages/${a.id}.json`)).toBe(false);
   });
 
+  it('takes down the shared link of a page deleted for good', async () => {
+    const a = store.createPage(section.id, { title: 'Shared' });
+    await store.flush();
+    await store.backend.writeJSON(`published/${a.id}.json`, { format: 'notes-shared-page' });
+    const entry = store.deletePage(a.id);
+    // Only moving it to Deleted Notes keeps the link, so restoring keeps it too.
+    expect(store.backend.files.has(`published/${a.id}.json`)).toBe(true);
+    await store.purge(entry.id);
+    expect(store.backend.files.has(`published/${a.id}.json`)).toBe(false);
+  });
+
   it('copies a page next to the original', async () => {
     const a = store.createPage(section.id, { title: 'Plan' });
     store.createPage(section.id, { title: 'Other' });
