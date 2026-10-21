@@ -1849,7 +1849,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const base = wb.defaultStyle(wb.sheet(sid)) || {};
           return Object.fromEntries(Object.entries(preset.patch).map(([k, v]) => [k, v == null && k !== 'cellStyle' && base[k] != null ? base[k] : v]));
         };
-        const borders = (preset.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' }));
+        // Each edge keeps its own pen: Total's thin top line stays thin under its double bottom one.
+        const borders = (preset.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin', perSide: true }));
         // A pivot table's cells keep the preset's own reset, which its report formats can carry.
         const pivotPatch = !own && arg === 'normal' && builtIn ? { ...builtIn.patch, cellStyle: null } : preset.patch;
         const pivotBorders = !own && arg === 'normal' && builtIn ? (builtIn.borders || []).map(b => ({ ...b, color: b.color ?? null, style: b.style ?? 'thin' })) : borders;

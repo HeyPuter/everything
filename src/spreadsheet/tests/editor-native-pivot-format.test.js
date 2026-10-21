@@ -363,7 +363,7 @@ it.each(CELL_STYLES)('applies the $label cell style to native and ordinary cells
   wb.applyStyle(id, range, { italic: true, size: 24, bt: true, bc: '#123456' }); wb.clearHistory(); go('D6:F7');
   const before = wb.toJSON(), reference = new Workbook(before);
   reference.applyStyle(id, range, preset.patch);
-  for (const b of preset.borders || []) reference.applyBorders(id, range, b.kind, { color: b.color ?? null, style: b.style ?? 'thin' });
+  for (const b of preset.borders || []) reference.applyBorders(id, range, b.kind, { color: b.color ?? null, style: b.style ?? 'thin', perSide: true });
   await formatCommand('Cell styles', preset.label);
   for (let r = 5; r <= 6; r++) for (let c = 3; c <= 5; c++) {
     const actual = wb.styleAt(id, r, c), expected = reference.styleAt(id, r, c);
