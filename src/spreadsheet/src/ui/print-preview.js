@@ -302,17 +302,46 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
     // Each cell as it prints: its own style, under its table's colours (header, banded rows) and its conditional
     // formatting, which paint over it as they do on screen and on paper; a cell's own fill shows through a table's coat.
     const looked = !!(sheet.rules?.length || sheet.tables?.length);
-    const looks = rows.map(([r]) => cols.map(([c]) => {
+    const lookAt = (r, c) => {
       const own = wb.styleAt(shown, r, c) || {};
       const value = wb.getValue(shown, r, c);
       const cf = looked ? wb.conditionalStyle(shown, r, c, value) : null;
       const bg = cf?.bg && !(nativeFillOverridesNormal(own, wb.nativeNormalFill) && cf.coat) ? cf.bg : own.bg;
       return { st: conditionalFontStyle(own, cf), cf, bg, value };
-    }));
+    };
+    const looks = rows.map(([r]) => cols.map(([c]) => lookAt(r, c)));
+    // Merged cells print as one block: the top-left cell's fill and text across it, with no gridlines inside. Each run of
+    // the block on this page is a span; the value shows in the span that holds the block's first shown row and column,
+    // not again where a block runs on from the page before.
+    const spans = new Map(); // "i,j" of each cell a span covers → the span
+    if (sheet.merges?.length) {
+      const hiddenRow = (r) => !!(sheet.hiddenRows?.has(r) || sheet.filterHidden?.has(r)), hiddenCol = (c) => !!sheet.hiddenCols?.has(c);
+      const runs = (list, lo, hi) => {
+        const out = [];
+        list.forEach(([n], i) => { if (n < lo || n > hi) return; const run = out.at(-1); if (run && run[1] === i - 1) run[1] = i; else out.push([i, i]); });
+        return out;
+      };
+      const before = (from, to, hidden) => { for (let n = from; n < to; n++) if (!hidden(n)) return true; return false; };
+      const span = (list) => list.reduce(([lo, hi], [n]) => [Math.min(lo, n), Math.max(hi, n)], [Infinity, -Infinity]);
+      const [rLo, rHi] = span(rows), [cLo, cHi] = span(cols);
+      for (const m of sheet.merges) {
+        if (m.r2 < rLo || m.r1 > rHi || m.c2 < cLo || m.c1 > cHi) continue; // off this page: a sheet may hold thousands
+        for (const [i0, i1] of runs(rows, m.r1, m.r2)) for (const [j0, j1] of runs(cols, m.c1, m.c2)) {
+          if (i0 === i1 && j0 === j1) continue;
+          const show = !before(m.r1, rows[i0][0], hiddenRow) && !before(m.c1, cols[j0][0], hiddenCol);
+          const look = show ? (rows[i0][0] === m.r1 && cols[j0][0] === m.c1 ? looks[i0][j0] : lookAt(m.r1, m.c1)) : { ...looks[i0][j0], value: null };
+          const span = { i0, j0, i1, j1, look, from: show ? [m.r1, m.c1] : [rows[i0][0], cols[j0][0]], x: xs[j0], y: ys[i0], w: xs[j1 + 1] - xs[j0], h: ys[i1 + 1] - ys[i0] };
+          for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) spans.set(`${i},${j}`, span);
+        }
+      }
+    }
+    const spanBg = (span) => fillColorCss(span.look.bg);
     // Fills first, then the gridlines, then the text and borders over them.
     rows.forEach((_, i) => cols.forEach((__, j) => {
-      const bg = fillColorCss(looks[i][j].bg);
-      if (bg && bg !== 'transparent') { g.fillStyle = bg; g.fillRect(xs[j], ys[i], xs[j + 1] - xs[j], ys[i + 1] - ys[i]); }
+      const span = spans.get(`${i},${j}`);
+      if (span && (span.i0 !== i || span.j0 !== j)) return;
+      const bg = span ? spanBg(span) : fillColorCss(looks[i][j].bg);
+      if (bg && bg !== 'transparent') { g.fillStyle = bg; span ? g.fillRect(span.x, span.y, span.w, span.h) : g.fillRect(xs[j], ys[i], xs[j + 1] - xs[j], ys[i + 1] - ys[i]); }
     }));
     if (prefs.gridlines) {
       g.strokeStyle = '#d4d4d4'; g.lineWidth = Math.max(0.5, 0.75 * k);
@@ -320,6 +349,13 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       for (const x of xs) { g.moveTo(x, top); g.lineTo(x, ys.at(-1)); }
       for (const y of ys) { g.moveTo(left, y); g.lineTo(xs.at(-1), y); }
       g.stroke();
+      // A merged block has no gridlines inside it: painted over again, short of its own edges.
+      const inset = g.lineWidth / 2;
+      for (const span of new Set(spans.values())) {
+        const bg = spanBg(span);
+        g.fillStyle = bg && bg !== 'transparent' ? bg : '#ffffff';
+        g.fillRect(span.x + inset, span.y + inset, span.w - 2 * inset, span.h - 2 * inset);
+      }
     }
     // A cell under a checkbox rule prints a tick box in place of its TRUE or FALSE, blank or not, as the grid shows it.
     const ruleAt = sheet.validations?.length ? (r, c) => wb.validationAt(shown, r, c) : () => null;
@@ -346,13 +382,17 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
       g.restore();
     };
     rows.forEach(([r], i) => cols.forEach(([c], j) => {
-      const { st, cf, value } = looks[i][j];
-      const cx = xs[j], cy = ys[i], cw = xs[j + 1] - xs[j], ch = ys[i + 1] - ys[i];
-      const rule = ruleAt(r, c);
+      const span = spans.get(`${i},${j}`);
+      const lead = !span || (span.i0 === i && span.j0 === j);
+      // A merged block's text is its top-left cell's, set in the whole block; the cells it covers draw no text of their own.
+      const { st, cf, value } = span ? (lead ? span.look : { ...looks[i][j], value: null }) : looks[i][j];
+      const cx = span ? span.x : xs[j], cy = span ? span.y : ys[i], cw = span ? span.w : xs[j + 1] - xs[j], ch = span ? span.h : ys[i + 1] - ys[i];
+      const [sr, sc] = span ? span.from : [r, c];
+      const rule = lead ? ruleAt(sr, sc) : null;
       const checkbox = rule?.type === 'checkbox';
       if (checkbox) tickBox(rule, value === true, cx, cy, cw, ch);
       // A sheet set to hide its zero values prints those cells blank, as the grid shows them.
-      const text = checkbox || cf?.barOnly || cf?.iconOnly || (value === 0 && sheet.zeros === false) ? '' : wb.getDisplay(shown, r, c);
+      const text = !lead || value == null || checkbox || cf?.barOnly || cf?.iconOnly || (value === 0 && sheet.zeros === false) ? '' : wb.getDisplay(shown, sr, sc);
       if (text) {
         // With no alignment of its own, as the print sets it: logical values and errors centred, text written right to left at the right.
         const align = st.align || (typeof value === 'string' && readsRightToLeft(text) ? 'right' : defaultAlign(value));
@@ -368,9 +408,12 @@ export function createPrintPreview({ wb, sheetId, docName, filePath = '', getPre
         g.fillText(String(text).split('\n')[0], tx, ty);
         g.restore();
       }
-      for (const [flag, x1, y1, x2, y2] of [['bt', cx, cy, cx + cw, cy], ['bb', cx, cy + ch, cx + cw, cy + ch], ['bl', cx, cy, cx, cy + ch], ['br', cx + cw, cy, cx + cw, cy + ch]]) {
-        if (!st[flag]) continue;
-        const pen = borderCss(st[`${flag}Border`] || st);
+      // Each cell's borders on its own edges; inside a merged block, only those on the block's outline.
+      const own = looks[i][j].st, ox = xs[j], oy = ys[i], ow = xs[j + 1] - xs[j], oh = ys[i + 1] - ys[i];
+      const outline = { bt: !span || i === span.i0, bb: !span || i === span.i1, bl: !span || j === span.j0, br: !span || j === span.j1 };
+      for (const [flag, x1, y1, x2, y2] of [['bt', ox, oy, ox + ow, oy], ['bb', ox, oy + oh, ox + ow, oy + oh], ['bl', ox, oy, ox, oy + oh], ['br', ox + ow, oy, ox + ow, oy + oh]]) {
+        if (!own[flag] || !outline[flag]) continue;
+        const pen = borderCss(own[`${flag}Border`] || own);
         g.strokeStyle = pen.color || '#000000';
         g.lineWidth = Math.max(0.6, parseFloat(pen.width) * s);
         g.setLineDash(pen.style === 'dashed' ? [4 * s, 2 * s] : pen.style === 'dotted' ? [1 * s, 2 * s] : []);
