@@ -126,6 +126,38 @@ test("going back on the first slide takes back its builds and goes no further", 
   await expect(counter).toHaveText("1 / 2");
 });
 
+test("Reading View's menu steps through builds and opens slides at their start", async ({
+  page,
+}) => {
+  const pres = animatedDeck();
+  P.setSlideShowSetup(pres, { showType: "browse" });
+  await load(page, pres);
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  const reading = page.getByRole("dialog", { name: "Reading View" });
+  const counter = reading.locator(".reading-counter");
+  const choose = async (...names) => {
+    await reading.getByRole("button", { name: "Reading View menu" }).click();
+    for (const name of names) await page.getByRole("menuitem", name).click();
+  };
+  await expect(counter).toHaveText("Slide 1 of 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await choose({ name: "Next" });
+  await expect.poll(() => visibleLayers(page)).toEqual([true, false, false]);
+  await expect(counter).toHaveText("Slide 1 of 2");
+  await choose({ name: "Previous" });
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+  await reading.getByRole("button", { name: "Reading View menu" }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("End");
+  await expect(counter).toHaveText("Slide 2 of 2");
+  await reading.getByRole("button", { name: "Reading View menu" }).click();
+  await page.getByRole("menuitem", { name: "Go to Slide" }).click();
+  await page.getByRole("menuitemcheckbox", { name: /^1\./ }).click();
+  await expect(counter).toHaveText("Slide 1 of 2");
+  await expect.poll(() => visibleLayers(page)).toEqual([false, false, false]);
+});
+
 test("a timed advance plays the slide's remaining click steps first", async ({
   page,
 }) => {

@@ -4,7 +4,7 @@
 // view it was opened from.
 import { el, icon, openMenu } from "../ui.js";
 
-// The bar that replaces the show's controls. `show` goes to a slide index,
+// The bar that replaces the show's controls. `show` opens a slide by index,
 // `close` ends the reading view, `switchTo` closes it into another view.
 export function readingBar({
   previous,
@@ -32,16 +32,18 @@ export function readingBar({
           label: "Reading View",
           align: "center",
           items: [
+            // As the bar's buttons: through the slide's builds first.
             {
               label: "Next",
               icon: "ChevronRight",
-              onSelect: () => show(current() + 1),
+              disabled: next.disabled,
+              onSelect: () => next.click(),
             },
             {
               label: "Previous",
               icon: "ChevronLeft",
-              disabled: current() <= 0,
-              onSelect: () => show(current() - 1),
+              disabled: previous.disabled,
+              onSelect: () => previous.click(),
             },
             {
               label: "Go to Slide",

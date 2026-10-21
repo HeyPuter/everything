@@ -15945,7 +15945,8 @@ async function present(options = {}) {
         counter,
         count: all.length,
         current: () => n,
-        show: (i) => show(i, { backward: i < n }),
+        // Go to Slide opens the slide at its start, as See All Slides does.
+        show: (i) => show(i),
         close,
         titleOf: (i) => slideTitle(all[i], pres),
         // Another view from the bar: the show ends on the slide it reached.
