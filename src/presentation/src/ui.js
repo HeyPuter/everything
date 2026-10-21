@@ -127,6 +127,7 @@ import {
   Lightbulb,
   GripVertical,
   Lock,
+  Pipette,
 } from "lucide";
 import { commandIcon } from "./chrome/icons.js";
 const icons = {
@@ -257,6 +258,7 @@ const icons = {
   Lightbulb,
   GripVertical,
   Lock,
+  Pipette,
 };
 // A name prefixed "o:" is one of the app's own command icons
 // (src/chrome/icons.js); any other is a Lucide icon.

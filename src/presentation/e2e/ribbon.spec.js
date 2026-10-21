@@ -3,6 +3,7 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
+import { Pipette } from "lucide";
 import { P, parseDeck } from "../src/model.js";
 
 const isMac = process.platform === "darwin";
@@ -302,6 +303,13 @@ test("the arrow keys move through a colour palette as the grid it shows", async 
   await swatch("Purple").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitem", { name: "No Fill" })).toBeFocused();
+  // The Eyedropper shows its own icon, not the stand-in for a missing one.
+  const eyedropper = page.getByRole("menuitem", { name: "Eyedropper" });
+  if (await eyedropper.count())
+    await expect(eyedropper.locator("svg path").first()).toHaveAttribute(
+      "d",
+      Pipette[0][1].d,
+    );
 });
 
 test("Shape Styles, Shape Effects and Format Painter restyle shapes", async ({
