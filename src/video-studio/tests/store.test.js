@@ -57,6 +57,21 @@ describe('History', () => {
     expect(h.undoStack.map((e) => e.label)).toEqual(['A', 'Batch', 'C']);
   });
 
+  it('keeps fewer steps of a big project, within its memory budget, but never fewer than the minimum', () => {
+    const big = { text: 'x'.repeat(1000) };
+    const h = new History(200, { budget: 50_000, minSteps: 10 });
+    for (let i = 0; i < 100; i++) h.push({ ...big, i }, `e${i}`);
+    expect(h.undoStack).toHaveLength(49);
+    expect(h.undoStack.at(-1).snapshot.i).toBe(99);
+    const tight = new History(200, { budget: 1000, minSteps: 10 });
+    for (let i = 0; i < 100; i++) tight.push({ ...big, i }, `e${i}`);
+    expect(tight.undoStack).toHaveLength(10);
+    // Small projects keep the full count.
+    const small = new History(200);
+    for (let i = 0; i < 300; i++) small.push({ i }, `e${i}`);
+    expect(small.undoStack).toHaveLength(200);
+  });
+
   it('returns null with nothing to undo or redo', () => {
     const h = new History();
     expect(h.undo('x')).toBe(null);
