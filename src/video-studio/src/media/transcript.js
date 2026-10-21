@@ -66,10 +66,17 @@ export function transcriptWords(project) {
   const key = clips.map((c) => `${c.assetId}:${c.start}:${c.duration}:${c.in}:${c.speed}:${c.speedCurve ? JSON.stringify(c.speedCurve) : ''}`).join('|');
   const hit = placeCache.get(words);
   if (hit?.key === key) return hit.out;
+  // Per media, its clips by source in point, each with the furthest source end
+  // so far, so a word finds the clips playing it by binary search.
   const byAsset = new Map();
   for (const c of clips) {
     if (!byAsset.has(c.assetId)) byAsset.set(c.assetId, []);
-    byAsset.get(c.assetId).push(c);
+    byAsset.get(c.assetId).push({ c, from: c.in, to: c.in + sourceSpan(c) });
+  }
+  for (const list of byAsset.values()) {
+    list.sort((x, y) => x.from - y.from);
+    let reach = -Infinity;
+    for (const x of list) x.reach = reach = Math.max(reach, x.to);
   }
   const placed = [];
   for (const w of words) {
@@ -77,11 +84,21 @@ export function transcriptWords(project) {
       placed.push({ text: w.text, start: w.start, end: w.end });
       continue;
     }
+    const list = byAsset.get(w.a);
+    if (!list) continue;
     const mid = (w.s + w.e) / 2;
-    for (const c of byAsset.get(w.a) || []) {
-      const span = sourceSpan(c);
-      if (mid < c.in || mid >= c.in + span) continue;
-      const at = (src) => c.start + Math.round(localAtSource(c, Math.min(span, Math.max(0, src - c.in))));
+    // Last clip starting at or before mid, then back while an earlier one can still reach it.
+    let lo = 0;
+    let hi = list.length - 1;
+    while (lo <= hi) {
+      const m = (lo + hi) >> 1;
+      if (list[m].from <= mid) lo = m + 1;
+      else hi = m - 1;
+    }
+    for (let i = hi; i >= 0 && list[i].reach > mid; i--) {
+      const { c, from, to } = list[i];
+      if (mid >= to) continue;
+      const at = (src) => c.start + Math.round(localAtSource(c, Math.min(to - from, Math.max(0, src - from))));
       const start = at(w.s);
       placed.push({ text: w.text, start, end: Math.max(start, at(w.e)), a: w.a, s: w.s });
     }

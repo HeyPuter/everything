@@ -46,7 +46,12 @@ export function transcriptPanel(ctx, opts, save, { onCaptions } = {}) {
   let wordEls = [];
   let current = -1;
 
-  const words = () => transcriptWords(store.project);
+  // Placed once per edit: follow() asks on every frame while playing.
+  let placed = { rev: -1, project: null, words: [] };
+  const words = () => {
+    if (placed.rev !== store.revision || placed.project !== store.project) placed = { rev: store.revision, project: store.project, words: transcriptWords(store.project) };
+    return placed.words;
+  };
   const selRange = () => (anchor < 0 || focus < 0 ? null : [Math.min(anchor, focus), Math.max(anchor, focus)]);
 
   // ---- Empty state: transcribe ----------------------------------------------

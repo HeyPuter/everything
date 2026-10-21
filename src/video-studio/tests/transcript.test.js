@@ -212,6 +212,22 @@ describe('transcript words follow their media', () => {
     expect(placed(p)).toEqual(['alpha@0.5', 'beta@1.5', 'gamma@10.5', 'delta@11.5']);
   });
 
+  it('places an hour of words over thousands of clips quickly', () => {
+    // About what Remove silences leaves of an hour of speech.
+    const p = fixture();
+    p.assets.vid.duration = s(3600);
+    const n = 3000;
+    const len = s(3600) / n;
+    onMain(p, ...Array.from({ length: n }, (_, i) => clip('video', (i * len) / 1e6, len / 1e6, { in: i * len })));
+    const heard = Array.from({ length: 9000 }, (_, i) => ({ text: `w${i}`, start: i * 330_000, end: i * 330_000 + 300_000 }));
+    p.transcript = { language: 'en', words: anchorWords(p, heard) };
+    const t0 = performance.now();
+    const words = transcriptWords(p);
+    expect(performance.now() - t0).toBeLessThan(200);
+    expect(words).toHaveLength(9000);
+    expect(words[4500]).toEqual({ text: 'w4500', start: 4500 * 330_000, end: 4500 * 330_000 + 300_000 });
+  });
+
   it('survives saving and keeps older transcripts as they were', () => {
     const { p } = talk();
     const n = normalizeProject(JSON.parse(JSON.stringify(p)));
