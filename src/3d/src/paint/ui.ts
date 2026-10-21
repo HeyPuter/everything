@@ -1193,6 +1193,7 @@ modeMenus.TEXTURE_PAINT = {
       () => [
         { label: 'Add Texture Paint Slot', op: 'paint.add_texture_paint_slot' },
         { label: 'Add Simple UVs', op: 'paint.add_simple_uvs' },
+        { label: 'Image from View', op: 'paint.image_from_view' },
         { label: 'Project Image', op: 'paint.project_image' },
         { separator: true },
         {

@@ -9,7 +9,8 @@ import { activeView3D } from '../editors/view3d/view3d';
 import { uid, newImage, newMaterial } from '../data/defaults';
 import type { ImageData as Img, MaterialData, MeshData, NodeData, ObjectData } from '../data/types';
 import type { View3D } from '../editors/view3d/view3d';
-import { encodeImage, imageCanvas, imageTexture, touchImage } from '../render/images';
+import { encodeImage, imageCanvas, imageTexture, primeImage, touchImage } from '../render/images';
+import { renderContext } from '../render/context';
 import { activeBrush, type PaintBrush } from './brushes';
 import { blendColor, cachedCurveTable, falloff, linearToSrgb, srgbToLinear, symmetryPasses, type BlendMode } from './math';
 import { activeMeshData, meshSession, type MeshSession } from './session';
@@ -820,7 +821,58 @@ function projectImage(v: View3D, src: Img): string | null {
   return null;
 }
 
+/** The 3D view as it is shown (overlays hidden), cropped from the shared canvas. */
+function viewPixels(v: View3D): globalThis.ImageData | null {
+  const engine = renderContext?.engine;
+  if (!engine) return null;
+  const ov = v.overlay as { show_overlays: boolean };
+  const had = ov.show_overlays;
+  ov.show_overlays = false;
+  try {
+    engine.drawAll();
+    const base = engine.canvas.getBoundingClientRect();
+    const r = v.el.getBoundingClientRect();
+    const dpr = engine.dpr;
+    const W = Math.max(1, Math.round(r.width * dpr)),
+      H = Math.max(1, Math.round(r.height * dpr));
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    if (!g) return null;
+    g.drawImage(engine.canvas, (r.left - base.left) * dpr, (r.top - base.top) * dpr, W, H, 0, 0, W, H);
+    return g.getImageData(0, 0, W, H);
+  } finally {
+    ov.show_overlays = had;
+    engine.requestDraw();
+  }
+}
+
 registerOperators([
+  {
+    idname: 'paint.image_from_view',
+    label: 'Image from View',
+    description: 'Make a new image of the 3D view as shown (without overlays), e.g. to edit it elsewhere and project it back with Project Image',
+    props: [{ id: 'filepath', label: 'File Path', type: 'string', default: '', hidden: true }],
+    poll: () => !!activeView3D(),
+    exec: (ctx) => {
+      const v = activeView3D()!;
+      const px = viewPixels(v);
+      if (!px) {
+        app.report('ERROR', 'The view could not be captured');
+        return 'CANCELLED';
+      }
+      const names = new Set(Object.values(ctx.doc.images).map((i) => i.name));
+      let name = 'View';
+      for (let i = 1; names.has(name); i++) name = `View.${String(i).padStart(3, '0')}`;
+      const img = newImage(name, px.width, px.height);
+      img.source = 'FILE';
+      ctx.doc.images[img.id] = img;
+      primeImage(img, px);
+      void commitImage(img, null);
+      app.report('INFO', `Made the image "${name}" (${px.width}×${px.height}) from the view`);
+    },
+  },
   {
     idname: 'paint.project_image',
     label: 'Project Image',
