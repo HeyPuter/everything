@@ -1470,7 +1470,7 @@ function sheetPartState(xml) {
   const viewMode = { pageLayout: 'pageLayout', pageBreakPreview: 'pageBreak' }[xmlAttr(view, 'view') || ''] || 'normal';
   // CT_SheetView/CT_ChartsheetView default zoomScale to 100. An omitted
   // attribute does not mean the previous sheet's or device's saved zoom.
-  return { frozen, color, gridlines, headers: !['0', 'false'].includes(xmlAttr(view, 'showRowColHeaders') || ''), rightToLeft: ['1', 'true'].includes(xmlAttr(view, 'rightToLeft')), protected: locked, ...(!chart ? { viewSelection: readSheetSelection(viewXml), viewOrigin, frozenOrigin, ...(split ? { split } : {}) } : {}), ...(chart ? { zoomToFit: ['1', 'true'].includes(xmlAttr(view, 'zoomToFit')) } : { viewMode }), viewZoom: zoom >= 10 && zoom <= 400 ? zoom / 100 : 1 };
+  return { frozen, color, gridlines, headers: !['0', 'false'].includes(xmlAttr(view, 'showRowColHeaders') || ''), zeros: !['0', 'false'].includes(xmlAttr(view, 'showZeros') || ''), rightToLeft: ['1', 'true'].includes(xmlAttr(view, 'rightToLeft')), protected: locked, ...(!chart ? { viewSelection: readSheetSelection(viewXml), viewOrigin, frozenOrigin, ...(split ? { split } : {}) } : {}), ...(chart ? { zoomToFit: ['1', 'true'].includes(xmlAttr(view, 'zoomToFit')) } : { viewMode }), viewZoom: zoom >= 10 && zoom <= 400 ? zoom / 100 : 1 };
 }
 
 /**
@@ -2125,7 +2125,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     frozenOrigin: partXml ? nativePart?.frozenOrigin : own?.frozenOrigin,
     split: partXml ? nativePart?.split : own?.split,
     ...(own?.zoomToFit != null || part?.zoomToFit != null ? { zoomToFit: own?.zoomToFit ?? part?.zoomToFit } : {}),
-    zeros: meta?.sheets?.[name]?.zeros !== false,
+    zeros: nativePart?.zeros ?? meta?.sheets?.[name]?.zeros !== false,
     sparklineGroups: readNativeSparklineGroups(partXml),
     charts: meta?.sheets?.[name]?.charts || [],
     tables,
