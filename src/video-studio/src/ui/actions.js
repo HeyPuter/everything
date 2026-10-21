@@ -16,7 +16,7 @@ import { toast, openDialog } from './dialog.js';
 import { createOrganizeActions } from './organize-actions.js';
 import { createSmartActions } from './smart-actions.js';
 import { createMulticamActions } from './multicam-actions.js';
-import { createMediaActions } from './media-actions.js';
+import { createMediaActions, importErrorText } from './media-actions.js';
 import { allClipsDeep, removeAssetClips } from '../model/compound.js';
 import { defaultLength } from './preferences-dialog.js';
 import { createClipEffectActions } from './clip-effects-actions.js';
@@ -53,7 +53,7 @@ export function createActions(ctx) {
           assets.push(asset);
         } catch (err) {
           console.error(err);
-          toast(err?.message || `Couldn't import ${file.name}`, { kind: 'error' });
+          toast(importErrorText(file, err), { kind: 'error' });
         }
       }
       if (!assets.length) return [];

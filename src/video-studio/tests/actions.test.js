@@ -312,3 +312,25 @@ describe('keyframes', () => {
     expect(toasts().join()).toMatch(/Move the playhead over the clip/);
   });
 });
+
+describe('importing files', () => {
+  it('names the file in an import error that does not', async () => {
+    const { store } = setup();
+    const library = {
+      importFile: async (file) => {
+        if (file.name === 'odd.mkv') throw new Error('This file type is not supported by your browser.');
+        throw new Error(`${file.name} is not a video, audio or image file.`);
+      },
+    };
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    const quiet = console.error;
+    console.error = () => {};
+    try {
+      expect(await ctx.actions.importFiles([new File(['x'], 'odd.mkv'), new File(['y'], 'notes.txt')])).toEqual([]);
+    } finally {
+      console.error = quiet;
+    }
+    expect(toasts()).toEqual(['odd.mkv: This file type is not supported by your browser.', 'notes.txt is not a video, audio or image file.']);
+  });
+});

@@ -24,6 +24,12 @@ export function unusedAssets(project) {
   return Object.values(project.assets).filter((a) => !used.has(a.id));
 }
 
+/** An import error that says which file it is about (several files may be imported at once). */
+export function importErrorText(file, err) {
+  const msg = err?.message || `Couldn't import ${file.name || 'this file'}.`;
+  return file.name && !msg.includes(file.name) ? `${file.name}: ${msg}` : msg;
+}
+
 /** Audio clips playing an asset's sound (they can't use a photo). */
 function soundClips(project, assetId) {
   return allClipsDeep(project).filter((c) => c.assetId === assetId && c.type === 'audio');
@@ -153,7 +159,7 @@ export function createMediaActions(ctx) {
       try {
         asset = await ctx.library.importFile(file);
       } catch (err) {
-        toast(err?.message || `Couldn't open ${file.name}`, { kind: 'error' });
+        toast(importErrorText(file, err), { kind: 'error' });
         return null;
       }
       if (asset.kind !== old.kind && !(old.kind === 'video' && asset.kind === 'image')) {
