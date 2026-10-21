@@ -304,7 +304,9 @@ class ClipFrames {
       this.cur = await this._pull();
       this.next = await this._pull();
     }
-    const eps = 1e-6;
+    // Timeline times are whole microseconds and a clip's speed multiplies their
+    // rounding (3x lands 1-2 us short of a frame); 0.1 ms is far below any frame interval.
+    const eps = 1e-4;
     while (this.next && this.next.timestamp <= sec + eps) {
       this.cur?.close();
       this.cur = this.next;
