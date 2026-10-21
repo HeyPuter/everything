@@ -50,3 +50,35 @@ describe('view: printing', () => {
     expect(app.editor.pageEl.classList.contains('surface-dark')).toBe(true);
   });
 });
+
+describe('assist pane', () => {
+  afterEach(() => {
+    closeAllMenus();
+    app?.destroy();
+  });
+
+  it('labels the insert button by what it will do', async () => {
+    await mount();
+    const asked = [];
+    app.ai = { available: () => true, ask: async (q) => { asked.push(q); return 'Better text.'; } };
+    const body = app.editor.createOutlineAt(100, 200).querySelector('.outline-body');
+    body.innerHTML = '<p>Some bad text.</p>';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    const range = document.createRange();
+    range.selectNodeContents(body.querySelector('p'));
+    app.editor.lastRange = range;
+    app.runCommand('assist');
+    await new Promise((r) => setTimeout(r, 20));
+    const pane = document.querySelector('.task-pane');
+    const button = (label) => [...pane.querySelectorAll('button')].find((b) => b.textContent.includes(label));
+    // Opening the pane moves focus; the editor keeps the last note selection.
+    app.editor.lastRange = range;
+    button('Fix spelling').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(button('Replace Selection')).toBeTruthy();
+    button('Summarize').click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(button('Insert on Page')).toBeTruthy();
+    expect(button('Replace Selection')).toBeFalsy();
+  });
+});

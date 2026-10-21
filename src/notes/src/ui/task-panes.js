@@ -257,6 +257,8 @@ export class TaskPanes {
       try {
         result = (await app.ai.ask(prompt)).trim();
         output.textContent = result || 'No answer.';
+        // Rewrite and proofread replace the text they were given.
+        insert.replaceChildren(icon('plus', 14), lastSelection ? 'Replace Selection' : 'Insert on Page');
         outputActions.hidden = !result;
       } catch (err) {
         output.textContent = `Assist could not answer: ${err?.message || err?.error?.message || 'request failed'}`;
@@ -306,7 +308,7 @@ export class TaskPanes {
       }
       app.editor.markActiveDirty();
       toast('Added to the page');
-    } }, icon('plus', 14), lastSelection ? 'Replace Selection' : 'Insert on Page');
+    } }, icon('plus', 14), 'Insert on Page');
     const copy = h('button.btn.small', { type: 'button', onclick: () => navigator.clipboard?.writeText(result).then(() => toast('Copied')) }, icon('copy', 14), 'Copy');
     outputActions.append(insert, copy);
     this.body.replaceChildren(h('div', { style: { padding: '0 14px 16px', display: 'grid', gap: '8px' } },
