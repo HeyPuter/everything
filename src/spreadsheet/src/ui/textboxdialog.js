@@ -12,7 +12,8 @@ import { EFFECT_LEVELS } from '../core/theme-effects.js';
 const COLORS = [['', 'Automatic'], ['#1a1a1a', 'Black'], ['#6b6964', 'Gray'], ['#c22a2a', 'Red'], ['#eb6834', 'Orange'], ['#b8860b', 'Gold'], ['#1baf7a', 'Green'], ['#0a63f0', 'Blue'], ['#4a3aa7', 'Purple'], ['#ffffff', 'White']];
 const FILLS = [['', 'None'], ['#ffffff', 'White'], ['#fff7c2', 'Yellow'], ['#e3f0ff', 'Blue'], ['#e2f6ea', 'Green'], ['#fde8e8', 'Red'], ['#f2f1ee', 'Gray'], ['#1a1a1a', 'Black']];
 
-export function openTextBoxDialog(ctx, { textbox = null } = {}) {
+/** `fit(text, style)`, with a box being edited, gives the size the box takes for the text saved (WordArt's). */
+export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
   const { wb } = ctx;
   const sheetId = ctx.sheetId();
   if (ctx.grid.editing && !ctx.grid.commitEdit()) return;
@@ -82,7 +83,7 @@ export function openTextBoxDialog(ctx, { textbox = null } = {}) {
     if (text.length > TEXT_MAX_LENGTH) return refuse(textArea, `Use ${TEXT_MAX_LENGTH.toLocaleString('en-US')} characters or fewer. Your text is still here to edit.`);
     const style = { ...st, size: Number(sizeSel.value), color: colorSel.value || null, bg: fillSel.value || null, effectRef: Number(effectSel.value) || undefined };
     if (textbox) {
-      wb.updateChart(sheetId, textbox.id, { text, style, ...(text !== initialText ? { textRef: null, textPrefix: '', textSuffix: '' } : {}) }, 'Edit text box');
+      wb.updateChart(sheetId, textbox.id, { text, style, ...(text !== initialText ? { textRef: null, textPrefix: '', textSuffix: '' } : {}), ...(fit ? fit(text, style) : {}) }, 'Edit text box');
     } else {
       const a = ctx.active();
       const lines = text.split('\n');

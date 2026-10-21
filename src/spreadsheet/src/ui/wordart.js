@@ -30,6 +30,12 @@ export function wordArtStyles(colors) {
 
 export const WORDART_TEXT = 'Your text here';
 
+/** The box WordArt's text takes, a line for each line typed: WordArt fits its shape to its text rather than wrapping it. */
+export function wordArtSize(text, size) {
+  const lines = String(text).split('\n');
+  return { w: Math.round(Math.max(...lines.map(l => [...l].length)) * size * 0.56) + 32, h: Math.round(lines.length * size * 1.6) + 16 };
+}
+
 /** Insert a WordArt text box of `key`'s style at the active cell and open it to be typed over. */
 export function insertWordArt(ctx, key) {
   const { wb } = ctx;
@@ -43,12 +49,12 @@ export function insertWordArt(ctx, key) {
   const style = { size, italic: false, bg: null, align: 'center', valign: 'middle', border: false,
     font: fontKeyFor(theme.minor, { literal: true }) || undefined, ...def.style };
   const a = ctx.active();
-  const w = Math.round(WORDART_TEXT.length * size * 0.56) + 32, h = Math.round(size * 1.6) + 16;
-  const id = wb.addChart(sheetId, { type: 'text', text: WORDART_TEXT, style, anchor: { r: a.r, c: a.c }, dx: 4, dy: 4, w, h });
+  const id = wb.addChart(sheetId, { type: 'text', text: WORDART_TEXT, style, anchor: { r: a.r, c: a.c }, dx: 4, dy: 4, ...wordArtSize(WORDART_TEXT, size) });
   if (!id) return null;
   ctx.grid.selectChart?.(id);
   const textbox = wb.sheet(sheetId)?.charts.find(c => c.id === id);
-  if (textbox) openTextBoxDialog(ctx, { textbox });
+  // The text typed over the sample takes the box it needs, not the sample's.
+  if (textbox) openTextBoxDialog(ctx, { textbox, fit: (text, st) => wordArtSize(text, st.size) });
   return id;
 }
 
