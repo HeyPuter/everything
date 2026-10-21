@@ -110,7 +110,7 @@ export function drawMask(ed: MaskHost, g: CanvasRenderingContext2D, splines = tr
       }
       // feather outline
       if (sp.use_cyclic && sp.points.some((p) => p.weight > 0)) {
-        const f = featherOutline(samples, aspect).map((p) => m2s(ed, p));
+        const f = featherOutline(samples, aspect, 1, sp.offset_mode).map((p) => m2s(ed, p));
         g.strokeStyle = 'rgba(255, 255, 255,0.35)';
         g.lineWidth = 1;
         g.beginPath();

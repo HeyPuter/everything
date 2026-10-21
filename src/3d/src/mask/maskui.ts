@@ -232,6 +232,11 @@ export function maskSidebar(ed: Host): Child[] {
   const sel = selectedPoints(m);
   const p = sel.length ? sel[sel.length - 1].point : null;
   const sp = l && l.active_spline >= 0 ? l.splines[l.active_spline] : null;
+  // settings older splines lack (shown with their defaults)
+  if (sp) {
+    sp.offset_mode ??= 'EVEN';
+    sp.weight_interpolation ??= 'LINEAR';
+  }
   return [
     panel('mask-n-settings', 'Mask Settings', () => [num(m, 'frame_start', 'Start Frame', { int: true }), num(m, 'frame_end', 'End', { int: true })]),
     panel('mask-n-layers', 'Mask Layers', () => [
@@ -282,7 +287,22 @@ export function maskSidebar(ed: Host): Child[] {
           ]
         : null,
     ]),
-    panel('mask-n-spline', 'Active Spline', () => (sp ? [bool(sp, 'use_cyclic', 'Cyclic'), bool(sp, 'use_fill', 'Fill')] : [h('div', { class: 'sb-empty' }, 'No active spline')])),
+    panel('mask-n-spline', 'Active Spline', () =>
+      sp
+        ? [
+            enumProp(sp as unknown as Record<string, unknown>, 'offset_mode', 'Feather Offset', [
+              ['EVEN', 'Even'],
+              ['SMOOTH', 'Smooth'],
+            ]),
+            enumProp(sp as unknown as Record<string, unknown>, 'weight_interpolation', 'Interpolation', [
+              ['LINEAR', 'Linear'],
+              ['EASE', 'Ease'],
+            ]),
+            bool(sp, 'use_cyclic', 'Cyclic'),
+            bool(sp, 'use_fill', 'Fill'),
+          ]
+        : [h('div', { class: 'sb-empty' }, 'No active spline')],
+    ),
     panel('mask-n-point', 'Active Point', () =>
       p
         ? [

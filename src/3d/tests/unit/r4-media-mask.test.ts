@@ -29,3 +29,26 @@ describe('mask point transforms', () => {
     expect(s[1].p.co[1]).toBeCloseTo(0.8);
   });
 });
+
+describe('mask spline feather settings', () => {
+  it('eases the feather width between points and smooths offsets', async () => {
+    const { sampleSpline, featherOutline } = await import('../../src/mask/geom');
+    const { squareSpline } = await import('../../src/mask/geom');
+    const sp = squareSpline(0.5, 0.5, 0.2, 1);
+    sp.points[0].weight = 0;
+    sp.points[1].weight = 0.1;
+    const lin = sampleSpline(sp, 16);
+    sp.weight_interpolation = 'EASE';
+    const ease = sampleSpline(sp, 16);
+    // a quarter of the way: linear 0.025, eased 0.1 × smoothstep(0.25) = 0.015625
+    expect(lin[4].w).toBeCloseTo(0.025, 6);
+    expect(ease[4].w).toBeCloseTo(0.015625, 6);
+    // smooth offsets round the corners: the corner sample moves less far out along the diagonal
+    for (const p of sp.points) p.weight = 0.05;
+    const s = sampleSpline(sp, 16);
+    const even = featherOutline(s, 1, 1, 'EVEN'),
+      smooth = featherOutline(s, 1, 1, 'SMOOTH');
+    expect(even.length).toBe(smooth.length);
+    expect(even.some((p, i) => Math.hypot(p[0] - smooth[i][0], p[1] - smooth[i][1]) > 1e-4)).toBe(true);
+  });
+});
