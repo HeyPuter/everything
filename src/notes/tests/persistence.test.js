@@ -238,6 +238,64 @@ describe('Opening a page', () => {
   });
 });
 
+describe('Opening a page that fails to load', () => {
+  async function twoPages() {
+    const { app, store, backend } = await mount();
+    const first = app.state.pageId;
+    const other = store.createPage(app.state.sectionId, { title: 'Far away' });
+    await store.flush();
+    store.pages.delete(other.id);
+    return { app, store, backend, first, other };
+  }
+  const selectedRow = (app) => app.nav.pagesList.querySelector('[aria-selected="true"]')?.dataset.id;
+
+  it('shows an error for the selected page instead of the previous one, with Try again', async () => {
+    const { app, backend, first, other } = await twoPages();
+    expect(app.editor.page.id).toBe(first);
+    backend.failNext = 1;
+    await app.openPage(other.id);
+    expect(selectedRow(app)).toBe(other.id);
+    // The previous page is gone from the canvas and takes no edits.
+    expect(app.editor.page).toBeNull();
+    expect(app.editor.scroller.hidden).toBe(true);
+    const empty = app.canvasCol.querySelector('.canvas-empty');
+    expect(empty.textContent).toContain("Couldn't open this page");
+    const retry = [...empty.querySelectorAll('button')].find((b) => b.textContent === 'Try again');
+    retry.click();
+    for (let i = 0; i < 20 && !app.editor.page; i++) await new Promise((r) => setTimeout(r, 5));
+    expect(app.editor.page.id).toBe(other.id);
+    expect(app.canvasCol.querySelector('.canvas-empty')).toBeNull();
+    expect(app.editor.scroller.hidden).toBe(false);
+  });
+
+  it('offers no retry for a damaged file', async () => {
+    const { app, backend, other } = await twoPages();
+    backend.files.set(`pages/${other.id}.json`, '{"id":');
+    await app.openPage(other.id);
+    const empty = app.canvasCol.querySelector('.canvas-empty');
+    expect(empty.textContent).toContain('Its file is damaged.');
+    expect(empty.querySelector('button')).toBeNull();
+  });
+
+  it('blocks input on the old page while loading, and a late load never takes over a newer selection', async () => {
+    const { app, store, backend, first, other } = await twoPages();
+    const third = store.createPage(app.state.sectionId, { title: 'Third' });
+    backend.delay = 30;
+    const slow = app.openPage(other.id);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(app.editor.page.id).toBe(first);
+    expect(app.editor.scroller.hasAttribute('inert')).toBe(true);
+    await app.openPage(third.id); // already in memory: opens at once
+    expect(app.editor.page.id).toBe(third.id);
+    expect(app.editor.scroller.hasAttribute('inert')).toBe(false);
+    await slow;
+    expect(app.state.pageId).toBe(third.id);
+    expect(app.editor.page.id).toBe(third.id);
+    expect(app.editor.scroller.hasAttribute('inert')).toBe(false);
+    backend.delay = 0;
+  });
+});
+
 describe('Unlocking a damaged protected section', () => {
   it('says the page list is damaged instead of "wrong password"', async () => {
     const { app, store } = await mount();

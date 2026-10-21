@@ -516,14 +516,30 @@ export class App {
     setPref('sectionPages', sp);
     if (location.hash !== `#page=${id}`) history.replaceState(null, '', `#page=${id}`);
     this.renderNav();
-    this.showCanvas();
+    // With no page on screen (an empty or error state), that state stays
+    // until the page arrives rather than showing a stale page.
+    if (this.editor.page) this.showCanvas();
+    // Until the page arrives, the page still on screen takes no input: it is
+    // no longer the selected page.
+    this.editor.scroller.toggleAttribute('inert', true);
+    let failure = null;
     const page = await this.store.loadPage(id).catch((err) => {
       console.error(err);
-      // A file that is there but can't be parsed won't load on a retry.
-      toast(err instanceof SyntaxError ? "Couldn't open this page: its file is damaged." : "Couldn't open this page. Check your connection and try again.", { kind: 'error' });
+      failure = err;
       return null;
     });
-    if (!page || this.state.pageId !== id) return;
+    // A newer selection owns the canvas now.
+    if (this.state.pageId !== id) return;
+    this.editor.scroller.toggleAttribute('inert', false);
+    if (!page) {
+      // A file that is there but can't be parsed won't load on a retry.
+      const damaged = failure instanceof SyntaxError;
+      toast(damaged ? "Couldn't open this page: its file is damaged." : "Couldn't open this page. Check your connection and try again.", { kind: 'error' });
+      this.showEmpty(damaged ? 'damaged' : 'load-error');
+      if (this.isPhone()) this.setMobileView('page');
+      return;
+    }
+    this.showCanvas();
     this.editor.setSurface(prefs().surface === 'light' ? 'light' : 'auto');
     await this.editor.open(page);
     this.editor.setZoom(prefs().zoom || 1);
@@ -557,10 +573,17 @@ export class App {
     this.editor.flush();
     this.editor.page = null;
     this.editor.scroller.hidden = true;
+    this.editor.scroller.toggleAttribute('inert', false);
     this.canvasCol.querySelector('.canvas-empty')?.remove();
     const section = this.store.section(this.state.sectionId);
     let body;
-    if (kind === 'locked') {
+    if (kind === 'load-error' || kind === 'damaged') {
+      // The selected page couldn't be loaded; the list keeps it selected.
+      const id = this.state.pageId;
+      body = kind === 'damaged'
+        ? h('div', icon('cloudOff', 32), h('h2', "This page can't be opened"), h('p', 'Its file is damaged.'))
+        : h('div', icon('cloudOff', 32), h('h2', "Couldn't open this page"), h('p', 'Check your connection and try again.'), h('button.btn.primary', { type: 'button', onclick: () => id && this.openPage(id, { focus: true }) }, 'Try again'));
+    } else if (kind === 'locked') {
       body = h('div', icon('lock', 32), h('h2', 'This section is password protected'), h('p', 'Enter its password to see its pages.'), h('button.btn.primary', { type: 'button', onclick: () => section && this.selectSection(section.id) }, 'Unlock'));
     } else if (!this.store.notebook(this.state.notebookId)) {
       body = h('div', icon('notebook', 32), h('h2', 'No notebooks yet'), h('p', 'Add a notebook to start writing.'), h('button.btn.primary', { type: 'button', onclick: () => this.newNotebook() }, 'Add notebook'));
