@@ -12,6 +12,7 @@ import { propertiesTabs } from '../editors/properties/properties';
 import { uiList } from '../editors/properties/uilist';
 import { dataBlockSelector } from '../editors/properties/tabs';
 import { cloneShared } from '../data/cow';
+import { importImageFile } from '../ops/data';
 import { uid } from '../data/defaults';
 import { uniqueName } from '../ops/object';
 import { gpOf, gpTable, newGreasePencil, newLayer, setKeyframe, emptyDrawing, defaultGPStyle, newGPMaterial, frameAt } from './data';
@@ -531,6 +532,70 @@ function gradientFields(st: MaterialGPencilStyle): Child {
   ];
 }
 
+/** Image data-block selector for a material texture (browse, name, unlink, open from disk). */
+function imageField(st: MaterialGPencilStyle, key: 'stroke_image' | 'fill_image'): Child {
+  const doc = app.doc;
+  const cur = st[key] ?? null;
+  const img = cur ? doc.images[cur] : undefined;
+  const set = (id: string | null) => ((st[key] = id), changed(id ? 'Assign Image' : 'Unlink Image'));
+  return splitRow(
+    'Image',
+    h(
+      'div',
+      { class: 'gp-img-sel' },
+      h(
+        'button',
+        {
+          class: 'btn',
+          'data-tip': 'Browse Image\nPick the image of the texture',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            const list = Object.values(doc.images);
+            openMenu(list.length ? list.map((i) => ({ label: i.name, icon: 'image', active: i.id === cur, action: () => set(i.id) })) : [{ label: 'No images', disabled: true }], e.currentTarget as HTMLElement);
+          },
+        },
+        icon('image'),
+        icon('down_arrow_hlt', 'tiny'),
+      ),
+      img ? h('span', { class: 'gp-img-name', title: img.name }, img.name) : null,
+      img
+        ? h('button', { class: 'btn', 'data-tip': 'Unlink the image', onclick: () => set(null) }, icon('x'))
+        : h(
+            'button',
+            {
+              class: 'btn',
+              'data-tip': 'Open Image\nLoad an image file from disk',
+              onclick: () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/png,image/jpeg,image/webp,image/gif,image/bmp';
+                input.onchange = async () => {
+                  const f = input.files?.[0];
+                  if (!f) return;
+                  const id = await importImageFile(f);
+                  if (id) set(id);
+                };
+                input.click();
+              },
+            },
+            icon('file_folder'),
+            'Open',
+          ),
+    ),
+  );
+}
+
+function textureMapping(st: MaterialGPencilStyle): Child {
+  st.texture_offset ??= [0, 0];
+  st.texture_angle ??= 0;
+  st.texture_scale ??= [1, 1];
+  return [
+    vecProp(st as { texture_offset: number[] }, 'texture_offset', 'Offset', { names: ['X', 'Y'] }),
+    num(st as { texture_angle: number }, 'texture_angle', 'Rotation', { unit: 'angle' }),
+    vecProp(st as { texture_scale: number[] }, 'texture_scale', 'Scale', { names: ['X', 'Y'] }),
+  ];
+}
+
 function surfacePanel(st: MaterialGPencilStyle): Child {
   const css = (c: number[]) =>
     `rgb(${c
@@ -602,7 +667,14 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
             ['DOTS', 'Dots'],
             ['BOX', 'Squares'],
           ]),
+          enumProp(st, 'stroke_style', 'Style', [
+            ['SOLID', 'Solid'],
+            ['TEXTURE', 'Texture'],
+          ]),
+          st.stroke_style === 'TEXTURE' ? imageField(st, 'stroke_image') : null,
           colorProp(st, 'color', 'Base Color', { alpha: true }),
+          st.stroke_style === 'TEXTURE' ? num(st as { mix_stroke_factor: number }, 'mix_stroke_factor', 'Blend', { min: 0, max: 1, slider: true }) : null,
+          st.stroke_style === 'TEXTURE' ? num(st as { pixel_size: number }, 'pixel_size', 'UV Factor', { min: 0.01, max: 100, step: 0.1 }) : null,
           bool(st, 'use_stroke_holdout', 'Holdout'),
           st.mode !== 'LINE'
             ? enumProp(st, 'alignment_mode', 'Alignment', [
@@ -630,7 +702,9 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
           enumProp(st, 'fill_style', 'Style', [
             ['SOLID', 'Solid'],
             ['GRADIENT', 'Gradient'],
+            ['TEXTURE', 'Texture'],
           ]),
+          st.fill_style === 'TEXTURE' ? imageField(st, 'fill_image') : null,
           st.fill_style === 'GRADIENT'
             ? enumProp(st as { gradient_type: string }, 'gradient_type', 'Gradient Type', [
                 ['LINEAR', 'Linear'],
@@ -639,6 +713,9 @@ function surfacePanel(st: MaterialGPencilStyle): Child {
             : null,
           colorProp(st, 'fill_color', 'Base Color', { alpha: true }),
           st.fill_style === 'GRADIENT' ? gradientFields(st) : null,
+          st.fill_style === 'TEXTURE'
+            ? [num(st as { mix_factor: number }, 'mix_factor', 'Blend', { min: 0, max: 1, slider: true }), ...(textureMapping(st) as Child[]), bool(st as { texture_clamp: boolean }, 'texture_clamp', 'Clip Image')]
+            : null,
           bool(st, 'use_fill_holdout', 'Holdout'),
         ],
         { sub: true },

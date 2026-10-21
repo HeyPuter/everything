@@ -122,3 +122,19 @@
 .gp-annot2d svg {
   display: block;
 }
+
+/* material texture image selector */
+.gp-img-sel {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.gp-img-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+}

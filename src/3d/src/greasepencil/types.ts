@@ -153,8 +153,16 @@ export interface MaterialGPencilStyle {
   color: [number, number, number, number];
   fill_color: [number, number, number, number];
   mode: 'LINE' | 'DOTS' | 'BOX';
-  stroke_style: 'SOLID';
-  fill_style: 'SOLID' | 'GRADIENT';
+  stroke_style: 'SOLID' | 'TEXTURE';
+  fill_style: 'SOLID' | 'GRADIENT' | 'TEXTURE';
+  /** image textures (image data-block ids) of the stroke and the fill */
+  stroke_image?: ID | null;
+  fill_image?: ID | null;
+  /** stroke texture: blend toward the base color (0 = texture only) and length of one repeat in stroke widths */
+  mix_stroke_factor?: number;
+  pixel_size?: number;
+  /** fill texture: show it once instead of repeating */
+  texture_clamp?: boolean;
   /** gradient fills */
   gradient_type?: 'LINEAR' | 'RADIAL';
   mix_color?: [number, number, number, number];

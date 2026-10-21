@@ -278,3 +278,27 @@ describe('soft strokes', () => {
     expect(flags[8] & 3).toBe(1);
   });
 });
+
+describe('material textures and passes', () => {
+  const base: StrokeStyle = { stroke: true, fill: true, color: [0, 0, 0, 1], fillColor: [1, 1, 1, 1], mode: 'LINE' };
+  const sq = () => [newPoint([0, 0, 0]), newPoint([1, 0, 0]), newPoint([1, 0, 1]), newPoint([0, 0, 1])];
+  it('marks texture fills (kind 3) and textured lines (flag bit)', () => {
+    const tex: StrokeStyle = { ...base, fillTex: { image: 'im', mix: 0.25, clamp: false, offset: [0, 0], angle: 0, scale: [1, 1] }, strokeTex: { image: 'im', mix: 0, uvFactor: 1 } };
+    const b = buildStrokeBuffers(fromStrokes([newStroke(sq(), { cyclic: true })]), [tex]);
+    const kinds = [...b.info].filter((_, i) => i % 4 === 0);
+    const fillAt = kinds.indexOf(KIND_FILL);
+    expect(b.nbr0[fillAt * 4 + 2]).toBe(3);
+    expect(b.nbr0[fillAt * 4 + 3]).toBeCloseTo(0.25);
+    const segAt = kinds.indexOf(1);
+    expect(b.info[segAt * 4 + 2] & 4096).toBe(4096);
+  });
+  it('gives every stroke two draw orders, so partial passes stack like the full one', () => {
+    const d = fromStrokes([newStroke(sq(), { material_index: 0 }), newStroke(sq(), { material_index: 1 }), newStroke(sq(), { material_index: 0 })]);
+    const full = buildStrokeBuffers(d, [base, base]);
+    expect(full.orderEnd).toBe(6);
+    const only1 = buildStrokeBuffers(d, [base, base], 0, 0, false, false, (k) => k === 1);
+    const orders = new Set([...only1.info].filter((_, i) => i % 4 === 1));
+    expect([...orders].sort()).toEqual([2, 3]);
+    expect(only1.orderEnd).toBe(6);
+  });
+});

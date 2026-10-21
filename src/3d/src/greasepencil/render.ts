@@ -41,10 +41,13 @@ import {
   EqualStencilFunc,
   ReplaceStencilOp,
   KeepStencilOp,
+  RepeatWrapping,
+  ClampToEdgeWrapping,
   type Camera,
   type WebGLRenderer,
   type Texture,
 } from 'three';
+import { imageTexture } from '../render/images';
 import { app } from '../app/app';
 import type { DocumentData, ObjectData } from '../data/types';
 import type { EvalObject } from '../eval/depsgraph';
@@ -87,6 +90,7 @@ flat varying vec4 vInfo;
 flat varying vec2 vZ;
 flat varying vec3 vN0;
 flat varying vec3 vN1;
+flat varying vec3 vTex;
 vec3 screenNbr(mat4 mvp, vec4 n, float k) {
   if (n.w <= 0.0) return vec3(0.0);
   vec4 c = mvp * vec4(n.xyz, 1.0);
@@ -98,6 +102,8 @@ void main() {
   vInfo = aInfo;
   vN0 = vec3(0.0);
   vN1 = vec3(0.0);
+  // stroke textures: segment length and world radii (the distance along the stroke is in aInfo.w)
+  vTex = vec3(distance(aP0, aP1), aR.x, aR.y);
   vC0 = aC0;
   vC1 = aC1;
   mat4 mvp = projectionMatrix * modelViewMatrix;
@@ -193,6 +199,10 @@ uniform float uBaseDepth;
 uniform float uOrderBase;
 uniform float uOrderEps;
 uniform vec4 uIdColor;
+uniform sampler2D uFillTex;
+uniform sampler2D uStrokeTex;
+/** stroke texture: blend toward the base color, length of a repeat in stroke widths; fill texture clamp */
+uniform vec3 uTexParams;
 varying vec2 vPix;
 varying vec2 vUV;
 flat varying vec2 vS0;
@@ -204,6 +214,11 @@ flat varying vec4 vInfo;
 flat varying vec2 vZ;
 flat varying vec3 vN0;
 flat varying vec3 vN1;
+flat varying vec3 vTex;
+vec4 strokeTexel(vec2 uv, vec4 base) {
+  vec4 tc = texture2D(uStrokeTex, uv);
+  return vec4(mix(tc.rgb, base.rgb, uTexParams.x), base.a * mix(tc.a, 1.0, uTexParams.x));
+}
 /** Edge softness: alpha falls from 1 at (1 - softness) of the radius to 0 at the edge. */
 float softEdge(float d, float r, float soft) {
   float a = clamp((max(r, 0.5) - d) / max(r * soft, 0.75), 0.0, 1.0);
@@ -230,9 +245,17 @@ void main() {
   float zReal = gl_FragCoord.z;
   float soft = 0.0;
   float softA = 1.0;
+  vec4 vC0Tex = vec4(0.0);
+  bool useTex = false;
   if (kind == 0) {
     col = vC0;
-    if (vN0.y > 0.5) {
+    if (vN0.y > 2.5) {
+      // image texture, blended toward the base color by the mix factor
+      vec2 uv = vUV;
+      vec4 tc = texture2D(uFillTex, uv);
+      if (uTexParams.z > 0.5 && (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)) tc = vec4(0.0);
+      col = vec4(mix(tc.rgb, vC0.rgb, vN0.z), vC0.a * mix(tc.a, 1.0, vN0.z));
+    } else if (vN0.y > 0.5) {
       // gradient: linear along u, or radial from the center; the factor moves the midpoint
       float g = vN0.y < 1.5 ? vUV.x : length(vUV - 0.5) * 2.0;
       g = clamp(g, 0.0, 1.0);
@@ -270,6 +293,14 @@ void main() {
       if (vN1.z > 0.0 && (flags & 2) == 0 && capsuleCov(vPix, vS1, vN1.xy, vR.y, vN1.z) >= 0.999) discard;
     }
     col = mix(vC0, vC1, t);
+    if ((flags & 4096) != 0) {
+      // u along the stroke (in stroke widths), v across it
+      float along = vInfo.w + t * vTex.x;
+      float rw = max(mix(vTex.y, vTex.z, t), 1e-6);
+      vec2 nrm = L2 > 1e-8 ? vec2(-ab.y, ab.x) / sqrt(L2) : vec2(0.0, 1.0);
+      float side = dot(vPix - (vS0 + ab * t), nrm);
+      col = strokeTexel(vec2(along / (2.0 * rw * max(uTexParams.y, 0.01)), 0.5 + 0.5 * side / max(r, 0.5)), col);
+    }
     col.a *= cov;
     zReal = mix(vZ.x, vZ.y, t);
   } else if (kind == 4) {
@@ -288,6 +319,23 @@ void main() {
     }
     cov = clamp(max(r, 0.5) + 0.5 - d, 0.0, 1.0) * clamp(r * 2.0, 0.0, 1.0);
     if (cov <= 0.0) discard;
+    if ((int(vInfo.z + 0.5) & 4096) != 0) {
+      if (kind == 2 && (vN0.z > 0.0 || vN1.z > 0.0)) {
+        // joint of a textured line: continue the texture of the segments around it
+        vec2 jd = vN1.z > 0.0 && vN0.z > 0.0 ? vN1.xy - vN0.xy : vN1.z > 0.0 ? vN1.xy - vS0 : vS0 - vN0.xy;
+        jd = dot(jd, jd) > 1e-8 ? normalize(jd) : vec2(1.0, 0.0);
+        float rw = max(vTex.y, 1e-6), rp = max(r, 0.5);
+        float along = vInfo.w + dot(p, jd) * rw / rp;
+        vC0Tex = strokeTexel(vec2(along / (2.0 * rw * max(uTexParams.y, 0.01)), 0.5 + 0.5 * dot(p, vec2(-jd.y, jd.x)) / rp), vC0);
+      } else {
+        // textured dots / squares: the image stamped on each point
+        vec2 ab2 = vS1 - vS0;
+        vec2 dir2 = dot(ab2, ab2) > 1e-8 ? normalize(ab2) : vec2(1.0, 0.0);
+        vec2 q2 = kind == 3 ? vec2(dot(p, dir2), dot(p, vec2(-dir2.y, dir2.x))) : p;
+        vC0Tex = strokeTexel(0.5 + q2 / (2.0 * max(r, 0.5)), vC0);
+      }
+      useTex = true;
+    }
     soft = float(int(vInfo.z + 0.5) >> 4) / 255.0;
     if (soft > 0.0) {
       softA = softEdge(d, r, soft);
@@ -295,7 +343,7 @@ void main() {
       if (vN0.z > 0.0) softA = max(softA, capsuleSoft(vPix, vN0.xy, vS0, vN0.z, r, soft));
       if (vN1.z > 0.0) softA = max(softA, capsuleSoft(vPix, vS0, vN1.xy, r, vN1.z, soft));
     }
-    col = vC0;
+    col = useTex ? vC0Tex : vC0;
     col.a *= cov;
     zReal = vZ.x;
   }
@@ -341,6 +389,9 @@ function makeMaterial(idPass: boolean): ShaderMaterial {
       uOrderBase: { value: 0 },
       uOrderEps: { value: ORDER_EPS },
       uIdColor: { value: new Vector4() },
+      uFillTex: { value: null },
+      uStrokeTex: { value: null },
+      uTexParams: { value: new Vector3(0, 1, 0) },
     },
     defines: idPass ? { ID_PASS: 1 } : {},
     side: DoubleSide,
@@ -417,16 +468,16 @@ export function geometryFromBuffers(b: StrokeBuffers): BufferGeometry {
 }
 
 function styleKey(styles: (StrokeStyle | null)[]) {
-  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}` : '-')).join(';');
+  return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}|${s.fillTex ? JSON.stringify(s.fillTex) : ''}|${s.strokeTex ? JSON.stringify(s.strokeTex) : ''}` : '-')).join(';');
 }
 
-function cachedGeometry(d0: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false, guides = false): CachedGeo {
+function cachedGeometry(d0: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false, guides = false, slots?: { key: string; test: (k: number) => boolean }): CachedGeo {
   // smooth strokes (Bézier, NURBS, Catmull-Rom) draw their evaluated poly lines
   const d = evaluatedDrawing(d0);
-  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}#${+guides}`;
+  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}#${+guides}#${slots?.key ?? ''}`;
   let c = geoCache.get(key);
   if (!c) {
-    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout, guides);
+    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout, guides, slots?.test);
     c = { geo: geometryFromBuffers(b), orders: b.orderEnd, used: syncTick };
     geoCache.set(key, c);
   }
@@ -473,6 +524,11 @@ export function materialStyles(doc: DocumentData, gp: GreasePencilData, ghost = 
           : undefined,
       holdoutStroke: !!st.use_stroke_holdout,
       holdoutFill: !!st.use_fill_holdout,
+      fillTex:
+        !ghost && st.fill_style === 'TEXTURE' && st.fill_image && doc.images[st.fill_image]
+          ? { image: st.fill_image, mix: st.mix_factor ?? 0, clamp: !!st.texture_clamp, offset: [...(st.texture_offset ?? [0, 0])] as [number, number], angle: st.texture_angle ?? 0, scale: [...(st.texture_scale ?? [1, 1])] as [number, number] }
+          : undefined,
+      strokeTex: !ghost && st.stroke_style === 'TEXTURE' && st.stroke_image && doc.images[st.stroke_image] ? { image: st.stroke_image, mix: st.mix_stroke_factor ?? 0, uvFactor: st.pixel_size ?? 1 } : undefined,
     });
   }
   return out;
@@ -612,7 +668,12 @@ interface Entry {
   onion: boolean;
   onionColor: [number, number, number, number];
   alpha: number;
+  /** a textured material's own pass */
+  tex?: StrokeStyle;
 }
+
+/** Styles without image textures (passes that do not bind them: holdouts, masks). */
+const untextured = (styles: (StrokeStyle | null)[]) => styles.map((st) => (st && (st.fillTex || st.strokeTex) ? { ...st, fillTex: undefined, strokeTex: undefined } : st));
 
 /** Replace a drawing for display (e.g. weight colors in Weight Paint); null keeps it. */
 export const drawingDisplayHooks: ((ob: ObjectData, gp: GreasePencilData, d: GPDrawing) => GPDrawing | null)[] = [];
@@ -664,7 +725,9 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       if (d.offsets.length < 2) return;
     }
     if (ob) for (const hk of drawingDisplayHooks) d = hk(ob, gp, d) ?? d;
-    const c = cachedGeometry(d, styles, layer.radius_offset, false, !render);
+    // textured materials draw in passes of their own (each binds its images), in the same order
+    const texSlots = styles.map((st, k) => (st && (st.fillTex || st.strokeTex) ? k : -1)).filter((k) => k >= 0);
+    const c = cachedGeometry(d, styles, layer.radius_offset, false, !render, texSlots.length ? { key: `plain:${texSlots.join(',')}`, test: (k) => !texSlots.includes(k) } : undefined);
     const masks = layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined;
     entries.push({
       masks,
@@ -676,9 +739,13 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
       onionColor: [0, 0, 0, 0],
       alpha: 1,
     });
+    for (const k of texSlots) {
+      const tc = cachedGeometry(d, styles, layer.radius_offset, false, !render, { key: `tex:${k}`, test: (x) => x === k });
+      entries.push({ masks, geo: tc.geo, orderBase: order, layer, layerIndex: li, onion: false, onionColor: [0, 0, 0, 0], alpha: 1, tex: styles[k]! });
+    }
     if (styles.some((st) => st?.holdoutStroke || st?.holdoutFill)) {
       // drawn right after the layer with the same draw orders: strokes above a holdout stay
-      const hc = cachedGeometry(d, styles, layer.radius_offset, true);
+      const hc = cachedGeometry(d, untextured(styles), layer.radius_offset, true);
       entries.push({ holdout: true, masks, geo: hc.geo, orderBase: order, layer, layerIndex: li, onion: false, onionColor: [0, 0, 0, 0], alpha: 1 });
     }
     order += c.orders;
@@ -696,7 +763,7 @@ function maskGeometry(gp: GreasePencilData, layer: GPLayer, frame: number, style
     const fr = frameAt(ml, frame);
     const d = fr ? gp.drawings[fr.drawing] : undefined;
     // an empty mask hides the layer completely (or nothing, inverted)
-    out.push({ geo: d && d.offsets.length > 1 ? cachedGeometry(d, styles, ml.radius_offset).geo : new BufferGeometry(), layer: ml, invert: mk.invert });
+    out.push({ geo: d && d.offsets.length > 1 ? cachedGeometry(d, untextured(styles), ml.radius_offset).geo : new BufferGeometry(), layer: ml, invert: mk.invert });
   }
   return out.length ? out : undefined;
 }
@@ -752,6 +819,26 @@ function syncMasks(s: GPSynced, e: Entry, order: { n: number }, used: { n: numbe
     }
 }
 
+/** An image as a texture for strokes / fills: repeating (or clamped), sharing the image's pixels. */
+const texClones = new WeakMap<Texture, { rep?: Texture; clamp?: Texture; v: number }>();
+function gpTexture(imageId: string, clamp: boolean): Texture | null {
+  const img = app.doc.images[imageId];
+  if (!img) return null;
+  const base = imageTexture(img);
+  let e = texClones.get(base);
+  // new pixels in the image: copy again
+  if (!e || e.v !== base.version) texClones.set(base, (e = { v: base.version }));
+  const k = clamp ? 'clamp' : 'rep';
+  let t = e[k];
+  if (!t) {
+    t = base.clone();
+    t.wrapS = t.wrapT = clamp ? ClampToEdgeWrapping : RepeatWrapping;
+    t.needsUpdate = true;
+    e[k] = t;
+  }
+  return t;
+}
+
 function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D: boolean) {
   m.geometry = e.geo;
   const u = m.material.uniforms;
@@ -759,6 +846,9 @@ function applyEntry(m: GPMesh, e: Entry, ob: { show_in_front: boolean }, mode3D:
   u.uTint.value.set(e.layer.tint_color[0], e.layer.tint_color[1], e.layer.tint_color[2], e.layer.tint_factor);
   u.uOnion.value.set(...e.onionColor);
   u.uOrderBase.value = e.orderBase;
+  u.uFillTex.value = e.tex?.fillTex ? gpTexture(e.tex.fillTex.image, e.tex.fillTex.clamp) : null;
+  u.uStrokeTex.value = e.tex?.strokeTex ? gpTexture(e.tex.strokeTex.image, false) : null;
+  u.uTexParams.value.set(e.tex?.strokeTex?.mix ?? 0, e.tex?.strokeTex?.uvFactor ?? 1, e.tex?.fillTex?.clamp ? 1 : 0);
   setBlend(m.material, e.onion ? 'REGULAR' : e.holdout ? 'HOLDOUT' : e.layer.blend_mode);
   m.material.depthWrite = !e.holdout;
   m.userData.holdout = !!e.holdout;
