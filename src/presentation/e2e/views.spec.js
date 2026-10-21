@@ -286,6 +286,27 @@ test("sections follow slides moved, deleted and added outside a drag", async ({
   );
 });
 
+// Shift+click in the Sorter selects from the slide last clicked; once that
+// slide was deleted, it selected the clicked slide alone.
+test("Slide Sorter extends a selection after the slide clicked is deleted", async ({
+  page,
+}) => {
+  await start(page);
+  await addSlides(page, 4);
+  await view(page, "sorter");
+  const cards = page.locator(".sorter-card");
+  await cards.nth(2).click();
+  await page.keyboard.press("Delete");
+  await expect(cards).toHaveCount(4);
+  await expect(page.locator(".sorter-card.current")).toHaveText("3");
+  await cards.nth(0).click({ modifiers: ["Shift"] });
+  await expect(page.locator(".sorter-card.selected")).toHaveText([
+    "1",
+    "2",
+    "3",
+  ]);
+});
+
 // The Insert menu's Section commands change sections as the Sorter does:
 // removing the first section left it in place, and Remove All Sections
 // left every slide in a "Default Section".

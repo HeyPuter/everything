@@ -294,8 +294,12 @@ export function createSlideSorter(ctx) {
     const parts = order();
     const chosen = ctx.selectedParts();
     if (shift) {
+      // The range runs from the slide last clicked, or, once that slide is
+      // gone, from the current one.
       const from = parts.indexOf(
-        anchorPart || P.getSlidePartName(ctx.currentSlide()),
+        parts.includes(anchorPart)
+          ? anchorPart
+          : P.getSlidePartName(ctx.currentSlide()),
       );
       const to = parts.indexOf(part);
       const range = parts.slice(Math.min(from, to), Math.max(from, to) + 1);
