@@ -6716,10 +6716,15 @@ export class Workbook extends EventTarget {
         sheet.hiddenRows = shiftedHidden; sheet.rows = Math.min(sheet.rows + lines.count, MAX_ROW + 1);
       }
       else { sheet.colWidths = shifted; sheet.hiddenCols = shiftedHidden; sheet.cols = Math.min(sheet.cols + n, MAX_COL + 1); mapNativeWidths(sheet, c => c >= at ? c + n : c); }
-      // Lines inserted inside the frozen area stay frozen, so the pane keeps ending at the same content.
-      for (const { at, n } of bottomUp) {
-        if (axis === 'row' && at < sheet.frozenRows) sheet.frozenRows = Math.min(50, sheet.frozenRows + n);
-        if (axis === 'col' && at < sheet.frozenCols) sheet.frozenCols = Math.min(20, sheet.frozenCols + n);
+      // Lines inserted inside the frozen area stay frozen, so the pane keeps ending at the same content; lines inserted
+      // above a pane that starts further down (a file saved scrolled) move it down with its content.
+      const frozenKey = axis === 'row' ? 'frozenRows' : 'frozenCols', originKey = axis === 'row' ? 'r' : 'c';
+      if (sheet[frozenKey]) {
+        let start = sheet.frozenOrigin?.[originKey] || 0, count = sheet[frozenKey];
+        for (const { at, n } of bottomUp) { if (at < start) start += n; else if (at < start + count) count += n; }
+        sheet[frozenKey] = count = Math.min(axis === 'row' ? 50 : 20, count);
+        start = Math.min(start, limit - count);
+        if (start) sheet.frozenOrigin = { r: 0, c: 0, ...sheet.frozenOrigin, [originKey]: start };
       }
       this._adjustFormulas(sheet.name, axis, first, lines.count, false, points.length > 1 ? lines : null);
       // Rows inserted among a table's data rows are new table rows: they get the calculated
@@ -7007,9 +7012,15 @@ export class Workbook extends EventTarget {
       // where it was, the next structural undo or redo would grow the sheet back to it, the deleted lines' worth and all.
       if (sheet.reachedRows != null) sheet.reachedRows = Math.min(sheet.reachedRows, sheet.rows);
       if (sheet.reachedCols != null) sheet.reachedCols = Math.min(sheet.reachedCols, sheet.cols);
-      // Deleting frozen lines shrinks the frozen area by as many of them as were frozen.
-      if (axis === 'row') sheet.frozenRows -= lines.before(sheet.frozenRows);
-      else sheet.frozenCols -= lines.before(sheet.frozenCols);
+      // Deleting frozen lines shrinks the frozen area by as many of them as were frozen; deleting lines above a pane
+      // that starts further down moves it up with its content.
+      const frozenKey = axis === 'row' ? 'frozenRows' : 'frozenCols', originKey = axis === 'row' ? 'r' : 'c';
+      const start = sheet.frozenOrigin?.[originKey] || 0;
+      sheet[frozenKey] -= lines.before(start + sheet[frozenKey]) - lines.before(start);
+      if (start) {
+        sheet.frozenOrigin = { ...sheet.frozenOrigin, [originKey]: sheet[frozenKey] ? start - lines.before(start) : 0 };
+        if (!sheet.frozenOrigin.r && !sheet.frozenOrigin.c) delete sheet.frozenOrigin;
+      }
       this._adjustFormulas(sheet.name, axis, refLines.runs[0].from, refLines.count, true, refLines);
       this._refreshFilters(this.sheets);
     });
