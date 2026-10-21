@@ -346,7 +346,8 @@ export function runQuery(values, query, { headers = -1, firstCol = 0 } = {}) {
     const { y, m, d, weekday } = serialToYMD(v);
     // A time rounding up to the next midnight is hour 0 of that day, not hour 24.
     const secs = Math.round(((v % 1) + 1) % 1 * 86400) % 86400;
-    return { year: y, month: m, day: d, dayofweek: weekday + 1, hour: Math.floor(secs / 3600), minute: Math.floor((secs % 3600) / 60), second: secs % 60 }[fn];
+    // The query language counts months from 0 (January) and days of the week from 1 (Sunday).
+    return { year: y, month: m - 1, day: d, dayofweek: weekday + 1, hour: Math.floor(secs / 3600), minute: Math.floor((secs % 3600) / 60), second: secs % 60 }[fn];
   };
   const value = (e, row) => {
     if (e.type === 'lit') return e.value;

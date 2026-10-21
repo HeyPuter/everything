@@ -21,7 +21,7 @@ describe('QUERY group by a scalar of a column', () => {
     expect(q('select year(C), sum(B) group by year(C)').values)
       .toEqual([['year(When)', 'sum Amount'], [2023, 9], [2024, 2], [2025, 4]]);
     expect(q('select month(C), sum(B) group by month(C) order by month(C)').values)
-      .toEqual([['month(When)', 'sum Amount'], [1, 1], [3, 2], [7, 4], [11, 8]]);
+      .toEqual([['month(When)', 'sum Amount'], [0, 1], [2, 2], [6, 4], [10, 8]]);
     expect(q('select upper(A), count(B) group by upper(A)').values)
       .toEqual([['upper(Name)', 'count Amount'], ['A', 1], ['B', 1], ['C', 1], ['D', 1]]);
   });
