@@ -170,19 +170,18 @@ export function createSmartActions(ctx) {
       const find = h('button.btn', { type: 'button' }, icon('search', 16), 'Find silences');
       const cut = h('button.btn.primary', { type: 'button', disabled: true }, icon('scissors', 16), 'Cut them');
       const cancel = h('button.btn', { type: 'button' }, 'Close');
+      let found = [];
+      let ac = null;
       const d = openDialog({
         title: 'Remove silences',
         body: h('div.prefs', h('p.dialog-text', 'Finds stretches where it is quiet and cuts them out of the video, closing the gaps.'),
           row('Listen to', scope), row('Quieter than', thr, 'dB'), row('For at least', min, 's'), row('Keep around speech', pad, 's'), status),
         actions: [cancel, h('span.spacer'), find, cut],
         className: 'prefs-dialog',
+        // However it closes (Close, Escape, the X), stop listening.
+        onClose: () => ac?.abort(),
       });
-      let found = [];
-      let ac = null;
-      cancel.addEventListener('click', () => {
-        ac?.abort();
-        d.close();
-      });
+      cancel.addEventListener('click', () => d.close());
       const read = () => ({ scope: scope.value, thresholdDb: Number(thr.value), minSilence: Number(min.value), pad: Number(pad.value) });
       find.addEventListener('click', async () => {
         const o = read();

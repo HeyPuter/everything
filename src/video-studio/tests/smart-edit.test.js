@@ -1,5 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { silentRanges, frameSignature, signatureDistance, sceneCuts, syncEnvelope, bestLag, SIG_W, SIG_H } from '../src/media/smart-edit.js';
+import { EditorStore } from '../src/model/store.js';
+import { createActions } from '../src/ui/actions.js';
+import { fixture, clip, onMain } from './helpers.js';
+
+// Listening to the sound never finishes on its own here; it ends when aborted.
+const listening = { signal: null };
+vi.mock('../src/media/transcribe.js', async (orig) => ({
+  ...(await orig()),
+  mixdown: vi.fn((project, library, { signal }) => {
+    listening.signal = signal;
+    return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Cancelled', 'AbortError'))));
+  }),
+}));
 
 describe('silence detection', () => {
   it('finds long quiet stretches and keeps padding', () => {
@@ -9,6 +22,25 @@ describe('silence detection', () => {
     expect(r.length).toBe(1);
     expect(r[0].start).toBeCloseTo(1.1);
     expect(r[0].end).toBeCloseTo(1.9);
+  });
+});
+
+describe('Remove silences dialog', () => {
+  it.each(['Escape', 'Close'])('stops listening when closed with %s', async (how) => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const ctx = { store, player: null, library: {} };
+    ctx.actions = createActions(ctx);
+    ctx.actions.removeSilences();
+    const dlg = document.querySelector('dialog[open]');
+    [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Find silences').click();
+    await vi.waitFor(() => expect(listening.signal).toBeTruthy());
+    if (how === 'Escape') dlg.dispatchEvent(new Event('cancel', { cancelable: true }));
+    else [...dlg.querySelectorAll('button')].find((b) => b.textContent === 'Close').click();
+    expect(listening.signal.aborted).toBe(true);
+    listening.signal = null;
+    document.body.replaceChildren();
   });
 });
 
