@@ -182,6 +182,10 @@ button {
   *::after {
     transition-duration: 1ms !important;
     animation-duration: 1ms !important;
+    /* A looping animation squeezed into 1ms flickers (the spinner jumps to
+       a random angle and the recording dot flashes every frame): run it
+       once and hold still. */
+    animation-iteration-count: 1 !important;
   }
 }
 
