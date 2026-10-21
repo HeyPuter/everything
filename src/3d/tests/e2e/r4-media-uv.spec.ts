@@ -233,3 +233,15 @@ test('UV editor: proportional editing with Connected Only leaves other islands a
   expect(await run(true)).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('UV editor: the Annotate tool draws notes over the UVs', async ({ page }) => {
+  const { errors, box } = await uvWorkspace(page);
+  await page.evaluate(() => (window as any).app.hoverArea.editor.setTool('annotate_line'));
+  await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 4 });
+  await page.mouse.up();
+  const n = await page.evaluate(() => ((window as any).app.hoverArea.editor.annotationOwner()?.annotations_2d ?? []).length);
+  expect(n).toBe(1);
+  await expectNoErrors(errors);
+});

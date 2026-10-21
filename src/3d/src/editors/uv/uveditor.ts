@@ -30,15 +30,16 @@ import './uvicons';
 import './uvstyle';
 import './uvsculpt';
 import { drawCustomRegion } from './uvregion';
+import { ANNOTATE_TOOLS, annotatePointerDown, annotateKeyHeld, annotateModeOf, annotationsPanel, drawAnnotations2D, isAnnotateTool, type AnnotateTool, type Annotate2DHost, type Annotation2DOwner } from '../../mask/annotate2d';
 
-export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'transform' | 'rip_region' | 'grab' | 'relax' | 'pinch';
+export type UVTool = 'select' | 'select_box' | 'select_circle' | 'select_lasso' | 'cursor' | 'move' | 'rotate' | 'scale' | 'transform' | 'rip_region' | 'grab' | 'relax' | 'pinch' | AnnotateTool;
 
 interface ToolDef {
   id: UVTool;
   label: string;
   icon: string;
   description: string;
-  group?: 'select' | 'sculpt';
+  group?: 'select' | 'sculpt' | 'annotate';
   shortcut?: string;
 }
 
@@ -55,6 +56,8 @@ const TOOLS: (ToolDef | null)[] = [
   { id: 'scale', label: 'Scale', icon: 'transform_scale', shortcut: 'S', description: 'Drag to scale the selected UVs' },
   { id: 'transform', label: 'Transform', icon: 'transform', description: 'Drag inside the selection frame to move, its corners to scale, its sides to scale along one axis, outside it to rotate' },
   null,
+  ...ANNOTATE_TOOLS.map((t): ToolDef => ({ id: t.id, label: t.label, icon: t.icon, group: 'annotate', description: t.tip })),
+  null,
   { id: 'rip_region', label: 'Rip Region', icon: 'rip', description: 'Drag to tear the selected UVs off their neighbours' },
   null,
   { id: 'grab', label: 'Grab', icon: 'uv_grab', group: 'sculpt', description: 'Drag UVs under the brush' },
@@ -63,6 +66,9 @@ const TOOLS: (ToolDef | null)[] = [
 ];
 
 const SELECT_TOOLS = TOOLS.filter((t): t is ToolDef => !!t && t.group === 'select');
+const ANNOTATE_UV_TOOLS = TOOLS.filter((t): t is ToolDef => !!t && t.group === 'annotate');
+/** tool groups shown as one toolbar slot with variants */
+const SLOT_GROUPS: Record<string, ToolDef[]> = { select: SELECT_TOOLS, annotate: ANNOTATE_UV_TOOLS };
 const isSculpt = (t: UVTool) => t === 'grab' || t === 'relax' || t === 'pinch';
 
 /** UVs whose 3D/UV area ratio deviates from the mesh average, per face: 0 (none) … 1 (strong). */
@@ -120,7 +126,7 @@ function angleStretch(t: UVTopo): Map<number, number> {
   return out;
 }
 
-export class UVEditor implements Editor, UVView, View2D {
+export class UVEditor implements Editor, UVView, View2D, Annotate2DHost {
   el: HTMLElement;
   keymaps = ['UV Editor', 'Image Generic', 'Image', 'Window', 'Screen'];
   canvas: HTMLCanvasElement;
@@ -285,6 +291,20 @@ export class UVEditor implements Editor, UVView, View2D {
     const center = this.toUV(this.el.clientWidth / 2, this.el.clientHeight / 2);
     this.zoom = (w * ratio) / (Math.min(this.el.clientWidth, this.el.clientHeight) * 0.8);
     this.centerOn(center.u, center.v);
+  }
+
+  // 2D annotations (kept on the shown image, else on the scene)
+  annToScreen(u: number, v: number): [number, number] {
+    const p = this.toPx(u, v);
+    return [p.x, p.y];
+  }
+  annFromClient(clientX: number, clientY: number): [number, number] {
+    const q = this.local({ clientX, clientY });
+    const uv = this.toUV(q.x, q.y);
+    return [uv.u, uv.v];
+  }
+  annotationOwner(): Annotation2DOwner | null {
+    return ((this.image() as unknown as Annotation2DOwner | null) ?? (app.doc.scene as unknown as Annotation2DOwner)) as Annotation2DOwner;
   }
 
   /** Pan by screen pixels. */
@@ -707,6 +727,7 @@ export class UVEditor implements Editor, UVView, View2D {
   setTool(t: UVTool) {
     this.tool = t;
     if (SELECT_TOOLS.some((s) => s.id === t)) this.lastSelect = t;
+    if (isAnnotateTool(t)) this.lastAnnotate = t;
     this.drawUI();
     this.draw();
   }
@@ -716,34 +737,36 @@ export class UVEditor implements Editor, UVView, View2D {
 
   private toolbar(): Child {
     const editing = app.doc.mode === 'EDIT';
-    const list = TOOLS.filter((t) => !t || editing || t.id === 'cursor' || t.group === 'select');
-    // one slot for the select tools: the active one (or the last used)
-    const selSlot = SELECT_TOOLS.find((t) => t.id === this.tool) ?? SELECT_TOOLS.find((t) => t.id === this.lastSelect)!;
-    let shownSelect = false;
+    const list = TOOLS.filter((t) => !t || editing || t.id === 'cursor' || t.group === 'select' || t.group === 'annotate');
+    // one slot per tool group (select, annotate): the active tool of the group or the last used
+    const shownGroups = new Set<string>();
     const items: Child[] = [];
     list.forEach((t, i) => {
       if (!t) {
-        if (items.length) items.push(h('div', { key: `sep${i}`, class: 'tb-sep' }));
+        if (items.length && (items[items.length - 1] as { attrs?: { class?: string } })?.attrs?.class !== 'tb-sep') items.push(h('div', { key: `sep${i}`, class: 'tb-sep' }));
         return;
       }
-      if (t.group === 'select') {
-        if (shownSelect) return;
-        shownSelect = true;
-        t = selSlot;
+      const group = t.group && SLOT_GROUPS[t.group] ? t.group : null;
+      if (group) {
+        if (shownGroups.has(group)) return;
+        shownGroups.add(group);
+        const members = SLOT_GROUPS[group];
+        t = members.find((x) => x.id === this.tool) ?? members.find((x) => x.id === (group === 'select' ? this.lastSelect : this.lastAnnotate)) ?? members[0];
       }
       const tool = t;
-      const slot = tool.group === 'select';
+      const slot = !!group;
+      const alternatives = group ? SLOT_GROUPS[group] : [];
       items.push(
         h(
           'button',
           {
-            key: `tool-${slot ? 'select' : tool.id}`,
+            key: `tool-${slot ? tool.group : tool.id}`,
             class: { 'tb-tool': true, on: tool.id === this.tool, 'has-alt': slot },
             'data-tool': tool.id,
             'data-tip': `${tool.label}${tool.shortcut ? `\nShortcut: ${tool.shortcut}` : ''}\n${tool.description}`,
             onpointerdown: (e: PointerEvent) => {
               e.preventDefault();
-              const alts = () => SELECT_TOOLS.map((s) => ({ label: s.label, icon: s.icon, active: s.id === this.tool, action: () => this.setTool(s.id) }));
+              const alts = () => alternatives.map((s) => ({ label: s.label, icon: s.icon, active: s.id === this.tool, action: () => this.setTool(s.id) }));
               if (slot && (e.button === 2 || e.detail > 1)) {
                 openMenu(alts(), e.currentTarget as HTMLElement);
                 return;
@@ -767,6 +790,7 @@ export class UVEditor implements Editor, UVView, View2D {
   }
 
   private lastSelect: UVTool = 'select_box';
+  private lastAnnotate: AnnotateTool = 'annotate';
 
   private sidebar(): Child {
     const tabs = ['Image', 'Tool', 'View'];
@@ -864,6 +888,7 @@ export class UVEditor implements Editor, UVView, View2D {
     } else if (this.tool === 'select_circle') {
       rows.push(splitRow('Radius', numberField({ id: 'uv-circ-r', value: shapeSelect.radius, int: true, min: 2, max: 500, unit: 'pixel', set: (v) => (shapeSelect.radius = v) })));
     }
+    if (isAnnotateTool(this.tool)) rows.push(annotationsPanel('uv', this));
     const ts = app.doc.scene.tool_settings;
     rows.push(
       panel('uv-opts', 'Options', () => [
@@ -958,6 +983,7 @@ export class UVEditor implements Editor, UVView, View2D {
     this.drawOverlays(g);
     if (this.showOverlays) this.drawTransformFrame(g);
     if (this.showOverlays || this.regionDrag) drawCustomRegion(g, (u, v) => this.toPx(u, v), this.regionDrag);
+    if (this.showOverlays) drawAnnotations2D(this, g);
   }
 
   /** Modified Edges: UV edges of the evaluated meshes (after modifiers), faint under the editable UVs. */
@@ -1284,6 +1310,10 @@ export class UVEditor implements Editor, UVView, View2D {
       this.canvas.addEventListener('pointerup', up);
       return;
     }
+    if (annotateKeyHeld() && (e.button === 0 || e.button === 2)) {
+      annotatePointerDown(this, e, e.button === 2 ? 'ERASER' : e.altKey ? (e.shiftKey ? 'DRAW_POLY' : 'DRAW_STRAIGHT') : 'DRAW');
+      return;
+    }
     if (e.button === 2) {
       if (e.shiftKey) return this.cursorDrag(e);
       openUVContextMenu(e.clientX, e.clientY);
@@ -1293,6 +1323,7 @@ export class UVEditor implements Editor, UVView, View2D {
     const event = { x: e.clientX, y: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey };
     const area = this.area;
     if (this.tool === 'cursor') return this.cursorDrag(e);
+    if (isAnnotateTool(this.tool)) return void annotatePointerDown(this, e, annotateModeOf(this.tool));
     if (isSculpt(this.tool)) {
       if (!uvEditPoll()) return;
       const op = e.shiftKey ? 'sculpt.uv_sculpt_relax' : this.tool === 'grab' ? 'sculpt.uv_sculpt_grab' : this.tool === 'relax' ? 'sculpt.uv_sculpt_relax' : 'sculpt.uv_sculpt_pinch';
