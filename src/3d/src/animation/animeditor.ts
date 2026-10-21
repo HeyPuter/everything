@@ -18,7 +18,7 @@ import { renameSlotEverywhere } from './slotops';
 import { collectionObjects, buildChannels, channelSelected, type ChannelFilter, setChannelSelected, channelCurves, isExpanded, setExpanded, channelState, type Channel, type ChannelList, type SpaceKind, type CurveRef } from './channels';
 import { setKeySelected } from './keyedit';
 import { markerMenu, markerAt, markersLocked } from './markers';
-import { playbackOptions } from './footer';
+import { playbackOptions, playbackFooter } from './footer';
 
 export const RULER_H = 22;
 export const MARKER_H = 22;
@@ -32,6 +32,9 @@ export interface Selectable {
 }
 
 export type Region = 'channels' | 'main' | 'ruler' | 'markers' | 'sidebar' | 'footer';
+
+/** The visible frame range shared by editors with Sync Visible Range on (last change wins). */
+const syncedRange = { a: 0, b: 0, rev: 0 };
 
 export interface SidebarTab {
   id: string;
@@ -96,6 +99,12 @@ export abstract class AnimEditor implements Editor {
   showChannels = true;
   /** keys moved onto another key's frame replace it (View ▸ Auto-Merge Keyframes) */
   autoMerge = true;
+  /** View ▸ Realtime Updates: other views follow while keys are transformed */
+  realtimeUpdates = true;
+  /** View ▸ Sync Visible Range: editors with it on show the same frame range */
+  syncRange = false;
+  /** View ▸ Playback Controls: the footer with the playback controls */
+  showFooter = false;
   /** the channel search matches every word separately (View ▸ Multi-Word Match Search) */
   multiWordSearch = false;
   /** Filters popover: only objects of this collection ('' for all) */
@@ -319,6 +328,9 @@ export abstract class AnimEditor implements Editor {
       showSliders: this.showSliders,
       showChannels: this.showChannels,
       autoMerge: this.autoMerge,
+      realtimeUpdates: this.realtimeUpdates,
+      syncRange: this.syncRange,
+      showFooter: this.showFooter,
       multiWordSearch: this.multiWordSearch,
       filterCollection: this.filterCollection,
       hiddenTypes: this.hiddenTypes,
@@ -352,6 +364,9 @@ export abstract class AnimEditor implements Editor {
     if (typeof s.showSliders === 'boolean') this.showSliders = s.showSliders;
     if (typeof s.showChannels === 'boolean') this.showChannels = s.showChannels;
     if (typeof s.autoMerge === 'boolean') this.autoMerge = s.autoMerge;
+    if (typeof s.realtimeUpdates === 'boolean') this.realtimeUpdates = s.realtimeUpdates;
+    if (typeof s.syncRange === 'boolean') this.syncRange = s.syncRange;
+    if (typeof s.showFooter === 'boolean') this.showFooter = s.showFooter;
     if (typeof s.multiWordSearch === 'boolean') this.multiWordSearch = s.multiWordSearch;
     if (typeof s.filterCollection === 'string') this.filterCollection = s.filterCollection;
     if (Array.isArray(s.hiddenTypes)) this.hiddenTypes = s.hiddenTypes.filter((x): x is string => typeof x === 'string');
@@ -428,7 +443,7 @@ export abstract class AnimEditor implements Editor {
     this.drawChannels();
     this.draw();
     this.drawSidebar();
-    const f = this.footer();
+    const f = this.showFooter ? (this.footer() ?? playbackFooter()) : null;
     this.footerEl.hidden = !f;
     if (f) patch(this.footerEl, f);
   }
@@ -1030,6 +1045,69 @@ export abstract class AnimEditor implements Editor {
     ]);
   }
 
+  /** View ▸ Playback Controls: shows / hides the footer */
+  footerMenuItem(): MenuItem {
+    return { label: 'Playback Controls', checked: this.showFooter, action: () => ((this.showFooter = !this.showFooter), this.refresh(), app.changed('ui')) };
+  }
+
+  /** View ▸ Realtime Updates */
+  realtimeMenuItem(): MenuItem {
+    return { label: 'Realtime Updates', checked: this.realtimeUpdates, description: 'Other views follow keyframes while they are being transformed', action: () => ((this.realtimeUpdates = !this.realtimeUpdates), app.changed('ui')) };
+  }
+
+  /** View ▸ Sync Visible Range */
+  syncRangeMenuItem(): MenuItem {
+    return {
+      label: 'Sync Visible Range',
+      checked: this.syncRange,
+      description: 'Keep the visible frame range the same as in the other time editors that have this on',
+      action: () => {
+        this.syncRange = !this.syncRange;
+        this.lastRange = null;
+        if (this.syncRange && syncedRange.rev) this.syncSeen = 0;
+        this.draw();
+        app.changed('ui');
+      },
+    };
+  }
+
+  /** View ▸ Area: split, maximize and close the area */
+  areaMenuItem(): MenuItem {
+    return { label: 'Area', submenu: () => this.area.areaMenu() };
+  }
+
+  private syncSeen = 0;
+  private lastRange: [number, number] | null = null;
+
+  /** Sync Visible Range: publish this editor's range after it changed, or adopt the one published last. */
+  private syncVisibleRange(W: number) {
+    if (!this.syncRange || W <= 0) {
+      this.lastRange = null;
+      return;
+    }
+    const a = this.view.xf(0),
+      b = this.view.xf(W);
+    const same = (r: [number, number] | null, x: number, y: number) => !!r && Math.abs(r[0] - x) < 1e-6 && Math.abs(r[1] - y) < 1e-6;
+    const unchanged = !this.lastRange || same(this.lastRange, a, b);
+    if (this.syncSeen < syncedRange.rev && unchanged) {
+      this.view.ppf = W / Math.max(1e-6, syncedRange.b - syncedRange.a);
+      this.view.x0 = syncedRange.a;
+      this.syncSeen = syncedRange.rev;
+      this.lastRange = [syncedRange.a, syncedRange.b];
+      return;
+    }
+    if (!unchanged || !this.lastRange) {
+      syncedRange.a = a;
+      syncedRange.b = b;
+      this.syncSeen = ++syncedRange.rev;
+      this.lastRange = [a, b];
+      for (const ar of this.area.screen.areas) {
+        const ed = ar.editor;
+        if (ed !== this && ed instanceof AnimEditor && ed.syncRange) ed.draw();
+      }
+    }
+  }
+
   /** View ▸ Channels: the menu entry that shows / hides the channel region */
   channelsMenuItem(): MenuItem {
     return { label: 'Channels', checked: this.showChannels, action: () => ((this.showChannels = !this.showChannels), this.layout(), this.draw(), app.changed('ui')) };
@@ -1067,6 +1145,7 @@ export abstract class AnimEditor implements Editor {
       this.fitInitial(W);
       this.fitted = true;
     }
+    this.syncVisibleRange(W);
     const g = c.getContext('2d')!;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.fillStyle = C.back;

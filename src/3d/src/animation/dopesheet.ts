@@ -20,7 +20,8 @@ import { proportionalOf, proportionalHeader } from './proportional';
 import { playbackFooter } from './footer';
 import { lassoGesture } from './selecttools';
 import { actionSelector } from './actionui';
-import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
+import { previewRangeMenu, selectMenu, channelMenu, keyMenu } from './menus';
+import { cacheMenuItems, timelineOverlays } from './overlays';
 
 export type DopeSheetMode = 'DOPESHEET' | 'ACTION' | 'SHAPEKEY' | 'MASK';
 
@@ -85,6 +86,8 @@ export class DopeSheet extends AnimEditor {
     if (typeof s.showHandlesInterp === 'boolean') this.showHandlesInterp = s.showHandlesInterp;
     if (typeof s.showPoseMarkers === 'boolean') this.showPoseMarkers = s.showPoseMarkers;
     if (typeof s.showExtremes === 'boolean') this.showExtremes = s.showExtremes;
+    // the Dope Sheet shows its playback controls unless turned off
+    if (typeof s.showFooter !== 'boolean') this.showFooter = true;
   }
 
   protected serializeExtra() {
@@ -200,25 +203,39 @@ export class DopeSheet extends AnimEditor {
   }
 
   viewMenu(): MenuItem[] {
+    const tog = (label: string, on: boolean, flip: () => void, extra: Partial<MenuItem> = {}): MenuItem => ({ label, checked: on, ...extra, action: () => (flip(), this.refresh(), app.changed('ui')) });
     return [
       { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       this.channelsMenuItem(),
+      this.footerMenuItem(),
       { separator: true },
-      {
-        label: 'Show Handles and Interpolation',
-        checked: this.showHandlesInterp,
-        action: () => ((this.showHandlesInterp = !this.showHandlesInterp), this.draw()),
-      },
-      { label: 'Show Extremes', checked: this.showExtremes, action: () => ((this.showExtremes = !this.showExtremes), this.draw()) },
-      {
-        label: 'Show Markers',
-        checked: this.showMarkers,
-        action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
-      },
-      ...(this.mode === 'ACTION'
-        ? [{ label: 'Show Pose Markers', checked: this.showPoseMarkers, action: () => ((this.showPoseMarkers = !this.showPoseMarkers), this.refresh()) }]
-        : []),
-      ...viewMenuCommon('action', this),
+      { label: 'Frame Selected', op: 'action.view_selected', shortcut: 'Numpad .' },
+      { label: 'Frame All', op: 'action.view_all', shortcut: 'Home' },
+      { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
+      { label: 'Go to Current Frame', op: 'action.view_frame', shortcut: 'Numpad 0' },
+      { separator: true },
+      tog('Multi-Word Match Search', this.multiWordSearch, () => (this.multiWordSearch = !this.multiWordSearch)),
+      { separator: true },
+      this.realtimeMenuItem(),
+      tog('Show Sliders', this.showSliders, () => {
+        this.showSliders = !this.showSliders;
+        if (this.showSliders) this.chWidth = Math.max(this.chWidth, 300);
+      }),
+      tog('Show Handles and Interpolation', this.showHandlesInterp, () => (this.showHandlesInterp = !this.showHandlesInterp)),
+      tog('Show Extremes', this.showExtremes, () => (this.showExtremes = !this.showExtremes)),
+      tog('Auto-Merge Keyframes', this.autoMerge, () => (this.autoMerge = !this.autoMerge)),
+      { separator: true },
+      tog('Show Markers', this.showMarkers, () => (this.showMarkers = !this.showMarkers)),
+      ...(this.mode === 'ACTION' ? [tog('Show Pose Markers', this.showPoseMarkers, () => (this.showPoseMarkers = !this.showPoseMarkers))] : []),
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.syncRangeMenuItem(),
+      { separator: true },
+      ...previewRangeMenu('action.previewrange_set'),
+      { separator: true },
+      { label: 'Toggle Graph Editor', op: 'anim.switch_editor', props: { type: 'GRAPH' }, shortcut: 'Ctrl Tab' },
+      { separator: true },
+      ...cacheMenuItems(this),
+      this.areaMenuItem(),
     ];
   }
 
@@ -321,6 +338,8 @@ export class DopeSheet extends AnimEditor {
   // ---------------------------------------------------------------- drawing
 
   protected drawContent(g: CanvasRenderingContext2D, W: number, H: number) {
+    // registered overlays (e.g. simulation cache bars along the bottom)
+    for (const o of timelineOverlays) o(g, this, W);
     const v = this.view;
     const rows = this.list.rows;
     const rh = this.rowH;
@@ -403,6 +422,8 @@ export class DopeSheet extends AnimEditor {
       proportional: proportionalOf('use_proportional_action'),
       autoMerge: this.autoMerge,
       syncMarkers: this.syncMarkers ? this.markerList().filter((m) => m.select) : undefined,
+      realtime: this.realtimeUpdates,
+      redraw: () => this.draw(),
     };
   }
 

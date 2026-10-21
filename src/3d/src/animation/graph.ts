@@ -16,7 +16,7 @@ import { curveDisplayFactor } from './units';
 import { setKeySelected, selectAll, selectColumns, keyBounds, isAnySelected } from './keyedit';
 import { startKeyTransform, type KeyTransformHost, type KeyTransformMode } from './transformkeys';
 import { proportionalOf, proportionalHeader } from './proportional';
-import { viewMenuCommon, selectMenu, channelMenu, keyMenu } from './menus';
+import { previewRangeMenu, selectMenu, channelMenu, keyMenu } from './menus';
 import { drawFCurveSidebar, drawModifiersSidebar } from './graphsidebar';
 import { numberField, checkbox, button } from '../ui/widgets';
 
@@ -35,6 +35,8 @@ export class GraphEditor extends AnimEditor {
   onlySelectedHandles = true;
   /** curves continue past their first and last keys (View ▸ Show Extrapolation) */
   showExtrapolation = true;
+  /** View ▸ Auto-Lock Key Axis */
+  autoLockAxis = false;
   showCursor = true;
   cursorValue = 0;
   pivot: 'BOUNDING_BOX_CENTER' | 'CURSOR' = 'BOUNDING_BOX_CENTER';
@@ -53,6 +55,7 @@ export class GraphEditor extends AnimEditor {
     if (typeof s.showHandles === 'boolean') this.showHandles = s.showHandles;
     if (typeof s.onlySelectedHandles === 'boolean') this.onlySelectedHandles = s.onlySelectedHandles;
     if (typeof s.showExtrapolation === 'boolean') this.showExtrapolation = s.showExtrapolation;
+    if (typeof s.autoLockAxis === 'boolean') this.autoLockAxis = s.autoLockAxis;
     if (typeof s.cursorValue === 'number') this.cursorValue = s.cursorValue;
   }
 
@@ -62,6 +65,7 @@ export class GraphEditor extends AnimEditor {
       showHandles: this.showHandles,
       onlySelectedHandles: this.onlySelectedHandles,
       showExtrapolation: this.showExtrapolation,
+      autoLockAxis: this.autoLockAxis,
       cursorValue: this.cursorValue,
     };
   }
@@ -175,6 +179,17 @@ export class GraphEditor extends AnimEditor {
             app.changed('ui');
           })
         : null,
+      // ghost curves: take a snapshot of the curves, or clear it
+      h(
+        'button',
+        {
+          key: 'ghost',
+          class: 'hdr-toggle',
+          'data-tip': this.ghosts.length ? 'Clear Ghost Curves\nRemove the faded snapshot of the curves' : 'Create Ghost Curves\nKeep a faded snapshot of the visible curves for reference while editing',
+          onclick: () => app.run(this.ghosts.length ? 'graph.ghost_curves_clear' : 'graph.ghost_curves_create', {}, { area: this.area }),
+        },
+        icon(this.ghosts.length ? 'ghost_curves_clear' : 'ghost_curves'),
+      ),
       h('div', { class: 'hdr-spacer' }),
       hdrToggle(
         'only-sel',
@@ -237,42 +252,41 @@ export class GraphEditor extends AnimEditor {
   }
 
   viewMenu(): MenuItem[] {
+    const tog = (label: string, on: boolean, flip: () => void, extra: Partial<MenuItem> = {}): MenuItem => ({ label, checked: on, ...extra, action: () => (flip(), this.draw(), app.changed('ui')) });
     return [
-      {
-        label: 'Sidebar',
-        checked: this.showSidebar,
-        shortcut: 'N',
-        action: () => this.toggleSidebar(),
-      },
+      { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       this.channelsMenuItem(),
+      this.footerMenuItem(),
       { separator: true },
-      {
-        label: 'Show Cursor',
-        checked: this.showCursor,
-        action: () => ((this.showCursor = !this.showCursor), this.draw()),
-      },
-      {
-        label: 'Show Markers',
-        checked: this.showMarkers,
-        action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
-      },
-      {
-        label: 'Show Extrapolation',
-        checked: this.showExtrapolation,
-        action: () => ((this.showExtrapolation = !this.showExtrapolation), this.draw()),
-      },
-      {
-        label: 'Show Handles',
-        checked: this.showHandles,
-        shortcut: 'Ctrl H',
-        action: () => ((this.showHandles = !this.showHandles), this.draw()),
-      },
-      {
-        label: 'Only Selected Keyframes Handles',
-        checked: this.onlySelectedHandles,
-        action: () => ((this.onlySelectedHandles = !this.onlySelectedHandles), this.draw()),
-      },
-      ...viewMenuCommon('graph', this),
+      { label: 'Frame Selected', op: 'graph.view_selected', shortcut: 'Numpad .' },
+      { label: 'Frame All', op: 'graph.view_all', shortcut: 'Home' },
+      { label: 'Local View', op: 'graph.local_view', shortcut: '/' },
+      { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
+      { label: 'Go to Current Frame', op: 'graph.view_frame', shortcut: 'Numpad 0' },
+      { separator: true },
+      this.realtimeMenuItem(),
+      tog('Show Sliders', this.showSliders, () => {
+        this.showSliders = !this.showSliders;
+        if (this.showSliders) this.chWidth = Math.max(this.chWidth, 300);
+        this.refresh();
+      }),
+      tog('Auto-Merge Keyframes', this.autoMerge, () => (this.autoMerge = !this.autoMerge)),
+      tog('Auto-Lock Key Axis', this.autoLockAxis, () => (this.autoLockAxis = !this.autoLockAxis), { description: 'Moving keys follows only the direction the pointer moved most in' }),
+      { separator: true },
+      tog('Show Markers', this.showMarkers, () => ((this.showMarkers = !this.showMarkers), this.refresh())),
+      tog('Show Cursor', this.showCursor, () => (this.showCursor = !this.showCursor)),
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.syncRangeMenuItem(),
+      { separator: true },
+      tog('Show Extrapolation', this.showExtrapolation, () => (this.showExtrapolation = !this.showExtrapolation)),
+      tog('Show Handles', this.showHandles, () => (this.showHandles = !this.showHandles), { shortcut: 'Ctrl H' }),
+      tog('Only Selected Keyframes Handles', this.onlySelectedHandles, () => (this.onlySelectedHandles = !this.onlySelectedHandles)),
+      { separator: true },
+      ...previewRangeMenu('graph.previewrange_set'),
+      { separator: true },
+      { label: 'Toggle Dope Sheet', op: 'anim.switch_editor', props: { type: 'DOPESHEET' }, shortcut: 'Ctrl Tab' },
+      { separator: true },
+      this.areaMenuItem(),
     ];
   }
 
@@ -620,6 +634,9 @@ export class GraphEditor extends AnimEditor {
       cursorValue: this.cursorValue,
       proportional: proportionalOf('use_proportional_fcurve'),
       autoMerge: this.autoMerge,
+      realtime: this.realtimeUpdates,
+      redraw: () => this.draw(),
+      autoLockAxis: this.autoLockAxis,
     };
   }
 

@@ -37,6 +37,11 @@ export interface KeyTransformHost {
   autoMerge?: boolean;
   /** markers that move in time with the keys (Marker ▸ Sync Markers: the selected ones) */
   syncMarkers?: TimelineMarker[];
+  /** View ▸ Realtime Updates off: other views update when the transform ends (`redraw` repaints the editor meanwhile) */
+  realtime?: boolean;
+  redraw?: () => void;
+  /** View ▸ Auto-Lock Key Axis: free moves follow only the dominant direction */
+  autoLockAxis?: boolean;
 }
 
 /** Move the synced markers by the time part of a transform (from their original frames). */
@@ -420,6 +425,10 @@ export function startKeyTransform(
             if (constraint === 'NONE') dy = 0;
           }
         } else if (snapOn && !perKeySnap(host.snapTo)) dx = snapDelta(dx, host.snapTo);
+        if (num === null && constraint === 'NONE' && host.autoLockAxis) {
+          if (Math.abs(mouse.x - start.x) >= Math.abs(mouse.y - start.y)) dy = 0;
+          else dx = 0;
+        }
         value = [dx, dy];
         break;
       }
@@ -448,7 +457,8 @@ export function startKeyTransform(
     current = { mode, value, constraint, side };
     apply(host, snaps, current, pivot, snapOn);
     if (markerOrig.length) applyMarkers(markerOrig, current, pivot);
-    app.changed('doc');
+    if (host.realtime === false && host.redraw) host.redraw();
+    else app.changed('doc');
     opts.onUpdate?.();
   };
 

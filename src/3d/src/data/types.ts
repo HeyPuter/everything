@@ -852,6 +852,8 @@ export interface NlaStrip {
   modifiers?: FModifier[];
   /** SOUND strips: the speaker's sound plays from the strip start */
   sound?: ID | null;
+  /** control curves of the strip (`influence` while the influence is animated) */
+  fcurves?: FCurve[];
 }
 
 export interface NlaTrack {

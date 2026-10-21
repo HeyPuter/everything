@@ -4,7 +4,7 @@ import { h, type Child } from '../ui/h';
 import { icon } from '../ui/icons';
 import { app, registerOperators, type ModalHandler, type OpContext } from '../app/app';
 import { addKeys } from '../app/keymap';
-import { registerEditor } from '../ui/screen';
+import { registerEditor, type Area } from '../ui/screen';
 import { promptText, openMenu, type MenuItem } from '../ui/menu';
 import { numberField, enumMenu, checkbox, textField, panel, button } from '../ui/widgets';
 import type { AnimData, NlaStrip, NlaTrack, ObjectData } from '../data/types';
@@ -18,6 +18,8 @@ import { pushDown, makeStrip, newTrack, stripFits, sortStrips, actionRange, ensu
 import { browseActions } from './actionui';
 import { snapFrameTo } from './transformkeys';
 import { moveChannelsMenu, previewRangeMenu } from './menus';
+import { stripInfluence } from '../anim/evaluate';
+import { influenceKeyed, influenceSamples, keyStripInfluence, setAnimatedInfluence } from './nlacontrol';
 
 export interface StripRef {
   ob: ObjectData;
@@ -54,6 +56,21 @@ export class NlaEditor extends AnimEditor {
   keymaps = ['Markers', 'Animation Channels', 'NLA Editor', 'Animation'];
   rowH = 24;
   activeStrip: NlaStrip | null = null;
+  /** View ▸ Show Control F-Curves: animated influence drawn over the strips */
+  showStripCurves = true;
+  /** View ▸ Show Local Markers: the action's markers drawn on its strips */
+  showLocalMarkers = true;
+
+  constructor(area: Area, state?: unknown) {
+    super(area, state);
+    const st = (state ?? {}) as Record<string, unknown>;
+    if (typeof st.showStripCurves === 'boolean') this.showStripCurves = st.showStripCurves;
+    if (typeof st.showLocalMarkers === 'boolean') this.showLocalMarkers = st.showLocalMarkers;
+  }
+
+  protected serializeExtra() {
+    return { ...super.serializeExtra(), showStripCurves: this.showStripCurves, showLocalMarkers: this.showLocalMarkers };
+  }
 
   space(): SpaceKind {
     return 'NLA';
@@ -237,41 +254,28 @@ export class NlaEditor extends AnimEditor {
   }
 
   viewMenu(): MenuItem[] {
+    const tog = (label: string, on: boolean, flip: () => void, extra: Partial<MenuItem> = {}): MenuItem => ({ label, checked: on, ...extra, action: () => (flip(), this.refresh(), app.changed('ui')) });
     return [
-      {
-        label: 'Sidebar',
-        checked: this.showSidebar,
-        shortcut: 'N',
-        action: () => this.toggleSidebar(),
-      },
+      { label: 'Sidebar', checked: this.showSidebar, shortcut: 'N', action: () => this.toggleSidebar() },
       this.channelsMenuItem(),
-      {
-        label: 'Show Markers',
-        checked: this.showMarkers,
-        action: () => ((this.showMarkers = !this.showMarkers), this.refresh()),
-      },
-      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.footerMenuItem(),
       { separator: true },
-      {
-        label: 'Frame Selected',
-        op: 'nla.view_selected',
-        shortcut: 'Numpad .',
-      },
+      { label: 'Frame Selected', op: 'nla.view_selected', shortcut: 'Numpad .' },
       { label: 'Frame All', op: 'nla.view_all', shortcut: 'Home' },
       { label: 'Frame Scene Range', op: 'anim.scene_range_frame' },
-      {
-        label: 'Go to Current Frame',
-        op: 'nla.view_frame',
-        shortcut: 'Numpad 0',
-      },
+      { label: 'Go to Current Frame', op: 'nla.view_frame', shortcut: 'Numpad 0' },
+      { separator: true },
+      { ...this.realtimeMenuItem(), description: 'Other views follow strips while they are being transformed' },
+      tog('Show Control F-Curves', this.showStripCurves, () => (this.showStripCurves = !this.showStripCurves), { description: 'Draw the animated influence over the strips' }),
+      { separator: true },
+      tog('Show Markers', this.showMarkers, () => (this.showMarkers = !this.showMarkers)),
+      tog('Show Local Markers', this.showLocalMarkers, () => (this.showLocalMarkers = !this.showLocalMarkers), { description: 'Draw the markers of each strip’s action on the strip' }),
+      { label: 'Show Seconds', checked: this.showSeconds, op: 'anim.show_seconds_toggle', shortcut: 'Ctrl T' },
+      this.syncRangeMenuItem(),
       { separator: true },
       ...previewRangeMenu('nla.previewrange_set'),
       { separator: true },
-      {
-        label: this.area.screen.maximized === this.area ? 'Back to Previous' : 'Maximize Area',
-        op: 'screen.screen_full_area',
-        shortcut: 'Ctrl Space',
-      },
+      this.areaMenuItem(),
     ];
   }
 
@@ -520,6 +524,45 @@ export class NlaEditor extends AnimEditor {
         g.stroke();
       }
     }
+    // animated influence (View ▸ Show Control F-Curves)
+    if (this.showStripCurves && s.influence !== undefined && x1 - x0 > 4) {
+      g.save();
+      g.beginPath();
+      g.rect(x0, top, x1 - x0, hh);
+      g.clip();
+      g.strokeStyle = s.select ? 'rgba(0, 0, 0,0.75)' : 'rgba(255, 255, 255,0.8)';
+      g.lineWidth = 1.5;
+      g.beginPath();
+      influenceSamples(s).forEach(([f, w], i) => {
+        const x = v.fx(f),
+          yy = top + hh - 1 - w * (hh - 2);
+        if (i) g.lineTo(x, yy);
+        else g.moveTo(x, yy);
+      });
+      g.stroke();
+      g.restore();
+    }
+    // the action's markers on the strip (View ▸ Show Local Markers)
+    const markers = this.showLocalMarkers && s.type !== 'TRANSITION' && s.type !== 'META' ? app.doc.actions[s.action]?.pose_markers : undefined;
+    if (markers?.length) {
+      const span = Math.max(1e-6, s.action_frame_end - s.action_frame_start);
+      const per = (s.frame_end - s.frame_start) / Math.max(1e-6, s.repeat);
+      g.fillStyle = s.select ? 'rgba(0, 0, 0,0.7)' : 'rgba(255, 255, 255,0.75)';
+      for (let r = 0; r < Math.ceil(s.repeat - 1e-6); r++)
+        for (const m of markers) {
+          const t = (m.frame - s.action_frame_start) / span;
+          if (t < 0 || t > 1) continue;
+          const f = s.frame_start + r * per + t * per;
+          if (f > s.frame_end + 1e-6) continue;
+          const x = Math.round(v.fx(f)) + 0.5;
+          g.fillRect(x - 0.5, top + 2, 1, hh - 4);
+          g.beginPath();
+          g.moveTo(x - 3, top + hh - 1);
+          g.lineTo(x + 3, top + hh - 1);
+          g.lineTo(x, top + hh - 5);
+          g.fill();
+        }
+    }
     // name
     g.save();
     g.beginPath();
@@ -659,7 +702,8 @@ export class NlaEditor extends AnimEditor {
           updateStripScale(o.s);
         }
       }
-      app.changed('doc');
+      if (this.realtimeUpdates) app.changed('doc');
+      else this.draw();
     };
     let lastX = start.x;
     const handler: ModalHandler = {
@@ -907,21 +951,50 @@ export class NlaEditor extends AnimEditor {
       panel(
         'nla-infl',
         'Animated Influence',
-        () =>
-          row(
-            'Influence',
-            numberField({
-              id: 'nla-influence',
-              value: s.influence ?? 1,
-              min: 0,
-              max: 1,
-              slider: true,
-              disabled: s.influence === undefined,
-              set: (v, f) => ((s.influence = v), commit('Change Influence', f)),
-            }),
-          ),
+        () => {
+          const frame = app.doc.scene.frame_current;
+          const keyed = influenceKeyed(s, frame);
+          const animated = s.influence !== undefined;
+          return h(
+            'div',
+            { class: 'split-row' },
+            h('div', { class: 'sr-label' }, 'Influence'),
+            h(
+              'div',
+              { class: 'sr-value' },
+              numberField({
+                id: 'nla-influence',
+                value: animated ? stripInfluence(s, frame) : 1,
+                min: 0,
+                max: 1,
+                slider: true,
+                disabled: !animated,
+                set: (v, f) => {
+                  s.influence = v;
+                  // a key on this frame follows the field
+                  if (keyed) keyStripInfluence(s, frame, v);
+                  commit('Change Influence', f);
+                },
+              }),
+            ),
+            h(
+              'button',
+              {
+                class: { 'decorator-space': true, 'anim-tg': true, on: keyed },
+                disabled: !animated,
+                'data-tip': 'Insert Keyframe\nKey the influence on the current frame',
+                onclick: () => {
+                  if (!animated) return;
+                  keyStripInfluence(s, frame, stripInfluence(s, frame));
+                  commit('Insert Influence Keyframe');
+                },
+              },
+              icon(keyed ? 'decorate_keyframe' : 'decorate_animate'),
+            ),
+          );
+        },
         {
-          header: checkbox('nla-use-infl', '', s.influence !== undefined, (v) => ((s.influence = v ? 1 : undefined), commit('Toggle Animated Influence'))),
+          header: checkbox('nla-use-infl', '', s.influence !== undefined, (v) => (setAnimatedInfluence(s, v), commit('Toggle Animated Influence'))),
         },
       ),
     ];

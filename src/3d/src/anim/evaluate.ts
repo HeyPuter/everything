@@ -37,7 +37,11 @@ export function trackStripAt(track: NlaTrack, frame: number): { strip: NlaStrip;
 }
 
 export function stripInfluence(s: NlaStrip, frame: number) {
-  if (s.influence !== undefined) return s.influence;
+  if (s.influence !== undefined) {
+    // animated influence: the strip's influence curve when it has keys
+    const fc = s.fcurves?.find((f) => f.data_path === 'influence' && f.keyframe_points.length && !f.mute);
+    return fc ? Math.max(0, Math.min(1, evaluateFCurve(fc, frame))) : s.influence;
+  }
   let w = 1;
   if (s.blend_in > 0 && frame < s.frame_start + s.blend_in) w = Math.max(0, (frame - s.frame_start) / s.blend_in);
   if (s.blend_out > 0 && frame > s.frame_end - s.blend_out) w = Math.min(w, Math.max(0, (s.frame_end - frame) / s.blend_out));
