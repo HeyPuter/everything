@@ -40,7 +40,8 @@ it('undoes and redoes grouping, collapsing and expanding exactly', () => {
   wb.setAllGroups(id, 'row', true); states.push(snap());
   wb.toggleGroup(id, 'col', 0, 1); states.push(snap());
   wb.ungroupLines(id, 'row', 2, 10); states.push(snap());
-  expect(sheet().hiddenRows.has(5)).toBe(false); // the removed groups' lines come back
+  expect(sheet().hiddenRows.has(3)).toBe(false); // the removed group's lines come back
+  expect(sheet().hiddenRows.has(5)).toBe(true); // the group nested in it stays, collapsed, a level up
   expect(sheet().hiddenRows.has(30)).toBe(true); // a row hidden by hand stays hidden
   for (let i = states.length - 2; i >= 0; i--) { wb.undo(); expect(snap()).toBe(states[i]); }
   for (let i = 1; i < states.length; i++) { wb.redo(); expect(snap()).toBe(states[i]); }

@@ -7688,9 +7688,10 @@ export class Workbook extends EventTarget {
   }
 
   /**
-   * Ungroup: remove the groups inside from..to; when none is, the innermost
-   * group around the selection goes. Lines a removed group had hidden come
-   * back. Returns how many groups were removed.
+   * Ungroup: take one outline level off the lines from..to, as Excel does: the outermost groups inside them go,
+   * and the groups nested in those stay, a level up; when no group is inside, the innermost group around the
+   * selection goes. Lines a removed group had hidden come back, unless a group still collapsed holds them.
+   * Returns how many groups were removed.
    */
   ungroupLines(sheetId, axis, from, to) {
     const sheet = this.sheet(sheetId);
@@ -7700,8 +7701,14 @@ export class Workbook extends EventTarget {
     const lo = Math.min(from, to);
     const hi = Math.max(from, to);
     const list = sheet.groups[key];
-    // Lines grouped twice over lose one level, the deeper group of the two, as Excel takes one level off.
-    let gone = list.filter((g, i) => g.from >= lo && g.to <= hi && !list.some((o, j) => j > i && o.from === g.from && o.to === g.to));
+    let gone = [];
+    for (const g of list) {
+      if (g.from < lo || g.to > hi) continue;
+      const outer = gone.findIndex((o) => o.from <= g.from && o.to >= g.to);
+      if (outer < 0) gone.push(g);
+      // Lines grouped twice over lose the deeper group of the two (the list keeps such twins side by side).
+      else if (gone[outer].from === g.from && gone[outer].to === g.to) gone[outer] = g;
+    }
     if (!gone.length) {
       const around = list.filter((g) => g.from <= lo && g.to >= hi).sort((a, b) => (a.to - a.from) - (b.to - b.from) || list.indexOf(b) - list.indexOf(a));
       if (around.length) gone = [around[0]];
