@@ -59,3 +59,30 @@ describe('Explode cut edges', () => {
     expect(out.uvs[1]).toBeCloseTo(0.5, 6);
   });
 });
+
+describe('Dynamic Paint image sequences', () => {
+  it('texel samples cover the UV islands and interpolate vertex values', async () => {
+    const { texelSamples, interpolate, outputPixels, surfaceOutputs } = await import('../../src/physics/dpimage');
+    // one quad covering the lower-left quarter of the UV square
+    const quad = { positions: new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), offsets: new Uint32Array([0, 4]), indices: new Uint32Array([0, 1, 2, 3]), uvs: new Float32Array([0, 0, 0.5, 0, 0.5, 0.5, 0, 0.5]) };
+    const t = texelSamples(quad, 16)!;
+    expect(t.pix.length).toBe(64);
+    // positions follow the UVs: texel (7, 7) sits near the far corner
+    const P = interpolate(t, quad.positions, 3);
+    const i = Array.from(t.pix).indexOf(7 * 16 + 7);
+    expect(P[i * 3]).toBeCloseTo(15 / 16, 5);
+    // grid neighbours, borders at the island edge
+    expect(t.border[Array.from(t.pix).indexOf(3 * 16 + 3)]).toBe(0);
+    expect(t.border[Array.from(t.pix).indexOf(0)]).toBe(1);
+    // paint state → pixels, with padding around the island
+    const st = new Float32Array(64 * 5);
+    for (let k = 0; k < 64; k++) st.set([1, 0, 0, 1, 0.5], k * 5);
+    const px = outputPixels(t, st, 'paintmap');
+    expect(px[(3 * 16 + 3) * 4]).toBe(255);
+    expect(px[(3 * 16 + 9) * 4]).toBe(255);
+    expect(px[(3 * 16 + 12) * 4]).toBe(0);
+    const wet = outputPixels(t, st, 'wetmap');
+    expect(wet[(3 * 16 + 3) * 4]).toBe(128);
+    expect(surfaceOutputs({ name: 'S', surface_type: 'PAINT', use_output_a: true, use_output_b: false, output_name_a: '', output_name_b: '' }).map((o) => o.name)).toEqual(['dp_paintmap']);
+  });
+});

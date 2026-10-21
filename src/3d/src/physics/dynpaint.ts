@@ -17,6 +17,7 @@ import { arrayChecksum, frameOf, getCache, motionKey, outOfTime, strHash, worldA
 import { physicsDoc } from './state';
 import { defaultPointCache, type PointCacheSettings } from './types';
 import { particleCacheKey, systemOf } from './particles';
+import { interpolate, texelSamples } from './dpimage';
 
 export type DPSurfaceType = 'PAINT' | 'WEIGHT' | 'DISPLACE' | 'WAVE';
 
@@ -24,7 +25,9 @@ export interface DPSurface {
   id: string;
   name: string;
   is_active: boolean;
-  surface_format: 'VERTEX';
+  surface_format: 'VERTEX' | 'IMAGE';
+  /** image sequence format: texels per side of the output images */
+  image_resolution?: number;
   surface_type: DPSurfaceType;
   point_cache: PointCacheSettings;
   frame_substeps: number;
@@ -99,6 +102,7 @@ export function defaultSurface(type: DPSurfaceType = 'PAINT', name = 'Surface'):
     name,
     is_active: true,
     surface_format: 'VERTEX',
+    image_resolution: 256,
     surface_type: type,
     point_cache: defaultPointCache(sc?.frame_start ?? 1, sc?.frame_end ?? 250),
     frame_substeps: 0,
@@ -399,9 +403,11 @@ type DPFrame = Float32Array;
 
 const STRIDE: Record<DPSurfaceType, number> = { PAINT: 5, WEIGHT: 1, DISPLACE: 1, WAVE: 2 };
 
-interface Live {
+export interface Live {
   state: Float32Array;
   graph: Graph;
+  /** image sequences: the texel samples the state belongs to */
+  texels?: import('./dpimage').TexelSamples | null;
 }
 
 function initState(sf: DPSurface, mesh: EvalMesh, doc: DocumentData, dataId: string | null | undefined): Float32Array {
@@ -655,7 +661,10 @@ export function surfaceState(ob: ObjectData, m: DynamicPaintModifier, sf: DPSurf
   cache.start = pc.frame_start;
   cache.end = pc.frame_end;
   cache.baked = pc.is_baked;
-  const n = mesh.positions.length / 3;
+  // image sequences simulate one point per texel of the UV map
+  const texels = sf.surface_format === 'IMAGE' ? texelSamples(mesh, Math.max(16, Math.min(4096, Math.round(sf.image_resolution ?? 256)))) : null;
+  if (sf.surface_format === 'IMAGE' && !texels) return null;
+  const n = texels ? texels.pix.length : mesh.positions.length / 3;
   const size = n * STRIDE[sf.surface_type];
   const hash = surfaceHash(doc, ob, m, sf, mesh, ctx.source);
   const usable = pc.is_baked && cache.frames.size > 0 && cache.frames.values().next().value?.length === size;
@@ -666,7 +675,8 @@ export function surfaceState(ob: ObjectData, m: DynamicPaintModifier, sf: DPSurf
   const sctx: SimContext = { doc, graph: ctx.graph };
   if (!cache.live || cache.last < pc.frame_start || cache.live.state.length !== size) {
     cache.frames.clear();
-    cache.live = { state: initState(sf, mesh, doc, ob.data), graph: meshGraph(mesh) };
+    const vs = initState(sf, mesh, doc, ob.data);
+    cache.live = texels ? { state: interpolate(texels, vs, STRIDE[sf.surface_type]), graph: { start: texels.start, nb: texels.nb, border: texels.border }, texels } : { state: vs, graph: meshGraph(mesh) };
     cache.frames.set(pc.frame_start, cache.live.state.slice());
     cache.last = pc.frame_start;
   }
@@ -683,7 +693,9 @@ export function surfaceState(ob: ObjectData, m: DynamicPaintModifier, sf: DPSurf
       const t = k - 1 + (s + 1) / (sub + 1);
       const fk = s === sub ? k : t;
       const W = sub ? lerpMat(worldAt(sctx, ob, k - 1), worldAt(sctx, ob, k), (s + 1) / (sub + 1)) : worldAt(sctx, ob, k);
-      const { P, N } = worldVerts(mesh, W);
+      const wv = worldVerts(mesh, W);
+      const P = texels ? interpolate(texels, wv.P, 3) : wv.P,
+        N = texels ? interpolate(texels, wv.N, 3, true) : wv.N;
       const shapes: BrushShape[] = [];
       for (const { ob: bo, m: bm, b } of brushes) {
         const sh = brushShape(sctx, bo, bm, b, Math.round(fk), sf.brush_radius_scale ?? 1);
@@ -712,6 +724,11 @@ function applyCanvas(mesh: EvalMesh, m: DynamicPaintModifier, ctx: ModifierConte
   const n = mesh.positions.length / 3;
   for (const sf0 of surfaces) {
     if (!sf0.is_active) continue;
+    if (sf0.surface_format === 'IMAGE') {
+      // image sequences write images (see dpops) instead of changing the mesh
+      surfaceState(ctx.ob, m, { ...defaultSurface(sf0.surface_type), ...sf0 } as DPSurface, mesh, ctx);
+      continue;
+    }
     const sf = { ...defaultSurface(sf0.surface_type), ...sf0 } as DPSurface;
     const st = surfaceState(ctx.ob, m, sf, mesh, ctx);
     if (!st) continue;
