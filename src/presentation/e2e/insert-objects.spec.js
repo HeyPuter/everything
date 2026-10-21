@@ -541,6 +541,33 @@ test("photo album makes slides of the chosen pictures", async ({ page }) => {
   expect(saved.slide(4).match(/<p:pic>/g)).toHaveLength(1);
 });
 
+test("a picture the album can't use is left out, not the whole album", async ({
+  page,
+}) => {
+  await start(page);
+  await command(page, "photo-album");
+  const dialog = page.getByRole("dialog", { name: "Photo Album" });
+  await choose(
+    page,
+    () => dialog.getByRole("button", { name: "Add Pictures…" }).click(),
+    [
+      { name: "one.png", mimeType: "image/png", buffer: PNG },
+      {
+        name: "huge.png",
+        mimeType: "image/png",
+        buffer: Buffer.concat([PNG, Buffer.alloc(13 * 1024 * 1024)]),
+      },
+      { name: "two.png", mimeType: "image/png", buffer: PNG },
+    ],
+  );
+  await dialog.getByRole("button", { name: "Create" }).click();
+  // A title slide and the two usable pictures follow the first slide.
+  await expect(page.locator(".slide-item")).toHaveCount(4);
+  await expect(page.locator("#toast")).toHaveText(
+    "“huge.png” was left out. Choose an image smaller than 12 MB.",
+  );
+});
+
 test("objects are embedded as packages and handed back on opening", async ({
   page,
 }) => {

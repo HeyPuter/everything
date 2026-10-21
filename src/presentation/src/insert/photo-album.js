@@ -1,6 +1,6 @@
 // Photo Album: choose several pictures, put them in order, pick a layout,
 // captions and a frame, and get new slides with the pictures laid out.
-import { el, dialog, iconButton, icon } from "../ui.js";
+import { el, dialog, iconButton, icon, toast } from "../ui.js";
 import { text as textBox } from "../model.js";
 import { canvasPng, checkbox, fieldRow, loadImage, pickFiles } from "./util.js";
 
@@ -242,21 +242,40 @@ export function createPhotoAlbum(ctx) {
       urls.forEach((u) => URL.revokeObjectURL(u));
       return;
     }
-    // Read (and scale down) every picture before the edit.
+    // Read (and scale down) every picture before the edit. One that can't
+    // be used (too large, or not a picture after all) is left out of the
+    // album rather than losing the others with it.
     const pictures = [];
-    for (const item of items) {
-      const image = await ctx.readImage(item.file);
-      const bytes = blackAndWhite
-        ? await grayscale(image.bytes, item.file.type)
-        : image.bytes;
-      pictures.push({
-        ...image,
-        bytes,
-        caption: item.caption,
-        name: item.file.name,
-      });
+    const skipped = [];
+    try {
+      for (const item of items) {
+        let image;
+        try {
+          image = await ctx.readImage(item.file);
+        } catch (error) {
+          skipped.push({ name: item.file.name, error });
+          continue;
+        }
+        const bytes = blackAndWhite
+          ? await grayscale(image.bytes, item.file.type)
+          : image.bytes;
+        pictures.push({
+          ...image,
+          bytes,
+          caption: item.caption,
+          name: item.file.name,
+        });
+      }
+    } finally {
+      urls.forEach((u) => URL.revokeObjectURL(u));
     }
-    urls.forEach((u) => URL.revokeObjectURL(u));
+    if (!pictures.length) throw skipped[0].error;
+    if (skipped.length === 1)
+      toast(`“${skipped[0].name}” was left out. ${skipped[0].error.message}`);
+    else if (skipped.length)
+      toast(
+        `${skipped.length} pictures were left out: ${skipped.map((s) => `“${s.name}”`).join(", ")}. Each must be a PNG or JPEG smaller than 12 MB.`,
+      );
     const size = ctx.currentSize();
     const [, , perSlide, titled] = ALBUM_LAYOUTS.find(([id]) => id === layout);
     const ink = ctx.inkColor();
