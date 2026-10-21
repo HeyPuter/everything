@@ -141,6 +141,13 @@ export function openMenu(anchor, items, { label = 'Menu', onClose, align = 'star
     focusables.push(btn);
   }
 
+  // Closing a submenu marks its item collapsed, so find the item first.
+  const backToParent = () => {
+    const item = parent.el.querySelector('[aria-expanded="true"]');
+    handle.close(false);
+    item?.focus();
+  };
+
   menu.addEventListener('keydown', (e) => {
     const i = focusables.indexOf(document.activeElement);
     const focus = (n) => focusables[(n + focusables.length) % focusables.length]?.focus();
@@ -162,15 +169,12 @@ export function openMenu(anchor, items, { label = 'Menu', onClose, align = 'star
       submenu?.el.querySelector('[role^="menuitem"]')?.focus();
     } else if (e.key === 'ArrowLeft' && parent) {
       e.preventDefault();
-      handle.close(false);
-      parent.el.querySelector('[aria-expanded="true"]')?.focus();
+      backToParent();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       e.stopPropagation();
-      if (parent) {
-        handle.close(false);
-        parent.el.querySelector('[aria-expanded="true"]')?.focus();
-      } else handle.close();
+      if (parent) backToParent();
+      else handle.close();
     } else if (e.key === 'Tab') {
       // Focus goes back to the button that opened the menu, then Tab moves on.
       const root = openStack[0];

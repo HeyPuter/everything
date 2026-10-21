@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Store, snippet, foldWithOffsets } from '../src/data/store.js';
 import { memoryBackend } from '../src/data/backend.js';
 import { App } from '../src/ui/app.js';
-import { closeAllMenus } from '../src/ui/menu.js';
+import { closeAllMenus, openMenu } from '../src/ui/menu.js';
 import { setPref } from '../src/ui/prefs.js';
 
 // App shell and navigation: panes, routing, search, menus and dialogs.
@@ -151,5 +151,37 @@ describe('Find on Page', () => {
     app.find.run();
     expect(app.find.ranges.map((r) => r.toString())).toEqual(['café']);
     app.find.close();
+  });
+});
+
+describe('menus', () => {
+  afterEach(() => {
+    closeAllMenus();
+    document.body.innerHTML = '';
+  });
+
+  it('returns to the submenu item when Escape or Left Arrow closes its submenu', async () => {
+    document.body.innerHTML = '<button id="opener">Open</button>';
+    const opener = document.getElementById('opener');
+    opener.focus();
+    openMenu(opener, [
+      { label: 'First', run: () => {} },
+      { label: 'Colors', submenu: () => [{ label: 'Red', run: () => {} }, { label: 'Blue', run: () => {} }] },
+    ]);
+    const item = [...document.querySelectorAll('.menu-item')].find((b) => b.textContent.includes('Colors'));
+    item.focus();
+    keydown(item, 'ArrowRight');
+    expect(document.querySelectorAll('.menu')).toHaveLength(2);
+    expect(document.activeElement.textContent).toBe('Red');
+    keydown(document.activeElement, 'Escape');
+    expect(document.querySelectorAll('.menu')).toHaveLength(1);
+    expect(document.activeElement).toBe(item);
+    keydown(item, 'ArrowRight');
+    keydown(document.activeElement, 'ArrowLeft');
+    expect(document.querySelectorAll('.menu')).toHaveLength(1);
+    expect(document.activeElement).toBe(item);
+    keydown(item, 'Escape');
+    expect(document.querySelectorAll('.menu')).toHaveLength(0);
+    expect(document.activeElement).toBe(opener);
   });
 });
