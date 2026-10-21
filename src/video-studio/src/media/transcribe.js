@@ -213,13 +213,16 @@ function parseTime(s) {
   return Number(hh || 0) * 3600 + Number(mm) * 60 + Number(ss) + Number(frac.padEnd(3, '0')) / 1000;
 }
 
-// Formatting tags of SubRip and WebVTT cues, and WebVTT karaoke timestamps. Anything
-// else between < and > is text ("if a < b and c > d").
-const CUE_TAG = /<\/?(?:b|i|u|s|c|v|font|ruby|rt|lang)(?=[\s.>])[^>]*>|<(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}>/gi;
+// Tags in cues: SubRip and WebVTT formatting, HTML left over from converted files
+// (<span style=...>, <p>), and WebVTT karaoke timestamps. A tag starts with a letter
+// right after "<", so "if a < b and c > d" stays text.
+const CUE_TAG = /<\/?[a-z][\w.-]*(?:\s[^<>]*)?\/?>|<(?:\d+:)?\d{1,2}:\d{2}[.,]\d{1,3}>/gi;
+const CUE_BREAK = /<br\s*\/?>/gi;
 
 function cleanCueText(lines) {
   return lines
     .join('\n')
+    .replace(CUE_BREAK, '\n')
     .replace(CUE_TAG, '')
     .replace(/\{\\[^}]*\}/g, '')
     .replace(/&nbsp;/g, ' ')

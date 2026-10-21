@@ -141,6 +141,11 @@ describe('subtitle files', () => {
     expect(parseSubtitles(srt).map((c) => c.text)).toEqual(['if a < b and c > d', 'One two 3 <3']);
   });
 
+  it('drops HTML left in converted subtitles and turns <br> into a line break', () => {
+    const srt = '1\n00:00:01,000 --> 00:00:02,000\nline one<br>line two<br/>three\n\n2\n00:00:03,000 --> 00:00:04,000\n<span style="color:red">Yellow</span> <em>text</em> <p>para</p>\n';
+    expect(parseSubtitles(srt).map((c) => c.text)).toEqual(['line one\nline two\nthree', 'Yellow text para']);
+  });
+
   it('round-trips captions with blank lines in them', () => {
     const cues = [{ start: 1, end: 2, text: 'First line\n\n  \nafter blank' }, { start: 3, end: 4, text: 'Second' }];
     expect(parseSubtitles(toSrt(cues))).toEqual([{ start: 1, end: 2, text: 'First line\nafter blank' }, { start: 3, end: 4, text: 'Second' }]);
