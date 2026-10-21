@@ -111,6 +111,32 @@ describe("ink strokes", () => {
     expect(samples[0]).toMatchObject({ x: 0, y: 0 });
     expect(samples.at(-1).x).toBeCloseTo(500000, -1);
   });
+  it("keeps a pencil's grain when a stroke is redrawn", () => {
+    const pres = createDeck("blank");
+    const slide = P.getSlides(pres)[0];
+    const pencil = {
+      type: "pencil",
+      color: "#595959",
+      width: 2,
+      texture: "graphite",
+    };
+    const ink = addInkStroke(P, slide, line(), pencil);
+    const before = P.getShapeCustomGeometry(ink).paths;
+    // What the point eraser leaves of it: the first half.
+    setStrokeGeometry(P, ink, line().slice(0, 10));
+    const after = P.getShapeCustomGeometry(ink).paths;
+    expect(after).toHaveLength(2);
+    expect(after[1].commands).not.toEqual(after[0].commands);
+    // The same pencil drawn through those points looks the same.
+    const fresh = addInkStroke(P, slide, line().slice(0, 10), pencil);
+    expect(after).toEqual(P.getShapeCustomGeometry(fresh).paths);
+    expect(P.getShapeBounds(ink)).toEqual(P.getShapeBounds(fresh));
+    expect(before).toHaveLength(2);
+    // A pen keeps its one pass.
+    const pen = addInkStroke(P, slide, line(), red);
+    setStrokeGeometry(P, pen, line().slice(0, 10));
+    expect(P.getShapeCustomGeometry(pen).paths).toHaveLength(1);
+  });
   it("lie where a turned or flipped stroke is drawn", () => {
     const pres = createDeck("blank");
     const slide = P.getSlides(pres)[0];
