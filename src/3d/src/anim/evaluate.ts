@@ -150,6 +150,11 @@ function blendAction(doc: DocumentData, ob: ObjectData, acc: Accum, action: Acti
 const lastWritten = new Map<string, { frame: number; anim: number }>();
 
 export function applyAnimData(doc: DocumentData, ob: ObjectData, ad: AnimData, frame: number) {
+  // speakers play their sound from the start of their (lowest, unmuted) NLA sound strip
+  if (ob.speaker) {
+    const sound = ad.nla_tracks.filter((t) => !t.mute).flatMap((t) => t.strips.filter((st) => st.type === 'SOUND' && !st.mute))[0];
+    if (sound && ob.speaker.frame_start !== sound.frame_start) ob.speaker.frame_start = sound.frame_start;
+  }
   const acc: Accum = new Map();
   const solo = ad.nla_tracks.some((t) => t.is_solo);
   const tw = ad.tweak;

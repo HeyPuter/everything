@@ -112,3 +112,23 @@ describe('sync markers and auto-merge', () => {
     expect(fc.keyframe_points.map((k: { co: number[] }) => k.co[0])).toEqual([10, 10]);
   });
 });
+
+describe('NLA sound clips', () => {
+  it('a speaker plays from its sound strip', async () => {
+    const { addSoundStrip } = await import('../../src/animation/nlasound');
+    const { newObject } = await import('../../src/data/defaults');
+    const { defaultSpeaker } = await import('../../src/object/speakerdata');
+    const sp = newObject('Speaker', 'SPEAKER' as never, null);
+    sp.speaker = { ...defaultSpeaker(), sound: { filepath: 'beep.wav', mime: 'audio/wav', bytes: new Uint8Array(4) } as never };
+    app.doc.objects[sp.id] = sp;
+    const strip = addSoundStrip(sp, 24, 48);
+    expect(strip.type).toBe('SOUND');
+    expect([strip.frame_start, strip.frame_end]).toEqual([24, 72]);
+    expect(sp.animation_data!.nla_tracks[0].name).toBe('SoundTrack');
+    applyAnimData(app.doc, sp, sp.animation_data!, 1);
+    expect(sp.speaker!.frame_start).toBe(24);
+    strip.frame_start = 30;
+    applyAnimData(app.doc, sp, sp.animation_data!, 1);
+    expect(sp.speaker!.frame_start).toBe(30);
+  });
+});

@@ -167,6 +167,7 @@ export class NlaEditor extends AnimEditor {
     return [
       { label: 'Action', submenu: () => actionClipMenu(), shortcut: 'Shift A' },
       { label: 'Transition', op: 'nla.transition_add', shortcut: 'Shift T' },
+      { label: 'Sound', op: 'nla.soundclip_add', shortcut: 'Shift K' },
       { separator: true },
       { label: 'Selected Objects', op: 'nla.selected_objects_add' },
     ];
@@ -451,7 +452,7 @@ export class NlaEditor extends AnimEditor {
     if (x1 < 0 || x0 > W) return;
     g.globalAlpha = dim || s.mute ? 0.45 : 1;
     roundRect(g, x0, top, Math.max(2, x1 - x0), hh, 3);
-    const base = s.type === 'TRANSITION' ? ['#3e5979', '#77a0d8'] : s.type === 'META' ? ['#5a436d', '#a26ecd'] : tweaked ? ['#406f43', '#65c06a'] : ['#574a39', C.nlaStripSelected];
+    const base = s.type === 'TRANSITION' ? ['#3e5979', '#77a0d8'] : s.type === 'META' ? ['#5a436d', '#a26ecd'] : s.type === 'SOUND' ? ['#2d5c58', '#4fb3a6'] : tweaked ? ['#406f43', '#65c06a'] : ['#574a39', C.nlaStripSelected];
     g.fillStyle = s.select ? base[1] : base[0];
     g.fill();
     if (s.type === 'TRANSITION') {
@@ -812,7 +813,7 @@ export class NlaEditor extends AnimEditor {
           }),
         ),
       ]),
-      s.type === 'TRANSITION' || s.type === 'META' ? null : panel('nla-clip', 'Action Clip', () => [
+      s.type === 'TRANSITION' || s.type === 'META' || s.type === 'SOUND' ? null : panel('nla-clip', 'Action Clip', () => [
         row(
           'Action',
           h(
