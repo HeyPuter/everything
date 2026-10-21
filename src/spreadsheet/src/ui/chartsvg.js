@@ -1869,7 +1869,11 @@ function renderStyledCartesian(data, chart, width, height) {
       const key = placed ? keyWidth : 26, keyH = placed ? style.size * .65 : 10;
       const color = seriesColor(chart, i), line = lineStyle(i);
       if (more) { /* the count of the series not named has no key */ } else if (bubble) parts.push(`<circle cx="${f(x + (placed ? key / 2 : 4))}" cy="${f(y)}" r="${placed ? key / 2 : 4}" fill="${bubblePaint[i]}"/>`);
-      else if (pureArea || (layered ? ['area', 'column'].includes(a.seriesTypes[i]) : i < columnCount)) parts.push(`<rect x="${f(x)}" y="${f(y - keyH / 2)}" width="${f(key)}" height="${f(keyH)}" fill="${color}"/>`);
+      else if (pureArea || (layered ? ['area', 'column'].includes(a.seriesTypes[i]) : i < columnCount)) {
+        // A column's or an area's key is the square the legend's other placements draw, set in the line keys' slot.
+        const side = placed ? keyH : Math.min(key, style.size * .65);
+        parts.push(`<rect x="${f(placed ? x : x + (key - side) / 2)}" y="${f(y - side / 2)}" width="${f(placed ? key : side)}" height="${f(side)}" fill="${color}"/>`);
+      }
       else {
         if (line.visible !== false) parts.push(`<line x1="${f(x)}" y1="${f(y)}" x2="${f(x + key)}" y2="${f(y)}" stroke="${color}" stroke-width="${line.width}" stroke-linecap="round"/>`);
         if (line.marker) parts.push(chartMarker(line.markerSymbol, x + key / 2, y, Math.min(markerPixels(line), style.size), line.markerFill || color, line.markerStroke || color, '', 'chart-legend-marker'));
