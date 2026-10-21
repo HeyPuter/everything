@@ -36,6 +36,7 @@ import './overlays';
 import './segmentops';
 import './annotations';
 import './curveedit';
+import './pen';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [
