@@ -5,7 +5,7 @@ import { PDFDocument, PDFBool, PDFName, PDFHexString, PDFString, StandardFonts }
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { flattenCounts, flattenDocument } from '../src/core/flatten.js';
-import { flattenFonts } from '../src/core/document.js';
+import { duplicatePages, flattenFonts, insertPdfPages } from '../src/core/document.js';
 import { addNote, listNotes } from '../src/core/notes.js';
 import { addHighlight, listHighlights, rectQuad } from '../src/core/highlight.js';
 import { addLink, listLinks } from '../src/core/links.js';
@@ -420,6 +420,42 @@ it('redraws fields in Polish, Cyrillic, or Korean when the form leaves drawing t
     for (const value of Object.values(values)) expect(text).toContain(value);
   } finally {
     await task.destroy();
+  }
+});
+
+it('copies, inserts, and extracts the pages of such a form, its Polish values drawn', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    async (url) =>
+      new Response(
+        await readFile(new URL(`../public/fonts/${String(url).split('/').pop()}`, import.meta.url)),
+      ),
+  );
+  const source = await PDFDocument.create();
+  const field = source.getForm().createTextField('city');
+  field.addToPage(source.addPage([300, 300]), { x: 20, y: 40, width: 200, height: 30 });
+  field.acroField.setValue(PDFHexString.fromText('Łódź'));
+  source.getForm().acroForm.dict.set(PDFName.of('NeedAppearances'), PDFBool.True);
+  const bytes = await source.save({ updateFieldAppearances: false });
+  const duplicated = await PDFDocument.load(bytes);
+  await duplicatePages(duplicated, [0]);
+  const inserted = await PDFDocument.create();
+  await insertPdfPages(inserted, bytes);
+  for (const [result, page] of [
+    [await duplicated.save(), 2],
+    [await inserted.save(), 1],
+    [await extractPages(bytes, [0]), 1],
+  ]) {
+    const task = pdfjs.getDocument({
+      data: result.slice(),
+      standardFontDataUrl: new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)
+        .pathname,
+    });
+    try {
+      const content = await (await (await task.promise).getPage(page)).getTextContent();
+      expect(content.items.map((item) => item.str).join('')).toContain('Łódź');
+    } finally {
+      await task.destroy();
+    }
   }
 });
 

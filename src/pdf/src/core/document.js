@@ -587,8 +587,9 @@ export async function insertPdfPages(
     throw new Error('The merged PDF would exceed 1,000 pages.');
   // Preserve form values without colliding field names. Any widgets that cannot be flattened
   // remain on the source; reject copying those pages before they can become orphaned fields.
+  const fonts = await flattenFonts(source);
   try {
-    flattenFields(source);
+    flattenFields(source, { fonts });
   } catch {
     /* The check below rejects any selected page whose widgets remain. */
   }
@@ -634,8 +635,9 @@ export async function duplicatePages(doc, indices) {
   let source = doc;
   if (formFields(doc)?.length) {
     source = await PDFDocument.load(await savePdf(doc));
+    const fonts = await flattenFonts(source);
     try {
-      flattenFields(source);
+      flattenFields(source, { fonts });
     } catch {
       /* The check below rejects a page whose widgets remain. */
     }

@@ -11,7 +11,7 @@ import {
   PDFString,
 } from 'pdf-lib';
 import { inheritPdfVersion, savePdf } from './version.js';
-import { MAX_PAGES, validatePdf } from './document.js';
+import { MAX_PAGES, flattenFonts, validatePdf } from './document.js';
 import { flattenFields, requireFlattenedPages } from './flatten.js';
 import { copyPagesWithLayers } from './optional-content.js';
 import { mapPageDestinations } from './page-actions.js';
@@ -73,8 +73,9 @@ export async function extractPages(bytes, indices) {
  */
 export async function openSource(bytes) {
   const source = await validatePdf(bytes);
+  const fonts = await flattenFonts(source);
   try {
-    flattenFields(source);
+    flattenFields(source, { fonts });
   } catch {
     // The selected pages are checked before copying so remaining widgets cannot be orphaned.
   }

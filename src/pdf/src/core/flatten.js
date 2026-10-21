@@ -277,10 +277,7 @@ export function redrawnFieldTexts(doc) {
  */
 export function flattenFields(
   doc,
-  refs = refIndex(doc),
-  unflattened = { fields: 0 },
-  layers = new Map(),
-  fonts = [],
+  { refs = refIndex(doc), unflattened = { fields: 0 }, layers = new Map(), fonts = [] } = {},
 ) {
   const form = doc.getForm();
   const fields = formFields(doc);
@@ -366,7 +363,7 @@ export function flattenDocument(doc, { fields = true, annotations = true, fonts 
   const readable = new WeakMap();
   const generated = new WeakMap();
   const layers = new Map();
-  if (fields) counts.fields = flattenFields(doc, refs, unflattened, layers, fonts);
+  if (fields) counts.fields = flattenFields(doc, { refs, unflattened, layers, fonts });
   if (annotations)
     for (const page of doc.getPages()) {
       let annots = annotationsOf(page);
