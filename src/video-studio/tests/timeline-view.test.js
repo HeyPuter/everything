@@ -132,3 +132,21 @@ describe('timeline rendering', () => {
     tl.dispose();
   });
 });
+
+describe('timeline on phones', () => {
+  it('zoom to fit keeps the playhead where it is when scrolling seeks', () => {
+    const p = fixture();
+    onMain(p, clip('video', 0, 10), clip('video', 10, 10));
+    const { store, tl, scroller } = mountTimeline(p);
+    tl.setCentered(true);
+    store.seek(s(12.5));
+    scroller.dispatchEvent(new Event('scroll'));
+    tl.zoomBy(3);
+    scroller.dispatchEvent(new Event('scroll'));
+    expect(store.time).toBe(s(12.5));
+    tl.zoomToFit();
+    scroller.dispatchEvent(new Event('scroll'));
+    expect(store.time).toBe(s(12.5));
+    tl.dispose();
+  });
+});

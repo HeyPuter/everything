@@ -221,6 +221,12 @@ export function createTimeline(ctx) {
   function zoomToFit() {
     const vw = Math.max(200, scroller.clientWidth - headerWidth() - PAD * 2 - 40);
     const d = Math.max(store.duration, 10 * US);
+    if (centered) {
+      // Scrolling seeks here, so the view stays on the playhead.
+      setPps(vw / (d / US));
+      centerOn(store.time);
+      return;
+    }
     setPps(vw / (d / US), { time: 0, px: PAD });
     scroller.scrollLeft = 0;
   }
