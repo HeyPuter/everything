@@ -25,9 +25,9 @@ import { upgradeDoc } from './template.js';
 import { linkFrame, linkedLevel, appendPlan, combineMeshes } from './links.js';
 
 export const MODEL_KINDS = ['topo', 'wall', 'floor', 'ceiling', 'roof', 'door', 'window', 'column', 'beam', 'brace', 'footing', 'wallFooting', 'stair', 'ramp', 'railing', 'component', 'modelLine', ...MEP_KINDS, 'mass', 'link'];
-export const PLAN_KINDS = [...MODEL_KINDS, 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
+export const PLAN_KINDS = [...MODEL_KINDS, 'space', 'room', 'roomSeparator', 'area', 'areaBoundary', 'grid', 'refPlane', 'propertyLine', 'region', 'dimension', 'text', 'tag', 'detailLine', ...ANNOTATION_KINDS, 'section', 'elevation'];
 
-const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
+const LEVEL_SCOPED = new Set(['wall', 'roomSeparator', 'column', 'room', 'space', 'floor', 'ceiling', 'roof', 'stair', 'ramp', 'railing', 'component', 'beam', 'brace', 'footing', 'modelLine', 'area', 'areaBoundary', 'mass', ...MEP_KINDS]);
 
 /** 2D views that show only their own annotations. */
 export const DRAWN_ONLY = new Set(['drafting', 'legend']);
@@ -201,7 +201,7 @@ export class Scene {
   depsPlan(view, el, pc) {
     const doc = this.doc;
     const d = [view, doc.get(view.levelId), ...this.deps3D(el), ...viewFilterItems(doc, view)];
-    if (el.kind === 'room') d.push(this.rooms.room(el));
+    if (el.kind === 'room' || el.kind === 'space') d.push(this.rooms.room(el), doc.get(el.zoneId));
     else if (el.kind === 'area') d.push(this.areas.area(el));
     else if (el.kind === 'dimension') for (const r of el.refs || []) d.push(doc.get(r.id));
     else if (el.kind === 'tag') {

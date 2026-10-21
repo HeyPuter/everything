@@ -76,6 +76,7 @@ export const CATEGORIES = [
   { id: 'parking', label: 'Parking', model: true },
   { id: 'masses', label: 'Mass', model: true },
   { id: 'links', label: 'Linked Projects', model: true },
+  { id: 'spaces', label: 'Spaces', model: false },
   { id: 'propertyLines', label: 'Property Lines', model: false },
   { id: 'rooms', label: 'Rooms', model: false },
   { id: 'roomSeparators', label: 'Room Separation Lines', model: false },
@@ -145,6 +146,7 @@ const KIND_CATEGORY = {
   propertyLine: 'propertyLines',
   mass: 'masses',
   link: 'links',
+  space: 'spaces',
 };
 
 /** Category of an element (components take theirs from the type). */
@@ -205,6 +207,8 @@ export const KIND_LABEL = {
   propertyLine: 'Property Line',
   mass: 'Mass',
   link: 'Linked Project',
+  space: 'Space',
+  zone: 'Zone',
 };
 
 export const TYPE_KIND = {

@@ -6,6 +6,7 @@ import { openingSize, verticalExtent, levelOf, stairLayout, rampLayout } from '.
 import { schemeLabel, AREA_TYPES } from './props.js';
 import { roofGeometry } from './build3d.js';
 import { mepSize, systemOf } from './mep.js';
+import { spaceLoads, spaceType } from './spaces.js';
 import { VIEW_KINDS, VIEW_LABEL } from './doc.js';
 import { scaleLabel } from './units.js';
 import { typeThickness, KIND_LABEL, CATEGORIES, categoryOf } from './catalog.js';
@@ -201,6 +202,24 @@ export const SCHEDULE_CATEGORIES = {
       COUNT,
     ],
     defaults: ['type', 'level', 'offset', 'area'],
+  },
+  space: {
+    label: 'Spaces',
+    kinds: ['space'],
+    fields: [
+      F('number', 'Number', (el) => el.number ?? '', 'text', 'number'),
+      F('name', 'Name', (el) => el.name ?? '', 'text', 'name'),
+      F('level', 'Level', lvlName),
+      F('zone', 'Zone', (el, c) => c.doc.get(el.zoneId)?.name ?? ''),
+      F('spaceType', 'Space Type', (el) => spaceType(el).label),
+      F('area', 'Area', (el, c) => spaceLoads(el, c.scene.rooms.room(el))?.area * 1e6 || 0, 'area'),
+      F('volume', 'Volume (m?)', (el, c) => Math.round((spaceLoads(el, c.scene.rooms.room(el))?.volume || 0) * 10) / 10, 'number'),
+      F('people', 'People', (el, c) => spaceLoads(el, c.scene.rooms.room(el))?.people ?? 0, 'number'),
+      F('cooling', 'Cooling (W)', (el, c) => Math.round(spaceLoads(el, c.scene.rooms.room(el))?.cooling || 0), 'number'),
+      F('heating', 'Heating (W)', (el, c) => Math.round(spaceLoads(el, c.scene.rooms.room(el))?.heating || 0), 'number'),
+      COUNT,
+    ],
+    defaults: ['number', 'name', 'zone', 'area', 'people', 'cooling', 'heating'],
   },
   duct: {
     label: 'Ducts',

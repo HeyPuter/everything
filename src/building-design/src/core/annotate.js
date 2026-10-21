@@ -22,6 +22,7 @@ import { formatLength, formatDimension } from './units.js';
 import { roofGeometry } from './build3d.js';
 import { roofHeightAt } from './roof.js';
 import { levelElevation } from './model.js';
+import { systemOf } from './mep.js';
 
 const P = (pc, mm) => mm * pc.scale;
 
@@ -584,9 +585,27 @@ function drawSymbol(pc, el, b) {
 }
 
 /** Values the rooms of a view are coloured by, with their colours. */
-export function legendEntries(doc, view) {
-  const by = view.roomFillBy || 'name';
+export function legendEntries(doc, view, source = 'rooms') {
   const seen = new Map();
+  if (source === 'ducts' || source === 'pipes') {
+    const kinds = source === 'ducts' ? ['duct'] : ['pipe'];
+    for (const r of doc.all(...kinds)) {
+      if (r.levelId !== view.levelId) continue;
+      const s = systemOf(r);
+      if (!seen.has(s.label)) seen.set(s.label, hexColor(s.color));
+    }
+    return [...seen].sort((a, b) => a[0].localeCompare(b[0]));
+  }
+  if (source === 'zones') {
+    for (const sp of doc.all('space')) {
+      if (sp.levelId !== view.levelId) continue;
+      const z = doc.get(sp.zoneId);
+      const label = z?.name || 'No zone';
+      if (!seen.has(label)) seen.set(label, hexColor(z?.color || '#7a8aa0'));
+    }
+    return [...seen].sort((a, b) => a[0].localeCompare(b[0]));
+  }
+  const by = view.roomFillBy || 'name';
   for (const r of doc.all('room')) {
     if (r.levelId !== view.levelId) continue;
     const v = String(r[by] || '(none)');
@@ -597,13 +616,20 @@ export function legendEntries(doc, view) {
 
 const FILL_BY_LABEL = { name: 'Name', department: 'Department', occupant: 'Occupant', floorFinish: 'Floor Finish', number: 'Number' };
 
+const LEGEND_TITLE = { ducts: 'Duct Systems', pipes: 'Pipe Systems', zones: 'Zones' };
+
+function hexColor(hex) {
+  const n = parseInt(String(hex).replace('#', '').slice(0, 6), 16) || 0;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
 function drawLegend(pc, el, b) {
-  const entries = legendEntries(pc.doc, pc.view);
+  const entries = legendEntries(pc.doc, pc.view, el.source || 'rooms');
   const sz = P(pc, 2.5);
   const row = sz * 1.8;
   const sw = sz * 2.2;
   const at = el.at;
-  b.text([at[0], at[1] + row * 0.6], `Rooms by ${FILL_BY_LABEL[pc.view.roomFillBy || 'name'] || 'Name'}`, { size: sz * 1.1, align: 'left', bold: true });
+  b.text([at[0], at[1] + row * 0.6], LEGEND_TITLE[el.source] || `Rooms by ${FILL_BY_LABEL[pc.view.roomFillBy || 'name'] || 'Name'}`, { size: sz * 1.1, align: 'left', bold: true });
   let maxLen = 10;
   entries.forEach(([label, color], i) => {
     const y = at[1] - i * row - row * 0.4;

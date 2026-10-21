@@ -19,10 +19,11 @@ import { mepSize, systemOf, SYSTEMS } from './mep.js';
 import { braceHeights } from './build3d.js';
 import { topoBoundary } from './topo.js';
 import { massFloorArea } from './massing.js';
+import { spaceLoads, SPACE_TYPES } from './spaces.js';
 import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
 import { optionable, optionLabel } from './designopts.js';
 
-export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
+export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Energy Analysis', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
 
 const P = (key, label, group, type, extra = {}) => ({ key, label, group, type, ...extra });
 
@@ -282,6 +283,19 @@ const INSTANCE = {
   ],
   detailArc: [len('r', 'Radius', 'Dimensions'), P('style', 'Line Style', 'Graphics', 'select', { options: () => LINE_STYLES })],
   symbol: [P('rotation', 'Rotation', 'Graphics', 'angle'), P('size', 'Size', 'Graphics', 'number', { get: (el) => +el.size || 1 })],
+  space: [
+    P('levelId', 'Level', 'Constraints', 'level', { ro: () => true }),
+    len('height', 'Height', 'Dimensions'),
+    ro('area', 'Area', 'Dimensions', (el, c) => spaceLoads(el, c.scene?.rooms.room(el))?.area * 1e6 || 0, 'area'),
+    P('number', 'Number', 'Identity Data', 'text'),
+    P('name', 'Name', 'Identity Data', 'text'),
+    P('spaceType', 'Space Type', 'Energy Analysis', 'select', { get: (el) => el.spaceType || 'office', options: () => SPACE_TYPES.map((t) => ({ value: t.value, label: t.label })) }),
+    P('zoneId', 'Zone', 'Energy Analysis', 'select', { get: (el) => el.zoneId || '', set: (el, v) => ({ zoneId: v || null }), options: (c) => [{ value: '', label: 'None' }, ...c.doc.all('zone').map((z) => ({ value: z.id, label: z.name }))] }),
+    P('people', 'Number of People', 'Energy Analysis', 'text', { get: (el, c) => (el.people != null && el.people !== '' ? el.people : spaceLoads(el, c.scene?.rooms.room(el))?.people ?? ''), set: (el, v) => ({ people: v === '' ? null : Math.max(0, Math.round(+v) || 0) }) }),
+    ro('cooling', 'Cooling Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.cooling || 0), 'text'),
+    ro('heating', 'Heating Load (estimate, W)', 'Energy Analysis', (el, c) => Math.round(spaceLoads(el, c.scene?.rooms.room(el))?.heating || 0), 'text'),
+  ],
+  zone: [P('name', 'Name', 'Identity Data', 'text')],
   link: [
     P('name', 'Name', 'Identity Data', 'text'),
     len('z', 'Elevation Offset', 'Constraints'),

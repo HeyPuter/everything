@@ -50,6 +50,8 @@ import * as collab from './ui/collab.js';
 import * as links from './ui/links.js';
 import * as dopts from './ui/designopts.js';
 import * as sunui from './ui/sun.js';
+import * as analyze from './ui/analyze.js';
+import { SpaceTool, placeSpacesAutomatically } from './editor/analyze.js';
 import { sunDirection } from './core/sun.js';
 import { editingOption } from './core/designopts.js';
 import { worksharingOn } from './core/worksets.js';
@@ -347,6 +349,15 @@ export const COMMANDS = {
   selectionIds: { label: 'IDs of Selection', icon: 'selectionIds', enabled: hasSel, run: (app) => manage.idsOfSelection(app) },
   selectById: { label: 'Select by ID', icon: 'selectById', run: (app) => manage.selectById(app) },
   warnings: { label: 'Warnings', icon: 'warning', run: (app) => manage.warningsDialog(app), desc: 'Problems in the model: overlapping walls, unenclosed rooms, duplicate marks' },
+  space: { label: 'Space', icon: 'space', keys: 'SP', run: tool(SpaceTool), desc: 'A space for building services: area, volume, occupancy and loads' },
+  spacesAuto: { label: 'Place Spaces Automatically', icon: 'space', run: (app) => (app.requirePlan() ? placeSpacesAutomatically(app) : null), desc: 'One space per room of the active level' },
+  spaceSeparator: { label: 'Space Separator', icon: 'roomSeparator', run: (app) => app.run('roomSeparator'), desc: 'Divide an open area into spaces (shared with room separation lines)' },
+  zones: { label: 'Zones', icon: 'zone', run: (app) => analyze.zonesDialog(app), desc: 'Group spaces served by one system or thermostat' },
+  loads: { label: 'Heating and Cooling Loads', icon: 'loads', run: (app) => analyze.loadsDialog(app), desc: 'First estimates of heating and cooling for each space and zone' },
+  checkSystems: { label: 'Check Systems', icon: 'checkSystems', run: (app) => analyze.checkSystemsDialog(app), desc: 'Find duct and pipe ends that connect to nothing' },
+  ductLegend: { label: 'Duct Legend', icon: 'colorLegend', run: tool(LegendTool, { source: 'ducts' }), desc: 'A legend of the duct systems in a plan' },
+  pipeLegend: { label: 'Pipe Legend', icon: 'colorLegend', run: tool(LegendTool, { source: 'pipes' }), desc: 'A legend of the pipe systems in a plan' },
+  zoneLegend: { label: 'Zone Legend', icon: 'colorLegend', run: tool(LegendTool, { source: 'zones' }), desc: 'A legend of the zones of the spaces in a plan' },
   shadows: {
     label: 'Shadows',
     icon: 'shadows',

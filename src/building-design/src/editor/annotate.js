@@ -15,6 +15,13 @@ import { formatAngle } from '../core/units.js';
 import { PLAN_VIEW_KINDS } from '../core/doc.js';
 import { LINE_STYLES } from '../core/props.js';
 
+const LEGEND_SOURCES = [
+  { value: 'rooms', label: 'Rooms' },
+  { value: 'zones', label: 'Zones' },
+  { value: 'ducts', label: 'Duct systems' },
+  { value: 'pipes', label: 'Pipe systems' },
+];
+
 function select(label, options, value, onChange) {
   const s = h('select.input.sm', { 'aria-label': label }, ...options.map((o) => h('option', { value: o.value }, o.label)));
   s.value = value;
@@ -604,27 +611,34 @@ export class LegendTool extends AnnotationTool {
   }
 
   get viewKinds() {
-    return ['plan'];
+    return ['plan', 'ceilingPlan'];
+  }
+
+  get source() {
+    return this.opts?.source || this.app.toolOptions('legend', { source: 'rooms' }).source;
   }
 
   get prompt() {
-    return 'Click to place the legend. It lists the room colors of this plan.';
+    const what = { rooms: 'the room colors', zones: 'the zones of the spaces', ducts: 'the duct systems', pipes: 'the pipe systems' }[this.source];
+    return `Click to place the legend. It lists ${what} of this plan.`;
   }
 
   options() {
     const view = this.vc?.view;
     if (!view) return null;
-    return [
-      select('Color rooms by', ROOM_FILL_BY, view.roomFillBy || 'name', (v) => this.app.commit('Color scheme', () => this.doc.update(view.id, { roomFillBy: v, roomFill: true }))),
-    ];
+    const o = this.app.toolOptions('legend', { source: 'rooms' });
+    const out = [select('Legend of', LEGEND_SOURCES, this.source, (v) => ((o.source = v), (this.opts = { ...this.opts, source: v }), this.app.renderOptions(), this.app.setPrompt(this.prompt)))];
+    if (this.source === 'rooms') out.push(select('Color rooms by', ROOM_FILL_BY, view.roomFillBy || 'name', (v) => this.app.commit('Color scheme', () => this.doc.update(view.id, { roomFillBy: v, roomFill: true }))));
+    return out;
   }
 
   down(ev) {
     if (!ev.p) return;
     const view = this.vc.view;
     this.app.commit('Color fill legend', () => {
-      if (!view.roomFill) this.doc.update(view.id, { roomFill: true });
-      this.doc.add({ kind: 'colorLegend', viewId: view.id, at: ev.p });
+      const source = this.source;
+      if (source === 'rooms' && !view.roomFill) this.doc.update(view.id, { roomFill: true });
+      this.doc.add({ kind: 'colorLegend', viewId: view.id, at: ev.p, source });
     });
     this.app.cancelTool();
   }

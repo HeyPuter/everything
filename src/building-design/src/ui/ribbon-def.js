@@ -186,6 +186,16 @@ export const RIBBON = [
     ],
   },
   {
+    id: 'analyze',
+    label: 'Analyze',
+    panels: [
+      { title: 'Spaces & Zones', items: [{ cmd: 'space', size: 'lg' }, { cmd: 'spaceSeparator', size: 'lg' }, { cmd: 'spacesAuto' }, { cmd: 'zones', size: 'lg' }] },
+      { title: 'Reports', items: [{ cmd: 'loads', size: 'lg' }, { cmd: 'checkSystems', size: 'lg' }] },
+      { title: 'Color Fill', items: [{ cmd: 'ductLegend', size: 'lg' }, { cmd: 'pipeLegend', size: 'lg' }, { cmd: 'zoneLegend', size: 'lg' }] },
+      { title: 'Sun', items: [{ cmd: 'sunSettings', size: 'lg', label: 'Location' }, { cmd: 'shadows', size: 'lg' }] },
+    ],
+  },
+  {
     id: 'massing',
     label: 'Massing & Site',
     panels: [

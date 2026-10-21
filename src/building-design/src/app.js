@@ -1857,6 +1857,16 @@ export class App {
     return options.optionsDialog(this);
   }
 
+  /** Open a plan of the elements' level, select them and zoom to them. */
+  showElements(ids) {
+    const live = ids.filter((id) => this.doc.has(id));
+    const first = this.doc.get(live[0]);
+    const plan = first?.levelId && this.doc.all('plan').find((p) => p.levelId === first.levelId && !p.calloutOf);
+    if (plan && this.activeView?.levelId !== first.levelId) this.openView(plan.id);
+    this.select(live);
+    this.vc?.zoomExtents?.(true, new Set(live));
+  }
+
   elementOverrideDialog() {
     return dialogs.elementOverrideDialog(this);
   }
