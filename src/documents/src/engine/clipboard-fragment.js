@@ -163,6 +163,8 @@ function fromForeignHtml(body) {
       current.runs[0].text = current.runs[0].text.replace(/^ +/, '');
       const last = current.runs.at(-1); last.text = last.text.replace(/ +$/, '');
       current.runs = current.runs.filter(r => r.text);
+      // A block holding only no-break spaces is an empty paragraph kept open (Word's <o:p>&nbsp;</o:p>).
+      if (/^[ \u00a0]*$/.test(current.runs.map(r => r.text).join(''))) current.runs = [];
       current.text = current.runs.map(r => r.text).join('');
     }
     current = null;

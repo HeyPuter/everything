@@ -55,3 +55,10 @@ it('reads Word’s multilevel numbers (1.1., 1.2, 1.2.1) as numbered items', () 
     ['Scope', { kind: 'number', level: 0 }], ['Definitions', { kind: 'number', level: 1 }], ['Terms', { kind: 'number', level: 1 }],
     ['Detail', { kind: 'number', level: 2 }], ['Plain', { kind: 'number', level: 0 }], ['Section mark', { kind: 'bullet', level: 0 }]]);
 });
+
+it('reads Word’s empty paragraphs as empty, without the no-break space that holds them open', () => {
+  const word = `<html xmlns:o="urn:schemas-microsoft-com:office:office"><body lang=EN-US><!--StartFragment--><p class=MsoNormal>First<o:p></o:p></p>
+<p class=MsoNormal><o:p>&nbsp;</o:p></p>
+<p class=MsoNormal>Third&nbsp;word<o:p></o:p></p><!--EndFragment--></body></html>`;
+  expect(texts(word)).toEqual(['First', '', 'Third word']);
+});
