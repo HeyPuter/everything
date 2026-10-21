@@ -6,6 +6,7 @@ import { openMenu, openPopover, type MenuItem } from '../../ui/menu';
 import { app } from '../../app/app';
 import { prefs } from '../../app/prefs';
 import { currentOrientation, customOrientations, setOrientation, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
+import { gizmoOrientationSlot, setGizmoOrientationSlot } from './transformtool';
 import { activeView3D, type View3D } from './view3d';
 import { viewMenu, selectMenu, addMenu, objectMenu } from './menus';
 import { modeMenus } from './modemenus';
@@ -240,6 +241,16 @@ export function viewHeader(v: View3D): Child {
             checkbox('tool-g', 'Active Tools', v.showToolGizmo, (x) => ((v.showToolGizmo = x), v.drawSvg(), app.changed('ui'))),
             checkbox('act-g', 'Active Object', v.dataGizmos.activeObject, (x) => ((v.dataGizmos.activeObject = x), v.drawSvg(), app.changed('ui'))),
             h('div', { class: 'pop-title' }, 'Object Gizmos'),
+            enumMenu(
+              'obg-orient',
+              [{ value: 'DEFAULT', label: 'Default' }, ...ORIENTATIONS.map(([value, label, ic]) => ({ value, label, icon: ic })), ...customOrientations().map((c) => ({ value: c.name, label: c.name }))],
+              gizmoOrientationSlot('move'),
+              (x) => {
+                for (const k of ['move', 'rotate', 'scale'] as const) setGizmoOrientationSlot(k, x);
+                v.drawSvg();
+              },
+              { tip: 'Orientation\nOrientation of the object gizmos' },
+            ),
             checkbox('obg-move', 'Move', v.objectGizmos.translate, (x) => ((v.objectGizmos.translate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-rot', 'Rotate', v.objectGizmos.rotate, (x) => ((v.objectGizmos.rotate = x), v.drawSvg(), app.changed('ui'))),
             checkbox('obg-scale', 'Scale', v.objectGizmos.scale, (x) => ((v.objectGizmos.scale = x), v.drawSvg(), app.changed('ui'))),
