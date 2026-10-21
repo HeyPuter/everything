@@ -10,7 +10,7 @@ import { collectEffectors, fieldsKey } from './fields';
 import { buildColliders, collidersKey } from './colliders';
 import { initState, stepFrame, KIND_STRUCT, KIND_BEND, type PBDParams, type PBDState, type Topology } from './pbd';
 import { fps, gravityOf } from './meshsim';
-import { compliance } from './cloth';
+import { compliance, MESH_SIM_FRAME_TIME } from './cloth';
 import { valueNoise } from './fields';
 import { defaultHairDynamics, defaultPointCache, type ParticleSettingsX, type ParticleSystemX } from './types';
 import type { HairResult } from './particles';
@@ -93,7 +93,7 @@ export function hairWithDynamics(ob: ObjectData, m: ModifierBase, psys: Particle
     for (let i = 0; i < hair.parents; i++) pin[i * per] = 1;
     const goal = d.pin_stiffness > 0 ? { weights: new Float32Array(nParentPts).fill(1), spring: Math.min(0.999, d.pin_stiffness), friction: 0 } : null;
     const P: PBDParams = {
-      dt: 1 / fps(doc),
+      dt: MESH_SIM_FRAME_TIME,
       substeps: Math.max(1, Math.round(d.quality)),
       iterations: 4,
       gravity: gravityOf(doc, d.effector_weights_gravity * d.effector_weights_all),

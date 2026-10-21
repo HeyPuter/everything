@@ -4,7 +4,7 @@ import { registerModifier } from '../eval/modifiers';
 import { groupWeights } from '../eval/meshbuild';
 import type { DocumentData } from '../data/types';
 import type { EvalMesh } from '../eval/types';
-import { runMeshSim, meshSimSignature, simDeps, fps, gravityOf, type MeshSimSetup } from './meshsim';
+import { runMeshSim, meshSimSignature, simDeps, gravityOf, type MeshSimSetup } from './meshsim';
 import { physicsDoc } from './state';
 import {
   defaultClothCollision,
@@ -14,6 +14,12 @@ import {
   type ClothModifier,
   type SoftBodyModifier,
 } from './types';
+
+/**
+ * Simulated seconds per frame of cloth, soft bodies and hair dynamics (at speed 1). It does not
+ * depend on the frame rate, so these simulations keep their timing when the scene's rate changes.
+ */
+export const MESH_SIM_FRAME_TIME = Math.sqrt(0.001);
 
 /** Stiffness (settings units) → XPBD compliance. 0 disables the constraint. */
 export const compliance = (k: number, scale = 1000) => (k > 0 ? 1 / (k * scale) : 1e6);
@@ -49,7 +55,7 @@ export function clothSetup(m: ClothModifier, mesh: EvalMesh, doc: DocumentData):
         }
       : null,
     params: {
-      dt: (s.time_scale || 0) / fps(doc),
+      dt: (s.time_scale || 0) * MESH_SIM_FRAME_TIME,
       substeps: quality,
       iterations: 6,
       gravity: gravityOf(doc, s.effector_weights_gravity * s.effector_weights_all),
@@ -97,7 +103,7 @@ export function softBodySetup(m: SoftBodyModifier, mesh: EvalMesh, doc: Document
     collide: s.use_collision,
     useRestShape: s.use_shape_match,
     params: {
-      dt: (s.speed || 0) / fps(doc),
+      dt: (s.speed || 0) * MESH_SIM_FRAME_TIME,
       substeps: quality,
       iterations: 4,
       gravity: gravityOf(doc, s.effector_weights_gravity * s.effector_weights_all),

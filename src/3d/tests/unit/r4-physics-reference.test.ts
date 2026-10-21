@@ -42,7 +42,6 @@ describe('rigid body fall (reference values)', () => {
       z[f] = g.get(box.id)!.world.elements[14];
     }
     // reference: 1: 5.0, 10: 4.3061, 20: 1.9425, 25: 1.0114, 30: 1.0001, 80: 1.0001
-    console.log('RBZ', JSON.stringify([z[10], z[20], z[25], z[30], z[80]].map((v) => +v.toFixed(4))));
     expect(z[1]).toBeCloseTo(5, 4);
     expect(Math.abs(z[10] - 4.3061)).toBeLessThan(0.02);
     expect(Math.abs(z[20] - 1.9425)).toBeLessThan(0.05);
@@ -88,13 +87,59 @@ describe('particle emission (reference values)', () => {
         stats[f] = [n, +(z / Math.max(1, n)).toFixed(4), +zmax.toFixed(4)];
       }
     }
-    console.log('PCZ', JSON.stringify(stats));
     // reference: 1: 1 alive, 2: 6, 10: 46, 50: 247, 51+: 251; mean height at 50 ≈ -6.43
     expect(stats[1][0]).toBeLessThanOrEqual(2);
     expect(Math.abs(stats[2][0] - 6)).toBeLessThanOrEqual(1);
     expect(Math.abs(stats[10][0] - 46)).toBeLessThanOrEqual(2);
     expect(Math.abs(stats[50][0] - 247)).toBeLessThanOrEqual(3);
     expect(Math.abs(stats[60][0] - 251)).toBeLessThanOrEqual(3);
-    expect(Math.abs(stats[50][1] - -6.43)).toBeLessThan(0.4);
+    expect(Math.abs(stats[50][1] - -6.43)).toBeLessThan(0.3);
+    expect(Math.abs(stats[60][1] - -6.62)).toBeLessThan(0.3);
+  });
+});
+
+import { grid } from '../../src/mesh/primitives';
+import type { ClothModifier } from '../../src/physics/types';
+
+describe('cloth (reference values)', () => {
+  it('a 2 m cloth pinned along one edge swings down and hangs', () => {
+    caches.clear();
+    const doc = emptyDocument();
+    const ob = addMesh(doc, 'Cloth', grid(11, 11, 2), [0, 0, 2]);
+    const me = doc.meshes[ob.data!];
+    const n = me.positions.length / 3;
+    const w = new Float32Array(n);
+    for (let i = 0; i < n; i++) if (me.positions[i * 3 + 1] > 0.99) w[i] = 1;
+    me.vertex_groups = [{ name: 'Pin' } as never];
+    (me as unknown as { weights: Float32Array[] }).weights = [w];
+    const mod = newModifier('CLOTH', uid('md'), []) as ClothModifier;
+    mod.settings.vertex_group_mass = 'Pin';
+    ob.modifiers.push(mod);
+    const g = new Depsgraph(doc);
+    const out: Record<number, number[]> = {};
+    for (let f = 1; f <= 60; f++) {
+      doc.scene.frame_current = f;
+      g.evaluate(doc);
+      if ([5, 10, 20, 40, 60].includes(f)) {
+        const p = g.get(ob.id)!.mesh!.positions;
+        let zs = 0,
+          zmin = Infinity,
+          ymin = Infinity;
+        for (let i = 0; i < n; i++) {
+          zs += p[i * 3 + 2] + 2;
+          zmin = Math.min(zmin, p[i * 3 + 2] + 2);
+          ymin = Math.min(ymin, p[i * 3 + 1]);
+        }
+        out[f] = [+(zs / n).toFixed(4), +zmin.toFixed(4), +ymin.toFixed(4)];
+      }
+    }
+    // reference (mean z, min z, min y): 5: 1.93 1.92 -0.99, 10: 1.70 1.62 -0.90, 20: 1.14 0.50 -0.17, 60: 1.03 0.12 1.0
+    expect(Math.abs(out[5][0] - 1.9305)).toBeLessThan(0.02);
+    expect(Math.abs(out[10][0] - 1.7027)).toBeLessThan(0.04);
+    expect(Math.abs(out[20][0] - 1.1436)).toBeLessThan(0.08);
+    expect(Math.abs(out[20][2] - -0.1735)).toBeLessThan(0.1);
+    // hanging at the end: about the cloth's length below the pinned edge
+    expect(Math.abs(out[60][0] - 1.0343)).toBeLessThan(0.05);
+    expect(Math.abs(out[60][1] - 0.1232)).toBeLessThan(0.08);
   });
 });
