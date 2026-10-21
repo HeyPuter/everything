@@ -457,6 +457,7 @@ export class App {
     this.nav.renderSections();
     this.nav.renderPages();
     if (this.state.railView === 'recent') this.recent.render();
+    else if (this.state.railView === 'search') this.search.syncScope();
     this.updateTitle();
   }
 

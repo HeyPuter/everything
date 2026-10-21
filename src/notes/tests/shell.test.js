@@ -327,6 +327,22 @@ describe('App shell', () => {
     expect(app.search.results.querySelector('.group-label').textContent).toBe('Showing the first 200 of 205 results');
   });
 
+  it('keeps the This Page search scope on the page that is open', async () => {
+    const alpha = app.newPage({ title: 'Alpha apple' });
+    await tick();
+    const beta = app.newPage({ title: 'Beta apple' });
+    await tick();
+    await app.openPage(alpha.id);
+    app.setRailView('search');
+    app.search.input.value = 'apple';
+    app.search.scope.value = `page:${alpha.id}`;
+    await app.search.run();
+    await app.openPage(beta.id);
+    await tick(10);
+    expect(app.search.scope.value).toBe(`page:${beta.id}`);
+    expect([...app.search.results.querySelectorAll('.result-title')].map((t) => t.textContent)).toEqual(['Beta apple']);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });

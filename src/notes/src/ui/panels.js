@@ -90,18 +90,38 @@ export class SearchPanel {
   }
 
   show() {
+    this.fillScope();
+    this.run();
+  }
+
+  /**
+   * Points the scope list at the notebook, section and page open now,
+   * keeping the chosen kind ("This Section" stays "This Section").
+   * Returns false when nothing changed.
+   */
+  fillScope() {
     const { state, store } = this.app;
     const nb = store.notebook(state.notebookId);
     const section = store.section(state.sectionId);
-    const current = this.scope.value;
-    this.scope.replaceChildren(
-      h('option', { value: 'all' }, 'All Notebooks'),
-      nb ? h('option', { value: `notebook:${nb.id}` }, `This Notebook (${nb.name})`) : null,
-      section ? h('option', { value: `section:${section.id}` }, `This Section (${section.name})`) : null,
-      state.pageId ? h('option', { value: `page:${state.pageId}` }, 'This Page') : null,
-    );
-    if ([...this.scope.options].some((o) => o.value === current)) this.scope.value = current;
-    this.run();
+    const options = [
+      ['all', 'All Notebooks'],
+      nb && [`notebook:${nb.id}`, `This Notebook (${nb.name})`],
+      section && [`section:${section.id}`, `This Section (${section.name})`],
+      state.pageId && [`page:${state.pageId}`, 'This Page'],
+    ].filter(Boolean);
+    const sig = options.join('\n');
+    if (sig === this.scopeSig) return false;
+    this.scopeSig = sig;
+    const kind = (this.scope.value || 'all').split(':')[0];
+    this.scope.replaceChildren(...options.map(([value, label]) => h('option', { value }, label)));
+    this.scope.value = options.find(([value]) => value.split(':')[0] === kind)?.[0] || 'all';
+    return true;
+  }
+
+  /** Opening another page or section while Search shows keeps its scope current. */
+  syncScope() {
+    const before = this.scope.value;
+    if (this.fillScope() && this.scope.value !== before && this.input.value.trim()) this.run({ refresh: true });
   }
 
   focus() {
