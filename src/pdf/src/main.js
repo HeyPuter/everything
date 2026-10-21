@@ -505,6 +505,11 @@ async function openFiles(files) {
     return imagesToPdf(images, { paper: defaultPaper(), signal });
   }, `${name}.pdf`);
 }
+/** A new PDF is a sheet of the paper the region prints on, as pictures turned into pages are. */
+async function newBlankPdf() {
+  const { PAPER_SIZES, defaultPaper } = await import('./core/image-pages.js');
+  return blankPdf(PAPER_SIZES[defaultPaper()]);
+}
 async function openDevice(file) {
   if (file.size > MAX_FILE_SIZE) throw new Error('Choose a PDF smaller than 100 MB.');
   return openDocument(async () => new Uint8Array(await file.arrayBuffer()), file.name);
@@ -664,7 +669,7 @@ async function openDocument(
       }),
       onOpen: pickDevice,
       onOpenCloud: pickCloud,
-      onNew: run(() => openDocument(blankPdf, 'Untitled.pdf')),
+      onNew: run(() => openDocument(newBlankPdf, 'Untitled.pdf')),
       onOpenBytes: run((bytes, name) => openDocument(async () => bytes, name)),
     });
     editor = nextEditor;
@@ -1006,7 +1011,7 @@ function showHome({ accountRefresh = false } = {}) {
             button(
               'New blank PDF',
               'FilePlus2',
-              run(() => openDocument(blankPdf, 'Untitled.pdf')),
+              run(() => openDocument(newBlankPdf, 'Untitled.pdf')),
               'quick-action',
             ),
             button('Pictures to PDF', 'Images', pickPictures, 'quick-action'),
@@ -1129,7 +1134,7 @@ async function start() {
     return;
   }
   try {
-    await openDocument(blankPdf, 'Untitled.pdf');
+    await openDocument(newBlankPdf, 'Untitled.pdf');
   } catch (e) {
     if (!editor && !loading) showHome();
     toast(e.message || 'Something went wrong. Please try again.', { error: true });

@@ -1116,9 +1116,10 @@ export async function addImage(doc, index, bytes) {
     rotation,
   });
 }
-export async function blankPdf() {
+/** A new PDF of one empty page, A4 unless another paper size ([width, height]) is given. */
+export async function blankPdf(size = [595.28, 841.89]) {
   const doc = await PDFDocument.create();
-  doc.addPage([595.28, 841.89]);
+  doc.addPage(Array.isArray(size) ? size : [595.28, 841.89]);
   return doc.save();
 }
 export async function samplePdf() {
