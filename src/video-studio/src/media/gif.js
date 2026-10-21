@@ -219,6 +219,8 @@ export class GifWriter {
     this.width = width;
     this.height = height;
     this.dither = dither;
+    this.shownMs = 0; // time of the frames added so far
+    this.shownCs = 0; // the same in the whole hundredths written
     this.w = new Bytes();
     const w = this.w;
     w.text('GIF89a');
@@ -245,9 +247,13 @@ export class GifWriter {
     const colors = q.palette.length / 3;
     let bitsNeeded = 1;
     while (1 << bitsNeeded < colors) bitsNeeded++;
-    // Graphic control: delay in hundredths of a second.
+    // Graphic control: delay in hundredths of a second, rounding the running
+    // total so 12 or 15 fps (8.33 or 6.67 each) keep their length.
+    this.shownMs += delayMs;
+    const delay = Math.max(2, Math.round(this.shownMs / 10) - this.shownCs);
+    this.shownCs += delay;
     w.bytes([0x21, 0xf9, 0x04, 0x04]);
-    w.word(Math.max(2, Math.round(delayMs / 10)));
+    w.word(delay);
     w.byte(0);
     w.byte(0);
     // Image descriptor with a local color table.

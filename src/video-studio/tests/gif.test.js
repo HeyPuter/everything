@@ -141,6 +141,17 @@ describe('GIF encoder', () => {
     expect(Math.abs(g.palette[c * 3] - 120)).toBeLessThan(20);
   });
 
+  it('keeps the length at frame rates that are not whole hundredths', () => {
+    for (const [fps, n] of [[12, 36], [15, 45], [8, 24]]) {
+      const gif = new GifWriter(4, 4, { dither: false });
+      for (let i = 0; i < n; i++) gif.addFrame(frame(4, 4, () => [i * 7, 0, 0]), 1000 / fps);
+      const delays = readGif(gif.finish()).frames.map((f) => f.delay);
+      expect(delays.reduce((a, b) => a + b, 0), `${fps} fps`).toBe(300);
+      // Each frame stays within a hundredth of its exact length.
+      for (const d of delays) expect(Math.abs(d - 100 / fps)).toBeLessThan(1);
+    }
+  });
+
   it('builds a small palette for few colors and maps pixels to it', () => {
     const rgba = frame(8, 8, (x) => (x < 4 ? [0, 0, 0] : [255, 255, 255]));
     const q = quantize(rgba, 256);
