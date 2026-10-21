@@ -109,3 +109,17 @@ describe('Copying while offline', () => {
     expect(toasts()).toContain('Couldn\'t duplicate "Recipes". Check your connection and try again.');
   });
 });
+
+describe('Renaming while offline', () => {
+  it('says so when a page that is not open cannot be read', async () => {
+    const { app, store, backend } = await mount();
+    const meta = store.createPage(app.state.sectionId, { title: 'Recipes' });
+    await store.flush();
+    store.pages.delete(meta.id);
+    backend.failNext = 1;
+    app.renamePage(meta.id, 'Dinners');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(toasts()).toContain("Couldn't rename the page. Check your connection and try again.");
+    expect(store.findPage(meta.id).meta.title).toBe('Recipes');
+  });
+});

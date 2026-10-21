@@ -655,6 +655,10 @@ export class App {
         page.title = title;
         this.store.pageChanged(page, { title });
         this.renderNav();
+      }, (err) => {
+        console.error(err);
+        toast("Couldn't rename the page. Check your connection and try again.", { kind: 'error' });
+        this.renderNav();
       });
     }
   }
