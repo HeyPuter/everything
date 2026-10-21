@@ -72,7 +72,8 @@
   text-overflow: ellipsis;
 }
 
-.save-status.error {
+.save-status.error,
+.upload-status.error {
   color: var(--danger);
 }
 

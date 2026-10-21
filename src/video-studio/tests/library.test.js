@@ -134,11 +134,53 @@ describe('Library media', () => {
     backend.failNext = 2; // the media listing and the write
     const asset = await lib.importFile(new File(['a'], 'a.mp3', { type: 'audio/mpeg' }));
     await lib.flushUploads();
-    expect(states.at(-1)).toMatchObject({ pending: 0, error: expect.any(Error) });
+    expect(states.at(-1)).toMatchObject({ pending: 0, failed: 1, error: expect.any(Error) });
     expect(backend.files.has(`media/${asset.hash}.mp3`)).toBe(false);
     lib._store(asset, lib.blobs.get(asset.hash));
     await lib.flushUploads();
     expect(backend.files.has(`media/${asset.hash}.mp3`)).toBe(true);
+  });
+
+  it('retries a failed upload by itself and keeps the file in memory until it is stored', async () => {
+    quiet();
+    vi.useFakeTimers();
+    try {
+      const backend = memoryBackend();
+      const lib = new Library(backend);
+      const states = [];
+      lib.on('uploads', (e) => states.push(e));
+      backend.failNext = 2; // the media listing and the write
+      const asset = await lib.importFile(new File(['a'], 'a.mp3', { type: 'audio/mpeg' }));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(states.at(-1)).toMatchObject({ pending: 0, failed: 1 });
+      expect(lib.unsavedMedia).toBe(1);
+      // Leaving the editor must not drop the only copy.
+      lib.releaseMedia();
+      expect(lib.blobs.has(asset.hash)).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(backend.files.has(`media/${asset.hash}.mp3`)).toBe(true);
+      expect(states.at(-1)).toMatchObject({ pending: 0, failed: 0 });
+      expect(lib.unsavedMedia).toBe(0);
+      lib.releaseMedia();
+      expect(lib.blobs.has(asset.hash)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushUploads() retries failed uploads at once and says whether everything is stored', async () => {
+    quiet();
+    const backend = memoryBackend();
+    const lib = new Library(backend);
+    backend.failNext = 2;
+    const asset = await lib.importFile(new File(['b'], 'b.mp3', { type: 'audio/mpeg' }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(lib.unsavedMedia).toBe(1);
+    backend.failNext = 2;
+    expect(await lib.flushUploads()).toBe(false);
+    expect(await lib.flushUploads()).toBe(true);
+    expect(backend.files.has(`media/${asset.hash}.mp3`)).toBe(true);
+    expect(lib.unsavedMedia).toBe(0);
   });
 
   it('reads media from storage when it is not in memory and explains a missing file', async () => {

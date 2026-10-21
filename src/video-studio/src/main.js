@@ -239,6 +239,13 @@ window.addEventListener('hashchange', () => {
   if (link && (view?.link?.review !== link.review || link.token)) openReview(link);
 });
 
+// Media still uploading (or waiting to be tried again) after leaving the editor: warn before the page closes.
+window.addEventListener('beforeunload', (e) => {
+  if (!library?.unsavedMedia) return;
+  e.preventDefault();
+  e.returnValue = '';
+});
+
 window.addEventListener('unhandledrejection', (e) => {
   console.error(e.reason);
 });

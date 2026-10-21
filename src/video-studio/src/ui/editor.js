@@ -149,7 +149,7 @@ export class Editor {
     this._onKey = (e) => this.onKey(e);
     document.addEventListener('keydown', this._onKey);
     this._onUnload = (e) => {
-      if (store.dirty || library.pendingUploads) {
+      if (store.dirty || library.unsavedMedia) {
         this.saver.save();
         e.preventDefault();
         e.returnValue = '';
@@ -159,6 +159,7 @@ export class Editor {
     // Inside the Puter desktop, save before the window closes.
     if (typeof puter !== 'undefined' && puter.env === 'app' && puter.ui?.onWindowClose) {
       puter.ui.onWindowClose(async () => {
+        if (this._disposed) await library.flushUploads().catch(() => {});
         if (this._disposed || (await this.prepareToLeave({ waitForUploads: true }))) puter.exit();
       });
     }
@@ -390,12 +391,14 @@ export class Editor {
       } catch {
         saved = false;
       }
-      if (waitForUploads) await this.library.flushUploads().catch(() => {});
-      if (saved) return true;
+      // Media still uploading keeps going after the editor closes, but not after the page does.
+      const media = waitForUploads && !(await this.library.flushUploads().catch(() => false)) ? this.library.unsavedMedia : 0;
+      if (saved && !media) return true;
       const where = this.library.backend.kind === 'local' ? 'in this browser' : 'to your Puter cloud';
+      const what = [!saved ? 'your latest changes' : null, media ? `${media} media file${media === 1 ? '' : 's'}` : null].filter(Boolean).join(' and ');
       return confirmDialog({
         title: "Couldn't save your changes",
-        message: `Your latest changes couldn't be saved ${where}. If you leave now, they will be lost. Stay to keep trying.`,
+        message: `${what[0].toUpperCase()}${what.slice(1)} couldn't be saved ${where}. If you leave now, ${saved && media === 1 ? 'it' : 'they'} will be lost. Stay to keep trying.`,
         confirm: 'Leave anyway',
         cancel: 'Stay',
         danger: true,

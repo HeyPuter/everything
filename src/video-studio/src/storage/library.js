@@ -24,6 +24,8 @@ import { parseCube, lutName } from '../model/cube.js';
 import { opfsBackend, opfsAvailable } from './backends.js';
 
 const DAY = 24 * 60 * 60 * 1000;
+/** A failed media upload is tried again after 5 s, then less and less often, up to every 2 minutes. */
+const UPLOAD_RETRY = [5_000, 15_000, 30_000, 60_000, 120_000];
 /** Projects in the Trash are deleted for good after this many days. */
 export const TRASH_DAYS = 30;
 
@@ -35,6 +37,7 @@ export class Library extends Emitter {
     this.urls = new Map(); // hash -> object URL
     this.blobs = new Map(); // hash -> Blob (recent imports and reads)
     this.uploads = new Map(); // hash -> Promise
+    this.failed = new Map(); // hash -> { asset, blob, tries, timer }: uploads that failed, tried again later
     this.index = null;
     this.luts = null; // LUT list, read on first use
   }
@@ -237,6 +240,11 @@ export class Library extends Emitter {
   _store(asset, blob) {
     const key = asset.hash;
     if (this.uploads.has(key)) return this.uploads.get(key);
+    const retry = this.failed.get(key);
+    if (retry) {
+      clearTimeout(retry.timer);
+      this.failed.delete(key);
+    }
     const path = this.mediaPath(asset);
     const job = (async () => {
       // Same content imported before: nothing to upload.
@@ -247,27 +255,46 @@ export class Library extends Emitter {
       if (this.cache) await this.cache.writeBlob(path, blob).catch(() => {});
     })();
     this.uploads.set(key, job);
-    this.emit('uploads', { pending: this.pendingUploads });
+    this._emitUploads();
     job.then(
       () => {
         this.uploads.delete(key);
-        this.emit('uploads', { pending: this.pendingUploads });
+        this._emitUploads();
       },
       (err) => {
         this.uploads.delete(key);
-        this.emit('uploads', { pending: this.pendingUploads, error: err });
+        // The blob stays in memory (see releaseMedia) until a later try stores it.
+        const tries = (retry?.tries || 0) + 1;
+        const timer = setTimeout(() => this._store(asset, blob), UPLOAD_RETRY[Math.min(tries, UPLOAD_RETRY.length) - 1]);
+        this.failed.set(key, { asset, blob, tries, timer });
+        this._emitUploads(err);
       },
     );
     return job;
   }
 
+  _emitUploads(error) {
+    this.emit('uploads', { pending: this.pendingUploads, failed: this.failed.size, ...(error ? { error } : {}) });
+  }
+
+  /** Media files uploading right now. */
   get pendingUploads() {
     return this.uploads.size;
   }
 
-  /** Wait for every media upload to finish (before closing a project). */
+  /** Media files not stored yet: uploading, or waiting to be tried again after a failure. */
+  get unsavedMedia() {
+    return this.uploads.size + this.failed.size;
+  }
+
+  /**
+   * Wait for every media upload to finish, trying failed ones again now
+   * (before the page or window closes). Resolves true when all are stored.
+   */
   async flushUploads() {
+    for (const { asset, blob } of [...this.failed.values()]) this._store(asset, blob);
     await Promise.allSettled([...this.uploads.values()]);
+    return this.failed.size === 0;
   }
 
   /** The media file for an asset as a Blob (memory, then local cache, then storage). */
@@ -347,8 +374,8 @@ export class Library extends Emitter {
   releaseMedia() {
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();
-    // Keep blobs for files still uploading.
-    for (const key of [...this.blobs.keys()]) if (!this.uploads.has(key)) this.blobs.delete(key);
+    // Keep blobs for files not stored yet: they are the only copy.
+    for (const key of [...this.blobs.keys()]) if (!this.uploads.has(key) && !this.failed.has(key)) this.blobs.delete(key);
   }
 }
 

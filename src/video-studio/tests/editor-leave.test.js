@@ -91,4 +91,21 @@ describe('leaving the editor', () => {
     await Promise.all([a, b]);
     expect(onExit).toHaveBeenCalledTimes(1);
   });
+
+  it('asks before the page closes with a media file that could not be uploaded, and shows it in the title bar', async () => {
+    const { library } = await open();
+    library.backend.failNext = 2; // the media listing and the write
+    library._store({ hash: 'h1', ext: 'mp4', name: 'clip.mp4' }, new Blob(['x']));
+    await settle();
+    expect(root.querySelector('.upload-status').textContent).toBe('1 media file not uploaded. Retrying...');
+    library.backend.failNext = 2;
+    const leaving = editor.prepareToLeave({ waitForUploads: true });
+    await settle();
+    expect(dialog()?.textContent).toContain("1 media file couldn't be saved");
+    button('Stay').click();
+    expect(await leaving).toBe(false);
+    // Back to the home screen keeps the upload going: no question.
+    expect(await editor.prepareToLeave()).toBe(true);
+    expect(library.unsavedMedia).toBe(1);
+  });
 });
