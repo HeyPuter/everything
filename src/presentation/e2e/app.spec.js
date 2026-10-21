@@ -15505,6 +15505,62 @@ test("ungrouping a mirrored group keeps its children where they were shown", asy
   ]);
 });
 
+// A file mirrors an object before turning it, so a flip that kept the turn
+// mirrored a turned object the wrong way: an arrow turned to point down and
+// right came out pointing up and left rather than down and left.
+test("flipping a turned object mirrors it as the slide shows it", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const arrow = P.addSlideShape(P.getSlides(pres)[0], {
+    x: P.inches(4),
+    y: P.inches(3),
+    w: P.inches(3),
+    h: P.inches(1),
+    preset: "rightArrow",
+  });
+  P.setShapeRotation(arrow, 30);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Turned arrow.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const object = page.locator(".object-hit");
+  await expect(object).toHaveCount(1);
+  await object.click();
+  await paneTab(page, "Size & Properties");
+  await panel(page).getByRole("button", { name: "Flip horizontal" }).click();
+  await expect(object).toHaveAttribute("style", /rotate\(330deg\)/);
+  await expect(
+    panel(page).getByRole("spinbutton", { name: "Rotation (°)" }),
+  ).toHaveValue("330");
+  // Flipped back, it is as it was.
+  await panel(page).getByRole("button", { name: "Flip horizontal" }).click();
+  await expect(object).toHaveAttribute("style", /rotate\(30deg\)/);
+  await panel(page).getByRole("button", { name: "Flip vertical" }).click();
+  await expect(object).toHaveAttribute("style", /rotate\(330deg\)/);
+  const close = page.getByRole("button", { name: "Close format panel" });
+  if (await close.isVisible()) await close.click();
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const saved = P.getSlideShapes(P.getSlides(loaded)[0])[0];
+  expect(P.getShapeRotation(saved)).toBe(330);
+  expect(P.getShapeFlip(saved)).toEqual({ horizontal: false, vertical: true });
+  expect(P.getShapeBounds(saved)).toEqual(P.getShapeBounds(arrow));
+});
+
 // An image relationship whose target was an address rather than a part path
 // made the media check throw after the picture had joined the slide, so the
 // picture was neither shown nor in the history nor in the draft until the
