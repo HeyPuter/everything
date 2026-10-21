@@ -8,7 +8,7 @@ import { app, registerOperators } from '../app/app';
 import type { DocumentData, ImageData } from '../data/types';
 import type { MenuItem } from '../ui/menu';
 import { download } from './native';
-import { autosave } from './files';
+import { autosave, fileEvents } from './files';
 import { takeSnapshot } from './session';
 import { baseOf, normPath, PROJECT_DIR, vfsFind, vfsRead } from './vfs';
 import { imageSize, sniffMime } from './formats/common';
@@ -545,6 +545,11 @@ registerOperators([
     },
   },
 ]);
+
+// File ▸ External Data ▸ Automatically Pack Resources
+fileEvents.beforeSave.push(() => {
+  if (app.doc.use_autopack) packAll(app.doc);
+});
 
 function activeImageName(): string {
   const ims = Object.values(app.doc.images).filter((im) => im.bytes?.length);

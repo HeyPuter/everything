@@ -4,7 +4,6 @@ import { app, operators, registerOperators } from '../app/app';
 import { startupDocument } from '../data/defaults';
 import { encodeDocument, decodeDocument, isNativeFile, saveRecovery, download, pickFile, clearRecovery } from './native';
 import { importLegacyScene } from './legacy';
-import { packAll } from './fileops';
 import type { MenuItem } from '../ui/menu';
 import { openMenu } from '../ui/menu';
 
@@ -50,6 +49,8 @@ export const fileEvents = {
    * Save then updates that file instead of downloading a copy.
    */
   saveTarget: null as { name: string; write(bytes: Uint8Array): Promise<void> } | null,
+  /** called right before the project is encoded for saving (e.g. automatic packing) */
+  beforeSave: [] as (() => void)[],
   /** called right before the document is replaced (keeps unsaved work recoverable) */
   beforeReplace: ((_reason: string) => {}) as (reason: string) => void,
 };
@@ -126,7 +127,7 @@ export async function openFile(file: File, mode: 'open' | 'import' = 'open') {
 
 /** Save the project (download). A copy leaves the current file name and modified state alone. */
 export function saveFile(name = app.filename, copy = false) {
-  if (app.doc.use_autopack) packAll(app.doc);
+  for (const f of fileEvents.beforeSave) f();
   const bytes = encodeDocument(app.doc, { ui: projectUiState.save() });
   if (!name.toLowerCase().endsWith('.p3d')) name = `${name.replace(/\.[^.]+$/, '')}.p3d`;
   const target = fileEvents.saveTarget;

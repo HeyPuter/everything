@@ -26,9 +26,6 @@ export function matchMissing(missing: ImageData[], files: { name: string }[]): M
   return out;
 }
 
-// File ▸ External Data menu: io/fileops.ts
-export { externalDataMenu } from './fileops';
-
 registerOperators([
   {
     idname: 'file.report_missing_files',
