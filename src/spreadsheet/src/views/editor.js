@@ -1571,6 +1571,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           const asked = toggle ? arg.fmt : arg;
           const current = ctx.style().fmt || 'general';
           const next = toggle && asked === current ? 'general' : asked;
+          // F4 repeats what the press did, as Excel's repeat does: pressed again it took the format off a cell
+          // already in it.
+          if (toggle) lastRepeatable = { cmd, arg: next };
           patch = { fmt: next === 'general' ? null : next };
           if (next === 'percent' && ctx.style().dec == null) patch.dec = 0;
           // Back to Automatic (the chord, the palette, a button pressed off) clears the format's details with it,
