@@ -17,3 +17,4 @@ import './axistarget';
 import './keys';
 import '../editors/view3d/extras';
 import './moreops';
+import './globaltransform';
