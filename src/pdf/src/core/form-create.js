@@ -1397,7 +1397,8 @@ export async function updateFormField(doc, fieldName, props = {}) {
       }
     }
     if (props.checked !== undefined) {
-      const widget = radio ? targets[0] : widgets[0];
+      // A box of a check box group has its own on state, as a radio button does.
+      const widget = targets[0];
       if (radio && widgetIndex === undefined && props.checked && widgets.length > 1)
         throw new Error('Choose which radio button is checked by default.');
       const state = props.checked ? onState(widget) : OFF;

@@ -377,6 +377,29 @@ it('joins a radio button to the group it is named after, as placed buttons are g
   expect(await updateFormField(doc, text, { name: first })).toBe(`${first}_2`);
 });
 
+it('checks by default the box of a check box group whose properties say so', async () => {
+  const source = await blank();
+  const box = source.getForm().createCheckBox('Pick');
+  box.addToPage(source.getPage(0), { x: 40, y: 600, width: 16, height: 16 });
+  box.addToPage(source.getPage(0), { x: 80, y: 600, width: 16, height: 16 });
+  // The second box gets its own on state, as the boxes of Acrobat's check box groups have.
+  const states = box.acroField.getWidgets()[1].dict.lookup(name('AP'));
+  for (const kind of ['N', 'D']) {
+    const drawings = states.lookup(name(kind));
+    drawings.set(name('Two'), drawings.get(name('Yes')));
+    drawings.delete(name('Yes'));
+  }
+  const doc = await PDFDocument.load(await source.save());
+  await updateFormField(doc, 'Pick', { checked: true, widgetIndex: 1 });
+  const listed = listFormFields(await PDFDocument.load(await doc.save()));
+  expect(
+    listed.map(({ props }) => [props.exportValue, props.checked, props.checkedByDefault]),
+  ).toEqual([
+    ['Yes', false, false],
+    ['Two', true, true],
+  ]);
+});
+
 it('gives taken names a numbered suffix, also for names nested under a field', async () => {
   const doc = await blank();
   const add = (type, fieldName, y) =>
