@@ -6,6 +6,7 @@ import { RenderScene, type BuildOptions } from './renderscene';
 import { RasterRenderer, Accumulator, effectsFrom } from './raster';
 import { PathTracerCore } from './pathtracer';
 import { Denoiser } from './denoise';
+import { ptSettings, adaptiveMinSamples, noiseSeed, denoiseOptions } from './ptsettings';
 import { floatTarget, normalDepthMaterial, renderOverride, renderAlbedo } from './gbuffer';
 import { renderCamera, viewportCameraForAspect, jitterProjection, cameraDof, apertureSample, apertureJitter, regionRect, cropProjection, type PixelRect } from './camera';
 import { renderSize, frameList, jitter, halton, shutterOffset, formatTime, frameFileName, filmTransparent, tileCount, expandRegion } from './units';
@@ -23,7 +24,12 @@ import { showRenderView } from './renderwindow';
 import { shell, statusWidgets } from '../../ui/shell';
 import { h } from '../../ui/h';
 import { icon } from '../../ui/icons';
-import type { ViewSettings } from './colormanage';
+import { curveTable, type ViewSettings } from './colormanage';
+import { renderViews, multiview, stereoResult, viewFileName, type RenderViewPlan } from './stereo';
+import { outputView } from './outputview';
+import { isExr, resultExr } from './renderexr';
+import { viewCamera } from './stereocamera';
+import type { RenderSettings } from '../../data/types';
 import { passesFromGuide } from './passes';
 import { stampFields, burnStampOverlay, pngWithText } from './stamp';
 import { animationRecorder } from './playback';
@@ -54,6 +60,13 @@ let finalCore: PathTracerCore | null = null;
 const raster = new RasterRenderer(4);
 const accum = new Accumulator();
 const denoiser = new Denoiser();
+
+/** Sampled shutter curve of the motion blur settings (null when the shutter is fully open throughout). */
+function shutterTable(r: RenderSettings): Float32Array | null {
+  const pts = r.motion_blur_shutter_curve;
+  if (!pts || pts.length < 2 || pts.every((p) => p[1] >= 0.9999)) return null;
+  return curveTable(pts);
+}
 
 export interface JobState {
   frame: number;
@@ -217,9 +230,13 @@ function saveState(renderer: WebGLRenderer) {
 // ---------------------------------------------------------------------------
 // frame rendering
 
+/** View being rendered by a multi-view render (stereo eye or camera suffix). */
+let renderView: RenderViewPlan | null = null;
+
 function cameraFor(src: Source, W: number, H: number, region: PixelRect | null): Camera | null {
   let cam: Camera | null;
-  if (src.kind === 'final' || (src.view.cameraView && app.doc.scene.camera)) cam = renderCamera(app, W, H);
+  if (src.kind === 'final' && renderView) cam = viewCamera(app, W, H, renderView);
+  else if (src.kind === 'final' || (src.view.cameraView && app.doc.scene.camera)) cam = renderCamera(app, W, H);
   else {
     const v = src.view;
     const nc = new NavCamera();
@@ -305,13 +322,23 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       rs.build(app, buildOptions(src, 'pathtrace'));
       guideScene = rs;
       const core = (finalCore ??= new PathTracerCore(renderer));
-      core.applySettings(r);
+      core.applySettings(r, src.kind !== 'final');
       core.setSize(W, H);
       core.setTiles(...tileCount(r, W, H));
       core.sync(rs, camera, Math.random());
       core.reset();
       // a view layer can override the scene's sample count
       maxSamples = Math.max(1, src.kind === 'final' ? activeViewLayer(doc.scene).samples || r.samples : r.preview_samples);
+      {
+        // adaptive sampling and the noise seed
+        const c = ptSettings(r);
+        const fin = src.kind === 'final';
+        const on = fin ? c.use_adaptive_sampling : c.use_preview_adaptive_sampling;
+        const threshold = fin ? c.adaptive_threshold : c.preview_adaptive_threshold;
+        core.setAdaptive(on && threshold > 0 ? { threshold, min: adaptiveMinSamples(threshold, fin ? c.adaptive_min_samples : c.preview_adaptive_min_samples), max: maxSamples } : null);
+        core.setSeed(noiseSeed(r, doc.scene.frame_current));
+        core.reset();
+      }
       const timeLimit = src.kind === 'final' ? Math.max(0, r.time_limit ?? 0) : 0;
       const exposure = r.film_exposure ?? 1;
       const scale = (buf: Float32Array) => {
@@ -346,15 +373,15 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       for (let sl = 0; sl < slices && !timeUp; sl++) {
         const target = Math.max(1, Math.round((maxSamples * (sl + 1)) / slices) - Math.round((maxSamples * sl) / slices));
         if (motion) {
-          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          evaluateAt(frame + shutterOffset(sl, slices, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER', shutterTable(r)));
           rs.build(app, opts);
           camera = cameraFor(src, FW, FH, region) ?? camera;
           core.sync(rs, camera, Math.random());
           core.reset();
         }
-        while (core.samples < target) {
+        while (core.samples < target && core.activeFraction > 0) {
           check();
-          for (let i = 0; i < batch && core.samples < target; i++) core.sample();
+          for (let i = 0; i < batch && core.samples < target && core.activeFraction > 0; i++) core.sample();
           job!.sample = done + core.samples;
           const now = performance.now();
           if (timeLimit > 0 && (now - traceStart) / 1000 >= timeLimit * ((sl + 1) / slices) && core.samples > 0) {
@@ -395,7 +422,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
         renderer.shadowMap.enabled = false;
         renderOverride(renderer, rs.scene, camera, guide, normalDepthMaterial);
         renderAlbedo(renderer, rs.scene, camera, albedo);
-        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples);
+        denoiser.run(renderer, source.texture, guide.texture, albedo.texture, W, H, samples, { ...denoiseOptions(r, src.kind !== 'final'), ...(camera.userData.panorama ? { albedo: false, normal: false } : {}) });
         resultRT = denoiser.out!;
         guide.dispose();
         albedo.dispose();
@@ -426,7 +453,7 @@ async function renderFrame(src: Source, FW: number, FH: number, onPartial: (buf:
       for (let i = 0; i < maxSamples; i++) {
         check();
         if (motion) {
-          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER'));
+          evaluateAt(frame + shutterOffset(i, maxSamples, r.motion_blur_shutter, r.motion_blur_position ?? 'CENTER', shutterTable(r)));
           rs.build(app, opts);
           camera = cameraFor(src, FW, FH, region) ?? camera;
           base = (camera as PerspectiveCamera).projectionMatrix.clone();
@@ -685,6 +712,7 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
     return false;
   }
   const frames = o.animation ? frameList(doc.scene) : [doc.scene.frame_current];
+  const views = src.kind === 'final' && !seqHook ? renderViews(r) : [];
   if (!frames.length) {
     app.report('ERROR', 'Frame range is empty');
     return false;
@@ -744,100 +772,158 @@ export async function startRender(o: RenderOptions): Promise<boolean> {
         for (const [name, buf] of Object.entries(o.passes) as [PassName, Float32Array][]) passes[name] = place(buf, passChannels(name, buf, o.combined.length / 4));
         return { Combined: place(o.combined, 4), ...passes };
       };
-      let out: FrameOutput;
-      const layerResults: NonNullable<RenderResult['layers']> = [];
-      if (seqHook) out = { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) };
-      else {
-        // each view layer renders with its own passes and collection visibility
-        let main: FrameOutput | null = null;
-        const layers = ensureViewLayers(doc.scene);
-        for (const li of layerList) {
-          const swap = li !== activeLayer;
-          if (swap) {
-            setActiveViewLayer(doc, li);
-            app.evaluate();
-          }
-          if (layerList.length > 1) result.info.status = layers[li].name;
-          try {
-            const o = await renderFrame(src, FW, FH, partial, region);
-            // light groups: the image lit by each group's lights (and the world when it is in the group)
-            for (const g of layers[li].lightgroups ?? []) {
-              if (!g.name) continue;
-              result.info.status = `${layers.length > 1 ? `${layers[li].name} ▸ ` : ''}Light Group ${g.name}`;
-              lightGroup = g.name;
-              try {
-                const lg = await renderFrame(src, FW, FH, () => {}, region);
-                o.passes[`Combined_${g.name}`] = lg.combined;
-              } finally {
-                lightGroup = null;
-              }
-            }
-            if (li === activeLayer || !main) main = o;
-            if (layerList.length > 1 || finalRenderHooks.extraLayers) layerResults.push({ name: layers[li].name, scene: doc.scene.name, passes: placed(o) });
-          } finally {
+      // one render of the frame: every view layer (and the scenes the compositor reads)
+      const renderOnce = async (): Promise<{ out: FrameOutput; layerResults: NonNullable<RenderResult['layers']> }> => {
+        let out: FrameOutput;
+        const layerResults: NonNullable<RenderResult['layers']> = [];
+        if (seqHook) out = { passes: {}, samples: 1, maxSamples: 1, ...(await seqHook.renderFrame!(f, W, H)) };
+        else {
+          // each view layer renders with its own passes and collection visibility
+          let main: FrameOutput | null = null;
+          const layers = ensureViewLayers(doc.scene);
+          for (const li of layerList) {
+            const swap = li !== activeLayer;
             if (swap) {
-              setActiveViewLayer(doc, activeLayer);
+              setActiveViewLayer(doc, li);
               app.evaluate();
             }
+            if (layerList.length > 1) result.info.status = layers[li].name;
+            try {
+              const o = await renderFrame(src, FW, FH, partial, region);
+              // light groups: the image lit by each group's lights (and the world when it is in the group)
+              for (const g of layers[li].lightgroups ?? []) {
+                if (!g.name) continue;
+                result.info.status = `${layers.length > 1 ? `${layers[li].name} ▸ ` : ''}Light Group ${g.name}`;
+                lightGroup = g.name;
+                try {
+                  const lg = await renderFrame(src, FW, FH, () => {}, region);
+                  o.passes[`Combined_${g.name}`] = lg.combined;
+                } finally {
+                  lightGroup = null;
+                }
+              }
+              if (li === activeLayer || !main) main = o;
+              if (layerList.length > 1 || finalRenderHooks.extraLayers) layerResults.push({ name: layers[li].name, scene: doc.scene.name, passes: placed(o) });
+            } finally {
+              if (swap) {
+                setActiveViewLayer(doc, activeLayer);
+                app.evaluate();
+              }
+            }
+          }
+          out = main!;
+          // view layers of other scenes read by the compositor
+          if (src.kind === 'final')
+            for (const want of finalRenderHooks.extraLayers?.() ?? []) {
+              const sc = sceneById(doc, want.scene);
+              if (!sc || sc === doc.scene || layerResults.some((l) => l.scene === sc.name && l.name === (want.layer || ensureViewLayers(sc)[activeLayerIndex(sc)].name))) continue;
+              if (!sc.camera) {
+                app.report('WARNING', `Scene “${sc.name}” has no camera: its view layer is not rendered`);
+                continue;
+              }
+              await withSceneAsync(doc, sc.id!, async () => {
+                const s2 = doc.scene;
+                const prevFrame = s2.frame_current;
+                const act = activeLayerIndex(s2);
+                const found = want.layer ? ensureViewLayers(s2).findIndex((l) => l.name === want.layer) : -1;
+                const li = found >= 0 ? found : act;
+                s2.frame_current = f;
+                if (li !== act) setActiveViewLayer(doc, li);
+                try {
+                  app.evaluate();
+                  result.info.status = `${s2.name} ▸ ${ensureViewLayers(s2)[li].name}`;
+                  const o = await renderFrame(src, FW, FH, () => {}, region);
+                  layerResults.push({ name: ensureViewLayers(s2)[li].name, scene: s2.name, passes: placed(o) });
+                } finally {
+                  if (li !== act) setActiveViewLayer(doc, act);
+                  s2.frame_current = prevFrame;
+                }
+              });
+              app.evaluate();
+            }
+          result.info.status = undefined;
+        }
+        return { out, layerResults };
+      };
+      let out: FrameOutput;
+      let layerResults: NonNullable<RenderResult['layers']>;
+      // multi-view: each view (stereo eye) is a full render of the frame
+      const viewOuts: { name: string; suffix: string; out: FrameOutput; layerResults: NonNullable<RenderResult['layers']> }[] = [];
+      if (views.length) {
+        for (const v of views) {
+          renderView = v;
+          try {
+            viewOuts.push({ name: v.name, suffix: v.suffix, ...(await renderOnce()) });
+          } finally {
+            renderView = null;
           }
         }
-        out = main!;
-        // view layers of other scenes read by the compositor
-        if (src.kind === 'final')
-          for (const want of finalRenderHooks.extraLayers?.() ?? []) {
-            const sc = sceneById(doc, want.scene);
-            if (!sc || sc === doc.scene || layerResults.some((l) => l.scene === sc.name && l.name === (want.layer || ensureViewLayers(sc)[activeLayerIndex(sc)].name))) continue;
-            if (!sc.camera) {
-              app.report('WARNING', `Scene “${sc.name}” has no camera: its view layer is not rendered`);
-              continue;
-            }
-            await withSceneAsync(doc, sc.id!, async () => {
-              const s2 = doc.scene;
-              const prevFrame = s2.frame_current;
-              const act = activeLayerIndex(s2);
-              const found = want.layer ? ensureViewLayers(s2).findIndex((l) => l.name === want.layer) : -1;
-              const li = found >= 0 ? found : act;
-              s2.frame_current = f;
-              if (li !== act) setActiveViewLayer(doc, li);
-              try {
-                app.evaluate();
-                result.info.status = `${s2.name} ▸ ${ensureViewLayers(s2)[li].name}`;
-                const o = await renderFrame(src, FW, FH, () => {}, region);
-                layerResults.push({ name: ensureViewLayers(s2)[li].name, scene: s2.name, passes: placed(o) });
-              } finally {
-                if (li !== act) setActiveViewLayer(doc, act);
-                s2.frame_current = prevFrame;
-              }
-            });
-            app.evaluate();
-          }
-        result.info.status = undefined;
-      }
+        ({ out, layerResults } = viewOuts[0]);
+      } else ({ out, layerResults } = await renderOnce());
       result.passes = placed(out);
       result.layers = layerResults.length > 1 ? layerResults : undefined;
       const time = (performance.now() - (o.animation ? t0 : job.started)) / 1000;
       result.info = { ...result.info, frame: f, samples: out.samples, maxSamples: out.maxSamples, time };
       result.view = out.view;
       result.viewLayer = undefined;
-      if (!seqHook) for (const hook of renderPostHooks) await hook(result, { final: src.kind === 'final' });
+      if (viewOuts.length) {
+        // post-processing (compositing) runs on every view
+        const done: NonNullable<RenderResult['views']> = [];
+        for (const v of viewOuts) {
+          result.passes = placed(v.out);
+          result.viewLayer = undefined;
+          if (!seqHook) for (const hook of renderPostHooks) await hook(result, { final: src.kind === 'final' });
+          done.push({ name: v.name, suffix: v.suffix, passes: result.passes, viewLayer: result.viewLayer });
+        }
+        result.views = done;
+        result.stereo = viewOuts.length === 2 && viewOuts.every((v) => v.name === 'left' || v.name === 'right') ? { ...multiview(r).stereo_3d_format } : undefined;
+        result.passes = done[0].passes;
+        result.viewLayer = done[0].viewLayer;
+      } else {
+        result.views = undefined;
+        result.stereo = undefined;
+        if (!seqHook) for (const hook of renderPostHooks) await hook(result, { final: src.kind === 'final' });
+      }
       if (src.kind === 'final') applyMetadata(result, f, time);
       rendered++;
       renderResult.touch();
       progress(true);
       if (o.animation) {
-        const view = out.view ?? doc.scene.render;
+        const view = outputView(doc.scene.render, out.view);
+        // stereo output combines the eyes into one image
+        const combined = result.views && multiview(r).image_views_format === 'STEREO_3D' ? stereoResult(result) : null;
         if (video) {
           const keepAlpha = false;
-          let px = passToRGBA8(result, 'Combined', 'COLOR_ALPHA', view, { keepAlpha, dither: r.dither_intensity });
+          const frameResult = combined && combined.width === W && combined.height === H ? combined : result;
+          let px = passToRGBA8(frameResult, 'Combined', 'COLOR_ALPHA', view, { keepAlpha, dither: r.dither_intensity });
           if (r.color_mode === 'BW') px = toBW(px);
           const c2 = frameCanvas.getContext('2d')!;
           c2.putImageData(new ImageData(new Uint8ClampedArray(px), W, H), 0, 0);
           await video.addFrame(frameCanvas, k);
         } else if (zip) {
           const fmt = format as FileFormat;
-          const bytes = await encodeResult(result, fmt, { colorMode: r.color_mode, quality: (r.quality ?? 90) / 100, view, dither: r.dither_intensity });
-          zip.add(frameFileName(r.filepath, f, EXT[fmt], r.use_file_extension !== false), bytes);
-          animationRecorder.addFrame(f, bytes, MIME[fmt]);
+          const opts = { colorMode: r.color_mode, quality: (r.quality ?? 90) / 100, view, dither: r.dither_intensity };
+          const exr = isExr(format) ? format : null;
+          const name = frameFileName(r.filepath, f, exr ? 'exr' : EXT[fmt], r.use_file_extension !== false);
+          if (exr) {
+            // scene-linear float data (no view transform), one file per view
+            const layerName = ensureViewLayers(doc.scene)[activeLayerIndex(doc.scene)]?.name ?? 'ViewLayer';
+            const list = result.views?.length ? result.views.map((v) => ({ suffix: v.suffix, res: { ...result, passes: v.passes, viewLayer: v.viewLayer } })) : [{ suffix: '', res: result }];
+            for (const v of list) zip.add(v.suffix ? viewFileName(name, v.suffix) : name, resultExr(v.res, r, exr, layerName));
+            // View Animation plays a display-converted preview
+            animationRecorder.addFrame(f, await encodeResult(list[0].res, 'PNG', opts), MIME.PNG);
+          } else if (result.views?.length && !combined) {
+            // individual views: one file per view, named with the view's suffix
+            for (const v of result.views) {
+              const bytes = await encodeResult({ ...result, passes: v.passes }, fmt, opts);
+              zip.add(viewFileName(name, v.suffix), bytes);
+              if (v === result.views[0]) animationRecorder.addFrame(f, bytes, MIME[fmt]);
+            }
+          } else {
+            const bytes = await encodeResult(combined ?? result, fmt, opts);
+            zip.add(name, bytes);
+            animationRecorder.addFrame(f, bytes, MIME[fmt]);
+          }
         }
       }
       await nextFrame();

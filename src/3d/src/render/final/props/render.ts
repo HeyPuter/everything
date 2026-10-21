@@ -1,12 +1,17 @@
 // Properties ▸ Render: engine choice and the settings each engine honours.
 import { h, type Child } from '../../../ui/h';
 import { registerTab } from '../../../editors/properties/properties';
-import { panel, enumMenu, enumRow } from '../../../ui/widgets';
+import { panel, enumMenu, enumRow, opButton } from '../../../ui/widgets';
 import { num, bool, enumProp, colorProp, splitRow } from '../../../ui/props';
 import { LOOKS } from '../colormanage';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { curveWidget } from './curvewidget';
+import { prefs } from '../../../app/prefs';
+import { setPref } from '../../../prefs/store';
+import { app } from '../../../app/app';
+import { pathTraceMainPanels } from './pathtrace';
+import { SHUTTER_SHAPES } from '../renderops';
 import { ensureRealtimeDefaults, samplingShadowsPanel, samplingAdvancedPanel, raytracingPanel, volumesPanel, bloomPanel } from '../../realtime/props';
 
 export const ENGINES = [
@@ -114,7 +119,10 @@ function rasterPanels(r: RenderSettings): Child {
   ensureRealtimeDefaults(r);
   return [
     panel('rs-sampling', 'Sampling', () => [
-      sub('rs-samp-vp', 'Viewport', () => [num(r, 'preview_raster_samples', 'Samples', { int: true, min: 1, max: 1024, tip: 'Anti-aliasing samples accumulated in the Rendered viewport while the view is still' })]),
+      sub('rs-samp-vp', 'Viewport', () => [
+        num(r, 'preview_raster_samples', 'Samples', { int: true, min: 1, max: 1024, tip: 'Anti-aliasing samples accumulated in the Rendered viewport while the view is still' }),
+        bool(r, 'use_shadow_jitter_viewport', 'Jittered Shadows', { tip: 'Soften shadows of lights with Jitter enabled in the viewport too (always on in final renders)' }),
+      ]),
       sub('rs-samp-render', 'Render', () => [num(r, 'raster_samples', 'Samples', { int: true, min: 1, max: 4096, tip: 'Anti-aliasing samples averaged for final renders (also used for depth of field and motion blur)' })]),
       samplingShadowsPanel(r),
       samplingAdvancedPanel(r),
@@ -139,6 +147,7 @@ function rasterPanels(r: RenderSettings): Child {
     raytracingPanel(r),
     volumesPanel(r),
     bloomPanel(r),
+    curvesPanel(r),
     simplifyPanel(r),
     panel(
       'rs-dof',
@@ -163,7 +172,24 @@ function rasterPanels(r: RenderSettings): Child {
       ],
       { closed: true },
     ),
-    panel('rs-perf', 'Performance', () => [performanceViewport(r)], { closed: true }),
+    panel(
+      'rs-perf',
+      'Performance',
+      () => [
+        splitRow(
+          'Anisotropic Filtering',
+          enumMenu(
+            'rs-aniso',
+            ['1', '2', '4', '8', '16'].map((v) => ({ value: v, label: v === '1' ? 'Off' : `${v}×` })),
+            String(prefs.anisotropic_filter ?? 8),
+            (v) => (setPref('anisotropic_filter', Number(v)), app.changed('ui')),
+            { tip: 'Sharper textures on surfaces seen at a grazing angle (a preference: applies to every file)' },
+          ),
+        ),
+        performanceViewport(r),
+      ],
+      { closed: true },
+    ),
   ];
 }
 
@@ -174,6 +200,24 @@ function motionBlurPanel(r: RenderSettings): Child {
     () => [
       enumProp(r, 'motion_blur_position' as never, 'Position', [['START', 'Start on Frame'], ['CENTER', 'Center on Frame'], ['END', 'End on Frame']], { tip: 'Where the shutter interval lies relative to the frame' }),
       num(r, 'motion_blur_shutter', 'Shutter', { min: 0, max: 2, softMax: 1, tip: 'Time (in frames) the shutter is open' }),
+      sub(
+        'rs-motion-curve',
+        'Shutter Curve',
+        () => [
+          curveWidget(
+            'rs-shutter-curve',
+            () => r.motion_blur_shutter_curve ?? [[0, 1], [1, 1]],
+            (pts) => (r.motion_blur_shutter_curve = pts),
+            'How far the shutter is open over the motion blur interval',
+          ),
+          h(
+            'div',
+            { class: 'rs-curve-presets' },
+            SHUTTER_SHAPES.map((s) => opButton('render.shutter_curve_preset', '', { shape: s.value }, { icon: s.icon, tip: `${s.label} shutter curve` })),
+          ),
+        ],
+        { closed: true },
+      ),
     ],
     { header: headerToggle(r, 'use_motion_blur', 'Motion Blur'), closed: true },
   );
@@ -182,51 +226,50 @@ function motionBlurPanel(r: RenderSettings): Child {
 /** Extra panels appended to the path tracer's Render properties (e.g. Bake). */
 export const pathTraceExtraPanels: ((r: RenderSettings) => Child)[] = [];
 
+function curvesPanel(r: RenderSettings): Child {
+  r.hair_type ??= 'STRAND';
+  r.hair_subdiv ??= 0;
+  return panel(
+    'rs-curves',
+    'Curves',
+    () => [
+      enumProp(r, 'hair_type' as never, 'Shape', [['STRAND', 'Strand'], ['STRIP', 'Strip'], ['CYLINDER', 'Cylinder']], { tip: 'Cross-section of hair strands: flat strips, thin three-sided strands or round cylinders' }),
+      num(r, 'hair_subdiv' as never, 'Additional Subdivision', { int: true, min: 0, max: 3, tip: 'Smooth the strands by splitting each segment (2^n pieces)' }),
+    ],
+    { closed: true },
+  );
+}
+
+function pathTraceCurvesPanel(r: RenderSettings): Child {
+  const c = (r.cycles_curves ??= { shape: 'THICK', subdivisions: 2 });
+  r.hair_type ??= 'STRAND';
+  r.hair_subdiv ??= 0;
+  return panel(
+    'rs-pt-curves',
+    'Curves',
+    () => [
+      enumProp(c, 'shape', 'Shape', [['RIBBONS', 'Rounded Ribbons'], ['THICK', '3D Curves'], ['THICK_LINEAR', 'Linear 3D Curves']], { tip: 'Hair strands as flat ribbons or as round curves (smooth, or straight between the points)' }),
+      num(c, 'subdivisions', 'Curve Subdivisions', { int: true, min: 0, max: 24, disabled: c.shape === 'THICK_LINEAR', tip: 'Smoothness of 3D curves between their points' }),
+      sub('rs-pt-curves-vp', 'Viewport Display', () => [
+        enumProp(r, 'hair_type' as never, 'Shape', [['STRAND', 'Strand'], ['STRIP', 'Strip'], ['CYLINDER', 'Cylinder']]),
+        num(r, 'hair_subdiv' as never, 'Additional Subdivision', { int: true, min: 0, max: 3 }),
+      ], { closed: true }),
+    ],
+    { closed: true },
+  );
+}
+
 function pathTracePanels(r: RenderSettings): Child {
+  const main = pathTraceMainPanels(r);
   return [
-    panel('rs-sampling', 'Sampling', () => [
-      sub('rs-samp-vp', 'Viewport', () => [num(r, 'preview_samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples of the Rendered viewport' }), bool(r, 'preview_denoising', 'Denoise', { tip: 'Denoise the Rendered viewport' })]),
-      sub('rs-samp-render', 'Render', () => [
-        num(r, 'samples', 'Max Samples', { int: true, min: 1, max: 65536, tip: 'Samples per pixel of final renders' }),
-        num(r, 'time_limit', 'Time Limit', { unit: 'time', min: 0, softMax: 3600, tip: 'Stop sampling after this time (0 for no limit)' }),
-        bool(r, 'use_denoising', 'Denoise', { tip: 'Denoise final renders' }),
-      ]),
-    ]),
-    panel(
-      'rs-lightpaths',
-      'Light Paths',
-      () => [
-        sub('rs-lp-bounces', 'Max Bounces', () => [
-          num(r, 'max_bounces', 'Total', { int: true, min: 0, max: 1024, softMax: 64, tip: 'Total number of light bounces' }),
-          num(r, 'diffuse_bounces' as never, 'Diffuse', { int: true, min: 0, max: 1024, softMax: 64 }),
-          num(r, 'glossy_bounces' as never, 'Glossy', { int: true, min: 0, max: 1024, softMax: 64 }),
-          num(r, 'transmission_bounces' as never, 'Transmission', { int: true, min: 0, max: 1024, softMax: 64 }),
-        ]),
-        sub('rs-lp-clamp', 'Clamping', () => [
-          num(r, 'sample_clamp_direct', 'Direct Light', { min: 0, softMax: 100, tip: 'Limit the brightness of direct light samples to reduce noise (0 disables)' }),
-          num(r, 'sample_clamp_indirect', 'Indirect Light', { min: 0, softMax: 100, tip: 'Limit the brightness of bounced light samples to reduce fireflies (0 disables)' }),
-        ]),
-        sub('rs-lp-caustics', 'Caustics', () => [num(r, 'blur_glossy', 'Filter Glossy', { min: 0, max: 10, tip: 'Blur glossy reflections seen after rough bounces to reduce caustic noise' })], { closed: true }),
-      ],
-      { closed: true },
-    ),
+    main.sampling,
+    main.lightPaths,
+    pathTraceCurvesPanel(r),
     simplifyPanel(r),
     motionBlurPanel(r),
+    main.film,
     panel(
-      'rs-film',
-      'Film',
-      () => [
-        num(r, 'film_exposure', 'Exposure', { min: 0, softMax: 10, tip: 'Image brightness scale' }),
-        sub('rs-film-filter', 'Pixel Filter', () => [
-          enumProp(r, 'pixel_filter_type' as never, 'Type', [['BOX', 'Box'], ['GAUSSIAN', 'Gaussian'], ['BLACKMAN_HARRIS', 'Blackman-Harris']], { tip: 'Shape of the anti-aliasing filter' }),
-          num(r, 'filter_width', 'Width', { min: 0.01, max: 10, precision: 2, disabled: r.pixel_filter_type === 'BOX', tip: 'Width (pixels) of the anti-aliasing filter' }),
-        ]),
-        sub('rs-film-transparent', 'Transparent', () => h('div', { class: 'prop-note' }, 'The world background renders transparent (it still lights the scene).'), { header: headerToggle(r, 'film_transparent', 'Transparent'), closed: true }),
-      ],
-      { closed: true },
-    ),
-    panel(
-      'rs-perf',
+      'rs-pt-perf',
       'Performance',
       () => [
         sub('rs-perf-final', 'Final Render', () => [

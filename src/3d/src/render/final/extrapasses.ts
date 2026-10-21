@@ -1,5 +1,6 @@
 // View Layer ▸ Passes: data and light passes rendered with override materials after the
-// beauty pass (Position, UV, Object/Material Index, Diffuse Color, Emission).
+// beauty pass (Position, UV, Object/Material Index, Diffuse / Transmission Color, Emission,
+// Environment).
 import { ShaderMaterial, DoubleSide, MeshBasicMaterial, Color, type Camera, type Material, type Mesh, type WebGLRenderer, type MeshPhysicalMaterial, type WebGLRenderTarget } from 'three';
 import type { DocumentData, RenderSettings } from '../../data/types';
 import { floatTarget, renderOverride } from './gbuffer';
@@ -9,7 +10,7 @@ import type { RenderScene } from './renderscene';
 import type { PassName } from './result';
 
 export function wantsExtraPasses(r: RenderSettings): boolean {
-  return !!(r.use_pass_position || r.use_pass_uv || r.use_pass_object_index || r.use_pass_material_index || r.use_pass_diffuse_color || r.use_pass_emit);
+  return !!(r.use_pass_position || r.use_pass_uv || r.use_pass_object_index || r.use_pass_material_index || r.use_pass_diffuse_color || r.use_pass_emit || r.use_pass_environment || r.use_pass_transmission_color);
 }
 
 const positionMaterial = new ShaderMaterial({
@@ -59,6 +60,8 @@ const uvMaterial = new ShaderMaterial({
 // expose the uv attribute to the shader
 uvMaterial.defines = { USE_UV: '' };
 
+const blackMaterial = new MeshBasicMaterial({ color: 0x000000, side: DoubleSide, toneMapped: false });
+
 const flatCache = new Map<number, MeshBasicMaterial>();
 /** Unlit material writing a constant value (index passes). */
 function valueMaterial(v: number): MeshBasicMaterial {
@@ -70,13 +73,14 @@ function valueMaterial(v: number): MeshBasicMaterial {
   return m;
 }
 
-const colorCache = new WeakMap<Material, { diffuse: MeshBasicMaterial; emit: MeshBasicMaterial; version: number }>();
+const colorCache = new WeakMap<Material, { diffuse: MeshBasicMaterial; emit: MeshBasicMaterial; trans: MeshBasicMaterial; version: number }>();
 function colorMaterials(src: Material) {
   const pm = pathTracerMaterial(src) as MeshPhysicalMaterial;
   const hit = colorCache.get(src);
   if (hit && hit.version === pm.version) return hit;
   const diffuse = hit?.diffuse ?? new MeshBasicMaterial({ side: DoubleSide, toneMapped: false });
   const emit = hit?.emit ?? new MeshBasicMaterial({ side: DoubleSide, toneMapped: false });
+  const trans = hit?.trans ?? new MeshBasicMaterial({ side: DoubleSide, toneMapped: false });
   // the diffuse colour of metals and glass is black
   const k = (1 - Math.min(1, Math.max(0, pm.metalness))) * (1 - Math.min(1, Math.max(0, pm.transmission)));
   diffuse.color.copy(pm.color).multiplyScalar(k);
@@ -86,7 +90,12 @@ function colorMaterials(src: Material) {
   emit.color.copy(pm.emissive).multiplyScalar(pm.emissiveIntensity ?? 1);
   emit.map = pm.emissiveMap;
   emit.needsUpdate = true;
-  const out = { diffuse, emit, version: pm.version };
+  // light let through by glass: the base colour times the transmission (none for metals)
+  const kt = (1 - Math.min(1, Math.max(0, pm.metalness))) * Math.min(1, Math.max(0, pm.transmission));
+  trans.color.copy(pm.color).multiplyScalar(kt);
+  trans.map = kt > 0 ? pm.map : null;
+  trans.needsUpdate = true;
+  const out = { diffuse, emit, trans, version: pm.version };
   colorCache.set(src, out);
   return out;
 }
@@ -133,6 +142,35 @@ export function extraPasses(renderer: WebGLRenderer, rs: RenderScene, camera: Ca
       });
     if (r.use_pass_diffuse_color) pass('DiffCol', 4, null, (m) => perMaterial(m, (x) => colorMaterials(x).diffuse));
     if (r.use_pass_emit) pass('Emit', 4, null, (m) => perMaterial(m, (x) => colorMaterials(x).emit));
+    if (r.use_pass_transmission_color) pass('TransCol', 4, null, (m) => perMaterial(m, (x) => colorMaterials(x).trans));
+    if (r.use_pass_environment) {
+      // the world seen by the camera where no surface is in front of it
+      const s = rs.scene;
+      const over = s.overrideMaterial;
+      const tm = renderer.toneMapping;
+      const prev = renderer.getRenderTarget();
+      const scissor = renderer.getScissorTest();
+      const cc = renderer.getClearColor(new Color()),
+        ca = renderer.getClearAlpha();
+      s.overrideMaterial = blackMaterial;
+      renderer.toneMapping = 0;
+      renderer.setScissorTest(false);
+      renderer.setRenderTarget(rt);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear(true, true, true);
+      try {
+        renderer.render(s, camera);
+      } finally {
+        s.overrideMaterial = over;
+        renderer.toneMapping = tm;
+        renderer.setClearColor(cc, ca);
+        renderer.setRenderTarget(prev);
+        renderer.setScissorTest(scissor);
+      }
+      const env = read(renderer, rt, W, H, 4);
+      for (let i = 3; i < env.length; i += 4) env[i] = 1;
+      out.Env = env;
+    }
   } finally {
     rt.dispose();
     renderer.shadowMap.enabled = shadows;

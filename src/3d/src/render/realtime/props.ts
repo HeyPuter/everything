@@ -100,7 +100,6 @@ export function samplingAdvancedPanel(r: RenderSettings): Child {
     'Advanced',
     () => [
       num(r, 'light_threshold', 'Light Threshold', { min: 0, softMax: 1, precision: 3, tip: 'Light below this brightness is ignored: lights reach only as far as they are brighter than this (faster with many lights)' }),
-      bool(r, 'use_shadow_jitter_viewport', 'Jittered Shadows (Viewport)', { tip: 'Soften shadows of lights with Jitter enabled in the viewport too (always on in final renders)' }),
     ],
     { closed: true },
   );

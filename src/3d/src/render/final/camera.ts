@@ -2,6 +2,7 @@
 import { OrthographicCamera, Vector3, Matrix4, type Camera, PerspectiveCamera } from 'three';
 import { PhysicalCamera } from 'three-gpu-pathtracer';
 import type { App } from '../../app/app';
+import { panoramaParams } from './ptcamera';
 
 /** Half extents of the camera frame at distance 1 (perspective) – pure for testing. */
 export function frustumHalfExtents(ca: { sensor_fit: 'AUTO' | 'HORIZONTAL' | 'VERTICAL'; sensor_width: number; sensor_height: number; lens: number }, aspect: number): [number, number] {
@@ -70,6 +71,9 @@ export function renderCamera(app: App, w: number, h: number, cameraId = app.doc.
   const scale = new Vector3();
   ev.world.decompose(cam.position, cam.quaternion, scale);
   cam.updateMatrixWorld(true);
+  // panoramic projections are traced by the path tracer (ptcamera.ts); rasterizers use the perspective
+  const pano = panoramaParams(ca);
+  if (pano) cam.userData.panorama = pano;
   return cam;
 }
 

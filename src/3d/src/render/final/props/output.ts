@@ -2,11 +2,14 @@
 import { h, type Child } from '../../../ui/h';
 import { app } from '../../../app/app';
 import { registerTab } from '../../../editors/properties/properties';
-import { panel, enumMenu, numberField, textField, checkbox } from '../../../ui/widgets';
+import { panel, enumMenu, enumRow, numberField, textField, checkbox, opButton } from '../../../ui/widgets';
 import { num, bool, enumProp, colorProp, splitRow, textProp } from '../../../ui/props';
 import type { RenderSettings } from '../../../data/types';
 import { renderSettings, changed, headerToggle, sub } from './common';
 import { FPS_PRESETS, fpsPreset, fpsFromPreset } from '../units';
+import { stereoscopyPanel, viewsSubPanel } from './stereo';
+import { outputViewSettings } from '../outputview';
+import { LOOKS } from '../colormanage';
 
 let customFps = false;
 
@@ -28,7 +31,11 @@ function formatPanel(r: RenderSettings): Child {
   const preset = fpsPreset(r);
   const showCustom = customFps || preset === 'custom';
   return panel('out-format', 'Format', () => [
-    splitRow('Resolution X', numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
+    splitRow(
+      'Resolution X',
+      numberField({ id: 'res-x', value: r.resolution_x, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_x = v), app.changed('doc'), f && app.pushUndo('Resolution')) }),
+      opButton('render.swap_dimensions', '', {}, { icon: 'rs_swap', className: 'out-swap', tip: 'Swap width and height' }),
+    ),
     splitRow('Y', numberField({ id: 'res-y', value: r.resolution_y, int: true, min: 4, max: 65536, unit: 'pixel', set: (v, f) => ((r.resolution_y = v), app.changed('doc'), f && app.pushUndo('Resolution')) })),
     num(r, 'resolution_percentage', '%', { unit: 'percentage', int: true, min: 1, max: 1000, softMax: 100, slider: true }),
     num(r, 'pixel_aspect_x', 'Aspect X', { min: 1, max: 200, tip: 'Horizontal pixel aspect (non-square pixels)' }),
@@ -77,17 +84,76 @@ function frameRangePanel(r: RenderSettings): Child {
 
 function outputPanel(r: RenderSettings): Child {
   const fmt = r.file_format;
+  const exr = fmt === 'OPEN_EXR' || fmt === 'OPEN_EXR_MULTILAYER';
+  r.color_depth ??= '16';
+  r.exr_codec ??= 'ZIP';
   const colors: [string, string][] = fmt === 'JPEG' || fmt === 'WEBM' ? [['BW', 'BW'], ['RGB', 'RGB']] : [['BW', 'BW'], ['RGB', 'RGB'], ['RGBA', 'RGBA']];
   if (r.color_mode === 'RGBA' && colors.length === 2) r.color_mode = 'RGB';
   return panel('out-output', 'Output', () => [
     textProp(r, 'filepath', 'Output Path'),
     h('div', { class: 'sub-label' }, 'Saving'),
     bool(r, 'use_file_extension', 'File Extensions', { tip: 'Add the file format extension to rendered file names' }),
-    enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['WEBM', 'WebM Video']]),
+    enumProp(r, 'file_format', 'File Format', [['PNG', 'PNG'], ['JPEG', 'JPEG'], ['WEBP', 'WebP'], ['OPEN_EXR', 'OpenEXR'], ['OPEN_EXR_MULTILAYER', 'OpenEXR MultiLayer'], ['WEBM', 'WebM Video']]),
     enumProp(r, 'color_mode', 'Color', colors),
-    fmt !== 'PNG' ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
-    fmt === 'PNG' ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.') : fmt === 'WEBM' ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.') : null,
+    exr
+      ? [
+          enumProp(r, 'color_depth' as never, 'Color Depth', [['16', 'Float (Half)'], ['32', 'Float (Full)']], { tip: 'Bits per channel of the stored floats' }),
+          enumProp(r, 'exr_codec' as never, 'Codec', [['NONE', 'None'], ['ZIPS', 'ZIP (single scanline)'], ['ZIP', 'ZIP']], { tip: 'Lossless compression of the image data' }),
+        ]
+      : null,
+    fmt !== 'PNG' && !exr ? num(r, 'quality', 'Quality', { int: true, unit: 'percentage', min: 0, max: 100, slider: true, tip: fmt === 'WEBM' ? 'Video quality (bitrate)' : 'Compression quality of lossy formats' }) : null,
+    fmt === 'PNG'
+      ? h('div', { class: 'prop-note' }, 'Animations are saved as a ZIP of numbered PNG files; the metadata below is stored in each file.')
+      : fmt === 'WEBM'
+        ? h('div', { class: 'prop-note' }, 'Animations are saved as a WebM video.')
+        : exr
+          ? h('div', { class: 'prop-note' }, fmt === 'OPEN_EXR_MULTILAYER' ? 'Scene-linear floats of every render pass, without the view transform.' : 'Scene-linear floats of the image, without the view transform.')
+          : null,
+    viewsSubPanel(r),
+    outputColorPanel(r),
   ]);
+}
+
+const VIEWS: [string, string][] = [
+  ['STANDARD', 'Standard'],
+  ['KHRONOS_PBR_NEUTRAL', 'Khronos PBR Neutral'],
+  ['AGX', 'AgX'],
+  ['FILMIC', 'Filmic'],
+  ['RAW', 'Raw'],
+];
+
+/** Output ▸ Output ▸ Color Management: saved images use the scene's view or their own. */
+function outputColorPanel(r: RenderSettings): Child {
+  const mode = r.image_color_management ?? 'FOLLOW_SCENE';
+  return sub(
+    'out-output-cm',
+    'Color Management',
+    () => {
+      const rows: Child[] = [
+        h(
+          'div',
+          { class: 'enum-tabs' },
+          enumRow('out-cm-mode', [{ value: 'FOLLOW_SCENE', label: 'Follow Scene' }, { value: 'OVERRIDE', label: 'Override' }], mode, (v) => {
+            r.image_color_management = v as typeof mode;
+            if (v === 'OVERRIDE') outputViewSettings(r);
+            changed('Output Color Management');
+          }),
+        ),
+      ];
+      if (mode === 'OVERRIDE') {
+        const vs = outputViewSettings(r);
+        const looks = LOOKS[vs.view_transform] ? Object.keys(LOOKS[vs.view_transform]) : [];
+        rows.push(
+          enumProp(vs, 'view_transform', 'View Transform', VIEWS, { onChange: () => (vs.look = LOOKS[vs.view_transform]?.[vs.look ?? ''] ? vs.look : 'None'), tip: 'View transform of the saved images' }),
+          enumProp(vs as unknown as Record<string, unknown>, 'look' as never, 'Look', [['None', 'None'], ...looks.map((l) => [l, l.replace(/^AgX - /, '')] as [string, string])], { disabled: !looks.length }),
+          num(vs, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10 }),
+          num(vs, 'gamma', 'Gamma', { min: 0, max: 5 }),
+        );
+      } else rows.push(h('div', { class: 'prop-note' }, 'Saved images use the scene’s Color Management.'));
+      return rows;
+    },
+    { closed: true },
+  );
 }
 
 function metadataPanel(r: RenderSettings): Child {
@@ -149,6 +215,6 @@ registerTab({
   poll: () => true,
   draw: () => {
     const r = renderSettings();
-    return [formatPanel(r), frameRangePanel(r), outputPanel(r), metadataPanel(r)];
+    return [formatPanel(r), frameRangePanel(r), stereoscopyPanel(r), outputPanel(r), metadataPanel(r)];
   },
 });

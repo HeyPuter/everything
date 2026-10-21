@@ -2,7 +2,7 @@
 // (shadow casters first, then lights with a texture, in scene order); the same order is
 // rebuilt here before each render so every light finds its factors in the shared uniforms.
 import type { Camera, Light, Object3D, Scene } from 'three';
-import { fxUniforms, volumeFactorUniforms, MAX_LIGHTS } from './fxshader';
+import { fxUniforms, volumeFactorUniforms, MAX_LIGHTS, AREA_SHADOW_SLOTS } from './fxshader';
 
 type LightKind = 'point' | 'spot' | 'dir' | 'sun' | 'rect';
 
@@ -15,7 +15,7 @@ interface LightLike {
   isDirectionalLight?: boolean;
   isSunLight?: boolean;
   isRectAreaLight?: boolean;
-  userData: { influence?: number[] };
+  userData: { influence?: number[]; shadowProxy?: unknown };
 }
 
 export function lightKind(l: LightLike): LightKind | null {
@@ -54,11 +54,23 @@ export function influenceArrays(lights: LightLike[]): Record<LightKind, Float32A
   for (const a of Object.values(vol)) a!.fill(1);
   const n: Record<LightKind, number> = { point: 0, spot: 0, dir: 0, sun: 0, rect: 0 };
   packed.length = 0;
-  for (const l of packedLightOrder(lights)) {
+  const order = packedLightOrder(lights);
+  // area light shadows: the slot of each proxy among the shadow-casting spot lights
+  const rectShadow = fxUniforms.ndRectShadow.value;
+  rectShadow.fill(-1);
+  const spotShadowSlot = new Map<LightLike, number>();
+  let spots = 0;
+  for (const l of order) if (lightKind(l) === 'spot') spotShadowSlot.set(l, l.castShadow ? spots++ : -1);
+  for (const l of order) {
     const k = lightKind(l);
     if (!k) continue;
     const i = n[k]++;
     packed.push({ light: l, kind: k, index: i });
+    if (k === 'rect' && i < MAX_LIGHTS) {
+      const proxy = (l.userData as { shadowProxy?: LightLike }).shadowProxy;
+      const slot = proxy && proxy.visible !== false ? spotShadowSlot.get(proxy) ?? -1 : -1;
+      rectShadow[i] = slot < AREA_SHADOW_SLOTS ? slot : -1;
+    }
     if (i >= MAX_LIGHTS) continue;
     const f = l.userData.influence;
     if (!f) continue;

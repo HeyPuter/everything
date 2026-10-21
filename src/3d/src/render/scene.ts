@@ -30,7 +30,7 @@ import {
 } from 'three';
 import type { App } from '../app/app';
 import type { EvalObject } from '../eval/depsgraph';
-import type { DocumentData, ObjectData } from '../data/types';
+import type { DocumentData, ObjectData, LightData } from '../data/types';
 import { meshGeometry, wireGeometry, pointGeometry } from './geometry';
 import { imageTexture } from './images';
 import { cameraWire, cameraTriangle, lightWire, emptyWire, geom, boneOctahedron, latticeWire, groundLine } from './helpers';
@@ -61,6 +61,8 @@ const helperMat = () => new LineBasicMaterial({ color: 0x000000 });
 
 /** Extra per-object content (e.g. grease pencil strokes): called for every synced object. */
 export const sceneSyncHooks: ((doc: DocumentData, ev: EvalObject, so: SyncedObject) => void)[] = [];
+/** Adjust the colour of a viewport light (temperature, exposure: render/final/lightcolor.ts). */
+export const sceneLightTintHooks: ((la: LightData, color: Color) => void)[] = [];
 
 export class SceneSync {
   scene = new Scene();
@@ -210,7 +212,8 @@ export class SceneSync {
       }
       let seg: number[] | null = null;
       if (ob.type === 'CAMERA' && ob.data) {
-        seg = cameraWire(doc.cameras[ob.data], aspect);
+        const wo = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+        seg = cameraWire(doc.cameras[ob.data], aspect, wo ? { start: wo.mist_start ?? 5, depth: wo.mist_depth ?? 25 } : null);
         const tri = new BufferGeometry();
         tri.setAttribute('position', geom(cameraTriangle(doc.cameras[ob.data], aspect)).getAttribute('position'));
         so.helperFill = new Mesh(tri, new MeshBasicMaterial({ color: 0x000000, side: DoubleSide }));
@@ -362,6 +365,7 @@ export class SceneSync {
     }
     const L = so.light;
     L.color = new Color(la.color[0], la.color[1], la.color[2]);
+    for (const hk of sceneLightTintHooks) hk(la, L.color);
     L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1, la.volume_factor ?? 1];
     // radiometric watts → three.js photometric-style units (see docs/rendering.md)
     if (L instanceof PointLight) {
@@ -380,7 +384,7 @@ export class SceneSync {
         h = la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? la.size_y : la.size;
       L.width = w;
       L.height = h;
-      L.intensity = la.energy / (Math.PI * Math.max(1e-4, w * h)) / 4;
+      L.intensity = la.energy / (Math.PI * (la.normalize === false ? 1 : Math.max(1e-4, w * h))) / 4;
       L.lookAt(new Vector3(0, 0, -1));
     }
     if (!(L instanceof RectAreaLight)) {

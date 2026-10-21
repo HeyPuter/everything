@@ -400,6 +400,9 @@ function availability(d: NodeTypeDef, rules: Record<string, (n: NodeData) => boo
     for (const g of rlLayer(n, ctx.doc).layer?.lightgroups ?? []) if (g.name) outputs.push({ name: `Combined_${g.name}`, identifier: `Combined_${g.name}`, type: 'RGBA' });
     // lines drawn as their own pass (View Layer ▸ Freestyle ▸ As Render Pass)
     if (r.use_freestyle && r.freestyle_settings?.as_render_pass) outputs.push({ name: 'Freestyle', identifier: 'Freestyle', type: 'RGBA' });
+    // light passes of View Layer ▸ Passes ▸ Light (render/final/extrapasses.ts)
+    if (r.use_pass_transmission_color) outputs.push({ name: 'TransCol', identifier: 'TransCol', type: 'RGBA' });
+    if (r.use_pass_environment) outputs.push({ name: 'Env', identifier: 'Env', type: 'RGBA' });
     const depth = Math.max(2, Math.min(16, Math.round(r.pass_cryptomatte_depth ?? 6)));
     for (const [layer, on] of [
       ['CryptoObject', r.use_pass_cryptomatte_object],

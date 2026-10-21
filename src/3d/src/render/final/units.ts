@@ -4,12 +4,13 @@
 // area light radiance L = P / (π · A).
 import type { LightData, RenderSettings, SceneData } from '../../data/types';
 
-export function lightIntensity(la: Pick<LightData, 'type' | 'energy' | 'shape' | 'size' | 'size_y'>): number {
+export function lightIntensity(la: Pick<LightData, 'type' | 'energy' | 'shape' | 'size' | 'size_y' | 'normalize'>): number {
   switch (la.type) {
     case 'SUN':
       return la.energy;
     case 'AREA':
-      return la.energy / (Math.PI * Math.max(1e-6, areaLightArea(la)));
+      // without normalisation the power is given per square metre of the light
+      return la.energy / (Math.PI * (la.normalize === false ? 1 : Math.max(1e-6, areaLightArea(la))));
     default:
       return la.energy / (4 * Math.PI);
   }
@@ -63,10 +64,60 @@ export function jitter(i: number): [number, number] {
  * Time offset (in frames) of motion-blur sample `i` of `n`, distributed over the shutter
  * interval centred on the frame.
  */
-export function shutterOffset(i: number, n: number, shutter: number, position: 'START' | 'CENTER' | 'END' = 'CENTER'): number {
+export function shutterOffset(i: number, n: number, shutter: number, position: 'START' | 'CENTER' | 'END' = 'CENTER', curve?: ArrayLike<number> | null): number {
   if (n <= 1 || shutter <= 0) return 0;
-  const t = (i + 0.5) / n;
+  const u = (i + 0.5) / n;
+  const t = curve ? shutterTime(u, curve) : u;
   return (position === 'START' ? t : position === 'END' ? t - 1 : t - 0.5) * shutter;
+}
+
+/**
+ * Time (0..1 across the shutter interval) of the sample at fraction `u` when the shutter opens and
+ * closes following `curve` (openness sampled evenly over the interval): samples are placed by the
+ * inverse of the openness' running total, so they are denser where the shutter is wide open.
+ */
+export function shutterTime(u: number, curve: ArrayLike<number>): number {
+  const n = curve.length;
+  if (n < 2) return u;
+  // running total of the openness (trapezoids)
+  const cdf = new Float64Array(n);
+  for (let i = 1; i < n; i++) cdf[i] = cdf[i - 1] + Math.max(0, (curve[i - 1] + curve[i]) / 2);
+  const total = cdf[n - 1];
+  if (!(total > 0)) return u;
+  const target = Math.min(1, Math.max(0, u)) * total;
+  let i = 1;
+  while (i < n - 1 && cdf[i] < target) i++;
+  const a = cdf[i - 1],
+    b = cdf[i];
+  const f = b > a ? (target - a) / (b - a) : 0;
+  return (i - 1 + f) / (n - 1);
+}
+
+/** Shapes of the shutter curve presets (openness over the shutter interval). */
+export type ShutterShape = 'SMOOTH' | 'SPHERE' | 'ROOT' | 'SHARP' | 'LINE' | 'MAX';
+
+/** Control points of a shutter curve preset: opens over the first half and closes over the second. */
+export function shutterCurvePoints(shape: ShutterShape): [number, number][] {
+  if (shape === 'MAX') return [[0, 1], [1, 1]];
+  const f = (x: number) => {
+    switch (shape) {
+      case 'SMOOTH':
+        return x * x * (3 - 2 * x);
+      case 'SPHERE':
+        return Math.sqrt(Math.max(0, 1 - (1 - x) * (1 - x)));
+      case 'ROOT':
+        return Math.sqrt(x);
+      case 'SHARP':
+        return x * x;
+      default:
+        return x;
+    }
+  };
+  const out: [number, number][] = [];
+  const steps = shape === 'LINE' ? 1 : 4;
+  for (let k = 0; k <= steps; k++) out.push([(0.5 * k) / steps, f(k / steps)]);
+  for (let k = steps - 1; k >= 0; k--) out.push([1 - (0.5 * k) / steps, f(k / steps)]);
+  return out.map(([x, y]) => [Math.round(x * 1e4) / 1e4, Math.round(y * 1e4) / 1e4]);
 }
 
 /** Mist factor (0 near → 1 far) with the default quadratic falloff. */

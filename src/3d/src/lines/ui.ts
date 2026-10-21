@@ -16,6 +16,7 @@ import type { RenderSettings, MaterialData } from '../data/types';
 import { activeLineSet, freestyleSettings, lineStyleOf, modifierList, MODIFIER_TYPES, COLOR_BLEND, VALUE_BLEND, MATERIAL_ATTRIBUTES, type ModifierKind } from './defaults';
 import './lines.css';
 import { EDGE_TYPES, linestyleTable, type LineSet, type LineStyleData, type LineStyleModifier } from './types';
+import { controlModeRow, styleModulesPanel } from './moduleops';
 
 const changed = (label: string) => {
   app.pushUndo(label);
@@ -107,7 +108,9 @@ function settingsPanel(): Child {
             'Line drawing is off for renders. ',
             h('button', { class: 'btn', onclick: () => ((r.use_freestyle = true), changed('Freestyle')) }, 'Enable'),
           ),
+      controlModeRow(fs),
       bool(fs, 'as_render_pass', 'As Render Pass', { tip: 'Keep the lines in a separate Freestyle pass instead of drawing them over the image' }),
+      fs.mode === 'SCRIPT' ? styleModulesPanel(fs) : null,
       sub('vl-fs-edges', 'Edge Detection', () => [
         num(fs, 'crease_angle', 'Crease Angle', { unit: 'angle', min: 0, max: Math.PI, tip: 'Edges whose faces meet at an angle sharper than this are creases' }),
         bool(fs, 'use_culling', 'Culling', { tip: 'Ignore edges outside the camera view (faster for large scenes)' }),
@@ -596,7 +599,7 @@ viewLayerPanels.push(() => {
   const r = app.doc.scene.render;
   if (!r.use_freestyle && !r.freestyle_settings) return panel('vl-freestyle', 'Freestyle', () => h('div', { class: 'prop-note' }, 'Enable Freestyle in Render properties to draw lines over renders.', ' ', h('button', { class: 'btn', onclick: () => ((r.use_freestyle = true), freestyleSettings(app.doc), changed('Freestyle')) }, 'Enable')), { closed: true });
   const fs = freestyleSettings(app.doc);
-  return [settingsPanel(), fs.use_freestyle ? [lineSetPanel(), lineStylePanels()] : null];
+  return [settingsPanel(), fs.use_freestyle && fs.mode !== 'SCRIPT' ? [lineSetPanel(), lineStylePanels()] : null];
 });
 
 // ---------------------------------------------------------------------------

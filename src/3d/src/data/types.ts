@@ -5,6 +5,8 @@
 // edits replace arrays instead of writing into them (see data/cow.ts).
 
 import type { RealtimeRenderSettings, RealtimeLightSettings, RealtimeMaterialSettings, RealtimeWorldSettings, LightProbeSettings } from '../render/realtime/types';
+import type { MultiviewSettings, CameraStereoData } from '../render/final/stereo';
+import type { OutputViewSettings } from '../render/final/outputview';
 export type ID = string;
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
@@ -306,6 +308,15 @@ export interface LightData extends RealtimeLightSettings {
   diffuse_factor: number;
   specular_factor: number;
   volume_factor: number;
+  /** colour from a black body temperature (kelvin), multiplied with `color` */
+  use_temperature?: boolean;
+  temperature?: number;
+  /** brightness scale in stops (2^exposure) */
+  exposure?: number;
+  /** area lights: keep the total power when the size changes (off: power per square metre) */
+  normalize?: boolean;
+  /** area lights: angle of the cone the light emits into (π = the whole hemisphere) */
+  spread?: number;
   users?: number;
 }
 
@@ -334,10 +345,18 @@ export interface CameraData {
     /** anamorphic distortion of the bokeh (1 = round) */
     aperture_ratio?: number;
   };
+  /** stereo rig used by stereo 3D renders (render/final/stereo.ts) */
+  stereo?: CameraStereoData;
   display_size: number;
   show_passepartout: boolean;
   passepartout_alpha: number;
   show_limits?: boolean;
+  /** draw the world's mist range along the camera axis */
+  show_mist?: boolean;
+  /** camera view: outline of the sensor area */
+  show_sensor?: boolean;
+  /** colour of the composition guides (RGBA) */
+  composition_guide_color?: [number, number, number, number];
   /** camera view overlays (src/render/final/cameraoverlay.ts) */
   show_name?: boolean;
   show_safe_areas?: boolean;
@@ -584,6 +603,8 @@ export interface WorldData extends RealtimeWorldSettings {
   mist_start?: number;
   mist_depth?: number;
   mist_falloff?: 'QUADRATIC' | 'LINEAR' | 'INVERSE_QUADRATIC';
+  /** World ▸ Ray Visibility ▸ Camera: the background is seen by the camera (off: black) */
+  visible_camera?: boolean;
   users?: number;
 }
 
@@ -1037,8 +1058,15 @@ export interface CollectionData {
 
 export type RenderEngine = 'RASTER' | 'PATHTRACE' | 'SOLID';
 
-export interface RenderSettings extends RealtimeRenderSettings {
+export interface RenderSettings extends RealtimeRenderSettings, MultiviewSettings, OutputViewSettings {
   engine: RenderEngine;
+  /** Render ▸ Curves: strand shape in the realtime engine and its subdivisions */
+  hair_type?: 'STRAND' | 'STRIP' | 'CYLINDER';
+  hair_subdiv?: number;
+  /** Render ▸ Curves of the path tracer */
+  cycles_curves?: import('../render/final/curvesettings').CyclesCurves;
+  /** path tracer options (src/render/final/ptsettings.ts) */
+  cycles?: import('../render/final/ptsettings').PathTraceSettings;
   /** texture baking (src/bake/settings.ts) */
   bake?: import('../bake/settings').BakeSettings;
   bake_type?: import('../bake/settings').BakeType;
@@ -1050,7 +1078,10 @@ export interface RenderSettings extends RealtimeRenderSettings {
   film_transparent: boolean;
   fps: number;
   fps_base: number;
-  file_format: 'PNG' | 'JPEG' | 'WEBP' | 'WEBM';
+  file_format: 'PNG' | 'JPEG' | 'WEBP' | 'WEBM' | 'OPEN_EXR' | 'OPEN_EXR_MULTILAYER';
+  /** OpenEXR: half (16) or full (32) floats, and the compression */
+  color_depth?: '16' | '32';
+  exr_codec?: 'NONE' | 'ZIPS' | 'ZIP';
   color_mode: 'BW' | 'RGB' | 'RGBA';
   filepath: string;
   // sampling
@@ -1088,6 +1119,8 @@ export interface RenderSettings extends RealtimeRenderSettings {
   use_pass_mist: boolean;
   use_pass_ambient_occlusion?: boolean;
   use_pass_emit?: boolean;
+  use_pass_environment?: boolean;
+  use_pass_transmission_color?: boolean;
   use_pass_diffuse_color?: boolean;
   use_pass_object_index?: boolean;
   use_compositing: boolean;
@@ -1115,6 +1148,8 @@ export interface RenderSettings extends RealtimeRenderSettings {
   // --- depth of field / motion blur / film
   use_bokeh_jittered?: boolean;
   motion_blur_position?: 'START' | 'CENTER' | 'END';
+  /** shutter openness over the shutter interval (control points x, y in 0..1); absent = fully open */
+  motion_blur_shutter_curve?: [number, number][];
   filter_size?: number;
   pixel_filter_type?: 'BOX' | 'GAUSSIAN' | 'BLACKMAN_HARRIS';
   filter_width?: number;

@@ -42,7 +42,11 @@ export interface LineSet {
 export interface FreestyleSettings {
   /** view_layer.use_freestyle: this layer draws lines */
   use_freestyle: boolean;
-  mode: 'EDITOR';
+  /** EDITOR: line sets and line styles; SCRIPT: style modules (lines/modules.ts) */
+  mode: 'EDITOR' | 'SCRIPT';
+  /** style modules run in SCRIPT mode, in order */
+  modules?: import('./modules').FreestyleModule[];
+  active_module_index?: number;
   as_render_pass: boolean;
   use_culling: boolean;
   use_smoothness: boolean;

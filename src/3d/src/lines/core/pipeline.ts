@@ -6,7 +6,7 @@ import { EDGE_TYPES } from '../types';
 import { extractFeatures, F, type FeatureEdge, type FeatureMesh } from './features';
 import { Occlusion, visibilityPieces, projectPoint, lerp3, type LineCamera, type OccluderInput, type Piece, type VisibilityOptions } from './visibility';
 import { chainPieces, splitStrokes, selectAndSort } from './chain';
-import { styleStrokes, type MaterialAttrs } from './style';
+import { styleStrokes, type MaterialAttrs, type StyledStroke } from './style';
 import { StrokeRaster } from './raster';
 
 export interface LineObject {
@@ -45,6 +45,8 @@ export interface LineRenderInput {
   seed?: number;
   /** progress / cancellation (may throw) */
   tick?: () => void;
+  /** adjust the finished strokes of a line set (style modules) */
+  shade?: (set: LineSet, strokes: StyledStroke[]) => void;
 }
 
 const TYPE_FLAG: Record<string, number> = {
@@ -254,6 +256,7 @@ export function drawLineSets(input: LineRenderInput, sets: LineSet[], lp: LinePi
         return id && input.material ? input.material(id) : null;
       },
     });
+    input.shade?.(set, styled);
     for (const s of styled) raster.draw(s, layer);
     count += styled.length;
     input.tick?.();

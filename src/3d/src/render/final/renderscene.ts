@@ -11,6 +11,7 @@ import {
   Sphere,
   Box3,
   PointLight,
+  SpotLight,
   DirectionalLight,
   Color,
   FogExp2,
@@ -29,7 +30,10 @@ import type { EvalMesh } from '../../eval/types';
 import { meshGeometry } from '../geometry';
 import { viewportMaterial } from '../pbr';
 import { materialSlots } from '../../editors/view3d/draw';
-import { lightIntensity, areaLightSize } from './units';
+import { lightIntensity, areaLightSize, halton } from './units';
+
+/** Half angle of the cone of area light shadow maps (the lit hemisphere minus its grazing rim). */
+const AREA_SHADOW_ANGLE = (75 * Math.PI) / 180;
 import { pathTracerMaterial } from './ptmaterial';
 import { worldEnvironment } from './environment';
 import { installLightInfluence } from '../realtime/lightinfluence';
@@ -347,6 +351,12 @@ export class RenderScene {
     L.color.copy(color);
     L.intensity = intensity;
     L.userData.influence = [la.diffuse_factor ?? 1, la.specular_factor ?? 1, la.volume_factor ?? 1];
+    // path tracer: Cast Shadow off lets light through every surface
+    if (L.userData.noShadow !== !la.use_shadow) changed = true;
+    L.userData.noShadow = !la.use_shadow;
+    const spread = la.type === 'AREA' ? (la.spread ?? Math.PI) : Math.PI;
+    if (L.userData.spread !== spread) changed = true;
+    L.userData.spread = spread;
     // realtime: Custom Distance fades the light out at the cutoff distance; otherwise the light
     // reaches as far as it is brighter than the render's light threshold
     const cutoff = this.mode !== 'raster' ? 0 : la.use_custom_distance ? Math.max(0, la.cutoff_distance ?? 40) : la.type === 'SUN' || la.type === 'AREA' ? 0 : lightRange(intensity, this.lightThreshold);
@@ -375,7 +385,9 @@ export class RenderScene {
       L.width = sw * k;
       L.height = sh * k;
     }
-    if (!(L instanceof ShapedAreaLight)) {
+    if (L instanceof ShapedAreaLight) {
+      if (this.syncAreaShadow(L, la)) changed = true;
+    } else {
       L.castShadow = la.use_shadow;
       const shadow = (L as PointLight).shadow;
       if (shadow) {
@@ -384,6 +396,44 @@ export class RenderScene {
       }
     }
     return changed;
+  }
+
+  /**
+   * Realtime area light shadows: a spot light with no light of its own renders the shadow map
+   * (from the light's centre, covering the lit hemisphere) and the area light's shading reads
+   * it (see fxshader.ts ▸ ndAreaShadowAt). Returns whether the proxy was added or removed.
+   */
+  private syncAreaShadow(L: ShapedAreaLight, la: LightData): boolean {
+    const want = this.mode === 'raster' && la.use_shadow;
+    let proxy = L.userData.shadowProxy as SpotLight | undefined;
+    if (!want) {
+      if (!proxy) return false;
+      L.remove(proxy);
+      proxy.shadow.map?.dispose();
+      proxy.dispose();
+      delete L.userData.shadowProxy;
+      return true;
+    }
+    let added = false;
+    if (!proxy) {
+      proxy = new SpotLight(0xffffff, 0);
+      proxy.matrixAutoUpdate = false;
+      proxy.target.matrixAutoUpdate = false;
+      proxy.target.matrix.makeTranslation(0, 0, -1);
+      proxy.add(proxy.target);
+      proxy.userData.areaShadowProxy = true;
+      L.add(proxy);
+      L.userData.shadowProxy = proxy;
+      added = true;
+    }
+    proxy.intensity = 0;
+    proxy.castShadow = true;
+    proxy.angle = AREA_SHADOW_ANGLE;
+    proxy.penumbra = 0;
+    proxy.decay = 2;
+    proxy.distance = 0;
+    proxy.shadow.bias = -(la.shadow_buffer_bias ?? 1) * 0.0004;
+    return added;
   }
 
   /** Configure shadow maps (resolution, filtering) from the render and light settings. */
@@ -435,6 +485,28 @@ export class RenderScene {
         L.shadow.map = null;
       }
     }
+    // area light shadow proxies: softness from the light's size, resolution like a wide spot
+    for (const e of this.entries.values()) {
+      const proxy = e.light?.userData.shadowProxy as SpotLight | undefined;
+      const la = e.data;
+      if (!proxy || !la) continue;
+      const opts = lightShadowOptions(la);
+      const extent = Math.max(la.size, la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? la.size_y : la.size);
+      const soft = r.use_soft_shadows ? 1 + extent * 2 : 1;
+      // the samples' positions over the light's surface give the softness (see jitterShadows)
+      const jitter = !!opts.jitter || r.use_soft_shadows !== false;
+      proxy.shadow.radius = Math.max(0.5, (jitter ? 1 + (soft - 1) * (opts.overblur / 100) : soft) * opts.filter);
+      tmpV.setFromMatrixPosition(e.base ?? e.light!.matrix);
+      const dist = Math.max(0.1, tmpV.distanceTo(b.center));
+      const half = Math.tan(AREA_SHADOW_ANGLE);
+      const size = lightShadowMapSize({ kind: 'spot', coverage: 2 * (dist + b.radius) * half, unitCoverage: 2 * half, limit: opts.limit, absolute: opts.absolute, budget: cube, scale: ss.scale });
+      proxy.shadow.normalBias = Math.max(0.02, (1.5 * 2 * dist * half) / size);
+      if (proxy.shadow.mapSize.x !== size) {
+        proxy.shadow.mapSize.set(size, size);
+        proxy.shadow.map?.dispose();
+        proxy.shadow.map = null;
+      }
+    }
   }
 
   /** Final renders always jitter soft shadows of lights with Jitter on; the viewport only on request. */
@@ -448,6 +520,19 @@ export class RenderScene {
     const viewportJitter = shadowSettings(doc.scene.render).jitterViewport;
     let moved = false;
     for (const e of this.entries.values()) {
+      const proxy = e.light?.userData.shadowProxy as SpotLight | undefined;
+      if (proxy && e.data) {
+        const la = e.data;
+        // area shadows always spread over the light's surface across accumulated samples
+        const on = (!!la.use_shadow_jitter || doc.scene.render.use_soft_shadows !== false) && i > 0;
+        const [w, hh] = areaLightSize(la);
+        const x = on ? (halton(i + 1, 2) - 0.5) * w : 0,
+          y = on ? (halton(i + 1, 3) - 0.5) * hh : 0;
+        if (proxy.matrix.elements[12] !== x || proxy.matrix.elements[13] !== y) {
+          proxy.matrix.makeTranslation(x, y, 0);
+          moved = true;
+        }
+      }
       const L = e.light;
       if (!L || !e.base || !e.data || (L as PointLight).shadow === undefined) continue;
       const la = e.data;
@@ -564,6 +649,12 @@ export class RenderScene {
     if (k !== 1) {
       s.environmentIntensity *= k;
       this.envKey += `*${k}`;
+    }
+    // World ▸ Ray Visibility ▸ Camera off: the world still lights the scene but is not seen
+    const wo = doc.scene.world ? doc.worlds[doc.scene.world] : null;
+    if (useWorld && wo?.visible_camera === false && s.background) {
+      s.background = new Color(0, 0, 0);
+      this.envKey += '|nocam';
     }
     // World ▸ Settings ▸ Light Probe ▸ Resolution: detail of the world's lighting
     const world = doc.scene.world ? doc.worlds[doc.scene.world] : null;

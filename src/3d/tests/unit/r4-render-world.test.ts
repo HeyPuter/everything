@@ -1,0 +1,73 @@
+// @vitest-environment happy-dom
+// World operators: new world and converting the world volume to a mesh.
+import { describe, expect, it } from 'vitest';
+import { newWorld, uid } from '../../src/data/defaults';
+import { worldVolumeLink, upstreamNodes } from '../../src/render/final/worldops';
+import type { WorldData } from '../../src/data/types';
+
+function fogWorld(): WorldData {
+  const w = newWorld();
+  const out = w.tree.nodes.find((n) => n.type === 'ShaderNodeOutputWorld')!;
+  const scatter = { id: uid('node'), type: 'ShaderNodeVolumeScatter', name: 'Volume Scatter', location: [0, 0] as [number, number], inputs: { Density: 0.1 }, props: {} };
+  const value = { id: uid('node'), type: 'ShaderNodeValue', name: 'Value', location: [0, 0] as [number, number], inputs: {}, props: {} };
+  w.tree.nodes.push(scatter, value);
+  w.tree.links.push({ id: uid('link'), from_node: value.id, from_socket: 'Value', to_node: scatter.id, to_socket: 'Density' });
+  w.tree.links.push({ id: uid('link'), from_node: scatter.id, from_socket: 'Volume', to_node: out.id, to_socket: 'Volume' });
+  return w;
+}
+
+describe('world volume', () => {
+  it('finds the volume link and the nodes feeding it', () => {
+    expect(worldVolumeLink(newWorld())).toBeNull();
+    const w = fogWorld();
+    const link = worldVolumeLink(w)!;
+    expect(link.to_socket).toBe('Volume');
+    const ids = upstreamNodes(w.tree, link.from_node);
+    expect(ids.size).toBe(2);
+    // the background chain is not part of it
+    expect([...ids].some((id) => w.tree.nodes.find((n) => n.id === id)?.type === 'ShaderNodeBackground')).toBe(false);
+  });
+});
+
+describe('mesh volumes', () => {
+  it('detects volume-only materials and fills the mesh bounds', async () => {
+    const { isVolumeOnlyMaterial, boxVolume } = await import('../../src/render/final/meshvolume');
+    const { newMaterial } = await import('../../src/data/defaults');
+    const { uvwToObject } = await import('../../src/volume/pack');
+    const ma = newMaterial();
+    expect(isVolumeOnlyMaterial(ma)).toBe(false);
+    const out = ma.tree.nodes.find((n) => n.type === 'ShaderNodeOutputMaterial')!;
+    const surf = ma.tree.links.find((l) => l.to_node === out.id && l.to_socket === 'Surface')!;
+    surf.to_socket = 'Volume';
+    expect(isVolumeOnlyMaterial(ma)).toBe(true);
+    const p = boxVolume([-1, -2, 0], [1, 2, 4]);
+    const m = uvwToObject(p);
+    // uvw (0,0,0) and (1,1,1) map to the box corners
+    expect([m[12], m[13], m[14]]).toEqual([-1, -2, 0]);
+    expect([m[0] + m[12], m[5] + m[13], m[10] + m[14]]).toEqual([1, 2, 4]);
+    expect(p.data.filter((_, i) => i % 4 === 0).every((x) => x === 255)).toBe(true);
+  });
+});
+
+describe('hair render shapes', () => {
+  it('maps the Curves settings to strand cross-sections and subdivisions', async () => {
+    const { strandShape } = await import('../../src/render/final/curvesettings');
+    expect(strandShape({}, 'raster')).toEqual({ sides: 3, subdivisions: 0 });
+    expect(strandShape({ hair_type: 'STRIP', hair_subdiv: 2 }, 'raster')).toEqual({ sides: 2, subdivisions: 2 });
+    expect(strandShape({ hair_type: 'CYLINDER' }, 'raster').sides).toBe(6);
+    expect(strandShape({}, 'pathtrace')).toEqual({ sides: 5, subdivisions: 0 });
+    expect(strandShape({ cycles_curves: { shape: 'RIBBONS', subdivisions: 6 } }, 'pathtrace')).toEqual({ sides: 2, subdivisions: 2 });
+    expect(strandShape({ cycles_curves: { shape: 'THICK_LINEAR', subdivisions: 6 } }, 'pathtrace').subdivisions).toBe(0);
+  });
+
+  it('subdivides strands along a smooth curve through their points', async () => {
+    const { subdivideStrand } = await import('../../src/hair/render');
+    const pts = [0, 0, 0, 1, 0, 0, 2, 1, 0];
+    const s = subdivideStrand(pts, [0.1, 0.2, 0.3], 1);
+    expect(s.points.length / 3).toBe(5);
+    // the original points stay on the curve
+    expect(Array.from(s.points.slice(6, 9))).toEqual([1, 0, 0]);
+    expect(Array.from(s.points.slice(12, 15))).toEqual([2, 1, 0]);
+    expect((s.radius as Float32Array)[1]).toBeCloseTo(0.15);
+  });
+});

@@ -1,6 +1,8 @@
 // Properties tabs: scene, world, collection, object, data, material.
 import { materialSettingsPanel, ensureMaterialDefaults } from '../../render/realtime/materialprops';
 import { lightInfluencePanel, lightShadowPanel, lightDistancePanel, ensureLightDefaults } from '../../render/realtime/lightprops';
+import { checkNum } from '../../render/final/props/common';
+import { ensureLightColorDefaults } from '../../render/final/lightcolor';
 import { h, type Child } from '../../ui/h';
 import { icon } from '../../ui/icons';
 import { app } from '../../app/app';
@@ -8,7 +10,7 @@ import { registerTab } from './properties';
 import { panel, enumMenu, button, opButton, textField, enumRow, checkbox, numberField } from '../../ui/widgets';
 import { num, bool, enumProp, colorProp, vecProp, splitRow, textProp, boolHeading, oid, objectProp } from '../../ui/props';
 import type { ObjectData, MaterialData, MeshData, WorldData, LightData, CameraData, CurveData } from '../../data/types';
-import { newMaterial, uid, newWorld } from '../../data/defaults';
+import { newMaterial, uid } from '../../data/defaults';
 import { uniqueName } from '../../ops/object';
 import { cloneShared } from '../../data/cow';
 import { openMenu } from '../../ui/menu';
@@ -136,12 +138,7 @@ registerTab({
       Object.values(app.doc.worlds),
       w?.id ?? null,
       (id) => ((s.world = id), changed('Assign World')),
-      () => {
-        const nw = newWorld(uniqueName(app.doc, 'World', 'actions' as never));
-        app.doc.worlds[nw.id] = nw;
-        s.world = nw.id;
-        changed('New World');
-      },
+      () => app.run('world.new'),
     );
     if (!w) return [selector];
     const bg = worldBackground(w);
@@ -172,6 +169,7 @@ registerTab({
           : h('div', { class: 'prop-note' }, 'The world node tree has no Background node. Edit it in the Shader Editor (World).'),
       ),
       panel('wo-mist', 'Mist Pass', () => [num(w as never, 'mist_start' as never, 'Start', { unit: 'distance' }), num(w as never, 'mist_depth' as never, 'Depth', { unit: 'distance' }), enumProp(w as never, 'mist_falloff' as never, 'Falloff', [['QUADRATIC', 'Quadratic'], ['LINEAR', 'Linear'], ['INVERSE_QUADRATIC', 'Inverse Quadratic']])], { closed: true }),
+      panel('wo-visibility', 'Ray Visibility', () => [bool((w.visible_camera ??= true, w), 'visible_camera', 'Camera', { tip: 'Show the world in the background (off: the world only lights the scene)' })], { closed: true }),
       worldExtraPanels.map((p) => p(w)),
       panel('wo-display', 'Viewport Display', () => [colorProp(w, 'color', 'Color')], { closed: true }),
     ];
@@ -478,19 +476,27 @@ function lightData(o: ObjectData, la: LightData): Child {
     dataBlockSelector('la', 'light_data', Object.values(app.doc.lights), la.id, (id) => id && ((o.data = id), changed('Assign Light')), () => {}, { noUnlink: true }),
     panel('la-light', 'Light', () => [
       h('div', { class: 'enum-tabs' }, enumRow('la-type', [['POINT', 'Point', 'light_point'], ['SUN', 'Sun', 'light_sun'], ['SPOT', 'Spot', 'light_spot'], ['AREA', 'Area', 'light_area']].map(([v, l, i]) => ({ value: v, label: l, icon: i })), la.type, (v) => ((la.type = v as LightData['type']), la.type === 'SUN' && la.energy > 100 && (la.energy = 1), changed('Light Type')))),
+      (ensureLightColorDefaults(la), checkNum(la, 'use_temperature', 'temperature', 'Temperature', { min: 800, max: 20000, precision: 0, step: 100, tip: 'Colour of the light from the temperature of a glowing black body (kelvin); it tints the colour below' })),
       colorProp(la, 'color', 'Color', { anim: anim('color') }),
       la.type === 'SUN' ? num(la, 'energy', 'Strength', { min: 0, softMax: 10, anim: anim('energy') }) : num(la, 'energy', 'Power', { unit: 'power', min: 0, softMax: 10000, anim: anim('energy') }),
+      num(la, 'exposure', 'Exposure', { min: -32, max: 32, softMin: -10, softMax: 10, tip: 'Brightness scale in stops: each step doubles or halves the light' }),
+      la.type === 'AREA' ? bool(la, 'normalize', 'Normalize', { tip: 'Keep the light’s total power when its size changes (off: the power is per square metre, so larger lights are brighter)' }) : null,
       la.type === 'SUN' ? num(la, 'angle', 'Angle', { unit: 'angle', min: 0, max: Math.PI }) : la.type !== 'AREA' ? num(la, 'shadow_soft_size', 'Radius', { unit: 'distance', min: 0 }) : null,
       la.type === 'AREA'
         ? [
             enumProp(la, 'shape', 'Shape', [['SQUARE', 'Square'], ['RECTANGLE', 'Rectangle'], ['DISK', 'Disk'], ['ELLIPSE', 'Ellipse']]),
             num(la, 'size', la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? 'Size X' : 'Size', { unit: 'distance', min: 0 }),
             la.shape === 'RECTANGLE' || la.shape === 'ELLIPSE' ? num(la, 'size_y', 'Y', { unit: 'distance', min: 0 }) : null,
+            app.doc.scene.render.engine === 'PATHTRACE' ? num((la.spread ??= Math.PI, la), 'spread', 'Spread', { unit: 'angle', min: 0, max: Math.PI, tip: 'Angle of the cone the light emits into: smaller values give a focused, directional light (path tracer)' }) : null,
           ]
         : null,
       la.type === 'SPOT' ? panel('la-spot', 'Beam Shape', () => [num(la, 'spot_size', 'Spot Size', { unit: 'angle', min: (1 * Math.PI) / 180, max: Math.PI }), num(la, 'spot_blend', 'Blend', { min: 0, max: 1, slider: true }), bool(la, 'show_cone', 'Show Cone')], { sub: true }) : null,
-      (ensureLightDefaults(la), [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
+      // shadow map options belong to the realtime engine; the path tracer only casts or not
+      (ensureLightDefaults(la), app.doc.scene.render.engine === 'PATHTRACE' ? [lightInfluencePanel(o, la)] : [lightInfluencePanel(o, la), lightShadowPanel(la), lightDistancePanel(la)]),
     ]),
+    app.doc.scene.render.engine === 'PATHTRACE'
+      ? panel('la-pt-settings', 'Settings', () => [bool(la, 'use_shadow', 'Cast Shadow', { tip: 'Surfaces block this light (off: it shines through everything)' })])
+      : null,
   ];
 }
 

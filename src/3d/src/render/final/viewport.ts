@@ -17,6 +17,7 @@ import { hdriEquirect, hdriEnvironment, libraryVersion } from '../studiolights';
 import { renderCamera, cameraDof, apertureSample, apertureJitter, jitterProjection } from './camera';
 import { filterTable, sampleFilter } from './filter';
 import { halton } from './units';
+import { ptSettings, adaptiveMinSamples, noiseSeed, denoiseOptions } from './ptsettings';
 
 /** Rendered viewport resolution divisor (Performance ▸ Viewport ▸ Pixel Size). */
 export function viewportPixelSize(size: string | undefined): number {
@@ -67,7 +68,7 @@ export class ViewportRender {
     const engine = app.doc.scene.render.engine;
     if (engine === 'RASTER') return !!this.accumKey && this.accumCount < this.rasterSamples();
     if (engine !== 'PATHTRACE' || !this.core) return engine === 'PATHTRACE';
-    return this.core.isCompiling || this.core.samples < this.maxSamples() || (this.wantDenoise() && this.denoisedSamples !== this.core.samples);
+    return this.core.isCompiling || (this.core.samples < this.maxSamples() && this.core.activeFraction > 0) || (this.wantDenoise() && this.denoisedSamples !== this.core.samples);
   }
 
   private wantDenoise() {
@@ -126,13 +127,16 @@ export class ViewportRender {
     } else {
       const cam = this.cameraWithDof(camera);
       const core = (this.core ??= new PathTracerCore(renderer));
-      core.applySettings(r);
+      core.applySettings(r, true);
       const W = Math.max(1, Math.round(w / pixel)),
         H = Math.max(1, Math.round(h / pixel));
       core.setSize(W, H);
       core.sync(rs, cam, this.buildCount);
       const max = this.maxSamples();
-      if (core.samples < max) core.sample();
+      const c = ptSettings(r);
+      core.setAdaptive(c.use_preview_adaptive_sampling ? { threshold: c.preview_adaptive_threshold, min: adaptiveMinSamples(c.preview_adaptive_threshold, c.preview_adaptive_min_samples), max } : null);
+      core.setSeed(noiseSeed(r, doc.scene.frame_current));
+      if (core.samples < max && core.activeFraction > 0) core.sample();
       const n = core.samples;
       if (n === 0) {
         // shaders compiling / first sample pending: show a quick raster preview
@@ -141,11 +145,13 @@ export class ViewportRender {
         this.setInfo(core.isCompiling ? 'Compiling shaders…' : 'Path Tracing Sample 0/' + max);
       } else {
         let tex = core.texture;
-        if (this.wantDenoise()) {
+        const denoising = this.wantDenoise() && n >= Math.max(1, c.preview_denoising_start_sample);
+        if (denoising) {
           tex = this.denoise(cam, W, H, n) ?? tex;
         }
         this.blit(tex);
-        this.setInfo(`Path Tracing Sample ${n}/${max}${this.wantDenoise() ? (n >= max ? ' · Denoised' : ' · Denoising') : ''}`);
+        const done = n >= max || core.activeFraction === 0;
+        this.setInfo(`Path Tracing Sample ${n}/${max}${core.activeFraction === 0 && n < max ? ' · Noise Threshold Reached' : ''}${denoising ? (done ? ' · Denoised' : ' · Denoising') : ''}`);
       }
     }
     this.writeDepth(camera);
@@ -218,7 +224,7 @@ export class ViewportRender {
     }
     const d = (this.denoiser ??= new Denoiser());
     if (this.denoisedSamples !== n || !d.out) {
-      d.run(renderer, this.core!.texture, this.guide!.texture, this.albedo!.texture, W, H, n);
+      d.run(renderer, this.core!.texture, this.guide!.texture, this.albedo!.texture, W, H, n, { ...denoiseOptions(app.doc.scene.render, true), ...(cam.userData.panorama ? { albedo: false, normal: false } : {}) });
       this.denoisedSamples = n;
     }
     return d.out!.texture;
@@ -231,6 +237,7 @@ export class ViewportRender {
     if (!(sc instanceof PhysicalCamera) || !(camera instanceof PerspectiveCamera)) return camera;
     const p = new PhysicalCamera();
     p.copy(camera);
+    p.userData = { ...camera.userData, panorama: sc.userData.panorama };
     p.focusDistance = sc.focusDistance;
     p.fStop = sc.fStop;
     p.apertureBlades = sc.apertureBlades;

@@ -32,7 +32,7 @@ export function lightShadowPanel(la: LightData): Child {
       num(la, 'shadow_maximum_resolution', 'Resolution Limit', { unit: 'distance', min: 0, softMax: 0.02, precision: 4, tip: 'Smallest size of a shadow map texel: larger values use smaller, blurrier shadow maps' }),
       bool(la, 'use_absolute_resolution', 'Absolute Resolution', { disabled: la.type === 'SUN', tip: 'The limit applies one unit away from the light instead of at the shadowed surfaces' }),
       num(la as never, 'shadow_buffer_bias' as never, 'Bias', { min: 0, tip: 'Offset of the shadow map to avoid self-shadowing artifacts' }),
-      area ? h('div', { class: 'prop-note' }, 'Area lights do not cast shadows in the realtime engine.') : null,
+      area ? h('div', { class: 'prop-note' }, 'Realtime area light shadows are cast from the light’s centre and softened over its surface across samples.') : null,
     ],
     { header: checkbox('la-shadow-on', '', la.use_shadow, (v) => ((la.use_shadow = v), changed('Light Shadow'))) },
   );

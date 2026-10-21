@@ -8,6 +8,7 @@ import { drawingSets, prepareLines, drawLineSets, type LineRenderInput } from '.
 import { visibilityPieces, type Piece } from './core/visibility';
 import { compositeOver } from './core/raster';
 import { lineCamera, lineObjects, materialAttrs, inCollection } from './scene';
+import { compileModules, shadeStrokes } from './modules';
 
 /** Pixels per line style thickness unit for a frame height. */
 export function thicknessScale(r: { line_thickness_mode?: string; line_thickness?: number }, frameHeight: number): number {
@@ -35,7 +36,23 @@ export async function renderLineLayer(f: Pick<FrameLineContext, 'camera' | 'widt
     inCollection: (id, col) => inCollection(doc, id, col),
     seed: doc.scene.frame_current,
   };
-  const sets = drawingSets(input);
+  let sets = drawingSets(input);
+  if (fs.mode === 'SCRIPT') {
+    // style modules declare their own line sets, styles and stroke shaders
+    const c = compileModules(fs, (id) => doc.texts[id] ?? null);
+    for (const e of c.errors) app.report('ERROR', e);
+    input.linestyles = { ...input.linestyles, ...c.styles };
+    sets = c.sets;
+    let reported = false;
+    input.shade = (set, strokes) => {
+      const fn = c.shaders.get(set);
+      const err = fn ? shadeStrokes(strokes, fn) : null;
+      if (err && !reported) {
+        reported = true;
+        app.report('ERROR', `Style module shader: ${err}`);
+      }
+    };
+  }
   const layer = new Float32Array(f.width * f.height * 4);
   if (!sets.length || !input.objects.length) return layer;
   await f.phase?.('Freestyle: edges');

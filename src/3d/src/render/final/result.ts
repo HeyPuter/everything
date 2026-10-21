@@ -3,7 +3,7 @@ import { toDisplayRGBA8, displayPixel, type ViewSettings } from './colormanage';
 import { compositeOverlay, type StampField } from './stamp';
 
 /** Built-in passes plus shader AOVs (`AOV <name>`, see render/realtime/aov.ts). */
-export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'Emit' | 'AO' | 'Freestyle' | `AOV ${string}` | `Combined_${string}`;
+export type PassName = 'Combined' | 'Depth' | 'Normal' | 'Mist' | 'Position' | 'UV' | 'IndexOB' | 'IndexMA' | 'DiffCol' | 'TransCol' | 'Emit' | 'Env' | 'AO' | 'Freestyle' | `AOV ${string}` | `Combined_${string}`;
 export type ChannelMode = 'COLOR_ALPHA' | 'COLOR' | 'ALPHA' | 'Z';
 
 export interface RenderInfo {
@@ -38,6 +38,10 @@ export interface RenderResult {
   metadata?: StampField[];
   /** burnt-in metadata: RGBA8 overlay drawn over the display-converted Combined pass */
   overlay?: Uint8ClampedArray;
+  /** multi-view renders: the passes of each view (`passes` holds the first view's) */
+  views?: { name: string; suffix: string; passes: Partial<Record<PassName, Float32Array>>; viewLayer?: Partial<Record<PassName, Float32Array>> }[];
+  /** stereo renders: how the two eyes combine into one image */
+  stereo?: import('./stereo').Stereo3dFormat;
 }
 
 /** Post-processing of each finished frame of a render job (e.g. compositing), in order. */
@@ -60,7 +64,7 @@ export function touchVirtualImage(id: string) {
   for (const fn of virtualListeners) fn(id);
 }
 
-export const PASS_CHANNELS: Record<PassName, number> = { Combined: 4, Depth: 1, Normal: 4, Mist: 1, Position: 4, UV: 4, IndexOB: 1, IndexMA: 1, DiffCol: 4, Emit: 4, AO: 1, Freestyle: 4 };
+export const PASS_CHANNELS: Record<PassName, number> = { Combined: 4, Depth: 1, Normal: 4, Mist: 1, Position: 4, UV: 4, IndexOB: 1, IndexMA: 1, DiffCol: 4, TransCol: 4, Emit: 4, Env: 4, AO: 1, Freestyle: 4 };
 
 /** Channels of a pass in a result of the given size (AOVs are RGBA colors or single values). */
 export function passChannels(name: PassName, buf?: Float32Array, pixels?: number): number {
@@ -75,10 +79,10 @@ export function passLabel(name: PassName): string {
 }
 
 /** Display order of passes (pass menus, Render Layers outputs). */
-export const PASS_ORDER: PassName[] = ['Combined', 'Depth', 'Mist', 'Normal', 'Position', 'UV', 'IndexOB', 'IndexMA', 'DiffCol', 'Emit', 'AO', 'Freestyle'];
+export const PASS_ORDER: PassName[] = ['Combined', 'Depth', 'Mist', 'Normal', 'Position', 'UV', 'IndexOB', 'IndexMA', 'DiffCol', 'TransCol', 'Emit', 'Env', 'AO', 'Freestyle'];
 
 /** Readable pass names. */
-export const PASS_LABELS: Record<PassName, string> = { Combined: 'Combined', Depth: 'Depth', Normal: 'Normal', Mist: 'Mist', Position: 'Position', UV: 'UV', IndexOB: 'Object Index', IndexMA: 'Material Index', DiffCol: 'Diffuse Color', Emit: 'Emission', AO: 'Ambient Occlusion', Freestyle: 'Freestyle' };
+export const PASS_LABELS: Record<PassName, string> = { Combined: 'Combined', Depth: 'Depth', Normal: 'Normal', Mist: 'Mist', Position: 'Position', UV: 'UV', IndexOB: 'Object Index', IndexMA: 'Material Index', DiffCol: 'Diffuse Color', TransCol: 'Transmission Color', Emit: 'Emission', Env: 'Environment', AO: 'Ambient Occlusion', Freestyle: 'Freestyle' };
 
 /** Render slots: renders go into the active slot so earlier ones can be compared. */
 export const RENDER_SLOTS = 8;

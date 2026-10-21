@@ -14,6 +14,13 @@ import './cameraoverlay';
 import './props/render';
 import './props/output';
 import './props/viewlayer';
+import './props/presets';
+import './renderops';
+import './script';
+import './lightcolor';
+import './worldops';
+import './meshvolume';
+import './curvesettings';
 import '../realtime';
 
 export { renderResult } from './result';
