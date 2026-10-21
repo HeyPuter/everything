@@ -1128,13 +1128,17 @@ export function formatValue(value, style) {
 
   // A currency without a minor unit (the yen, the won) is written without decimals unless the style asks for some.
   const dec = decimalPlaces(style?.dec ?? (fmt === 'currency' ? currencyDecimals(style?.cur) : undefined));
+  // Intl writes every digit of the binary value (0.30000000000000004, 2^60 as 1,152,921,504,606,846,976); a named
+  // format shows fifteen significant digits, then zeros, as a custom code does. The largest doubles keep their own.
+  const sig = ['number', 'currency', 'percent'].includes(fmt) ? Number(value.toPrecision(15)) : value;
+  const digits = Number.isFinite(sig) ? sig : value;
   switch (fmt) {
     case 'number':
-      return numberFormatter({ minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(value);
+      return numberFormatter({ minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(digits);
     case 'currency':
-      return numberFormatter({ style: 'currency', currency: currencyCode(style?.cur), minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(value);
+      return numberFormatter({ style: 'currency', currency: currencyCode(style?.cur), minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(digits);
     case 'percent':
-      return numberFormatter({ style: 'percent', minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(value);
+      return numberFormatter({ style: 'percent', minimumFractionDigits: dec, maximumFractionDigits: dec, useGrouping: style?.group !== false }).format(digits);
     case 'date':
       return formatDate(value, style?.dateStyle);
     case 'time':
