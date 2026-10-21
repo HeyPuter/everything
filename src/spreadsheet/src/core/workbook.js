@@ -7179,7 +7179,13 @@ export class Workbook extends EventTarget {
       sheet.charts = sheet.charts.map((ch) => ({ ...ch, ...mapCellDrawing(ch, p => ({ ...p, [axis === 'row' ? 'r' : 'c']: map(p[axis === 'row' ? 'r' : 'c']) })), range: moveRect(ch.range), anchor: ch.anchorMode === 'absolute' ? ch.anchor : { r: axis === 'row' ? map(ch.anchor.r) : ch.anchor.r, c: axis === 'col' ? map(ch.anchor.c) : ch.anchor.c } }));
       sheet.tables = sheet.tables.map((t) => {
         const range = mapRange(t.range);
-        return { ...t, range,
+        // A table without its Header Row keeps its column names on itself: each goes with its column.
+        let columnNames;
+        if (axis === 'col' && t.headerRow === false) {
+          columnNames = [];
+          headerlessTableColumns(t).forEach((name, i) => { columnNames[map(t.range.c1 + i) - range.c1] = name; });
+        }
+        return { ...t, range, ...(columnNames ? { columnNames } : {}),
           calc: axis === 'col' ? Object.fromEntries(Object.entries(t.calc || {}).map(([c, f]) => [map(t.range.c1 + Number(c)) - range.c1, f])) : t.calc,
           ...(axis === 'col' && t.calcArray ? { calcArray: Object.fromEntries(Object.entries(t.calcArray).map(([c, v]) => [map(t.range.c1 + Number(c)) - range.c1, v])) } : {}),
           ...(axis === 'row' ? { calcRow: map(t.calcRow ?? tableRows(t).dataStart) } : {}) };

@@ -49,3 +49,17 @@ describe('table columns through Insert and Delete cells', () => {
     expect(wb.getCell(id, 0, 1)).toMatchObject({ v: 'Qty' });
   });
 });
+
+// Move Columns (dragging a column header, or Cut and Insert Cut Cells) inside a table without its Header Row moved
+// the data but left the names it keeps in place, so T[Price] and T[Qty] swapped totals.
+describe('table columns through Move columns', () => {
+  it('carries each kept name with its column in a table without its header row', () => {
+    const { wb, id, names, totals } = setup({ header: false });
+    expect(wb.moveCols(id, 2, 1, 1)).toBe(1);
+    expect(names()).toEqual(['Name', 'Price', 'Qty']);
+    expect(totals()).toEqual([6, 4]);
+    wb.undo();
+    expect(names()).toEqual(['Name', 'Qty', 'Price']);
+    expect(totals()).toEqual([6, 4]);
+  });
+});
