@@ -197,3 +197,18 @@ describe('project files with fonts and LUTs', () => {
     expect(res.missing).toEqual(['My Font']);
   });
 });
+
+describe('exporting a project file', () => {
+  it('does not keep the media it packs in memory', async () => {
+    const lib = new Library(memoryBackend());
+    const p = createProject({ name: 'Big' });
+    for (let i = 0; i < 3; i++) {
+      p.assets[`a${i}`] = { id: `a${i}`, kind: 'image', name: `${i}.png`, hash: `h${i}`, ext: 'png', width: 1, height: 1 };
+      lib.backend.files.set(`media/h${i}.png`, new Blob([new Uint8Array(100)]));
+    }
+    await lib.saveProject(p);
+    const { missing } = await exportProjectBundle(lib, p.id);
+    expect(missing).toEqual([]);
+    expect(lib.blobs.size).toBe(0);
+  });
+});

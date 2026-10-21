@@ -376,8 +376,11 @@ export class Library extends Emitter {
     return assets.filter((a) => !stored.has(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
   }
 
-  /** The media file for an asset as a Blob (memory, then local cache, then storage). */
-  async mediaBlob(asset) {
+  /**
+   * The media file for an asset as a Blob (memory, then local cache, then
+   * storage). keep: false reads it without holding it in memory afterwards.
+   */
+  async mediaBlob(asset, { keep = true } = {}) {
     const hit = this.blobs.get(asset.hash);
     if (hit) return hit;
     // Posters, waveforms, thumbnails and the player ask at once when a project opens: read it once.
@@ -387,7 +390,7 @@ export class Library extends Emitter {
       this.reads.set(asset.hash, read);
     }
     const blob = await read;
-    this.blobs.set(asset.hash, blob);
+    if (keep) this.blobs.set(asset.hash, blob);
     return blob;
   }
 

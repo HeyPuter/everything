@@ -65,7 +65,8 @@ export async function exportProjectBundle(library, project, { onProgress } = {})
     if (packed.has(path)) continue;
     let blob = null;
     try {
-      blob = a.hash ? await library.mediaBlob(a) : null;
+      // Packed and let go: exporting from Home must not hold every file in memory.
+      blob = a.hash ? await library.mediaBlob(a, { keep: false }) : null;
     } catch {
       blob = null;
     }
