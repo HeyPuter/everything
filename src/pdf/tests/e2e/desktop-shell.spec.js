@@ -125,6 +125,27 @@ test('the quick tools are one tab stop that the arrow keys move through', async 
   await expect(page.getByLabel('Page number', { exact: true })).toHaveValue('1');
 });
 
+test('in a short window the quick tools scroll within the page area', async ({ page }) => {
+  // A phone turned sideways, or a laptop window zoomed in.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await openPdf(page, await numberedPdf(2));
+  const toolbar = page.getByRole('toolbar', { name: 'PDF tools' });
+  await toolbar.getByRole('button', { name: 'Select', exact: true }).focus();
+  await page.keyboard.press('End');
+  const last = toolbar.getByRole('button', { name: 'Fill forms', exact: true });
+  await expect(last).toBeFocused();
+  const [area, tools, button] = await Promise.all([
+    page.locator('.document-view').boundingBox(),
+    toolbar.boundingBox(),
+    last.boundingBox(),
+  ]);
+  // The column ends inside the page area, and reaching its last tool leaves the bars in place.
+  expect(tools.y + tools.height).toBeLessThanOrEqual(area.y + area.height);
+  expect(button.y + button.height).toBeLessThanOrEqual(area.y + area.height);
+  expect(await page.locator('.editor').evaluate((node) => node.scrollTop)).toBe(0);
+  await expect(page.getByRole('menubar', { name: 'PDF menus' })).toBeInViewport();
+});
+
 test('pages scroll continuously and the page in view becomes the current page', async ({
   page,
 }) => {

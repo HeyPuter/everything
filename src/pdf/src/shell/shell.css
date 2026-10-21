@@ -553,7 +553,15 @@
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--float-shadow);
-  overflow: visible;
+  /* A window too short for the column (a phone turned sideways) scrolls it in place; left to
+     overflow, it ran under the page's edge and reaching a tool there shifted the whole editor. */
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.editor .quick-tools .tool-btn:focus-visible {
+  /* Inside the column's padding, which now clips. */
+  outline-offset: 1px;
 }
 .editor .quick-tools .tool-group {
   flex-direction: column;
