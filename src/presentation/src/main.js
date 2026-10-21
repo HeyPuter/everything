@@ -13050,17 +13050,33 @@ function multiModel() {
 }
 // A flip mirrors the object as the slide shows it. A file mirrors an object
 // before turning it, so a turned object turns the other way as it flips: an
-// arrow turned to point down and right points down and left.
+// arrow turned to point down and right points down and left. Of several
+// selected objects, each shape and picture flips where it stands, as in
+// PowerPoint.
 function flipObject(obj, axis) {
-  mutateShape(obj, (obj, targetSlide) => {
+  const flippable = (s) => ["shape", "picture"].includes(P.getShapeKind(s));
+  const ids = (
+    selectionIds().has(P.getShapeId(obj))
+      ? selectedApart().filter(flippable)
+      : [obj]
+  ).map(P.getShapeId);
+  mutateSlide(P.getShapeSlide(obj), (targetSlide) => {
     const parents = groupParents(targetSlide);
-    const shown = slideRotation(obj, parents);
-    const flip = P.getShapeFlip(obj) || {};
-    P.setShapeFlip(obj, {
-      horizontal: axis === "horizontal" ? !flip.horizontal : !!flip.horizontal,
-      vertical: axis === "vertical" ? !flip.vertical : !!flip.vertical,
-    });
-    if (shown) P.setShapeRotation(obj, ownRotation(obj, 360 - shown, parents));
+    const list = ids
+      .map((id) => P.findShapeById(targetSlide, id))
+      .filter(Boolean);
+    if (!list.length) return SKIP_MUTATION;
+    for (const target of list) {
+      const shown = slideRotation(target, parents);
+      const flip = P.getShapeFlip(target) || {};
+      P.setShapeFlip(target, {
+        horizontal:
+          axis === "horizontal" ? !flip.horizontal : !!flip.horizontal,
+        vertical: axis === "vertical" ? !flip.vertical : !!flip.vertical,
+      });
+      if (shown)
+        P.setShapeRotation(target, ownRotation(target, 360 - shown, parents));
+    }
   });
 }
 // The six alignments as icon buttons: to the slide for one object, to each

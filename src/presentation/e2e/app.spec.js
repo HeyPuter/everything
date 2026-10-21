@@ -15588,6 +15588,69 @@ test("flipping a turned object mirrors it as the slide shows it", async ({
   expect(P.getShapeBounds(saved)).toEqual(P.getShapeBounds(arrow));
 });
 
+// With several objects selected, Flip flipped the one with the handles and
+// left the others as they were.
+test("flipping several selected objects flips each where it stands", async ({
+  page,
+}) => {
+  await start(page);
+  const pres = createDeck("blank");
+  const slide = P.getSlides(pres)[0];
+  const add = (x, preset) =>
+    P.addSlideShape(slide, {
+      x: P.inches(x),
+      y: P.inches(2),
+      w: P.inches(2),
+      h: P.inches(1),
+      preset,
+    });
+  const [left, right] = [add(1, "rightArrow"), add(5, "triangle")];
+  P.setShapeRotation(right, 30);
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: "Import PPTX", exact: true }).click();
+  await (
+    await chooser
+  ).setFiles({
+    name: "Two shapes.pptx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    buffer: Buffer.from(await P.savePresentation(pres)),
+  });
+  const objects = page.locator(".object-hit");
+  await expect(objects).toHaveCount(2);
+  await objects.nth(0).click();
+  await objects.nth(1).click({ modifiers: ["Shift"] });
+  await expect(page.locator(".object-hit.selected")).toHaveCount(2);
+  await (await ribbonButton(page, "Shape Format", "rotate")).click();
+  await page
+    .getByRole("menuitem", { name: "Flip Horizontal", exact: true })
+    .click();
+  await expect(objects.nth(1)).toHaveAttribute("style", /rotate\(330deg\)/);
+  await expect(page.locator(".object-hit.selected")).toHaveCount(2);
+  await openFileMenu(page);
+  const downloaded = page.waitForEvent("download");
+  await page
+    .getByRole("menuitem", { name: "Download PowerPoint (.pptx)" })
+    .click();
+  const loaded = await parseDeck(
+    new Uint8Array(await readFile(await (await downloaded).path())),
+  );
+  const shapes = P.getSlideShapes(P.getSlides(loaded)[0]);
+  expect(shapes.map((s) => P.getShapeFlip(s)?.horizontal)).toEqual([
+    true,
+    true,
+  ]);
+  expect(shapes.map((s) => P.getShapeRotation(s) || 0)).toEqual([0, 330]);
+  // Each stays where it stood.
+  expect(shapes.map((s) => P.getShapeBounds(s))).toEqual([
+    P.getShapeBounds(left),
+    P.getShapeBounds(right),
+  ]);
+  // One undo step takes both back.
+  await page.keyboard.press("Control+z");
+  await expect(objects.nth(1)).toHaveAttribute("style", /rotate\(30deg\)/);
+});
+
 // An image relationship whose target was an address rather than a part path
 // made the media check throw after the picture had joined the slide, so the
 // picture was neither shown nor in the history nor in the draft until the
