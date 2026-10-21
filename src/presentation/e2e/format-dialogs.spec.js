@@ -85,6 +85,20 @@ test("the Font dialog's sample can be read in a dark window", async ({
   expect(axe.violations).toEqual([]);
 });
 
+test("the Font dialog's tabs stay put when switched", async ({ page }) => {
+  await start(page);
+  await addTextBox(page);
+  await menu(page, "Format", "Font…");
+  const dialog = page.getByRole("dialog", { name: "Font" });
+  const spacing = dialog.getByRole("tab", { name: "Character Spacing" });
+  const before = await spacing.boundingBox();
+  await spacing.click();
+  const after = await spacing.boundingBox();
+  expect(Math.abs(after.y - before.y)).toBeLessThan(1);
+  await dialog.getByRole("tab", { name: "Font", exact: true }).click();
+  expect(Math.abs((await spacing.boundingBox()).y - before.y)).toBeLessThan(1);
+});
+
 test("the Paragraph and Tabs dialogs set alignment, indents, spacing and tab stops", async ({
   page,
 }) => {

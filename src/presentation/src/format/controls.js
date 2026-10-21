@@ -387,6 +387,11 @@ export function tabs(list, { label = "Sections", initial = 0, onChange } = {}) {
   );
   const rendered = [];
   function select(i, focus = false) {
+    // The panels keep the height of the tallest one shown, so a dialog does
+    // not move its tabs from under the pointer as they change.
+    const tallest = panels.offsetHeight;
+    if (tallest > (parseFloat(panels.style.minHeight) || 0))
+      panels.style.minHeight = `${tallest}px`;
     buttons.forEach((b, k) => {
       b.setAttribute("aria-selected", String(k === i));
       b.tabIndex = k === i ? 0 : -1;
