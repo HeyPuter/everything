@@ -11,7 +11,7 @@ import { CLIP_LABELS, MARKER_COLORS } from '../model/project.js';
 import * as T from '../model/timeline.js';
 import { openDialog, confirmDialog, promptDialog, toast } from './dialog.js';
 import { prefs, setPref } from './prefs.js';
-import { createCompound, breakApart } from '../model/compound.js';
+import { createCompound, breakApart, skipsBaseClips } from '../model/compound.js';
 
 export const LABEL_NAMES = { red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', teal: 'Teal', blue: 'Blue', purple: 'Purple', pink: 'Pink' };
 export const LABEL_COLORS = { red: '#e5484d', orange: '#f08c3a', yellow: '#e8c547', green: '#46a758', teal: '#2bb3a3', blue: '#3e7ee8', purple: '#8e5ce8', pink: '#e45ca6' };
@@ -411,6 +411,10 @@ export function createOrganizeActions(ctx) {
       const ids = sel();
       if (!ids.length) {
         toast('Select the clips to nest into a compound clip.', { kind: 'info' });
+        return null;
+      }
+      if (skipsBaseClips(store.project, T.expandGroups(store.project, ids))) {
+        toast('To make a compound clip, select base track clips that are next to each other.', { kind: 'info' });
         return null;
       }
       let made = null;

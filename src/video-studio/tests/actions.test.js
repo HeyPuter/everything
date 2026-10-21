@@ -128,6 +128,18 @@ describe('clipboard actions', () => {
   });
 });
 
+describe('compound clip actions', () => {
+  it('explains why base track clips with a gap between them are not nested', () => {
+    const { store, actions, main } = setup(clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 2));
+    const [a, , c] = main().clips;
+    store.select([a.id, c.id]);
+    expect(actions.createCompound()).toBeNull();
+    expect(toasts().some((t) => t.includes('next to each other'))).toBe(true);
+    expect(store.history.canUndo()).toBe(false);
+    expect(spans(main())).toEqual([[0, 2], [2, 3], [5, 2]]);
+  });
+});
+
 describe('frame actions', () => {
   it('freezes the frame under the playhead of the selected video and selects the still', () => {
     const { store, actions, main } = setup(clip('video', 0, 4));

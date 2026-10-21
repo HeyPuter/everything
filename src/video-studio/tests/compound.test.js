@@ -26,6 +26,20 @@ describe('compound clips', () => {
     expect(sequenceLength(comp.sequence)).toBe(s(3));
   });
 
+  it('refuses base track clips with other base track clips between them', () => {
+    const p = fixture();
+    const [a, b, c] = onMain(p, clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 2));
+    const t = clip('text', 2.5, 1);
+    addClip(p, t, FREE);
+    const before = JSON.stringify(p);
+    expect(createCompound(p, [a.id, c.id], RIPPLE)).toBeNull();
+    expect(JSON.stringify(p)).toBe(before);
+    expect(createCompound(p, [a.id, t.id, c.id], RIPPLE)).toBeNull();
+    // Neighbors, and overlays alone, still nest.
+    expect(createCompound(p, [b.id, c.id, t.id], RIPPLE).duration).toBe(s(5));
+    expect(mainTrack(p).clips.map((x) => x.duration)).toEqual([s(2), s(5)]);
+  });
+
   it('splits and trims like a clip, keeping the nested timing', () => {
     const p = fixture();
     const [a] = onMain(p, clip('video', 0, 4));

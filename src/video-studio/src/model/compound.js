@@ -25,12 +25,25 @@ function nextNumber(project) {
 }
 
 /**
+ * True when the given base track clips have other base track clips between
+ * them: nesting those would pull the clips in between out of place.
+ */
+export function skipsBaseClips(project, ids) {
+  const main = mainTrack(project);
+  const chosen = new Set(ids);
+  const at = main ? main.clips.flatMap((c, i) => (chosen.has(c.id) ? [i] : [])) : [];
+  return at.length > 1 && at.at(-1) - at[0] + 1 > at.length;
+}
+
+/**
  * Nest the given clips into a new compound clip placed where they were
- * (on the base track when any of them was there). Returns the compound.
+ * (on the base track when any of them was there). Returns the compound, or
+ * null when there is nothing to nest or the base track clips are not next
+ * to each other.
  */
 export function createCompound(project, ids, opts = {}) {
   const found = ids.map((id) => findClip(project, id)).filter((f) => f && !f.track.locked);
-  if (!found.length) return null;
+  if (!found.length || skipsBaseClips(project, found.map((f) => f.clip.id))) return null;
   const a = Math.min(...found.map((f) => f.clip.start));
   const b = Math.max(...found.map((f) => clipEnd(f.clip)));
   const chosen = new Set(found.map((f) => f.clip.id));
