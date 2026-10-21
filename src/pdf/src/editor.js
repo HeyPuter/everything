@@ -348,6 +348,17 @@ export function createEditor({
   let selectedHighlight = null,
     highlights = [],
     highlightSelection = null;
+  // The current page's comments with their replies and review status, read when first asked.
+  let commentThreads = null;
+  function threadOf(id) {
+    if (!editDocument) return null;
+    try {
+      commentThreads ??= new Map(listAnnotations(editDocument, pageIndex).map((a) => [a.id, a]));
+    } catch {
+      commentThreads = new Map();
+    }
+    return commentThreads.get(id) ?? null;
+  }
   const safe =
     (fn) =>
     async (...args) => {
@@ -2442,6 +2453,7 @@ export function createEditor({
     if (!pdf || destroyed) return;
     const token = ++pageRenderGeneration;
     pageReady = false;
+    commentThreads = null;
     textTargets.replaceChildren();
     clearHighlightSelection();
     selectedHighlight = null;
@@ -3645,7 +3657,38 @@ export function createEditor({
       ),
       iconButton(`Close ${label} editor`, 'X', closeHighlightEditor),
     );
-    properties.show('highlight', Label, panel);
+    // Its replies and review status, as every other comment shows them.
+    const found = threadOf(entry.id);
+    const thread =
+      found &&
+      commentThread(found, (operation, message, control) =>
+        changeHighlightThread(entry, operation, message, control),
+      );
+    properties.show(
+      'highlight',
+      Label,
+      thread
+        ? el(
+            'div',
+            { class: 'annotation-props' },
+            panel,
+            thread.status,
+            thread.replies,
+            thread.replyText,
+            el('div', { class: 'annotation-actions' }, thread.replyButton),
+          )
+        : panel,
+    );
+  }
+  /** Reply to the selected markup or set its status, keeping it selected afterwards. */
+  async function changeHighlightThread(entry, operation, message, control) {
+    await finishDrafts();
+    await mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true });
+    if (destroyed || tool !== 'select' || selectedHighlight) return;
+    selectedHighlight = highlights.find((h) => h.id === entry.id) || null;
+    if (!selectedHighlight) return;
+    renderHighlightTargets();
+    properties.root.querySelector(`[aria-label="${control}"]`)?.focus({ preventScroll: true });
   }
   function closeHighlightEditor() {
     const id = selectedHighlight?.id;
@@ -5605,6 +5648,13 @@ export function createEditor({
         ? el('p', { class: 'note-meta muted' }, [entry.author, when].filter(Boolean).join(' · '))
         : null;
     const error = el('p', { class: 'text-edit-error', role: 'alert', hidden: true });
+    // The note's replies and review status, as every other comment shows them.
+    const found = entry && threadOf(entry.id);
+    const thread =
+      found &&
+      commentThread(found, (operation, message, control) =>
+        changeNoteThread(entry, operation, message, control),
+      );
     const readOnly = !!entry?.readOnly || !access().annotate;
     textarea.readOnly = readOnly || !!entry?.contentsLocked;
     colorPick.disabled = readOnly || !!entry?.propertiesLocked;
@@ -5619,6 +5669,10 @@ export function createEditor({
       textarea,
       entry?.contentsLocked && el('p', { class: 'muted' }, 'Text is locked for this note.'),
       error,
+      thread && thread.status,
+      thread && thread.replies,
+      thread && thread.replyText,
+      thread && el('div', { class: 'annotation-actions' }, thread.replyButton),
       el(
         'div',
         { class: 'note-editor-actions' },
@@ -5672,6 +5726,24 @@ export function createEditor({
     renderNoteTargets();
     if (canFocus()) textarea.focus({ preventScroll: true });
     updateStatus();
+  }
+  /**
+   * Reply to the open note or set its status: the note's own edit is saved first, and the
+   * note opens again afterwards with the focus on the control that was used.
+   */
+  async function changeNoteThread(entry, operation, message, control) {
+    const ordinal = notes.findIndex((note) => note.id === entry.id);
+    await finishNoteEdit();
+    // Saving a shared note's edit can give it a new ID; its place in the list stays.
+    const current = notes.find((note) => note.id === entry.id) || notes[ordinal];
+    if (!current || destroyed) return;
+    await mutate((doc) => operation(doc, current.id), message, 'annotate', { retainScale: true });
+    const again = notes.find((note) => note.id === current.id) || notes[ordinal];
+    if (!again || destroyed || noteEdit || !['select', 'note'].includes(tool)) return;
+    await openNoteEditor({ entry: again, canFocus: () => false });
+    properties.root
+      .querySelector(`.note-editor [aria-label="${control}"]`)
+      ?.focus({ preventScroll: true });
   }
   function closeNoteEditor() {
     const open = noteEdit;
@@ -9737,6 +9809,83 @@ export function createEditor({
     if (!destroyed && document.activeElement === document.body)
       overlay.focus({ preventScroll: true });
   }
+  /**
+   * A comment's review status, its replies (and theirs, beneath them), and a box to reply:
+   * the same controls for every kind of comment. `run(operation, message, control)` applies
+   * `operation(doc, id)`; `control` is the label of the control that made the change, for
+   * panels that are drawn again afterwards to give the keyboard focus back to.
+   */
+  function commentThread(entry, run) {
+    const author = () => getUser()?.username || '';
+    const status = el(
+      'select',
+      {
+        'aria-label': 'Review status',
+        disabled: !access().annotate,
+        onchange: () =>
+          safe(() =>
+            run(
+              (doc, id) =>
+                setReviewState(doc, pageIndex, id, { state: status.value, author: author() }),
+              `Status set to ${status.value}.`,
+              'Review status',
+            ),
+          )(),
+      },
+      ...REVIEW_STATES.map((state) =>
+        el('option', { value: state, selected: (entry.state || 'None') === state }, state),
+      ),
+    );
+    const replyText = el('textarea', {
+      class: 'input',
+      rows: 2,
+      placeholder: 'Write a reply',
+      'aria-label': 'Reply text',
+    });
+    const reply = safe(async () => {
+      const text = replyText.value.trim();
+      if (!text) return;
+      await run(
+        (doc, id) => addReply(doc, pageIndex, id, { text, author: author() }),
+        'Reply added.',
+        'Reply text',
+      );
+    });
+    // In a note's panel Ctrl+Enter saves the note; in the reply box it sends the reply.
+    replyText.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.isComposing) return;
+      e.preventDefault();
+      e.stopPropagation();
+      reply();
+    });
+    const when = (date) =>
+      date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+    // Replies to a reply sit beneath it, as in the thread they belong to.
+    const replyItems = (items) =>
+      items.map((item) =>
+        el(
+          'li',
+          {},
+          el(
+            'span',
+            { class: 'reply-meta muted' },
+            [item.author, when(item.modified)].filter(Boolean).join(' · '),
+          ),
+          el('span', {}, item.contents || ''),
+          item.replies?.length > 0 &&
+            el('ul', { class: 'annotation-replies' }, ...replyItems(item.replies)),
+        ),
+      );
+    const replies = replyItems(entry.replies || []);
+    return {
+      status: el('label', { class: 'annotation-status' }, el('span', {}, 'Status'), status),
+      replies:
+        replies.length > 0 &&
+        el('ul', { class: 'annotation-replies', 'aria-label': 'Replies' }, ...replies),
+      replyText,
+      replyButton: button('Reply', null, reply, 'btn', { disabled: !access().annotate }),
+    };
+  }
   /** The selected comment's text, look, replies, and review status in the properties panel. */
   function showAnnotationProperties(entry) {
     if (!entry) return properties.clear('annotation');
@@ -9822,54 +9971,11 @@ export function createEditor({
           if (fontSize.reportValidity()) apply({ fontSize: Number(fontSize.value) });
         },
       });
-    const status = el(
-      'select',
-      {
-        'aria-label': 'Review status',
-        disabled: !access().annotate,
-        onchange: () =>
-          safe(() =>
-            mutate(
-              (doc) =>
-                setReviewState(doc, pageIndex, entry.id, {
-                  state: status.value,
-                  author: getUser()?.username || '',
-                }),
-              `Status set to ${status.value}.`,
-              'annotate',
-              { retainScale: true },
-            ),
-          )(),
-      },
-      ...REVIEW_STATES.map((state) =>
-        el('option', { value: state, selected: (entry.state || 'None') === state }, state),
-      ),
-    );
-    const replyText = el('textarea', {
-      class: 'input',
-      rows: 2,
-      placeholder: 'Write a reply',
-      'aria-label': 'Reply text',
-    });
     const when = (date) =>
       date ? date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-    // Replies to a reply sit beneath it, as in the thread they belong to.
-    const replyItems = (items) =>
-      items.map((reply) =>
-        el(
-          'li',
-          {},
-          el(
-            'span',
-            { class: 'reply-meta muted' },
-            [reply.author, when(reply.modified)].filter(Boolean).join(' · '),
-          ),
-          el('span', {}, reply.contents || ''),
-          reply.replies?.length > 0 &&
-            el('ul', { class: 'annotation-replies' }, ...replyItems(reply.replies)),
-        ),
-      );
-    const replies = replyItems(entry.replies || []);
+    const thread = commentThread(entry, (operation, message) =>
+      mutate((doc) => operation(doc, entry.id), message, 'annotate', { retainScale: true }),
+    );
     const panel = el(
       'div',
       { class: 'annotation-props' },
@@ -9891,32 +9997,13 @@ export function createEditor({
         el('label', {}, el('span', {}, 'Opacity'), opacity),
         fontSize && el('label', {}, el('span', {}, 'Font size'), fontSize),
       ),
-      el('label', { class: 'annotation-status' }, el('span', {}, 'Status'), status),
-      replies.length > 0 &&
-        el('ul', { class: 'annotation-replies', 'aria-label': 'Replies' }, ...replies),
-      replyText,
+      thread.status,
+      thread.replies,
+      thread.replyText,
       el(
         'div',
         { class: 'annotation-actions' },
-        button(
-          'Reply',
-          null,
-          safe(async () => {
-            if (!replyText.value.trim()) return;
-            await mutate(
-              (doc) =>
-                addReply(doc, pageIndex, entry.id, {
-                  text: replyText.value.trim(),
-                  author: getUser()?.username || '',
-                }),
-              'Reply added.',
-              'annotate',
-              { retainScale: true },
-            );
-          }),
-          'btn',
-          { disabled: !access().annotate },
-        ),
+        thread.replyButton,
         button('Delete', 'Trash2', () => safe(() => removeAnnotation(entry))(), 'btn danger', {
           disabled: entry.locked || entry.readOnly || !access().annotate,
         }),
