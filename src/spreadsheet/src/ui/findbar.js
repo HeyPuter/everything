@@ -459,7 +459,24 @@ export function createFindBar(ctx) {
   /** Shift+F4: the next match of the last search, or the bar itself when nothing has been searched for. */
   function findNext() {
     if (!query.value) { openPanel({}); return; }
-    step(1);
+    if (open) { step(1); return; }
+    // With the panel closed, as Shift+F4 is used in Excel once its Find box is gone, the last search runs again
+    // from the active cell and the next match is selected, with nothing highlighted that only the panel's closing
+    // would clear (the search ran only while the panel was up, so the key did nothing). The range "Selection
+    // only" held was not followed while the panel was closed, so the sheet is searched.
+    const sheetId = ctx.sheetId();
+    scope = null;
+    homeSheet = sheetId; // every sheet in order from this one
+    const found = patternProblem() ? [] : collect();
+    if (!found.length) { toast(`No matches for “${query.value}”`, { icon: 'info' }); return; }
+    const a = ctx.grid.active;
+    const after = found.findIndex((m) => m.sheetId !== sheetId || m.r > a.r || (m.r === a.r && m.c > a.c));
+    const i = after < 0 ? 0 : after;
+    const m = found[i];
+    if (m.sheetId !== sheetId) ctx.wb.setActiveSheet(m.sheetId);
+    ctx.grid.setSelection(S.single(m.r, m.c), { scroll: true, announce: false });
+    const sheetName = ctx.wb.sheet(m.sheetId)?.name;
+    ctx.announce(`Match ${i + 1} of ${found.length}, ${opts.allSheets && sheetName ? `${sheetName} ` : ''}${cellName(m.r, m.c)}`);
   }
   return { el: root, open: openPanel, close, findNext, get isOpen() { return open; }, destroy };
 }
