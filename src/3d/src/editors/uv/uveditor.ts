@@ -855,6 +855,7 @@ export class UVEditor implements Editor, UVView, View2D {
           ),
         ),
         splitRow('', checkbox('uv-sc-lock', 'Lock Borders', uvSculpt.lock_borders, (v) => ((uvSculpt.lock_borders = v), this.drawUI()))),
+        splitRow('', checkbox('uv-sc-all', 'All Islands', uvSculpt.all_islands, (v) => ((uvSculpt.all_islands = v), this.drawUI()), { tip: 'Brush every island; otherwise only the island nearest to where the stroke starts' })),
       );
     } else if (this.tool === 'select_circle') {
       rows.push(splitRow('Radius', numberField({ id: 'uv-circ-r', value: shapeSelect.radius, int: true, min: 2, max: 500, unit: 'pixel', set: (v) => (shapeSelect.radius = v) })));

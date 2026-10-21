@@ -4,7 +4,30 @@ import { UVTopo, isPinned } from './uvcore';
 import { uvLayers, uvEditPoll, ctxUVEditor, uvChanged } from './uvcontext';
 import { falloff } from './uvtransform';
 
-export const uvSculpt = { size: 50, strength: 1, falloff: 'SMOOTH', lock_borders: false };
+export const uvSculpt = { size: 50, strength: 1, falloff: 'SMOOTH', lock_borders: false, all_islands: false };
+
+/**
+ * Keep only the UV island nearest to (u, v) movable (brushes work on one island unless All Islands
+ * is on). Islands are found per layer; the nearest vertex over all layers decides.
+ */
+export function limitToNearestIsland(layers: Layer[], u: number, v: number) {
+  let best: { li: number; id: number; d: number } | null = null;
+  layers.forEach((l, li) => {
+    for (let id = 0; id < l.t.vertCount; id++) {
+      const [x, y] = l.t.vertUV(id);
+      const d = Math.hypot(x - u, y - v);
+      if (!best || d < best.d) best = { li, id, d };
+    }
+  });
+  if (!best) return;
+  const b = best as { li: number; id: number; d: number };
+  layers.forEach((l, li) => {
+    if (li !== b.li) return l.movable.fill(0);
+    const fi = l.t.islands.faceIsland;
+    const island = fi[l.t.cornerFace[l.t.vertCorners[b.id][0]]];
+    for (let id = 0; id < l.t.vertCount; id++) if (!l.t.vertCorners[id].some((c) => fi[l.t.cornerFace[c]] === island)) l.movable[id] = 0;
+  });
+}
 
 export type Brush = 'GRAB' | 'RELAX' | 'PINCH';
 
@@ -96,6 +119,7 @@ function startStroke(brush: Brush, ctx: OpContext, invert: boolean) {
   const r = view.el.getBoundingClientRect();
   const ev = ctx.event ?? app.pointer;
   let last = view.toUV(ev.x - r.left, ev.y - r.top);
+  if (!uvSculpt.all_islands) limitToNearestIsland(layers, last.u, last.v);
   const radius = () => uvSculpt.size / view.scale();
   // grab: remember the weights of the UVs under the brush at the start
   const grabbed = layers.map((l) => {
