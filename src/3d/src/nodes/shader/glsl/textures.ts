@@ -1,4 +1,4 @@
-// GLSL library: Checker, Brick, Gradient, image / environment sampling and an analytic sky
+// GLSL library: Checker, Brick, Gradient (as in nodes/cpu/textures.ts), image / environment sampling and an analytic sky
 // (Preetham et al. 1999 daylight model, used to approximate every sky type). Independent code.
 import type { GlslLib } from './lib';
 
@@ -13,19 +13,24 @@ float nd_checker(vec3 p, float scale) {
 `,
   },
   nd_brick: {
-    deps: ['nd_hash'],
     code: `
+float nd_brick_noise(int i) {
+  uint n = (uint(i) + 1013u) & 0x7fffffffu;
+  n = (n >> 13u) ^ n;
+  uint nn = (n * (n * n * 60493u + 19990303u) + 1376312589u) & 0x7fffffffu;
+  return 0.5 * float(nn) / 1073741824.0;
+}
 // returns (tint, mortar)
 vec2 nd_brick(vec3 p, float msize, float msmooth, float bias, float bw, float rh, float offamt, float offfreq, float sqamt, float sqfreq) {
   float row = floor(p.y / rh);
   float offset = 0.0;
   if (offfreq > 0.0 && sqfreq > 0.0) {
-    if (mod(row, offfreq) < 0.5) offset = bw * offamt;
     if (mod(row, sqfreq) < 0.5) bw *= sqamt;
+    if (mod(row, offfreq) < 0.5) offset = bw * offamt;
   }
   float brick = floor((p.x + offset) / bw);
   float x = (p.x + offset) - bw * brick, y = p.y - rh * row;
-  float tint = clamp(nd_hash_i(ivec2(int(row), int(brick))) + bias, 0.0, 1.0);
+  float tint = clamp(nd_brick_noise((int(row) << 16) + (int(brick) & 0xffff)) + bias, 0.0, 1.0);
   float md = min(min(x, y), min(bw - x, rh - y));
   float mortar;
   if (md >= msize) mortar = 0.0;
@@ -42,8 +47,8 @@ float nd_gradient(vec3 p, int type) {
   if (type == 1) { float r = max(p.x, 0.0); return r * r; }
   if (type == 2) { float r = clamp(p.x, 0.0, 1.0); return r * r * (3.0 - 2.0 * r); }
   if (type == 3) return (p.x + p.y) * 0.5;
-  if (type == 4) return max(1.0 - length(p), 0.0);
-  if (type == 5) { float r = max(1.0 - length(p), 0.0); return r * r; }
+  if (type == 4) return max(0.999999 - length(p), 0.0);
+  if (type == 5) { float r = max(0.999999 - length(p), 0.0); return r * r; }
   return atan(p.y, p.x) / 6.2831853 + 0.5;
 }
 `,

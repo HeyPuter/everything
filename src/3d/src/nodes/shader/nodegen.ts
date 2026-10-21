@@ -572,8 +572,7 @@ registerGenerator('ShaderNodeTexWave', (g) => {
 registerGenerator('ShaderNodeTexGabor', (g) => {
   g.lib('nd_gabor');
   const is3 = g.str('gabor_type') === '3D';
-  const orient = is3 ? `nd_safe_normalize(${g.in('Orientation 3D', 'vec3')})` : `vec3(cos(${g.in('Orientation 2D', 'float')}), sin(${g.in('Orientation 2D', 'float')}), 0.0)`;
-  const r = g.tmp('vec3', `nd_gabor(${texVector(g)}, ${g.in('Scale', 'float')}, ${g.in('Frequency', 'float')}, clamp(${g.in('Anisotropy', 'float')}, 0.0, 1.0), ${orient}, ${is3})`);
+  const r = g.tmp('vec3', `nd_gabor(${texVector(g)}, ${g.in('Scale', 'float')}, ${g.in('Frequency', 'float')}, ${g.in('Anisotropy', 'float')}, ${is3 ? '0.0' : g.in('Orientation 2D', 'float')}, ${is3 ? g.in('Orientation 3D', 'vec3') : 'vec3(0.0)'}, ${is3})`);
   g.out('Value', 'float', `${r}.x`);
   g.out('Phase', 'float', `${r}.y`);
   g.out('Intensity', 'float', `${r}.z`);
