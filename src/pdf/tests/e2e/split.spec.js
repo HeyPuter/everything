@@ -565,3 +565,17 @@ test('Organize pages says why a page cannot be extracted or duplicated', async (
   expect(errors).toEqual([]);
   await expect(page.getByRole('listbox', { name: 'Pages' }).getByRole('option')).toHaveCount(2);
 });
+
+test('Split a PDF says why a one-page PDF cannot be split', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 400]);
+  await openPdf(page, doc);
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'View more' }).click();
+  await pane.getByRole('button', { name: 'Split a PDF', exact: true }).click();
+  await expect(page.locator('#toast')).toContainText('only one page');
+  await expect(page.getByRole('dialog', { name: 'Split PDF' })).toHaveCount(0);
+});

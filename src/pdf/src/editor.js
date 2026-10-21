@@ -11318,7 +11318,10 @@ export function createEditor({
   /** Download the PDF as several files in one ZIP. */
   function splitDialog() {
     requireAccess('copy');
-    if (!pdf || pdf.numPages < 2) return;
+    if (!pdf) return;
+    // The tools pane offers Split whatever the length; the menus disable it instead.
+    if (pdf.numPages < 2)
+      throw new Error('This PDF has only one page, so there is nothing to split.');
     const count = pdf.numPages;
     const every = el('input', {
       type: 'number',
