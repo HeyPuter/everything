@@ -105,3 +105,35 @@ describe('assist pane', () => {
     expect(second.contains(replaced.endContainer)).toBe(false);
   });
 });
+
+describe('export', () => {
+  afterEach(() => {
+    closeAllMenus();
+    document.querySelectorAll('dialog').forEach((d) => d.remove());
+    app?.destroy();
+  });
+
+  it('asks for the password before exporting a locked section instead of saving an empty file', async () => {
+    await mount();
+    const sid = app.state.sectionId;
+    await app.store.protectSection(sid, 'correct horse');
+    await app.store.lockSection(sid);
+    const saved = [];
+    const orig = URL.createObjectURL;
+    URL.createObjectURL = (blob) => {
+      saved.push(blob);
+      return 'blob:test';
+    };
+    try {
+      const done = app.exportSection();
+      await new Promise((r) => setTimeout(r, 0));
+      const dialog = document.querySelector('dialog[open]');
+      expect(dialog?.textContent).toContain('password protected');
+      [...dialog.querySelectorAll('button')].find((b) => b.textContent === 'Cancel').click();
+      await done;
+      expect(saved).toEqual([]);
+    } finally {
+      URL.createObjectURL = orig;
+    }
+  });
+});

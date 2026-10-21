@@ -946,6 +946,9 @@ export async function exportPage(app, format) {
 export async function exportSection(app, sectionId) {
   const section = app.store.section(sectionId);
   if (!section) return;
+  // A locked section's page list is sealed: unlock it rather than export
+  // an empty file.
+  if (section.locked && !app.store.keys.has(section.id) && !(await unlockSection(app, section))) return;
   app.editor.flush();
   const pages = [];
   for (const m of section.pages) pages.push(await app.store.loadPage(m.id));
