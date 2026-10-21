@@ -328,6 +328,9 @@ export class App {
         e.returnValue = '';
       }
     });
+    // A link pasted into this tab's address bar (or Back/Forward between
+    // such links) only changes the hash, so follow it here too.
+    this.listen(window, 'hashchange', () => this.followHash());
     this.listen(document, 'visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         this.editor.flush();
@@ -388,6 +391,21 @@ export class App {
     }
     if (lastPage) return this.openPage(lastPage.meta.id, { focus: false });
     this.ensureSelection();
+  }
+
+  /** Opens the page or section a #page= or #section= link names. */
+  followHash() {
+    const hash = location.hash;
+    if (hash.startsWith('#page=')) {
+      const id = hash.slice(6);
+      if (id === this.state.pageId) return;
+      if (this.store.findPage(id)) this.openPage(id);
+      else toast("That page isn't available. It may have been deleted.", { kind: 'error' });
+    } else if (hash.startsWith('#section=')) {
+      const id = hash.slice(9);
+      if (this.store.section(id)) this.selectSection(id, { focus: false });
+      else toast("That section isn't available. It may have been deleted.", { kind: 'error' });
+    }
   }
 
   /** Makes sure a notebook, section and (if possible) page are selected. */

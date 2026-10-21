@@ -38,6 +38,7 @@ describe('App shell', () => {
     document.querySelectorAll('dialog').forEach((d) => d.remove());
     for (const a of mounted) a.destroy();
     mounted = [];
+    history.replaceState(null, '', location.pathname);
   });
 
   it('puts the label back after renaming the open page from the page list', async () => {
@@ -52,6 +53,17 @@ describe('App shell', () => {
     expect(app.nav.pagesList.querySelector('input.row-rename')).toBeNull();
     expect(app.nav.pagesList.querySelector('.row[aria-selected="true"]').textContent).toBe('Renamed');
     expect(store.findPage(app.state.pageId).meta.title).toBe('Renamed');
+  });
+
+  it('follows a page link pasted into the address bar of the open app', async () => {
+    const first = app.state.pageId;
+    app.newPage({ title: 'Second' });
+    await tick();
+    expect(app.state.pageId).not.toBe(first);
+    location.hash = `#page=${first}`;
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    await tick();
+    expect(app.state.pageId).toBe(first);
   });
 });
 
