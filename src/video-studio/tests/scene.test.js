@@ -69,6 +69,18 @@ describe('evaluate', () => {
     expect(evaluate(p, s(2.5))[0]).toMatchObject({ kind: 'media', clip: b });
     // The incoming clip shows frames from before its in point while the transition runs.
     expect(evaluate(p, s(1.75))[0].to.sourceTime).toBe(s(2.75));
+    expect(evaluate(p, s(1.75))[0].to.held).toBeUndefined();
+  });
+
+  it('holds the picture where a transition runs past the media', () => {
+    const p = fixture(); // 'vid' is 10 s long
+    onMain(p, clip('video', 0, 2, { in: s(8), transition: { id: 'mix', duration: s(1) } }), clip('video', 2, 2));
+    const before = evaluate(p, s(1.75))[0];
+    expect(before.to).toMatchObject({ sourceTime: 0, held: true });
+    expect(before.from.held).toBeUndefined();
+    const after = evaluate(p, s(2.25))[0];
+    expect(after.from).toMatchObject({ sourceTime: s(10) - 1000, held: true });
+    expect(after.to.held).toBeUndefined();
   });
 
   it('ignores a transition whose neighbor has moved away', () => {

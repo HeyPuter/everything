@@ -9,7 +9,7 @@ import { MediaPool } from './media-pool.js';
 import { AudioGraph } from './audio-graph.js';
 import { TextCache } from './text.js';
 import { FrameSource } from './frame-source.js';
-import { evaluate, audibleClips, gainAt, upcomingVideoClips, trackAudible } from './scene.js';
+import { evaluate, audibleClips, gainAt, upcomingVideoClips } from './scene.js';
 import { sourceTimeAt } from '../model/timeline.js';
 import { hasCurve, speedAt } from '../model/speed-curve.js';
 import { framePosition, needsBetween, FRAME_SNAP } from '../model/slow-motion.js';
@@ -306,8 +306,6 @@ export class Player extends Emitter {
     const fps = project.settings.fps;
     pool.beginFrame();
     const map = new Map();
-    // Clips by id, including the virtual ones of compound and multi-camera clips that are not in the project.
-    const byId = new Map();
     const want = (layer) => {
       if (layer.kind === 'transition') {
         want(layer.from);
@@ -318,15 +316,16 @@ export class Player extends Emitter {
       const sec = layer.sourceTime / US;
       const entry = pool.claim(layer.clip, this.previewAsset(layer.asset), 'video', sec);
       map.set(layer.clip.id, entry);
-      byId.set(layer.clip.id, layer.clip);
-      this._drive(entry, layer.clip, sec, fps, true, t);
+      this._drive(entry, layer.clip, sec, fps, true, t, layer.held);
     };
     for (const l of layers) want(l);
     // Sound: audio clips (and video clips whose picture is hidden) still play.
+    const heard = new Set();
     for (const { clip, track } of audibleClips(project)) {
       if (t < clip.start || t >= clip.start + clip.duration) continue;
       const asset = this.previewAsset(project.assets[clip.assetId]);
       if (!asset) continue;
+      heard.add(clip.id);
       let entry = map.get(clip.id);
       const sec = sourceTimeAt(clip, t) / US;
       if (!entry) {
@@ -340,11 +339,9 @@ export class Player extends Emitter {
         entry.gain.gain.setTargetAtTime(g, pool.audioCtx.currentTime, 0.015);
       }
     }
-    // Silence picture-only elements (detached or muted audio).
-    for (const [id, entry] of map) {
-      const clip = entry.clipId === id ? byId.get(id) || this._clipById(id) : null;
-      if (entry.gain && clip && (clip.audioDetached || clip.muted || clip.disabled || clip.freeze || !project.assets[clip.assetId]?.hasAudio || this._trackMuted(id))) entry.gain.gain.value = 0;
-    }
+    // Silence picture-only elements: detached or muted sound, and clips drawn
+    // past their cut in a transition (the export cuts their sound there too).
+    for (const [id, entry] of map) if (entry.gain && !heard.has(id)) entry.gain.gain.value = 0;
     // Warm up clips about to start so the first frame is ready.
     if (this.playing) {
       for (const c of upcomingVideoClips(project, t, 1.5 * US)) {
@@ -360,25 +357,15 @@ export class Player extends Emitter {
     return map;
   }
 
-  _clipById(id) {
-    for (const t of this.store.project.tracks) for (const c of t.clips) if (c.id === id) return c;
-    return null;
-  }
-
-  /** Muted, or silenced because another track is soloed. */
-  _trackMuted(id) {
-    const project = this.store.project;
-    for (const t of project.tracks) if (t.clips.some((c) => c.id === id)) return !trackAudible(project, t);
-    return false;
-  }
-
-  _drive(entry, clip, sec, fps, visual, t = this.time) {
+  /** held: the picture stays on one frame (a transition past the media's start or end), like a freeze frame. */
+  _drive(entry, clip, sec, fps, visual, t = this.time, held = false) {
     const el = entry.el;
-    if (this.playing && !clip.freeze && hasCurve(clip)) {
+    const still = clip.freeze || held;
+    if (this.playing && !still && hasCurve(clip)) {
       this._driveCurve(entry, clip, sec, t);
       return;
     }
-    if (this.playing && !clip.freeze) {
+    if (this.playing && !still) {
       const rate = Math.min(16, Math.max(0.0625, clip.speed || 1));
       if (el.playbackRate !== rate) el.playbackRate = rate;
       // Keep the pitch on speed changes unless the clip asks otherwise (the export matches).

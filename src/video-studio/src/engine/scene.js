@@ -180,7 +180,13 @@ export function clipLayer(project, clip, t, trackIndex) {
     layer.asset = asset;
     layer.width = asset?.width || project.settings.width;
     layer.height = asset?.height || project.settings.height;
-    layer.sourceTime = clip.type === 'video' ? sourceTimeForTransition(clip, t, asset) : 0;
+    layer.sourceTime = 0;
+    if (clip.type === 'video') {
+      const { time, held } = sourceTimeForTransition(clip, t, asset);
+      layer.sourceTime = time;
+      // In a transition before the media's start or past its end: the picture holds still.
+      if (held) layer.held = true;
+    }
     // Slower than 1x with smooth slow motion on: draw in-between frames (engine/slow-motion.js).
     const smooth = smoothSlowAt(clip, local);
     if (smooth) layer.smoothSlow = smooth;
@@ -241,13 +247,17 @@ function withParent(layer, parent, t, project) {
   if (parent.parent) withParent(layer, parent.parent, t, project);
 }
 
-/** Source time that may run past the clip edges during a transition, clamped to the media. */
+/**
+ * Source time that may run past the clip edges during a transition, clamped
+ * to the media: { time, held }, held when the clamp stops it outside the clip.
+ */
 function sourceTimeForTransition(clip, t, asset) {
-  if (clip.freeze) return clip.in;
+  if (clip.freeze) return { time: clip.in, held: false };
   // Same mapping as sourceTimeAt, continued past the edges at the end speeds.
   const raw = clip.in + sourceOffset(clip, t - clip.start);
   const max = asset?.duration ? asset.duration - 1000 : Infinity;
-  return Math.max(0, Math.min(raw, max));
+  const time = Math.max(0, Math.min(raw, max));
+  return { time, held: time !== raw && (t < clip.start || t >= clipEnd(clip)) };
 }
 
 /**
