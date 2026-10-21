@@ -40,8 +40,18 @@ function gizmoFrame(v: View3D): GizmoFrame | null {
   const basis = orientationBasis(currentOrientation());
   const pp = doc.scene.tool_settings.transform_pivot_point;
   const pivot = new Vector3();
+  const act = doc.mode === 'OBJECT' && app.activeObject?.select ? app.graph.get(app.activeObject.id) : undefined;
   if (pp === 'CURSOR') pivot.fromArray(doc.scene.cursor.location);
-  else {
+  else if (pp === 'ACTIVE_ELEMENT' && act) pivot.setFromMatrixPosition(act.world);
+  else if (pp === 'BOUNDING_BOX_CENTER') {
+    const min = new Vector3(Infinity, Infinity, Infinity),
+      max = new Vector3(-Infinity, -Infinity, -Infinity);
+    for (const c of centers) {
+      min.min(c);
+      max.max(c);
+    }
+    pivot.addVectors(min, max).multiplyScalar(0.5);
+  } else {
     for (const c of centers) pivot.add(c);
     pivot.multiplyScalar(1 / centers.length);
   }
