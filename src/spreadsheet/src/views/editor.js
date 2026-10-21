@@ -2189,6 +2189,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'collapseAll': case 'expandAll':
+        if (!committed()) return;
         wb.setAllGroups(sheetId, arg === 'col' ? 'col' : 'row', cmd === 'collapseAll');
         keepFocus();
         return;
@@ -3110,11 +3111,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'gridlines':
+        // The entry goes in first, as for Freeze Panes: a formula showing another sheet changed that sheet.
+        if (!committed()) return;
         wb.setGridlines(sheetId, wb.sheet(sheetId).gridlines === false);
         grid.refresh();
         keepFocus();
         return;
       case 'zeros':
+        if (!committed()) return;
         wb.setZeros(sheetId, wb.sheet(sheetId).zeros === false);
         grid.refresh();
         toast(wb.sheet(sheetId).zeros === false ? 'Zero values hidden on this sheet' : 'Zero values shown', { icon: 'eye', duration: 1600 });
