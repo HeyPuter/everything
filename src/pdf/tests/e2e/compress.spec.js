@@ -197,3 +197,28 @@ test('closing a document stops compression before encoding its remaining images'
   expect(await page.evaluate(() => window.compressionEncodes)).toBe(1);
   expect(await page.locator('#toast').textContent()).not.toContain('File size reduced');
 });
+
+test('reducing the size of a signed PDF asks first, as other edits do', async ({ page }) => {
+  await mockPuter(page);
+  await page.goto('/#library');
+  const { createSelfSignedId, signPdf, verifySignatures } =
+    await import('../../src/core/digital-signature.js');
+  const id = await createSelfSignedId({ name: 'Ada Lovelace' });
+  const signed = await signPdf(await photoPdf(), id, { page: 0, rect: [20, 20, 180, 60] });
+  await openPdf(page, signed, 2);
+  await menu(page, 'Reduce file size…');
+  await page
+    .getByRole('dialog', { name: 'Reduce file size' })
+    .getByRole('button', { name: 'Reduce size', exact: true })
+    .click();
+  const warning = page.getByRole('dialog', { name: 'Edit a signed PDF?' });
+  await expect(warning).toBeVisible();
+  await warning.getByRole('button', { name: 'Cancel' }).click();
+  await settled(page);
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  const kept = await downloaded(page);
+  expect(kept.length).toBe(signed.length);
+  expect((await verifySignatures(kept)).map((report) => report.status)).toEqual([
+    'valid-unknown-identity',
+  ]);
+});

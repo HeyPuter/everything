@@ -11411,6 +11411,8 @@ export function createEditor({
   async function reduceSize(level) {
     requireAccess('edit');
     if (busy || destroyed) return;
+    // Rewriting the file invalidates its signatures, as any other edit does.
+    if (!(await confirmSignedEdit()) || busy || destroyed) return;
     busy = true;
     activity = 'Reducing file size…';
     updateStatus();
