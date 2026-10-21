@@ -653,7 +653,9 @@ export class Doc extends EventTarget {
       console.error(e);
       // Shared with the user only to view (see viewOnly): Puter refuses the write, and asking again changes nothing.
       const refused = this.viewOnly && navigator.onLine;
-      this._setStatus(navigator.onLine ? 'error' : 'offline', refused ? VIEW_ONLY : e?.message || String(e));
+      // Puter refuses some writes with a plain object holding its reason under `error`, not an Error.
+      const reason = e?.message || e?.error?.message || String(e);
+      this._setStatus(navigator.onLine ? 'error' : 'offline', refused ? VIEW_ONLY : reason);
       // Try again later; a transient failure should not lose the edit. One that lasts (a full drive,
       // say) is not helped by encoding and sending the whole book every few seconds, so the pauses grow.
       // A save asked for by hand reports its failure to the caller, but leaves the edit in the autosave's
@@ -665,7 +667,7 @@ export class Doc extends EventTarget {
         this._timer = setTimeout(() => this.save({ auto: true, retry: true }).catch(() => {}), this._retryDelay);
         this._timerIsRetry = true;
       }
-      if (!auto) throw e;
+      if (!auto) throw e?.message ? e : new Error(reason, { cause: e });
       return false;
     }
   }
