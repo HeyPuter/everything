@@ -85,6 +85,8 @@ test('shading popover: wireframe colour, outline colour, MatCap flip', async ({ 
   await pop.locator('.checkbox', { hasText: 'Cavity' }).click();
   expect(await view(page, 'v.shading.show_cavity')).toBe(true);
   await expect(pop).toContainText('Valley');
+  await pop.locator('.checkbox', { hasText: 'Depth of Field' }).click();
+  expect(await view(page, 'v.shading.use_dof')).toBe(true);
   await pop.locator('.checkbox', { hasText: 'Shadow' }).click();
   expect(await view(page, 'v.shading.show_shadows')).toBe(true);
   await page.waitForTimeout(150);

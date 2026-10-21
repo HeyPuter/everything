@@ -50,6 +50,8 @@ import { thresholdEdges } from './wirethreshold';
 import { dashedLineMaterial, dashedSegments, syncDashViewport } from './dashline';
 import { drawCavity } from './cavity';
 import { drawSolidShadow } from './solidshadow';
+import { drawViewportDof } from './viewdof';
+import { cameraDof } from '../../render/final/camera';
 
 export interface DrawView {
   nav: NavCamera;
@@ -450,6 +452,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
 
   // --- rendered view drawn by the attached render engine (render/final); it returns false to
   // fall back to the built-in pass (e.g. for the Solid render engine)
+  let dofAfterScene: (() => void) | null = null;
   if (rendered && view.pathTracer && view.pathTracer.render(camera, w, h)) {
     // drawn by the render engine
   } else {
@@ -474,10 +477,19 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
     const afterScene = runPassHooks('SCENE', view, camera);
     renderWithInFront(r, ctx, scene, camera, true);
     // Solid shading ▸ Cavity
+    // Shading ▸ Depth of Field (looking through a camera with depth of field)
+    if (view.sceneCamera && sh.use_dof && (sh.type === 'SOLID' || sh.type === 'WIREFRAME' || sh.type === 'MATERIAL')) {
+      const camId = (view as { activeCameraId?: () => string | null }).activeCameraId?.() ?? doc.scene.camera;
+      const dof = cameraDof(app, camId);
+      const ca = camId ? doc.cameras[doc.objects[camId]?.data ?? ''] : undefined;
+      if (dof && ca) dofAfterScene = () => drawViewportDof(r, scene, camera, { x, y, w, h }, engine.dpr, { focus: dof.focus, lens: ca.lens, sensor: ca.sensor_fit === 'VERTICAL' ? ca.sensor_height : ca.sensor_width, fstop: ca.dof.aperture_fstop });
+    }
     // Solid shading ▸ Shadow
     if (sh.type === 'SOLID' && sh.show_shadows) drawSolidShadow(r, ctx, scene, camera, { x, y, w, h }, sh.light_direction ?? [0.5774, -0.5774, 0.5774], sh.shadow_intensity ?? 0.5);
     if (sh.type === 'SOLID' && sh.show_cavity) drawCavity(r, scene, camera, { x, y, w, h }, engine.dpr, sh.cavity_ridge_factor ?? 1, sh.cavity_valley_factor ?? 1);
     afterScene();
+    // the depth of field blur works on the shaded scene, before the overlays
+    dofAfterScene?.();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
   }
 

@@ -14,6 +14,8 @@ export interface Shading {
   xray_alpha_wireframe: number;
   show_backface_culling: boolean;
   show_shadows: boolean;
+  /** blur by the camera's depth of field when looking through it */
+  use_dof?: boolean;
   /** Shadow: darkness of the shadows (0..1) and the direction towards the light */
   shadow_intensity?: number;
   light_direction?: [number, number, number];
