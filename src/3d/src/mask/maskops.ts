@@ -576,6 +576,8 @@ const ops: Operator[] = [
           ['ROTATE', 'Rotate'],
           ['RESIZE', 'Scale'],
           ['FEATHER', 'Feather Width'],
+          ['TOSPHERE', 'To Sphere'],
+          ['SHEAR', 'Shear'],
         ],
         hidden: true,
       },
@@ -601,7 +603,7 @@ const ops: Operator[] = [
       if (!pts.length) return 'CANCELLED';
       const v = (p.value as number[]) ?? [0, 0, 0];
       const mode = p.mode as Mode;
-      const value = mode === 'RESIZE' ? [v[0] || 1, v[1] || v[0] || 1] : mode === 'FEATHER' ? [v[0] || 1] : mode === 'ROTATE' ? [v[0]] : [v[0], v[1]];
+      const value = mode === 'RESIZE' ? [v[0] || 1, v[1] || v[0] || 1] : mode === 'FEATHER' ? [v[0] || 1] : mode === 'ROTATE' || mode === 'SHEAR' || mode === 'TOSPHERE' ? [v[0]] : [v[0], v[1]];
       const snaps = snapPoints(pts);
       const pivot = pivotOf(ed, snaps);
       transformPoints(snaps, mode, value, aspectOf(ed), pivot);
@@ -754,7 +756,7 @@ function startCircle(mode: 'SET' | 'ADD' | 'SUB') {
 // ---------------------------------------------------------------------------
 // modal transform of mask points
 
-type Mode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'FEATHER';
+type Mode = 'TRANSLATE' | 'ROTATE' | 'RESIZE' | 'FEATHER' | 'TOSPHERE' | 'SHEAR';
 
 const medianOf = (orig: PointSnap[]): V => [orig.reduce((a, o) => a + o.co[0], 0) / orig.length, orig.reduce((a, o) => a + o.co[1], 0) / orig.length];
 
@@ -812,7 +814,31 @@ export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], 
       o.p.handle_right = tf(o.hr, rot);
     }
   } else if (mode === 'FEATHER') for (const o of orig) o.p.weight = Math.max(0, o.w * value[0]);
-  else {
+  else if (mode === 'SHEAR') {
+    const k = value[0];
+    const sh = (x: number, y: number): V => [x + k * y, y];
+    for (const o of orig) {
+      o.p.co = tf(o.co, sh);
+      o.p.handle_left = tf(o.hl, sh);
+      o.p.handle_right = tf(o.hr, sh);
+    }
+  } else if (mode === 'TOSPHERE') {
+    // points move toward a circle of their mean distance from the pivot; handles keep their offsets
+    const k = Math.max(0, Math.min(1, value[0]));
+    const dist = (v: V) => Math.hypot((v[0] - cx) * aspect, v[1] - cy);
+    const r = orig.reduce((a, o) => a + dist(o.co), 0) / Math.max(1, orig.length);
+    for (const o of orig) {
+      const d = dist(o.co);
+      if (d < 1e-9) continue;
+      const f = (d + (r - d) * k) / d;
+      const [x, y] = [cx + (o.co[0] - cx) * f, cy + (o.co[1] - cy) * f];
+      const dx = x - o.co[0],
+        dy = y - o.co[1];
+      o.p.co = [x, y];
+      o.p.handle_left = [o.hl[0] + dx, o.hl[1] + dy];
+      o.p.handle_right = [o.hr[0] + dx, o.hr[1] + dy];
+    }
+  } else {
     const sc = (x: number, y: number): V => [x * value[0], y * (value[1] ?? value[0])];
     for (const o of orig) {
       o.p.co = tf(o.co, sc);
@@ -822,7 +848,6 @@ export function transformPoints(orig: PointSnap[], mode: Mode, value: number[], 
   }
 }
 
-/** Modal transform of the selected points; `release` (tool drags) confirms when the button is released. */
 /** Proportional editing of mask points (O): tool settings flag, shared size and falloff. */
 type PropSettings = { use_proportional_edit_mask?: boolean; proportional_size: number; proportional_edit_falloff: string };
 export const maskPropSettings = () => app.doc.scene.tool_settings as unknown as PropSettings;
@@ -858,11 +883,13 @@ function softPointsFrom(m: MaskData, selected: MaskPoint[], before: { co: V }[],
 function transformSoft(soft: SoftPoint[], mode: Mode, value: number[], aspect: number, pivot: V) {
   for (const sp of soft) {
     const k = sp.weight;
-    const v = mode === 'TRANSLATE' ? [value[0] * k, value[1] * k] : mode === 'ROTATE' ? [value[0] * k] : mode === 'RESIZE' ? [1 + (value[0] - 1) * k, 1 + ((value[1] ?? value[0]) - 1) * k] : [1];
-    transformPoints([sp], mode === 'FEATHER' ? 'RESIZE' : mode, mode === 'FEATHER' ? [1, 1] : v, aspect, pivot);
+    if (mode === 'FEATHER' || mode === 'TOSPHERE') continue;
+    const v = mode === 'TRANSLATE' ? [value[0] * k, value[1] * k] : mode === 'ROTATE' || mode === 'SHEAR' ? [value[0] * k] : [1 + (value[0] - 1) * k, 1 + ((value[1] ?? value[0]) - 1) * k];
+    transformPoints([sp], mode, v, aspect, pivot);
   }
 }
 
+/** Modal transform of the selected points; `release` (tool drags) confirms when the button is released. */
 export function startTransform(mode: Mode, release = false, from?: { clientX: number; clientY: number }): boolean {
   const ed = maskEditor();
   if (!ed) return false;
@@ -873,7 +900,7 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
   const orig = snapPoints(pts);
   const [cx, cy] = pivotOf(ed, orig);
   const ps = maskPropSettings();
-  let proportional = !!ps.use_proportional_edit_mask && mode !== 'FEATHER';
+  let proportional = !!ps.use_proportional_edit_mask && mode !== 'FEATHER' && mode !== 'TOSPHERE';
   let size = ps.proportional_size > 0 && ps.proportional_size < 10 ? ps.proportional_size : 0.2;
   let soft: SoftPoint[] = [];
   const restoreSoft = () => {
@@ -903,6 +930,12 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
       const a0 = Math.atan2(start[1] - cy, (start[0] - cx) * aspect),
         a1 = Math.atan2(last[1] - cy, (last[0] - cx) * aspect);
       v = [num !== null ? (num * Math.PI) / 180 : a1 - a0];
+    } else if (mode === 'SHEAR') {
+      // horizontal pointer travel relative to the frame height
+      v = [num ?? ((last[0] - start[0]) * aspect) / 0.25];
+    } else if (mode === 'TOSPHERE') {
+      const d0 = Math.hypot((start[0] - cx) * aspect, start[1] - cy) || 1e-6;
+      v = [Math.max(0, Math.min(1, num ?? Math.hypot((last[0] - cx) * aspect, last[1] - cy) / d0 - 1))];
     } else {
       const d0 = Math.hypot((start[0] - cx) * aspect, start[1] - cy) || 1e-6;
       const k = num ?? Math.hypot((last[0] - cx) * aspect, last[1] - cy) / d0;
@@ -917,7 +950,7 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
     ed.draw();
   };
   const handler: ModalHandler = {
-    label: mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : mode === 'RESIZE' ? 'Resize' : 'Feather Width',
+    label: mode === 'TRANSLATE' ? 'Move' : mode === 'ROTATE' ? 'Rotate' : mode === 'RESIZE' ? 'Resize' : mode === 'SHEAR' ? 'Shear' : mode === 'TOSPHERE' ? 'To Sphere' : 'Feather Width',
     cursor: mode === 'TRANSLATE' ? 'move' : 'crosshair',
     header: () => {
       const v = st.value;
@@ -942,7 +975,7 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
       if (e.key === 'Escape') return 'CANCELLED';
       if (e.key === 'Enter') return 'FINISHED';
       const k = e.key.toUpperCase();
-      if (k === 'O' && mode !== 'FEATHER' && !e.shiftKey) {
+      if (k === 'O' && mode !== 'FEATHER' && mode !== 'TOSPHERE' && !e.shiftKey) {
         proportional = !proportional;
         gatherSoft();
         apply();
@@ -954,7 +987,7 @@ export function startTransform(mode: Mode, release = false, from?: { clientX: nu
         apply();
         return true;
       }
-      if ((k === 'X' || k === 'Y') && mode !== 'ROTATE' && mode !== 'FEATHER') {
+      if ((k === 'X' || k === 'Y') && (mode === 'TRANSLATE' || mode === 'RESIZE')) {
         st.axis = st.axis === k ? null : (k as 'X');
         apply();
         return true;
@@ -1028,6 +1061,8 @@ addKeys('Mask Editing', [
   { key: 'R', op: 'mask.transform', props: { mode: 'ROTATE' } },
   { key: 'S', op: 'mask.transform', props: { mode: 'RESIZE' } },
   { key: 'S', alt: true, op: 'mask.transform', props: { mode: 'FEATHER' } },
+  { key: 'S', shift: true, alt: true, op: 'mask.transform', props: { mode: 'TOSPHERE' } },
+  { key: 'S', shift: true, ctrl: true, alt: true, op: 'mask.transform', props: { mode: 'SHEAR' } },
   {
     key: 'V',
     menuTitle: 'Set Handle Type',

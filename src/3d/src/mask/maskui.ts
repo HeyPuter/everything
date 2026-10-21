@@ -89,6 +89,8 @@ export function maskMenu(): MenuItem[] {
         { label: 'Rotate', op: 'mask.transform', props: { mode: 'ROTATE' }, shortcut: 'R' },
         { label: 'Scale', op: 'mask.transform', props: { mode: 'RESIZE' }, shortcut: 'S' },
         { label: 'Scale Feather', op: 'mask.transform', props: { mode: 'FEATHER' }, shortcut: 'Alt S' },
+        { label: 'To Sphere', op: 'mask.transform', props: { mode: 'TOSPHERE' }, shortcut: 'Shift Alt S' },
+        { label: 'Shear', op: 'mask.transform', props: { mode: 'SHEAR' }, shortcut: 'Shift Ctrl Alt S' },
       ],
     },
     {
@@ -350,6 +352,7 @@ export function maskProportionalHeader(): Child {
 }
 
 addKeys('Mask Editing', [
+  { key: 'A', shift: true, menu: maskAddMenu, menuTitle: 'Add' },
   { key: 'O', action: toggleMaskProportional },
   { key: 'O', shift: true, menu: maskFalloffMenu, menuTitle: 'Proportional Editing Falloff' },
 ]);
