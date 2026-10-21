@@ -142,7 +142,7 @@ function objectColorState(app: App, ob: ObjectData): 0 | 1 | 2 {
  * Render the synced scene with "In Front" objects (Object ▸ Viewport Display) drawn last over
  * everything else: the rest first, then the depth cleared and only those objects again.
  */
-function renderWithInFront(r: RenderContext['engine']['renderer'], ctx: RenderContext, scene: Scene, camera: Camera) {
+function renderWithInFront(r: RenderContext['engine']['renderer'], ctx: RenderContext, scene: Scene, camera: Camera, keepDepth = false) {
   const front: SyncedObject[] = [];
   for (const so of ctx.sync.objects.values()) if (so.ev.ob.show_in_front && so.root.visible) front.push(so);
   if (!front.length) {
@@ -168,9 +168,18 @@ function renderWithInFront(r: RenderContext['engine']['renderer'], ctx: RenderCo
   scene.background = null;
   r.clearDepth();
   r.render(scene, camera);
-  scene.background = bg;
   for (const x of restore) x.o.visible = x.v;
+  if (keepDepth) {
+    // put the other objects' depth back so the overlays drawn next are hidden behind them
+    for (const so of front) so.root.visible = false;
+    scene.overrideMaterial = depthOnlyMaterial;
+    r.render(scene, camera);
+    scene.overrideMaterial = null;
+    for (const so of front) so.root.visible = true;
+  }
+  scene.background = bg;
 }
+const depthOnlyMaterial = new MeshBasicMaterial({ colorWrite: false, side: DoubleSide });
 
 /** Wire geometries limited by the wireframe threshold, per full wire geometry and threshold. */
 const thresholdCache = new WeakMap<BufferGeometry, { t: number; g: BufferGeometry }>();
@@ -408,7 +417,7 @@ export function drawViewport(app: App, ctx: RenderContext, view: DrawView, x: nu
       hide(so.points);
     }
     const afterScene = runPassHooks('SCENE', view, camera);
-    renderWithInFront(r, ctx, scene, camera);
+    renderWithInFront(r, ctx, scene, camera, true);
     afterScene();
     for (const hdn of hiddenForScene) hdn.o.visible = hdn.v;
   }
