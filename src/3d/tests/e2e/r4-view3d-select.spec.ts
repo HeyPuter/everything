@@ -59,3 +59,33 @@ test('view3d.select picks at a location; select_menu selects by name', async ({ 
   expect(await get(page, 'Object.values(app.doc.objects).filter(o => o.select).map(o => o.name).sort()')).toEqual(['Camera', 'Light']);
   await expectNoErrors(errors);
 });
+
+test('view3d.select_lasso selects inside a path; the Select menu offers its modes', async ({ page }) => {
+  const errors = await openApp(page);
+  const { box } = await viewportCenter(page);
+  const c = await screenOf(page, [0, 0, 0]);
+  const x = c.x - box.x,
+    y = c.y - box.y;
+  await page.evaluate(() => {
+    const a = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    for (const o of Object.values(a.doc.objects) as any[]) o.select = false; // eslint-disable-line @typescript-eslint/no-explicit-any
+    a.changed('select');
+  });
+  const path = `${x - 30},${y - 30} ${x + 30},${y - 30} ${x + 30},${y + 30} ${x - 30},${y + 30}`;
+  expect(await page.evaluate((pp) => (window as any).app.run('view3d.select_lasso', { path: pp, mode: 'SET' }), path)).toBe('FINISHED'); // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(await get(page, 'Object.values(app.doc.objects).filter(o => o.select).map(o => o.name)')).toEqual(['Cube']);
+  // interactive: the modal waits for a left-button drag
+  await page.evaluate(() => (window as any).app.run('view3d.select_lasso', { mode: 'SUB' })); // eslint-disable-line @typescript-eslint/no-explicit-any
+  await page.mouse.move(c.x - 30, c.y - 30);
+  await page.mouse.down();
+  for (const [dx, dy] of [
+    [30, -30],
+    [30, 30],
+    [-30, 30],
+    [-30, -28],
+  ])
+    await page.mouse.move(c.x + dx, c.y + dy, { steps: 3 });
+  await page.mouse.up();
+  expect(await get(page, 'Object.values(app.doc.objects).filter(o => o.select).length')).toBe(0);
+  await expectNoErrors(errors);
+});

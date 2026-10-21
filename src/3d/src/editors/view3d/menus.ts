@@ -142,7 +142,7 @@ export function selectMenu(): MenuItem[] {
     { separator: true },
     { label: 'Box Select', op: 'view3d.select_box', shortcut: 'B' },
     { label: 'Circle Select', op: 'view3d.select_circle', shortcut: 'C' },
-    { label: 'Lasso Select', op: 'view3d.select_lasso_tool' },
+    { label: 'Lasso Select', submenu: () => ([['SET', 'Set'], ['ADD', 'Extend'], ['SUB', 'Subtract'], ['XOR', 'Difference'], ['AND', 'Intersect']] as const).map(([mode, label]) => ({ label, op: 'view3d.select_lasso', props: { mode } })) },
     { separator: true },
     { label: 'Select Active Camera', op: 'object.select_camera' },
     { label: 'Select Mirror', op: 'object.select_mirror', shortcut: 'Shift Ctrl M' },

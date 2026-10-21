@@ -6,6 +6,7 @@ import { app, registerOperators, type OpContext } from '../../app/app';
 import { openMenu, type MenuItem } from '../../ui/menu';
 import { activeView3D, type View3D } from './view3d';
 import { selectPick } from './select';
+import { lassoDrag, selectInRegion, type SelectMode } from './selectshapes';
 import { boneVisible } from '../../modes/armature/armkernels';
 import { defaultPoseBone } from '../../eval/armature';
 import { iconNames } from '../../ui/icons';
@@ -317,6 +318,59 @@ registerOperators([
     exec: (_ctx, p) => (selectBoneByName(String(p.name), p) ? 'FINISHED' : 'CANCELLED'),
   },
 ]);
+
+const SELECT_MODES: [string, string][] = [
+  ['SET', 'Set'],
+  ['ADD', 'Extend'],
+  ['SUB', 'Subtract'],
+  ['XOR', 'Difference'],
+  ['AND', 'Intersect'],
+];
+
+registerOperators([
+  {
+    idname: 'view3d.select_lasso',
+    label: 'Lasso Select',
+    description: 'Select items inside a lasso drawn with the left mouse button',
+    undo: false,
+    poll: () => !!activeView3D(),
+    props: [
+      { id: 'mode', label: 'Mode', type: 'enum', default: 'SET', items: SELECT_MODES },
+      { id: 'path', label: 'Path', type: 'string', default: '', hidden: true },
+    ],
+    invoke: (_ctx, p) => {
+      if (p.path) return lassoFromPath(p);
+      const v = activeView3D()!;
+      app.startModal({
+        label: 'Lasso Select',
+        header: () => 'Lasso Select: drag with the left mouse button · RMB / Esc to cancel',
+        onPointerDown(e) {
+          if (e.button !== 0) return 'CANCELLED';
+          lassoDrag(v, e, p.mode as SelectMode);
+          return 'CANCELLED';
+        },
+        onKey: (e) => (e.type === 'keydown' && e.key === 'Escape' ? 'CANCELLED' : true),
+        cancel() {},
+      });
+      return 'RUNNING_MODAL';
+    },
+    exec: (_ctx, p) => lassoFromPath(p),
+  },
+]);
+
+/** Lasso selection from a path of viewport points ("x,y x,y …", for scripts). */
+function lassoFromPath(p: Record<string, unknown>) {
+  const v = activeView3D()!;
+  const pts = String(p.path)
+    .trim()
+    .split(/\s+/)
+    .map((q) => q.split(',').map(Number))
+    .filter((q) => q.length === 2 && q.every(Number.isFinite))
+    .map(([x, y]) => ({ x, y }));
+  if (pts.length < 3) return 'CANCELLED' as const;
+  selectInRegion(v, { kind: 'lasso', pts }, p.mode as SelectMode, 'Lasso Select');
+  return 'FINISHED' as const;
+}
 
 function runByName(p: Record<string, unknown>) {
   const ob = Object.values(app.doc.objects).find((o) => o.name === p.name);
