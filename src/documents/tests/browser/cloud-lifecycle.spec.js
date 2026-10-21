@@ -250,3 +250,16 @@ test('hiding the page writes edits typed during a save as soon as that save ends
   });
   await expect.poll(() => page.evaluate(() => window.__docs.current.view.doc.dirty), { timeout: 3000 }).toBe(false);
 });
+
+test('a new document saved under a free name shows that name', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('First');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  await page.getByRole('button', { name: 'New document' }).first().click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await text(page).fill('Second');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.doc.path)).toBe('Documents/Untitled document 2.docx');
+  await expect(page.getByRole('textbox', { name: 'Document name' })).toHaveValue('Untitled document 2');
+  await expect(page).toHaveTitle('Untitled document 2 — Documents');
+});

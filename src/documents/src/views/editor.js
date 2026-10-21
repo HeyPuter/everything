@@ -1433,6 +1433,15 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (e.key === 'Escape') { e.preventDefault(); title.value = doc.name; refreshTitle(); title.blur(); engine?.focus(); }
   });
   doc.addEventListener('status', updateStatus);
+  // A first save can name the file otherwise than the name shown ("Untitled document 2" when the first is taken):
+  // the title shows the document's name, unless the user is typing a new one there.
+  const onPath = () => {
+    if (destroyed) return;
+    if (document.activeElement !== title) title.value = doc.name;
+    refreshTitle();
+    document.title = `${doc.name} — Documents`;
+  };
+  doc.addEventListener('path', onPath);
   const onSession = () => { renderAccountButton(account); updateStatus(); if (session.signedIn && doc.dirty && doc.exporter) doc.save({ auto: true }).catch(error); };
   if (!local) session.addEventListener('change', onSession);
   updateStatus();
@@ -1661,6 +1670,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
+      doc.removeEventListener('path', onPath);
       session.removeEventListener('change', onSession);
       doc.destroy(); engine?.destroy();
     },
