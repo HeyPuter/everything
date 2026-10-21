@@ -10,7 +10,7 @@ import { fillColorCss } from '../core/fill-color.js';
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS, accountingCode, accountingOptions } from './toolbar.js';
-import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt, cellCurrency } from '../core/format.js';
+import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt, cellCurrency, layoutAlign } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
@@ -256,7 +256,8 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   const shrinkInput = shrinkField.querySelector('input');
   const alignPanel = el('div.fc-panel.fc-align', {},
     el('fieldset.fc-align-fields', {}, el('legend', {}, 'Text alignment'),
-      select('Horizontal', [['', 'Automatic (numbers right, text left)'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right']], align.align, (v) => { align.align = v; }),
+      select('Horizontal', [['', 'Automatic (numbers right, text left)'], ['left', 'Left'], ['center', 'Center'], ['right', 'Right'],
+        ['fill', 'Fill'], ['justify', 'Justify'], ['centerContinuous', 'Center Across Selection'], ['distributed', 'Distributed']], align.align, (v) => { align.align = v; }),
       select('Vertical', [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']], align.valign, (v) => { align.valign = v; }),
       select('Text wrapping', [['overflow', 'Overflow into empty cells'], ['wrap', 'Wrap onto several lines'], ['clip', 'Clip at the cell edge']], align.wrap, (v) => { align.wrap = v; }),
       numberInput('Indent', align.indent, 0, 10, (v) => { align.indent = Math.max(0, Math.min(10, Math.round(v || 0))); }), shrinkField),
@@ -470,7 +471,7 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
       node.style.fontStyle = font.italic ? 'italic' : 'normal';
       node.style.textDecorationLine = [font.underline && 'underline', font.strike && 'line-through'].filter(Boolean).join(' ') || 'none';
       if (!samples) {
-        const horizontal = align.align || (typeof sample === 'number' ? 'right' : 'left');
+        const horizontal = layoutAlign(align.align) || (typeof sample === 'number' ? 'right' : 'left');
         box.style.justifyContent = { left: 'flex-start', center: 'center', right: 'flex-end' }[horizontal];
         box.style.alignItems = { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[align.valign];
         node.style.textAlign = horizontal;
