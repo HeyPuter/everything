@@ -6669,9 +6669,25 @@ function regression(ys, xs, constant) {
     }
   }
   for (let i = 0; i < k; i++) for (let j = 0; j < i; j++) A[i][j] = A[j][i];
-  const inv = invertMatrix(A);
-  if (!inv) return err('#DIV/0!'); // a constant or collinear variable has no unique fit
-  const coef = k === 1 ? [r[0] / A[0][0]] : inv.map((line) => line.reduce((s, v, j) => s + v * r[j], 0));
+  let inv = invertMatrix(A);
+  let used = k;
+  let coef;
+  if (inv) coef = k === 1 ? [r[0] / A[0][0]] : inv.map((line) => line.reduce((s, v, j) => s + v * r[j], 0));
+  else {
+    // A variable that is constant, or a combination of the ones before it, adds nothing to the fit: as Excel does,
+    // it is left out, its coefficient and standard error 0, and the fit made with the others (only an intercept,
+    // the mean, when none is left), where this answered #DIV/0! for a whole regression with one redundant column.
+    const keep = independentColumns(A, kept);
+    const sub = keep.length ? invertMatrix(keep.map((i) => keep.map((j) => A[i][j]))) : null;
+    if (keep.length && !sub) return err('#DIV/0!');
+    used = keep.length;
+    inv = range0(k).map(() => new Array(k).fill(0));
+    coef = new Array(k).fill(0);
+    keep.forEach((i, a) => {
+      keep.forEach((j, b) => { inv[i][j] = sub[a][b]; });
+      coef[i] = keep.reduce((s, j, b) => s + sub[a][b] * r[j], 0);
+    });
+  }
   const b = constant ? my - coef.reduce((s, c, j) => s + c * mx[j], 0) : 0;
   let ssreg = 0;
   let ssresid = 0;
@@ -6682,7 +6698,35 @@ function regression(ys, xs, constant) {
     ssresid += (yv - fitted) ** 2;
     sstotal += (yv - my) ** 2;
   }
-  return { coef, b, k, n: m, df: m - p, constant, column, row, rows, inv, mx, ssreg, ssresid, sstotal };
+  return { coef, b, k, used, n: m, df: m - used - (constant ? 1 : 0), constant, column, row, rows, inv, mx, ssreg, ssresid, sstotal };
+}
+
+/**
+ * The variables of a fit that are not constant and not a combination of the ones before them, in order: a column whose
+ * spread left after the earlier kept ones (its pivot in an incremental Cholesky factor of XᵀX) is negligible beside
+ * its own size is redundant. `A` is XᵀX of the x, centred when the fit has an intercept; `kept` the observations.
+ */
+function independentColumns(A, kept) {
+  const k = A.length;
+  const keep = [];
+  const L = []; // rows of the Cholesky factor of the kept columns
+  for (let j = 0; j < k; j++) {
+    // The column's own size, uncentred, so that a constant column of 1E+6 reads as constant rather than as a large spread.
+    let size = 0;
+    for (const [xr] of kept) size += xr[j] * xr[j];
+    // Its row of the factor, by forward substitution against the kept columns, and the spread left over.
+    const w = [];
+    for (let a = 0; a < keep.length; a++) {
+      let s = A[keep[a]][j];
+      for (let b = 0; b < a; b++) s -= L[a][b] * w[b];
+      w.push(s / L[a][a]);
+    }
+    const rest = A[j][j] - w.reduce((s, x) => s + x * x, 0);
+    if (!(rest > size * 1e-13) || !(rest > A[j][j] * 1e-12)) continue;
+    L.push([...w, Math.sqrt(rest)]);
+    keep.push(j);
+  }
+  return keep;
 }
 
 /** The fit of LOGEST and GROWTH: a line through ln(y), so y = b·m^x; a y that is not positive is #NUM!. */
@@ -6705,7 +6749,7 @@ function logRegression(ys, xs, constant) {
  * maps the coefficients, exp for LOGEST, whose errors and sums stay those of the fit on ln(y).
  */
 function regressionStats(fit, transform) {
-  const { coef, b, k, n, df, constant, inv, mx, ssreg, ssresid, sstotal } = fit;
+  const { coef, b, k, used, n, df, constant, inv, mx, ssreg, ssresid, sstotal } = fit;
   const na = () => err('#N/A');
   const finite = (v) => (Number.isFinite(v) ? v : err('#NUM!'));
   const seY = Math.sqrt(ssresid / df);
@@ -6715,7 +6759,7 @@ function regressionStats(fit, transform) {
     [...coef.map(transform).reverse(), transform(b)],
     [...coef.map((_, j) => finite(seY * Math.sqrt(inv[j][j]))).reverse(), constant ? finite(seY * Math.sqrt(1 / n + meanTerm)) : na()],
     pad([finite(ssreg / sstotal), finite(seY)]),
-    pad([finite((ssreg / k) / (ssresid / df)), df]),
+    pad([finite((ssreg / used) / (ssresid / df)), df]),
     pad([ssreg, ssresid]),
   ];
 }

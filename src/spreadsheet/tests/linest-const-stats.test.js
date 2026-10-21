@@ -71,11 +71,11 @@ describe('LINEST with const and stats', () => {
     close(arr('LINEST({10,8,16,14},{1,2,3,4;1,0,1,0})'), [[5, 3, 2]], 12);
   });
 
-  it('answers #REF! for counts that do not pair and #DIV/0! for a fit with no unique answer', () => {
+  it('answers #REF! for counts that do not pair and #DIV/0! for more coefficients than points', () => {
     expect(calc('LINEST({1,2,3},{1,2})')).toEqual(E('#REF!'));
     expect(calc('LINEST({1;2;3},{1,2;3,4})')).toEqual(E('#REF!'));
-    expect(calc('LINEST({1,2},{1,1})')).toEqual(E('#DIV/0!'));
-    expect(calc('LINEST({1;2;3},{1,2;2,4;3,6})')).toEqual(E('#DIV/0!')); // collinear columns
+    expect(arr('LINEST({1,2},{1,1})')).toEqual([[0, 1.5]]); // a constant variable is left out, as Excel does
+    close(arr('LINEST({1;2;3},{1,2;2,4;3,6})'), [[0, 1, 0]], 12); // and so is a collinear one
     expect(calc('LINEST({1;2},{1,2;3,4})')).toEqual(E('#DIV/0!')); // more coefficients than points
     expect(calc('LINEST({1,"x",3},{1,2,3})')).toBe(1); // a non-numeric pair is left out, as before
   });

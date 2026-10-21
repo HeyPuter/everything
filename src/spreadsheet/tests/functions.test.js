@@ -810,7 +810,7 @@ describe('statistics and distributions', () => {
     near(g[0][0], 16);
     const l = arr('LOGEST({2,4,8},{1,2,3})');
     near(l[0][0], 2); near(l[0][1], 1);
-    expect(calc('LINEST({1,2},{1,1})')).toEqual(E('#DIV/0!'));
+    expect(arr('LINEST({1,2},{1,1})')).toEqual([[0, 1.5]]);
   });
 
   it('normal family', () => {
