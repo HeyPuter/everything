@@ -5,6 +5,7 @@ import { test, expect as baseExpect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { P, parseDeck } from "../src/model.js";
+import { addText, openNewSlideMenu } from "./editor-commands.js";
 
 test.setTimeout(120_000);
 // Phones render each stroke at three times the pixels; give them time.
@@ -279,6 +280,45 @@ test("Ink to Text and Ink to Math ask the AI to read the ink", async ({
     "x^2+1",
   );
   await page.keyboard.press("Escape");
+});
+
+test("Ink to Text puts the words on the ink's slide when another is shown meanwhile", async ({
+  page,
+}) => {
+  await start(page);
+  // The AI answers when the test says.
+  await page.evaluate(() => {
+    window.puter.ai.chat = () =>
+      new Promise((resolve) => {
+        window.__read = () => resolve({ message: { content: "Hello" } });
+      });
+  });
+  // Slide 2 holds a text box with the same id the ink on slide 1 will get.
+  await openNewSlideMenu(page);
+  await page.getByRole("menuitem").filter({ hasText: /Blank/ }).first().click();
+  await expect(page.locator(".slide-thumb")).toHaveCount(2);
+  await addText(page);
+  await page.keyboard.press("Escape");
+  await expect(hits(page)).toHaveCount(1);
+  const other = await hits(page).first().getAttribute("data-shape-id");
+  await page.locator(".slide-thumb").first().click();
+  await page.getByRole("tab", { name: "Draw" }).click();
+  await page.locator('[data-command="draw-pen1"]').click();
+  await stroke(page, wave(100, 150));
+  await expect(hits(page)).toHaveCount(1);
+  expect(await hits(page).first().getAttribute("data-shape-id")).toBe(other);
+  await command(page, "draw-ink-to-text");
+  await expect(page.locator("#toast")).toContainText("Reading");
+  await page.keyboard.press("Escape");
+  await page.locator(".slide-thumb").nth(1).click();
+  await page.evaluate(() => window.__read());
+  await expect(page.locator("#toast")).toContainText("Ink converted to text");
+  // Slide 2's own box is untouched; the words replace the ink on slide 1.
+  await expect(hits(page)).toHaveCount(1);
+  await expect(hits(page).first()).not.toHaveAttribute("aria-label", /^Hello/);
+  await page.locator(".slide-thumb").first().click();
+  await expect(hits(page)).toHaveCount(1);
+  await expect(hits(page).first()).toHaveAttribute("aria-label", /^Hello/);
 });
 
 test("Ink Replay plays the strokes back over the slide and closes with Escape", async ({

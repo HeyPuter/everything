@@ -513,6 +513,9 @@ export function createDrawTools({
     }
     const picture = inkToPng(P, shapes);
     if (!picture) return;
+    // The words take the ink's place on its own slide, whichever slide is
+    // shown by the time the AI has read it.
+    const target = currentSlide();
     busy = true;
     canvas()?.classList.add("ink-reading");
     changed();
@@ -526,7 +529,7 @@ export function createDrawTools({
         toast("No writing could be read in that ink.");
         return;
       }
-      await placeWords(shapes, value, mode, picture.bounds);
+      await placeWords(target, shapes, value, mode, picture.bounds);
       toast(
         mode === "math" ? "Ink converted to math." : "Ink converted to text.",
       );
@@ -536,8 +539,7 @@ export function createDrawTools({
       changed();
     }
   }
-  async function placeWords(shapes, value, mode, box) {
-    const target = currentSlide();
+  async function placeWords(target, shapes, value, mode, box) {
     const ids = shapes.map((s) => P.getShapeId(s));
     const color = (() => {
       try {
@@ -588,7 +590,11 @@ export function createDrawTools({
       if (mode === "math")
         P.setShapeDescription(made, `Equation (LaTeX): ${value}`);
     });
-    if (made) selectShapes([P.getShapeId(made)]);
+    if (
+      made &&
+      P.getSlidePartName(currentSlide()) === P.getSlidePartName(target)
+    )
+      selectShapes([P.getShapeId(made)]);
   }
   async function convertToShapes() {
     const shapes = inkTargets();
