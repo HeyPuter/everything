@@ -7651,8 +7651,9 @@ function basisDays(a, b, basis) {
  * coupon dates and how many coupons remain — or an error.
  */
 function couponArgs(settlement, maturity, frequency, basis) {
-  const s = toNumber(settlement); if (isError(s)) return s;
-  const m = toNumber(maturity); if (isError(m)) return m;
+  // Both are dates of the calendar: a maturity of 1E8 walked the schedule back for hundreds of thousands of years.
+  const s = dateSerial(settlement); if (isError(s)) return s;
+  const m = dateSerial(maturity); if (isError(m)) return m;
   const f = toNumber(frequency); if (isError(f)) return f;
   const b = basis === undefined ? 0 : toNumber(basis); if (isError(b)) return b;
   const freq = Math.trunc(f);
