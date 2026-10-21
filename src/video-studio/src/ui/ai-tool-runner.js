@@ -223,12 +223,17 @@ export function createAiToolRunner(ctx, services = {}) {
     return result;
   }
 
+  /** Made but stopped: the asset goes into the media library only, said so. */
+  function keepMade(asset, what) {
+    actions.registerAsset(asset);
+    toast(`The ${what} you stopped has finished. It is in your media.`, { kind: 'success', duration: 6000 });
+    return { skipped: true };
+  }
+
   // Generated after a Stop: kept in the media library, said so.
   async function keepVideo({ blob }, prompt) {
     try {
-      const asset = await importMade(new File([blob], videoFileName(prompt, blob.type), { type: blob.type || 'video/mp4' }), 'ai-video');
-      actions.registerAsset(asset);
-      toast('The video you stopped has finished. It is in your media.', { kind: 'success', duration: 6000 });
+      keepMade(await importMade(new File([blob], videoFileName(prompt, blob.type), { type: blob.type || 'video/mp4' }), 'ai-video'), 'video');
     } catch {
       /* nothing to keep */
     }
@@ -248,6 +253,7 @@ export function createAiToolRunner(ctx, services = {}) {
     if (!made) return { skipped: true };
     control?.note?.('Adding the video to the project…');
     const asset = await importMade(new File([made.blob], videoFileName(prompt, made.blob.type), { type: made.blob.type || 'video/mp4' }), 'ai-video');
+    if (control?.stopped?.()) return keepMade(asset, 'video');
     const { entry, value } = oneStep(label, asset, () => put(asset), at);
     const clip = value?.clip || null;
     if (clip) store.select(clip.id);
@@ -367,6 +373,7 @@ export function createAiToolRunner(ctx, services = {}) {
       });
       if (!made) return { skipped: true };
       const asset = await importMade(new File([made.blob], imageFileName(prompt, (made.blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: made.blob.type || 'image/png' }), 'ai-image');
+      if (control?.stopped?.()) return keepMade(asset, 'picture');
       const duration = Number.isFinite(num(a.duration)) ? Math.round(Math.max(0.2, num(a.duration)) * US) : 0;
       const { entry, value } = oneStep('Generate picture', asset, () => place(asset, { place: a.place, start: a.start, duration }), at);
       if (value.clip) store.select(value.clip.id);
@@ -387,6 +394,7 @@ export function createAiToolRunner(ctx, services = {}) {
       if (!made) return { skipped: true };
       const base = got.clip ? got.clip.name || store.project.assets[got.clip.assetId]?.name : 'Picture';
       const asset = await importMade(new File([made.blob], imageFileName(`${String(base || 'Picture').replace(/\.[a-z0-9]{2,5}$/i, '')} edited`), { type: made.blob.type || 'image/png' }), 'ai-image');
+      if (control?.stopped?.()) return keepMade(asset, 'picture');
       const inPlace = got.clip?.type === 'image' && a.replace !== false;
       const sourceClip = got.clip;
       const { entry, value } = oneStep('Edit picture', asset, () => {
@@ -407,6 +415,7 @@ export function createAiToolRunner(ctx, services = {}) {
       const blob = await generating(control, 'Recording the voice', () => svc.synthesize(text, voice, { testMode: svc.testMode() }), async () => {});
       if (!blob) return { skipped: true };
       const asset = await importMade(speechFile(blob, text), 'tts');
+      if (control?.stopped?.()) return keepMade(asset, 'voiceover');
       const { entry, value } = oneStep('Add voiceover', asset, () => place(asset, { start: a.start }), at);
       return ok(`added the voiceover (media ${asset.id}) ${value.words}.`, { changed: true, entry, target: value.clip ? { ids: [value.clip.id], time: value.clip.start } : null });
     },

@@ -278,6 +278,23 @@ describe('AI sidebar tools', () => {
     expect(Object.values(store.project.assets).some((a) => a.origin === 'ai-video')).toBe(true);
   });
 
+  it('keeps what was stopped while it was being added to the project in the media only', async () => {
+    for (const [name, args] of [['generate_video', { prompt: 'fox' }], ['generate_image', { prompt: 'forest' }], ['edit_image', { source: 'img', instruction: 'night' }], ['add_voiceover', { text: 'hello' }]]) {
+      const { store, ctx, main } = setup(clip('image', 0, 3));
+      let stopped = false;
+      const importFile = ctx.library.importFile.bind(ctx.library);
+      ctx.library.importFile = (file, o) => {
+        stopped = true; // Stop pressed while the file is being added
+        return importFile(file, o);
+      };
+      const { runner } = runnerFor(ctx);
+      const r = await runner.run(name, args, { note: () => {}, stopped: () => stopped });
+      expect(r).toEqual({ skipped: true });
+      expect(main().clips).toHaveLength(1);
+      expect(Object.keys(store.project.assets).filter((id) => /^gen/.test(id))).toHaveLength(1);
+    }
+  });
+
   it('keeps what was made in the media only when another timeline was opened meanwhile', async () => {
     const { store, ctx, main } = setup(clip('image', 0, 3));
     let open;
