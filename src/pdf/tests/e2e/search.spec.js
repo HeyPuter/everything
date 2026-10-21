@@ -243,3 +243,13 @@ test('accents are ignored, as PDF readers ignore them', async ({ page }) => {
   await expect(page.locator('.search-count')).toHaveText('1 of 2');
   await expect(page.locator('.search-hit-current')).toHaveText('Crème');
 });
+
+test('straight and curly quotes find each other, as PDF readers find them', async ({ page }) => {
+  const input = await openSearchDocument(page, ['Don\u2019t say \u201cnever\u201d']);
+  await input.fill("don't");
+  await expect(page.locator('.search-count')).toHaveText('1 of 1');
+  await expect(page.locator('.search-hit-current')).toHaveText('Don\u2019t');
+  await input.fill('"never"');
+  await expect(page.locator('.search-count')).toHaveText('1 of 1');
+  await expect(page.locator('.search-hit-current')).toHaveText('\u201cnever\u201d');
+});

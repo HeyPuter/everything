@@ -126,3 +126,10 @@ it('ignores accents, as PDF readers do by default, and keeps highlights on the a
   // Marks that make another letter are not accents: ka and ga stay apart.
   expect(searchQuery('が')).not.toBe(searchQuery('か'));
 });
+
+it('matches straight quotes typed in a query to typographic quotes on the page', () => {
+  const index = indexPageText([{ str: 'Don\u2019t say \u201cnever\u201d' }]);
+  expect(index.text.indexOf(searchQuery("don't"))).toBe(0);
+  expect(index.text.indexOf(searchQuery('"never"'))).toBe(10);
+  expect(index.origins[0].length).toBe(index.text.length);
+});

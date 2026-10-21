@@ -2,12 +2,17 @@ const normalize = (value) => value.replace(/\s+/g, ' ');
 // The combining accents of Latin, Greek, and Cyrillic letters. Marks that change a letter
 // elsewhere (kana voicing, Indic viramas) are kept.
 const DIACRITICS = /[\u0300-\u036f\u1ab0-\u1aff\u1dc0-\u1dff\u20d0-\u20ff\ufe20-\ufe2f]/g;
+// Typographic quotes, which a typed query almost never has: "don't" finds "don’t".
+const SINGLE_QUOTES = /[\u2018-\u201b\u2032]/g,
+  DOUBLE_QUOTES = /[\u201c-\u201f\u2033]/g;
 // Lowercasing is context-sensitive for Greek sigma, so fold the final form to match prefixes.
 // Accents are ignored, as PDF readers ignore them by default: "cafe" finds "café".
 const fold = (value) =>
   value
     .toLowerCase()
     .replace(/\u03c2/g, '\u03c3')
+    .replace(SINGLE_QUOTES, "'")
+    .replace(DOUBLE_QUOTES, '"')
     .normalize('NFD')
     .replace(DIACRITICS, '')
     .normalize('NFC');
