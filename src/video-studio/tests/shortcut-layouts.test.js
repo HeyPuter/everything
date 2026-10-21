@@ -172,3 +172,63 @@ describe('shortcuts dialog layouts', () => {
     expect(commands.keyFor('marker')).toBe('F');
   });
 });
+
+describe('shortcuts dialog accessibility', () => {
+  const tabs = () => [...document.querySelectorAll('.shortcut-tab')];
+  const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+
+  it('announces a match count while searching instead of reading out the whole list', () => {
+    const { commands } = setup();
+    openShortcutsDialog(commands);
+    const list = document.querySelector('.shortcut-list');
+    expect(list.getAttribute('aria-live')).toBeNull();
+    const search = document.querySelector('.shortcut-search');
+    search.value = 'split';
+    search.dispatchEvent(new Event('input'));
+    const n = document.querySelectorAll('.shortcut-row').length;
+    expect(n).toBeGreaterThan(0);
+    expect(document.querySelector('.shortcut-count').textContent).toBe(`${n} command${n === 1 ? '' : 's'}`);
+    expect(document.querySelector('.shortcut-count').getAttribute('role')).toBe('status');
+    search.value = 'zzzz';
+    search.dispatchEvent(new Event('input'));
+    expect(document.querySelector('.shortcut-count').textContent).toBe('No commands match');
+  });
+
+  it('puts a chip back when another chip starts recording', () => {
+    const { commands } = setup();
+    const d = openShortcutsDialog(commands);
+    const chips = [...document.querySelectorAll('.kbd-chip:not(.add)')];
+    const [a, b] = chips;
+    const label = a.textContent;
+    a.click();
+    expect(a.textContent).toBe('Press keys...');
+    b.click();
+    expect(a.textContent).toBe(label);
+    expect(a.classList.contains('recording')).toBe(false);
+    expect(b.textContent).toBe('Press keys...');
+    d.close();
+  });
+
+  it('group tabs follow the tabs pattern: one tab stop, arrow keys, a labelled tab panel', () => {
+    const { commands } = setup();
+    openShortcutsDialog(commands);
+    const panel = document.querySelector('.shortcut-list');
+    expect(panel.getAttribute('role')).toBe('tabpanel');
+    expect(tabs().filter((t) => t.tabIndex === 0)).toHaveLength(1);
+    expect(tabs()[0].getAttribute('aria-controls')).toBe(panel.id);
+    expect(panel.getAttribute('aria-labelledby')).toBe(tabs()[0].id);
+    tabs()[0].focus();
+    key(tabs()[0], 'ArrowRight');
+    const second = tabs()[1];
+    expect(second.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(second);
+    expect(second.tabIndex).toBe(0);
+    expect(panel.getAttribute('aria-labelledby')).toBe(second.id);
+    key(second, 'End');
+    expect(document.activeElement).toBe(tabs()[tabs().length - 1]);
+    key(document.activeElement, 'ArrowRight');
+    expect(document.activeElement).toBe(tabs()[0]);
+    key(document.activeElement, 'ArrowLeft');
+    expect(document.activeElement).toBe(tabs()[tabs().length - 1]);
+  });
+});

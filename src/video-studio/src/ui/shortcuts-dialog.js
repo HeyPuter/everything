@@ -62,15 +62,20 @@ export function askKeepCustom(count, layoutLabel) {
   return d.result.then((v) => (v === 'keep' || v === 'discard' ? v : null));
 }
 
+let dialogSeq = 0;
+
 export function openShortcutsDialog(commands) {
+  const uid = `shortcuts-${++dialogSeq}`;
   let group = 'All';
   let query = '';
-  let recording = null; // { id, chip, onKey }
+  let recording = null; // { id, chip, label, onKey }
   const search = h('input.input.shortcut-search', { type: 'search', placeholder: 'Search commands or keys', 'aria-label': 'Search shortcuts' });
   const baseGroups = ['All', ...SHORTCUT_GROUPS.filter((g) => commands.list.some((c) => c.group === g))];
   const tabList = h('div.shortcut-tabs', { role: 'tablist', 'aria-label': 'Shortcut groups' });
-  const list = h('div.shortcut-list', { role: 'region', 'aria-live': 'polite' });
+  const list = h('div.shortcut-list', { id: `${uid}-panel`, role: 'tabpanel' });
   const status = h('p.shortcut-status', { role: 'status' });
+  // Searching announces how many commands match, not the whole re-rendered list.
+  const count = h('p.sr-only.shortcut-count', { role: 'status' });
   const conflictBox = h('div.shortcut-conflicts', { role: 'status' });
 
   // ---- Layout -------------------------------------------------------------
@@ -123,26 +128,43 @@ export function openShortcutsDialog(commands) {
 
   const renderTabs = () => {
     const groupNames = conflictIds.size ? [...baseGroups, 'Conflicts'] : baseGroups;
-    tabList.replaceChildren(...groupNames.map((g) => {
-      const b = h(`button.shortcut-tab${g === 'Conflicts' ? '.is-warning' : ''}`, { type: 'button', role: 'tab', 'aria-selected': String(g === group) }, g);
-      b.addEventListener('click', () => {
-        group = g;
-        renderTabs();
-        renderList();
-      });
+    const hadFocus = tabList.contains(document.activeElement);
+    const select = (g) => {
+      group = g;
+      renderTabs();
+      renderList();
+    };
+    tabList.replaceChildren(...groupNames.map((g, i) => {
+      const on = g === group;
+      const b = h(`button.shortcut-tab${g === 'Conflicts' ? '.is-warning' : ''}`, { type: 'button', role: 'tab', id: `${uid}-tab-${i}`, 'aria-selected': String(on), 'aria-controls': list.id, tabindex: on ? '0' : '-1' }, g);
+      b.addEventListener('click', () => select(g));
       return b;
     }));
+    const current = tabList.querySelector('[aria-selected="true"]');
+    list.setAttribute('aria-labelledby', current?.id || '');
+    if (hadFocus) current?.focus();
+    // Arrow keys, Home and End move between groups (selection follows focus).
+    tabList.onkeydown = (e) => {
+      const i = groupNames.indexOf(group);
+      const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: groupNames.length - 1 }[e.key];
+      if (next === undefined) return;
+      e.preventDefault();
+      select(groupNames[(next + groupNames.length) % groupNames.length]);
+      tabList.querySelector('[aria-selected="true"]')?.focus();
+    };
   };
 
   const stopRecording = () => {
     if (!recording) return;
     document.removeEventListener('keydown', recording.onKey, true);
     recording.chip.classList.remove('recording');
+    recording.chip.textContent = recording.label;
     recording = null;
   };
 
   const record = (cmd, chip, index) => {
     stopRecording();
+    const label = chip.textContent;
     chip.classList.add('recording');
     chip.textContent = 'Press keys...';
     status.textContent = `Press the new shortcut for "${cmd.label}". Escape cancels.`;
@@ -180,7 +202,7 @@ export function openShortcutsDialog(commands) {
       announce(status.textContent);
       renderAll();
     };
-    recording = { id: cmd.id, chip, onKey };
+    recording = { id: cmd.id, chip, label, onKey };
     document.addEventListener('keydown', onKey, true);
   };
 
@@ -220,6 +242,8 @@ export function openShortcutsDialog(commands) {
   search.addEventListener('input', () => {
     query = search.value;
     renderList();
+    const n = list.querySelectorAll('.shortcut-row').length;
+    count.textContent = !query.trim() ? '' : n ? `${n} command${n === 1 ? '' : 's'}` : 'No commands match';
   });
   // Every edit can add or clear a conflict, so the whole view follows.
   function renderAll() {
@@ -234,7 +258,7 @@ export function openShortcutsDialog(commands) {
   const done = h('button.btn.primary', { type: 'button' }, 'Done');
   const d = openDialog({
     title: 'Keyboard shortcuts',
-    body: h('div.shortcuts-editor', layoutRow, h('div.shortcut-top', tabList, search), conflictBox, list, status),
+    body: h('div.shortcuts-editor', layoutRow, h('div.shortcut-top', tabList, search), conflictBox, list, status, count),
     actions: [resetAll, h('span.spacer'), done],
     wide: true,
     className: 'shortcuts-dialog',
