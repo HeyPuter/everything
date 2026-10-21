@@ -83,10 +83,15 @@ async function wavePeaks(id, { blob, rate }) {
         for (let i = 0; i < n; i++) mono[i] += plane[i] / chs;
       }
       const buckets = Math.max(1, Math.round((n / sample.sampleRate) * rate));
-      const p = peaks(mono, buckets);
-      const at = Math.round(sample.timestamp * rate);
+      let p = peaks(mono, buckets);
+      let at = Math.round(sample.timestamp * rate);
+      // AAC priming packets are stamped before zero: keep only what lies after it.
+      if (at < 0) {
+        p = p.subarray(Math.min(buckets, -at) * 2);
+        at = 0;
+      }
       chunks.push({ at, p });
-      total = Math.max(total, at + buckets);
+      total = Math.max(total, at + p.length / 2);
       duration = Math.max(duration, sample.timestamp + sample.duration);
       sample.close();
     }
