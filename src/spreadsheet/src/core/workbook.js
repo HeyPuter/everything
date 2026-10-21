@@ -12557,6 +12557,8 @@ export class Workbook extends EventTarget {
       const circled = !this._iteration && this._cyclic.has(key);
       value = circled ? err('#CYCLE!') : withArrayBudget(() => evaluateFormula(ast, ctx));
       raw = value;
+      // A union of references, (A1,A2), is no value a cell can show or spill out: #VALUE!, as in Excel.
+      if (isRange(value) && value.areas?.length > 1 && !value.sheetSpan) value = err('#VALUE!');
       if (fixed) value = this._fixedResult(sheet, r, c, value, ctx.fixedArray.randomized);
       else if (isRange(value)) value = this._spillResult(sheet, r, c, value, arrayCandidate);
       else {
