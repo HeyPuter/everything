@@ -54,6 +54,7 @@ import { renderContext } from '../render/context';
 import { renderSceneHooks, renderVisibleObjects } from '../render/final/renderscene';
 import { buildStrokeBuffers, type StrokeBuffers, type StrokeStyle } from './geometry';
 import { gpOf, frameAt, onionFrames, onionAlpha, slotStyle } from './data';
+import { evaluatedDrawing } from './curves';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
 import { activeModifiers, layerFrame, evaluateDrawing, generatorTypes } from './modifiers';
 import { applyEffects } from './effectsgl';
@@ -319,7 +320,7 @@ export function resetArrayIds() {
 }
 
 export function drawingKey(d: GPDrawing) {
-  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}`;
+  return `${aid(d.position)}.${aid(d.radius)}.${aid(d.opacity)}.${aid(d.vertex_color)}.${aid(d.offsets)}.${aid(d.cyclic)}.${aid(d.material_index)}.${aid(d.start_cap)}.${aid(d.end_cap)}.${aid(d.fill_color)}.${aid(d.fill_opacity)}.${aid(d.fill_id)}.${aid(d.stroke_type)}.${aid(d.is_fill_guide)}.${aid(d.miter_angle)}.${aid(d.uv_translation)}.${aid(d.uv_rotation)}.${aid(d.uv_scale)}`;
 }
 
 interface CachedGeo {
@@ -351,11 +352,13 @@ function styleKey(styles: (StrokeStyle | null)[]) {
   return styles.map((s) => (s ? `${+s.stroke}${+s.fill}${s.mode}${s.alignment ?? ''}${s.color.join(',')}|${s.fillColor.join(',')}|${s.gradient ? JSON.stringify(s.gradient) : ''}|${+!!s.holdoutStroke}${+!!s.holdoutFill}` : '-')).join(';');
 }
 
-function cachedGeometry(d: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false): CachedGeo {
-  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}`;
+function cachedGeometry(d0: GPDrawing, styles: (StrokeStyle | null)[], radiusOffset: number, holdout = false, guides = false): CachedGeo {
+  // smooth strokes (Bézier, NURBS, Catmull-Rom) draw their evaluated poly lines
+  const d = evaluatedDrawing(d0);
+  const key = `${drawingKey(d)}#${styleKey(styles)}#${radiusOffset}#${+holdout}#${+guides}`;
   let c = geoCache.get(key);
   if (!c) {
-    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout);
+    const b = buildStrokeBuffers(d, styles, 0, radiusOffset, holdout, guides);
     c = { geo: geometryFromBuffers(b), orders: b.orderEnd, used: syncTick };
     geoCache.set(key, c);
   }
@@ -584,13 +587,14 @@ export function objectEntries(doc: DocumentData, gp: GreasePencilData, frame: nu
     let d = fr ? gp.drawings[fr.drawing] : undefined;
     if (!d || (d.offsets.length < 2 && !mods.some((m) => generatorTypes.has(m.type)))) return;
     if (ob && mods.length) {
+      d = evaluatedDrawing(d);
       const k = layer.frames.indexOf(fr!);
       const prev = k > 0 ? gp.drawings[layer.frames[k - 1].drawing] : undefined;
       d = evaluateDrawing(d, { doc, ob, gp, layer, layerIndex: li, frame: shownFrame, keyFrame: fr!.frame_number, nextKeyFrame: layer.frames[k + 1]?.frame_number ?? null, prevStrokeCount: prev ? prev.offsets.length - 1 : 0, world: obWorld.clone().multiply(layerMatrix(layer)) }, mods);
       if (d.offsets.length < 2) return;
     }
     if (ob) for (const hk of drawingDisplayHooks) d = hk(ob, gp, d) ?? d;
-    const c = cachedGeometry(d, styles, layer.radius_offset);
+    const c = cachedGeometry(d, styles, layer.radius_offset, false, !render);
     const masks = layer.use_masks ? maskGeometry(gp, layer, frame, styles) : undefined;
     entries.push({
       masks,
@@ -1118,7 +1122,7 @@ export function setStrokePreview(obId: string | null, d: GPDrawing | null, layer
   if (!preview) preview = { obId: s.id, mesh: newGPMesh(s.id) };
   const gp = gpOf(app.doc, app.doc.objects[s.id]);
   if (!gp) return;
-  const b = buildStrokeBuffers(d, materialStyles(app.doc, gp), 0, layer?.radius_offset ?? 0);
+  const b = buildStrokeBuffers(evaluatedDrawing(d), materialStyles(app.doc, gp), 0, layer?.radius_offset ?? 0, false, true);
   preview.mesh.geometry.dispose();
   preview.mesh.geometry = geometryFromBuffers(b);
   const u = preview.mesh.material.uniforms;

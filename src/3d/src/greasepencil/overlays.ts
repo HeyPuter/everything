@@ -8,7 +8,7 @@ import { viewportExtensions } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
 import { renderContext } from '../render/context';
 import { h } from '../ui/h';
-import { checkbox, numberField, colorSwatch } from '../ui/widgets';
+import { checkbox, numberField, colorSwatch, enumMenu } from '../ui/widgets';
 import { gpOf, gpTS } from './data';
 
 export interface GPOverlay {
@@ -83,6 +83,26 @@ overlayPopoverHooks.push((v) => {
       ? [
           h('div', { class: 'pop-grid' }, checkbox('gpo-lines', 'Edit Lines', o.use_gpencil_edit_lines !== false, set('use_gpencil_edit_lines')), checkbox('gpo-mlines', 'Only in Multiframe', !!o.use_gpencil_multiedit_line_only, set('use_gpencil_multiedit_line_only'))),
           numberField({ id: 'gpo-vop', label: 'Vertex Opacity', value: o.vertex_opacity, min: 0, max: 1, slider: true, set: (x) => set('vertex_opacity')(x) }),
+          app.doc.mode === 'EDIT'
+            ? h(
+                'div',
+                { class: 'pop-line' },
+                h('span', null, 'Handles'),
+                enumMenu(
+                  'gpo-handles',
+                  [
+                    { value: 'ALL', label: 'All' },
+                    { value: 'SELECTED', label: 'Selected' },
+                    { value: 'NONE', label: 'None' },
+                  ],
+                  v.overlay.display_handle ?? 'SELECTED',
+                  (x) => {
+                    v.overlay.display_handle = x as 'ALL';
+                    app.changed('ui');
+                  },
+                ),
+              )
+            : null,
         ]
       : null,
   ];

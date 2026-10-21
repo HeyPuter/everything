@@ -2,6 +2,7 @@
 // lookup and onion skin ranges. Pure document logic (no DOM / WebGL) so it can be unit tested.
 import type { DocumentData, ObjectData, MaterialData, ID, Color } from '../data/types';
 import { uid, newMaterial } from '../data/defaults';
+import { ensureHandles, deriveHandles } from './curves';
 import type { GPDrawing, GPFrame, GPLayer, GreasePencilData, MaterialGPencilStyle, GPToolSettings, GPBrush, GPKeyframeType } from './types';
 
 // ---------------------------------------------------------------------------
@@ -16,6 +17,15 @@ export interface GPPoint {
   select?: boolean;
   /** vertex group weights by group name */
   weights?: Record<string, number>;
+  /** Bézier handles (layer space) and their types (0 free, 1 auto, 2 vector, 3 align) */
+  handle_left?: [number, number, number];
+  handle_right?: [number, number, number];
+  handle_type_left?: number;
+  handle_type_right?: number;
+  select_left?: boolean;
+  select_right?: boolean;
+  /** corner limit angle (radians; 0 = round) */
+  miter_angle?: number;
 }
 
 export interface GPStroke {
@@ -27,6 +37,19 @@ export interface GPStroke {
   fill_color: [number, number, number, number];
   fill_opacity: number;
   fill_id: number;
+  /** spline type (0 Catmull-Rom, 1 poly, 2 Bézier, 3 NURBS; default poly) and its settings */
+  curve_type?: number;
+  resolution?: number;
+  nurbs_order?: number;
+  knots_mode?: number;
+  /** 0 material, 1 stroke only, 2 fill only, 3 stroke and fill */
+  stroke_type?: number;
+  /** fill texture transform */
+  uv_translation?: [number, number];
+  uv_rotation?: number;
+  uv_scale?: [number, number];
+  /** Fill tool helper line */
+  is_fill_guide?: boolean;
 }
 
 export function newStroke(points: GPPoint[], o: Partial<Omit<GPStroke, 'points'>> = {}): GPStroke {
@@ -68,6 +91,28 @@ export function emptyDrawing(): GPDrawing {
 export const strokeCount = (d: GPDrawing) => d.offsets.length - 1;
 export const pointCount = (d: GPDrawing) => d.position.length / 3;
 
+/** Optional per stroke / per point arrays: removed when their length does not match. */
+const OPT_CURVE: [keyof GPDrawing, number][] = [
+  ['curve_type', 1],
+  ['resolution', 1],
+  ['nurbs_order', 1],
+  ['knots_mode', 1],
+  ['stroke_type', 1],
+  ['uv_translation', 2],
+  ['uv_rotation', 1],
+  ['uv_scale', 2],
+  ['is_fill_guide', 1],
+];
+const OPT_POINT: [keyof GPDrawing, number][] = [
+  ['handle_left', 3],
+  ['handle_right', 3],
+  ['handle_type_left', 1],
+  ['handle_type_right', 1],
+  ['select_handle_left', 1],
+  ['select_handle_right', 1],
+  ['miter_angle', 1],
+];
+
 /** Fill in arrays missing from older/foreign data. */
 export function normalizeDrawing(d: GPDrawing): GPDrawing {
   const n = d.position.length / 3,
@@ -83,6 +128,16 @@ export function normalizeDrawing(d: GPDrawing): GPDrawing {
   if (!d.fill_color || d.fill_color.length !== c * 4) d.fill_color = new Float32Array(c * 4);
   if (!d.fill_opacity || d.fill_opacity.length !== c) d.fill_opacity = new Float32Array(c).fill(1);
   if (!d.fill_id || d.fill_id.length !== c) d.fill_id = new Int32Array(c);
+  for (const [k, w] of OPT_CURVE) {
+    const a = d[k] as { length: number } | undefined;
+    if (a && a.length !== c * w) delete d[k];
+  }
+  for (const [k, w] of OPT_POINT) {
+    const a = d[k] as { length: number } | undefined;
+    if (a && a.length !== n * w) delete d[k];
+  }
+  if (!d.curve_type) for (const k of ['resolution', 'nurbs_order', 'knots_mode'] as const) delete d[k];
+  ensureHandles(d);
   if (d.weights)
     for (const [k, w] of Object.entries(d.weights))
       if (!w || w.length !== n) {
@@ -97,8 +152,28 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
   const out: GPStroke[] = [];
   const sel = d.select;
   const groups = d.weights ? Object.entries(d.weights) : [];
-  for (let s = 0; s < strokeCount(d); s++) {
+  const nPts = d.position.length / 3,
+    nStr = strokeCount(d);
+  const at = <T extends { length: number }>(a: T | undefined, len: number) => (a && a.length === len ? a : undefined);
+  const ct = at(d.curve_type, nStr),
+    res = at(d.resolution, nStr),
+    ord = at(d.nurbs_order, nStr),
+    km = at(d.knots_mode, nStr),
+    sty = at(d.stroke_type, nStr),
+    uvt = at(d.uv_translation, nStr * 2),
+    uvr = at(d.uv_rotation, nStr),
+    uvs = at(d.uv_scale, nStr * 2),
+    guide = at(d.is_fill_guide, nStr);
+  const hl = at(d.handle_left, nPts * 3),
+    hr = at(d.handle_right, nPts * 3),
+    htl = at(d.handle_type_left, nPts),
+    htr = at(d.handle_type_right, nPts),
+    shl = at(d.select_handle_left, nPts),
+    shr = at(d.select_handle_right, nPts),
+    miter = at(d.miter_angle, nPts);
+  for (let s = 0; s < nStr; s++) {
     const pts: GPPoint[] = [];
+    const bez = ct?.[s] === 2 && hl && hr && htl && htr;
     for (let i = d.offsets[s]; i < d.offsets[s + 1]; i++) {
       const p: GPPoint = {
         co: [d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]],
@@ -111,9 +186,18 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
         p.weights = {};
         for (const [k, w] of groups) if (w[i]) p.weights[k] = w[i];
       }
+      if (bez) {
+        p.handle_left = [hl[i * 3], hl[i * 3 + 1], hl[i * 3 + 2]];
+        p.handle_right = [hr[i * 3], hr[i * 3 + 1], hr[i * 3 + 2]];
+        p.handle_type_left = htl[i];
+        p.handle_type_right = htr[i];
+        if (shl?.[i]) p.select_left = true;
+        if (shr?.[i]) p.select_right = true;
+      }
+      if (miter?.[i]) p.miter_angle = miter[i];
       pts.push(p);
     }
-    out.push({
+    const st: GPStroke = {
       points: pts,
       cyclic: !!d.cyclic[s],
       material_index: d.material_index[s],
@@ -122,7 +206,19 @@ export function toStrokes(d: GPDrawing): GPStroke[] {
       fill_color: [d.fill_color[s * 4], d.fill_color[s * 4 + 1], d.fill_color[s * 4 + 2], d.fill_color[s * 4 + 3]],
       fill_opacity: d.fill_opacity[s],
       fill_id: d.fill_id[s],
-    });
+    };
+    if (ct && ct[s] !== 1) {
+      st.curve_type = ct[s];
+      if (res) st.resolution = res[s];
+      if (ord) st.nurbs_order = ord[s];
+      if (km) st.knots_mode = km[s];
+    }
+    if (sty?.[s]) st.stroke_type = sty[s];
+    if (uvt && (uvt[s * 2] || uvt[s * 2 + 1])) st.uv_translation = [uvt[s * 2], uvt[s * 2 + 1]];
+    if (uvr?.[s]) st.uv_rotation = uvr[s];
+    if (uvs && (uvs[s * 2] !== 1 || uvs[s * 2 + 1] !== 1)) st.uv_scale = [uvs[s * 2], uvs[s * 2 + 1]];
+    if (guide?.[s]) st.is_fill_guide = true;
+    out.push(st);
   }
   return out;
 }
@@ -153,9 +249,37 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
     d.weights = {};
     for (const k of names) d.weights[k] = new Float32Array(n);
   }
+  // optional spline / stroke type / texture data, only allocated when some stroke uses it
+  const smooth = list.some((s) => s.curve_type !== undefined && s.curve_type !== 1);
+  const bez = list.some((s) => s.curve_type === 2);
+  if (smooth) {
+    d.curve_type = new Uint8Array(c).fill(1);
+    d.resolution = new Uint16Array(c).fill(12);
+    if (list.some((s) => s.curve_type === 3)) {
+      d.nurbs_order = new Uint8Array(c).fill(4);
+      d.knots_mode = new Uint8Array(c).fill(1);
+    }
+  }
+  if (bez) {
+    d.handle_left = new Float32Array(n * 3);
+    d.handle_right = new Float32Array(n * 3);
+    d.handle_type_left = new Uint8Array(n);
+    d.handle_type_right = new Uint8Array(n);
+    d.select_handle_left = new Uint8Array(n);
+    d.select_handle_right = new Uint8Array(n);
+  }
+  if (list.some((s) => s.stroke_type)) d.stroke_type = new Uint8Array(c);
+  if (list.some((s) => s.uv_translation || s.uv_rotation || s.uv_scale)) {
+    d.uv_translation = new Float32Array(c * 2);
+    d.uv_rotation = new Float32Array(c);
+    d.uv_scale = new Float32Array(c * 2).fill(1);
+  }
+  if (list.some((s) => s.is_fill_guide)) d.is_fill_guide = new Uint8Array(c);
+  if (list.some((s) => s.points.some((p) => p.miter_angle))) d.miter_angle = new Float32Array(n);
   let i = 0;
   list.forEach((s, k) => {
     d.offsets[k] = i;
+    const isBez = s.curve_type === 2;
     for (const p of s.points) {
       if (p.weights && d.weights) for (const [g, w] of Object.entries(p.weights)) d.weights[g][i] = w;
       d.position.set(p.co, i * 3);
@@ -163,6 +287,17 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
       d.opacity[i] = p.opacity;
       d.vertex_color.set(p.vertex_color, i * 4);
       d.select![i] = p.select ? 1 : 0;
+      if (d.handle_left) {
+        // points without handle data (new points of Bézier strokes) get auto handles
+        const has = isBez && p.handle_left && p.handle_right;
+        d.handle_left.set(has ? p.handle_left! : p.co, i * 3);
+        d.handle_right!.set(has ? p.handle_right! : p.co, i * 3);
+        d.handle_type_left![i] = has ? (p.handle_type_left ?? 1) : isBez ? 1 : 0;
+        d.handle_type_right![i] = has ? (p.handle_type_right ?? 1) : isBez ? 1 : 0;
+        d.select_handle_left![i] = isBez && p.select_left ? 1 : 0;
+        d.select_handle_right![i] = isBez && p.select_right ? 1 : 0;
+      }
+      if (d.miter_angle) d.miter_angle[i] = p.miter_angle ?? 0;
       i++;
     }
     d.cyclic[k] = s.cyclic ? 1 : 0;
@@ -172,8 +307,24 @@ export function fromStrokes(strokes: GPStroke[]): GPDrawing {
     d.fill_color.set(s.fill_color, k * 4);
     d.fill_opacity[k] = s.fill_opacity;
     d.fill_id[k] = s.fill_id;
+    if (d.curve_type) {
+      d.curve_type[k] = s.curve_type ?? 1;
+      d.resolution![k] = s.resolution ?? 12;
+      if (d.nurbs_order) {
+        d.nurbs_order[k] = s.nurbs_order ?? 4;
+        d.knots_mode![k] = s.knots_mode ?? 1;
+      }
+    }
+    if (d.stroke_type) d.stroke_type[k] = s.stroke_type ?? 0;
+    if (d.uv_translation) {
+      d.uv_translation.set(s.uv_translation ?? [0, 0], k * 2);
+      d.uv_rotation![k] = s.uv_rotation ?? 0;
+      d.uv_scale!.set(s.uv_scale ?? [1, 1], k * 2);
+    }
+    if (d.is_fill_guide) d.is_fill_guide[k] = s.is_fill_guide ? 1 : 0;
   });
   d.offsets[c] = i;
+  if (bez) deriveHandles(d);
   return d;
 }
 

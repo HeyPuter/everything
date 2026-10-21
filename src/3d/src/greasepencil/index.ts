@@ -35,6 +35,7 @@ import './sculptui';
 import './overlays';
 import './segmentops';
 import './annotations';
+import './curveedit';
 import { addMenuHooks } from '../editors/view3d/menus';
 
 addMenuHooks.push(() => [

@@ -35,6 +35,32 @@ export interface GPDrawing {
   fill_id: Int32Array;
   /** per point weights of the vertex groups, by group name */
   weights?: Record<string, Float32Array>;
+  // --- spline types (absent = every stroke is a poly line) -----------------------------------
+  /** per stroke: 0 Catmull-Rom, 1 poly, 2 Bézier, 3 NURBS */
+  curve_type?: Uint8Array;
+  /** per stroke: evaluated points per segment of smooth types (default 12) */
+  resolution?: Uint16Array;
+  /** per stroke NURBS order (default 4) and knot mode (0 normal, 1 endpoint, 2 Bézier, 3 endpoint + Bézier) */
+  nurbs_order?: Uint8Array;
+  knots_mode?: Uint8Array;
+  /** per point Bézier handles (xyz) and their types (0 free, 1 auto, 2 vector, 3 align) */
+  handle_left?: Float32Array;
+  handle_right?: Float32Array;
+  handle_type_left?: Uint8Array;
+  handle_type_right?: Uint8Array;
+  /** Edit Mode selection of the handles */
+  select_handle_left?: Uint8Array;
+  select_handle_right?: Uint8Array;
+  /** per stroke override of the material's stroke / fill visibility: 0 material, 1 stroke, 2 fill, 3 both */
+  stroke_type?: Uint8Array;
+  /** per point corner limit: joins sharper than this angle are cut (radians, absent / 0 = round) */
+  miter_angle?: Float32Array;
+  /** per stroke fill texture transform (Gradient tool): offset, rotation, scale */
+  uv_translation?: Float32Array;
+  uv_rotation?: Float32Array;
+  uv_scale?: Float32Array;
+  /** per stroke: helper lines drawn with the Fill tool (not rendered, removed by Remove Fill Guides) */
+  is_fill_guide?: Uint8Array;
 }
 
 export interface GPFrame {

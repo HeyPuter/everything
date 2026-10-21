@@ -60,6 +60,9 @@ export function gradientUV(P: ArrayLike<number>, loops: number[][], g: NonNullab
   return pts;
 }
 
+/** Color of the Fill tool's guide lines. */
+export const GUIDE_COLOR: RGBA = [0.1, 0.75, 0.95, 0.9];
+
 /** Primitive kinds stored in aInfo.x */
 export const KIND_FILL = 0,
   KIND_SEGMENT = 1,
@@ -142,7 +145,8 @@ export function fillColorOf(d: GPDrawing, s: number, base: RGBA): RGBA {
  * strokes draw over earlier ones while overlaps inside one stroke never blend twice).
  */
 /** `holdout`: only the holdout strokes / fills (true) or everything else (false). */
-export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0, holdout = false): StrokeBuffers {
+/** `guides`: also draw the Fill tool's guide lines (viewport only). */
+export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[], orderStart = 0, radiusOffset = 0, holdout = false, guides = false): StrokeBuffers {
   const nPts = d.position.length / 3;
   const nStrokes = d.offsets.length - 1;
   const est = nPts * 4 + 64;
@@ -216,9 +220,16 @@ export function buildStrokeBuffers(d: GPDrawing, styles: (StrokeStyle | null)[],
     nv += 4;
   };
 
+  const stype = d.stroke_type && d.stroke_type.length === nStrokes ? d.stroke_type : null;
+  const guide = d.is_fill_guide && d.is_fill_guide.length === nStrokes ? d.is_fill_guide : null;
   for (let s = 0; s < nStrokes; s++) {
-    const st = styles[d.material_index[s]] ?? null;
-    if (!st) continue;
+    const st0 = styles[d.material_index[s]] ?? null;
+    if (!st0) continue;
+    // fill guides only show where the caller asks for them (Fill tool, viewport)
+    if (guide?.[s] && !(guides && !holdout)) continue;
+    // a per stroke type overrides the material's stroke / fill switches
+    const t = guide?.[s] ? 1 : (stype?.[s] ?? 0);
+    const st: StrokeStyle = guide?.[s] ? { ...st0, stroke: true, fill: false, mode: 'LINE', color: GUIDE_COLOR } : t ? { ...st0, stroke: (t & 1) !== 0, fill: (t & 2) !== 0 } : st0;
     const a = d.offsets[s],
       b = d.offsets[s + 1];
     const n = b - a;

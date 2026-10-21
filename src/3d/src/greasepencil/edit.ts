@@ -12,6 +12,7 @@ import { frameHooks } from '../ops/view3d';
 import { renderContext } from '../render/context';
 import { gpOf, gpTS, toStrokes, fromStrokes, frameAt, normalizeDrawing, uniqueLayerName, newLayer, setKeyframe, emptyDrawing, type GPStroke } from './data';
 import { layerMatrix } from './render';
+import { evaluatedDrawing, hasBezier, withDerived, H_ALIGN, H_AUTO, H_FREE, H_VECTOR } from './curves';
 import { smoothPoints, subdivideStroke, joinStrokes, filterPoints, simplifyPoints } from './strokeops';
 import type { GPDrawing, GPLayer, GreasePencilData } from './types';
 import type { ObjectData } from '../data/types';
@@ -269,11 +270,13 @@ function rebuildOverlay(allLines: boolean) {
     w = new Vector3();
   for (const t of editTargets()) {
     const d = drawing(t);
+    // smooth strokes show their edit line along the evaluated curve
+    const ev = evaluatedDrawing(d);
     for (let s = 0; s + 1 < d.offsets.length; s++) {
       const a = d.offsets[s],
         b = d.offsets[s + 1];
       let anySel = false;
-      for (let i = a; i < b; i++) if (d.select![i]) anySel = true;
+      for (let i = a; i < b; i++) if (d.select![i] || d.select_handle_left?.[i] || d.select_handle_right?.[i]) anySel = true;
       for (let i = a; i < b; i++) {
         v.set(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]).applyMatrix4(t.world);
         // in stroke mode only selected strokes show their points
@@ -282,10 +285,18 @@ function rebuildOverlay(allLines: boolean) {
           if (d.select![i]) col.push(1, 0.52, 0);
           else col.push(0.05, 0.05, 0.05);
         }
-        if ((anySel || allLines) && i + 1 < b) {
-          w.set(d.position[i * 3 + 3], d.position[i * 3 + 4], d.position[i * 3 + 5]).applyMatrix4(t.world);
-          (anySel ? seg : dim).push(v.x, v.y, v.z, w.x, w.y, w.z);
-        }
+      }
+      if (!anySel && !allLines) continue;
+      const L = ev === d ? d : ev;
+      const ea = L.offsets[s],
+        eb = L.offsets[s + 1];
+      const closed = !!d.cyclic[s] && eb - ea > 2;
+      for (let i = ea; i < eb; i++) {
+        const j = i + 1 < eb ? i + 1 : closed ? ea : -1;
+        if (j < 0) break;
+        v.set(L.position[i * 3], L.position[i * 3 + 1], L.position[i * 3 + 2]).applyMatrix4(t.world);
+        w.set(L.position[j * 3], L.position[j * 3 + 1], L.position[j * 3 + 2]).applyMatrix4(t.world);
+        (anySel ? seg : dim).push(v.x, v.y, v.z, w.x, w.y, w.z);
       }
     }
   }
@@ -338,46 +349,121 @@ transformProviders.unshift({
     const scaleThickness = (gpTS(app.doc) as unknown as { use_scale_thickness?: boolean }).use_scale_thickness !== false;
     for (const t of editTargets()) {
       const d0 = drawing(t);
-      if (!d0.select!.some((x) => x) && !pts?.get(t.idx)?.some((x) => x > 0)) continue;
+      const bez = hasBezier(d0);
+      const handleSel = bez && (d0.select_handle_left!.some((x) => x) || d0.select_handle_right!.some((x) => x));
+      if (!d0.select!.some((x) => x) && !handleSel && !pts?.get(t.idx)?.some((x) => x > 0)) continue;
       const before = d0.position;
       const rBefore = d0.radius;
-      const d = { ...d0, position: d0.position.slice(), radius: d0.radius.slice() };
+      const hl0 = d0.handle_left,
+        hr0 = d0.handle_right,
+        tl0 = d0.handle_type_left,
+        tr0 = d0.handle_type_right;
+      const d: GPDrawing = { ...d0, position: d0.position.slice(), radius: d0.radius.slice() };
+      if (bez) Object.assign(d, { handle_left: hl0!.slice(), handle_right: hr0!.slice(), handle_type_left: tl0!.slice(), handle_type_right: tr0!.slice() });
       setDrawing(t, d);
       live.push({ t, d });
-      restores.push(() => setDrawing(t, { ...d, position: before, radius: rBefore }));
+      restores.push(() => setDrawing(t, { ...d, position: before, radius: rBefore, ...(bez ? { handle_left: hl0, handle_right: hr0, handle_type_left: tl0, handle_type_right: tr0 } : {}) }));
       const inv = t.world.clone().invert();
       const basis = new Matrix3().setFromMatrix4(t.world);
       const pw = pts?.get(t.idx);
+      const W = (a: Float32Array, i: number) => new Vector3(a[i * 3], a[i * 3 + 1], a[i * 3 + 2]).applyMatrix4(t.world);
+      const put = (a: Float32Array, i: number, q: Vector3) => {
+        a[i * 3] = q.x;
+        a[i * 3 + 1] = q.y;
+        a[i * 3 + 2] = q.z;
+      };
+      const restoreTo = (a: Float32Array, b: Float32Array, i: number) => a.set(b.subarray(i * 3, i * 3 + 3), i * 3);
       for (let i = 0; i < d.select!.length; i++) {
         const w = d.select![i] ? 1 : (pw?.[i] ?? 0);
-        if (w <= 0) continue;
-        const p0 = new Vector3(before[i * 3], before[i * 3 + 1], before[i * 3 + 2]).applyMatrix4(t.world);
         const q = new Vector3();
+        if (w <= 0) {
+          // handles moved on their own (their point stays)
+          if (!bez) continue;
+          for (const side of ['L', 'R'] as const) {
+            const sel = side === 'L' ? d.select_handle_left! : d.select_handle_right!;
+            if (!sel[i]) continue;
+            const arr = side === 'L' ? d.handle_left! : d.handle_right!,
+              src = side === 'L' ? hl0! : hr0!;
+            const other = side === 'L' ? d.handle_right! : d.handle_left!,
+              otherSrc = side === 'L' ? hr0! : hl0!;
+            const tOwn = side === 'L' ? d.handle_type_left! : d.handle_type_right!,
+              tOther = side === 'L' ? d.handle_type_right! : d.handle_type_left!;
+            const own0 = (side === 'L' ? tl0! : tr0!)[i],
+              oth0 = (side === 'L' ? tr0! : tl0!)[i];
+            const h0 = W(src, i);
+            els.push({
+              center: h0,
+              basis,
+              weight: 1,
+              apply(m: Matrix4) {
+                q.copy(h0).applyMatrix4(m).applyMatrix4(inv);
+                put(arr, i, q);
+                // moving a derived handle makes it editable: auto → aligned, vector → free
+                if (own0 === H_AUTO) {
+                  tOwn[i] = H_ALIGN;
+                  if (oth0 === H_AUTO) tOther[i] = H_ALIGN;
+                } else if (own0 === H_VECTOR) tOwn[i] = H_FREE;
+                // aligned pair: the other handle turns to stay opposite (keeping its length)
+                if (tOwn[i] === H_ALIGN && tOther[i] === H_ALIGN) {
+                  const p = new Vector3(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]);
+                  const dir = p.clone().sub(q);
+                  const l = new Vector3(otherSrc[i * 3], otherSrc[i * 3 + 1], otherSrc[i * 3 + 2]).distanceTo(p);
+                  if (dir.lengthSq() > 1e-18) put(other, i, p.add(dir.normalize().multiplyScalar(l)));
+                }
+              },
+              restore() {
+                restoreTo(arr, src, i);
+                restoreTo(other, otherSrc, i);
+                tOwn[i] = own0;
+                tOther[i] = oth0;
+              },
+            });
+          }
+          continue;
+        }
+        const p0 = W(before, i);
+        const hl = bez ? W(hl0!, i) : null,
+          hr = bez ? W(hr0!, i) : null;
         els.push({
           center: p0,
           basis,
           weight: w,
           apply(m: Matrix4, c: { mode: string }) {
             q.copy(p0).applyMatrix4(m).applyMatrix4(inv);
-            d.position[i * 3] = q.x;
-            d.position[i * 3 + 1] = q.y;
-            d.position[i * 3 + 2] = q.z;
+            put(d.position, i, q);
+            // handles travel with their point
+            if (hl && hr) {
+              put(d.handle_left!, i, q.copy(hl).applyMatrix4(m).applyMatrix4(inv));
+              put(d.handle_right!, i, q.copy(hr).applyMatrix4(m).applyMatrix4(inv));
+            }
             // Scale Thickness: scaling also scales the stroke radius
             if (c.mode === 'RESIZE' && scaleThickness) d.radius[i] = rBefore[i] * Math.cbrt(Math.abs(m.determinant()));
           },
           restore() {
-            d.position[i * 3] = before[i * 3];
-            d.position[i * 3 + 1] = before[i * 3 + 1];
-            d.position[i * 3 + 2] = before[i * 3 + 2];
+            restoreTo(d.position, before, i);
             d.radius[i] = rBefore[i];
+            if (hl) {
+              restoreTo(d.handle_left!, hl0!, i);
+              restoreTo(d.handle_right!, hr0!, i);
+            }
           },
         });
       }
     }
     if (!els.length) return null;
     const bump = () => {
-      // the elements write into private arrays; publish a copy (new identity → GPU rebuild)
-      for (const { t, d } of live) setDrawing(t, { ...d, position: d.position.slice(), radius: d.radius.slice() });
+      // the elements write into private arrays; publish a copy (new identity → GPU rebuild);
+      // auto / vector handles follow the moved points
+      for (const { t, d } of live)
+        setDrawing(
+          t,
+          withDerived({
+            ...d,
+            position: d.position.slice(),
+            radius: d.radius.slice(),
+            ...(d.handle_type_left ? { handle_type_left: d.handle_type_left.slice(), handle_type_right: d.handle_type_right!.slice() } : {}),
+          }),
+        );
     };
     return {
       elements: els,
@@ -502,6 +588,11 @@ registerOperators([
         withSelection(t, (sel, d) => {
           for (let i = 0; i < sel.length; i++) sel[i] = a === 'SELECT' ? 1 : a === 'DESELECT' ? 0 : sel[i] ^ 1;
           if (a === 'INVERT' && strokeMode()) expandToStrokes(d);
+          // handles count as part of their point here
+          if (d.select_handle_left) {
+            d.select_handle_left = new Uint8Array(sel.length);
+            d.select_handle_right = new Uint8Array(sel.length);
+          }
         });
       app.changed('select');
     },
