@@ -47,3 +47,33 @@ test('Alt + mouse wheel steps frames over any editor', async ({ page }) => {
   await expect.poll(frame).toBe(f0 + 1);
   await expectNoErrors(errors);
 });
+
+test('the mouse back button runs keymap items and never leaves the page', async ({ page }) => {
+  const errors = await openApp(page);
+  const url = page.url();
+  const o = (await page.locator('.area[data-editor="OUTLINER"]').boundingBox())!;
+  await page.mouse.move(o.x + o.width / 2, o.y + o.height - 10);
+  const ran = await page.evaluate(() => {
+    const a = (window as any).app;
+    const seen: string[] = [];
+    const orig = a.run.bind(a);
+    a.run = (id: string, ...rest: unknown[]) => (seen.push(id), orig(id, ...rest));
+    (window as any).__seen = seen;
+    return true;
+  });
+  expect(ran).toBe(true);
+  // the test driver has no back button: send the events the browser would
+  const prevented = await page.evaluate(([x, y]) => {
+    const el = document.elementFromPoint(x, y)!;
+    const init = { bubbles: true, cancelable: true, button: 3, clientX: x, clientY: y };
+    const down = new MouseEvent('mousedown', init);
+    el.dispatchEvent(down);
+    const up = new MouseEvent('mouseup', init);
+    el.dispatchEvent(up);
+    return down.defaultPrevented && up.defaultPrevented;
+  }, [o.x + o.width / 2, o.y + o.height - 10]);
+  expect(prevented).toBe(true);
+  expect(await page.evaluate(() => (window as any).__seen)).toContain('outliner.show_active');
+  expect(page.url()).toBe(url);
+  await expectNoErrors(errors);
+});

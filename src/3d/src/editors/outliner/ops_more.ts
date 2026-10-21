@@ -504,6 +504,7 @@ kindMenuHooks.action = (ol, r): MenuItem[] => [
 // keys (Outliner keymap)
 
 addKeys('Outliner', [
+  { key: 'BUTTON4MOUSE', op: 'outliner.show_active' },
   { key: 'K', op: 'outliner.keyingset_add_selected' },
   { key: 'K', alt: true, op: 'outliner.keyingset_remove_selected' },
   { key: 'D', ctrl: true, op: 'outliner.drivers_add_selected' },

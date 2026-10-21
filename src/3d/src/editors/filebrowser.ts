@@ -1314,6 +1314,8 @@ registerOperators([
 ]);
 
 addKeys('File Browser', [
+  { key: 'BUTTON4MOUSE', op: 'file.previous' },
+  { key: 'BUTTON5MOUSE', op: 'file.next' },
   ...DIRS.flatMap(([d]) => [
     { key: `${d}_ARROW`, op: 'file.select_walk', props: { direction: d } },
     { key: `${d}_ARROW`, shift: true, op: 'file.select_walk', props: { direction: d, extend: true } },

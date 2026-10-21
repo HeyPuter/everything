@@ -141,6 +141,8 @@ const NICE: Record<string, string> = {
   MEDIA_STOP: 'Media Stop',
   MEDIA_FIRST: 'Media Previous',
   MEDIA_LAST: 'Media Next',
+  BUTTON4MOUSE: 'Mouse Back',
+  BUTTON5MOUSE: 'Mouse Forward',
   WHEELUPMOUSE: 'Wheel Up',
   WHEELDOWNMOUSE: 'Wheel Down',
 };
@@ -240,9 +242,24 @@ function onWheel(e: WheelEvent) {
   }
 }
 
+/** The extra mouse buttons (back / forward) run keymap items BUTTON4MOUSE / BUTTON5MOUSE. */
+function onExtraButton(e: MouseEvent) {
+  if (e.button !== 3 && e.button !== 4) return;
+  // never let them navigate the page away
+  e.preventDefault();
+  if (e.type !== 'mousedown' || app.modal || pieOpen()) return;
+  const area = app.hoverArea ?? app.activeArea;
+  const editor = area?.editor as EditorKeys | undefined;
+  const ev = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, repeat: false, preventDefault: () => e.preventDefault() } as unknown as KeyboardEvent;
+  dispatch(ev, e.button === 3 ? 'BUTTON4MOUSE' : 'BUTTON5MOUSE', area, editor, 'PRESS');
+}
+
 /** Install the global key handler. Area editors expose `keymaps` (names in priority order). */
 export function installKeyboard() {
   addEventListener('wheel', onWheel, { capture: true, passive: false });
+  addEventListener('mousedown', onExtraButton, true);
+  addEventListener('mouseup', onExtraButton, true);
+  addEventListener('auxclick', (e) => (e.button === 3 || e.button === 4) && e.preventDefault(), true);
   addEventListener(
     'keydown',
     (e) => {
