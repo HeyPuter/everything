@@ -962,13 +962,21 @@ export class Doc extends EventTarget {
     if (state === 'offline') this._setStatus('offline', this.collab.status.message);
     else if (state === 'error') this._setStatus('error', this.collab.status.message);
     else this._setStatus(pending ? 'saving' : 'saved');
-    if (type === 'room' || type === 'clean' || !this.wb.dirty) return;
-    // The owner's browser keeps the .xlsx current while it is open: a while after the last change, everyone's.
-    if (this.isOwner && autoSaveEnabled() && !session.signedOut) {
-      clearTimeout(this._timer);
-      this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), SHARED_FILE_MS);
-      this._sharedFileDue = true;
+    // A write of the file that found this person's changes still on their way (offline) is made once the room has them.
+    if (type === 'room' && this._sharedFileWaiting && state === 'connected' && !pending) {
+      this._sharedFileWaiting = false;
+      this._sharedFileLater();
     }
+    if (type === 'room' || type === 'clean' || !this.wb.dirty) return;
+    this._sharedFileLater();
+  }
+
+  /** The owner's browser keeps the .xlsx current while it is open: a while after the last change, everyone's. */
+  _sharedFileLater() {
+    if (!this.isOwner || !autoSaveEnabled() || session.signedOut) return;
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), SHARED_FILE_MS);
+    this._sharedFileDue = true;
   }
 
   /** Deliver what is pending, then write a checkpoint and the .xlsx. */
@@ -981,6 +989,8 @@ export class Doc extends EventTarget {
     await client.sync().catch(() => {});
     await client.settled();
     if (client.replica.pending.length) {
+      // The file is written once they reach the room.
+      this._sharedFileWaiting = true;
       this._sharedChanged('room');
       if (auto) return false;
       throw new Error(client.status.message || 'Your changes are waiting to be sent. They are kept on this device until the connection returns.');

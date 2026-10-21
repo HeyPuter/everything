@@ -63,3 +63,20 @@ it('leaves the file to the next save when AutoSave is off', async () => {
   expect(env.calls.some((c) => c.op === 'checkpoint')).toBe(false);
   expect(await fileA1()).toBe(null);
 });
+
+// The owner's file is written a quiet moment after the last change. Offline then, the write gave up (the changes were
+// still on this device) and was not tried again once the connection came back and the changes reached the room:
+// leaving after that wrote nothing, and the owner's file went on without the changes made offline.
+it("writes the owner's file once changes made offline have reached the room", async () => {
+  const { env, client, doc, fileA1 } = await setup();
+  env.offline = true;
+  client.wb.setInput(client.wb.sheets[0].id, 0, 0, 'made offline');
+  await until(() => client.status.state === 'offline', 4000, 'the connection to drop');
+  expect(await doc.save({ auto: true })).toBe(false); // the quiet moment comes while offline
+  env.offline = false;
+  client.resume();
+  await until(() => !client.replica.pending.length && client.status.state === 'connected', 4000, 'delivery');
+  expect(doc.hasPendingWrites).toBe(true);
+  doc.destroy();
+  await until(async () => (await fileA1()) === 'made offline', 4000, 'the file to be written');
+});
