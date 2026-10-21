@@ -26,6 +26,7 @@ export function buildShell(app) {
     h('span.search-text', 'Search commands'),
     h('kbd', `${MOD} K`),
   );
+  const assistBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Assistant', 'aria-pressed': 'false', 'data-tip': 'Assistant', 'data-tip-desc': 'Ask about the project or ask for changes in plain words', onClick: () => app.toggleAssistant() }, icon('sparkles', 17));
   const themeBtn = h('button.icon-btn', { type: 'button', 'aria-label': 'Theme', 'aria-haspopup': 'menu', 'data-tip': 'Theme', onClick: (e) => app.themeMenu(e.currentTarget) }, icon('monitor', 17));
   const helpBtn = h('button.icon-btn.hide-phone', { type: 'button', 'aria-label': 'Help', 'data-tip': 'Help', 'data-tip-keys': 'F1', onClick: () => app.run('help') }, icon('help', 17));
   const code = h('a.icon-btn.hide-phone', { href: REPO_URL, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Source code (opens in a new tab)', 'data-tip': 'Source code' }, icon('code', 17));
@@ -46,7 +47,7 @@ export function buildShell(app) {
       ),
     ),
     title,
-    h('div.tb-right', search, themeBtn, helpBtn, code, account),
+    h('div.tb-right', search, assistBtn, themeBtn, helpBtn, code, account),
   );
 
   const optionsbar = h('div.optionsbar', { role: 'toolbar', 'aria-label': 'Options' });
@@ -83,7 +84,8 @@ export function buildShell(app) {
   const canvasWrap = h('div.canvas-wrap', glCanvas, overlay, canvasHelp, domView, nav, viewcube, banner);
   const viewbar = h('div.viewbar', { role: 'toolbar', 'aria-label': 'View controls' });
   const viewarea = h('div.viewarea', vtabs, canvasWrap, viewbar);
-  const main = h('div.main', dock, dockResize, viewarea);
+  const assist = h('aside.assist-pane', { hidden: true, 'aria-labelledby': 'assist-title' });
+  const main = h('div.main', dock, dockResize, viewarea, assist);
 
   // Status bar
   const prompt = h('div.sb-prompt', { role: 'status', 'aria-live': 'polite' });
@@ -110,6 +112,8 @@ export function buildShell(app) {
     redoBtn,
     optionsbar,
     syncBtn,
+    assist,
+    assistBtn,
     wsSelect,
     optSelect,
     dock,

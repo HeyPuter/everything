@@ -9,6 +9,7 @@ import { PropertiesPanel, pluralLabel } from './ui/properties.js';
 import { ProjectBrowser } from './ui/browser.js';
 import { installTooltips, hideTooltip, setTooltipMode } from './ui/tooltip.js';
 import * as options from './ui/options.js';
+import { Assistant } from './ui/assistant.js';
 import { showMenu, closeMenus } from './ui/menu.js';
 import { toast, confirmDialog, promptDialog } from './ui/dialog.js';
 import { h, clear, MOD } from './ui/dom.js';
@@ -1910,6 +1911,17 @@ export class App {
     if (plan && this.activeView?.levelId !== first.levelId) this.openView(plan.id);
     this.select(live);
     this.vc?.zoomExtents?.(true, new Set(live));
+  }
+
+  /** Show or hide the assistant panel (created the first time). */
+  toggleAssistant(show) {
+    const pane = this.shell.assist;
+    const open = show ?? pane.hidden;
+    if (open && !this.assistant) this.assistant = new Assistant(this, pane);
+    pane.hidden = !open;
+    this.shell.assistBtn.setAttribute('aria-pressed', String(open));
+    if (open) setTimeout(() => this.assistant?.input?.focus(), 0);
+    this.viewport.resize();
   }
 
   elementOverrideDialog() {
