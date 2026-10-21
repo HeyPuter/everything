@@ -65,6 +65,27 @@ test('Edit > Links keeps keyboard focus in its list while links are removed', as
   await expect(links.getByRole('button', { name: 'Remove All Links' })).toBeDisabled();
 });
 
+test('Edit > Links opens with the keyboard on a control in the dialog', async ({ page }) => {
+  await page.goto('/playground.html'); await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' }); await input.fill('No links yet');
+  const openLinks = async () => {
+    await page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name: 'Edit', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Links…', exact: true }).click();
+    return page.getByRole('dialog', { name: 'Links' });
+  };
+  // Without links, Remove All Links is unavailable: the focus is on Close, not on the page body.
+  let links = await openLinks();
+  await expect(links.getByText('This document has no links.')).toBeVisible();
+  await expect(links.getByRole('button', { name: 'Close', exact: true }).last()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(links).toHaveCount(0);
+  // With links, it starts on the first one rather than on Remove All Links.
+  await choose(input, 'links'); await dialog(page, input);
+  await page.getByRole('textbox', { name: 'Link address', exact: true }).fill('https://a.example.com/'); await apply(page);
+  links = await openLinks();
+  await expect(links.getByRole('button', { name: /^links/ })).toBeFocused();
+});
+
 test('ordinary clicks select text while modified clicks open wrapped, picture and repeated-header links at zoom', async ({ page }, info) => {
   await stubOpen(page); const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/hyperlinks.docx'); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^External hyperlinks/);
   const targets = await page.evaluate(async () => {

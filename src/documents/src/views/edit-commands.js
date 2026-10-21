@@ -136,10 +136,12 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
         current.execute(() => { let changed = false; for (const range of [...links].reverse()) { current.model.select(range.start, range.end); changed = current.model.removeHyperlink() !== false || changed; } current.model.select(Math.min(a, current.model.text.length), Math.min(b, current.model.text.length)); return changed; });
         onChange(); render(); close.focus();
       } }, 'Remove All Links');
+      // The list is filled before the dialog opens, which puts the focus on its first control: a Remove
+      // All Links disabled after it took the focus (a document without links) dropped it on the page body.
+      render();
       const modal = openModal({ title: 'Links', wide: true, onClose: () => queueMicrotask(() => editor()?.focus()),
         content: el('div.ed-dialog-body', {}, status, list,
           el('div.row.row-end', {}, removeAll, close)) });
-      render();
       return modal;
     },
   };
