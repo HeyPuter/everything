@@ -173,11 +173,11 @@ sidebarTabs.push(
           row('Clip Start', numberField({ id: 'v-cs', value: v.nav.clipStart, min: 1e-6, unit: 'distance', set: (x) => ((v.nav.clipStart = x), app.changed('ui')) })),
           row('End', numberField({ id: 'v-ce', value: v.nav.clipEnd, min: 1e-3, unit: 'distance', set: (x) => ((v.nav.clipEnd = x), app.changed('ui')) })),
           row(
-            'Local Camera',
+            '',
             h(
               'div',
               { class: 'sb-inline' },
-              checkbox('v-localcam', '', v.useLocalCamera, (x) => {
+              checkbox('v-localcam', 'Local Camera', v.useLocalCamera, (x) => {
                 v.useLocalCamera = x;
                 if (x && !v.localCamera) v.localCamera = app.doc.scene.camera;
                 v.updateSceneCamera();
