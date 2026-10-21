@@ -3266,6 +3266,9 @@ export function createEditor({
     if (pageForms.draft.dirty) return;
     await finishDrafts();
     if (session[action]()) {
+      // Pressed from the keyboard, the button is disabled while the PDF is redrawn, which drops
+      // the focus; it takes it back for the next press unless the focus has moved meanwhile.
+      const pressed = [undoButton, redoButton].find((b) => b === document.activeElement);
       busy = true;
       updateStatus();
       try {
@@ -3273,6 +3276,8 @@ export function createEditor({
       } finally {
         busy = false;
         updateStatus();
+        if (pressed && !pressed.disabled && document.activeElement === document.body)
+          pressed.focus({ preventScroll: true });
       }
     }
   }

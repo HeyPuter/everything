@@ -1226,6 +1226,25 @@ test('a command chosen from the keyboard in the tools pane keeps the focus throu
   await expect(rotate).toBeFocused();
 });
 
+test('Undo pressed from the keyboard keeps the focus for the next press', async ({ page }) => {
+  await openPdf(page, await numberedPdf(2));
+  const undo = page.getByRole('button', { name: 'Undo', exact: true });
+  for (let i = 0; i < 2; i++) {
+    await page.keyboard.press('ControlOrMeta+Shift+R');
+    await expect(undo).toBeEnabled();
+    await settled(page);
+  }
+  await undo.focus();
+  await page.keyboard.press('Enter');
+  await settled(page);
+  // Disabled while the PDF changed, the button takes the focus back once it is usable again.
+  await expect(undo).toBeEnabled();
+  await expect(undo).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(undo).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+});
+
 test('removing an attachment hands the focus to the file that takes its place', async ({
   page,
 }) => {
