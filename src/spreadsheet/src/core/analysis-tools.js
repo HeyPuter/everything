@@ -1003,6 +1003,9 @@ export function writeAnalysisOutput(wb, layout, target, { label = layout.title |
       const cut = sheet && wb._fixedArrays(sheet).ranges.some((a) => a.r1 <= box.r2 && a.r2 >= box.r1 && a.c1 <= box.c2 && a.c2 >= box.c1
         && !(a.r1 >= box.r1 && a.r2 <= box.r2 && a.c1 >= box.c1 && a.c2 <= box.c2));
       if (cut) { problem = 'The output range would change part of an array. Choose another place for the output.'; return; }
+      // A protected range in the way refuses every cell of the output (setCells writes all or none): said here,
+      // before any chart goes in, rather than the output reported written where nothing was.
+      if (sheet && !sheet.protected && wb.lockedIn(sheetId, box)) { problem = 'The output range holds protected cells. Choose another place for the output.'; return; }
     }
     const entries = [];
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
