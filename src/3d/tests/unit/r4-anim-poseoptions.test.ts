@@ -30,7 +30,8 @@ function build(specs: BoneSpec[]) {
   for (const [name, head, tail, roll, parent, connect] of specs) {
     const b: Bone = newBoneLike(arm, name, head, tail, parent ? arm.bones.find((x) => x.name === parent)! : null, connect);
     b.roll = roll;
-    arm.bones.push(b);
+    // (newBoneLike adds the bone to the armature itself)
+    if (!arm.bones.includes(b)) arm.bones.push(b);
   }
   ob.pose = Object.fromEntries(arm.bones.map((b) => [b.name, { ...defaultPoseBone(), rotation_mode: 'QUATERNION' as const }]));
   app.run('object.mode_set', { mode: 'POSE' });
@@ -156,5 +157,43 @@ describe('Pose Mode parenting', () => {
     expect([cube.parent, cube.parent_type, cube.parent_bone]).toEqual([ob.id, 'BONE', 'Bone']);
     const after = app.graph.get(cube.id)!.world;
     after.elements.forEach((x, i) => expect(x).toBeCloseTo(before.elements[i], 6));
+  });
+});
+
+describe('pose sliding tools', () => {
+  it('match the reference (locations linear, rotations along the arc)', async () => {
+    const ref = (await import('../fixtures/anim/pose_slide.json')).default as unknown as Record<string, { loc: number[]; quat: number[] }>;
+    const { keyProperty } = await import('../../src/anim/keyframes');
+    build([['Bone', [0, 0, 0], [0, 0, 1], 0, null, false]]);
+    const pb = ob.pose!['Bone'];
+    pb.select = true;
+    for (const [f, x, q] of [
+      [1, 0, [1, 0, 0, 0]],
+      [21, 2, [Math.SQRT1_2, Math.SQRT1_2, 0, 0]],
+    ] as const) {
+      pb.location = [x, 0.5 * x, 0];
+      pb.rotation_quaternion = [...q] as never;
+      keyProperty(app.doc, ob, 'pose.bones["Bone"].location', -1, f);
+      keyProperty(app.doc, ob, 'pose.bones["Bone"].rotation_quaternion', -1, f);
+    }
+    // keyed at frames 1 and 21; the pose at frame 6 is changed and slid with each tool
+    const cases: [string, string, number][] = [
+      ['push', 'pose.push', 0.5],
+      ['push1', 'pose.push', 1],
+      ['relax', 'pose.relax', 0.5],
+      ['relax1', 'pose.relax', 1],
+      ['breakdown', 'pose.breakdown', 0.3],
+      ['btn03', 'pose.blend_to_neighbor', 0.3],
+      ['btn08', 'pose.blend_to_neighbor', 0.8],
+      ['rest', 'pose.blend_with_rest', 0.5],
+    ];
+    for (const [name, op, factor] of cases) {
+      app.doc.scene.frame_current = 6;
+      pb.location = [1.5, 0.2, 0.3];
+      pb.rotation_quaternion = [0.9, 0.1, 0.3, 0];
+      expect(app.run(op, { factor, prev_frame: 1, next_frame: 21 }, { invoke: false }), name).toBe('FINISHED');
+      close(pb.location, ref[name].loc, 1e-4, `${name} location`);
+      close(pb.rotation_quaternion, ref[name].quat, 1e-4, `${name} rotation`);
+    }
   });
 });

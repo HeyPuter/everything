@@ -107,23 +107,60 @@ function applySlide(mode: SlideMode, p: SlideProps): number {
       const path = `${bonePath(name)}.${prop}`;
       const cur = (pb as unknown as Record<string, number[]>)[prop];
       const isQuat = prop === 'rotation_quaternion';
-      const next = [...cur];
-      for (const i of indices) {
-        const fc = curves.find((f) => f.data_path === path && f.array_index === i);
-        const prevV = fc ? evaluateFCurve(fc, pf) : cur[i],
-          nextV = fc ? evaluateFCurve(fc, nf) : cur[i];
-        next[i] = slideValue(mode, cur[i], prevV, nextV, t, p.factor, poseRestValue(prop, i));
-      }
+      let next = [...cur];
+      const sample = (i: number, f: number) => {
+        const fc = curves.find((c) => c.data_path === path && c.array_index === i);
+        return fc ? evaluateFCurve(fc, f) : cur[i];
+      };
       if (isQuat) {
-        const l = Math.hypot(...next) || 1;
-        for (let i = 0; i < 4; i++) next[i] /= l;
-      }
+        // rotations slide along the arc between orientations (as in the reference app)
+        next = slideQuaternion(mode, cur, [0, 1, 2, 3].map((i) => sample(i, pf)), [0, 1, 2, 3].map((i) => sample(i, nf)), t, p.factor);
+      } else
+        for (const i of indices) next[i] = slideValue(mode, cur[i], sample(i, pf), sample(i, nf), t, p.factor, poseRestValue(prop, i));
       (pb as unknown as Record<string, number[]>)[prop] = next;
       if (autoKey()) keyProperty(app.doc, ob, path);
     }
     n++;
   }
   return n;
+}
+
+/** Slide a quaternion (w x y z): spherical interpolation between the current, neighbouring and rest orientations. */
+export function slideQuaternion(mode: SlideMode, cur: number[], prev: number[], next: number[], t: number, factor: number): number[] {
+  const q = (v: number[]) => new Quaternion(v[1], v[2], v[3], v[0]).normalize();
+  const c = q(cur),
+    a = q(prev),
+    b = q(next);
+  const breakdown = a.clone().slerp(b, t);
+  // extrapolating slerp (factors beyond 1 push further along the arc)
+  const along = (from: Quaternion, to: Quaternion, k: number) => {
+    const d = from.dot(to);
+    const tt = d < 0 ? to.clone().set(-to.x, -to.y, -to.z, -to.w) : to.clone();
+    const th = Math.acos(Math.min(1, Math.abs(d)));
+    if (th < 1e-9) return from.clone();
+    const s = Math.sin(th),
+      wa = Math.sin((1 - k) * th) / s,
+      wb = Math.sin(k * th) / s;
+    return new Quaternion(from.x * wa + tt.x * wb, from.y * wa + tt.y * wb, from.z * wa + tt.z * wb, from.w * wa + tt.w * wb).normalize();
+  };
+  let r: Quaternion;
+  switch (mode) {
+    case 'PUSH':
+      r = along(breakdown, c, 1 + factor);
+      break;
+    case 'RELAX':
+      r = along(c, breakdown, factor);
+      break;
+    case 'BREAKDOWN':
+      r = along(a, b, factor);
+      break;
+    case 'BLEND_TO_NEIGHBOR':
+      r = factor < 0.5 ? along(c, a, (0.5 - factor) * 2) : along(c, b, (factor - 0.5) * 2);
+      break;
+    default:
+      r = along(c, new Quaternion(), factor);
+  }
+  return [r.w, r.x, r.y, r.z];
 }
 
 /** Readout of the running in-between slider, drawn over the 3D viewport. */
