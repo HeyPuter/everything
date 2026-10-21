@@ -12,6 +12,7 @@ import {
   setRichText,
   SOFT_BREAK,
   removeSlides,
+  matchHeaderFooter,
 } from "../model.js";
 
 export const MAX_LEVEL = 9;
@@ -213,12 +214,22 @@ export function createSlide(pres, after) {
     P.getSlideLayoutPlaceholders(prior).some(
       (p) => p.type === null || p.type === "body" || p.type === "obj",
     );
-  if (fits) return P.addSlide(pres, { layout: prior });
-  try {
-    return P.addContentSlide(pres, {});
-  } catch {
-    return P.addBlankSlide(pres);
-  }
+  let slide;
+  if (fits) slide = P.addSlide(pres, { layout: prior });
+  else
+    try {
+      slide = P.addContentSlide(pres, {});
+    } catch {
+      slide = P.addBlankSlide(pres);
+    }
+  const parts = P.getSlides(pres).map(P.getSlidePartName);
+  matchHeaderFooter(
+    pres,
+    slide,
+    after,
+    after ? parts.indexOf(P.getSlidePartName(after)) + 2 : parts.length,
+  );
+  return slide;
 }
 
 // Applies an outline (from structureFromRows) to the deck. Slides whose

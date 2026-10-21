@@ -160,6 +160,18 @@ describe("outline model", () => {
     expect(P.getShapeBounds(title)?.w).toBeGreaterThan(0);
   });
 
+  it("gives a new slide the footer the slide before it shows", () => {
+    const pres = deck();
+    const settings = { date: null, slideNumber: true, footer: "Board review" };
+    P.getSlides(pres).forEach((s, i) =>
+      P.applySlideHeaderFooter(s, settings, i + 1),
+    );
+    const rows = rowsFromOutline(readOutline(pres));
+    rows.push({ level: 0, text: "Third", part: null });
+    applyOutline(pres, structureFromRows(rows));
+    expect(P.getSlideHeaderFooter(P.getSlides(pres)[2])).toEqual(settings);
+  });
+
   it("leaves an unchanged outline alone", () => {
     const pres = deck();
     const before = P.getSlides(pres).map(P.getSlideXmlString);

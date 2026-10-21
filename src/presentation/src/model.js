@@ -1674,6 +1674,25 @@ export function pruneUnusedMedia(pres, slide = null) {
   }
   return P.compactPackage(pres).removed;
 }
+// A new slide shows the date, footer and slide number the slides around it
+// show: those of the slide it follows or, when that one is of the other kind
+// (title slides may leave them out), those of the deck's first slide of its
+// own kind. `number` is the new slide's position, counted from 1.
+export function matchHeaderFooter(pres, slide, previous, number) {
+  const title = P.isTitleSlide(slide);
+  const source =
+    previous && P.isTitleSlide(previous) === title
+      ? previous
+      : (P.getSlides(pres).find(
+          (s) =>
+            P.getSlidePartName(s) !== P.getSlidePartName(slide) &&
+            P.isTitleSlide(s) === title,
+        ) ?? previous);
+  if (!source) return;
+  const settings = P.getSlideHeaderFooter(source);
+  if (settings.date || settings.footer !== null || settings.slideNumber)
+    P.applySlideHeaderFooter(slide, settings, number);
+}
 // Removes slides from the deck. Links to them on the slides that stay would
 // point at parts no longer in the file, so they go first; media only the
 // removed slides showed goes after.

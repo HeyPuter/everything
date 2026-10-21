@@ -464,8 +464,10 @@ test("header and footer apply to every slide", async ({ page }) => {
     .getByLabel("Footer text", { exact: true })
     .fill("Board review");
   await dialog.getByRole("button", { name: "Apply to All" }).click();
+  // A slide added afterwards shows them too.
+  await command(page, "insert-new-slide");
   const saved = await download(page);
-  for (const n of [1, 2]) {
+  for (const n of [1, 2, 3]) {
     expect(saved.slide(n)).toContain('type="ftr"');
     expect(saved.slide(n)).toContain('type="sldNum"');
     expect(saved.slide(n)).toContain("Board review");
