@@ -110,6 +110,7 @@ export class Editor {
     if (!ctx.player.supported) toast('Your browser does not support WebGL2, so the preview is unavailable. Export still needs WebGL2 too.', { kind: 'error', duration: 10000 });
 
     const topbar = createTopbar(ctx);
+    this._topbar = topbar;
     ctx.assets = createAssetsPanel(ctx);
     ctx.playerView = createPlayerView(ctx);
     ctx.inspector = createInspector(ctx);
@@ -437,6 +438,7 @@ export class Editor {
     document.removeEventListener('keydown', this._onKey);
     window.removeEventListener('beforeunload', this._onUnload);
     this.saver.dispose();
+    this._topbar?.dispose?.();
     this.ctx.mobile?.dispose?.();
     this.ctx.timeline?.dispose?.();
     this.ctx.playerView?.dispose?.();

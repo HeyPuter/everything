@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Library } from '../src/storage/library.js';
 import { memoryBackend } from '../src/storage/backends.js';
 import { Editor } from '../src/ui/editor.js';
+import { MediaService } from '../src/media/media-service.js';
 import { fixture, clip, onMain } from './helpers.js';
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
@@ -107,5 +108,44 @@ describe('leaving the editor', () => {
     // Back to the home screen keeps the upload going: no question.
     expect(await editor.prepareToLeave()).toBe(true);
     expect(library.unsavedMedia).toBe(1);
+  });
+});
+
+describe('closing the editor', () => {
+  it('stops listening to the library, which outlives it', async () => {
+    const library = new Library(memoryBackend());
+    const subs = [];
+    const on = library.on.bind(library);
+    library.on = (type, fn) => {
+      const off = on(type, fn);
+      const sub = { type, off: false };
+      subs.push(sub);
+      return () => {
+        sub.off = true;
+        off();
+      };
+    };
+    const p = fixture();
+    await library.saveProject(p);
+    editor = new Editor(root, { library, project: p, account: {}, onExit() {}, onNewProject() {} });
+    await settle();
+    expect(subs.some((s) => s.type === 'uploads')).toBe(true);
+    editor.dispose();
+    expect(subs.filter((s) => !s.off)).toEqual([]);
+  });
+
+  it('closes the media posters it made', async () => {
+    const svc = new MediaService(null);
+    const ready = { close: vi.fn() };
+    const late = { close: vi.fn() };
+    let finish;
+    svc.posters.set('a', { value: ready, promise: Promise.resolve(ready) });
+    svc.posters.set('b', { value: null, promise: new Promise((r) => (finish = r)) });
+    svc.dispose();
+    expect(ready.close).toHaveBeenCalled();
+    finish(late);
+    await settle(0);
+    expect(late.close).toHaveBeenCalled();
+    expect(svc.posters.size).toBe(0);
   });
 });

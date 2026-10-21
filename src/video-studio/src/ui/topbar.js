@@ -239,11 +239,12 @@ export function createTopbar(ctx) {
   ctx.saver.on('status', setStatus);
   setStatus({ status: 'saved', at: ctx.saver.lastSaved });
   const uploads = h('span.upload-status', { role: 'status' });
-  ctx.library.on('uploads', ({ pending, failed }) => {
+  // The library outlives the editor: stop listening when it closes.
+  const offUploads = ctx.library.on('uploads', ({ pending, failed }) => {
     uploads.classList.toggle('error', Boolean(failed));
     if (failed) uploads.textContent = `${failed} media file${failed === 1 ? '' : 's'} not uploaded. Retrying...`;
     else uploads.textContent = pending ? `Uploading ${pending} file${pending === 1 ? '' : 's'}...` : '';
   });
   el.querySelector('.topbar-left').append(uploads);
-  return { el };
+  return { el, dispose: offUploads };
 }

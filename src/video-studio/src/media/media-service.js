@@ -193,5 +193,11 @@ export class MediaService extends Emitter {
     this.worker?.terminate();
     for (const strip of this.strips.values()) for (const v of strip.values()) v?.close?.();
     this.strips.clear();
+    // Posters still being made are closed when they arrive.
+    for (const entry of this.posters.values()) {
+      entry.value?.close?.();
+      if (!entry.value) entry.promise?.then((v) => v?.close?.());
+    }
+    this.posters.clear();
   }
 }
