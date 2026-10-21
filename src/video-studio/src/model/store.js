@@ -243,7 +243,12 @@ export class EditorStore extends Emitter {
 
   /** Forget selected clips and the selected transition when they no longer exist. */
   _dropStaleSelection() {
-    for (const id of this.selection) if (!findClip(this.project, id)) this.selection.delete(id);
+    if (this.selection.size > 1) {
+      // One pass for big selections instead of a search per id.
+      const live = new Set();
+      for (const t of this.project.tracks) for (const c of t.clips) live.add(c.id);
+      for (const id of this.selection) if (!live.has(id)) this.selection.delete(id);
+    } else for (const id of this.selection) if (!findClip(this.project, id)) this.selection.delete(id);
     if (this.transition && !findClip(this.project, this.transition)?.clip.transition) this.transition = null;
   }
 

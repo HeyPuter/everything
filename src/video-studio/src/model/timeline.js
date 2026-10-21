@@ -300,7 +300,13 @@ export function moveClip(project, id, target, opts = {}) {
   if (!found || found.track.locked) return false;
   const { clip, track: from } = found;
   const dt = target.start - clip.start;
-  const others = (opts.with || []).filter((x) => x !== id).map((x) => findClip(project, x)).filter((f) => f && !f.track.locked);
+  const withIds = new Set(opts.with || []);
+  withIds.delete(id);
+  const others = [];
+  for (const track of project.tracks) {
+    if (track.locked) continue;
+    for (const c of track.clips) if (withIds.has(c.id)) others.push({ clip: c, track });
+  }
   return withRipple(project, opts, () => {
     from.clips.splice(from.clips.indexOf(clip), 1);
     let dest = target.trackId ? findTrack(project, target.trackId) : from;
@@ -309,10 +315,8 @@ export function moveClip(project, id, target, opts = {}) {
     clip.start = Math.max(0, Math.round(target.start));
     // Grouped clips move first so they never block the primary clip.
     const moving = new Set([id, ...others.map((o) => o.clip.id)]);
-    for (const o of others) {
-      o.clip.start = Math.max(0, o.clip.start + dt);
-      sortTrack(o.track);
-    }
+    for (const o of others) o.clip.start = Math.max(0, o.clip.start + dt);
+    for (const t of new Set(others.map((o) => o.track))) sortTrack(t);
     if (dest.main && opts.ripple) {
       const index = mainInsertIndex(project, clip.start, clip.id);
       sortTrack(dest);

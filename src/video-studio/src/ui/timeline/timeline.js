@@ -926,21 +926,28 @@ export function createTimeline(ctx) {
   function startMove(e, id, p0) {
     const { clip, track } = T.findClip(store.project, id);
     const kind = track.kind;
-    const moving = [...store.selection].filter((x) => T.findClip(store.project, x) && !T.findClip(store.project, x).track.locked);
-    if (!moving.includes(id)) moving.push(id);
+    // Where each moving clip starts, found in one pass (selections can hold thousands of clips).
+    const starts = new Map();
+    for (const t of store.project.tracks) {
+      if (t.locked) continue;
+      for (const c of t.clips) if (store.selection.has(c.id) || c.id === id) starts.set(c.id, c.start);
+    }
+    const moving = [...starts.keys()];
     const exclude = new Set(moving);
     drag = { type: 'move', ids: exclude, cls: '', move: (ev) => move(ev), last: null };
     const points = T.snapPoints(store.project, { exclude, playhead: store.time });
     const nodes = moving.map((mid) => clipEls.get(mid)?.node).filter(Boolean);
     const origStart = clip.start;
     const startRow = rows.find((r) => r.track === track);
-    const minStart = Math.min(...moving.map((mid) => T.findClip(store.project, mid).clip.start));
+    let minStart = origStart;
+    for (const st of starts.values()) minStart = Math.min(minStart, st);
     let moved = false;
     let target = { start: origStart, trackId: track.id };
     const move = (ev) => {
       drag.last = ev;
       const p = contentPoint(ev);
       if (!moved && Math.abs(p.x - p0.x) < 3 && Math.abs(p.y - p0.y) < 3) return;
+      autoScroll(ev); // reads layout, so before the writes below
       if (!moved) {
         moved = true;
         drag.cls = 'dragging';
@@ -983,11 +990,10 @@ export function createTimeline(ctx) {
         target = { start, trackId: track.id };
       }
       for (const n of nodes) {
-        const c = T.findClip(store.project, n.dataset.id)?.clip;
-        if (!c) continue;
-        n.style.transform = `translate(${timeToX(c.start + dt)}px, ${n.dataset.id === id ? dy : 0}px)`;
+        const st = starts.get(n.dataset.id);
+        if (st === undefined) continue;
+        n.style.transform = `translate(${timeToX(st + dt)}px, ${n.dataset.id === id ? dy : 0}px)`;
       }
-      autoScroll(ev);
     };
     const up = () => {
       tracksEl.removeEventListener('pointermove', move);
@@ -1020,6 +1026,7 @@ export function createTimeline(ctx) {
       drag.last = ev;
       const p = contentPoint(ev);
       if (!moved && Math.abs(p.x - p0.x) < 2) return;
+      autoScroll(ev); // reads layout, so before the writes below
       if (!moved) {
         moved = true;
         drag.cls = 'trimming';
@@ -1045,7 +1052,6 @@ export function createTimeline(ctx) {
       // Preview the frame at the new edge.
       player.setPreview(edge === 'start' ? at : Math.max(start, at - Math.round(US / store.fps)));
       tip.show(ev, `${edge === 'start' ? 'Start' : 'End'} ${timecode(at, store.fps)}  Duration ${timecode(end - start, store.fps)}`);
-      autoScroll(ev);
     };
     const up = () => {
       tracksEl.removeEventListener('pointermove', move);
