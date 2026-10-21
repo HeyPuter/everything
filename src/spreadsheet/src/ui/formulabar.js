@@ -276,6 +276,9 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   input.addEventListener('keyup', (e) => {
     if (!isComposing(e) && /^Arrow|^Home$|^End$/.test(e.key)) ctx.grid.updateEditHints();
   });
+  // Clicking into the text of an entry begun in the cell puts the caret there to edit it, as a click in the cell's
+  // own editor does (Edit mode): the arrows then move that caret rather than picking a cell into the formula.
+  input.addEventListener('pointerdown', () => { if (ctx.grid.editing) ctx.grid.setEditMode?.('inplace'); });
   input.addEventListener('click', () => ctx.grid.updateEditHints());
   input.addEventListener('blur', () => {
     // A reference typed but not entered is let go, as an unentered cell edit would be cancelled.

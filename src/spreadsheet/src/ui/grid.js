@@ -6582,6 +6582,7 @@ export function createGrid(opts) {
       input?.addEventListener('focus', () => { if (formulaInput === input) lastEditInput = input; });
     },
     handleEditKey: editorKeyDown,
+    setEditMode,
     /** The formula bar's caret moved: the same bookkeeping as for the cell editor's own caret. */
     updateEditHints: caretMoved,
     commitEdit,
