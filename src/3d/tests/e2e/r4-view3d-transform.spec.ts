@@ -79,3 +79,42 @@ test('A adds snap points: the target is their average', async ({ page }) => {
   expect(loc).toEqual([0, 3, 1]);
   await expectNoErrors(errors);
 });
+
+test('transform tool settings: gizmo orientation slot and drag action', async ({ page }) => {
+  const errors = await openApp(page);
+  await hoverViewport(page);
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.activeObject.rotation_euler = [0, 0, Math.PI / 4];
+    app.run('wm.tool_set_by_id', { name: 'builtin.move' });
+    app.changed('doc');
+  });
+  await page.waitForTimeout(150);
+  const arrow = async () => {
+    const b = await page.locator('.v3d-svg [data-gizmo="move:0"]').first().boundingBox();
+    return b!;
+  };
+  const g = await arrow();
+  // the tool header shows the orientation and drag settings
+  await expect(page.locator('.th-transform')).toContainText('Orientation:');
+  await page.evaluate(() => {
+    const app = (window as any).app; // eslint-disable-line @typescript-eslint/no-explicit-any
+    app.doc.scene.transform_orientation_slots = { move: 'LOCAL' };
+    app.changed('ui', 'doc');
+    (app.hoverArea ?? app.activeArea).editor.drawSvg();
+  });
+  await page.waitForTimeout(100);
+  const l = await arrow();
+  expect(Math.abs(l.x - g.x) + Math.abs(l.y - g.y) + Math.abs(l.width - g.width)).toBeGreaterThan(3);
+  // dragging the local X arrow moves along the object's own X axis
+  const h = page.locator('.v3d-svg path[data-gizmo="move:0"]').first();
+  const hb = (await h.boundingBox())!;
+  await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hb.x + hb.width / 2 + 40, hb.y + hb.height / 2 + 5, { steps: 5 });
+  await page.mouse.up();
+  const loc = await get<number[]>(page, 'app.activeObject.location');
+  expect(Math.abs(loc[0])).toBeGreaterThan(0.01);
+  expect(loc[0]).toBeCloseTo(loc[1], 3);
+  await expectNoErrors(errors);
+});

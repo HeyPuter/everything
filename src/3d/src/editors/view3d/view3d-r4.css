@@ -51,3 +51,13 @@
   border-radius: 15px;
   padding: 3px 1px;
 }
+/* transform tool settings in the tool header */
+.th-transform {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.th-transform .enum-menu,
+.th-transform > button {
+  min-width: 124px;
+}

@@ -5,7 +5,15 @@ import { app } from '../../app/app';
 import { activeTools, prefs } from '../../app/prefs';
 import type { View3D } from './view3d';
 import { startTransform, transformProviders } from '../../ops/transform';
-import { currentOrientation, orientationBasis } from '../../ops/orientations';
+import { currentOrientation, orientationBasis, customOrientations, BUILTIN_ORIENTATIONS } from '../../ops/orientations';
+import { gizmoOrientationSlot, type GizmoKind } from './transformtool';
+
+/** Orientation a gizmo uses: its own slot, or the header orientation for "Default". */
+export function gizmoOrientation(kind: GizmoKind): string {
+  const slot = gizmoOrientationSlot(kind);
+  if (slot !== 'DEFAULT' && (BUILTIN_ORIENTATIONS.some((b) => b[0] === slot) || customOrientations().some((c) => c.name === slot))) return slot;
+  return currentOrientation();
+}
 
 const COLORS = ['#fc364b', '#84e003', '#398efc'];
 
@@ -77,12 +85,14 @@ export function transformGizmo(v: View3D): VNode | null {
   const f = gizmoFrame(v);
   if (!f) return null;
   const parts: VNode[] = [];
+  let basis = f.basis;
   const axisEnd = (i: number, k = 1) => {
-    const dir = new Vector3(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0).applyMatrix3(f.basis).normalize();
+    const dir = new Vector3(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0).applyMatrix3(basis).normalize();
     return v.project(f.pivot.clone().addScaledVector(dir, f.size * k));
   };
   const { x, y } = f.screen;
   if (show.move) {
+    basis = orientationBasis(gizmoOrientation('move'));
     for (let i = 0; i < 3; i++) {
       const e = axisEnd(i, kind === 'transform' ? 1.15 : 1);
       const dx = e.x - x,
@@ -99,12 +109,13 @@ export function transformGizmo(v: View3D): VNode | null {
       const j = (i + 1) % 3;
       const a = axisEnd(j, 0.28),
         b = axisEnd((i + 2) % 3, 0.28);
-      const c = v.project(f.pivot.clone().add(new Vector3(j === 0 ? 1 : 0, j === 1 ? 1 : 0, j === 2 ? 1 : 0).applyMatrix3(f.basis).multiplyScalar(f.size * 0.28)).add(new Vector3((i + 2) % 3 === 0 ? 1 : 0, (i + 2) % 3 === 1 ? 1 : 0, (i + 2) % 3 === 2 ? 1 : 0).applyMatrix3(f.basis).multiplyScalar(f.size * 0.28)));
+      const c = v.project(f.pivot.clone().add(new Vector3(j === 0 ? 1 : 0, j === 1 ? 1 : 0, j === 2 ? 1 : 0).applyMatrix3(basis).multiplyScalar(f.size * 0.28)).add(new Vector3((i + 2) % 3 === 0 ? 1 : 0, (i + 2) % 3 === 1 ? 1 : 0, (i + 2) % 3 === 2 ? 1 : 0).applyMatrix3(basis).multiplyScalar(f.size * 0.28)));
       parts.push(h('path', { d: `M${x} ${y}L${a.x} ${a.y}L${c.x} ${c.y}L${b.x} ${b.y}Z`, fill: COLORS[i], 'fill-opacity': 0.35, stroke: COLORS[i], 'stroke-width': 1, 'data-gizmo': `plane:${i}`, class: 'gz plane' }));
     }
     parts.push(h('circle', { cx: x, cy: y, r: 10, fill: 'transparent', stroke: '#ffffff', 'stroke-width': 1.4, 'data-gizmo': 'view', class: 'gz' }));
   }
   if (show.scale) {
+    basis = orientationBasis(gizmoOrientation('scale'));
     for (let i = 0; i < 3; i++) {
       const e = axisEnd(i, kind === 'transform' ? 0.7 : 1);
       const dx = e.x - x,
@@ -119,11 +130,12 @@ export function transformGizmo(v: View3D): VNode | null {
     if (kind === 'scale') parts.push(h('circle', { cx: x, cy: y, r: 30, fill: 'none', stroke: '#ffffff', 'stroke-width': 1.2, 'data-gizmo': 'scale:all', class: 'gz', opacity: 0.8 }));
   }
   if (show.rotate) {
+    basis = orientationBasis(gizmoOrientation('rotate'));
     // rotation rings: project circles around each axis
     for (let i = 0; i < 3; i++) {
       const pts: string[] = [];
-      const n = new Vector3(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0).applyMatrix3(f.basis);
-      const u = new Vector3(i === 1 ? 1 : 0, i === 2 ? 1 : 0, i === 0 ? 1 : 0).applyMatrix3(f.basis);
+      const n = new Vector3(i === 0 ? 1 : 0, i === 1 ? 1 : 0, i === 2 ? 1 : 0).applyMatrix3(basis);
+      const u = new Vector3(i === 1 ? 1 : 0, i === 2 ? 1 : 0, i === 0 ? 1 : 0).applyMatrix3(basis);
       const w = new Vector3().crossVectors(n, u);
       const viewDir = new Vector3(0, 0, -1).applyQuaternion(v.camera.quaternion);
       for (let k = 0; k <= 48; k++) {
@@ -155,7 +167,8 @@ export function gizmoPointerDown(v: View3D, e: PointerEvent): boolean {
   const constraint = Number.isInteger(i) ? (kind === 'plane' ? [0, 1, 2].map((k) => k !== i) : [0, 1, 2].map((k) => k === i)) : undefined;
   const ev = { x: e.clientX, y: e.clientY };
   const mode = kind === 'move' || kind === 'plane' || kind === 'view' ? 'TRANSLATION' : kind === 'scale' ? 'RESIZE' : kind === 'trackball' ? 'TRACKBALL' : 'ROTATION';
-  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient: currentOrientation(), redoSelf: true })) {
+  const orient = gizmoOrientation(mode === 'RESIZE' ? 'scale' : mode === 'ROTATION' || mode === 'TRACKBALL' ? 'rotate' : 'move');
+  if (startTransform(mode, { constraint, event: ev, release_confirm: true, orient, redoSelf: true })) {
     const up = (pe: PointerEvent) => {
       removeEventListener('pointerup', up, true);
       if (app.modal) app.endModal('FINISHED');

@@ -25,6 +25,7 @@ import { circlePaint, lassoDrag, modeFromEvent } from './selectshapes';
 import { applyMatrixToObject } from '../../eval/transform';
 import { altMiddle, snapViewToAxis } from './navextra';
 import { placeCursor, cursorToolSettings } from '../../ops/view3d';
+import { TOOL_KIND, toolDragAction } from './transformtool';
 
 export class View3D implements Editor, ViewportRenderer, DrawView {
   el: HTMLElement;
@@ -745,7 +746,9 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       addEventListener('pointerup', upFn);
       return;
     }
-    if (tool === 'builtin.select_circle') {
+    // the transform tools' Drag setting: what dragging away from the gizmo does
+    const drag = TOOL_KIND[tool] ? toolDragAction(tool) : null;
+    if (tool === 'builtin.select_circle' || drag === 'SELECT_CIRCLE') {
       circlePaint(this, e, modeFromEvent(e));
       return;
     }
@@ -756,13 +759,13 @@ export class View3D implements Editor, ViewportRenderer, DrawView {
       const q = this.local(ev);
       if (!dragging && Math.hypot(q.x - start.x, q.y - start.y) > prefs.drag_threshold_mouse) {
         dragging = true;
-        if (tool === 'builtin.select_lasso') {
+        if (tool === 'builtin.select_lasso' || drag === 'SELECT_LASSO') {
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
           lassoDrag(this, e, modeFromEvent(ev));
           return;
         }
-        if (tool === 'builtin.select') {
+        if (tool === 'builtin.select' || drag === 'TWEAK') {
           // tweak: select under cursor then move
           removeEventListener('pointermove', move);
           removeEventListener('pointerup', up);
