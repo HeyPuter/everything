@@ -1624,9 +1624,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     throw e;
   });
   ready.catch(() => {});
+  // Once the document is open (or could not be), an editor without a save handler can never save it.
+  let settled = false;
+  ready.then(() => { settled = true; }, () => { settled = true; });
   return {
     el: root, doc, ready,
     get engine() { return engine; },
+    /** Whether the document opened as a read-only preview or not at all, so that nothing here can save it. */
+    get unsaveable() { return settled && !doc.exporter; },
     get commands() { return editorCommands; },
     async flush() {
       if (destroyed) return true;

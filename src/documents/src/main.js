@@ -73,7 +73,7 @@ async function unmount(stillWanted = () => true) {
       if (saved) break;
       // The URL shows the document while the user decides.
       history.replaceState(null, '', ownHash());
-      const choice = await leaveDialog(doc);
+      const choice = await leaveDialog(doc, { unsaveable: !!leaving.view.unsaveable });
       if (!stillWanted() || current !== leaving) return false;
       // A place chosen while the dialog was open (a link, the back button) is where to go; staying shows the document again.
       const moved = location.hash !== ownHash();
@@ -101,7 +101,15 @@ const leaveQuestionOpen = () => [...document.querySelectorAll('.modal-root:not(.
  * What to do with edits that could not be written: 'stay', 'leave' (and lose
  * them), or, without a session, 'sign-in' so they can be saved after all.
  */
-function leaveDialog(doc) {
+function leaveDialog(doc, { unsaveable = false } = {}) {
+  // A preview, or a file that could not be opened, has no save to try again: say what staying is for.
+  if (unsaveable) {
+    return confirmDialog({
+      title: LEAVE_TITLES[0],
+      message: `This document could not be opened for editing, so it has not been saved to Puter. ${doc.blob ? 'Stay to download a copy, or leave without it.' : 'Leave without it?'}`,
+      confirmLabel: 'Leave without saving', cancelLabel: 'Stay',
+    }).then((leave) => (leave ? 'leave' : 'stay'));
+  }
   // Signing in helps only a document that can be saved at all; one that never opened cannot be.
   if (!session.signedOut || !doc.dirty || !doc.exporter) {
     return confirmDialog({

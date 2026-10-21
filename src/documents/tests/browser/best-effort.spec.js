@@ -71,3 +71,15 @@ test('the message bar\'s Dismiss button stays visible on its yellow in the dark 
   // The theme's light grey icon measured 1.6:1 on the bar's fixed yellow.
   expect(ratio).toBeGreaterThanOrEqual(3);
 });
+
+test('leaving a preview of an imported file says it was not saved, without offering to keep editing', async ({ page }) => {
+  await page.goto('/mock.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeVisible();
+  await openReadOnlyPreview(page, 'public/fixtures/best-effort.docx');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(dialog).toContainText('could not be opened for editing, so it has not been saved to Puter. Stay to download a copy');
+  await expect(dialog.getByRole('button', { name: 'Keep editing' })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Stay' }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveJSProperty('readOnly', true);
+});

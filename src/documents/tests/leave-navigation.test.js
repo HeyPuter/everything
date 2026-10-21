@@ -62,7 +62,9 @@ it('says that a never-saved document has not been saved, rather than speaking of
   const view = await openUnsavedImport();
   view.el.querySelector('[aria-label="All Documents"]').click();
   await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Leave without saving?'));
-  expect(document.querySelector('[role="dialog"]').textContent).toContain('This document has not been saved yet');
+  // The editor could not open it, so there is no editing to keep doing: the question says what staying is for.
+  expect(document.querySelector('[role="dialog"]').textContent).toContain('This document could not be opened for editing, so it has not been saved to Puter. Stay to download a copy');
+  expect(document.querySelector('[role="dialog"]').textContent).not.toContain('Keep editing');
   document.querySelector('.modal-root:not(.closing) .modal-panel .btn-ghost').click();
   await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeNull());
 });
