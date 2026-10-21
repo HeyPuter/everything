@@ -453,7 +453,7 @@ function ttsPanel(ctx) {
     status,
   );
   voices.el.setAttribute('aria-labelledby', 'tts-voice-label');
-  return { el, dispose: () => { offSel(); stopPreview(); } };
+  return { el, stop: stopPreview, dispose: () => { offSel(); stopPreview(); } };
 }
 
 function findStart(project, clipId) {
@@ -558,10 +558,18 @@ export function audioTab(ctx) {
   const off = store.on('change', () => {
     if (layout.category === 'yours' || layout.category === 'extracted') layout.refresh();
   });
+  // Previews don't play on over the timeline or from a tab that is gone.
+  const stopPreviews = () => {
+    preview.stop();
+    tts?.stop?.();
+  };
+  const offPlay = ctx.player?.on?.('play', (e) => e?.playing && stopPreviews());
   return {
     el: layout.el,
+    hidden: stopPreviews,
     dispose() {
       off();
+      offPlay?.();
       preview.stop();
       music.dispose();
       layout.dispose();

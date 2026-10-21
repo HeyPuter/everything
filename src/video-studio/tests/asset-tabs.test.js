@@ -6,6 +6,7 @@ import { createActions } from '../src/ui/actions.js';
 import { setPref } from '../src/ui/prefs.js';
 import { closeMenus } from '../src/ui/menu.js';
 import { fixture } from './helpers.js';
+import { Emitter } from '../src/lib/emitter.js';
 
 describe('fitTabs', () => {
   const w = [40, 40, 40, 40, 40];
@@ -95,5 +96,65 @@ describe('assets panel tab row', () => {
     expect(document.activeElement.hidden).toBe(false);
     // Roving tabindex: only the selected tab is in the tab order.
     expect(tabs().filter((t) => t.tabIndex === 0)).toHaveLength(1);
+  });
+});
+
+describe('audio previews', () => {
+  let panel;
+  let player;
+  const stops = [];
+
+  beforeEach(() => {
+    globalThis.AudioContext = class {
+      constructor() {
+        this.currentTime = 0;
+        this.destination = {};
+      }
+      createBuffer(n, length, rate) {
+        return { duration: length / rate, copyToChannel() {} };
+      }
+      createBufferSource() {
+        const node = { connect() {}, start() {}, stop: () => stops.push(node) };
+        return node;
+      }
+    };
+    setPref('assetsTab', 'audio');
+    setPref('assetCats', { audio: 'sfx' });
+    const store = new EditorStore(fixture());
+    player = new Emitter();
+    const ctx = { store, player, library: { backend: { kind: 'memory' } }, media: { poster: () => Promise.resolve(null) } };
+    ctx.actions = createActions(ctx);
+    panel = createAssetsPanel(ctx);
+    document.body.append(panel.el);
+  });
+
+  afterEach(() => {
+    panel.dispose();
+    panel.el.remove();
+    delete globalThis.AudioContext;
+    stops.length = 0;
+  });
+
+  const play = () => {
+    const b = panel.el.querySelector('.sfx-play');
+    b.click();
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    return b;
+  };
+
+  it('stop when the Audio tab is left', () => {
+    const b = play();
+    panel.show('media');
+    expect(stops).toHaveLength(1);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('stop when the timeline starts playing', () => {
+    const b = play();
+    player.emit('play', { playing: false });
+    expect(stops).toHaveLength(0);
+    player.emit('play', { playing: true });
+    expect(stops).toHaveLength(1);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
   });
 });

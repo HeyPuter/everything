@@ -94,6 +94,7 @@ export function createAssetsPanel(ctx) {
   document.fonts?.ready?.then(() => fit());
 
   function show(id) {
+    if (id !== current) made.get(current)?.hidden?.();
     current = id;
     setPref('assetsTab', id);
     bar.select(id);
