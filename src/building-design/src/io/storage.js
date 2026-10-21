@@ -38,6 +38,12 @@ export async function cloudRead(path) {
   return blob.arrayBuffer();
 }
 
+/** A short fingerprint of a cloud file's current version (changes whenever it is written). */
+export async function cloudVersion(path) {
+  const s = await puter.fs.stat(path);
+  return `${s.modified ?? ''}:${s.size ?? ''}:${s.uid ?? s.id ?? ''}`;
+}
+
 /**
  * Write a blob; `path` absolute or relative to the app folder. Returns the
  * FS item. With overwrite false an existing file makes it reject (see

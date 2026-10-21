@@ -284,7 +284,11 @@ export const RIBBON = [
   {
     id: 'collab',
     label: 'Collaborate',
-    panels: [{ title: 'Share', items: [{ cmd: 'share', size: 'lg' }, { cmd: 'sharedWithMe', size: 'lg' }] }],
+    panels: [
+      { title: 'Share', items: [{ cmd: 'share', size: 'lg' }, { cmd: 'sharedWithMe', size: 'lg' }] },
+      { title: 'Synchronize', items: [{ cmd: 'syncNow', size: 'lg', variants: [{ cmd: 'syncNow', label: 'Synchronize Now' }, { cmd: 'syncComment', label: 'Synchronize with Comment...' }] }, { cmd: 'reloadLatest', size: 'lg' }, { cmd: 'autoSync', size: 'lg' }, { cmd: 'syncHistory', size: 'lg' }] },
+      { title: 'Worksets', items: [{ cmd: 'worksets', size: 'lg' }, { cmd: 'viewWorksets', size: 'lg' }, { cmd: 'worksharingDisplay', size: 'lg' }] },
+    ],
   },
   {
     id: 'modify',

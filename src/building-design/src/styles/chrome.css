@@ -1139,6 +1139,60 @@ button.sb-item:hover {
   color: var(--accent-text);
 }
 
+.sb-sync[data-state='pending'] {
+  color: var(--accent-text);
+}
+
+.sb-sync[data-state='offline'] {
+  color: var(--danger, #c0392b);
+}
+
+.sb-sync[data-state='syncing'] svg {
+  animation: sb-spin 1s linear infinite;
+}
+
+@keyframes sb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-sync[data-state='syncing'] svg {
+    animation: none;
+  }
+}
+
+.sb-ws {
+  cursor: default;
+}
+
+.sb-select {
+  height: 20px;
+  max-width: 180px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.sb-select:hover,
+.sb-select:focus-visible {
+  border-color: var(--border);
+  background: var(--bg-elev, var(--bg));
+}
+
+.ws-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  vertical-align: middle;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+}
+
 .sb-coords {
   font-family: var(--font-mono);
   min-width: 170px;

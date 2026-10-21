@@ -17,6 +17,7 @@ import { phasesInOrder, phaseLook, phased } from './phases.js';
 import { hostedBy } from './model.js';
 import { ANNOTATION_KINDS } from './annotate.js';
 import { hiddenByFilters, viewGraphics, restyle, viewFilterItems } from './graphics.js';
+import { worksharingOn, worksetable, worksetOf, worksetColor } from './worksets.js';
 import { cropGraphics } from './crop.js';
 import { MEP_KINDS, connected } from './mep.js';
 import { isView } from './doc.js';
@@ -226,6 +227,7 @@ export class Scene {
       if (g && (view.overrides || view.filters?.length || this.doc.get('project')?.objectStyles)) g = restyle(g, viewGraphics(this.doc, view, el));
       if (g && view.cropOn && view.crop && !el.viewId && !isView(el) && el.kind !== 'section' && el.kind !== 'elevation') g = cropGraphics(g, view.crop);
       if (g && phased(el) && phaseLook(this.doc, view, el) === 'dashed') g = dashed(g);
+      if (g && view.wsDisplay === 'worksets' && worksharingOn(this.doc) && worksetable(this.doc, el)) g = restyle(g, { color: worksetColor(this.doc, worksetOf(this.doc, el)?.id) });
     } catch (err) {
       console.warn('Could not draw', el.kind, el.id, err);
     }

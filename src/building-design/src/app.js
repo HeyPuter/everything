@@ -53,6 +53,8 @@ import {
 import { renderViewbar } from './ui/viewbar.js';
 import { renderHome } from './ui/home.js';
 import { Settings } from './settings.js';
+import { SyncManager } from './io/sync.js';
+import { worksharingOn, worksetable, worksets, defaultWorkset, DATUM_KINDS } from './core/worksets.js';
 
 const PLAN_KINDS = new Set(PLAN_VIEW_KINDS);
 
@@ -78,6 +80,8 @@ export class App {
     this.file = null;
     this.settingsStore = new Settings();
     this.flagsVersion = 0;
+    this.sync = new SyncManager(this);
+    this.activeWorksetId = null;
   }
 
   get settings() {
@@ -108,6 +112,7 @@ export class App {
     this.viewport = new Viewport(this, this.shell.canvasWrap, this.shell.glCanvas, this.shell.overlay);
     this.bindKeys();
     this.bindDock();
+    this.sync.on(() => this.renderCollab());
     this.buildPhonebar();
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.applyTheme());
     window.addEventListener('beforeunload', (e) => {
@@ -153,7 +158,11 @@ export class App {
     upgradeDoc(doc);
     this.groupEdit = null;
     // New model elements belong to the phase of the view they are drawn in.
-    doc.addHooks = [(item) => (!item.phaseId && phased(item) && this.activeView?.phaseId ? { phaseId: this.activeView.phaseId } : null)];
+    doc.addHooks = [
+      (item) => (!item.phaseId && phased(item) && this.activeView?.phaseId ? { phaseId: this.activeView.phaseId } : null),
+      // ...and to the active workset of whoever draws them.
+      (item) => (!item.worksetId && worksharingOn(doc) && worksetable(doc, item) ? { worksetId: DATUM_KINDS.has(item.kind) ? worksets(doc).find((w) => w.shared)?.id ?? this.activeWorkset()?.id : this.activeWorkset()?.id } : null),
+    ];
     this.doc = doc;
     this.file = file;
     this.docId = file?.recoveryId || newId('doc');
@@ -176,9 +185,55 @@ export class App {
     this.ribbon.refresh();
     this.setPrompt('Ready');
     files.scheduleRecovery(this);
+    this.activeWorksetId = null;
+    this.sync.attach(null, null, doc.modified);
+    this.renderCollab();
+  }
+
+  // Collaboration --------------------------------------------------------------------------------
+
+  activeWorkset() {
+    const w = this.doc?.get(this.activeWorksetId);
+    return w?.kind === 'workset' ? w : defaultWorkset(this.doc);
+  }
+
+  setActiveWorkset(id) {
+    this.activeWorksetId = id;
+    this.renderCollab();
+  }
+
+  /** Synchronizing needs the project in the cloud; offer to put it there. */
+  async requireShared() {
+    if (this.sync.active) return true;
+    const ok = await confirmDialog('Save to Puter first', 'Working together needs the project in your Puter cloud storage. Save it there now? You can then share it with Share Project.', { confirm: 'Save to Puter' });
+    if (ok) await this.saveAs();
+    return this.sync.active;
+  }
+
+  /** Status bar: synchronization state and the active workset. */
+  renderCollab() {
+    const sb = this.shell?.syncBtn;
+    if (!sb || !this.doc) return;
+    const st = this.sync.state;
+    sb.hidden = st === 'off';
+    const label = { synced: 'Up to date', pending: 'Changes to share', syncing: 'Synchronizing...', offline: 'Offline' }[st] || '';
+    clear(sb);
+    sb.append(icon(st === 'offline' ? 'cloud-off' : st === 'syncing' ? 'refresh' : 'cloud', 14), h('span', label));
+    sb.dataset.state = st;
+    sb.setAttribute('data-tip-desc', st === 'pending' ? 'Click to synchronize: bring in others\' changes and share yours' : 'Changes others save appear automatically. Click to synchronize now.');
+    const ws = this.shell.wsSelect;
+    const on = worksharingOn(this.doc);
+    ws.parentElement.hidden = !on;
+    if (on) {
+      clear(ws);
+      for (const w of worksets(this.doc)) ws.append(h('option', { value: w.id }, w.name));
+      ws.value = this.activeWorkset()?.id ?? '';
+    }
   }
 
   docChanged(ev) {
+    if (!ev.preview && this.sync.active && !ev.remote && this.sync.state === 'synced') this.sync.setState('pending');
+    if (!ev.preview && [...ev.ids].some((id) => this.doc.get(id)?.kind === 'workset' || !this.doc.has(id))) this.renderCollab();
     // Selection may refer to deleted items.
     let selChanged = false;
     for (const id of [...this.selection])
@@ -834,6 +889,8 @@ export class App {
     if (cmd === 'revealHidden') return this.reveal.has(this.activeViewId);
     if (cmd === 'sectionBox') return !!this.activeView?.sectionBox;
     if (cmd === 'modify') return !this.tool || this.tool instanceof SelectTool;
+    const toggle = COMMANDS[cmd]?.toggle;
+    if (toggle) return !!toggle(this);
     if (this.tool && this.tool.commandName === cmd) return true;
     return null;
   }

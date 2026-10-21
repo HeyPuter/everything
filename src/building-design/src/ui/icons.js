@@ -55,6 +55,7 @@ import {
   Printer,
   Redo2,
   RefreshCw,
+  CloudOff,
   RotateCw,
   Ruler,
   Save,
@@ -273,6 +274,10 @@ const BIM = {
   propertyLine: [DASH('M3 5l15-2 3 15-17 3z', '5 2 1 2')],
   siteComponent: [P('M3 13h18v3H3z', 'a'), P('M3 13h18v3H3zM5 16v4M19 16v4M4 10h16', ''), C(12, 5, 2)],
   parking: [P('M5 3v18M19 3v18M5 21h14', ''), P('M9 8h3.5a2.5 2.5 0 0 1 0 5H9V8zM9 13v4', 'thick-a')],
+  sync: [P('M4 12a8 8 0 0 1 13.7-5.6L20 9', ''), P('M20 4v5h-5', ''), P('M20 12a8 8 0 0 1-13.7 5.6L4 15', 'a'), P('M4 20v-5h5', 'a'), R(9.5, 9.5, 5, 5, 's', 1)],
+  live: [C(12, 12, 2.5, 'a'), P('M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4', ''), P('M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14', 'thin')],
+  worksets: [R(3, 3, 8, 8, 's', 1.5), R(3, 3, 8, 8, '', 1.5), R(13, 3, 8, 8, '', 1.5), R(3, 13, 8, 8, '', 1.5), R(13, 13, 8, 8, 'a', 1.5), R(13, 13, 8, 8, '', 1.5)],
+  wsDisplay: [P('M3 20l7-14 4 8', ''), P('M14 14l3-5 4 11H3', 's'), P('M14 14l3-5 4 11', 'a'), C(17, 5, 1.6, 'a')],
   transfer: [R(2, 4, 8, 10, 's', 1), R(2, 4, 8, 10, '', 1), R(14, 10, 8, 10, 'a', 1), R(14, 10, 8, 10, '', 1), P('M10 9h4l-2-2M14 15h-4l2 2', 'thin')],
 };
 
@@ -290,6 +295,7 @@ const LUCIDE = {
   clipboard: Clipboard,
   paste: ClipboardPaste,
   cloud: Cloud,
+  'cloud-off': CloudOff,
   copy: Copy,
   download: Download,
   more: Ellipsis,

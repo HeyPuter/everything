@@ -19,6 +19,7 @@ import { mepSize, systemOf, SYSTEMS } from './mep.js';
 import { braceHeights } from './build3d.js';
 import { topoBoundary } from './topo.js';
 import { massFloorArea } from './massing.js';
+import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
 
 export const GROUPS = ['Constraints', 'Construction', 'Graphics', 'Underlay', 'Text', 'Dimensions', 'Structural', 'Identity Data', 'Phasing', 'Extents', 'Camera', 'Other'];
 
@@ -564,6 +565,26 @@ export function instanceParams(el) {
   if (VIEW[el.kind]) return PHASED_VIEWS.has(el.kind) ? [...VIEW[el.kind], ...VIEW_PHASE] : VIEW[el.kind];
   const base = INSTANCE[el.kind] || [mark, comments];
   return phased(el) ? [...base, ...PHASE_PARAMS] : base;
+}
+
+const WS_VIEWS = new Set(['plan', 'ceilingPlan', 'areaPlan', 'view3d', 'elevation', 'section']);
+
+/** Workset of an element, and per-view workset settings, once worksets are on. */
+export function worksetParams(doc, el) {
+  if (!worksharingOn(doc)) return [];
+  if (WS_VIEWS.has(el.kind))
+    return [
+      P('worksets', 'Worksets', 'Graphics', 'button', { action: 'viewWorksets', text: 'Edit...' }),
+      P('wsDisplay', 'Worksharing Display', 'Graphics', 'select', {
+        get: (v) => v.wsDisplay || 'off',
+        options: () => [
+          { value: 'off', label: 'Off' },
+          { value: 'worksets', label: 'Colour by workset' },
+        ],
+      }),
+    ];
+  if (!worksetable(doc, el)) return [];
+  return [P('worksetId', 'Workset', 'Identity Data', 'select', { get: (e, c) => worksetOf(c.doc, e)?.id ?? '', options: (c) => worksets(c.doc).map((w) => ({ value: w.id, label: w.name })) })];
 }
 
 export function paramValue(d, el, ctx) {

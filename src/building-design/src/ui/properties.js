@@ -7,7 +7,7 @@
 import { h, clear } from './dom.js';
 import { icon, KIND_ICON } from './icons.js';
 import { showMenu } from './menu.js';
-import { instanceParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../core/props.js';
+import { instanceParams, worksetParams, paramValue, paramPatch, isReadOnly, GROUPS } from '../core/props.js';
 import { TYPE_KIND, KIND_LABEL, FAMILY_BY_KIND } from '../core/catalog.js';
 import { formatLength, formatArea, formatVolume, parseLength } from '../core/units.js';
 import { isView, VIEW_LABEL } from '../core/doc.js';
@@ -152,7 +152,7 @@ export class PropertiesPanel {
     const body = h('div.props-body');
     if (t.mode === 'tool') body.append(h('p.props-empty', 'Choose the type above. Options for placing are in the options bar.'));
     else if (t.mode === 'sel' && !t.kind) body.append(this.renderParams([commentsParam()], t.all));
-    else if (items.length) body.append(this.renderParams([...instanceParams(items[0]), ...paramDescriptors(doc, items[0])], items));
+    else if (items.length) body.append(this.renderParams([...instanceParams(items[0]), ...worksetParams(doc, items[0]), ...paramDescriptors(doc, items[0])], items));
     wrap.append(body);
     this.body.append(wrap);
   }

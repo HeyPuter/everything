@@ -298,6 +298,28 @@ export class Doc {
     this.redoStack.length = 0;
   }
 
+  /**
+   * Apply changes made by someone else ([[id, item | null]]). They are not
+   * undoable, and undo steps that touch the same elements are dropped so
+   * undo never reverts another person's work.
+   */
+  applyRemote(changes, label = 'Changes from others') {
+    if (!changes.length || this.tx) return false;
+    const wasSaved = !this.modified;
+    const ids = new Set();
+    for (const [id, item] of changes) {
+      this._put(id, item ? Object.freeze(item) : null);
+      ids.add(id);
+    }
+    const touches = (step) => step.changes.some((c) => ids.has(c[0]));
+    this.undoStack = this.undoStack.filter((s) => !touches(s));
+    this.redoStack = this.redoStack.filter((s) => !touches(s));
+    this.revision++;
+    if (wasSaved) this.savedRevision = this.revision;
+    this.emit({ ids, label, remote: true });
+    return true;
+  }
+
   /** Project-level settings (info, units) change through a pseudo item so they undo too. */
   setInfo(patch) {
     this.transact('Project information', () => {

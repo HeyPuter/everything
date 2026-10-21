@@ -14,6 +14,7 @@
 import { categoryOf, KIND_LABEL } from './catalog.js';
 import { levelOf } from './model.js';
 import { PlanBuilder, materialOf } from './plan.js';
+import { hiddenByWorkset } from './worksets.js';
 
 export const FILTER_PARAMS = [
   { value: 'category', label: 'Category' },
@@ -147,6 +148,7 @@ function merge(out, o) {
 
 /** True when a view's filters hide the element. */
 export function hiddenByFilters(doc, view, el) {
+  if (hiddenByWorkset(doc, view, el)) return true;
   if (!view?.filters?.length) return false;
   for (const f of view.filters) {
     if (f.visible !== false) continue;

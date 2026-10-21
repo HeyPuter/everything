@@ -90,7 +90,10 @@ export function buildShell(app) {
   const selInfo = h('button.sb-item', { type: 'button', hidden: true, 'aria-live': 'polite', 'data-tip': 'Filter the selection by category', onClick: () => app.selectionFilterDialog() });
   const snapBtn = h('button.sb-item', { type: 'button', 'aria-pressed': 'true', 'data-tip': 'Snaps', 'data-tip-desc': 'Snap to endpoints, midpoints, intersections and angles', onClick: () => app.toggleSnaps() }, icon('magnet', 14), h('span', 'Snaps'));
   const coords = h('span.sb-item.sb-coords', { 'aria-hidden': 'true' });
-  const statusbar = h('footer.statusbar', prompt, selInfo, snapBtn, coords);
+  const syncBtn = h('button.sb-item.sb-sync', { type: 'button', hidden: true, 'data-tip': 'Shared project', onClick: () => app.run('syncNow') });
+  const wsSelect = h('select.sb-select', { 'aria-label': 'Active workset', onChange: (e) => app.setActiveWorkset(e.target.value) });
+  const wsWrap = h('label.sb-item.sb-ws', { hidden: true, 'data-tip': 'Active workset', 'data-tip-desc': 'New elements go into this workset' }, icon('worksets', 14), wsSelect);
+  const statusbar = h('footer.statusbar', prompt, selInfo, wsWrap, syncBtn, snapBtn, coords);
 
   const phonebar = h('nav.phonebar', { 'aria-label': 'Tools' });
   const root = h('div.app-root', titlebar, h('div.ribbon-slot', { style: { display: 'contents' } }), optionsbar, main, statusbar, phonebar);
@@ -103,6 +106,8 @@ export function buildShell(app) {
     undoBtn,
     redoBtn,
     optionsbar,
+    syncBtn,
+    wsSelect,
     dock,
     dockSplit,
     dockResize,

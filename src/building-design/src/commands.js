@@ -46,6 +46,9 @@ import { CurtainGridTool } from './editor/curtain.js';
 import { DemolishTool, RenumberTool } from './editor/manage.js';
 import { FootingTool, WallFootingTool, BeamSystemTool, TopoTool, ByFaceTool } from './editor/site.js';
 import * as manage from './ui/manage.js';
+import * as collab from './ui/collab.js';
+import { worksharingOn } from './core/worksets.js';
+import { confirmDialog } from './ui/dialog.js';
 import { AngularDimTool, RadialDimTool, SpotTool, InsulationTool, DetailItemTool, ArcTool, SymbolTool, LegendTool, LegendComponentTool } from './editor/annotate.js';
 
 const tool = (Cls, opts = {}) => (app, args) => app.startTool(Cls, { ...opts, ...(args || {}) });
@@ -81,6 +84,50 @@ export const COMMANDS = {
   share: { label: 'Share Project', icon: 'share', run: (app) => app.shareDialog() },
   importDxf: { label: 'Import CAD (DXF)', icon: 'importCad', run: (app) => app.importDXF(), desc: 'Bring lines and text from a DXF drawing into the active view, to trace over' },
   importImage: { label: 'Image', icon: 'imageImport', run: (app) => app.importImage(), desc: 'Place a picture, such as a scanned drawing or site photo, in the active view' },
+  syncNow: {
+    label: 'Synchronize Now',
+    icon: 'sync',
+    keys: 'SY',
+    run: async (app) => (await app.requireShared()) && app.sync.sync(),
+    desc: 'Bring in changes others saved and share yours. Saving does the same.',
+  },
+  syncComment: { label: 'Synchronize with Comment', icon: 'sync', run: (app) => collab.syncWithCommentDialog(app), desc: 'Synchronize and note what you changed' },
+  reloadLatest: {
+    label: 'Reload Latest',
+    icon: 'refresh',
+    run: async (app) => {
+      if (!(await app.requireShared())) return;
+      if (app.doc.modified && !(await confirmDialog('Reload latest?', 'Your changes that are not synchronized yet will be lost.', { confirm: 'Reload', danger: true }))) return;
+      app.sync.reloadLatest();
+    },
+    desc: 'Discard your unsynchronized changes and load the shared copy',
+  },
+  autoSync: {
+    label: 'Live Updates',
+    icon: 'live',
+    toggle: (app) => app.settings.autoSync !== false,
+    run: (app) => {
+      const on = app.settings.autoSync === false;
+      app.settingsStore.set('autoSync', on);
+      app.ribbon.refresh();
+      app.toast(on ? 'Changes others save will appear automatically.' : 'Live updates are off. Synchronize to see others\' changes.');
+    },
+    desc: 'Show changes others save while you work',
+  },
+  syncHistory: { label: 'History', icon: 'history', run: (app) => collab.syncHistoryDialog(app), desc: 'Who synchronized the project, when, and their comments' },
+  worksets: { label: 'Worksets', icon: 'worksets', keys: 'WS', run: (app) => collab.worksetsDialog(app), desc: 'Divide the model into parts that people work on and views can turn off' },
+  viewWorksets: { label: 'View Worksets', icon: 'worksets', run: (app) => collab.viewWorksetsDialog(app), desc: 'Which worksets the active view shows' },
+  worksharingDisplay: {
+    label: 'Colour by Workset',
+    icon: 'wsDisplay',
+    toggle: (app) => app.activeView?.wsDisplay === 'worksets',
+    enabled: (app) => !!app.activeView && worksharingOn(app.doc) && ['plan', 'ceilingPlan', 'areaPlan', 'elevation', 'section'].includes(app.activeView.kind),
+    run: (app) => {
+      const v = app.activeView;
+      app.commit('Worksharing display', () => app.doc.update(v.id, { wsDisplay: v.wsDisplay === 'worksets' ? 'off' : 'worksets' }));
+    },
+    desc: 'Colour elements by their workset in the active view',
+  },
   sharedWithMe: { label: 'Shared With Me', icon: 'users', run: (app) => app.openDialog('shared') },
 
   // Edit
