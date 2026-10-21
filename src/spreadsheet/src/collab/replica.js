@@ -540,6 +540,7 @@ export class Replica extends EventTarget {
           const bases = new Map(); // sheet and list → the list as the pending change being transformed found it
           for (const p of this.pending) {
             const merged = mergeLists(p.ops, theirs, bases, this.wb);
+            this._rebaseInverse(p.id, merged.mine, merged.theirs);
             const [mine, past] = this._xform(merged.mine, merged.theirs, true);
             p.ops = mine;
             theirs = [...past, ...merged.after];
@@ -691,6 +692,19 @@ export class Replica extends EventTarget {
     if (!xs) return [this._mapWrites([x], y), [y]];
     if (!ys) return [[x], this._mapWrites([y], x)];
     return transformStructure(x, y, false, aWins);
+  }
+
+  /**
+   * The pending change `id` lands after `theirs`, someone else's operations made at the same time on the same state: where
+   * both write one register, what it replaces is what `theirs` wrote there, and that is what its Undo puts back, not what
+   * was there before either of them (which would wipe out the other person's change too). Redo still does again what
+   * was undone. Not where either moves rows, columns or sheets: the inverse is kept in positions those would have to be
+   * matched through.
+   */
+  _rebaseInverse(id, mine, theirs) {
+    const entry = this.undoStack.find((e) => e.id === id);
+    if (!entry || [...mine, ...theirs].some((op) => isStructure(op) || op.t === 'put')) return;
+    for (const t of theirs) for (const m of mine) { const o = overlap(t, m); if (o) entry.ops.push(o); }
   }
 
   /** Writes made before structural operation `s` was applied, moved to apply after it. */
@@ -960,6 +974,23 @@ function writesAgainst(a, b, aWins) {
   const [win, lose] = aWins ? [a, b] : [b, a];
   const rest = without(lose, win);
   return aWins ? [[a], rest ? [rest] : []] : [rest ? [rest] : [], [b]];
+}
+
+/** The part of register write `a` whose registers `b` also writes (null when none). */
+function overlap(a, b) {
+  if (a.t !== b.t || (a.s ?? null) !== (b.s ?? null) || (a.t === 'lines' && a.p !== b.p)) return null;
+  if (a.t === 'cells') {
+    const v = {}, st = {};
+    for (const [k, val] of Object.entries(a.v || {})) if (own(b.v, k)) v[k] = val;
+    for (const [k, patch] of Object.entries(a.st || {})) {
+      const both = b.st?.[k] ? Object.fromEntries(Object.entries(patch).filter(([p]) => own(b.st[k], p))) : {};
+      if (Object.keys(both).length) st[k] = both;
+    }
+    if (!Object.keys(v).length && !Object.keys(st).length) return null;
+    return { t: 'cells', s: a.s, ...(Object.keys(v).length ? { v } : {}), ...(Object.keys(st).length ? { st } : {}) };
+  }
+  const v = Object.fromEntries(Object.entries(a.v).filter(([k]) => own(b.v, k)));
+  return Object.keys(v).length ? { ...a, v } : null;
 }
 
 /** `lose` with every register `win` also writes taken out (null when nothing is left). */
