@@ -130,3 +130,13 @@ describe('geometry utility nodes', () => {
     }
   });
 });
+
+describe('Transfer Attributes helpers', () => {
+  it('wildcards match * and ?', async () => {
+    const { wildcardMatch } = await import('../../src/geonodes/nodes/gnmisc');
+    expect(wildcardMatch('h*', 'heat')).toBe(true);
+    expect(wildcardMatch('h?at', 'heat')).toBe(true);
+    expect(wildcardMatch('h*', 'cold')).toBe(false);
+    expect(wildcardMatch('a.b', 'axb')).toBe(false);
+  });
+});

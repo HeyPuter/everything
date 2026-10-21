@@ -7,7 +7,10 @@ import type { NodeData } from '../../data/types';
 import type { SocketDef, SocketType } from '../../nodes/types';
 import type { Val } from '../exec';
 import { coerce } from '../evaluator';
-import { GeometrySet, isInternal, type Component } from '../geometry';
+import { GeometrySet, isInternal, readAttribute, type Component } from '../geometry';
+import { evalFull, makeContext, type Field } from '../field';
+import { indexField } from '../inputs';
+import { allocData, dataComps, type Domain } from '../types';
 import { ListValue } from '../bundles/lists';
 import { BundleValue } from '../bundles/values';
 import { ITEM_TYPES, itemSocket } from '../zones/items';
@@ -465,5 +468,106 @@ geoNode(
       const type = ctx.prop('Mode') === 'Data Type' ? (NESTED_TYPES.find(([v]) => v === ctx.prop('Data Type'))?.[2] ?? 'FLOAT') : null;
       return { Paths: new ListValue('STRING', b instanceof BundleValue ? nestedPaths(b, type) : []) };
     },
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Transfer Attributes
+
+const TRANSFER_DOMAINS: [Domain, string][] = [
+  ['POINT', 'Point'],
+  ['EDGE', 'Edge'],
+  ['FACE', 'Face'],
+  ['CORNER', 'Corner'],
+  ['CURVE', 'Curve'],
+  ['INSTANCE', 'Instance'],
+];
+
+/** Whether a name matches a pattern with `*` (any run of characters) and `?` (one character). */
+export function wildcardMatch(pattern: string, name: string): boolean {
+  const re = new RegExp(`^${pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+  return re.test(name);
+}
+
+/**
+ * Copy attributes from `source` to `target`: an element of the target receives the values of the
+ * source element with the same ID (per domain); elements without a match keep their value (zero
+ * for attributes the target did not have). `pick` chooses
+ * the attribute names. Returns the new target and the names that were transferred.
+ */
+export function transferAttributes(target: GeometrySet, source: GeometrySet, pick: (name: string) => boolean, ids: (side: 'target' | 'source', domain: Domain) => Field): { geometry: GeometrySet; names: string[] } {
+  const names: string[] = [];
+  const out = target.map((tc) => {
+    const sc = source.components().find((c) => c.kind === tc.kind);
+    if (!sc) return tc;
+    const candidates: [string, Domain][] = [];
+    if ((sc as { positions?: Float32Array }).positions && tc.kind !== 'INSTANCES') candidates.push(['position', 'POINT']);
+    for (const [name, a] of sc.attrs) if (!isInternal(name)) candidates.push([name, a.domain]);
+    let copy: Component | null = null;
+    for (const [name, domain] of candidates) {
+      if (!pick(name)) continue;
+      const tn = tc.domainSize(domain),
+        sn = sc.domainSize(domain);
+      const src = readAttribute(sc, name, domain);
+      if (!src) continue;
+      const comps = dataComps(src.type);
+      const sid = evalFull(ids('source', domain), makeContext(sc, domain)) as Int32Array;
+      const tid = evalFull(ids('target', domain), makeContext(tc, domain)) as Int32Array;
+      const index = new Map<number, number>();
+      for (let i = 0; i < sn; i++) if (!index.has(sid[i])) index.set(sid[i], i);
+      const data = allocData(src.type, tn);
+      // elements without a match keep the value they had (zero for a new attribute)
+      const had = readAttribute(tc, name, domain);
+      if (had && had.type === src.type && had.data.length === data.length) data.set(had.data as never);
+      for (let j = 0; j < tn; j++) {
+        const k = index.get(tid[j]);
+        if (k === undefined) continue;
+        for (let c = 0; c < comps; c++) data[j * comps + c] = src.data[k * comps + c];
+      }
+      copy ??= tc.copy();
+      if (name === 'position') (copy as { positions: Float32Array }).positions = data as Float32Array;
+      else copy.attrs.set(name, { domain, type: src.type, data });
+      if (!names.includes(name)) names.push(name);
+    }
+    return copy ?? tc;
+  });
+  return { geometry: out, names };
+}
+
+geoNode(
+  {
+    idname: 'GeometryNodeTransferAttributes',
+    label: 'Transfer Attributes',
+    category: 'attribute',
+    width: 160,
+    description: 'Copy attributes from a source geometry to the target elements with the same IDs',
+    inputs: [
+      geo('Target'),
+      ...TRANSFER_DOMAINS.map(([, l]) => sock(`Target ${l} ID`, 'INT', { hide_value: true, field: true })),
+      geo('Source'),
+      ...TRANSFER_DOMAINS.map(([, l]) => sock(`Source ${l} ID`, 'INT', { hide_value: true, field: true })),
+      sock('Attribute Names', 'STRING', { shape: 'SQUARE', hide_value: true }),
+      sock('Exclude Names', 'BOOLEAN', { d: false }),
+    ],
+    outputs: [geo('Target'), sock('Transferred Names', 'STRING', { shape: 'SQUARE' })],
+    props: [
+      enumProp('Pattern Mode', 'Pattern Mode', [
+        ['Exact', 'Exact'],
+        ['Wildcard', 'Wildcard'],
+      ]),
+    ],
+  },
+  {
+    exec: (ctx) => {
+      const list = ctx.input('Attribute Names');
+      const patterns = list instanceof ListValue ? list.items.map((x) => String(x ?? '')) : [];
+      const wild = ctx.prop('Pattern Mode') === 'Wildcard';
+      const exclude = ctx.bool('Exclude Names');
+      const matches = (name: string) => patterns.some((p) => (wild ? wildcardMatch(p, name) : p === name));
+      const label = (d: Domain) => TRANSFER_DOMAINS.find(([x]) => x === d)![1];
+      const r = transferAttributes(ctx.geometry('Target'), ctx.geometry('Source'), (n) => matches(n) !== exclude, (side, d) => ctx.field(`${side === 'target' ? 'Target' : 'Source'} ${label(d)} ID`, 'INT'));
+      return { Target: r.geometry, 'Transferred Names': new ListValue('STRING', r.names) };
+    },
+    implicit: Object.fromEntries(TRANSFER_DOMAINS.flatMap(([, l]) => [`Target ${l} ID`, `Source ${l} ID`].map((id) => [id, indexField]))),
   },
 );
