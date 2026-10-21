@@ -196,6 +196,10 @@ export interface ParticleSettingsX extends ParticleSettings {
   effector_weights_types?: Record<string, number>;
   /** render as collection */
   instance_collection?: string | null;
+  /** use the counts of `instance_weights` to pick collection objects */
+  use_collection_count?: boolean;
+  instance_weights?: { object: string; name: string; count: number }[];
+  active_instanceweight_index?: number;
   use_collection_pick_random?: boolean;
   use_whole_collection?: boolean;
   /** render as lines */
@@ -263,6 +267,15 @@ export interface ParticleSystemX extends ParticleSystem {
   invert_vertex_group_size?: boolean;
   vertex_group_velocity?: string;
   invert_vertex_group_velocity?: boolean;
+  /** connected edited hair: roots bound to emitter triangles (follows deformation) */
+  hair_binding?: import('./hairbind').HairBinding | null;
+  /** the hair was disconnected from the emitter on purpose */
+  hair_disconnected?: boolean;
+  /** keyed targets / boid relations (other particle systems) */
+  targets?: import('./keyed').KeyedTarget[];
+  active_particle_target_index?: number;
+  /** keyed: use the targets' own times and durations */
+  use_keyed_timing?: boolean;
   /** hair dynamics: strands simulated like cloth chains */
   use_hair_dynamics?: boolean;
   hair_dynamics?: HairDynamicsSettings;

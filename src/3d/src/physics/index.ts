@@ -14,6 +14,7 @@ import './ui-particles';
 import './draw';
 import './timelinecache';
 import './fluiddraw';
+import './particleops';
 
 /** Interactive evaluations simulate at most this long, then continue on the next tick. */
 const BUDGET_MS = 120;

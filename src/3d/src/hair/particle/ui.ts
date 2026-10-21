@@ -2,7 +2,8 @@
 // Select and Particle menus, context menu, options (preserve, deflect, display), the edit
 // overlay (paths and keys, weights) and the "Particle" keymap.
 import { BufferAttribute, BufferGeometry, Color, Float32BufferAttribute, LineSegments, Points, ShaderMaterial } from 'three';
-import { app } from '../../app/app';
+import { app, operators, registerOperators } from '../../app/app';
+import { shell } from '../../ui/shell';
 import { addKeys } from '../../app/keymap';
 import { editModeHooks } from '../../editors/view3d/hooks';
 import type { View3D } from '../../editors/view3d/view3d';
@@ -22,7 +23,7 @@ import './shapecut';
 import type { MenuItem } from '../../ui/menu';
 import { hairBrushAccess, type HairBrushAccess } from '../sculptui';
 import { PE_TOOLS, activePE, activePETool, inPE, peBrush, peSettings, type PESelectMode } from './mode';
-import { startParticleStroke } from './brush';
+import { startParticleStroke, particleStrokeSession } from './brush';
 import { strandCount } from './keys';
 
 const refresh = () => app.changed('ui');
@@ -241,13 +242,56 @@ modeMenus.PARTICLE_EDIT = {
 
 const cursor = { x: 0, y: 0, view: null as View3D | null };
 
+/** The pointer event that starts an interactive brush stroke (consumed by particle.brush_edit). */
+let pending: { v: View3D; e: PointerEvent } | null = null;
+
 editModeHooks.pointer.unshift((v, e) => {
   if (!inPE() || e.button !== 0 || e.altKey) return false;
   const tool = activePETool();
   if (!tool.startsWith('builtin.particle_')) return false;
-  startParticleStroke(v, e, tool, e.ctrlKey || e.metaKey);
+  pending = { v, e };
+  app.run('particle.brush_edit', { pen_flip: e.ctrlKey || e.metaKey }, { event: { x: e.clientX, y: e.clientY } });
+  pending = null;
   return true;
 });
+
+registerOperators([
+  {
+    idname: 'particle.brush_edit',
+    label: 'Brush Edit',
+    description: 'Apply the active Particle Edit brush along a stroke',
+    props: [
+      { id: 'stroke', label: 'Stroke', type: 'string', default: '', hidden: true },
+      { id: 'pen_flip', label: 'Pen Flip', type: 'bool', default: false },
+    ],
+    undo: false,
+    poll: () => inPE() && activePETool().startsWith('builtin.particle_'),
+    invoke: (ctx, p) => {
+      if (!pending) return operators.get('particle.brush_edit')!.exec!(ctx, p);
+      startParticleStroke(pending.v, pending.e, activePETool(), !!p.pen_flip);
+      // the stroke pushes its own undo step when it ends
+      return 'RUNNING_MODAL';
+    },
+    exec: (ctx, p) => {
+      // a scripted stroke: [[x, y, pressure?], …] in region pixels of the 3D view
+      let pts: number[][] = [];
+      try {
+        pts = JSON.parse(String(p.stroke || '[]'));
+      } catch {
+        app.report('ERROR', 'Brush Edit: the stroke must be a list of [x, y, pressure] points');
+        return 'CANCELLED';
+      }
+      const v = (ctx.area?.editor as View3D | undefined) ?? (shell.screen.areas.find((a) => a.type === 'VIEW_3D')?.editor as View3D | undefined);
+      if (!v || typeof v.ray !== 'function' || !pts.length) return 'CANCELLED';
+      const st = particleStrokeSession(v, activePETool(), !!p.pen_flip);
+      if (!st) return 'CANCELLED';
+      for (const q of pts) st.dab({ x: q[0], y: q[1], pressure: q[2] ?? 1 });
+      st.update();
+      st.end();
+      return 'FINISHED';
+    },
+  },
+]);
 
 editModeHooks.hover.push((v, e) => {
   if (!inPE()) return;

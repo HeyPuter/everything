@@ -9,7 +9,7 @@ import { particleCacheKey } from './particles';
 import { defaultHairDynamics, defaultParticleSettings, defaultPointCache, type ObjectPhysics, type ParticleSettingsX, type ParticleSystemX } from './types';
 import { hairDynKey } from './hairdyn';
 import type { ModifierBase } from '../data/types';
-import { BOID_RULES, defaultBoidSettings, newBoidRule } from './boids';
+import { BOID_RULES, defaultBoidSettings, ensureBoidStates } from './boids';
 import { defaultParticleFluid } from './sph';
 import { openMenu } from '../ui/menu';
 
@@ -63,7 +63,7 @@ function emitterPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettin
       enumProp(s, 'physics_type', 'Physics Type', [['NO', 'None'], ['NEWTON', 'Newtonian'], ['KEYED', 'Keyed'], ['BOIDS', 'Boids'], ['FLUID', 'Fluid']], { disabled: d }),
       s.physics_type === 'BOIDS' ? boidPanels(s, d) : null,
       s.physics_type === 'FLUID' ? fluidPanels(s, d) : null,
-      s.physics_type === 'KEYED' ? keyedPanels(ob, s, d) : null,
+      s.physics_type === 'KEYED' || s.physics_type === 'BOIDS' ? relationsPanel(ob, ps, s, d) : null,
       s.physics_type === 'NEWTON' || s.physics_type === 'BOIDS' || s.physics_type === 'FLUID'
         ? [
             subHeading('Properties'),
@@ -124,6 +124,7 @@ function renderPanel(ob: ObjectPhysics, s: ParticleSettingsX): Child {
           bool(s, 'use_whole_collection', 'Whole Collection'),
           !s.use_whole_collection ? bool(s, 'use_collection_pick_random', 'Pick Random') : null,
           bool(s, 'use_scale_instance', 'Object Scale'),
+          !s.use_whole_collection ? useCountPanel(s) : null,
         ], { sub: true })
       : null,
     !hair ? bool(s, 'use_dead', 'Show Dead') : null,
@@ -135,6 +136,33 @@ function renderPanel(ob: ObjectPhysics, s: ParticleSettingsX): Child {
         ], { sub: true })
       : null,
   ]);
+}
+
+/** Use Count: how many times each collection object appears among the instances. */
+function useCountPanel(s: ParticleSettingsX): Child {
+  const ws = s.instance_weights ?? [];
+  const ai = Math.max(0, Math.min(s.active_instanceweight_index ?? 0, ws.length - 1));
+  const w = ws[ai];
+  const on = !!s.use_collection_count;
+  return panel('pa-render-count', 'Use Count', () => [
+    h(
+      'div',
+      { style: { padding: '4px 0' } },
+      uiList(
+        `pa-weights-${s.id}`,
+        ws.map((x, i) => ({ key: `${i}`, label: `${app.doc.objects[x.object]?.name ?? x.name}: ${x.count}`, icon: 'object' })),
+        ai,
+        (i) => ((s.active_instanceweight_index = i), app.changed('ui')),
+        {
+          remove: () => app.run('particle.dupliob_remove'),
+          up: () => app.run('particle.dupliob_move_up'),
+          down: () => app.run('particle.dupliob_move_down'),
+          extra: h('div', { class: 'row-aligned', style: { gap: '2px' } }, opButton('particle.dupliob_copy', '', {}, { icon: 'duplicate', tip: 'Copy the entry' }), opButton('particle.dupliob_refresh', '', {}, { icon: 'file_refresh', tip: 'Refresh the list from the collection' })),
+        },
+      ),
+    ),
+    w ? num(w, 'count', 'Count', { int: true, min: 0, max: 32767, disabled: !on }) : note('Refresh the list to fill it from the collection'),
+  ], { sub: true, closed: true, header: checkbox(`pa-cnt-${s.id}`, '', on, (v) => ((s.use_collection_count = v), v && !ws.length && app.run('particle.dupliob_refresh'), changed('Toggle Use Count'))) });
 }
 
 function displayPanel(s: ParticleSettingsX): Child {
@@ -153,6 +181,13 @@ function hairPanels(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX
       { class: 'row-aligned', style: { padding: '2px 8px 6px', gap: '4px' } },
       edited ? opButton('particle.edited_clear', 'Free Edit', {}, { tip: 'The hair was edited by hand: drop the edits and grow it from the settings again' }) : null,
       opButton('curves.convert_from_particle_system', 'Convert to Curves', {}, { tip: 'Add a hair curves object made from this hair' }),
+    ),
+    h(
+      'div',
+      { class: 'row-aligned', style: { padding: '0 8px 6px', gap: '4px' } },
+      ps.hair_binding ? note('Connected: the hair follows the emitter surface') : edited ? note(ps.hair_disconnected ? 'Disconnected from the emitter' : 'Edited hair stays where it was combed') : null,
+      opButton('particle.connect_hair', 'Connect', {}, { tip: 'Attach the hair to the emitter surface so it follows deformations' }),
+      opButton('particle.disconnect_hair', 'Disconnect', {}, { tip: 'Detach the hair from the emitter surface' }),
     ),
     panel('pa-emit', 'Emission', () => [
       edited ? note('The hair was edited in Particle Edit mode, so its number and length come from the edits') : null,
@@ -251,76 +286,108 @@ function rotationPanel(s: ParticleSettingsX): Child {
 function boidPanels(s: ParticleSettingsX, d: boolean): Child {
   const b = (s.boids ??= defaultBoidSettings());
   for (const [k, v] of Object.entries(defaultBoidSettings())) if ((b as unknown as Record<string, unknown>)[k] === undefined) (b as unknown as Record<string, unknown>)[k] = v;
-  const ai = Math.max(0, Math.min(b.active_rule_index, b.rules.length - 1));
-  const rule = b.rules[ai];
+  const states = ensureBoidStates(b);
+  const si = Math.max(0, Math.min(b.active_boid_state_index ?? 0, states.length - 1));
+  const st = states[si];
+  const ai = Math.max(0, Math.min(st.active_boid_rule_index, st.rules.length - 1));
+  const rule = st.rules[ai];
   const ruleObject = (label: string) =>
-    splitRow(label, enumMenu(`boid-ob-${s.id}-${ai}`, [{ value: '', label: '—' }, ...Object.values(app.doc.objects).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], rule?.object ?? '', (v) => ((rule!.object = v || null), changed('Set Rule Object'))));
+    splitRow(label, enumMenu(`boid-ob-${s.id}-${si}-${ai}`, [{ value: '', label: '—' }, ...Object.values(app.doc.objects).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], rule?.object ?? '', (v) => ((rule!.object = v || null), changed('Set Rule Object'))));
+  const flight = b.use_flight !== false,
+    land = !!b.use_land;
+  const toggle = (key: 'use_flight' | 'use_land' | 'use_climb', label: string, dis = false) =>
+    h('button', { key, class: { tbtn: true, on: key === 'use_flight' ? flight : !!b[key] }, disabled: d || dis, style: { flex: '1' }, onclick: () => ((b[key] = !(key === 'use_flight' ? flight : !!b[key])), changed(`Toggle ${label}`)) }, label);
   return [
     panel('pa-boid-move', 'Movement', () => [
-      num(b, 'air_speed_max', 'Max Air Speed', { min: 0, max: 100, unit: 'distance', disabled: d }),
-      num(b, 'air_speed_min', 'Min Air Speed', { min: 0, max: 10, unit: 'distance', disabled: d }),
-      num(b, 'air_acc_max', 'Max Acceleration', { min: 0, max: 1, slider: true, disabled: d }),
-      num(b, 'air_personal_space', 'Personal Space', { min: 0, max: 10, unit: 'distance', disabled: d }),
-      num(b, 'range', 'Neighbor Range', { min: 0.01, max: 100, unit: 'distance', disabled: d }),
+      h('div', { class: 'row-aligned', style: { padding: '2px 8px', gap: '2px' } }, toggle('use_flight', 'Allow Flight'), toggle('use_land', 'Allow Land'), toggle('use_climb', 'Allow Climbing', !land)),
+      subHeading('Air'),
+      num(b, 'air_speed_max', 'Max Speed', { min: 0, max: 100, unit: 'distance', disabled: d || !flight }),
+      num(b, 'air_speed_min', 'Min Speed', { min: 0, max: 1, slider: true, disabled: d || !flight, tip: 'Lowest flying speed, as a share of the max speed' }),
+      num(b, 'air_acc_max', 'Max Acceleration', { min: 0, max: 1, slider: true, disabled: d || !flight }),
+      num(b, 'air_ave_max', 'Max Angular Velocity', { min: 0, max: 1, slider: true, disabled: d || !flight }),
+      num(b, 'air_personal_space', 'Personal Space', { min: 0, max: 10, unit: 'distance', disabled: d || !flight }),
+      subHeading('Land'),
+      num(b, 'land_speed_max', 'Max Speed', { min: 0, max: 100, unit: 'distance', disabled: d || !land }),
+      num(b, 'land_jump_speed', 'Jump Speed', { min: 0, max: 100, disabled: d || !land, tip: 'Upward speed of a jump when the rules pull upwards (0: no jumping)' }),
+      num(b, 'land_acc_max', 'Max Acceleration', { min: 0, max: 1, slider: true, disabled: d || !land }),
+      num(b, 'land_ave_max', 'Max Angular Velocity', { min: 0, max: 1, slider: true, disabled: d || !land }),
+      num(b, 'land_personal_space', 'Personal Space', { min: 0, max: 10, unit: 'distance', disabled: d || !land }),
+      num(b, 'land_stick_force', 'Stick Force', { min: 0, max: 1000, softMax: 10, disabled: d || !land || !b.use_climb, tip: 'How strongly climbing boids hold on to their surface' }),
+      subHeading('Neighbors'),
+      num(b, 'range', 'Neighbor Range', { min: 0.01, max: 100, unit: 'distance', disabled: d, tip: 'Other boids further than this are ignored (also the attack range)' }),
     ], { sub: true }),
+    panel('pa-boid-battle', 'Battle', () => [
+      num(b, 'health', 'Health', { min: 0, max: 100, disabled: d, tip: 'Damage a boid takes before it dies' }),
+      num(b, 'strength', 'Attack Strength', { min: 0, max: 100, disabled: d, tip: 'Damage per second dealt to enemies within the neighbor range' }),
+      num(b, 'aggression', 'Aggression', { min: 0, max: 100, disabled: d, tip: 'Fight even when outnumbered this many times' }),
+      num(b, 'accuracy', 'Accuracy', { min: 0, max: 1, slider: true, disabled: d }),
+      note('Enemies are the boids of target systems set to Enemy (Relations).'),
+    ], { sub: true, closed: true }),
     panel('pa-boid-brain', 'Boid Brain', () => [
+      h(
+            'div',
+            { style: { padding: '4px 0' } },
+            uiList(
+              `boid-states-${s.id}`,
+              states.map((x, i) => ({ key: `${i}`, label: x.name, icon: si === i ? 'checkbox_hlt' : 'checkbox_dehlt' })),
+              si,
+              (i) => ((b.active_boid_state_index = i), changed('Set Boid State')),
+              {
+                add: () => app.run('boid.state_add'),
+                remove: () => app.run('boid.state_del'),
+                up: () => app.run('boid.state_move_up'),
+                down: () => app.run('boid.state_move_down'),
+                rename: (i, name) => ((states[i].name = name || states[i].name), changed('Rename Boid State')),
+                rows: 2,
+              },
+            ),
+          ),
       h(
         'div',
         { style: { padding: '4px 0' } },
         uiList(
-          `boid-rules-${s.id}`,
-          b.rules.map((r, i) => ({ key: `${i}`, label: r.name, icon: 'particles' })),
+          `boid-rules-${s.id}-${si}`,
+          st.rules.map((r, i) => ({ key: `${i}`, label: r.name, icon: 'particles' })),
           ai,
-          (i) => ((b.active_rule_index = i), app.changed('ui')),
+          (i) => ((st.active_boid_rule_index = i), app.changed('ui')),
           {
             add: () => {
               const btn = document.activeElement as HTMLElement | null;
               openMenu(
-                BOID_RULES.map(([t, l]) => ({ label: l, action: () => ((b.rules = [...b.rules, newBoidRule(t)]), (b.active_rule_index = b.rules.length - 1), changed('Add Boid Rule')) })),
+                BOID_RULES.map(([t, l]) => ({ label: l, op: 'boid.rule_add', props: { type: t } })),
                 btn ?? { x: app.pointer.x, y: app.pointer.y },
               );
             },
-            remove: () => {
-              if (!b.rules.length) return;
-              b.rules = b.rules.filter((_, i) => i !== ai);
-              b.active_rule_index = Math.max(0, ai - 1);
-              changed('Remove Boid Rule');
-            },
-            up: () => {
-              if (ai <= 0) return;
-              const r = b.rules.slice();
-              [r[ai - 1], r[ai]] = [r[ai], r[ai - 1]];
-              b.rules = r;
-              b.active_rule_index = ai - 1;
-              changed('Move Boid Rule');
-            },
-            down: () => {
-              if (ai >= b.rules.length - 1) return;
-              const r = b.rules.slice();
-              [r[ai + 1], r[ai]] = [r[ai], r[ai + 1]];
-              b.rules = r;
-              b.active_rule_index = ai + 1;
-              changed('Move Boid Rule');
-            },
-            rename: (i, name) => ((b.rules[i].name = name || b.rules[i].name), changed('Rename Boid Rule')),
+            remove: () => app.run('boid.rule_del'),
+            up: () => app.run('boid.rule_move_up'),
+            down: () => app.run('boid.rule_move_down'),
+            rename: (i, name) => ((st.rules[i].name = name || st.rules[i].name), changed('Rename Boid Rule')),
           },
         ),
       ),
-      enumProp(b, 'ruleset_type', 'Rule Evaluation', [['FUZZY', 'Fuzzy'], ['RANDOM', 'Random'], ['AVERAGE', 'Average']], { disabled: d }),
-      b.ruleset_type === 'FUZZY' ? num(b, 'rule_fuzzy', 'Fuzziness', { min: 0, max: 1, slider: true, disabled: d }) : null,
+      enumProp(st, 'ruleset_type', 'Rule Evaluation', [['FUZZY', 'Fuzzy'], ['RANDOM', 'Random'], ['AVERAGE', 'Average']], { disabled: d }),
+      st.ruleset_type === 'FUZZY' ? num(st, 'rule_fuzzy', 'Rule Fuzziness', { min: 0, max: 1, slider: true, disabled: d }) : null,
       rule
         ? [
             subHeading(BOID_RULES.find(([t]) => t === rule.type)?.[1] ?? rule.type),
-            bool(rule, 'use_in_air', 'In Air'),
-            rule.type === 'GOAL' || rule.type === 'AVOID' || rule.type === 'FOLLOW_LEADER' ? ruleObject('Object') : null,
-            rule.type === 'GOAL' || rule.type === 'AVOID' ? bool(rule, 'use_predict', 'Predict') : null,
-            rule.type === 'AVOID' ? num(rule, 'fear_factor', 'Fear Factor', { min: 0, max: 100 }) : null,
-            rule.type === 'AVOID_COLLISION' ? num(rule, 'look_ahead', 'Look Ahead', { min: 0, max: 100 }) : null,
-            rule.type === 'FOLLOW_LEADER' ? num(rule, 'distance', 'Distance', { min: 0, max: 100, unit: 'distance' }) : null,
-            rule.type === 'AVERAGE_SPEED' ? [num(rule, 'speed', 'Speed', { min: 0, max: 1, slider: true }), num(rule, 'wander', 'Wander', { min: 0, max: 1, slider: true }), num(rule, 'level', 'Level', { min: 0, max: 1, slider: true })] : null,
+            bool(rule, 'use_in_air', 'In Air', { disabled: d }),
+            bool(rule, 'use_on_land', 'On Land', { disabled: d }),
+            rule.type === 'GOAL' || rule.type === 'AVOID' || (rule.type === 'FOLLOW_LEADER' && !rule.use_line) ? ruleObject('Object') : null,
+            rule.type === 'GOAL' || rule.type === 'AVOID' ? bool(rule, 'use_predict', 'Predict', { disabled: d }) : null,
+            (rule.type === 'GOAL' || rule.type === 'AVOID') && !rule.object ? note(rule.type === 'GOAL' ? 'Without an object the boids chase enemy boids' : 'Without an object the boids flee from enemy boids') : null,
+            rule.type === 'AVOID' ? num(rule, 'fear_factor', 'Fear Factor', { min: 0, max: 100, disabled: d }) : null,
+            rule.type === 'AVOID_COLLISION' ? [bool(rule, 'use_avoid', 'Boids', { disabled: d }), bool(rule, 'use_avoid_collision', 'Deflectors', { disabled: d }), num(rule, 'look_ahead', 'Look Ahead', { min: 0, max: 100, disabled: d, tip: 'Seconds ahead to look for collisions' })] : null,
+            rule.type === 'FOLLOW_LEADER' ? [num(rule, 'distance', 'Distance', { min: 0, max: 100, unit: 'distance', disabled: d }), bool(rule, 'use_line', 'Line', { disabled: d, tip: 'Follow the previous boid instead of the leader object' }), rule.use_line ? num(rule, 'queue_count', 'Queue Size', { int: true, min: 0, max: 100, disabled: d, tip: 'Boids per line (0: one line)' }) : null] : null,
+            rule.type === 'AVERAGE_SPEED' ? [num(rule, 'speed', 'Speed', { min: 0, max: 1, slider: true, disabled: d }), num(rule, 'wander', 'Wander', { min: 0, max: 1, slider: true, disabled: d }), num(rule, 'level', 'Level', { min: 0, max: 1, slider: true, disabled: d })] : null,
+            rule.type === 'FIGHT' ? [num(rule, 'distance', 'Fight Distance', { min: 0, max: 100, unit: 'distance', disabled: d }), num(rule, 'flee_distance', 'Flee Distance', { min: 0, max: 100, unit: 'distance', disabled: d })] : null,
           ]
         : null,
     ], { sub: true }),
+    panel('pa-boid-misc', 'Misc', () => [
+      num(b, 'bank', 'Banking', { min: 0, max: 2, slider: true, tip: 'Instanced boids roll into their turns' }),
+      num(b, 'pitch', 'Pitch', { min: 0, max: 2, slider: true, tip: 'Instanced boids tilt up and down with their flight path' }),
+      num(b, 'height', 'Height', { min: 0, max: 2, slider: true, tip: 'Walking boids are lifted by this share of their size' }),
+    ], { sub: true, closed: true }),
   ];
 }
 
@@ -337,36 +404,42 @@ function fluidPanels(s: ParticleSettingsX, d: boolean): Child {
   ], { sub: true });
 }
 
-function keyedPanels(ob: ObjectPhysics, s: ParticleSettingsX, d: boolean): Child {
-  const ts = (s.keyed_targets ??= []);
-  const ai = Math.max(0, Math.min(s.active_keyed_index ?? 0, ts.length - 1));
+/** Targets of the particle system: keyed path keys or boid relations (friends / enemies). */
+function relationsPanel(ob: ObjectPhysics, ps: ParticleSystemX, s: ParticleSettingsX, d: boolean): Child {
+  // older files kept keyed targets on the settings
+  if (!ps.targets) ps.targets = (s.keyed_targets ?? []).map((t) => ({ ...t }));
+  const ts = ps.targets;
+  const ai = Math.max(0, Math.min(ps.active_particle_target_index ?? 0, ts.length - 1));
   const t = ts[ai];
   const tob = t?.object ? app.doc.objects[t.object] : undefined;
-  return panel('pa-keyed', 'Relations', () => [
-    num(s, 'keyed_loops', 'Loops', { int: true, min: 1, max: 10000, disabled: d }),
+  const keyed = s.physics_type === 'KEYED';
+  const label = (x: (typeof ts)[number]) => {
+    const o = x.object ? app.doc.objects[x.object] : undefined;
+    const sys = o?.particle_systems[(x.system || 1) - 1];
+    return o && sys ? `${o.name}: ${sys.name}` : x.object ? 'Invalid target!' : `${ob.name}: (choose a target)`;
+  };
+  return panel('pa-relations', 'Relations', () => [
+    keyed ? num(s, 'keyed_loops', 'Loops', { int: true, min: 1, max: 10000, disabled: d || !!ps.use_keyed_timing }) : null,
     h(
       'div',
       { style: { padding: '4px 0' } },
       uiList(
-        `keyed-${s.id}`,
-        ts.map((x, i) => {
-          const o = x.object ? app.doc.objects[x.object] : undefined;
-          return { key: `${i}`, label: o ? `${o.name}: ${o.particle_systems[(x.system || 1) - 1]?.name ?? 'Invalid target!'}` : 'Invalid target!', icon: 'particles' };
-        }),
+        `targets-${ob.id}-${ps.name}`,
+        ts.map((x, i) => ({ key: `${i}`, label: label(x), icon: 'particles', right: !keyed ? h('span', { class: 'prop-note' }, (x.alliance ?? 'NEUTRAL').toLowerCase()) : null })),
         ai,
-        (i) => ((s.active_keyed_index = i), app.changed('ui')),
-        {
-          add: () => ((s.keyed_targets = [...ts, { object: null, system: 1 }]), (s.active_keyed_index = ts.length), changed('Add Keyed Target')),
-          remove: () => ((s.keyed_targets = ts.filter((_, i) => i !== ai)), (s.active_keyed_index = Math.max(0, ai - 1)), changed('Remove Keyed Target')),
-        },
+        (i) => ((ps.active_particle_target_index = i), app.changed('ui')),
+        { add: () => app.run('particle.new_target'), remove: () => app.run('particle.target_remove'), up: () => app.run('particle.target_move_up'), down: () => app.run('particle.target_move_down') },
       ),
     ),
     t
       ? [
-          splitRow('Object', enumMenu(`keyed-ob-${s.id}-${ai}`, [{ value: '', label: '—' }, ...Object.values(app.doc.objects).filter((o) => o.particle_systems.length && o.id !== ob.id).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], t.object ?? '', (v) => ((t.object = v || null), changed('Set Keyed Target')))),
-          tob ? num(t, 'system', 'System', { int: true, min: 1, max: Math.max(1, tob.particle_systems.length) }) : null,
+          splitRow('Object', enumMenu(`target-ob-${ob.id}-${ai}`, [{ value: '', label: '—' }, ...Object.values(app.doc.objects).filter((o) => o.particle_systems.length).map((o) => ({ value: o.id, label: o.name, icon: 'object' }))], t.object ?? '', (v) => ((t.object = v || null), changed('Set Target Object')))),
+          tob ? num(t, 'system', 'System', { int: true, min: 1, max: Math.max(1, tob.particle_systems.length), disabled: d }) : null,
+          !keyed ? enumProp(t, 'alliance', 'Mode', [['FRIEND', 'Friend'], ['NEUTRAL', 'Neutral'], ['ENEMY', 'Enemy']], { disabled: d }) : null,
+          keyed && ps.use_keyed_timing ? [num(t, 'time', 'Time', { min: 0, max: 1048574, disabled: d, tip: 'Frames after birth when the particle reaches this target' }), num(t, 'duration', 'Duration', { min: 0, max: 1048574, disabled: d, tip: 'Frames the particle stays at this target' })] : null,
         ]
       : null,
+    keyed ? bool(ps, 'use_keyed_timing', 'Use Timing', { disabled: d, tip: 'Use the times and durations of the targets instead of spreading them over the lifetime' }) : null,
   ], { sub: true });
 }
 
@@ -395,6 +468,13 @@ insertTabAfter('CONSTRAINT', {
           {
             add: () => app.run('object.particle_system_add'),
             remove: () => app.run('object.particle_system_remove'),
+            specials: () => [
+              { label: 'Copy Active to Selected Objects', op: 'particle.copy_particle_systems', props: { use_active: true } },
+              { label: 'Copy All to Selected Objects', op: 'particle.copy_particle_systems', props: { use_active: false } },
+              { separator: true },
+              { label: 'Duplicate Particle System', op: 'particle.duplicate_particle_system' },
+              { label: 'Remove All Particle Systems', op: 'particle.particle_system_remove_all' },
+            ],
             rename: (i, name) => {
               const p = systems[i];
               const m = ob.modifiers.find((x) => x.type === 'PARTICLE_SYSTEM' && x.particle_system === (p as { id?: string }).id);
