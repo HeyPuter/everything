@@ -540,6 +540,24 @@ test('Organize pages selects, turns, moves, and deletes several pages', async ({
   await expect(page.locator('.page-caption')).toHaveText(/of 2$/);
 });
 
+test('the Organize pages commands in the tools pane act on the pages chosen in the grid', async ({
+  page,
+}) => {
+  await openPdf(page, await numberedPdf(4));
+  await page.getByRole('button', { name: 'Tools', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Tools' });
+  await pane.getByRole('button', { name: 'Organize pages', exact: true }).click();
+  const grid = page.getByRole('listbox', { name: 'Pages' });
+  await grid.getByRole('option', { name: 'Page 3', exact: true }).click();
+  await expect(pane.getByRole('group', { name: 'Page 3', exact: true })).toBeVisible();
+  await grid.getByRole('option', { name: 'Page 4', exact: true }).click({ modifiers: ['Shift'] });
+  const chosen = pane.getByRole('group', { name: '2 pages', exact: true });
+  await chosen.getByRole('button', { name: 'Rotate clockwise', exact: true }).click();
+  await settled(page);
+  const doc = await PDFDocument.load(await downloaded(page));
+  expect(doc.getPages().map((p) => p.getRotation().angle)).toEqual([0, 0, 90, 90]);
+});
+
 test('Organize pages keeps the duplicated pages selected', async ({ page }) => {
   await openPdf(page, await numberedPdf(5));
   await page.getByRole('button', { name: 'Tools', exact: true }).click();

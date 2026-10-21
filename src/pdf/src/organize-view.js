@@ -9,6 +9,7 @@ import { openMenu } from './lib/menu.js';
  * actions: { rotate(indices, delta), remove(indices), extract(indices), duplicate(indices),
  *            insertBlank(after), insertFile(after), insertPictures(after), move(indices, to),
  *            open(index), close() } — each may return a promise; the view redraws on refresh().
+ * onSelectionChange(indices) hears of each change to the chosen pages.
  */
 const SIZES = [110, 150, 200, 260];
 
@@ -20,6 +21,7 @@ export function createOrganizeView({
   can,
   isBusy,
   actions,
+  onSelectionChange,
 }) {
   let selected = new Set();
   let anchor = null; // the tile a Shift range starts from
@@ -158,9 +160,16 @@ export function createOrganizeView({
     grid,
   );
 
-  let shownBusy = null;
+  let shownBusy = null,
+    shownSelection = null;
   function updateState() {
     shownBusy = isBusy();
+    // Other controls offering the same commands, as the tools pane does, follow the choice.
+    const chosen = indices();
+    if (visible && chosen.join() !== shownSelection) {
+      shownSelection = chosen.join();
+      onSelectionChange?.(chosen);
+    }
     const n = selected.size;
     status.textContent = n
       ? `${n} of ${count()} ${count() === 1 ? 'page' : 'pages'} selected`
@@ -448,6 +457,7 @@ export function createOrganizeView({
     },
     hide() {
       visible = false;
+      shownSelection = null;
       root.hidden = true;
       observer?.disconnect();
       grid.replaceChildren();

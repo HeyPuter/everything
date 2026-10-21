@@ -1281,6 +1281,10 @@ export function createEditor({
     can: (permission) => !!access()[permission],
     isBusy: () => busy,
     actions: organizeActions,
+    // The tools pane's Organize commands name and act on the pages chosen in the grid.
+    onSelectionChange: () => {
+      if (toolsPanel.current === 'organize') toolsPanel.refresh();
+    },
   });
   function openOrganizer() {
     if (!pdf) return;
