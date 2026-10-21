@@ -31,8 +31,9 @@ export function convertLineStyle(ls: BStruct, ctx: Ctx): ID {
   const data: LineStyleData = { ...newLineStyle(ls.idName), id: uid('ls') };
   applyRules(ls, ctx, data as unknown as Record<string, unknown>);
   data.color = [ls.num('r'), ls.num('g'), ls.num('b')];
-  const mods = ['color_modifiers', 'alpha_modifiers', 'thickness_modifiers', 'geometry_modifiers'].reduce((n, k) => n + ls.list(k, 1000).length, 0);
-  if (mods) ctx.warn.add('Line style modifiers not imported (default sampling kept)', ls.idName);
+  // every line style has a Sampling geometry modifier (kept by default); others are not converted
+  const mods = ['color_modifiers', 'alpha_modifiers', 'thickness_modifiers', 'geometry_modifiers'].flatMap((k) => ls.list(k, 1000)).filter((m) => !/Sampling$/.test(m.type));
+  if (mods.length) ctx.warn.add('Line style modifiers not imported (default sampling kept)', `${ls.idName} (${mods.map((m) => m.type.replace(/^LineStyle\w+Modifier_/, '')).join(', ')})`);
   (ctx.doc.linestyles ??= {})[data.id] = data;
   cache.set(ls.offset, data.id);
   return data.id;
