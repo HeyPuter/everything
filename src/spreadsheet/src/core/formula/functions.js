@@ -3343,9 +3343,10 @@ export const FUNCTIONS = {
   },
   ACCRINT: {
     fn: ([issue, firstInterest, settlement, rate, par, frequency, basis, calcMethod]) => {
-      const i = toNumber(issue); if (isError(i)) return i;
-      const fi = toNumber(firstInterest); if (isError(fi)) return fi;
-      const s = toNumber(settlement); if (isError(s)) return s;
+      // Dates of the calendar: a settlement of 1E8 laid out quasi-coupon periods for seconds to answer nonsense.
+      const i = dateSerial(issue); if (isError(i)) return i;
+      const fi = dateSerial(firstInterest); if (isError(fi)) return fi;
+      const s = dateSerial(settlement); if (isError(s)) return s;
       const f = toNumber(frequency); if (isError(f)) return f;
       const nums = bondNumbers([[rate, true], [par === undefined ? 1000 : par, true]]); if (isError(nums)) return nums;
       const b = basis === undefined ? 0 : toNumber(basis); if (isError(b)) return b;
