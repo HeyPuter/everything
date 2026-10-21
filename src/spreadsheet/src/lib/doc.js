@@ -574,7 +574,10 @@ export class Doc extends EventTarget {
         // document's are a change made elsewhere; a read that will not answer leaves the save as it
         // was, rather than putting the question to the user on every save a flaky connection meets.
         const ambiguous = !newer && !resized && mod != null && mod === this.remoteModified && !!this._written && sizeOf(st) != null;
-        if (newer && !resized && await this._holdsLastWrite(st) === true) this.remoteModified = mod;
+        // A write of this document's whose answer was lost (see _landed) is no change made elsewhere: what it wrote is the baseline.
+        const lost = (newer || resized) && this._lostWrite?.target === this.path ? this._lostWrite : null;
+        if (lost && await this._landed(lost)) { this.remoteModified = mod; this.remoteSize = sizeOf(st); this._written = lost.blob; }
+        else if (newer && !resized && await this._holdsLastWrite(st) === true) this.remoteModified = mod;
         else if (newer || resized || (ambiguous && await this._holdsLastWrite(st) === false)) {
           // With no baseline (the look-up failed at open) nobody can say the file changed: the question is put as such.
           const unchecked = this.remoteModified === 0;
@@ -611,8 +614,8 @@ export class Doc extends EventTarget {
       // this write reaches the server. Deduplicate there, then adopt its name.
       let written;
       const reuse = fresh && target === this._lostWrite?.target;
-      // Kept until a write is answered, for the retry to find (see _landed).
-      const attempt = (at) => { this._lostWrite = fresh && blob.size <= COMPARE_MAX_BYTES ? { target: at, dir, blob } : null; };
+      // Kept until a write is answered, for the retry to recognize (see _landed).
+      const attempt = (at) => { this._lostWrite = blob.size <= COMPARE_MAX_BYTES ? { target: at, dir, blob } : null; };
       try {
         attempt(target);
         written = await P.writeFile(target, blob, { dedupe: fresh && !reuse });
@@ -816,7 +819,7 @@ export class Doc extends EventTarget {
     } catch { return null; }
   }
 
-  /** Did a first write whose answer was lost reach the drive? Only when the file it named holds exactly its bytes. */
+  /** Did a write whose answer was lost reach the drive? Only when the file it named holds exactly its bytes. */
   async _landed({ target, blob }) {
     try {
       const st = await P.statFile(target);
