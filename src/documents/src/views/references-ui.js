@@ -116,16 +116,27 @@ export function tablePreview(rows, { title = '', leader = 'dot', rightAlign = tr
  * Mark Citation): the document stays usable behind it. Escape closes it, as does opening another.
  */
 export function openPanel({ title, body, actions = [], onClose = null, className = '' }) {
+  // A panel opened from another one hands focus back to whatever opened that one.
+  let opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const previous = opener?.closest('.ref-panel');
+  if (previous) opener = previous.opener || null;
   // One panel at a time: they open in the same place, so another would cover this one.
-  for (const panel of document.querySelectorAll('.ref-panel')) panel.closePanel?.();
+  for (const panel of document.querySelectorAll('.ref-panel')) panel.closePanel?.({ focus: false });
   const heading = el('h2.ref-panel-title', { id: nextId('ref-panel-title') }, title);
-  const close = () => { node.remove(); onClose?.(); };
+  const close = ({ focus = true } = {}) => {
+    // Removing the panel that holds the focus would drop the keyboard on the page body.
+    const hadFocus = node.contains(document.activeElement);
+    node.remove();
+    onClose?.();
+    if (focus && hadFocus && opener?.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
+  };
   const node = el(`div.ref-panel${className ? `.${className}` : ''}`, { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': heading.id, dataset: { title },
     onkeydown: e => { if (e.key === 'Escape' && !e.defaultPrevented) { e.preventDefault(); close(); } } },
-  el('div.ref-panel-head', {}, heading, el('button.icon-btn.ref-panel-close', { type: 'button', 'aria-label': `Close ${title}`, onclick: close }, '×')),
+  el('div.ref-panel-head', {}, heading, el('button.icon-btn.ref-panel-close', { type: 'button', 'aria-label': `Close ${title}`, onclick: () => close() }, '×')),
   el('div.ref-panel-body', {}, ...body),
   el('div.row.row-end.ref-actions', {}, ...actions));
   node.closePanel = close;
+  node.opener = opener;
   document.body.append(node);
   (node.querySelector('input, select, button:not(.ref-panel-close)') || node).focus();
   return { node, close };
