@@ -152,7 +152,7 @@ export class CanvasEditor {
       this.point({clientX:e.clientX,clientY:e.clientY,altKey:true},false);
       const candidate=this.pointImage, picture=normal || (selected && candidate?.image.id===selected.id ? candidate : null);
       if (picture) this.model.select(picture.start, picture.end);
-      else if (position < this.model.range[0] || position > this.model.range[1]) this.model.select(position, position);
+      else if (position < this.model.range[0] || position > this.model.range[1]) { this.point(e); this.preferredX = null; this.model.select(position, position); }
       this.focus(); this.onSelection();
       const behind = !this.model.selectedImage && candidate;
       onContextMenu({event:e, behind, selectBehind:()=>{ if(behind){this.model.select(behind.start,behind.end);this.focus();this.onSelection();} }});
@@ -516,7 +516,8 @@ export class CanvasEditor {
     // The host can keep history beyond this editor's (changes that reopened the package).
     if (!this.session[direction === 'undo' ? 'history' : 'future'].length && this.onHistoryEnd?.(direction)) return;
     try {
-      if (this.session[direction](() => { this.validateStory(); this.relayout(); })) this.onChange();
+      // The caret moves to the restored selection: Up and Down start from its column there, not the one before.
+      if (this.session[direction](() => { this.validateStory(); this.preferredX = null; this.caretAffinity = 'forward'; this.relayout(); })) this.onChange();
       this.focus(); this.revealCaret();
     } catch (e) { this.relayout(); this.onError(e); }
   }

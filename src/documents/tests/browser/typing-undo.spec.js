@@ -120,3 +120,30 @@ test('with Track Changes on, word and line deletions leave the caret before what
   });
   expect(await state()).toEqual({ range: [14, 14], deleted: ['two three', 'four five six'] });
 });
+
+test('after Undo or a right-click moves the caret, Up and Down keep to its new column', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('First line of text here\nSecond line of text here\nThird line of text here');
+  const place = at => input(page).evaluate((el, at) => { el.setSelectionRange(at, at); el.dispatchEvent(new Event('select')); }, at);
+  const caret = () => input(page).evaluate(el => el.selectionStart);
+  await place(54); // Third line, after "Third"
+  await page.keyboard.type('Z');
+  await place(20);
+  await page.keyboard.press('ArrowDown');
+  expect(await caret()).toBeGreaterThan(40);
+  // Undo puts the caret back after "Third"; Up goes to the same column of the line above, not the old one.
+  await input(page).press('ControlOrMeta+z');
+  expect(await caret()).toBe(54);
+  await page.keyboard.press('ArrowUp');
+  expect(Math.abs(await caret() - 29)).toBeLessThanOrEqual(1);
+  // A right-click elsewhere moves the caret too.
+  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowDown');
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  const at = await page.evaluate(() => { const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0]; return { x: line.stops.find(s => s.offset === 5).x * e.zoom, y: (line.y + line.height / 2) * e.zoom }; });
+  await page.mouse.click(box.x + at.x, box.y + at.y, { button: 'right' });
+  await page.keyboard.press('Escape');
+  expect(await caret()).toBe(5);
+  await page.keyboard.press('ArrowDown');
+  expect(Math.abs(await caret() - 29)).toBeLessThanOrEqual(1);
+});
