@@ -170,6 +170,23 @@ test("the gallery, effect options, duration, sound, timing and Apply To All are 
   expect(strFromU8(files["[Content_Types].xml"])).toContain('Extension="wav"');
 });
 
+test("every transition in the full gallery is within the screen", async ({
+  page,
+}) => {
+  await load(page, deck(1));
+  await page.getByRole("tab", { name: "Transitions", exact: true }).click();
+  await page.getByRole("button", { name: "More Transitions" }).click();
+  const panel = page.getByRole("dialog", { name: "Transitions" });
+  const right = await page.evaluate(() => document.documentElement.clientWidth);
+  const options = await panel.getByRole("option").all();
+  expect(options.length).toBeGreaterThan(40);
+  for (const option of options) {
+    const box = await option.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(right);
+  }
+});
+
 test("a chosen transition plays in the slide show, previews on the canvas and marks the navigator", async ({
   page,
 }) => {

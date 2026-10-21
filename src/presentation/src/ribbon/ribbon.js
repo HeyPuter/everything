@@ -999,6 +999,17 @@ export function createRibbon({
         );
       }
       document.body.append(pop);
+      // On a narrow screen the choices give up columns until the panel fits,
+      // rather than running off its edge out of reach.
+      const room = document.documentElement.clientWidth - 8;
+      const grids = [...pop.querySelectorAll(".ribbon-gallery-grid")];
+      for (
+        let columns = item.panelColumns || fullColumns;
+        pop.offsetWidth > room && columns > 1;
+        columns--
+      )
+        for (const grid of grids)
+          grid.style.gridTemplateColumns = `repeat(${columns - 1}, auto)`;
       const r = node.getBoundingClientRect();
       pop.style.left = `${Math.max(4, Math.min(r.left, document.documentElement.clientWidth - pop.offsetWidth - 8))}px`;
       pop.style.top = `${r.top}px`;
