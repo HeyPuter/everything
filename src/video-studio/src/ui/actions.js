@@ -527,11 +527,12 @@ export function createActions(ctx) {
           }, { structural: false });
           store.history.undoStack.pop();
           target = store.project.assets[made.id];
-          d.close();
         } catch (err) {
-          d.close();
           if (err?.name !== 'AbortError') toast(err?.message || "Couldn't reverse this clip.", { kind: 'error' });
           return;
+        } finally {
+          // Also when the reversed file could not be saved (importFiles has said why).
+          d.close();
         }
       }
       actions.editClip(id, 'Reverse', (c) => {

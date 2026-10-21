@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EditorStore } from '../src/model/store.js';
 import { createActions } from '../src/ui/actions.js';
 import { mainTrack, findClip, allClips } from '../src/model/timeline.js';
 import { TEXT_PRESETS } from '../src/model/catalog.js';
 import { fixture, clip, onMain, spans, kinds, trackOf, s } from './helpers.js';
+
+vi.mock('../src/media/reverse.js', () => ({ reverseFile: async () => new File(['x'], 'clip (reversed).mp4', { type: 'video/mp4' }) }));
 
 /** A real store and the shared actions, with no player or library behind them. */
 function setup(...mainClips) {
@@ -332,5 +334,23 @@ describe('importing files', () => {
       console.error = quiet;
     }
     expect(toasts()).toEqual(['odd.mkv: This file type is not supported by your browser.', 'notes.txt is not a video, audio or image file.']);
+  });
+});
+
+describe('reverse', () => {
+  it('closes the progress dialog when the reversed file cannot be saved', async () => {
+    const p = fixture();
+    const [a] = onMain(p, clip('video', 0, 4));
+    const store = new EditorStore(p);
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const library = { mediaBlob: async () => new Blob(['v']), importFile: async () => { throw new Error('Your Puter storage is full.'); } };
+    const ctx = { store, player: null, library };
+    ctx.actions = createActions(ctx);
+    await ctx.actions.reverseClip(a.id);
+    expect(document.querySelectorAll('dialog')).toHaveLength(0);
+    expect([...document.querySelectorAll('.toast')].map((t) => t.textContent).join()).toMatch(/storage is full/);
+    expect(findClip(store.project, a.id).clip.reversed).toBeFalsy();
+    err.mockRestore();
+    document.body.replaceChildren();
   });
 });
