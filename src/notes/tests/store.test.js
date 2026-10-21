@@ -230,6 +230,36 @@ describe('Store: pages', () => {
     expect(section.pages.map((p) => p.title)).toEqual(['Plan', 'Plan (copy)', 'Other']);
     expect(copy.id).not.toBe(a.id);
   });
+
+  it("copies a page's pictures several at a time, and keeps one it can't copy shared", async () => {
+    const backend = store.backend;
+    const ids = [];
+    for (let i = 0; i < 8; i++) ids.push(await store.saveAsset(new Blob([`img${i}`], { type: 'image/png' }), 'p.png'));
+    const a = store.createPage(section.id, { title: 'Pictures', outlines: [{ id: 'o', x: 0, y: 0, html: ids.map((id) => `<img data-asset="${id}">`).join('') }] });
+    let busy = 0;
+    let most = 0;
+    let uploads = 0;
+    const { readBlob, writeBlob } = backend;
+    backend.readBlob = async (path) => {
+      most = Math.max(most, ++busy);
+      await new Promise((r) => setTimeout(r, 5));
+      busy--;
+      return readBlob(path);
+    };
+    backend.writeBlob = async (path, blob) => {
+      if (++uploads === 3) throw new Error('Simulated network failure');
+      return writeBlob(path, blob);
+    };
+    const copy = await store.copyPage(a.id);
+    backend.readBlob = readBlob;
+    backend.writeBlob = writeBlob;
+    expect(most).toBeGreaterThan(1);
+    const html = (await store.loadPage(copy.id)).outlines[0].html;
+    const used = [...html.matchAll(/data-asset="([^"]+)"/g)].map((m) => m[1]);
+    expect(used).toHaveLength(8);
+    // Seven own copies, one still the original's file.
+    expect(used.filter((id) => ids.includes(id))).toHaveLength(1);
+  });
 });
 
 describe('Store: search and tags', () => {

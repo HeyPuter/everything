@@ -1126,15 +1126,28 @@ export class Store extends Emitter {
    */
   async copyAssets(page) {
     const target = this.findPage(page.id)?.section;
-    if (!page.outlines.some((o) => o.html.includes('data-asset="'))) return;
-    for (const o of page.outlines) {
-      for (const assetId of new Set([...o.html.matchAll(/data-asset="([^"]+)"/g)].map((m) => m[1]))) {
-        const blob = await this.assetBlob(assetId).catch(() => null);
-        if (!blob) continue;
-        const ext = assetId.endsWith('.sealed') ? assetId.split('.').at(-2) : assetId.split('.').pop();
-        const id = await this.saveAsset(blob, `x.${ext}`, { sectionId: target?.locked ? target.id : null });
-        o.html = o.html.split(`data-asset="${assetId}"`).join(`data-asset="${id}"`);
+    const assetIds = new Set(page.outlines.flatMap((o) => [...o.html.matchAll(/data-asset="([^"]+)"/g)].map((m) => m[1])));
+    if (!assetIds.size) return;
+    const sectionId = target?.locked ? target.id : null;
+    const copies = new Map();
+    // A few at a time: a page full of pictures copies in a few round
+    // trips rather than two per picture.
+    await mapLimit([...assetIds], 4, async (assetId) => {
+      const blob = await this.assetBlob(assetId).catch(() => null);
+      if (!blob) return;
+      const sealed = assetId.endsWith('.sealed');
+      const ext = sealed ? assetId.split('.').at(-2) : assetId.split('.').pop();
+      try {
+        copies.set(assetId, await this.saveAsset(blob, `x.${ext}`, { sectionId }));
+      } catch (err) {
+        // A plain file the copy can't get its own of stays shared (as copies
+        // always were); one that must be encrypted differently can't.
+        if (sealed || sectionId) throw err;
+        console.warn('Copied page shares a file it could not copy', assetId, err);
       }
+    });
+    for (const o of page.outlines) {
+      for (const [from, to] of copies) o.html = o.html.split(`data-asset="${from}"`).join(`data-asset="${to}"`);
     }
     this.schedule(`pages/${page.id}.json`, () => this.pages.get(page.id), 0);
   }
