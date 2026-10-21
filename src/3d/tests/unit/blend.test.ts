@@ -518,7 +518,9 @@ describe.skipIf(!existsSync(LEGACY_43))('version 4.3 .blend file (classic layout
 
 describe('import modes', () => {
   it('reports what was skipped', () => {
-    expect(imp.warnings.some((w) => w.includes('Additional UV maps') && w.includes('Second'))).toBe(true);
+    // further UV maps are kept (as inactive maps), not dropped
+    expect(imp.warnings.some((w) => w.includes('Additional UV maps'))).toBe(false);
+    expect(Object.values(doc.meshes).some((m) => (m.uv_layers_extra ?? []).some((u) => u.name === 'Second' && u.data.length === m.indices.length * 2))).toBe(true);
     expect(imp.warnings.some((w) => w.includes('Loose edges') && w.includes('SkinMesh'))).toBe(true);
   });
 
