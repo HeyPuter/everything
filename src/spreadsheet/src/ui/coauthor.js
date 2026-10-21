@@ -87,8 +87,9 @@ export function roomStatus(client) {
   if (state === 'error') return ['alert', 'Not connected', message || 'The shared workbook is not reachable'];
   if (state === 'syncing' || pending) return ['spinner', 'Syncing…', 'Sending your changes to everyone'];
   if (state === 'connecting') return ['spinner', 'Connecting…', 'Joining the shared workbook'];
-  if (!client.canEdit) return ['eye', 'View only', 'You can view this shared workbook. Ask its owner for edit access'];
-  return ['people', 'Live · Saved', 'Everyone sees your changes as you make them'];
+  const full = client.full ? '. This shared workbook has reached its participant limit, so others do not see where you are' : '';
+  if (!client.canEdit) return ['eye', 'View only', `You can view this shared workbook. Ask its owner for edit access${full}`];
+  return ['people', 'Live · Saved', `Everyone sees your changes as you make them${full}`];
 }
 
 /**

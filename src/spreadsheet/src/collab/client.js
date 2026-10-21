@@ -23,6 +23,8 @@ const CHECKPOINT_IDLE = 60_000;
 const CHECKPOINT_RETRY = 30_000;
 /** People not heard from for this long are taken off the list. */
 const PEOPLE_TTL = 20_000;
+/** The worker's refusal of a check-in past the room's participant limit. */
+const roomFull = (error) => error instanceof CollabError && error.status === 429 && error.message === 'This shared workbook has reached its participant limit.';
 
 /** The oldest of `changes` that fit in one commit: at most `limit` of them and MAX_CHANGE characters (at least one, which the room judges). */
 function batch(changes, limit) {
@@ -172,8 +174,8 @@ export class RoomClient extends EventTarget {
         if (res.records.length) { this.replica.receive(res.records); await this.persist(); }
         if (this.replica.rev >= res.head || !res.records.length) break;
       }
-      // A request the room could not verify (401) is no lasting refusal: one that goes through again ends it.
-      if (this.status.state !== 'error' || this.status.code === 401) this.setStatus('connected');
+      // A request the room could not verify (401), or a copy ahead of it (409), is no lasting refusal: one that goes through again ends it.
+      if (this.status.state !== 'error' || [401, 409].includes(this.status.code)) this.setStatus('connected');
       this.maybeCheckpoint();
     }).finally(() => { this.syncing = null; });
     return this.syncing;
@@ -373,8 +375,9 @@ export class RoomClient extends EventTarget {
         this.people.set(t.session, { session: t.session, user: t.user, username: t.username, role: t.role, state, at: Math.max(known?.at ?? 0, at) });
       }
       this.dispatchEvent(new CustomEvent('people'));
+      if (this.full) { this.full = false; this.dispatchEvent(new CustomEvent('status')); }
       if (this.status.state === 'offline') this.setStatus('connected');
-    })().catch((e) => { this.failed(e); throw e; }).finally(() => { this.checkingIn = null; });
+    })().catch((e) => { if (roomFull(e)) this.noteFull(); else this.failed(e); throw e; }).finally(() => { this.checkingIn = null; });
     return this.checkingIn;
   }
 
@@ -436,9 +439,22 @@ export class RoomClient extends EventTarget {
 
   /* ---------- Status ---------- */
 
+  /**
+   * The room has no place for this person among those here: nobody sees where they are, but their changes go
+   * through, so the room is reached all the same. The status says so until a check-in is taken.
+   */
+  noteFull() {
+    if (this.closed || this.halted) return;
+    this.full = true;
+    if (this.status.state === 'offline') this.setStatus('connected');
+    this.dispatchEvent(new CustomEvent('status'));
+  }
+
   failed(error) {
     if (this.closed || this.halted) return;
-    if (error instanceof CollabError && !error.network && [401, 403, 404, 410].includes(error.status)) {
+    // The room answered, so the connection is not what failed: a copy ahead of the room (its log not caught up yet
+    // where it was asked) is said in the room's words, until a request goes through again.
+    if (error instanceof CollabError && !error.network && [401, 403, 404, 409, 410].includes(error.status)) {
       this.status = { state: 'error', pending: this.replica?.pending.length ?? 0, message: error.message, code: error.status };
       this.dispatchEvent(new CustomEvent('status'));
       if (error.status === 410 || error.status === 404 || error.status === 403) {
