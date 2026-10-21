@@ -323,6 +323,12 @@ export interface PBDParams {
   aero?: { factor: number; lift: boolean } | null;
   /** plasticity: springs take on part of their stretch permanently (per frame fraction) */
   plastic?: number;
+  /** per-vertex mass multipliers (mass vertex group) */
+  massScale?: ArrayLike<number> | null;
+  /** share of the velocity lost by vertices touching a collider (soft body choke) */
+  choke?: number;
+  /** self collision push strength 0..1 (soft body ball stiffness) */
+  selfStiffness?: number;
 }
 
 export function initState(world: Float32Array): PBDState {
@@ -436,7 +442,8 @@ export function stepFrame(
   const baseW = P.mass > 0 ? 1 / P.mass : 0;
   for (let i = 0; i < n; i++) {
     const pin = P.pin ? P.pin[i] * P.pinStiffness : 0;
-    w[i] = pin >= 0.999 ? 0 : baseW * (1 - Math.min(1, pin));
+    const ms = P.massScale ? Math.max(0.01, P.massScale[i] ?? 1) : 1;
+    w[i] = pin >= 0.999 ? 0 : (baseW / ms) * (1 - Math.min(1, pin));
   }
   const lambda = new Float64Array(topo.a.length);
   const normals = new Float64Array(x.length);
@@ -694,7 +701,7 @@ export function stepFrame(
         }
     }
     // 5. self collision (vertex-vertex)
-    if (P.self && P.self.distance > 0) selfCollide(p, x, w, P.self.distance, P.self.friction, restShape ?? targets1);
+    if (P.self && P.self.distance > 0) selfCollide(p, x, w, P.self.distance, P.self.friction, restShape ?? targets1, P.selfStiffness ?? 1);
     // 6. velocities
     for (let i = 0; i < n * 3; i++) {
       v[i] = (p[i] - x[i]) / h;
@@ -707,7 +714,7 @@ export function stepFrame(
           // reuse the collider damping of the nearest surface
           const k = i * 3;
           if (closestSurface(colliders, x[k], x[k + 1], x[k + 2], thick + 0.1, hit)) {
-            const d = Math.min(1, Math.max(0, hit.collider!.settings.damping ?? 0));
+            const d = Math.min(1, Math.max(0, hit.collider!.settings.damping ?? 0) + Math.max(0, P.choke ?? 0));
             v[k] *= 1 - d;
             v[k + 1] *= 1 - d;
             v[k + 2] *= 1 - d;
@@ -775,7 +782,7 @@ export function stepFrame(
   }
 }
 
-function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: number, friction: number, rest: ArrayLike<number>) {
+function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: number, friction: number, rest: ArrayLike<number>, stiffness = 1) {
   const n = w.length;
   const cell = dist * 2;
   const grid = new Map<number, number[]>();
@@ -808,7 +815,7 @@ function selfCollide(p: Float64Array, x: Float64Array, w: Float64Array, dist: nu
             // neighbours that are close at rest are not colliding
             const rd = Math.hypot(rest[i * 3] - rest[j * 3], rest[i * 3 + 1] - rest[j * 3 + 1], rest[i * 3 + 2] - rest[j * 3 + 2]);
             if (rd < dist * 2) continue;
-            const corr = (dist - d) / ws;
+            const corr = ((dist - d) / ws) * Math.max(0, Math.min(1, stiffness));
             const nx = dx / d,
               ny = dy / d,
               nz = dz / d;

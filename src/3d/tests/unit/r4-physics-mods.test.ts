@@ -86,3 +86,26 @@ describe('Dynamic Paint image sequences', () => {
     expect(surfaceOutputs({ name: 'S', surface_type: 'PAINT', use_output_a: true, use_output_b: false, output_name_a: '', output_name_b: '' }).map((o) => o.name)).toEqual(['dp_paintmap']);
   });
 });
+
+describe('soft body settings', () => {
+  it('map to the solver: stiff quads, self collision ball size, mass and spring groups, choke', async () => {
+    const { softBodySetup } = await import('../../src/physics/cloth');
+    const { defaultSoftBodySettings } = await import('../../src/physics/types');
+    const { emptyDocument } = await import('../../src/data/defaults');
+    const doc = emptyDocument();
+    const m = mesh(prim.grid(2, 2, 2));
+    const w = new Float32Array(m.positions.length / 3).fill(0.5);
+    const em = { ...m, vertex_groups: [{ name: 'M' }], weights: [w] } as EvalMesh;
+    const mod = (over: Record<string, unknown>) => ({ settings: { ...defaultSoftBodySettings(), ...over }, point_cache: { frame_start: 1, frame_end: 10, is_baked: false } }) as never;
+    expect(softBodySetup(mod({}), em, doc).shear).toBe(false);
+    expect(softBodySetup(mod({ use_stiff_quads: true }), em, doc).shear).toBe(true);
+    // self collision: 0.5 × the average edge (1 m) = 0.5 m; manual keeps the value
+    const avg = softBodySetup(mod({ use_self_collision: true, collision_type: 'AVERAGE', self_ball_size: 0.5 }), em, doc).params.self!.distance;
+    expect(avg).toBeCloseTo(0.5, 5);
+    expect(softBodySetup(mod({ use_self_collision: true, collision_type: 'MANUAL', self_ball_size: 0.2 }), em, doc).params.self!.distance).toBeCloseTo(0.2, 5);
+    const st = softBodySetup(mod({ vertex_group_mass: 'M', vertex_group_spring: 'M', choke: 20 }), em, doc);
+    expect(st.params.massScale![0]).toBeCloseTo(0.5, 5);
+    expect(st.springScale).toBe(w);
+    expect(st.params.choke).toBeCloseTo(0.2, 5);
+  });
+});

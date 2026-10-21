@@ -22,6 +22,9 @@ export interface MeshSimSetup {
   collection?: string | null;
   /** loose edges pull their vertices together */
   sewing?: boolean;
+  /** per-vertex scale of the edge (stretch / compression) stiffness */
+  springScale?: ArrayLike<number> | null;
+
   internal?: { maxLength: number; maxDiversion: number; normalCheck: boolean } | null;
   /** vertex group driven stiffness (and shrinking), interpolated from the base to the max value */
   weights?: {
@@ -127,6 +130,7 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
     }
     const live = cache.live;
     if (st.weights) applyPropertyWeights(st, live.topo);
+    if (st.springScale) applySpringScale(st, live.topo);
     const restShape = st.useRestShape ? local : undefined;
     while (cache.last < ft) {
       if (cache.last > pc.frame_start && outOfTime()) break;
@@ -147,6 +151,25 @@ export function runMeshSim(kind: string, mesh: EvalMesh, m: ModifierBase, ctx: M
   const ev = (ctx.graph as Depsgraph).get(ob.id);
   const inv = (ev ? ev.world.clone() : new Matrix4()).invert();
   return { ...mesh, positions: transform(out, inv) };
+}
+
+/** Edge stiffness scaled by a vertex group (average of both ends); zero weight leaves an edge slack. */
+function applySpringScale(st: MeshSimSetup, topo: Topology) {
+  const W = st.springScale!;
+  const n = topo.a.length;
+  const P = st.params;
+  const stretch = new Float32Array(n),
+    compress = new Float32Array(n);
+  for (let c = 0; c < n; c++) {
+    const w = ((W[topo.a[c]] ?? 0) + (W[topo.b[c]] ?? 0)) / 2;
+    const k = topo.kind[c] === KIND_STRUCT ? 0 : topo.kind[c] === KIND_SHEAR ? 2 : 3;
+    // compliance grows as the stiffness weight drops
+    const scale = 1 / Math.max(1e-3, w);
+    stretch[c] = (P.stretchCompliance?.[c] ?? P.compliance[k]) * scale;
+    compress[c] = (P.compressCompliance?.[c] ?? P.compliance[k === 0 ? 1 : k]) * scale;
+  }
+  P.stretchCompliance = stretch;
+  P.compressCompliance = compress;
 }
 
 /** Per-constraint stiffness and rest scale from vertex group weights (average of both ends). */

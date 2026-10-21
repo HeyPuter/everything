@@ -188,6 +188,25 @@ export interface SoftBodySettings {
   /** self collision between the soft body's own vertices */
   use_self_collision?: boolean;
   self_ball_size?: number;
+  /** only colliders in this collection */
+  collision_collection?: string | null;
+  /** vertex group scaling the mass of each vertex */
+  vertex_group_mass?: string;
+  /** vertex group scaling the edge spring stiffness */
+  vertex_group_spring?: string;
+  /** diagonal springs across quads */
+  use_stiff_quads?: boolean;
+  shear?: number;
+  /** self collision ball size: manual, or from the average / shortest / longest edge */
+  collision_type?: 'MANUAL' | 'AVERAGE' | 'MINIMAL' | 'MAXIMAL';
+  ball_stiff?: number;
+  ball_damp?: number;
+  /** solver steps per frame (range, automatic within it) */
+  step_min?: number;
+  step_max?: number;
+  use_auto_step?: boolean;
+  /** velocity lost on contact with colliders (%) */
+  choke?: number;
 }
 
 export interface SoftBodyModifier extends ModifierBase {
@@ -553,6 +572,18 @@ export function defaultSoftBodySettings(): SoftBodySettings {
     spring_length: 0,
     use_self_collision: false,
     self_ball_size: 0.1,
+    collision_collection: null,
+    vertex_group_mass: '',
+    vertex_group_spring: '',
+    use_stiff_quads: false,
+    shear: 1,
+    collision_type: 'AVERAGE',
+    ball_stiff: 1,
+    ball_damp: 0.5,
+    step_min: 10,
+    step_max: 300,
+    use_auto_step: true,
+    choke: 3,
   };
 }
 

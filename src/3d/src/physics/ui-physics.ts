@@ -247,12 +247,13 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
   return [
     panel('ph-soft', 'Soft Body', () => [
       d ? note('Soft body is baked: delete the bake to change settings') : null,
+      collectionRow(`sb-coll-${m.id}`, s as never, 'collision_collection', 'Collision Collection', 'All colliders', d),
       subHeading('Object'),
       num(s, 'friction', 'Friction', { min: 0, max: 50, disabled: d }),
       num(s, 'mass', 'Mass', { min: 0.001, max: 50000, unit: 'none', disabled: d }),
+      vgroupRow(ob, s as never, 'vertex_group_mass', 'Control Point', d),
       subHeading('Simulation'),
       num(s, 'speed', 'Speed', { min: 0.01, max: 100, disabled: d }),
-      num(s, 'quality', 'Steps', { int: true, min: 1, max: 50, disabled: d }),
     ]),
     panel('ph-soft-goal', 'Goal', () => [
       vgroupRow(ob, s as never, 'vertex_group_goal', 'Vertex Group', d || !s.use_goal),
@@ -265,6 +266,7 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
       num(s, 'goal_max', 'Max', { min: 0, max: 1, slider: true, disabled: d || !s.use_goal }),
     ], { header: headerCheck(`sb-goal-${m.id}`, s as never, 'use_goal', 'Goal', d) }),
     panel('ph-soft-edges', 'Edges', () => [
+      vgroupRow(ob, s as never, 'vertex_group_spring', 'Springs', d || !s.use_edges),
       num(s, 'pull', 'Pull', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'push', 'Push', { min: 0, max: 0.999, slider: true, disabled: d || !s.use_edges }),
       num(s, 'damping', 'Damp', { min: 0, max: 50, disabled: d || !s.use_edges }),
@@ -275,8 +277,18 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
         enumProp(s, 'aerodynamics_type', 'Type', [['SIMPLE', 'Simple'], ['LIFT_FORCE', 'Lift Force']], { disabled: d || !s.use_edges }),
         num(s, 'aero', 'Factor', { min: 0, max: 30000, softMax: 100, disabled: d || !s.use_edges }),
       ], { sub: true, closed: true }),
+      panel('ph-soft-stiff', 'Stiffness', () => [num(s as never, 'shear', 'Shear', { min: 0, max: 1, slider: true, disabled: d || !s.use_edges || !s.use_stiff_quads, tip: 'Stiffness of the diagonal springs across quads' })], {
+        sub: true,
+        closed: true,
+        header: headerCheck(`sb-quads-${m.id}`, s as never, 'use_stiff_quads', 'Stiff Quads', d || !s.use_edges),
+      }),
     ], { header: headerCheck(`sb-edges-${m.id}`, s as never, 'use_edges', 'Edges', d) }),
-    panel('ph-soft-self', 'Self Collision', () => [num(s, 'self_ball_size', 'Ball Size', { min: 0.001, max: 10, unit: 'distance', disabled: d || !s.use_self_collision })], {
+    panel('ph-soft-self', 'Self Collision', () => [
+      enumProp(s as never, 'collision_type', 'Calculation Type', [['MANUAL', 'Manual'], ['AVERAGE', 'Average'], ['MINIMAL', 'Minimal'], ['MAXIMAL', 'Maximal']], { disabled: d || !s.use_self_collision, tip: 'Ball size: fixed, or a factor of the average / shortest / longest edge' }),
+      num(s, 'self_ball_size', 'Ball Size', { min: 0.001, max: 10, unit: (s.collision_type ?? 'AVERAGE') === 'MANUAL' ? 'distance' : 'none', disabled: d || !s.use_self_collision }),
+      num(s as never, 'ball_stiff', 'Stiffness', { min: 0.001, max: 1, slider: true, disabled: d || !s.use_self_collision }),
+      num(s as never, 'ball_damp', 'Dampening', { min: 0.001, max: 1, slider: true, disabled: d || !s.use_self_collision }),
+    ], {
       header: headerCheck(`sb-self-${m.id}`, s as never, 'use_self_collision', 'Self Collision', d),
       closed: true,
     }),
@@ -288,6 +300,12 @@ function softPanels(ob: ObjectPhysics, m: SoftBodyModifier): Child[] {
       header: headerCheck(`sb-col-${m.id}`, s as never, 'use_collision', 'Collisions', d),
       closed: true,
     }),
+    panel('ph-soft-solver', 'Solver', () => [
+      num(s, 'quality', 'Steps', { int: true, min: 1, max: 50, disabled: d || s.use_auto_step === false, tip: 'Solver steps per frame' }),
+      bool(s as never, 'use_auto_step', 'Auto-Step', { disabled: d, tip: 'Use the quality steps (else a fixed number from the minimum step size)' }),
+      num(s as never, 'step_min', 'Step Size Min', { int: true, min: 0, max: 30000, disabled: d || s.use_auto_step !== false }),
+      panel('ph-soft-helpers', 'Helpers', () => [num(s as never, 'choke', 'Choke', { int: true, min: 0, max: 100, disabled: d, tip: 'Velocity lost (in %) by vertices touching a collider' })], { sub: true, closed: true }),
+    ], { closed: true }),
     fieldWeightsPanel('ph-soft-fw', s, d),
     cachePanel('ph-soft-cache', meshSimKey('SOFT_BODY', ob, m), pc),
   ];
