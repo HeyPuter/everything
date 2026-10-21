@@ -1,4 +1,4 @@
-import { h, clamp } from '../lib/dom.js';
+import { h, clamp, announce } from '../lib/dom.js';
 import { icon } from '../lib/icons.js';
 import { modKey } from '../lib/platform.js';
 import { COLOR_BY_ID } from '../data/colors.js';
@@ -346,7 +346,10 @@ export class Nav {
       const mod = modKey(e);
       if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
-        this.app.moveByKeyboard(kind, row.dataset.id, e.key === 'ArrowUp' ? -1 : 1);
+        // A sorted list doesn't show your order, so moving would change it
+        // unseen (dragging is off then too).
+        if (kind === 'page' && prefs().pageSort !== 'manual') announce('Pages are sorted. Sort by None to move them.');
+        else this.app.moveByKeyboard(kind, row.dataset.id, e.key === 'ArrowUp' ? -1 : 1);
         return;
       }
       if (kind === 'page' && mod && e.altKey && (e.code === 'BracketRight' || e.code === 'BracketLeft')) {

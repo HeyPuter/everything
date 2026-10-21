@@ -170,6 +170,24 @@ describe('App shell', () => {
     keydown(document.activeElement, 'Escape');
   });
 
+  it('does not reorder pages unseen with Alt+Shift+Arrow while the list is sorted', async () => {
+    const section = store.section(app.state.sectionId);
+    store.createPage(section.id, { title: 'C' });
+    store.createPage(section.id, { title: 'A' });
+    setPref('pageSort', 'alpha');
+    try {
+      app.renderNav();
+      const before = section.pages.map((p) => p.id);
+      const row = [...app.nav.pagesList.querySelectorAll('.row')].find((r) => r.textContent === 'C');
+      row.focus();
+      keydown(row, 'ArrowDown', { altKey: true, shiftKey: true });
+      await tick();
+      expect(section.pages.map((p) => p.id)).toEqual(before);
+    } finally {
+      setPref('pageSort', 'manual');
+    }
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
