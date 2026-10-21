@@ -29,6 +29,8 @@ import {
   DoubleSide,
   PerspectiveCamera,
   CanvasTexture,
+  BackSide,
+  SRGBColorSpace,
 } from 'three';
 import type { RenderContext } from '../../render/context';
 import { createGrid } from '../../render/grid';
@@ -147,6 +149,13 @@ function thresholdWire(full: BufferGeometry, mesh: { offsets: Uint32Array | Arra
   return g;
 }
 const swappedGeometry: [LineSegments, BufferGeometry][] = [];
+const swappedMaterials: [Mesh, Material | Material[]][] = [];
+function swapMaterial(o: Mesh, m: Material) {
+  swappedMaterials.push([o, o.material]);
+  o.material = Array.isArray(o.material) ? o.material.map(() => m) : m;
+}
+/** Back faces in red, drawn over the shaded surfaces (the blend matches the usual display look). */
+const faceOrientationMaterial = new MeshBasicMaterial({ color: new Color().setRGB(1, 0.235, 0.235, SRGBColorSpace), transparent: true, opacity: 0.75, side: BackSide, depthWrite: false });
 function swapGeometry(o: LineSegments, g: BufferGeometry) {
   swappedGeometry.push([o, o.geometry]);
   o.geometry = g;
@@ -446,7 +455,10 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   for (const so of ctx.sync.objects.values()) {
     const ob = so.ev.ob;
     const shown = so.root.visible;
-    set(so.mesh, false);
+    // Face Orientation: faces seen from behind are tinted red (front faces stay as they are)
+    const faceOrient = ov.show_face_orientation && shown && !!so.mesh && sh.type !== 'WIREFRAME' && ob.display_type !== 'WIRE' && ob.display_type !== 'BOUNDS';
+    set(so.mesh, faceOrient);
+    if (faceOrient && so.mesh) swapMaterial(so.mesh, faceOrientationMaterial);
     so.instances && set(so.instances, false);
     so.duplis && set(so.duplis, false);
     if (so.light) set(so.light, so.light.visible);
@@ -527,6 +539,8 @@ function drawOverlays(app: App, ctx: RenderContext, view: DrawView, camera: Came
   for (const v of visible) v.o.visible = v.v;
   for (const [o, g] of swappedGeometry) o.geometry = g;
   swappedGeometry.length = 0;
+  for (const [o, m] of swappedMaterials) o.material = m;
+  swappedMaterials.length = 0;
 
   // extra overlays (edit mesh, sculpt cursor, etc)
   for (const fn of view.extraOverlays) fn(s, camera);
