@@ -47,7 +47,7 @@ export class SearchPanel {
     this.status = h('div.sr-only', { role: 'status', 'aria-live': 'polite' });
     this.results = h('div.side-body', { role: 'region', 'aria-label': 'Search results' });
     this.el = h('section.side-panel', { 'aria-label': 'Search', hidden: true },
-      h('div.side-head', h('h2.side-title', 'Search'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close search', onclick: () => app.setRailView('notebooks') }, icon('x', 16))),
+      h('div.side-head', h('h2.side-title', 'Search'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close search', onclick: () => app.closeSidePanel() }, icon('x', 16))),
       h('div.search-box', icon('search', 16), this.input),
       h('label.search-scope', 'In', this.scope),
       this.status,
@@ -71,7 +71,7 @@ export class SearchPanel {
         this.results.querySelector('.result')?.focus();
       } else if (e.key === 'Escape') {
         if (this.input.value) this.input.value = '';
-        else app.setRailView('notebooks');
+        else app.closeSidePanel();
         this.run();
       }
     });
@@ -139,7 +139,7 @@ export class RecentPanel {
     this.app = app;
     this.list = h('div.side-body');
     this.el = h('section.side-panel', { 'aria-label': 'Recent notes', hidden: true },
-      h('div.side-head', h('h2.side-title', 'Recent Notes'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close recent notes', onclick: () => app.setRailView('notebooks') }, icon('x', 16))),
+      h('div.side-head', h('h2.side-title', 'Recent Notes'), h('button.icon-btn', { type: 'button', 'aria-label': 'Close recent notes', onclick: () => app.closeSidePanel() }, icon('x', 16))),
       this.list,
     );
     this.list.addEventListener('keydown', (e) => {

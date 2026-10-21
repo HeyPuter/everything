@@ -269,6 +269,7 @@ export class App {
   }
 
   setRailView(view, { focus = false } = {}) {
+    if (view !== 'notebooks' && view !== this.state.railView) this.sideOpener = document.activeElement;
     this.state.railView = view;
     if (view === 'notebooks') this.state.navVisible = true;
     this.applyLayout();
@@ -278,6 +279,17 @@ export class App {
     } else if (view === 'recent') this.recent.render();
     if (this.isPhone()) this.root.dataset.mobileView = view === 'notebooks' ? 'sections' : 'sections';
     this.ribbon.refresh();
+  }
+
+  /** Closes Search or Recent Notes and puts focus back where it was before. */
+  closeSidePanel() {
+    const view = this.state.railView;
+    const opener = this.sideOpener;
+    this.sideOpener = null;
+    this.setRailView('notebooks');
+    if (opener && this.editor.scroller.contains(opener) && this.editor.restoreRange()) return;
+    if (opener?.isConnected && opener !== document.body && opener.offsetParent !== null) opener.focus();
+    else this.railButtons[view]?.focus();
   }
 
   toggleNav() {

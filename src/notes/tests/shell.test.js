@@ -107,6 +107,19 @@ describe('App shell', () => {
     expect(app.state.pageId).toBe(travel.id);
   });
 
+  it('puts focus back where it was when Search or Recent Notes closes', () => {
+    app.railButtons.search.focus();
+    app.railButtons.search.click();
+    expect(document.activeElement).toBe(app.search.input);
+    keydown(app.search.input, 'Escape');
+    expect(app.state.railView).toBe('notebooks');
+    expect(document.activeElement).toBe(app.railButtons.search);
+    app.railButtons.recent.focus();
+    app.railButtons.recent.click();
+    app.recent.el.querySelector('[aria-label="Close recent notes"]').click();
+    expect(document.activeElement).toBe(app.railButtons.recent);
+  });
+
   it('follows a page link pasted into the address bar of the open app', async () => {
     const first = app.state.pageId;
     app.newPage({ title: 'Second' });
