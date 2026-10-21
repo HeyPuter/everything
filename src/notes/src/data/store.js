@@ -51,6 +51,8 @@ export class Store extends Emitter {
     this.writers = new Map();
     this.pendingWrites = new Map();
     this.failed = new Set();
+    // Pictures, attachments and recordings being uploaded right now.
+    this.assetWrites = 0;
     this.versionState = new Map();
     this.versionJobs = new Map();
     this.loadedSnapshots = new Map();
@@ -1174,11 +1176,13 @@ export class Store extends Emitter {
     const ext = (name.match(/\.([a-z0-9]{1,8})$/i)?.[1] || mimeExt(blob.type) || 'bin').toLowerCase();
     const key = sectionId && this.keys.get(sectionId);
     const id = key ? `${sectionId}.${uid('a')}.${ext}.sealed` : `${uid('a')}.${ext}`;
+    this.assetWrites++;
     this.setStatus('saving');
     try {
       const data = key ? new Blob([await sealBytes(key, new Uint8Array(await blob.arrayBuffer()))]) : blob;
       await this.backend.writeBlob(`assets/${id}`, data);
     } finally {
+      this.assetWrites--;
       this.updateStatus();
     }
     this.assetUrls.set(id, URL.createObjectURL(blob));
@@ -1292,7 +1296,7 @@ export class Store extends Emitter {
   }
 
   hasUnsaved() {
-    return this.timers.size > 0 || this.pendingWrites.size > 0;
+    return this.timers.size > 0 || this.pendingWrites.size > 0 || this.assetWrites > 0;
   }
 
   setStatus(status) {
@@ -1302,7 +1306,7 @@ export class Store extends Emitter {
   }
 
   updateStatus() {
-    if (this.pendingWrites.size) this.setStatus('saving');
+    if (this.pendingWrites.size || this.assetWrites) this.setStatus('saving');
     else if (this.failed.size) this.setStatus('error');
     else if (this.timers.size) this.setStatus('pending');
     else this.setStatus('saved');

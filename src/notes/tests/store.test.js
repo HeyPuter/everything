@@ -308,6 +308,27 @@ describe('Store: page versions on a flaky connection', () => {
   });
 });
 
+describe('Store: uploads', () => {
+  it('counts a picture being uploaded as unsaved until it is stored', async () => {
+    const backend = memoryBackend();
+    const store = new Store(backend, { saveDelay: 0 });
+    await store.load();
+    await store.flush();
+    backend.delay = 30;
+    const upload = store.saveAsset(new Blob(['a recording']), 'memo.webm');
+    backend.delay = 0;
+    const other = store.saveAsset(new Blob(['a picture']), 'a.png');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(store.hasUnsaved()).toBe(true);
+    expect(store.status).toBe('saving');
+    await other;
+    expect(store.status).toBe('saving');
+    await upload;
+    expect(store.hasUnsaved()).toBe(false);
+    expect(store.status).toBe('saved');
+  });
+});
+
 describe('Store: saving after a failure', () => {
   it('stops reporting a failed save once what it was saving is deleted', async () => {
     const backend = memoryBackend();
