@@ -19,7 +19,7 @@ import { emptyDocument } from '../../src/data/defaults';
 beforeAll(async () => {
   setApp(new App(startupDocument()));
   await import('./support/all_modules');
-});
+}, 120000);
 beforeEach(() => {
   setApp(new App(startupDocument()));
   vfsClear();

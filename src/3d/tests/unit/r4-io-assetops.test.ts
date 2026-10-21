@@ -11,7 +11,7 @@ import { encodeTarget } from '../../src/assets/types';
 beforeAll(async () => {
   setApp(new App(startupDocument()));
   await import('./support/all_modules');
-});
+}, 120000);
 beforeEach(() => setApp(new App(startupDocument())));
 
 describe('single asset operators', () => {

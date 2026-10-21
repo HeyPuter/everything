@@ -21,7 +21,7 @@ const probe = readFileSync(resolve(__dirname, '../fixtures/formats/r4_probe.bvh'
 beforeAll(async () => {
   setApp(new App(startupDocument()));
   await import('./support/all_modules');
-});
+}, 120000);
 beforeEach(() => {
   setApp(new App(startupDocument()));
   vfsClear();

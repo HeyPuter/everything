@@ -4,7 +4,7 @@
 import { app } from '../app/app';
 import type { BezierPoint, MeshData, ShapeKey, Spline, SplinePoint } from '../data/types';
 import { defaultGPStyle } from '../greasepencil/data';
-import { MeshStruct, ObjectStruct, bpyData, dataRecord, uniqueName } from './api';
+import { MeshStruct, ObjectStruct, bpyData, dataRecord, uniqueName, wrapId } from './api';
 import { insertKey } from './api_anim';
 import { PropCollection, Struct, arrayFactories, boundVector, kwMethod, mixin, proxify, pyError, toPlain, touched, expectId, type Raw } from './rna';
 
@@ -162,6 +162,11 @@ class MeshShapes {
       },
       use_relative: true,
       user: self,
+      /** shape key animation is kept with the objects using the mesh: their animation data */
+      get animation_data() {
+        const ob = Object.values(app.doc.objects).find((o) => o.data === id && o.animation_data);
+        return ob ? (wrapId('objects', ob.id) as { animation_data: unknown }).animation_data : null;
+      },
     };
   }
 }

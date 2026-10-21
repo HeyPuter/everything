@@ -167,7 +167,7 @@ describe('Python scripts', () => {
       mod[sock.identifier] = 3.5
       print(mod[sock.identifier], sock.identifier in mod.keys(), [i.name for i in ng.interface.items_tree])
     `),
-    ).toBe("3.5 True ['Geometry', 'Geometry', 'Amount']");
+    ).toBe("3.5 True ['Amount']"); // a new group made from Python is empty, as on the desktop
   });
 
   py('property groups and properties added to types', () => {
@@ -193,7 +193,7 @@ describe('Python scripts', () => {
       del bpy.types.Object.mass_hint
       print(hasattr(ob, "mass_hint"))
     `),
-    ).toBe('0.5 9 1 1.25 2\nFalse');
+    ).toBe('0.5 9 1 1.25 2.0\nFalse'); // FloatProperty values read back as floats
   });
 
   py('menus from Python', async () => {

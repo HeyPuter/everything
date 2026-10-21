@@ -1284,6 +1284,29 @@ function nodeLabel(type: string) {
   );
 }
 
+/** RNA class names of node sockets by their data type. */
+const SOCKET_CLASS: Record<string, string> = {
+  VALUE: 'NodeSocketFloat',
+  FLOAT: 'NodeSocketFloat',
+  RGBA: 'NodeSocketColor',
+  VECTOR: 'NodeSocketVector',
+  SHADER: 'NodeSocketShader',
+  INT: 'NodeSocketInt',
+  BOOLEAN: 'NodeSocketBool',
+  STRING: 'NodeSocketString',
+  GEOMETRY: 'NodeSocketGeometry',
+  ROTATION: 'NodeSocketRotation',
+  MATRIX: 'NodeSocketMatrix',
+  OBJECT: 'NodeSocketObject',
+  COLLECTION: 'NodeSocketCollection',
+  IMAGE: 'NodeSocketImage',
+  MATERIAL: 'NodeSocketMaterial',
+  TEXTURE: 'NodeSocketTexture',
+  MENU: 'NodeSocketMenu',
+  BUNDLE: 'NodeSocketBundle',
+  CLOSURE: 'NodeSocketClosure',
+};
+
 function nodeTypeEnum(bl: string) {
   return NODE_TYPE_ENUM[bl] ?? nodeLabel(bl).toUpperCase().replace(/\s+/g, '_');
 }
@@ -1735,11 +1758,13 @@ class SocketsCollection extends PropCollection<unknown> {
     const fallback = () => (d ? socketDefault(d) : ((SOCKET_DEFAULTS[self.node().type]?.[id] as unknown) ?? null));
     return {
       __kind: 'struct',
-      __type: this.output ? 'NodeSocketOutput' : 'NodeSocketInput',
+      // the socket class name scripts see (type(sock).__name__), from the socket's data type
+      __type: SOCKET_CLASS[d?.type ?? 'VALUE'] ?? 'NodeSocket',
       __socket: { node: this.nid, name: id, output: this.output, tree: this.getTree },
       name,
       identifier: id,
-      type: d?.type ?? 'VALUE',
+      // float sockets report VALUE, as in the desktop API
+      type: !d?.type || d.type === 'FLOAT' ? 'VALUE' : d.type,
       is_output: this.output,
       enabled,
       get node() {
@@ -1885,6 +1910,15 @@ class WorldStruct extends IDStruct {
 class NodeGroupStruct extends IDStruct {
   override __hidden() {
     return TREE_HIDDEN;
+  }
+  /** Python's bpy.data.node_groups.new() gives an empty group (no nodes, links or sockets), as on the desktop. */
+  _script_empty() {
+    const ng = tableOf(app.doc, 'node_groups')[this.__id] as unknown as { tree: NodeTreeData } | undefined;
+    if (!ng) return;
+    ng.tree.nodes = [];
+    ng.tree.links = [];
+    ng.tree.interface = [];
+    touched();
   }
   get nodes() {
     const id = this.__id;
@@ -2343,7 +2377,10 @@ class IDCollection extends PropCollection<unknown> {
         return this.add(newWorld(name || 'World'));
       case 'curves': {
         const cu = newCurve(name || 'Curve');
-        if (String(rest[0] ?? 'CURVE').toUpperCase() === 'FONT') cu.body = 'Text';
+        if (String(rest[0] ?? 'CURVE').toUpperCase() === 'FONT') {
+          // the settings a text object starts with (as Add ▸ Text)
+          Object.assign(cu, { body: 'Text', dimensions: '2D', fill_mode: 'BOTH', size: 1, align_x: 'LEFT', align_y: 'TOP_BASELINE', space_line: 1, space_character: 1, space_word: 1, offset_x: 0, offset_y: 0, shear: 0 });
+        }
         return this.add(cu);
       }
       case 'armatures':
@@ -2832,6 +2869,8 @@ export function callOperator(idname: string, props: Record<string, unknown> = {}
   const op = operators.get(idname);
   if (!op) throw pyError('AttributeError', `Calling operator "bpy.ops.${idname}" error, could not be found`);
   const invoke = String(execContext).startsWith('INVOKE');
+  // operators see the scene as the script left it (visibility, selection, transforms)
+  ensureEvaluated();
   if (!app.poll(idname)) throw pyError('RuntimeError', `Operator bpy.ops.${idname}.poll() failed, context is incorrect`);
   const plain: Record<string, unknown> = {};
   // macro operators (duplicate_move, extrude_region_move…) take their parts' settings as

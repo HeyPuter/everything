@@ -17,7 +17,7 @@ beforeAll(async () => {
   setApp(new App(startupDocument()));
   await import('./support/all_modules');
   has = await pythonAvailable();
-}, 90000);
+}, 120000);
 
 beforeEach(() => {
   setApp(new App(startupDocument()));

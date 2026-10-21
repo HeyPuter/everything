@@ -17,6 +17,9 @@ try:
 except ImportError:  # pragma: no cover
     _FLOAT_ONLY, _FLOAT_BY_TYPE = frozenset(), {}
 
+# FloatProperty attributes scripts add to types (bpy.types.Object.x = FloatProperty(...)), by type name
+_SCRIPT_FLOATS = {}
+
 # methods whose results are floats even when they happen to be whole numbers
 _FLOAT_METHODS = frozenset(("evaluate", "calc_area", "calc_perimeter", "calc_length", "calc_shell_factor"))
 
@@ -209,7 +212,7 @@ class _Struct:
         if isinstance(v, _Function) and name in _FLOAT_METHODS:
             return _FloatFunction(v._fn)
         # JavaScript numbers that are whole come back as ints: float properties stay floats
-        if type(v) is int and (name in _FLOAT_ONLY or name in _FLOAT_BY_TYPE.get(type(self).__name__, ())):
+        if type(v) is int and (name in _FLOAT_ONLY or name in _FLOAT_BY_TYPE.get(type(self).__name__, ()) or name in _SCRIPT_FLOATS.get(type(self).__name__, ())):
             return float(v)
         return v
 
@@ -277,6 +280,13 @@ class _Collection(_Struct):
     """bpy_prop_collection: ``coll["Name"]``, ``coll[0]``, ``len``, iteration, ``get``, ``new``, ``remove``."""
 
     __slots__ = ()
+
+    def new(self, *args, **kw):
+        r = _wrap(_call(_br.call, self._js, "new", _tojs(list(args)), _kwargs(kw)))
+        # node groups made from Python start empty, as desktop scripts expect
+        if r is not None and str(_br.repr(self._js)) == "bpy.data.node_groups":
+            _call(_br.call, r._js, "_script_empty", js.Array.new(), js.Object.new())
+        return r
 
     def __len__(self):
         return int(_call(_br.len, self._js))
@@ -580,10 +590,13 @@ class _TypeMeta(type):
         # bpy.types.Object.weight = bpy.props.FloatProperty(...) adds a property to every Object
         if isinstance(value, _PropDef):
             _call(_br.declare_type_prop, cls.__name__, name, _tojs(value.spec()))
+            if value.type == "FLOAT":
+                _SCRIPT_FLOATS.setdefault(cls.__name__, set()).add(name)
         type.__setattr__(cls, name, value)
 
     def __delattr__(cls, name):
         _br.remove_type_prop(cls.__name__, name)
+        _SCRIPT_FLOATS.get(cls.__name__, set()).discard(name)
         if name in cls.__dict__:
             type.__delattr__(cls, name)
 
