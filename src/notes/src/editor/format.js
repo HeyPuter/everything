@@ -1,4 +1,4 @@
-import { blocksInRange, blockOf, currentRange, editableRoot, selectRange } from './selection.js';
+import { blocksInRange, blockOf, currentRange, editableRoot, isBlock, selectRange } from './selection.js';
 
 /*
  * Text formatting on the current selection. Inline formatting goes through
@@ -308,6 +308,67 @@ export function insertNode(node, { spaceAfter = true } = {}) {
   selectRange(r);
   root.dispatchEvent(new Event('input', { bubbles: true }));
   return true;
+}
+
+/*
+ * Chrome's own editing (pasting, inserting links, joining two paragraphs
+ * with Backspace, outdenting a list item) wraps the text it moves in spans
+ * that freeze how the text looked before, for instance
+ * <span style="font-size: 11pt; background-color: transparent">. In a
+ * normal paragraph they change nothing, but they keep that text at 11pt
+ * when the paragraph later becomes a heading, and text pasted or linked
+ * into a heading comes out in the small body font. For elements an edit
+ * just added, this drops a transparent background and any font size,
+ * color or font that only repeats the surrounding text or the note's base
+ * text, then unwraps spans left with no attributes.
+ */
+const CLEAR_BACKGROUNDS = new Set(['transparent', 'initial', 'rgba(0, 0, 0, 0)']);
+const BASE_PROPS = ['font-size', 'color', 'font-family'];
+
+export function dropRedundantStyles(elements) {
+  const sel = document.getSelection();
+  const bases = new Map();
+  let points = null;
+  for (const el of elements) {
+    if (!el.isConnected || !el.parentElement || isBlock(el) || el.tagName === 'MARK' || el.tagName === 'IMG') continue;
+    const root = editableRoot(el);
+    if (!root?.classList.contains('outline-body') || el.closest('.nt-tag, .nt-file, .nt-math')) continue;
+    const style = el.style;
+    if (CLEAR_BACKGROUNDS.has(style.backgroundColor)) {
+      style.removeProperty('background-color');
+      // Keep it if a stylesheet would otherwise paint a background here.
+      if (!CLEAR_BACKGROUNDS.has(getComputedStyle(el).backgroundColor)) style.backgroundColor = 'transparent';
+    }
+    if (!bases.has(root)) bases.set(root, getComputedStyle(root));
+    const base = bases.get(root);
+    for (const prop of BASE_PROPS) {
+      if (!style.getPropertyValue(prop)) continue;
+      const value = getComputedStyle(el).getPropertyValue(prop);
+      if (value === getComputedStyle(el.parentElement).getPropertyValue(prop) || value === base.getPropertyValue(prop)) style.removeProperty(prop);
+    }
+    if (el.getAttribute('style') !== '') continue;
+    el.removeAttribute('style');
+    if (el.tagName !== 'SPAN' || el.attributes.length) continue;
+    // Unwrapping moves the text nodes, which would collapse a live
+    // selection inside them; keep the boundary points and put them back.
+    points ||= sel?.rangeCount ? [[sel.anchorNode, sel.anchorOffset], [sel.focusNode, sel.focusOffset]] : [];
+    const parent = el.parentNode;
+    const index = [...parent.childNodes].indexOf(el);
+    const grow = el.childNodes.length - 1;
+    points = points.map(([node, offset]) => {
+      if (node === el) return [parent, index + offset];
+      if (node === parent && offset > index) return [parent, offset + grow];
+      return [node, offset];
+    });
+    unwrap(el);
+  }
+  if (points?.length === 2 && points.every(([node]) => node?.isConnected)) {
+    try {
+      sel.setBaseAndExtent(points[0][0], points[0][1], points[1][0], points[1][1]);
+    } catch {
+      /* the boundary moved out of reach */
+    }
+  }
 }
 
 /** Moves the blocks around the caret up or down one block. */

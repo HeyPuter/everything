@@ -3,7 +3,7 @@ import { ensureBlocks, fixNesting, blocksInRange, rangeFromOffsets, textOffset, 
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
-import { setBlockStyle, indent, retag, moveBlock, insertNode } from '../src/editor/format.js';
+import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles } from '../src/editor/format.js';
 import { textToHtml, ruleImage } from '../src/editor/page-editor.js';
 
 function body(html) {
@@ -264,6 +264,22 @@ describe('paragraph formatting', () => {
     expect(li.innerHTML).toBe('item');
     expect(sel.anchorNode).toBe(t);
     expect(sel.anchorOffset).toBe(2);
+  });
+
+  it("drops the styles Chrome's editing freezes onto moved text", () => {
+    document.head.innerHTML = '<style>.outline-body{font-size:11pt;color:rgb(27, 27, 27)} .outline-body h1{font-size:16pt;color:rgb(30, 78, 140)}</style>';
+    const el = body('<h1>Title <span style="font-size: 11pt; background-color: transparent;">pasted</span> <a href="#x" style="color: rgb(27, 27, 27); font-size: 11pt;">link</a></h1>'
+      + '<p>keep <span style="color: red; font-size: 20px;">red</span> <b style="font-size: 11pt;">b</b> <mark style="background-color: transparent;">m</mark></p>');
+    const spans = [...el.querySelectorAll('[style]')];
+    const text = el.querySelector('h1 span').firstChild;
+    caretIn(text, 3);
+    dropRedundantStyles(spans);
+    expect(el.innerHTML).toBe('<h1>Title pasted <a href="#x">link</a></h1>'
+      + '<p>keep <span style="color: red; font-size: 20px;">red</span> <b>b</b> <mark style="background-color: transparent;">m</mark></p>');
+    // The caret stays in the text that was inside the unwrapped span.
+    expect(document.getSelection().anchorNode).toBe(text);
+    expect(document.getSelection().anchorOffset).toBe(3);
+    document.head.innerHTML = '';
   });
 
   it('indents plain paragraphs with a margin', () => {

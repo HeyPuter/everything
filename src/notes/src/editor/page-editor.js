@@ -8,7 +8,7 @@ import { PAGE_COLORS } from '../data/colors.js';
 import { History, snapshotOf, applySnapshot } from './history.js';
 import { hydrate, serialize, fileSpan } from './embeds.js';
 import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf } from './selection.js';
-import { indent, moveBlock, toggleList, insertHtml, insertNode } from './format.js';
+import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles } from './format.js';
 import { moveCell } from './table.js';
 import { setDone } from './tag-edit.js';
 import { InkTools } from './tools.js';
@@ -52,6 +52,12 @@ export class PageEditor extends Emitter {
     this.scroller.append(this.sizer);
     host.append(this.scroller);
 
+    // Elements added to the outlines since the last edit, so the spans
+    // Chrome's own editing leaves behind can be cleaned (dropRedundantStyles).
+    this.addedRecords = [];
+    this.additions = new MutationObserver((records) => this.addedRecords.push(...records));
+    this.additions.observe(this.outlinesEl, { childList: true, subtree: true });
+
     this.ink = new InkTools(this);
     this.bind();
     this.resizeObserver = new ResizeObserver(() => this.layout());
@@ -89,8 +95,24 @@ export class PageEditor extends Emitter {
     }
     this.ink.render();
     this.layout();
+    this.takeAdded();
     await Promise.all(jobs);
     this.layout();
+  }
+
+  /** Styled elements added to the outlines since the last call. */
+  takeAdded() {
+    const records = [...this.addedRecords, ...this.additions.takeRecords()];
+    this.addedRecords = [];
+    const out = new Set();
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.nodeType !== 1 || !n.isConnected) continue;
+        if (n.hasAttribute('style')) out.add(n);
+        for (const el of n.querySelectorAll('[style]')) out.add(el);
+      }
+    }
+    return out;
   }
 
   updateDate() {
@@ -437,6 +459,11 @@ export class PageEditor extends Emitter {
     if (this.selectedImage) {
       if (this.selectedImage.isConnected) this.placeImageHandle?.();
       else this.clearImageSelection();
+    }
+    // Plain typing adds no styled elements; skip the bookkeeping for it.
+    if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText') {
+      const added = this.takeAdded();
+      if (e.isTrusted && added.size) dropRedundantStyles(added);
     }
     if (e.inputType === 'insertText' && e.data === ' ') {
       this.autoLink();
@@ -979,6 +1006,7 @@ export class PageEditor extends Emitter {
     window.removeEventListener('beforeprint', this.onBeforePrint);
     window.removeEventListener('afterprint', this.onAfterPrint);
     this.resizeObserver.disconnect();
+    this.additions.disconnect();
     this.scroller.remove();
   }
 }
