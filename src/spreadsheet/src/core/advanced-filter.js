@@ -88,14 +88,19 @@ function uniqueRows(wb, sheetId, rows, columns) {
  */
 export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = null, unique = false }) {
   if (!list || list.r2 <= list.r1) return { error: 'The list range needs a header row and at least one record' };
-  let rows = matchingRows(wb, sheetId, list, criteria);
+  // A list typed as whole columns ($A:$D) holds records only as far down as the sheet's data goes: the blank rows
+  // below it are no records. Judged one by one they took seconds, and in place they were all hidden, the sheet
+  // seeming to end under the data. The list itself is kept as given, so a Reapply takes in rows added since.
+  const used = wb.usedRange(sheetId);
+  const records = { ...list, r2: Math.max(list.r1 + 1, Math.min(list.r2, used ? used.r2 : list.r1 + 1)) };
+  let rows = matchingRows(wb, sheetId, records, criteria);
   if (rows.error) return rows;
   const allColumns = []; for (let c = list.c1; c <= list.c2; c++) allColumns.push(c);
   if (!copyTo) {
     if (unique) rows = uniqueRows(wb, sheetId, rows, allColumns);
     const keep = new Set(rows);
     const hide = [], show = [];
-    for (let r = list.r1 + 1; r <= list.r2; r++) (keep.has(r) ? show : hide).push(r);
+    for (let r = records.r1 + 1; r <= records.r2; r++) (keep.has(r) ? show : hide).push(r);
     wb.transaction('Advanced filter', () => {
       wb.setHidden(sheetId, 'row', show, false);
       if (hide.length) wb.setHidden(sheetId, 'row', hide, true);
