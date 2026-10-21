@@ -1071,6 +1071,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
   ctx.resolveRange = resolveRangeText;
 
+  /**
+   * Conditional formats and merged blocks are formats too: Clear Formats and Clear All take them off the
+   * selection's shown cells with the rest, as Excel's do, rather than leaving the cells highlighted or merged.
+   */
+  function clearRulesAndMerges() {
+    const { sheetId: sid, ranges } = styleTarget();
+    const runs = ranges.flatMap((rg) => shownRuns(rg, sid));
+    clearRules(wb, sid, runs);
+    for (const rg of runs) wb.unmergeCells(sid, rg);
+  }
+
   /** Remove the notes, or the links, of the selected cells: only cells that have one are visited. */
   function clearInSelection(kind) {
     const sheet = wb.sheet(grid.sheetId);
@@ -1867,7 +1878,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'clearFormat':
         if (!nativeFormatRanges((sid, ranges) => clearNativePivotSelection(wb, new Map([[sid, ranges]]),
           { maxCells: MAX_FORMAT_CELLS, defaultSize: 13 }), { cap: false })) {
-          eachRange('Clear formatting', (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: false, styles: true, skipRow }), { cap: false, skipRows: true });
+          wb.transaction('Clear formatting', () => {
+            if (eachRange('Clear formatting', (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: false, styles: true, skipRow }), { cap: false, skipRows: true }) !== null) clearRulesAndMerges();
+          });
         }
         keepFocus();
         return;
@@ -1939,7 +1952,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'clearAll':
         if (grid.editing) return;
         wb.transaction('Clear All', () => {
-          eachRange('Clear All', (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: true, styles: true, skipRow }), { cap: false, skipRows: true });
+          if (eachRange('Clear All', (rg, skipRow, sid) => wb.clearRange(sid, rg, { contents: true, styles: true, skipRow }), { cap: false, skipRows: true }) !== null) clearRulesAndMerges();
           clearInSelection('notes');
           clearInSelection('links');
         });
