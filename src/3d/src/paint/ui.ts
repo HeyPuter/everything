@@ -152,17 +152,18 @@ function changed() {
   if (v) v.drawSvg();
 }
 
-function radiusField(b: PaintBrush, id: string, label = 'Radius') {
+/** Brush size field: the diameter in pixels (the brush stores its radius). */
+function radiusField(b: PaintBrush, id: string, label = 'Size') {
   return numberField({
     id,
     label,
-    value: b.radius,
-    min: 1,
-    max: 2000,
+    value: b.radius * 2,
+    min: 2,
+    max: 4000,
     int: true,
-    unit: 'none',
-    tip: 'Radius of the brush in pixels (F)',
-    set: (x) => ((b.radius = Math.round(x)), changed()),
+    unit: 'pixel',
+    tip: 'Diameter of the brush in pixels (F)',
+    set: (x) => ((b.radius = Math.max(1, Math.round(x / 2))), changed()),
   });
 }
 function strengthField(b: PaintBrush, id: string) {
@@ -450,7 +451,7 @@ function sizeField(b: PaintBrush, id: string) {
     'div',
     { key: id, class: 'paint-pressure-row' },
     scene
-      ? numberField({ id, label: 'Radius', value: b.unprojected_radius ?? 0.1, min: 0.0001, max: 100, unit: 'distance', precision: 3, tip: 'Radius of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x), changed()) })
+      ? numberField({ id, label: 'Size', value: (b.unprojected_radius ?? 0.1) * 2, min: 0.0002, max: 200, unit: 'distance', precision: 3, tip: 'Diameter of the brush in scene units (F)', set: (x) => ((b.unprojected_radius = x / 2), changed()) })
       : radiusField(b, id),
     pressureToggle(b, 'use_pressure_size', `${id}-p`),
   );
