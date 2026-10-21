@@ -21,6 +21,7 @@ import { topoBoundary } from './topo.js';
 import { massFloorArea } from './massing.js';
 import { spaceLoads, SPACE_TYPES } from './spaces.js';
 import { lockAll } from './constraints.js';
+import { PROFILES } from './sweeps.js';
 import { worksharingOn, worksetable, worksetOf, worksets } from './worksets.js';
 import { optionable, optionLabel } from './designopts.js';
 
@@ -570,6 +571,14 @@ export const TYPE_PARAMS = {
   stairType: [len('maxRiser', 'Maximum Riser Height', 'Dimensions'), len('tread', 'Minimum Tread Depth', 'Dimensions'), len('width', 'Default Width', 'Dimensions'), len('thickness', 'Thickness', 'Construction'), P('monolithic', 'Monolithic', 'Construction', 'bool'), MAT('materialId', 'Material')],
   footingType: [len('width', 'Width', 'Dimensions'), len('length', 'Length', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
   wallFootingType: [len('width', 'Width', 'Dimensions'), len('thickness', 'Thickness', 'Dimensions'), MAT('materialId', 'Material'), P('mark', 'Type Mark', 'Identity Data', 'text')],
+  wallSweepType: [
+    P('profile', 'Profile', 'Construction', 'select', { get: (t) => t.profile || 'rect', options: () => Object.entries(PROFILES).map(([value, p]) => ({ value, label: p.label })) }),
+    P('reveal', 'Cuts Into the Wall (Reveal)', 'Construction', 'bool', { get: (t) => !!t.reveal }),
+    len('width', 'Projection (or Depth)', 'Dimensions'),
+    len('height', 'Height', 'Dimensions'),
+    MAT('materialId', 'Material'),
+    P('mark', 'Type Mark', 'Identity Data', 'text'),
+  ],
   ductType: [
     P('shape', 'Shape', 'Construction', 'select', {
       options: () => [
