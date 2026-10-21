@@ -29,6 +29,7 @@ import './screenedit';
 import './wmicons';
 import './rampdropper';
 import './browseops';
+import './overridebuttons';
 import { shellRef } from './shellref';
 import './favorites';
 import './areawindow';
