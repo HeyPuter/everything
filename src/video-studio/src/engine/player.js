@@ -478,19 +478,6 @@ export class Player extends Emitter {
     return this.compositor.layerBox(layer, info);
   }
 
-  /** Current frame as a JPEG blob (project covers). */
-  async snapshot(maxW = 480) {
-    if (!this.compositor) return null;
-    this.renderFrame(this.time);
-    const src = this.canvas;
-    const scale = Math.min(1, maxW / src.width);
-    const c = document.createElement('canvas');
-    c.width = Math.round(src.width * scale);
-    c.height = Math.round(src.height * scale);
-    c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
-    return new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', 0.82));
-  }
-
   dispose() {
     cancelAnimationFrame(this.raf);
     this.offs.forEach((off) => off());

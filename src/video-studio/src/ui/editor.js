@@ -369,16 +369,28 @@ export class Editor {
     this._coverTimer = setTimeout(() => this.saveCover(), 4000);
   }
 
+  /**
+   * Save the gallery cover: the cover frame (1 s in unless one is chosen),
+   * rendered on its own like a still export so the live preview is never
+   * moved. While playing it waits for the next pause.
+   */
   async saveCover() {
     const { store, player } = this.ctx;
     if (!player?.supported || store.duration <= 0) return;
+    if (player.playing) {
+      this._scheduleCover();
+      return;
+    }
     try {
       const t = store.project.cover?.time ?? Math.min(store.duration - 1, 1_000_000);
-      const keep = player.previewTime;
-      player.previewTime = t;
-      const blob = await player.snapshot(480);
-      player.previewTime = keep;
-      player.invalidate();
+      const { renderStill } = await import('../engine/exporter.js');
+      const bmp = await renderStill(store.project, this.library, t, { maxWidth: 480 });
+      const c = document.createElement('canvas');
+      c.width = bmp.width;
+      c.height = bmp.height;
+      c.getContext('2d').drawImage(bmp, 0, 0);
+      bmp.close?.();
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.82));
       if (blob) await this.library.saveCover(store.project.id, blob);
     } catch {
       /* covers are cosmetic */
