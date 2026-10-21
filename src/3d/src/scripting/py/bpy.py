@@ -1032,7 +1032,21 @@ app = _App(_br.root("app"))
 class _Path:
     @staticmethod
     def abspath(p, start=None, library=None):
+        # '//' = the project folder of the session file store
+        p = str(p)
+        if p.startswith("//"):
+            return (start.rstrip("/") + "/" if start else "/project/") + p[2:]
         return p
+
+    @staticmethod
+    def relpath(p, start=None):
+        p = str(p)
+        base = (start or "/project/").rstrip("/") + "/"
+        return "//" + p[len(base):] if p.startswith(base) else p
+
+    @staticmethod
+    def native_pathsep(p):
+        return str(p)
 
     @staticmethod
     def basename(p):

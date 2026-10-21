@@ -2907,11 +2907,14 @@ export const bpy: Record<string, unknown> = {
     get binary_path() {
       return '';
     },
+    /** temporary folder of the session file store (files there are never downloaded) */
+    tempdir: '/tmp/',
     background: false,
     toString: () => '<bpy.app>',
   },
   path: {
-    abspath: (p: string) => p,
+    abspath: (p: string) => (String(p).startsWith('//') ? `/project/${String(p).slice(2)}` : p),
+    relpath: (p: string) => (String(p).startsWith('/project/') ? `//${String(p).slice(9)}` : p),
     basename: (p: string) => String(p).split(/[\\/]/).pop() ?? '',
     display_name: (p: string) =>
       String(p)

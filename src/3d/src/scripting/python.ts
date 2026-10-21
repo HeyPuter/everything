@@ -17,6 +17,38 @@ import bpyPy from './py/bpy.py?raw';
 import runtimePy from './py/p3d_runtime.py?raw';
 import bpyExtrasPy from './py/bpy_extras.py?raw';
 import { pyModuleFiles, scriptModules } from './jsmodules';
+import { PROJECT_DIR, vfsHooks, vfsList } from '../io/vfs';
+
+/**
+ * Share the session file store (io/vfs.ts) with Python's file system: files exported by
+ * operators can be opened with open(), and files a script writes can be imported by path.
+ */
+function mirrorSessionFiles(inst: PyodideAPI) {
+  const fs = inst.FS;
+  const put = (path: string, bytes: Uint8Array) => {
+    const dir = path.replace(/\/[^/]*$/, '');
+    if (dir) fs.mkdirTree(dir);
+    fs.writeFile(path, bytes);
+  };
+  for (const f of vfsList()) put(f.path, f.bytes);
+  vfsHooks.written.push(put);
+  vfsHooks.removed.push((p) => {
+    try {
+      fs.unlink?.(p);
+    } catch {
+      // already gone
+    }
+  });
+  vfsHooks.read.push((p) => {
+    try {
+      return fs.readFile ? fs.readFile(p) : null;
+    } catch {
+      return null;
+    }
+  });
+  // relative paths ('//name') resolve against the project folder
+  fs.mkdirTree(PROJECT_DIR);
+}
 
 export const PYODIDE_VERSION = '314.0.7';
 export const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
@@ -33,7 +65,12 @@ interface PyodideAPI {
   setStdout(o: { batched: (s: string) => void }): void;
   setStderr(o: { batched: (s: string) => void }): void;
   pyimport(name: string): Record<string, PyProxyFn>;
-  FS: { mkdirTree(p: string): void; writeFile(p: string, data: string): void };
+  FS: {
+    mkdirTree(p: string): void;
+    writeFile(p: string, data: string | Uint8Array): void;
+    readFile?(p: string): Uint8Array;
+    unlink?(p: string): void;
+  };
 }
 
 export type PyState = 'idle' | 'loading' | 'ready' | 'error';
@@ -361,6 +398,7 @@ export function loadPython(): Promise<PyodideAPI> {
       inst.FS.writeFile('/home/pyodide/p3d/p3d_runtime.py', runtimePy);
       inst.FS.writeFile('/home/pyodide/p3d/bpy_extras.py', bpyExtrasPy);
       for (const [file, src] of Object.entries(pyModuleFiles)) inst.FS.writeFile(`/home/pyodide/p3d/${file}`, src);
+      mirrorSessionFiles(inst);
       inst.runPython("import sys\nsys.path.insert(0, '/home/pyodide/p3d')\nimport bpy, mathutils, p3d_runtime, bpy_extras\nsys.modules['bpy_extras.object_utils'] = bpy_extras.object_utils");
       runtime = inst.pyimport('p3d_runtime');
       py = inst;

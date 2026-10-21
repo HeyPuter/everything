@@ -3,9 +3,13 @@
 export interface FormatOption {
   id: string;
   label: string;
-  type: 'bool' | 'enum' | 'float';
+  type: 'bool' | 'enum' | 'float' | 'int' | 'string';
   default: boolean | string | number;
   items?: [string, string][];
+  /** scripting property name when it differs from `id` */
+  bpy?: string;
+  /** scripting enum values accepted for this option, mapped to ours */
+  bpyItems?: Record<string, string>;
   min?: number;
   max?: number;
   step?: number;
@@ -131,13 +135,39 @@ function buttonRow(parts: DialogParts, okLabel: string, ok: () => void, cancel: 
 /** Rows other modules put at the top of options dialogs (the preset menu); `sync` redraws the inputs. */
 export const optionsDialogHooks: ((key: string, values: Record<string, unknown>, sync: () => void) => HTMLElement | null)[] = [];
 
-/** Show options; resolves with the chosen values or rejects with AbortError. */
-export function optionsDialog(title: string, key: string, options: FormatOption[], okLabel: string, intro?: string): Promise<Record<string, unknown>> {
-  const values = loadOptions(key, options);
-  if (!options.length) return Promise.resolve(values);
+/**
+ * Show options; resolves with the chosen values or rejects with AbortError. `initial` replaces
+ * the remembered values; `selection` adds a "Selected Only" toggle (its value is `__selection`).
+ */
+export function optionsDialog(
+  title: string,
+  key: string,
+  options: FormatOption[],
+  okLabel: string,
+  intro?: string,
+  initial?: Record<string, unknown>,
+  selection?: { id: string; label: string; value: boolean },
+): Promise<Record<string, unknown>> {
+  const values = initial ? { ...loadOptions(key, options), ...initial } : loadOptions(key, options);
+  if (!options.length && !selection) return Promise.resolve(values);
   return new Promise((resolve, reject) => {
     const parts = dialog(title, () => reject(new AbortError()));
-    if (intro) {
+    if (selection) {
+      values.__selection = selection.value;
+      const row = document.createElement('label');
+      row.className = 'io-selection';
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;min-height:var(--row);';
+      row.title = 'Only export the objects that are selected';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = selection.value;
+      cb.setAttribute('aria-label', selection.label);
+      cb.onchange = () => (values.__selection = cb.checked);
+      const name = document.createElement('span');
+      name.textContent = selection.label;
+      row.append(cb, name);
+      parts.body.append(row);
+    } else if (intro) {
       const p = document.createElement('div');
       p.style.cssText = 'color:var(--c-text-dim);margin-bottom:4px;';
       p.textContent = intro;
@@ -164,7 +194,15 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
       const name = document.createElement('span');
       name.textContent = o.label;
       let input: HTMLInputElement | HTMLSelectElement;
-      if (o.type === 'bool') {
+      if (o.type === 'string') {
+        const t = document.createElement('input');
+        t.type = 'text';
+        t.value = String(values[o.id] ?? '');
+        t.style.cssText = 'background:var(--w-text, var(--w-num));color:var(--c-text);border:none;border-radius:var(--radius);height:var(--row);width:160px;padding:0 6px;';
+        t.onchange = () => (values[o.id] = t.value);
+        input = t;
+        row.append(name, t);
+      } else if (o.type === 'bool') {
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.checked = !!values[o.id];
@@ -194,7 +232,7 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
       } else {
         const num = document.createElement('input');
         num.type = 'number';
-        num.step = String(o.step ?? 0.01);
+        num.step = String(o.step ?? (o.type === 'int' ? 1 : 0.01));
         if (o.min !== undefined) num.min = String(o.min);
         if (o.max !== undefined) num.max = String(o.max);
         num.value = String(values[o.id]);
@@ -204,6 +242,7 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
           if (!Number.isFinite(v)) v = o.default as number;
           if (o.min !== undefined) v = Math.max(o.min, v);
           if (o.max !== undefined) v = Math.min(o.max, v);
+          if (o.type === 'int') v = Math.round(v);
           values[o.id] = v;
           num.value = String(v);
         };
@@ -219,7 +258,8 @@ export function optionsDialog(title: string, key: string, options: FormatOption[
       parts,
       okLabel,
       () => {
-        saveOptions(key, values);
+        const { __selection: _sel, ...keep } = values;
+        saveOptions(key, keep);
         resolve(values);
       },
       () => reject(new AbortError()),

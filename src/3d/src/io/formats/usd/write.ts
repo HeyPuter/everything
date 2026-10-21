@@ -16,7 +16,7 @@ export interface UsdWriteOptions {
   animation?: boolean;
   /** texture path prefix inside the package / next to the layer */
   textureDir?: string;
-  encodeImage?: (img: ImageData) => Promise<{ bytes: Uint8Array; mime: string } | null>;
+  encodeImage?: (img: ImageData) => { bytes: Uint8Array; mime: string } | null;
 }
 
 export interface UsdOutput {
@@ -80,7 +80,7 @@ class Writer {
   }
 }
 
-export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): Promise<UsdOutput> {
+export function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}): UsdOutput {
   const warnings = [...scene.warnings];
   const w = new Writer();
   const mpu = opts.metersPerUnit ?? 1;
@@ -103,14 +103,14 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
   const trackOf = new Map(scene.tracks.map((t) => [t.object, t]));
   const textures: UsdOutput['textures'] = [];
   const texPath = new Map<string, string>();
-  const textureFile = async (imageId: string): Promise<string | null> => {
+  const textureFile = (imageId: string): string | null => {
     if (texPath.has(imageId)) return texPath.get(imageId)!;
     const img = scene.doc.images[imageId];
     if (!img) return null;
     let bytes = img.bytes,
       mime = img.mime;
     if (!bytes || (mime !== 'image/png' && mime !== 'image/jpeg')) {
-      const enc = opts.encodeImage ? await opts.encodeImage(img) : null;
+      const enc = opts.encodeImage ? opts.encodeImage(img) : null;
       if (!enc) {
         warnings.push(`Image "${img.name}" could not be written (USD supports PNG/JPEG textures)`);
         return null;
@@ -187,7 +187,7 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     for (let p = eo.parent; p; p = p.parent) if (p === anc) return true;
     return false;
   };
-  const writeObject = async (eo: ExportObject, names: Names) => {
+  const writeObject = (eo: ExportObject, names: Names) => {
     const prim = names.get(eo.name);
     const track = trackOf.get(eo);
     const local = eo.parentBone ? eo.parent!.world.clone().invert().multiply(eo.world) : eo.local;
@@ -198,11 +198,11 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     xformOps(local, anim && track?.locals && !eo.parentBone ? track.locals : undefined);
     const childNames = new Names();
     childNames.get(prim);
-    if (eo.mesh) await writeMesh(eo, eo.mesh, prim);
+    if (eo.mesh) writeMesh(eo, eo.mesh, prim);
     if (eo.camera) writeCamera(eo, prim);
     if (eo.light) writeLight(eo, prim);
     if (eo.armature) writeSkeleton(eo, prim);
-    for (const c of eo.children) await writeObject(c, childNames);
+    for (const c of eo.children) writeObject(c, childNames);
     w.close();
   };
 
@@ -340,7 +340,7 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     return skelRootPath.get(eo) ?? usdIdentifier(eo.name);
   }
 
-  const writeMesh = async (eo: ExportObject, m: ExportMesh, prim: string) => {
+  const writeMesh = (eo: ExportObject, m: ExportMesh, prim: string) => {
     const nf = m.offsets.length - 1;
     const counts: number[] = [],
       idx: number[] = [];
@@ -535,18 +535,18 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     return pathOf.get(eo) ?? `/root/${usdIdentifier(eo.name)}`;
   }
 
-  for (const r of scene.roots) await writeObject(r, rootNames);
+  for (const r of scene.roots) writeObject(r, rootNames);
 
   // ------------------------------------------------------------ materials
   if (scene.materials.size) {
     w.line('');
     w.open('def Scope "_materials"');
-    for (const [id, m] of scene.materials) await writeMaterial(matPath.get(id)!, m);
+    for (const [id, m] of scene.materials) writeMaterial(matPath.get(id)!, m);
     w.close();
   }
   w.close();
 
-  async function writeMaterial(path: string, m: ExportMaterial) {
+  function writeMaterial(path: string, m: ExportMaterial) {
     const name = path.split('/').pop()!;
     w.open(`def Material ${quote(name)}`);
     w.line(`token outputs:surface.connect = <${path}/Principled_BSDF.outputs:surface>`);
@@ -555,9 +555,9 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     const texNames = new Names();
     texNames.get('Principled_BSDF');
     texNames.get('uvmap');
-    const connectTex = async (ref: ExportTexRef | undefined, raw: boolean): Promise<string | null> => {
+    const connectTex = (ref: ExportTexRef | undefined, raw: boolean): string | null => {
       if (!ref) return null;
-      const file = await textureFile(ref.imageId);
+      const file = textureFile(ref.imageId);
       if (!file) return null;
       const existing = tex.find(
         (t) => t.ref.imageId === ref.imageId && t.raw === raw && JSON.stringify([t.ref.offset, t.ref.scale, t.ref.rotation]) === JSON.stringify([ref.offset, ref.scale, ref.rotation]),
@@ -569,23 +569,23 @@ export async function writeUsda(scene: ExportScene, opts: UsdWriteOptions = {}):
     };
     const lines: string[] = [];
     const ch = (r: ExportTexRef) => (r.channel === 'R' ? 'r' : r.channel === 'G' ? 'g' : r.channel === 'B' ? 'b' : r.channel === 'A' ? 'a' : 'rgb');
-    const base = await connectTex(m.baseColorTex, false);
+    const base = connectTex(m.baseColorTex, false);
     if (base) lines.push(`color3f inputs:diffuseColor.connect = <${path}/${base}.outputs:rgb>`);
     else lines.push(`color3f inputs:diffuseColor = ${tup(m.baseColor.slice(0, 3))}`);
-    const metal = await connectTex(m.metallicTex, true);
+    const metal = connectTex(m.metallicTex, true);
     lines.push(metal ? `float inputs:metallic.connect = <${path}/${metal}.outputs:${ch(m.metallicTex!)}>` : `float inputs:metallic = ${fmt(m.metallic)}`);
-    const rough = await connectTex(m.roughnessTex, true);
+    const rough = connectTex(m.roughnessTex, true);
     lines.push(rough ? `float inputs:roughness.connect = <${path}/${rough}.outputs:${ch(m.roughnessTex!)}>` : `float inputs:roughness = ${fmt(m.roughness)}`);
     const alphaTex = m.alphaTex ?? (m.alphaMode !== 'OPAQUE' && m.baseColorTex ? { ...m.baseColorTex, channel: 'A' as const } : undefined);
-    const op = alphaTex ? await connectTex(alphaTex, m.alphaTex ? true : false) : null;
+    const op = alphaTex ? connectTex(alphaTex, m.alphaTex ? true : false) : null;
     lines.push(op ? `float inputs:opacity.connect = <${path}/${op}.outputs:${ch(alphaTex!)}>` : `float inputs:opacity = ${fmt(m.baseColor[3])}`);
     if (m.alphaMode === 'MASK') lines.push(`float inputs:opacityThreshold = ${fmt(m.alphaCutoff ?? 0.5)}`);
     lines.push(`float inputs:ior = ${fmt(m.ior ?? 1.5)}`);
     if (m.clearcoat) lines.push(`float inputs:clearcoat = ${fmt(m.clearcoat)}`, `float inputs:clearcoatRoughness = ${fmt(m.clearcoatRoughness ?? 0.03)}`);
-    const em = await connectTex(m.emissiveTex, false);
+    const em = connectTex(m.emissiveTex, false);
     if (em) lines.push(`color3f inputs:emissiveColor.connect = <${path}/${em}.outputs:rgb>`);
     else if (m.emissive) lines.push(`color3f inputs:emissiveColor = ${tup(m.emissive.map((v) => v * (m.emissiveStrength ?? 1)))}`);
-    const nrm = await connectTex(m.normalTex, true);
+    const nrm = connectTex(m.normalTex, true);
     if (nrm) lines.push(`normal3f inputs:normal.connect = <${path}/${nrm}.outputs:rgb>`);
     if (m.normalTex && (m.normalTex.strength ?? 1) !== 1) warnings.push(`Material "${m.name}": normal map strength is not supported by UsdPreviewSurface`);
     if (m.transmission) warnings.push(`Material "${m.name}": transmission is not supported by UsdPreviewSurface`);

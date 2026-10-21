@@ -1,6 +1,6 @@
 // Collada registration: File ▸ Import ▸ Collada (.dae)
-import { commitToApp, defineFormat, readFileBytes } from './glue';
-import { companionFilesDialog } from './ui';
+import { commitToApp, defineFormat } from './glue';
+import { baseName } from './common';
 import { colladaImageFiles, readCollada } from './collada';
 
 defineFormat({
@@ -21,15 +21,15 @@ defineFormat({
       ],
     },
   ],
-  async importFile(file, o) {
-    const text = new TextDecoder().decode(await readFileBytes(file));
-    const resources = new Map<string, Uint8Array>();
-    const images = colladaImageFiles(text);
-    if (images.length) {
-      const files = await companionFilesDialog('Collada Textures', `"${file.name}" references these images. Select them to import the textures:`, images, 'image/*,.tga,.tif,.tiff');
-      for (const f of files) resources.set(f.name, await readFileBytes(f));
-    }
-    const ir = await readCollada(text, resources);
+  importOps: ['wm.collada_import'],
+  importOpLabel: 'Import Collada',
+  multiFile: true,
+  companions(src, have) {
+    const images = colladaImageFiles(new TextDecoder().decode(src.bytes)).filter((n) => !have.has(baseName(n)));
+    return images.length ? { title: 'Collada Textures', message: `"${src.name}" references these images. Select them to import the textures:`, names: images, accept: 'image/*,.tga,.tif,.tiff' } : null;
+  },
+  async importData(src, o) {
+    const ir = await readCollada(new TextDecoder().decode(src.bytes), src.resources);
     commitToApp(ir, { mergeVertices: !!o.merge_vertices, boneDirection: o.bone_heuristic as 'AUTO' });
   },
 });

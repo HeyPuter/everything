@@ -1,21 +1,21 @@
 // Registration of the mesh-centric formats: Wavefront OBJ (+MTL), STL and Stanford PLY.
 import { zipSync } from 'three/examples/jsm/libs/fflate.module.js';
-import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, readFileBytes, reportWarnings, APPLY_MODIFIERS } from './glue';
-import { companionFilesDialog, type FormatOption } from './ui';
+import { commitToApp, defineFormat, encodeImagePng, exportSceneFromApp, reportWarnings, APPLY_MODIFIERS } from './glue';
+import type { FormatOption } from './ui';
 import { mtlTextureFiles, objMaterialLibraries, readObj, writeObj } from './obj';
 import { readStl, writeStl } from './stl';
 import { readPly, writePly } from './ply';
 import { AXIS_ITEMS, baseName, stripExt, type AxisId } from './common';
 import { app } from '../../app/app';
-import { download } from '../native';
 
+// scripting spells negative axes NEGATIVE_X…
+const AXIS_BPY = { NEGATIVE_X: '-X', NEGATIVE_Y: '-Y', NEGATIVE_Z: '-Z' };
 const axisOptions = (forward: AxisId, up: AxisId): FormatOption[] => [
-  { id: 'forward_axis', label: 'Forward Axis', type: 'enum', default: forward, items: AXIS_ITEMS },
-  { id: 'up_axis', label: 'Up Axis', type: 'enum', default: up, items: AXIS_ITEMS },
+  { id: 'forward_axis', label: 'Forward Axis', type: 'enum', default: forward, items: AXIS_ITEMS, bpyItems: AXIS_BPY },
+  { id: 'up_axis', label: 'Up Axis', type: 'enum', default: up, items: AXIS_ITEMS, bpyItems: AXIS_BPY },
 ];
 const scaleOption = (label = 'Scale'): FormatOption => ({ id: 'global_scale', label, type: 'float', default: 1, min: 0.0001, max: 10000, step: 0.01 });
 const axisArgs = (o: Record<string, unknown>) => ({ forward: o.forward_axis as AxisId, up: o.up_axis as AxisId, scale: Number(o.global_scale) || 1 });
-const exportBase = () => app.filename.replace(/\.[^.]+$/, '') || 'untitled';
 
 // ---------------------------------------------------------------------------- OBJ
 defineFormat({
@@ -52,30 +52,31 @@ defineFormat({
       showIf: (v) => !!v.export_materials,
     },
   ],
-  async importFile(file, o) {
-    const text = new TextDecoder().decode(await readFileBytes(file));
-    const resources = new Map<string, Uint8Array>();
+  importOps: ['wm.obj_import'],
+  exportOps: ['wm.obj_export'],
+  importOpLabel: 'Import Wavefront OBJ',
+  exportOpLabel: 'Export Wavefront OBJ',
+  selectionProp: 'export_selected_objects',
+  multiFile: true,
+  companions(src, have) {
+    const text = new TextDecoder().decode(src.bytes);
     const libs = objMaterialLibraries(text);
-    if (libs.length) {
-      const files = await companionFilesDialog('Materials', `"${file.name}" uses material libraries. Select the .mtl file(s) and their texture images together:`, libs, '.mtl,image/*,.tga,.tif,.tiff');
-      for (const f of files) resources.set(f.name, await readFileBytes(f));
-      // textures referenced by the libraries that were not selected yet
-      const missing = [...resources.entries()]
-        .filter(([n]) => n.toLowerCase().endsWith('.mtl'))
-        .flatMap(([, b]) => mtlTextureFiles(new TextDecoder().decode(b)))
-        .map(baseName)
-        .filter((n) => ![...resources.keys()].some((k) => k.toLowerCase() === n.toLowerCase()));
-      if (missing.length) {
-        const more = await companionFilesDialog('Textures', 'The material library references these images:', [...new Set(missing)], 'image/*,.tga,.tif,.tiff');
-        for (const f of more) resources.set(f.name, await readFileBytes(f));
-      }
-    }
-    const ir = readObj(text, { ...axisArgs(o), splitByObject: !!o.use_split_objects, splitByGroup: !!o.use_split_groups, resources });
+    if (!libs.length) return null;
+    const mtls = [...have.entries()].filter(([n]) => n.toLowerCase().endsWith('.mtl'));
+    if (!mtls.length) return { title: 'Materials', message: `"${src.name}" uses material libraries. Select the .mtl file(s) and their texture images together:`, names: libs, accept: '.mtl,image/*,.tga,.tif,.tiff' };
+    // textures referenced by the libraries that are not known yet
+    const missing = mtls
+      .flatMap(([, b]) => mtlTextureFiles(new TextDecoder().decode(b)))
+      .filter((n) => ![...have.keys()].some((k) => k.toLowerCase() === baseName(n).toLowerCase()));
+    return missing.length ? { title: 'Textures', message: 'The material library references these images:', names: [...new Set(missing)], accept: 'image/*,.tga,.tif,.tiff' } : null;
+  },
+  importData(src, o) {
+    const ir = readObj(new TextDecoder().decode(src.bytes), { ...axisArgs(o), splitByObject: !!o.use_split_objects, splitByGroup: !!o.use_split_groups, resources: src.resources });
     commitToApp(ir, { setFrameRange: false });
   },
-  async exportFile(o) {
-    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
-    const base = exportBase();
+  exportData(o, target) {
+    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, objectIds: o.objectIds, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
+    const base = target.base;
     const res = writeObj(scene, {
       ...axisArgs(o),
       uvs: !!o.export_uv,
@@ -91,16 +92,12 @@ defineFormat({
     if (!res.mtl) return { bytes: res.obj, mime: 'text/plain', ext: '.obj' };
     const textures: { name: string; bytes: Uint8Array }[] = [];
     for (const t of res.textures) {
-      let bytes = t.bytes;
-      if (!bytes) bytes = (await encodeImagePng(app.doc.images[t.imageId]))?.bytes ?? null;
+      const bytes = t.bytes ?? encodeImagePng(app.doc.images[t.imageId])?.bytes ?? null;
       if (bytes) textures.push({ name: t.name, bytes });
       else app.report('WARNING', `Texture "${t.name}" could not be written`);
     }
-    if (o.packaging === 'FILES') {
-      download(res.mtl, `${base}.mtl`, 'text/plain');
-      for (const t of textures) download(t.bytes, t.name);
-      return { bytes: res.obj, mime: 'text/plain', ext: '.obj' };
-    }
+    if (target.toFiles || o.packaging === 'FILES')
+      return { bytes: res.obj, mime: 'text/plain', ext: '.obj', extra: [{ name: `${base}.mtl`, bytes: res.mtl, mime: 'text/plain' }, ...textures.map((t) => ({ ...t, mime: 'application/octet-stream' }))] };
     const enc = new TextEncoder();
     const files: Record<string, Uint8Array> = { [`${base}.obj`]: enc.encode(res.obj), [`${base}.mtl`]: enc.encode(res.mtl) };
     for (const t of textures) files[t.name] = t.bytes;
@@ -150,12 +147,18 @@ defineFormat({
     },
     { id: 'export_triangulated_mesh', label: 'Triangulated Mesh', type: 'bool', default: false },
   ],
-  async importFile(file, o) {
-    const ir = readPly(await readFileBytes(file), { ...axisArgs(o), name: stripExt(file.name), colorSpace: o.import_colors as 'SRGB' });
+  importOps: ['wm.ply_import'],
+  exportOps: ['wm.ply_export'],
+  importOpLabel: 'Import PLY',
+  exportOpLabel: 'Export PLY',
+  selectionProp: 'export_selected_objects',
+  multiFile: true,
+  importData(src, o) {
+    const ir = readPly(src.bytes, { ...axisArgs(o), name: stripExt(src.name), colorSpace: o.import_colors as 'SRGB' });
     commitToApp(ir, { mergeVertices: !!o.merge_verts, setFrameRange: false });
   },
-  async exportFile(o) {
-    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
+  exportData(o) {
+    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, objectIds: o.objectIds, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
     const res = writePly(scene, {
       ...axisArgs(o),
       ascii: !!o.ascii_format,
@@ -181,14 +184,20 @@ defineFormat({
     { id: 'merge_verts', label: 'Merge Vertices', type: 'bool', default: true, description: 'Weld coincident triangle corners into connected geometry' },
   ],
   exportOptions: [{ id: 'ascii_format', label: 'ASCII', type: 'bool', default: false }, ...axisOptions('Y', 'Z'), scaleOption(), APPLY_MODIFIERS],
-  async importFile(file, o) {
-    const ir = readStl(await readFileBytes(file), { ...axisArgs(o), name: stripExt(file.name), mergeVertices: !!o.merge_verts });
+  importOps: ['wm.stl_import'],
+  exportOps: ['wm.stl_export'],
+  importOpLabel: 'Import STL',
+  exportOpLabel: 'Export STL',
+  selectionProp: 'export_selected_objects',
+  multiFile: true,
+  importData(src, o) {
+    const ir = readStl(src.bytes, { ...axisArgs(o), name: stripExt(src.name), mergeVertices: !!o.merge_verts });
     commitToApp(ir, { setFrameRange: false });
   },
-  async exportFile(o) {
-    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
-    const res = writeStl(scene, { ...axisArgs(o), ascii: !!o.ascii_format, name: exportBase() });
+  exportData(o, target) {
+    const scene = exportSceneFromApp({ selectedOnly: o.selectedOnly, objectIds: o.objectIds, applyModifiers: !!o.apply_modifiers, skins: false, shapeKeys: false, animation: false, types: ['MESH', 'CURVE', 'FONT'] });
+    const res = writeStl(scene, { ...axisArgs(o), ascii: !!o.ascii_format, name: target.base });
     reportWarnings(res.warnings);
-    return { bytes: res.bytes, mime: o.ascii_format ? 'model/stl' : 'model/stl', ext: '.stl' };
+    return { bytes: res.bytes, mime: 'model/stl', ext: '.stl' };
   },
 });
