@@ -19,7 +19,9 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
 
 const { Doc, versioning, publishing } = await import('../src/lib/doc.js');
 const P = await import('../src/lib/puter.js');
-const { rememberedRoom, rememberRoom } = await import('../src/collab/room-memory.js');
+const { rememberedRoom, rememberRoom, moveRoom, forgetRoom } = await import('../src/collab/room-memory.js');
+const { rememberDocumentRoot } = await import('../src/lib/document-paths.js');
+const { hash } = await import('../src/collab/protocol.js');
 
 const ROOM = { server: 'https://documents-abc.puter.work', room: 'room1' };
 
@@ -56,5 +58,29 @@ describe('the room a shared file rejoins', () => {
     expect(await fresh.save()).toBe(true);
     expect(fresh.path).toBe('Documents/Plan.docx');
     expect(await rememberedRoom('Documents/Plan.docx')).toBeNull();
+  });
+
+  it('is the same room whether the file is spelled from the app folder or, as the document list does, from the root', async () => {
+    const root = '/ada/AppData/app-1/Documents';
+    rememberDocumentRoot(root, globalThis.puter);
+    // Shared after its first save (spelled from the app folder), reopened from the list (spelled from the root).
+    await rememberRoom('Documents/Plan.docx', ROOM);
+    expect(await rememberedRoom(`${root}/Plan.docx`)).toEqual(ROOM);
+    // Renamed in the list: the room follows.
+    await moveRoom(`${root}/Plan.docx`, `${root}/Plan v2.docx`);
+    expect(await rememberedRoom('Documents/Plan v2.docx')).toEqual(ROOM);
+    expect(await rememberedRoom('Documents/Plan.docx')).toBeNull();
+    // Deleted in the list: forgotten, however it is spelled.
+    await forgetRoom(`${root}/Plan v2.docx`);
+    expect(await rememberedRoom('Documents/Plan v2.docx')).toBeNull();
+  });
+
+  it('still finds a room remembered under the path spelled from the root', async () => {
+    const root = '/ada/AppData/app-1/Documents';
+    rememberDocumentRoot(root, globalThis.puter);
+    await globalThis.puter.kv.set(`documents-collab-room:${await hash(`${root}/Plan.docx`)}`, ROOM);
+    expect(await rememberedRoom('Documents/Plan.docx')).toEqual(ROOM);
+    await forgetRoom('Documents/Plan.docx');
+    expect(await rememberedRoom(`${root}/Plan.docx`)).toBeNull();
   });
 });
