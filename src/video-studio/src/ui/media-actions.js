@@ -113,15 +113,15 @@ export function createMediaActions(ctx) {
       return asset;
     },
 
-    /** Check every asset's file and offer to relink the missing ones. */
+    /** Check every asset's file in storage and offer to relink the missing ones. */
     async findMissingMedia() {
-      const missing = [];
-      for (const x of Object.values(store.project.assets)) {
-        try {
-          await ctx.library.mediaBlob(x);
-        } catch {
-          missing.push(x);
-        }
+      let missing;
+      try {
+        missing = await ctx.library.missingMedia(Object.values(store.project.assets));
+      } catch (err) {
+        console.error(err);
+        toast("Couldn't check the media files. Check your connection and try again.", { kind: 'error' });
+        return [];
       }
       if (!missing.length) {
         toast('All media files are present.', { kind: 'success' });

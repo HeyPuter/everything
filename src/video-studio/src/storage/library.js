@@ -297,6 +297,15 @@ export class Library extends Emitter {
     return this.failed.size === 0;
   }
 
+  /**
+   * The assets whose media file is not in storage, from one listing of the
+   * media folder. Files still being uploaded (or retried) are not missing.
+   */
+  async missingMedia(assets) {
+    const stored = new Set((await this.backend.list('media')).filter((f) => !f.isDir).map((f) => f.name));
+    return assets.filter((a) => !stored.has(`${a.hash}.${a.ext}`) && !this.uploads.has(a.hash) && !this.failed.has(a.hash));
+  }
+
   /** The media file for an asset as a Blob (memory, then local cache, then storage). */
   async mediaBlob(asset) {
     const hit = this.blobs.get(asset.hash);
