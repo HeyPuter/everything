@@ -26,6 +26,7 @@ import { activeSceneId, sceneById } from '../scenes/scenes';
 import { switchScene } from '../scenes/switch';
 import './screenedit';
 import './wmicons';
+import './rampdropper';
 import { shellRef } from './shellref';
 import './favorites';
 import './areawindow';

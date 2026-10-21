@@ -244,3 +244,25 @@ body.region-scaling,
 body.region-scaling * {
   cursor: ew-resize !important;
 }
+
+/* color ramp eyedropper: the sampled line and points */
+.ramp-dropper {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 900;
+  pointer-events: none;
+}
+.ramp-dropper line {
+  stroke: var(--g-ff, #ffffff);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
+.ramp-dropper circle {
+  fill: none;
+  stroke: var(--g-ff, #ffffff);
+  stroke-width: 1.5;
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8));
+}
