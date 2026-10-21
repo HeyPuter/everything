@@ -43,12 +43,26 @@ const STYLE_CLASSES = STYLES.filter((s) => s.cls).map((s) => s.cls);
 
 const INLINE_COMMANDS = new Set(['bold', 'italic', 'underline', 'strikeThrough', 'subscript', 'superscript', 'fontName', 'foreColor', 'hiliteColor', 'removeFormat', 'unlink']);
 
+// Set while a color the user picked goes on: the editor's cleanup of
+// Chrome's frozen styles (dropRedundantStyles) must leave those spans be,
+// and Chrome reports every editing command's input event with no type.
+let picking = 0;
+
+/** Whether a font or highlight color the user chose is being applied. */
+export function applyingColor() {
+  return picking > 0;
+}
+
 function exec(cmd, value = null) {
   if (INLINE_COMMANDS.has(cmd)) startAfterEmbeds();
+  const color = cmd === 'foreColor' || cmd === 'hiliteColor';
+  if (color) picking++;
   try {
     return document.execCommand(cmd, false, value);
   } catch {
     return false;
+  } finally {
+    if (color) picking--;
   }
 }
 

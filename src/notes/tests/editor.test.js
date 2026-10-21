@@ -3,8 +3,8 @@ import { ensureBlocks, fixNesting, blocksInRange, blockOf, rangeFromOffsets, tex
 import { toggleTag, removeAllTags, activeTags, tagSpan } from '../src/editor/tag-edit.js';
 import { serialize, hydrate, fileSpan, formatBytes } from '../src/editor/embeds.js';
 import { tableHtml, insertRow, insertColumn, deleteRow, deleteColumn, moveCell, sortTable, tableToText, toggleHeaderRow, hasHeaderRow } from '../src/editor/table.js';
-import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles, toggleInline, clearFormatting } from '../src/editor/format.js';
-import { textToHtml, ruleImage, PageEditor, cleanPastedHtml } from '../src/editor/page-editor.js';
+import { setBlockStyle, indent, retag, moveBlock, insertNode, dropRedundantStyles, toggleInline, clearFormatting, setColor, setHighlight } from '../src/editor/format.js';
+import { textToHtml, ruleImage, PageEditor, cleanPastedHtml, freezesStyles } from '../src/editor/page-editor.js';
 
 function body(html) {
   document.body.innerHTML = '';
@@ -280,6 +280,30 @@ describe('paragraph formatting', () => {
     expect(document.getSelection().anchorNode).toBe(text);
     expect(document.getSelection().anchorOffset).toBe(3);
     document.head.innerHTML = '';
+  });
+
+  it("leaves the formatting the user applies to Chrome's frozen-style cleanup alone", () => {
+    // A pasted or joined span is cleaned; Enter splitting a formatted span
+    // and a color just picked (Format Painter's body color on a heading) are not.
+    expect(freezesStyles({ isTrusted: true, inputType: '' })).toBe(true);
+    expect(freezesStyles({ isTrusted: true, inputType: 'deleteContentBackward' })).toBe(true);
+    expect(freezesStyles({ isTrusted: false, inputType: '' })).toBe(false);
+    expect(freezesStyles({ isTrusted: true, inputType: 'insertParagraph' })).toBe(false);
+    expect(freezesStyles({ isTrusted: true, inputType: 'insertLineBreak' })).toBe(false);
+    const original = document.execCommand;
+    const seen = [];
+    document.execCommand = (cmd) => {
+      if (cmd === 'foreColor' || cmd === 'hiliteColor') seen.push(freezesStyles({ isTrusted: true, inputType: '' }));
+      return true;
+    };
+    try {
+      setColor('rgb(27, 27, 27)');
+      setHighlight('#ffff00');
+    } finally {
+      document.execCommand = original;
+    }
+    expect(seen).toEqual([false, false]);
+    expect(freezesStyles({ isTrusted: true, inputType: '' })).toBe(true);
   });
 
   it('starts inline formatting after a tag at the start of the selection', () => {

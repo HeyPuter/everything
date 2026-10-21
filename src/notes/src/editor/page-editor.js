@@ -8,13 +8,24 @@ import { PAGE_COLORS } from '../data/colors.js';
 import { History, snapshotOf, applySnapshot } from './history.js';
 import { hydrate, serialize, fileSpan } from './embeds.js';
 import { ensureBlocks, fixNesting, editableRoot, currentRange, selectRange, placeCaret, isEmptyBody, textOffset, rangeFromOffsets, blockOf, isBlock } from './selection.js';
-import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles } from './format.js';
+import { indent, moveBlock, toggleList, insertHtml, insertNode, dropRedundantStyles, applyingColor } from './format.js';
 import { moveCell } from './table.js';
 import { setDone } from './tag-edit.js';
 import { InkTools } from './tools.js';
 
 export const ZOOMS = [0.25, 0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
 const TOP_OF_CONTENT = 128;
+
+/*
+ * Whether the styled spans an edit added are Chrome's frozen look of moved
+ * text, for dropRedundantStyles to clean. Not when they are the user's own
+ * formatting: a color just picked (Chrome reports editing commands with no
+ * input type, hence applyingColor), or Enter, which splits the formatted
+ * text it is in into two copies of its span.
+ */
+export function freezesStyles(e) {
+  return e.isTrusted && !/^(insertParagraph|insertLineBreak|formatFontColor|formatBackColor)$/.test(e.inputType) && !applyingColor();
+}
 
 /**
  * The page canvas: a free-form surface with a title header and absolutely
@@ -495,7 +506,7 @@ export class PageEditor extends Emitter {
     // records don't pile up through a long typing session.
     if (e.inputType !== 'insertText' && e.inputType !== 'insertCompositionText' && !e.isComposing) {
       const added = this.takeAdded();
-      if (e.isTrusted && added.size) dropRedundantStyles(added);
+      if (added.size && freezesStyles(e)) dropRedundantStyles(added);
     } else if (this.addedRecords.length) {
       this.addedRecords = [];
       this.additions.takeRecords();
