@@ -124,7 +124,7 @@ export class ClipEditor implements Editor {
   /** graph / dope sheet view */
   v2 = new View2D();
   v2Fitted = false;
-  graphShow = { motion: true, speed_x: true, speed_y: true };
+  graphShow = { motion: true, speed_x: true, speed_y: true, error: true, frames: true };
   dopesheetSort: 'NAME' | 'LONGEST' | 'TOTAL' | 'AVERAGE_ERROR' | 'START' | 'END' = 'NAME';
   dopesheetInvert = false;
   dopesheetScroll = 0;
@@ -612,6 +612,24 @@ export class ClipEditor implements Editor {
     ctx.fillStyle = `rgb(${r ? 255 : 0}, ${g ? 255 : 0}, ${b ? 255 : 0})`;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
+  }
+
+  /** Graph / dope sheet header: refine, clear and track the selected tracks without the clip view. */
+  private trackingButtons(): Child {
+    const ib = (op: string, ic: string, props: Record<string, unknown>, tip: string) =>
+      h('button', { key: `${op}-${ic}`, class: 'hdr-toggle', disabled: !app.poll(op), 'data-tip': tip, onclick: () => app.run(op, props, { area: this.area }) }, icon(ic));
+    return h(
+      'div',
+      { class: 'hdr-group clip-track-buttons', key: 'clip-track-buttons' },
+      ib('clip.refine_markers', 'tracking_refine_backwards', { backwards: true }, 'Refine Markers\nRefine markers from the next keyframe'),
+      ib('clip.clear_track_path', 'tracking_clear_backwards', { action: 'UPTO' }, 'Clear Track Path\nClear the path up to the current frame'),
+      ib('clip.track_markers', 'tracking_backwards_single', { backwards: true, sequence: false }, 'Track Markers\nTrack one frame backwards'),
+      ib('clip.track_markers', 'tracking_backwards', { backwards: true, sequence: true }, 'Track Markers\nTrack backwards'),
+      ib('clip.track_markers', 'tracking_forwards', { backwards: false, sequence: true }, 'Track Markers\nTrack forwards'),
+      ib('clip.track_markers', 'tracking_forwards_single', { backwards: false, sequence: false }, 'Track Markers\nTrack one frame forwards'),
+      ib('clip.clear_track_path', 'tracking_clear_forwards', { action: 'REMAINED' }, 'Clear Track Path\nClear the path after the current frame'),
+      ib('clip.refine_markers', 'tracking_refine_forwards', { backwards: false }, 'Refine Markers\nRefine markers from the previous keyframe'),
+    );
   }
 
   toggleLockTime() {
@@ -1405,13 +1423,12 @@ export class ClipEditor implements Editor {
             { tip: 'Sort Method\nMethod to be used to sort channels in dopesheet view' },
           )
         : null,
+      this.view !== 'CLIP' ? this.trackingButtons() : null,
       this.view !== 'CLIP'
         ? h(
             'div',
             { class: 'hdr-group', key: 'clip-graph-filter' },
-            this.view === 'GRAPH'
-              ? h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow the curves of selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off'))
-              : null,
+            h('button', { class: { 'hdr-toggle': true, on: this.graphOnlySelected }, 'data-tip': 'Only Show Selected\nShow selected tracks only', onclick: () => ((this.graphOnlySelected = !this.graphOnlySelected), this.draw(), this.area.drawHeader()) }, icon('restrict_select_off')),
             h('button', { class: { 'hdr-toggle': true, on: this.showHiddenTracks }, 'data-tip': 'Show Hidden\nInclude hidden tracks', onclick: () => ((this.showHiddenTracks = !this.showHiddenTracks), this.draw(), this.area.drawHeader()) }, icon(this.showHiddenTracks ? 'hide_off' : 'hide_on')),
           )
         : null,
@@ -1421,9 +1438,9 @@ export class ClipEditor implements Editor {
             { class: 'hdr-group', key: 'clip-graph-show' },
             (
               [
-                ['motion', 'Show Motion\nThe track errors and motion curves', 'graph'],
-                ['speed_x', 'Show X Speed\nThe horizontal speed of the selected tracks', 'clip_speed_x'],
-                ['speed_y', 'Show Y Speed\nThe vertical speed of the selected tracks', 'clip_speed_y'],
+                ['frames', 'Show Frames\nThe average reprojection error of each frame (after solving the camera)', 'clip_error_frames'],
+                ['motion', 'Show Tracks Motion\nThe speed curves of the tracks', 'graph'],
+                ['error', 'Show Tracks Error\nThe reprojection error of the tracks over time (after solving the camera)', 'clip_error_tracks'],
               ] as const
             ).map(([k, tip, ic]) => h('button', { key: k, class: { 'hdr-toggle': true, on: this.graphShow[k] }, 'data-tip': tip, onclick: () => ((this.graphShow[k] = !this.graphShow[k]), this.draw(), this.area.drawHeader()) }, icon(ic))),
           )

@@ -3,6 +3,7 @@
 import { app } from '../app/app';
 import { frameStep, valueStep, formatValue } from '../animation/view2d';
 import { tobj, clipToSceneFrame, markerExact, trackSpan, type MovieClipData, type MovieTrackingTrack } from './types';
+import { reprojectBundle } from './reconstruction';
 import type { ClipEditor } from './editor';
 
 const BG = '#2d2e30',
@@ -11,7 +12,36 @@ const BG = '#2d2e30',
   TEXT = '#9a9b9c',
   CURFRAME = '#4b70b5';
 const SPEED_X = '#e35c54',
-  SPEED_Y = '#67cf6c';
+  SPEED_Y = '#67cf6c',
+  ERROR_TRACK = '#e8b23c',
+  ERROR_FRAME = '#5d8fe6';
+
+/** Reprojection error (pixels) of a solved track per frame, as runs of consecutive frames. */
+export function trackErrors(c: MovieClipData, t: MovieTrackingTrack): { f: number; e: number }[][] {
+  const o = tobj(c);
+  if (!o.reconstruction?.is_valid || !t.has_bundle || !t.bundle) return [];
+  const [W, H] = c.size;
+  const out: { f: number; e: number }[][] = [];
+  let run: { f: number; e: number }[] = [];
+  let prev = -Infinity;
+  for (const m of t.markers) {
+    const q = m.mute ? null : reprojectBundle(c, o, t.bundle, m.frame);
+    if (!q) continue;
+    const e = Math.hypot((m.co[0] + t.offset[0]) * W - q[0], (m.co[1] + t.offset[1]) * H - q[1]);
+    if (m.frame !== prev + 1 && run.length) (out.push(run), (run = []));
+    run.push({ f: clipToSceneFrame(c, m.frame), e });
+    prev = m.frame;
+  }
+  if (run.length) out.push(run);
+  return out;
+}
+
+/** Average solve error of each solved frame (scene frames). */
+export function frameErrors(c: MovieClipData): { f: number; e: number }[] {
+  const rec = tobj(c).reconstruction;
+  if (!rec?.is_valid) return [];
+  return rec.cameras.map((cam) => ({ f: clipToSceneFrame(c, cam.frame), e: cam.average_error ?? 0 })).sort((a, b) => a.f - b.f);
+}
 
 function clipRange(c: MovieClipData): [number, number] {
   return [clipToSceneFrame(c, 1), clipToSceneFrame(c, Math.max(1, c.frame_duration))];
@@ -155,6 +185,8 @@ export function frameGraphAll(ed: ClipEditor) {
           if (ed.graphShow.speed_x) ((lo = Math.min(lo, s.x)), (hi = Math.max(hi, s.x)));
           if (ed.graphShow.speed_y) ((lo = Math.min(lo, s.y)), (hi = Math.max(hi, s.y)));
         }
+  for (const t of tobj(c).tracks) if (shownIn(ed, t) && ed.graphShow.error) for (const run of trackErrors(c, t)) for (const p of run) ((lo = Math.min(lo, p.e)), (hi = Math.max(hi, p.e)));
+  if (ed.graphShow.frames) for (const p of frameErrors(c)) ((lo = Math.min(lo, p.e)), (hi = Math.max(hi, p.e)));
   if (!Number.isFinite(lo)) ((lo = -1), (hi = 1));
   ed.v2.fitY(lo, hi);
   ed.v2Fitted = true;
@@ -197,8 +229,19 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.rect(0, top, w, h - top);
     ctx.clip();
     ctx.translate(0, top);
+    const curve = (pts: { f: number; e: number }[], col: string, dots: boolean) => {
+      if (!pts.length) return;
+      ctx.strokeStyle = col;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      pts.forEach((p, i) => (i ? ctx.lineTo(v.fx(p.f), v.vy(p.e)) : ctx.moveTo(v.fx(p.f), v.vy(p.e))));
+      ctx.stroke();
+      if (dots && v.ppf > 4) for (const p of pts) ctx.fillRect(v.fx(p.f) - 1.5, v.vy(p.e) - 1.5, 3, 3);
+    };
+    if (ed.graphShow.frames) curve(frameErrors(c), ERROR_FRAME, true);
     for (const t of tobj(c).tracks) {
       if (!shownIn(ed, t)) continue;
+      if (ed.graphShow.error) for (const run of trackErrors(c, t)) curve(run, ERROR_TRACK, false);
       const segs = speeds(c, t);
       for (const [on, key, col] of [
         [ed.graphShow.speed_x && ed.graphShow.motion, 'x', SPEED_X],
@@ -232,6 +275,10 @@ export function drawGraph(ed: ClipEditor, ctx: CanvasRenderingContext2D, w: numb
     ctx.fillText('X speed (px/frame)', w - 10, top + 16);
     ctx.fillStyle = SPEED_Y;
     ctx.fillText('Y speed (px/frame)', w - 10, top + 30);
+    if (tobj(c).reconstruction?.is_valid) {
+      if (ed.graphShow.error) (ctx.fillStyle = ERROR_TRACK), ctx.fillText('Track error (px)', w - 10, top + 44);
+      if (ed.graphShow.frames) (ctx.fillStyle = ERROR_FRAME), ctx.fillText('Frame error (px)', w - 10, top + 58);
+    }
     if (!tobj(c).tracks.some((t) => shownIn(ed, t))) {
       ctx.fillStyle = TEXT;
       ctx.textAlign = 'center';

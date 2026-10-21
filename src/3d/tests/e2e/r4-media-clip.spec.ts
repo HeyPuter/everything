@@ -150,3 +150,67 @@ test('clip: graph header filters curves to the selected tracks and can include h
   expect(await knots()).toBe(2);
   await expectNoErrors(errors);
 });
+
+test('clip: graph view shows solve errors per track and per frame; header buttons track from the graph', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const { shell } = await import(U('/src/ui/shell.ts'));
+    const { workspaceTemplates } = await import(U('/src/ui/screen.ts'));
+    const T = await import(U('/src/tracking/types.ts'));
+    const app = (window as any).app;
+    const W = 1280,
+      H = 720,
+      frames = 30;
+    const c = T.newMovieClip('MC_s', 'shot', { size: [W, H], frame_duration: frames });
+    const f = (c.tracking.camera.focal_length * W) / c.tracking.camera.sensor_width;
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0), seed / 4294967296);
+    const rot = (yaw: number) => [Math.cos(yaw), 0, -Math.sin(yaw), 0, 1, 0, Math.sin(yaw), 0, Math.cos(yaw)];
+    for (let i = 0; i < 60; i++) {
+      const X = [(rnd() - 0.5) * 10, (rnd() - 0.5) * 5, 5 + rnd() * 8];
+      const t = T.newTrack(c.tracking, 'Track');
+      for (let k = 1; k <= frames; k++) {
+        const s = (k - 1) / (frames - 1);
+        const C = [-1.5 + 3 * s, 0.2 * Math.sin(3 * s), 0.6 * s];
+        const R = rot(-0.3 + 0.6 * s);
+        const d = [X[0] - C[0], X[1] - C[1], X[2] - C[2]];
+        const p = [R[0] * d[0] + R[1] * d[1] + R[2] * d[2], R[3] * d[0] + R[4] * d[1] + R[5] * d[2], R[6] * d[0] + R[7] * d[1] + R[8] * d[2]];
+        if (p[2] < 0.5) continue;
+        const px = W / 2 + (f * p[0]) / p[2],
+          py = H / 2 - (f * p[1]) / p[2];
+        if (px < 0 || py < 0 || px > W || py > H) continue;
+        t.markers.push(T.newMarker(k, [px / W, py / H], c.size, 21, 71));
+      }
+      t.select = i === 0;
+      if (t.markers.length > 1) c.tracking.tracks.push(t);
+    }
+    T.clipTable(app.doc)['MC_s'] = c;
+    app.doc.scene.active_clip = 'MC_s';
+    shell.addWorkspace(workspaceTemplates.find((t: any) => t.create().name === 'Motion Tracking').create());
+    app.setFrame(1);
+    app.pushUndo('Test Clip');
+    app.run('clip.solve_camera');
+  });
+  await page.waitForFunction(() => !!(window as any).app.doc.movieclips.MC_s.tracking.reconstruction?.is_valid, null, { timeout: 30000 });
+  const el = page.locator('.clip-root').nth(1);
+  const box = (await el.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const r = await page.evaluate(async () => {
+    const U = (p: string) => performance.getEntriesByType('resource').map((e) => e.name).find((n) => n.includes(p)) ?? p;
+    const G = await import(U('/src/tracking/graphs.ts'));
+    const ed = (window as any).app.hoverArea.editor;
+    ed.setView('GRAPH');
+    const c = ed.clip;
+    const t = c.tracking.tracks[0];
+    const runs = G.trackErrors(c, t);
+    const fr = G.frameErrors(c);
+    const buttons = [...ed.area.el.querySelectorAll('.clip-track-buttons .hdr-toggle')].length;
+    return { runs: runs.length, maxErr: Math.max(...runs.flat().map((p: any) => p.e)), frames: fr.length, buttons };
+  });
+  expect(r.runs).toBeGreaterThan(0);
+  expect(r.maxErr).toBeLessThan(2);
+  expect(r.frames).toBe(30);
+  expect(r.buttons).toBe(8);
+  await expectNoErrors(errors);
+});
