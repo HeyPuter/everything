@@ -167,6 +167,37 @@ describe('pasteClips', () => {
     expect(spans(mainTrack(p))).toEqual([[0, 2], [2, 2]]);
   });
 
+  it('keeps a title on its pasted base clip, wherever the ripple insert lands', () => {
+    const board = (p, titleFirst) => {
+      const [a] = onMain(p, clip('video', 0, 5), clip('video', 5, 5));
+      const t = clip('text', 1, 2);
+      addClip(p, t, FREE);
+      const items = [{ ...structuredClone(a), _main: true }, { ...structuredClone(t), _main: false }];
+      return titleFirst ? items.reverse() : items;
+    };
+    for (const [at, titleFirst, lands] of [[5, true, 5], [7, false, 5], [0, true, 0], [9, true, 10]]) {
+      const p = fixture();
+      const pasted = pasteClips(p, board(p, titleFirst), s(at), RIPPLE);
+      const video = pasted.find((c) => c.type === 'video');
+      const title = pasted.find((c) => c.type === 'text');
+      expect(video.start).toBe(s(lands));
+      expect(title.start - video.start).toBe(s(1));
+      expect(title._main).toBeUndefined();
+      expect(noOverlaps(p)).toBe(true);
+    }
+  });
+
+  it('pastes several base clips together, with overlays on the ones they sat on', () => {
+    const p = fixture();
+    const [a, b] = onMain(p, clip('video', 0, 2), clip('video', 2, 3), clip('video', 5, 4));
+    const t = clip('text', 3, 1); // over b
+    addClip(p, t, FREE);
+    const items = [t, b, a].map((c) => ({ ...structuredClone(c), _main: c !== t }));
+    const pasted = pasteClips(p, items, s(6), RIPPLE);
+    expect(spans(mainTrack(p))).toEqual([[0, 2], [2, 3], [5, 2], [7, 3], [10, 4]]);
+    expect(pasted.find((c) => c.type === 'text').start).toBe(s(8));
+  });
+
   it('skips clips whose media is no longer in the project', () => {
     const p = fixture();
     const orphan = clip('video', 0, 2, { assetId: 'gone' });

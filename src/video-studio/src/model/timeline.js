@@ -483,20 +483,40 @@ export function duplicateClip(project, id, opts = {}) {
   return addClip(project, copy, { trackId: found.track.id, ...opts }).clip;
 }
 
-/** Paste clipboard clips so the earliest starts at time t, keeping their relative layout. */
+/**
+ * Paste clipboard clips so the earliest starts at time t, keeping their
+ * relative layout. Base-track clips go in first, one after another; with
+ * ripple they land on the nearest cut, and the other clips follow them:
+ * an overlay keeps its place on the base clip it sat on.
+ */
 export function pasteClips(project, clips, t, opts = {}) {
   if (!clips.length) return [];
   const first = Math.min(...clips.map((c) => c.start));
-  const pasted = [];
   const copies = regroup(clips.filter((src) => !src.assetId || project.assets[src.assetId]).map((src) => ({ src, ...structuredClone(src) })));
-  for (const copy of copies) {
-    const { src, ...c } = copy;
-    c.id = uid('c');
-    c.start = Math.max(0, t + (src.start - first));
-    const isMainVideo = src._main && (c.type === 'video' || c.type === 'image');
-    pasted.push(addClip(project, c, { ...opts, main: isMainVideo }).clip);
+  const fresh = ({ src, _main, ...c }) => ({ ...c, id: uid('c') });
+  const isBase = (copy) => copy.src._main && (copy.type === 'video' || copy.type === 'image');
+  const want = (copy) => Math.max(0, t + (copy.src.start - first));
+  const placed = new Map();
+  const bases = copies.filter(isBase).sort((a, b) => a.src.start - b.src.start);
+  let shift = 0;
+  let prev = null;
+  for (const copy of bases) {
+    const c = fresh(copy);
+    c.start = prev && opts.ripple ? clipEnd(prev) : Math.max(0, want(copy) + shift);
+    const clip = addClip(project, c, { ...opts, main: true }).clip;
+    if (!prev) shift = clip.start - want(copy);
+    placed.set(copy, clip);
+    prev = clip;
   }
-  return pasted;
+  for (const copy of copies) {
+    if (isBase(copy)) continue;
+    const c = fresh(copy);
+    const audio = TRACK_KIND_FOR[c.type] === 'audio';
+    const host = bases.find((b) => copy.src.start >= b.src.start && copy.src.start < clipEnd(b.src) && (!audio || clipEnd(copy.src) <= clipEnd(b.src) + 1000));
+    c.start = host ? placed.get(host).start + (copy.src.start - host.src.start) : Math.max(0, want(copy) + shift);
+    placed.set(copy, addClip(project, c, { ...opts, main: false }).clip);
+  }
+  return copies.map((copy) => placed.get(copy));
 }
 
 /**
