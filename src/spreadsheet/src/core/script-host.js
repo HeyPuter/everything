@@ -430,6 +430,9 @@ const WRITES = {
     this.wb.removeDuplicates(sheet.id, range, { header: !!op.hasHeaders, columns });
   },
   hide(op) {
+    // A chart sheet has no rows or columns, so none of them is hidden: showing them all there is done already, and the
+    // Unhide everything sample, which shows them on every sheet, failed on a workbook holding one.
+    if (!op.hidden && this.sheetOf(op.sheet, { grid: false }).kind === 'chart') return;
     const { sheet, range } = this.rangeOf(op);
     const axis = op.axis === 'col' ? 'col' : 'row';
     const [from, to] = axis === 'row' ? [range.r1, range.r2] : [range.c1, range.c2];
