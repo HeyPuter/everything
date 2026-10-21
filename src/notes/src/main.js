@@ -115,10 +115,14 @@ async function viewShared(url) {
   const style = document.createElement('style');
   style.textContent = tagStylesheet();
   document.head.append(style);
-  document.title = `${data.title || 'Shared page'} - Notes`;
+  // The snapshot is untrusted: keep only fields of the expected types.
+  const str = (v) => (typeof v === 'string' ? v : '');
+  const title = str(data.title);
+  const published = new Date(str(data.published));
+  document.title = `${title || 'Shared page'} - Notes`;
   const host = h('div.canvas-col');
   root.replaceChildren(h('div.shared-view',
-    h('header.read-only-banner', { role: 'banner' }, h('img', { src: './favicon.svg', alt: '', width: 20, height: 20 }), h('strong', 'Notes'), h('span', 'Shared read-only page'), h('span.spacer'), h('span', `Published ${new Date(data.published).toLocaleDateString()}`)),
+    h('header.read-only-banner', { role: 'banner' }, h('img', { src: './favicon.svg', alt: '', width: 20, height: 20 }), h('strong', 'Notes'), h('span', 'Shared read-only page'), h('span.spacer'), Number.isNaN(published.getTime()) ? null : h('span', `Published ${published.toLocaleDateString()}`)),
     h('main#main.main', host),
   ));
   installTooltips(document);
@@ -136,7 +140,7 @@ async function viewShared(url) {
     if (i?.type === 'shape') return [{ id: `i${n}`, type: 'shape', kind: String(i.kind), color: color(i.color), width: num(i.width) || 2, x1: num(i.x1), y1: num(i.y1), x2: num(i.x2), y2: num(i.y2) }];
     return [];
   });
-  const page = { id: 'shared', title: String(data.title || ''), created: data.created, color: data.color, rules: data.rules, ink, outlines };
+  const page = { id: 'shared', title, created: data.created, color: str(data.color) || null, rules: str(data.rules) || null, ink, outlines };
   await editor.open(page);
 }
 

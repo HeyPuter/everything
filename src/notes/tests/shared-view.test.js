@@ -29,3 +29,22 @@ describe('shared page view', () => {
     expect(root.dataset.mobileView).toBe('page');
   });
 });
+
+describe('shared page view with a malformed snapshot', () => {
+  afterEach(() => {
+    window.location.hash = '';
+    delete globalThis.fetch;
+  });
+
+  it('still shows the notes when fields have the wrong types', async () => {
+    const errors = [];
+    const onError = (e) => errors.push(e.reason || e);
+    window.addEventListener('unhandledrejection', onError);
+    const root = await openShared({ ...PAGE, title: { x: 1 }, rules: 5, color: ['blue'], published: 'soon' });
+    window.removeEventListener('unhandledrejection', onError);
+    expect(errors).toEqual([]);
+    expect(root.querySelector('.outline-body')?.textContent).toBe('Pack the tent');
+    expect(document.title).toBe('Shared page - Notes');
+    expect(root.querySelector('.read-only-banner').textContent).not.toContain('Invalid Date');
+  });
+});
