@@ -32,6 +32,7 @@ import type { ViewSettings } from './colormanage';
 import { drawMask, drawMaskMatte, hostMask, type MaskHost } from '../../mask/clipmask';
 import { maskSelectMenu, maskAddMenu, maskMenu, maskBrowse, maskSidebar } from '../../mask/maskui';
 import { maskTable } from '../../mask/types';
+import './imageextra';
 import { imageMaskToolbar, imageMaskPointerDown, imageMaskToolSettings, draw2DCursor, placeCursor, IMAGE_MASK_TOOLS, type ImageMaskTool } from '../../mask/imagemask';
 
 export const RENDER_RESULT = '__render_result__';
@@ -422,6 +423,14 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     this.zoom = Math.max(1 / 64, Math.min(256, this.zoom * factor));
     this.offX = (px - w / 2) / this.zoom + s[0] / 2 - ix;
     this.offY = (py - hh / 2) / this.zoom + s[1] / 2 - iy;
+    this.fitted = true;
+    this.draw();
+  }
+
+  /** Pan by screen pixels. */
+  panBy(dx: number, dy: number) {
+    this.offX += dx / this.zoom;
+    this.offY += dy / this.zoom;
     this.fitted = true;
     this.draw();
   }
@@ -951,10 +960,12 @@ export class ImageEditor implements Editor, View2D, MaskHost {
     return [
       { label: 'New', icon: 'add', shortcut: 'Alt N', action: () => this.newDialog() },
       { label: 'Open…', icon: 'file_folder', shortcut: 'Alt O', action: () => this.open() },
+      { label: 'Open Cached Render', op: 'image.read_viewlayers', shortcut: 'Ctrl R' },
       ...(img
         ? [
             { label: 'Replace…', op: 'image.replace' },
             { label: 'Reload', shortcut: 'Alt R', action: () => this.reload() },
+            ...(img.source !== 'TILED' ? [{ label: 'Edit Externally…', op: 'image.external_edit' }] : []),
           ]
         : []),
       { separator: true },

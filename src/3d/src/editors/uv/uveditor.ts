@@ -258,6 +258,13 @@ export class UVEditor implements Editor, UVView, View2D {
     this.centerOn(center.u, center.v);
   }
 
+  /** Pan by screen pixels. */
+  panBy(dx: number, dy: number) {
+    this.pan.x += dx;
+    this.pan.y += dy;
+    this.draw();
+  }
+
   centerOn(u: number, v: number) {
     const p = this.toPx(u, v);
     this.pan.x += this.el.clientWidth / 2 - p.x;
