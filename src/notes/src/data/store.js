@@ -119,10 +119,13 @@ export class Store extends Emitter {
 
   /** Re-reads manifests changed on another device. Open dirty notebooks win. */
   async refresh() {
-    const library = await this.backend.readJSON('library.json').catch(() => null);
+    const [library, remoteTrash] = await Promise.all([
+      this.backend.readJSON('library.json').catch(() => null),
+      this.backend.readJSON('trash.json').catch(() => null),
+    ]);
     if (!library) return false;
     let changed = false;
-    if (await this.mergeTrash(await this.backend.readJSON('trash.json').catch(() => null))) {
+    if (await this.mergeTrash(remoteTrash)) {
       changed = true;
       // A notebook deleted on another device leaves this one too, unless it
       // has changes here that are not saved yet.
@@ -131,10 +134,15 @@ export class Store extends Emitter {
         if (i >= 0 && !this.timers.has(`notebooks/${entry.notebook.id}.json`)) this.notebooks.splice(i, 1);
       }
     }
-    for (const id of library.notebooks || []) {
-      if (this.timers.has(`notebooks/${id}.json`)) continue;
-      const remote = await this.backend.readJSON(`notebooks/${id}.json`).catch(() => null);
-      if (!remote) continue;
+    // Read the manifests in parallel (one round trip, not one per notebook),
+    // then apply them in library order. Notebooks with unsaved changes here
+    // are skipped, also if they became dirty while the reads ran.
+    const ids = [...(library.notebooks || [])];
+    const dirty = (id) => this.timers.has(`notebooks/${id}.json`);
+    const remotes = await Promise.all(ids.map((id) => (dirty(id) ? null : this.backend.readJSON(`notebooks/${id}.json`).catch(() => null))));
+    for (const [n, id] of ids.entries()) {
+      const remote = remotes[n];
+      if (!remote || dirty(id)) continue;
       const i = this.notebooks.findIndex((n) => n.id === id);
       if (i < 0) {
         if (this.trash.some((t) => t.kind === 'notebook' && t.notebook.id === id)) continue;

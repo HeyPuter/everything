@@ -494,6 +494,56 @@ describe('Store: page versions', () => {
   });
 });
 
+describe('Store: refreshing many notebooks', () => {
+  async function setup(count) {
+    const backend = memoryBackend();
+    const a = new Store(backend, { saveDelay: 0 });
+    await a.load();
+    for (let i = 1; i < count; i++) a.createNotebook(`N${i}`);
+    await a.flush();
+    const b = new Store(backend, { saveDelay: 0 });
+    await b.load();
+    await new Promise((r) => setTimeout(r, 5));
+    return { backend, a, b };
+  }
+
+  it('reads the notebooks in parallel, not one round trip each', async () => {
+    const { backend, b } = await setup(10);
+    const read = backend.readJSON;
+    let inFlight = 0;
+    let most = 0;
+    backend.readJSON = async (path) => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight--;
+      return read(path);
+    };
+    await b.refresh();
+    expect(most).toBeGreaterThanOrEqual(10);
+  });
+
+  it('keeps library order and never applies a manifest over changes made while reading', async () => {
+    const { backend, a, b } = await setup(3);
+    const extra = a.createNotebook('Added elsewhere');
+    for (const nb of a.notebooks) a.renameNotebook(nb.id, `${nb.name}!`);
+    await a.flush();
+    const mine = b.notebooks[1];
+    const read = backend.readJSON;
+    backend.readJSON = async (path) => {
+      const value = await read(path);
+      // An edit here lands while the manifests are being read.
+      if (path === `notebooks/${mine.id}.json`) b.renameNotebook(mine.id, 'Edited here');
+      return value;
+    };
+    expect(await b.refresh()).toBe(true);
+    backend.readJSON = read;
+    expect(b.notebooks.map((n) => n.id)).toEqual(a.notebooks.map((n) => n.id));
+    expect(b.notebook(mine.id).name).toBe('Edited here');
+    expect(b.notebook(extra.id).name).toBe('Added elsewhere!');
+  });
+});
+
 describe('Store: changes from another device', () => {
   it('reloads an open page saved elsewhere, but never over unsaved edits', async () => {
     const backend = memoryBackend();
