@@ -195,6 +195,8 @@ export function appMenu(): MenuItem[] {
     { label: 'Splash Screen', op: 'wm.splash' },
     { label: 'About', icon: 'info_small', op: 'wm.splash_about' },
     { separator: true },
+    { label: 'Install Application Template…', op: 'preferences.app_template_install' },
+    { separator: true },
     {
       label: 'System',
       submenu: () => [

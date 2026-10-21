@@ -168,3 +168,30 @@ test('dropping a package on Get Extensions installs it', async ({ page }) => {
   await expect(page.locator('.ext-item .ext-name')).toHaveText('Hello Extension');
   await expectNoErrors(errors);
 });
+
+test('an installed application template is offered by File ▸ New and starts new files', async ({ page }) => {
+  const errors = await openApp(page);
+  const name = await page.evaluate(async () => {
+    const { startupDocument, newObject } = await import('/src/data/defaults.ts');
+    const { encodeDocument } = await import('/src/io/native.ts');
+    const d = startupDocument();
+    const ob = newObject('TemplateMarker', 'EMPTY', null);
+    d.objects[ob.id] = ob;
+    d.object_order.push(ob.id);
+    d.collections[d.scene.collection].objects.push(ob.id);
+    const m = await import('/src/prefs/apptemplates.ts');
+    return m.installAppTemplate('studio_setup.p3d', encodeDocument(d));
+  });
+  expect(name).toBe('Studio Setup');
+  await page.locator('.tb-menu', { hasText: 'File' }).click();
+  await page.locator('.menu .menu-item', { hasText: /^New/ }).first().hover();
+  await page.locator('.menu .menu-item', { hasText: 'Studio Setup' }).click();
+  await expect.poll(() => page.evaluate(() => Object.values((window as any).app.doc.objects).some((o: any) => o.name === 'TemplateMarker'))).toBe(true);
+  expect(await page.evaluate(() => (window as any).app.filename)).toBe('untitled.p3d');
+  await run(page, 'preferences.app_template_remove', { name: 'Studio Setup' });
+  await page.locator('.tb-menu', { hasText: 'File' }).click();
+  await page.locator('.menu .menu-item', { hasText: /^New/ }).first().hover();
+  await expect(page.locator('.menu .menu-item', { hasText: 'Studio Setup' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expectNoErrors(errors);
+});
