@@ -281,6 +281,9 @@ addKeys('Window', [
 addKeys('Frames', [
   { key: 'RIGHT_ARROW', ctrl: true, op: 'screen.time_jump', props: { backward: false } },
   { key: 'LEFT_ARROW', ctrl: true, op: 'screen.time_jump', props: { backward: true } },
+  // Alt + mouse wheel steps through frames anywhere
+  { key: 'WHEELDOWNMOUSE', alt: true, op: 'screen.frame_offset', props: { delta: 1 } },
+  { key: 'WHEELUPMOUSE', alt: true, op: 'screen.frame_offset', props: { delta: -1 } },
   // media keys of keyboards that have them
   { key: 'MEDIA_PLAY', op: 'screen.animation_play' },
   { key: 'MEDIA_STOP', op: 'screen.animation_cancel' },

@@ -27,3 +27,23 @@ test('Shift Space toolbar popup: single keys pick tools; media keys play', async
   expect(await page.evaluate(() => (window as any).app.playing)).toBe(false);
   await expectNoErrors(errors);
 });
+
+test('Alt + mouse wheel steps frames over any editor', async ({ page }) => {
+  const errors = await openApp(page);
+  const frame = () => page.evaluate(() => (window as any).app.doc.scene.frame_current);
+  const f0 = await frame();
+  await hoverViewport(page);
+  await page.keyboard.down('Alt');
+  await page.mouse.wheel(0, 100);
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Alt');
+  await expect.poll(frame).toBe(f0 + 2);
+  // over the Properties editor too
+  const p = (await page.locator('.area[data-editor="PROPERTIES"]').boundingBox())!;
+  await page.mouse.move(p.x + p.width / 2, p.y + p.height / 2);
+  await page.keyboard.down('Alt');
+  await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Alt');
+  await expect.poll(frame).toBe(f0 + 1);
+  await expectNoErrors(errors);
+});

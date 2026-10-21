@@ -141,6 +141,8 @@ const NICE: Record<string, string> = {
   MEDIA_STOP: 'Media Stop',
   MEDIA_FIRST: 'Media Previous',
   MEDIA_LAST: 'Media Next',
+  WHEELUPMOUSE: 'Wheel Up',
+  WHEELDOWNMOUSE: 'Wheel Down',
 };
 
 export function keyLabel(k: KeyItem) {
@@ -217,8 +219,30 @@ function dispatch(e: KeyboardEvent, name: string, area: typeof app.activeArea, e
   return false;
 }
 
+/** A wheel event from a mouse wheel (notches), not a trackpad's continuous scrolling. */
+export function isWheelNotch(e: WheelEvent) {
+  if (e.deltaMode === 1 || e.deltaMode === 2) return true;
+  return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50;
+}
+
+/** Keymap items bound to the mouse wheel (WHEELUPMOUSE / WHEELDOWNMOUSE) run before the editors' own wheel handling. */
+function onWheel(e: WheelEvent) {
+  if (app.modal || pieOpen() || !e.deltaY || !isWheelNotch(e)) return;
+  const t = e.target as HTMLElement | null;
+  if (t?.closest?.('input, textarea, select, .num-field, .popup-layer, .menu')) return;
+  const area = app.hoverArea ?? app.activeArea;
+  const editor = area?.editor as EditorKeys | undefined;
+  const name = e.deltaY < 0 ? 'WHEELUPMOUSE' : 'WHEELDOWNMOUSE';
+  const ev = { ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey, repeat: false, preventDefault: () => e.preventDefault() } as unknown as KeyboardEvent;
+  if (dispatch(ev, name, area, editor, 'PRESS')) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}
+
 /** Install the global key handler. Area editors expose `keymaps` (names in priority order). */
 export function installKeyboard() {
+  addEventListener('wheel', onWheel, { capture: true, passive: false });
   addEventListener(
     'keydown',
     (e) => {
