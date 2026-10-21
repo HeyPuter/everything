@@ -49,20 +49,22 @@ export function diffSequences(a, b, equals = (x, y) => x === y, { maxEdits = 400
     push('delete', prefix, prefix + n, prefix, prefix);
     push('insert', prefix + n, prefix + n, prefix, prefix + m);
   } else {
-    // Forward search over diagonals k = x − y, keeping each round's frontier for the trace back.
+    // Forward search over diagonals k = x − y, keeping each round's frontier for the trace back. Round d
+    // only reads round d − 1's diagonals, of the other parity, so one array is updated in place and the
+    // trace keeps just diagonals −d…d of each round: copying every diagonal each round took gigabytes
+    // for two long, very different documents.
     const offset = n + m + 1, size = 2 * offset + 1, trace = [];
-    let v = new Int32Array(size).fill(-1); v[offset + 1] = 0;
+    const v = new Int32Array(size).fill(-1); v[offset + 1] = 0;
     let found = -1;
     for (let d = 0; d <= Math.min(n + m, maxEdits) && found < 0; d++) {
-      const next = v.slice();
       for (let k = -d; k <= d; k += 2) {
         let x = k === -d || k !== d && v[offset + k - 1] < v[offset + k + 1] ? v[offset + k + 1] : v[offset + k - 1] + 1;
         let y = x - k;
         while (x < n && y < m && equals(a[prefix + x], b[prefix + y])) { x++; y++; }
-        next[offset + k] = x;
+        v[offset + k] = x;
         if (x >= n && y >= m) { found = d; break; }
       }
-      trace.push(next); v = next;
+      trace.push(v.slice(offset - d, offset + d + 1));
     }
     if (found < 0) {
       push('delete', prefix, prefix + n, prefix, prefix);
@@ -71,9 +73,10 @@ export function diffSequences(a, b, equals = (x, y) => x === y, { maxEdits = 400
       const steps = [];
       let x = n, y = m;
       for (let d = found; d > 0; d--) {
-        const previous = trace[d - 1], k = x - y;
-        const down = k === -d || k !== d && previous[offset + k - 1] < previous[offset + k + 1];
-        const prevK = down ? k + 1 : k - 1, prevX = previous[offset + prevK], prevY = prevX - prevK;
+        // Round d − 1 kept diagonals −(d − 1)…d − 1.
+        const previous = trace[d - 1], at = diagonal => previous[diagonal + d - 1], k = x - y;
+        const down = k === -d || k !== d && at(k - 1) < at(k + 1);
+        const prevK = down ? k + 1 : k - 1, prevX = at(prevK), prevY = prevX - prevK;
         const startX = down ? prevX : prevX + 1, startY = down ? prevY + 1 : prevY;
         steps.push({ snake: [startX, startY, x, y], edit: down ? ['insert', prevX, prevY] : ['delete', prevX, prevY] });
         x = prevX; y = prevY;

@@ -65,6 +65,17 @@ describe('edit script', () => {
     const ops = diffSequences([...'abcdef'], [...'uvwxyz'], undefined, { maxEdits: 2 });
     expect(ops.map(o => o.type)).toEqual(['delete', 'insert']);
   });
+
+  it('keeps only the searched diagonals, so two long, very different texts take little memory', () => {
+    const a = Array.from({ length: 20000 }, (_, i) => `old${i}`), b = Array.from({ length: 20000 }, (_, i) => `new${i}`);
+    // Sample the memory held while the search runs: the trace is alive until it ends.
+    const base = process.memoryUsage().arrayBuffers;
+    let calls = 0, peak = 0;
+    const equals = (x, y) => { if (++calls % 20000 === 0) peak = Math.max(peak, process.memoryUsage().arrayBuffers - base); return x === y; };
+    expect(diffSequences(a, b, equals).map(o => o.type)).toEqual(['delete', 'insert']);
+    // Copying every diagonal for each of the 4,000 rounds held over a gigabyte here.
+    expect(peak).toBeLessThan(200e6);
+  });
 });
 
 describe('compare documents', () => {
