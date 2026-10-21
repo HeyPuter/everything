@@ -11,6 +11,7 @@ import { commitImage } from '../../paint/tpaint';
 import { runStroke, type StrokeView } from '../../paint/stroke';
 import { dabMaskAt, dabTextureColor, dabTextureAt, maskTextureActive, textureActive } from '../../paint/brushtex';
 import { modifiedImages } from './imageops';
+import { stencilControlIn, textureStencils } from '../../paint/stencil';
 
 export interface PaintHost {
   el: HTMLElement;
@@ -331,8 +332,14 @@ export function imagePaintStroke(host: PaintHost, img: Img, e: PointerEvent): bo
  * took the press.
  */
 export function imagePaintRightDown(host: PaintHost & { area?: unknown }, e: PointerEvent): boolean {
+  if (e.button !== 2) return false;
+  // a stencil texture: move / scale / rotate it
+  if (stencilControlIn({ el: host.el, redraw: () => host.draw() }, e)) {
+    e.preventDefault();
+    return true;
+  }
   const b = paintBrush();
-  if (!b || b.sculpt_tool !== 'CLONE' || e.button !== 2) return false;
+  if (!b || b.sculpt_tool !== 'CLONE') return false;
   e.preventDefault();
   grabHost = host;
   app.run('paint.grab_clone', {}, { event: { x: e.clientX, y: e.clientY } });
@@ -340,6 +347,7 @@ export function imagePaintRightDown(host: PaintHost & { area?: unknown }, e: Poi
 }
 
 let grabHost: PaintHost | null = null;
+const stencilImages = new Map<string, HTMLImageElement>();
 
 function moveClone(dx: number, dy: number) {
   clone2D.x += dx;
@@ -393,7 +401,29 @@ registerOperators([
 ]);
 
 /** Clone source marker over the image (editor pixels from image pixels). */
-export function drawPaintOverlay(ctx: CanvasRenderingContext2D, imageToScreen: (x: number, y: number) => [number, number], imageId: string | null) {
+export function drawPaintOverlay(ctx: CanvasRenderingContext2D, imageToScreen: (x: number, y: number) => [number, number], imageId: string | null, viewH = 0, redraw?: () => void) {
+  // stencils of the brush textures
+  for (const st of viewH ? textureStencils(viewH) : []) {
+    let im = stencilImages.get(st.url);
+    if (!im) {
+      im = new Image();
+      im.onload = () => redraw?.();
+      im.src = st.url;
+      if (stencilImages.size > 8) stencilImages.clear();
+      stencilImages.set(st.url, im);
+    }
+    if (!im.complete) continue;
+    ctx.save();
+    ctx.translate(st.cx, st.cy);
+    ctx.rotate(-st.angle);
+    ctx.globalAlpha = st.alpha;
+    ctx.drawImage(im, -st.hw, -st.hh, st.hw * 2, st.hh * 2);
+    ctx.globalAlpha = 0.35;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = '#ffffff';
+    ctx.strokeRect(-st.hw, -st.hh, st.hw * 2, st.hh * 2);
+    ctx.restore();
+  }
   const b = paintBrush();
   if (!b || b.sculpt_tool !== 'CLONE' || !clone2D.set || clone2D.image !== imageId) return;
   const [x, y] = imageToScreen(clone2D.x, clone2D.y);

@@ -117,7 +117,7 @@ const toggle = (idname: string, label: string, mode: Mode, description: string) 
   description,
   poll: () => {
     const ob = app.activeObject;
-    return !!ob && ob.type === 'MESH' && !!ob.data && (app.doc.mode === 'OBJECT' || app.doc.mode === mode);
+    return !!ob && ob.type === 'MESH' && !!ob.data;
   },
   exec: () => {
     const r = app.run('object.mode_set', { mode: app.doc.mode === mode ? 'OBJECT' : mode, toggle: false }, { invoke: false });

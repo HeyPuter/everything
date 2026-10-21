@@ -5,16 +5,47 @@ import { app, registerOperators, type OpContext } from '../app/app';
 import { h, type VNode } from '../ui/h';
 import { editModeHooks, viewportExtensions, viewportUIHooks } from '../editors/view3d/hooks';
 import { activeView3D } from '../editors/view3d/view3d';
-import { imageReady } from '../render/images';
+import { imageCanvas, imageReady } from '../render/images';
 import { activeBrush, isBrushMode, type BrushMode, type PaintBrush } from './brushes';
 import { DEFAULT_STENCIL_DIM, DEFAULT_STENCIL_POS, maskTextureActive, sampleTexRGBA, stencilRect, textureActive, type BrushTexture } from './brushtex';
 
 const slotOf = (b: PaintBrush, mask: boolean) => (mask ? b.mask_texture_slot : b.texture_slot);
 const isStencil = (b: PaintBrush | null, mask: boolean): b is PaintBrush => !!b && (mask ? maskTextureActive(b) : textureActive(b)) && slotOf(b, mask)?.map_mode === 'STENCIL';
 
+/** Editor a stencil is being controlled in (the Image Editor paints with the Texture Paint brush). */
+let stencilEditor: { el: HTMLElement; redraw(): void } | null = null;
+
 function brushNow(): PaintBrush | null {
+  if (stencilEditor) return activeBrush('TEXTURE_PAINT');
   const m = app.doc.mode;
   return isBrushMode(m) ? activeBrush(m as BrushMode) : null;
+}
+
+/** Start moving / scaling / rotating the stencil from another editor (the Image Editor). */
+export function stencilControlIn(editor: { el: HTMLElement; redraw(): void }, e: PointerEvent): boolean {
+  const b = activeBrush('TEXTURE_PAINT');
+  const mask = e.altKey;
+  if (!isStencil(b, mask)) return false;
+  stencilEditor = editor;
+  const mode = e.shiftKey ? 'SCALE' : e.ctrlKey || e.metaKey ? 'ROTATION' : 'TRANSLATION';
+  const r = app.run('brush.stencil_control', { mode, texmode: mask ? 'SECONDARY' : 'PRIMARY' }, { event: { x: e.clientX, y: e.clientY } });
+  if (r !== 'RUNNING_MODAL') stencilEditor = null;
+  return r === 'RUNNING_MODAL';
+}
+
+/** Stencil overlays of the Texture Paint brush for a 2D editor of height `viewH` (editor pixels). */
+export function textureStencils(viewH: number): { url: string; cx: number; cy: number; hw: number; hh: number; angle: number; alpha: number }[] {
+  const b = activeBrush('TEXTURE_PAINT');
+  if (!b) return [];
+  const out = [];
+  for (const mask of [true, false]) {
+    if (!isStencil(b, mask)) continue;
+    const url = overlayImage(slotOf(b, mask)!, mask);
+    if (!url) continue;
+    const r = stencilRect(b, mask, viewH);
+    out.push({ url, ...r, alpha: Math.max(0, Math.min(100, (mask ? b.mask_overlay_alpha : b.texture_overlay_alpha) ?? 33)) / 100 });
+  }
+  return out;
 }
 
 function getPos(b: PaintBrush, mask: boolean): [number, number] {
@@ -43,6 +74,7 @@ function overlayImage(t: BrushTexture, mask: boolean): string {
   const key = `${mask}|${t.source}|${t.image}|${img?.revision ?? 0}|${t.scale}|${t.offset?.join(',')}`;
   const hit = overlayCache.get(key);
   if (hit) return hit;
+  if (img) imageCanvas(img); // starts loading the pixels
   if (img && !imageReady(img)) {
     // try again once the image has loaded
     setTimeout(() => app.changed('ui'), 150);
@@ -142,10 +174,13 @@ viewportUIHooks.push((v) => {
 function stencilControl(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MODAL' | 'CANCELLED' {
   const b = brushNow();
   const mask = p.texmode === 'SECONDARY';
-  const v = activeView3D();
-  if (!isStencil(b, mask) || !v || !ctx.event) return 'CANCELLED';
-  const rect = v.el.getBoundingClientRect();
-  const local = (x: number, y: number) => ({ x: x - rect.left, y: v.height - (y - rect.top) });
+  const ed = stencilEditor;
+  const v = ed ? null : activeView3D();
+  const el = ed?.el ?? v?.el;
+  if (!isStencil(b, mask) || !el || !ctx.event) return 'CANCELLED';
+  const rect = el.getBoundingClientRect();
+  const H = el.clientHeight;
+  const local = (x: number, y: number) => ({ x: x - rect.left, y: H - (y - rect.top) });
   const start = local(ctx.event.x, ctx.event.y);
   const pos0 = getPos(b, mask),
     dim0 = getDim(b, mask);
@@ -155,9 +190,11 @@ function stencilControl(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MO
   const d0 = Math.max(1, Math.hypot(start.x - pos0[0], start.y - pos0[1]));
   const a0 = Math.atan2(start.y - pos0[1], start.x - pos0[0]);
   const redraw = () => {
-    v.drawSvg();
+    if (ed) ed.redraw();
+    else v!.drawSvg();
     app.changed('ui');
   };
+  const done = () => (stencilEditor = null);
   app.startModal({
     label: 'Stencil Brush Control',
     cursor: mode === 'TRANSLATION' ? 'move' : 'crosshair',
@@ -184,7 +221,9 @@ function stencilControl(ctx: OpContext, p: Record<string, unknown>): 'RUNNING_MO
       if (e.key === 'Enter') return 'FINISHED';
       return true;
     },
+    finish: done,
     cancel: () => {
+      done();
       setPos(b, mask, pos0);
       setDim(b, mask, dim0);
       slot.angle = ang0;

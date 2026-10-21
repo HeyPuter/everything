@@ -428,7 +428,7 @@ export class ImageEditor implements Editor, View2D {
         ctx.stroke();
       }
     }
-    if (this.paintMode()) drawPaintOverlay(ctx, (ix, iy) => [x + ix * this.zoom, y + iy * this.zoom], this.image?.id ?? null);
+    if (this.paintMode()) drawPaintOverlay(ctx, (ix, iy) => [x + ix * this.zoom, y + iy * this.zoom], this.image?.id ?? null, hh, () => this.draw());
     // sample cross-hair
     if (this.sample) {
       const sx = x + (Math.floor(this.sample.x) + 0.5) * this.zoom,

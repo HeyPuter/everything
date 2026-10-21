@@ -138,7 +138,9 @@ export function drawCurve(v: View3D, c: PaintCurveData): boolean {
   if (c.points.length < 1 || !paintHooks.startStroke) return false;
   const line = resamplePolyline(curvePolyline(c.points, 48), 2);
   const pts = line.map(([x, y]) => ({ x, y }));
-  return playStroke(v, pts, (e) => paintHooks.startStroke!(v, e));
+  // the stroke starts where the curve first reaches the mesh
+  for (let i = 0; i < pts.length; i += 2) if (playStroke(v, pts.slice(i), (e) => paintHooks.startStroke!(v, e))) return true;
+  return false;
 }
 
 const pollCurve = () => isBrushMode(app.doc.mode) && curveMethod();
