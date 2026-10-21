@@ -1,4 +1,4 @@
-import { el } from '../ui/dom.js';
+import { el, fieldId } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { UNDERLINE_STYLES } from '../engine/underlines.js';
 import { FALLBACK_SIZES } from '../lib/fontsize.js';
@@ -35,14 +35,15 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   const size = el('input.input', { type: 'number', min: 1, max: 1638, step: 0.5, value: f.fontSize ?? '', placeholder: f.fontSize == null ? 'Mixed' : '', list: sizes.id, 'aria-label': 'Size',
     oninput: () => { if (size.value && size.checkValidity()) set({ fontSize: Number(size.value), fontSizeCs: Number(size.value) }); } });
   const colorButton = (label, key) => {
-    const chip = el('span.ed-font-chip');
-    const button = el('button.btn.btn-outline.ed-font-color', { type: 'button', 'aria-label': label, 'aria-haspopup': 'true', onclick: () => {
+    // The label names the button; the color it shows is read as its description.
+    const chip = el('span.ed-font-chip'), name = el('span.ed-font-color-name', { id: fieldId('color-name') });
+    const button = el('button.btn.btn-outline.ed-font-color', { type: 'button', 'aria-label': label, 'aria-describedby': name.id, 'aria-haspopup': 'true', onclick: () => {
       openTextColor(current(key), color => { set({ [key]: color }); paint(); }, { anchor: button });
-    } }, chip, el('span.ed-font-color-name'));
+    } }, chip, name);
     const paint = () => {
       const value = current(key);
       chip.style.background = value === null ? 'repeating-linear-gradient(45deg, #ccc 0 3px, #fff 3px 6px)' : swatch(value);
-      button.lastChild.textContent = value === null ? 'Mixed' : value === 'auto' ? 'Automatic' : `#${value}`;
+      name.textContent = value === null ? 'Mixed' : value === 'auto' ? 'Automatic' : `#${value}`;
     };
     paint();
     return button;

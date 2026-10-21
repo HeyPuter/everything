@@ -59,3 +59,27 @@ test('the Font dialog applies style, size, effects and spacing in one step and k
   await expect(page.getByRole('button', { name: 'Double strikethrough', exact: true })).toHaveAttribute('aria-pressed', 'true');
   expect(errors).toEqual([]);
 });
+
+test('color buttons in the Font and Borders and Shading dialogs tell a screen reader their color', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Colored words');
+  await onTab(page, 'home');
+  await select(input, 'Colored');
+  await input.press('ControlOrMeta+d');
+  const font = page.getByRole('dialog', { name: 'Font' });
+  const color = font.getByRole('button', { name: 'Font color', exact: true });
+  await expect(color).toHaveAccessibleDescription('Automatic');
+  await color.click();
+  await page.getByRole('menu', { name: 'Text color' }).getByRole('menuitemradio').nth(5).click();
+  await expect(color).toHaveAccessibleDescription(/^#[0-9A-F]{6}$/i);
+  await expect(font.getByRole('button', { name: 'Underline color', exact: true })).toHaveAccessibleDescription('Automatic');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.modal-root:not(.closing)')).toHaveCount(0);
+  await page.locator('.ribbon-card').getByRole('button', { name: 'Border options' }).click();
+  await page.getByRole('menuitem', { name: 'Borders and Shading…' }).click();
+  const borders = page.getByRole('dialog', { name: 'Borders and Shading' });
+  await borders.getByRole('tab', { name: 'Shading' }).click();
+  await expect(borders.getByRole('button', { name: 'Fill', exact: true })).toHaveAccessibleDescription('No Color');
+});

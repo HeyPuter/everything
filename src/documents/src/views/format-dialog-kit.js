@@ -141,8 +141,9 @@ export function paragraphPreview() {
  * choice ({ value, label, indicator }). Returns the button with .value and .set(value).
  */
 export function colorField(label, value, { reset = { value: 'auto', label: 'Automatic', indicator: 'A' }, onchange = () => {} } = {}) {
-  const chip = el('span.ed-font-chip'), name = el('span.ed-font-color-name');
-  const button = el('button.btn.btn-outline.ed-font-color', { type: 'button', 'aria-label': label, 'aria-haspopup': 'menu', onclick: async () => {
+  // The label names the button; the color it shows is read as its description.
+  const chip = el('span.ed-font-chip'), name = el('span.ed-font-color-name', { id: fieldId('color-name') });
+  const button = el('button.btn.btn-outline.ed-font-color', { type: 'button', 'aria-label': label, 'aria-describedby': name.id, 'aria-haspopup': 'menu', onclick: async () => {
     const { openColorPalette } = await import('../ui/color-palette.js');
     const { TEXT_COLORS } = await import('./text-color.js');
     openColorPalette({ anchor: button, label, value: button.value, choices: TEXT_COLORS, reset, custom: true, customLabel: label.toLowerCase(), onPick: color => { button.set(color); onchange(color); } });
