@@ -398,6 +398,21 @@ export class InkTools {
     this.selBox.hidden = false;
   }
 
+  /** Moves the selected ink by arrow-key steps, stopping at the page's top and left edges. */
+  nudge(dx, dy) {
+    const items = this.selectedItems();
+    if (!items.length) return false;
+    const b = unionBounds(items.map(bounds));
+    dx = Math.max(dx, -Math.max(0, b.x));
+    dy = Math.max(dy, -Math.max(0, b.y));
+    for (const item of items) {
+      translate(item, dx, dy);
+      this.replaceEl(item);
+    }
+    this.updateSelectionBox();
+    return true;
+  }
+
   beginMove() {
     const items = this.selectedItems();
     const els = items.map((i) => this.layer.querySelector(`[data-id="${i.id}"]`));

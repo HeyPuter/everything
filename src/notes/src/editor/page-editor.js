@@ -549,7 +549,7 @@ export class PageEditor extends Emitter {
       if ((e.key === 'Delete' || e.key === 'Backspace') && (this.selectedOutlines.size || this.ink.selected.size) && !e.target.closest?.('.page-title')) {
         e.preventDefault();
         this.deleteSelectedOutlines();
-      } else if (e.key.startsWith('Arrow') && this.selectedOutlines.size && !e.target.closest?.('.page-title')) {
+      } else if (e.key.startsWith('Arrow') && (this.selectedOutlines.size || this.ink.selected.size) && !e.target.closest?.('.page-title')) {
         e.preventDefault();
         const step = e.shiftKey ? 1 : 10;
         const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
@@ -560,6 +560,7 @@ export class PageEditor extends Emitter {
           m.y = Math.max(0, m.y + dy);
           this.place(el, m);
         }
+        this.ink.nudge(dx, dy);
         this.layout();
         this.commitNudge ||= debounce(() => this.changed(), 400);
         this.commitNudge();

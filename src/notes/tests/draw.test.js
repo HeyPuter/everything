@@ -174,3 +174,27 @@ describe('page size', () => {
     expect(parseFloat(ed.pageEl.style.height)).toBeLessThan(1000);
   });
 });
+
+describe('moving selected ink with the keyboard', () => {
+  it('moves selected ink with the arrow keys like containers, as one undo step', async () => {
+    const ed = app.editor;
+    ed.page.ink.push({ id: 'a', type: 'stroke', color: '#000', width: 2, highlighter: false, points: [[100, 200, 0.5], [150, 200, 0.5]] }, { id: 'b', type: 'shape', kind: 'line', color: '#000', width: 2, x1: 300, y1: 300, x2: 350, y2: 300 });
+    ed.changed();
+    ink.render();
+    app.setTool('lasso');
+    ink.select(['a']);
+    ed.scroller.focus();
+    const steps = ed.history.index;
+    const key = (k, shift = false) => ed.scroller.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: shift, bubbles: true, cancelable: true }));
+    key('ArrowRight');
+    key('ArrowDown', true);
+    expect(ed.page.ink[0].points[0]).toEqual([110, 201, 0.5]);
+    expect(ed.page.ink[1].x1).toBe(300);
+    expect(ink.layer.querySelector('[data-id="a"]').classList.contains('ink-selected')).toBe(true);
+    await new Promise((r) => setTimeout(r, 450));
+    expect(ed.history.index).toBe(steps + 1);
+    // Stops at the page's left edge instead of moving off it.
+    for (let i = 0; i < 20; i++) key('ArrowLeft');
+    expect(ed.page.ink[0].points[0][0]).toBeGreaterThanOrEqual(0);
+  });
+});
