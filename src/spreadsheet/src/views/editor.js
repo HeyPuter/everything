@@ -1455,8 +1455,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const mark = wb.historyTop;
     const result = runCommand(cmd, arg);
     // A formatting command acts at once; with the entry still open, the steps it recorded belong to that entry.
-    if (grid.editing) for (const step of wb.historySince(mark) || []) entryFormatSteps.add(step);
-    return result;
+    // One that asks first (Custom font size) acts once answered, so its steps are gathered again then.
+    const gather = () => { if (grid.editing) for (const step of wb.historySince(mark) || []) entryFormatSteps.add(step); };
+    gather();
+    return Promise.resolve(result).then((value) => { gather(); return value; });
   }
 
   async function runCommand(cmd, arg) {
