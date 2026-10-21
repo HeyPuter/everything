@@ -3046,6 +3046,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'protectSheet': {
+        // The entry goes in first: protected under it, a cell being typed into could not take its entry.
+        if (!committed()) return;
         const sheet = wb.sheet(arg || sheetId);
         if (sheet) wb.setSheetProtected(sheet.id, !sheet.protected);
         keepFocus();

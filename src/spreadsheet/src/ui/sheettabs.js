@@ -154,8 +154,8 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
         { label: 'Rename…', icon: 'pencil', onSelect: () => renameVia(sheet) },
         { label: 'Move or Copy…', icon: 'layers', onSelect: () => act('moveOrCopySheet', sheet.id, () => openMoveSheetDialog(ctx, sheet.id)) },
         sheet.protected
-          ? { label: 'Unprotect Sheet', icon: 'unprotect', onSelect: () => ctx.wb.setSheetProtected(sheet.id, false) }
-          : { label: 'Protect Sheet', icon: 'protectSheet', onSelect: () => ctx.wb.setSheetProtected(sheet.id, true) },
+          ? { label: 'Unprotect Sheet', icon: 'unprotect', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, false)) }
+          : { label: 'Protect Sheet', icon: 'protectSheet', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, true)) },
         { label: 'Tab Color', icon: 'fill', onSelect: () => colorMenu(sheet, anchor, x, y) },
         { label: 'Hide', icon: 'hideEye', disabled: ctx.wb.visibleSheets.length <= 1, onSelect: () => act('hideSheet', sheet.id, () => ctx.wb.setSheetHidden(sheet.id, true)) },
         // Unhide lists the hidden sheets.
