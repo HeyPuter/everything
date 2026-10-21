@@ -44,6 +44,9 @@ export function looksLikeHeader(wb, sheetId, range) {
  * names sorts whole, its first entry included.
  */
 export function sortHeaderDefault(wb, sheetId, range, { expanded = false } = {}) {
+  // The first row of a filtered list is its header whatever it holds (years over the figures under them), as Excel
+  // reads it: taken for data, it was sorted in among the rows and the filter's buttons stood over a record.
+  if (range.r1 < range.r2 && wb.filtersForSheet(sheetId).some(({ range: f }) => f.r1 === range.r1 && f.c1 <= range.c2 && f.c2 >= range.c1)) return true;
   if (!looksLikeHeader(wb, sheetId, range)) return false;
   if (expanded) return true;
   for (let c = range.c1; c <= range.c2; c++) {
