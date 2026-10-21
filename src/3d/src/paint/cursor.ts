@@ -1,11 +1,11 @@
 // Brush cursor (circle following the surface) and the radial control (F / Shift F / Ctrl F) used
 // to resize the brush, change its strength or the weight interactively.
 import { Vector3 } from 'three';
-import { h, type VNode } from '../ui/h';
+import { h, patch, type VNode } from '../ui/h';
 import { app, registerOperators } from '../app/app';
 import { editModeHooks } from '../editors/view3d/hooks';
 import { activeView3D, type View3D } from '../editors/view3d/view3d';
-import { activeBrush, isBrushMode } from './brushes';
+import { activeBrush, isBrushMode, type BrushMode } from './brushes';
 import { meshSession } from './session';
 import { brushRadiusPx } from './vgather';
 import { cursorState } from './cursorstate';
@@ -59,8 +59,14 @@ function ringPath(v: View3D, c: Vector3, n: Vector3, r: number): string {
 }
 
 function cursorSvg(v: View3D): VNode | null {
+  if (cursorState.radial && v === cursorState.view) return radialVNode();
+  return brushCursorVNode(v);
+}
+
+/** The radial control's circles and value (editor pixels). */
+function radialVNode(): VNode | null {
   const rc = cursorState.radial;
-  if (rc && v === cursorState.view) {
+  if (rc) {
     const parts: VNode[] = [];
     if (rc.data === 'angle') {
       parts.push(
@@ -117,6 +123,10 @@ function cursorSvg(v: View3D): VNode | null {
     );
     return h('g', { key: 'paint-radial', class: 'paint-radial' }, ...parts);
   }
+  return null;
+}
+
+function brushCursorVNode(v: View3D): VNode | null {
   if (!isBrushMode(app.doc.mode) || !cursorState.inside || cursorState.view !== v || app.modal) return null;
   const b = activeBrush();
   if (!b || b.show_cursor === false) return null;
@@ -193,10 +203,39 @@ editModeHooks.svg.push(cursorSvg);
 // ---------------------------------------------------------------------------
 // Radial control
 
+/** Where the radial control is drawn: a 3D viewport, or an overlay over another editor. */
+interface RadialHost {
+  el: HTMLElement;
+  local(e: { clientX: number; clientY: number }): { x: number; y: number };
+  drawSvg(): void;
+  dispose?(): void;
+}
+
+/** An SVG overlay over an editor element (the Image Editor) showing the radial control. */
+function imageEditorHost(el: HTMLElement): RadialHost {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'paint-radial-overlay');
+  svg.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:5;overflow:visible';
+  el.append(svg);
+  return {
+    el,
+    local: (e) => {
+      const r = el.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    },
+    drawSvg: () => patch(svg, radialVNode()),
+    dispose: () => svg.remove(),
+  };
+}
+
 const RADIAL_FULL = 120;
 
+/** Paint mode whose brush the radial control edits (the Image Editor paints with Texture Paint brushes). */
+let radialMode: BrushMode | null = null;
+const radialBrush = () => (radialMode ? activeBrush(radialMode) : activeBrush());
+
 function radialGet(data: 'size' | 'strength' | 'weight' | 'angle'): number {
-  const b = activeBrush();
+  const b = radialBrush();
   if (data === 'angle') return b?.texture_slot?.angle ?? 0;
   if (data === 'weight') return app.doc.scene.tool_settings.unified_paint.weight;
   if (!b) return 0;
@@ -205,7 +244,7 @@ function radialGet(data: 'size' | 'strength' | 'weight' | 'angle'): number {
 }
 
 function radialSet(data: 'size' | 'strength' | 'weight' | 'angle', value: number) {
-  const b = activeBrush();
+  const b = radialBrush();
   if (data === 'angle') {
     if (b?.texture_slot) b.texture_slot = { ...b.texture_slot, angle: value };
     return;
@@ -240,13 +279,15 @@ registerOperators([
         ],
       },
     ],
-    poll: () => isBrushMode(app.doc.mode) && !!activeView3D(),
+    poll: (ctx) => (isBrushMode(app.doc.mode) && !!activeView3D()) || ctx.area?.type === 'IMAGE_EDITOR',
     invoke: (ctx, p) => {
-      const v = activeView3D();
-      if (!v) return 'CANCELLED';
+      const ie = ctx.area?.type === 'IMAGE_EDITOR' ? (ctx.area.editor as { el: HTMLElement }) : null;
+      radialMode = ie ? 'TEXTURE_PAINT' : null;
+      const v: RadialHost | null = ie ? imageEditorHost(ie.el) : activeView3D();
+      if (!v || !radialBrush()) return 'CANCELLED';
       const data = p.data as 'size' | 'strength' | 'weight' | 'angle';
       if (data === 'weight' && app.doc.mode !== 'WEIGHT_PAINT') return 'CANCELLED';
-      if (data === 'angle' && !textureActive(activeBrush()!)) {
+      if (data === 'angle' && !textureActive(radialBrush()!)) {
         app.report('INFO', 'The brush has no texture to rotate');
         return 'CANCELLED';
       }
@@ -255,7 +296,8 @@ registerOperators([
       const px = (ctx.event?.x ?? app.pointer.x) - r.left,
         py = (ctx.event?.y ?? app.pointer.y) - r.top;
       const offset = data === 'size' ? start : start * RADIAL_FULL;
-      cursorState.view = v;
+      // the 3D views must not draw this control while it runs in another editor
+      cursorState.view = ie ? null : (v as View3D);
       cursorState.radial =
         data === 'angle' ? { cx: px - Math.cos(start) * RADIAL_FULL, cy: py + Math.sin(start) * RADIAL_FULL, data, value: start } : { cx: px - offset, cy: py, data, value: start };
       v.drawSvg();
@@ -273,7 +315,9 @@ registerOperators([
       };
       const done = () => {
         cursorState.radial = null;
-        updateCursor(v, cursorState.x, cursorState.y);
+        radialMode = null;
+        if (ie) v.dispose?.();
+        else updateCursor(v as View3D, cursorState.x, cursorState.y);
         app.changed('ui');
       };
       app.startModal({

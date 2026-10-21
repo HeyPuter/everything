@@ -1512,13 +1512,12 @@ function paintKey(v: View3D, e: KeyboardEvent): boolean {
   return !e.ctrlKey && !e.metaKey && !e.altKey && BLOCKED.has(name);
 }
 
-/** Keys of the Texture Paint keymap in the Image Editor's Paint mode (the 3D-only ones are skipped). */
+/** Keys of the Texture Paint keymap in the Image Editor's Paint mode. */
 export function imagePaintKey(e: KeyboardEvent): boolean {
   if (e.type !== 'keydown') return false;
   const name = keyName(e);
   for (const k of keymaps['Image Paint'] ?? []) {
     if (k.inactive || !matchKey(k, name, e)) continue;
-    if (k.op === 'wm.radial_control') continue;
     if (k.when && !k.when()) continue;
     if (k.menu) {
       const items = k.menu();
