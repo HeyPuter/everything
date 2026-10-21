@@ -146,25 +146,42 @@ const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${spac
   .replace(/^( {0,3})([-+=])/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])/, '$1\\$2');
 // Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
 const BREAK = '\0';
-function runMarkdown(run, heading = false) {
-  let text = mdEscape(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
-  if (!text.trim()) return text;
+// A run's escaped text, split around its core when the run writes markers, tags or a link around it.
+function runPieces(run, heading) {
+  const text = mdEscape(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
+  const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading, link = safeLink(run);
+  if (!/[^\s\0]/.test(text) || !(strike || run.italic || bold || ['superscript', 'subscript'].includes(run.verticalAlign) || link)) return { text };
   // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
   const [, lead, core, trail] = /^([\s\0]*)([\s\S]*?)([\s\0]*)$/.exec(text);
+  return { text, lead, core, trail, run, strike, bold, link };
+}
+// The character a run writes first or last (`end`); a marker, tag or link bracket is punctuation.
+const edge = (piece, end) => !piece ? '' : !piece.core ? (end ? piece.text.at(-1) : piece.text[0]) : (end ? piece.trail.at(-1) : piece.lead[0]) || '*';
+// CommonMark punctuation (Unicode P and S). A marker between a word and punctuation is not one: it opens only
+// after whitespace or punctuation and closes only before them, so x**\_y\_**z would show its asterisks.
+const PUNCTUATION = /[\p{P}\p{S}]/u;
+const loose = c => !c || /[\s\0]/.test(c) || PUNCTUATION.test(c);
+function runMarkdown(piece, before, after) {
+  if (!piece.core) return piece.text;
+  const { lead, core, trail, run } = piece, chars = [...core];
+  // Emphasis that markers cannot give there is written as HTML, which reads back the same.
+  const tags = PUNCTUATION.test(chars[0]) && !loose(lead.at(-1) || before) || PUNCTUATION.test(chars.at(-1)) && !loose(trail[0] || after);
   let out = core;
-  if (run.strikethrough && run.strikethrough !== 'none') out = `~~${out}~~`;
-  if (run.italic) out = `*${out}*`;
-  if (run.bold && !heading) out = `**${out}**`;
+  if (piece.strike) out = tags ? `<del>${out}</del>` : `~~${out}~~`;
+  if (run.italic) out = tags ? `<em>${out}</em>` : `*${out}*`;
+  if (piece.bold) out = tags ? `<strong>${out}</strong>` : `**${out}**`;
   if (run.verticalAlign === 'superscript') out = `<sup>${out}</sup>`;
   if (run.verticalAlign === 'subscript') out = `<sub>${out}</sub>`;
-  const link = safeLink(run);
-  if (link) out = `[${out}](${link.replace(/[()\s|]/g, encodeURIComponent)})`;
+  if (piece.link) out = `[${out}](${piece.link.replace(/[()\s|]/g, encodeURIComponent)})`;
   return lead + out + trail;
 }
 /** A paragraph's Markdown, its line, page and column breaks written as `lineBreak`. */
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
-const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => p.runs.map(run => runMarkdown(run, heading)).join('').replace(/^\0+|\0+$/g, '')
-  .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
+const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
+  const pieces = p.runs.map(run => runPieces(run, heading)).filter(piece => piece.text);
+  return pieces.map((piece, i) => runMarkdown(piece, edge(pieces[i - 1], true), edge(pieces[i + 1], false))).join('').replace(/^\0+|\0+$/g, '')
+    .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
+};
 function blocksMarkdown(blocks, model) {
   const out = [], numbers = itemNumbers(model);
   // The open list levels, outermost first: where each level's markers start and its items' text begins.

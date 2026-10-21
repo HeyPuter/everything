@@ -98,6 +98,27 @@ describe('Markdown text that looks like markup', () => {
     const back = reopen(documentMarkdown(doc));
     expect(back.map(t => t.trim())).toEqual(lines.map(t => t.trim()));
   });
+  it('keeps emphasis that starts or ends with punctuation inside a word', () => {
+    const doc = blankDoc();
+    doc.replace('snake_case, readme.txt, un(usual) and price $5!');
+    const format = (word, apply) => { const at = doc.text.indexOf(word); doc.select(at, at + word.length); apply(); };
+    format('_case', () => doc.toggleBold());
+    format('.txt', () => doc.toggleBold());
+    format('(usual)', () => doc.setRunFormat({ italic: true }));
+    format('$5', () => doc.toggleBold());
+    const markdown = documentMarkdown(doc);
+    // Asterisks between a letter and punctuation do not mark emphasis, so it is written as HTML there.
+    expect(markdown).toBe('snake<strong>\\_case</strong>, readme<strong>.txt</strong>, un<em>(usual)</em> and price **$5**!\n');
+    const back = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(back, fragment);
+    const styled = d => d.paragraphs[0].runs.map(r => `${r.bold ? '**' : r.italic ? '*' : ''}${r.text}`);
+    expect(styled(back)).toEqual(styled(doc));
+    // A bold line break alone writes no empty pair of markers.
+    const lines = new TextDocument([paragraph('A\vB')]);
+    lines.select(1, 2); lines.toggleBold();
+    expect(documentMarkdown(lines)).toBe('A\\\nB\n');
+  });
   it('after a line break too', () => {
     const doc = blankDoc();
     doc.replace('Intro\v- dash\v===\v3. three');
