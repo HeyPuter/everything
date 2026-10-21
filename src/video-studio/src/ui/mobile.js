@@ -17,6 +17,7 @@ import { icon } from '../lib/icons.js';
 import { RATIOS } from '../model/project.js';
 import { ANIMATIONS } from '../model/catalog.js';
 import * as T from '../model/timeline.js';
+import { hasCurve, sourceSpan } from '../model/speed-curve.js';
 import { createSheet } from './sheet.js';
 import { showMenu } from './menu.js';
 import { sliderField, segmented } from './controls.js';
@@ -217,13 +218,19 @@ export function createMobileChrome(ctx, root, { matchMedia: mmImpl } = {}) {
     const c = store.selected?.clip;
     if (!c) return;
     const id = c.id;
-    const slider = sliderField({ label: 'Speed', min: 0.1, max: 10, step: 0.05, value: c.speed || 1, onInput: (v) => {
-      actions.setSpeed(id, v);
+    // A drag keeps the footage it began with, so a neighbor that cuts the clip short mid-drag doesn't shorten it for good.
+    let span;
+    const slider = sliderField({ label: 'Speed', min: 0.1, max: 10, step: 0.05, value: c.speed || 1, onInput: (v, final) => {
+      const now = T.findClip(store.project, id)?.clip;
+      if (span === undefined && now) span = hasCurve(now) ? sourceSpan(now) : now.duration * now.speed;
+      actions.setSpeed(id, v, { span });
+      if (final) span = undefined;
       seg.set(v);
     } });
     // The box takes any speed the clip allows, past the slider's 10x.
     slider.setLimits(0.1, 100);
     const seg = segmented({ label: 'Speed presets', className: 'm-speed-presets', options: SPEEDS.map((v) => ({ value: v, label: `${v}x` })), value: c.speed || 1, onChange: (v) => {
+      span = undefined;
       actions.setSpeed(id, v);
       slider.set(v);
       announce(`Speed ${v}x`);
