@@ -173,3 +173,33 @@ test('UV editor: Select ▸ Select All by Trait ▸ Tile selects the UVs of a UD
   expect(await count()).toBe(0);
   await expectNoErrors(errors);
 });
+
+test('UV editor: snapping popover sets the rotation step and what snapping affects', async ({ page }) => {
+  const { errors, box } = await uvWorkspace(page);
+  await page.locator('.uv-snapping').first().scrollIntoViewIfNeeded();
+  await page.locator('.uv-snapping').first().dispatchEvent('pointerdown');
+  await expect(page.locator('.popup-layer .pop-title', { hasText: 'Rotation Increment' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  const angle = async () => {
+    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2);
+    await page.keyboard.press('r');
+    await page.keyboard.down('Control');
+    await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 - 47, { steps: 6 });
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Enter');
+    const v = await page.evaluate(() => (window as any).app.lastOp?.props?.value);
+    await page.keyboard.press('Control+z');
+    return v as number;
+  };
+  // default 5° steps with Ctrl
+  const a = await angle();
+  expect(Math.abs(((a * 180) / Math.PI) / 5 - Math.round(((a * 180) / Math.PI) / 5))).toBeLessThan(1e-6);
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.snap_angle_increment_2d = Math.PI / 4));
+  const b = await angle();
+  expect(Math.abs(((b * 180) / Math.PI) / 45 - Math.round(((b * 180) / Math.PI) / 45))).toBeLessThan(1e-6);
+  // rotation no longer affected
+  await page.evaluate(() => ((window as any).app.doc.scene.tool_settings.use_snap_rotate = false));
+  const c = await angle();
+  expect(Math.abs(((c * 180) / Math.PI) / 45 - Math.round(((c * 180) / Math.PI) / 45))).toBeGreaterThan(1e-3);
+  await expectNoErrors(errors);
+});

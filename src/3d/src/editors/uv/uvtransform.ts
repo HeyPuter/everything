@@ -72,6 +72,17 @@ export interface TransformParams {
   lock?: boolean;
 }
 
+/** Snapping options of UV transforms kept on the tool settings (what snapping affects, rotation steps). */
+export interface UVSnapSettings {
+  use_snap_translate?: boolean;
+  use_snap_rotate?: boolean;
+  use_snap_scale?: boolean;
+  /** radians */
+  snap_angle_increment_2d?: number;
+  snap_angle_increment_2d_precision?: number;
+}
+export const uvSnapSettings = () => app.doc.scene.tool_settings as unknown as UVSnapSettings;
+
 /** Transform options that come from the UV editor (pixel rounding, image bounds). */
 export function viewTransformOptions(view: UVView | null): Pick<TransformParams, 'round' | 'lock'> {
   const out: Pick<TransformParams, 'round' | 'lock'> = {};
@@ -333,6 +344,7 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
   const startUV = view.toUV(start.x, start.y);
   // snapping: the header toggle (Ctrl inverts it while transforming)
   const snapOn = () => !!ts.use_snap_uv !== snap;
+  const sx = uvSnapSettings();
   const snapElement = ts.snap_uv_element ?? 'INCREMENT';
   // vertex snapping targets: UV vertices that do not move
   const targets: [number, number][] = [];
@@ -361,7 +373,26 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       }
     }
     if (!best) return null;
-    // the moved UV closest to it lands exactly on it
+    // Snap Base: the selection's centre or median lands on the target, or (Closest) the moved UV nearest to it
+    const base = ts.snap_target;
+    if (sources.length && (base === 'CENTER' || base === 'MEDIAN' || base === 'ACTIVE')) {
+      let a = Infinity,
+        b = Infinity,
+        c = -Infinity,
+        d = -Infinity,
+        mu = 0,
+        mv = 0;
+      for (const s of sources) {
+        a = Math.min(a, s[0]);
+        b = Math.min(b, s[1]);
+        c = Math.max(c, s[0]);
+        d = Math.max(d, s[1]);
+        mu += s[0] / sources.length;
+        mv += s[1] / sources.length;
+      }
+      const p = base === 'CENTER' ? [(a + c) / 2, (b + d) / 2] : [mu, mv];
+      return [best[0] - p[0], best[1] - p[1]];
+    }
     let src: [number, number] | null = null;
     bd = Infinity;
     for (const s of sources) {
@@ -384,7 +415,7 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
         du *= 0.1;
         dv *= 0.1;
       }
-      if (snapOn()) {
+      if (snapOn() && sx.use_snap_translate !== false) {
         const v = snapElement === 'VERTEX' ? snapVertex(du, dv) : null;
         if (v) [du, dv] = v;
         else if (snapElement === 'INCREMENT') {
@@ -407,14 +438,17 @@ export function startUVTransform(kind: Kind, ctx: OpContext, props: Record<strin
       totalAng += precise ? d * 0.1 : d;
       lastAng = a;
       let ang = totalAng;
-      if (snapOn()) ang = Math.round(ang / (Math.PI / 36)) * (Math.PI / 36);
+      if (snapOn() && sx.use_snap_rotate !== false) {
+        const inc = Math.max(1e-4, precise ? sx.snap_angle_increment_2d_precision ?? Math.PI / 180 : sx.snap_angle_increment_2d ?? Math.PI / 36);
+        ang = Math.round(ang / inc) * inc;
+      }
       if (Number.isFinite(num)) ang = (num * Math.PI) / 180;
       value = [ang];
     } else if (kind === 'RESIZE') {
       const d0 = Math.max(1, Math.hypot(start.x - cPx.x, start.y - cPx.y));
       let s = Math.hypot(mouse.x - cPx.x, mouse.y - cPx.y) / d0;
       if (precise) s = 1 + (s - 1) * 0.1;
-      if (snapOn()) s = Math.round(s * 10) / 10;
+      if (snapOn() && sx.use_snap_scale !== false) s = Math.round(s * 10) / 10;
       if (Number.isFinite(num)) s = num;
       value = [only === 1 ? 1 : s, only === 0 ? 1 : s];
     } else {

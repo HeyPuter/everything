@@ -20,7 +20,7 @@ import { selGroups, selBounds } from './uvalgo';
 import { uvLayers, uvCursor, uvSelectMode, autoImage, uvEditPoll, uvChanged, type UVView } from './uvcontext';
 import { shapeSelect, runShapeSelect, elementAt, eventUV } from './uvops-select';
 import { layerTopos, pickRadius } from './uvcontext';
-import { startUVTransform, type UVPivot } from './uvtransform';
+import { startUVTransform, uvSnapSettings, type UVPivot } from './uvtransform';
 import { uvSculpt } from './uvsculpt';
 import { selectMenu, uvMenu, openUVContextMenu } from './uvmenus';
 import './uvops-select';
@@ -443,15 +443,18 @@ export class UVEditor implements Editor, UVView, View2D {
         { iconOnly: true, tip: 'Pivot Point\nCenter for rotating and scaling (.)', title: 'Pivot Point' },
       ),
       h('button', { class: { 'hdr-toggle': true, on: !!ts.use_snap_uv }, 'data-tip': 'Snap (Shift Tab)\nSnap while moving UVs; hold Ctrl to toggle while transforming', onclick: () => setTs('use_snap_uv', !ts.use_snap_uv, 'Snap') }, icon(ts.use_snap_uv ? 'snap_on' : 'snap_off')),
-      enumMenu(
-        'uv-snap-el',
-        [
-          { value: 'INCREMENT', label: 'Increment', icon: 'snap_increment', description: 'Snap to steps of the grid' },
-          { value: 'VERTEX', label: 'Vertex', icon: 'snap_vertex', description: 'Snap to UV vertices that are not moving' },
-        ],
-        ts.snap_uv_element ?? 'INCREMENT',
-        (v) => setTs('snap_uv_element', v as 'VERTEX', 'Snap To'),
-        { iconOnly: true, tip: 'Snap To\nWhat moving UVs snap to', title: 'Snap To' },
+      h(
+        'button',
+        {
+          class: 'hdr-icondrop uv-snapping',
+          'data-tip': 'Snapping\nWhat moving UVs snap to and which transforms snap',
+          onpointerdown: (e: PointerEvent) => {
+            e.preventDefault();
+            openPopover(e.currentTarget as HTMLElement, () => this.snapPopover(), { width: 250 });
+          },
+        },
+        icon(ts.snap_uv_element === 'VERTEX' ? 'snap_vertex' : 'snap_increment'),
+        icon('down_arrow_hlt', 'tiny'),
       ),
       h('button', { class: { 'hdr-toggle': true, on: ts.use_proportional_edit }, 'data-tip': 'Proportional Editing (O)\nMove nearby UVs too, with a falloff', onclick: () => setTs('use_proportional_edit', !ts.use_proportional_edit, 'Proportional Editing') }, icon(ts.use_proportional_edit ? 'prop_on' : 'prop_off')),
       h('div', { class: 'hdr-sep' }),
@@ -471,6 +474,54 @@ export class UVEditor implements Editor, UVView, View2D {
           },
           icon('down_arrow_hlt', 'tiny'),
         ),
+      ),
+    );
+  }
+
+  /** Header ▸ Snapping: target, base, affected transforms and the rotation step. */
+  private snapPopover(): Child {
+    const ts = app.doc.scene.tool_settings;
+    const sx = uvSnapSettings();
+    const set = (fn: () => void, label: string) => (fn(), app.pushUndo(label), app.changed('ui'));
+    const rad = (d: number) => (d * Math.PI) / 180;
+    return h(
+      'div',
+      { class: 'pop-panel' },
+      h('div', { class: 'pop-title' }, 'Snap Target'),
+      enumRow(
+        'uv-snap-target',
+        [
+          { value: 'INCREMENT', label: 'Increment', icon: 'snap_increment', description: 'Snap to steps of the grid' },
+          { value: 'VERTEX', label: 'Vertex', icon: 'snap_vertex', description: 'Snap to UV vertices that are not moving' },
+        ],
+        ts.snap_uv_element ?? 'INCREMENT',
+        (v) => set(() => (ts.snap_uv_element = v as 'VERTEX'), 'Snap Target'),
+      ),
+      h('div', { class: 'pop-title' }, 'Snap Base'),
+      enumRow(
+        'uv-snap-base',
+        [
+          { value: 'CLOSEST', label: 'Closest', description: 'The moving UV closest to the target lands on it' },
+          { value: 'CENTER', label: 'Center', description: 'The centre of the moving UVs lands on the target' },
+          { value: 'MEDIAN', label: 'Median', description: 'The median of the moving UVs lands on the target' },
+        ],
+        ts.snap_target === 'ACTIVE' ? 'MEDIAN' : ts.snap_target,
+        (v) => set(() => (ts.snap_target = v as 'CLOSEST'), 'Snap Base'),
+      ),
+      h('div', { class: 'pop-title' }, 'Affect'),
+      h(
+        'div',
+        { style: 'display: flex; gap: 4px' },
+        checkbox('uv-snap-move', 'Move', sx.use_snap_translate !== false, (v) => set(() => (sx.use_snap_translate = v), 'Snap Affect')),
+        checkbox('uv-snap-rot', 'Rotate', sx.use_snap_rotate !== false, (v) => set(() => (sx.use_snap_rotate = v), 'Snap Affect')),
+        checkbox('uv-snap-scale', 'Scale', sx.use_snap_scale !== false, (v) => set(() => (sx.use_snap_scale = v), 'Snap Affect')),
+      ),
+      h('div', { class: 'pop-title' }, 'Rotation Increment'),
+      h(
+        'div',
+        { style: 'display: flex; gap: 4px' },
+        numberField({ id: 'uv-snap-ang', value: sx.snap_angle_increment_2d ?? rad(5), min: rad(0.01), max: Math.PI, unit: 'angle', tip: 'Rotation step while snapping', set: (v) => (sx.snap_angle_increment_2d = v) }),
+        numberField({ id: 'uv-snap-angp', value: sx.snap_angle_increment_2d_precision ?? rad(1), min: rad(0.01), max: Math.PI, unit: 'angle', tip: 'Rotation step while snapping with Shift held', set: (v) => (sx.snap_angle_increment_2d_precision = v) }),
       ),
     );
   }
