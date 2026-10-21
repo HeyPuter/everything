@@ -522,6 +522,13 @@ export class PageEditor extends Emitter {
   }
 
   onKeyDown(e) {
+    // An attachment is a button: Enter and Space open it, like a click.
+    const file = e.target.closest?.('.nt-file[role="button"]');
+    if (file && (e.key === 'Enter' || e.key === ' ') && !e.repeat) {
+      e.preventDefault();
+      this.emit('open-file', file.dataset);
+      return;
+    }
     if (this.readOnly) return;
     const inBody = e.target.closest?.('.outline-body');
     const mod = modKey(e);

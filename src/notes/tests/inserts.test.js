@@ -82,3 +82,21 @@ describe('inserting from a dialog', () => {
     expect(ed.page.outlines.length).toBe(1);
   });
 });
+
+describe('attachments', () => {
+  it('opens an attachment from the keyboard', async () => {
+    const el = app.editor.createOutlineAt(100, 200, '<p><span class="nt-file" data-asset="a1.txt" data-name="notes.txt" data-kind="file" contenteditable="false"></span></p>');
+    const { hydrate } = await import('../src/editor/embeds.js');
+    await hydrate(el.querySelector('.outline-body'), store);
+    const file = el.querySelector('.nt-file');
+    expect(file.getAttribute('role')).toBe('button');
+    const opened = [];
+    app.editor.on('open-file', (d) => opened.push(d.name));
+    for (const key of ['Enter', ' ']) {
+      const e = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      file.dispatchEvent(e);
+      expect(e.defaultPrevented).toBe(true);
+    }
+    expect(opened).toEqual(['notes.txt', 'notes.txt']);
+  });
+});
