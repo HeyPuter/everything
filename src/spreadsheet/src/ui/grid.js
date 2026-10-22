@@ -253,6 +253,7 @@ export function createGrid(opts) {
   let edit = null; // { r, c, text, mode: 'type' | 'inplace', refInsert: {start,end} | null }
   let fillPreview = null;
   let movePreview = null; // range the selection would move to while dragging its border
+  let ariaSelected = []; // the cell nodes renderSelection marked selected
   let cellFont = '13px system-ui';
   let plainPaste = false; // set by Ctrl/Cmd+Shift+V, read by the paste handler
   let baseFontSize = 13;
@@ -3049,18 +3050,25 @@ export function createGrid(opts) {
     } else linkPop.hidden = true;
     syncPopovers(view);
     viewport.setAttribute('aria-activedescendant', `gc-${sel.active.r}-${sel.active.c}`);
-    for (const n of cellsLayer.querySelectorAll('.cell[aria-selected]')) n.removeAttribute('aria-selected');
     // Every rendered cell of the selection is marked, not just the active one, so assistive tech can tell the range.
+    // Only the rows the selection crosses are walked, and only the cells marked before are unmarked: this runs on
+    // every frame of a scroll, and zoomed far out the view holds tens of thousands of cells, each one of which was
+    // visited twice a frame.
+    for (const n of ariaSelected) n.removeAttribute('aria-selected');
+    ariaSelected = [];
     const ranges = [...extras, S.selRange(sel)];
-    for (const n of cellsLayer.querySelectorAll('.cell')) {
-      const m = /^gc-(\d+)-(\d+)$/.exec(n.id);
-      if (!m) continue;
-      const r = Number(m[1]);
-      const c = Number(m[2]);
-      if (ranges.some((rg) => r >= rg.r1 && r <= rg.r2 && c >= rg.c1 && c <= rg.c2)) n.setAttribute('aria-selected', 'true');
+    for (const row of cellsLayer.children) {
+      const r = Number(row.getAttribute('aria-rowindex')) - 1;
+      const across = ranges.filter((rg) => r >= rg.r1 && r <= rg.r2);
+      if (!across.length) continue;
+      for (const n of row.children) {
+        if (!n.id) continue; // a merged block's border paint
+        const c = Number(n.dataset.c);
+        if (across.some((rg) => c >= rg.c1 && c <= rg.c2)) { n.setAttribute('aria-selected', 'true'); ariaSelected.push(n); }
+      }
     }
     const activeNode = document.getElementById(`gc-${sel.active.r}-${sel.active.c}`);
-    if (activeNode) activeNode.setAttribute('aria-selected', 'true');
+    if (activeNode) { activeNode.setAttribute('aria-selected', 'true'); ariaSelected.push(activeNode); }
   }
 
   function syncHeaders() {
