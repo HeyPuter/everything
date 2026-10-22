@@ -1944,8 +1944,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!nativeFormatRanges((sid, ranges) => formatNativePivotStyleAndBorders(wb, new Map([[sid, ranges]]), pivotPatch, pivotBorders,
           { maxCells: MAX_FORMAT_CELLS, defaultSize: 13 }), { cap: false })) {
           wb.transaction(`Cell style: ${preset.label}`, () => eachRange('Cell style', (rg, _, sid) => {
-            wb.applyStyle(sid, rg, patchFor(sid));
+            const patch = patchFor(sid);
+            wb.applyStyle(sid, rg, patch);
             for (const b of borders) wb.applyBorders(sid, rg, b.kind, b);
+            // A style that sets a larger size (Title, Heading) grows the rows it would no longer fit, as the font
+            // size commands do; past the sheet's last used row there is no text to make room for.
+            if (patch.size > 0) {
+              const tallest = new Map();
+              for (let r = rg.r1, last = Math.min(rg.r2, wb.usedRange(sid)?.r2 ?? -1); r <= last; r++) tallest.set(r, patch.size);
+              growFontRows(sid, tallest);
+            }
           }, { cap: false, nativeScope: true }));
         }
         keepFocus();
