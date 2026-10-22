@@ -16003,6 +16003,9 @@ function ods_to_csf_formula(f/*:string*/)/*:string*/ {
 			 * "!" between two references or parenthesized expressions where Excel's is a space. An error literal
 			 * such as #REF! keeps its "!", as does a sheet name before one ('Data'![.A1]). */
 			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^LEGACY\.(?=[A-Za-z]+\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ""; }
+			/* Puter Spreadsheet local patch: the functions OpenFormula names otherwise than Excel (FORMULA for FORMULATEXT,
+			 * FDIST and FINV for F.DIST and F.INV, SKEWP for SKEW.P), as LibreOffice writes them. */
+			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^(FORMULA|FDIST|FINV|SKEWP)(?=\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ods_excel_names[replacement[1].toUpperCase()]; }
 			else if(ch == "#" && (replacement = /^#[A-Za-z0-9\/]+[!?]?/.exec(f.slice(i)))) { i += replacement[0].length - 1; continue; }
 			else if(ch == "!" && /[\])]\s*$/.test(f.slice(0, i))) replacement = " ";
 			else if(ch == ";" || ch == "~") replacement = ",";
@@ -16037,6 +16040,9 @@ function csf_formula_reference(match) {
  * their own names (IFNA, XOR, DAYS); the others are spelled COM.MICROSOFT.* as LibreOffice writes them. */
 var ods_plain_functions = {};
 "ACOT ACOTH ARABIC BASE BINOM.DIST.RANGE BITAND BITLSHIFT BITOR BITRSHIFT BITXOR COMBINA COT COTH CSC CSCH DAYS DECIMAL GAMMA GAUSS IFNA IMCOSH IMCOT IMCSC IMCSCH IMSEC IMSECH IMSINH IMTAN ISFORMULA ISOWEEKNUM MUNIT NUMBERVALUE PDURATION PERMUTATIONA PHI RRI SEC SECH SHEET SHEETS UNICHAR UNICODE XOR".split(" ").forEach(function(name) { ods_plain_functions[name] = true; });
+/* Puter Spreadsheet local patch: the functions OpenFormula (and LibreOffice) names otherwise than Excel. */
+var ods_renamed_functions = { "FORMULATEXT": "FORMULA", "F.DIST": "FDIST", "F.INV": "FINV", "SKEW.P": "SKEWP" };
+var ods_excel_names = { "FORMULA": "FORMULATEXT", "FDIST": "F.DIST", "FINV": "F.INV", "SKEWP": "SKEW.P" };
 function ods_function_name(name) {
 	var m = /^_xlpm\.(.*)$/i.exec(name);
 	if(m) return m[1];
@@ -16044,7 +16050,7 @@ function ods_function_name(name) {
 	/* Only the functions Excel marks so: a spill reference (A1#, ANCHORARRAY) and the @ operator (SINGLE) have no
 	 * OpenFormula spelling, and keep Excel's, as does a name this app does not know. */
 	if(!m || !XLFN.has(m[1].toUpperCase()) || /^SINGLE$/i.test(m[1])) return null;
-	return ods_plain_functions[m[1].toUpperCase()] ? m[1] : "COM.MICROSOFT." + m[1];
+	return ods_renamed_functions[m[1].toUpperCase()] || (ods_plain_functions[m[1].toUpperCase()] ? m[1] : "COM.MICROSOFT." + m[1]);
 }
 function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 	// Keep delimiter context across string-literal segments. A comma inside
