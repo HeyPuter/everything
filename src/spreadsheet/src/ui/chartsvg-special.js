@@ -5,7 +5,7 @@
  * colours and layout; an older app chart in the theme's own colours.
  */
 import { axisLabel, niceScale, chartPointStyle, waterfallSteps } from '../core/charts.js';
-import { chartAxisScale } from '../core/chart-axis-scale.js';
+import { axisFraction, chartAxisScale } from '../core/chart-axis-scale.js';
 import { formatValue, fontStack } from '../core/format.js';
 import { maxOf, minOf } from '../core/numeric.js';
 import { bandPolygon, boxGroups, boxStats, buildHierarchy, hierarchyDepth, hierarchyNodes, isoSegment, stockSeries, sunburstLayout,
@@ -297,7 +297,7 @@ function renderBoxWhisker(data, chart, width, height) {
   const named = grouped.categories.some(Boolean);
   plot.x += axis.width; plot.w = Math.max(10, plot.w - axis.width - 4);
   if (named) plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
-  const y = v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
+  const y = v => plot.y + plot.h - axisFraction(v, scale.min, scale.max) * plot.h;
   parts.push(axis.draw(plot, y));
   const n = grouped.categories.length, slot = plot.w / Math.max(1, n), count = grouped.series.length;
   parts.push(categoryGridlines(fr, n, plot));
@@ -393,7 +393,7 @@ export function renderWaterfall(data, chart, width, height) {
   const tableData = { ...data, categories, series: [{ ...s, values: steps.map((b, i) => (b.kind === 'total' ? b.to : merged || s.values[i] != null ? b.delta : null)),
     pointStyles: merged ? undefined : s.pointStyles }] };
   const table = a?.dataTable ? layoutChartDataTable(tableData, chart, plot, plot.y + plot.h, !a.plot) : null;
-  const y = v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
+  const y = v => plot.y + plot.h - axisFraction(v, scale.min, scale.max) * plot.h;
   // The plot area answers a click and takes the Format pane's fill and border.
   const plotStroke = a?.plotStroke && a.plotStroke !== 'none' ? ` stroke="${esc(a.plotStroke)}" stroke-width="${a.plotStrokeWidth ?? 1}"` : '';
   parts.push(`<rect data-el="plotArea" x="${f(plot.x)}" y="${f(plot.y)}" width="${f(plot.w)}" height="${f(plot.h)}" fill="${a?.plotFill && a.plotFill !== 'none' ? esc(a.plotFill) : 'transparent'}"${plotStroke}${a ? effectAttr(a, 'plotArea') : ''}/>`);
@@ -483,7 +483,7 @@ function renderStock(data, chart, width, height) {
   const right = volume ? valueAxis(fr, chart, priceScale, priceStyle, { side: 'right', grid: false }) : null;
   plot.x += left.width; plot.w = Math.max(10, plot.w - left.width - (right ? right.width + 4 : 4));
   plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
-  const yOf = scale => v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
+  const yOf = scale => v => plot.y + plot.h - axisFraction(v, scale.min, scale.max) * plot.h;
   const yp = yOf(priceScale), yv = volume ? yOf(volumeScale) : null;
   parts.push(left.draw(plot, volume ? yv : yp));
   if (right) parts.push(right.draw(plot, yp));
@@ -592,7 +592,7 @@ function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {
   // An oblique view from the front and a little above: categories along the front edge, series running back
   // and to the right, heights straight up. Farther rows are drawn first so nearer ones cover them.
   const height = .7, skewX = .5, skewY = .38;
-  const norm = (u, v, z) => [u / (grid.rows - 1) - .5, v / (grid.cols - 1) - .5, ((Math.min(bands.max, Math.max(bands.min, z)) - bands.min) / (bands.max - bands.min || 1)) * height];
+  const norm = (u, v, z) => [u / (grid.rows - 1) - .5, v / (grid.cols - 1) - .5, axisFraction(Math.min(bands.max, Math.max(bands.min, z)), bands.min, bands.max) * height];
   const project = ([X, Y, Z]) => ({ x: X + (Y + .5) * skewX, y: -(Z + (Y + .5) * skewY), depth: Y - Z * .01 });
   const corners = [];
   for (const X of [-.5, .5]) for (const Y of [-.5, .5]) for (const Z of [0, height]) corners.push(project([X, Y, Z]));
@@ -607,7 +607,7 @@ function drawSurface3d(fr, chart, grid, bands, tris, bandOf, wire, style) {
   const gridInk = a ? '#d9d9d9' : 'var(--grid)', axisInk = st.axis;
   // The back walls and floor, with a line at each band edge, behind everything.
   const wall = pts => pts.map(p => { const s = screen(p); return `${f(s.sx)},${f(s.sy)}`; }).join(' ');
-  const zOf = v => (v - bands.min) / (bands.max - bands.min || 1) * height;
+  const zOf = v => axisFraction(v, bands.min, bands.max) * height;
   const backY = .5, backX = -.5;
   parts.push(`<g class="chart-surface-walls" fill="none" stroke="${gridInk}" stroke-width="1" data-el="plotArea">`,
     `<polygon points="${wall([[-.5, -.5, 0], [.5, -.5, 0], [.5, .5, 0], [-.5, .5, 0]])}"/>`,

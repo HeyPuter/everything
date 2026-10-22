@@ -2,6 +2,14 @@ import { niceScale } from './charts.js';
 
 const clamp = v => Math.max(-Number.MAX_VALUE, Math.min(Number.MAX_VALUE, v));
 
+/** Where `v` lies along an axis from `min` (0) to `max` (1). An axis wider than a double
+ * can hold (data near ±9e307 rounds out to ±1e308) is measured in halves, so the
+ * fraction stays finite instead of Infinity / Infinity = NaN. Other axes are unchanged. */
+export function axisFraction(v, min, max) {
+  const span = max - min;
+  return Number.isFinite(span) ? (v - min) / (span || 1) : (v / 2 - min / 2) / (max / 2 - min / 2);
+}
+
 function axisBounds(dataMin, dataMax, min, max) {
   const fixedMin = Number.isFinite(min);
   // A malformed reversed/equal pair cannot describe an axis. Retain the

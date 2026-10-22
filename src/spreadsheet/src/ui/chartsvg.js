@@ -1,4 +1,4 @@
-import { chartAxisScale, chartAxisTransferBounds } from '../core/chart-axis-scale.js';
+import { axisFraction, chartAxisScale, chartAxisTransferBounds } from '../core/chart-axis-scale.js';
 import { chartDateAxis } from '../core/chart-date-axis.js';
 /**
  * Draw a chart as SVG markup. Pure: data in, a string out, so it can be
@@ -722,7 +722,7 @@ function renderChartContent(data, chart, width, height) {
   const yFrac = Number.isFinite(ySpan) ? (v) => held((v - yScale.min) / ySpan) : (v) => held((v / 2 - yScale.min / 2) / (yScale.max / 2 - yScale.min / 2));
   const vy = (v) => plot.y + plot.h - yFrac(v) * plot.h;
   const vx = (v) => plot.x + yFrac(v) * plot.w;
-  const vy2 = secondary ? (v) => plot.y + plot.h - held((v - y2Scale.min) / (y2Scale.max - y2Scale.min)) * plot.h : vy;
+  const vy2 = secondary ? (v) => plot.y + plot.h - held(axisFraction(v, y2Scale.min, y2Scale.max)) * plot.h : vy;
   // The right-hand axis, in the line's color so it reads as that series' scale.
   if (secondary) {
     const lineColor = seriesPaint(chart, lineIdx[0]);
@@ -757,7 +757,7 @@ function renderChartContent(data, chart, width, height) {
   const categoryLabelY = isHistogram || wf ? plot.y + plot.h : vy(categoryAxisValue);
   const categoryLabels = [];
   if (isScatter) {
-    const sx = (v) => plot.x + ((v - xScale.min) / (xScale.max - xScale.min)) * plot.w;
+    const sx = (v) => plot.x + axisFraction(v, xScale.min, xScale.max) * plot.w;
     for (const v of scaleTicks(xScale)) {
       categoryLabels.push(`<text x="${f(sx(v))}" y="${f(categoryLabelY + 15)}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${esc(axisLabel(v, xStyle, xScale.step))}</text>`);
     }
@@ -1246,7 +1246,7 @@ function renderStyledCartesian(data, chart, width, height) {
   const valueFraction = (v, domain, reverse) => {
     // A value at or below zero on a logarithmic axis lies past its foot (and is clipped there).
     const fraction = domain.log ? (v > 0 ? Math.log(v / domain.min) / Math.log(domain.max / domain.min) : -1)
-      : (v - domain.min) / (domain.max - domain.min || 1);
+      : axisFraction(v, domain.min, domain.max);
     return reverse ? 1 - fraction : fraction;
   };
   const sy = v => bottom - valueFraction(v, scale, a.reverseValues) * plot.h;
@@ -1269,7 +1269,7 @@ function renderStyledCartesian(data, chart, width, height) {
   const inset = numericX || a.categoryBetween === false ? 0 : .5;
   const sx = v => {
     const fraction = dates ? dates.fraction(v) : xScale?.log ? (v > 0 ? Math.log(v / xMin) / Math.log(xMax / xMin) : -1)
-      : xMax === xMin && !inset ? .5 : (v - xMin + inset) / (xMax - xMin + 2 * inset || 1);
+      : xMax === xMin && !inset ? .5 : axisFraction(v, xMin - inset, xMax + inset);
     return plot.x + (a.reverseCategories ? 1 - fraction : fraction) * plot.w;
   };
   const dateCoordinate = fraction => horizontal ? plot.y + plot.h * (a.reverseCategories ? fraction : 1 - fraction)
@@ -2139,7 +2139,7 @@ function renderNativeRadar(data, chart, width, height) {
   const angle = i => -Math.PI / 2 + (a.reverseCategories ? -1 : 1) * i / Math.max(1, n) * Math.PI * 2;
   const position = (i, fraction) => [cx + radius * fraction * Math.cos(angle(i)), cy + radius * fraction * Math.sin(angle(i))];
   const point = (i, value) => {
-    const fraction = (value - scale.min) / (scale.max - scale.min || 1);
+    const fraction = axisFraction(value, scale.min, scale.max);
     return position(i, Math.max(0, a.reverseValues ? 1 - fraction : fraction));
   };
   const polygon = fraction => categories.map((_, i) => position(i, fraction).map(f).join(',')).join(' ');
@@ -2149,7 +2149,7 @@ function renderNativeRadar(data, chart, width, height) {
   };
   if (n && a.plotFill) parts.push(`<polygon points="${polygon(1)}" fill="${esc(a.plotFill)}"/>`);
   if (n && chart.gridlines) for (const value of scaleTicks(scale)) {
-    const fraction = (value - scale.min) / (scale.max - scale.min || 1);
+    const fraction = axisFraction(value, scale.min, scale.max);
     parts.push(`<polygon class="chart-radar-grid" points="${polygon(a.reverseValues ? 1 - fraction : fraction)}" fill="none" ${strokeAttrs(a.gridlineStyles?.y)}/>`);
   }
   const labelSkip = a.xLabelSkip || Math.max(1, Math.ceil(n * a.xStyle.size * 1.4 / (2 * Math.PI * Math.max(1, radius))));
@@ -2273,7 +2273,7 @@ function renderRadar(data, chart, right, top, bottom) {
   const max = yMax ?? scale.max, min = Math.min(0, scale.min);
   const vs = data.valueStyle || null;
   const angle = (i) => -Math.PI / 2 + (i / n) * Math.PI * 2;
-  const radius = (v) => R * Math.max(0, Math.min(v, max) - min) / (max - min);
+  const radius = (v) => R * Math.max(0, axisFraction(Math.min(v, max), min, max));
   const point = (i, v) => [cx + radius(v) * Math.cos(angle(i)), cy + radius(v) * Math.sin(angle(i))];
   const out = [];
   // Rings and spokes.
