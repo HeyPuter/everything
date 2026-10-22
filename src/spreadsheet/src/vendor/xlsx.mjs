@@ -23978,8 +23978,12 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 						ws['!ref'] = encode_range(range);
 					}
 					if(merges.length) ws['!merges'] = merges;
-					/* Puter Spreadsheet local patch: a protected table (Tools ▸ Protect Sheet in LibreOffice). Its password key is not kept. */
-					if(parsexmlbool(sheetag["protected"])) ws['!odsProtected'] = true;
+					/* Puter Spreadsheet local patch: a protected table (Tools ▸ Protect Sheet in LibreOffice). Its password key is not kept.
+					 * Not where the Default cell style is itself unprotected (a form made by unlocking Default and locking a few
+					 * cells by a style of their own): every cell without a style of its own, blank ones too, is open for input
+					 * there, which the app cannot say, and protected here they were all locked. */
+					var defaultProtect = commonStyles["Default"] && commonStyles["Default"].odsProps && commonStyles["Default"].odsProps["cell-protect"];
+					if(parsexmlbool(sheetag["protected"]) && !(defaultProtect && !/^\s*protected\s*$/i.test(defaultProtect))) ws['!odsProtected'] = true;
 					/* Puter Spreadsheet local patch: the sheet's print ranges, as their ODF addresses (read in io.js). */
 					if(sheetag["print-ranges"]) ws['!odsPrintRanges'] = unescapexml(sheetag["print-ranges"]);
 					if(ws['!odsConditionalFormats']) ws['!odsConditionalFormats'] = odsConditionalFormatsXml(ws['!odsConditionalFormats'], { convert: ods_to_csf_formula, address: ods_to_csf_3D });

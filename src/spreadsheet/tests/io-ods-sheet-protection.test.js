@@ -72,3 +72,28 @@ it('writes no protection for an unprotected sheet of default cells', async () =>
   expect(xml).not.toContain('table:protected');
   expect(xml).not.toContain('cell-protect');
 });
+
+// A form can be made in LibreOffice by unprotecting the Default cell style and locking the labels with a style of
+// their own: every cell without one, the blank input cells too, is then open there. Opened here protected, with no
+// way to say "open unless styled otherwise", every input cell was locked and the form could not be filled in.
+it('leaves a sheet unprotected where the Default cell style is itself unprotected', async () => {
+  const zip = X.CFB.read(odsFile(
+    '<table:table table:name="Form" table:protected="true"><table:table-row>'
+      + '<table:table-cell table:style-name="ce1" office:value-type="string"><text:p>Name</text:p></table:table-cell><table:table-cell/>'
+      + '</table:table-row></table:table>',
+    '<style:style style:name="ce1" style:family="table-cell" style:parent-style-name="Locked"/>'), { type: 'array' });
+  const styles = (defaultProps) => '<?xml version="1.0" encoding="UTF-8"?><office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" office:version="1.2"><office:styles>'
+    + `<style:style style:name="Default" style:family="table-cell">${defaultProps}</style:style>`
+    + '<style:style style:name="Locked" style:family="table-cell" style:parent-style-name="Default"><style:table-cell-properties style:cell-protect="protected"/></style:style></office:styles></office:document-styles>';
+  const open = async (defaultProps) => {
+    X.CFB.utils.cfb_add(zip, 'styles.xml', new TextEncoder().encode(styles(defaultProps)));
+    return workbookFromFile(new Uint8Array(X.CFB.write(zip, { type: 'array', fileType: 'zip' })), 'form.ods');
+  };
+  const unlocked = await open('<style:table-cell-properties style:cell-protect="none"/>');
+  expect(unlocked.isProtected(unlocked.activeSheetId)).toBe(false);
+  unlocked.setInput(unlocked.activeSheetId, 0, 1, 'Ada');
+  expect(unlocked.getValue(unlocked.activeSheetId, 0, 1)).toBe('Ada');
+  // The Default style as LibreOffice leaves it (protected) keeps the sheet's protection.
+  const locked = await open('');
+  expect(locked.isProtected(locked.activeSheetId)).toBe(true);
+});
