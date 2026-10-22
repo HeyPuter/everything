@@ -15,6 +15,7 @@ import { CHART_TYPES } from './charts.js';
 import { TABLE_STYLES } from './tables.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { dataBounds } from './aiformula.js';
+import { heightForLines } from './textfit.js';
 
 /** A request the workbook refused, with the script line that made it. */
 export class ScriptOpError extends Error {
@@ -386,7 +387,7 @@ const WRITES = {
     this.wb.applyStyle(sheet.id, range, patch);
     // A larger font grows the rows that could no longer show it, as the toolbar's size does.
     if (patch.size && !wholeCols(range)) {
-      const needed = Math.ceil(patch.size * 1.35) + 8;
+      const needed = heightForLines(1, patch.size);
       for (let r = range.r1; r <= Math.min(range.r2, range.r1 + MAX_STYLE_ROWS); r++) {
         if (!this.wb.isHidden(sheet.id, 'row', r) && this.wb.rowHeight(sheet.id, r) < needed) this.wb.setRowHeight(sheet.id, r, needed, { auto: true });
       }

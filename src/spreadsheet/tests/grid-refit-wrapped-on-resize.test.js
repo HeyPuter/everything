@@ -44,12 +44,12 @@ describe('rows of wrapped text when a column is resized', () => {
   it('are fitted to the new width again, narrower or wider', async () => {
     const { wb, id, grid, resize } = await mount();
     grid.autoFitRows(0, 0);
-    expect(wb.rowHeight(id, 0)).toBe(110); // two words per 95px line: six lines
+    expect(wb.rowHeight(id, 0)).toBe(105); // two words per 95px line: six lines
     wb.clearHistory();
     await resize(0, 300);
-    expect(wb.rowHeight(id, 0)).toBe(42); // seven words per line: two lines
+    expect(wb.rowHeight(id, 0)).toBe(37); // seven words per line: two lines
     await resize(0, 40);
-    expect(wb.rowHeight(id, 0)).toBe(212); // one 35px word fits each 35px content line: twelve lines
+    expect(wb.rowHeight(id, 0)).toBe(207); // one 35px word fits each 35px content line: twelve lines
     await resize(0, 800);
     expect(wb.rowHeight(id, 0)).toBe(ONE_LINE); // one line again
     // A one-row fit carries the step's own label. A width written with no transaction to join
@@ -102,11 +102,11 @@ describe('rows of wrapped text when a column is resized', () => {
     // Fit columns to content, or a paste that carries column widths: several columns in one step.
     wb.transaction('Fit columns', () => { for (let c = 0; c < 5; c++) wb.setColWidth(id, c, 300); });
     await flush();
-    expect(wb.rowHeight(id, 0)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
     expect(wb.undoLabels()).toEqual(['Fit columns']);
     wb.undo();
     await flush();
-    expect(wb.rowHeight(id, 0)).toBe(110);
+    expect(wb.rowHeight(id, 0)).toBe(105);
     expect(wb.colWidth(id, 0)).toBe(100);
     expect(wb.undoLabels()).toEqual([]);
 
@@ -114,11 +114,11 @@ describe('rows of wrapped text when a column is resized', () => {
     wb.clearHistory();
     wb.transaction('Resize columns', () => wb.setColWidth(id, 0, 300));
     await flush();
-    expect(wb.rowHeight(id, 0)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
     expect(wb.undoLabels()).toEqual(['Resize columns']);
     wb.undo();
     await flush();
-    expect({ height: wb.rowHeight(id, 0), width: wb.colWidth(id, 0) }).toEqual({ height: 110, width: 100 });
+    expect({ height: wb.rowHeight(id, 0), width: wb.colWidth(id, 0) }).toEqual({ height: 105, width: 100 });
     expect(wb.undoLabels()).toEqual([]);
   });
 
@@ -133,10 +133,10 @@ describe('rows of wrapped text when a column is resized', () => {
     pe(clip, 'pointermove', 348);
     pe(clip, 'pointerup', 348);
     expect(wb.sheet(id).colWidths.get(0)).toBe(300);
-    expect(wb.rowHeight(id, 0)).toBe(42); // 12 words across two lines of 292px
+    expect(wb.rowHeight(id, 0)).toBe(37); // 12 words across two lines of 292px
     expect(wb.undoLabels()).toEqual(['Resize column']);
     wb.undo();
     expect(wb.sheet(id).colWidths.get(0)).toBeUndefined();
-    expect(wb.rowHeight(id, 0)).toBe(110); // six lines, as fitted before
+    expect(wb.rowHeight(id, 0)).toBe(105); // six lines, as fitted before
   });
 });

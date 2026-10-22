@@ -266,7 +266,7 @@ it.each([false, true])('uses the displayed italic font for overflow and row heig
   expect.soft(view.el.querySelector('#gc-0-0').textContent).toBe(italic ? '###' : '12345');
   expect.soft(view.el.querySelector('#gc-1-0').classList.contains('spill')).toBe(italic);
   view.el.querySelector('.row-resizer[data-r="2"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-  expect(wb.rowHeight(id, 2)).toBe(italic ? 42 : ONE_LINE);
+  expect(wb.rowHeight(id, 2)).toBe(italic ? 37 : ONE_LINE);
 });
 
 it.each(['menu', 'header'].flatMap((path) => [
@@ -301,7 +301,7 @@ it.each(['left', 'right', 'center'])('fits wrapped rows within the space left by
   document.querySelector('#app').append(view.el);
   await vi.advanceTimersByTimeAsync(1);
   view.el.querySelector('.row-resizer[data-r="0"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-  expect(wb.rowHeight(id, 0)).toBe(align === 'center' ? ONE_LINE : 42);
+  expect(wb.rowHeight(id, 0)).toBe(align === 'center' ? ONE_LINE : 37);
 });
 
 it.each([105, 106])('retains both margins at the indented overflow boundary (%spx)', async width => {
@@ -358,7 +358,7 @@ it.each(['menu', 'header'].flatMap((path) => [false, true].map((conditional) => 
   expect.soft(view.el.querySelector('#gc-0-0').textContent).toBe(conditional ? '###' : '12345');
   expect.soft(view.el.querySelector('#gc-1-0').classList.contains('spill')).toBe(conditional);
   view.el.querySelector('.row-resizer[data-r="2"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
-  expect.soft(wb.rowHeight(id, 2)).toBe(conditional ? 42 : ONE_LINE);
+  expect.soft(wb.rowHeight(id, 2)).toBe(conditional ? 37 : ONE_LINE);
   if (path === 'menu') {
     view.el.querySelector('[data-menu="format"]').click();
     const item = (label) => [...document.querySelectorAll('.menu-item')].find((node) => node.querySelector('.menu-label')?.textContent === label);

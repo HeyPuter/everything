@@ -238,14 +238,14 @@ it('fits the full row selection beyond 2,001 rows in one undo step', async () =>
   const item = (label) => [...document.querySelectorAll('.menu-item')].find((node) => node.querySelector('.menu-label')?.textContent === label);
   item('Rows and columns').click();
   item('Fit rows to content').click();
-  expect(wb.rowHeight(id, 2200)).toBe(42);
+  expect(wb.rowHeight(id, 2200)).toBe(37);
   expect(wb.rowHeight(id, 2199)).toBe(DEFAULT_ROW_HEIGHT); // an empty row fits back to the default
   expect(wb.rowHeight(id, 2500)).toBe(80);
   wb.undo();
   expect(wb.rowHeight(id, 2200)).toBe(100);
   expect(wb.rowHeight(id, 2199)).toBe(90);
   wb.redo();
-  expect(wb.rowHeight(id, 2200)).toBe(42);
+  expect(wb.rowHeight(id, 2200)).toBe(37);
   expect(wb.rowHeight(id, 2199)).toBe(DEFAULT_ROW_HEIGHT); // an empty row fits back to the default
 });
 

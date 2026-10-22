@@ -42,7 +42,7 @@ it.each(['\n', '\r\n', '\r'])('honors wrapping without changing stored %j text o
       const printed = buildPrintTable(wb, id);
       expect(printed.querySelector('td').textContent).toBe(shown);
       grid.autoFitRows(0, 0, { force: true });
-      expect(wb.rowHeight(id, 0)).toBe(shown.includes('\n') ? 42 : ONE_LINE);
+      expect(wb.rowHeight(id, 0)).toBe(shown.includes('\n') ? 37 : ONE_LINE);
       grid.el.querySelector('.col-resizer[data-c="0"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
       expect(wb.colWidth(id, 0)).toBe(shown.includes('\n') ? 49 : wrap ? 40 : 84);
       expect(wb.getValue(id, 0, 0)).toBe(raw);

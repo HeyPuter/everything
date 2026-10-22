@@ -55,19 +55,19 @@ describe('committing into a wrapped cell', () => {
     const { wb, id, grid, type } = mount();
     wb.setRowHeight(id, 1, 60);
     type(1, FOUR_LINES);
-    expect(wb.rowHeight(id, 1)).toBe(76);
+    expect(wb.rowHeight(id, 1)).toBe(71);
     wb.undo();
     expect(wb.rowHeight(id, 1)).toBe(60);
     wb.redo();
-    expect(wb.rowHeight(id, 1)).toBe(76);
+    expect(wb.rowHeight(id, 1)).toBe(71);
     type(1, 'short');
-    expect(wb.rowHeight(id, 1)).toBe(76);
+    expect(wb.rowHeight(id, 1)).toBe(71);
     // A fitted row would be refitted for the wider column; this one is left as it is.
     type(2, FOUR_LINES);
     wb.setColWidth(id, 0, 300);
     await Promise.resolve(); // the refit runs once the change has passed
     expect(wb.rowHeight(id, 2)).toBe(ONE_LINE); // the eight words fit one 292px line
-    expect(wb.rowHeight(id, 1)).toBe(76);
+    expect(wb.rowHeight(id, 1)).toBe(71);
     grid.destroy();
   });
 

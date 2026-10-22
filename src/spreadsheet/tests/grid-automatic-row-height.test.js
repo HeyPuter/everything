@@ -3,10 +3,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { Workbook, DEFAULT_ROW_HEIGHT } from '../src/core/workbook.js';
 import { createGrid } from '../src/ui/grid.js';
 import { buildPrintRoot } from '../src/ui/print.js';
-import { heightForLines, wrapLines } from '../src/core/textfit.js';
+import { heightForLines, rowPad, wrapLines } from '../src/core/textfit.js';
 
 const text = 'one two three four five six seven eight nine ten eleven twelve';
-const height = (value, width = 100, size = 13) => heightForLines(wrapLines(value, width - 5, s => s.length * 7).length, size);
+// The sheet's 19.5px default is a 13px line's row a little roomier, so its automatic rows carry that room too (rowPad).
+const height = (value, width = 100, size = 13) => {
+  const h = heightForLines(wrapLines(value, width - 5, s => s.length * 7).length, size, 0, rowPad(DEFAULT_ROW_HEIGHT, 13));
+  return h === DEFAULT_ROW_HEIGHT ? h : Math.ceil(h); // stored rows take whole pixels
+};
 const flush = () => new Promise(resolve => setTimeout(resolve, 15));
 let grids, glyphWidth, courierWide;
 beforeEach(() => {
@@ -71,7 +75,7 @@ it('fits unmerged cells alongside merges and discards both oversized and undersi
     cells: { ...Object.fromEntries([0, 1, 2, 3].map(r => [`${r},0`, { v: text.repeat(3), s: { wrap: true, size: 40 } }])),
       '2,2': { v: 'Large', s: { size: 40 } } } }] });
   const id = wb.activeSheetId; await mount(wb);
-  expect([0, 1, 2, 3].map(r => wb.rowHeight(id, r))).toEqual([DEFAULT_ROW_HEIGHT, DEFAULT_ROW_HEIGHT, heightForLines(1, 40), 120]);
+  expect([0, 1, 2, 3].map(r => wb.rowHeight(id, r))).toEqual([DEFAULT_ROW_HEIGHT, DEFAULT_ROW_HEIGHT, Math.ceil(heightForLines(1, 40, 0, rowPad(DEFAULT_ROW_HEIGHT, 13))), 120]);
 });
 
 it('batches sparse automatic rows instead of rescanning the whole sheet for every row', async () => {
@@ -99,7 +103,7 @@ it('uses the same custom table font for automatic heights in the grid and print'
   const wb = new Workbook({ sheets: [{ rowHeightModes: { 0: 'auto' }, cells: { '0,0': { v: text, s: { wrap: true } }, '1,0': { v: 1 } },
     tables: [{ name: 'Items', range: { r1: 0, c1: 0, r2: 1, c2: 0 }, style: 'custom', customStyle: { headerRow: { font: 'courier' } } }] }] });
   const id = wb.activeSheetId;
-  const expected = heightForLines(wrapLines(text, 95, s => s.length * 14).length);
+  const expected = Math.ceil(heightForLines(wrapLines(text, 95, s => s.length * 14).length, 13, 0, rowPad(DEFAULT_ROW_HEIGHT, 13)));
   buildPrintRoot(wb, id, 'Table font', { fit: 'actual' });
   expect(wb.rowHeight(id, 0)).toBe(expected);
   await mount(wb);

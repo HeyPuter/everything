@@ -62,7 +62,7 @@ it('measures each wrapped line with the fonts of its own characters', () => {
   const parts = numberFormatParts(value, { wrap: true }, runs);
   const lines = wrappedRichFormatLines(parts, 48, richTextMeasure('12px Arial', width), 12);
   expect(lines.map(line => [line.text, line.size])).toEqual([['ab', 24], ['cd', 12]]);
-  expect(measureRows(wb, id, 0, 0, { textWidth: width, baseFontSize: 12, widthOf: () => 53 }).get(0)).toBe(55);
+  expect(measureRows(wb, id, 0, 0, { textWidth: width, baseFontSize: 12, widthOf: () => 53 }).get(0)).toBe(32 + 16 + 3.5); // 1.3 lines of 24 and of 12px, and the 19.5px default row's room over a 12px line
 });
 
 it('reports UTF-16 positions after whitespace, line breaks and grapheme splits', () => {

@@ -23,7 +23,7 @@ afterEach(() => { document.body.replaceChildren(); });
 
 const flush = () => new Promise((r) => setTimeout(r, 5));
 
-/** A1 holds twelve wrapped words (six lines, 110px, in the 100px column; two lines, 42px, at 300px), fitted by the grid unless `prepare` sizes it. */
+/** A1 holds twelve wrapped words (six lines, 105px, in the 100px column; two lines, 37px, at 300px), fitted by the grid unless `prepare` sizes it. */
 async function mount(prepare) {
   const wb = new Workbook();
   const id = wb.sheets[0].id;
@@ -33,7 +33,7 @@ async function mount(prepare) {
   const grid = createGrid({ wb, sheetId: id, announce() {} });
   document.body.replaceChildren(grid.el);
   await flush();
-  if (!prepare) { grid.autoFitRows(0, 0); expect(wb.rowHeight(id, 0)).toBe(110); }
+  if (!prepare) { grid.autoFitRows(0, 0); expect(wb.rowHeight(id, 0)).toBe(105); }
   wb.clearHistory();
   const clip = grid.el.querySelector('.grid-colhead-clip');
   const pe = (target, type, x) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 10, pointerId: 1, button: 0, pointerType: 'mouse' }));
@@ -52,28 +52,28 @@ describe('a row of wrapped text the grid fitted', () => {
   it('is fitted again for a column width set after the width that fitted it was undone', async () => {
     const { wb, id, drag, setWidth } = await mount();
     drag(300);
-    expect(wb.rowHeight(id, 0)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
     wb.undo();
-    expect(wb.rowHeight(id, 0)).toBe(110);
+    expect(wb.rowHeight(id, 0)).toBe(105);
     drag(300);
-    expect(wb.rowHeight(id, 0)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
     wb.undo();
     await flush();
     await setWidth(300); // from a dialog rather than a drag
-    expect(wb.rowHeight(id, 0)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
   });
 
   it('is fitted again for a new width after a row was inserted or deleted above it', async () => {
     const { wb, id, setWidth } = await mount();
     wb.insertRows(id, 0, 1);
     await flush();
-    expect(wb.rowHeight(id, 1)).toBe(110);
+    expect(wb.rowHeight(id, 1)).toBe(105);
     await setWidth(300);
-    expect(wb.rowHeight(id, 1)).toBe(42);
+    expect(wb.rowHeight(id, 1)).toBe(37);
     wb.deleteRows(id, 0, 1);
     await flush();
     await setWidth(100);
-    expect(wb.rowHeight(id, 0)).toBe(110);
+    expect(wb.rowHeight(id, 0)).toBe(105);
   });
 
   it('shrinks to a shorter entry typed into it after such a change', async () => {

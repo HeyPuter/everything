@@ -577,7 +577,7 @@ describe('grid', () => {
     expect(wb.rowHeight(id, 3)).not.toBe(tall);
   });
 
-  it.each([['wrapped', 42], ['multiline', ONE_LINE], ['large', 44], ['empty', DEFAULT_ROW_HEIGHT]])('fits %s content when the row boundary is double-clicked', async (kind, height) => {
+  it.each([['wrapped', 37], ['multiline', ONE_LINE], ['large', 40], ['empty', DEFAULT_ROW_HEIGHT]])('fits %s content when the row boundary is double-clicked', async (kind, height) => {
     const { grid, wb, id } = setup();
     try {
       if (kind !== 'empty') {

@@ -118,8 +118,22 @@ export function wrapLines(text, width, measure, onLine = null) {
   return out;
 }
 
-/** Height in px for `lines` lines of text at a font size, never less than `minimum` (a sheet's default row height). */
-export function heightForLines(lines, fontSize = 13, minimum = 0) {
-  const lineHeight = Math.round(fontSize * 1.3);
-  return Math.max(minimum, lines * lineHeight + 8);
+/**
+ * Height in px for `lines` lines of text at a font size, never less than `minimum` (a sheet's default row height).
+ * A line takes 1.3 times its size, rounded up to a whole pixel, as Excel's rows take their font: 11 point Calibri
+ * (14.67px) makes a 20px row (15 points, the default row), 28 point 49px, and two wrapped lines of 11 point 40px.
+ */
+export function heightForLines(lines, fontSize = 13, minimum = 0, pad = 0) {
+  const lineHeight = Math.ceil(fontSize * 1.3 - 1e-9);
+  return Math.max(minimum, lines * lineHeight + pad);
+}
+
+/**
+ * What a sheet's default row adds to a line of its Normal font, when that default is the Normal font's own row
+ * a little roomier (the app's 19.5px rows for 13px text): automatic rows of that text then match the rows around
+ * them. A default set well apart from the font (a 48px default) adds nothing; content fits below it, as in Excel.
+ */
+export function rowPad(defaultRowHeight, normalSize = 13) {
+  const extra = defaultRowHeight - Math.ceil(normalSize * 1.3 - 1e-9);
+  return extra > 0 && extra <= 4 ? extra : 0;
 }

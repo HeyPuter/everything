@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { heightForLines } from '../src/core/textfit.js';
 import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { closeMenu } from '../src/ui/menu.js';
@@ -45,11 +46,11 @@ it('lets an automatic row fit its text again when the font is made smaller', asy
   const big = wb.rowHeight(id, 0);
   expect(big).toBeGreaterThan(50);
   expect(wb.sheet(id).rowHeightModes.get(0)).toBe('auto');
-  expect(wb.rowHeight(id, 1)).toBeGreaterThan(50);
+  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(heightForLines(1, 28 * 4 / 3));
   view.run('fontSize', 11 * 4 / 3);
   await vi.advanceTimersByTimeAsync(1);
   expect(wb.rowHeight(id, 0)).toBeLessThan(35);
   // The row sized by hand keeps the height it was grown to, as Excel keeps a custom height.
-  expect(wb.rowHeight(id, 1)).toBeGreaterThan(50);
+  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(heightForLines(1, 28 * 4 / 3));
   expect(wb.sheet(id).rowHeightModes.get(1)).toBe('fixed');
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { wrapLines, heightForLines, maxLineWidth, cellHorizontalPadding } from '../src/core/textfit.js';
+import { wrapLines, heightForLines, rowPad, maxLineWidth, cellHorizontalPadding } from '../src/core/textfit.js';
 
 const measure = (t) => t.length * 10; // 10px per character
 
@@ -67,13 +67,23 @@ describe('wrapLines', () => {
   });
 
   it('computes heights with a floor at the default row height', () => {
-    expect(heightForLines(1)).toBe(17 + 8);
+    // A line takes 1.3 times its size, rounded up: 11 point (14.67px) is Excel's 20px row, 28 point its 49px row.
+    expect(heightForLines(1)).toBe(17);
+    expect(heightForLines(1, 44 / 3)).toBe(20);
+    expect(heightForLines(1, 112 / 3)).toBe(49);
+    expect(heightForLines(2, 44 / 3)).toBe(40);
     // The caller's default row is the floor: a fitted row never gets shorter than a fresh one.
     expect(heightForLines(1, 13, 26)).toBe(26);
     expect(heightForLines(1, 8, 19.5)).toBe(19.5);
-    expect(heightForLines(3, 13, 19.5)).toBe(3 * 17 + 8);
-    expect(heightForLines(3)).toBe(3 * 17 + 8);
-    expect(heightForLines(2, 20)).toBe(2 * 26 + 8);
+    expect(heightForLines(3, 13, 19.5)).toBe(3 * 17);
+    expect(heightForLines(3)).toBe(3 * 17);
+    expect(heightForLines(2, 20)).toBe(2 * 26);
+    // A default row a little roomier than its Normal font's line passes that room on (the app's 19.5px rows for
+    // 13px text); one set well apart from the font passes nothing.
+    expect(rowPad(19.5, 13)).toBe(2.5);
+    expect(rowPad(20, 44 / 3)).toBe(0);
+    expect(rowPad(48, 13)).toBe(0);
+    expect(heightForLines(1, 13, 0, rowPad(19.5, 13))).toBe(19.5);
   });
 });
 

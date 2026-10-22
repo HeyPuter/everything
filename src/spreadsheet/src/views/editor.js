@@ -160,7 +160,7 @@ import { cellName, colName, normalizeRange, rangeName, parseRange, parseCellRef,
 import { parseRefText, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { formatValue, todaySerial, formatDate, fontStack, indentWidth, parseInput, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, cellCurrency, currencyDecimals, localeInfo, editText, hasDecimalPlaces } from '../core/format.js';
 import { stepCodeDecimals } from '../core/numfmt.js';
-import { maxLineWidth, cellLayoutText, tabularDigits } from '../core/textfit.js';
+import { maxLineWidth, cellLayoutText, tabularDigits, heightForLines } from '../core/textfit.js';
 import { toDelimited, parseClipboard, parseDelimited } from '../core/tsv.js';
 import { detectDelimiter, workbookFromFile, rangeToCsv, CSV_MIME } from '../core/io.js';
 import { cellsToHtml, copyMergeLayout, parseHtmlClipboard, cellsFromHtmlRows, isOwnHtmlClipboard } from '../core/clipboard.js';
@@ -1214,7 +1214,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (wb.isHidden(sid, 'row', r)) continue;
       const mode = sheet.rowHeightModes.get(r);
       if (sid === grid.sheetId && (mode === 'auto' || (mode == null && !sheet.rowHeights.has(r)))) { automatic.push(r); continue; }
-      const needed = Math.ceil(px * 1.35) + 8;
+      const needed = heightForLines(1, px);
       if (wb.rowHeight(sid, r) < needed) wb.setRowHeight(sid, r, needed, { auto: mode === 'auto' });
     }
     automatic.sort((a, b) => a - b);

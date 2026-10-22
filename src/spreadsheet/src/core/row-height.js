@@ -2,7 +2,7 @@ import { conditionalFontStyle, conditionalNumberFormat } from './style-values.js
 import { normalIndentUnit } from './normal-font.js';
 import { cellKey } from './cell.js';
 import { formatValue, fontStack, indentWidth } from './format.js';
-import { wrapLines, heightForLines, cellLayoutText, cellHorizontalPadding } from './textfit.js';
+import { wrapLines, heightForLines, rowPad, cellLayoutText, cellHorizontalPadding } from './textfit.js';
 import { numberFormatParts, measureFormatParts, wrappedFormatLineCount, wrappedRichFormatLines } from './format-layout.js';
 import { richTextMeasure, largestRichTextSize } from './rich-text-font.js';
 
@@ -43,6 +43,7 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
   // A row the app fits is never shorter than the sheet's default row.
   // Automatic rows from a file (no customHeight) fit their content, even below that default.
   const floor = automatic ? 0 : s.defaultRowHeight;
+  const pad = rowPad(s.defaultRowHeight, wb.normalStyle?.size || baseFontSize);
   if (force) {
     // The sheet default is a fallback for rows without measurable cells,
     // not a minimum: native automatic rows can be shorter than that default.
@@ -54,11 +55,18 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
   }
   for (const [r, c, cell] of cellsInRows(s, r1, r2, onlyRows)) {
     if (hidden(r)) continue;
-    if (cell.v == null && cell.f == null) continue;
     // Merged cells are excluded from automatic sizing, including their font
     // size. Other cells can grow the row; otherwise it uses the default height.
     // A cached height is not a minimum (confirmed by native Excel round trips).
     if (automatic && mergeAt(r, c)) continue;
+    if (cell.v == null && cell.f == null) {
+      // An empty cell in a font larger than the row's default still grows its row, as Excel's do: 28 point set
+      // on a blank cell makes room for what will be typed there. A blank never makes a row shorter than its default.
+      if (!force || mergeAt(r, c)) continue;
+      const need = heightForLines(1, styleAt(s, r, c)?.size || baseFontSize, floor, pad);
+      if (need > s.defaultRowHeight) heights.set(r, Math.max(heights.get(r) || 0, need));
+      continue;
+    }
     const value = wb.getValue(sheetId, r, c);
     const cf = wb.conditionalStyle(sheetId, r, c, value), st = conditionalNumberFormat(conditionalFontStyle(styleAt(s, r, c), cf), cf);
     const size = st?.size || baseFontSize;
@@ -76,7 +84,7 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
       const rad = (Math.abs(st.rot) * Math.PI) / 180;
       const width = parts ? measureFormatParts(parts, measurePart) : textWidth(text, font);
       const h = Math.ceil(width * Math.sin(rad) + largestSize * 1.3 * Math.cos(rad) + 10);
-      heights.set(r, Math.max(heights.get(r) || 0, h, heightForLines(1, largestSize, floor)));
+      heights.set(r, Math.max(heights.get(r) || 0, h, heightForLines(1, largestSize, floor, pad)));
       continue;
     }
     let m = null;
@@ -92,7 +100,7 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
       lines = richLines ? richLines.length : typeof value === 'number' ? 1 : parts ? wrappedFormatLineCount(parts, Math.max(20, width), measurePart) : wrapLines(text, Math.max(20, width), (t) => textWidth(t, font)).length;
     } else if (!force) continue;
     else { m = mergeAt(r, c); lines = text.split(/\r\n?|\n/).length; }
-    const need = richLines ? Math.max(floor, richLines.reduce((height, line) => height + Math.round(line.size * 1.3), 8)) : heightForLines(lines, largestSize, floor);
+    const need = richLines ? Math.max(floor, richLines.reduce((height, line) => height + heightForLines(1, line.size), pad)) : heightForLines(lines, largestSize, floor, pad);
     if (m && m.r2 > m.r1) {
       // A merge spanning rows shows its text over all of their heights together, so only what is
       // still missing is asked of its first row, not the whole text's height on top of the others.

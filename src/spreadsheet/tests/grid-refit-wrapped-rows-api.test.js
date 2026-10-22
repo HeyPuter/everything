@@ -18,7 +18,7 @@ const flush = () => new Promise((r) => setTimeout(r, 5));
 const WORDS = Array.from({ length: 12 }, (_, i) => `word${i % 10}`).join(' ');
 const ROWS = 30;
 
-/** Thirty rows of twelve wrapped words in column A, each fitted to the 100px column (110px, six lines). */
+/** Thirty rows of twelve wrapped words in column A, each fitted to the 100px column (105px, six lines). */
 async function mount() {
   const wb = new Workbook();
   const id = wb.sheets[0].id;
@@ -28,7 +28,7 @@ async function mount() {
   document.body.replaceChildren(grid.el);
   await flush();
   grid.autoFitRows(0, ROWS - 1);
-  expect(wb.rowHeight(id, 0)).toBe(110);
+  expect(wb.rowHeight(id, 0)).toBe(105);
   wb.clearHistory();
   // Every value the refit reads to measure a row, counted only while the transaction is open, so
   // the frame's own rendering is left out.
@@ -49,7 +49,7 @@ describe('grid.refitWrappedRows, called from the transaction that set the widths
     alone.wb.transaction('Resize columns', () => alone.wb.setColWidth(alone.id, 0, 300));
     const onePass = alone.reads();
     await flush();
-    expect(alone.wb.rowHeight(alone.id, 0)).toBe(42);
+    expect(alone.wb.rowHeight(alone.id, 0)).toBe(37);
     expect(alone.wb.undoLabels()).toEqual(['Resize columns']);
     expect(onePass).toBe(ROWS); // one reading per wrapped row: the rows were really measured
 
@@ -62,15 +62,15 @@ describe('grid.refitWrappedRows, called from the transaction that set the widths
     });
     const withCall = asked.reads();
     await flush();
-    expect(asked.wb.rowHeight(asked.id, 0)).toBe(42); // the same height
-    expect(asked.wb.rowHeight(asked.id, ROWS - 1)).toBe(42);
+    expect(asked.wb.rowHeight(asked.id, 0)).toBe(37); // the same height
+    expect(asked.wb.rowHeight(asked.id, ROWS - 1)).toBe(37);
     expect(withCall).toBe(onePass); // the same work, not twice over
 
     // Still one undo step, and one Ctrl/Cmd+Z puts the width and every height back together.
     expect(asked.wb.undoLabels()).toEqual(['Resize columns']);
     asked.wb.undo();
     await flush();
-    expect({ height: asked.wb.rowHeight(asked.id, 0), width: asked.wb.colWidth(asked.id, 0) }).toEqual({ height: 110, width: 100 });
+    expect({ height: asked.wb.rowHeight(asked.id, 0), width: asked.wb.colWidth(asked.id, 0) }).toEqual({ height: 105, width: 100 });
     expect(asked.wb.undoLabels()).toEqual([]);
   });
 
@@ -88,8 +88,8 @@ describe('grid.refitWrappedRows, called from the transaction that set the widths
       grid.refitWrappedRows([0, 2], before);
     });
     await flush();
-    expect(wb.rowHeight(id, 0)).toBe(42);
-    expect(wb.rowHeight(id, 5)).toBe(42);
+    expect(wb.rowHeight(id, 0)).toBe(37);
+    expect(wb.rowHeight(id, 5)).toBe(37);
     expect(wb.rowHeight(id, 3)).toBe(60); // sized by hand: left where it was
     expect(wb.undoLabels()).toEqual(['Fit columns']);
   });
@@ -98,7 +98,7 @@ describe('grid.refitWrappedRows, called from the transaction that set the widths
     const { wb, id, grid } = await mount();
     grid.refitWrappedRows([]);
     grid.refitWrappedRows(null);
-    expect(wb.rowHeight(id, 0)).toBe(110);
+    expect(wb.rowHeight(id, 0)).toBe(105);
     expect(wb.undoLabels()).toEqual([]);
   });
 });

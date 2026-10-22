@@ -53,10 +53,10 @@ it('fits wrapped labels across merged columns using the same margins', async () 
   wb.setColWidth(id, 0, 30); wb.setColWidth(id, 1, 31);
   const grid = createGrid({ wb, sheetId: id }); grids.push(grid); document.body.append(grid.el);
   await flush(); grid.autoFitRows(0, 0);
-  expect(wb.rowHeight(id, 0)).toBe(26);
+  expect(wb.rowHeight(id, 0)).toBe(22);
   wb.setColWidth(id, 1, 30);
   await flush(); grid.autoFitRows(0, 0);
-  expect(wb.rowHeight(id, 0)).toBe(44);
+  expect(wb.rowHeight(id, 0)).toBe(41);
 });
 
 it('shares horizontal insets between display and editing without font overrides', () => {

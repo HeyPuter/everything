@@ -28,7 +28,7 @@ async function mount() {
   document.body.replaceChildren(grid.el);
   await flush();
   grid.autoFitRows(0, 0);
-  expect(wb.rowHeight(id, 0)).toBe(110);
+  expect(wb.rowHeight(id, 0)).toBe(105);
   wb.clearHistory();
   return { wb, id, grid };
 }
@@ -45,16 +45,16 @@ describe('a column widened for a typed number', () => {
     await flush();
     expect(wb.getValue(id, 4, 0)).toBe(1234567890123);
     expect(wb.sheet(id).colWidths.get(0)).toBe(161); // $1,234,567,890,123.00 and its padding
-    expect(wb.rowHeight(id, 0)).toBe(76); // three words a line: four lines
+    expect(wb.rowHeight(id, 0)).toBe(71); // three words a line: four lines
     expect(wb.undoLabels()).toEqual(['Edit cell']);
     wb.undo();
     expect(wb.getValue(id, 4, 0)).toBeNull();
     expect(wb.sheet(id).colWidths.has(0)).toBe(false);
-    expect(wb.rowHeight(id, 0)).toBe(110);
+    expect(wb.rowHeight(id, 0)).toBe(105);
     expect(wb.undoLabels()).toEqual([]);
     wb.redo();
     expect(wb.getValue(id, 4, 0)).toBe(1234567890123);
-    expect(wb.rowHeight(id, 0)).toBe(76);
+    expect(wb.rowHeight(id, 0)).toBe(71);
     await flush();
     expect(wb.undoLabels()).toEqual(['Edit cell']); // the layout event after the step fits nothing again
     grid.destroy();

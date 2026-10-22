@@ -234,7 +234,7 @@ it('applies a fractional custom size and preserves row sizing modes', async () =
   for (const r of [5, 6]) for (const c of [3, 4, 5]) expect(wb.styleAt(id, r, c).size).toBe(25.5);
   expect(paint(5, 3)).toEqual({ size: 25.5 }); expect(paint(6, 4)).toEqual({ size: 25.5 });
   expect(wb.sheet(id).rowHeightModes.get(5)).toBe('auto'); expect(wb.sheet(id).rowHeightModes.get(6)).toBe('fixed');
-  expect(wb.rowHeight(id, 6)).toBeGreaterThanOrEqual(Math.ceil(25.5 * 1.35) + 8);
+  expect(wb.rowHeight(id, 6)).toBeGreaterThanOrEqual(heightForLines(1, 25.5));
   expect(wb.undoLabels()).toEqual(['Font size']); wb.undo(); expect(wb.toJSON()).toEqual(before);
 });
 it('excludes filtered rows from native font rules and height growth', async () => {
