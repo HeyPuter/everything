@@ -11,6 +11,7 @@ import { openModal, fieldAlert } from './modal.js';
 import { cellName, rangeName, normalizeRange } from '../core/cell.js';
 import { ICON_SETS, DATE_PERIODS } from '../core/condformat.js';
 import { conditionalRuleGroups } from '../core/conditional-groups.js';
+import { duplicateSourceFormula } from '../core/conditional-duplicates.js';
 import { CELL_STYLES } from '../core/cellstyles.js';
 import { numberOf, equalValueOf, ruleValueText } from './condformat.js';
 import { dateTimeKind } from '../core/format.js';
@@ -181,8 +182,11 @@ export function clearRules(wb, sheetId, ranges = null) {
       const left = ranges ? ranges.reduce((list, cut) => list.flatMap(area => subtractRange(area, normalizeRange(cut))), areas) : [];
       if (ranges && left.length === areas.length && left.every((area, i) => JSON.stringify(area) === JSON.stringify(areas[i]))) continue;
       touched++;
+      // Alternating colours left on part of their range keep counting from the rule's first row, rather than
+      // starting over with a header wherever the cleared cells cut them.
+      const origin = group.rule.type === 'bands' && !group.rule.bandOrigin && areas.length === 1 ? { bandOrigin: duplicateSourceFormula(areas) } : {};
       if (!left.length) wb.deleteRuleGroup(sheetId, group.rules[0].id);
-      else wb.setRuleAreas(sheetId, group.rules[0].id, {}, left);
+      else wb.setRuleAreas(sheetId, group.rules[0].id, origin, left);
     }
   });
   return touched;
