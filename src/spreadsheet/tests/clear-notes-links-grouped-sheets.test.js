@@ -61,3 +61,21 @@ it('takes the notes of every grouped sheet with Clear All', async () => {
   expect(wb.getNote(jan, 1, 0)).toBeFalsy();
   view.destroy();
 });
+
+it('takes every grouped sheet\'s conditional formatting off with Clear Formats and Clear All', async () => {
+  for (const cmd of ['clearFormat', 'clearAll']) {
+    const { wb, jan, feb, view } = await mount();
+    wb.ungroupSheets();
+    for (const id of [jan, feb]) wb.addRule(id, { range: { r1: 0, c1: 0, r2: 4, c2: 0 }, type: 'cellIs', op: 'gt', value: '0', style: { bg: '#ff0000' } });
+    expect(wb.sheet(feb).rules.length).toBe(1);
+    wb.groupSheets([jan, feb]);
+    view.goTo('Sheet1!A1:A5');
+    await view.run(cmd);
+    expect(wb.sheet(jan).rules.length).toBe(0);
+    expect(wb.sheet(feb).rules.length).toBe(0);
+    wb.undo();
+    expect(wb.sheet(feb).rules.length).toBe(1);
+    view.destroy();
+    document.body.replaceChildren();
+  }
+});

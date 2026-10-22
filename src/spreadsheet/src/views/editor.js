@@ -1081,7 +1081,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   function clearRulesAndMerges() {
     const { sheetId: sid, ranges } = styleTarget();
     const runs = ranges.flatMap((rg) => shownRuns(rg, sid));
-    clearRules(wb, sid, runs);
+    // Each grouped sheet loses its own rules there, as the clearing takes each one's formatting (unmerging already
+    // reaches the group): the active sheet's alone went, the others' highlights staying on their cleared cells.
+    for (const id of wb.sheetGroup?.includes(sid) ? wb.sheetGroup : [sid]) if (wb.sheet(id)?.kind !== 'chart') clearRules(wb, id, runs);
     for (const rg of runs) wb.unmergeCells(sid, rg);
   }
 
