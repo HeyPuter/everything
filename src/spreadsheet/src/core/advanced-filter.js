@@ -145,20 +145,28 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
   return { copied: rows.length, columns: columns.length };
 }
 
-/** Data ▸ Clear: every filter on the sheet shows all its rows again (criteria cleared, buttons kept). */
-export function clearSheetFilters(wb, sheetId) {
+/**
+ * Data ▸ Clear: the filters show all their rows again (criteria cleared, buttons kept). With `at`, the cell the
+ * command was given from, only the list around it is cleared, as Excel clears the current range: Clear in one
+ * table no longer wiped the filters of every other table on the sheet. From a cell outside every list, all of them.
+ */
+export function clearSheetFilters(wb, sheetId, at = null) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return false;
+  const inside = (range) => !!at && at.r >= range.r1 && at.r <= range.r2 && at.c >= range.c1 && at.c <= range.c2;
+  const here = sheetFilters(sheet).filter((f) => inside(f.range));
+  const advancedHere = !!sheet.advancedFilter && inside(sheet.advancedFilter.list);
+  const all = !here.length && !advancedHere;
   let changed = false;
   wb.transaction('Clear filter', () => {
-    for (const f of sheetFilters(sheet)) {
+    for (const f of all ? sheetFilters(sheet) : here) {
       if (!Object.keys(f.criteria || {}).length) continue;
       wb._setFilter(sheet, { ...f, criteria: {} }, 'Clear filter', { target: f });
       changed = true;
     }
     // The advanced filter run in place shows every record of its list again, wherever the list has moved to.
     const last = sheet.advancedFilter;
-    if (last) {
+    if (last && (all || advancedHere)) {
       const hidden = [...sheet.hiddenRows].filter((r) => r > last.list.r1 && r <= last.list.r2);
       if (hidden.length) wb.setHidden(sheetId, 'row', hidden, false);
       wb.setAdvancedFilterState(sheetId, null, 'Clear filter');

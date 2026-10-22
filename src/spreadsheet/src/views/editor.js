@@ -113,7 +113,7 @@ import { isCellPicture } from '../core/cell-picture.js';
 import { pictureIsPlain } from '../core/picture-format.js';
 import { linkedPictureTarget, rangePicture } from '../core/range-picture.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
-import { clearSheetFilters, reapplySheetFilters } from '../core/advanced-filter.js';
+import { clearSheetFilters, reapplySheetFilters, sheetHasFiltering } from '../core/advanced-filter.js';
 import { toggleDetail } from '../core/outline-detail.js';
 import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
@@ -3846,7 +3846,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'clearFilters':
         if (!committed()) return;
         if (refusedByProtection('change the filter')) return;
-        toast(clearSheetFilters(wb, sheetId) ? 'Filters cleared' : 'Nothing is filtered on this sheet', { icon: 'filter' });
+        // The list at the active cell, as Excel clears the current range; from outside every list, all of them.
+        toast(clearSheetFilters(wb, sheetId, grid.active) ? 'Filters cleared' : `Nothing is filtered ${sheetHasFiltering(wb, sheetId) ? 'in this list' : 'on this sheet'}`, { icon: 'filter' });
         keepFocus();
         return;
       case 'reapplyFilters':
