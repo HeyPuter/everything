@@ -3608,8 +3608,11 @@ export function createGrid(opts) {
     }
     const targets = [...extras, S.selRange(sel)];
     const arrayRange = edit.arrayRange || (arrayEntry ? S.selRange(sel) : null);
+    // A refused entry stays open, and is said on screen as well as to a screen reader: the announcement alone
+    // left Ctrl+Enter over a whole column looking as though it had done nothing.
+    const refuse = (message) => { opts.onInvalid?.({ message }); opts.announce?.(`${message}. Your entry is still being edited.`); };
     if (arrayEntry && extras.length) {
-      opts.announce?.('Select one continuous range for an array formula. Your entry is still being edited.');
+      refuse('Select one continuous range for an array formula');
       editor.focus({ preventScroll: true });
       return false;
     }
@@ -3629,7 +3632,7 @@ export function createGrid(opts) {
     if (filling) {
       const count = targets.reduce((total, rg) => total + (rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1), 0);
       if (count > 50000) {
-        opts.announce?.('Select at most 50,000 cells to fill at once. Your entry is still being edited.');
+        refuse('Select at most 50,000 cells to fill at once');
         editor.focus({ preventScroll: true });
         return false;
       }
