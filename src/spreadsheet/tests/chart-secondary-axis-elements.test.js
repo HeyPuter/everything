@@ -38,3 +38,14 @@ it('offers no secondary axis on a chart without one', () => {
   expect(submenu('Axes').map(i => i.label)).not.toContain('Secondary Vertical Axis');
   expect(submenu('Axis Titles').map(i => i.label)).not.toContain('Secondary Vertical Axis Title');
 });
+
+// The Chart Elements box (Format ▸ Current Selection), the keyboard's way to an element, did not list the
+// secondary axis, so its Format pane could only be reached with the pointer.
+it('lists the secondary axis in the Chart Elements box while it is shown', async () => {
+  const { chartElementKeys } = await import('../src/ui/chart-ribbon.js');
+  const { chart, pick } = setup('comboColumnLineSecondary');
+  expect(chartElementKeys(chart(), 2)).toContain('y2Axis');
+  pick('Axes', 'Secondary Vertical Axis');
+  expect(chartElementKeys(chart(), 2)).not.toContain('y2Axis');
+  expect(chartElementKeys(setup('comboColumnLine').chart(), 2)).not.toContain('y2Axis');
+});

@@ -201,7 +201,7 @@ export function elementLabel(key, names = []) {
 export function chartElementKeys(chart, seriesCount) {
   const axes = hasAxes(chart), a = chart.appearance || {};
   return ['chartArea', ...(axes ? ['plotArea'] : []), ...(chart.title ? ['title'] : []), ...(chart.legend !== false ? ['legend'] : []),
-    ...(axes && !a.hideXAxis ? ['xAxis'] : []), ...(axes && !a.hideYAxis ? ['yAxis'] : []),
+    ...(axes && !a.hideXAxis ? ['xAxis'] : []), ...(axes && !a.hideYAxis ? ['yAxis'] : []), ...(secondaryAxis(chart) && !a.hideY2Axis ? ['y2Axis'] : []),
     ...(axes && chart.xTitle ? ['xTitle'] : []), ...(axes && chart.yTitle ? ['yTitle'] : []),
     ...(axes && chart.gridlines !== false ? ['gridlines-y'] : []), ...(axes && a.xGridlines ? ['gridlines-x'] : []),
     ...Array.from({ length: isPieChart(chart) ? 1 : seriesCount }, (_, j) => `series:${j}`)];
