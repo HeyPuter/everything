@@ -24801,7 +24801,9 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 
 		/* fractions */
 		var t = nf.match(/# (\?+)\/(\?+)/);
-		if(t) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:max-denominator-value": Math.max(+(t[1].replace(/./g, "9")), +(t[2].replace(/./g, "9"))) }); break j; }
+		/* Puter Spreadsheet local patch: the denominator's width too (# ??/?? shows 1241 46/81), which a reader takes
+		 * from min-denominator-digits: without it the format came back as # ??/? and showed 1241  4/7. */
+		if(t) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:min-denominator-digits": t[2].length, "number:max-denominator-value": Math.max(+(t[1].replace(/./g, "9")), +(t[2].replace(/./g, "9"))) }); break j; }
 		if((t=nf.match(/# (\?+)\/(\d+)/))) { payload += writextag("number:fraction", null, {"number:min-integer-digits":0, "number:min-numerator-digits": t[1].length, "number:denominator-value": +t[2]}); break j; }
 
 		/* percentages */
