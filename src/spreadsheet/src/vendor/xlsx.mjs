@@ -23618,7 +23618,10 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			if(Rn[1]==='/') {
 				payload = parse_ods_format_text(str.slice(tidx, xlmlregex.lastIndex - Rn[0].length));
 				// NOTE: Excel has a different interpretation of "%%" and friends
-				if(payload == "%" && NFtag[0] == '<number:percentage-style') NF += "%";
+				/* Puter Spreadsheet local patch: the sign of a percentage is the % operator wherever it is in its text,
+				 * as LibreOffice writes " %" in France and Germany; quoted whole, 12,3 % was read as 0,1 %. */
+				var pctAt = NFtag[0] == '<number:percentage-style' ? payload.indexOf("%") : -1;
+				if(pctAt > -1 && payload.indexOf("%", pctAt + 1) == -1) NF += (pctAt > 0 ? ods_format_literal(payload.slice(0, pctAt)) : "") + "%" + (pctAt < payload.length - 1 ? ods_format_literal(payload.slice(pctAt + 1)) : "");
 				else NF += ods_format_literal(payload);
 			} else if(Rn[0].charAt(Rn[0].length-2) !== '/') {
 				tidx = xlmlregex.lastIndex;
@@ -24785,14 +24788,21 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* percentages */
 		/* Local fix: preserve percentage grouping and the actual decimal count. */
 		/* A token boundary avoids retrying at every digit in long number formats. */
-		if((t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)%/))) {
+		/* Puter Spreadsheet local patch: a regional format's percentage keeps its no-break space before the sign
+		 * (#,##0.0" "% for 12,3 % in France) or writes the sign first (%#,##0.0 for %12,3 in Turkey); either was
+		 * written as a plain number, the % left out, so LibreOffice showed 0,1 for 12,3 %. */
+		var lead = nf.match(/^%("[\u00a0\u202f]")?([#0][0#,]*)(|\.[0#]+)$/);
+		if(lead || (t=nf.match(/(?:^|[^#0,.])([#0][0#,]*)(|\.[0#]+)("[\u00a0\u202f]")?%/))) {
+			if(lead) t = [lead[0], lead[2], lead[3], lead[1]];
 			type = "percentage";
-			payload += writextag("number:number", null, {
+			var sign = "<number:text>" + (lead ? "%" + (t[3] ? t[3].slice(1, -1) : "") : (t[3] ? t[3].slice(1, -1) : "") + "%") + "</number:text>";
+			var digitsTag = writextag("number:number", null, {
 				"number:decimal-places": t[2] ? t[2].length - 1 : 0,
 				"number:min-decimal-places": (t[2].match(/0/g) || []).length,
 				"number:min-integer-digits": (t[1].match(/0/g) || []).length,
 				"number:grouping": t[1].indexOf(",") > -1 ? "true" : "false"
-			}) + "<number:text>%</number:text>";
+			});
+			payload += lead ? sign + digitsTag : digitsTag + sign;
 			break j;
 		}
 

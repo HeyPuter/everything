@@ -1318,6 +1318,24 @@ function buildDateFormatCode(dateStyle, loc) {
   return out ? localeTag(loc) + out : american;
 }
 
+const percentLayoutCache = new Map();
+/** Where a regional format writes the percent sign, and the no-break space it keeps from the digits, if any. */
+function percentLayout(loc) {
+  let layout = percentLayoutCache.get(loc);
+  if (layout) return layout;
+  layout = { leading: false, spacing: '' };
+  try {
+    const parts = new Intl.NumberFormat(loc, { style: 'percent' }).formatToParts(1);
+    const at = parts.findIndex((p) => p.type === 'percentSign'), digits = parts.findIndex((p) => p.type === 'integer');
+    if (at >= 0 && digits >= 0) {
+      const between = (at < digits ? parts.slice(at + 1, digits) : parts.slice(digits + 1, at)).filter((p) => p.type === 'literal').map((p) => p.value).join('');
+      layout = { leading: at < digits, spacing: /^[\u00a0\u202f]$/.test(between) ? between : '' };
+    }
+  } catch { /* an Intl without the regional format writes the sign after the digits, as before */ }
+  percentLayoutCache.set(loc, layout);
+  return layout;
+}
+
 /** Our style → an Excel number format code, as the regional format `loc` writes dates and currency. */
 export function styleToNumFmt(style, loc = locale) {
   const fmt = style?.fmt || 'general';
@@ -1330,7 +1348,13 @@ export function styleToNumFmt(style, loc = locale) {
       const { prefix, suffix } = currencyAffixes(style?.cur, loc);
       return `${prefix ? `"${prefix}"` : ''}${digits}${suffix ? `"${suffix}"` : ''}`;
     }
-    case 'percent': return `${digits}%`;
+    case 'percent': {
+      // The sign where the regional format puts it, with the space it puts beside it (12,3 % in France and
+      // Germany, %12,3 in Turkey), so a saved file shows the percentage as the grid does.
+      const { leading, spacing } = percentLayout(loc);
+      const gap = spacing ? `"${spacing}"` : '';
+      return leading ? `%${gap}${digits}` : `${digits}${gap}%`;
+    }
     case 'date': return dateFormatCode(style?.dateStyle, loc);
     case 'time': return style?.sec ? 'hh:mm:ss' : 'hh:mm';
     case 'datetime': return `${dateFormatCode(style?.dateStyle, loc)} ${style?.sec ? 'hh:mm:ss' : 'hh:mm'}`;
@@ -1387,6 +1411,8 @@ const SIMPLE_CODES = [
   /^General$/i,
   /^#,##0(\.0+)?$/, /^0(\.0+)?$/,
   /^(#,##)?0(\.0+)?%$/,
+  // The percentage as a regional format writes it, with its no-break space before the sign or the sign first.
+  /^(#,##)?0(\.0+)?"[\u00a0\u202f]"%$/, /^%(#,##)?0(\.0+)?$/,
   /^"[$€£¥]"(#,##)?0(\.0+)?$/, /^[$€£¥](#,##)?0(\.0+)?$/,
   /^0(\.0+)?E\+00$/,
   /^@$/,
