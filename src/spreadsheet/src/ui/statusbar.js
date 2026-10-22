@@ -292,13 +292,23 @@ export function createStatusBar(ctx) {
     });
   });
 
+  // The last summary, kept until the workbook changes or another range is selected: the bar refreshes on every
+  // keystroke typed into a cell and every Tab or Enter that moves the active cell within the selection, and each
+  // summing a large selection again held typing up (100 ms a key over 150,000 cells). Any change the workbook
+  // announces, a recalculation included, counts.
+  let stamp = 0, statsMemo = null;
+  const onWorkbookChange = () => { stamp++; };
+  ctx.wb.addEventListener?.('change', onWorkbookChange);
+
   /** The selection's statistics, formatted as the bar shows them (null for a single cell or a chart sheet). */
   function selectionStats() {
     const sheet = ctx.wb.sheet(ctx.sheetId());
     const sel = ctx.grid.selection;
     const ranges = ctx.grid.ranges || [ctx.grid.range];
     if (!sheet || sheet.kind === 'chart' || (isSingle(sel) && ranges.length === 1)) return null;
-    const s = ranges.length === 1 ? summarize(ctx.wb, ctx.sheetId(), ctx.grid.range) : summarizeAll(ctx.wb, ctx.sheetId(), ranges);
+    const key = `${ctx.sheetId()}|${ctx.wb.version}|${stamp}|${(ranges.length === 1 ? [ctx.grid.range] : ranges).map(({ r1, c1, r2, c2 }) => `${r1},${c1},${r2},${c2}`).join(';')}`;
+    if (statsMemo?.key !== key) statsMemo = { key, s: ranges.length === 1 ? summarize(ctx.wb, ctx.sheetId(), ctx.grid.range) : summarizeAll(ctx.wb, ctx.sheetId(), ranges) };
+    const { s } = statsMemo;
     if (!s) return null;
     const style = s.nums ? numericStyleAt(ctx.wb, sheet, sel.active.r, sel.active.c) || s.style || null : null;
     return { s, fmt: style ? (n) => formatValue(n, style) : formatGeneral };
@@ -415,5 +425,5 @@ export function createStatusBar(ctx) {
 
   const unsubscribe = ctx.subscribe(refresh);
   refresh();
-  return { el: root, refresh, announce, destroy: () => { clearTimeout(a11yTimer); unsubscribe(); } };
+  return { el: root, refresh, announce, destroy: () => { clearTimeout(a11yTimer); unsubscribe(); ctx.wb.removeEventListener?.('change', onWorkbookChange); } };
 }
