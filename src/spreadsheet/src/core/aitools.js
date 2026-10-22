@@ -407,7 +407,8 @@ function formulaLines(wb, sheetId, range, limit = 400) {
       run = null;
     };
     for (let r = range.r1; r <= range.r2; r++) {
-      const f = wb.getCell(sheetId, r, c)?.f;
+      // A formula the sheet's protection hides stays hidden from the model too, as from the formula bar.
+      const f = wb.formulaHiddenAt?.(sheetId, r, c) ? null : wb.getCell(sheetId, r, c)?.f;
       if (f == null) { flush(); continue; }
       if (run && r === run.r2 + 1 && shiftFormula(run.f, r - run.r1, 0) === f) { run.r2 = r; continue; }
       flush();
@@ -596,7 +597,7 @@ function find(wb, args) {
     keys.sort((a, b) => a.r - b.r || a.c - b.c);
     for (const { r, c } of keys) {
       const cell = sheet.cells.get(cellKey(r, c));
-      const hay = args.in_formulas ? (cell.f != null ? `=${cell.f}` : '') : wb.getDisplay(sheet.id, r, c);
+      const hay = args.in_formulas ? (cell.f != null && !wb.formulaHiddenAt?.(sheet.id, r, c) ? `=${cell.f}` : '') : wb.getDisplay(sheet.id, r, c);
       if (!hay || !fold(hay).includes(needle)) continue;
       if (matches.length >= MAX_FIND) { more = true; break; }
       matches.push({ cell: qualified(wb, sheet.id, { r1: r, c1: c, r2: r, c2: c }), text: clip(plain(hay), 120) });

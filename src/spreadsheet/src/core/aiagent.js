@@ -114,7 +114,8 @@ export function workbookSnapshot(wb, { sheetId, selection, docName = '', now = n
     if (cells === 1) {
       const cell = wb.getCell(sid, range.r1, range.c1);
       const shown = trimCell(wb.getDisplay(sid, range.r1, range.c1));
-      lines.push(`Selected: ${qualified(wb, sid, range)}, ${cell?.f != null ? `formula =${cell.f}, showing "${shown}"` : shown ? `holding "${shown}"` : 'empty'}.`);
+      const formula = cell?.f != null && !wb.formulaHiddenAt?.(sid, range.r1, range.c1); // one the sheet's protection hides is not told
+      lines.push(`Selected: ${qualified(wb, sid, range)}, ${formula ? `formula =${cell.f}, showing "${shown}"` : shown ? `holding "${shown}"` : 'empty'}.`);
     } else {
       lines.push(`Selected: ${qualified(wb, sid, range)} (${cells.toLocaleString('en-US')} cells).`);
       const used = dataBounds(wb, sid);
