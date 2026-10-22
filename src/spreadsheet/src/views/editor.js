@@ -3305,7 +3305,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus();
         return;
       }
-      case 'watchWindow': watchWindow.toggle(); return;
+      case 'watchWindow':
+        watchWindow.toggle();
+        // At the foot of the grid, where a phone's assistant sheet covers it (see the task panes below).
+        if (watchWindow.open && aiPanel?.coversGrid) aiPanel.close({ focusGrid: false });
+        return;
       case 'accessibility': accessibilityPane.toggle(); return;
       case 'quickTotal': {
         // Quick Analysis ▸ Totals: formulas in the row below the selection, or the column to its right.
@@ -6453,11 +6457,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       aiPanel?.el,
       aiPanel?.rail));
   // The task panes over the grid take turns: opening one closes whichever other was open, so none hides another.
+  // On a phone the assistant is a sheet over the grid too, drawn over the panes: it goes down for one, which
+  // otherwise opened unseen beneath it.
   const taskPanes = [accessibilityPane, languagePane, changesPane, selectionPane, queriesPane, smartArtPane];
   for (const pane of taskPanes) {
     const show = pane.show.bind(pane);
     pane.show = (...args) => {
       for (const other of taskPanes) if (other !== pane && other.open) other.hide();
+      if (aiPanel?.coversGrid) aiPanel.close({ focusGrid: false });
       return show(...args);
     };
   }

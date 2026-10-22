@@ -969,6 +969,8 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
     /** Mark the panel, or its strip, as where a file being dragged would go. */
     setDropTarget(on) { root.classList.toggle('ai-drop', !!on); rail.classList.toggle('ai-drop', !!on); },
     get isOpen() { return isOpen; },
+    /** Open as the sheet over the grid a phone's width makes it (see aipanel.css), where nothing under it shows. */
+    get coversGrid() { try { return isOpen && !!globalThis.matchMedia?.('(max-width: 640px)').matches; } catch { return false; } },
     get busy() { return agent.busy; },
     open,
     close,
