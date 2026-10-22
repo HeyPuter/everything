@@ -397,14 +397,17 @@ export class Replica extends EventTarget {
 
   /**
    * The inverse of a structural operation: the opposite operation and, for deletions, the writes that put back
-   * what went with the deleted lines or sheet (cells, formulas elsewhere that turned to #REF!, settings).
+   * what went with the deleted lines or sheet (cells, formulas elsewhere that turned to #REF!, settings). The
+   * opposite of an insertion or a move does not give every setting back either: a conditional format, a rule of
+   * validation or a filter over rows a moved row joined has no way to tell, when the row goes back, that it was
+   * not one of them (the rows they cover shrank to the row moved back, say), so the settings are put back too.
    */
   _inverseOf(op, old, result, before) {
     switch (op.t) {
       case 'insert':
-        return [{ t: 'delete', s: op.s, axis: op.axis, runs: [{ from: op.at, to: op.at + op.n - 1 }] }];
+        return [{ t: 'delete', s: op.s, axis: op.axis, runs: [{ from: op.at, to: op.at + op.n - 1 }] }, ...this._restoration(op, old, { cells: false })];
       case 'move':
-        return [{ t: 'move', s: op.s, axis: op.axis, from: result, count: op.count, to: op.from < result ? op.from : op.from + op.count }];
+        return [{ t: 'move', s: op.s, axis: op.axis, from: result, count: op.count, to: op.from < result ? op.from : op.from + op.count }, ...this._restoration(op, old, { cells: false })];
       case 'rename':
         return [{ t: 'rename', s: op.s, name: before }];
       case 'order':
@@ -417,7 +420,8 @@ export class Replica extends EventTarget {
     return [];
   }
 
-  _restoration(op, old) {
+  /** The writes that put back what a structural operation changed beside its own lines: with `cells` false, its settings alone. */
+  _restoration(op, old, { cells = true } = {}) {
     const cur = this.shadow;
     const out = [];
     for (const [id, o] of old.sheets) {
@@ -425,7 +429,7 @@ export class Replica extends EventTarget {
       if (!n) continue;
       const v = {}, st = {};
       let any = false;
-      for (const [key, cell] of o.cells) {
+      if (cells) for (const [key, cell] of o.cells) {
         const at = mapCellKey(op, id, key);
         const was = o.f.get(key) ?? null;
         if (at == null) {
@@ -1025,9 +1029,15 @@ export function splitChange(ops, inverses, limit = PART) {
  * person did, and only where nobody has changed it since, so another person's entries are not deleted with it.
  */
 function keepOthersWork(ops, theirs) {
+  // The settings an insertion's undo puts back after deleting the lines (see _inverseOf) follow the deletion: kept
+  // whole, it is followed by them; cut short for someone's work, the lines kept would leave them in the wrong places.
+  let end = ops.length;
+  while (end > 0 && (ops[end - 1].t === 'props' || ops[end - 1].t === 'book') && ops.slice(0, end - 1).some((o) => o.t === 'delete')) end--;
+  const settings = ops.slice(end);
+  ops = ops.slice(0, end);
   const last = ops.at(-1);
-  if (last?.t === 'drop') return theirs.some((t) => t.s === last.s && t.t !== 'drop') ? ops.slice(0, -1) : ops;
-  if (last?.t !== 'delete') return ops;
+  if (last?.t === 'drop') return [...(theirs.some((t) => t.s === last.s && t.t !== 'drop') ? ops.slice(0, -1) : ops), ...settings];
+  if (last?.t !== 'delete') return [...ops, ...settings];
   const written = new Set();
   const line = (key) => { const p = parseCellKey(key); if (p) written.add(last.axis === 'row' ? p.r : p.c); };
   for (const t of theirs) {
@@ -1043,7 +1053,7 @@ function keepOthersWork(ops, theirs) {
       }
     }
   }
-  if (!written.size) return ops;
+  if (!written.size) return [...ops, ...settings];
   const kept = [...written].sort((a, b) => a - b);
   const runs = [];
   for (const r of mergeRuns(last.runs)) {
