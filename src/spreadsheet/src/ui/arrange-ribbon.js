@@ -39,15 +39,16 @@ const backwardMenu = (menus, ctx) => {
 /** Align's menu: the six alignments, the two distributions, and the snapping switches. */
 export function alignMenu(ctx) {
   const s = selection(ctx), f = flags(ctx);
+  // A group aligns and distributes as one object (see Workbook.alignObjects): one group alone has nothing to line up with.
   const units = new Set(s.objects.map((o) => o.group || o.id)).size;
-  const align = (label, how, glyph) => entry(label, glyph, 'alignObjects', how, off(s) || s.ids.length < 2);
+  const align = (label, how, glyph) => entry(label, glyph, 'alignObjects', how, off(s) || units < 2);
   return [
     align('Align Left', 'left', 'alignObjects'), align('Align Center', 'center', 'alignCenter'), align('Align Right', 'right', 'alignRight'),
     { separator: true },
     align('Align Top', 'top', 'valignTop'), align('Align Middle', 'middle', 'valignMiddle'), align('Align Bottom', 'bottom', 'valignBottom'),
     { separator: true },
-    entry('Distribute Horizontally', 'distributeH', 'alignObjects', 'horizontal', off(s) || units < 3 && s.ids.length < 3),
-    entry('Distribute Vertically', 'distributeV', 'alignObjects', 'vertical', off(s) || units < 3 && s.ids.length < 3),
+    entry('Distribute Horizontally', 'distributeH', 'alignObjects', 'horizontal', off(s) || units < 3),
+    entry('Distribute Vertically', 'distributeV', 'alignObjects', 'vertical', off(s) || units < 3),
     { separator: true },
     { label: 'Snap to Grid', cmd: 'snapObjects', arg: 'grid', checked: !!f.snapGrid, hint: 'Line up with cell edges (Alt: free)' },
     { label: 'Snap to Shape', cmd: 'snapObjects', arg: 'shape', checked: !!f.snapShape, hint: 'Line up with other objects' },
