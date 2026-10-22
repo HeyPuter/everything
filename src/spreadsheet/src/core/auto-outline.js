@@ -24,7 +24,10 @@ function summaryRefs(formula, sheetName) {
   let tokens;
   try { tokens = tokenize(String(formula)); } catch { return []; }
   const summarizes = tokens.some((t, i) => t.type === 'name' && tokens[i + 1]?.type === 'lparen' && SUMMARY_FUNCTIONS.has(String(t.value).toUpperCase().replace(/^_XLFN\./, '')));
-  if (!summarizes) return [];
+  // A grand total written as its subtotals added up, =B5+B9, summarizes them as =SUM(B5,B9) does; it is read
+  // only as such a total (see bridgedRun), so a running balance such as =C2+B3 makes no group.
+  const added = !summarizes && tokens.filter((t) => t.type === 'ref').length > 1 && tokens.every((t) => t.type === 'ref' || (t.type === 'op' && t.value === '+'));
+  if (!summarizes && !added) return [];
   const out = [];
   for (const t of tokens) {
     if (t.type !== 'ref' || t.sheetEnd) continue;
@@ -32,6 +35,7 @@ function summaryRefs(formula, sheetName) {
     const ref = parseRefText(t.text, t.sheet);
     if (ref && (ref.kind === 'cell' || ref.kind === 'range')) out.push(ref);
   }
+  if (added) out.addedUp = true;
   return out;
 }
 
@@ -55,6 +59,34 @@ function detailRun(refs, at, across, before, axis) {
 }
 
 /**
+ * The run a grand total covers when it reads subtotals rather than one unbroken run of detail: =SUM(B5,B9) or
+ * =B5+B9 over subtotal rows, or =SUM(B2:B4,B6:B8) over the detail with the subtotal rows between. A reference to a
+ * group's summary line stands for the group with it, and a summary line of a group the references leave out
+ * (between them, or between them and the total) belongs to the run as well. `groups` are the runs found on
+ * this axis; null when the references still leave a gap or the run does not reach the total.
+ */
+function bridgedRun(refs, at, across, before, axis, groups) {
+  const [lo, hi, olo, ohi] = axis === 'row' ? ['r1', 'r2', 'c1', 'c2'] : ['c1', 'c2', 'r1', 'r2'];
+  const lines = refs.filter((rf) => rf[olo] <= across && rf[ohi] >= across);
+  if (lines.length < 2) return null;
+  const summaryOf = new Map(groups.map((g) => [before ? g.to + 1 : g.from - 1, g]));
+  const spans = lines.map((rf) => {
+    const g = rf[lo] === rf[hi] && summaryOf.get(rf[lo]);
+    return g ? [Math.min(g.from, rf[lo]), Math.max(g.to, rf[lo])] : [rf[lo], rf[hi]];
+  }).sort((a, b) => a[0] - b[0]);
+  // A line between two spans, or between the last span and the total, joins the run when it is a group's summary.
+  const bridges = (line) => { const g = summaryOf.get(line); return !!g && g.from >= spans[0][0] && g.to <= Math.max(...spans.map((sp) => sp[1])); };
+  let [from, to] = spans[0];
+  for (const [a, b] of spans.slice(1)) {
+    for (let line = to + 1; line < a; line++) if (!bridges(line)) return null;
+    to = Math.max(to, b);
+  }
+  if (before) { while (to < at - 1 && bridges(to + 1)) to++; } else { while (from > at + 1 && bridges(from - 1)) from--; }
+  if (before ? to !== at - 1 : from !== at + 1) return null;
+  return { from, to };
+}
+
+/**
  * The groups Auto Outline would build on a sheet, within `range` (the whole used range when null):
  * { rows: [{ from, to }], cols: [...] }, outermost first.
  */
@@ -65,16 +97,31 @@ export function autoOutlineGroups(wb, sheetId, range = null) {
   if (!area) return { rows: [], cols: [] };
   const { summaryBelow, summaryRight } = outlineSettingsOf(sheet);
   const found = { row: new Map(), col: new Map() };
+  const totals = [];
   for (const [key, cell] of sheet.cells) {
     if (cell.f == null) continue;
     const { r, c } = parseKey(key);
     if (r < area.r1 || r > area.r2 || c < area.c1 || c > area.c2) continue;
     const refs = summaryRefs(cell.f, sheet.name);
     if (!refs.length) continue;
-    const down = detailRun(refs, r, c, summaryBelow, 'row');
+    const down = !refs.addedUp && detailRun(refs, r, c, summaryBelow, 'row');
     if (down) found.row.set(`${down.from}:${down.to}`, down);
-    const across = detailRun(refs, c, r, summaryRight, 'col');
+    const across = !refs.addedUp && detailRun(refs, c, r, summaryRight, 'col');
     if (across) found.col.set(`${across.from}:${across.to}`, across);
+    if (!down || !across) totals.push({ r, c, refs, down: !down, across: !across });
+  }
+  // Grand totals over subtotals, once the groups the subtotals make are known; a total over totals of totals
+  // takes another pass, as each pass finds the groups the next one bridges.
+  for (let pass = 0; pass < MAX_LEVELS && totals.length; pass++) {
+    const rows = [...found.row.values()], cols = [...found.col.values()];
+    let more = false;
+    for (const t of totals) {
+      const down = t.down && bridgedRun(t.refs, t.r, t.c, summaryBelow, 'row', rows);
+      if (down && !found.row.has(`${down.from}:${down.to}`)) { found.row.set(`${down.from}:${down.to}`, down); more = true; }
+      const across = t.across && bridgedRun(t.refs, t.c, t.r, summaryRight, 'col', cols);
+      if (across && !found.col.has(`${across.from}:${across.to}`)) { found.col.set(`${across.from}:${across.to}`, across); more = true; }
+    }
+    if (!more) break;
   }
   return { rows: nest([...found.row.values()]), cols: nest([...found.col.values()]) };
 }
