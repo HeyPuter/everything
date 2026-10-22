@@ -60,7 +60,9 @@ export function openVersionHistory(doc, { onRestored } = {}) {
     const requestId = ++loadId;
     notice('Loading…');
     let versions = [];
-    try { versions = await listVersions(doc.file ?? doc.path); }
+    // The snapshot of a save made a moment ago may still be on its way: listed before it lands, the history read
+    // "No versions yet" and stayed so, and a version saved by hand on the strength of that doubled it.
+    try { await doc.versionSettled?.(); versions = await listVersions(doc.file ?? doc.path); }
     catch (e) {
       if (closed || requestId !== loadId) return;
       console.error(e);

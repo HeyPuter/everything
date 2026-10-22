@@ -793,6 +793,11 @@ export class Doc extends EventTarget {
     try { await saveVersion(file, blob); } catch (e) { console.warn('Version snapshot failed', e); }
   }
 
+  /** Resolves once the automatic snapshot of the last save, when one is on its way, has landed (or failed). */
+  versionSettled() {
+    return Promise.resolve(this._versioning);
+  }
+
   /**
    * A snapshot was removed from the history (by hand, in the dialog): which snapshot is the newest
    * is looked up again before the next save decides whether another is due, rather than going on
