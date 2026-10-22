@@ -558,7 +558,10 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
     const { r, c } = parseKey(key);
     if (inOld(r, c) && !written.has(key)) entries.push({ r, c, cell: null });
   }
-  wb.transaction('Refresh PivotTable', () => {
+  // Written on the pivot table's sheet alone: its sheet grouped with others (Refresh All from a group of tabs) would
+  // otherwise have the cells it rewrote written over the same cells of every other sheet in the group.
+  const alone = (fn) => (wb._withoutGroup ? wb._withoutGroup(fn) : fn());
+  wb.transaction('Refresh PivotTable', () => alone(() => {
     for (const v of sheet.validations.filter((v) => v.type === 'list' && v.range.r1 >= old.r1 && v.range.r2 <= old.r2 && v.range.c1 >= old.c1 && v.range.c2 <= old.c2)) wb.deleteValidation(sheetId, v.id);
     wb.setCells(sheetId, entries, 'Refresh PivotTable');
     for (const fc of built.filterCells) {
@@ -569,6 +572,6 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
       : n.name.toLowerCase() === DEFINITION.area.toLowerCase() ? { ...n, ref: absoluteRange(sheet.name, next) }
         : n.name.toLowerCase() === DEFINITION.fields.toLowerCase() ? { ...n, ref: fields } : n));
     wb._setNames(names, 'Refresh PivotTable');
-  });
+  }));
   return { rows: built.rowCount };
 }
