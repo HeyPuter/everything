@@ -51,15 +51,31 @@ export function namesFromSelection(wb, sheetId, range, { top = false, left = fal
 }
 
 /**
- * Define the names as one undo step. Returns { created, replaced, skipped: [{ name, reason }] }.
- * A later label with the same spelling wins.
+ * The workbook names the choice would point somewhere else: [{ name, ref }] of the existing definitions, as Excel
+ * asks before replacing them. A label naming the cells its name already refers to replaces nothing.
  */
-export function createNamesFromSelection(wb, sheetId, range, edges) {
+export function namesReplacedBySelection(wb, sheetId, range, edges) {
+  const out = [];
+  for (const { name, ref } of namesFromSelection(wb, sheetId, range, edges)) {
+    const existing = wb.names.find(n => !n.sheet && n.name.toLowerCase() === name.toLowerCase());
+    if (existing && existing.ref.replace(/^=/, '') !== ref && !out.some(o => o.name.toLowerCase() === name.toLowerCase())) out.push({ name: existing.name, ref: existing.ref });
+  }
+  return out;
+}
+
+/**
+ * Define the names as one undo step. Returns { created, replaced, skipped: [{ name, reason }] }.
+ * A later label with the same spelling wins. With `replace` false a name the workbook already had keeps its
+ * definition (counted in `kept`), as Excel's No to its question leaves it.
+ */
+export function createNamesFromSelection(wb, sheetId, range, edges, { replace = true } = {}) {
   const entries = namesFromSelection(wb, sheetId, range, edges);
-  const result = { created: 0, replaced: 0, skipped: [] };
+  const result = { created: 0, replaced: 0, skipped: [], ...(replace ? {} : { kept: 0 }) };
+  const before = new Set(wb.names.filter(n => !n.sheet).map(n => n.name.toLowerCase()));
   wb.transaction('Create names from selection', () => {
     for (const { name, ref } of entries) {
       const existed = wb.names.some(n => !n.sheet && n.name.toLowerCase() === name.toLowerCase());
+      if (!replace && before.has(name.toLowerCase())) { result.kept++; continue; }
       const problem = wb.defineName(name, ref);
       if (problem) result.skipped.push({ name, reason: problem });
       else if (existed) result.replaced++;

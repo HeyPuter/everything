@@ -4,10 +4,10 @@
  */
 
 import { el, fieldId } from './dom.js';
-import { openModal, fieldAlert } from './modal.js';
+import { openModal, fieldAlert, confirmDialog } from './modal.js';
 import { toast } from './toast.js';
 import { rangeName } from '../core/cell.js';
-import { createNamesFromSelection, guessLabelEdges, namesFromSelection } from '../core/names-from-selection.js';
+import { createNamesFromSelection, guessLabelEdges, namesFromSelection, namesReplacedBySelection } from '../core/names-from-selection.js';
 
 export function openCreateNamesDialog(ctx, range) {
   const { wb } = ctx;
@@ -25,14 +25,32 @@ export function openCreateNamesDialog(ctx, range) {
   };
   for (const box of Object.values(boxes)) box.addEventListener('change', update);
   const { alert: error, refuse } = fieldAlert('cn');
-  const submit = e => {
+  let asking = false;
+  const submit = async e => {
     e?.preventDefault();
+    if (asking) return;
     if (!edges.some(([key]) => boxes[key].checked)) return refuse(boxes.top, 'Choose at least one edge that holds the labels');
     if (!namesFromSelection(wb, sheetId, range, chosen()).length) return refuse(boxes.top, 'The chosen edges have no labels to name the cells after');
-    const { created, replaced, skipped } = createNamesFromSelection(wb, sheetId, range, chosen());
-    if (!created && !replaced) return refuse(boxes.top, skipped[0] ? `${skipped[0].name}: ${skipped[0].reason}` : 'No names were created');
+    // A name formulas already use is not pointed at other cells unasked, as Excel asks first: its definition was
+    // replaced in silence, every formula reading it then reading the new cells.
+    const clashes = namesReplacedBySelection(wb, sheetId, range, chosen());
+    let replace = true;
+    if (clashes.length) {
+      const list = clashes.slice(0, 3).map(n => `${n.name} (${n.ref.replace(/^=/, '')})`).join(', ') + (clashes.length > 3 ? `, and ${clashes.length - 3} more` : '');
+      asking = true;
+      try {
+        replace = await confirmDialog({
+          title: clashes.length === 1 ? 'Replace an existing name?' : 'Replace existing names?',
+          message: `${list} already ${clashes.length === 1 ? 'exists' : 'exist'}. Replace ${clashes.length === 1 ? 'its definition' : 'their definitions'} with the selected cells? Formulas that use ${clashes.length === 1 ? 'it' : 'them'} will read the new cells.`,
+          confirmLabel: 'Replace', cancelLabel: 'Keep existing', danger: false, dismissValue: null,
+        });
+      } finally { asking = false; }
+      if (replace == null) return; // dismissed: the dialog stays, as Excel's Cancel leaves it
+    }
+    const { created, replaced, kept, skipped } = createNamesFromSelection(wb, sheetId, range, chosen(), { replace });
+    if (!created && !replaced) return refuse(boxes.top, kept ? `${kept === 1 ? 'The name already exists' : 'The names already exist'} and ${kept === 1 ? 'was' : 'were'} kept` : skipped[0] ? `${skipped[0].name}: ${skipped[0].reason}` : 'No names were created');
     modal.close();
-    const parts = [created && `Created ${created} name${created === 1 ? '' : 's'}`, replaced && `replaced ${replaced}`,
+    const parts = [created && `Created ${created} name${created === 1 ? '' : 's'}`, replaced && `replaced ${replaced}`, kept && `kept ${kept} existing`,
       skipped.length && `skipped ${skipped.length} (${skipped[0].name}: ${skipped[0].reason})`].filter(Boolean);
     toast(parts.join('; '), { icon: 'tag', duration: skipped.length ? 5000 : 2600 });
   };
