@@ -14,7 +14,8 @@ import { themedCellStyleItems } from './themes.js';
 import { CELL_STYLES, cellStyle } from '../core/cellstyles.js';
 import { fontColorCss } from '../core/font-color.js';
 import { fillColorCss } from '../core/fill-color.js';
-import { borderCss } from '../core/format.js';
+import { borderCss, fontStack } from '../core/format.js';
+import { themedPreset } from '../core/workbook-theme.js';
 import {
   STYLE_PARTS, PART_KEYS, normalizeCustomStyle, styleNameProblem, styleFromCell, styleFromPreset, styleAsCell, foldFormat,
   partSummary, builtinOverride, customStyleNamed, restyleCells, unlinkCells, mergeStyleLists, clashingStyleNames, edgesOfStyle,
@@ -35,12 +36,19 @@ function sampleCss(def) {
   };
 }
 
-/** A built-in preset's sample, as the gallery always drew it. */
-const presetCss = (s) => ({
-  color: s.patch.color || 'var(--ink)', background: s.patch.bg || 'var(--surface)', border: '1px solid var(--hairline)', fontWeight: s.patch.bold ? '700' : '400',
-  fontSize: s.patch.size ? `${Math.min(s.patch.size, 16)}px` : '13px',
-  borderBottom: (s.borders || []).some((b) => b.kind === 'bottom') ? sampleEdge(s.borders.find((b) => b.kind === 'bottom')) : 'none',
-});
+/**
+ * A built-in preset's sample, in the theme colours and heading face it applies under the workbook's theme
+ * (themedPreset): Ember's Heading is brown with a rust rule, so its sample is not the default blue.
+ */
+const presetCss = (preset, wb) => {
+  const s = themedPreset(preset, wb);
+  return {
+    color: fontColorCss(s.patch.color) || 'var(--ink)', background: fillColorCss(s.patch.bg) || 'var(--surface)', border: '1px solid var(--hairline)', fontWeight: s.patch.bold ? '700' : '400',
+    fontSize: s.patch.size ? `${Math.min(s.patch.size, 16)}px` : '13px',
+    ...(s.patch.font ? { fontFamily: fontStack(s.patch.font) || '' } : {}),
+    borderBottom: (s.borders || []).some((b) => b.kind === 'bottom') ? sampleEdge(s.borders.find((b) => b.kind === 'bottom')) : 'none',
+  };
+};
 
 /** Who a style is, for the actions on it: a built-in by key, or a custom one by name. */
 const builtinRef = (key) => ({ builtin: key });
@@ -77,7 +85,7 @@ export function openCellStylesGallery(ctx, arg) {
     { header: 'Built-in' },
     grid('Built-in', CELL_STYLES.map((s) => {
       const own = builtinOverride(wb, s.key);
-      return sample(s.label, own ? sampleCss(own) : presetCss(s), () => pick(s.key), builtinRef(s.key));
+      return sample(s.label, own ? sampleCss(own) : presetCss(s, wb), () => pick(s.key), builtinRef(s.key));
     })),
     ...themedCellStyleItems(wb, (key) => pick(key)),
     { separator: true },
