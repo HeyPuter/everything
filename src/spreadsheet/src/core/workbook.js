@@ -4728,7 +4728,7 @@ export class Workbook extends EventTarget {
    * formula repeats (formulas shift); a numeric run continues its step;
    * text with a trailing number counts up.
    */
-  fill(sheetId, source, target, { series = true, invert = false } = {}) {
+  fill(sheetId, source, target, { series = true, invert = false, formats = true } = {}) {
     // invert (Ctrl/Cmd while dragging): a single number counts up instead of
     // repeating, and a run or text series repeats instead of continuing.
     const src = normalizeRange(source);
@@ -4983,6 +4983,7 @@ export class Workbook extends EventTarget {
         const next = replaceValidations(sheet.validations, mapPastedValidations(copied, h, w, r0, c0, { rows, cols }), entries, newId);
         if (next !== sheet.validations) this._setValidations(sheet, next, 'Fill');
       }
+      if (formats) this.fillConditionalFormats(sheetId, src, tgt, entries);
       // Rows filled under a table join it, whether the fill handle was dragged or double-clicked or Ctrl+D
       // pressed; the drag's own extendTableToCover call afterwards finds the table already grown. A fill
       // that wrote nothing (one a protected cell refused) grows no table. The whole target goes over, not
@@ -4990,6 +4991,26 @@ export class Workbook extends EventTarget {
       // Blank native anchors are real filled content even without scalar writes.
       if ((changed || nativeChanged) && tgt.r2 > src.r2) this.extendTableToCover(sheetId, { r1: tgt.r1, c1: tgt.c1, r2: tgt.r2, c2: tgt.c2 });
     });
+  }
+
+  /**
+   * Conditional formatting goes with a fill as the cells' other formatting does, as Excel's fill handle and Fill
+   * Down carry it: each copy of the source block lays down its rules over the filled cells (`cells`), in place of
+   * theirs, and cells filled with the rule they already have keep it (see replaceConditionalFormats).
+   */
+  fillConditionalFormats(sheetId, source, target, cells) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || !cells.length || !sheet.rules.length || this._gridLocked(sheet) || cells.some(({ r, c }) => this._protectedAt(sheet, r, c))) return;
+    const src = normalizeRange(source), tgt = normalizeRange(target);
+    const h = src.r2 - src.r1 + 1, w = src.c2 - src.c1 + 1;
+    const vertical = tgt.r2 - tgt.r1 + 1 > h || (tgt.c2 - tgt.c1 + 1 === w);
+    const lines = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const copied = copyConditionalFormats(sheet.rules, lines(src.r1, src.r2), lines(src.c1, src.c2), sheet.name);
+    const tile = (start, size, lo, hi) => { const first = start + Math.floor((lo - start) / size) * size; return [first, Math.ceil((hi - first + 1) / size)]; };
+    const [r0, rows] = vertical ? tile(src.r1, h, tgt.r1, tgt.r2) : [src.r1, 1];
+    const [c0, cols] = vertical ? [src.c1, 1] : tile(src.c1, w, tgt.c1, tgt.c2);
+    const next = replaceConditionalFormats(sheet.rules, mapPastedConditionalFormats(copied, h, w, r0, c0, { rows, cols }), cells, newId, sheet.name);
+    if (next !== sheet.rules) this._setRules(sheet, next, 'Fill');
   }
 
   /**

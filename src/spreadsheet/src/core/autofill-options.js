@@ -128,14 +128,19 @@ export function refill(wb, sheetId, source, target, kind) {
       entries.push({ r, c, cell: { ...(prev || {}), v: prev?.v ?? null, f: prev?.f ?? null, ...(style ? { s: style } : {}) } });
       if (!style) delete entries.at(-1).cell.s;
     }));
-    return wb.setCellsWithTableHeaders(sheetId, entries, label) > 0;
+    // The conditional formatting goes with the rest of the formatting.
+    return wb.transaction(label, () => {
+      const written = wb.setCellsWithTableHeaders(sheetId, entries, label) > 0, rules = wb.sheet(sheetId)?.rules;
+      wb.fillConditionalFormats?.(sheetId, s, t, entries);
+      return written || wb.sheet(sheetId)?.rules !== rules;
+    });
   }
   if (kind === 'values') {
     // The contents of the default fill, with each cell keeping the formatting it had.
     const before = new Map();
     lines.forEach((_, k) => positions.forEach(({ p }) => { const { r, c } = at(k, p); before.set(`${r},${c}`, wb.getCell(sheetId, r, c)?.s); }));
     wb.transaction(label, () => {
-      wb.fill(sheetId, s, t);
+      wb.fill(sheetId, s, t, { formats: false });
       const entries = [];
       for (const [key, style] of before) {
         const [r, c] = key.split(',').map(Number);
