@@ -27,7 +27,7 @@ import { cellFromInput, safeLinkUrl, textUrl } from './workbook.js';
 import { cellLayoutText, CELL_TEXT_INSET } from './textfit.js';
 import { MAX_TEXT } from './cell.js';
 import { fontStack, fontKeyFor, numFmtToStyle, styleToNumFmt, formatValue, dateTimeKind, borderCss, defaultAlign, layoutAlign, TYPED_ERRORS } from './format.js';
-import { MAX_FORMAT_CODE_LENGTH, codeColor, unformatTextWithCode, unformatTimeWithCode } from './numfmt.js';
+import { MAX_FORMAT_CODE_LENGTH, codeColor, codeLocale, unformatTextWithCode, unformatTimeWithCode } from './numfmt.js';
 import { parseDelimited } from './tsv.js';
 import { htmlTableRows } from './html-table.js';
 import { RTL_LEAD } from './bidi.js';
@@ -693,6 +693,37 @@ function calcTextFormat(td) {
 }
 
 /**
+ * The format of a number LibreOffice Calc wrote with sdnum="1031;0;#.##0,00 [$€-407]" (its language, then
+ * the code), as this app's style: the code in Excel's spelling, its decimal and group marks those of that
+ * language. Calc spells date and time words in the language too (TT.MM.JJJJ in German), and has codes of its
+ * own (NNNN for a weekday, Q for a quarter): a code with letters is read only in English, and only without
+ * those. Null for any other code, and for General.
+ */
+function calcNumberStyle(td) {
+  const [language, , ...rest] = (td.getAttribute('sdnum') || '').split(';');
+  const code = rest.join(';').trim();
+  if (!code || code === '@' || code.length > MAX_FORMAT_CODE_LENGTH || !/^\d+$/.test(language)) return null;
+  const english = (Number(language) & 0x3ff) === 0x09;
+  let decimal = '.', group = ',';
+  try {
+    const parts = new Intl.NumberFormat(codeLocale(`[$-${Number(language).toString(16)}]`) || 'en-US').formatToParts(12345.6);
+    decimal = parts.find((p) => p.type === 'decimal')?.value || '.';
+    group = parts.find((p) => p.type === 'group')?.value || ',';
+  } catch { /* a language Intl does not know reads as English */ }
+  let excel = '';
+  for (const token of code.match(/"[^"]*"?|\[[^\]]*\]?|\\.|_.|\*.|[\s\S]/g)) {
+    if (token.length > 1) {
+      if (/^\[(?:~|NatNum|DBNum)/i.test(token)) return null;
+      excel += token;
+    } else if (token === decimal) excel += '.';
+    else if (token === group) excel += ',';
+    else if (/\p{L}/u.test(token) && (english ? /[NQW]/i.test(token) : !/^e$/i.test(token))) return null;
+    else excel += token;
+  }
+  return numFmtToStyle(excel);
+}
+
+/**
  * The typed value behind a cell's displayed text, when the source app wrote
  * one: Excel's x:num (the full-precision number), x:bool and x:str (text, however it
  * reads; the attribute carries the text itself when the display differs, as
@@ -1245,6 +1276,9 @@ export function parseHtmlClipboard(html, plainText) {
       }
       if (!embeddedResult && !blank) anchors.push([r, c]);
       if (typed !== undefined && (typed !== null || text !== '' || td.hasAttribute('x:str'))) row[c].value = typed === null ? text : typed;
+      // The format Calc showed its number through, for a number whose shown text reads as no number here.
+      const calcStyle = typeof typed === 'number' && td.hasAttribute('sdnum') ? calcNumberStyle(td) : null;
+      if (calcStyle) row[c].numberStyle = calcStyle;
       if (typed === null) bare.set(row[c], td.hasAttribute('x:str'));
       const link = !embeddedResult && !blank && td.firstElementChild ? linkOf(td) : null;
       if (link) row[c].link = link;
@@ -1378,7 +1412,7 @@ function namesSameMoment(serial, cell) {
  */
 export function cellsFromHtmlRows(rows, existingStyleAt, { values = false } = {}) {
   const out = [];
-  rows.forEach((row, i) => row.forEach(({ text, style, value, link, richText }, j) => {
+  rows.forEach((row, i) => row.forEach(({ text, style, value, link, richText, numberStyle }, j) => {
     const prev = existingStyleAt?.(i, j);
     const base = style ? { ...(prev || {}), ...style } : prev;
     let cell = link && !values ? { v: text, f: null, s: base ? { ...base } : undefined }
@@ -1399,10 +1433,12 @@ export function cellsFromHtmlRows(rows, existingStyleAt, { values = false } = {}
       const implied = number && typeof cell?.v === 'number' && cell.s
         && Math.abs(cell.v - value) <= Math.max(Math.abs(value) * 0.01, 0.01);
       const dated = number && !implied && typeof cell?.v === 'number' && !formatsNumbers(base) && namesSameMoment(value, cell);
-      const s = implied || dated ? cell.s : base ? { ...base } : undefined;
+      // A number whose shown text reads otherwise here takes the format its source named (LibreOffice's sdnum).
+      const named = number && !implied && !dated && numberStyle && !formatsNumbers(base) ? { ...(base || {}), ...numberStyle } : null;
+      const s = implied || dated ? cell.s : named || (base ? { ...base } : undefined);
       // Text a number's own format made, "Tuesday" or "Q1 2024", with no format here to show the number
       // by, stays the text it reads as rather than the bare serial 45293.
-      const wordy = number && !implied && !dated && typeof cell?.v === 'string' && !formatsNumbers(base);
+      const wordy = number && !implied && !dated && typeof cell?.v === 'string' && !formatsNumbers(s);
       // An explicitly typed empty string is a stored value (ISBLANK is false),
       // unlike an untyped empty HTML cell, which clears the destination.
       if (!wordy) cell = value == null ? (s ? { v: null, f: null, s } : null) : { v: value, f: null, s };
