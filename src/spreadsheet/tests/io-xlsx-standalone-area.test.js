@@ -70,7 +70,9 @@ it('edits area stacking without stale group metadata overriding the change',asyn
 it('preserves gaps and signed percent stacks without invalid geometry',async()=>{
   const wb=book('percentStacked'),id=wb.activeSheetId;wb.setInput(id,1,1,'');
   const {wb:back}=await native(wb),svg=draw(back).documentElement.outerHTML;
-  expect(svg).not.toMatch(/NaN|Infinity/);expect(draw(back).querySelectorAll('.chart-area')).toHaveLength(3);
+  expect(svg).not.toMatch(/NaN|Infinity/);
+  // An area drops to zero at the empty cell, as Excel draws it, rather than splitting in two.
+  expect(draw(back).querySelectorAll('.chart-area')).toHaveLength(2);
   expect(chartData(back,back.activeSheetId,back.activeSheet.charts[0]).series[0].values).toEqual([-40,null,20,40]);
 });
 it('formats authored styled percent-area ticks as percentages',()=>{

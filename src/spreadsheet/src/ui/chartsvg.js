@@ -1138,8 +1138,11 @@ function renderStyledCartesian(data, chart, width, height) {
         ? data.categories.map((_, i) => members.reduce((sum, s) => sum + Math.abs(s.values[i] || 0), 0)) : null };
       areaGroups.set(group.id, state);
     }
+    // An area has no gap to leave: an empty cell in it stacks as zero (see the series' run below).
+    const area = !stackedLine;
     return s.values.map((raw, i) => {
-      if (!Number.isFinite(raw)) return null;
+      if (!Number.isFinite(raw) && !area) return null;
+      if (!Number.isFinite(raw)) raw = 0;
       const from = state.running[i], value = state.totals ? state.totals[i] ? raw / state.totals[i] : 0 : raw;
       state.running[i] += value;
       return { from, to: state.running[i] };
@@ -1809,10 +1812,13 @@ function renderStyledCartesian(data, chart, width, height) {
       return;
     }
     let run = [];
+    // An area has no gap to leave: Excel drops it to zero at an empty cell, so a value between two empty
+    // cells still shows, rather than making a band of no width.
+    const areaSeries = pureArea || layered && a.seriesTypes[j] === 'area';
     s.values.forEach((raw, i) => {
       // Select Data ▸ Hidden and Empty Cells: a blank is a gap, a zero, or bridged by the line.
       if (!Number.isFinite(raw) && a.blanks === 'span' && Number.isFinite(xValue(i, s))) return;
-      const v = !Number.isFinite(raw) && a.blanks === 'zero' ? 0 : raw;
+      const v = !Number.isFinite(raw) && (a.blanks === 'zero' || areaSeries) ? 0 : raw;
       if (!Number.isFinite(v) || !Number.isFinite(xValue(i, s)) || dates && !Number.isFinite(dates.fraction(xValue(i, s)))) { if (run.length) runs.push(run); run = []; }
       else run.push([xAt(i, s), valueY(areaStacks[j]?.[i]?.to ?? v), i]);
     });
