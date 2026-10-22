@@ -1446,6 +1446,15 @@ function renderStyledCartesian(data, chart, width, height) {
     plot.x = Math.min(plot.x + Math.max(0, plot.w - 10), l);
     plot.w = Math.max(10, r - plot.x);
   }
+  if (!horizontal && numericX && categoryLabels && !a.plot && xTicks.length) {
+    // A scatter chart's x labels sit centred on their ticks, the outer ones on the plot's edges: the plot
+    // leaves room for half of each, as Excel's does, rather than cutting the last date or number off.
+    const overhang = text => axisTextBox(text.width, a.xStyle.size, a.xRotation, categoryHigh, text.height, text.ascent);
+    const first = categoryLayouts[a.reverseCategories ? categoryLayouts.length - 1 : 0], last = categoryLayouts[a.reverseCategories ? 0 : categoryLayouts.length - 1];
+    const l = Math.max(plot.x, overhang(first).left + 6), r = Math.min(plot.x + plot.w, W - overhang(last).right - 6);
+    plot.x = Math.min(plot.x + Math.max(0, plot.w - 10), l);
+    plot.w = Math.max(10, r - plot.x);
+  }
   // Parallel angled labels can interleave: their line height, projected onto
   // the axis, determines spacing rather than the full enclosing rectangle.
   const projection = horizontal ? categoryText.cos : categoryText.sin;
