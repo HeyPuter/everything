@@ -3331,10 +3331,15 @@ export function createGrid(opts) {
    */
   let keyMode = null;
   let addCursor = false; // the selection is the lone cell Add to Selection's arrows moved the cursor to
-  function setKeyMode(mode) {
+  const KEY_MODE_NAMES = { end: 'End Mode', extend: 'Extend Selection', add: 'Add to Selection' };
+  // `say`: the mode was turned on or off by its own key (End, F8, Shift+F8, Escape), and a screen reader is told,
+  // as the status bar shows it; ended by the move it was for, the cell then selected is read out instead.
+  function setKeyMode(mode, { say = false } = {}) {
     if (keyMode === mode) return;
+    const was = keyMode;
     keyMode = mode;
     opts.onSelection?.(sel);
+    if (say) opts.announce?.(mode ? `${KEY_MODE_NAMES[mode]} on` : `${KEY_MODE_NAMES[was]} off`);
   }
 
   /** Remember a range as part of a multi-range selection (once). */
@@ -5417,8 +5422,8 @@ export function createGrid(opts) {
       return;
     }
     // F8 extends the selection with the arrows and clicks; Shift+F8 adds ranges to it. Either again, or Escape, ends it.
-    if (key === 'F8' && !mod && !e.altKey) { e.preventDefault(); setKeyMode(e.shiftKey ? (keyMode === 'add' ? null : 'add') : (keyMode === 'extend' ? null : 'extend')); return; }
-    if (key === 'Escape' && keyMode) setKeyMode(null);
+    if (key === 'F8' && !mod && !e.altKey) { e.preventDefault(); setKeyMode(e.shiftKey ? (keyMode === 'add' ? null : 'add') : (keyMode === 'extend' ? null : 'extend'), { say: true }); return; }
+    if (key === 'Escape' && keyMode) setKeyMode(null, { say: true });
     // End Mode is for the one move after End, as in Excel: any other key (typing, Enter, Tab, a chord) ends it,
     // so an arrow pressed after an entry typed there steps rather than jumping to the edge of the data.
     const endMove = (dir && !e.altKey && !mod) || ((key === 'Home' || key === 'End') && !mod) || ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(key);
@@ -5522,7 +5527,7 @@ export function createGrid(opts) {
       case 'End': {
         e.preventDefault();
         // End alone turns on End Mode: the next arrow jumps to the edge of the data. Ctrl+End goes to the last cell.
-        if (!mod) { setKeyMode(keyMode === 'end' ? null : 'end'); return; }
+        if (!mod) { setKeyMode(keyMode === 'end' ? null : 'end', { say: true }); return; }
         const used = wb.usedRange(sheetId) || { r2: 0, c2: 0 };
         const target = visibleTarget(mod ? { r: used.r2, c: used.c2 } : { r: sel.active.r, c: used.c2 }, mod ? -1 : 0, -1);
         setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { add: extending });
