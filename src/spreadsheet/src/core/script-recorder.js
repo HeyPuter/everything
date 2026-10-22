@@ -291,6 +291,12 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     const table = wb.sheet(sheetId)?.tables.find((t) => t.id === id);
     add(sheetId, [`sheet.addTable(${q(address(range))}${table ? `, { name: ${q(table.name)}${table.style ? `, style: ${q(table.style)}` : ''} }` : ''});`]);
   });
+  // A table's totals row and Convert to Range, by the table's name (as it was before the call: a converted table is gone).
+  const tableName = (sheetId, id) => wb.sheet(sheetId)?.tables.find((t) => t.id === id)?.name ?? null;
+  wrap('setTableTotals', ([sheetId, , on], result, name) => add(sheetId, name ? [`(await workbook.getTable(${q(name)})).setShowTotals(${!!on});`] : []),
+    { before: (sheetId, id) => tableName(sheetId, id) });
+  wrap('deleteTable', ([sheetId], result, name) => add(sheetId, name ? [`(await workbook.getTable(${q(name)})).convertToRange();`] : []),
+    { before: (sheetId, id) => tableName(sheetId, id) });
   wrap('addChart', ([sheetId, chart]) => {
     if (chart?.range && CHART_TYPES.some(([t]) => t === chart.type)) {
       add(sheetId, [`sheet.addChart(${q(chart.type)}, ${q(address(chart.range))}${chart.title ? `, { title: ${q(chart.title)} }` : ''});`]);
