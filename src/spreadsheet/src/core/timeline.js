@@ -15,7 +15,8 @@ import { syncNativePivotSlicers } from './native-pivot-slicer-sync.js';
 import { effectiveColorPalette } from './font-color.js';
 import { parseModelXml, modelChildren } from './data-model-metadata.js';
 import { decodeXlsxString } from './xlsx-string.js';
-import { parseRefText, sheetKey } from './refs.js';
+import { MAX_ROW, parseRefText, sheetKey } from './refs.js';
+import { placeAlong } from './charts.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 
@@ -182,9 +183,12 @@ export function insertTimeline(wb, sheetId, pivot, fieldIndex, { at = null } = {
   const field = pivotDateFields(wb, pivot).find(f => f.index === fieldIndex);
   if (!field) throw new Error('Choose a date field of the PivotTable.');
   const range = parseRefText(pivot.ref || '');
-  const anchor = at || { r: range ? range.r1 : 0, c: range ? range.c2 + 2 : 0 };
+  const start = at || { r: range ? range.r1 : 0, c: range ? range.c2 + 2 : 0 };
   const taken = wb.sheet(sheetId).charts.filter(c => c.type === 'timeline' || c.type === 'slicer').length;
-  const control = normalizeTimeline({ type: 'timeline', anchor, dx: 0, dy: 24 * taken, report: { owner: pivot.owner, name: pivot.name }, field: field.name, title: field.name, level: 'months' });
+  // Cascading 24 pixels down from the ones already there, each anchored to the cell its own corner lies in, as a
+  // drag anchors it, so it moves with the rows it lies over and its offset stays inside that cell.
+  const row = placeAlong(r => wb.rowHeight(sheetId, r), MAX_ROW + 1, start.r, 24 * taken, 1);
+  const control = normalizeTimeline({ type: 'timeline', anchor: { r: row.index, c: start.c }, dx: 0, dy: row.offset, report: { owner: pivot.owner, name: pivot.name }, field: field.name, title: field.name, level: 'months' });
   return wb.addChart(sheetId, control);
 }
 
