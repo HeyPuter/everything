@@ -4419,12 +4419,19 @@ export function createGrid(opts) {
     return x < 0 || y < 0 || x >= viewport.clientWidth || y >= viewport.clientHeight;
   }
 
+  /**
+   * Control+click on a Mac is the secondary click: the browser follows it with the menu's own event. It reaches
+   * the page as a press of the primary button first, which selected the cell under it, so a range right-clicked
+   * this way shrank to that cell before its menu opened, and Copy or Format there acted on the one cell.
+   */
+  const macSecondaryClick = (e) => IS_MAC && e.ctrlKey && !e.metaKey && e.pointerType === 'mouse';
+
   function cellsPointerDown(e) {
     if (sheet()?.kind === 'chart') return;
     if (onScrollbar(e)) return;
     // Only the primary button selects: the secondary one opens the menu through its own event, and the
     // middle one is the browser's (autoscroll, or a paste), as Excel leaves it.
-    if (e.button !== 0) return;
+    if (e.button !== 0 || macSecondaryClick(e)) return;
     if (e.target === editor || editor.contains(e.target)) return;
     ensureOffsets(); // the frozen pane's extent, read below, comes from the layout
     notePane(e.clientX, e.clientY);
@@ -4982,7 +4989,7 @@ export function createGrid(opts) {
   /* ---------- Headers: select and resize ---------- */
 
   function headerPointerDown(e, axis) {
-    if (e.button !== 0) return; // as for the cells: the primary button alone selects
+    if (e.button !== 0 || macSecondaryClick(e)) return; // as for the cells: the primary button alone selects
     ensureOffsets();
     const outline = e.target.closest?.('.outline-btn');
     if (outline) { e.preventDefault(); return; } // Its click also supports assistive activation.
