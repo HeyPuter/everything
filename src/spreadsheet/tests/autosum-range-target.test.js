@@ -105,6 +105,8 @@ it('keeps a filled selection summed just below it', async () => {
   const { wb, id } = await mount((wb, id) => { for (let r = 1; r <= 3; r++) for (let c = 1; c <= 2; c++) wb.setInput(id, r, c, '1'); });
   await select('B2:C4');
   await autoSum();
-  expect(wb.getCell(id, 4, 1).f).toBe('SUM(B2:C4)');
-  expect(wb.getValue(id, 4, 1)).toBe(6);
+  // Each column is totalled under itself, as in Excel (see autosum-block-per-column).
+  expect(wb.getCell(id, 4, 1).f).toBe('SUM(B2:B4)');
+  expect(wb.getValue(id, 4, 1)).toBe(3);
+  expect(wb.getCell(id, 4, 2).f).toBe('SUM(C2:C4)');
 });

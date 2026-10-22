@@ -5536,6 +5536,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         target = { r, c: range.c1 };
       }
       if (!wb.canEnsureSize(grid.sheetId, target.r + 1, target.c + 1)) { toast('There is no room beside the selection for the result', { icon: 'info' }); return; }
+      // Several columns each get their own result in the row under them, as Excel's AutoSum gives each column its
+      // total: one =SUM(A1:C5) under the first column added the three columns together.
+      if (!acrossRow && arg.c1 < arg.c2) {
+        const totals = [];
+        for (let cc = arg.c1; cc <= arg.c2; cc++) totals.push({ r: target.r, c: cc, text: `=${name}(${rangeName({ ...arg, c1: cc, c2: cc })})` });
+        const empty = totals.every(({ r: tr, c: tc }) => { const cell = wb.getCell(grid.sheetId, tr, tc); return !cell || (cell.v == null && cell.f == null); });
+        if (empty) {
+          const row = { r1: target.r, c1: arg.c1, r2: target.r, c2: arg.c2 };
+          if (wb.lockedIn(grid.sheetId, row)) return;
+          if (totals.some(({ r: tr, c: tc, text }) => !allowedByRule(wb.validateInput(grid.sheetId, tr, tc, text)))) return;
+          wb.transaction(`Insert ${name}`, () => { for (const { r: tr, c: tc, text } of totals) wb.setInput(grid.sheetId, tr, tc, text); });
+          grid.setSelection(S.fromRange(row, { r: target.r, c: arg.c1 }));
+          grid.focus();
+          return;
+        }
+      }
       guess = rangeName(arg);
       const existing = wb.getCell(grid.sheetId, target.r, target.c);
       if (!existing || (existing.v == null && existing.f == null)) {
