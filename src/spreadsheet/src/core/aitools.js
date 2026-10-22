@@ -452,7 +452,6 @@ function readRange(wb, args, env) {
   const lines = [`\t${Array.from({ length: shown.c2 - shown.c1 + 1 }, (_, i) => colName(shown.c1 + i)).join('\t')}`];
   let size = lines[0].length;
   for (let r = shown.r1; r <= shown.r2; r++) {
-    if (wb.isRowHidden?.(sheetId, r) && filledCells(wb, sheetId, { r1: r, c1: shown.c1, r2: r, c2: shown.c2 }) === 0) continue;
     const cells = [];
     for (let c = shown.c1; c <= shown.c2; c++) cells.push(clip(plain(wb.getDisplay(sheetId, r, c))));
     if (!cells.some((t) => t !== '')) continue;
