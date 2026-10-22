@@ -59,6 +59,7 @@ const SIGNS = {
   minus: (x, y, k) => `M${x - k} ${y}h${2 * k}`,
   x: (x, y, k) => `M${x - k * 0.8} ${y - k * 0.8}l${k * 1.6} ${k * 1.6}M${x + k * 0.8} ${y - k * 0.8}l-${k * 1.6} ${k * 1.6}`,
   check: (x, y, k) => `M${x - k} ${y + 0.1}l${k * 0.7} ${k * 0.7} ${k * 1.3}-${k * 1.5}`,
+  alert: (x, y, k) => `M${x} ${y - k * 1.2}v${k * 1.3}M${x} ${y + k * 1.15}v0.01`,
 };
 /** A round solid badge carrying a white sign, cut out of the drawing under it by a ring of the surface colour. */
 const badge = (cx, cy, sign, hue = 'g', rad = 3.4) => ci(cx, cy, rad + 0.9, 'knock') + ci(cx, cy, rad, `${hue}s`) + p(SIGNS[sign](cx, cy, rad * 0.48), 'wh thick');
@@ -429,6 +430,8 @@ export const COMMAND_ICONS = {
   quickAnalysis: cells(2.5, 2.5, 11, 11, 2, 3, { frame: 'o' }) + p('M14.5 9.5l-3 5h3l-1.5 4 4-6h-3l1.5-3z', 'yf'),
   // A figure with open arms beside a check: an inspection for people who use assistive technology.
   accessibility: ci(8, 4, 1.8, 'bs') + p('M3 7.5h10M8 7.5v5M8 12.5l-3 5M8 12.5l3 5', 'o thick') + badge(15, 15, 'check'),
+  // The same figure with an exclamation mark: the status bar's "Review suggested", which the check would contradict.
+  accessibilityReview: ci(8, 4, 1.8, 'bs') + p('M3 7.5h10M8 7.5v5M8 12.5l-3 5M8 12.5l3 5', 'o thick') + badge(15, 15, 'alert', 'y'),
   // A picture with lines of description beside it.
   altText: r(2.5, 4.5, 9, 8, 'bw') + r(2.5, 4.5, 9, 8, 'o') + p('M3.5 11.5l2.6-3 2 2 1.4-1.4 1.5 2.4', 'g') + ci(8.6, 7, 0.9, 'yf') + lines(13.5, 6, 4, 3, 2.5),
 };

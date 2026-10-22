@@ -212,7 +212,9 @@ export function createStatusBar(ctx) {
       a11yVersion = ctx.wb.version;
       const status = accessibilityStatus(checkAccessibility(ctx.wb));
       a11yEl.querySelector('.status-a11y-text').textContent = `Accessibility: ${status}`;
-      a11yEl.classList.toggle('investigate', status !== 'No issues');
+      const investigate = status !== 'No issues';
+      if (investigate !== a11yEl.classList.contains('investigate')) a11yEl.querySelector('.status-a11y-icon').innerHTML = icon(investigate ? 'accessibilityReview' : 'accessibility', 15);
+      a11yEl.classList.toggle('investigate', investigate);
     }, a11yVersion < 0 ? 0 : 400);
   };
   const left = el('div.status-left');
