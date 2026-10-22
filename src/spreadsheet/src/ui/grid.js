@@ -1199,6 +1199,21 @@ export function createGrid(opts) {
     return { r0, r1, c0, c1 };
   }
 
+  /**
+   * The width of the blank cells after (r, c) set to Center Across Selection, as many as follow it unbroken
+   * (hidden columns passed over, as far as SPILL_REACH shown columns): the run its text is centred over.
+   */
+  function acrossRun(s, r, c) {
+    let extent = 0;
+    for (let cc = c + 1, seen = 0; cc < s.cols && seen < SPILL_REACH; cc++) {
+      if (s.hiddenCols.has(cc)) continue;
+      if (!isEmptyAt(s, r, cc) || styleAt(s, r, cc)?.align !== 'centerContinuous') break;
+      seen++;
+      extent += colW(cc);
+    }
+    return extent;
+  }
+
   function isEmptyAt(s, r, c) {
     if (mergeAt(r, c) || nativeSparklineAt(wb, s.id, r, c)) return false;
     const cell = s.cells.get(cellKey(r, c));
@@ -1660,7 +1675,11 @@ export function createGrid(opts) {
         }
       } else if (!st?.wrap && !st?.clip && !st?.shrink && typeof value === 'string' && !merge) {
         const needed = (formatLayout?.width ?? maxLineWidth(text, (line) => textWidth(line, font))) + padding;
-        if (needed > w) {
+        // Center Across Selection: the text is centred over its cell and the blank cells after it set the same
+        // way, as in Excel, where a title is centred over a table without merging the cells. It was centred
+        // in its own cell alone, so a title over A1:E1 sat over A1.
+        const across = st?.align === 'centerContinuous' && !asFormula ? acrossRun(s, r, c) : 0;
+        if (needed > w || across) {
           // The text runs over empty neighbours the way it faces: left-aligned text to the right,
           // right-aligned text to the left, centred text both ways by equal amounts, each side
           // stopping at the first filled cell (where the text is clipped) or the sheet's edge.
@@ -1678,9 +1697,10 @@ export function createGrid(opts) {
             return { extent, run: run < 0 ? extent : run, painted: run >= 0 };
           };
           const none = { extent: 0, run: 0, painted: false };
-          const excess = needed - w;
+          // Centred across a run, the text overflows only what the whole run cannot hold, and the run is always covered.
+          const excess = Math.max(0, needed - w - across);
           const L = align === 'right' ? reach(-1, excess) : align === 'center' ? reach(-1, excess / 2) : none;
-          const R = align === 'left' ? reach(1, excess) : align === 'center' ? reach(1, excess / 2) : none;
+          const R = align === 'left' ? reach(1, excess) : align === 'center' ? reach(1, across + excess / 2) : none;
           if (L.extent || R.extent) {
             node.style.left = `${colX(c) - L.extent}px`;
             node.style.width = `${w + L.extent + R.extent}px`;
@@ -1688,9 +1708,11 @@ export function createGrid(opts) {
             // Centred text keeps its own cell's centre: blocked on one side, it is clipped there rather than shifted the other way.
             // The padding goes on the side that runs further, so the box the text is centred in is centred on the cell:
             // put on the blocked side, it centred the text a whole column or more along, over the cells it ran into.
-            if (align === 'center' && L.extent !== R.extent) {
-              if (R.extent > L.extent) node.style.paddingRight = `${inset + R.extent - L.extent}px`;
-              else node.style.paddingLeft = `${inset + L.extent - R.extent}px`;
+            // Centred across a run, the run's middle is the centre kept: the run counts as part of the cell.
+            const right = R.extent - across;
+            if (align === 'center' && L.extent !== right) {
+              if (right > L.extent) node.style.paddingRight = `${inset + right - L.extent}px`;
+              else node.style.paddingLeft = `${inset + L.extent - right}px`;
             }
             // Only the text runs over the neighbours, as in Excel: the label's own fill (or the one a
             // rule paints it) is drawn as a layer the size of its cell, and the backing that hides

@@ -1250,6 +1250,7 @@ export function hasDecimalPlaces(style) {
 /**
  * Excel's horizontal alignments past left, center and right, each with the side it is laid out against here:
  * Center Across Selection and Distributed centre a line in its cell, Justify and Fill set it from the left.
+ * (On screen the grid centres a Center Across Selection label over the blank cells after it set the same way.)
  */
 const ALIGN_LAYOUT = { centerContinuous: 'center', distributed: 'center', justify: 'left', fill: 'left' };
 export const HORIZONTAL_ALIGNS = ['left', 'center', 'right', ...Object.keys(ALIGN_LAYOUT)];
