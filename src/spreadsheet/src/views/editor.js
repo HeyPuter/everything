@@ -1453,7 +1453,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const used = wb.usedRange(grid.sheetId);
     let n = 0;
     for (const rg of grid.ranges) {
-      const box = cmd === 'fillDown' || cmd === 'fillRight' || !used ? rg
+      const box = cmd === 'fillDown' || cmd === 'fillRight' ? toUsedExtent(rg) : !used ? rg
         : { r1: Math.max(rg.r1, used.r1), c1: Math.max(rg.c1, used.c1), r2: Math.min(rg.r2, used.r2), c2: Math.min(rg.c2, used.c2) };
       if (box.r2 >= box.r1 && box.c2 >= box.c1) n += (box.r2 - box.r1 + 1) * (box.c2 - box.c1 + 1);
     }
@@ -2722,9 +2722,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Every selected range (Ctrl/Cmd+click adds ranges) fills from its own first row or column, as one undo step.
         // A protected cell in any of them refuses the whole fill up front (the workbook's notice names it), as one
         // range holding such a cell is refused whole: all or nothing, not the other ranges filled and that one not.
-        if (grid.ranges.some((rg) => wb.lockedIn(sheetId, rg))) { keepFocus(); return; }
+        // Whole columns (or rows) fill down (or right) as far as the sheet's content goes, as the data commands take
+        // them: a million copies of the first row took a gigabyte for one column, and ran the page out of memory for a
+        // sheet selected whole with Ctrl+A. Up and left fill from the far end of the range, which clipping would move.
+        const ranges = cmd === 'fillDown' || cmd === 'fillRight' ? grid.ranges.map((rg) => toUsedExtent(rg, sheetId)) : grid.ranges;
+        if (ranges.some((rg) => wb.lockedIn(sheetId, rg))) { keepFocus(); return; }
         const direction = { fillDown: 'down', fillRight: 'right', fillUp: 'up', fillLeft: 'left' }[cmd];
-        wb.transaction('Fill', () => { for (const rg of grid.ranges) wb.fillDirection(sheetId, rg, direction); });
+        wb.transaction('Fill', () => { for (const rg of ranges) wb.fillDirection(sheetId, rg, direction); });
         keepFocus();
         return;
       }
