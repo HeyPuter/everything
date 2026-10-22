@@ -8,18 +8,19 @@
 import { el, fieldId } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { rangeName } from '../core/cell.js';
-import { splitPieces, detectDelimiter, suggestBreaks } from '../core/text-split.js';
+import { splitPieces, detectDelimiter, suggestBreaks, splitSourceText } from '../core/text-split.js';
 
 const PREVIEW_ROWS = 8;
 const SEPARATORS = [['\t', 'Tab'], [';', 'Semicolon'], [',', 'Comma'], [' ', 'Space']];
 const FORMATS = [['general', 'General'], ['text', 'Text'], ['skip', 'Skip']];
 
-/** The text cells the split reads: the first column of the range, in order. */
+/** The text the split reads (see splitSourceText): the first column of the range, in order. */
 function columnTexts(wb, sheetId, range, limit = 500) {
   const out = [];
   for (let r = range.r1; r <= range.r2 && out.length < limit; r++) {
     const cell = wb.getCell(sheetId, r, range.c1);
-    if (cell && cell.f == null && typeof cell.v === 'string') out.push(cell.v);
+    const text = splitSourceText(cell, typeof cell?.v === 'number' ? wb.styleAt(sheetId, r, range.c1) : cell?.s);
+    if (text != null) out.push(text);
   }
   return out;
 }

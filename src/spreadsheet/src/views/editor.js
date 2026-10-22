@@ -119,6 +119,7 @@ import { toggleDetail } from '../core/outline-detail.js';
 import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
 import { openTextToColumnsDialog } from '../ui/textcolumnsdialog.js';
+import { splitSourceText } from '../core/text-split.js';
 import { openProtectedRanges } from '../ui/protect.js';
 import { openColumnStats } from '../ui/colstats.js';
 import { cellStyle } from '../core/cellstyles.js';
@@ -1200,7 +1201,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const texts = [];
       for (let r = run.r1; r <= run.r2; r++) {
         const cell = wb.getCell(sheetId, r, rg.c1);
-        if (cell && cell.f == null && typeof cell.v === 'string') texts.push({ r, v: cell.v });
+        const v = splitSourceText(cell, typeof cell?.v === 'number' ? wb.styleAt(sheetId, r, rg.c1) : cell?.s);
+        if (v != null) texts.push({ r, v });
       }
       if (!texts.length) continue;
       let delim = delimiter;

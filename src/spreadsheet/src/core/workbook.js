@@ -84,7 +84,7 @@ import { parseFormula } from './formula/parser.js';
 import { ARRAY_BUDGET, evaluate, evaluateFormula, isVolatile, paramSpec, resetArrayBudget, withArrayBudget } from './formula/evaluator.js';
 import { FUNCTIONS, err, isError, isRange, scalar, compareStoredValues, toText, noteRangeRows, isNestedTotal } from './formula/functions.js';
 import { parseDelimited } from './tsv.js';
-import { splitPieces, detectDelimiter, DEFAULT_SPLIT } from './text-split.js';
+import { splitPieces, detectDelimiter, splitSourceText, DEFAULT_SPLIT } from './text-split.js';
 import { adjustFormula, adjustRefForInsert, adjustRefForInsertedLines, insertMap, adjustRefForDelete, adjustRefForDeletedLines, deleteMap, renameSheetInFormula, shiftFormula, resolveRelativeName, mapRelativeNameRef, isAbsoluteRef, mapFormulaRefs, parseRefText, refToText, MAX_ROW, MAX_COL, quoteSheet, sheetKey, sameSheetName } from './refs.js';
 import { headerlessTableColumns, normalizeTableHeaderState, headerlessInsertColumns, headerlessDeleteColumns, headerlessJoinColumns, headerlessResizeNames } from './table-header-row.js';
 import { tableStyle, tableRows, normalizeCustomTableStyle, customTableStyleAt, validateTableName, TABLE_NAME_RE, MAX_TABLE_NAME_LENGTH, parseTableSpec, resolveTableSpec, renderTableSpec, renameTableInFormula, tableColumnRenames, renameColumnsInFormula, tableRefsToA1, hasTableRefs, mapTableRefs, shiftTableColumns } from './tables.js';
@@ -5597,24 +5597,29 @@ export class Workbook extends EventTarget {
     const texts = [];
     for (let r = n.r1; r <= n.r2; r++) {
       const cell = sheet.cells.get(cellKey(r, c));
-      if (cell && cell.f == null && typeof cell.v === 'string') texts.push({ r, cell });
+      // Text, and a typed number by the digits of its value (see splitSourceText).
+      const text = splitSourceText(cell, typeof cell?.v === 'number' ? this.styleAt(sheetId, r, c) : cell?.s);
+      if (text != null) texts.push({ r, cell, text });
     }
     if (!texts.length) return {};
     let split;
     const options = delimiter && typeof delimiter === 'object' ? delimiter : null;
     if (options) {
-      split = texts.map(({ r, cell }) => ({ r, cell, parts: splitPieces(cell.v, { ...DEFAULT_SPLIT, ...options }) }));
+      split = texts.map(({ r, cell, text }) => ({ r, cell, parts: splitPieces(text, { ...DEFAULT_SPLIT, ...options }) }));
     } else {
       // The delimiter most rows contain wins; space is the last resort.
-      const delim = delimiter || detectDelimiter(texts.map((t) => t.cell.v));
+      const delim = delimiter || detectDelimiter(texts.map((t) => t.text));
       if (!delim) return {};
       // Quoted fields keep their delimiter: "Smith, John",42 splits into two. A line
       // break inside a cell (Alt+Enter) is part of its piece, not the row break it is
       // in pasted text: the breaks are hidden from the parser and put back in the pieces.
       const pieces = (text) => (parseDelimited(text.replace(/\r/g, '\u0001').replace(/\n/g, '\u0002'), delim)[0] || [])
         .map((piece) => piece.replace(/\u0001/g, '\r').replace(/\u0002/g, '\n'));
-      split = texts.map(({ r, cell }) => ({ r, cell, parts: delim === ' ' ? cell.v.trim().split(/\s+/) : pieces(cell.v) }));
+      split = texts.map(({ r, cell, text }) => ({ r, cell, parts: delim === ' ' ? text.trim().split(/\s+/) : pieces(text) }));
     }
+    // A number that does not split stays as it is, unrewritten: its digits read back would be the same number.
+    split = split.filter(({ cell, parts }) => typeof cell.v === 'string' || parts.length > 1);
+    if (!split.length) return {};
     const formats = options?.formats || [];
     const dest = options?.dest || { r: n.r1, c };
     const entries = [];
@@ -5634,7 +5639,7 @@ export class Workbook extends EventTarget {
     // Pieces past the last column (or row) would be dropped while the split was reported as written, so the split is refused.
     if (dest.c + cols > Math.max(sheet.cols, MAX_COLS) || dest.r + (n.r2 - n.r1) >= Math.max(sheet.rows, MAX_ROWS)) return { reason: 'room' };
     if (!entries.length) return {};
-    return { entries, rows: texts.length, cols };
+    return { entries, rows: split.length, cols };
   }
 
   /**

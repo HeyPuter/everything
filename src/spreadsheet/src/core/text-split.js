@@ -7,8 +7,22 @@
  */
 
 import { maxOf } from './numeric.js';
+import { dateTimeKind } from './format.js';
 
 export const DEFAULT_SPLIT = Object.freeze({ mode: 'delimited', delimiters: [','], consecutive: false, qualifier: '"', breaks: [] });
+
+/**
+ * The text a cell offers to be split, or null for a cell that has none: typed text as it is, and a typed number as
+ * the digits of its value (20240115, 3.25), as Excel splits numbers by their value rather than as formatted, so a
+ * column of dates written 20240115 cuts at fixed widths into 2024, 01 and 15. A date or time is left alone, and so
+ * are formulas, logical values and errors.
+ */
+export function splitSourceText(cell, style = cell?.s) {
+  if (!cell || cell.f != null) return null;
+  if (typeof cell.v === 'string') return cell.v;
+  if (typeof cell.v !== 'number' || !Number.isFinite(cell.v) || dateTimeKind(style, cell.v)) return null;
+  return String(Number(cell.v.toPrecision(15))).toUpperCase();
+}
 
 /** The pieces of `text`, trimmed of the spaces around them as the old one-separator split did. */
 export function splitPieces(text, options = DEFAULT_SPLIT) {
