@@ -55,18 +55,21 @@ export function measureRows(wb, sheetId, r1, r2, { force = false, widthOf = (c) 
   }
   for (const [r, c, cell] of cellsInRows(s, r1, r2, onlyRows)) {
     if (hidden(r)) continue;
+    if (cell.v == null && cell.f == null) {
+      // An empty cell in a font larger than the row's default still grows its row, as Excel's do: 28 point set
+      // on a blank cell makes room for what will be typed there. A blank never makes a row shorter than its default.
+      // A sheet's formatted blanks are many (a file's carry their size), so a blank's own size is read before its
+      // whole style is put together, and its merge is asked last: asking both of every blank made each refit of a
+      // sheet's automatic rows (a column resized) three times as slow.
+      if (!force) continue;
+      const need = heightForLines(1, cell.s?.size || styleAt(s, r, c)?.size || baseFontSize, floor, pad);
+      if (need > s.defaultRowHeight && !mergeAt(r, c)) heights.set(r, Math.max(heights.get(r) || 0, need));
+      continue;
+    }
     // Merged cells are excluded from automatic sizing, including their font
     // size. Other cells can grow the row; otherwise it uses the default height.
     // A cached height is not a minimum (confirmed by native Excel round trips).
     if (automatic && mergeAt(r, c)) continue;
-    if (cell.v == null && cell.f == null) {
-      // An empty cell in a font larger than the row's default still grows its row, as Excel's do: 28 point set
-      // on a blank cell makes room for what will be typed there. A blank never makes a row shorter than its default.
-      if (!force || mergeAt(r, c)) continue;
-      const need = heightForLines(1, styleAt(s, r, c)?.size || baseFontSize, floor, pad);
-      if (need > s.defaultRowHeight) heights.set(r, Math.max(heights.get(r) || 0, need));
-      continue;
-    }
     const value = wb.getValue(sheetId, r, c);
     const cf = wb.conditionalStyle(sheetId, r, c, value), st = conditionalNumberFormat(conditionalFontStyle(styleAt(s, r, c), cf), cf);
     const size = st?.size || baseFontSize;
