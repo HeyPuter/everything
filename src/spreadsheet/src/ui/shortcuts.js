@@ -34,10 +34,10 @@ const GROUPS = [
     [`${MOD_KEY} + Shift + { / }`, 'Select the precedents / dependents of the active cell'],
     [`${MOD_KEY} + A or ${MOD_KEY} + Shift + Space`, 'Select all'],
     [`${MOD_KEY} + click`, 'Add another cell, range, row, or column to the selection'],
-    ['Shift + Space', 'Select the row'],
+    ['Shift + Space', 'Select the row (in a table, its row first)'],
     [`${MOD_KEY} + Shift + 8`, 'Select the current region: the block of data around the active cell'],
     // macOS takes ⌘+Space (Spotlight) and ⌘+` (next window) before the page sees them, so there Control serves as well.
-    [IS_MAC ? `${MOD_KEY} + Space or ⌃ + Space` : `${MOD_KEY} + Space`, 'Select the column'],
+    [IS_MAC ? `${MOD_KEY} + Space or ⌃ + Space` : `${MOD_KEY} + Space`, 'Select the column (in a table, its data first, then with its header)'],
     ['Drag the bar at the corner of the headers', 'Freeze rows or columns up to where it lands'],
     // Floating objects: the grid selects and moves them from the keyboard.
     [`${MOD_KEY} + Alt + O`, 'Select the next chart, image, or text box (Shift: the previous one)'],

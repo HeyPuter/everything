@@ -70,6 +70,7 @@ import { smartArtLook, fallbackPicture } from './smartart.js';
 import { paintCellFill } from './cell-fill.js';
 import { fillColorCss } from '../core/fill-color.js';
 import { nativeFillOverridesNormal } from '../core/native-fill.js';
+import { tableRows } from '../core/tables.js';
 
 export const COL_HEADER_H = 26;
 const ROW_HEADER_W_DESKTOP = 48;
@@ -3348,6 +3349,27 @@ export function createGrid(opts) {
   }
 
   /**
+   * Ctrl+Space and Shift+Space inside a table, as in Excel: Ctrl+Space selects the table column's data first, then the
+   * column with its header and totals, and only then the sheet's whole column; Shift+Space the table's row first,
+   * then the whole row. Null when the selection is not inside one table, or has reached the table's own extent.
+   */
+  function tableLineStep(axis) {
+    if (extras.length || !wb.tableAt) return null;
+    const rg = S.selRange(sel, true);
+    const t = rg.scope ? null : wb.tableAt(sheetId, rg.r1, rg.c1);
+    if (!t || rg.r2 > t.range.r2 || rg.c2 > t.range.c2) return null;
+    const same = (a) => a.r1 === rg.r1 && a.r2 === rg.r2 && a.c1 === rg.c1 && a.c2 === rg.c2;
+    if (axis === 'row') {
+      const row = { r1: rg.r1, r2: rg.r2, c1: t.range.c1, c2: t.range.c2 };
+      return same(row) ? null : row;
+    }
+    const rows = tableRows(t);
+    const whole = { r1: t.range.r1, r2: t.range.r2, c1: rg.c1, c2: rg.c2 };
+    const data = rows.empty ? whole : { r1: rows.dataStart, r2: rows.dataEnd, c1: rg.c1, c2: rg.c2 };
+    return same(whole) ? null : same(data) ? whole : data;
+  }
+
+  /**
    * Excel's keyboard modes, shown in the status bar: End Mode (the next arrow jumps to the edge of the data),
    * Extend Selection (F8: arrows and clicks extend) and Add to Selection (Shift+F8: arrows and clicks add ranges).
    */
@@ -5706,8 +5728,13 @@ export function createGrid(opts) {
         const modSpace = mod || (IS_MAC && e.ctrlKey && !e.metaKey);
         if (modSpace && e.shiftKey) { e.preventDefault(); selectAllStep(); return; }
         // The active cell stays put, so typing afterwards still lands where the user was.
-        if (e.shiftKey) { e.preventDefault(); setSelection({ ...S.selectRows(S.selRange(sel).r1, S.selRange(sel).r2, b), active: sel.active }, { scroll: false }); return; }
-        if (modSpace) { e.preventDefault(); setSelection({ ...S.selectCols(S.selRange(sel).c1, S.selRange(sel).c2, b), active: sel.active }, { scroll: false }); return; }
+        if (e.shiftKey || modSpace) {
+          e.preventDefault();
+          const inTable = tableLineStep(e.shiftKey ? 'row' : 'col');
+          if (inTable) { setSelection(S.fromRange(inTable, sel.active), { scroll: false }); return; }
+        }
+        if (e.shiftKey) { setSelection({ ...S.selectRows(S.selRange(sel).r1, S.selRange(sel).r2, b), active: sel.active }, { scroll: false }); return; }
+        if (modSpace) { setSelection({ ...S.selectCols(S.selRange(sel).c1, S.selRange(sel).c2, b), active: sel.active }, { scroll: false }); return; }
         if (wb.validationAt(sheetId, sel.active.r, sel.active.c)?.type === 'checkbox') { e.preventDefault(); toggleCheckbox(sel.active.r, sel.active.c); return; }
         break;
       }
