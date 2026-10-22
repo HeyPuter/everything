@@ -19264,6 +19264,17 @@ function xlml_clean_comment(comment/*:any*/) {
 }
 
 /* TODO: Everything */
+/* Puter Spreadsheet local patch: a row's height and hidden state, read from an empty row (<Row .../>) as from
+ * one holding cells; an empty row's were not read. ss:Height is in points, as Excel writes it (15 for a
+ * standard row of 20 pixels). */
+function xlml_rowinfo(row, r, rowinfo) {
+	var rowobj = {};
+	if(row.AutoFitHeight == "0" || row.Height) {
+		rowobj.hpx = parseFloat(row.Height) * 4 / 3; rowobj.hpt = px2pt(rowobj.hpx);
+		rowinfo[r] = rowobj;
+	}
+	if(row.Hidden == "1") { rowobj.hidden = true; rowinfo[r] = rowobj; }
+}
 function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 	var opts = _opts || {};
 	make_ssf();
@@ -19316,7 +19327,7 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 	var comments/*:Array<Comment>*/ = [], comment/*:Comment*/ = ({}/*:any*/);
 	var cstys = [], csty, seencol = false;
 	var arrayf/*:Array<[Range, string]>*/ = [];
-	var rowinfo/*:Array<RowInfo>*/ = [], rowobj = {}, cc = 0, rr = 0;
+	var rowinfo/*:Array<RowInfo>*/ = [], cc = 0, rr = 0;
 	var Workbook/*:WBWBProps*/ = ({ Sheets:[], WBProps:{date1904:false} }/*:any*/), wsprops = {};
 	xlmlregex.lastIndex = 0;
 	str = str_remove_ng(str, "<!--", "-->");
@@ -19371,19 +19382,21 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 				if(Rn[0].slice(-2) === "/>") {
 					row = xlml_parsexmltag(Rn[0]);
 					if(row.Index) r = +row.Index - 1;
+					xlml_rowinfo(row, r, rowinfo);
+				}
+				/* Puter Spreadsheet local patch: a row with ss:Span stands for that many more rows like it, which
+				 * the file leaves out; the rows after it were read that many rows too high. A long run of
+				 * spanned rows is filler, not layout, as the .ods reader judges repeated rows. */
+				var _rspan = Math.min(parseInt(row && row.Span, 10) || 0, 1048575 - r);
+				if(_rspan > 0) {
+					if(_rspan <= 1000 && rowinfo[r]) for(var _ri = 1; _ri <= _rspan; ++_ri) rowinfo[r + _ri] = rowinfo[r];
+					r += _rspan;
 				}
 				c = 0; ++r;
 			} else {
 				row = xlml_parsexmltag(Rn[0]);
 				if(row.Index) r = +row.Index - 1;
-				rowobj = {};
-				if(row.AutoFitHeight == "0" || row.Height) {
-					/* Puter Spreadsheet local patch: ss:Height is in points, as Excel writes it (15 for a standard
-					 * row of 20 pixels); it was read as pixels. */
-					rowobj.hpx = parseFloat(row.Height) * 4 / 3; rowobj.hpt = px2pt(rowobj.hpx);
-					rowinfo[r] = rowobj;
-				}
-				if(row.Hidden == "1") { rowobj.hidden = true; rowinfo[r] = rowobj; }
+				xlml_rowinfo(row, r, rowinfo);
 			}
 			break;
 		case 'worksheet' /*case 'Worksheet'*/: /* TODO: read range from FullRows/FullColumns */
