@@ -53,7 +53,8 @@ it.each(['fods', 'ods'].flatMap((mode) => ['text', 'currency', 'embedded'].flatM
 ].map(([encoded, literal]) => ({ mode, kind, encoded, literal })))))(
   'decodes XML text once in ODS number formats: %j', async ({ mode, kind, encoded, literal }) => {
     const wb = await workbookFromFile(file(mode, kind, encoded), `entities.${mode}`);
-    const expected = kind === 'currency' ? `${literal}7.5` : `7.5${literal}`;
+    // Embedded text at position 0 stands just before the decimal separator, as LibreOffice reads it.
+    const expected = kind === 'currency' ? `${literal}7.5` : kind === 'embedded' ? `7${literal}.5` : `7.5${literal}`;
     for (const back of [wb, await workbookFromFile(await workbookToXlsx(wb), 'saved.xlsx')]) {
       expect(back.getValue(back.activeSheetId, 0, 0)).toBe(7.5);
       expect(back.getDisplay(back.activeSheetId, 0, 0)).toBe(expected);

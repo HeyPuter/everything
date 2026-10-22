@@ -23540,7 +23540,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 	var str = xlml_normalize(d);
 	xlmlregex.lastIndex = 0;
 	str = remove_doctype(str_remove_ng(str, "<!--", "-->"));
-	var Rn, NFtag, NFmaps = {}, NF = "", tNF = "", y, etpos = 0, tidx = -1, infmt = false, payload = "";
+	var Rn, NFtag, NFmaps = {}, NF = "", tNF = "", y, etpos = 0, tidx = -1, infmt = false, payload = "", etnum = null;
 	var inCommonStyles = false, commonStyle = null;
 	var ods_common_props = function(style, tag) {
 		var attrs = parsexmltag(tag, true, true);
@@ -23774,7 +23774,24 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 
 		case 'number': // <number:number> 16.29.3
 			// TODO: handle all the attributes
-			if(Rn[1]==='/') break;
+			/* Puter Spreadsheet local patch: the number's embedded texts go in when it closes, each before the count of
+			 * integer digits its position names, whatever order they come in; a character offset from the end of the
+			 * code put a second one inside the first and counted the decimals as digits. */
+			if(Rn[1]==='/') {
+				if(etnum && etnum.texts.length) {
+					var code = NF.slice(etnum.at), intEnd = code.indexOf("."), out = "", seen = 0;
+					if(intEnd < 0) intEnd = code.replace(/,+$/, "").length;
+					var at = function(n) { return etnum.texts.filter(function(t) { return t.position == n; }).map(function(t) { return t.text; }).join(""); };
+					for(var k = intEnd - 1; k >= 0; --k) {
+						if(code[k] != ",") out = at(seen++) + out;
+						out = code[k] + out;
+					}
+					out = etnum.texts.filter(function(t) { return t.position >= seen; }).sort(function(a, b) { return b.position - a.position; }).map(function(t) { return t.text; }).join("") + out;
+					NF = NF.slice(0, etnum.at) + out + code.slice(intEnd);
+				}
+				etnum = null;
+				break;
+			}
 			y = parsexmltag(Rn[0], false);
 			tNF = "";
 			/* Puter Spreadsheet local patch: optional digits are #, as LibreOffice writes "#.##": no required integer
@@ -23786,6 +23803,7 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			if(+y["decimal-places"] - (+y["min-decimal-places"]||0)) tNF += fill(y["min-decimal-places"] != null ? "#" : "0", +y["decimal-places"] - (+y["min-decimal-places"]||0));
 			/* Puter Spreadsheet local patch: a display factor of a thousand per comma scales the number shown. */
 			for(var factor = +y["display-factor"] || 1; factor >= 1000; factor /= 1000) tNF += ",";
+			etnum = Rn[0].charAt(Rn[0].length-2) !== '/' ? { at: NF.length, texts: [] } : null;
 			NF += tNF;
 			break;
 
@@ -23793,7 +23811,8 @@ function parse_ods_styles(d/*:string*/, _opts, _nfm, _styles) {
 			// TODO: verify interplay with grouping et al
 			if(Rn[1]==='/') {
 				payload = ods_format_literal(parse_ods_format_text(str.slice(tidx, xlmlregex.lastIndex - Rn[0].length)));
-				if(etpos == 0) NF += payload;
+				if(etnum) etnum.texts.push({ position: -etpos, text: payload });
+				else if(etpos == 0) NF += payload;
 				else NF = NF.slice(0, etpos) + payload + NF.slice(etpos);
 			} else if(Rn[0].charAt(Rn[0].length-2) !== '/') {
 				tidx = xlmlregex.lastIndex;
@@ -24897,24 +24916,34 @@ function write_number_format_ods_section(nf/*:string*/, nfidx/*:string*/)/*:stri
 		/* Puter Spreadsheet local patch: a section of text alone (an accounting zero, "$" "-") has no digits to find. */
 		if(!np || !np[0]) { if(!payload) console.error("Could not find numeric part of " + nf); }
 		else {
-			var base = np[1].replace(/,/g, "");
+			/* Puter Spreadsheet local patch: text between the integer digits (000-00-0000, (000) 000-0000) is embedded
+			 * text, placed by the count of integer digits to its right; the number used to end before the first of it. */
+			var digits = np[1], decimals = np[2], exponent = np[3], numEnd = np.index + np[0].length, embedded = [];
+			if(!decimals && !exponent) for(var more;;) {
+				var between = read_ods_format_text_run(nf, numEnd);
+				if(!between.text || !(more = nf.slice(between.end).match(/^([#0][0#,]*)(\.[0#]*|)(E[+-]?0*|)/i)) || more[3]) break;
+				embedded.push({ text: between.text, before: digits.replace(/,/g, "").length });
+				digits += more[1]; decimals = more[2]; numEnd = between.end + more[0].length;
+				if(decimals) break;
+			}
+			var base = digits.replace(/,/g, "");
 			/* Puter Spreadsheet local patch: a comma after the digits scales by a thousand (#,##0,"K" shows 1,235K for
 			 * 1234567), which ODF spells as a display factor; only a comma between digits asks for grouping. */
-			var scaling = (np[1].match(/,+$/) || [""])[0].length, trailing = nf.slice(np.index + np[0].length).match(/^,+/);
+			var scaling = (digits.match(/,+$/) || [""])[0].length, trailing = nf.slice(numEnd).match(/^,+/);
 			if(trailing) scaling += trailing[0].length;
-			payload += '<number:' + (np[3] ? "scientific-" : "")+ 'number' +
+			payload += '<number:' + (exponent ? "scientific-" : "")+ 'number' +
 				' number:min-integer-digits="' + (base.indexOf("0") == -1 ? "0" : base.length - base.indexOf("0")) + '"' +
-				(/[#0],[#0]/.test(np[1]) ? ' number:grouping="true"' : "") +
-				(np[2] && ' number:decimal-places="' + (np[2].length - 1) + '"' || ' number:decimal-places="0"') +
+				(/[#0],[#0]/.test(digits) ? ' number:grouping="true"' : "") +
+				(decimals && ' number:decimal-places="' + (decimals.length - 1) + '"' || ' number:decimal-places="0"') +
 				/* Puter Spreadsheet local patch: optional decimals (0.## shows 1.5) need the count of required ones. */
-				(!np[3] && np[2].indexOf("#") > -1 ? ' number:min-decimal-places="' + (np[2].match(/0/g) || []).length + '"' : "") +
+				(!exponent && decimals.indexOf("#") > -1 ? ' number:min-decimal-places="' + (decimals.match(/0/g) || []).length + '"' : "") +
 				(scaling ? ' number:display-factor="' + Math.pow(1000, scaling) + '"' : "") +
-				(np[3] ? ' number:forced-exponent-sign="' + (np[3].indexOf("-") > -1 ? "false" : "true") + '"' : "" ) +
-				(np[3] ? ' number:min-exponent-digits="' + ((np[3].match(/0+/) || ["0"])[0].length) + '"' : "" ) +
+				(exponent ? ' number:forced-exponent-sign="' + (exponent.indexOf("-") > -1 ? "false" : "true") + '"' : "" ) +
+				(exponent ? ' number:min-exponent-digits="' + ((exponent.match(/0+/) || ["0"])[0].length) + '"' : "" ) +
 				'>' +
-				/* TODO: interstitial text placeholders */
-				'</number:' + (np[3] ? "scientific-" : "") + 'number>';
-			i = np.index + np[0].length + (trailing ? trailing[0].length : 0);
+				embedded.map(function(e) { return '<number:embedded-text number:position="' + (base.length - e.before) + '">' + escapexml(e.text) + '</number:embedded-text>'; }).join("") +
+				'</number:' + (exponent ? "scientific-" : "") + 'number>';
+			i = numEnd + (trailing ? trailing[0].length : 0);
 		}
 
 		/* residual text */
