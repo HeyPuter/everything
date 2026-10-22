@@ -23,7 +23,7 @@
  * ordinary change, shared like any other, and its own inverse is the redo.
  */
 
-import { Workbook, sheetShapeJSON, sameJSON, cloneCell } from '../core/workbook.js';
+import { Workbook, sheetShapeJSON, sameJSON, cloneCell, STYLE_FILL_CELLS } from '../core/workbook.js';
 import { cellKey, parseKey, cutText } from '../core/cell.js';
 import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, MAX_OPS, MAX_RUNS, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure, parseCellKey } from './ops.js';
 import { applyOps, contentOf, sheetJSON, lineValues, sheetProps } from './apply.js';
@@ -429,6 +429,11 @@ export class Replica extends EventTarget {
       if (!n) continue;
       const v = {}, st = {};
       let any = false;
+      // Lines put back take the formatting of the line before them, as any inserted line does (see Workbook._insertLines):
+      // the formatting cells there lend (the line before each run deleted, by its index) is taken off again below.
+      const row = op.axis === 'row';
+      const lenders = cells && op.t === 'delete' && op.s === id ? new Map(op.runs.filter((r) => r.from > 0).map((r) => [r.from - 1, r])) : null;
+      const lent = [];
       if (cells) for (const [key, cell] of o.cells) {
         const at = mapCellKey(op, id, key);
         const was = o.f.get(key) ?? null;
@@ -440,14 +445,37 @@ export class Replica extends EventTarget {
           const now = n.f.get(at) ?? null;
           if (now !== was && /#REF!/i.test(now ?? '') && !/#REF!/i.test(was)) { v[key] = contentOf(cell, was); any = true; }
         }
+        if (lenders?.size && cell.s && Object.keys(cell.s).length) {
+          const p = parseKey(key);
+          const run = lenders.get(row ? p.r : p.c);
+          if (run) lent.push({ p, s: cell.s, run });
+        }
+      }
+      if (lent.reduce((count, { run }) => count + run.to - run.from + 1, 0) <= STYLE_FILL_CELLS) {
+        for (const { p, s, run } of lent) {
+          for (let i = run.from; i <= run.to; i++) {
+            const key = row ? cellKey(i, p.c) : cellKey(p.r, i);
+            const had = o.cells.get(key)?.s || EMPTY;
+            const extra = Object.keys(s).filter((k) => !own(had, k));
+            if (!extra.length) continue;
+            st[key] = { ...Object.fromEntries(extra.map((k) => [k, null])), ...st[key] };
+            if (!own(v, key)) v[key] = null;
+            any = true;
+          }
+        }
       }
       const pv = {};
       for (const p of SHEET_PROPS) if (o.props.get(p) !== n.props.get(p)) pv[p] = parse(o.props.get(p));
       const lines = [];
       if (op.t === 'delete' && op.s === id) {
+        // A line's own format is lent to the lines put back after it as well (see above).
+        const lineStyles = op.axis === 'row' ? 'rowStyles' : 'colStyles';
         for (const p of Object.keys(LINE_PROPS)) {
           const lv = {};
           for (const [k, val] of o.lines[p]) if (mapLineKey(op, id, p, k) == null) lv[k] = parse(val);
+          if (p === lineStyles) {
+            for (const r of op.runs) if (r.from > 0 && o.lines[p].has(String(r.from - 1))) for (let i = r.from; i <= r.to; i++) if (!o.lines[p].has(String(i))) lv[i] = null;
+          }
           if (Object.keys(lv).length) lines.push({ t: 'lines', s: id, p, v: lv });
         }
       }

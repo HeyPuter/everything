@@ -225,7 +225,7 @@ function rangeCost(values) { return values.length * ((values[0]?.length || 0) + 
 // of more cells than this (a whole sheet of 20,000 rows) that would store a cell per empty coordinate, 320,000
 // of them for Select all → Bold on a sheet holding 200,000 values, and every later scan, save and draft would
 // carry them: there the format goes to the cells holding something and the empty cells beside them (applyStyle).
-const STYLE_FILL_CELLS = 50_000;
+export const STYLE_FILL_CELLS = 50_000;
 const INVALID_SHEET_CHARS = /[[\]:*?/\\]/;
 
 /**
