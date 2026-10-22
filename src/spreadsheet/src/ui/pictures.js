@@ -16,6 +16,8 @@ import { cellPicture, cellPictureFromObject, isCellPicture, objectFromCellPictur
 import { RESET_PICTURE, PICTURE_STYLES, aspectCrop, cropPatch, pictureIsPlain, resetPictureAndSize, sizePatch, normalizePictureFormat, percent } from '../core/picture-format.js';
 import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-picture.js';
 import { normalizeRange } from '../core/cell.js';
+import { placeAlong } from '../core/charts.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
 
 /** The commands this module runs for the editor. */
 export const PICTURE_COMMANDS = new Set(['placeOverCells', 'placeObjectInCell', 'cellAltText', 'pictureFormat', 'pastePicture', 'linkedPictureRef']);
@@ -153,6 +155,20 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
   /* ---------- Picture Format ---------- */
 
   /** Apply `patchOf(picture)` to every selected picture, as one step. */
+  /**
+   * The crop patch, with the picture anchored again to the cell its corner now lies in (a crop off the left or top
+   * moves the corner on): as a drag anchors what it moves, so it follows the columns and rows it lies in.
+   */
+  function croppedPatch(id, obj, crop) {
+    const patch = cropPatch(obj, crop), sheet = wb.sheet(id);
+    if (!sheet || sheet.kind === 'chart' || obj.anchorMode === 'absolute' || obj.cellAnchor) return patch;
+    const col = placeAlong((c) => wb.colWidth(id, c), MAX_COL + 1, obj.anchor.c, patch.dx, 1);
+    const row = placeAlong((r) => wb.rowHeight(id, r), MAX_ROW + 1, obj.anchor.r, patch.dy, 1);
+    // A corner past the lines laid out so far (a wide picture at the sheet's right) grows the sheet to it.
+    if (col.index >= sheet.cols || row.index >= sheet.rows) wb.ensureSize(id, Math.max(sheet.rows, row.index + 1), Math.max(sheet.cols, col.index + 1));
+    return { ...patch, anchor: { r: row.index, c: col.index }, dx: col.offset, dy: row.offset };
+  }
+
   function patchPictures(label, patchOf) {
     const id = sheetId(), pictures = selectedPictures();
     if (!pictures.length) { toast('Select a picture first', { icon: 'info', duration: 2500 }); return false; }
@@ -186,15 +202,15 @@ export function createPictures(ctx, { keepFocus, selectLocation }) {
       }
       case 'size': patchPictures('Size picture', (o) => sizePatch(o, { w: arg.w, h: arg.h })); return;
       case 'lockAspect': patchPictures('Lock aspect ratio', () => ({ lockAspect: arg.on ? null : false })); return;
-      case 'uncrop': patchPictures('Remove crop', (o) => (o.srcRect || o.fillRect ? cropPatch({ ...o, fillRect: null }, { x: 0, y: 0, w: 1, h: 1 }) : null)); return;
-      case 'cropAspect': patchPictures('Crop to aspect ratio', (o) => cropPatch(o, aspectCrop(o, arg.ratio))); return;
+      case 'uncrop': patchPictures('Remove crop', (o) => (o.srcRect || o.fillRect ? croppedPatch(sheetId(), { ...o, fillRect: null }, { x: 0, y: 0, w: 1, h: 1 }) : null)); return;
+      case 'cropAspect': patchPictures('Crop to aspect ratio', (o) => croppedPatch(sheetId(), o, aspectCrop(o, arg.ratio))); return;
       case 'crop': {
         const obj = selectedPictures()[0];
         if (!obj) { toast('Select a picture to crop', { icon: 'info', duration: 2500 }); return; }
         if (protectedSheet()) return;
         if (obj.pictureRef) { toast('A linked picture shows its whole range: change the range in the formula bar instead', { icon: 'info', duration: 3500 }); return; }
         const id = sheetId();
-        openCropDialog({ picture: obj, onApply: (crop) => { if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, cropPatch(wb.chartById(id, obj.id), crop), 'Crop picture'); }, onClose: () => keepFocus() });
+        openCropDialog({ picture: obj, onApply: (crop) => { if (wb.chartById(id, obj.id)) wb.updateChart(id, obj.id, croppedPatch(id, wb.chartById(id, obj.id), crop), 'Crop picture'); }, onClose: () => keepFocus() });
         return;
       }
       case 'correctionsDialog': openCorrectionsDialog(); return;
