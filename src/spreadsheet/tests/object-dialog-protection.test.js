@@ -34,7 +34,7 @@ it.each(['chart', 'text'].flatMap((kind) => ['insert', 'edit', 'delete'].map((ac
   const ctx = {
     wb, sheetId: () => sheetId, active: () => ({ r: 0, c: 0 }), range: () => range,
     grid: { focus: vi.fn(), selectChart: vi.fn() },
-    run: (cmd, id) => { if (cmd === 'deleteChart') wb.deleteChart(sheetId, id); },
+    run: (cmd, arg) => { if (cmd === 'deleteChart') wb.deleteChart(sheetId, arg?.id || arg); },
   };
   const object = id ? wb.chartById(sheetId, id) : null;
   const modal = kind === 'chart' ? openChartDialog(ctx, { chart: object }) : openTextBoxDialog(ctx, { textbox: object });

@@ -85,3 +85,15 @@ it('deletes the whole selection from the object menu, as the Delete key does', a
   view.run('deleteChart', wb.sheet(id).charts.find(o => o.text === 'Three').id); await flush();
   expect(texts().map(t => t[0])).toEqual(['One', 'Two']);
 });
+
+// The Edit text box dialog's Delete, opened by a double-click on a member of a group (which selects the whole
+// group), deleted the whole group with it, since the object menu's Delete deletes everything selected.
+it('deletes only the text box an Edit text box dialog edits, though its group is selected', async () => {
+  const { wb, id, a, b, texts } = await mount();
+  wb.groupObjects(id, [a, b]);
+  await press(a);
+  view.el.querySelector(`.chart-box[data-chart="${a}"]`).dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+  await flush();
+  [...dialog('Edit text box').querySelectorAll('button')].find(n => n.textContent === 'Delete').click(); await flush();
+  expect(texts().map(t => t[0])).toEqual(['Two', 'Three']);
+});

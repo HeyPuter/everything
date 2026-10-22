@@ -188,7 +188,7 @@ export function openEquationDialog(ctx, { equation = null, source = '' } = {}) {
     preview,
     el('div.row.row-end', {},
       el('label.field.equation-size', {}, el('span.field-label', {}, 'Size'), sizeSel),
-      equation && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { modal.close(); ctx.run('deleteChart', equation.id); } }, 'Delete'),
+      equation && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { modal.close(); ctx.run('deleteChart', { id: equation.id, only: true }); } }, 'Delete'),
       el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
       el('button.btn.btn-primary', { type: 'submit' }, equation ? 'Save' : 'Insert')));
   showStructure(STRUCTURES[0].key);

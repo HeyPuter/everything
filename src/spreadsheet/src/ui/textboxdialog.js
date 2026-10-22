@@ -113,7 +113,7 @@ export function openTextBoxDialog(ctx, { textbox = null, fit = null } = {}) {
       el('div.field', {}, el('span.field-label', {}, 'Vertical'), seg('valign', [['top', 'Top'], ['middle', 'Middle'], ['bottom', 'Bottom']]))),
     el('p.field-hint', {}, 'The box floats over the cells: drag it to move, drag its corner to resize. It prints where it sits and is saved with the file.'),
     el('div.row.row-end', {},
-      textbox && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; modal.close(); ctx.run('deleteChart', textbox.id); } }, 'Delete'),
+      textbox && el('button.btn.btn-ghost.btn-danger', { type: 'button', onclick: () => { if (!canChange()) return; modal.close(); ctx.run('deleteChart', { id: textbox.id, only: true }); } }, 'Delete'),
       el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
       el('button.btn.btn-primary', { type: 'submit' }, textbox ? 'Save' : 'Insert')));
   const modal = openModal({ title: textbox ? 'Edit text box' : 'Insert text box', content, initialFocus: textArea, onClose: () => ctx.grid.focus() });

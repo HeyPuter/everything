@@ -1573,7 +1573,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (cmd === 'copy' && (chartSheet || grid.selectedChart)) { return run('copyChart', { id: grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id }); }
     if (cmd === 'cut' && grid.selectedChart) return; // Drawing cut is unsupported; never cut the cells behind it.
     if (chartSheet && ['editChart', 'deleteChart', 'duplicateChart'].includes(cmd) && !arg) arg = grid.selectedChart || wb.sheet(grid.sheetId).charts[0]?.id;
-    if (chartSheet && cmd === 'deleteChart' && !['image', 'text'].includes(wb.chartById(grid.sheetId, arg)?.type)) return run('deleteSheet', grid.sheetId);
+    if (chartSheet && cmd === 'deleteChart' && !['image', 'text'].includes(wb.chartById(grid.sheetId, arg?.id || arg)?.type)) return run('deleteSheet', grid.sheetId);
     if (chartSheet && cmd === 'zoomFit') { wb.setSheetView(grid.sheetId, { zoomToFit: true }); grid.refresh(); notify(); return; }
     // The sheet a command acts on. A command that commits an open edit before acting reads it again after
     // the commit (`committed`): a formula may have been showing another sheet to pick references on, and
@@ -4037,11 +4037,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'insertTextBox': if (!committed()) return; openTextBoxDialog(ctx); return;
       case 'deleteChart': {
-        const id = arg || grid.selectedChart;
+        const id = arg?.id || arg || grid.selectedChart;
         if (!id) return;
-        // One of several objects selected, or of a group, deletes them all, as the Delete key does.
+        // One of several objects selected, or of a group, deletes them all, as the Delete key does; a dialog's
+        // Delete (`only`: Edit text box, Equation) deletes the one object it edits.
         const selected = grid.selectedCharts || [];
-        if (selected.length > 1 && selected.includes(id)) { run('deleteObjects', selected); return; }
+        if (!arg?.only && selected.length > 1 && selected.includes(id)) { run('deleteObjects', selected); return; }
         const kind = wb.chartById(sheetId, id)?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
