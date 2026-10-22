@@ -1340,6 +1340,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const sheet = wb.sheet(sid);
     return { rows: Math.max(sheet?.rows || 0, MAX_ROWS), cols: Math.max(sheet?.cols || 0, MAX_COLS) };
   };
+  /**
+   * Does a range take whole columns (axis 'col') or whole rows, as the grid judges them: running the grid's whole
+   * height or width. A block that merely ends on the last line laid out so far (row 100 of a new sheet) does not.
+   */
+  const wholeLines = (rg, axis, sid = grid.sheetId) => {
+    const b = sheetLimits(sid);
+    return axis === 'col' ? rg.r1 === 0 && rg.r2 >= b.rows - 1 : rg.c1 === 0 && rg.c2 >= b.cols - 1;
+  };
 
   /**
    * Why the workbook would not shift a block of cells aside, so the notice names what happened instead of
@@ -1996,7 +2004,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!oneRange('insert rows')) return;
         const r = grid.range;
         // Whole columns selected: one row goes in at the active cell, not a sheet's worth.
-        const wholeCols = r.r1 === 0 && r.r2 >= wb.sheet(sheetId).rows - 1;
+        const wholeCols = wholeLines(r, 'col', sheetId);
         const n = wholeCols ? 1 : r.r2 - r.r1 + 1;
         const at = wholeCols ? grid.active.r + (arg === 'above' ? 0 : 1) : arg === 'above' ? r.r1 : r.r2 + 1;
         const before = selectionSnapshot();
@@ -2019,7 +2027,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (!oneRange('insert columns')) return;
         const r = grid.range;
-        const wholeRows = r.c1 === 0 && r.c2 >= wb.sheet(sheetId).cols - 1;
+        const wholeRows = wholeLines(r, 'row', sheetId);
         const n = wholeRows ? 1 : r.c2 - r.c1 + 1;
         const at = wholeRows ? grid.active.c + (arg === 'left' ? 0 : 1) : arg === 'left' ? r.c1 : r.c2 + 1;
         const before = selectionSnapshot();
@@ -2123,7 +2131,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // and whole columns are read for one as the sort dialog reads them; an
         // explicit selection keeps its first row only when that text row sits
         // over typed values, so a plain list of names sorts whole.
-        const wholeCols = range.r1 === 0 && range.r2 >= sheet.rows - 1;
+        const wholeCols = wholeLines(range, 'col', sheetId);
         // A toolbar click leaves the focus on its button: the grid takes it back once the command is done.
         let widened = false;
         if (single || wholeCols) {
@@ -2182,8 +2190,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // A group is one run of lines: several ranges are refused rather than the last one added grouped.
         if (!oneRange(cmd === 'group' ? 'group rows or columns' : 'ungroup rows or columns')) return;
         const r = grid.range;
-        const sheet = wb.sheet(sheetId);
-        const wholeCols = r.r1 === 0 && r.r2 >= sheet.rows - 1 && !(r.c1 === 0 && r.c2 >= sheet.cols - 1);
+        const wholeCols = wholeLines(r, 'col', sheetId) && !wholeLines(r, 'row', sheetId);
         const axis = arg === 'col' || arg === 'row' ? arg : wholeCols ? 'col' : 'row';
         const from = axis === 'row' ? r.r1 : r.c1;
         const to = axis === 'row' ? r.r2 : r.c2;
@@ -2224,8 +2231,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const a = grid.active;
         const rg = grid.range;
         // Whole columns (or rows) selected: freeze up to the active cell, not a sheet's worth.
-        const wholeCols = rg.r1 === 0 && rg.r2 >= sheet.rows - 1;
-        const wholeRows = rg.c1 === 0 && rg.c2 >= sheet.cols - 1;
+        const wholeCols = wholeLines(rg, 'col', sheetId);
+        const wholeRows = wholeLines(rg, 'row', sheetId);
         let rows = sheet.frozenRows;
         let cols = sheet.frozenCols;
         const r0 = rows ? sheet.frozenOrigin?.r || 0 : 0;
@@ -2481,8 +2488,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (refusedByProtection('clear the outline')) return;
         const rg = grid.range;
-        const sheet = wb.sheet(sheetId);
-        const whole = (rg.r1 === rg.r2 && rg.c1 === rg.c2) || (rg.r1 === 0 && rg.c1 === 0 && rg.r2 >= sheet.rows - 1 && rg.c2 >= sheet.cols - 1);
+        const whole = (rg.r1 === rg.r2 && rg.c1 === rg.c2) || (wholeLines(rg, 'col', sheetId) && wholeLines(rg, 'row', sheetId));
         toast(clearOutline(wb, sheetId, whole ? null : rg) ? 'Outline cleared' : 'No outline here to clear', { icon: 'info' });
         keepFocus();
         return;
@@ -3783,8 +3789,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'showDetail': case 'hideDetail': {
         if (!committed()) return;
-        const sheet = wb.sheet(sheetId), rg = grid.range;
-        const wholeColumns = rg.r1 === 0 && rg.r2 >= sheet.rows - 1 && !(rg.c1 === 0 && rg.c2 >= sheet.cols - 1);
+        const rg = grid.range;
+        const wholeColumns = wholeLines(rg, 'col', sheetId) && !wholeLines(rg, 'row', sheetId);
         if (!toggleDetail(wb, sheetId, { active: grid.active, wholeColumns }, cmd === 'showDetail')) toast(`No outline group to ${cmd === 'showDetail' ? 'show' : 'hide'} here`, { icon: 'info' });
         keepFocus();
         return;
