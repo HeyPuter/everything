@@ -12,6 +12,8 @@ const hexOf = (color) => (typeof color === 'string' ? (HEX.test(color) ? color.t
 const escape = (text) => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const attrs = (map) => Object.entries(map).map(([k, v]) => ` ${k}="${escape(v)}"`).join('');
 const pt = (px) => `${Math.round(px * 0.75 * 100) / 100}pt`;
+// An indent level as a length: the 10pt (0.353cm) LibreOffice's Increase Indent adds, so its levels and these match.
+const INDENT_POINTS = 10;
 
 // Line widths as LibreOffice writes Excel's border weights.
 const BORDER_WIDTH = { thin: '0.74pt', medium: '1.76pt', thick: '2.49pt', dashed: '0.74pt', dotted: '0.74pt', double: '2.01pt' };
@@ -62,11 +64,14 @@ export function odsCellStyleProperties(style) {
   if (Number.isFinite(style.rot) && style.rot !== 0 && Math.abs(style.rot) <= 90) cell['style:rotation-angle'] = String(style.rot < 0 ? 360 + style.rot : style.rot);
   // Justify is the paragraph's own; Excel's Center Across Selection, Distributed and Fill go as the side they are laid out against.
   const align = style.align === 'justify' ? 'justify' : layoutAlign(style.align);
+  // An indent sets text in from the left edge, the one edge LibreOffice indents from: not for a cell aligned right or centred.
+  const indent = Number.isFinite(style.indent) && style.indent > 0 && !['center', 'right'].includes(align) ? Math.min(250, Math.floor(style.indent)) : 0;
   if (['left', 'center', 'right', 'justify'].includes(align)) {
     // Without a fixed source LibreOffice aligns by the value's type and ignores fo:text-align.
     cell['style:text-align-source'] = 'fix';
     paragraph['fo:text-align'] = { left: 'start', center: 'center', right: 'end', justify: 'justify' }[align];
   }
+  if (indent) paragraph['fo:margin-left'] = `${indent * INDENT_POINTS}pt`;
   Object.assign(text, textAttributes(style));
   return element('table-cell-properties', cell) + element('paragraph-properties', paragraph) + element('text-properties', text);
 }
@@ -194,5 +199,8 @@ export function odsCellStyle(props) {
     const align = { start: 'left', left: 'left', center: 'center', end: 'right', right: 'right', justify: 'justify' }[String(props['text-align'] ?? '').toLowerCase()];
     if (align) s.align = align;
   }
+  // LibreOffice's indent is the paragraph's left margin, a length; this app's is a count of levels.
+  const indent = Math.round(points(props['margin-left']) / INDENT_POINTS);
+  if (indent > 0 && !['center', 'right'].includes(s.align)) s.indent = Math.min(250, indent);
   return Object.keys(s).length ? s : null;
 }
