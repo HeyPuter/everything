@@ -803,6 +803,12 @@ function formatCells(wb, args, env) {
   const borders = args.borders;
   if (borders != null && !['all', 'outer', 'inner', 'none'].includes(borders)) throw new ToolError('borders must be all, outer, inner or none.');
   if (!Object.keys(patch).length && borders == null) throw new ToolError('No formatting was given.');
+  // Cells past the sheet's present size are formatted as written cells are: the sheet grows to them (a new sheet's 100
+  // rows formatted B95:B105 as far as B100 alone, and A150 not at all). Whole lines are formatted as lines, below.
+  if (!lineScope(range)) {
+    if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) throw new ToolError('The range runs past the edge of the sheet.');
+    wb.ensureSize(sheetId, range.r2 + 1, range.c2 + 1);
+  }
   // Whole columns and rows are formatted as lines (the way the toolbar formats them), not cell by cell.
   wb.transaction('AI edit', () => {
     if (Object.keys(patch).length) wb.applyStyle(sheetId, range, patch);
