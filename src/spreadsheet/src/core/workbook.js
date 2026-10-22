@@ -10925,7 +10925,9 @@ export class Workbook extends EventTarget {
   validateInput(sheetId, r, c, text) {
     const rule = this.validationAt(sheetId, r, c);
     if (!rule) return { ok: true, rule: null };
-    const { v, f } = parseInput(text);
+    // The entry is judged as the cell will hold it: 50 typed into a percent cell is 0.5, 00123 in a Text cell
+    // stays the text 00123, and 1/2 in a fraction cell is a half rather than January 2.
+    const { v = null, f = null } = typedDigits(cellFromInput(text, this.styleAt(sheetId, r, c)), text) || {};
     if (f != null) return { ok: true, rule }; // formulas are checked by their results
     const sheet = this.sheet(sheetId);
     return { ...checkValue(rule, v, (source) => this._resolveValidationSource(sheet, rule, source, r, c), (formula) => this.evalRuleFormula(sheetId, formula, rule.range, r, c, v)), rule };
