@@ -57,3 +57,18 @@ it('selects whole lines at once outside a table, as before', () => {
   press(ctrlSpace);
   expect(grid.formatRanges.at(-1)).toMatchObject({ c1: 7, c2: 7, scope: 'columns' });
 });
+
+// Ctrl+A in a table took the whole table, header and all, at once; Excel takes its data first, so the rows can be
+// formatted, copied or cleared without the header, then the table, then the sheet.
+it('selects a table\'s data, then the whole table, then the sheet, with Ctrl+A', () => {
+  const { grid } = mount({ totals: true });
+  grid.selectByName('C4');
+  const ctrlA = () => grid.viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true, cancelable: true, ...ctrlSpace }));
+  ctrlA();
+  expect(grid.range).toEqual({ r1: 2, c1: 1, r2: 5, c2: 3 });
+  expect(grid.active).toEqual({ r: 3, c: 2 });
+  ctrlA();
+  expect(grid.range).toEqual({ r1: 1, c1: 1, r2: 6, c2: 3 });
+  ctrlA();
+  expect(grid.formatRanges.at(-1)).toMatchObject({ scope: 'sheet' });
+});

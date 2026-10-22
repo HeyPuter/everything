@@ -3342,6 +3342,15 @@ export function createGrid(opts) {
     const range = S.selRange(sel);
     // Once the whole sheet is selected, further presses keep it, as in Excel, rather than going back to the block.
     if (range.r1 === 0 && range.c1 === 0 && range.r2 >= b.rows - 1 && range.c2 >= b.cols - 1) { setSelection(wholeSheet(), { scroll: false }); return; }
+    // Inside a table, as in Excel: its data first, then the whole table with its header and totals, then the sheet.
+    const t = !extras.length && wb.tableAt ? wb.tableAt(sheetId, r, c) : null;
+    if (t) {
+      const rows = tableRows(t);
+      const data = rows.empty ? t.range : { r1: rows.dataStart, c1: t.range.c1, r2: rows.dataEnd, c2: t.range.c2 };
+      const same = (a) => range.r1 === a.r1 && range.c1 === a.c1 && range.r2 === a.r2 && range.c2 === a.c2;
+      setSelection(same(t.range) ? wholeSheet() : S.fromRange(same(data) ? t.range : data, { r, c }), { scroll: false });
+      return;
+    }
     const region = wb.dataRegion(sheetId, r, c);
     const block = region && (region.r1 !== region.r2 || region.c1 !== region.c2)
       && !(range.r1 === region.r1 && range.c1 === region.c1 && range.r2 === region.r2 && range.c2 === region.c2);
