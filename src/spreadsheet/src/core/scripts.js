@@ -232,7 +232,8 @@ async function main(workbook) {
   // Inside the formula's quotes, a double quote in a name is written twice: in the link and in the label alike.
   const quoted = (text) => text.replace(/"/g, '""');
   for (const sheet of workbook.getWorksheets()) {
-    if (sheet.getName() === name) continue;
+    // By the sheet found, not the name asked for: getWorksheet matches any case, so it may be "contents".
+    if (sheet.getName() === contents.getName()) continue;
     const target = "'" + sheet.getName().replace(/'/g, "''") + "'!A1";
     rows.push([\`=HYPERLINK("#\${quoted(target)}", "\${quoted(sheet.getName())}")\`, sheet.getVisible() ? 'Yes' : 'No']);
   }
