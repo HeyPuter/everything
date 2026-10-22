@@ -13277,9 +13277,24 @@ var rc_to_a1 = /*#__PURE__*/(function(){
 		if(rRel) R += rcbase.r; else --R;
 		return $1 + (cRel ? "" : "$") + encode_col(C) + (rRel ? "" : "$") + encode_row(R);
 	}
+	/* Puter Spreadsheet local patch: whole rows and columns (C2 is column B, C[-1]:C[1] the columns either
+	 * side, R[1] the next row) were left as they were, so =SUM(C2) and =VLOOKUP(RC1,C1:C3,2,FALSE) opened
+	 * as #NAME?; and string literals and quoted sheet names were rewritten as formulas, so ="RC Cola" and
+	 * a sheet 'R1C1 notes' changed. A cell reads as above; text between quotes is left alone. */
+	var rcanyregex = /(^|[^A-Za-z_])(?:R(\[?-?\d+\]|[1-9]\d*|)C(\[?-?\d+\]|[1-9]\d*|)|([RC])(\[-?\d+\]|[1-9]\d*|)(?::([RC])(\[-?\d+\]|[1-9]\d*|))?)(?![A-Za-z0-9_(])/g;
+	function rcline(axis, raw) {
+		var rel = raw.length == 0 || raw.charAt(0) == "[", n = raw.length == 0 ? 0 : parseInt(rel ? raw.slice(1, -1) : raw, 10) | 0;
+		if(axis == "C") return (rel ? "" : "$") + encode_col(rel ? n + rcbase.c : n - 1);
+		return (rel ? "" : "$") + encode_row(rel ? n + rcbase.r : n - 1);
+	}
+	function rcanyfunc($$, $1, $2, $3, $4, $5, $6, $7) {
+		if($4 === undefined) return rcfunc($$, $1, $2, $3);
+		if($6 && $6 != $4) return $$;
+		return $1 + rcline($4, $5) + ":" + rcline($4, $6 ? $7 : $5);
+	}
 	return function rc_to_a1(fstr/*:string*/, base/*:Cell*/)/*:string*/ {
 		rcbase = base;
-		return fstr.replace(rcregex, rcfunc);
+		return fstr.replace(/"(?:[^"]|"")*"|'(?:[^']|'')*'|[^"']+/g, function(part) { return part.charAt(0) == '"' || part.charAt(0) == "'" ? part : part.replace(rcanyregex, rcanyfunc); });
 	};
 })();
 
