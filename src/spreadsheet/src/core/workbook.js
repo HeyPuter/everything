@@ -8541,7 +8541,7 @@ export class Workbook extends EventTarget {
       this._changed('structure', live.id);
     };
     apply(next);
-    this._push({ label: 'Sheet color', undo: () => apply(prev), redo: () => apply(next) });
+    this._push({ label: 'Sheet color', undo: () => apply(prev), redo: () => apply(next), changesSheets: true });
   }
 
   /** Freeze `rows` and `cols` from the current frozen origin (normally A1); 0 unfreezes. Freezing removes a split. */
@@ -14087,6 +14087,7 @@ export class Workbook extends EventTarget {
       undo: () => { for (let i = entries.length - 1; i >= 0; i--) entries[i].undo(); },
       redo: () => { for (const e of entries) e.redo(); },
       snapshotCells: entries.reduce((cells, e) => cells + (e.snapshotCells || 0), 0),
+      ...(entries.some((e) => e.changesSheets) ? { changesSheets: true } : {}),
     };
     this._history.push(step);
     this._emit('history');
@@ -14107,7 +14108,12 @@ export class Workbook extends EventTarget {
   undoSteps(n) { let k = 0; while (k < n && this.undo()) k++; return k; }
   redoSteps(n) { let k = 0; while (k < n && this.redo()) k++; return k; }
 
+  /**
+   * A step that adds, removes, renames, moves, hides or recolors sheets is refused while the structure is protected,
+   * as the edit itself is; it stays, to be taken once the workbook is unprotected.
+   */
   undo() {
+    if (this._history.at(-1)?.changesSheets && this._structureLocked()) return false;
     const entry = this._history.pop();
     if (!entry) return false;
     this._snapshotCells -= entry.snapshotCells || 0;
@@ -14119,6 +14125,7 @@ export class Workbook extends EventTarget {
   }
 
   redo() {
+    if (this._future.at(-1)?.changesSheets && this._structureLocked()) return false;
     const entry = this._future.pop();
     if (!entry) return false;
     this._coalesce(() => entry.redo());
@@ -14179,6 +14186,7 @@ export class Workbook extends EventTarget {
       // The capture the first structural step opened closes with the transaction: the snapshot of the state before it.
       if (structural) { structural.before = this._settle(structural.capture); structural.capture = null; structural.entry.snapshotCells = structural.before.cells; }
       const steps = entries.length + (structural ? structural.steps - 1 : 0);
+      const changesSheets = entries.some((e) => e.changesSheets);
       // Steps recorded after the first structural one act on intermediate layouts; the
       // structural snapshots already hold their outcome, so they are not replayed.
       if (structural) entries = entries.slice(0, entries.indexOf(structural.entry) + 1);
@@ -14196,11 +14204,17 @@ export class Workbook extends EventTarget {
           // What the step holds: the structural snapshots and every cell-level step's before-and-after pair,
           // so a Replace all across a book's sheets is weighed like the single-sheet one (see _evictSnapshots).
           snapshotCells: entries.reduce((cells, e) => cells + (e.snapshotCells || 0), 0),
+          ...(changesSheets ? { changesSheets } : {}),
         };
         this._push(step);
       }
     }
     return result;
+  }
+
+  /** The workbook's structure as Protect Workbook locks it: its sheets, their order, names, visibility and tab colors. */
+  _sheetsShape() {
+    return this.sheets.map((s) => `${s.id}\u0000${s.name}\u0000${s.hidden ? 1 : 0}${s.veryHidden ? 1 : 0}\u0000${s.color || ''}`).join('\u0001');
   }
 
   /** Run a structural edit with snapshots, for undo, of the sheets it changes (see _capture). */
@@ -14222,11 +14236,14 @@ export class Workbook extends EventTarget {
       const outer = this._watchMoves;
       this._watchMoves = this._group.structural.watchMoves;
       try {
+        const shape = this._sheetsShape();
         const result = fn();
+        if (this._sheetsShape() !== shape) this._group.structural.entry.changesSheets = true;
         this._changed('structure');
         return result;
       } finally { this._watchMoves = outer; }
     }
+    const shape = this._sheetsShape();
     const capture = this._capture();
     const snap = { before: null, after: null };
     const watchMoves = [];
@@ -14251,6 +14268,7 @@ export class Workbook extends EventTarget {
       },
       redo: () => { this._restore(snap.after); this._replayWatchMoves(watchMoves, false); },
       snapshotCells: snap.before.cells,
+      ...(this._sheetsShape() !== shape ? { changesSheets: true } : {}),
     };
     this._push(step);
     return result;

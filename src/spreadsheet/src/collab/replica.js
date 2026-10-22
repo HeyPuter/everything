@@ -36,6 +36,10 @@ const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 const parse = (json) => (json == null ? null : JSON.parse(json));
 const json = (v) => JSON.stringify(v === undefined ? null : v);
 
+/** Does the operation change the sheets Protect Workbook locks: which there are, their order, names, visibility or tab colors? */
+const SHEET_OPS = new Set(['put', 'drop', 'rename', 'order']);
+const changesSheets = (op) => SHEET_OPS.has(op.t) || (op.t === 'props' && (own(op.v, 'hidden') || own(op.v, 'veryHidden') || own(op.v, 'color')));
+
 export function changeId() {
   const bytes = crypto.getRandomValues(new Uint8Array(12));
   return [...bytes].map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 20);
@@ -786,6 +790,8 @@ export class Replica extends EventTarget {
 
   _takeBack(kind) {
     const stack = kind === 'undo' ? this.undoStack : this.redoStack;
+    // One that adds, removes, renames, moves, hides or recolors a sheet waits while the structure is protected (see Workbook.undo).
+    if (stack.at(-1)?.ops.some(changesSheets) && this.wb._structureLocked()) return false;
     const entry = stack.pop();
     if (!entry) return false;
     this.undoing = kind;
