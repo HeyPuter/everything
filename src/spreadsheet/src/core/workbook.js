@@ -5329,8 +5329,8 @@ export class Workbook extends EventTarget {
    * { range } trimmed to a table's data rows, and widened to the table's
    * columns, when they can; { reason } when not: 'table' (a table only
    * partly inside, or two of them; any table when sorting columns), 'merged'
-   * (merges that would come apart or hide cells) or 'array' (a spilled
-   * result that would scatter).
+   * (merges that would come apart or hide cells), 'array' (a spilled
+   * result that would scatter) or 'pivot' (a PivotTable report).
    */
   _rearrangeCheck(sheet, range, axis) {
     const hit = sheet.tables.filter((t) => !(range.r2 < t.range.r1 || range.r1 > t.range.r2 || range.c2 < t.range.c1 || range.c1 > t.range.c2));
@@ -5348,6 +5348,9 @@ export class Workbook extends EventTarget {
       out = { ...out, r1: Math.max(range.r1, dataStart), r2: Math.min(range.r2, dataEnd) };
       if (out.r1 > out.r2) return { reason: 'table' };
     }
+    // A PivotTable report is laid out from its definition: rows moved inside it would leave the report's cells out of
+    // step with the items it names (and a sort of its columns would swap its labels with its values), as Excel refuses.
+    if (this.nativePivotOverlap(sheet.id, out)) return { reason: 'pivot' };
     // Lines can only change places when every line has the same merges (all of them one line
     // wide and inside the range), and when no spilled array lies across them: a rearranged
     // block would otherwise hide cells under a merge or scatter an array.

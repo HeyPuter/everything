@@ -78,7 +78,7 @@ export function rearrangeProblem(wb, sheetId, range, axis = 'row', verb = 'sort'
   const reason = wb.rearrangeBlocker(sheetId, range, axis);
   if (!reason) return '';
   const what = {
-    merged: 'has merged cells', array: 'has an array result', protected: 'has protected cells',
+    merged: 'has merged cells', array: 'has an array result', protected: 'has protected cells', pivot: 'overlaps a PivotTable',
     table: axis === 'col' ? 'overlaps a table' : 'overlaps part of a table',
   }[reason] || 'cannot be rearranged';
   return `Can't ${verb}: the range ${what}`;
