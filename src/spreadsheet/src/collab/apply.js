@@ -97,6 +97,43 @@ function freeName(wb, name) {
   return wb.uniqueSheetName();
 }
 
+/**
+ * The insertions of rows from ops[n] on, on one sheet, each below the rows the one before put in and the line above
+ * it one that was already there, none inside a table (a row there takes the table's calculated columns, one place at
+ * a time): what inserting them all at once at their places before any went in gives (see Workbook._insertSequence).
+ */
+function insertRun(ops, n, sheet) {
+  const first = ops[n], group = [first];
+  if (first.axis !== 'row') return group;
+  const inTable = (at) => sheet.tables.some((t) => t.range.r1 < at && at <= t.range.r2);
+  if (inTable(first.at)) return group;
+  let before = first.n;
+  for (let k = n + 1; k < ops.length; k++) {
+    const op = ops[k], last = group.at(-1);
+    if (op.t !== 'insert' || op.s !== first.s || op.axis !== 'row' || !(op.n >= 1) || !(op.at > last.at + last.n) || inTable(op.at - before)) break;
+    group.push(op);
+    before += op.n;
+  }
+  return group;
+}
+
+/** The deletions of rows from ops[n] on, on one sheet, each wholly above the one before: one deletion of all their runs. */
+function deleteRun(ops, n, sheet) {
+  const first = ops[n], group = [first];
+  if (first.axis !== 'row') return group;
+  const low = (op) => op.runs.reduce((m, r) => Math.min(m, r.from), Infinity);
+  let count = first.runs.reduce((k, r) => k + r.to - r.from + 1, 0), floor = low(first);
+  for (let k = n + 1; k < ops.length; k++) {
+    const op = ops[k];
+    if (op.t !== 'delete' || op.s !== first.s || op.axis !== 'row' || !(maxOf(op.runs.map((r) => r.to)) < floor)) break;
+    count += op.runs.reduce((c, r) => c + r.to - r.from + 1, 0);
+    floor = low(op);
+    group.push(op);
+  }
+  // Deleting every row leaves one, emptied: that stays the last deletion's own doing.
+  return count >= sheet.rows ? [first] : group;
+}
+
 /** Make sure the sheet reaches line `need - 1` on `axis`, so an operation from a browser scrolled further is not cut short. */
 function reach(wb, sheet, axis, need) {
   if (axis === 'row' ? sheet.rows < need : sheet.cols < need) wb._growTo(sheet, axis === 'row' ? need : 0, axis === 'col' ? need : 0);
@@ -125,7 +162,9 @@ function keepOneShown(wb, label) {
  * sheet, say): the same in every browser, which hold the same state.
  */
 export function applyOps(wb, ops, label = 'Shared edit') {
-  for (const [n, op] of ops.entries()) {
+  let alone = 0; // ops before this index go in one at a time: the group they were in was refused
+  for (let n = 0; n < ops.length; n++) {
+    const op = ops[n];
     const sheet = op.s != null ? wb.sheet(op.s) : null;
     switch (op.t) {
       case 'cells': {
@@ -186,16 +225,32 @@ export function applyOps(wb, ops, label = 'Shared edit') {
         });
         break;
       }
-      case 'insert':
+      case 'insert': {
         if (!sheet) break;
+        // Rows inserted one below another (taking back a deletion of the rows a filter shows: an insertion per run)
+        // go in at once, the sheet renumbered once rather than once per run; one refused sends each in on its own.
+        const group = n < alone ? [op] : insertRun(ops, n, sheet);
+        if (group.length > 1) {
+          reach(wb, sheet, 'row', group.at(-1).at - group.slice(0, -1).reduce((k, i) => k + i.n, 0) + 1);
+          if (wb._insertSequence(op.s, 'row', group.map((i) => ({ at: i.at, n: i.n })))) { n += group.length - 1; break; }
+          alone = n + group.length;
+        }
         reach(wb, sheet, op.axis, op.at + 1);
         wb._insert(op.s, op.axis, op.at, op.n);
         break;
-      case 'delete':
+      }
+      case 'delete': {
         if (!sheet) break;
         reach(wb, sheet, op.axis, maxOf(op.runs.map((r) => r.to)) + 1);
+        // Deletions each above the one before (taking back insertions of rows one below another) go at once, as one.
+        const group = n < alone ? [op] : deleteRun(ops, n, sheet);
+        if (group.length > 1) {
+          if (wb._deleteLines(op.s, 'row', group.flatMap((d) => d.runs.map((r) => ({ from: r.from, to: r.to }))))) { n += group.length - 1; break; }
+          alone = n + group.length;
+        }
         wb._deleteLines(op.s, op.axis, op.runs.map((r) => ({ from: r.from, to: r.to })));
         break;
+      }
       case 'move':
         if (!sheet) break;
         reach(wb, sheet, op.axis, Math.max(op.from + op.count, op.to));

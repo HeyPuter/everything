@@ -131,6 +131,10 @@ export class Replica extends EventTarget {
     semantic('_insert', {
       op: ([s, axis, at, n], ok) => ok && { t: 'insert', s, axis, at, n },
     });
+    // Several insertions at once, as taking back a deletion of many runs applies them (see applyOps): each recorded as itself.
+    semantic('_insertSequence', {
+      op: ([s, axis, inserts], ok) => ok && inserts.map(({ at, n }) => ({ t: 'insert', s, axis, at, n })),
+    });
     semantic('_deleteLines', {
       before: ([s, axis]) => { const sh = wb.sheet(s); return sh ? (axis === 'row' ? sh.rows : sh.cols) : 0; },
       op: ([s, axis, asked], ok, total) => {
@@ -371,19 +375,24 @@ export class Replica extends EventTarget {
     if (op) {
       this.shadow = this._fullShadow();
       this._resetDirty();
-      const inverse = this._inverseOf(op, old, result, before);
-      if (op.t === 'delete' && op.runs.length > MAX_RUNS) {
-        // More runs than the room takes in one deletion (the rows a filter shows, deleted): several deletions, the lowest
-        // rows first so that each one's positions still hold. Taken back, the rows go back from the top, then what was on them.
-        const rest = inverse.slice(op.runs.length);
-        for (let end = op.runs.length; end > 0; end -= MAX_RUNS / 2) {
-          const from = Math.max(0, end - MAX_RUNS / 2);
-          this._record({ ...op, runs: op.runs.slice(from, end) }, [...inverse.slice(from, end), ...(end === op.runs.length ? rest : [])]);
-        }
-      } else this._record(op, inverse);
+      for (const one of Array.isArray(op) ? op : [op]) this._recordStructure(one, old, result, before);
     }
     if (step) this._flushStep(step.label || 'Edit', { rollback: () => step.undo() });
     return result;
+  }
+
+  /** Record a structural operation made here with its inverse. */
+  _recordStructure(op, old, result, before) {
+    const inverse = this._inverseOf(op, old, result, before);
+    if (op.t === 'delete' && op.runs.length > MAX_RUNS) {
+      // More runs than the room takes in one deletion (the rows a filter shows, deleted): several deletions, the lowest
+      // rows first so that each one's positions still hold. Taken back, the rows go back from the top, then what was on them.
+      const rest = inverse.slice(op.runs.length);
+      for (let end = op.runs.length; end > 0; end -= MAX_RUNS / 2) {
+        const from = Math.max(0, end - MAX_RUNS / 2);
+        this._record({ ...op, runs: op.runs.slice(from, end) }, [...inverse.slice(from, end), ...(end === op.runs.length ? rest : [])]);
+      }
+    } else this._record(op, inverse);
   }
 
   /**

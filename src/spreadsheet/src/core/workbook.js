@@ -6758,6 +6758,17 @@ export class Workbook extends EventTarget {
   }
 
   /**
+   * Insertions made one after another, each numbered as the ones before left the sheet, each below the lines the one
+   * before put in with a line already there above it, and none inside a table (a row there takes the table's
+   * calculated columns, one place at a time: see insertRowsAt), made at once (see _insertLines): the outcome of
+   * making them in turn, the sheet renumbered once.
+   */
+  _insertSequence(sheetId, axis, inserts) {
+    let before = 0;
+    return this._insertLines(sheetId, axis, inserts.map(({ at, n }) => { const point = { at: at - before, n }; before += n; return point; }));
+  }
+
+  /**
    * Insert lines at several places at once (rows only, for more than one): points = [{ at, n }], every `at`
    * numbered as before any of them went in. The outcome is that of inserting them one after another from the
    * bottom up, but the sheet's cells and the book's formulas are renumbered once for all of them, not once
