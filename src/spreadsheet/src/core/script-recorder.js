@@ -241,11 +241,26 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   });
   wrap('insertCells', ([sheetId, range, direction = 'down']) => add(sheetId, [`${rangeExpr(range)}.insert(${q(direction === 'right' ? 'right' : 'down')});`]));
   wrap('deleteCells', ([sheetId, range, direction = 'up']) => add(sheetId, [`${rangeExpr(range)}.delete(${q(direction === 'left' ? 'left' : 'up')});`]));
-  wrap('sortRangeBy', ([sheetId, range, keys, opts = {}]) => {
+  // A sort by fill colour, which the script's sort cannot make, is written as the cells it left.
+  const byColour = (keys) => keys?.some((k) => k.color !== undefined);
+  wrap('sortRangeBy', ([sheetId, range, keys, opts = {}], result, prior) => {
     const rg = normalizeRange(range);
+    if (byColour(keys)) {
+      if (prior) changedCells(sheetId, filledCells(sheetId, prior.box), prior.cells);
+      else add(sheetId, [`// Not recorded: sort by colour of ${address(rg) || 'the sheet'}`]);
+      return;
+    }
     const list = keys.map((k) => `{ column: ${k.col - rg.c1}, ascending: ${k.ascending !== false} }`).join(', ');
     add(sheetId, [`${rangeExpr(rg)}.sort([${list}]${opts.caseSensitive ? ', { matchCase: true }' : ''});`]);
-  });
+  }, { before: (sheetId, range, keys) => {
+    if (!byColour(keys)) return null;
+    // The block the sort can move: the range, cut to what the sheet holds.
+    const used = wb.usedRange(sheetId);
+    const rg = normalizeRange(range);
+    const box = used && { r1: rg.r1, c1: rg.c1, r2: Math.min(rg.r2, used.r2), c2: Math.min(rg.c2, used.c2) };
+    if (!box || box.r2 < box.r1 || box.c2 < box.c1 || (box.r2 - box.r1 + 1) * (box.c2 - box.c1 + 1) > MAX_BLOCK_CELLS) return null;
+    return { box, cells: filledCells(sheetId, box).map(({ r, c }) => wb.getCell(sheetId, r, c)) };
+  } });
   // A fill the script's autoFill makes as it is; a copy instead of a series, or a count where the default copies
   // (Ctrl while dragging), is written as the cells it left, which autoFill alone would fill the other way.
   const filledCells = (sheetId, target) => { const out = []; for (let r = target.r1; r <= target.r2; r++) for (let c = target.c1; c <= target.c2; c++) out.push({ r, c }); return out; };
