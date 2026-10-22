@@ -4152,6 +4152,20 @@ export function createGrid(opts) {
   }
 
   /**
+   * Ctrl+Shift+Arrow (or End, then Shift+Arrow): where the selection's moving end jumps to. Whole rows have no
+   * column of their own at that end (it lies at the sheet's last one, where nothing is), so a jump down them runs
+   * along the active cell's column, as in Excel, and the end keeps to the last column so the rows stay whole;
+   * whole columns likewise along the active cell's row. From the empty last column, rows 2:3 stretched to the
+   * sheet's last row rather than to the end of the data below them.
+   */
+  function stretchJump(dr, dc) {
+    const rows = sel.scope === 'rows' && dr, cols = sel.scope === 'columns' && dc;
+    const from = { r: cols ? sel.active.r : sel.focus.r, c: rows ? sel.active.c : sel.focus.c };
+    const to = jumpFrom({ ...sel, active: from }, dr, dc).active;
+    return { r: cols ? sel.focus.r : to.r, c: rows ? sel.focus.c : to.c };
+  }
+
+  /**
    * Where along one column (or row) anything may stop a Ctrl+Arrow: the stored values and formulas, the
    * spilled arrays and the merged blocks crossing it, as sorted, disjoint [from, to] runs. Built from the
    * stored cells, not by visiting a million empty ones, and kept while nothing changes.
@@ -5436,8 +5450,7 @@ export function createGrid(opts) {
       const [dr, dc] = dir;
       if (keyMode === 'end') {
         // End, then an arrow: the jump Ctrl+arrow makes (Shift extends), and End Mode ends.
-        const from = e.shiftKey ? { ...sel, active: sel.focus } : sel;
-        const target = jumpFrom(from, dr, dc).active;
+        const target = e.shiftKey ? stretchJump(dr, dc) : jumpFrom(sel, dr, dc).active;
         setKeyMode(null);
         setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { grow: false, add: e.shiftKey });
       } else if (keyMode === 'extend' || e.shiftKey) {
@@ -5472,7 +5485,7 @@ export function createGrid(opts) {
       const [dr, dc] = dir;
       // Shift stretches the range last selected; the ranges added before it with Ctrl/Cmd+click stay, as in Excel.
       if (mod) {
-        const target = jumpFrom(extending ? { ...sel, active: sel.focus } : sel, dr, dc).active;
+        const target = extending ? stretchJump(dr, dc) : jumpFrom(sel, dr, dc).active;
         setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { grow: false, add: extending });
       } else if (e.shiftKey) {
         const target = stepFrom(S.single(sel.focus.r, sel.focus.c), dr, dc).active;
