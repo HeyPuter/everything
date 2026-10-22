@@ -2013,8 +2013,12 @@ export function createGrid(opts) {
     refreshMergeMap();
     const vr = visibleRange(view);
     borderView = vr;
+    // A rule matters to an edge only if it sets (or takes off) a border side: the others are not evaluated for the
+    // neighbours the resolver reads. Every cell asks about the cells below and beside it (to drop its gridline under
+    // their border), and evaluating each sheet's rules again for those cost a fifth of a scroll frame.
+    const ruleBorders = s.rules.some((rule) => rule.style && ['bt', 'bb', 'bl', 'br'].some((side) => Object.hasOwn(rule.style, side)));
     resolveBorders = createBorderResolver({
-      read: (r, c) => ({ style: baseStyleAt(s, r, c), table: s.tables.some(t => t.customStyle) ? wb._tableStyleAt(s, r, c) : null, conditional: s.rules.length ? wb.conditionalStyle(s.id, r, c, wb.getValue(s.id, r, c), { banding: false }) : null }),
+      read: (r, c) => ({ style: baseStyleAt(s, r, c), table: s.tables.some(t => t.customStyle) ? wb._tableStyleAt(s, r, c) : null, conditional: ruleBorders ? wb.conditionalStyle(s.id, r, c, wb.getValue(s.id, r, c), { banding: false }) : null }),
       mergeAt: s.merges.length ? mergeAt : undefined,
       neighbor: (r, c, side) => {
         const rr = side === 'bt' ? shownAbove(r) : side === 'bb' ? shownBelow(r) : r;
