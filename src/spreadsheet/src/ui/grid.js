@@ -3184,7 +3184,13 @@ export function createGrid(opts) {
         }
         if (r <= range.r2 && c <= range.c2) sel.active = { r, c };
       }
-      if (grown.r1 !== range.r1 || grown.c1 !== range.c1 || grown.r2 !== range.r2 || grown.c2 !== range.c2) sel.range = grown;
+      // A range lying wholly inside one merged block is that block's one cell, as in Excel: a click on a large
+      // merged title that slipped into another of its cells, or a Shift+click on it, named it B2:C3 rather than B2.
+      if (!whole && m && grown.r1 === m.r1 && grown.c1 === m.c1 && grown.r2 === m.r2 && grown.c2 === m.c2) {
+        sel.anchor = { ...sel.active };
+        sel.focus = { ...sel.active };
+        sel.range = grown;
+      } else if (grown.r1 !== range.r1 || grown.c1 !== range.c1 || grown.r2 !== range.r2 || grown.c2 !== range.c2) sel.range = grown;
     }
     // Selecting the last row or column grows the sheet so there is always somewhere to go, like an
     // endless page. A Ctrl+Arrow jump that lands on the last line, nothing lying beyond it, stops
@@ -4507,7 +4513,10 @@ export function createGrid(opts) {
       return;
     }
     if (drag.kind === 'select') {
-      if (r !== sel.focus.r || c !== sel.focus.c) setSelection(S.extendTo(sel, r, c), { scroll: false, announce: false, add: extras.length > 0 });
+      // Across the cells of the merged block the selection already ends on, it stays as it is.
+      const m = sheet().merges.length ? mergeAt(r, c) : null;
+      const same = m ? sel.focus.r >= m.r1 && sel.focus.r <= m.r2 && sel.focus.c >= m.c1 && sel.focus.c <= m.c2 : r === sel.focus.r && c === sel.focus.c;
+      if (!same) setSelection(S.extendTo(sel, r, c), { scroll: false, announce: false, add: extras.length > 0 });
     } else if (drag.kind === 'fill') {
       const next = fillTarget(drag.source, r, c);
       if (rangeName(next) !== rangeName(fillPreview || drag.source)) { fillPreview = next; schedule(); }
