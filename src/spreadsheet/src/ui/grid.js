@@ -2567,7 +2567,11 @@ export function createGrid(opts) {
     // A press on a shape of a SmartArt diagram already selected picks that shape (Shift or Cmd/Ctrl: adds it).
     const pickedShape = ch.type === 'smartart' && !onHandle && objectSelected(id) ? e.target.closest?.('[data-item]') : null;
     const pickedPart = ch.type === 'smartart' && !onHandle && objectSelected(id) && selectedSet.size <= 1;
+    // Shift or Cmd/Ctrl on an object already selected takes it out on release, not on the press: a drag moves the
+    // selection instead (with Shift, straight across or down).
+    const dropOnClick = adding && objectSelected(id) && selectedSet.size > 1;
     if (pickedPart) { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
+    else if (dropOnClick) { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
     else if (adding) selectChart(id, { add: true });
     else if (!(objectSelected(id) && selectedSet.size > 1)) selectChart(id);
     else { selectedChart = id; viewport.focus({ preventScroll: true }); schedule(); }
@@ -2603,8 +2607,10 @@ export function createGrid(opts) {
         const y1 = Math.min(...boxes.map((b) => b.top)), y2 = Math.max(...boxes.map((b) => b.top + b.height));
         const shiftX = (x) => clamp(x, -x1, Math.max(-x1, (chartView?.width ?? colOffsets.total()) - x2));
         const shiftY = (y) => clamp(y, -y1, Math.max(-y1, (chartView?.height ?? rowOffsets.total()) - y2));
-        let left = drag.from.left + shiftX(dx);
-        let top = drag.from.top + shiftY(dy);
+        // Shift held keeps the move straight across or straight down, whichever the pointer has gone further.
+        const straight = ev.shiftKey, across = Math.abs(dx) >= Math.abs(dy);
+        let left = drag.from.left + shiftX(straight && !across ? 0 : dx);
+        let top = drag.from.top + shiftY(straight && across ? 0 : dy);
         // Snap to Grid and Snap to Shape (Arrange ▸ Align); Alt held while dragging lets the box go free.
         const snap = sheet().kind === 'chart' || ev.altKey ? null : opts.snap?.();
         if (snap?.grid || snap?.shape) {
@@ -2619,7 +2625,8 @@ export function createGrid(opts) {
             xs.push(r.left, r.left + r.width); ys.push(r.top, r.top + r.height);
           }
           const at = snapRect(box, xs, ys, 8);
-          left = drag.from.left + shiftX(at.x - drag.from.left); top = drag.from.top + shiftY(at.y - drag.from.top);
+          if (!(straight && !across)) left = drag.from.left + shiftX(at.x - drag.from.left);
+          if (!(straight && across)) top = drag.from.top + shiftY(at.y - drag.from.top);
         }
         drag.rect = { ...drag.from, left, top };
         drag.shift = { x: left - drag.from.left, y: top - drag.from.top };
@@ -2682,6 +2689,7 @@ export function createGrid(opts) {
       const d = end();
       if (d?.fixed && d.moved) { schedule(); return; }
       if (!d || !d.moved) {
+        if (d && dropOnClick) selectChart(id, { add: true });
         if (d && pickedPart) opts.onCommand?.('smartArt', { action: 'pick', id, item: pickedShape ? Number(pickedShape.dataset.item) : null, add: adding });
         if (d && !onHandle && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && safeLinkUrl(ch.hyperlink)) opts.onCommand?.('openDrawingLink', id);
         schedule(); return;
