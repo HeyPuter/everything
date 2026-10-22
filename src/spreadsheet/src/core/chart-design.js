@@ -291,6 +291,55 @@ export function seriesSourcesPatch(chart, sources) {
   return { sourceRefs: clean };
 }
 
+/**
+ * Select Data's removals and reordering: the formatting a chart keeps by series position (its colour, line,
+ * bars, labels, effects, legend entry) follows each series to its new place, as it belongs to the series in
+ * Excel. `order[j]` is the old position of the series now at j, or null for one added. A pie's colours are its
+ * slices', which stay. Returns the fields to patch (none when no series moved).
+ */
+export function reorderSeriesFormatting(chart, order) {
+  if (order.every((from, j) => from === j)) return {};
+  // A series without an entry of its own (one added, or past the end of the list) keeps none where it lands
+  // last, as before; before others it is given what a series without formatting of its own draws with.
+  const pick = (list, fill = null) => {
+    if (!Array.isArray(list) || !list.length) return list;
+    const own = from => from != null && from < list.length;
+    const out = order.map(from => (own(from) ? list[from] : typeof fill === 'function' ? fill() : fill));
+    while (out.length && !own(order[out.length - 1])) out.pop();
+    return out;
+  };
+  const patch = {};
+  if (!PIE.has(chart.type) && chart.colors?.length) {
+    const colors = pick(chart.colors);
+    while (colors.length && colors.at(-1) == null) colors.pop();
+    patch.colors = colors;
+  }
+  const a = chart.appearance;
+  if (!a) return patch;
+  const next = { ...a };
+  next.lines = pick(a.lines, () => (a.lineDefault ? { ...a.lineDefault } : null));
+  next.pointColors = pick(a.pointColors, () => []);
+  next.bars = pick(a.bars);
+  const shown = a.valueLabels?.find(l => l?.show);
+  next.valueLabels = pick(a.valueLabels, () => (shown ? { ...shown, hidden: [], points: [] } : null));
+  next.dataLabels = pick(a.dataLabels);
+  if (order.every(from => from != null)) { next.seriesTypes = pick(a.seriesTypes); next.seriesGroups = pick(a.seriesGroups); }
+  if (a.radar) next.radar = { ...a.radar, series: pick(a.radar.series) };
+  if (a.bubble) next.bubble = { ...a.bubble, series: pick(a.bubble.series) };
+  if (!PIE.has(chart.type) && a.legendHidden?.length) next.legendHidden = a.legendHidden.map(i => order.indexOf(i)).filter(j => j >= 0);
+  if (a.effects) {
+    next.effects = Object.fromEntries(Object.entries(a.effects).flatMap(([key, effect]) => {
+      const m = /^series:(\d+)$/.exec(key);
+      if (!m) return [[key, effect]];
+      const j = order.indexOf(+m[1]);
+      return j < 0 ? [] : [[`series:${j}`, effect]];
+    }));
+  }
+  for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key];
+  patch.appearance = next;
+  return patch;
+}
+
 /** Move Chart and chart sheets: a range chart whose data lies on another sheet reads it through references. */
 export function detachedChart(wb, sheetId, chart) {
   if (chart.sourceRefs?.length) return { ...chart };

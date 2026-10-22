@@ -9,10 +9,13 @@ import { openModal } from './modal.js';
 import { chartData } from '../core/charts.js';
 import { rangeName } from '../core/cell.js';
 import { quoteSheet } from '../core/refs.js';
-import { chartSeriesSources, seriesSourcesPatch } from '../core/chart-design.js';
+import { chartSeriesSources, reorderSeriesFormatting, seriesSourcesPatch } from '../core/chart-design.js';
 
 const stripEquals = text => String(text || '').trim().replace(/^=/, '').trim();
 const asFormula = ref => (ref ? `=${ref}` : '');
+// Each legend entry remembers the place its series had when the dialog opened (or the range last changed), so
+// the formatting kept by place follows a series that is moved or has others removed before it.
+const numbered = sources => sources.map((s, i) => ({ ...s, from: i }));
 
 export function openSelectDataDialog(ctx, chart) {
   const { wb } = ctx, sheetId = ctx.sheetId(), sheet = wb.sheet(sheetId);
@@ -20,7 +23,7 @@ export function openSelectDataDialog(ctx, chart) {
   const state = {
     range: chart.sourceRefs?.length ? null : { ...chart.range },
     seriesIn: chart.seriesIn,
-    sources: chartSeriesSources(wb, sheetId, chart),
+    sources: numbered(chartSeriesSources(wb, sheetId, chart)),
     ownRefs: !!chart.sourceRefs?.length,
     blanks: chart.appearance?.radar?.blanks || chart.appearance?.blanks || 'gap',
     includeHidden: !!chart.includeHidden,
@@ -42,7 +45,7 @@ export function openSelectDataDialog(ctx, chart) {
     if (state.ownRefs) return;
     const data = chartData(wb, sheetId, draft());
     state.seriesIn = data.orientation === 'rows' ? 'cols' : 'rows';
-    state.sources = chartSeriesSources(wb, sheetId, draft());
+    state.sources = numbered(chartSeriesSources(wb, sheetId, draft()));
     render();
   } }, el('span', { html: icon('switchRowCol', 16) }), ' Switch Row/Column');
 
@@ -54,7 +57,7 @@ export function openSelectDataDialog(ctx, chart) {
     if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { fail('That range is too large to chart'); return; }
     fail('');
     state.range = r; state.ownRefs = false;
-    state.sources = chartSeriesSources(wb, sheetId, draft());
+    state.sources = numbered(chartSeriesSources(wb, sheetId, draft()));
     render();
   });
 
@@ -84,7 +87,7 @@ export function openSelectDataDialog(ctx, chart) {
       const sizes = chart.type === 'bubble' ? vector(sizeInput.value, 'bubble sizes') : undefined;
       const bad = [values, categories, sizes].find(v => v && typeof v === 'object');
       if (bad) { problem.textContent = bad.error; problem.hidden = false; return; }
-      const next = { name: nameRef ? '' : nameText, nameRef, categories: categories || '', values, ...(sizes ? { sizes } : {}) };
+      const next = { name: nameRef ? '' : nameText, nameRef, categories: categories || '', values, ...(sizes ? { sizes } : {}), from: index == null ? null : s.from };
       if (index == null) { state.sources.push(next); selected = state.sources.length - 1; } else state.sources[index] = next;
       state.ownRefs = true;
       modal.close();
@@ -159,9 +162,10 @@ export function openSelectDataDialog(ctx, chart) {
   const submit = e => {
     e.preventDefault();
     if (!state.sources.length) { fail('A chart needs at least one series'); return; }
-    const patch = state.ownRefs ? seriesSourcesPatch(chart, state.sources) : { range: state.range, seriesIn: state.seriesIn, sourceRefs: undefined };
+    const patch = state.ownRefs ? { ...seriesSourcesPatch(chart, state.sources), ...reorderSeriesFormatting(chart, state.sources.map(s => s.from ?? null)) }
+      : { range: state.range, seriesIn: state.seriesIn, sourceRefs: undefined };
     patch.includeHidden = state.includeHidden;
-    if (chart.appearance) patch.appearance = { ...chart.appearance, blanks: state.blanks, ...(chart.appearance.radar ? { radar: { ...chart.appearance.radar, blanks: state.blanks } } : {}) };
+    if (chart.appearance) patch.appearance = { ...(patch.appearance || chart.appearance), blanks: state.blanks, ...(chart.appearance.radar ? { radar: { ...chart.appearance.radar, blanks: state.blanks } } : {}) };
     wb.updateChart(sheetId, chart.id, patch, 'Select data');
     modal.close();
   };
