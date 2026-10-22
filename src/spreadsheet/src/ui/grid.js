@@ -6019,7 +6019,9 @@ export function createGrid(opts) {
   }, { passive: true });
 
   // Ctrl+wheel zooms in 10% steps; a trackpad pinch arrives the same way but as dozens of tiny
-  // events, so those add up and step once every 40px, while a mouse notch is one step.
+  // events, so those add up and step once every 40px, while a mouse notch is one step. The spot under
+  // the pointer stays under it, as a pinch on a touch screen keeps the one between the fingers: zoomed
+  // about the sheet's top-left corner, the cell pinched over slid away and had to be scrolled back to.
   let wheelAcc = 0;
   let wheelAt = 0;
   function zoomWheel(e) {
@@ -6031,7 +6033,7 @@ export function createGrid(opts) {
     wheelAt = now;
     wheelAcc += px;
     if (Math.abs(wheelAcc) < 40) return;
-    setZoom(userZoom + (wheelAcc < 0 ? 0.1 : -0.1));
+    setZoom(userZoom + (wheelAcc < 0 ? 0.1 : -0.1), false, { x: e.clientX, y: e.clientY });
     wheelAcc = 0;
   }
   viewport.addEventListener('wheel', zoomWheel, { passive: false });
