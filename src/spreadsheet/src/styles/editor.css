@@ -621,6 +621,9 @@
 
 @container sheet-column (max-width: 640px) {
   .status-right { display: none; }
+  /* "Accessibility: No issues" left the zoom controls no room on a phone and was cut off mid-word ("No issue"). Its
+     icon, which carries the state, stands for it there; the words stay for screen readers. */
+  .status-a11y-text { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
 
 /* Function picker search */
