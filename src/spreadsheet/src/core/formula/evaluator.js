@@ -871,8 +871,9 @@ export function paramSpec(node) {
 
 /**
  * Implicit intersection (the @ operator): from a range, the single value on
- * the formula's row (for a column) or column (for a row); a lone cell is
- * itself; anything wider is #VALUE!. The row (or column) is found within the
+ * the formula's row (for a column) or column (for a row), or for a block the
+ * one on both; a lone cell is itself; a range the formula's row or column
+ * misses is #VALUE!. The row (or column) is found within the
  * reference's own extent rather than the window read of it: a bounded
  * reference is read only so far past its data and a whole column only to its
  * used area, so a row of the reference beyond what was read is a blank cell,
@@ -896,7 +897,10 @@ function intersect(v, ctx) {
     const j = cell.c - ref.c1;
     return j >= 0 && j < cols ? (v.values[0]?.[j] ?? null) : err('#VALUE!');
   }
-  return err('#VALUE!');
+  // A block gives the cell where the formula's row and its column both cross it, as in Excel: a legacy
+  // =Data!A1:D10 in B5 of another sheet (opened as =@Data!A1:D10) reads Data!B5.
+  const i = cell.r - ref.r1, j = cell.c - ref.c1;
+  return i >= 0 && i < rows && j >= 0 && j < cols ? (v.values[i]?.[j] ?? null) : err('#VALUE!');
 }
 
 /**

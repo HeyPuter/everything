@@ -59,3 +59,26 @@ it('still intersects on its own sheet, and treats a lone cell, an addressless ar
   expect(wb.getValue(id, 5, 2)).toBe(1);
   expect(wb.getValue(id, 6, 2)).toEqual({ error: '#VALUE!' });
 });
+
+// A legacy formula naming a block of another sheet, =Data!A1:D10 in B5 (opened from a file as =@Data!A1:D10), reads
+// the cell where the formula's row and column cross the block, Data!B5, as in Excel; it read #VALUE! whatever its place.
+it('intersects a block by both the formula\'s row and its column', () => {
+  const { wb, id } = book();
+  const data = wb.sheetByName('Data').id;
+  wb.setInput(data, 4, 1, '42');
+  wb.setInput(data, 2, 2, 'mid');
+  wb.setInput(id, 4, 1, '=@Data!A1:D10');
+  wb.setInput(id, 2, 2, '=@Data!A1:D10&"!"');
+  wb.setInput(id, 7, 3, '=@Data!A1:D10'); // inside the block, past its data
+  wb.setInput(id, 4, 5, '=@Data!A1:D10'); // column F misses the block
+  wb.setInput(id, 11, 1, '=@Data!A1:D10'); // row 12 misses it
+  wb.setInput(id, 6, 0, '=@Data!A:C'); // whole columns
+  expect(wb.getValue(id, 4, 1)).toBe(42);
+  expect(wb.getValue(id, 2, 2)).toBe('mid!');
+  expect(wb.getValue(id, 7, 3)).toBe(0);
+  expect(wb.getValue(id, 4, 5)).toEqual({ error: '#VALUE!' });
+  expect(wb.getValue(id, 11, 1)).toEqual({ error: '#VALUE!' });
+  expect(wb.getValue(id, 6, 0)).toBe(0);
+  wb.setInput(data, 6, 0, '7');
+  expect(wb.getValue(id, 6, 0)).toBe(7);
+});
