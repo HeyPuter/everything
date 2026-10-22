@@ -133,7 +133,7 @@ import { openEquationDialog, runInsertEquation } from '../ui/equation.js';
 import { openThemeEffectsMenu } from '../ui/theme-effects.js';
 import { openThemesMenu, openThemeColorsMenu, openThemeFontsMenu } from '../ui/themes.js';
 import { themedPreset, themedCellStylePatch, themedSeriesColors } from '../core/workbook-theme.js';
-import { chartData, textBoxText } from '../core/charts.js';
+import { chartData, textBoxText, placeAlong } from '../core/charts.js';
 import { chartSheetCommand } from '../core/chartsheet.js';
 import { openCellContextMenu } from '../ui/contextmenu.js';
 import { openMenu } from '../ui/menu.js';
@@ -3437,13 +3437,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Shapes and icons go on the sheet as pictures at the active cell, each beside the last, the newest selected.
         if (!committed() || refusedByProtection('insert a picture')) return;
         const pictures = cmd === 'insertShape' ? [shapeSvg(arg)] : (Array.isArray(arg) ? arg : [arg]).map((n) => iconSvg(n));
+        // Each is anchored to the cell its own corner lies in, so it moves with that cell's column as the columns
+        // before it come and go, rather than with the active cell's, several columns to its left.
         let dx = 4, id = null;
+        const placed = pictures.filter(Boolean).map((p) => {
+          const col = placeAlong((c) => wb.colWidth(sheetId, c), MAX_COL + 1, grid.active.c, dx, 1);
+          dx += p.w + 8;
+          return { p, c: col.index, dx: col.offset };
+        });
+        const sheet = wb.sheet(sheetId), last = Math.max(grid.active.c, ...placed.map((at) => at.c));
+        if (last >= sheet.cols) wb.ensureSize(sheetId, sheet.rows, last + 1);
         wb.transaction(cmd === 'insertShape' ? 'Insert shape' : 'Insert icons', () => {
-          for (const p of pictures.filter(Boolean)) {
+          for (const { p, c, dx: offset } of placed) {
             // A shape stretches to any proportions as it is resized, as Excel's do; an icon keeps its own.
-            id = wb.addChart(sheetId, { type: 'image', src: svgDataUrl(p.svg), title: p.label || 'Icon', anchor: { ...grid.active }, dx, dy: 4, w: p.w, h: p.h,
+            id = wb.addChart(sheetId, { type: 'image', src: svgDataUrl(p.svg), title: p.label || 'Icon', anchor: { r: grid.active.r, c }, dx: offset, dy: 4, w: p.w, h: p.h,
               ...(cmd === 'insertShape' ? { lockAspect: false } : {}) }) || id;
-            dx += p.w + 8;
           }
         });
         if (id) grid.selectChart(id);
