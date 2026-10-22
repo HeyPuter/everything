@@ -352,13 +352,15 @@ export function createChartUi(ctx) {
         v => apply(chartElementPatch(chart, 'legend', v)))), textOptions(chart, 'legendStyle'));
     } else if (key === 'xTitle' || key === 'yTitle') {
       out.push(section('Title Options', text('Text', chartTitles(ctx.wb, ctx.sheetId(), chart)[key] ?? chart[key], v => apply({ [key]: v.trim(), [`${key}Ref`]: undefined }))));
-    } else if (key === 'yAxis' || (key === 'xAxis' && a && (chart.type === 'scatter' || chart.type === 'bubble'))) {
+    } else if (key === 'yAxis' || (key === 'y2Axis' && a) || (key === 'xAxis' && a && (chart.type === 'scatter' || chart.type === 'bubble'))) {
       // A scatter chart in the app's own style has no x bounds: one set would hand it an empty Excel style.
-      const value = key === 'yAxis';
-      const minKey = value ? 'yMin' : 'xMin', maxKey = value ? 'yMax' : 'xMax', stepKey = value ? 'yStep' : 'xStep';
+      // The secondary value axis has the primary's options, its own keys (it draws no logarithmic scale).
+      const value = key !== 'xAxis', second = key === 'y2Axis', y = second ? 'y2' : value ? 'y' : 'x';
+      const minKey = `${y}Min`, maxKey = `${y}Max`, stepKey = `${y}Step`, logKey = `${y}LogBase`;
+      const reverseKey = second ? 'reverseSecondaryValues' : value ? 'reverseValues' : 'reverseCategories';
       const get = k => (k === 'yMin' || k === 'yMax' ? chart[k] : a?.[k]);
       const setBound = (k, v) => apply(k === 'yMin' || k === 'yMax' ? { [k]: v } : { appearance: { ...a, [k]: v } });
-      const units = value ? a?.yUnits?.builtIn || 'none' : a?.xUnits?.builtIn || 'none';
+      const units = a?.[`${y}Units`]?.builtIn || 'none';
       out.push(section('Axis Options',
         el('h3.chart-pane-sub', {}, 'Bounds'),
         number('Minimum', get(minKey), v => { const max = get(maxKey); if (v == null || max == null || v < max) setBound(minKey, v); }),
@@ -366,14 +368,14 @@ export function createChartUi(ctx) {
         a ? el('h3.chart-pane-sub', {}, 'Units') : null,
         a ? number('Major', a[stepKey], v => { if (v == null || v > 0) apply({ appearance: { ...a, [stepKey]: v } }); }) : null,
         full ? choice('Display units', units, [['none', 'None'], ...Object.keys(CHART_DISPLAY_UNITS).map(u => [u, u.replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase())])],
-          v => { const next = { ...a }; const k = value ? 'yUnits' : 'xUnits'; if (v === 'none') delete next[k]; else next[k] = { builtIn: v, divisor: CHART_DISPLAY_UNITS[v], label: '', style: a.yStyle, layout: null, rotation: 0 }; apply({ appearance: next }); }) : null,
-        full && !chart.stack100 ? checkbox('Logarithmic scale', (value ? a.yLogBase : a.xLogBase) > 1, on => { const next = { ...a }; const k = value ? 'yLogBase' : 'xLogBase'; if (on) next[k] = 10; else delete next[k]; apply({ appearance: next }); }) : null,
-        full && (value ? a.yLogBase : a.xLogBase) > 1 ? number('Base', value ? a.yLogBase : a.xLogBase, v => { if (v >= 2 && v <= 1000) apply({ appearance: { ...a, [value ? 'yLogBase' : 'xLogBase']: v } }); }, { min: 2, max: 1000, step: 1, placeholder: '10' }) : null,
-        full ? checkbox('Values in reverse order', value ? a.reverseValues : a.reverseCategories, on => apply({ appearance: { ...a, [value ? 'reverseValues' : 'reverseCategories']: on } })) : null,
-        full ? choice('Label Position', (value ? a.yLabelPosition : a.xLabelPosition) || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']],
-          v => apply({ appearance: { ...a, [value ? 'yLabelPosition' : 'xLabelPosition']: v } })) : null),
-      a ? section('Number', text('Format Code', (value ? a.yFormat : a.xFormat) || '', v => apply({ appearance: { ...a, [value ? 'yFormat' : 'xFormat']: v.trim().slice(0, 255) } }))) : null,
-      textOptions(chart, value ? 'yStyle' : 'xStyle'));
+          v => { const next = { ...a }; const k = `${y}Units`; if (v === 'none') delete next[k]; else next[k] = { builtIn: v, divisor: CHART_DISPLAY_UNITS[v], label: '', style: a[second ? 'y2Style' : 'yStyle'], layout: null, rotation: 0 }; apply({ appearance: next }); }) : null,
+        full && !second && !chart.stack100 ? checkbox('Logarithmic scale', a[logKey] > 1, on => { const next = { ...a }; if (on) next[logKey] = 10; else delete next[logKey]; apply({ appearance: next }); }) : null,
+        full && !second && a[logKey] > 1 ? number('Base', a[logKey], v => { if (v >= 2 && v <= 1000) apply({ appearance: { ...a, [logKey]: v } }); }, { min: 2, max: 1000, step: 1, placeholder: '10' }) : null,
+        full ? checkbox('Values in reverse order', a[reverseKey], on => apply({ appearance: { ...a, [reverseKey]: on } })) : null,
+        full ? choice('Label Position', a[`${y}LabelPosition`] || 'nextTo', [['nextTo', 'Next to Axis'], ['high', 'High'], ['low', 'Low'], ['none', 'None']],
+          v => apply({ appearance: { ...a, [`${y}LabelPosition`]: v } })) : null),
+      a ? section('Number', text('Format Code', a[`${y}Format`] || '', v => apply({ appearance: { ...a, [`${y}Format`]: v.trim().slice(0, 255) } }))) : null,
+      textOptions(chart, `${y}Style`));
     } else if (key === 'xAxis') {
       out.push(full ? section('Axis Options',
         checkbox('Categories in reverse order', a.reverseCategories, on => apply({ appearance: { ...a, reverseCategories: on } })),
