@@ -159,14 +159,17 @@ export class ScriptHost {
   /** Carry out a batch of writes as one step. A refused one throws a ScriptOpError; those before it stand. */
   apply(ops) {
     if (!Array.isArray(ops)) return;
-    this.wb.transaction('Run script', () => {
+    // A script writes on the worksheet it names alone, as Office Scripts do: with that sheet grouped with others
+    // (several tabs selected), each write landed on the same cells of every other sheet in the group as well.
+    const writes = () => {
       for (const op of ops) {
         this.line = Number.isInteger(op?.line) ? op.line : 0;
         const fn = WRITES[op?.op];
         if (!fn) this.fail(`Unknown operation "${op?.op}".`);
         fn.call(this, op);
       }
-    });
+    };
+    this.wb.transaction('Run script', () => (this.wb._withoutGroup ? this.wb._withoutGroup(writes) : writes()));
   }
 
   /** Answer one read; the answer is plain data. */
