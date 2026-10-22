@@ -68,7 +68,23 @@ describe('text too wide for its cell', () => {
     const label = node(4, 2);
     expect(label.style.left).toBe('200px');
     expect(label.style.width).toBe('200px'); // C5 and D5
-    expect(label.style.paddingLeft).toBe('102px'); // the text keeps C5's centre; the box clips it at the blocker
+    // The text keeps C5's centre: the box it is centred in runs from C5's left edge to as far past C5's centre
+    // on the other side, and the cell clips it at the blocker. Padded on the left instead, it was centred on D5.
+    expect(label.style.paddingRight).toBe('102px');
+    expect(label.style.paddingLeft).toBe('');
+  });
+
+  it('stays centred on its own cell when it runs further left than right', async () => {
+    const { node } = await mount((wb, id) => {
+      wb.setInput(id, 4, 3, 'blocker');
+      wb.setInput(id, 4, 2, LONG);
+      wb.applyStyle(id, { r1: 4, c1: 2, r2: 4, c2: 2 }, { align: 'center' });
+    });
+    const label = node(4, 2);
+    expect(label.style.left).toBe('100px');
+    expect(label.style.width).toBe('200px'); // B5 and C5
+    expect(label.style.paddingLeft).toBe('102px');
+    expect(label.style.paddingRight).toBe('');
   });
 
   it('is clipped, not moved, when the cell it would overflow is not empty', async () => {

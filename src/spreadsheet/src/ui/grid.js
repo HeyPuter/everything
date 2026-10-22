@@ -1686,9 +1686,11 @@ export function createGrid(opts) {
             node.style.width = `${w + L.extent + R.extent}px`;
             node.classList.add('spill');
             // Centred text keeps its own cell's centre: blocked on one side, it is clipped there rather than shifted the other way.
+            // The padding goes on the side that runs further, so the box the text is centred in is centred on the cell:
+            // put on the blocked side, it centred the text a whole column or more along, over the cells it ran into.
             if (align === 'center' && L.extent !== R.extent) {
-              if (R.extent > L.extent) node.style.paddingLeft = `${inset + R.extent - L.extent}px`;
-              else node.style.paddingRight = `${inset + L.extent - R.extent}px`;
+              if (R.extent > L.extent) node.style.paddingRight = `${inset + R.extent - L.extent}px`;
+              else node.style.paddingLeft = `${inset + L.extent - R.extent}px`;
             }
             // Only the text runs over the neighbours, as in Excel: the label's own fill (or the one a
             // rule paints it) is drawn as a layer the size of its cell, and the backing that hides
