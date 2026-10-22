@@ -138,8 +138,13 @@ export function advancedFilter(wb, sheetId, { list, criteria = null, copyTo = nu
     if (!row.some((v) => v != null && v !== '')) break;
     for (let k = 0; k < columns.length; k++) entries.push({ r, c: copyTo.range.c1 + k, cell: null });
   }
-  // A protected destination refuses the copy: said so, rather than reporting records copied that were not.
   const box = { r1: copyTo.range.r1, c1: copyTo.range.c1, r2: entries.reduce((last, e) => Math.max(last, e.r), copyTo.range.r1), c2: copyTo.range.c1 + columns.length - 1 };
+  // The records are written where they are read from no more than over the conditions: copied over its own list (or
+  // criteria), the list was overwritten by its own extract.
+  const meets = (g) => g.r1 <= box.r2 && g.r2 >= box.r1 && g.c1 <= box.c2 && g.c2 >= box.c1;
+  if (dest === sheetId && meets(records)) return { error: 'The copy-to range overlaps the list range. Choose a place outside the list' };
+  if (criteria && (criteria.sheetId ?? sheetId) === dest && meets(criteria.range)) return { error: 'The copy-to range overlaps the criteria range. Choose a place outside it' };
+  // A protected destination refuses the copy: said so, rather than reporting records copied that were not.
   if (wb.lockedIn(dest, box)) return { error: 'The copy-to range is protected. Choose another place, or unprotect it first' };
   wb.setCells(dest, entries, 'Advanced filter');
   return { copied: rows.length, columns: columns.length };
