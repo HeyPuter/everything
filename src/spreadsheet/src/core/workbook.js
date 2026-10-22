@@ -4358,7 +4358,10 @@ export class Workbook extends EventTarget {
     const w = src.c2 - src.c1 + 1;
     // A sheet a file brought in larger than the interactive caps keeps its own limits, as every other write door reads them.
     const limit = gridLimits(sheet);
-    if (r0 < 0 || c0 < 0 || r0 + h > limit.rows || c0 + w > limit.cols || h * w > 200000) return null;
+    // Whole columns (or rows) move whole, with the rules, validation and formatting that cover them, but only the cells
+    // they hold are walked: a million rows of one column were refused as too many cells to move.
+    const wholeCols = src.r1 === 0 && src.r2 >= limit.rows - 1, wholeRows = src.c1 === 0 && src.c2 >= limit.cols - 1;
+    if (r0 < 0 || c0 < 0 || r0 + h > limit.rows || c0 + w > limit.cols || (h * w > 200000 && !wholeCols && !wholeRows)) return null;
     const dst = { r1: r0, c1: c0, r2: r0 + h - 1, c2: c0 + w - 1 };
     // A refused cell write must not leave references, notes, or merges moved.
     if (this.lockedIn(sheetId, src) || this.lockedIn(sheetId, dst)) return null;
@@ -4385,10 +4388,12 @@ export class Workbook extends EventTarget {
     if (movingTables.some((t) => sheet.tables.some((o) => !inside(o.range) && overlaps(shifted(t.range), o.range)))) return null;
     // A 3D span (Sheet1:Two!A1) names the same cells on every sheet between two tabs, so one sheet's
     // moved block cannot take it along; it stays where it is.
-    const inSrc = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
+    // A whole-column (or row) reference is inside only whole columns (or rows) that move: B:B follows column B.
+    const lines = (ref) => (ref.kind !== 'cols' || wholeCols) && (ref.kind !== 'rows' || wholeRows);
+    const inSrc = (ref) => !ref.sheetEnd && lines(ref) && ref.r1 >= src.r1 && ref.r2 <= src.r2 && ref.c1 >= src.c1 && ref.c2 <= src.c2;
     // The cells the block lands on are gone, as in Excel: a reference wholly inside them that the block does not
     // carry (it is not wholly inside the block) shows #REF!. One only partly over them still names its cells.
-    const inDst = (ref) => !ref.sheetEnd && ref.kind !== 'cols' && ref.kind !== 'rows' && ref.r1 >= dst.r1 && ref.r2 <= dst.r2 && ref.c1 >= dst.c1 && ref.c2 <= dst.c2;
+    const inDst = (ref) => !ref.sheetEnd && lines(ref) && ref.r1 >= dst.r1 && ref.r2 <= dst.r2 && ref.c1 >= dst.c1 && ref.c2 <= dst.c2;
     // A relative defined name's offsets name different cells from every cell that uses it: only its wholly absolute references follow.
     const follow = (formula, ownerSheet, relativeName = false) => mapFormulaRefs(formula, (ref) => {
       const target = ref.sheet ?? ownerSheet;
@@ -4406,13 +4411,22 @@ export class Workbook extends EventTarget {
       this._setStyleResets(sheet, moveStyleResets(sheet.styleResets, src, dst), 'Move cells');
       const entries = new Map();
       const put = (r, c, cell) => entries.set(cellKey(r, c), { r, c, cell });
-      for (let r = src.r1; r <= src.r2; r++) for (let c = src.c1; c <= src.c2; c++) put(r, c, null);
-      for (let r = src.r1; r <= src.r2; r++) {
-        for (let c = src.c1; c <= src.c2; c++) {
-          const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
-          if (cell?.f != null) cell.f = this._leaveTable(follow(cell.f, sheet.name), staying(r, c), staying(r + dr, c + dc));
-          put(r + dr, c + dc, cell);
-        }
+      const carry = (r, c) => {
+        const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
+        if (cell?.f != null) cell.f = this._leaveTable(follow(cell.f, sheet.name), staying(r, c), staying(r + dr, c + dc));
+        put(r + dr, c + dc, cell);
+      };
+      if (wholeCols || wholeRows) {
+        // The cells stored in the block leave, those stored where it lands are replaced, and the block's own land.
+        const held = [...sheet.cells.keys()].map(parseKey);
+        const within = (box) => ({ r, c }) => r >= box.r1 && r <= box.r2 && c >= box.c1 && c <= box.c2;
+        const moving = held.filter(within(src));
+        for (const { r, c } of moving) put(r, c, null);
+        for (const { r, c } of held.filter(within(dst))) put(r, c, null);
+        for (const { r, c } of moving) carry(r, c);
+      } else {
+        for (let r = src.r1; r <= src.r2; r++) for (let c = src.c1; c <= src.c2; c++) put(r, c, null);
+        for (let r = src.r1; r <= src.r2; r++) for (let c = src.c1; c <= src.c2; c++) carry(r, c);
       }
       // Existing formulas and templates for future table rows must both
       // follow moved inputs. Source/destination cells are handled above.
@@ -4471,9 +4485,38 @@ export class Workbook extends EventTarget {
       if (sheet.charts.some(follows)) this._setCharts(sheet, sheet.charts.map((ch) => (follows(ch) ? { ...ch, range: shifted(ch.range) } : ch)), 'Move cells');
       this._moveScenarioCells(sheet, inside, shifted);
       this._rewriteRuleFormulas((formula, owner) => follow(formula, owner.name), 'Move cells', { conditional: false });
-      this._moveNativeSparklines(sheet, sheet, src, dst);
+      // Whole lines reach the sheet's edge, which the sheet need not grow to show: only as far as it already goes.
+      this._moveNativeSparklines(sheet, sheet, src, dst, wholeCols || wholeRows
+        ? { r2: wholeCols ? Math.min(dst.r2, sheet.rows - 1) : dst.r2, c2: wholeRows ? Math.min(dst.c2, sheet.cols - 1) : dst.c2 } : dst);
+      // The format of whole columns (or rows) goes with them, replacing the one where they land.
+      if (wholeCols) this._moveLineStyles(sheet, 'colStyles', src.c1, src.c2, dc);
+      if (wholeRows) this._moveLineStyles(sheet, 'rowStyles', src.r1, src.r2, dr);
     });
     return dst;
+  }
+
+  /** The default formats of lines `from`..`to` moved `delta` along, over those there, as one undo step of a move. */
+  _moveLineStyles(sheet, field, from, to, delta) {
+    const sheetId = sheet.id;
+    const next = new Map();
+    for (let i = from + delta; i <= to + delta; i++) next.set(i, sheet[field].get(i - delta));
+    for (let i = from; i <= to; i++) if (!next.has(i)) next.set(i, undefined);
+    const before = [], after = [];
+    for (const [i, st] of next) {
+      const prev = sheet[field].get(i);
+      if (sameJSON(prev ?? null, st ?? null)) continue;
+      before.push([i, prev]);
+      after.push([i, st]);
+    }
+    if (!after.length) return;
+    const apply = (list) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      for (const [i, st] of list) { if (st) live[field].set(i, cloneStyle(st)); else live[field].delete(i); }
+      this._changed('cells', live.id);
+    };
+    apply(after);
+    this._push({ label: 'Move cells', undo: () => apply(before), redo: () => apply(after) });
   }
 
   /** Scenario changing cells (and result cells) inside a moved block follow it, as one undo step of the move. */
@@ -4487,12 +4530,12 @@ export class Workbook extends EventTarget {
   /** Carry native sparkline destinations with a cut, retaining shared settings.
    * Source references have already followed the moved cells once. A group split
    * across sheets needs a new revision identity and explicit old-sheet bindings. */
-  _moveNativeSparklines(source, target, src, dst) {
+  _moveNativeSparklines(source, target, src, dst, bounds = dst) {
     const inside = (r, c, area) => r >= area.r1 && r <= area.r2 && c >= area.c1 && c <= area.c2;
     this._moveNativeSparklineCells(source, target, {
       destinationCell: (r, c) => inside(r, c, src) ? { r: r + dst.r1 - src.r1, c: c + dst.c1 - src.c1 } : null,
       targetCell: (r, c) => inside(r, c, dst),
-    }, dst);
+    }, bounds);
   }
 
   /** The caller has preflighted the complete packed cut before changing cells. */

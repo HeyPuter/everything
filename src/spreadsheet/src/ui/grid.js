@@ -48,7 +48,7 @@ import { chartSheetLayout } from '../core/chartsheet.js';
 import { withGroups, snapRect } from '../core/arrange.js';
 
 import { isComposing, el, clamp, isMod, IS_MAC } from './dom.js';
-import { cellName, cellKey, parseKey, rangeName, normalizeRange, parseRange, parseCellRef, colIndex } from '../core/cell.js';
+import { cellName, cellKey, rangeName, normalizeRange, parseRange, parseCellRef, colIndex } from '../core/cell.js';
 import { splitAtCell, dropSplit } from '../core/split-panes.js';
 import { RTL_LEAD } from '../core/bidi.js';
 import { formatValue, formatGeneral, localeInfo, defaultAlign, layoutAlign, editText, fontStack, borderCss, errorHelp, indentWidth, dateTimeKind } from '../core/format.js';
@@ -1140,34 +1140,17 @@ export function createGrid(opts) {
     return knownMoveProblem(src, dst) || 'Those cells cannot be moved there';
   }
 
-  /**
-   * The block a drag by the border moves: whole columns (or rows) as far as the sheet's content goes, its cells,
-   * notes, comments and merged blocks, as Ctrl-dragging copies them; other blocks whole. Workbook.moveRange walks
-   * every cell, and column B dragged along was refused as more than 200,000 cells for its million rows.
-   */
-  function movedBlock(src, dst) {
-    const s = sheet();
-    const cols = src.r1 === 0 && src.r2 >= s.rows - 1, rows = src.c1 === 0 && src.c2 >= s.cols - 1;
-    if (!cols && !rows) return { src, dst };
-    const used = wb.usedRange(sheetId);
-    let r2 = used?.r2 ?? 0, c2 = used?.c2 ?? 0;
-    const reach = (r, c) => { r2 = Math.max(r2, r); c2 = Math.max(c2, c); };
-    for (const key of s.notes.keys()) { const { r, c } = parseKey(key); reach(r, c); }
-    for (const key of s.comments?.keys() ?? []) { const { r, c } = parseKey(key); reach(r, c); }
-    for (const m of s.merges) reach(m.r2, m.c2);
-    const h = cols ? Math.min(src.r2, r2) - src.r1 + 1 : src.r2 - src.r1 + 1;
-    const w = rows ? Math.min(src.c2, c2) - src.c1 + 1 : src.c2 - src.c1 + 1;
-    return { src: { ...src, r2: src.r1 + h - 1, c2: src.c1 + w - 1 }, dst: { ...dst, r2: dst.r1 + h - 1, c2: dst.c1 + w - 1 } };
-  }
-
   /** Why a move from `src` to `dst` will be refused, when it can be told beforehand; null otherwise. */
-  function knownMoveProblem(source, target) {
-    const { src, dst } = movedBlock(source, target);
-    if ((src.r2 - src.r1 + 1) * (src.c2 - src.c1 + 1) > 200000) return 'Select at most 200,000 cells to move at once';
+  function knownMoveProblem(src, dst) {
     const s = sheet();
+    // Whole columns (or rows) move whole, however many cells they span (Workbook.moveRange walks only those held).
+    const wholeCols = src.r1 === 0 && src.r2 >= Math.max(s.rows, MAX_ROWS) - 1, wholeRows = src.c1 === 0 && src.c2 >= Math.max(s.cols, MAX_COLS) - 1;
+    if ((src.r2 - src.r1 + 1) * (src.c2 - src.c1 + 1) > 200000 && !wholeCols && !wholeRows) return 'Select at most 200,000 cells to move at once';
     const overlaps = (a, b) => !(a.r2 < b.r1 || a.r1 > b.r2 || a.c2 < b.c1 || a.c1 > b.c2);
     const inside = (a, b) => a.r1 >= b.r1 && a.r2 <= b.r2 && a.c1 >= b.c1 && a.c2 <= b.c2;
-    for (let r = src.r1; r <= src.r2; r++) for (let c = src.c1; c <= src.c2; c++) {
+    // Arrays lie inside the used range, which bounds the cells of whole lines to look through.
+    const used = wb.usedRange(sheetId) || { r2: -1, c2: -1 };
+    for (let r = src.r1; r <= Math.min(src.r2, used.r2); r++) for (let c = src.c1; c <= Math.min(src.c2, used.c2); c++) {
       const a = wb.spillAt(sheetId, r, c)?.anchor;
       if (a && !(a.r >= src.r1 && a.r <= src.r2 && a.c >= src.c1 && a.c <= src.c2)) return `Part of an array cannot be moved without its formula in ${cellName(a.r, a.c)}`;
     }
@@ -4794,14 +4777,15 @@ export function createGrid(opts) {
         { nativeSparklines: wb.copyNativeSparklines(sheetId, rows, cols) });
       done = !locked;
     }
-    else { const { src, dst } = movedBlock(d.source, target); done = wb.moveRange(sheetId, src, dst.r1, dst.c1); }
+    else done = wb.moveRange(sheetId, d.source, target.r1, target.c1);
     wb.removeEventListener('change', onProtected);
     if (!done) {
       if (!locked) { const message = moveProblem(d.source, target); opts.onInvalid?.({ message }); opts.announce?.(message); }
       schedule();
       return;
     }
-    setSelection(S.fromRange(target, { r: target.r1 + (sel.active.r - d.source.r1), c: target.c1 + (sel.active.c - d.source.c1) }));
+    // Whole columns (or rows) stay whole lines where they land, so the sheet is not grown to show their far end.
+    setSelection(S.fromRange(sel.scope ? { ...target, scope: sel.scope } : target, { r: target.r1 + (sel.active.r - d.source.r1), c: target.c1 + (sel.active.c - d.source.c1) }));
     opts.announce?.(`${d.copy ? 'Copied' : 'Moved'} to ${rangeName(target)}`);
   }
 
