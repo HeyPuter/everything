@@ -1043,16 +1043,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
    * all or nothing, rather than the other ranges done and that one not.
    * The workbook's notice has named the cell then, and null says so.
    */
-  function eachRange(label, fn, { cap = true, skipRows = false, what = undefined, nativeScope = false } = {}) {
+  function eachRange(label, fn, { cap = true, skipRows = false, what = undefined, nativeScope = false, contents = false } = {}) {
     const { sheetId, ranges: selected } = styleTarget();
     const ranges = selected.map((rg) => (cap ? formatRange(rg, what) : rg));
     const runs = ranges.flatMap((rg) => shownRuns(rg, sheetId));
-    if (runs.some((rg) => wb.lockedIn(sheetId, nativeScope ? { ...rg,
-      ...(['columns', 'sheet'].includes(rg.scope) ? { r1: 0, r2: MAX_ROW } : {}),
-      ...(['rows', 'sheet'].includes(rg.scope) ? { c1: 0, c2: MAX_COL } : {}),
-    } : rg))) return null;
     const hidden = wb.sheet(sheetId)?.filterHidden;
     const skipRow = hidden?.size ? (r) => hidden.has(r) : null;
+    // Emptying cells (contents) is refused only by the cells it would change: on a protected sheet the unlocked ones may be emptied.
+    if (runs.some((rg) => (contents ? wb.contentsLockedIn(sheetId, rg, skipRow) : wb.lockedIn(sheetId, nativeScope ? { ...rg,
+      ...(['columns', 'sheet'].includes(rg.scope) ? { r1: 0, r2: MAX_ROW } : {}),
+      ...(['rows', 'sheet'].includes(rg.scope) ? { c1: 0, c2: MAX_COL } : {}),
+    } : rg)))) return null;
     const calls = skipRows ? ranges.map((rg) => () => fn(rg, skipRow, sheetId)) : runs.map((rg) => () => fn(rg, null, sheetId));
     if (!calls.length) return undefined;
     if (calls.length === 1) return calls[0]();
@@ -2004,7 +2005,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       case 'clear':
         if (grid.editing) return;
-        eachRange('Clear', (rg, skipRow) => wb.clearRange(sheetId, rg, { contents: true, skipRow }), { cap: false, skipRows: true });
+        eachRange('Clear', (rg, skipRow) => wb.clearRange(sheetId, rg, { contents: true, skipRow }), { cap: false, skipRows: true, contents: true });
         keepFocus();
         return;
       case 'insertRows': {

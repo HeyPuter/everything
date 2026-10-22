@@ -7791,6 +7791,30 @@ export class Workbook extends EventTarget {
     return true;
   }
 
+  /**
+   * Would clearing the contents of the range (Delete) be refused? As lockedIn, except that on a protected sheet the
+   * cells whose Locked box is off may be emptied, as they may be typed into: only a cell stored in the range that is
+   * not one of them refuses the clear (announced), as it refuses the write that clears it (see setCells).
+   */
+  contentsLockedIn(sheetId, range, skipRow = null) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet?.protected || sheet.externalCache || sheet.kind === 'chart') return this.lockedIn(sheetId, range);
+    const { r1, c1, r2, c2 } = normalizeRange(range);
+    const p = sheet.protectedRanges.find(({ range: g }) => g.r1 <= r2 && g.r2 >= r1 && g.c1 <= c2 && g.c2 >= c1);
+    if (p) { this._emit('protected', sheet.id, { range: p.range, description: p.description }); return true; }
+    const locked = (r, c) => !skipRow?.(r) && !this._unlockedCell(sheet, r, c);
+    // Whichever there are fewer of is walked, as clearing walks them: the range's cells, or the sheet's.
+    if ((r2 - r1 + 1) * (c2 - c1 + 1) < sheet.cells.size) {
+      for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (sheet.cells.has(cellKey(r, c)) && locked(r, c)) return this._locked(sheet);
+    } else {
+      for (const key of sheet.cells.keys()) {
+        const { r, c } = parseKey(key);
+        if (r >= r1 && r <= r2 && c >= c1 && c <= c2 && locked(r, c)) return this._locked(sheet);
+      }
+    }
+    return false;
+  }
+
   /** Is any part of the range protected? The answer alone, with nothing announced: a dialog greying a control out beforehand asks this, lockedIn when it refuses. */
   isLockedIn(sheetId, range) {
     const sheet = this.sheet(sheetId);
