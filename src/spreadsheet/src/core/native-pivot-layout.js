@@ -1,6 +1,6 @@
 import { parseModelXml, modelChildren, standaloneModelXml } from './data-model-metadata.js';
 import { parseRefText } from './refs.js';
-import { nativePivotItemValue } from './native-pivot-cache.js';
+import { nativePivotItemValue, nativePivotFieldGroup } from './native-pivot-cache.js';
 import { decodeXlsxString } from './xlsx-string.js';
 import { modelConnectionId } from './data-model-bindings.js';
 
@@ -42,13 +42,15 @@ export function readNativePivotLayout(pivot, cache) {
     || source.namespaceURI !== MAIN || source.localName !== 'pivotCacheDefinition') throw new Error('Invalid native pivot definition');
   const location = child(root, 'location'), range = parseRefText(pivot.ref || location?.getAttribute('ref') || '');
   if (!range || !['cell', 'range'].includes(range.kind)) throw new Error('Invalid pivot location');
-  const cacheFields = list(child(source, 'cacheFields'), 'cacheField').map(field => {
+  const cacheFields = list(child(source, 'cacheFields'), 'cacheField').map((field, index) => {
     const shared = child(field, 'sharedItems'), items = elements(shared).map(node => ({ ...nativePivotItemValue(node),
       ...(node.hasAttribute('c') ? { caption: decodeXlsxString(node.getAttribute('c')) } : {}) })), count = integer(shared, 'count');
     if (count != null && count !== items.length) throw new Error('Inconsistent pivot shared item count');
+    // A field grouped by month (say): the report's items are its groups, as in the cache's records.
+    const group = nativePivotFieldGroup(field, index, items);
     return { name: decodeXlsxString(field.getAttribute('name')),
       ...(field.hasAttribute('caption') ? { caption: decodeXlsxString(field.getAttribute('caption')) } : {}),
-      hierarchy: integer(field, 'hierarchy', 0), level: integer(field, 'level', 0), items };
+      hierarchy: integer(field, 'hierarchy', 0), level: integer(field, 'level', 0), items: group ? group.items : items };
   });
   const fields = list(child(root, 'pivotFields'), 'pivotField').map(field => ({ axis: field.getAttribute('axis'),
     caption: field.hasAttribute('name') ? decodeXlsxString(field.getAttribute('name')) : null,
