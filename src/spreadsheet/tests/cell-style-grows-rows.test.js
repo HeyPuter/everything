@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { heightForLines } from '../src/core/textfit.js';
 import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { isMenuOpen, closeMenu } from '../src/ui/menu.js';
@@ -45,7 +46,7 @@ it('grows the rows a larger cell style no longer fits, as one step with the styl
   await vi.advanceTimersByTimeAsync(1);
   const size = wb.styleAt(id, 0, 0).size;
   expect(size).toBeGreaterThan(13);
-  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(Math.ceil(size * 1.35) + 8);
+  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(heightForLines(1, size));
   expect(wb.rowHeight(id, 1)).toBe(before);
   expect(wb.undoLabels()).toHaveLength(1);
   wb.undo();

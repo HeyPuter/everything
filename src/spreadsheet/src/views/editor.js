@@ -1204,12 +1204,28 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   function growFontRows(sid, tallest) {
-    // Grow rows that can no longer show the text; never shrink or unhide them.
+    // Rows that can no longer show the text grow; a hidden row is never unhidden. A row someone sized keeps its
+    // height as theirs and is only grown. A row nobody sized (at the default height, or fitted automatically)
+    // stays automatic and is fitted to its text, so it shrinks again when the font is made smaller, as Excel's
+    // rows do: marked as sized by hand, a row grown for 28 point text kept that height back at 11 point.
+    const sheet = wb.sheet(sid);
+    const automatic = [];
     for (const [r, px] of tallest) {
+      if (wb.isHidden(sid, 'row', r)) continue;
+      const mode = sheet.rowHeightModes.get(r);
+      if (sid === grid.sheetId && (mode === 'auto' || (mode == null && !sheet.rowHeights.has(r)))) { automatic.push(r); continue; }
       const needed = Math.ceil(px * 1.35) + 8;
-      if (!wb.isHidden(sid, 'row', r) && wb.rowHeight(sid, r) < needed) wb.setRowHeight(sid, r, needed, { auto: wb.sheet(sid).rowHeightModes.get(r) === 'auto' });
+      if (wb.rowHeight(sid, r) < needed) wb.setRowHeight(sid, r, needed, { auto: mode === 'auto' });
+    }
+    automatic.sort((a, b) => a - b);
+    for (let i = 0; i < automatic.length;) {
+      let j = i;
+      while (j + 1 < automatic.length && automatic[j + 1] === automatic[j] + 1) j++;
+      grid.autoFitRows(automatic[i], automatic[j], { force: true });
+      i = j + 1;
     }
   }
+
 
   function nativeFontSizeRanges(sizeAt) {
     const tallest = new Map();

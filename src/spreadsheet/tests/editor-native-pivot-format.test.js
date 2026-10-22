@@ -4,6 +4,7 @@ import { CELL_STYLES } from '../src/core/cellstyles.js';
 import { stylePatch, styleFromPreset } from '../src/core/custom-cell-styles.js';
 import { borderSnapshot } from '../src/core/border-regions.js';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { heightForLines } from '../src/core/textfit.js';
 import { editorView } from '../src/views/editor.js';
 import { closeMenu } from '../src/ui/menu.js';
 import { closeAllModals } from '../src/ui/modal.js';
@@ -212,17 +213,23 @@ it('steps native and ordinary font sizes and row heights in one undo operation',
   expect(wb.styleAt(id, 6, 3).size).toBe(pt(28)); expect(wb.styleAt(id, 5, 4).size).toBe(pt(10));
   expect(paint(5, 3)).toEqual({ size: pt(20) }); expect(paint(6, 3)).toEqual({ size: pt(28) });
   expect(wb.styleAt(id, 5, 5).size).toBe(pt(48));
-  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(Math.ceil(pt(48) * 1.35) + 8);
-  expect(wb.rowHeight(id, 6)).toBeGreaterThanOrEqual(Math.ceil(pt(28) * 1.35) + 8);
+  // The rows grown stay automatic, so they hold what the grid measures their tallest text needs (F6 is empty,
+  // so its 48 point font waits for an entry; D6's 20 point text sets row 6).
+  expect(wb.sheet(id).rowHeightModes.get(5)).toBe('auto');
+  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(heightForLines(1, pt(20)));
+  expect(wb.rowHeight(id, 6)).toBeGreaterThanOrEqual(heightForLines(1, pt(28)));
   expect(wb.undoLabels()).toEqual(['Font size']); const after = wb.toJSON();
   wb.undo(); expect(wb.toJSON()).toEqual(before); wb.redo(); expect(wb.toJSON()).toEqual(after);
   const height = wb.rowHeight(id, 5); await textCommand('Smaller font');
   expect(paint(5, 4)).toEqual({ size: pt(9) }); expect(wb.styleAt(id, 5, 4)?.size).toBe(pt(9));
-  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(height);
+  // An automatic row fits its smaller text again, as Excel's does (it was only ever grown).
+  expect(wb.rowHeight(id, 5)).toBeLessThan(height);
+  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(heightForLines(1, pt(18)));
 });
 it('applies a fractional custom size and preserves row sizing modes', async () => {
   const { wb, id, go, paint } = await mount();
-  wb.setRowHeight(id, 5, 20, { auto: true }); wb.setRowHeight(id, 6, 20);
+  // Row 7 is sized by hand (at the default height a size records no mode, and the row is automatic).
+  wb.setRowHeight(id, 5, 20, { auto: true }); wb.setRowHeight(id, 6, 24);
   wb.clearHistory(); go('D6:F7'); const before = wb.toJSON(); await customSize(25.5);
   for (const r of [5, 6]) for (const c of [3, 4, 5]) expect(wb.styleAt(id, r, c).size).toBe(25.5);
   expect(paint(5, 3)).toEqual({ size: 25.5 }); expect(paint(6, 4)).toEqual({ size: 25.5 });
@@ -265,7 +272,7 @@ it('keeps pending cell text open while custom native font sizing grows its row',
   viewport.dispatchEvent(new KeyboardEvent('keydown', { key: '9', bubbles: true, cancelable: true }));
   await customSize(36);
   expect(wb.getValue(id, 5, 4)).toBe(3); expect(paint(5, 4)).toEqual({ size: 36 });
-  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(Math.ceil(36 * 1.35) + 8);
+  expect(wb.rowHeight(id, 5)).toBeGreaterThanOrEqual(heightForLines(1, 36));
   const input = view.el.querySelector('.grid-editor'); expect(input.value).toBe('9'); expect(document.activeElement).toBe(input);
 });
 

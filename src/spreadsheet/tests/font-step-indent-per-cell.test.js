@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { heightForLines } from '../src/core/textfit.js';
 import { editorView } from '../src/views/editor.js';
 import { Doc } from '../src/lib/doc.js';
 import { closeMenu } from '../src/ui/menu.js';
@@ -74,9 +75,9 @@ it('grows each row to at least the size its own cell gained', { timeout: 20000 }
   const { wb, id, menu } = await open([null, { size: pt(18) }]);
   const before = [wb.rowHeight(id, 0), wb.rowHeight(id, 1)];
   await menu('format', 'Text', 'Larger font');
-  // Each row is tall enough for its own new size (the grid may have fitted it taller still for its text).
-  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(Math.ceil(pt(10) * 1.35) + 8);
-  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(Math.ceil(pt(20) * 1.35) + 8);
+  // Each row is tall enough for its own new size: an automatic row, fitted to its text as the grid measures it.
+  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(heightForLines(1, pt(10)));
+  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(heightForLines(1, pt(20)));
   expect(wb.rowHeight(id, 1)).toBeGreaterThan(wb.rowHeight(id, 0));
   expect(wb.rowHeight(id, 0)).toBeGreaterThan(before[0]);
 });
@@ -91,7 +92,7 @@ it('steps the font sizes inherited from columns and rows, preserving cell overri
   expect(sizes()).toEqual([24, 36, 14]);
   await menu('format', 'Text', 'Larger font');
   expect(sizes()).toEqual([pt(20), pt(28), pt(11)]);
-  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(Math.ceil(pt(28) * 1.35) + 8);
+  expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(heightForLines(1, pt(28)));
   expect(wb.styleAt(id, 2, 0)).toMatchObject({ italic: true, bold: true });
   expect(wb.styleAt(id, 3, 0)?.size).toBe(24);
   expect([0, 1, 2].map((r) => wb.getValue(id, r, 0))).toEqual(['x', 'x', 'x']);
@@ -173,7 +174,7 @@ it('applies a fractional custom font size across the selection with a single und
   await vi.advanceTimersByTimeAsync(5);
   expect(key('size')).toEqual([pt(18.5), pt(18.5), pt(18.5)]);
   expect(wb.styleAt(id, 0, 0).bold).toBe(true);
-  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(Math.ceil(pt(18.5) * 1.35) + 8);
+  expect(wb.rowHeight(id, 0)).toBeGreaterThanOrEqual(heightForLines(1, pt(18.5)));
   expect(wb.undoLabels()).toEqual(['Font size']);
   wb.undo();
   expect(key('size')).toEqual([pt(10), 24, null]);
