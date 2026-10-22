@@ -31,7 +31,7 @@ it('names Control beside the command key for the column and formulas on a Mac', 
   const { keys, what } = await rowsOn('MacIntel');
   expect(keys('Select the column')).toBe('⌘+Spaceor⌃+Space');
   expect(keys('Show formulas instead of values')).toBe('⌘+`or⌃+`');
-  expect(what('Next / previous sheet')).toBe('Next / previous sheet (also ⌘ + Page Down / Page Up)');
+  expect(what('Next / previous sheet')).toBe('Next / previous sheet (also ⌃ or ⌘ + Page Down / Page Up)');
 });
 
 it('offers Control+` for Show formulas in the menus and command palette on a Mac, where ⌘+` moves between windows', async () => {

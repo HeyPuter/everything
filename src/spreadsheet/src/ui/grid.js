@@ -5652,7 +5652,8 @@ export function createGrid(opts) {
       case 'PageDown':
       case 'PageUp': {
         e.preventDefault();
-        if (mod) { opts.onCommand?.('sheet', key === 'PageDown' ? 'next' : 'prev'); return; }
+        // Ctrl (⌘) goes to the next or previous sheet; on a Mac Control does too, as Excel for Mac has it.
+        if (mod || (IS_MAC && e.ctrlKey && !e.metaKey)) { opts.onCommand?.('sheet', key === 'PageDown' ? 'next' : 'prev'); return; }
         // A page is the rows the scrolling part of the viewport shows, wherever it is scrolled to; with Alt
         // it is the columns, and the page goes right or left, as in Excel.
         ensureOffsets();
@@ -5921,7 +5922,7 @@ export function createGrid(opts) {
     // So do F5 (Go To and Find on the sheet, a reload of the page in the browser, Ctrl or Shift with it a hard one)
     // and F7 (Spelling; the browser's caret browsing): pressed mid-entry they left the app or put up a prompt.
     if ((key === 'F5' || key === 'F7') && !e.altKey) { e.preventDefault(); return; }
-    if (isMod(e) && (key === 'PageDown' || key === 'PageUp')) {
+    if ((isMod(e) || (IS_MAC && e.ctrlKey && !e.metaKey)) && (key === 'PageDown' || key === 'PageUp')) {
       e.preventDefault();
       opts.onCommand?.('sheet', key === 'PageDown' ? 'next' : 'prev');
       return;

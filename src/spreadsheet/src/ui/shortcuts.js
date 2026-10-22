@@ -24,7 +24,7 @@ const GROUPS = [
     ['Page Up / Page Down', 'Scroll a screen up / down'],
     ['Alt + Page Up / Alt + Page Down', 'Scroll a screen left / right'],
     // Browsers keep Ctrl+PgUp/PgDn for their own tabs on Windows and Linux, so the Alt chords come first.
-    ['Alt + → / Alt + ←', `Next / previous sheet (also ${MOD_KEY} + Page Down / Page Up)`],
+    ['Alt + → / Alt + ←', `Next / previous sheet (also ${IS_MAC ? '⌃ or ⌘' : MOD_KEY} + Page Down / Page Up)`],
     ['End, then an arrow', 'Jump to the edge of the data (End Mode); End, then Home: the last cell'],
     ['F8 / Shift + F8', 'Extend the selection / add to the selection with the arrows and clicks'],
     ['Shift + Backspace', 'Select only the active cell'],
