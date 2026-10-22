@@ -315,6 +315,34 @@ function rangeTotal(values) {
 const worksheetMean = (values) => worksheetSum(values) / values.length;
 
 /**
+ * The count, largest and smallest of the numbers of a family's rows so far, kept as rangeTotal keeps their sums: a
+ * running average, maximum or minimum filled down, =AVERAGE($B$1:B1), otherwise went over its whole range in every
+ * row. `answer` makes the function's value of them; undefined for anything but one range of such a family.
+ */
+const RANGE_STATS = new WeakMap(); // the first values array of a family → { counts, maxes, mins, errorRow, error }
+function runningStat(args, answer) {
+  const values = args.length === 1 && isRange(args[0]) && args[0].ref && !args[0].areas ? args[0].values : null;
+  const root = values && RANGE_PARENTS.get(values);
+  if (!root) return undefined;
+  let run = RANGE_STATS.get(root);
+  if (!run) RANGE_STATS.set(root, run = { counts: [0], maxes: [-Infinity], mins: [Infinity], errorRow: Infinity, error: null });
+  const { counts, maxes, mins } = run;
+  for (let r = counts.length - 1; r < values.length && run.errorRow >= values.length; r++) {
+    const row = values[r];
+    let count = counts[r], max = maxes[r], min = mins[r];
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c];
+      if (typeof v === 'number') { count++; max = Math.max(max, v); min = Math.min(min, v); }
+      else if (isError(v) && run.errorRow === Infinity) { run.errorRow = r; run.error = v; }
+    }
+    counts.push(count); maxes.push(max); mins.push(min);
+  }
+  if (run.errorRow < values.length) return run.error;
+  const k = values.length;
+  return answer({ count: counts[k], max: maxes[k], min: mins[k] }, values);
+}
+
+/**
  * A function of the cells it is given that keeps the number it answers for a single range. A column measured against
  * one range, =B2-AVERAGE($B$2:$B$20000), a z-score's STDEV or =B2/COUNTA($B:$B) filled down, reads that range in
  * every row: the array read is shared within a calculation (and replaced by any change), so the answer for it is kept
@@ -1670,6 +1698,8 @@ function workingDaysFrom(start, count, step, weekend, off) {
 /* ---------- The library ---------- */
 
 // Range values must not become function arguments: large inputs exceed the engine's call limit.
+/** An aggregate that answers one range of a running family from its kept statistics (see runningStat). */
+const running = (f, answer) => (args, ctx) => runningStat(args, answer) ?? f(args, ctx);
 const minimum = (list) => list.reduce((a, b) => Math.min(a, b), Infinity);
 const maximum = (list) => list.reduce((a, b) => Math.max(a, b), -Infinity);
 
@@ -1730,9 +1760,9 @@ export const FUNCTIONS = {
   LT: { localeContext: false, fn: relation((c) => c < 0) },
   LTE: { localeContext: false, fn: relation((c) => c <= 0) },
   SUM: { refArgs: true, fn: (args) => (args.length === 1 && isRange(args[0]) && args[0].ref && !args[0].areas ? rangeTotal(args[0].values) : sumOf(args)) },
-  AVERAGE: { refArgs: true, fn: num((l) => (l.length ? worksheetMean(l) : err('#DIV/0!'))) },
-  MIN: { refArgs: true, fn: num((l) => (l.length ? minimum(l) : 0)) },
-  MAX: { refArgs: true, fn: num((l) => (l.length ? maximum(l) : 0)) },
+  AVERAGE: { refArgs: true, fn: running(num((l) => (l.length ? worksheetMean(l) : err('#DIV/0!'))), (s, values) => (s.count ? rangeTotal(values) / s.count : err('#DIV/0!'))) },
+  MIN: { refArgs: true, fn: running(num((l) => (l.length ? minimum(l) : 0)), (s) => (s.count ? s.min : 0)) },
+  MAX: { refArgs: true, fn: running(num((l) => (l.length ? maximum(l) : 0)), (s) => (s.count ? s.max : 0)) },
   PRODUCT: { refArgs: true, fn: num(product) }, // nothing to multiply is 0
   MEDIAN: {
     refArgs: true, // a referenced text or boolean cell is skipped, whether the reference is one cell or a range
