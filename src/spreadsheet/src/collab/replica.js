@@ -703,7 +703,11 @@ export class Replica extends EventTarget {
    */
   _rebaseInverse(id, mine, theirs) {
     const entry = this.undoStack.find((e) => e.id === id);
-    if (!entry || [...mine, ...theirs].some((op) => isStructure(op) || op.t === 'put')) return;
+    if (!entry) return;
+    // A sheet renamed by both at once has the later name, this one: its Undo puts back the other's, as for a register.
+    const renamed = new Map(theirs.filter((t) => t.t === 'rename' && mine.some((m) => m.t === 'rename' && m.s === t.s)).map((t) => [t.s, t.name]));
+    if (renamed.size) entry.ops = entry.ops.map((op) => (op.t === 'rename' && renamed.has(op.s) ? { ...op, name: renamed.get(op.s) } : op));
+    if ([...mine, ...theirs].some((op) => isStructure(op) || op.t === 'put')) return;
     for (const t of theirs) for (const m of mine) { const o = overlap(t, m); if (o) entry.ops.push(o); }
   }
 
