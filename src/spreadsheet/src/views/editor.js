@@ -2696,6 +2696,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         });
         if (text == null) return;
         const px = Number(text);
+        // Every row (or column) of the sheet: its default size, not a size of their own for a million rows.
+        if (wholeLines(r, isCol ? 'row' : 'col', sheetId)) { wb.setDefaultLineSize(sheetId, isCol ? 'col' : 'row', px); keepFocus(); return; }
         wb.transaction(isCol ? 'Resize columns' : 'Resize rows', () => {
           for (let i = from; i <= to; i++) {
             if (isCol) wb.setColWidth(sheetId, i, px);

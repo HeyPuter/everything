@@ -7593,6 +7593,37 @@ export class Workbook extends EventTarget {
   }
 
 
+  /**
+   * Every row (axis 'row') or column of a sheet to one size, as Row Height… or Column Width… over the whole sheet
+   * sets it: the sheet's default size changes and the sizes lines had of their own go, in one step, as Excel writes a
+   * default height, rather than a million rows each given a size and an undo step of their own.
+   */
+  setDefaultLineSize(sheetId, axis, size) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet) || !Number.isFinite(size)) return;
+    const row = axis === 'row';
+    const value = row ? Math.max(MIN_ROW_HEIGHT, Math.min(MAX_ROW_HEIGHT, Math.round(size))) : Math.max(MIN_COL_WIDTH, Math.min(MAX_COL_WIDTH, Math.round(size)));
+    const key = row ? 'defaultRowHeight' : 'defaultColWidth';
+    const sizes = (s) => (row ? s.rowHeights : s.colWidths);
+    const before = { size: sheet[key], sizes: [...sizes(sheet)], modes: row ? [...sheet.rowHeightModes] : [] };
+    if (before.size === value && !before.sizes.length && !before.modes.length) return;
+    const after = { size: value, sizes: [], modes: [] };
+    const apply = (state) => {
+      const live = this.sheet(sheetId);
+      if (!live) return;
+      live[key] = state.size;
+      sizes(live).clear();
+      for (const [i, v] of state.sizes) sizes(live).set(i, v);
+      if (row) {
+        live.rowHeightModes.clear();
+        for (const [i, v] of state.modes) live.rowHeightModes.set(i, v);
+      }
+      this._changed('layout', live.id);
+    };
+    apply(after);
+    this._push({ label: row ? 'Resize rows' : 'Resize columns', undo: () => apply(before), redo: () => apply(after) });
+  }
+
   /** Refresh derived auto-fit caches without creating edits or disturbing formula caches/history. */
   cacheAutoRowHeights(sheetId, heights) {
     const sheet = this.sheet(sheetId);

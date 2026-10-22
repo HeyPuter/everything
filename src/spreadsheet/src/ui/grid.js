@@ -4999,7 +4999,9 @@ export function createGrid(opts) {
       else wb.transaction('Resize column', () => { const before = new Map([[d.index, wb.colWidth(sheetId, d.index)]]); wb.setColWidth(sheetId, d.index, size); invalidateOffsets(); refitWrappedRows([d.index], before); });
     } else {
       const lines = selectedLines('row', d.index);
-      if (lines) wb.transaction('Resize rows', () => { for (const [from, to] of lines) for (let r = from; r <= to; r++) wb.setRowHeight(sheetId, r, size); });
+      // Every row of the sheet (Select All): the sheet's default height, not a height of their own for a million rows.
+      if (lines?.length === 1 && lines[0][0] === 0 && lines[0][1] >= bounds().rows - 1) wb.setDefaultLineSize(sheetId, 'row', size);
+      else if (lines) wb.transaction('Resize rows', () => { for (const [from, to] of lines) for (let r = from; r <= to; r++) wb.setRowHeight(sheetId, r, size); });
       else wb.setRowHeight(sheetId, d.index, size);
     }
   }
