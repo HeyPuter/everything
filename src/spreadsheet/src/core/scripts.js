@@ -152,7 +152,7 @@ export const SAMPLE_SCRIPTS = [
 async function main(workbook) {
   const sheet = workbook.getActiveWorksheet();
   let range = workbook.getSelectedRange();
-  if (range.getCellCount() === 1) range = await sheet.getUsedRange();
+  if (range.getCellCount() === 1) range = await sheet.getUsedRange(true);
   if (!range) { console.log('The sheet is empty.'); return; }
   const values = await range.getValues();
   const seen = new Map();
@@ -197,7 +197,7 @@ async function main(workbook) {
     code: `/** Add a Total row under the data, summing every column of numbers. */
 async function main(workbook) {
   const sheet = workbook.getActiveWorksheet();
-  const used = await sheet.getUsedRange();
+  const used = await sheet.getUsedRange(true);
   if (!used) { console.log('The sheet is empty.'); return; }
   const values = await used.getValues();
   const first = used.getCell(0, 0);
@@ -254,7 +254,7 @@ async function main(workbook) {
     code: `/** Bold, shade and freeze the first row of the active sheet's data. */
 async function main(workbook) {
   const sheet = workbook.getActiveWorksheet();
-  const used = await sheet.getUsedRange();
+  const used = await sheet.getUsedRange(true);
   if (!used) { console.log('The sheet is empty.'); return; }
   const header = used.getRow(0);
   const format = header.getFormat();
@@ -276,7 +276,7 @@ async function main(workbook) {
     code: `/** Delete the rows of the data that hold nothing at all. */
 async function main(workbook) {
   const sheet = workbook.getActiveWorksheet();
-  const used = await sheet.getUsedRange();
+  const used = await sheet.getUsedRange(true);
   if (!used) { console.log('The sheet is empty.'); return; }
   const values = await used.getValues();
   // A formula that shows nothing ("") still holds something: its row is not blank.

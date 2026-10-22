@@ -190,12 +190,16 @@ const READS = {
   },
   usedRange(op) {
     const sheet = this.sheetOf(op.sheet);
+    // Everything a cell holds, formatting as much as a value, on every side, as Office's getUsedRange() counts it.
     const bounds = op.valuesOnly ? dataBounds(this.wb, sheet.id) : (() => {
       const used = this.wb.usedRange(sheet.id);
-      if (!used) return null;
-      let r1 = used.r2, c1 = used.c2;
-      for (const key of sheet.cells.keys()) { const { r, c } = parseKey(key); if (r < r1) r1 = r; if (c < c1) c1 = c; }
-      return { r1, c1, r2: used.r2, c2: used.c2 };
+      // The workbook's used range starts at A1 and ends past spilled values: its far edge counts, the near one is the cells'.
+      let r1 = Infinity, c1 = Infinity, r2 = used ? used.r2 : -1, c2 = used ? used.c2 : -1;
+      for (const key of sheet.cells.keys()) {
+        const { r, c } = parseKey(key);
+        if (r < r1) r1 = r; if (c < c1) c1 = c; if (r > r2) r2 = r; if (c > c2) c2 = c;
+      }
+      return r2 < 0 ? null : { r1, c1, r2, c2 };
     })();
     return bounds ? scriptAddress(bounds) : null;
   },
