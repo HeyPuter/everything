@@ -7,7 +7,7 @@
  */
 
 import { normalizeRange, colName } from './cell.js';
-import { formatValue } from './format.js';
+import { formatValue, NUMBER_FORMAT_KEYS } from './format.js';
 import { refToText } from './refs.js';
 import { isError, compareStoredValues, criteriaMatcher } from './formula/functions.js';
 import { MAX_ROWS, MAX_COLS } from './workbook.js';
@@ -262,7 +262,8 @@ export function buildPivot(wb, sheetId, spec) {
   const valueStyle = (() => {
     for (let r = data.r1, last = lastDataRow(wb, sheetId, n); r <= last; r++) {
       const s = wb.getCell(sheetId, r, valCol)?.s;
-      if (s?.fmt && spec.agg !== 'count') return { fmt: s.fmt, dec: s.dec, cur: s.cur, dateStyle: s.dateStyle, code: s.code };
+      // The whole number format, its grouping and seconds included: 1234.50 without separators stays so.
+      if (s?.fmt && spec.agg !== 'count') return Object.fromEntries(NUMBER_FORMAT_KEYS.filter((k) => s[k] !== undefined).map((k) => [k, s[k]]));
     }
     return null;
   })();

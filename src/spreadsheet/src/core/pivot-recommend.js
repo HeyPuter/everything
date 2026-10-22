@@ -5,7 +5,7 @@
  */
 import { pivotFields, pivotFieldValues } from './pivot.js';
 import { normalizeRange } from './cell.js';
-import { dateTimeKind, formatValue } from './format.js';
+import { dateTimeKind, formatValue, NUMBER_FORMAT_KEYS } from './format.js';
 
 const MAX_RECOMMENDATIONS = 10;
 const PREVIEW_ROWS = 8;
@@ -84,7 +84,7 @@ function valueFormat(wb, sheetId, range, valueCol, agg) {
   if (agg === 'count') return null;
   for (let r = range.r1 + 1; r <= range.r2; r++) {
     const s = wb.getCell(sheetId, r, valueCol)?.s;
-    if (s?.fmt) return { fmt: s.fmt, dec: s.dec, cur: s.cur, dateStyle: s.dateStyle, code: s.code };
+    if (s?.fmt) return Object.fromEntries(NUMBER_FORMAT_KEYS.filter((k) => s[k] !== undefined).map((k) => [k, s[k]]));
   }
   return null;
 }
