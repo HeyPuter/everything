@@ -1663,6 +1663,15 @@ export function createGrid(opts) {
         node.append(bounds);
       }
     } else if (text || formatParts) {
+      // Fill (Format Cells > Alignment): the entry repeated across its cell as many whole times as fit, as Excel
+      // draws a "-" or "=" typed as a ruling line; it never runs over its neighbours. It was set from the left once.
+      const filling = st?.align === 'fill' && !asFormula && !formatParts && !text.includes('\n');
+      if (filling) {
+        const unit = textWidth(typeof value === 'number' ? text.replace(/[0-9]/g, '0') : text, formatFont);
+        const room = w - cellHorizontalPadding(cellIndent(value, st), zoom) - 1 - decorationWidth(filterHead, rule, cf, formatFont);
+        const times = unit > 0 ? Math.min(1000, Math.floor(room / unit)) : 0;
+        if (times > 1) text = text.repeat(times);
+      }
       node.textContent = text;
       // Text that does not fit spills over empty neighbours to the right,
       // the way people expect a label to. Numbers and text constrained by a
@@ -1684,7 +1693,7 @@ export function createGrid(opts) {
           if (shorter) { node.textContent = shorter; node.title = text; }
           else { node.textContent = '###'; node.title = text; node.classList.add('overflow'); }
         }
-      } else if (!st?.wrap && !st?.clip && !st?.shrink && typeof value === 'string' && !merge) {
+      } else if (!st?.wrap && !st?.clip && !st?.shrink && !filling && typeof value === 'string' && !merge) {
         const needed = (formatLayout?.width ?? maxLineWidth(text, (line) => textWidth(line, font))) + padding;
         // Center Across Selection: the text is centred over its cell and the blank cells after it set the same
         // way, as in Excel, where a title is centred over a table without merging the cells. It was centred
