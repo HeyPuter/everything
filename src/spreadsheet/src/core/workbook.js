@@ -11179,8 +11179,13 @@ export class Workbook extends EventTarget {
     if (!rule) return { ok: true, rule: null };
     // The entry is judged as the cell will hold it: 50 typed into a percent cell is 0.5, 00123 in a Text cell
     // stays the text 00123, and 1/2 in a fraction cell is a half rather than January 2.
-    const { v = null, f = null } = typedDigits(cellFromInput(text, this.styleAt(sheetId, r, c)), text) || {};
-    if (f != null) return { ok: true, rule }; // formulas are checked by their results
+    let { v = null, f = null } = typedDigits(cellFromInput(text, this.styleAt(sheetId, r, c)), text) || {};
+    // A formula is judged by the result it gives in this cell, as Excel judges one as it is entered: =20 is refused
+    // where only 1 to 10 may go. One whose result is an error, or that cannot be worked out, passes as errors do.
+    if (f != null) {
+      v = this.evalRuleFormula(sheetId, this._closeParentheses(f), { r1: r, c1: c }, r, c);
+      if (v == null) return { ok: true, rule };
+    }
     const sheet = this.sheet(sheetId);
     return { ...checkValue(rule, v, (source) => this._resolveValidationSource(sheet, rule, source, r, c), (formula) => this.evalRuleFormula(sheetId, formula, rule.range, r, c, v)), rule };
   }

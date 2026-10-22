@@ -20,5 +20,7 @@ it('checks an entry by the value its cell format makes of it', () => {
 
   wb.addValidation(id, { range: parseRange('D1'), type: 'number', min: 0, max: 1, allowBlank: false, strict: true });
   expect(wb.validateInput(id, 0, 3, '').ok).toBe(false);
-  expect(wb.validateInput(id, 0, 3, '=5').ok).toBe(true);
+  // A formula is not blank; it is judged by its result, as Excel judges one as it is entered.
+  expect(wb.validateInput(id, 0, 3, '=0.5').ok).toBe(true);
+  expect(wb.validateInput(id, 0, 3, '=5').ok).toBe(false);
 });
