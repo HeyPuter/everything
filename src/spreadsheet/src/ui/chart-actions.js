@@ -33,6 +33,8 @@ export function themeChartFont(wb) {
 }
 
 export const seriesCountOf = (wb, sheetId, chart) => {
+  // A waterfall's colours are its increases', decreases' and total's, which Change Colors recolours together.
+  if (chart.type === 'waterfall') return 3;
   const data = chartData(wb, sheetId, chart);
   return ['pie', 'donut'].includes(chart.type) ? data.categories.length : data.series.length;
 };
