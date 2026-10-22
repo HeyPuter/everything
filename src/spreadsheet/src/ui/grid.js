@@ -3650,6 +3650,9 @@ export function createGrid(opts) {
     edit = { r, c, sheetId, text: initial, mode, refInsert: null, point: null, pasted: false, preserveRichText,
       arrayRange: array ? { r1: array.r1, c1: array.c1, r2: array.r2, c2: array.c2 } : null };
     opts.autocorrect?.reset?.();
+    // The box is named for the cell it edits, which a screen reader says as the focus moves into it: "Cell editor"
+    // alone did not say where the typing would go.
+    editor.setAttribute('aria-label', `Editing ${cellName(r, c)}`);
     editor.value = initial;
     editor.spellcheck = spellcheck && !initial.startsWith('=');
     editor.hidden = false;
@@ -6880,6 +6883,7 @@ export function createGrid(opts) {
       const dr = r - edit.r, dc = c - edit.c;
       edit.r = r;
       edit.c = c;
+      editor.setAttribute('aria-label', `Editing ${cellName(r, c)}`);
       const a = edit.arrayRange;
       if (a) edit.arrayRange = { r1: a.r1 + dr, c1: a.c1 + dc, r2: a.r2 + dr, c2: a.c2 + dc };
       edit.point = null;
