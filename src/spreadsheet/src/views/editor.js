@@ -6007,8 +6007,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           statusBar?.announce(`Picture placed in ${cellName(anchor.r, anchor.c)}`);
         }
       } else if (replaceId) {
-        if (!wb.chartById(sheetId, replaceId)) return;
-        wb.updateChart(sheetId, replaceId, { src, title: f.name }, 'Replace image');
+        const old = wb.chartById(sheetId, replaceId);
+        if (!old) return;
+        // The new picture takes the old one's place and frame, as Change Picture does: whole (the old crop was a part
+        // of the old picture) and in its own proportions, as large as fits in the frame from its top-left corner.
+        const scale = Math.min(old.w / width, old.h / height);
+        wb.updateChart(sheetId, replaceId, { src, title: f.name, srcRect: null, fillRect: null,
+          ...(Number.isFinite(scale) && scale > 0 ? { w: Math.max(1, Math.round(width * scale)), h: Math.max(1, Math.round(height * scale)) } : {}) }, 'Replace image');
         toast('Image replaced', { icon: 'image', duration: 1600 });
       } else {
         // Fit large pictures to a sensible on-sheet size; they keep their proportions.
