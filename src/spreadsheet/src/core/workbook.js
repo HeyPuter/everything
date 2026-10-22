@@ -823,8 +823,8 @@ function lineStyle(raw) {
   return Object.keys(s).length ? (cloneCell({ v: null, f: null, s }).s ?? null) : null;
 }
 
-/** Objects whose range is just the cell they sit on (see normalizeChart), not data they plot. */
-const PLACED_DRAWING_TYPES = new Set(['image', 'text', 'smartart']);
+/** Objects whose range is just the cell they sit on (see normalizeChart and the controls' own), not data they plot. */
+const PLACED_DRAWING_TYPES = new Set(['image', 'text', 'smartart', 'slicer', 'timeline', 'scroll']);
 
 /** Keep fixed drawings in sheet coordinates, including after a drag supplied a cell anchor. */
 function absoluteDrawingAnchor(sheet, chart) {
@@ -10434,7 +10434,7 @@ export class Workbook extends EventTarget {
       this._setRules(sheet, rules, label);
     }
     if (sheet.validations.some((v) => inside(v.range))) this._setValidations(sheet, sheet.validations.map((v) => (inside(v.range) ? { ...v, range: grown(v.range) } : v)), label);
-    const reads = (ch) => ch.type !== 'image' && ch.type !== 'smartart' && inside(ch.range);
+    const reads = (ch) => !PLACED_DRAWING_TYPES.has(ch.type) && inside(ch.range);
     // A chart with series of its own (one from an Excel file, or edited in Select Data) reads its references, not
     // its range: a series, category or label reference ending at the old last data row grows with the table too,
     // on whichever sheet the chart sits, as Excel's does.
