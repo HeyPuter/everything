@@ -23948,6 +23948,10 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					range.s.r = range.s.c = 10000000; range.e.r = range.e.c = 0;
 					ws = ({}/*:any*/); if(opts.dense) ws["!data"] = []; merges = [];
 					rowinfo = []; colinfo = [];
+					/* Puter Spreadsheet local patch: an array formula's block is its own sheet's. The list was kept for
+					 * the whole file, so a value on a later sheet where an earlier sheet has an array formula was read
+					 * as part of that array, and opened blank. */
+					arrayf = [];
 					columnNumberFormats = []; columnCount = 0; rowNumberFormatName = null; columnStyleNames = []; rowStyleName = null;
 					intable = true;
 				}
