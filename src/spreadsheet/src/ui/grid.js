@@ -5301,6 +5301,10 @@ export function createGrid(opts) {
     // F8 extends the selection with the arrows and clicks; Shift+F8 adds ranges to it. Either again, or Escape, ends it.
     if (key === 'F8' && !mod && !e.altKey) { e.preventDefault(); setKeyMode(e.shiftKey ? (keyMode === 'add' ? null : 'add') : (keyMode === 'extend' ? null : 'extend')); return; }
     if (key === 'Escape' && keyMode) setKeyMode(null);
+    // End Mode is for the one move after End, as in Excel: any other key (typing, Enter, Tab, a chord) ends it,
+    // so an arrow pressed after an entry typed there steps rather than jumping to the edge of the data.
+    const endMove = (dir && !e.altKey && !mod) || ((key === 'Home' || key === 'End') && !mod) || ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(key);
+    if (keyMode === 'end' && !endMove) setKeyMode(null);
     if (dir && keyMode && !e.altKey && !mod) {
       e.preventDefault();
       const [dr, dc] = dir;
