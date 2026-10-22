@@ -54,3 +54,20 @@ it('does the same with End, then Shift+arrow', () => {
   press('ArrowDown', { shiftKey: true });
   expect(grid.formatRanges.at(-1)).toMatchObject({ r1: 1, r2: 9, scope: 'rows' });
 });
+
+// Excel's Ctrl+Shift+arrow extends "to the last nonblank cell in the same column or row as the active cell": a
+// header row selected from A1 to C1 stretched down column C instead, stopping at its first gap.
+it('stretches a range down the active cell\'s column, keeping its width', () => {
+  const wb = new Workbook();
+  const id = wb.sheets[0].id;
+  for (let r = 0; r < 10; r++) wb.setInput(id, r, 0, 'a');
+  for (let r = 0; r < 3; r++) wb.setInput(id, r, 2, 'c'); // C has a gap after C3
+  const grid = createGrid({ wb, sheetId: id, announce() {} });
+  document.body.replaceChildren(grid.el);
+  grid.selectByName('A1:C1');
+  grid.viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true, ...jump }));
+  expect(grid.range).toEqual({ r1: 0, c1: 0, r2: 9, c2: 2 });
+  expect(grid.active).toEqual({ r: 0, c: 0 });
+  grid.viewport.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true, ...jump }));
+  expect(grid.range).toEqual({ r1: 0, c1: 0, r2: 0, c2: 2 });
+});

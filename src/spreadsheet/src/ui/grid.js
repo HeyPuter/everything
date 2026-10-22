@@ -4180,17 +4180,16 @@ export function createGrid(opts) {
   }
 
   /**
-   * Ctrl+Shift+Arrow (or End, then Shift+Arrow): where the selection's moving end jumps to. Whole rows have no
-   * column of their own at that end (it lies at the sheet's last one, where nothing is), so a jump down them runs
-   * along the active cell's column, as in Excel, and the end keeps to the last column so the rows stay whole;
-   * whole columns likewise along the active cell's row. From the empty last column, rows 2:3 stretched to the
-   * sheet's last row rather than to the end of the data below them.
+   * Ctrl+Shift+Arrow (or End, then Shift+Arrow): where the selection's moving end jumps to. The jump runs from that
+   * end along the active cell's column (up or down) or row (left or right), as Excel's does ("the last nonblank cell
+   * in the same column or row as the active cell"), and the end keeps its other side, so the range keeps its width.
+   * From the far corner instead, a header row A1:C1 stretched down column C, stopping at its first gap rather than
+   * at the end of the table, and whole rows ran from the sheet's last column, where nothing is, to its last row.
    */
   function stretchJump(dr, dc) {
-    const rows = sel.scope === 'rows' && dr, cols = sel.scope === 'columns' && dc;
-    const from = { r: cols ? sel.active.r : sel.focus.r, c: rows ? sel.active.c : sel.focus.c };
+    const from = { r: dc ? sel.active.r : sel.focus.r, c: dr ? sel.active.c : sel.focus.c };
     const to = jumpFrom({ ...sel, active: from }, dr, dc).active;
-    return { r: cols ? sel.focus.r : to.r, c: rows ? sel.focus.c : to.c };
+    return { r: dc ? sel.focus.r : to.r, c: dr ? sel.focus.c : to.c };
   }
 
   /**
