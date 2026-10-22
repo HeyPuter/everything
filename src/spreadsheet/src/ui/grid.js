@@ -84,6 +84,12 @@ const TAP_SLOP = 8;
 const GROW_ROWS = 100;
 const GROW_COLS = 10;
 const SPOKEN_MAX = 200; // characters of a cell's text read out when it is selected; the rest is summed up
+// Ctrl (⌘) chords that change the selected cells, held back while a drawing object is selected over them: always,
+// only with Shift (number formats, font size), or only without it (underline; Ctrl+Shift+U shows the formula bar).
+const OBJECT_IDLE_CHORDS = new Set(['KeyB', 'KeyI', 'KeyR', 'KeyK', 'KeyE', 'KeyL', 'KeyT', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6',
+  'Digit7', 'Digit9', 'Digit0', 'Minus', 'NumpadAdd', 'NumpadSubtract', 'Semicolon', 'Quote']);
+const OBJECT_IDLE_SHIFT_CHORDS = new Set(['Digit1', 'Backquote', 'Period', 'Comma', 'Equal']);
+const OBJECT_IDLE_PLAIN_CHORDS = new Set(['KeyU']);
 const CHART_READ_DELAY = 150; // how long a chart over a computed range may keep its picture while typing goes on (see readRangeLater)
 // Room grid.css keeps beside a cell's text for its decorations, beyond the cell's own text inset.
 const FILTER_BUTTON_W = 18; // .filter-head: 18px plus the text inset
@@ -5211,9 +5217,13 @@ export function createGrid(opts) {
     // Ctrl+Alt+O selects the next chart, image or text box (Shift: the previous one), so they can be reached without a mouse.
     if (mod && e.altKey && e.code === 'KeyO') { e.preventDefault(); selectNextChart(e.shiftKey ? -1 : 1); return; }
     if (selectedChart && opts.onChartKey?.(e, selectedChart)) return; // a chart element takes typing (its title, for one)
-    if (selectedChart && mod) {
-      // Ctrl+C copies the chart itself, as a picture, rather than the cells behind it.
-      if (key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('copyChart', { id: selectedChart }); return; }
+    if (selectedChart && (mod || (IS_MAC && e.ctrlKey && !e.metaKey))) {
+      // Ctrl+C copies the chart itself, as a picture, rather than the cells behind it; Ctrl+D duplicates it, as in Excel.
+      if (mod && key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('copyChart', { id: selectedChart }); return; }
+      if (mod && e.code === 'KeyD' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('duplicateChart', { id: selectedChart }); return; }
+      // The cells stay selected behind the object, out of sight: a chord that would fill, format, write into, hide,
+      // insert or delete them (Ctrl+R, Ctrl+B, Ctrl+;, Ctrl+9, Ctrl+-, Ctrl+Shift+$…) does nothing while it is selected.
+      if (OBJECT_IDLE_CHORDS.has(e.code) || (e.shiftKey ? OBJECT_IDLE_SHIFT_CHORDS : OBJECT_IDLE_PLAIN_CHORDS).has(e.code) || (e.altKey && e.code === 'KeyV')) { e.preventDefault(); return; }
     } else if (selectedChart) {
       // A selected chart takes the editing keys; the arrows nudge it (a whole cell with Shift).
       if (key === 'Delete' || key === 'Backspace') {
