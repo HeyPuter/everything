@@ -2343,9 +2343,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'editTableById': {
         // From the names manager: switch to the table's sheet, select it, and open its dialog.
+        // A very hidden sheet is not shown from the user interface, as in Excel; a hidden one the protected
+        // structure keeps hidden is not switched to, and the dialog must not open over the sheet in view.
         const t = wb.tableById(arg.sheetId, arg.id);
         if (!t) return;
+        const sheet = wb.sheet(arg.sheetId);
+        if (sheet.veryHidden) { toast(`${sheet.name} is very hidden, so its tables cannot be opened from here`, { icon: 'info', duration: 3500 }); return; }
         if (arg.sheetId !== wb.activeSheetId) wb.setActiveSheet(arg.sheetId);
+        if (arg.sheetId !== wb.activeSheetId) return;
         grid.setSelection(S.fromRange(t.range, { r: t.range.r1, c: t.range.c1 }));
         openTableDialog(ctx, { table: t });
         return;
