@@ -40,8 +40,8 @@ it('adds an error column as well, orders errors before (blank), and keeps text s
   expect(['B1', 'C1', 'D1', 'E1'].map(at)).toEqual(['Q1', '#DIV/0!', '(blank)', 'Total']);
   // The text "#DIV/0!" sorts among the values; the error row follows them.
   expect(['A2', 'A3', 'A4', 'A5', 'A6', 'A7'].map(at)).toEqual(['#DIV/0!', 'E', 'W', '#DIV/0!', '(blank)', 'Total']);
-  expect(['B2', 'C2', 'D2', 'E2'].map(at)).toEqual([16, 0, 0, 16]);
-  expect(['B5', 'C5', 'D5', 'E5'].map(at)).toEqual([0, 2, 0, 2]);
+  expect(['B2', 'C2', 'D2', 'E2'].map(at)).toEqual([16, '', '', 16]);
+  expect(['B5', 'C5', 'D5', 'E5'].map(at)).toEqual(['', 2, '', 2]);
   expect(['B7', 'C7', 'D7', 'E7'].map(at)).toEqual([21, 2, 8, 31]);
 });
 

@@ -40,12 +40,12 @@ describe('pivot label criteria', () => {
     // The filter sits in row 1 (label in A, value in B), then a blank row, then the header in row 3.
     expect(at(2, 0)).toBe('Region');
     expect(at(3, 0)).toBe('East');
-    expect(f(3, 1)).toMatch(/^SUMIFS\(Sheet1!\$D\$2:\$D\$4,Sheet1!\$A\$2:\$A\$4,\$A4,Sheet1!\$B\$2:\$B\$4,B\$3,CHOOSE\(IF\(\$B\$1="\(All\)",1,2\),Sheet1!\$D\$2:\$D\$4,Sheet1!\$C\$2:\$C\$4\),IF\(\$B\$1="\(All\)","<>",IF\(ISTEXT\(\$B\$1\),/);
-    expect([at(3, 1), at(3, 2), at(3, 3)]).toEqual([4, 0, 4]); // East's pens
-    expect([at(4, 1), at(4, 2), at(4, 3)]).toEqual([1, 0, 1]); // West's pens
+    expect(f(3, 1)).toMatch(/,SUMIFS\(Sheet1!\$D\$2:\$D\$4,Sheet1!\$A\$2:\$A\$4,\$A4,Sheet1!\$B\$2:\$B\$4,B\$3,CHOOSE\(IF\(\$B\$1="\(All\)",1,2\),Sheet1!\$D\$2:\$D\$4,Sheet1!\$C\$2:\$C\$4\),IF\(\$B\$1="\(All\)","<>",IF\(ISTEXT\(\$B\$1\),/);
+    expect([at(3, 1), at(3, 2), at(3, 3)]).toEqual([4, '', 4]); // East's pens
+    expect([at(4, 1), at(4, 2), at(4, 3)]).toEqual([1, '', 1]); // West's pens
     wb.setInput(sheet.id, 0, 1, 'Ink');
-    expect([at(3, 1), at(3, 2), at(3, 3)]).toEqual([0, 0, 0]);
-    expect([at(4, 1), at(4, 2), at(4, 3)]).toEqual([0, 2, 2]);
+    expect([at(3, 1), at(3, 2), at(3, 3)]).toEqual(['', '', '']);
+    expect([at(4, 1), at(4, 2), at(4, 3)]).toEqual(['', 2, 2]);
     wb.setInput(sheet.id, 0, 1, '(All)');
     expect([at(4, 1), at(4, 2), at(4, 3)]).toEqual([1, 2, 3]);
   });

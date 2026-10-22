@@ -62,7 +62,7 @@ describe('pivot tables', () => {
     expect(sum.at('B2')).toBe(110); // East Q1 (100 + 10)
     expect(sum.at('C2')).toBe(25);
     expect(sum.at('D2')).toBe(135);
-    expect([sum.at('A5'), sum.at('B5'), sum.at('C5'), sum.at('D5')]).toEqual(['(blank)', 0, 999, 999]); // the row with no region
+    expect([sum.at('A5'), sum.at('B5'), sum.at('C5'), sum.at('D5')]).toEqual(['(blank)', '', 999, 999]); // the row with no region
     expect(sum.at('B6')).toBe(160); // Q1 total
     expect(sum.at('D6')).toBe(1191);
     const count = place(wb, buildPivot(wb, id, { range: parseRange('A1:C7'), rowField: 1, colField: null, valueField: 2, agg: 'count' }));
@@ -98,9 +98,9 @@ describe('pivot filters', () => {
     expect(f('B4')).toContain("SUMIFS('Sales Data'!$C$2:$C$7,'Sales Data'!$A$2:$A$7,");
     expect(f('B4')).toContain(`CHOOSE(IF($B$1="(All)",1,2),'Sales Data'!$C$2:$C$7,'Sales Data'!$B$2:$B$7),IF($B$1="(All)","<>",`);
     expect([at('A4'), at('B4')]).toEqual(['East', 110]); // East in Q1: 100 + 10
-    expect(at('B5')).toBe(0); // North has no Q1 rows
+    expect(at('B5')).toBe(''); // North has no Q1 rows
     expect(at('B6')).toBe(50);
-    expect([at('A7'), at('B7')]).toEqual(['(blank)', 0]); // the row with no region is a Q2 row
+    expect([at('A7'), at('B7')]).toEqual(['(blank)', '']); // the row with no region is a Q2 row
     expect(at('A8')).toBe('Total');
     expect(at('B8')).toBe(160); // the grand total honors the filter too
     // Picking another value in the filter cell re-filters the live table.
@@ -124,7 +124,7 @@ describe('pivot filters', () => {
     expect(crossed.at('D7')).toBe(1); // the row with no region
     expect(crossed.at('D8')).toBe(6); // every row has an amount
     wb.setInput(crossed.sheet.id, 0, 1, '50');
-    expect(crossed.at('B4')).toBe(0);
+    expect(crossed.at('B4')).toBe('');
     expect(crossed.at('B6')).toBe(1); // West 50
     const same = buildPivot(wb, id, { range: parseRange('A1:C7'), rowField: 0, colField: null, valueField: 2, agg: 'sum', filters: [{ field: 0, value: 'East' }] });
     expect(same.headerRow).toBe(0);

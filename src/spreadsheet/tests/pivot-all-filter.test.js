@@ -49,7 +49,7 @@ it('lets each All report filter pass rows with empty fields independently', () =
   wb.setInput(sheet.id, 1, 1, 'Alex');
   expect(values().at(-1)).toEqual([20, 25, 45]);
   wb.setInput(sheet.id, 0, 1, 'Retail');
-  expect(values().at(-1)).toEqual([20, 0, 20]);
+  expect(values().at(-1)).toEqual([20, '', 20]);
   wb.setInput(sheet.id, 1, 1, PIVOT_ALL);
   expect(values().at(-1)).toEqual([20, 40, 60]);
 });

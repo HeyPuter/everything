@@ -35,7 +35,7 @@ it('adds a (blank) column as well, and counts blank-labelled rows', () => {
   expect([at('B1'), at('C1'), at('D1')]).toEqual(['Q1', PIVOT_BLANK, 'Total']);
   expect([at('A2'), at('A3'), at('A4'), at('A5')]).toEqual(['East', 'West', PIVOT_BLANK, 'Total']);
   expect([at('B2'), at('C2'), at('D2')]).toEqual([10, 1, 11]);
-  expect([at('B4'), at('C4'), at('D4')]).toEqual([0, 5, 5]);
+  expect([at('B4'), at('C4'), at('D4')]).toEqual(['', 5, 5]);
   expect([at('B5'), at('C5'), at('D5')]).toEqual([30, 6, 36]);
   const count = place(wb, buildPivot(wb, id, { range: parseRange('A1:C5'), rowField: 0, colField: null, valueField: 2, agg: 'count' }));
   expect([count('B2'), count('B3'), count('B4'), count('B5')]).toEqual([2, 1, 1, 4]);

@@ -58,7 +58,7 @@ describe('a pivot total covers exactly the categories it stands under', () => {
     const { grab, type } = pivot(rows, { rowField: 0, colField: 1, valueField: 2, agg: 'sum' });
     expect(grab()).toEqual([
       ['Region', 'a', 'b', 'Total'],
-      ['E', 0, 2, 2],
+      ['E', '', 2, 2],
       ['W', 1, 4, 5],
       ['Total', 1, 6, 7],
     ]);
@@ -67,7 +67,7 @@ describe('a pivot total covers exactly the categories it stands under', () => {
     type(5, ['W', 'z', 50]);
     expect(grab()).toEqual([
       ['Region', 'a', 'b', 'Total'],
-      ['E', 0, 2, 2],
+      ['E', '', 2, 2],
       ['W', 1, 4, 5],
       ['Total', 1, 6, 7],
     ]);

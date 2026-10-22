@@ -321,17 +321,22 @@ export function buildPivot(wb, sheetId, spec) {
     // A max or min over rows that hold no number (text, blanks) is no 0 either: the cell shows nothing, so the
     // total read off the category cells is the largest or smallest number there is (-2, not 0, over -2 and -8).
     if (all.length && (spec.agg === 'max' || spec.agg === 'min')) return `IF(COUNTIFS(${[...all, `${ref(valCol)},">=-9.99999999999999E+307"`].join(',')})=0,"",${body})`;
-    return spec.agg === 'average' && all.length ? `IF(COUNTIFS(${all.join(',')})=0,"",${body})` : body;
+    // A sum or count over no rows is 0, and blank in a pivot table too. Each label of a lone row field
+    // came from the records, so only a column field or a filter can leave a cell none: the plain
+    // SUMIFS stays there.
+    const guard = spec.agg === 'average' ? all.length : (spec.agg === 'sum' || spec.agg === 'count') && all.length > 1;
+    return guard ? `IF(COUNTIFS(${all.join(',')})=0,"",${body})` : body;
   };
   // A total is read off the category cells it stands under, so the categories always add up to it. The
   // labels are the ones found when the pivot was built (rebuild to pick up new ones, as with any pivot),
   // while the formulas are live: a total counted over the whole source instead would count rows in
   // categories the pivot has no row for, and stand above rows that no longer reach it. An average is not
   // the average of the category averages, so it alone stays the live aggregate over the source.
-  // MAX and MIN skip the blank cells, and over only blank ones (a filter leaving a category no rows) the
+  // The totals skip the blank cells, and over only blank ones (a filter leaving a category no rows) the
   // total is blank too rather than 0.
   const totalName = { sum: 'SUM', count: 'SUM', max: 'MAX', min: 'MIN' }[spec.agg];
-  const total = (range) => (spec.agg === 'max' || spec.agg === 'min' ? `IF(COUNT(${range})=0,"",${totalName}(${range}))` : `${totalName}(${range})`);
+  const blanks = spec.agg === 'max' || spec.agg === 'min' || colCol != null || filterCrits.length > 0;
+  const total = (range) => (blanks ? `IF(COUNT(${range})=0,"",${totalName}(${range}))` : `${totalName}(${range})`);
   const down = (c) => `$${colName(c)}$${top + 2}:$${colName(c)}$${top + 1 + rowValues.length}`;
   const across = (r) => `$B$${r + 1}:$${colName(valueColumns)}$${r + 1}`;
   const rowTotal = (r, rv) => (totalName ? total(across(r)) : formula([rowCrit(r, rv)]));
