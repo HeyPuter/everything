@@ -74,8 +74,11 @@ export function withoutAccess(people, { rows = [], members = [], me = null, unsa
   return others.filter((p) => !(p.user && users.has(p.user.toLowerCase())) && !(p.email && emails.has(p.email)));
 }
 
-/** Ask whether to share with people who cannot open the workbook: 'share' (with `mode`), 'notify' or null. */
-function askToShare(people, { unsaved }) {
+/**
+ * Ask whether to share with people who cannot open the workbook: 'share' (with `mode`), 'notify' or null. `file`
+ * names a file of another kind the workbook was opened from (a .csv), which keeps no comments.
+ */
+function askToShare(people, { unsaved, file = null }) {
   return new Promise((resolve) => {
     let answer = null;
     const names = people.map((p) => p.name);
@@ -83,7 +86,9 @@ function askToShare(people, { unsaved }) {
     const mode = el('select.select.share-mode', { 'aria-label': 'Access to give' }, SHARE_MODES.map(([value, label]) => el('option', { value }, label)));
     const done = (value) => { answer = value; modal.close(); };
     const content = el('div.mention-share', {},
-      el('p.modal-text', {}, unsaved
+      el('p.modal-text', {}, file
+        ? `${file} keeps no comments, so ${list} cannot open this one until the spreadsheet is saved as an .xlsx file. Save it and share it with ${people.length === 1 ? 'them' : 'them all'}?`
+        : unsaved
         ? `This spreadsheet is not saved to Puter yet, so ${list} cannot open the comment. Save it and share it with ${people.length === 1 ? 'them' : 'them all'}?`
         : `${list} cannot open this spreadsheet yet. Share it with ${people.length === 1 ? 'them' : 'them all'} so they can see the comment?`),
       el('div.row.mention-share-mode', {}, el('span.field-label', {}, 'Give them'), mode),
@@ -102,6 +107,9 @@ function askToShare(people, { unsaved }) {
  * user. notify() is what comments.js's onMentioned calls.
  */
 export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, location: where = globalThis.location }) {
+  // A file of another kind opened from the drive (a .csv) keeps no comments, and its edits go to an .xlsx made at the
+  // first save: shared, or linked to by the mail, it is not where anyone finds the comment. It counts as unsaved.
+  const saved = () => !!doc.path && /\.xlsx$/i.test(doc.path);
   async function access() {
     if (doc.collab) {
       // A shared workbook opens for its members (the comment's link leads there), whoever else the owner's file is shared
@@ -110,7 +118,7 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       try { members = ((await doc.collab.request({ op: 'members' }))?.members || []).filter((m) => m.role !== 'removed').map((m) => m.username); } catch { /* none known */ }
       return { rows: members ? [] : null, members: members || [], noFile: !doc.path };
     }
-    if (!doc.path) return { unsaved: true };
+    if (!saved()) return { unsaved: true, ...(doc.path ? { file: P.displayName(doc.path) } : {}) };
     let rows = null;
     if (P.canShare()) {
       try { rows = await P.shareAccess(doc.path); } catch { rows = null; }
@@ -120,8 +128,8 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
   }
 
   async function share(people, mode) {
-    if (!doc.path) await doc.save();
-    if (!doc.path) throw new Error('Save the spreadsheet first, then share it');
+    if (!saved()) await doc.save();
+    if (!saved()) throw new Error('Save the spreadsheet first, then share it');
     const failed = [];
     const client = doc.collab;
     const owner = client && client.user?.uuid === client.owner;
@@ -151,7 +159,7 @@ export function createMentionNotifier({ doc, wb, mailer, me, ask = askToShare, l
       toast(`${list} cannot open this shared workbook. Ask its owner to invite ${missing.length === 1 ? 'them' : 'them all'}`, { icon: 'info', duration: 5000 });
       people = people.filter((p) => !missing.includes(p));
     } else if (missing.length && (state.unsaved || P.canShare())) {
-      const answer = await ask(missing, { unsaved: !!state.unsaved });
+      const answer = await ask(missing, { unsaved: !!state.unsaved, ...(state.file ? { file: state.file } : {}) });
       if (!answer) return { sent: 0, skipped: true };
       if (answer.action === 'share') {
         try { shareFailures = await share(missing, answer.mode); }
