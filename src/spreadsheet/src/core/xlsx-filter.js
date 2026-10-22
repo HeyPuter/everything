@@ -5,6 +5,8 @@
  * custom filter's text with * and ? as wildcards, ~ escaping either.
  */
 
+import { ymdToSerial, serialToYMD, todaySerial } from './format.js';
+
 const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 const unescapeXml = (text) => String(text).replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, entity) => {
   if (entity[0] !== '#') return XML_ENTITIES[entity.toLowerCase()] ?? m;
@@ -78,11 +80,15 @@ function customFilters(body, and) {
   return numeric(val) ? { op: kind, value: Number(val) } : null;
 }
 
+/** A filterColumn's condition markup without namespace prefixes, to be written inside this app's own worksheet. */
+const plainMarkup = (markup) => String(markup).replace(/<(\/?)\w+:/g, '<$1').replace(/\s+xmlns(?::\w+)?="[^"]*"/g, '');
+
 /**
  * The criteria of an autoFilter element, keyed by sheet column, or null when a
- * column's condition (a colour, an icon set, a top ten, a date group, a pattern
- * this app has no condition for) cannot be carried: a partial reading would
- * hide a different set of rows than the file shows.
+ * column's position is not in the range. A condition this app has no criterion for
+ * (a top ten, a dynamic or date-group filter, a colour, an icon, a pattern) is kept
+ * as the file wrote it, as { native }: it goes back into the file unchanged, and
+ * nativeFilterJudge judges the rows by it where it can.
  */
 export function readXlsxFilter(xml, range) {
   const criteria = {};
@@ -95,15 +101,107 @@ export function readXlsxFilter(xml, range) {
     let criterion = null;
     if (name === 'filters') {
       const items = [...inner.matchAll(ITEM)];
-      if (items.some((m) => m[1] !== 'filter')) return null;
+      if (items.some((m) => m[1] !== 'filter')) { criteria[range.c1 + colId] = { native: plainMarkup(body.trim()) }; continue; }
       const values = items.map((m) => attr(m[0], 'val') ?? '');
       if (['1', 'true'].includes(attr(`<f ${attrs}>`, 'blank') ?? '')) values.push('');
       criterion = { values, caseSensitive: false };
     } else if (name === 'customFilters') criterion = customFilters(inner, ['1', 'true'].includes(attr(`<f ${attrs}>`, 'and') ?? ''));
-    if (!criterion) return null;
-    criteria[range.c1 + colId] = criterion;
+    criteria[range.c1 + colId] = criterion || { native: plainMarkup(body.trim()) };
   }
   return criteria;
+}
+
+const DAY_FIELDS = ['year', 'month', 'day', 'hour', 'minute', 'second'];
+
+/** The [start, end) serials of a relative date period, from `today`: Excel's weeks start on Sunday. */
+function relativePeriod(type, today) {
+  const { y, m, weekday } = serialToYMD(today);
+  const quarter = Math.floor((m - 1) / 3);
+  const span = {
+    yesterday: [today - 1, today], today: [today, today + 1], tomorrow: [today + 1, today + 2],
+    lastWeek: [today - weekday - 7, today - weekday], thisWeek: [today - weekday, today - weekday + 7], nextWeek: [today - weekday + 7, today - weekday + 14],
+    lastMonth: [ymdToSerial(y, m - 1, 1), ymdToSerial(y, m, 1)], thisMonth: [ymdToSerial(y, m, 1), ymdToSerial(y, m + 1, 1)], nextMonth: [ymdToSerial(y, m + 1, 1), ymdToSerial(y, m + 2, 1)],
+    lastQuarter: [ymdToSerial(y, quarter * 3 - 2, 1), ymdToSerial(y, quarter * 3 + 1, 1)], thisQuarter: [ymdToSerial(y, quarter * 3 + 1, 1), ymdToSerial(y, quarter * 3 + 4, 1)],
+    nextQuarter: [ymdToSerial(y, quarter * 3 + 4, 1), ymdToSerial(y, quarter * 3 + 7, 1)],
+    lastYear: [ymdToSerial(y - 1, 1, 1), ymdToSerial(y, 1, 1)], thisYear: [ymdToSerial(y, 1, 1), ymdToSerial(y + 1, 1, 1)], nextYear: [ymdToSerial(y + 1, 1, 1), ymdToSerial(y + 2, 1, 1)],
+    yearToDate: [ymdToSerial(y, 1, 1), today + 1],
+  };
+  return span[type] || null;
+}
+
+/** Excel's customFilter text with * and ? as wildcards (~ escaping either) as a whole-text pattern. */
+const wildcardPattern = (val) => {
+  const source = String(val).replace(/~([*?~])|([*?])|[.+^$(){}|[\]\\]/g, (m, escaped, wild) => (escaped ? `\\${escaped}` : wild === '*' ? '[^]*' : wild ? '[^]' : `\\${m}`));
+  return new RegExp(`^${source}$`, 'i');
+};
+
+/**
+ * A judge of the rows for a condition kept as the file wrote it ({ native }), from the column's values
+ * (`values`, every row of the list's data, hidden or not, as Excel ranks a top ten among them): `(value, text)
+ * => keep`. A top ten (items or percent), above or below average, a relative date or a quarter or month,
+ * a date group with or without listed values, and any custom pair of conditions are judged; a colour or an
+ * icon cannot be, and keeps every row (null).
+ */
+export function nativeFilterJudge(native, values, today = todaySerial()) {
+  const child = String(native || '').match(CHILD);
+  if (!child) return null;
+  const [, name, attrs, inner = ''] = child;
+  const tag = `<f ${attrs}>`;
+  const numbers = values.filter((v) => typeof v === 'number' && Number.isFinite(v));
+  const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+  if (name === 'top10') {
+    const top = !['0', 'false'].includes(attr(tag, 'top') ?? '1'), percent = ['1', 'true'].includes(attr(tag, 'percent') ?? '0');
+    const n = Number(attr(tag, 'val') ?? 10);
+    if (!Number.isFinite(n) || n <= 0 || !numbers.length) return () => false;
+    const count = Math.max(1, Math.min(numbers.length, percent ? Math.floor(numbers.length * n / 100) : Math.floor(n)));
+    const sorted = numbers.slice().sort((a, b) => (top ? b - a : a - b));
+    const bound = sorted[count - 1];
+    return (v) => isNumber(v) && (top ? v >= bound : v <= bound);
+  }
+  if (name === 'dynamicFilter') {
+    const type = attr(tag, 'type') || '';
+    if (type === 'aboveAverage' || type === 'belowAverage') {
+      const average = numbers.reduce((a, b) => a + b, 0) / (numbers.length || 1);
+      return (v) => isNumber(v) && (type === 'aboveAverage' ? v > average : v < average);
+    }
+    const quarter = /^Q([1-4])$/.exec(type), month = /^M(1[0-2]|[1-9])$/.exec(type);
+    if (quarter || month) return (v) => isNumber(v) && v >= 1 && (({ m }) => (quarter ? Math.ceil(m / 3) === Number(quarter[1]) : m === Number(month[1])))(serialToYMD(v));
+    const period = relativePeriod(type, today);
+    return period ? (v) => isNumber(v) && v >= period[0] && v < period[1] : null;
+  }
+  if (name === 'filters') {
+    const texts = new Set([...inner.matchAll(ITEM)].filter((m) => m[1] === 'filter').map((m) => (attr(m[0], 'val') ?? '').toLowerCase()));
+    const groups = [...inner.matchAll(ITEM)].filter((m) => m[1] === 'dateGroupItem').map((m) => {
+      const level = DAY_FIELDS.indexOf(attr(m[0], 'dateTimeGrouping') || 'year');
+      return DAY_FIELDS.slice(0, level + 1).map((field) => Number(attr(m[0], field) ?? NaN));
+    });
+    const blank = ['1', 'true'].includes(attr(tag, 'blank') ?? '');
+    return (v, text) => {
+      if (v == null || v === '') return blank;
+      if (texts.has(String(text).toLowerCase())) return true;
+      if (!isNumber(v) || v < 1) return false;
+      const { y, m, d } = serialToYMD(v);
+      const seconds = Math.round((v - Math.floor(v)) * 86400);
+      const parts = [y, m, d, Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60];
+      return groups.some((group) => group.every((value, i) => value === parts[i]));
+    };
+  }
+  if (name === 'customFilters') {
+    const and = ['1', 'true'].includes(attr(tag, 'and') ?? '');
+    const tests = [...inner.matchAll(ITEM)].filter((m) => m[1] === 'customFilter').map((m) => {
+      const op = attr(m[0], 'operator') || 'equal', val = attr(m[0], 'val') ?? '';
+      if (op === 'equal' || op === 'notEqual') {
+        const same = numeric(val) ? (v, text) => (isNumber(v) ? v === Number(val) : wildcardPattern(val).test(text)) : (v, text) => wildcardPattern(val).test(text);
+        return op === 'equal' ? same : (v, text) => !same(v, text);
+      }
+      const compare = { greaterThan: (a, b) => a > b, greaterThanOrEqual: (a, b) => a >= b, lessThan: (a, b) => a < b, lessThanOrEqual: (a, b) => a <= b }[op];
+      if (!compare) return null;
+      return numeric(val) ? (v) => isNumber(v) && compare(v, Number(val)) : (v, text) => compare(String(text).toLowerCase(), val.toLowerCase());
+    });
+    if (!tests.length || tests.includes(null)) return null;
+    return (v, text) => (and ? tests.every((t) => t(v, text)) : tests.some((t) => t(v, text)));
+  }
+  return null;
 }
 
 /** Button visibility is independent of whether a column has a filter condition. */
@@ -154,7 +252,15 @@ export function writeXlsxFilter(filter, numbersByText = null) {
     const colId = Number(key) - range.c1;
     if (!Number.isInteger(colId) || colId < 0 || colId > range.c2 - range.c1 || !crit) continue;
     let body = null;
-    if (Array.isArray(crit.values)) {
+    // A condition kept as the file wrote it goes back as it came. A colour filter's format was the file's, and is
+    // named here by its colour (crit.ink for a font colour), for the writer to give the format this file has for it;
+    // one whose colour was never known has no format to name and is left out, its rows still hidden.
+    if (typeof crit.native === 'string' && crit.native) {
+      const colour = /^<colorFilter\b/.test(crit.native) ? (['0', 'false'].includes(attr(crit.native.match(/^<[^>]*>/)[0], 'cellColor')) ? ['ink', crit.ink] : ['fill', crit.color]) : null;
+      if (!colour) body = crit.native;
+      else if (/^#[\da-f]{6}$/i.test(colour[1] || '')) body = crit.native.replace(/\bdxfId="[^"]*"/, `dxfId="puter-${colour[0]}-${colour[1].slice(1).toLowerCase()}"`);
+    }
+    else if (Array.isArray(crit.values)) {
       const shown = crit.values.filter((value) => value !== '');
       const numbers = shown.length ? numbersByText?.(Number(key)) : null;
       const vals = shown.flatMap((value) => {

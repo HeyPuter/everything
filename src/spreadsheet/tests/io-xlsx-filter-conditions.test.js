@@ -70,17 +70,26 @@ it('retains the saved filtered view until its live condition is reapplied', asyn
   expect(hidden(wb)).toEqual([]);
 });
 
+// A condition the app has no criterion for is kept as the file wrote it ({ native }, written back unchanged; see
+// io-xlsx-filter-kept-conditions.test.js), and the rows the file's filter hid stay hidden as the filter's.
 it.each([
-  '<filterColumn colId="0"><top10 val="1"/></filterColumn>',
-  '<filterColumn colId="0"><dynamicFilter type="aboveAverage"/></filterColumn>',
-  '<filterColumn colId="0"><colorFilter dxfId="1"/></filterColumn>',
-  '<filterColumn colId="0"><filters><dateGroupItem year="2024" dateTimeGrouping="year"/></filters></filterColumn>',
-  '<filterColumn colId="0"><customFilters><customFilter val="a*b"/></customFilters></filterColumn>',
-  '<filterColumn colId="0"><customFilters><customFilter val="a"/><customFilter val="b"/></customFilters></filterColumn>',
-  '<filterColumn colId="0"><filters><filter val="East"/></filters></filterColumn><filterColumn colId="1"><iconFilter iconSet="3Arrows"/></filterColumn>',
-  '<filterColumn colId="5"><filters><filter val="East"/></filters></filterColumn>',
-])('keeps the filter range and the file\'s hidden rows when a condition cannot be carried: %s', async (columns) => {
+  ['<filterColumn colId="0"><top10 val="1"/></filterColumn>', { 0: { native: '<top10 val="1"/>' } }],
+  ['<filterColumn colId="0"><dynamicFilter type="aboveAverage"/></filterColumn>', { 0: { native: '<dynamicFilter type="aboveAverage"/>' } }],
+  ['<filterColumn colId="0"><colorFilter dxfId="1"/></filterColumn>', { 0: { native: '<colorFilter dxfId="1"/>' } }],
+  ['<filterColumn colId="0"><filters><dateGroupItem year="2024" dateTimeGrouping="year"/></filters></filterColumn>', { 0: { native: '<filters><dateGroupItem year="2024" dateTimeGrouping="year"/></filters>' } }],
+  ['<filterColumn colId="0"><customFilters><customFilter val="a*b"/></customFilters></filterColumn>', { 0: { native: '<customFilters><customFilter val="a*b"/></customFilters>' } }],
+  ['<filterColumn colId="0"><customFilters><customFilter val="a"/><customFilter val="b"/></customFilters></filterColumn>', { 0: { native: '<customFilters><customFilter val="a"/><customFilter val="b"/></customFilters>' } }],
+  ['<filterColumn colId="0"><filters><filter val="East"/></filters></filterColumn><filterColumn colId="1"><iconFilter iconSet="3Arrows"/></filterColumn>',
+    { 0: { caseSensitive: false, values: ['East'] }, 1: { native: '<iconFilter iconSet="3Arrows"/>' } }],
+])('keeps a condition the app has no criterion for as the file wrote it, with the rows it hid: %s', async (columns, criteria) => {
   const wb = await open(sheetXml(regions, columns));
+  expect(wb.activeSheet.filter).toEqual({ range: { r1: 0, c1: 0, r2: 3, c2: 1 }, criteria });
+  expect(hidden(wb)).toEqual([2]);
+  expect(manual(wb)).toEqual([]);
+});
+
+it('keeps the filter range and the file\'s hidden rows when a condition names a column outside it', async () => {
+  const wb = await open(sheetXml(regions, '<filterColumn colId="5"><filters><filter val="East"/></filters></filterColumn>'));
   expect(wb.activeSheet.filter).toEqual({ range: { r1: 0, c1: 0, r2: 3, c2: 1 }, criteria: {} });
   expect(hidden(wb)).toEqual([]);
   expect(manual(wb)).toEqual([2]);

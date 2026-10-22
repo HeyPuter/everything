@@ -196,6 +196,9 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
   const contentType = (path, type) => { types = types.replace('</Types>', xmlTag('Override', { PartName: path, ContentType: type }) + '</Types>'); };
   const richValues = richValueWriter({ get, set, binary: put, contentType });
   const persons = createPersonList();
+  // A colour filter kept from a file names its colour as a format of this file's own (see writeXlsxFilter).
+  const filterColorFormats = (xml) => xml.replace(/\bdxfId="puter-(fill|ink)-([\da-f]{6})"/g,
+    (m, kind, hex) => `dxfId="${styles.differential(kind === 'fill' ? { bg: `#${hex}` } : { color: `#${hex}` })}"`);
   for (const [i, sheet] of wb.sheets.entries()) {
     if (i && pause) await pause();
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
@@ -326,7 +329,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
         // A table whose Header Row is off has no AutoFilter: headerRowCount="0" and its names in tableColumn.
         const filter = t.headerRow === false ? null : book.Sheets[sheet.name]?.['!tableFilters']?.[t.id];
         set(target, HEADER + xmlTag('table', { xmlns: MAIN, id, name: encodeXlsxAttribute(t.name), displayName: encodeXlsxAttribute(t.name), ref, ...(t.headerRow === false ? { headerRowCount: 0 } : {}), totalsRowCount: Number(t.totalsRow), totalsRowShown: Number(t.totalsRow) },
-          (filter ? xmlTag('autoFilter', { ref: filterRef }, filter.filterColumns || null) : '') + xmlTag('tableColumns', { count: t.range.c2 - t.range.c1 + 1 }, columns)
+          (filter ? xmlTag('autoFilter', { ref: filterRef }, filterColorFormats(filter.filterColumns || '') || null) : '') + xmlTag('tableColumns', { count: t.range.c2 - t.range.c1 + 1 }, columns)
           + xmlTag('tableStyleInfo', { name: t.style === 'none' ? null : name, showFirstColumn: Number(!!t.firstColumn), showLastColumn: Number(!!t.lastColumn), showRowStripes: Number(t.banded), showColumnStripes: Number(!!t.bandedColumns) })));
         rels = rels.replace('</Relationships>', xmlTag('Relationship', { Id: relId, Type: `${REL}table`, Target: `../tables/table${id}.xml` }) + '</Relationships>');
         contentType(target, 'application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml');
@@ -369,7 +372,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
     xml = writeXlsxIgnoredErrors(xml, sheet.ignoredErrors);
     xml = writeXlsxRichText(xml, ws, wb.colorPalette, normalFont, wb.fontTheme);
     writeXlsxThreadedComments(sheet, i + 1, persons, { get, set, contentType });
-    set(path, richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues));
+    set(path, filterColorFormats(richValues.sheet(writeXlsxSheetCustomViews(writeXlsxOutlineSettings(writeXlsxPrint(xml, sheet.printSettings), sheet.outlineSettings), wb.customViews || [], sheet), imageValues)));
   }
   writeXlsxPersons(persons, { get, set, contentType });
   let workbook = get('/xl/workbook.xml');

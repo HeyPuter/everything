@@ -108,6 +108,7 @@ import { normalizeScripts, serializeScripts } from './scripts.js';
 import { installSheetGroups } from './sheet-group.js';
 import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-history.js';
 import { eachStoredCell } from './sparse-range.js';
+import { nativeFilterJudge } from './xlsx-filter.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
 export function objectNoun(obj) {
@@ -813,7 +814,7 @@ function normalizeFilter(raw) {
     if (!/^(0|[1-9]\d*)$/.test(key) || Number(key) < n.c1 || Number(key) > n.c2) continue;
     if (!criterion || typeof criterion !== 'object' || Array.isArray(criterion)) continue;
     if ('values' in criterion && (!Array.isArray(criterion.values) || !criterion.values.every((v) => typeof v === 'string'))) continue;
-    if (['op', 'formula', 'text', 'color'].some((key) => key in criterion && typeof criterion[key] !== 'string')) continue;
+    if (['op', 'formula', 'text', 'color', 'native', 'ink'].some((key) => key in criterion && typeof criterion[key] !== 'string')) continue;
     // The keys beside a value filter's texts (see _filterValueKeys) are a list of strings or nothing: an odd
     // shape is dropped on its own, and the texts still judge the rows.
     const { keys, ...rest } = criterion;
@@ -8920,6 +8921,14 @@ export class Workbook extends EventTarget {
     // Text conditions take Excel's wildcards: ? any one character, * any run of them, ~ before either for itself.
     const wildcards = new Map();
     for (const c of cols) { const pattern = filterWildcard(f.criteria[c]); if (pattern) wildcards.set(c, pattern); }
+    // A condition a file wrote that the app keeps as written (a top ten, a date group): judged from the
+    // column's values, every data row of the list, as Excel ranks a top ten among them.
+    const natives = new Map();
+    for (const c of cols) if (typeof f.criteria[c].native === 'string') {
+      const values = [];
+      for (let r = f.range.r1 + 1, last = Math.min(f.range.r2, sheet.rows - 1); r <= last; r++) values.push(this._compute(sheet, r, c));
+      natives.set(c, nativeFilterJudge(f.criteria[c].native, values));
+    }
     return r => {
       for (const c of cols) {
         const crit = f.criteria[c];
@@ -8952,6 +8961,7 @@ export class Workbook extends EventTarget {
         }
         else if (crit.color != null) keep = this._cellFill(sheet, r, c) === String(crit.color).toLowerCase();
         else if (crit.text != null) keep = text.toLowerCase().includes(String(crit.text).toLowerCase());
+        else if (natives.get(c)) keep = natives.get(c)(this._compute(sheet, r, c), text);
         if (!keep) return false;
       }
       return true;

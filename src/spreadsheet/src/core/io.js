@@ -2086,9 +2086,24 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     }
     return criteria === filter.criteria ? filter : { ...filter, criteria };
   };
+  // A colour filter Excel wrote names a differential format: its fill is the colour this app's own colour filter
+  // keeps rows by, so the rows can be judged again. The condition still goes back into the file as it came.
+  const filterColors = (filter) => {
+    if (!filter) return filter;
+    let criteria = filter.criteria;
+    for (const [key, crit] of Object.entries(criteria)) {
+      const tag = typeof crit?.native === 'string' && crit.color == null && crit.ink == null ? /^<colorFilter\b[^>]*>/.exec(crit.native)?.[0] : null;
+      if (!tag) continue;
+      // cellColor="0" filters by the font colour, which the app keeps (as ink) only to write the condition back.
+      const ink = ['0', 'false'].includes(xmlAttr(tag, 'cellColor')), dxf = nativeStyles?.dxfs?.[Number(xmlAttr(tag, 'dxfId'))];
+      const colour = ink ? (typeof dxf?.color === 'string' ? dxf.color : dxf?.color?.rgb) : dxf?.bg;
+      if (typeof colour === 'string' && /^#[\da-f]{6}$/i.test(colour)) criteria = { ...criteria, [key]: { ...crit, [ink ? 'ink' : 'color']: colour.toLowerCase() } };
+    }
+    return criteria === filter.criteria ? filter : { ...filter, criteria };
+  };
   const currentFilters = [fileFilter(X, ws?.['!autofilter']),
     ...(ws?.['!filters'] || []).map(f => fileFilter(X, f)),
-    ...native.filter(t => t.filter).map(t => fileFilter(X, null, t.filter))].filter(Boolean).map(filterDates);
+    ...native.filter(t => t.filter).map(t => fileFilter(X, null, t.filter))].filter(Boolean).map(filterDates).map(filterColors);
   const savedOwners = new Map((Array.isArray(own?.tables) ? own.tables : []).filter(t => typeof t?.name === 'string' && validMetaRange(t.range))
     .map(t => [filterRangeKey({ range: { ...t.range, r2: t.range.r2 - Number(!!t.totalsRow) } }), t]));
   const currentByRange = new Map(currentFilters.map(f => [filterRangeKey(f), f]));
@@ -2113,7 +2128,7 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       : saved === own?.filter ? own?.nativeFilter : undefined);
     if (expected === undefined && validMetaRange(saved?.range)) {
       const xml = writeXlsxFilter({ ...saved, hiddenButtons: Array.isArray(saved.hiddenButtons) ? saved.hiddenButtons : [] });
-      expected = { range: saved.range, criteria: readXlsxFilter(xml, saved.range) || {}, ...readXlsxFilterButtons(xml, saved.range) };
+      expected = filterColors({ range: saved.range, criteria: readXlsxFilter(xml, saved.range) || {}, ...readXlsxFilterButtons(xml, saved.range) });
     }
     if (saved && JSON.stringify(expected) === JSON.stringify(current)) return saved;
     filtersFromFile.push(current.range);
