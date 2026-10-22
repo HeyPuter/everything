@@ -88,8 +88,9 @@ it('numbers pages in print order and picks first and even page headers', () => {
 });
 
 it('edits header sections with readable field codes and saves the codes the file uses', () => {
-  expect(sectionEditText('Page &P of &N && &D &T &F &A &Z')).toBe('Page &[Page] of &[Pages] && &[Date] &[Time] &[File] &[Tab] &[Path]');
-  expect(sectionStoredText('Page &[Page] of &[pages] && &[Path]')).toBe('Page &P of &N && &Z');
+  // A doubled ampersand is one of the text, and is edited as one (see header-footer-literal-ampersand.test.js).
+  expect(sectionEditText('Page &P of &N && &D &T &F &A &Z')).toBe('Page &[Page] of &[Pages] & &[Date] &[Time] &[File] &[Tab] &[Path]');
+  expect(sectionStoredText('Page &[Page] of &[pages] & &[Path]')).toBe('Page &P of &N && &Z');
   expect(joinSections({ left: 'A', center: '', right: '&P' })).toBe('&LA&R&P');
   expect(joinSections({ left: '', center: '', right: '' })).toBe('');
 });

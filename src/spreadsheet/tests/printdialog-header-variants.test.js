@@ -26,7 +26,7 @@ it('edits first/even text with token chips and saves the choices with Undo',asyn
   expect(evenInput.closest('.row').hidden).toBe(false);
   evenInput.value='Even';evenInput.dispatchEvent(new Event('input'));
   modal.panel.querySelector('form').requestSubmit();await Promise.resolve();
-  expect(printSheet).toHaveBeenCalledWith(expect.anything(),expect.anything(),undefined,expect.objectContaining({differentFirst:true,differentOddEven:true,firstFooter:'Opening &[Page]',evenFooter:'Even'}));
+  expect(printSheet).toHaveBeenCalledWith(expect.anything(),expect.anything(),undefined,expect.objectContaining({differentFirst:true,differentOddEven:true,firstFooter:'Opening &P',evenFooter:'Even'}));
   expect(wb.activeSheet.printSettings).toMatchObject({differentFirst:true,differentOddEven:true,firstFooter:'Opening &P',evenFooter:'Even'});
   wb.undo();expect(wb.activeSheet.printSettings).toEqual(old);
 });

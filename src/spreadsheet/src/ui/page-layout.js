@@ -117,17 +117,39 @@ export function headerFooterKey(settings, kind, index) {
   return prefix ? `${prefix}${kind === 'header' ? 'Header' : 'Footer'}` : kind;
 }
 
-// The codes a section is edited with: &[Page] is shown where the file says &P.
+// The codes a section is edited with: &[Page] is shown where the file says &P, and an ampersand of the text as itself
+// where the file doubles it (&&). Excel's formatting codes (a font, a size, a colour, bold and the like) show as they are.
 const LONG = { P: 'Page', N: 'Pages', D: 'Date', T: 'Time', F: 'File', A: 'Tab', Z: 'Path' };
+const FORMAT_CODE = /^&(?:"[^"\r\n]*"|\d{1,3}(?:\.\d+)?|K(?:[\da-fA-F]{6}|\d{2}[+-]\d{3})|[BIESUXYOHG])/;
 export function sectionEditText(raw) {
-  return String(raw || '').replace(/&&|&([PNDTFAZ])/g, (m, code) => (code ? `&[${LONG[code]}]` : m));
+  return String(raw || '').replace(/&&|&([PNDTFAZ])/g, (m, code) => (code ? `&[${LONG[code]}]` : '&'));
 }
-export function sectionStoredText(text) {
-  return String(text || '').replace(/\r\n?/g, '\n').replace(/&&|&\[(page|pages|date|time|file|tab|path)\]/gi, (m, name) => {
-    if (!name) return m;
-    const code = Object.keys(LONG).find((k) => LONG[k].toLowerCase() === name.toLowerCase());
-    return `&${code}`;
-  });
+/**
+ * What is typed, as the file keeps it: &[Page] and the other fields as their codes, and every other ampersand as one
+ * of the text, doubled (&&). Typed as it reads, "R&D" was kept as R and the date code, and printed the date. A
+ * formatting code is kept as a code where `raw`, the text before the edit, held it (one imported from Excel, say),
+ * and `sections` keeps &L, &C and &R, which start the left, center and right parts of a whole header.
+ */
+export function sectionStoredText(text, raw = '', { sections = false } = {}) {
+  const kept = new Map();
+  for (const [code] of String(raw || '').matchAll(/&&|&(?:"[^"\r\n]*"|\d{1,3}(?:\.\d+)?|K(?:[\da-fA-F]{6}|\d{2}[+-]\d{3})|[BIESUXYOHG])/g)) {
+    if (code !== '&&') kept.set(code, (kept.get(code) || 0) + 1);
+  }
+  const src = String(text || '').replace(/\r\n?/g, '\n');
+  let out = '';
+  for (let i = 0; i < src.length;) {
+    const at = src.indexOf('&', i);
+    if (at !== i) { out += src.slice(i, at < 0 ? src.length : at); i = at < 0 ? src.length : at; continue; }
+    const tail = src.slice(i);
+    const field = /^&\[(page|pages|date|time|file|tab|path)\]/i.exec(tail);
+    if (field) { out += `&${Object.keys(LONG).find((k) => LONG[k].toLowerCase() === field[1].toLowerCase())}`; i += field[0].length; continue; }
+    if (sections && /^&[LCR]/.test(tail)) { out += tail.slice(0, 2); i += 2; continue; }
+    const format = FORMAT_CODE.exec(tail);
+    if (format && kept.get(format[0])) { kept.set(format[0], kept.get(format[0]) - 1); out += format[0]; i += format[0].length; continue; }
+    out += '&&';
+    i++;
+  }
+  return out;
 }
 
 /** The header or footer text with one section replaced: &L, &C and &R parts, the empty ones left out. */
@@ -260,7 +282,7 @@ export function createPageLayout({ wb, commit, redraw = () => {}, fileName = () 
     const { sheetId, key, side, raw, cancelled } = editing;
     editing = null;
     section.closest('.pl-hf')?.classList.remove('pl-editing');
-    const next = cancelled ? raw : sectionStoredText(section.innerText ?? section.textContent).replace(/\n+$/, '');
+    const next = cancelled ? raw : sectionStoredText(section.innerText ?? section.textContent, raw).replace(/\n+$/, '');
     if (next !== raw && wb.sheet(sheetId)) {
       const settings = pageSettings(wb.sheet(sheetId));
       const sections = splitPrintSections(settings[key] || '');

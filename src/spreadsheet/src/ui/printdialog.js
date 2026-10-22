@@ -13,6 +13,7 @@ import { getLocale } from '../core/format.js';
 import * as S from '../core/selection.js';
 import { createPrintPreview } from './print-preview.js';
 import { resolvedAbsolutePath } from '../lib/puter.js';
+import { sectionEditText, sectionStoredText } from './page-layout.js';
 
 /** The saved print preferences of this account, as the dialog would start from them. */
 export function currentPrintPrefs(sheet) {
@@ -105,8 +106,12 @@ export function openPrintDialog(ctx) {
     ...PAPER_SIZES.map(([k, label]) => el('option', { value: k }, label)));
   paperSel.value = PAPER_SIZES.some(([k]) => k === prefs.paper) ? prefs.paper : 'letter';
   const marginBoxes = supportsPageMarginBoxes();
-  const headerInput = el('input.input', { type: 'text', value: prefs.header || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Nothing (the title prints above the cells)' : (ctx.doc?.name || 'Document title'), 'aria-label': 'Header text', maxlength: 255, oninput: () => { prefs.header = headerInput.value; } });
-  const footerInput = el('input.input', { type: 'text', value: prefs.footer || '', placeholder: prefs.native ? 'None' : marginBoxes ? 'Page &[Page] of &[Pages]' : `Today’s date (${new Date().toLocaleDateString(getLocale())})`, 'aria-label': 'Footer text', maxlength: 255, oninput: () => { prefs.footer = footerInput.value; } });
+  // The header and footer are typed as they read, fields as &[Page] and an ampersand as itself (see sectionStoredText);
+  // what is typed is kept as the file keeps it, in prefs, where the preview and the print read it.
+  const original = { ...prefs };
+  const stored = (key, input) => { prefs[key] = sectionStoredText(input.value, original[key] || '', { sections: true }); };
+  const headerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.header || ''), placeholder: prefs.native ? 'None' : marginBoxes ? 'Nothing (the title prints above the cells)' : (ctx.doc?.name || 'Document title'), 'aria-label': 'Header text', maxlength: 255, oninput: () => stored('header', headerInput) });
+  const footerInput = el('input.input', { type: 'text', value: sectionEditText(prefs.footer || ''), placeholder: prefs.native ? 'None' : marginBoxes ? 'Page &[Page] of &[Pages]' : `Today’s date (${new Date().toLocaleDateString(getLocale())})`, 'aria-label': 'Footer text', maxlength: 255, oninput: () => stored('footer', footerInput) });
   // Token chips type into whichever of the two fields was used last.
   let tokenTarget = footerInput;
   headerInput.addEventListener('focus', () => { tokenTarget = headerInput; });
@@ -116,9 +121,9 @@ export function openPrintDialog(ctx) {
     const flag = prefix === 'first' ? 'differentFirst' : 'differentOddEven';
     const fields = el('div.row.row-2', {}, ['Header', 'Footer'].map(kind => {
       const key = prefix + kind;
-      const input = el('input.input', { type: 'text', value: prefs[key] || '', maxlength: 255,
+      const input = el('input.input', { type: 'text', value: sectionEditText(prefs[key] || ''), maxlength: 255,
         placeholder: 'None', 'aria-label': `${label} ${kind.toLowerCase()} text`,
-        oninput: () => { prefs[key] = input.value; }, onfocus: () => { tokenTarget = input; } });
+        oninput: () => stored(key, input), onfocus: () => { tokenTarget = input; } });
       return el('label.field', {}, el('span.field-label', {}, `${label} ${kind.toLowerCase()}`), input);
     }));
     const toggle = el('input', { type: 'checkbox', checked: !!prefs[flag], onchange: () => { prefs[flag] = toggle.checked; sync(); } });

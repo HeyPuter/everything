@@ -19,5 +19,6 @@ it('takes a header and footer as long as Excel does', () => {
   for (const label of ['Header text', 'Footer text', 'First page header text', 'Even pages footer text']) {
     expect(modal.panel.querySelector(`[aria-label="${label}"]`).maxLength).toBe(255);
   }
-  expect(modal.panel.querySelector('[aria-label="Header text"]').value).toBe(header);
+  // Shown as it is edited: fields as &[Date] and &[Time], the formatting codes as they are.
+  expect(modal.panel.querySelector('[aria-label="Header text"]').value).toBe(header.replace('&D &T', '&[Date] &[Time]'));
 });
