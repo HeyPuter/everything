@@ -482,7 +482,11 @@ const WRITES = {
     const url = String(op.url ?? '').trim();
     if (!url) { this.wb.removeLink(sheet.id, range.r1, range.c1); return; }
     if (!/^(https?:\/\/|mailto:|#)/i.test(url)) this.fail('A link must start with http://, https://, mailto: or # (a place in the workbook).');
-    if (!this.wb.setLink(sheet.id, range.r1, range.c1, url)) this.fail(`The link could not be set on ${this.where(sheet, range)}.`);
+    // The cell keeps what it shows, as Office's setHyperlink does without a textToDisplay: given no text, the link
+    // wrote its address over the cell's value (a number a formula read became text, and the formula #VALUE!).
+    const shown = this.wb.getValue(sheet.id, range.r1, range.c1);
+    const label = ['number', 'boolean', 'string'].includes(typeof shown) ? shown : this.wb.getDisplay(sheet.id, range.r1, range.c1) || '';
+    if (!this.wb.setLink(sheet.id, range.r1, range.c1, url, label)) this.fail(`The link could not be set on ${this.where(sheet, range)}.`);
   },
   select(op) {
     const { sheet, range } = this.rangeOf(op);
