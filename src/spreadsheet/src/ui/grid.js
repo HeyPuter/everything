@@ -3364,6 +3364,9 @@ export function createGrid(opts) {
     const cell = wb.getCell(sheetId, r, c);
     let msg = `${cellName(r, c)}${text ? `, ${text}` : ', empty'}`;
     if (cell?.f != null) msg += `, formula`;
+    // A merged block is one cell on screen; its extent is said, as the outline drawn round it shows it.
+    const merged = sheet().merges.length ? mergeAt(r, c) : null;
+    if (merged) msg += `, merged ${rangeName(merged)}`;
     // A validation rule's input message is read with the cell it is shown beside.
     const rule = sheet().validations.length ? wb.validationAt(sheetId, r, c) : null;
     if (rule?.showInputMessage !== false && (rule?.prompt || rule?.promptTitle)) msg += `. ${[rule.promptTitle, rule.prompt].filter(Boolean).join(': ')}`;

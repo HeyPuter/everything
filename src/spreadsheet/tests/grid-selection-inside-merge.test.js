@@ -51,7 +51,7 @@ describe('a selection wholly inside a merged cell is that cell', () => {
     expect(isSingle(grid.selection)).toBe(true);
     expect(grid.selection.active).toEqual({ r: 1, c: 1 });
     expect(grid.range).toEqual(merged);
-    expect(spoken.at(-1)).toBe('B2, Title');
+    expect(spoken.at(-1)).toBe('B2, Title, merged B2:C3');
     grid.destroy();
   });
 
