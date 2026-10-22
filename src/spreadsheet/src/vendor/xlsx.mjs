@@ -19349,9 +19349,22 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 			else { ss = ""; dtag = xlml_parsexmltag(Rn[0]); didx = Rn.index + Rn[0].length; }
 			break;
 		case 'cell' /*case 'Cell'*/:
-			if(Rn[1]==='/'){
+			/* Puter Spreadsheet local patch: an empty cell (<Cell .../>) is read as one with a closing tag is.
+			 * Only its column was counted: a merged block's ss:MergeAcross was not, so the cells after an empty
+			 * merged heading landed that many columns to the left, and the block, its format, a formula with no
+			 * value cached (ss:Formula with no <Data>) and a comment on a cell with no value were all dropped. */
+			if(Rn[1]!=='/') {
+				cell = xlml_parsexmltagobj(Rn[0]);
+				if(cell.Index) c = +cell.Index - 1;
+				if(c < refguess.s.c) refguess.s.c = c;
+				if(c > refguess.e.c) refguess.e.c = c;
+				comments = [];
+			}
+			if(Rn[1]==='/' || Rn[0].slice(-2) === "/>"){
 				if(comments.length > 0) cell.c = comments;
-				if((!opts.sheetRows || opts.sheetRows > r) && cell.v !== void 0) {
+				var _stub = cell.t === void 0 && (cell.Formula != null || comments.length > 0 || cell.HRef || (opts.sheetStubs && cell.StyleID !== void 0));
+				if(_stub) parse_xlml_data("", "", {}, cell, {c:c,r:r}, styles, cstys[c], row, arrayf, opts, Workbook.WBProps.date1904);
+				if((!opts.sheetRows || opts.sheetRows > r) && (cell.v !== void 0 || _stub)) {
 					if(opts.dense) {
 						if(!cursheet["!data"][r]) cursheet["!data"][r] = [];
 						cursheet["!data"][r][c] = cell;
@@ -19371,13 +19384,6 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 				   covered cell made a block of whole columns (ss:MergeDown="1048575") cost millions
 				   of objects, and a whole-sheet block hang the read. */
 				if(cell.MergeAcross) c = cc + 1; else ++c;
-			} else {
-				cell = xlml_parsexmltagobj(Rn[0]);
-				if(cell.Index) c = +cell.Index - 1;
-				if(c < refguess.s.c) refguess.s.c = c;
-				if(c > refguess.e.c) refguess.e.c = c;
-				if(Rn[0].slice(-2) === "/>") ++c;
-				comments = [];
 			}
 			break;
 		case 'row' /*case 'Row'*/:
