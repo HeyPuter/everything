@@ -261,7 +261,10 @@ async function main(workbook) {
   format.getFont().setBold(true);
   format.getFill().setColor('#e2e8f0');
   format.setBorder('bottom', { style: 'medium' });
-  sheet.freezeRows(used.getRowIndex() + 1);
+  // Panes hold at most 50 frozen rows: a header further down is styled, and left to scroll.
+  const rows = used.getRowIndex() + 1;
+  if (rows > 50) { console.log(\`Styled \${header.getAddress()}; it is too far down to freeze (at most 50 rows can be frozen).\`); return; }
+  sheet.freezeRows(rows);
   console.log(\`Styled \${header.getAddress()} and froze it.\`);
 }
 `,
