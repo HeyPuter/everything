@@ -30,6 +30,7 @@ import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
 import { cellFromInput } from './workbook.js';
 import { getThread } from './comments.js';
+import { tableRows } from './tables.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -366,6 +367,28 @@ function spillsHit(wb, sheetId, range, writes = () => true) {
     if (!(inRange && writes(anchor.r, anchor.c))) anchors.set(cellKey(anchor.r, anchor.c), anchor);
   }
   return [...anchors.values()];
+}
+
+/**
+ * The table data cells, outside the block written, of the columns a write's formulas land in: a new formula typed into
+ * a table's calculated column is written down the whole column, as Excel overwrites it. Each with its formula now.
+ */
+function calculatedColumnCells(wb, sheetId, range, planned) {
+  const out = [];
+  const seen = new Set();
+  for (const { r, c, input } of planned) {
+    if (typeof input !== 'string' || !input.startsWith('=')) continue;
+    const table = wb.tableAt?.(sheetId, r, c);
+    if (!table || seen.has(`${table.id}|${c}`)) continue;
+    seen.add(`${table.id}|${c}`);
+    const rows = tableRows(table);
+    if (r < rows.dataStart || r > rows.dataEnd) continue;
+    for (let rr = rows.dataStart; rr <= rows.dataEnd; rr++) {
+      if (rr >= range.r1 && rr <= range.r2) continue;
+      out.push({ r: rr, c, f: wb.getCell(sheetId, rr, c)?.f ?? null });
+    }
+  }
+  return out;
 }
 
 /** What a write did to the spills it landed on, for the model: which formulas now show #SPILL!. */
@@ -727,8 +750,11 @@ function writeCells(wb, args, env) {
   const note = reachingNote(env, reached);
   const written = new Set(planned.filter(({ input }) => input !== '').map(({ r, c }) => cellKey(r, c)));
   const hit = spillsHit(wb, sheetId, range, (r, c) => written.has(cellKey(r, c)));
+  const column = calculatedColumnCells(wb, sheetId, range, planned);
   wb.ensureSize(sheetId, range.r2 + 1, range.c2 + 1);
   wb.transaction('AI edit', () => { for (const { r, c, input } of planned) writeOne(wb, sheetId, r, c, input); });
+  // The rows of a calculated column the write rewrote beyond its own block, which the model must know of.
+  const rewrote = column.filter(({ r, c, f }) => (wb.getCell(sheetId, r, c)?.f ?? null) !== f).map(({ r, c }) => cellName(r, c));
   const errors = formulaErrors(wb, sheetId, range);
   const blocked = blockedSpills(wb, sheetId, hit);
   return {
@@ -737,6 +763,7 @@ function writeCells(wb, args, env) {
     ...(kept ? { unchanged: kept } : {}),
     ...(refused.length ? { refused_by_validation: refused.slice(0, 10) } : {}),
     ...(hidden.length ? { not_written_inside_merged_cells: hidden.slice(0, 10) } : {}),
+    ...(rewrote.length ? { calculated_column: `The formula went into a table's calculated column, so it was written to the column's other rows as well: ${rewrote.length} more cell${rewrote.length === 1 ? '' : 's'} (${rewrote.slice(0, 6).join(', ')}${rewrote.length > 6 ? ', …' : ''}).` } : {}),
     ...(errors.length ? { formula_errors: errors } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     ...(note ? { note } : {}),
@@ -1275,7 +1302,12 @@ export function describeCall(wb, name, args = {}, env) {
       const n = rows.reduce((sum, row) => sum + (Array.isArray(row) ? row.filter((v) => v !== null && v !== undefined).length : 0), 0);
       const writes = (r, c) => { const v = rows[r - range.r1]?.[c - range.c1]; return v !== null && v !== undefined && v !== ''; };
       const spills = range && start.s != null ? spillsHit(wb, start.s, range, writes).length : 0;
-      const detail = [replaced && `Replaces ${holding(replaced)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      // A formula into a table's calculated column may be written down the whole column: its other rows holding formulas are named.
+      const formulas = [];
+      if (range && start.s != null) rows.forEach((row, i) => (Array.isArray(row) ? row : []).forEach((v, j) => formulas.push({ r: range.r1 + i, c: range.c1 + j, input: v })));
+      const column = range && start.s != null ? calculatedColumnCells(wb, start.s, range, formulas).filter(({ f }) => f != null).length : 0;
+      const detail = [replaced && `Replaces ${holding(replaced)}.`, column && `It goes into a table's calculated column, so it may replace the formulas in ${plural(column, 'other row')} of that column too.`,
+        spills && blocksSpills(spills)].filter(Boolean).join(' ');
       return { label: `Write ${plural(n, 'cell')} to ${range ? qualified(wb, start.s, range) : start.text}`, destructive: !!detail, detail: detail || null };
     }
     case 'fill_formula': {
