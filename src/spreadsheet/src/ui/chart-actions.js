@@ -45,9 +45,11 @@ export const seriesCountOf = (wb, sheetId, chart) => {
 
 /**
  * What a new chart reads: `range` (a range, or several selected together), else the selection: the data around
- * a single cell, or every range selected together. Null, with a notice, when it cannot be charted.
+ * a single cell, or every range selected together. Null, with a notice, when it cannot be charted. `sized`: a
+ * chart on the sheet (and the Insert Chart dialog) takes at most 5,000 rows and 200 columns; F11's chart sheet
+ * has never been held to that.
  */
-export function chartSource(ctx, range = null) {
+export function chartSource(ctx, range = null, { sized = true } = {}) {
   // Whole columns (or rows) selected together reach as far as the sheet's content, as one selected alone does.
   const used = ctx.wb.usedRange(ctx.sheetId());
   const toUsed = r => ({ ...r, r2: r.r2 >= MAX_ROW ? Math.max(r.r1, Math.min(r.r2, used?.r2 ?? r.r1)) : r.r2,
@@ -56,7 +58,7 @@ export function chartSource(ctx, range = null) {
   const areas = chartAreas(ranges);
   if (!areas) { toast('Select ranges over the same rows (or the same columns) to chart them together', { icon: 'info', duration: 3500 }); return null; }
   const r = areas.box;
-  if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { toast('That range is too large to chart', { icon: 'info' }); return null; }
+  if (sized && (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200)) { toast('That range is too large to chart', { icon: 'info' }); return null; }
   return areas.lines ? ranges.map(normalizeRange) : r;
 }
 
@@ -100,7 +102,7 @@ export function newChartSheet(wb, chart, name = chartSheetName(wb), index = wb.s
 export function insertChartSheet(ctx, subtype = DEFAULT_SUBTYPE) {
   const { wb } = ctx, sheetId = ctx.sheetId();
   if (wb.sheet(sheetId)?.kind === 'chart') return null;
-  const source = chartSource(ctx);
+  const source = chartSource(ctx, null, { sized: false });
   if (!source) return null;
   const chart = detachedChart(wb, sheetId, newExcelChart(wb, sheetId, source, subtype, { font: themeChartFont(wb) }));
   if (!chart.sourceRefs?.length) { toast('Select the data to chart first', { icon: 'info' }); return null; }

@@ -64,3 +64,14 @@ it('charts whole columns selected together as far as their data goes', () => {
   const chart = wb.chartById(id, insertChart(ctxOf(wb, id, ranges), 'columnClustered'));
   expect(chartData(wb, id, chart).series.map(s => [s.name, s.values])).toEqual([['Total', [3, 9, 7]]]);
 });
+
+// Charting ranges selected together brought Insert Chart's size limit (5,000 rows, 200 columns) to F11, which
+// had never had it: a chart sheet of a 6,000-row series was refused as "too large to chart".
+it('makes a chart sheet of a long series, as F11 always has', () => {
+  const wb = new Workbook(), id = wb.activeSheetId;
+  wb.setInput(id, 0, 0, 'Day'); wb.setInput(id, 0, 1, 'Value');
+  for (let r = 1; r <= 6000; r++) { wb.setInput(id, r, 0, String(r)); wb.setInput(id, r, 1, String(r % 37)); }
+  const sheet = insertChartSheet(ctxOf(wb, id, [{ r1: 0, c1: 0, r2: 6000, c2: 1 }]));
+  expect(sheet?.kind).toBe('chart');
+  expect(sheet.charts[0].sourceRefs.at(-1).values).toBe('Sheet1!$B$2:$B$6001');
+});
