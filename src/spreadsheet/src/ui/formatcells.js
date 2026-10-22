@@ -178,7 +178,9 @@ export function openFormatCellsDialog(ctx, { panel = 'number', style: draftStyle
   };
 
   /* ---- Number ---- */
-  const preview = el('div.numfmt-preview', { 'aria-live': 'polite' });
+  // A sample of the cell, so on paper as the other tabs' previews are: a code's [Black] or [Blue] section reads
+  // in the dark theme too, rather than as dark ink on the dialog's dark surface.
+  const preview = el('div.numfmt-preview.sheet-paper', { 'aria-live': 'polite' });
   const sample = value == null || value === '' ? 1234.5 : value;
   // A style without its own count shows two places in every category, percent included, except a currency without a minor
   // unit (the yen shows none), so the field reads what the preview and Apply use.
