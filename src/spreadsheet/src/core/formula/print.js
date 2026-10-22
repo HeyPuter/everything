@@ -20,7 +20,8 @@ export function astToText(node) {
     case 'empty': return '';
     case 'ref': return refToText(node.ref);
     case 'tref': return `${node.table || ''}[${node.spec}]`;
-    case 'unary': return `${node.op}${wrap(node.arg, 6)}`;
+    // @ takes the reference beside it before a percent sign applies, so @(A1:A3%) keeps its parentheses.
+    case 'unary': return node.op === '@' && node.arg.type === 'percent' ? `@(${astToText(node.arg)})` : `${node.op}${wrap(node.arg, 6)}`;
     case 'percent': return `${wrap(node.arg, 6)}%`;
     // Every operator here groups to the left, ^ included, so a right operand of equal precedence keeps its parentheses: 2^(3^2).
     case 'binary': {

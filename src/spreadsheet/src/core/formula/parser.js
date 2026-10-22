@@ -7,8 +7,9 @@
  *   additive    + -
  *   multiply    * /
  *   power       ^
- *   unary       - + @
+ *   unary       - +
  *   postfix     %
+ *   implicit intersection @ (before %: @A1:A3% is (@A1:A3)%)
  *   intersection (space)
  *   range       :
  *
@@ -101,7 +102,8 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
     if (at('op', '-')) { next(); return { type: 'unary', op: '-', arg: unary() }; }
     if (at('op', '+')) { next(); return { type: 'unary', op: '+', arg: unary() }; }
     // @range: implicit intersection, the one value on the formula's own row or column (Excel writes it into saved formulas).
-    if (at('op', '@')) { next(); return { type: 'unary', op: '@', arg: unary() }; }
+    // It takes the reference beside it before a percent sign applies, as a file's SINGLE(A1:A3)% does: @A1:A3% in B2 is A2%.
+    if (at('op', '@')) { next(); return percents({ type: 'unary', op: '@', arg: at('op') ? unary() : intersection() }); }
     return postfix();
   }
 
@@ -127,12 +129,20 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
   const intersectionSpace = () => pos > 0 && peek() && /^[ \n]+$/.test(src.slice(tokens[pos - 1].end, peek().start));
 
   function postfix() {
+    return percents(intersection());
+  }
+
+  function intersection() {
     let node = referenceRange();
     while (isReference(node) && intersectionSpace() && ['ref', 'tref', 'name', 'lparen', 'error'].includes(peek().type)) {
       const start = peek().start, right = referenceRange();
       if (!isReference(right)) throw new FormulaSyntaxError('Expected an intersecting reference', start);
       node = { type: 'intersection', left: node, right };
     }
+    return node;
+  }
+
+  function percents(node) {
     while (at('op', '%')) { next(); node = { type: 'percent', arg: node }; }
     return node;
   }
