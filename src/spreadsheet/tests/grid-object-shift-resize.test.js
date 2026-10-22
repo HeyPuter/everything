@@ -42,3 +42,33 @@ it.each([
   expect(await resize(obj, true)).toEqual([obj.w + 80, (obj.w + 80) * obj.h / obj.w]);
   expect(await resize(obj, false)).toEqual([obj.w + 80, obj.h + 10]);
 });
+
+// Snap to Grid (and Snap to Shape) lined up an object's box when it was moved, but its corner went anywhere
+// when it was resized, so a chart could not be sized to the cells it was dragged onto them with.
+it('takes the corner dragged to the nearest cell edge with Snap to Grid on, and leaves it free with Alt', async () => {
+  const drag = async (altKey) => {
+    const wb = new Workbook(), id = wb.sheets[0].id, sheet = wb.sheets[0];
+    const oid = wb.addChart(id, { type: 'text', text: 'Note', anchor: { r: 2, c: 2 }, w: 200, h: 100 });
+    const grid = createGrid({ wb, sheetId: id, announce() {}, snap: () => ({ grid: true, shape: false }) });
+    document.body.replaceChildren(grid.el);
+    await flush();
+    const box = grid.el.querySelector(`.chart-box[data-chart="${oid}"]`);
+    const at = wb.objectRect(id, oid), colW = sheet.defaultColWidth, rowH = sheet.defaultRowHeight;
+    // 5px short of a column edge across, 4px past a row edge down.
+    const right = Math.ceil((at.x + at.w) / colW + 1) * colW - 5, bottom = Math.ceil((at.y + at.h) / rowH + 1) * rowH + 4;
+    pe(box.querySelector('.chart-resize'), 'pointerdown', 500, 300);
+    pe(box, 'pointermove', 500 + right - (at.x + at.w), 300 + bottom - (at.y + at.h), false);
+    box.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 500 + right - (at.x + at.w), clientY: 300 + bottom - (at.y + at.h), pointerId: 1, altKey }));
+    pe(box, 'pointerup', 500 + right - (at.x + at.w), 300 + bottom - (at.y + at.h));
+    await flush();
+    const { w, h } = wb.chartById(id, oid);
+    grid.destroy();
+    return [at.x + w, at.y + h, right, bottom, colW, rowH];
+  };
+  const [x, , right, , colW] = await drag(false);
+  expect(x).toBe(right + 5);
+  expect(x % colW).toBe(0);
+  const free = await drag(true);
+  expect(free[0]).toBe(free[2]);
+  expect(Math.abs(free[1] - free[3])).toBeLessThan(1);
+});

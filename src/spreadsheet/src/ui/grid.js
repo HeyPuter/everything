@@ -2634,6 +2634,26 @@ export function createGrid(opts) {
         const ldx = turned ? (dx * cos + dy * sin) * sx : dx, ldy = turned ? (dy * cos - dx * sin) * sy : dy;
         let width = Math.max(minW, drag.from.width + ldx);
         let height = Math.max(minH, drag.from.height + ldy);
+        // Snap to Grid and Snap to Shape take the corner dragged to a cell's or another object's edge, as a move
+        // takes the box (Alt held: free). A turned box's corner is not on those lines.
+        const snap = sheet().kind === 'chart' || ev.altKey || turned ? null : opts.snap?.();
+        if (snap?.grid || snap?.shape) {
+          ensureOffsets();
+          const right = drag.from.left + width, bottom = drag.from.top + height, xs = [], ys = [];
+          if (snap.grid) {
+            const c = colOffsets.indexAt(right), r = rowOffsets.indexAt(bottom);
+            xs.push(colX(c), colEnd(c)); ys.push(rowY(r), rowEnd(r));
+          }
+          if (snap.shape) for (const o of sheet().charts) {
+            if (o.hidden || o.id === id) continue;
+            const b = chartBoxRect(o);
+            xs.push(b.left, b.left + b.width); ys.push(b.top, b.top + b.height);
+          }
+          const near = (at, lines) => lines.reduce((best, line) => (Math.abs(line - at) < Math.abs(best - at) ? line : best), Infinity);
+          const x = near(right, xs), y = near(bottom, ys);
+          if (Math.abs(x - right) <= 8 && x - drag.from.left >= minW) width = x - drag.from.left;
+          if (Math.abs(y - bottom) <= 8 && y - drag.from.top >= minH) height = y - drag.from.top;
+        }
         // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
         // Any other object keeps them while Shift is held, as in Excel.
         if (ch.type === 'image' ? (ch.lockAspect !== false) !== ev.shiftKey : ev.shiftKey) {
