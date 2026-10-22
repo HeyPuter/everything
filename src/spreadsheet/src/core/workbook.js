@@ -363,7 +363,7 @@ export function cellFromInput(text, prevStyle, { typed = true } = {}) {
     const half = typedFraction(raw);
     if (half != null && codeIsFraction(half, prevStyle.code)) return { v: half, f: null, s: { ...prevStyle } };
   }
-  const { v: parsed, f, fmt, dateStyle, cur } = parseInput(text);
+  const { v: parsed, f, fmt, dateStyle, cur, code } = parseInput(text);
   // A formula longer than the .xlsx limit, or nested deeper than the parser can follow, stays
   // the text that was typed rather than becoming a formula nothing can read.
   if (f != null && (f.length > MAX_FORMULA_LENGTH || formulaNesting(f) > MAX_FORMULA_NESTING)) return { v: raw, f: null, s: prevStyle ? { ...prevStyle } : undefined };
@@ -385,6 +385,16 @@ export function cellFromInput(text, prevStyle, { typed = true } = {}) {
     // The decimals, seconds or fraction code the text was typed with refine only the format this entry
     // implied: a cell already set to Percent, Number or Time keeps its own decimals and seconds.
     refineImpliedFormat(s, fmt, text);
+  } else if (s && typeof v === 'number' && fmt) {
+    // A time typed into a cell formatted as a date alone (or a date into one formatted as a time alone) would read
+    // 1900-01-00 (or 00:00): the entry's own format replaces that one, as Excel's does, so Ctrl+Shift+; in a date
+    // column shows the time it put there.
+    const typedKind = dateTimeKind({ fmt, code }, v), cellKind = dateTimeKind(s, v);
+    if ((typedKind === 'time' && cellKind === 'date') || (typedKind === 'date' && cellKind === 'time')) {
+      for (const k of FORMAT_DETAIL_KEYS) delete s[k];
+      Object.assign(s, { fmt, ...(dateStyle ? { dateStyle } : {}) });
+      refineImpliedFormat(s, fmt, text);
+    }
   }
   return v == null && f == null && !s ? null : { v, f, s };
 }
