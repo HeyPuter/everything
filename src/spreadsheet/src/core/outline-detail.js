@@ -1,7 +1,7 @@
 /**
  * Data ▸ Outline ▸ Show Detail / Hide Detail: expand or collapse the outline group at the active
- * cell. Hide Detail collapses the innermost open group holding the cell, or the one whose summary
- * line (just after it, or just before it where the sheet's outline settings say so) the cell is on;
+ * cell. Hide Detail collapses the open group whose summary line (just after it, or just before it
+ * where the sheet's outline settings say so) the cell is on, or else the innermost one holding it;
  * Show Detail opens the outermost closed group whose summary line the cell is on (or that holds it),
  * one level at a time, as the outline buttons do.
  */
@@ -13,7 +13,9 @@ function pick(wb, sheetId, axis, index, show) {
   const settings = wb.sheet(sheetId)?.outlineSettings || {};
   const after = axis === 'row' ? settings.summaryBelow !== false : settings.summaryRight !== false;
   const summary = groups.filter((g) => (after ? g.to + 1 : g.from - 1) === index);
-  const pool = show ? (summary.length ? summary : holding) : (holding.length ? holding : summary);
+  // A summary line stands for its group either way, as Excel's Show Detail and Hide Detail take one: Hide Detail on a
+  // subtotal row collapses that subtotal's rows, not the grand total's group the row also lies in.
+  const pool = summary.length ? summary : holding;
   if (!pool.length) return null;
   return pool.reduce((best, g) => (show ? g.level < best.level : g.level > best.level) ? g : best);
 }
