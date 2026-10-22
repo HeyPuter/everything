@@ -85,7 +85,8 @@ function boundNames(tokens) {
 
 /**
  * explainError(code, formula, lookup) → the help text for the error.
- * lookup = { names: string[] (defined names), tables: string[], hasSheet(name) }
+ * lookup = { names: string[] (defined names), hidden: string[] (hidden ones: known, never suggested), tables: string[],
+ * hasSheet(name) }
  */
 export function explainError(code, formula, lookup = {}) {
   const base = errorHelp(code);
@@ -110,7 +111,9 @@ export function explainError(code, formula, lookup = {}) {
   }
   const names = lookup.names || [];
   const tables = lookup.tables || [];
-  const known = (n) => !!FUNCTIONS[n] || n === 'LET' || n === 'LAMBDA' || names.some((x) => upperName(x) === n) || tables.some((x) => upperName(x) === n);
+  const hidden = lookup.hidden || [];
+  const known = (n) => !!FUNCTIONS[n] || n === 'LET' || n === 'LAMBDA' || names.some((x) => upperName(x) === n) || hidden.some((x) => upperName(x) === n)
+    || tables.some((x) => upperName(x) === n);
   const bound = boundNames(tokens);
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];

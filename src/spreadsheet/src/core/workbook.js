@@ -2363,7 +2363,9 @@ export class Workbook extends EventTarget {
     const spill = own?.f == null ? this.spillAt(sheetId, r, c) : null;
     const formula = own?.f ?? (spill?.anchor ? this.getCell(sheetId, spill.anchor.r, spill.anchor.c)?.f : null) ?? null;
     return explainError(v.error, formula, {
-      names: this.namesForSheet(sheetId).map((n) => n.name),
+      // A hidden name (a pivot table's definition, Excel's _xlnm._FilterDatabase) works in a formula but is never offered.
+      names: this.namesForSheet(sheetId).filter((n) => !n.hidden).map((n) => n.name),
+      hidden: this.namesForSheet(sheetId).filter((n) => n.hidden).map((n) => n.name),
       tables: this.sheets.flatMap((sh) => sh.tables.map((t) => t.name)),
       hasSheet: (name) => !!this.sheetByName(name),
     });
