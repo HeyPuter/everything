@@ -156,6 +156,8 @@ export function createLanguagePane(ctx) {
   const rangeLabel = (cells) => (cells.length === 1 ? cellName(cells[0].r, cells[0].c) : `${colName(minOf(cells.map((x) => x.c)))}${minOf(cells.map((x) => x.r)) + 1}…`);
 
   async function translateNow() {
+    // One at a time, as the disabled button says; Ctrl/Cmd+Enter in the box asks too.
+    if (go.disabled) return;
     const text = source.value;
     if (!text.trim()) { trStatus.textContent = 'Type some text, or use the selected cells.'; return; }
     if (!ctx.translate) { trStatus.textContent = 'Translation needs Puter’s AI, which is not available here.'; return; }
