@@ -46,15 +46,16 @@ export const RULE_TYPES = [
 const DAY = 86400000;
 const EPOCH = 25569; // serial of 1970-01-01
 const ymd = (serial) => { const d = new Date(Math.round((serial - EPOCH) * DAY)); return { y: d.getUTCFullYear(), m: d.getUTCMonth() + 1 }; };
-const mondayOf = (serial) => serial - ((serial % 7) + 5) % 7;
+// Weeks run Sunday to Saturday, as Excel's This week and Last week count them (serial 1 is a Sunday).
+const sundayOf = (serial) => serial - (serial + 6) % 7;
 export const DATE_PERIODS = [
   { value: 'today', label: 'Today', test: (d, t) => d === t },
   { value: 'yesterday', label: 'Yesterday', test: (d, t) => d === t - 1 },
   { value: 'tomorrow', label: 'Tomorrow', test: (d, t) => d === t + 1 },
   { value: 'last7', label: 'In the last 7 days', test: (d, t) => d <= t && d > t - 7 },
   { value: 'next7', label: 'In the next 7 days', test: (d, t) => d >= t && d < t + 7 },
-  { value: 'thisWeek', label: 'This week', test: (d, t) => d >= mondayOf(t) && d < mondayOf(t) + 7 },
-  { value: 'lastWeek', label: 'Last week', test: (d, t) => d >= mondayOf(t) - 7 && d < mondayOf(t) },
+  { value: 'thisWeek', label: 'This week', test: (d, t) => d >= sundayOf(t) && d < sundayOf(t) + 7 },
+  { value: 'lastWeek', label: 'Last week', test: (d, t) => d >= sundayOf(t) - 7 && d < sundayOf(t) },
   { value: 'thisMonth', label: 'This month', test: (d, t) => { const a = ymd(d); const b = ymd(t); return a.y === b.y && a.m === b.m; } },
   { value: 'lastMonth', label: 'Last month', test: (d, t) => { const a = ymd(d); const b = ymd(t); return b.m === 1 ? a.y === b.y - 1 && a.m === 12 : a.y === b.y && a.m === b.m - 1; } },
   { value: 'thisYear', label: 'This year', test: (d, t) => ymd(d).y === ymd(t).y },

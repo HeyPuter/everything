@@ -85,11 +85,11 @@ export function conditionalRuleFormula(rule) {
     return safe(`AND(ISNUMBER(${cell}),${cell}${type === 'top' ? '>=' : '<='}AGGREGATE(${type === 'top' ? 14 : 15},6,${range},MIN(${rank},COUNT(${range}))))`);
   }
   if (type === 'date') {
-    const day = `INT(${numeric(cell)})`, today = 'TODAY()', monday = `${today}-MOD(${today}+5,7)`;
+    const day = `INT(${numeric(cell)})`, today = 'TODAY()', sunday = `${today}-WEEKDAY(${today})+1`;
     const periods = {
       today: `${day}=${today}`, yesterday: `${day}=${today}-1`, tomorrow: `${day}=${today}+1`,
       last7: `AND(${day}<=${today},${day}>${today}-7)`, next7: `AND(${day}>=${today},${day}<${today}+7)`,
-      thisWeek: `AND(${day}>=${monday},${day}<${monday}+7)`, lastWeek: `AND(${day}>=${monday}-7,${day}<${monday})`,
+      thisWeek: `AND(${day}>=${sunday},${day}<${sunday}+7)`, lastWeek: `AND(${day}>=${sunday}-7,${day}<${sunday})`,
       thisMonth: `AND(YEAR(${day})=YEAR(${today}),MONTH(${day})=MONTH(${today}))`,
       lastMonth: `AND(YEAR(${day})=YEAR(EDATE(${today},-1)),MONTH(${day})=MONTH(EDATE(${today},-1)))`,
       thisYear: `YEAR(${day})=YEAR(${today})`, past: `${day}<${today}`, future: `${day}>${today}`,

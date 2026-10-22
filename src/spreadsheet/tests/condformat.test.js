@@ -240,9 +240,9 @@ describe('date rules', () => {
     expect(is('last7', today - 6)).toBe(true);
     expect(is('last7', today - 7)).toBe(false);
     expect(is('next7', today + 6)).toBe(true);
-    expect(is('thisWeek', today - 2)).toBe(true); // Monday
-    expect(is('thisWeek', today - 3)).toBe(false); // Sunday before
-    expect(is('lastWeek', today - 3)).toBe(true);
+    expect(is('thisWeek', today - 3)).toBe(true); // Sunday: weeks run Sunday to Saturday, as in Excel
+    expect(is('thisWeek', today - 4)).toBe(false); // Saturday before
+    expect(is('lastWeek', today - 4)).toBe(true);
     expect(is('thisMonth', today - 3)).toBe(true); // 1 March
     expect(is('thisMonth', today - 4)).toBe(false); // 28 February
     expect(is('lastMonth', today - 4)).toBe(true);
