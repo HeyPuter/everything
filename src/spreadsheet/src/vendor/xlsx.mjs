@@ -23502,8 +23502,10 @@ function parse_text_p_runs(text, textStyles, expected) {
 
 function parse_text_p(text/*:string*//*::, tag*/)/*:Array<any>*/ {
 	/* 6.1.2 White Space Characters */
+	/* Puter Spreadsheet local patch: only the four XML white space characters are trimmed, as ODF says; trim()
+	 * also took a no-break space ("Note:\u00a0") or an ideographic space (U+3000) off the text's ends. */
 	var fixed = text
-		.replace(/[\t\r\n]/g, " ").trim().replace(/ +/g, " ")
+		.replace(/[\t\r\n]/g, " ").replace(/^ +| +$/g, "").replace(/ +/g, " ")
 		/* Puter Spreadsheet local patch: the same elements written with a space before the slash, or a line
 		 * break written as an open and close tag, are well-formed XML too and were dropped with their whitespace. */
 		.replace(/<text:s\s*\/>/g," ")
