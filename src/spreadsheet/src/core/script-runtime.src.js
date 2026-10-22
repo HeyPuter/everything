@@ -574,13 +574,14 @@
         setUnderline: flag('underline', 'setUnderline'),
         setStrikethrough: flag('strike', 'setStrikethrough'),
         setColor: function (value) { style(range, { color: color(value, 'The font colour') }); return this; },
-        /** The size in points. */
+        /** The size in points; null puts back the workbook's own. */
         setSize: function (points) {
-          if (typeof points !== 'number' || !(points >= 1 && points <= 409)) fail('The font size must be a number of points from 1 to 409.');
+          if (points !== null && (typeof points !== 'number' || !(points >= 1 && points <= 409))) fail('The font size must be a number of points from 1 to 409.');
           style(range, { size: points });
           return this;
         },
-        setName: function (name) { style(range, { font: String(name) }); return this; },
+        /** The font family; null puts back the workbook's own. */
+        setName: function (name) { style(range, { font: name === null ? null : String(name) }); return this; },
         getBold: function () { return styleRead(range, 'bold'); },
         getItalic: function () { return styleRead(range, 'italic'); },
         getUnderline: function () { return styleRead(range, 'underline'); },

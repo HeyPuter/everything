@@ -61,8 +61,9 @@ export function formatLines(range, patch, style = patch) {
       case 'underline': font(`setUnderline(${!!value})`); break;
       case 'strike': font(`setStrikethrough(${!!value})`); break;
       case 'color': font(`setColor(${value ? q(value) : 'null'})`); break;
-      case 'size': font(`setSize(${value ? Math.round(value * 3 / 4 * 2) / 2 : 9.75})`); break;
-      case 'font': font(`setName(${q(fontName(value) || 'Calibri')})`); break;
+      // No size or font of its own is the workbook's, which null puts back.
+      case 'size': font(`setSize(${value ? Math.round(value * 3 / 4 * 2) / 2 : 'null'})`); break;
+      case 'font': font(`setName(${value ? q(fontName(value) || 'Calibri') : 'null'})`); break;
       case 'bg': lines.push(value ? `${R}.getFormat().getFill().setColor(${q(value)});` : `${R}.getFormat().getFill().clear();`); break;
       case 'align': fmt(`setHorizontalAlignment(${q(value || 'general')})`); break;
       case 'valign': fmt(`setVerticalAlignment(${q(value || 'middle')})`); break;

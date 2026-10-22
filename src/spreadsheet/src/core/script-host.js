@@ -238,7 +238,8 @@ function stylePatch(host, raw) {
     else if (key === 'bg' || key === 'color') {
       if (value != null && !HEX.test(String(value))) host.fail(`"${value}" is not a colour.`);
       patch[key] = value == null ? null : String(value).toLowerCase();
-    } else if (key === 'size') {
+    } else if (key === 'size' && value === null) patch.size = null;
+    else if (key === 'size') {
       const pt = Number(value);
       if (!(pt >= 1 && pt <= 409)) host.fail('The font size must be from 1 to 409 points.');
       patch.size = Math.round(pt * 4 / 3 * 100) / 100;
