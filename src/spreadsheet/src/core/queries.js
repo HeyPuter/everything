@@ -9,7 +9,7 @@
  * (a date is its serial, the column's type says it is a date), a boolean, or a cell error { error, message }.
  */
 import { parseDelimited } from './tsv.js';
-import { parseInput, parseDate, serialToYMD, typedDateKind } from './format.js';
+import { parseInput, parseDate, serialToYMD, typedDateKind, dateTimeKind } from './format.js';
 import { tableRows } from './tables.js';
 import { maxOf } from './numeric.js';
 
@@ -498,10 +498,13 @@ export function workbookTable(wb, name) {
     }
     rows.push(row);
   }
+  // A column is a date (or date-time, or time) column when its first number is formatted as one, a custom date
+  // format such as dd/mm/yyyy included, so its dates load back as dates rather than as their serial numbers.
   const types = columns.map((_, i) => {
-    const c = table.range.c1 + i;
-    const fmt = dataStart <= dataEnd ? wb.styleAt?.(sheet.id, dataStart, c)?.fmt : null;
-    return DATE_TYPES.has(fmt) ? fmt : 'any';
+    const at = rows.findIndex((row) => typeof row[i] === 'number');
+    if (at < 0) return 'any';
+    const kind = dateTimeKind(wb.styleAt?.(sheet.id, dataStart + at, table.range.c1 + i), rows[at][i]);
+    return DATE_TYPES.has(kind) ? kind : 'any';
   });
   return { columns, types, rows };
 }
