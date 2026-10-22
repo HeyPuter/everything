@@ -475,7 +475,8 @@ function evaluateLazy(name, def, thunks, ctx) {
         picked = picked ? broadcast(picked, taken, (p, t) => (p === NOT_TAKEN ? t : p)) : taken;
         if (isError(picked)) return picked;
       }
-      return { range: true, values: picked.values.map((row) => row.map((v) => (v === NOT_TAKEN ? err('#N/A') : v))) };
+      // The extent and whole-column flags of what the conditions were built from stay with the answer, as IF's keep them.
+      return { ...picked, values: picked.values.map((row) => row.map((v) => (v === NOT_TAKEN ? err('#N/A') : v))) };
     }
   }
   if (name === 'SWITCH' && thunks.length) {
