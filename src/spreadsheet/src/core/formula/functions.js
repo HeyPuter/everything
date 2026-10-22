@@ -1413,6 +1413,40 @@ function exactLookup(index, needle, last, fixedWidth) {
   return span ? span[end] : -1;
 }
 
+/**
+ * Where an exact needle first (or last) sits in a vector of a running family, =MATCH(A2,$A$1:A1,0) filled down
+ * (see familyCriterion): each range repeats the rows of the one above and is read once, so none was indexed
+ * and every row scanned its whole range. The family's ranges share one index of each column instead, grown by
+ * the rows each longer range adds, of numbers, booleans and text while the text is plain letters, digits and
+ * spaces (whose case alone sets them apart). Undefined when the vector is no such range or the needle no such value.
+ */
+const familyLookups = new WeakMap(); // the first values array of a family → Map(col → { rows, plainRows, text, exact })
+function familyExact(values, col, needle, last) {
+  const root = col >= 0 && RANGE_PARENTS.get(values);
+  if (!root || needle == null || needle !== needle) return undefined;
+  const plainNeedle = typeof needle === 'string' && /^[ 0-9A-Za-z]*$/.test(needle);
+  if (!plainNeedle && typeof needle !== 'number' && typeof needle !== 'boolean') return undefined;
+  let byCol = familyLookups.get(root);
+  if (!byCol) familyLookups.set(root, byCol = new Map());
+  let index = byCol.get(col);
+  if (!index) byCol.set(col, index = { rows: 0, plainRows: Infinity, text: new Map(), exact: new Map() });
+  const add = (map, key, i) => { const list = map.get(key); if (list) list.push(i); else map.set(key, [i]); };
+  for (; index.rows < values.length; index.rows++) {
+    const v = values[index.rows]?.[col];
+    if (typeof v === 'string') {
+      if (index.plainRows !== Infinity) continue;
+      if (/^[ 0-9A-Za-z]*$/.test(v)) add(index.text, v.toLowerCase(), index.rows); else index.plainRows = index.rows;
+    } else if ((typeof v === 'number' && v === v) || typeof v === 'boolean') add(index.exact, v, index.rows);
+  }
+  if (plainNeedle && values.length > index.plainRows) return undefined;
+  const list = plainNeedle ? index.text.get(needle.toLowerCase()) : index.exact.get(needle);
+  if (!list || list[0] >= values.length) return -1;
+  if (!last) return list[0];
+  let lo = 0, hi = list.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (list[mid] < values.length) lo = mid + 1; else hi = mid; }
+  return list[lo - 1];
+}
+
 /** Whether an exact needle can be looked up in an index: text without wildcards, a number, or a boolean. */
 const indexable = (needle, wildcard) => !wildcard && (typeof needle === 'string' || typeof needle === 'number' || typeof needle === 'boolean');
 
@@ -1471,6 +1505,8 @@ function matchIndex(needle, values, mode, col = -1) {
   if (mode === 0) {
     const wildcard = typeof needle === 'string' && /[*?~]/.test(needle) ? wildcardMatcher(needle) : null;
     if (indexable(needle, wildcard)) {
+      const found = familyExact(values, col, needle, false);
+      if (found !== undefined) return found;
       const index = exactIndex(values, col);
       if (index) return exactLookup(index, needle, false, true);
     }
@@ -1528,6 +1564,8 @@ function xmatchIndex(needle, values, matchMode, searchMode, col = -1) {
     const wild = mm === 2 && typeof needle === 'string' && /[*?~]/.test(needle);
     const match = wild ? wildcardMatcher(needle) : null;
     if (indexable(needle, match)) {
+      const found = familyExact(values, col, needle, reverse);
+      if (found !== undefined) return found;
       const index = exactIndex(values, col);
       if (index) return exactLookup(index, needle, reverse, mm === 2);
     }
