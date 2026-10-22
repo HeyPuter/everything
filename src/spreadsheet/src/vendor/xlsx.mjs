@@ -19307,13 +19307,16 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 		"Medium Time": table_fmt[18],
 		"Short Time": table_fmt[20],
 		"Currency": '"$"#,##0.00_);[Red]\\("$"#,##0.00\\)',
+		/* Puter Spreadsheet local patch: Euro Currency was missing and read as a code of its letters
+		 * ("1903uro Curr1903nc03"), and On/Off was given Yes/No's words. */
+		"Euro Currency": '"€"#,##0.00_);[Red]\\("€"#,##0.00\\)',
 		"Fixed": table_fmt[2],
 		"Standard": table_fmt[4],
 		"Percent": table_fmt[10],
 		"Scientific": table_fmt[11],
 		"Yes/No": '"Yes";"Yes";"No";@',
 		"True/False": '"True";"True";"False";@',
-		"On/Off": '"Yes";"Yes";"No";@'
+		"On/Off": '"On";"On";"Off";@'
 	}/*:any*/);
 
 
