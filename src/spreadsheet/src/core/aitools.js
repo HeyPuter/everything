@@ -701,11 +701,19 @@ function writeCells(wb, args, env) {
   const planned = [];
   let reached = false;
   let kept = 0;
+  const hidden = []; // cells under a merged cell's top-left one
   rows.forEach((row, i) => row.forEach((value, j) => {
     const input = inputFor(value);
     if (input === undefined) return;
     const r = range.r1 + i;
     const c = range.c1 + j;
+    // A merged cell shows its top-left cell alone: a value written under the rest of it would be stored where no one
+    // sees it, so those cells are left out, as a paste leaves them, and said to be.
+    const merge = wb.mergeAt?.(sheetId, r, c);
+    if (merge && (merge.r1 !== r || merge.c1 !== c)) {
+      if (input !== '') hidden.push(`${cellName(r, c)} (inside the merged cell ${rangeName(merge)}; write to ${cellName(merge.r1, merge.c1)})`);
+      return;
+    }
     const verdict = typeof input === 'string' ? wb.validateInput(sheetId, r, c, input) : wb.validateValue?.(sheetId, r, c, input) ?? { ok: true };
     if (!verdict.ok && verdict.rule?.strict !== false) { refused.push(`${cellName(r, c)} (${verdict.message || 'not allowed by its validation rule'})`); return; }
     if (typeof input === 'string' && input.startsWith('=') && reachesOut(wb, input.slice(1))) reached = true;
@@ -715,8 +723,8 @@ function writeCells(wb, args, env) {
     if (holds(cell) && (typeof input === 'string' ? keepsValue(wb, sheetId, r, c, cell, input) : cell.f == null && cell.v === input)) { kept++; return; }
     planned.push({ r, c, input });
   }));
-  if (!planned.length && kept && !refused.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
-  if (!planned.length) throw new ToolError(refused.length ? `Nothing was written: ${refused.slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
+  if (!planned.length && kept && !refused.length && !hidden.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
+  if (!planned.length) throw new ToolError(refused.length || hidden.length ? `Nothing was written: ${[...refused, ...hidden].slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
   const note = reachingNote(env, reached);
   const written = new Set(planned.filter(({ input }) => input !== '').map(({ r, c }) => cellKey(r, c)));
   const hit = spillsHit(wb, sheetId, range, (r, c) => written.has(cellKey(r, c)));
@@ -729,6 +737,7 @@ function writeCells(wb, args, env) {
     cells: planned.length,
     ...(kept ? { unchanged: kept } : {}),
     ...(refused.length ? { refused_by_validation: refused.slice(0, 10) } : {}),
+    ...(hidden.length ? { not_written_inside_merged_cells: hidden.slice(0, 10) } : {}),
     ...(errors.length ? { formula_errors: errors } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     ...(note ? { note } : {}),
