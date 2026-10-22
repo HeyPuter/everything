@@ -11,6 +11,7 @@ import { renderChartSvg, seriesColor } from './chartsvg.js';
 import { CHART_DESCRIPTION_MAX_LENGTH, CHART_TYPES, chartData, chartTitles, defaultChart, normalizeChart } from '../core/charts.js';
 import { parseRange, rangeName } from '../core/cell.js';
 import { changeSubtypePatch } from '../core/chart-subtypes.js';
+import { chartElementPatch } from '../core/chart-design.js';
 
 const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble',
   treemap: 'chartTreemap', sunburst: 'chartSunburst', boxWhisker: 'chartBoxWhisker', funnel: 'chartFunnel', stock: 'chartStockOhlc', surface: 'chartSurface' };
@@ -264,6 +265,17 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     return dataCache;
   }
 
+  // A chart in Excel's style shows its labels by its appearance's per-series settings as well as by `labels`: the
+  // Labels box turns those on or off too, as Add Chart Element ▸ Data Labels does, or labels taken off there would
+  // stay off with the box ticked.
+  function labelsPatch(data) {
+    if (!chart?.appearance || !!draft.labels === !!chart.labels) return null;
+    const base = { ...chart, ...Object.fromEntries(SUBTYPE_KEYS.map(k => [k, draft[k]])), type: draft.type };
+    if (!base.appearance) return null;
+    const count = ['pie', 'donut'].includes(draft.type) ? data.categories.length : data.series.length;
+    return chartElementPatch(base, 'dataLabels', draft.labels ? 'show' : 'none', { seriesCount: count });
+  }
+
   function refresh() {
     const problem = readForm();
     error.hidden = !problem;
@@ -278,7 +290,9 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     // Resolve linked names through the same live data as the legend and colors.
     // Updating a heading must not replace the source's name reference or cache.
     sourceInputs.forEach((s, i) => { s.heading.textContent = data.series[i]?.name || s.source.name || `Series ${i + 1}`; });
-    preview.innerHTML = renderChartSvg(data, draft, draft.appearance ? draft.w : 440, draft.appearance ? draft.h : 230);
+    const labelPatch = labelsPatch(data);
+    const shown = labelPatch?.appearance ? { ...draft, appearance: labelPatch.appearance } : draft;
+    preview.innerHTML = renderChartSvg(data, shown, draft.appearance ? draft.w : 440, draft.appearance ? draft.h : 230);
     syncColors(data);
   }
   // Typing a title redraws the preview once the typing pauses, not on every character.
@@ -295,6 +309,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     const problem = readForm();
     if (problem) { refresh(); problem.fields[0].focus(); return; }
     if (chart) {
+      const labelPatch = labelsPatch(readData());
       wb.updateChart(sheetId, chart.id, {
         type: draft.type, range: draft.range, title: draft.title, description: draft.description, seriesIn: draft.seriesIn, headers: draft.headers, stacked: draft.stacked, stack100: draft.stack100, trendline: draft.trendline,
         legend: draft.legend, legendPos: draft.legendPos, labels: draft.labels, gridlines: draft.gridlines, smooth: draft.smooth, xTitle: draft.xTitle, yTitle: draft.yTitle, y2Title: draft.y2Title,
@@ -302,6 +317,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
         ...(draft.sourceRefs ? { sourceRefs: draft.sourceRefs } : {}),
         titleRef: draft.titleRef, xTitleRef: draft.xTitleRef, yTitleRef: draft.yTitleRef, y2TitleRef: draft.y2TitleRef,
         ...(restyled ? Object.fromEntries(SUBTYPE_KEYS.map(k => [k, draft[k]])) : {}),
+        ...(labelPatch?.appearance ? { appearance: labelPatch.appearance } : {}),
       });
       modal.close();
       ctx.grid.selectChart(chart.id);
