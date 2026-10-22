@@ -7,7 +7,7 @@
 import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
-import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
+import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, namesWithPivotDefinition, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
 import { formatValue, dateTimeKind } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
@@ -34,6 +34,8 @@ export function insertPivotSheet(wb, sheetId, built) {
       wb.addValidation(sheet.id, { range: { r1: fc.r, c1: fc.c, r2: fc.r, c2: fc.c }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
     }
     wb.setFrozen(sheet.id, built.headerRow + 1, 0);
+    // Its definition stays with it, so Refresh can build it again over the source as it grows (see refreshPivot).
+    if (built.spec) wb._setNames(namesWithPivotDefinition(wb, sheetId, built, sheet.name, { r1: 0, c1: 0, r2: built.rows - 1, c2: built.cols - 1 }), 'Insert pivot table');
   });
   if (!added) return null;
   toast(`Pivot table added on ${name}`, { icon: 'check' });

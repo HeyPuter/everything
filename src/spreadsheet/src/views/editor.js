@@ -114,6 +114,7 @@ import { pictureIsPlain } from '../core/picture-format.js';
 import { linkedPictureTarget, rangePicture } from '../core/range-picture.js';
 import { refreshAll as refreshAllQueries, refreshQuery as refreshOneQuery, queryById, queryForTable } from '../core/queries.js';
 import { clearSheetFilters, reapplySheetFilters, sheetHasFiltering } from '../core/advanced-filter.js';
+import { refreshPivot, refreshablePivotSheets, hasPivotDefinition } from '../core/pivot.js';
 import { toggleDetail } from '../core/outline-detail.js';
 import { openDatePicker } from '../ui/datepicker.js';
 import { openDedupeDialog } from '../ui/dedupedialog.js';
@@ -1327,7 +1328,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
       languagePane: languagePane?.open ? languagePane.mode : null,
-      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, changesPane: !!changesPane?.open, hasQueries: !!wb.queries?.length,
+      hasComment: !!sheet?.comments?.has(`${r},${c}`), hasComments: !!sheet?.comments?.size, commentsPane: !!ctx.comments?.paneOpen, queriesPane: !!queriesPane?.open, changesPane: !!changesPane?.open, hasQueries: !!wb.queries?.length, pivotRefreshable: hasPivotDefinition(wb, sheetId),
       // Automate: the Code Editor is open, actions are being recorded, a script is running.
       scriptsPane: !!automate?.paneOpen, recording: !!automate?.recording, scriptRunning: !!automate?.running,
       chartSheet: sheet?.kind === 'chart',
@@ -3836,11 +3837,35 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'blankQuery': if (!committed()) return; blankQuery(ctx, editQuery); return;
       case 'powerQueryEditor': if (!committed()) return; editQuery(ctx, { queryId: typeof arg === 'string' ? arg : null }); return;
       case 'queriesPane': queriesPane.toggle(); notify(); return;
+      case 'refreshPivot': {
+        // Refresh on a sheet holding a pivot table built here: built again over its source as it now is (refreshPivot).
+        if (!committed()) return;
+        let res = refreshPivot(wb, sheetId);
+        if (res.changed) {
+          // The block has been cleared, typed over or filled with other data since the table was built: it is
+          // rebuilt there only when asked, as what is there now would be replaced.
+          const replace = await confirmDialog({ title: 'Refresh PivotTable', message: 'The PivotTable on this sheet has been cleared or changed since it was built. Refreshing builds it again in its old place and replaces what is there now. Refresh anyway?', confirmLabel: 'Replace', cancelLabel: 'Cancel', danger: true });
+          if (destroyed) return;
+          if (!replace) { keepFocus(); return; }
+          res = refreshPivot(wb, sheetId, { replaceChanged: true });
+        }
+        if (res.overwrite) {
+          const replace = await confirmDialog({ title: 'Refresh PivotTable', message: 'The refreshed PivotTable is larger and would replace the contents of cells beside it. Replace them?', confirmLabel: 'Replace', cancelLabel: 'Cancel', danger: true });
+          if (destroyed) return;
+          if (!replace) { keepFocus(); return; }
+          res = refreshPivot(wb, sheetId, { force: true, replaceChanged: true });
+        }
+        toast(res.error || `PivotTable refreshed: ${res.rows.toLocaleString()} row${res.rows === 1 ? '' : 's'}`, { icon: res.error ? 'alert' : 'refresh', duration: res.error ? 4000 : 2000 });
+        keepFocus();
+        return;
+      }
       case 'refreshQuery': {
         // Table Design ▸ Refresh, or a query named by id: the query behind the table at the active cell is run again.
         if (!committed()) return;
         const a = grid.active;
         const table = wb.tableAt(sheetId, a.r, a.c);
+        // On a sheet holding a pivot table built here, Refresh builds it again, as PivotTable Analyze ▸ Refresh does.
+        if (typeof arg !== 'string' && !table && hasPivotDefinition(wb, sheetId)) { await run('refreshPivot'); return; }
         const query = typeof arg === 'string' ? queryById(wb, arg) : table && queryForTable(wb, sheetId, table.id);
         if (!query) { toast(table ? 'This table was not loaded by a query' : 'Select a cell in a table loaded by a query', { icon: 'info' }); return; }
         if (!await allowQuerySources([query]) || destroyed) return;
@@ -3853,21 +3878,46 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'refreshAll': {
-        // Data ▸ Refresh All: every query is run again and its table rewritten, then every formula is recalculated.
-        if (!wb.queries?.length) { await run('recalc'); return; }
+        // Data ▸ Refresh All: every query is run again and its table rewritten, then every pivot table built here is
+        // built again over its source (refreshPivot; one that cannot be is said and left), and every formula is recalculated.
+        const refreshPivots = () => {
+          const failed = [];
+          let refreshed = 0;
+          for (const id of refreshablePivotSheets(wb)) {
+            const out = refreshPivot(wb, id);
+            if (out.error) failed.push({ name: wb.sheet(id).name, error: out.error }); else refreshed++;
+          }
+          return { refreshed, failed };
+        };
+        if (!wb.queries?.length) {
+          if (!refreshablePivotSheets(wb).length) { await run('recalc'); return; }
+          if (!committed()) return;
+          const pivots = refreshPivots();
+          wb.recalculate();
+          grid.refresh();
+          toast(pivots.failed.length ? `${pivots.failed[0].name}: ${pivots.failed[0].error}` : `Refreshed ${pivots.refreshed} PivotTable${pivots.refreshed === 1 ? '' : 's'} and recalculated`, { icon: pivots.failed.length ? 'alert' : 'reset', duration: pivots.failed.length ? 5000 : 2000 });
+          keepFocus();
+          return;
+        }
         if (!committed()) return;
         if (!await allowQuerySources(wb.queries) || destroyed) return;
         toast('Refreshing…', { icon: 'spinner', duration: 1500 });
         const res = await refreshAllQueries(wb, queryIo(ctx));
         if (destroyed) return;
-        fitQueryTables(ctx, wb.queries.filter((q) => !res.failed.some((f) => f.name === q.name)));
+        // The pivot tables after the queries, so a pivot over a query's table takes in what the query loaded.
+        const pivots = refreshPivots();
+        const queriesFailed = res.failed;
+        res.failed = [...queriesFailed, ...pivots.failed];
+        fitQueryTables(ctx, wb.queries.filter((q) => !queriesFailed.some((f) => f.name === q.name)));
         wb.recalculate();
         imported.clear();
         wb.clearAsyncCache();
         grid.refresh();
-        queriesPane.noteResults(res.failed);
-        toast(res.failed.length ? `${res.failed.length} of ${res.failed.length + res.refreshed} queries could not be refreshed: ${res.failed[0].name}: ${res.failed[0].error}`
-          : `Refreshed ${res.refreshed} quer${res.refreshed === 1 ? 'y' : 'ies'} and recalculated`, { icon: res.failed.length ? 'alert' : 'reset', duration: res.failed.length ? 6000 : 2000 });
+        queriesPane.noteResults(queriesFailed);
+        const total = res.refreshed + pivots.refreshed + res.failed.length;
+        const pivotsDone = pivots.refreshed ? ` and ${pivots.refreshed} PivotTable${pivots.refreshed === 1 ? '' : 's'}` : '';
+        toast(res.failed.length ? `${res.failed.length} of ${total} could not be refreshed: ${res.failed[0].name}: ${res.failed[0].error}`
+          : `Refreshed ${res.refreshed} quer${res.refreshed === 1 ? 'y' : 'ies'}${pivotsDone} and recalculated`, { icon: res.failed.length ? 'alert' : 'reset', duration: res.failed.length ? 6000 : 2000 });
         keepFocus();
         return;
       }

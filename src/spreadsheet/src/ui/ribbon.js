@@ -211,12 +211,12 @@ const getDataMenu = dyn('Get Data', 'database', (menus, ctx) => {
     item('Launch Power Query Editor…', 'powerQueryEditor', 'powerQuery'),
   ];
 }, { ariaLabel: 'Get Data' });
-/** Data ▸ Refresh All's arrow: every query, or the one behind the table at the selection. */
+/** Data ▸ Refresh All's arrow: every query and pivot table, or the one behind the table at the selection, or the pivot table on this sheet. */
 const refreshMenu = (menus, ctx) => {
   const f = ctx?.flags?.() || {};
   return [
     { label: 'Refresh All', icon: 'refresh', cmd: 'refreshAll', disabled: !!f.editing },
-    { label: 'Refresh', cmd: 'refreshQuery', disabled: !!f.editing || !f.table || !f.hasQueries },
+    { label: 'Refresh', cmd: 'refreshQuery', disabled: !!f.editing || !((f.table && f.hasQueries) || (!f.table && f.pivotRefreshable)) },
   ];
 };
 

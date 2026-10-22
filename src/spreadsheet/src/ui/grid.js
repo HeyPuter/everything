@@ -5708,9 +5708,11 @@ export function createGrid(opts) {
         else opts.onCommand?.(e.shiftKey ? 'functionMenu' : 'pasteNameMenu');
         return;
       case 'F5':
-        // F5 is Go To in Excel, Shift+F5 Find; the browser's reload is Ctrl/Cmd+R here anyway.
+        // F5 is Go To in Excel, Shift+F5 Find; the browser's reload is Ctrl/Cmd+R here anyway. Alt+F5 refreshes the
+        // query table or pivot table at the selection, Ctrl+Alt+F5 everything, as Excel's Refresh and Refresh All.
         e.preventDefault();
-        opts.onCommand?.(e.shiftKey ? 'find' : 'goTo');
+        if (e.altKey) opts.onCommand?.(mod ? 'refreshAll' : 'refreshQuery');
+        else opts.onCommand?.(e.shiftKey ? 'find' : 'goTo');
         return;
       case 'F4':
         // F4 repeats the last action; Shift+F4 finds the next match of the last search.

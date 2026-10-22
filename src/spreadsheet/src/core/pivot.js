@@ -6,9 +6,9 @@
  * categories, as with any pivot).
  */
 
-import { normalizeRange, colName } from './cell.js';
+import { normalizeRange, colName, cellKey, parseKey } from './cell.js';
 import { formatValue, NUMBER_FORMAT_KEYS } from './format.js';
-import { refToText } from './refs.js';
+import { refToText, mapFormulaRefs, quoteSheet } from './refs.js';
 import { isError, compareStoredValues, criteriaMatcher } from './formula/functions.js';
 import { MAX_ROWS, MAX_COLS } from './workbook.js';
 import { maxOf } from './numeric.js';
@@ -363,7 +363,7 @@ export function buildPivot(wb, sheetId, spec) {
   }
   // The label column fits the labels as written: a date's text, not its serial.
   const widths = [maxOf([...rowValues.map((v) => formatValue(rowLabel(v), rowStyles.get(v)).length * 8 + 24), ...filters.map((f) => fields[f.field].label.length * 8 + 24)], 120)];
-  return { cells, rows, cols, widths, rowCount: rowValues.length, colCount: colValues.length, headerRow: top, filterCells };
+  return { cells, rows, cols, widths, rowCount: rowValues.length, colCount: colValues.length, headerRow: top, filterCells, spec };
 }
 
 /** The most rows of data a pivot table summarizes: each category is a live formula over them all. */
@@ -378,4 +378,175 @@ export function pivotRangeProblem(wb, sheetId, range) {
   if (rows < 1) return 'The range needs a header row and at least one row of data';
   if (rows > PIVOT_MAX_ROWS) return `That range holds ${rows.toLocaleString('en-US')} rows of data; a pivot table summarizes up to ${PIVOT_MAX_ROWS.toLocaleString('en-US')}`;
   return null;
+}
+
+/* ---------- Refresh ---------- */
+
+/**
+ * A pivot table built here is a block of formulas, so it keeps up with its source's values but not with categories
+ * added since it was built. Its definition is kept with its sheet, so that Refresh can build it again over the source
+ * as it now is: three hidden names scoped to that sheet, as Solver keeps its model. The source and the block are
+ * references, which follow the rows and columns inserted or deleted around them and the renames of sheets and
+ * tables; the fields are named by their headers, as Excel names a PivotTable's fields.
+ */
+const DEFINITION = { source: '_PuterPivot_Source', area: '_PuterPivot_Area', fields: '_PuterPivot_Fields' };
+const isDefinitionName = (n, sheetName) => n.hidden && (n.sheet || '').toLowerCase() === String(sheetName).toLowerCase()
+  && Object.values(DEFINITION).some((name) => name.toLowerCase() === n.name.toLowerCase());
+const absoluteRange = (sheetName, r) => refToText({ sheet: sheetName, kind: 'range', r1: r.r1, c1: r.c1, r2: r.r2, c2: r.c2, absR1: true, absC1: true, absR2: true, absC2: true });
+
+/**
+ * What a pivot table's block holds, as a short fingerprint: each filled cell's place in the block and its label, or
+ * that it holds a formula (the formulas' text changes as the source's rows come and go, their places do not). The
+ * value picked in a filter cell is left out, being the reader's to change. Refresh rewrites only a block that still
+ * has the fingerprint it was given: one cleared, typed over or given other data since is left alone.
+ */
+function blockSignature(cells, filters) {
+  const parts = cells.filter(({ r, c, cell }) => cell && (cell.v != null || cell.f != null) && !(c === 1 && r < filters))
+    .map(({ r, c, cell }) => `${r},${c}:${cell.f != null ? '=' : JSON.stringify(cell.v)}`).sort();
+  let h = 0x811c9dc5;
+  for (const ch of parts.join('|')) h = Math.imul(h ^ ch.codePointAt(0), 0x01000193) >>> 0;
+  return `${parts.length}:${h.toString(16)}`;
+}
+
+/** The fingerprint of what the block at `area` on a sheet holds now (see blockSignature). */
+function areaSignature(wb, sheetId, area, filters) {
+  const cells = [];
+  for (const [key, cell] of wb.sheet(sheetId).cells) {
+    const { r, c } = parseKey(key);
+    if (r >= area.r1 && r <= area.r2 && c >= area.c1 && c <= area.c2) cells.push({ r: r - area.r1, c: c - area.c1, cell });
+  }
+  return blockSignature(cells, filters);
+}
+
+/** The names that keep a built pivot's definition (see DEFINITION), for the sheet `pivotSheetName` holding it at `area`. */
+export function pivotDefinitionNames(wb, sourceSheetId, built, pivotSheetName, area) {
+  const { spec } = built;
+  const n = normalizeRange(spec.range);
+  const fields = pivotFields(wb, sourceSheetId, n);
+  // A source that is a whole table is named by the table, so it takes in the rows the table grows by.
+  const table = (wb.tablesOn?.(sourceSheetId) || []).find((t) => t.range.r1 === n.r1 && t.range.c1 === n.c1 && t.range.c2 === n.c2 && (t.range.r2 === n.r2 || (t.totalsRow && t.range.r2 - 1 === n.r2)));
+  const source = table ? `${table.name}[#All]` : absoluteRange(wb.sheet(sourceSheetId).name, n);
+  const label = (i) => (i == null ? null : fields[i]?.label ?? null);
+  const definition = { row: label(spec.rowField), col: label(spec.colField), value: label(spec.valueField), agg: spec.agg, filter: label(spec.filters?.[0]?.field),
+    sig: blockSignature(built.cells, built.filterCells.length) };
+  return [
+    { name: DEFINITION.source, ref: source, hidden: true, sheet: pivotSheetName },
+    { name: DEFINITION.area, ref: absoluteRange(pivotSheetName, area), hidden: true, sheet: pivotSheetName },
+    { name: DEFINITION.fields, ref: fieldsText(definition), hidden: true, sheet: pivotSheetName },
+  ];
+}
+
+/** The workbook's names with the definition of the pivot table on `pivotSheetName` set (one per sheet: any earlier one is replaced). */
+export function namesWithPivotDefinition(wb, sourceSheetId, built, pivotSheetName, area) {
+  return [...wb.names.filter((n) => !isDefinitionName(n, pivotSheetName)), ...pivotDefinitionNames(wb, sourceSheetId, built, pivotSheetName, area)];
+}
+
+const fieldsText = (definition) => `"${JSON.stringify(definition).replace(/"/g, '""')}"`;
+
+/** The definition kept for the pivot table on a sheet: { source, area, fields } as their texts, or null. */
+function readDefinition(wb, sheetId) {
+  const sheet = wb.sheet(sheetId);
+  if (!sheet) return null;
+  const get = (name) => wb.names.find((n) => isDefinitionName(n, sheet.name) && n.name.toLowerCase() === name.toLowerCase())?.ref;
+  const source = get(DEFINITION.source), area = get(DEFINITION.area), fields = get(DEFINITION.fields);
+  if (!source || !area || !fields) return null;
+  let parsed = null;
+  try { parsed = JSON.parse(String(fields).replace(/^"|"$/g, '').replace(/""/g, '"')); } catch { /* unreadable */ }
+  return parsed && typeof parsed === 'object' ? { source, area, fields: parsed } : null;
+}
+
+/**
+ * Whether the sheet holds a pivot table Refresh can build again: 'intact' when its block still holds what the last
+ * build wrote, 'changed' when the block has been cleared, typed over or moved apart since, null when it has none.
+ */
+export function pivotDefinitionState(wb, sheetId) {
+  const def = readDefinition(wb, sheetId);
+  if (!def) return null;
+  const area = wb.rangeFromText(sheetId, def.area);
+  if (!area || area.sheetId !== sheetId) return 'changed';
+  return areaSignature(wb, sheetId, area.range, def.fields.filter != null ? 1 : 0) === def.fields.sig ? 'intact' : 'changed';
+}
+
+/** Whether a sheet keeps the definition of a pivot table built here (intact or not), cheaply, for the menus. */
+export function hasPivotDefinition(wb, sheetId) {
+  return !!readDefinition(wb, sheetId);
+}
+
+/** The sheets holding a pivot table that Refresh All builds again (intact ones only), in the workbook's order. */
+export function refreshablePivotSheets(wb) {
+  return wb.sheets.filter((s) => pivotDefinitionState(wb, s.id) === 'intact').map((s) => s.id);
+}
+
+/**
+ * Build the pivot table on a sheet again from its kept definition, over its source as it now is, in its place, as one
+ * undo step: categories added to the source get rows and columns, and a filter keeps the value picked above the table.
+ * Returns { rows } or { error } (a sentence); { error, changed: true } when the block no longer holds what the last
+ * build wrote (cleared, typed over: see pivotDefinitionState), unless `replaceChanged`; { error, overwrite: true } when
+ * the larger table would cover cells beside it that hold something, unless `force`.
+ */
+export function refreshPivot(wb, sheetId, { force = false, replaceChanged = false } = {}) {
+  const sheet = wb.sheet(sheetId);
+  const def = readDefinition(wb, sheetId);
+  if (!def) return { error: 'This sheet has no PivotTable to refresh' };
+  const state = pivotDefinitionState(wb, sheetId);
+  if (state !== 'intact' && !replaceChanged) return { error: 'The PivotTable on this sheet has been cleared or changed since it was built, so it was not refreshed', changed: true };
+  if (wb.isProtected(sheetId)) return { error: 'This sheet is protected. Unprotect it to refresh the PivotTable' };
+  const found = wb.rangeFromText(sheetId, def.source);
+  const at = wb.rangeFromText(sheetId, def.area);
+  if (!found) return { error: 'The PivotTable\'s source data is gone' };
+  if (!at || at.sheetId !== sheetId) return { error: 'The PivotTable is gone from this sheet' };
+  const problem = pivotRangeProblem(wb, found.sheetId, found.range);
+  if (problem) return { error: problem };
+  const fields = pivotFields(wb, found.sheetId, found.range);
+  const field = (label) => {
+    if (label == null) return null;
+    const i = fields.findIndex((f) => f.label.toLowerCase() === String(label).toLowerCase());
+    return i < 0 ? undefined : i;
+  };
+  const { row, col, value, agg, filter } = def.fields;
+  const spec = { range: found.range, rowField: field(row), colField: field(col), valueField: field(value), agg, filters: [] };
+  const missing = [[row, spec.rowField], [col, spec.colField], [value, spec.valueField], [filter, field(filter)]].find(([label, i]) => label != null && i === undefined);
+  if (missing) return { error: `The field “${missing[0]}” is no longer in the PivotTable's source` };
+  const old = at.range;
+  if (filter != null) {
+    // The value picked in the filter cell stays picked, while the field still has it; otherwise every row is shown.
+    const values = pivotFieldValues(wb, found.sheetId, found.range, field(filter));
+    const picked = wb.getValue(sheetId, old.r1, old.c1 + 1);
+    const has = values.find((v) => (typeof v === 'string' && typeof picked === 'string' ? v.toLowerCase() === picked.toLowerCase() : v === picked));
+    spec.filters = [{ field: field(filter), value: has ?? null }];
+  }
+  let built;
+  try { built = buildPivot(wb, found.sheetId, spec); } catch (cause) { if (cause instanceof PivotSizeError) return { error: cause.message }; throw cause; }
+  if (!built.rowCount) return { error: 'The rows field has no values to group by' };
+  // The formulas name the table's own cells as if it began at A1; where it stands now, they are moved with it.
+  const dr = old.r1, dc = old.c1;
+  const moved = (f) => (dr || dc ? mapFormulaRefs(f, (ref) => (ref.sheet ? ref : { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc })) : f);
+  const next = { r1: old.r1, c1: old.c1, r2: old.r1 + built.rows - 1, c2: old.c1 + built.cols - 1 };
+  const inOld = (r, c) => r >= old.r1 && r <= old.r2 && c >= old.c1 && c <= old.c2;
+  const written = new Set();
+  const entries = built.cells.map(({ r, c, cell }) => {
+    written.add(cellKey(r + dr, c + dc));
+    return { r: r + dr, c: c + dc, cell: cell.f != null ? { ...cell, f: moved(cell.f) } : cell };
+  });
+  if (!force && entries.some(({ r, c }) => !inOld(r, c) && (() => { const cell = wb.getCell(sheetId, r, c); return cell && (cell.v != null || cell.f != null); })())) {
+    return { error: 'The refreshed PivotTable would cover cells beside it that hold data', overwrite: true };
+  }
+  // What the old table had where the new one has nothing is cleared.
+  for (const key of sheet.cells.keys()) {
+    const { r, c } = parseKey(key);
+    if (inOld(r, c) && !written.has(key)) entries.push({ r, c, cell: null });
+  }
+  wb.transaction('Refresh PivotTable', () => {
+    for (const v of sheet.validations.filter((v) => v.type === 'list' && v.range.r1 >= old.r1 && v.range.r2 <= old.r2 && v.range.c1 >= old.c1 && v.range.c2 <= old.c2)) wb.deleteValidation(sheetId, v.id);
+    wb.setCells(sheetId, entries, 'Refresh PivotTable');
+    for (const fc of built.filterCells) {
+      wb.addValidation(sheetId, { range: { r1: fc.r + dr, c1: fc.c + dc, r2: fc.r + dr, c2: fc.c + dc }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
+    }
+    const fields = fieldsText({ ...def.fields, sig: blockSignature(built.cells, built.filterCells.length) });
+    const names = wb.names.map((n) => (!isDefinitionName(n, sheet.name) ? n
+      : n.name.toLowerCase() === DEFINITION.area.toLowerCase() ? { ...n, ref: absoluteRange(sheet.name, next) }
+        : n.name.toLowerCase() === DEFINITION.fields.toLowerCase() ? { ...n, ref: fields } : n));
+    wb._setNames(names, 'Refresh PivotTable');
+  });
+  return { rows: built.rowCount };
 }

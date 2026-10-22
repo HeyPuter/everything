@@ -108,6 +108,7 @@ const GROUPS = [
     [`${MOD_KEY} + 2 / 3 / 4`, 'Bold / italic / underline'],
     [`${MOD_KEY} + Shift + F`, 'Format cells dialog (number, alignment, font, border, fill)'],
     [`${MOD_KEY} + Shift + L`, 'Create or remove a filter'],
+    [`Alt + F5 / ${MOD_KEY} + Alt + F5`, 'Refresh the query table or PivotTable here / refresh everything'],
     ['Paint format, then select', 'Copy formatting onto other cells: select them with the pointer, or move there and press Enter (Escape cancels)'],
     [IS_MAC ? `${MOD_KEY} + \` or ⌃ + \`` : `${MOD_KEY} + \``, 'Show formulas instead of values'],
   ]],

@@ -429,7 +429,9 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   sheet as live `SUMIFS`/`COUNTIFS` formulas (over a table, they name its
   columns and follow it as it grows), with an optional filter field whose
   value sits in a dropdown cell above the table — pick a value, or "(All)",
-  and the whole table re-filters; Goal seek, which finds the
+  and the whole table re-filters; Refresh (Alt+F5) or Refresh All
+  (Ctrl+Alt+F5) builds such a pivot table again over its source as it now
+  is, taking in categories added since; Goal seek, which finds the
   input value that makes a formula reach a wanted result; and Column stats,
   a profile of a column (counts, sum, average, median, spread, the most
   frequent values, and a distribution).
