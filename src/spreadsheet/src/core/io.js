@@ -922,10 +922,34 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
   wb = sharedBook(wb);
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
-  const book = buildBook(X, wb, { history });
-  writeDocumentProperties(book, wb.documentProperties);
-  const data = await completeXlsx(X, wb, book, X.write(book, { bookType: 'xlsx', type: 'array' }), { sourceWorkbook });
+  const build = () => {
+    const book = buildBook(X, wb, { history });
+    writeDocumentProperties(book, wb.documentProperties);
+    return book;
+  };
+  const write = (book) => X.write(book, { bookType: 'xlsx', type: 'array' });
+  const version = wb.version;
+  // A large book takes a second or more to encode on the page's one thread (an autosave after a paste of 200,000
+  // cells held scrolling still for that long): the page gets a turn between the steps. The last step reads the
+  // book again, so an edit made meanwhile has the steps before it done over, at once, to go with it.
+  const large = wb.sheets.reduce((n, sheet) => n + sheet.cells.size, 0) > YIELD_CELLS;
+  let book = build();
+  if (large) await nextTask();
+  let bytes = write(book);
+  if (large) {
+    await nextTask();
+    if (wb.version !== version) bytes = write(book = build());
+  }
+  const data = await completeXlsx(X, wb, book, bytes, { sourceWorkbook });
   return new Blob([data], { type: XLSX_MIME });
+}
+
+/** A book of more cells than this takes long enough to encode that the page is given turns along the way. */
+const YIELD_CELLS = 50_000;
+/** Resolves in a task of its own, once the page has had its turn (input, a frame). */
+export function nextTask() {
+  if (typeof MessageChannel !== 'function') return new Promise((resolve) => setTimeout(resolve, 0));
+  return new Promise((resolve) => { const channel = new MessageChannel(); channel.port1.onmessage = () => { channel.port1.close(); resolve(); }; channel.port2.postMessage(null); });
 }
 
 /**

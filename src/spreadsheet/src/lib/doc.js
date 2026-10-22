@@ -37,6 +37,20 @@ import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } f
 import { optionState } from './option-state.js';
 
 const AUTOSAVE_MS = 1500;
+// Encoding a large book holds the page for a moment (about a second for 200,000 cells): its autosave waits for a pause
+// in what the user is doing (scrolling, typing, pointing) of this long, though never longer than the cap past its time.
+const LARGE_BOOK_CELLS = 50_000;
+const QUIET_MS = 1000;
+const QUIET_MAX_MS = 10_000;
+let lastInput = -Infinity;
+/** The user did something on the page (see QUIET_MS); the document listens for it itself. */
+export function noteUserInput() { lastInput = performance.now(); }
+let listening = false;
+function listenForInput() {
+  if (listening || typeof globalThis.addEventListener !== 'function') return;
+  listening = true;
+  for (const type of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'touchmove', 'scroll']) globalThis.addEventListener(type, noteUserInput, { capture: true, passive: true });
+}
 // The title row's AutoSave switch: off, edits wait for Save (the local draft still keeps them). Per device.
 const AUTOSAVE_KEY = 'spreadsheet:autosave';
 // A device that never flipped the switch saves as it goes unless the app's options say not to (Save ▸ AutoSave by default).
@@ -293,6 +307,7 @@ export class Doc extends EventTarget {
     this._recoverableKey = null; // where that draft lives; it follows the document when its key changes
     this.recoverableMayBeOlder = false; // the file was written after those edits were made (or could not be checked)
     this._lastVersionAt = undefined; // when the newest snapshot was written; undefined until looked up
+    listenForInput();
     this._onChange = (e) => this._changed(e.detail?.type);
     this.wb.addEventListener('change', this._onChange);
     this._onSession = () => this._followStorageScope();
@@ -510,11 +525,22 @@ export class Doc extends EventTarget {
     clearTimeout(this._timer);
     // Signing in later saves the pending edits; the view asks for it.
     if (!session.signedOut && autoSaveEnabled()) {
-      this._timer = setTimeout(() => this.save({ auto: true }).catch(() => {}), AUTOSAVE_MS);
+      this._timer = setTimeout(() => this._autoSave(), AUTOSAVE_MS);
       this._timerIsRetry = false;
     }
     clearTimeout(this._draftTimer);
     this._draftTimer = setTimeout(() => this.writeDraft(), draftMs());
+  }
+
+  /** The autosave an edit scheduled: at once for an ordinary book; for a large one, once the user pauses (see QUIET_MS). */
+  _autoSave(due = Date.now()) {
+    const cells = this.wb.sheets.reduce((n, sheet) => n + sheet.cells.size, 0);
+    const wait = cells > LARGE_BOOK_CELLS ? QUIET_MS - (performance.now() - lastInput) : 0;
+    if (wait > 0 && Date.now() - due < QUIET_MAX_MS) {
+      this._timer = setTimeout(() => this._autoSave(due), Math.min(wait, QUIET_MAX_MS - (Date.now() - due)));
+      return;
+    }
+    this.save({ auto: true }).catch(() => {});
   }
 
   /** Turn AutoSave on or off; turning it on saves what is waiting. */
