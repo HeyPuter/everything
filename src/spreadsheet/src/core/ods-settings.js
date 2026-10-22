@@ -11,9 +11,9 @@ export function writeOdsSettings(meta, escape, view = null) {
 }
 
 /**
- * The view settings LibreOffice keeps for each sheet (ooo:view-settings): its frozen rows and columns and
- * its tab colour, and the sheet the book opens on. `view` is { active, sheets: { [name]: { frozenRows,
- * frozenCols, tabColor } } }; '' when there is nothing to say.
+ * The view settings LibreOffice keeps for each sheet (ooo:view-settings): its frozen rows and columns, its tab
+ * colour, gridlines and zoom, and the sheet the book opens on. `view` is { active, sheets: { [name]: { frozenRows,
+ * frozenCols, tabColor, gridlines, zoom } } }; '' when there is nothing to say.
  */
 function writeOdsViewSettings(view, escape) {
   if (!view?.sheets) return '';
@@ -27,6 +27,9 @@ function writeOdsViewSettings(view, escape) {
     // The pane the cursor is in: bottom-right with both frozen, bottom-left with rows only, top-right with columns only.
     if (rows || cols) items.push(item('ActiveSplitRange', 'short', rows && cols ? 3 : rows ? 2 : 1));
     if (typeof s?.tabColor === 'string' && /^#[\da-f]{6}$/i.test(s.tabColor)) items.push(item('TabColor', 'int', parseInt(s.tabColor.slice(1), 16)));
+    if (s?.gridlines === false) items.push(item('ShowGrid', 'boolean', 'false'));
+    // ZoomType 0 is a zoom by the value given, in percent.
+    if (Number.isFinite(s?.zoom) && s.zoom >= 0.1 && s.zoom <= 4 && s.zoom !== 1) items.push(item('ZoomType', 'short', 0), item('ZoomValue', 'int', Math.round(s.zoom * 100)));
     return items.length ? `<config:config-item-map-entry config:name="${escape(name)}">${items.join('')}</config:config-item-map-entry>` : '';
   }).join('');
   if (!tables && !view.active) return '';
@@ -37,7 +40,7 @@ function writeOdsViewSettings(view, escape) {
 
 /**
  * The first view's settings as LibreOffice writes them: { active, sheets: { [name]: { frozenRows, frozenCols,
- * tabColor } } } for the sheets with any, or null. Only a frozen split (mode 2) counts rows and columns.
+ * tabColor, gridlines, zoom } } } for the sheets with any, or null. Only a frozen split (mode 2) counts rows and columns.
  */
 export function readOdsViewSettings(xml, decode) {
   if (!xml || !xml.includes('ooo:view-settings')) return null;
@@ -73,6 +76,10 @@ export function readOdsViewSettings(xml, decode) {
       const color = Number(s.TabColor);
       // -1 is LibreOffice's automatic (no) tab colour.
       if (/^\d+$/.test(s.TabColor || '') && color >= 0 && color <= 0xffffff) out.tabColor = `#${color.toString(16).padStart(6, '0')}`;
+      if (s.ShowGrid === 'false') out.gridlines = false;
+      const zoom = Number(s.ZoomValue);
+      // ZoomType 0 is a zoom by value; the others fit the page or its width, which a sheet view does not keep.
+      if ((s.ZoomType ?? '0') === '0' && /^\d+$/.test(s.ZoomValue || '') && zoom >= 10 && zoom <= 400 && zoom !== 100) out.zoom = zoom / 100;
       if (Object.keys(out).length) sheets[decode(m[2])] = out;
     }
     body = body.replace(tables[0], '');

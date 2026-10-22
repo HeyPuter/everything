@@ -872,12 +872,13 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, histo
   }
   const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets, history }) : null;
   if (extra && odsSettings) book.PuterSettings = extra;
-  // LibreOffice reads frozen panes, tab colours and the open sheet from its own view settings.
+  // LibreOffice reads frozen panes, tab colours, gridlines, zoom and the open sheet from its own view settings.
   if (ods) {
     const sheets = {};
     for (const sheet of wb.sheets) {
       const color = typeof sheet.color === 'string' && /^#[\da-f]{6}$/i.test(sheet.color) ? sheet.color : null;
-      if (sheet.frozenRows || sheet.frozenCols || color) sheets[sheet.name] = { frozenRows: sheet.frozenRows, frozenCols: sheet.frozenCols, ...(color ? { tabColor: color } : {}) };
+      const look = { ...(sheet.gridlines === false ? { gridlines: false } : {}), ...(sheet.viewZoom && sheet.viewZoom !== 1 ? { zoom: sheet.viewZoom } : {}) };
+      if (sheet.frozenRows || sheet.frozenCols || color || Object.keys(look).length) sheets[sheet.name] = { frozenRows: sheet.frozenRows, frozenCols: sheet.frozenCols, ...(color ? { tabColor: color } : {}), ...look };
     }
     // A book that opens on its first sheet, with nothing frozen or coloured, needs no view settings.
     const active = wb.sheets.indexOf(wb.activeSheet) > 0 ? wb.activeSheet.name : null;
@@ -2806,6 +2807,8 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
         if (odsView.frozenRows) sheet.frozenRows = odsView.frozenRows;
         if (odsView.frozenCols) sheet.frozenCols = odsView.frozenCols;
         if (odsView.tabColor && !sheet.color) sheet.color = odsView.tabColor;
+        if (odsView.gridlines === false) sheet.gridlines = false;
+        if (odsView.zoom) sheet.viewZoom = odsView.zoom;
       }
       return { ...sheet, hidden: hidden.has(n) || isVeryHidden || visibility === 'hidden', veryHidden: isVeryHidden };
     });
