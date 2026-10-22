@@ -78,11 +78,19 @@ export function cropPatch(obj, next) {
   const crop = clampCrop(next), was = cropOf(obj), full = uncroppedSize(obj);
   const l = round(crop.x), t = round(crop.y), r = round(1 - crop.x - crop.w), b = round(1 - crop.y - crop.h);
   const srcRect = pictureRect({ l, t, r, b });
+  const w = Math.max(1, Math.round(full.w * crop.w)), h = Math.max(1, Math.round(full.h * crop.h));
+  // Where the part kept lies in the picture's box, from the box's centre: a flipped picture shows its source's
+  // left side on the right, and a turned one turns that offset about the centre, which its box turns about.
+  const ow = obj.w || full.w * was.w, oh = obj.h || full.h * was.h;
+  let cx = (crop.x - was.x) * full.w + w / 2 - ow / 2, cy = (crop.y - was.y) * full.h + h / 2 - oh / 2;
+  if (obj.flipH) cx = -cx;
+  if (obj.flipV) cy = -cy;
+  const turn = (obj.rotation || 0) * Math.PI / 180, cos = Math.cos(turn), sin = Math.sin(turn);
+  const mx = cx * cos - cy * sin, my = cx * sin + cy * cos;
   return {
-    srcRect, fillRect: null,
-    w: Math.max(1, Math.round(full.w * crop.w)), h: Math.max(1, Math.round(full.h * crop.h)),
-    dx: Math.round(((obj.dx || 0) + (crop.x - was.x) * full.w) * 100) / 100,
-    dy: Math.round(((obj.dy || 0) + (crop.y - was.y) * full.h) * 100) / 100,
+    srcRect, fillRect: null, w, h,
+    dx: Math.round(((obj.dx || 0) + ow / 2 + mx - w / 2) * 100) / 100,
+    dy: Math.round(((obj.dy || 0) + oh / 2 + my - h / 2) * 100) / 100,
   };
 }
 
