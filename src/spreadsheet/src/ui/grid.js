@@ -52,7 +52,7 @@ import { cellName, cellKey, rangeName, normalizeRange, parseRange, parseCellRef,
 import { splitAtCell, dropSplit } from '../core/split-panes.js';
 import { RTL_LEAD } from '../core/bidi.js';
 import { formatValue, formatGeneral, localeInfo, defaultAlign, layoutAlign, editText, fontStack, borderCss, errorHelp, indentWidth, dateTimeKind } from '../core/format.js';
-import { extractRefs, refToText, quoteSheet, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
+import { extractRefs, refToText, quoteSheet, selectionName, parseR1C1Ref, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { tokenize } from '../core/formula/tokenizer.js';
 import { inString, signatureFor } from '../core/formula/hints.js';
 import { isError, FUNCTIONS } from '../core/formula/functions.js';
@@ -6862,7 +6862,10 @@ export function createGrid(opts) {
       scrollIntoView(sel.active, cols ? { rows: false } : { cols: false });
       return true;
     }
-    const range = parseRange(t) || (parseCellRef(t) && parseRange(t));
+    // R1C1 notation too, as Excel's Name Box and Go To take it in either reference style: R2C3, R[1]C[-1] from the
+    // active cell, and R or C alone for the active cell's row or column (which is why no name can be R or C).
+    const r1c1 = !t.includes('!') && /^[RC]/i.test(t) ? parseR1C1Ref(t, sel.active) : null;
+    const range = parseRange(t) || (parseCellRef(t) && parseRange(t)) || (r1c1 && { r1: r1c1.r1, c1: r1c1.c1, r2: r1c1.r2, c2: r1c1.c2 });
     if (!range) return false;
     if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) return false;
     // A range running the grid's whole height (A1:C1048576) or width (A2:XFD3) is those columns or rows.
