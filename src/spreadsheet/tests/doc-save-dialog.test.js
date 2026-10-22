@@ -129,3 +129,28 @@ it('keeps saving a new spreadsheet in the app folder on the open web', async () 
   expect(globalThis.puter.ui.showSaveFilePicker).not.toHaveBeenCalled();
   expect(documentWrites()).toEqual(['Spreadsheets/Untitled spreadsheet.xlsx', 'Spreadsheets/Rent copy.xlsx']);
 });
+
+it('keeps the question about a moved or deleted file when the Save a copy dialog is cancelled', async () => {
+  // "Save as new file" in the dialog about a file gone from its address is Save a copy. Cancelled, the edits are
+  // where they were and so is the file: the pill went back to plain unsaved changes, and an AutoSave a moment
+  // later put the same question again, though nothing had been typed since.
+  vi.useFakeTimers();
+  inPuter(null);
+  mock.fs.set('~/Desktop/Plan.xlsx', { blob: new Blob(['x']), size: 1, modified: 1 });
+  doc = new Doc({ name: 'Plan', path: '~/Desktop/Plan.xlsx' });
+  doc.remoteModified = 1000;
+  mock.fs.delete('~/Desktop/Plan.xlsx');
+  const asked = [];
+  doc.addEventListener('conflict', (e) => asked.push(e.detail.kind));
+  doc.wb.setInput(doc.wb.activeSheetId, 0, 0, 'Rent');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(asked).toEqual(['missing']);
+  expect(await doc.saveAs('Plan copy')).toBe(CANCELLED);
+  expect(doc.status).toBe('conflict');
+  expect(doc.error).toBe('This file was moved or deleted');
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(asked).toEqual(['missing']);
+  doc.wb.setInput(doc.wb.activeSheetId, 0, 1, '1200');
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(asked).toEqual(['missing', 'missing']);
+});

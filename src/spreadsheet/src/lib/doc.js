@@ -993,6 +993,7 @@ export class Doc extends EventTarget {
     }
     clearTimeout(this._timer);
     const version = this.wb.version;
+    const was = { status: this.status, error: this.error };
     this._setStatus('saving');
     let written;
     try {
@@ -1001,6 +1002,9 @@ export class Doc extends EventTarget {
         // The dialog writes the copy, asking before it replaces a file of that name.
         written = await P.saveFileAs(blob, `${clean}.xlsx`);
         if (!written) {
+          // The file moved, deleted or changed elsewhere is still so: the question stands, put again at the next edit
+          // as after Keep editing, rather than by an AutoSave of edits already asked about, a moment after the cancel.
+          if (was.status === 'conflict') { this._setStatus(was.status, was.error); return CANCELLED; }
           this._setStatus(this.wb.dirty ? 'unsaved' : 'saved');
           if (this.wb.dirty) this._changed('cells');
           return CANCELLED;
