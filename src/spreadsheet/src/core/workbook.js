@@ -6455,7 +6455,7 @@ export class Workbook extends EventTarget {
       return cols;
     });
     this._structural(label, () => {
-      if (lostTables) this._dropLostTableReferences(lostTables);
+      if (lostTables) { this._dropLostSlicers(lostTables); this._dropLostTableReferences(lostTables); }
       if (remove) this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
         return ref && insideBand(ref) && !adjustRefForDelete(ref, axis, at, n);
@@ -7069,7 +7069,7 @@ export class Workbook extends EventTarget {
       }
     }
     this._structural(label || (axis === 'row' ? 'Delete rows' : 'Delete columns'), () => {
-      if (lostTables) this._dropLostTableReferences(lostTables);
+      if (lostTables) { this._dropLostSlicers(lostTables); this._dropLostTableReferences(lostTables); }
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => {
         const ref = p.owner === sheetId && parseRefText(p.ref || '');
         return ref && !adjustRefForDeletedLines(ref, axis, refLines);
@@ -10259,6 +10259,8 @@ export class Workbook extends EventTarget {
     if (!table || this._gridLocked(sheet)) return;
     const appearance = tableConversionStyle(this, sheet, table);
     this.transaction('Convert table to range', () => {
+      // Its slicers go with the table: they filter through it, and a range has nothing for them to filter.
+      this._dropLostSlicers(new Map([[table.name.toLowerCase(), true]]), (s, charts) => this._setCharts(s, charts, 'Convert table to range'));
       this._rewriteFormulas((f, s, r, c) => this.structuredToA1(s.id, r, c, f, table.name), 'Convert table to range');
       this._rewriteNamedFormulas((f) => this.structuredToA1(sheetId, tableRows(table).dataStart, table.range.c1, f, table.name, true), 'Convert table to range');
       // Conditional formats, validations, and filter conditions name the table too. Each reads
@@ -10587,6 +10589,27 @@ export class Workbook extends EventTarget {
       gone.set(t.name.toLowerCase(), new Set(out.map((i) => names[i]?.toLowerCase()).filter(Boolean)));
     }
     return gone.size ? gone : null;
+  }
+
+  /**
+   * The table slicers whose table or column is gone (`gone` as _lostTableColumns gives it) go with it, as Excel
+   * deletes them. Kept, such a slicer filtered nothing, read only that its column was unavailable, and the
+   * workbook could no longer be saved as .xlsx. `set` replaces a sheet's objects: inside a structural step the
+   * snapshot records them, inside a transaction _setCharts does.
+   */
+  _dropLostSlicers(gone, set = (sheet, charts) => { sheet.charts = charts; }) {
+    for (const s of this.sheets) {
+      const kept = s.charts.filter((ch) => {
+        if (ch.type !== 'slicer' || typeof ch.tableRef !== 'string') return true;
+        let token;
+        try { [token] = tokenize(ch.tableRef); } catch { return true; }
+        const cols = token?.type === 'tref' && token.table ? gone.get(token.table.toLowerCase()) : null;
+        if (!cols) return true;
+        if (cols === true) return false;
+        return !parseTableSpec(token.spec)?.cols?.some((c) => cols.has(c.toLowerCase()));
+      });
+      if (kept.length !== s.charts.length) set(s, kept);
+    }
   }
 
   /**
