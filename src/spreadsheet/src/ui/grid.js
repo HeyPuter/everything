@@ -127,18 +127,25 @@ function generalToFit(value, text, avail, measure) {
   const abs = Math.abs(value);
   // The text carries the regional decimal mark (1234,5678), and so must the scientific form.
   const { decimal } = localeInfo();
+  // The digits shown round half up from the fifteen the number reads as, as the 0.00 format rounds them:
+  // 1.005 and 2.675 are stored a hair under their halves, and toFixed would cut them to 1.00 and 2.67.
+  const roundTo = (n, d) => Math.round(Number((n * 10 ** d).toPrecision(15))) / 10 ** d;
+  const sign = value < 0 ? -1 : 1;
   if (!Number.isInteger(value) && abs < 1e15) {
     const mark = text.lastIndexOf(decimal);
     const decimals = mark >= 0 && /^\d+$/.test(text.slice(mark + decimal.length)) ? text.length - mark - decimal.length : 0;
     for (let d = decimals - 1; d >= 0; d--) {
-      const rounded = Number(value.toFixed(d));
+      const rounded = sign * roundTo(abs, d);
       if (rounded === 0) break; // a small number is not 0; it goes scientific below
       const t = formatGeneral(rounded);
       if (measure(t) <= avail) return t;
     }
   }
+  const [mantissa, power] = abs.toExponential(14).split('e');
   for (let d = 5; d >= 0; d--) {
-    const t = value.toExponential(d).replace(/\.?0+e/, 'e').replace(/e([+-])(\d)$/, 'e$10$2').replace('e', 'E').replace('.', decimal);
+    let digits = roundTo(Number(mantissa), d), exponent = Number(power);
+    if (digits >= 10) { digits /= 10; exponent++; }
+    const t = `${sign < 0 ? '-' : ''}${digits.toFixed(d).replace(/\.?0+$/, '')}E${exponent < 0 ? '-' : '+'}${String(Math.abs(exponent)).padStart(2, '0')}`.replace('.', decimal);
     if (measure(t) <= avail) return t;
   }
   return null;
