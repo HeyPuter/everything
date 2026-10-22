@@ -2145,7 +2145,10 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     : own?.nativeDefaultHeight);
   (ws?.['!rows'] || []).forEach((row, i) => {
     if (!row) return;
-    if (row.hidden || row.filtered) {
+    // A row the file gives no height at all (ht="0") shows as no row in Excel, as a hidden one does; it is not
+    // a row of the default height, which is what a height of nothing used to read as.
+    const zero = !row.hidden && !row.filtered && (row.hpt === 0 || row.hpx === 0);
+    if (row.hidden || row.filtered || zero) {
       fileHiddenRows.push(i);
       if (filtered.some(range => i > range.r1 && i <= range.r2)) fileFilterHidden?.push(i);
       else hiddenRows.add(i);
