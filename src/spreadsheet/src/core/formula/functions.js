@@ -1186,14 +1186,22 @@ function rememberCriteria(fn, first, repeating) {
   const criterion = (k) => k >= first && (repeating ? (k - first) % 2 === 0 : k === first);
   const part = (v) => (v == null ? 'z' : typeof v === 'string' ? `s${v}` : typeof v === 'number' ? `n${v}` : typeof v === 'boolean' ? `b${v}`
     : v === EMPTY ? 'E' : isError(v) ? `e${v.error}` : null);
+  // A reference is read when its values are first asked for, and the function reads its criteria ranges before a sum
+  // range (SUMIFS, MAXIFS: the first argument) and no range of pairs it refuses: the key asks in the same order, and
+  // asks nothing of such pairs, as which cell of a circle of references is read first settles whether it is a cycle.
+  const shift = repeating && first === 2 ? 1 : 0;
+  const refused = (args) => {
+    const pairs = args.slice(first - 1);
+    if (pairs.length < 2 || pairs.length % 2) return true;
+    const [rows, cols] = rangeShape(asRange(args[0]));
+    return pairs.some((a, i) => { if (i % 2) return false; const [h, w] = rangeShape(asRange(a)); return h !== rows || w !== cols; });
+  };
   return (args, ctx) => {
-    const base = isRange(args[0]) ? args[0].values : null;
-    // A range of a running family ($A$1:A9, see noteRangeRows) is read by one formula alone: nothing to keep.
-    if (!base || RANGE_PARENTS.has(base)) return fn(args, ctx);
+    if (!isRange(args[0]) || (repeating && refused(args))) return fn(args, ctx);
     // Reading a number or a date out of a criterion follows the regional settings.
     let key = getLocale();
-    for (let k = 0; k < args.length; k++) {
-      const a = args[k];
+    for (let i = 0; i < args.length; i++) {
+      const k = (i + shift) % args.length, a = args[k];
       let p;
       if (isRange(a) && !(criterion(k) && a.values.length === 1 && a.values[0]?.length === 1)) {
         let id = valuesIds.get(a.values);
@@ -1204,6 +1212,9 @@ function rememberCriteria(fn, first, repeating) {
       if (p === null) return fn(args, ctx); // a sparkline or other drawable: worked out as it stands
       key += `\u0000${p}`;
     }
+    const base = args[0].values;
+    // A range of a running family ($A$1:A9, see noteRangeRows) is read by one formula alone: nothing to keep.
+    if (RANGE_PARENTS.has(base)) return fn(args, ctx);
     let answers = criteriaAnswers.get(base);
     if (!answers) criteriaAnswers.set(base, answers = new Map());
     if (answers.has(key)) return answers.get(key);
