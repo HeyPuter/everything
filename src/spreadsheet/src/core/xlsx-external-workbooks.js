@@ -12,6 +12,15 @@ const kids = (node, name, ns = MAIN) => modelChildren(node, name, ns);
 const fail = reason => { throw new Error(`Invalid XLSX external workbook: ${reason}`); };
 const one = (node, name, required = false) => { const a = kids(node, name); if (a.length > 1 || required && !a.length) fail(name); return a[0]; };
 const relPath = part => part.replace(/(^|\/)([^/]+)$/, '$1_rels/$2.rels');
+/**
+ * Whether a relationship type names an external workbook's location. Besides the standard one, Excel writes
+ * the location of a workbook it has no path for (one copied from before it was saved, or the template a
+ * workbook came from) as xlPathMissing, and one in its startup or library folder as xlStartup, xlLibrary
+ * or xlAlternateStartup [MS-XLSX 2.1.4]; a file holding one of these did not open at all. Each reads as a
+ * location, and is written back as the standard one.
+ */
+export const externalLinkPathType = type => type === `${REL}/externalLinkPath`
+  || /^http:\/\/schemas\.microsoft\.com\/office\/2006\/relationships\/xlExternalLinkPath\/(?:xlPathMissing|xlStartup|xlLibrary|xlAlternateStartup)$/.test(type || '');
 const uint = v => { if (!/^\d+$/.test(v || '') || !Number.isSafeInteger(Number(v))) fail('index'); return Number(v); };
 function resolve(owner, target) {
   if (!target || /[?#]|^[a-z][\w+.-]*:|^\/\//i.test(target)) fail('internal part target');
@@ -39,7 +48,7 @@ export function readXlsxExternalWorkbooks(book) {
   const relationship = (part, id, type, external = false) => {
     const matches = kids(read(relPath(part)), 'Relationship', PKG).filter(r => r.getAttribute('Id') === id);
     const r = matches[0];
-    if (!id || matches.length !== 1 || r.getAttribute('Type') !== `${REL}/${type}`
+    if (!id || matches.length !== 1 || (type === 'externalLinkPath' ? !externalLinkPathType(r.getAttribute('Type')) : r.getAttribute('Type') !== `${REL}/${type}`)
       || (r.getAttribute('TargetMode') === 'External') !== external || !r.getAttribute('Target')?.trim()) fail('relationship');
     return r.getAttribute('Target');
   };

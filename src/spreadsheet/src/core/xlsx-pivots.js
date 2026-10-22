@@ -3,6 +3,7 @@ import { decodeXlsxString } from './xlsx-string.js';
 import { parseModelXml, modelChildren, standaloneModelXml as serialize } from './data-model-metadata.js';
 import { normalizeNativePivots } from './native-pivots.js';
 import { xmlTag as tag } from './xlsx-export-styles.js';
+import { externalLinkPathType } from './xlsx-external-workbooks.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
@@ -56,7 +57,7 @@ export function readXlsxPivots(book, wb) {
     let sourceWorkbook;
     if (source?.hasAttributeNS(REL, 'id')) {
       const links = kids(root(relPath(part)), 'Relationship', PACKAGE).filter(r => r.getAttribute('Id') === relId(source));
-      if (!relId(source) || links.length !== 1 || links[0].getAttribute('Type') !== `${REL}/externalLinkPath`
+      if (!relId(source) || links.length !== 1 || !externalLinkPathType(links[0].getAttribute('Type'))
           || links[0].getAttribute('TargetMode') !== 'External' || !links[0].getAttribute('Target')?.trim()) throw new Error('Invalid external pivot worksheet source relationship');
       sourceWorkbook = links[0].getAttribute('Target');
     }
