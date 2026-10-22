@@ -567,7 +567,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   evenly, groups, ungroups and regroups them (a group moves, orders and
   aligns as one, and is saved as a native group), and rotates or flips
   pictures, shapes and text boxes by quarter turns; Snap to Grid and Snap to
-  Shape line up objects as they are dragged or resized (Alt places one freely), and
+  Shape line up objects as they are dragged or resized (Alt places one freely,
+  or with both off lines it up with the cells, as in Excel), and
   Shift held while dragging a corner keeps an object's proportions (while
   dragging the object, it moves straight across or down).
   Shift- or Cmd/Ctrl-click selects several objects, which then drag, nudge

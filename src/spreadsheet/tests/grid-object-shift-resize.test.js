@@ -90,3 +90,22 @@ it('names the kind of object moved or resized in the undo history', async () => 
   expect(wb.undoLabel()).toBe('Move text box');
   grid.destroy();
 });
+
+// Alt held while dragging only let an object go free when snapping was on; with it off (the default), Alt did
+// nothing, where in Excel it is the way to line a chart up with the cells.
+it('takes the corner to the cell edges with Alt held while snapping is off', async () => {
+  const wb = new Workbook(), id = wb.sheets[0].id, sheet = wb.sheets[0];
+  const oid = wb.addChart(id, { type: 'text', text: 'Note', anchor: { r: 2, c: 2 }, w: 200, h: 100 });
+  const grid = createGrid({ wb, sheetId: id, announce() {} });
+  document.body.replaceChildren(grid.el);
+  await flush();
+  const box = grid.el.querySelector(`.chart-box[data-chart="${oid}"]`);
+  const at = wb.objectRect(id, oid), colW = sheet.defaultColWidth;
+  const right = Math.ceil((at.x + at.w) / colW + 1) * colW - 5, move = right - (at.x + at.w);
+  pe(box.querySelector('.chart-resize'), 'pointerdown', 500, 300);
+  box.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 500 + move, clientY: 300, pointerId: 1, altKey: true }));
+  pe(box, 'pointerup', 500 + move, 300);
+  await flush();
+  expect(at.x + wb.chartById(id, oid).w).toBe(right + 5);
+  grid.destroy();
+});

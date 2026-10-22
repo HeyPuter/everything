@@ -2550,6 +2550,13 @@ export function createGrid(opts) {
     }
   }
 
+  /** The snapping a drag uses: the Arrange ▸ Align switches, which Alt held turns the other way (off, or to the cells). */
+  function altSnap(ev) {
+    const snap = opts.snap?.();
+    if (!ev.altKey) return snap;
+    return snap?.grid || snap?.shape ? null : { grid: true, shape: false };
+  }
+
   function chartPointerDown(e, id, onHandle) {
     if (e.button !== 0 || e.target.closest('.chart-tool')) return;
     if (underFrozenPane(e.currentTarget, e.clientX, e.clientY)) return; // the press goes on to the cells
@@ -2611,8 +2618,9 @@ export function createGrid(opts) {
         const straight = ev.shiftKey, across = Math.abs(dx) >= Math.abs(dy);
         let left = drag.from.left + shiftX(straight && !across ? 0 : dx);
         let top = drag.from.top + shiftY(straight && across ? 0 : dy);
-        // Snap to Grid and Snap to Shape (Arrange ▸ Align); Alt held while dragging lets the box go free.
-        const snap = sheet().kind === 'chart' || ev.altKey ? null : opts.snap?.();
+        // Snap to Grid and Snap to Shape (Arrange ▸ Align); Alt held while dragging lets the box go free, or with
+        // snapping off takes it to the cell edges, as in Excel.
+        const snap = sheet().kind === 'chart' ? null : altSnap(ev);
         if (snap?.grid || snap?.shape) {
           const box = { x: left, y: top, w: drag.from.width, h: drag.from.height }, xs = [], ys = [];
           if (snap.grid) {
@@ -2643,7 +2651,7 @@ export function createGrid(opts) {
         let height = Math.max(minH, drag.from.height + ldy);
         // Snap to Grid and Snap to Shape take the corner dragged to a cell's or another object's edge, as a move
         // takes the box (Alt held: free). A turned box's corner is not on those lines.
-        const snap = sheet().kind === 'chart' || ev.altKey || turned ? null : opts.snap?.();
+        const snap = sheet().kind === 'chart' || turned ? null : altSnap(ev);
         if (snap?.grid || snap?.shape) {
           ensureOffsets();
           const right = drag.from.left + width, bottom = drag.from.top + height, xs = [], ys = [];
