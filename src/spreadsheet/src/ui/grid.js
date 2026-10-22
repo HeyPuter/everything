@@ -5641,8 +5641,10 @@ export function createGrid(opts) {
     // Alt+/ searches the menus, as in Google Sheets.
     if (e.altKey && (key === '/' || e.code === 'Slash')) { e.preventDefault(); opts.onCommand?.('palette'); return; }
     // Any other printable key starts typing into the cell (checkboxes toggle instead). A chord
-    // with Ctrl, Alt or the command key is not typing, unless it is AltGr producing a character.
-    const chord = (e.ctrlKey || e.metaKey || e.altKey) && !e.getModifierState?.('AltGraph');
+    // with Ctrl, Alt or the command key is not typing, unless it is AltGr producing a character, or
+    // Option on a Mac, which is how a Mac types ©, €, π or ü: the Option chords the grid answers to
+    // have been taken above, and Option+G started no entry with © as it does in Excel for Mac.
+    const chord = (e.ctrlKey || e.metaKey || (e.altKey && !IS_MAC)) && !e.getModifierState?.('AltGraph');
     if (key.length === 1 && !chord) {
       e.preventDefault();
       if (wb.validationAt(sheetId, sel.active.r, sel.active.c)?.type === 'checkbox') return;
