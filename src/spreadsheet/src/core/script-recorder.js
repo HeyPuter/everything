@@ -438,11 +438,14 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   function code() {
     const out = [];
     let current = startName;
+    // The sheet in front as recording began, by the name it has at this point of the script: renamed, its old name may
+    // be another sheet's by the time the first edit is written.
+    let start = startName;
     let declared = false;
     const use = (name) => {
       if (name == null) return;
       if (!declared) {
-        out.push(name === startName ? 'let sheet = workbook.getActiveWorksheet();' : `let sheet = workbook.getWorksheet(${q(name)});`);
+        out.push(name === start ? 'let sheet = workbook.getActiveWorksheet();' : `let sheet = workbook.getWorksheet(${q(name)});`);
         declared = true;
         current = name;
         return;
@@ -464,6 +467,8 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
         out.push(...action.lines);
         if (action.rename && action.rename[0] === current) current = action.rename[1];
         if (action.drop && action.drop === current) current = null;
+        if (action.rename && action.rename[0] === start) start = action.rename[1];
+        if (action.drop && action.drop === start) start = null;
       }
     }
     const body = out.length ? out : ['// Nothing was recorded.'];
