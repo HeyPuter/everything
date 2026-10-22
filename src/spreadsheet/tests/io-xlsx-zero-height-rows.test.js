@@ -34,3 +34,20 @@ it('leaves rows with a height as they were', async () => {
   expect(wb.isRowHidden(wb.activeSheetId, 1)).toBe(false);
   expect(wb.getValue(wb.activeSheetId, 2, 0)).toBe(3);
 });
+
+// So too a column the file gives no width (width="0"): Excel shows none of it.
+it('opens a column of zero width as a hidden column, and saves it so', async () => {
+  const book = X.utils.book_new();
+  X.utils.book_append_sheet(book, X.utils.aoa_to_sheet([[1, 2, 3]]), 'Data');
+  const zip = X.CFB.read(new Uint8Array(X.write(book, { type: 'array', bookType: 'xlsx' })), { type: 'array' });
+  const sheet = X.CFB.find(zip, '/xl/worksheets/sheet1.xml');
+  sheet.content = new TextEncoder().encode(new TextDecoder().decode(sheet.content).replace('<sheetData>', '<cols><col min="2" max="2" width="0" customWidth="1"/><col min="3" max="3" width="20" customWidth="1"/></cols><sheetData>'));
+  sheet.size = sheet.content.length;
+  let wb = await workbookFromFile(X.CFB.write(zip, { type: 'array', fileType: 'zip' }), 'cols.xlsx');
+  for (let round = 0; round < 2; round++) {
+    const id = wb.activeSheetId;
+    expect(wb.isHidden(id, 'col', 1)).toBe(true);
+    expect(wb.isHidden(id, 'col', 2)).toBe(false);
+    wb = await workbookFromFile(await workbookToXlsx(wb), 'saved.xlsx');
+  }
+});

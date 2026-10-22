@@ -2019,7 +2019,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   const hiddenRows = hiddenLines(meta?.sheets?.[name]?.hidden?.rows, MAX_ROW);
   (ws?.['!cols'] || []).forEach((col, i) => {
     if (!col) return;
-    if (col.hidden) hiddenCols.add(i);
+    // A column the file gives no width (width="0") shows in Excel as no column, as a hidden one does.
+    if (col.hidden || col.width === 0 || col.wpx === 0) hiddenCols.add(i);
     const px = ((!own || own.nativeStyles) && partXml ? nativePixels(col) : null) ?? col.wpx ?? (col.wch != null ? Math.round(col.wch * 7 + 5) : col.width != null ? Math.round(col.width * 7 + 5) : null);
     // Even a one-pixel override affects cell and drawing boundaries.
     if (px && px !== defaultColWidth) colWidths[i] = Math.max(1, Math.min(MAX_STORED_COL_WIDTH, px));
