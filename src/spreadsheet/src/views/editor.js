@@ -888,7 +888,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
         el('button.btn.btn-primary', { type: 'submit' }, existing ? 'Save' : 'Insert')));
     // Starts on the address for an existing link or a cell with text, else on the text; through openModal, whose screen-size guard keeps a phone's keyboard down.
-    const modal = openModal({ title: existing ? 'Edit link' : 'Insert link', content, initialFocus: existing || labelNow ? urlInput : textInput });
+    // Cancelled, it gives the keyboard back to the sheet, as when it is saved, not to the ribbon button it was opened from.
+    const modal = openModal({ title: existing ? 'Edit link' : 'Insert link', content, initialFocus: existing || labelNow ? urlInput : textInput, onClose: () => keepFocus() });
   }
 
   function openNoteDialog() {
@@ -912,7 +913,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
         el('button.btn.btn-primary', { type: 'submit' }, existing ? 'Save' : 'Add note')));
     area.addEventListener('keydown', (e) => { if (isComposing(e)) return; if (e.key === 'Enter' && isMod(e)) submit(e); });
-    const modal = openModal({ title: existing ? 'Edit note' : 'Add note', content, initialFocus: area });
+    const modal = openModal({ title: existing ? 'Edit note' : 'Add note', content, initialFocus: area, onClose: () => keepFocus() });
     area.setSelectionRange(area.value.length, area.value.length); // the caret after the note, where the field took the focus
   }
 
