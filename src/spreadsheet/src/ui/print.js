@@ -21,6 +21,7 @@ import { richTextMeasure, largestRichTextSize } from '../core/rich-text-font.js'
 import { paginatePrintColumns, fitPrintTableScale, setPrintTitleAxes, setPrintBreakAxes, quantizePrintScale } from './print-pagination.js';
 import { fontColorCss } from '../core/font-color.js';
 import { normalizePrintSettings } from '../core/print-settings.js';
+import { accountStorageKey } from '../lib/account-storage.js';
 import { paintPrintBorders, setMergedPrintBorders } from './print-borders.js';
 import { mergeBorderSegments } from '../core/merge-borders.js';
 import { codeColor } from '../core/numfmt.js';
@@ -99,6 +100,28 @@ export function sheetPrintPrefs(sheet) {
     gridlines: p.gridlines, headers: p.headings, title: p.title ?? false, repeatFrozen: p.repeatFrozen ?? false, header: p.header || '', footer: p.footer || '',
     rowBreaks: p.rowBreaks || [], colBreaks: p.colBreaks || [],
     ...Object.fromEntries(HEADER_VARIANTS.map(key => [key, p[key]])), native: true, ...chart };
+}
+
+const PREFS_KEY = 'spreadsheet:print';
+
+/** The print choices this account last printed with (File ▸ Print), over the defaults. */
+export function savedPrintPrefs() {
+  try { return { ...PRINT_DEFAULTS, ...(JSON.parse(localStorage.getItem(accountStorageKey(PREFS_KEY)) || '{}') || {}) }; } catch { return { ...PRINT_DEFAULTS }; }
+}
+
+/** Keep the print choices for next time (the account's, in this browser). */
+export function savePrintPrefs(prefs) {
+  try { localStorage.setItem(accountStorageKey(PREFS_KEY), JSON.stringify(prefs)); } catch { /* no storage */ }
+}
+
+/**
+ * The page setup a sheet prints with: its own, or, for a sheet with none, the one the print makes of the choices last
+ * printed with (fit to the page's width at first). The Page Layout view, Page Break Preview and the status bar's page
+ * number lay the sheet out by this, and a page setup change on such a sheet starts from it: what prints is what they show.
+ */
+export function effectivePrintSettings(sheet) {
+  if (!sheet || sheet.printSettings) return sheet?.printSettings || normalizePrintSettings({});
+  return normalizePrintSettings(printSettingsFromPrefs(sheet, { ...savedPrintPrefs(), ...sheetPrintPrefs(sheet) }));
 }
 
 export function printSettingsFromPrefs(sheet, prefs) {

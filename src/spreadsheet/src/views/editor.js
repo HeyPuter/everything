@@ -63,11 +63,10 @@ import { createStatusBar } from '../ui/statusbar.js';
 import { createFindBar } from '../ui/findbar.js';
 import { openPrintDialog, currentPrintPrefs } from '../ui/printdialog.js';
 import { installSheetFontLoading } from '../ui/sheet-fonts.js';
-import { installPrintFallback, printFolder } from '../ui/print.js';
+import { installPrintFallback, printFolder, effectivePrintSettings } from '../ui/print.js';
 import { openNamesManager } from '../ui/names.js';
 import { openCreateNamesDialog } from '../ui/createnames.js';
 import { conditionalFormattingItems, openQuickRuleDialog, presetRule, clearRules } from '../ui/condformat-quick.js';
-import { normalizePrintSettings } from '../core/print-settings.js';
 import { rememberFunction } from '../ui/recent-functions.js';
 import { openInsertFunctionDialog, openFunctionArgumentsDialog } from '../ui/insertfunction.js';
 import { openConditionalFormatting } from '../ui/condformat.js';
@@ -3527,7 +3526,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed() || !arg || typeof arg !== 'object') return;
         wb.transaction('Page setup', () => {
           for (const id of settingSheets()) {
-            const current = wb.sheet(id).printSettings || normalizePrintSettings({});
+            const current = effectivePrintSettings(wb.sheet(id));
             wb.setPrintSettings(id, { ...current, ...arg, margins: { ...current.margins, ...(arg.margins || {}) } });
           }
         });
@@ -3552,7 +3551,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           statusBar?.announce('Page break removed');
         } else {
           const next = insertBreaks(settings, at);
-          if (!wb.setPageBreaks(sheetId, next, 'Insert page break')) { toast('A page already starts at the selected cell', { icon: 'info' }); keepFocus(); return; }
+          // A sheet without a page setup of its own takes the one it prints with, the break added.
+          const placed = sheet.printSettings ? wb.setPageBreaks(sheetId, next, 'Insert page break')
+            : wb.setPrintSettings(sheetId, { ...effectivePrintSettings(sheet), rowBreaks: next.rows, colBreaks: next.cols }, 'Insert page break');
+          if (!placed) { toast('A page already starts at the selected cell', { icon: 'info' }); keepFocus(); return; }
           statusBar?.announce('Page break inserted');
         }
         refreshPageView(true);
@@ -3574,7 +3576,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!arg) return;
         const sheet = wb.sheet(grid.sheetId), area = pageBreaks(wb, grid.sheetId)?.area;
         if (!sheet || !area) return;
-        const current = sheet.printSettings || normalizePrintSettings({});
+        const current = effectivePrintSettings(sheet);
         const next = moveAreaEdge(area, arg.edge, arg.to);
         wb.setPrintSettings(grid.sheetId, { ...current, areas: [next, ...current.areas.slice(1)] }, 'Print area');
         statusBar?.announce(`Print area set to ${selectionName(next)}`);
@@ -3598,7 +3600,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         const sheet = wb.sheet(sheetId);
         if (sheet.kind === 'chart') return;
-        const current = sheet.printSettings || normalizePrintSettings({});
+        const current = effectivePrintSettings(sheet);
         if (arg === 'clear') {
           if (!current.areas.length) { toast('There is no print area to clear', { icon: 'info' }); keepFocus(); return; }
           wb.setPrintSettings(sheetId, { ...current, areas: [] });
@@ -6432,7 +6434,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   const sheetViewMode = () => wb.sheet(grid.sheetId)?.viewMode || 'normal';
   const pageLayout = createPageLayout({
     wb, fileName: () => doc.name, filePath: () => printFolder(P.resolvedAbsolutePath(doc.path)), redraw: () => grid.redraw(), focusGrid: () => grid.focus(),
-    commit: (id, patch) => { wb.setPrintSettings(id, { ...(wb.sheet(id).printSettings || normalizePrintSettings({})), ...patch }); notify(); },
+    commit: (id, patch) => { wb.setPrintSettings(id, { ...effectivePrintSettings(wb.sheet(id)), ...patch }); notify(); },
   });
   let pageViewKey = null;
   let pageLayoutKey = null;

@@ -5,29 +5,18 @@
 
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
-import { printSheet, printFolder, PRINT_DEFAULTS, PAPER_SIZES, MARGINS, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight } from './print.js';
+import { printSheet, printFolder, PAPER_SIZES, MARGINS, supportsPageMarginBoxes, sheetPrintPrefs, printSettingsFromPrefs, printableWidth, printableHeight, savedPrintPrefs, savePrintPrefs } from './print.js';
 import { toast } from './toast.js';
 import { rangeName, colName } from '../core/cell.js';
 import { parseRefText } from '../core/refs.js';
 import { getLocale } from '../core/format.js';
 import * as S from '../core/selection.js';
-import { accountStorageKey } from '../lib/account-storage.js';
 import { createPrintPreview } from './print-preview.js';
 import { resolvedAbsolutePath } from '../lib/puter.js';
 
-const STORAGE_KEY = 'spreadsheet:print';
-
-function loadPrefs(key) {
-  try { return { ...PRINT_DEFAULTS, ...(JSON.parse(localStorage.getItem(key) || '{}') || {}) }; } catch { return { ...PRINT_DEFAULTS }; }
-}
-
-function savePrefs(key, prefs) {
-  try { localStorage.setItem(key, JSON.stringify(prefs)); } catch { /* no storage */ }
-}
-
 /** The saved print preferences of this account, as the dialog would start from them. */
 export function currentPrintPrefs(sheet) {
-  const prefs = { ...loadPrefs(accountStorageKey(STORAGE_KEY)), ...sheetPrintPrefs(sheet) };
+  const prefs = { ...savedPrintPrefs(), ...sheetPrintPrefs(sheet) };
   if (prefs.area === 'selection') prefs.area = 'sheet';
   return prefs;
 }
@@ -42,8 +31,7 @@ export function openPrintDialog(ctx) {
   const ranges = (ctx.ranges?.() || [range]).map((rg) => ({ ...rg }));
   const hasSelection = !chartSheet && (ranges.length > 1 || !S.isSingle(ctx.selection()));
   const selectionName = ranges.length > 3 ? `${ranges.length} ranges` : ranges.map(rangeName).join(', ');
-  const storageKey = accountStorageKey(STORAGE_KEY);
-  const prefs = { ...loadPrefs(storageKey), ...sheetPrintPrefs(sheet) };
+  const prefs = { ...savedPrintPrefs(), ...sheetPrintPrefs(sheet) };
   const visibleSheets = ctx.wb.sheets.filter((sh) => !sh.hidden).length;
   if (!hasSelection && prefs.area === 'selection' || prefs.area === 'workbook' && visibleSheets < 2) prefs.area = sheet.printSettings?.areas.length ? 'printArea' : 'sheet';
 
@@ -227,7 +215,7 @@ export function openPrintDialog(ctx) {
       prefs[i ? 'titleCols' : 'titleRows'] = ref ? i ? [ref.c1, ref.c2] : [ref.r1, ref.r2] : null;
     }
     const { area, native, titleRows, titleCols, ...remembered } = prefs;
-    savePrefs(storageKey, remembered);
+    savePrintPrefs(remembered);
     if (sheet.printSettings || prefs.titleRows || prefs.titleCols) ctx.wb.setPrintSettings(sheetId, printSettingsFromPrefs(sheet, prefs));
     preparing = true;
     const button = content.querySelector('[type="submit"]');

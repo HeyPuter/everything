@@ -150,7 +150,8 @@ it('stores Page Layout choices in the sheet print settings with undo and XLSX ro
   button('Margins').click(); await flush(); menuItem('Narrow').click(); await flush();
   button('Size').click(); await flush(); menuItem('A4').click(); await flush();
   button('Width').click(); await flush(); menuItem('1 page').click(); await flush();
-  button('Print Gridlines').click(); await flush();
+  // Gridlines print by default, and the sheet's page setup started from what it printed with.
+  expect(button('Print Gridlines').getAttribute('aria-pressed')).toBe('true');
   button('Print Area').click(); await flush(); menuItem('Set Print Area').click(); await flush();
   const p = wb.sheet(id).printSettings;
   expect(p).toMatchObject({ orientation: 'landscape', paperSize: 9, fitToPage: true, fitWidth: 1, fitHeight: 0, gridlines: true, areas: [parseRange('A1:D4')] });

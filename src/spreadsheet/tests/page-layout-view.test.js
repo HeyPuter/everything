@@ -38,11 +38,13 @@ it('sizes pages from the page setup, with the default page when the sheet has no
   wb.ensureSize(id, 200, 30);
   const m = pageLayoutMetrics(wb, id);
   expect([m.paperWidth, m.paperHeight]).toEqual([816, 1056]); // Letter at 96 px to the inch
-  expect(m.margins.left).toBeCloseTo(0.7 * 96);
-  expect(m.margins.top).toBeCloseTo(0.75 * 96);
+  // A sheet without a page setup of its own is laid out as it prints: the print's Normal margins of 12mm.
+  const margin = 12 / 25.4 * 96;
+  expect(m.margins.left).toBeCloseTo(margin);
+  expect(m.margins.top).toBeCloseTo(margin);
   expect(m.scale).toBe(1);
   // Each page holds as many whole columns and rows as fit its printable width and height.
-  const width = 816 - 2 * 0.7 * 96, height = 1056 - 2 * 0.75 * 96;
+  const width = 816 - 2 * margin, height = 1056 - 2 * margin;
   const firstCols = m.cols[1], firstRows = m.rows[1];
   let w = 0; for (let c = 0; c < firstCols; c++) w += wb.colWidth(id, c);
   let h = 0; for (let r = 0; r < firstRows; r++) h += wb.rowHeight(id, r);
@@ -149,8 +151,9 @@ it('shows the sheet as pages from View, the status bar and the View menu, and ba
   const a1 = view.el.querySelector('#gc-0-0') || view.el.querySelector('.cell[data-c="0"]');
   expect(a1).toBeTruthy();
   const row = a1.closest('.grid-row');
-  expect(parseFloat(row.style.transform.match(/translateY\(([-\d.]+)px\)/)[1])).toBe(12 + Math.round(0.75 * 96));
-  expect(parseFloat(a1.style.left)).toBe(12 + Math.round(0.7 * 96));
+  // Inside the margins it prints with (the print's Normal, 12mm, for a sheet with no page setup of its own).
+  expect(parseFloat(row.style.transform.match(/translateY\(([-\d.]+)px\)/)[1])).toBe(12 + Math.round(12 / 25.4 * 96));
+  expect(parseFloat(a1.style.left)).toBe(12 + Math.round(12 / 25.4 * 96));
   // Rulers above the column letters and beside the row numbers.
   expect(view.el.querySelectorAll('.grid-ruler.across .pl-ruler').length).toBeGreaterThan(0);
   expect(view.el.querySelectorAll('.grid-ruler.down .pl-ruler').length).toBeGreaterThan(0);

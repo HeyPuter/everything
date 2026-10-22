@@ -7,9 +7,8 @@
  * their left, center and right sections editable in place), and the rulers in inches.
  */
 import { el } from './dom.js';
-import { normalizePrintSettings } from '../core/print-settings.js';
 import { printBands, quantizePrintScale } from './print-pagination.js';
-import { printPageText, splitPrintSections, printRange, manualBreaksApply } from './print.js';
+import { printPageText, splitPrintSections, printRange, manualBreaksApply, effectivePrintSettings } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { richHeaderSections } from './print-header.js';
 
@@ -30,9 +29,9 @@ export function paperInches(settings) {
   return settings?.orientation === 'landscape' ? [h, w] : [w, h];
 }
 
-/** The sheet's page setup, or the defaults for a sheet that has none (Letter, portrait, 100%, Normal margins). */
+/** The sheet's page setup, or for a sheet that has none the one it prints with (see effectivePrintSettings). */
 export function pageSettings(sheet) {
-  return sheet?.printSettings || normalizePrintSettings({});
+  return effectivePrintSettings(sheet);
 }
 
 const lineSizes = (wb, sheet, axis, from, to) => {

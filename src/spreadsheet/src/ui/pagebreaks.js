@@ -3,7 +3,7 @@
  * (paper, orientation, margins, scale or fit to pages), its print area or used range, its manual page
  * breaks and the sizes of its rows and columns, laid out as the print path lays them out (printBands).
  */
-import { PRINT_DEFAULTS, sheetPrintPrefs, printableWidth, printableHeight, manualBreaksApply, printRange } from './print.js';
+import { savedPrintPrefs, sheetPrintPrefs, printableWidth, printableHeight, manualBreaksApply, printRange } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { printBands } from './print-pagination.js';
 
@@ -15,7 +15,8 @@ import { printBands } from './print-pagination.js';
 export function pageBreaks(wb, sheetId) {
   const sheet = wb.sheet(sheetId);
   if (!sheet || sheet.kind === 'chart') return null;
-  const prefs = { ...PRINT_DEFAULTS, ...sheetPrintPrefs(sheet) };
+  // As the print takes them: a sheet without a page setup of its own prints with the choices last printed with.
+  const prefs = { ...savedPrintPrefs(), ...sheetPrintPrefs(sheet) };
   const given = sheet.printSettings?.areas?.[0];
   // A print area of whole columns (or rows) prints as far as the sheet's print reaches, not to the grid's end: taken
   // whole, it laid out some twenty thousand pages down to row 1,048,576 on every edit, half a second a keystroke.
