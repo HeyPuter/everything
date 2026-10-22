@@ -81,6 +81,23 @@ function styleChanges(prev, next) {
   return out;
 }
 
+/** What the workbook says when it refuses an edit outright (see _locked, _arrayRefused). */
+const REFUSALS = new Set(['protected', 'array-edit', 'pivot-edit', 'merge-paste']);
+
+/**
+ * Run `fn`, an edit of sheet `sheetId`, and tell whether the workbook refused it there: it said so for that sheet
+ * and changed nothing. Some edits (Clear, the fill handle) say a refusal without returning false.
+ */
+function refusable(wb, sheetId, fn) {
+  let said = false;
+  const hear = (e) => { if (REFUSALS.has(e.detail?.type) && e.detail.sheetId === sheetId) said = true; };
+  const version = wb.version;
+  wb.addEventListener('change', hear);
+  let result;
+  try { result = fn(); } finally { wb.removeEventListener('change', hear); }
+  return { result, refused: said && wb.version === version };
+}
+
 /**
  * The cell a target sheet ends up with when the write `prev` → `next` on the active sheet is replayed over
  * `target` (its own cell there, or null).
@@ -171,8 +188,8 @@ export function installSheetGroups(Workbook) {
       const locked = others.map((id) => this.sheet(id)).find((sheet) => sheet?.protected);
       if (locked) { this._locked(locked); return false; }
       return this.transaction(groupLabel(name), () => this._withoutGroup(() => {
-        const result = original.call(this, sheetId, ...rest);
-        if (result === false) return result;
+        const { result, refused } = refusable(this, sheetId, () => original.call(this, sheetId, ...rest));
+        if (result === false || refused) return result;
         // A 3D reference over several of the grouped sheets follows the edit once, not once for each of them.
         const edited = [this.sheet(sheetId)?.name];
         for (const id of others) {
