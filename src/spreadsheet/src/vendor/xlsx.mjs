@@ -19180,6 +19180,11 @@ function process_style_xlml(styles, stag, opts) {
 }
 
 /* TODO: there must exist some form of OSP-blessed spec */
+/* Puter Spreadsheet local patch: the text of a rich string or a comment is all of its text, its references
+ * decoded once the tags are out. Only the text inside <Font> runs was kept, so a cell Excel wrote as
+ * <B>Total</B><Font html:Color="#FF0000"> due</Font> opened as " due", and a comment kept "&lt;" as typed;
+ * decoding before taking the tags out also took out text such as "<b>" written as "&lt;b&gt;". */
+function xlml_markup_text(xml/*:string*/)/*:string*/ { return unescapexml(xml.replace(/<[^<>]*>/g, "")); }
 function parse_xlml_data(xml, ss, data, cell/*:any*/, base, styles, csty, row, arrayf, o, date1904) {
 	var nf = "General", sid = cell.StyleID, S = {}; o = o || {};
 	var interiors = [];
@@ -19204,7 +19209,7 @@ function parse_xlml_data(xml, ss, data, cell/*:any*/, base, styles, csty, row, a
 			break;
 		case 'String':
 			cell.t = 's'; cell.r = xlml_fixstr(unescapexml(xml));
-			cell.v = (xml.indexOf("<") > -1 ? unescapexml(ss||xml).replace(/<[^<>]*>/g, "") : cell.r); // todo: BR etc
+			cell.v = (xml.indexOf("<") > -1 ? xlml_markup_text(xml) : cell.r); // todo: BR etc
 			break;
 		case 'DateTime':
 			if(xml.slice(-1) != "Z") xml += "Z";
@@ -19219,7 +19224,7 @@ function parse_xlml_data(xml, ss, data, cell/*:any*/, base, styles, csty, row, a
 		case 'Error': cell.t = 'e'; cell.v = RBErr[xml]; if(o.cellText !== false) cell.w = xml; break;
 		default:
 			if(xml == "" && ss == "") { cell.t = 'z'; }
-			else { cell.t = 's'; cell.v = xlml_fixstr(ss||xml); }
+			else { cell.t = 's'; cell.v = xml.indexOf("<") > -1 ? xlml_markup_text(xml) : xlml_fixstr(unescapexml(xml)); }
 			break;
 	}
 	safe_format_xlml(cell, nf, o, date1904);
