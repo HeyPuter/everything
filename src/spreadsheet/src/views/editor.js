@@ -641,7 +641,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Equal to and Not equal to take the number when the text reads as one, and the text itself otherwise.
         const raw = (v) => { const n = t.numeric || t.value === 'eq' || t.value === 'neq' ? numberOf(v) : null; return n != null ? n : v; };
         wb.setFilterCriteria(sheetId, c, { op: t.value, value: t.args >= 1 ? raw(condValue.value) : undefined, value2: t.args >= 2 ? raw(condValue2.value) : undefined });
-      } else if (!current?.color || valuesChanged || kept() !== selected) { // Apply with the values untouched keeps a colour filter as it is
+      // Apply with the values untouched keeps a colour filter as it is, and a condition kept from a file (a Top 10).
+      } else if ((!current?.color && current?.native == null) || valuesChanged || kept() !== selected) {
         const keep = kept();
         if (all.every((v) => keep.has(v.value))) wb.setFilterCriteria(sheetId, c, null);
         else wb.setFilterCriteria(sheetId, c, { values: [...keep], ...(current?.caseSensitive === false ? { caseSensitive: false } : {}) });

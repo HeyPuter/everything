@@ -77,6 +77,18 @@ it('keeps a colour filter when Apply is pressed without choosing values or a con
   expect(wb.sheet(id).filter.criteria[0]).toEqual({ color: '#ff0000' });
 });
 
+it('keeps a condition kept from a file (a Top 10) when Apply is pressed without choosing values', async () => {
+  // Every value listed reads as chosen under such a condition, so Apply cleared it and showed every row it hid.
+  const { wb, id, button, summary } = await mount(['1', '2', '3', '4'], (wb, id) => {
+    wb.setFilterCriteria(id, 0, { native: '<top10 val="2"/>' });
+  });
+  expect(wb.isRowHidden(id, 1)).toBe(true);
+  expect(summary()).toBe('4 of 4 selected');
+  button('Apply').click();
+  expect(wb.sheet(id).filter.criteria[0]).toEqual({ native: '<top10 val="2"/>' });
+  expect([1, 2, 3, 4].map((r) => wb.isRowHidden(id, r))).toEqual([true, true, false, false]);
+});
+
 it('marks no fill swatch when the column is not filtered by colour, and follows the choice', async () => {
   const { wb, id } = await mount(['x', 'y'], (wb, id) => {
     wb.applyStyle(id, { r1: 1, c1: 0, r2: 1, c2: 0 }, { bg: '#ff0000' });
