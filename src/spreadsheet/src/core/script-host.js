@@ -106,6 +106,11 @@ export class ScriptHost {
     return r2 < range.r1 || c2 < range.c1 ? null : { ...range, r2, c2 };
   }
 
+  /** Rows and columns keep their sizes and visibility on a protected sheet: said so, rather than a change that did not happen. */
+  linesWritable(sheet) {
+    if (sheet.protected) this.fail(`${sheet.name} is protected; unprotect it before the script changes its rows or columns.`);
+  }
+
   writable(sheet, range) {
     if (sheet.protected && this.wb.lockedIn(sheet.id, range)) this.fail(`${sheet.name} is protected; unprotect it before the script changes it.`);
     if (range && this.wb.isLockedIn(sheet.id, range) && !sheet.protected) this.fail(`Part of ${sheet.name}!${scriptAddress(range)} is a protected range.`);
@@ -452,6 +457,7 @@ const WRITES = {
     // Unhide everything sample, which shows them on every sheet, failed on a workbook holding one.
     if (!op.hidden && this.sheetOf(op.sheet, { grid: false }).kind === 'chart') return;
     const { sheet, range } = this.rangeOf(op);
+    this.linesWritable(sheet);
     const axis = op.axis === 'col' ? 'col' : 'row';
     const [from, to] = axis === 'row' ? [range.r1, range.r2] : [range.c1, range.c2];
     if (op.hidden) {
@@ -466,6 +472,7 @@ const WRITES = {
     const { sheet, range } = this.rangeOf(op);
     const px = Number(op.px);
     if (!(px >= 0)) this.fail('A size must be a number of pixels.');
+    this.linesWritable(sheet);
     const axis = op.axis === 'col' ? 'col' : 'row';
     // Rows the range names, below the data too; only whole columns, which name every row, stop at the data's end.
     const [from, to] = axis === 'col' ? [range.c1, range.c2] : [range.r1, wholeCols(range) ? Math.min(range.r2, Math.max(range.r1, (this.wb.usedRange(sheet.id)?.r2 ?? range.r1))) : range.r2];
@@ -477,6 +484,7 @@ const WRITES = {
   },
   autofit(op) {
     const { sheet, range } = this.rangeOf(op);
+    this.linesWritable(sheet);
     const axis = op.axis === 'col' ? 'col' : 'row';
     const used = this.wb.usedRange(sheet.id);
     const [from, to] = axis === 'col' ? [range.c1, Math.min(range.c2, used?.c2 ?? range.c1)] : [range.r1, Math.min(range.r2, used?.r2 ?? range.r1)];
