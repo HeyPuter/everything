@@ -1274,7 +1274,7 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     result = { sheetId, tableId, rows: height, errors };
   };
   wb.transaction(label, () => {
-    write();
+    alone(wb, write);
     if (result && !result.error) loadStep(wb, query.id, label, before, () => after);
   });
   if (result && !result.error) {
@@ -1283,6 +1283,15 @@ export function loadResult(wb, query, table, { at = null } = {}) {
     after = loadRecord(saveQuery(wb, query));
   }
   return result || { error: 'Nothing was loaded.' };
+}
+
+/**
+ * Run `fn` writing on the sheets it names alone: a query's table is the query's to write, and with its sheet grouped
+ * with others (both tabs selected, then Refresh All) the cells, rows and columns it rewrote went onto the same places
+ * of every other sheet in the group, as typing into a group does.
+ */
+function alone(wb, fn) {
+  return wb._withoutGroup ? wb._withoutGroup(fn) : fn();
 }
 
 /** Evaluate a query and write it over its table (or only record its row count, for a connection-only query). */
@@ -1319,7 +1328,7 @@ export function unloadQuery(wb, query) {
     wb.transaction('Load query', () => {
       const range = { ...hit.table.range };
       wb.deleteTable(hit.sheet.id, hit.table.id);
-      wb.clearRange(hit.sheet.id, range, { styles: true });
+      alone(wb, () => wb.clearRange(hit.sheet.id, range, { styles: true }));
       loadStep(wb, query.id, 'Load query', before, () => after);
     });
   }
