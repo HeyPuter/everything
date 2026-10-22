@@ -40,19 +40,23 @@ it.each(CURRENCIES.map(([cur]) => ({ cur })))(
   },
 );
 
-// The label itself stays portable and distinct in every regional format; only the side of the digits it
-// sits on, and the spacing beside it, follow the format, as Excel writes #,##0.00 € for a German sheet.
-it('keeps portable currency labels independent of the current display locale', () => {
+// The label stays distinct in every regional format: the portable one, or the one the format shows where
+// that names the currency alone (US$ in China); the side of the digits it sits on, and the spacing beside it,
+// follow the format, as Excel writes #,##0.00 € for a German sheet. Either way the code names its currency.
+it('keeps currency labels distinct whatever the current display locale', () => {
   const previous = getLocale();
   try {
     for (const locale of ['en-US', 'en-AU', 'zh-CN', 'de-DE']) {
       setLocale(locale);
       for (const [cur, label] of Object.entries(labels)) {
         const code = styleToNumFmt({ fmt: 'currency', cur, dec: 2 });
-        expect(code.replace(/[#,0.]|"/g, '').trim()).toBe(label.trim());
+        const shown = new Intl.NumberFormat(locale, { style: 'currency', currency: cur }).formatToParts(1).find((p) => p.type === 'currency').value;
+        expect([label.trim(), shown.trim()]).toContain(code.replace(/[#,0.]|"/g, '').trim());
         expect(numFmtToStyle(code)).toEqual({ fmt: 'currency', cur, dec: 2 });
       }
     }
+    setLocale('zh-CN');
+    expect(styleToNumFmt({ fmt: 'currency', cur: 'USD', dec: 2 })).toBe('"US$"#,##0.00');
     setLocale('de-DE');
     expect(styleToNumFmt({ fmt: 'currency', cur: 'EUR', dec: 2 })).toBe('#,##0.00" €"');
     setLocale('en-US');

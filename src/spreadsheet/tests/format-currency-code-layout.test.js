@@ -5,8 +5,9 @@ import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
 
 // The Currency format's code always put the label in front of the digits, so a German cell reading
 // 1.234,50 € exported and copied as "€"#,##0.00 and opened in Excel as €1.234,50. The label now takes
-// the side of the digits, and the spacing, that the regional format writes it with, while the label
-// itself stays the portable, distinct one so the code still names the same currency anywhere.
+// the side of the digits, and the spacing, that the regional format writes it with. The label is the one
+// the format shows where that names the currency alone ($US in France, ₺ in Turkey), else the portable,
+// distinct one, so the code still names the same currency anywhere.
 const NBSP = ' ';
 afterEach(() => setLocale('en-US'));
 
@@ -16,7 +17,8 @@ it('writes the currency label where the regional format puts it', () => {
   expect(styleToNumFmt({ fmt: 'currency', cur: 'EUR' })).toBe(`#,##0.00"${NBSP}€"`);
   expect(styleToNumFmt({ fmt: 'currency', cur: 'JPY' })).toBe(`#,##0"${NBSP}¥"`);
   setLocale('fr-FR');
-  expect(styleToNumFmt({ fmt: 'currency', cur: 'USD', dec: 2 })).toBe(`#,##0.00"${NBSP}$"`);
+  expect(formatValue(1234.5, { fmt: 'currency', cur: 'USD', dec: 2 })).toBe(`1\u202f234,50${NBSP}$US`);
+  expect(styleToNumFmt({ fmt: 'currency', cur: 'USD', dec: 2 })).toBe(`#,##0.00"${NBSP}$US"`);
   // The regional formats that lead with the label keep the code they always had.
   setLocale('en-US');
   expect(styleToNumFmt({ fmt: 'currency', cur: 'USD', dec: 2 })).toBe('"$"#,##0.00');
@@ -25,15 +27,20 @@ it('writes the currency label where the regional format puts it', () => {
   expect(styleToNumFmt({ fmt: 'currency', cur: 'JPY' })).toBe('"¥"#,##0');
 });
 
-it('keeps the portable label whatever regional format writes the code', () => {
+it('writes the label the regional format shows where it names the currency alone, else the portable one', () => {
   const labels = { USD: '$', EUR: '€', GBP: '£', JPY: '¥', INR: '₹', CNY: 'CN¥', CAD: 'CA$', AUD: 'A$', CHF: 'CHF', BRL: 'R$', MXN: 'MX$', KRW: '₩', SEK: 'SEK', NOK: 'NOK', PLN: 'PLN', TRY: 'TRY', DKK: 'DKK', CZK: 'CZK', RUB: 'RUB' };
   for (const [locale] of LOCALES) {
     setLocale(locale);
     for (const [cur] of CURRENCIES) {
       const code = styleToNumFmt({ fmt: 'currency', cur, dec: 2 });
-      expect(code.replace(/[#,0.]|"/g, '').trim()).toBe(labels[cur]);
+      const label = code.match(/"([^"]*)"/)[1].trim();
+      const shown = formatValue(1, { fmt: 'currency', cur, dec: 0 }).replace(/[\d\s]/g, '');
+      expect([labels[cur], shown], `${locale} ${cur}`).toContain(label);
     }
   }
+  // A sign several currencies share keeps the portable label: kr is the krona, the krone and the Danish krone.
+  setLocale('sv-SE');
+  expect(styleToNumFmt({ fmt: 'currency', cur: 'SEK', dec: 2 })).toBe(`#,##0.00"${NBSP}SEK"`);
 });
 
 it('reads a code back as the same Currency format whichever side its label is on', () => {
@@ -104,9 +111,12 @@ it('strips the label\'s own spacing before the format\'s side is decided', () =>
   setLocale('nb-NO');
   expect(currencyAffixes('NOK')).toEqual({ prefix: '', suffix: `${NBSP}NOK` });
   expect(section('NOK', 2)).toBe(`#,##0.00"${NBSP}NOK"`);
-  // A label of letters keeps a separator even where the format writes its own symbol tight against the digits.
-  setLocale('tr-TR');
+  // A label of letters keeps a separator even where the format writes its own symbol tight against the digits;
+  // the format's own sign, where it names the currency alone, sits tight as the format writes it.
+  setLocale('en-US');
   expect(currencyAffixes('TRY')).toEqual({ prefix: `TRY${NBSP}`, suffix: '' });
+  setLocale('tr-TR');
+  expect(currencyAffixes('TRY')).toEqual({ prefix: '₺', suffix: '' });
   expect(currencyAffixes('USD')).toEqual({ prefix: '$', suffix: '' });
 });
 

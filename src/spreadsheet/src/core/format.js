@@ -1098,9 +1098,16 @@ export function currencyAffixes(value, loc = locale) {
       spacing = (leading ? parts.slice(at + 1, digits) : parts.slice(digits, at)).filter((p) => p.type === 'literal').map((p) => p.value).join('');
     }
   } catch { /* an Intl that does not know the currency keeps the label in front, as before */ }
-  const gap = spacing || keptApart;
+  // The label the regional format shows is the code's, so a saved file shows the amount as the grid does, where
+  // that label names this currency alone: US$ in Britain, $US in France, the ISO code held off by a no-break
+  // space (USD in Italy). A sign several currencies share (kr in Sweden, $ in Australia) leaves the portable
+  // label, which names the currency wherever the file is opened, and so does a mere wide form of the portable
+  // sign (￥ in Japan writes the ¥ Excel's own yen codes carry).
+  const shown = bareLabel(intlCurrencyLabel(loc, currency, 'symbol') || '');
+  const written = shown && shown.normalize('NFKC') !== label && codeLabelCurrency(shown, spacing) === currency ? shown : label;
+  const gap = spacing || (written === label ? keptApart : '');
   // Frozen: one object is shared by every caller for a currency and a regional format.
-  affixes = Object.freeze(leading ? { prefix: label + gap, suffix: '' } : { prefix: '', suffix: gap + label });
+  affixes = Object.freeze(leading ? { prefix: written + gap, suffix: '' } : { prefix: '', suffix: gap + written });
   currencyAffixCache.set(key, affixes);
   return affixes;
 }
@@ -1398,10 +1405,36 @@ const SPACING_RE = /[\s  ]/;
  * that holds it off the digits ("CHF "#,##0.00, #,##0.00" CHF"), since a bare "CHF"0.00 is a code this app
  * never writes and cannot show that way.
  */
+let regionalCodeLabels = null;
+/**
+ * The currency a code's bare label names, in whatever regional format the code is read: the portable label's,
+ * else that of a label a regional format on offer writes for one currency alone (US$ in Britain, $US in France,
+ * ₺ in Turkey). A sign several currencies share ($ in Australia, kr in Sweden) names none, so a code keeps
+ * naming the same currency wherever it is opened. An ISO code names its currency when `raw`, the label as the
+ * code quotes it, holds it off the digits with the no-break space a regional format writes (#,##0.00" USD" in
+ * Italy); typed with a plain space ("USD "0) it stays the custom code it is, shown as written.
+ */
+export function codeLabelCurrency(label, raw = '') {
+  const portable = CURRENCIES_BY_FORMAT_LABEL.get(label);
+  if (portable) return portable;
+  if (/^[\u00a0\u202f]|[\u00a0\u202f]$/.test(raw) && CURRENCIES.some(([cur]) => cur === label)) return label;
+  if (!regionalCodeLabels) {
+    const seen = new Map();
+    for (const [loc] of LOCALES) for (const [cur] of CURRENCIES) {
+      const shown = bareLabel(intlCurrencyLabel(loc, cur, 'symbol') || '');
+      if (!shown || CURRENCIES_BY_FORMAT_LABEL.has(shown) || /^[A-Z]{3}$/.test(shown)) continue;
+      if (!seen.has(shown)) seen.set(shown, new Set());
+      seen.get(shown).add(cur);
+    }
+    regionalCodeLabels = new Map([...seen].filter(([, curs]) => curs.size === 1).map(([shown, curs]) => [shown, [...curs][0]]));
+  }
+  return regionalCodeLabels.get(label);
+}
 function currencyForLabel(label, leading) {
-  const cur = CURRENCIES_BY_FORMAT_LABEL.get(bareLabel(label));
+  const cur = codeLabelCurrency(bareLabel(label), label);
   if (!cur) return undefined;
-  const needsSpace = currencyFormatLabel(cur) !== bareLabel(currencyFormatLabel(cur));
+  // Only the portable label of letters needs the space; a regional sign (₺ for TRY in Turkey) may sit tight.
+  const needsSpace = currencyFormatLabel(cur) !== bareLabel(currencyFormatLabel(cur)) && bareLabel(label) === bareLabel(currencyFormatLabel(cur));
   const spaced = SPACING_RE.test(leading ? label.at(-1) : label[0]);
   return !needsSpace || spaced ? cur : undefined;
 }

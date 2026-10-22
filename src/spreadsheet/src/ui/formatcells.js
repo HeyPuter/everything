@@ -10,7 +10,7 @@ import { fillColorCss } from '../core/fill-color.js';
 import { el, fieldId, isComposing } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { FORMATS, formatEntry, POINT_SIZES, ptToPx, pxToPt, FILL_COLORS, accountingCode, accountingOptions } from './toolbar.js';
-import { formatValue, currencyFormatLabel, currencyAffixes, currencyDecimals, localeInfo, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt, cellCurrency, layoutAlign } from '../core/format.js';
+import { formatValue, currencyAffixes, codeLabelCurrency, currencyDecimals, localeInfo, FONTS, fontName, fontStack, fontKeyFor, borderCss, CURRENCIES, MAX_DECIMAL_PLACES, AUTOMATIC_FORMAT, styleToNumFmt, cellCurrency, layoutAlign } from '../core/format.js';
 import { formatWithCode, formatCodeError, codeColor } from '../core/numfmt.js';
 import { BORDER_EDGES, readBorderEdges, penSignature } from './border-draft.js';
 import { orientationControl } from './orientation.js';
@@ -95,8 +95,7 @@ export function negativeStyleFor(code) {
   // whichever regional format wrote the code. Prefer distinct labels for new formats; still recognize
   // older codes that used the currency picker's short, sometimes shared symbols.
   const sym = (pre ?? post) == null ? null : (pre ?? post).trim();
-  const cur = sym == null ? null : CURRENCIES.find(([code]) => currencyFormatLabel(code).trim() === sym)?.[0]
-    || CURRENCIES.find(([, , symbol]) => symbol === sym)?.[0];
+  const cur = sym == null ? null : codeLabelCurrency(sym, pre ?? post) || CURRENCIES.find(([, , symbol]) => symbol === sym)?.[0];
   if (sym != null && !cur) return null;
   return {
     category: sym == null ? 'number' : 'currency', dec: decs ? decs.length : 0, group: digits === '#,##0', cur: cur || 'USD',
