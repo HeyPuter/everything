@@ -85,3 +85,11 @@ it('grows evenly from a centred cell a little way in, then on to the right', () 
   expect(right - cellRight).toBeGreaterThan(cellLeft - left);
   grid.destroy();
 });
+
+it('grows on to the right from a cell aligned right once there is no more room on its left', () => {
+  const { grid, left, right, cellLeft, cellRight } = edit({ align: 'right' }, 'A5');
+  expect(left).toBe(cellLeft);
+  expect(right).toBeGreaterThan(cellRight);
+  expect(grid.el.querySelector('.grid-editor').classList.contains('wrap')).toBe(false);
+  grid.destroy();
+});

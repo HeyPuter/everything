@@ -3566,10 +3566,11 @@ export function createGrid(opts) {
       const centred = !formula && align === 'center';
       // Centred, it grows by as much each way while there is room, then further the way there still is: held to
       // twice the narrower side's room, a centred entry in column A (no room to its left) wrapped a word a line.
-      const maxW = w + (toLeft ? roomLeft : centred ? roomLeft + roomRight : roomRight);
+      // Grown to the left, it goes on to the right once the left has no more room, for the same reason.
+      const maxW = w + (toLeft || centred ? roomLeft + roomRight : roomRight);
       const width = clamp(needed, w, maxW);
       editor.style.width = `${width}px`;
-      edit.growLeft = toLeft ? width - w : centred ? clamp((width - w) / 2, width - w - roomRight, roomLeft) : 0;
+      edit.growLeft = toLeft ? Math.min(width - w, roomLeft) : centred ? clamp((width - w) / 2, width - w - roomRight, roomLeft) : 0;
       wrap = needed > maxW;
     }
     placeEditor(view);
