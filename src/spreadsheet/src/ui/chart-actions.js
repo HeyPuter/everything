@@ -87,7 +87,8 @@ export function insertChartSheet(ctx, subtype = DEFAULT_SUBTYPE) {
 export function moveChart(ctx, chart, { newSheet = null, toSheetId = null }) {
   const { wb } = ctx, fromId = ctx.sheetId();
   const detached = detachedChart(wb, fromId, chart);
-  const { id, ...model } = detached;
+  // A chart moved out of a group leaves it: the group's other objects stay behind on this sheet.
+  const { id, group, ...model } = detached;
   let moved = false;
   // A chart sheet whose only chart leaves goes with it, which Protect Workbook forbids: the chart would land on
   // the other sheet and stay on its own as well. Refused instead, with the workbook's structure notice.

@@ -8973,6 +8973,9 @@ export class Workbook extends EventTarget {
     if (this._locked(sheet)) return null;
     const copy = JSON.parse(JSON.stringify(ch));
     delete copy.id;
+    // The copy stands on its own: in the original's group it would be selected and moved with objects it was
+    // never grouped with, and lie apart from them in the stacking order a group keeps together.
+    delete copy.group;
     if (copy.type === 'slicer') delete copy.nativeName;
     // The copy sits 24 pixels down and right of the original, inside the sheet, and is anchored again to
     // the cell its corner now lies in, as a drag anchors what it moves: an object's anchor is the cell its
