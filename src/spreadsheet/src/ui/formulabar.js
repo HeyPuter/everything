@@ -102,10 +102,14 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
     });
   }
 
-  function activeFormula() {
+  /**
+   * The active cell's text as the bar shows it. A formula hidden by its cell's protection shows nothing while the
+   * sheet is protected, unless `entry`: an entry begun in an unlocked cell starts from the formula, as F2 in the
+   * cell does. Begun empty, clicking into the bar and away again wrote the empty text over the formula.
+   */
+  function activeFormula({ entry = false } = {}) {
     const { r, c } = ctx.grid.selection.active;
-    // A formula hidden by its cell's protection shows nothing while the sheet is protected.
-    if (ctx.wb.formulaHiddenAt?.(ctx.sheetId(), r, c) && ctx.wb.getCell(ctx.sheetId(), r, c)?.f != null) return { array: null, text: '' };
+    if (!entry && ctx.wb.formulaHiddenAt?.(ctx.sheetId(), r, c) && ctx.wb.getCell(ctx.sheetId(), r, c)?.f != null) return { array: null, text: '' };
     const array = ctx.wb.fixedArrayAt(ctx.sheetId(), r, c);
     return { array, text: editText(array ? ctx.wb.getCell(ctx.sheetId(), array.r, array.c) : ctx.activeCell()) };
   }
@@ -238,7 +242,7 @@ export function createFormulaBar(ctx, { fixedActions = false } = {}) {
   input.addEventListener('focus', () => {
     if (linkedPicture()) return; // the picture's reference is edited here, not a cell
     if (!ctx.grid.editing) {
-      const { text } = activeFormula();
+      const { text } = activeFormula({ entry: true });
       if (!ensureEdit(text)) return;
       syncing = true;
       input.value = text;
