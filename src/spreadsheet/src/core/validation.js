@@ -21,7 +21,7 @@
  * showErrorMessage preserves a disabled native alert independently of its style.
  */
 
-import { formatDate } from './format.js';
+import { formatDate, formatNumberText } from './format.js';
 import { numberOfText } from './condformat.js';
 import { tokenize } from './formula/tokenizer.js';
 import { parseRefText, isAbsoluteRef } from './refs.js';
@@ -295,7 +295,8 @@ export function checkValue(rule, value, resolveRange, evalFormula) {
       return { ok: true };
     }
     case 'text': {
-      const len = [...(typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : String(value))].length;
+      // A number counts the characters LEN counts in it: 0.1+0.2 is "0.3", not "0.30000000000000004".
+      const len = [...(typeof value === 'boolean' ? (value ? 'TRUE' : 'FALSE') : typeof value === 'number' ? formatNumberText(value) : String(value))].length;
       if (rule.operator && rule.operator !== 'between') return compareValidation(len, rule) ? { ok: true } : { ok: false, message: rule.message || 'This text length does not meet the comparison' };
       if (rule.min != null && len < rule.min) return { ok: false, message: rule.message || `Enter at least ${rule.min} character${rule.min === 1 ? '' : 's'}` };
       if (rule.max != null && len > rule.max) return { ok: false, message: rule.message || `Enter at most ${rule.max} character${rule.max === 1 ? '' : 's'}` };
