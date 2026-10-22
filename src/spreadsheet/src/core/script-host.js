@@ -449,7 +449,8 @@ const WRITES = {
     const px = Number(op.px);
     if (!(px >= 0)) this.fail('A size must be a number of pixels.');
     const axis = op.axis === 'col' ? 'col' : 'row';
-    const [from, to] = axis === 'col' ? [range.c1, range.c2] : [range.r1, Math.min(range.r2, Math.max(range.r1, (this.wb.usedRange(sheet.id)?.r2 ?? range.r1)))];
+    // Rows the range names, below the data too; only whole columns, which name every row, stop at the data's end.
+    const [from, to] = axis === 'col' ? [range.c1, range.c2] : [range.r1, wholeCols(range) ? Math.min(range.r2, Math.max(range.r1, (this.wb.usedRange(sheet.id)?.r2 ?? range.r1))) : range.r2];
     if (to - from + 1 > 20000) this.fail('At most 20,000 rows or columns can be sized at once.');
     for (let i = from; i <= to; i++) {
       if (px === 0) { this.wb.setHidden(sheet.id, axis, [i], true); continue; }
