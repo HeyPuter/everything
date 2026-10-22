@@ -5213,6 +5213,9 @@ export function createGrid(opts) {
     const mod = isMod(e);
     const key = e.key;
     const dir = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[key];
+    // Extend Selection (F8) stretches the selection with every move, as Shift does: the jumps of Ctrl+arrow, Home,
+    // Ctrl+Home, Ctrl+End and PageUp/PageDown too, as in Excel, not the plain arrows alone.
+    const extending = e.shiftKey || keyMode === 'extend';
 
     // Ctrl+Alt+O selects the next chart, image or text box (Shift: the previous one), so they can be reached without a mouse.
     if (mod && e.altKey && e.code === 'KeyO') { e.preventDefault(); selectNextChart(e.shiftKey ? -1 : 1); return; }
@@ -5288,8 +5291,8 @@ export function createGrid(opts) {
       const [dr, dc] = dir;
       // Shift stretches the range last selected; the ranges added before it with Ctrl/Cmd+click stay, as in Excel.
       if (mod) {
-        const target = jumpFrom(e.shiftKey ? { ...sel, active: sel.focus } : sel, dr, dc).active;
-        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { grow: false, add: e.shiftKey });
+        const target = jumpFrom(extending ? { ...sel, active: sel.focus } : sel, dr, dc).active;
+        setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { grow: false, add: extending });
       } else if (e.shiftKey) {
         const target = stepFrom(S.single(sel.focus.r, sel.focus.c), dr, dc).active;
         setSelection(S.extendTo(sel, target.r, target.c), { add: true });
@@ -5338,9 +5341,9 @@ export function createGrid(opts) {
         const s = sheet();
         const fr = s.frozenRows ? Math.min(s.frozenOrigin?.r || 0, s.rows - 1) + s.frozenRows : 0;
         const fc = s.frozenCols ? Math.min(s.frozenOrigin?.c || 0, s.cols - 1) + s.frozenCols : 0;
-        const row = (e.shiftKey ? sel.focus : sel.active).r;
+        const row = (extending ? sel.focus : sel.active).r;
         const target = visibleTarget(mod ? { r: fr, c: fc } : { r: row, c: fc }, mod ? 1 : 0, 1);
-        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { add: e.shiftKey });
+        setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { add: extending });
         return;
       }
       case 'End': {
@@ -5349,7 +5352,7 @@ export function createGrid(opts) {
         if (!mod) { setKeyMode(keyMode === 'end' ? null : 'end'); return; }
         const used = wb.usedRange(sheetId) || { r2: 0, c2: 0 };
         const target = visibleTarget(mod ? { r: used.r2, c: used.c2 } : { r: sel.active.r, c: used.c2 }, mod ? -1 : 0, -1);
-        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { add: e.shiftKey });
+        setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { add: extending });
         return;
       }
       case 'PageDown':
@@ -5366,13 +5369,13 @@ export function createGrid(opts) {
         const before = scrolled();
         const page = offsets.indexAt(before + (across ? viewport.clientWidth : viewport.clientHeight)) - offsets.indexAt(before + (across ? frozen.w : frozen.h)) - 1;
         const n = Math.max(1, page) * (key === 'PageDown' ? 1 : -1);
-        const origin = e.shiftKey ? sel.focus : sel.active;
+        const origin = extending ? sel.focus : sel.active;
         const target = across
           ? visibleTarget({ r: origin.r, c: clamp(origin.c + n, 0, b.cols - 1) }, 0, Math.sign(n))
           : visibleTarget({ r: clamp(origin.r + n, 0, b.rows - 1), c: origin.c }, Math.sign(n), 0);
         // The sheet scrolls by the page too, so the cell lands where the one it left was on screen.
         const onScreen = at(across ? origin.c : origin.r) - before;
-        setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { scroll: false, add: e.shiftKey });
+        setSelection(extending ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { scroll: false, add: extending });
         if (across) windowsFor(null, target.c); else windowsFor(target.r, null);
         const next = Math.max(across ? -shift.x : -shift.y, at(across ? target.c : target.r) - onScreen);
         // A page past the lines laid out so far reaches the blank ones it shows, as scrolling there does.
