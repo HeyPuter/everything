@@ -5313,6 +5313,14 @@ export function createGrid(opts) {
       // Ctrl+C copies the chart itself, as a picture, rather than the cells behind it; Ctrl+D duplicates it, as in Excel.
       if (mod && key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('copyChart', { id: selectedChart }); return; }
       if (mod && e.code === 'KeyD' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('duplicateChart', { id: selectedChart }); return; }
+      // Ctrl+A selects every object on the sheet (those hidden in the Selection Pane aside), as in Excel, rather than
+      // the cells behind them, which left the object looking selected over a whole sheet selected.
+      if (mod && e.code === 'KeyA' && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        for (const ch of sheet().charts) if (!ch.hidden) selectedSet.add(ch.id);
+        schedule();
+        return;
+      }
       // The cells stay selected behind the object, out of sight: a chord that would fill, format, write into, hide,
       // insert or delete them (Ctrl+R, Ctrl+B, Ctrl+;, Ctrl+9, Ctrl+-, Ctrl+Shift+$…) does nothing while it is selected.
       if (OBJECT_IDLE_CHORDS.has(e.code) || (e.shiftKey ? OBJECT_IDLE_SHIFT_CHORDS : OBJECT_IDLE_PLAIN_CHORDS).has(e.code) || (e.altKey && e.code === 'KeyV')) { e.preventDefault(); return; }
