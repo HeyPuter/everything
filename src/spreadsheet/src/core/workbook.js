@@ -523,6 +523,29 @@ function sortComparator(caseSensitive) {
   };
 }
 
+/**
+ * The comparison for each sort key: by value (sortComparator), or, for a key with a custom `list` (Jan, Feb, …
+ * Dec), by place in that list, as Excel's Order ▸ Custom List sorts: the entries the list names (in any case)
+ * first, in its order (reversed when descending), then the other values in ascending order, blanks last.
+ */
+function keyComparators(keys, caseSensitive) {
+  const byValue = sortComparator(caseSensitive);
+  return keys.map((k) => {
+    if (!Array.isArray(k.list) || !k.list.length) return (a, b) => byValue(a, b, k.ascending !== false);
+    const places = new Map();
+    k.list.forEach((item, i) => { const name = String(item).trim().toLowerCase(); if (!places.has(name)) places.set(name, i); });
+    const place = (v) => (typeof v === 'string' ? places.get(v.trim().toLowerCase()) : undefined);
+    const dir = k.ascending !== false ? 1 : -1;
+    return (a, b) => {
+      const pa = place(a), pb = place(b);
+      if (pa !== undefined && pb !== undefined) return (pa - pb) * dir;
+      if (pa !== undefined) return -1;
+      if (pb !== undefined) return 1;
+      return byValue(a, b, true);
+    };
+  });
+}
+
 /** One answer from an async source as a cell value: numbers and booleans as they are, text trimmed, nothing as blank. */
 function asyncCell(value) {
   if (typeof value === 'number' || typeof value === 'boolean') return value;
@@ -5209,8 +5232,9 @@ export class Workbook extends EventTarget {
 
   /**
    * Sort the rows of a range by one or more columns: keys = [{ col, ascending }]
-   * for values, or [{ col, color }] to bring rows with that fill to the top
-   * (ascending false sends them to the bottom).
+   * for values, [{ col, color }] to bring rows with that fill to the top
+   * (ascending false sends them to the bottom), or [{ col, list, ascending }]
+   * for the order of a custom list such as Jan, Feb, … Dec (see keyComparators).
    */
   /**
    * A row tool's range trimmed to a table's data rows: the header and totals
@@ -5309,10 +5333,10 @@ export class Workbook extends EventTarget {
       // A color key sorts rows with that fill first (0) and the rest after (1); a value key sorts by the cell's value.
       rows.push({ r, cells, keys: keys.map((k) => (k.color !== undefined ? (this._cellFill(sheet, r, k.col) === String(k.color).toLowerCase() ? 0 : 1) : this.getValue(sheetId, r, k.col))) });
     }
-    const compareKey = sortComparator(caseSensitive);
+    const compareKeys = keyComparators(keys, caseSensitive);
     rows.sort((a, b) => {
       for (let i = 0; i < keys.length; i++) {
-        const cmp = compareKey(a.keys[i], b.keys[i], keys[i].ascending !== false);
+        const cmp = compareKeys[i](a.keys[i], b.keys[i]);
         if (cmp) return cmp;
       }
       return a.r - b.r;
@@ -5374,7 +5398,8 @@ export class Workbook extends EventTarget {
 
   /**
    * Sort the columns of a range left to right by one or more rows:
-   * keys = [{ row, ascending }]. Each column's cells move together and
+   * keys = [{ row, ascending }], or [{ row, list, ascending }] for a custom list's
+   * order (see keyComparators). Each column's cells move together and
    * formulas shift with their column. Returns true when sorted, false when
    * the columns cannot change places (see rearrangeBlocker).
    */
@@ -5399,10 +5424,10 @@ export class Workbook extends EventTarget {
       for (let r = r1; r <= r2; r++) cells.push(cloneCell(sheet.cells.get(cellKey(r, c))));
       cols.push({ c, cells, keys: keys.map((k) => this.getValue(sheetId, k.row, c)) });
     }
-    const compareKey = sortComparator(caseSensitive);
+    const compareKeys = keyComparators(keys, caseSensitive);
     cols.sort((a, b) => {
       for (let i = 0; i < keys.length; i++) {
-        const cmp = compareKey(a.keys[i], b.keys[i], keys[i].ascending !== false);
+        const cmp = compareKeys[i](a.keys[i], b.keys[i]);
         if (cmp) return cmp;
       }
       return a.c - b.c;

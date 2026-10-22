@@ -1,7 +1,8 @@
 /**
  * Sort dialog: up to 64 sort keys over a range, sorting rows top to
- * bottom (the usual) or columns left to right, by value or by fill color,
- * with options to keep a header in place and to compare text case-sensitively.
+ * bottom (the usual) or columns left to right, by value (A to Z, Z to A, or a
+ * custom list's order, such as Jan to Dec) or by fill color, with options to
+ * keep a header in place and to compare text case-sensitively.
  */
 
 import { el, fieldId } from './dom.js';
@@ -10,12 +11,24 @@ import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { swatchColor } from './toolbar.js';
 import { colName, colIndex, rangeName } from '../core/cell.js';
+import { dateNames, getLocale } from '../core/format.js';
 import * as S from '../core/selection.js';
 
 // Past this many lines a key is typed rather than picked from a list: a
 // whole-column selection has a million rows, and a list of them takes seconds.
 const MAX_LINE_OPTIONS = 500;
 const MAX_LEVELS = 64;
+
+/**
+ * The custom lists a key can sort by, as Excel's Order offers them: the weekdays and the months, short and whole,
+ * in the regional format's names. Each is offered in its order and reversed; the values a list does not name
+ * follow its entries (see keyComparators in the workbook).
+ */
+export function sortLists(loc = getLocale()) {
+  const { months, days } = dateNames(loc);
+  const label = (items) => `${items.slice(0, 3).join(', ')}, … ${items.at(-1)}`;
+  return [days.short, days.long, months.short, months.long].map((items) => ({ items, label: label(items), reverse: label([...items].reverse()) }));
+}
 
 /** A text first row above non-text data reads as a header. */
 export function looksLikeHeader(wb, sheetId, range) {
@@ -142,6 +155,7 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
     el('option', { value: 'rows' }, 'Sort rows (top to bottom)'),
     el('option', { value: 'cols' }, 'Sort columns (left to right)'));
   const levels = el('div.sort-levels', { role: 'list', 'aria-label': 'Sort levels' });
+  const lists = sortLists();
   let selectedRow = null;
   const byRows = () => orientSelect.value === 'rows';
   // The lines a key can pick: columns when sorting rows, rows when sorting columns.
@@ -181,7 +195,8 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
       const color = modeSelect.value === 'color';
       dirSelect.replaceChildren(...(color
         ? [el('option', { value: 'colorTop' }, 'On top'), el('option', { value: 'colorBottom' }, 'On bottom')]
-        : [el('option', { value: 'asc' }, 'A to Z (smallest first)'), el('option', { value: 'desc' }, 'Z to A (largest first)')]));
+        : [el('option', { value: 'asc' }, 'A to Z (smallest first)'), el('option', { value: 'desc' }, 'Z to A (largest first)'),
+          el('optgroup', { label: 'Custom lists' }, ...lists.flatMap((list, i) => [el('option', { value: `list${i}` }, list.label), el('option', { value: `list${i}r` }, list.reverse)]))]));
       if ([...dirSelect.options].some((o) => o.value === value)) dirSelect.value = value;
     };
     // Sorting by fill: the colors present in the chosen column, as swatches.
@@ -229,9 +244,11 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
     // A refusal about this level's colour points at the line to change, not at the colour select,
     // which is disabled and empty exactly when the refusal happens.
     row.focusLine = () => { lineSelect.focus({ preventScroll: true }); row.scrollIntoView?.({ block: 'nearest' }); };
-    row.read = () => (byColor() && byRows()
-      ? { line: lineOf(), ascending: dirSelect.value === 'colorTop', color: colorSelect.value || '' }
-      : { line: lineOf(), ascending: dirSelect.value === 'asc' });
+    row.read = () => {
+      if (byColor() && byRows()) return { line: lineOf(), ascending: dirSelect.value === 'colorTop', color: colorSelect.value || '' };
+      const list = /^list(\d+)(r?)$/.exec(dirSelect.value);
+      return list ? { line: lineOf(), ascending: !list[2], list: lists[Number(list[1])].items } : { line: lineOf(), ascending: dirSelect.value === 'asc' };
+    };
     row.relabel = () => {
       if (!typed) [...lineSelect.options].forEach((o) => { o.textContent = labelFor(Number(o.value)); });
       syncColor();
@@ -335,13 +352,14 @@ export function openSortDialog(ctx, range, { expanded: widened = false } = {}) {
       // Merged cells, an array result, or protected cells refuse the sort; say which, rather than reporting a sort that did not happen.
       const problem = rearrangeProblem(ctx.wb, sheetId, dataRange, 'row');
       if (problem) { toast(problem, { icon: 'info' }); return; }
-      sorted = ctx.wb.sortRangeBy(sheetId, dataRange, keys.map((k) => (k.color ? { col: k.line, ascending: k.ascending, color: k.color } : { col: k.line, ascending: k.ascending })), opts);
+      sorted = ctx.wb.sortRangeBy(sheetId, dataRange, keys.map((k) => (k.color ? { col: k.line, ascending: k.ascending, color: k.color }
+        : { col: k.line, ascending: k.ascending, ...(k.list ? { list: k.list } : {}) })), opts);
     } else {
       dataRange = headerInput.checked ? { ...range, c1: range.c1 + 1 } : range;
       if (dataRange.c1 > dataRange.c2) { toast('Nothing to sort right of the header column', { icon: 'info' }); return; }
       const problem = rearrangeProblem(ctx.wb, sheetId, dataRange, 'col');
       if (problem) { toast(problem, { icon: 'info' }); return; }
-      sorted = ctx.wb.sortColumnsBy(sheetId, dataRange, keys.map((k) => ({ row: k.line, ascending: k.ascending })), opts);
+      sorted = ctx.wb.sortColumnsBy(sheetId, dataRange, keys.map((k) => ({ row: k.line, ascending: k.ascending, ...(k.list ? { list: k.list } : {}) })), opts);
     }
     if (!sorted) { toast(`Can't sort ${rangeName(dataRange)}`, { icon: 'info' }); return; }
     modal.close();

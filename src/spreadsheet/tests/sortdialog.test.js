@@ -23,11 +23,11 @@ it('offers only supported orders when sorting columns', () => {
   [3, 1, 2].forEach((v, c) => wb.setInput(id, 0, c, String(v)));
   const modal = openSortDialog({ wb, sheetId: () => id, active: () => ({ r: 0, c: 0 }), grid: { focus() {} } }, parseRange('A1:C1'));
   const direction = modal.panel.querySelector('[aria-label="Sort direction"]');
-  expect([...modal.panel.querySelector('[aria-label="Order"]').options].map((o) => o.value)).toEqual(['asc', 'desc']);
+  expect([...modal.panel.querySelector('[aria-label="Order"]').options].map((o) => o.value).filter((v) => !/^list\d+r?$/.test(v))).toEqual(['asc', 'desc']);
   expect(modal.panel.querySelector('[aria-label="Sort on"] option[value="color"]').disabled).toBe(false);
   direction.value = 'cols';
   direction.dispatchEvent(new Event('change'));
-  expect([...modal.panel.querySelector('[aria-label="Order"]').options].map((o) => o.value)).toEqual(['asc', 'desc']);
+  expect([...modal.panel.querySelector('[aria-label="Order"]').options].map((o) => o.value).filter((v) => !/^list\d+r?$/.test(v))).toEqual(['asc', 'desc']);
   modal.panel.querySelector('form').requestSubmit();
   expect([0, 1, 2].map((c) => wb.getValue(id, 0, c))).toEqual([1, 2, 3]);
   wb.undo();
