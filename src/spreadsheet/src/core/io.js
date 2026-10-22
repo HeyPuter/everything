@@ -1990,10 +1990,35 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       cell.f = scalarFormulas.get(cell.f);
     }
   }
+  // On the 1904 date system a rule's cells are dates when one of the stored cells it covers is
+  // date-formatted and none carries another number format, as shiftDateNames weighs a name.
+  const dateTargets = date1904 ? (ranges) => {
+    let date = 0, other = 0;
+    for (const [key, cell] of Object.entries(cells)) {
+      const { r, c } = parseKey(key);
+      if (!ranges.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2)) continue;
+      const kind = dateTimeKind(cell.s, 0), fmt = cell.s?.fmt;
+      if (kind === 'date' || kind === 'datetime') date++;
+      else if (fmt && fmt !== 'general' && fmt !== 'text') other++;
+    }
+    return date > 0 && !other;
+  } : null;
   const savedFilters = sheetFilters(own).filter(f => validMetaRange(f.range));
+  // A file on the 1904 system gives a date column's custom filter bounds ("after 2024-01-01") as 1904 serials, which
+  // move with the column's cells to this app's 1900 serials, as a conditional format's thresholds do.
+  const filterDates = (filter) => {
+    if (!filter || !dateTargets) return filter;
+    let criteria = filter.criteria;
+    for (const [key, crit] of Object.entries(criteria)) {
+      if (!['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between'].includes(crit?.op) || typeof crit.value !== 'number') continue;
+      if (!dateTargets([{ r1: filter.range.r1 + 1, c1: Number(key), r2: filter.range.r2, c2: Number(key) }])) continue;
+      criteria = { ...criteria, [key]: { ...crit, value: crit.value + 1462, ...(typeof crit.value2 === 'number' ? { value2: crit.value2 + 1462 } : {}) } };
+    }
+    return criteria === filter.criteria ? filter : { ...filter, criteria };
+  };
   const currentFilters = [fileFilter(X, ws?.['!autofilter']),
     ...(ws?.['!filters'] || []).map(f => fileFilter(X, f)),
-    ...native.filter(t => t.filter).map(t => fileFilter(X, null, t.filter))].filter(Boolean);
+    ...native.filter(t => t.filter).map(t => fileFilter(X, null, t.filter))].filter(Boolean).map(filterDates);
   const savedOwners = new Map((Array.isArray(own?.tables) ? own.tables : []).filter(t => typeof t?.name === 'string' && validMetaRange(t.range))
     .map(t => [filterRangeKey({ range: { ...t.range, r2: t.range.r2 - Number(!!t.totalsRow) } }), t]));
   const currentByRange = new Map(currentFilters.map(f => [filterRangeKey(f), f]));
@@ -2099,19 +2124,6 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
       }
     }
   }
-  // On the 1904 date system a rule's cells are dates when one of the stored cells it covers is
-  // date-formatted and none carries another number format, as shiftDateNames weighs a name.
-  const dateTargets = date1904 ? (ranges) => {
-    let date = 0, other = 0;
-    for (const [key, cell] of Object.entries(cells)) {
-      const { r, c } = parseKey(key);
-      if (!ranges.some((g) => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2)) continue;
-      const kind = dateTimeKind(cell.s, 0), fmt = cell.s?.fmt;
-      if (kind === 'date' || kind === 'datetime') date++;
-      else if (fmt && fmt !== 'general' && fmt !== 'text') other++;
-    }
-    return date > 0 && !other;
-  } : null;
   const frozen = partXml ? nativePart?.frozen : own?.frozen;
   const merges = fileMerges((ws?.['!merges'] || []).filter((m) => m?.s && m?.e).map((m) => ({ r1: m.s.r, c1: m.s.c, r2: m.e.r, c2: m.e.c })));
   return {
