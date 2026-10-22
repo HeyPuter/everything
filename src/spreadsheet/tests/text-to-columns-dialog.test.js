@@ -113,6 +113,23 @@ describe('the dialog', () => {
     expect(wb.undoLabels()).toEqual(['Split text']);
   });
 
+  it('starts a pipe-separated column on Other, where the pipe shows and can be cleared', async () => {
+    const { wb, id } = await mount([[0, 0, 'a|b|c'], [1, 0, 'd|e|f']]);
+    view.goTo('Sheet1!A1:A2'); await vi.advanceTimersByTimeAsync(1);
+    await view.run('splitTextDialog');
+    expect(checkbox('Other').checked).toBe(true);
+    expect(field('Other separator').value).toBe('|');
+    expect(['Tab', 'Semicolon', 'Comma', 'Space'].map((label) => checkbox(label).checked)).toEqual([false, false, false, false]);
+    expect(cells()).toEqual([['a', 'b', 'c'], ['d', 'e', 'f']]);
+    checkbox('Other').click();
+    expect(cells()).toEqual([['a|b|c'], ['d|e|f']]);
+    checkbox('Other').click();
+    field('Other separator').value = '|'; field('Other separator').dispatchEvent(new Event('input'));
+    panel().querySelector('form').requestSubmit();
+    await vi.advanceTimersByTimeAsync(10);
+    expect([0, 1, 2].map((c) => wb.getValue(id, 1, c))).toEqual(['d', 'e', 'f']);
+  });
+
   it('splits at fixed widths into a destination, refusing an unreadable one, and leaves all on Escape', async () => {
     const { wb, id } = await mount([[0, 0, 'ID   Name'], [1, 0, 'A12  Bolts']]);
     view.goTo('Sheet1!A1:A2'); await vi.advanceTimersByTimeAsync(1);

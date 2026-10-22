@@ -40,11 +40,14 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
   const sheetId = ctx.sheetId();
   const texts = columnTexts(ctx.wb, sheetId, range);
   const detected = detectDelimiter(texts);
+  // A separator with no box of its own (the pipe) starts in Other, where it shows and can be cleared:
+  // kept among the boxes' separators, it split the preview while every box read unticked.
+  const boxed = !detected || SEPARATORS.some(([d]) => d === detected);
   const state = {
     // Text with no separator in it but laid out in columns starts on Fixed width; anything else on separators.
     mode: !detected && suggestBreaks(texts).length ? 'fixed' : 'delimited',
-    delimiters: new Set(detected ? [detected] : [',']),
-    other: '', consecutive: detected === ' ', qualifier: '"', breaks: suggestBreaks(texts), formats: [],
+    delimiters: new Set(detected ? (boxed ? [detected] : []) : [',']),
+    other: boxed ? '' : detected, consecutive: detected === ' ', qualifier: '"', breaks: suggestBreaks(texts), formats: [],
   };
   const options = () => ({
     mode: state.mode, consecutive: state.consecutive, qualifier: state.qualifier, breaks: state.breaks,
@@ -67,9 +70,9 @@ export function openTextToColumnsDialog(ctx, { range, onSplit, resolve, allowDes
     const input = el('input', { type: 'checkbox', id, checked, onchange: () => onchange(input.checked), ...extra });
     return el('label.find-option', { for: id }, input, el('span', {}, label));
   };
-  const otherInput = el('input.input.ttc-other', { type: 'text', maxlength: 1, 'aria-label': 'Other separator', spellcheck: false, autocomplete: 'off',
+  const otherInput = el('input.input.ttc-other', { type: 'text', maxlength: 1, 'aria-label': 'Other separator', spellcheck: false, autocomplete: 'off', value: state.other,
     oninput: () => { state.other = otherInput.value; otherCheck.querySelector('input').checked = !!state.other; renderPreview(); } });
-  const otherCheck = check('Other', false, (on) => { if (on) otherInput.focus(); else { otherInput.value = ''; state.other = ''; } renderPreview(); });
+  const otherCheck = check('Other', !!state.other, (on) => { if (on) otherInput.focus(); else { otherInput.value = ''; state.other = ''; } renderPreview(); });
   const qualifier = el('select.select', { 'aria-label': 'Text qualifier', onchange: () => { state.qualifier = qualifier.value; renderPreview(); } },
     [['"', 'Double quote "'], ["'", "Single quote '"], ['', 'None']].map(([v, label]) => el('option', { value: v, selected: v === state.qualifier }, label)));
   const delimitedBox = el('fieldset.fc-group.ttc-separators', {}, el('legend', {}, 'Separators'),
