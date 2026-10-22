@@ -12101,6 +12101,9 @@ export class Workbook extends EventTarget {
               return local.spills;
             }
             if (local.lambda) return consumed ? false : expand(local.lambda, local.scope, node.args, scope, sink);
+            // LET(g,Double,g(A1:A3)): a local holding a defined name may hold its LAMBDA, and is judged as the
+            // definition called by its own name is (Double(A1:A3) below), as one that can hand back an array.
+            if (local.names.length) return !consumed;
             // LET(PI,5,PI()): a local that is no LAMBDA leaves the call form to the built-in of that name.
             if (!FUNCTIONS[node.name]) return false;
           } else if (node.bare) {
@@ -12133,7 +12136,15 @@ export class Workbook extends EventTarget {
             if (isLambda(fn)) return expand(fn, scope, start, scope, sink);
             const held = paramName(fn) && scope?.get(fn.name);
             if (held?.lambda) return expand(held.lambda, held.scope, start, scope, sink);
-            return false; // a built-in or a defined LAMBDA folds the values to one
+            // A defined LAMBDA, REDUCE(0,A1:A3,Stack), named here or by way of a LET local, is judged as a
+            // definition called by its name is, as one that can build an array.
+            const startSpills = () => start.length > 0 && walk(start[0], false, scope, sink);
+            if (held) return held.names.length > 0 || startSpills();
+            if (fn?.type === 'call' && fn.bare && (fn.sheet || !FUNCTIONS[fn.name])) return true;
+            // A built-in named here folds the values to one (SUM), unless it builds an array (VSTACK) or the
+            // accumulator it is handed starts as one.
+            if (fn?.type === 'call' && fn.bare && FUNCTIONS[fn.name].array) return true;
+            return startSpills();
           }
           if (node.name === 'SUBTOTAL' && !node.bare) {
             // A vector of OFFSET references yields one subtotal per reference;

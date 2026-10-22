@@ -22,3 +22,25 @@ it('spills an accumulator that starts as an array', () => {
   expect(at(21, 0, '=REDUCE({1,2},A1:A3,LAMBDA(a,v,SUM(a)+v))', 1, 2)).toEqual([[9, null]]);
   expect(at(22, 0, '=REDUCE(B1,A1:A3,LAMBDA(a,v,a+v))', 1, 2)).toEqual([[11, null]]);
 });
+
+// A LAMBDA defined as a name builds arrays as one written in place does: REDUCE("",A1:A3,Stack) with Stack defined as
+// LAMBDA(a,v,VSTACK(a,v)), or LET(g,Double,g({1,2})), answered #VALUE! where Double({1,2}) itself spilled.
+it('spills a defined LAMBDA handed to REDUCE or held by a LET name', () => {
+  const wb = new Workbook(), id = wb.activeSheetId;
+  ['x', 'y'].forEach((v, r) => wb.setInput(id, r, 0, v));
+  expect(wb.defineName('Stack', '=LAMBDA(a,v,VSTACK(a,v))')).toBeNull();
+  expect(wb.defineName('Plus', '=LAMBDA(a,v,a+v)')).toBeNull();
+  expect(wb.defineName('Double', '=LAMBDA(x,x*2)')).toBeNull();
+  const at = (r, c, formula, rows, cols) => {
+    wb.setInput(id, r, c, formula);
+    return wb.rangeValues(id, { r1: r, c1: c, r2: r + rows - 1, c2: c + cols - 1 });
+  };
+  expect(at(10, 0, '=REDUCE("",{"x","y"},Stack)', 3, 1)).toEqual([[''], ['x'], ['y']]);
+  expect(at(10, 2, '=REDUCE({0,0},{1,2,3},Plus)', 1, 3)).toEqual([[6, 6, null]]);
+  expect(at(10, 6, '=LET(f,Plus,REDUCE({1;1},{1,2},f))', 2, 1)).toEqual([[4], [4]]);
+  expect(at(10, 8, '=LET(g,Double,g({1,2}))', 1, 3)).toEqual([[2, 4, null]]);
+  expect(at(10, 12, '=REDUCE("",{"x","y"},VSTACK)', 3, 1)).toEqual([[''], ['x'], ['y']]);
+  expect(at(20, 0, '=REDUCE(0,{1,2,3},Plus)', 1, 2)).toEqual([[6, null]]);
+  expect(at(20, 2, '=LET(g,Double,g(4))', 1, 2)).toEqual([[8, null]]);
+  expect(at(20, 4, '=REDUCE(0,{1,2,3},SUM)', 1, 2)).toEqual([[6, null]]);
+});
