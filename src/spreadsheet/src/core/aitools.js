@@ -1228,7 +1228,9 @@ export function runTool(wb, name, args, env) {
     target = callTarget(wb, name, args || {}, env);
   } catch { /* the runner says what is wrong with the address */ }
   try {
-    const result = run(wb, args || {}, env);
+    // A tool writes on the sheet its call names alone: with that sheet grouped with others (several tabs selected),
+    // the cells it wrote, cleared or formatted were changed on every other sheet of the group too, unannounced.
+    const result = wb._withoutGroup ? wb._withoutGroup(() => run(wb, args || {}, env)) : run(wb, args || {}, env);
     const changed = wb.version !== before;
     let content = typeof result === 'string' ? result : JSON.stringify(result);
     // A change the workbook quietly declined (a locked cell, an edit it would not make) must not read as made,
