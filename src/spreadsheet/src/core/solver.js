@@ -283,11 +283,16 @@ export function modelFromCells(wb, sheetId, range) {
   return { model };
 }
 
+/** Run `fn` writing on the sheets it names only, whatever sheets are grouped with the active one (see sheet-group.js). */
+function alone(wb, fn) {
+  return wb._withoutGroup ? wb._withoutGroup(fn) : fn();
+}
+
 /** Write the model into cells from (r, c) down, as one undo step. Returns how many cells it took. */
 export function saveModelToCells(wb, sheetId, r, c, model) {
   const lines = modelToCells(model);
   const entries = lines.map((text, i) => ({ r: r + i, c, cell: text.startsWith('=') ? { v: null, f: text.slice(1) } : { v: text, f: null } }));
-  wb.setCells(sheetId, entries, 'Save Solver model');
+  alone(wb, () => wb.setCells(sheetId, entries, 'Save Solver model'));
   return lines.length;
 }
 
@@ -925,7 +930,9 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
     built.push({ title, ...build(wb, p, result, when) });
   }
   const reportSheetIds = [];
-  wb.transaction('Solver', () => {
+  // Written on the model's sheet (and the reports' own) alone: with the sheet grouped with others, the values kept
+  // went onto the same cells of every other sheet in the group, as typing into a group does.
+  wb.transaction('Solver', () => alone(wb, () => {
     saveSolverModel(wb, sheetId, p.model, 'Solver');
     if (keep && result.x) {
       const sheet = wb.sheet(sheetId);
@@ -944,7 +951,7 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
     }
     // A new sheet becomes the active one; the model's sheet stays in front.
     if (reportSheetIds.length) wb.setActiveSheet(sheetId);
-  });
+  }));
   return { reportSheetIds };
 }
 
