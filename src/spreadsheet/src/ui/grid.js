@@ -3155,6 +3155,7 @@ export function createGrid(opts) {
   function setSelection(next, { scroll = true, announce = true, add = false, scrollActive = false, grow = true } = {}) {
     if (sheet()?.kind === 'chart') { extras = []; schedule(); opts.onSelection?.(sel); return; }
     tabOrigin = null; // any move but a Tab ends a run of Tabs; tabStep puts the origin back
+    addCursor = false; // any selection but Add to Selection's arrow is one to keep; that arrow puts the mark back
     const b = bounds();
     if (!add) extras = [];
     const fix = (p) => ({ r: clamp(p.r, 0, b.rows - 1), c: clamp(p.c, 0, b.cols - 1) });
@@ -3264,6 +3265,7 @@ export function createGrid(opts) {
    * Extend Selection (F8: arrows and clicks extend) and Add to Selection (Shift+F8: arrows and clicks add ranges).
    */
   let keyMode = null;
+  let addCursor = false; // the selection is the lone cell Add to Selection's arrows moved the cursor to
   function setKeyMode(mode) {
     if (keyMode === mode) return;
     keyMode = mode;
@@ -5318,13 +5320,18 @@ export function createGrid(opts) {
         const target = jumpFrom(from, dr, dc).active;
         setKeyMode(null);
         setSelection(e.shiftKey ? S.extendTo(sel, target.r, target.c) : S.single(target.r, target.c), { grow: false, add: e.shiftKey });
-      } else if (keyMode === 'extend') {
+      } else if (keyMode === 'extend' || e.shiftKey) {
+        // Extend Selection, or Shift in Add to Selection: the range at the cursor stretches, the others stay.
         const target = stepFrom(S.single(sel.focus.r, sel.focus.c), dr, dc).active;
         setSelection(S.extendTo(sel, target.r, target.c), { add: true });
       } else {
-        // Add to Selection: the range so far stays selected and the cursor moves on alone.
-        addRange(S.selRange(sel, true));
+        // Add to Selection: the ranges so far stay selected and the cursor moves on alone, as in Excel, to where
+        // the next range is to begin. A cell it only passed over is not kept: each arrow kept the cell it left,
+        // so moving three cells along selected all three, and Shift+arrow moved on too instead of stretching.
+        const passing = addCursor;
+        if (!passing) addRange(S.selRange(sel, true));
         setSelection(stepFrom(S.single(sel.active.r, sel.active.c), dr, dc), { add: true });
+        addCursor = true;
       }
       return;
     }
