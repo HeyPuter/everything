@@ -73,3 +73,20 @@ it('judges a colour filter by the fill its format names, and keeps an icon filte
   expect(hiddenRows(icons)).toEqual([2, 3]);
   expect(part(new Uint8Array(await (await workbookToXlsx(icons)).arrayBuffer()), '/xl/worksheets/sheet1.xml')).toContain('<filterColumn colId="1"><iconFilter iconSet="3Arrows" iconId="0"/></filterColumn>');
 });
+
+it('keeps the rows an icon or font colour filter hid when the rows are judged again', async () => {
+  // Inserting or deleting a row anywhere in the book runs every filter again: the rows a condition the app cannot
+  // judge had hidden all came back, and the next save wrote them shown under the filter Excel would reapply.
+  for (const condition of ['<x:iconFilter iconSet="3Arrows" iconId="0"/>', '<x:colorFilter dxfId="0" cellColor="0"/>']) {
+    const wb = await workbookFromFile(file(condition, values, [2, 3, 7]), 'icons.xlsx');
+    const id = wb.activeSheetId;
+    wb.insertRows(id, 40, 1);
+    expect(hiddenRows(wb)).toEqual([2, 3, 7]);
+    wb.reapplyFilter(id);
+    expect(hiddenRows(wb)).toEqual([2, 3, 7]);
+    wb.insertRows(id, 3, 1); // inside the list, above row 4: the rows below move down with it
+    expect(hiddenRows(wb)).toEqual([2, 3, 8]);
+    const back = await workbookFromFile(new Uint8Array(await (await workbookToXlsx(wb)).arrayBuffer()), 'saved.xlsx');
+    expect(hiddenRows(back)).toEqual([2, 3, 8]);
+  }
+});

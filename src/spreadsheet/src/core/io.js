@@ -65,7 +65,7 @@ import { htmlTableRows } from './html-table.js';
 import { reconcileConditionalFormats } from './xlsx-condformat-reconcile.js';
 import { prepareXlsxValidationLists } from './xlsx-validation.js';
 import { sheetFilters, sameFilterRange, filterRangeKey, mapSheetFilters } from './sheet-filters.js';
-import { readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
+import { nativeFilterJudge, readXlsxFilter, readXlsxFilterButtons, writeXlsxFilter } from './xlsx-filter.js';
 import { readStyleResets, styleResetAt } from './style-resets.js';
 import { xlsxResetCells } from './xlsx-style-resets.js';
 import { xlsxRowStyleBase, xlsxLineIntersectionCells } from './xlsx-line-intersections.js';
@@ -2144,7 +2144,11 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   // from its predicates: edited data and adjacent tables can legitimately leave different
   // rows visible until Reapply. Unknown conditions still retain their rows as manual hides.
   // The private baseline distinguishes manual/filter hides while native visibility is unchanged.
-  const filtered = filters.filter(f => Object.keys(f.criteria || {}).length).map(f => f.range);
+  // So do the rows of a filter with a condition kept as the file wrote it that the app cannot judge (an icon, a
+  // font colour): owned by the filter, they all came back the moment it ran again, as it does after a row is
+  // inserted anywhere in the book, and the next save wrote them shown. The condition still goes back into the file.
+  const unjudged = (crit) => typeof crit?.native === 'string' && crit.color == null && !nativeFilterJudge(crit.native, []);
+  const filtered = filters.filter(f => Object.keys(f.criteria || {}).length && !Object.values(f.criteria).some(unjudged)).map(f => f.range);
   let fileFilterHidden = partXml && currentFilters.length ? [] : undefined;
   const fileHiddenRows = [];
   const rowHeights = {};
