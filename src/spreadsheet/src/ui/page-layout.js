@@ -9,7 +9,7 @@
 import { el } from './dom.js';
 import { normalizePrintSettings } from '../core/print-settings.js';
 import { printBands, quantizePrintScale } from './print-pagination.js';
-import { printPageText, splitPrintSections, printRange } from './print.js';
+import { printPageText, splitPrintSections, printRange, manualBreaksApply } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { richHeaderSections } from './print-header.js';
 
@@ -75,12 +75,15 @@ export function pageLayoutMetrics(wb, sheetId) {
     }
     scale = quantizePrintScale(scale);
   }
-  const starts = (sizes, capacity) => {
-    const bands = printBands(sizes, capacity)?.bands || [{ start: 0, end: sizes.length }];
+  // A manual page break starts a page here as it does in print, unless fitting to a number of pages overrides it.
+  const apply = manualBreaksApply({ fit: p.fitToPage ? 'pages' : 'scale', fitWidth: p.fitWidth, fitHeight: p.fitHeight });
+  const forced = (breaks, on) => (on && breaks?.length ? new Set(breaks.filter((at) => at > 0)) : null);
+  const starts = (sizes, capacity, breaks) => {
+    const bands = printBands(sizes, capacity, 0, breaks)?.bands || [{ start: 0, end: sizes.length }];
     return bands.filter((b) => b.end > b.start).map((b) => b.start);
   };
-  const cols = starts(lineSizes(wb, sheet, 'col', 0, sheet.cols - 1), width / scale);
-  const rows = starts(lineSizes(wb, sheet, 'row', 0, sheet.rows - 1), height / scale);
+  const cols = starts(lineSizes(wb, sheet, 'col', 0, sheet.cols - 1), width / scale, forced(p.colBreaks, apply.cols));
+  const rows = starts(lineSizes(wb, sheet, 'row', 0, sheet.rows - 1), height / scale, forced(p.rowBreaks, apply.rows));
   const bandOf = (list, i) => { let k = 0; while (k + 1 < list.length && list[k + 1] <= i) k++; return k; };
   const printed = area ? { a0: bandOf(cols, area.c1), a1: bandOf(cols, area.c2), d0: bandOf(rows, area.r1), d1: bandOf(rows, area.r2) } : { a0: 0, a1: 0, d0: 0, d1: 0 };
   return {
