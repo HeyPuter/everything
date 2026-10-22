@@ -28,6 +28,8 @@ export const MAX_CHANGE = 4_000_000;
 /** Most changes a commit carries (more wait for the next one). */
 export const MAX_BATCH = 500;
 export const MAX_OPS = 20_000;
+/** Most separate runs of lines one deletion carries. */
+export const MAX_RUNS = 100_000;
 /** Longest label a change carries (the name of the step in Undo and Show Changes). */
 export const MAX_LABEL = 200;
 
@@ -131,7 +133,7 @@ export function validateOp(op) {
     case 'delete':
       sheetId(op.s);
       axisMax(op.axis);
-      if (!Array.isArray(op.runs) || !op.runs.length || op.runs.length > 100_000) bad('delete');
+      if (!Array.isArray(op.runs) || !op.runs.length || op.runs.length > MAX_RUNS) bad('delete');
       for (const run of op.runs) if (!isRecord(run) || !intIn(run.from, 0, axisMax(op.axis)) || !intIn(run.to, run.from, axisMax(op.axis))) bad('delete');
       return;
     case 'move':

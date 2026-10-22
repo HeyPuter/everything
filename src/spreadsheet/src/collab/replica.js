@@ -25,7 +25,7 @@
 
 import { Workbook, sheetShapeJSON, sameJSON, cloneCell } from '../core/workbook.js';
 import { cellKey, parseKey, cutText } from '../core/cell.js';
-import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure, parseCellKey } from './ops.js';
+import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, MAX_OPS, MAX_RUNS, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure, parseCellKey } from './ops.js';
 import { applyOps, contentOf, sheetJSON, lineValues, sheetProps } from './apply.js';
 
 const UNDO_LIMIT = 100;
@@ -371,7 +371,16 @@ export class Replica extends EventTarget {
     if (op) {
       this.shadow = this._fullShadow();
       this._resetDirty();
-      this._record(op, this._inverseOf(op, old, result, before));
+      const inverse = this._inverseOf(op, old, result, before);
+      if (op.t === 'delete' && op.runs.length > MAX_RUNS) {
+        // More runs than the room takes in one deletion (the rows a filter shows, deleted): several deletions, the lowest
+        // rows first so that each one's positions still hold. Taken back, the rows go back from the top, then what was on them.
+        const rest = inverse.slice(op.runs.length);
+        for (let end = op.runs.length; end > 0; end -= MAX_RUNS / 2) {
+          const from = Math.max(0, end - MAX_RUNS / 2);
+          this._record({ ...op, runs: op.runs.slice(from, end) }, [...inverse.slice(from, end), ...(end === op.runs.length ? rest : [])]);
+        }
+      } else this._record(op, inverse);
     }
     if (step) this._flushStep(step.label || 'Edit', { rollback: () => step.undo() });
     return result;
@@ -946,10 +955,14 @@ export function splitChange(ops, inverses, limit = PART) {
   // of many rows puts them back, then writes back what was on them, which splits as any write does).
   if (!ops.every((op, i) => (REGISTERS.has(op.t) ? inverses[i]?.length === 1 && inverses[i][0].t === op.t : (isStructure(op) || op.t === 'put') && Array.isArray(inverses[i])))) return null;
   const keysOf = (op) => (op.t === 'cells' ? (op.st ? [...new Set([...Object.keys(op.v || {}), ...Object.keys(op.st)])] : Object.keys(op.v || {})) : op.t === 'lines' ? Object.keys(op.v) : null);
-  // Fewer cells or lines than this cannot make a change too large (a cell holds 32,767 characters at most).
-  let count = 0;
-  for (const op of ops) if (op.t === 'cells' || op.t === 'lines') count += Object.keys(op.v || {}).length + Object.keys(op.st || {}).length;
-  if (count < 64) return null;
+  // Fewer cells or lines than this cannot make a change too large (a cell holds 32,767 characters at most), nor can
+  // deletions of fewer runs of lines; more operations than a change carries (an undone deletion of many runs) split too.
+  let count = 0, runs = 0;
+  for (const op of ops) {
+    if (op.t === 'cells' || op.t === 'lines') count += Object.keys(op.v || {}).length + Object.keys(op.st || {}).length;
+    else if (op.t === 'delete') runs += op.runs.length;
+  }
+  if (count < 64 && runs < 10_000 && ops.length <= MAX_OPS) return null;
   // What each operation, and each key of a write to cells or lines, takes when sent.
   let total = 0;
   const sized = ops.map((op) => {
@@ -960,11 +973,11 @@ export function splitChange(ops, inverses, limit = PART) {
     total += size;
     return { size, keys, sizes };
   });
-  if (total <= SPLIT_AT) return null;
+  if (total <= SPLIT_AT && ops.length <= MAX_OPS) return null;
   const parts = [];
   let cur = null;
   const add = (op, inv, size) => {
-    if (!cur || (cur.size && cur.size + size > limit)) parts.push((cur = { ops: [], inverse: [], size: 0 }));
+    if (!cur || cur.ops.length >= MAX_OPS || (cur.size && cur.size + size > limit)) parts.push((cur = { ops: [], inverse: [], size: 0 }));
     cur.ops.push(op);
     cur.inverse.unshift(...inv);
     cur.size += size;
