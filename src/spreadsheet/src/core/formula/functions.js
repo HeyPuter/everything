@@ -3706,6 +3706,12 @@ export const FUNCTIONS = {
       if (!keys.length) return err('#CALC!');
       const rowGroups = groupRows(keys);
       const colGroups = groupRows(cols);
+      // A pivot of more cells than a formula may build is refused before any of it is laid out: a column field of
+      // twenty thousand distinct values (an ID, a timestamp) beside five thousand row groups set aside 100 million
+      // cells, gigabytes and seconds on every calculation, to answer #NUM! in the end.
+      const outRows = 1 + rowGroups.length + (Math.trunc(rowDepth) !== 0 ? 1 : 0);
+      const outCols = nKeys + colGroups.length + (Math.trunc(colDepth) !== 0 ? 1 : 0);
+      if (outRows * outCols > STACK_LIMIT) return err('#NUM!');
       // Each row group's rows are put in a bucket per column group once, so a cell of the pivot,
       // and every comparison when sorting by one, reads its rows from the bucket rather than
       // filtering the row group through a set of the column's rows: that took 2.3 s for a pivot
