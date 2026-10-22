@@ -1456,6 +1456,16 @@ export function createGrid(opts) {
       edge('Left', 'bl', sideStyle('bl'));
       edge('Bottom', 'bb', sideStyle('bb'));
       edge('Right', 'br', sideStyle('br'));
+      clearSharedGridlines(resolved);
+    };
+    // The cell below (or to the right) that wins the edge it shares with this one draws its border inside its own
+    // box, against this cell's gridline: that gridline goes, so the border shows as the one line it is, as in
+    // Excel, rather than a grey line doubling the top and left of every box and every border inside one.
+    const clearSharedGridlines = (resolved = null) => {
+      if (merge || !resolveBorders?.paints) return;
+      const below = resolved?.bb ? -1 : shownBelow(r), right = resolved?.br ? -1 : shownRight(c);
+      if (below >= 0 && resolveBorders.paints(below, c, 'bt')) node.style.borderBottomColor = 'transparent';
+      if (right >= 0 && resolveBorders.paints(r, right, 'bl')) node.style.borderRightColor = 'transparent';
     };
     // A blank cell may show part of an array formula that spilled over it.
     const spill = !cell || (cell.v == null && cell.f == null) ? wb.spillAt(s.id, r, c) : null;
@@ -1471,6 +1481,7 @@ export function createGrid(opts) {
         borders(null, cf);
       }
       else if (merge) borders(null);
+      else clearSharedGridlines();
       if (checkbox) drawCheckbox();
       paintSparkline();
       return node;
@@ -1705,6 +1716,8 @@ export function createGrid(opts) {
             node.style.left = `${colX(c) - L.extent}px`;
             node.style.width = `${w + L.extent + R.extent}px`;
             node.classList.add('spill');
+            // Its gridlines now run under the cells it covers, beside neighbours other than its own cell's.
+            for (const side of ['Bottom', 'Right']) if (node.style[`border${side}Color`] === 'transparent') node.style[`border${side}Color`] = '';
             // Centred text keeps its own cell's centre: blocked on one side, it is clipped there rather than shifted the other way.
             // The padding goes on the side that runs further, so the box the text is centred in is centred on the cell:
             // put on the blocked side, it centred the text a whole column or more along, over the cells it ran into.

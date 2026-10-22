@@ -44,18 +44,25 @@ export function createBorderResolver({ read, neighbor, mergeAt = () => null }) {
     }
     return cache.get(key)[side];
   };
-  return (r, c, style, conditional, table) => {
+  const wins = (edge, side, next) => {
+    const other = next && at(next[0], next[1], opposite[side]);
+    const order = other ? compareBorderPaint(edge, other) : 1;
+    return !(order < 0 || order === 0 && (side === 'bb' || side === 'br'));
+  };
+  const resolve = (r, c, style, conditional, table) => {
     const own = sides(style, conditional, table), out = {};
     cache.set(`${r},${c}`, own);
     for (const [side, edge] of Object.entries(own)) {
-      if (!edge.pen) continue;
-      const next = neighbor(r, c, side);
-      const other = next && at(next[0], next[1], opposite[side]);
-      const order = other ? compareBorderPaint(edge, other) : 1;
-      if (order < 0 || order === 0 && (side === 'bb' || side === 'br')) continue;
+      if (!edge.pen || !wins(edge, side, neighbor(r, c, side))) continue;
       out[side] = true;
       out[`${side}Border`] = edge.pen;
     }
     return out;
   };
+  /** Whether the cell at (r, c), read as the resolver reads it, draws its `side` edge: it has a pen there that wins. */
+  resolve.paints = (r, c, side) => {
+    const edge = at(r, c, side);
+    return !!edge?.pen && wins(edge, side, neighbor(r, c, side));
+  };
+  return resolve;
 }
