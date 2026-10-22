@@ -16005,7 +16005,7 @@ function ods_to_csf_formula(f/*:string*/)/*:string*/ {
 			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^LEGACY\.(?=[A-Za-z]+\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ""; }
 			/* Puter Spreadsheet local patch: the functions OpenFormula names otherwise than Excel (FORMULA for FORMULATEXT,
 			 * FDIST and FINV for F.DIST and F.INV, SKEWP for SKEW.P), as LibreOffice writes them. */
-			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^(FORMULA|FDIST|FINV|SKEWP)(?=\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ods_excel_names[replacement[1].toUpperCase()]; }
+			else if((i == 0 || !/[\w.]/.test(f.charAt(i - 1))) && (replacement = /^(FORMULA|FDIST|FINV|SKEWP|CEILING|FLOOR)(?=\s*\()/i.exec(f.slice(i)))) { end = i + replacement[0].length; replacement = ods_excel_names[replacement[1].toUpperCase()]; }
 			else if(ch == "#" && (replacement = /^#[A-Za-z0-9\/]+[!?]?/.exec(f.slice(i)))) { i += replacement[0].length - 1; continue; }
 			else if(ch == "!" && /[\])]\s*$/.test(f.slice(0, i))) replacement = " ";
 			else if(ch == ";" || ch == "~") replacement = ",";
@@ -16042,7 +16042,9 @@ var ods_plain_functions = {};
 "ACOT ACOTH ARABIC BASE BINOM.DIST.RANGE BITAND BITLSHIFT BITOR BITRSHIFT BITXOR COMBINA COT COTH CSC CSCH DAYS DECIMAL GAMMA GAUSS IFNA IMCOSH IMCOT IMCSC IMCSCH IMSEC IMSECH IMSINH IMTAN ISFORMULA ISOWEEKNUM MUNIT NUMBERVALUE PDURATION PERMUTATIONA PHI RRI SEC SECH SHEET SHEETS UNICHAR UNICODE XOR".split(" ").forEach(function(name) { ods_plain_functions[name] = true; });
 /* Puter Spreadsheet local patch: the functions OpenFormula (and LibreOffice) names otherwise than Excel. */
 var ods_renamed_functions = { "FORMULATEXT": "FORMULA", "F.DIST": "FDIST", "F.INV": "FINV", "SKEW.P": "SKEWP" };
-var ods_excel_names = { "FORMULA": "FORMULATEXT", "FDIST": "F.DIST", "FINV": "F.INV", "SKEWP": "SKEW.P" };
+/* OpenFormula's CEILING and FLOOR take a mode, as Excel's CEILING.MATH and FLOOR.MATH do (LibreOffice saves them as
+ * those in an .xlsx); Excel's two-argument CEILING, FLOOR and ISO.CEILING are COM.MICROSOFT.* there. */
+var ods_excel_names = { "FORMULA": "FORMULATEXT", "FDIST": "F.DIST", "FINV": "F.INV", "SKEWP": "SKEW.P", "CEILING": "CEILING.MATH", "FLOOR": "FLOOR.MATH" };
 function ods_function_name(name) {
 	var m = /^_xlpm\.(.*)$/i.exec(name);
 	if(m) return m[1];
@@ -16086,6 +16088,7 @@ function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 				while(end < f.length && /[\w.\u0080-\uFFFF]/.test(f.charAt(end))) ++end;
 				/* Puter Spreadsheet local patch: the functions OpenFormula spells as LEGACY.* (see ods_to_csf_formula). */
 				if(/^(?:CHIDIST|CHIINV|CHITEST|FDIST|FINV|NORMSDIST|NORMSINV|TDIST)$/i.test(f.slice(i, end)) && /^\s*\(/.test(f.slice(end))) replacement = "LEGACY." + f.slice(i, end);
+				else if(/^(?:CEILING|FLOOR|ISO\.CEILING)$/i.test(f.slice(i, end)) && /^\s*\(/.test(f.slice(end))) replacement = "COM.MICROSOFT." + f.slice(i, end);
 				else if(/^_xl(?:fn|pm)\./i.test(f.slice(i, end)) && (replacement = ods_function_name(f.slice(i, end))) != null) {}
 				else if(f.charAt(end) != "!" || !(match = csf_ods_name.exec(f.slice(i)))) { i = end - 1; continue; }
 				else { replacement = "'" + match[1] + "'.$$'" + match[2] + "'"; end = i + match[0].length; }
