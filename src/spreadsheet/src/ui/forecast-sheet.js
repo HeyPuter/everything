@@ -81,12 +81,21 @@ export function openForecastSheet(ctx) {
 
   const sheetName = quoteSheet(wb.sheet(sheetId)?.name || '');
   const show = (v) => formatValue(v, source.timelineStyle);
-  const read = (text) => { const v = parseInput(String(text).trim()).v; return typeof v === 'number' ? v : null; };
+  // A date box shows its date in the timeline's format and reads back what is typed; while it still holds the text
+  // it was given, it stands for that date. Read back, a month-year format's "Apr-24" was 24 April of this year.
+  const given = new Map();
+  const dateBox = (id, value) => { const input = el('input.input', { type: 'text', id, value: show(value), autocomplete: 'off', spellcheck: false }); given.set(input, { text: input.value, value }); return input; };
+  const read = (input) => {
+    const text = input.value.trim();
+    if (given.get(input)?.text === text) return given.get(input).value;
+    const v = parseInput(text).v;
+    return typeof v === 'number' ? v : null;
+  };
   let chartType = 'line';
 
   const id = (name) => fieldId(`fs-${name}`);
-  const endInput = el('input.input', { type: 'text', id: id('end'), value: show(defaults.end), autocomplete: 'off', spellcheck: false });
-  const startInput = el('input.input', { type: 'text', id: id('start'), value: show(defaults.start), autocomplete: 'off', spellcheck: false });
+  const endInput = dateBox(id('end'), defaults.end);
+  const startInput = dateBox(id('start'), defaults.start);
   const confOn = el('input', { type: 'checkbox', id: id('conf-on'), checked: true });
   const confInput = el('input.input.fs-narrow', { type: 'text', id: id('conf'), value: `${numberShown(95)}%`, 'aria-label': 'Confidence Interval', autocomplete: 'off' });
   const seasonAuto = el('input', { type: 'radio', name: id('season'), id: id('season-auto'), checked: true });
@@ -112,7 +121,7 @@ export function openForecastSheet(ctx) {
     return n != null && n > 0 && n < 100 ? n / 100 : null;
   };
   const options = () => ({
-    end: read(endInput.value), start: read(startInput.value),
+    end: read(endInput), start: read(startInput),
     showConfidence: confOn.checked, confidence: confidence() ?? 0.95,
     seasonality: seasonManual.checked ? Math.round(Number(seasonInput.value)) : 1,
     completion: Number(fillSelect.value), aggregation: Number(aggSelect.value),
