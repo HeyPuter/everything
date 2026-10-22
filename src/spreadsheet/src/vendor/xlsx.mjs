@@ -19378,7 +19378,9 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 				if(row.Index) r = +row.Index - 1;
 				rowobj = {};
 				if(row.AutoFitHeight == "0" || row.Height) {
-					rowobj.hpx = parseInt(row.Height, 10); rowobj.hpt = px2pt(rowobj.hpx);
+					/* Puter Spreadsheet local patch: ss:Height is in points, as Excel writes it (15 for a standard
+					 * row of 20 pixels); it was read as pixels. */
+					rowobj.hpx = parseFloat(row.Height) * 4 / 3; rowobj.hpt = px2pt(rowobj.hpx);
 					rowinfo[r] = rowobj;
 				}
 				if(row.Hidden == "1") { rowobj.hidden = true; rowinfo[r] = rowobj; }
@@ -19440,7 +19442,9 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 			if(Rn[1]==='/') break;
 			csty = xlml_parsexmltag(Rn[0]);
 			if(csty.Hidden) { csty.hidden = true; delete csty.Hidden; }
-			if(csty.Width) csty.wpx = parseInt(csty.Width, 10);
+			/* Puter Spreadsheet local patch: ss:Width is in points (Excel writes the standard column as 48 and
+			 * one of 129 pixels as 96.75), as ss:Height is; it was read as whole pixels. */
+			if(csty.Width) csty.wpx = Math.round(parseFloat(csty.Width) * 4 / 3);
 			if(!seencol && csty.wpx > 10) {
 				seencol = true; MDW = DEF_MDW; //find_mdw_wpx(csty.wpx);
 				for(var _col = 0; _col < cstys.length; ++_col) if(cstys[_col]) process_col(cstys[_col]);
