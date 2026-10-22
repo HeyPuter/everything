@@ -263,6 +263,8 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   // A cut and paste or a drag of the selection border: the formulas that pointed at the cells follow them.
   wrap('moveRange', ([sheetId, source, r0, c0]) => add(sheetId, [`${rangeExpr(source)}.moveTo(${q(cellName(r0, c0))});`]));
   wrap('mergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.merge();`]));
+  // Merge Across and Merge Down make several merges at once, one per row or column.
+  wrap('mergeBlocks', ([sheetId, ranges], merged) => add(sheetId, (ranges || []).filter((rg, i) => merged?.[i]).map((rg) => `${rangeExpr(normalizeRange(rg))}.merge();`)));
   wrap('unmergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.unmerge();`]));
   wrap('removeDuplicates', ([sheetId, range, opts = {}]) => {
     const rg = normalizeRange(range);
