@@ -3159,6 +3159,11 @@ export function createGrid(opts) {
     if (!add) extras = [];
     const fix = (p) => ({ r: clamp(p.r, 0, b.rows - 1), c: clamp(p.c, 0, b.cols - 1) });
     sel = { active: fix(next.active), anchor: fix(next.anchor), focus: fix(next.focus), ...(next.scope ? { scope: next.scope } : {}) };
+    // The active cell is always one of the cells selected. Moved off the anchor by Enter or Tab, a stretch of
+    // the range back past it with Shift (or a page, or a jump) left it outside, outlined nowhere, yet the cell
+    // typing went into; it goes back to the corner the range stretches from.
+    const own = sheet().merges.length && !sel.scope ? wb.expandToMerges(sheetId, S.selRange(sel)) : S.selRange(sel);
+    if (sel.active.r < own.r1 || sel.active.r > own.r2 || sel.active.c < own.c1 || sel.active.c > own.c2) sel.active = { ...sel.anchor };
     // The active cell of a range never sits in a hidden row or column (a header click or
     // Ctrl+A puts it at the first line): typing would open an editor nobody can see. It
     // moves to the range's nearest visible cell, as in Excel; a range of hidden lines alone
