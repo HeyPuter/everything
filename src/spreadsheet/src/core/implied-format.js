@@ -7,6 +7,7 @@
  */
 
 import { parseFormula } from './formula/parser.js';
+import { localeCurrency } from './format.js';
 
 /** Functions whose result is a date, a time, or both. */
 const DATE_FUNCTIONS = new Map([
@@ -14,6 +15,16 @@ const DATE_FUNCTIONS = new Map([
   ['WORKDAY', 'date'], ['WORKDAY.INTL', 'date'], ['TO_DATE', 'date'],
   ['NOW', 'datetime'], ['EPOCHTODATE', 'datetime'],
   ['TIME', 'time'], ['TIMEVALUE', 'time'],
+]);
+
+/**
+ * Financial functions whose result Excel shows as money or as a rate: =PMT(5%/12,60,10000) reads -$188.71 rather
+ * than -188.7123364, and =IRR(B2:B6) 13.07% rather than 0.130662386 (with two places, where Excel's whole percent
+ * would show a monthly rate of 0.42% as 0%).
+ */
+const FINANCE_FUNCTIONS = new Map([
+  ['PMT', 'currency'], ['IPMT', 'currency'], ['PPMT', 'currency'], ['PV', 'currency'], ['FV', 'currency'], ['NPV', 'currency'],
+  ['RATE', 'percent'], ['IRR', 'percent'], ['MIRR', 'percent'],
 ]);
 
 /** Functions whose result reads in the format of the first argument that has one. */
@@ -85,6 +96,10 @@ export function impliedFormulaStyle(formula, styleOfRef, refOfName = null) {
         const args = node.args || [];
         const dated = DATE_FUNCTIONS.get(name);
         if (dated) return { fmt: dated };
+        const finance = FINANCE_FUNCTIONS.get(name);
+        // Money in the regional format's currency, as the ribbon's Currency button gives it.
+        if (finance === 'currency') return { fmt: 'currency', ...(localeCurrency() !== 'USD' ? { cur: localeCurrency() } : {}) };
+        if (finance === 'percent') return { fmt: 'percent', dec: 2 };
         if (name === 'IF') return firstOf(args.slice(1, 3), next);
         if (name === 'CHOOSE') return firstOf(args.slice(1), next);
         if (name === 'SUMIF' || name === 'AVERAGEIF') return next(args[2] ?? args[0]);
