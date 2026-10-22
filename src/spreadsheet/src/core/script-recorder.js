@@ -283,7 +283,14 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     add(sheetId, runs(indices).map(([from, to]) => `${rangeExpr(lineRange(axis, from, to))}.${call}(${!!hidden});`));
   });
   wrap('setNote', ([sheetId, r, c, text]) => add(sheetId, [`sheet.getRange(${q(cellName(r, c))}).setNote(${q(text ?? '')});`]));
-  wrap('setLink', ([sheetId, r, c, url]) => add(sheetId, [`sheet.getRange(${q(cellName(r, c))}).setHyperlink(${q(url)});`]));
+  // A link given text to show writes that text first (setHyperlink keeps what the cell shows); one kept as a
+  // HYPERLINK formula is that formula.
+  wrap('setLink', ([sheetId, r, c, url], result, prior) => {
+    const now = wb.getCell(sheetId, r, c);
+    const lines = inputOf(now) !== inputOf(prior) ? cellLines([{ r, c, value: inputOf(now) }]) : [];
+    if (now?.f == null) lines.push(`sheet.getRange(${q(cellName(r, c))}).setHyperlink(${q(url)});`);
+    add(sheetId, lines);
+  }, { before: (sheetId, r, c) => wb.getCell(sheetId, r, c) });
   wrap('removeLink', ([sheetId, r, c]) => add(sheetId, [`sheet.getRange(${q(cellName(r, c))}).setHyperlink(null);`]));
   wrap('setFrozen', ([sheetId, rows, cols]) => add(sheetId, [`sheet.freezePanes(${rows | 0}, ${cols | 0});`]));
   wrap('setGridlines', ([sheetId, on]) => add(sheetId, [`sheet.showGridlines(${!!on});`]));
