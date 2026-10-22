@@ -56,7 +56,10 @@ describe('a time typed with seconds', () => {
     expect(editText(wb.getCell(id, 0, 0))).toBe('09:05:20'); // the seconds are kept in the value
     expect(wb.getCell(id, 1, 0).s).toEqual({ fmt: 'time', sec: true });
     expect(wb.getDisplay(id, 1, 0)).toBe('13:45:00');
-    expect(wb.getCell(id, 2, 0).s).toEqual({ fmt: 'date' });
+    // A date format cannot show a time typed into it (it read 1900-01-00): the entry's own time format, with its
+    // seconds, replaces it, as Excel's does.
+    expect(wb.getCell(id, 2, 0).s).toEqual({ fmt: 'time', sec: true });
+    expect(wb.getDisplay(id, 2, 0)).toBe('09:05:30');
   });
 
   it('is read the same way by Convert to numbers and by a CSV import', async () => {
