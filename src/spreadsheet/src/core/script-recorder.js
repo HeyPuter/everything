@@ -195,7 +195,8 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   });
   // A batch of cells written by any other route (paste, Flash Fill, decimal places…): the contents as they now
   // read, and the formatting that changed on them.
-  wrap('setCells', ([sheetId, entries], result, prior) => {
+  /** The cells `entries` ([{ r, c }]) as they now read, against `prior` (each one's cell before the edit). */
+  const changedCells = (sheetId, entries, prior) => {
     const values = [];
     const styled = [];
     entries.forEach(({ r, c }, i) => {
@@ -206,7 +207,9 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     });
     add(sheetId, cellLines(values));
     if (styled.length) add(sheetId, styleDiffLines(styled));
-  }, { before: (sheetId, entries) => entries.map(({ r, c }) => wb.getCell(sheetId, r, c)) });
+  };
+  wrap('setCells', ([sheetId, entries], result, prior) => changedCells(sheetId, entries, prior),
+    { before: (sheetId, entries) => entries.map(({ r, c }) => wb.getCell(sheetId, r, c)) });
   // Over a filtered range, the runs of rows the filter shows, one line each.
   const bandLines = (range, skipRow, line) => {
     const bands = shownBands(range, skipRow);
@@ -243,7 +246,20 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     const list = keys.map((k) => `{ column: ${k.col - rg.c1}, ascending: ${k.ascending !== false} }`).join(', ');
     add(sheetId, [`${rangeExpr(rg)}.sort([${list}]${opts.caseSensitive ? ', { matchCase: true }' : ''});`]);
   });
-  wrap('fill', ([sheetId, source, target]) => add(sheetId, [`${rangeExpr(source)}.autoFill(${q(address(target))});`]));
+  // A fill the script's autoFill makes as it is; a copy instead of a series, or a count where the default copies
+  // (Ctrl while dragging), is written as the cells it left, which autoFill alone would fill the other way.
+  const filledCells = (sheetId, target) => { const out = []; for (let r = target.r1; r <= target.r2; r++) for (let c = target.c1; c <= target.c2; c++) out.push({ r, c }); return out; };
+  const plainFill = (opts) => opts?.series !== false && !opts?.invert;
+  wrap('fill', ([sheetId, source, target, opts], result, prior) => {
+    if (plainFill(opts)) { add(sheetId, [`${rangeExpr(source)}.autoFill(${q(address(target))});`]); return; }
+    if (!prior) { add(sheetId, [`// Not recorded: fill of ${address(target) || 'the sheet'}`]); return; }
+    changedCells(sheetId, filledCells(sheetId, normalizeRange(target)), prior);
+  }, { before: (sheetId, source, target, opts) => {
+    if (plainFill(opts)) return null;
+    const rg = normalizeRange(target);
+    if ((rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1) > MAX_BLOCK_CELLS) return null;
+    return filledCells(sheetId, rg).map(({ r, c }) => wb.getCell(sheetId, r, c));
+  } });
   wrap('mergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.merge();`]));
   wrap('unmergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.unmerge();`]));
   wrap('removeDuplicates', ([sheetId, range, opts = {}]) => {
