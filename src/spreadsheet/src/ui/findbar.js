@@ -324,6 +324,12 @@ export function createFindBar(ctx) {
   function replaceOne() {
     if (debounce !== null) search();
     if (!matches.length || current < 0) { search(); if (!matches.length) return; }
+    // Replace rewrites the match the active cell is on, as Excel's does. With the active cell moved off it (a click
+    // on the sheet), it finds the next match from there first, rather than rewriting a cell out of sight.
+    const a = ctx.grid.active;
+    const here = matches.findIndex((m) => m.sheetId === ctx.sheetId() && m.r === a.r && m.c === a.c);
+    if (here < 0) { step(1); return; }
+    current = here;
     const target = matches[current];
     const keep = current;
     const skipped = [];
