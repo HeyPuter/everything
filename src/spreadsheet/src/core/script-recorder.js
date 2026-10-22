@@ -38,11 +38,15 @@ function inputOf(cell) {
   const v = cell.v;
   if (v == null) return null;
   if (typeof v === 'object') return v.error ?? null;
+  // Text that reads as a formula ("=1+1" pasted as text) goes with an apostrophe, as it would be typed to stay text.
+  if (typeof v === 'string' && /^'*=/.test(v)) return `'${v}`;
   return v;
 }
+/** Text kept from reading as a formula by apostrophes: typed as it is, which takes one off. */
+const quotedFormula = (v) => typeof v === 'string' && /^'+=/.test(v);
 /** Text that would not read back as itself when typed ("007", "1/2", "TRUE"). */
 function needsText(v) {
-  if (typeof v !== 'string' || v === '' || v.startsWith('=')) return false;
+  if (typeof v !== 'string' || v === '' || v.startsWith('=') || quotedFormula(v)) return false;
   try { return parseInput(v)?.v !== v; } catch { return false; }
 }
 
@@ -101,7 +105,7 @@ export function cellLines(cells) {
   for (const { r, c, value } of cells) grid[r - r1][c - c1] = value;
   const flat = grid.flat();
   const texts = flat.filter(needsText).length;
-  const formulas = flat.some((v) => typeof v === 'string' && v.startsWith('='));
+  const formulas = flat.some((v) => typeof v === 'string' && (v.startsWith('=') || quotedFormula(v)));
   const lines = [];
   const rows = (g) => `[${g.map((row) => `[${row.map(literal).join(', ')}]`).join(',\n    ')}]`;
   const target = `sheet.getRange(${q(rangeName({ r1, c1, r2, c2 }))})`;
