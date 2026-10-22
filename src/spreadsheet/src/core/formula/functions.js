@@ -571,6 +571,13 @@ function criteriaNumber(v) {
 /** Build a predicate from a criteria value like ">10", "<>x", "a*", 5. */
 export function criteriaMatcher(criteria) {
   criteria = scalar(criteria);
+  const match = criteriaTest(criteria);
+  // A text criterion is a test of the cell's value alone, the same each time it is built: see scannedCriterion.
+  if (typeof criteria === 'string') match.source = criteria;
+  return match;
+}
+
+function criteriaTest(criteria) {
   if (isError(criteria)) return () => false;
   if (typeof criteria !== 'string') {
     // A reference to an empty cell as the criterion is the value 0.
@@ -865,7 +872,7 @@ function indexCriterion(match, range) {
     match.run = { index, lo, hi, count: hi - lo };
     return;
   }
-  if (match.key === undefined) return;
+  if (match.key === undefined) { scannedCriterion(match, range); return; }
   const index = criteriaIndex(range.values);
   if (!index) return;
   match.cols = index.cols;
@@ -897,6 +904,38 @@ function indexCriterion(match, range) {
     }
   }
   match.positions = positions;
+}
+
+/**
+ * The cells of a range a text criterion no index answers matches ("<>"&B2, "a*", ">m"), found by testing each cell
+ * once and kept for the next formula asking the same of the same values: COUNTIF(B:B,"<>"&B2) filled down 3,000 rows
+ * compared every cell of the column for every row, nine million text comparisons, where the column holds a dozen
+ * distinct criteria. As criteriaIndex, from the second use of the values, and within a bound of positions kept.
+ */
+const scannedIndexes = new WeakMap();
+function scannedCriterion(match, range) {
+  if (match.source === undefined) return;
+  const { values } = range;
+  let index = scannedIndexes.get(values);
+  if (index === undefined) { scannedIndexes.set(values, false); return; }
+  if (!index) scannedIndexes.set(values, index = { queries: new Map(), positions: 0 });
+  const cols = values[0]?.length || 0;
+  // Reading a number or a date out of a criterion follows the regional settings.
+  const key = `${getLocale()}\u0000${match.source}`;
+  let positions = index.queries.get(key);
+  if (!positions) {
+    positions = [];
+    for (let r = 0; r < values.length; r++) {
+      const row = values[r];
+      for (let c = 0; c < cols; c++) if (match(row[c])) positions.push(r * cols + c);
+    }
+    if (positions.length > 100000) return; // tested cell by cell, as before
+    if (index.queries.size >= 256 || index.positions + positions.length > 100000) { index.queries.clear(); index.positions = 0; }
+    index.queries.set(key, positions); index.positions += positions.length;
+  }
+  match.cols = cols;
+  match.positions = positions;
+  match.scanned = true;
 }
 
 /**
@@ -1091,9 +1130,15 @@ function multiCriteria(pairs, baseRange) {
     return [Math.max(rows, h), Math.max(cols, w)];
   }, [0, 0]);
   // An indexed text criterion names the only cells that can match; the other tests are applied to those.
+  const readAsFar = (range) => {
+    const [h, w] = readWindow(range), [bh, bw] = readWindow(baseRange);
+    return h === ok.read[0] && w === ok.read[1] && h === bh && w === bw;
+  };
   for (const t of tests) {
     indexCriterion(t.match, t.range);
-    if (t.match.positions) {
+    // Cells found by testing a range are those it was read to: for a criterion matching a blank ("<>x") they name
+    // the candidates only when every range of the list was read as far, or cells past them would be missed.
+    if (t.match.positions && (!t.match.scanned || !t.match(undefined) || readAsFar(t.range))) {
       ok.positions = t.match.positions; ok.cols = t.match.cols;
       // The index lists exactly the cells this criterion matches, so a candidate is tested against the others only:
       // retesting it cost a text comparison per candidate, 30 million for a 20,000-row column of COUNTIFS on 13 labels.
