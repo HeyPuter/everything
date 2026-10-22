@@ -116,6 +116,8 @@ export function clearChangeHistory(wb) {
   wb.changeHistory = [];
   wb._changeJoin = null;
   wb.dirty = true;
+  // A new version of the book: a save does not take it for the one it last encoded and write those bytes again.
+  wb.version++;
   wb._emit?.('change-history');
   return true;
 }
