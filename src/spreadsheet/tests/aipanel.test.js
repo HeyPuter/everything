@@ -879,7 +879,8 @@ describe('assistant panel settings', () => {
     localStorage.clear();
     vi.stubGlobal('matchMedia', () => ({ matches: true }));
     expect(loadAiSettings().open).toBe(false);
-    localStorage.setItem('spreadsheet:ai', JSON.stringify({ open: true }));
+    // On a phone, the choice made on a phone (a wide window's has a layout of its own).
+    localStorage.setItem('spreadsheet:ai', JSON.stringify({ openNarrow: true }));
     expect(loadAiSettings().open).toBe(true);
   });
 });

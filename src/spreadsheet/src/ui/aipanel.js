@@ -50,13 +50,23 @@ export function loadAiSettings() {
     width: Number.isFinite(s.width) ? Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, s.width)) : DEFAULT_WIDTH,
     // Open unless the user closed it: beside a wide sheet it takes no cells from view. On a phone it would cover
     // most of the grid, and on an upright tablet half of it, leaving the sheet a phone's width, so there it waits
-    // to be asked for, until it has been left open there.
-    open: typeof s.open === 'boolean' ? s.open : !tooNarrowBeside(),
+    // to be asked for, until it has been left open there. Each layout keeps its own choice: the panel left open in a
+    // wide window (where it opens by itself) must not come up over the whole grid when the app opens on a phone.
+    open: tooNarrowBeside() ? s.openNarrow === true : (typeof s.open === 'boolean' ? s.open : true),
+    openWide: typeof s.open === 'boolean' ? s.open : null,
+    openNarrow: typeof s.openNarrow === 'boolean' ? s.openNarrow : null,
   };
 }
 
-function saveAiSettings(settings) {
-  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* no storage */ }
+/** Note the panel open or closed, for the layout the window has now. */
+function setOpenSetting(settings, on) {
+  settings.open = on;
+  if (tooNarrowBeside()) settings.openNarrow = on; else settings.openWide = on;
+}
+
+function saveAiSettings({ approval, width, openWide, openNarrow }) {
+  const kept = { approval, width, ...(openWide != null ? { open: openWide } : {}), ...(openNarrow != null ? { openNarrow } : {}) };
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(kept)); } catch { /* no storage */ }
 }
 
 /**
@@ -926,7 +936,7 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
       if (input.value) fitInput();
       // What arrived while it was closed (a reply, a question to allow a change) could not be scrolled to then.
       if (stick) scrollDown(true);
-      settings.open = true;
+      setOpenSetting(settings, true);
       saveAiSettings(settings);
       refreshChip();
       if (!log.querySelector('.ai-msg')) renderEmpty();
@@ -945,7 +955,7 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
     root.hidden = true;
     rail.hidden = !available;
     // Put away because AI features were turned off, it is left as the user had it, to come back that way.
-    if (available) { settings.open = false; saveAiSettings(settings); }
+    if (available) { setOpenSetting(settings, false); saveAiSettings(settings); }
     onToggle?.(false);
     if (focusGrid) ctx.grid?.focus?.();
   }

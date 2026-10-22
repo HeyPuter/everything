@@ -28,7 +28,7 @@ it('waits to be asked for where it would leave the sheet narrower than 640px', (
 });
 
 it('still follows the person\'s own choice at any width', () => {
-  localStorage.setItem('spreadsheet:ai', JSON.stringify({ open: true }));
+  localStorage.setItem('spreadsheet:ai', JSON.stringify({ openNarrow: true }));
   vi.stubGlobal('matchMedia', windowOf(768));
   expect(loadAiSettings().open).toBe(true);
   localStorage.setItem('spreadsheet:ai', JSON.stringify({ open: false }));
