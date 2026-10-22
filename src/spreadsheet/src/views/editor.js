@@ -5788,13 +5788,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     });
   }
 
-  /** A new spreadsheet, never saved, is left: save it (Puter's Save dialog asks where), keep editing, or leave (the local draft keeps the edits). */
+  /**
+   * A new spreadsheet, never saved, is left: save it (Puter's Save dialog asks where), keep editing, or leave (the local
+   * draft keeps the edits). A file of another kind opened from the drive (a .csv) is on Puter already, and its draft is
+   * kept under its address, offered again when it is opened, not listed under Unsaved spreadsheets.
+   */
   function unsavedLeaveDialog(kept) {
     return new Promise((resolve) => {
+      const file = doc.path ? P.displayName(doc.path) : null;
       const content = el('div', {},
-        el('p.modal-text', {}, kept
-          ? `"${doc.name}" is not saved to Puter yet. Save it where you choose, or leave: your edits stay on this device, and can be recovered from Unsaved spreadsheets on the home screen.`
-          : `"${doc.name}" is not saved to Puter yet, and this browser could not keep a copy of it either. Save it where you choose, or leave and lose it.`),
+        el('p.modal-text', {}, file
+          ? (kept
+            ? `Your changes to "${file}" are not saved yet: they are saved as a new .xlsx file, where you choose. Save it, or leave: your changes stay on this device, and are offered again when you open ${file} here.`
+            : `Your changes to "${file}" are not saved yet: they are saved as a new .xlsx file, where you choose. This browser could not keep a copy of them either: save it, or leave and lose them.`)
+          : kept
+            ? `"${doc.name}" is not saved to Puter yet. Save it where you choose, or leave: your edits stay on this device, and can be recovered from Unsaved spreadsheets on the home screen.`
+            : `"${doc.name}" is not saved to Puter yet, and this browser could not keep a copy of it either. Save it where you choose, or leave and lose it.`),
         el('div.row.row-end', { style: { flexWrap: 'wrap' } },
           el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Keep editing'),
           el(`button.btn${kept ? '' : '.btn-danger'}`, { type: 'button', onclick: () => { resolve('leave'); modal.close(); } }, kept ? 'Leave' : 'Leave without saving'),
