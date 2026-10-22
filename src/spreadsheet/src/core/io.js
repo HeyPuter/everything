@@ -563,9 +563,9 @@ function tableFileFormulas(table, externalWorkbooks = null) {
 }
 
 /** The app's own state for the sidecar; `ods` adds what that format's writer and reader lose. */
-function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null, history = true } = {}) {
+function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null, history = true, active = wb.activeSheet } = {}) {
   // Sheet names are user data; names such as __proto__ must be ordinary keys.
-  const meta = { v: 1, format: 'puter-spreadsheet', ...(!ods ? { themeFonts: true } : {}), active: wb.activeSheet?.name || null, sheets: Object.create(null) };
+  const meta = { v: 1, format: 'puter-spreadsheet', ...(!ods ? { themeFonts: true } : {}), active: active?.name || null, sheets: Object.create(null) };
   let any = structuredNames.length > 0;
   if (ods && (wb.calculationCompatibility.version !== 2 || wb.calculationCompatibility.warnBelowVersion)) {
     meta.calculationCompatibility = wb.calculationCompatibility; any = true;
@@ -821,7 +821,8 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null,
 }
 
 /** The SheetJS workbook for this document; `meta` adds the very-hidden styling sheet this app reads back. */
-function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, history = true, built = null } = {}) {
+function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, history = true, built = null, activeSheetId = wb.activeSheetId } = {}) {
+  const open = wb.sheets.find((s) => s.id === activeSheetId) || wb.activeSheet;
   const book = { SheetNames: [], Sheets: Object.create(null), Workbook: { Sheets: [] } };
   for (const sheet of wb.sheets) {
     book.SheetNames.push(sheet.name);
@@ -870,7 +871,7 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, histo
     if (sheet.kind !== 'chart' && p.titleCols) titles.push(prefix + p.titleCols.map(c => `$${X.utils.encode_col(c)}`).join(':'));
     if (titles.length) (book.Workbook.Names ||= []).push({ Name: '_xlnm.Print_Titles', Ref: titles.join(','), Sheet: i });
   }
-  const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets, history }) : null;
+  const extra = meta || odsSettings ? collectMeta(wb, structuredNames, { ods: odsSettings, fileSheets: book.Sheets, history, active: open }) : null;
   if (extra && odsSettings) book.PuterSettings = extra;
   // LibreOffice reads frozen panes, tab colours, gridlines, zoom and the open sheet from its own view settings.
   if (ods) {
@@ -881,7 +882,7 @@ function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, histo
       if (sheet.frozenRows || sheet.frozenCols || color || Object.keys(look).length) sheets[sheet.name] = { frozenRows: sheet.frozenRows, frozenCols: sheet.frozenCols, ...(color ? { tabColor: color } : {}), ...look };
     }
     // A book that opens on its first sheet, with nothing frozen or coloured, needs no view settings.
-    const active = wb.sheets.indexOf(wb.activeSheet) > 0 ? wb.activeSheet.name : null;
+    const active = wb.sheets.indexOf(open) > 0 ? open.name : null;
     if (active || Object.keys(sheets).length) book.OdsView = { active, sheets };
   }
   if (extra && meta) {
@@ -930,8 +931,12 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
   wb = sharedBook(wb);
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
+  // The sheet open as the book is built is the one the file names, here and in the finishing step: another one opened
+  // meanwhile, which is no edit, needs nothing built again (that held the page as long as the save it was spread over).
+  let activeSheetId = wb.activeSheetId;
   const build = (built = null) => {
-    const book = buildBook(X, wb, { history, built });
+    activeSheetId = wb.activeSheetId;
+    const book = buildBook(X, wb, { history, built, activeSheetId });
     writeDocumentProperties(book, wb.documentProperties);
     return book;
   };
@@ -960,26 +965,25 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
     if (wb.version !== version) bytes = write(book = build());
   }
   // The file is finished a sheet at a time too. That step reads the workbook itself as well as what was built from it,
-  // so a change meanwhile (an edit, or another sheet made the active one, which would leave two tabs selected) has it
-  // done over, at once, from the book as it now is.
+  // so an edit meanwhile has it done over, at once, from the book as it now is. It names the sheet open as the book
+  // was built throughout (another opened meanwhile would leave two tabs selected, the sheets grouped in Excel).
   if (large && wb.sheets.length > 1) {
-    const stamp = () => `${wb.version}|${wb.activeSheetId}`;
-    const at = stamp();
+    const at = wb.version;
     let start = performance.now();
     const pause = async () => {
       if (performance.now() - start <= YIELD_SLICE_MS) return;
       await nextTask();
-      if (stamp() !== at) throw STALE;
+      if (wb.version !== at) throw STALE;
       start = performance.now();
     };
     try {
-      return new Blob([await completeXlsx(X, wb, book, bytes, { sourceWorkbook, pause })], { type: XLSX_MIME });
+      return new Blob([await completeXlsx(X, wb, book, bytes, { sourceWorkbook, pause, activeSheetId })], { type: XLSX_MIME });
     } catch (e) {
       if (e !== STALE) throw e;
       bytes = write(book = build());
     }
   }
-  const data = await completeXlsx(X, wb, book, bytes, { sourceWorkbook });
+  const data = await completeXlsx(X, wb, book, bytes, { sourceWorkbook, activeSheetId });
   return new Blob([data], { type: XLSX_MIME });
 }
 

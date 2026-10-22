@@ -116,27 +116,50 @@ describe('a large book of many sheets', () => {
     } finally { state.restore(); slow.mockRestore(); }
   });
 
-  it('finishes the file from the book as it is when a cell or the active sheet changes on a turn', async () => {
-    for (const change of [(wb) => wb.setInput(wb.sheets[11].id, 0, 0, 'late'), (wb) => wb.setActiveSheet(wb.sheets[5].id)]) {
-      const wb = manySheets();
-      const slow = vi.spyOn(performance, 'now');
-      let clock = 0;
-      slow.mockImplementation(() => (clock += 40));
-      // A turn late in the run (12 while the sheets are built, 2 between the steps), while the file is being finished.
-      const state = turnsWith((turn) => { if (turn === 20) change(wb); });
-      try {
-        const blob = await workbookToXlsx(wb);
-        expect(state.turns).toBeGreaterThanOrEqual(20);
+  it('finishes the file from the book as it is when a cell changes on a turn', async () => {
+    const wb = manySheets();
+    const slow = vi.spyOn(performance, 'now');
+    let clock = 0;
+    slow.mockImplementation(() => (clock += 40));
+    // A turn late in the run (12 while the sheets are built, 2 between the steps), while the file is being finished.
+    const state = turnsWith((turn) => { if (turn === 20) wb.setInput(wb.sheets[11].id, 0, 0, 'late'); });
+    try {
+      const blob = await workbookToXlsx(wb);
+      expect(state.turns).toBeGreaterThanOrEqual(20);
+      const back = await workbookFromFile(await blob.arrayBuffer(), 'many.xlsx');
+      expect(back.getValue(back.sheets[11].id, 0, 0)).toBe('late');
+    } finally { state.restore(); slow.mockRestore(); }
+  });
+
+  it('names one open sheet throughout when another sheet is opened on any turn, and builds nothing again for it', async () => {
+    // Opening another sheet is no edit. On the turns between the steps the styling sheet this app reads named the
+    // sheet open before and the file Excel reads the new one; while the file was finished, two tabs came out
+    // selected (the sheets grouped in Excel), or, to prevent that, the whole book was built again at once, holding
+    // the page as long as the save it was spread over. The file now names the sheet open as the book was built.
+    const X = await import('../src/vendor/xlsx.mjs');
+    const count = turnsWith();
+    const slow = vi.spyOn(performance, 'now');
+    let clock = 0;
+    slow.mockImplementation(() => (clock += 40));
+    try { await workbookToXlsx(manySheets()); } finally { count.restore(); }
+    try {
+      for (let at = 1; at <= count.turns; at++) {
+        const wb = manySheets();
+        const state = turnsWith((turn) => { if (turn === at) wb.setActiveSheet(wb.sheets[5].id); });
+        let blob;
+        try { blob = await workbookToXlsx(wb); } finally { state.restore(); }
+        // Opened before the sheets were all built, the new sheet is the one built as open.
+        const open = at <= 12 ? 'S6' : 'S1';
         const back = await workbookFromFile(await blob.arrayBuffer(), 'many.xlsx');
-        expect(back.getValue(back.sheets[11].id, 0, 0)).toBe(wb.getValue(wb.sheets[11].id, 0, 0));
-        expect(back.activeSheet.name).toBe(wb.activeSheet.name);
-        // One tab selected: the old active sheet's and the new one's together open in Excel as grouped sheets.
-        const X = await import('../src/vendor/xlsx.mjs');
+        expect(back.activeSheet.name, `turn ${at}`).toBe(open);
         const zip = X.CFB.read(new Uint8Array(await blob.arrayBuffer()), { type: 'array' });
+        expect(new TextDecoder().decode(X.CFB.find(zip, '/xl/workbook.xml').content), `turn ${at}`).toMatch(`activeTab="${open === 'S6' ? 5 : 0}"`);
         const selected = zip.FullPaths.filter((path) => /worksheets\/sheet\d+\.xml$/.test(path)
           && /tabSelected="1"/.test(new TextDecoder().decode(X.CFB.find(zip, path).content)));
-        expect(selected).toHaveLength(1);
-      } finally { state.restore(); slow.mockRestore(); }
-    }
+        expect(selected, `turn ${at}`).toEqual([`Root Entry/xl/worksheets/sheet${open === 'S6' ? 6 : 1}.xml`]);
+        // Built again at once, the save would have ended with no further turns.
+        expect(state.turns, `turn ${at}`).toBe(count.turns);
+      }
+    } finally { slow.mockRestore(); }
   });
 });

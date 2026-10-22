@@ -65,7 +65,7 @@ function tableTotal(cell, table, column) {
     formula: builtIn ? '' : xmlTag('totalsRowFormula', { array: cell.F ? 1 : null }, xmlText(cell.f).replace(/\r/g, '&#13;')) };
 }
 
-function worksheetViews(X, wb, sheet) {
+function worksheetViews(X, wb, sheet, activeSheetId = wb.activeSheetId) {
   const r = sheet.frozenRows, c = sheet.frozenCols;
   const base = { r: r ? sheet.frozenOrigin?.r || 0 : 0, c: c ? sheet.frozenOrigin?.c || 0 : 0 };
   const origin = sheet.viewOrigin || { r: base.r + r, c: base.c + c };
@@ -81,10 +81,10 @@ function worksheetViews(X, wb, sheet) {
     sqref: saved.ranges.map(rg => X.utils.encode_range({ s: { r: rg.r1, c: rg.c1 }, e: { r: rg.r2, c: rg.c2 } })).join(' '),
   }) : r || c ? xmlTag('selection', { pane, activeCell: at, sqref: at }) : '';
   const split = !r && !c ? normalizeSplit(sheet.split) : null;
-  if (split) return splitSheetViews(X, wb, sheet, split);
+  if (split) return splitSheetViews(X, wb, sheet, split, activeSheetId);
   const body = (r || c ? xmlTag('pane', { xSplit: c || null, ySplit: r || null, topLeftCell: at, activePane: pane, state: 'frozen' }) : '') + selection;
   return xmlTag('sheetViews', {}, xmlTag('sheetView', {
-    workbookViewId: 0, rightToLeft: sheet.rightToLeft ? 1 : undefined, showGridLines: Number(sheet.gridlines), showRowColHeaders: Number(sheet.headers !== false), showZeros: Number(sheet.zeros), tabSelected: Number(wb.activeSheetId === sheet.id),
+    workbookViewId: 0, rightToLeft: sheet.rightToLeft ? 1 : undefined, showGridLines: Number(sheet.gridlines), showRowColHeaders: Number(sheet.headers !== false), showZeros: Number(sheet.zeros), tabSelected: Number(activeSheetId === sheet.id),
     view: { pageLayout: 'pageLayout', pageBreak: 'pageBreakPreview' }[sheet.viewMode] || null,
     zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
     // Excel keeps each view's zoom; the one shown is the zoom the sheet is viewed at.
@@ -99,7 +99,7 @@ function worksheetViews(X, wb, sheet) {
  * sheetView names the top-left pane's first cell and the pane the bottom-right one's. The selection is the
  * active pane's, which is the bottom-right one, where Split leaves the active cell.
  */
-function splitSheetViews(X, wb, sheet, split) {
+function splitSheetViews(X, wb, sheet, split, activeSheetId = wb.activeSheetId) {
   const origin = sheet.viewOrigin || { r: split.r, c: split.c };
   const at = X.utils.encode_cell({ r: split.y ? origin.r : split.r, c: split.x ? origin.c : split.c });
   const activePane = paneName(split, { left: false, top: false });
@@ -110,7 +110,7 @@ function splitSheetViews(X, wb, sheet, split) {
     sqref: saved.ranges.map(rg => X.utils.encode_range({ s: { r: rg.r1, c: rg.c1 }, e: { r: rg.r2, c: rg.c2 } })).join(' '),
   }) : xmlTag('selection', { pane: activePane, activeCell: at, sqref: at });
   return xmlTag('sheetViews', {}, xmlTag('sheetView', {
-    workbookViewId: 0, rightToLeft: sheet.rightToLeft ? 1 : undefined, showGridLines: Number(sheet.gridlines), showRowColHeaders: Number(sheet.headers !== false), showZeros: Number(sheet.zeros), tabSelected: Number(wb.activeSheetId === sheet.id),
+    workbookViewId: 0, rightToLeft: sheet.rightToLeft ? 1 : undefined, showGridLines: Number(sheet.gridlines), showRowColHeaders: Number(sheet.headers !== false), showZeros: Number(sheet.zeros), tabSelected: Number(activeSheetId === sheet.id),
     zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
     topLeftCell: split.r || split.c ? X.utils.encode_cell({ r: split.r, c: split.c }) : null,
   }, splitPaneXml(split, { topLeftCell: at, activePane }) + selection));
@@ -131,8 +131,10 @@ export function dataTableFormula(ref, row, col) {
 
 /**
  * `pause`, when given, is awaited between sheets: the caller's chance to give the page a turn (see workbookToXlsx).
+ * `activeSheetId` is the sheet the book was built as open on: the file names that one throughout, though another
+ * sheet is opened during such a turn.
  */
-export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, pause = null } = {}) {
+export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, pause = null, activeSheetId = wb.activeSheetId } = {}) {
   const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
   const decoder = new TextDecoder(), encoder = new TextEncoder();
   const get = path => { const file = X.CFB.find(zip, path); return file ? decoder.decode(file.content) : ''; };
@@ -206,7 +208,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       const chartPath = `/xl/chartsheets/sheet${i + 1}.xml`;
       const drawing = await exportDrawings(X, wb, sheet, i + 1, { set, binary: put, contentType, recordDrawing, recordGroup, slicers });
       const views = xmlTag('sheetViews', {}, xmlTag('sheetView', {
-        workbookViewId: 0, tabSelected: Number(wb.activeSheetId === sheet.id), zoomToFit: Number(!!sheet.zoomToFit),
+        workbookViewId: 0, tabSelected: Number(activeSheetId === sheet.id), zoomToFit: Number(!!sheet.zoomToFit),
         zoomScale: sheet.viewZoom != null ? Math.round(sheet.viewZoom * 100) : null,
       }));
       const properties = sheet.color ? xmlTag('sheetPr', {}, xmlTag('tabColor', { rgb: `FF${sheet.color.slice(1).toUpperCase()}` })) : '';
@@ -233,7 +235,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
       const index = styles.cell(cell.s, Number(xlsxAttr(head, 's') || 0));
       return head.replace(/\ss="[^"]*"/, '').replace(/(\sr="[^"]*")/, `$1 s="${index}"`);
     });
-    xml = xml.replace(/<sheetViews\b[^>]*>[\s\S]*?<\/sheetViews>/, worksheetViews(X, wb, sheet));
+    xml = xml.replace(/<sheetViews\b[^>]*>[\s\S]*?<\/sheetViews>/, worksheetViews(X, wb, sheet, activeSheetId));
     xml = xml.replace(/<f\b[^>]*\bt="array"[^>]*\bref="([^"]+)"[^>]*>(?:_xlfn\.)?TABLE\(([^(),]*),([^(),]*)\)<\/f>/g, (all, ref, row, col) => dataTableFormula(ref, row, col) || all);
     // A protected sheet says so where Excel reads it, right after the cells (and any sheetCalcPr); no password is set.
     xml = xml.replace(/<sheetProtection\b[^>]*\/>/g, '');
@@ -383,7 +385,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
   const firstSheet = firstSheetId == null ? null : wb.sheets.findIndex(s => s.id === firstSheetId);
   const views = xmlTag('bookViews', {}, xmlTag('workbookView', {
     ...windowView, firstSheet: firstSheet >= 0 ? firstSheet : null,
-    activeTab: Math.max(0, wb.sheets.findIndex(s => s.id === wb.activeSheetId)),
+    activeTab: Math.max(0, wb.sheets.findIndex(s => s.id === activeSheetId)),
   }));
   workbook = /<bookViews\b/.test(workbook) ? workbook.replace(/<bookViews\b[^>]*>[\s\S]*?<\/bookViews>/, views) : workbook.replace('<sheets>', `${views}<sheets>`);
   // Protect Workbook: the structure lock sits just before the views, where the schema has it; no password is set.
