@@ -44,3 +44,18 @@ it('moves both bounds of a between filter, and leaves a number column\'s bounds 
   numbers.reapplyFilter(numbers.activeSheetId);
   expect(shown(numbers)).toEqual([false, true, true]);
 });
+
+it('moves the bounds of a pair of date conditions the app keeps as the file wrote them', async () => {
+  // "Before 2024 or after 2024": no criterion of the app's own, the pair is kept as written and judged from it.
+  const pair = custom(0, [['lessThan', S1904(2024, 1, 1)], ['greaterThan', S1904(2024, 12, 31)]]);
+  const wb = await workbookFromFile(file(pair), 'mac.xlsx');
+  wb.reapplyFilter(wb.activeSheetId);
+  expect(shown(wb)).toEqual([true, false, true]);
+  // The file this app writes is on the 1900 system: the pair names the same days there, for Excel's Reapply too.
+  const bytes = new Uint8Array(await (await workbookToXlsx(wb)).arrayBuffer());
+  const sheet = new TextDecoder().decode(XLSX.CFB.find(XLSX.CFB.read(bytes, { type: 'array' }), '/xl/worksheets/sheet1.xml').content);
+  expect(sheet).toContain(`<customFilter operator="lessThan" val="${ymdToSerial(2024, 1, 1)}"/>`);
+  const back = await workbookFromFile(bytes, 'saved.xlsx');
+  back.reapplyFilter(back.activeSheetId);
+  expect(shown(back)).toEqual([true, false, true]);
+});

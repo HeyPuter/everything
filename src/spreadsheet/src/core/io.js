@@ -2080,9 +2080,13 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     if (!filter || !dateTargets) return filter;
     let criteria = filter.criteria;
     for (const [key, crit] of Object.entries(criteria)) {
-      if (!['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between'].includes(crit?.op) || typeof crit.value !== 'number') continue;
+      // A pair of custom conditions kept as the file wrote it ({ native }) names its days by serial too.
+      const pair = typeof crit?.native === 'string' && /^<customFilters\b/.test(crit.native);
+      if (!pair && (!['gt', 'gte', 'lt', 'lte', 'eq', 'neq', 'between'].includes(crit?.op) || typeof crit.value !== 'number')) continue;
       if (!dateTargets([{ r1: filter.range.r1 + 1, c1: Number(key), r2: filter.range.r2, c2: Number(key) }])) continue;
-      criteria = { ...criteria, [key]: { ...crit, value: crit.value + 1462, ...(typeof crit.value2 === 'number' ? { value2: crit.value2 + 1462 } : {}) } };
+      criteria = { ...criteria, [key]: pair
+        ? { ...crit, native: crit.native.replace(/(<customFilter\b[^>]*\sval=")([-+]?\d+(?:\.\d+)?)(")/g, (m, open, val, close) => `${open}${Number(val) + 1462}${close}`) }
+        : { ...crit, value: crit.value + 1462, ...(typeof crit.value2 === 'number' ? { value2: crit.value2 + 1462 } : {}) } };
     }
     return criteria === filter.criteria ? filter : { ...filter, criteria };
   };
