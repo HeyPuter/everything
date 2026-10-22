@@ -441,7 +441,9 @@ function formatLines(wb, sheetId, range, limit = 150) {
 function readRange(wb, args, env) {
   const { sheetId, range: asked } = resolveRange(wb, args.range, env.sheetId());
   const name = wb.sheet(sheetId).name;
-  const data = withinData(wb, sheetId, asked);
+  // Whole columns (or rows) from where their data begins: A:Z over data from row 300 read 96 empty rows from A1, each
+  // read "cut short" and pointing on to the next.
+  const data = dataOfLines(wb, sheetId, asked);
   if (!data) return `${qualified(wb, sheetId, asked)} is empty.`;
   const width = data.c2 - data.c1 + 1;
   const maxRows = Math.max(1, Math.floor(MAX_READ_CELLS / width));
