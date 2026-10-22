@@ -3404,15 +3404,19 @@ export function createGrid(opts) {
       const units = graphemes(text);
       return `${typeof units === 'string' ? units.slice(0, SPOKEN_MAX) : units.slice(0, SPOKEN_MAX).join('')}… ${text.length.toLocaleString()} characters`;
     };
-    const text = spoken(wb.getDisplay(sheetId, r, c));
+    const rule = sheet().validations.length ? wb.validationAt(sheetId, r, c) : null;
+    // A checkbox cell shows a box, not TRUE or FALSE, and is read as the box it is, as ticking it is announced.
+    const text = rule?.type === 'checkbox' ? (wb.getValue(sheetId, r, c) === true ? 'checkbox, checked' : 'checkbox, not checked')
+      : spoken(wb.getDisplay(sheetId, r, c));
     const cell = wb.getCell(sheetId, r, c);
     let msg = `${cellName(r, c)}${text ? `, ${text}` : ', empty'}`;
     if (cell?.f != null) msg += `, formula`;
+    // A link is said to be one, as it is drawn as one; Ctrl/Cmd+click or Ctrl+K reaches it.
+    if (text && wb.linkAt(sheetId, r, c)) msg += ', link';
     // A merged block is one cell on screen; its extent is said, as the outline drawn round it shows it.
     const merged = sheet().merges.length ? mergeAt(r, c) : null;
     if (merged) msg += `, merged ${rangeName(merged)}`;
     // A validation rule's input message is read with the cell it is shown beside.
-    const rule = sheet().validations.length ? wb.validationAt(sheetId, r, c) : null;
     if (rule?.showInputMessage !== false && (rule?.prompt || rule?.promptTitle)) msg += `. ${[rule.promptTitle, rule.prompt].filter(Boolean).join(': ')}`;
     // So is a note, which shows beside it too (unless notes are set to show nothing).
     const note = appOption('commentIndicators') === 'none' ? null : sheet().notes.get(cellKey(r, c));
