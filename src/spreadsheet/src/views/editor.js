@@ -11,7 +11,7 @@ import { setTableHeaderRow, setTableFilterButton, tableFilterButtonOn } from '..
 import { nativePivotAt, tableSlicerProblem } from '../core/slicer-insert.js';
 import { slicerClipboard, readSlicerClipboard } from '../ui/slicer.js';
 import { slicerItems } from '../core/slicer.js';
-import { filterValueIdentity } from '../core/sheet-filters.js';
+import { filterValueIdentity, filterTable } from '../core/sheet-filters.js';
 import { openScrollDialog } from '../ui/scrolldialog.js';
 import { scrollControlValue, scrollControlTarget } from '../core/scroll-control.js';
 import { scrollControlClipboard, readScrollControlClipboard } from '../ui/scroll-control.js';
@@ -2305,6 +2305,22 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (refusedByProtection('change the filter')) return;
         const sheet = wb.sheet(sheetId);
         const filter = wb.filterAt(sheetId, grid.active.r, grid.active.c);
+        const table = filter && filterTable(sheet, filter);
+        if (table) {
+          // A table keeps its filter, as Table Design ▸ Filter Button keeps it: Data ▸ Filter shows its buttons again,
+          // or hides them and shows every row. Removed outright, the filter took the table's slicers with it (each
+          // read that its column was unavailable and the workbook could no longer be saved), and buttons hidden from
+          // Table Design could not be brought back from here.
+          const on = tableFilterButtonOn(wb, sheetId, table);
+          wb.transaction(on ? 'Remove filter' : 'Filter', () => {
+            if (on && Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'Remove filter', { target: filter });
+            const problem = setTableFilterButton(wb, sheetId, table.id, !on);
+            if (problem) toast(problem, { icon: 'info', duration: 3000 });
+          });
+          if (tableFilterButtonOn(wb, sheetId, table) !== on) toast(on ? 'Filter removed' : 'Filter added. Use the buttons in the header row', { icon: 'filter' });
+          keepFocus();
+          return;
+        }
         if (filter) { wb.activateFilter(sheetId, filter); wb.clearFilter(sheetId); toast('Filter removed', { icon: 'filter' }); keepFocus(); return; }
         if (!oneRange('create a filter')) return;
         const range = dataRange();
