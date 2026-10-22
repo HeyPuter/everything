@@ -623,7 +623,7 @@ function styleFromElement(td, styles, spreadsheet = false) {
   // instead of a number and a date; other codes become the closest named format or a custom one.
   // Google Sheets writes its format in an attribute of its own.
   const numberFormat = prop('mso-number-format');
-  const numberStyle = numberFormat ? numFmtToStyle(msoNumberFormat(numberFormat)) : sheetsNumberFormat(td);
+  const numberStyle = numberFormat ? numFmtToStyle(msoNumberFormat(numberFormat)) : sheetsNumberFormat(td) || calcTextFormat(td);
   if (numberStyle) Object.assign(s, numberStyle);
   return Object.keys(s).length ? s : undefined;
 }
@@ -680,6 +680,16 @@ function sheetsNumberFormat(td) {
     const code = { 3: '0%', 5: 'yyyy-mm-dd', 6: 'hh:mm', 7: 'yyyy-mm-dd hh:mm' }[v[1]];
     return code ? numFmtToStyle(code) : null;
   } catch { return null; }
+}
+
+/**
+ * LibreOffice Calc's Text format, from sdnum="1033;0;@" (its language, then the format code): a cell so
+ * formatted keeps 00123 and 1/2 as typed, as Excel's mso-number-format "@" does. Null for any other code,
+ * whose spelling is Calc's own and whose number the cell's sdval already gives.
+ */
+function calcTextFormat(td) {
+  const code = td.getAttribute('sdnum')?.split(';').slice(2).join(';');
+  return code?.trim() === '@' ? numFmtToStyle('@') : null;
 }
 
 /**
