@@ -2954,7 +2954,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           return;
         }
         if (grid.editing) { insertFunction(name); return; }
-        if (refusedByProtection('enter a formula')) return;
+        // A locked cell refuses the formula as it refuses one typed (an unlocked one on a protected sheet takes it).
+        if (wb.lockedAt(sheetId, grid.active.r, grid.active.c)) return;
         rememberFunction(name);
         openFunctionArgumentsDialog(ctx, name, { apply: (call) => { if (grid.beginEdit({ text: `=${call}`, mode: 'inplace' }) !== false) grid.commitEdit(); keepFocus(); } });
         return;
@@ -2964,7 +2965,6 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // the editor opens with =SUM( so a range can be picked. Mid-edit the
         // chord inserts SUM( at the caret, never a formula into the cell behind.
         if (grid.editing) { insertFunction('SUM'); return; }
-        if (refusedByProtection('add a sum')) return;
         const { r, c } = grid.active;
         const isNum = (rr, cc) => typeof wb.getValue(sheetId, rr, cc) === 'number';
         let rr = r - 1;
@@ -3441,14 +3441,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       }
       case 'symbolDialog':
         // Mid-entry the symbol goes in at the caret, on the entry's own sheet, whatever sheet is showing.
-        if (!grid.editing && refusedByProtection('insert a symbol')) return;
+        if (!grid.editing && wb.lockedAt(sheetId, grid.active.r, grid.active.c)) return;
         openSymbolDialog(ctx);
         return;
       case 'insertSymbol': {
         // Insert ▸ Symbol: at the caret of the entry being typed, or at the end of the active cell's contents in a new edit.
         if (!arg) return;
         if (grid.editing) { grid.insertText(String(arg)); grid.focusEditor(); return; }
-        if (refusedByProtection('insert a symbol')) return;
         const cell = wb.getCell(sheetId, grid.active.r, grid.active.c);
         const current = cell?.f != null ? `=${cell.f}` : cell?.v != null ? wb.getDisplay(sheetId, grid.active.r, grid.active.c) : '';
         grid.beginEdit({ text: `${current}${arg}`, mode: 'inplace' });
@@ -3459,7 +3458,6 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // nothing typed yet starts a formula with it, as a function picked there does.
         if (!arg) return;
         if (grid.editing) { grid.insertText(`${grid.editState?.text ? '' : '='}${arg}`); grid.focusEditor(); return; }
-        if (refusedByProtection('enter a formula')) return;
         grid.beginEdit({ text: `=${arg}`, mode: 'inplace' });
         return;
       }
