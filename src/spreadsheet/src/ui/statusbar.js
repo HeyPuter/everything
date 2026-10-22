@@ -196,7 +196,11 @@ export function createStatusBar(ctx) {
     if (!m) { pageEl.hidden = true; return; }
     const band = (list, i) => { let k = 0; while (k + 1 < list.length && list[k + 1] <= i) k++; return k; };
     const { r, c } = ctx.grid.active;
-    const { number, pages } = pageNumber(m, band(m.cols, c), band(m.rows, r));
+    const across = band(m.cols, c), down = band(m.rows, r);
+    // A cell on a page above or left of the print area is on none of the printed pages: counted from the area's first,
+    // it read "Page: 0" or less, or the number of another page. The bar names no page for it.
+    if (across < m.printed.a0 || down < m.printed.d0) { pageEl.hidden = true; return; }
+    const { number, pages } = pageNumber(m, across, down);
     pageEl.textContent = `Page: ${number} of ${pages}`;
     pageEl.hidden = false;
   };
