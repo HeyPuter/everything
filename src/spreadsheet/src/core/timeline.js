@@ -198,10 +198,24 @@ export function deleteTimeline(wb, sheetId, id) {
   if (control?.type !== 'timeline') return false;
   let done = false;
   wb.transaction('Delete timeline', () => {
-    if (control.start != null && timelineSource(wb, control)) {
-      try { setTimelineSelection(wb, sheetId, id, null, null); } catch { /* the report cannot be rebuilt: leave its filter */ }
-    }
+    clearTimelineFilter(wb, sheetId, id);
     done = wb.deleteChart(sheetId, id);
   });
   return done;
+}
+
+/** Delete several objects as one step, the timelines among them taking their filters off their PivotTables first, as one deleted alone does. */
+export function deleteObjectsWithTimelines(wb, sheetId, ids) {
+  let done = false;
+  wb.transaction('Delete objects', () => {
+    for (const id of ids) clearTimelineFilter(wb, sheetId, id);
+    done = wb.deleteObjects(sheetId, ids);
+  });
+  return done;
+}
+
+function clearTimelineFilter(wb, sheetId, id) {
+  const control = wb.chartById(sheetId, id);
+  if (control?.type !== 'timeline' || control.start == null || !timelineSource(wb, control)) return;
+  try { setTimelineSelection(wb, sheetId, id, null, null); } catch { /* the report cannot be rebuilt: leave its filter */ }
 }

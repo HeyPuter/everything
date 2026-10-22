@@ -5,7 +5,7 @@ import { openSparklineCreateDialog } from '../ui/sparklinecreatedialog.js';
 import { openSlicerDialog } from '../ui/slicerdialog.js';
 import { openInsertSlicersDialog } from '../ui/insertslicers.js';
 import { openInsertTimelineDialog, openTimelineSettingsDialog } from '../ui/inserttimeline.js';
-import { deleteTimeline } from '../core/timeline.js';
+import { deleteObjectsWithTimelines, deleteTimeline } from '../core/timeline.js';
 import { openTableResizeDialog } from '../ui/tableresize.js';
 import { setTableHeaderRow, setTableFilterButton, tableFilterButtonOn } from '../core/table-header-row.js';
 import { nativePivotAt, tableSlicerProblem } from '../core/slicer-insert.js';
@@ -3395,7 +3395,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         notify();
         return;
       case 'deleteObjects':
-        if (Array.isArray(arg) && wb.deleteObjects(sheetId, arg)) statusBar?.announce(`${arg.length} objects deleted`);
+        if (Array.isArray(arg) && deleteObjectsWithTimelines(wb, sheetId, arg)) statusBar?.announce(`${arg.length} objects deleted`);
         keepFocus();
         return;
       case 'addWatch': {
