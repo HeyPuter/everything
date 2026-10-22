@@ -409,7 +409,8 @@ export function createStatusBar(ctx) {
     const stats = [];
     const stat = (label, value, extra = '') => el(`span.status-item.status-stat${extra}`, {}, el('span.muted', {}, `${label}: `), value);
     const summary = selectionStats();
-    if (summary) {
+    // A selection of empty cells shows no statistics at all, as in Excel, rather than "Count: 0".
+    if (summary?.s.count) {
       const { s, fmt } = summary;
       if (s.nums && prefs.avg) stats.push(stat('Average', fmt(s.avg)));
       if (prefs.count) stats.push(stat('Count', String(s.count)));
