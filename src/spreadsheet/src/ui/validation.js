@@ -455,5 +455,16 @@ export function openValidationManager(ctx, { type = null } = {}) {
   const modal = openModal({ title: 'Data validation', content: el('div.dv-body', {}, rulesDetails, form), wide: true, className: 'dv-dialog', initialFocus: type ? (type === 'list' ? sourceInput : rangeInput) : null, onClose: () => ctx.grid?.focus?.() });
   resetForm();
   render();
+  // Opened on cells that already have a rule, the dialog shows that rule to change, as Excel's does, rather than
+  // an empty form whose Add rule would lay a second rule over the first.
+  const selection = ctx.range(), at = ctx.active?.();
+  const current = !type && at ? ctx.wb.validationAt(sheetId, at.r, at.c) : null;
+  if (current && selection.r1 >= current.range.r1 && selection.r2 <= current.range.r2 && selection.c1 >= current.range.c1 && selection.c2 <= current.range.c2) {
+    rulesDetails.open = true;
+    // The focus stays where the dialog put it (no keyboard springs up on a phone); loadRule moves it for a click.
+    const focused = document.activeElement;
+    loadRule(current);
+    focused?.focus?.();
+  }
   return modal;
 }
