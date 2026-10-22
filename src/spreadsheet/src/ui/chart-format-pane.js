@@ -248,7 +248,12 @@ export function createChartUi(ctx) {
   };
   const number = (label, value, onSet, { min = null, max = null, step = 'any', placeholder = 'Auto' } = {}) => {
     const input = el('input.input.chart-pane-number', { type: 'number', step, value: value ?? '', placeholder, 'aria-label': label, ...(min != null ? { min } : {}), ...(max != null ? { max } : {}) });
-    input.addEventListener('change', () => { const v = input.value.trim() === '' ? null : Number(input.value); if (v === null || Number.isFinite(v)) onSet(v); });
+    // A value the field refuses goes back to the one the chart keeps, rather than showing what the chart does not draw.
+    input.addEventListener('change', () => {
+      const before = ctx.wb.version, v = input.value.trim() === '' ? null : Number(input.value);
+      if (v === null || Number.isFinite(v)) onSet(v);
+      if (ctx.wb.version === before) input.value = value ?? '';
+    });
     return field(label, input);
   };
   const checkbox = (label, checked, onSet) => {
