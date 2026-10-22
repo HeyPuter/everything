@@ -2607,6 +2607,10 @@ export function createGrid(opts) {
   function chartPointerDown(e, id, onHandle) {
     if (e.button !== 0 || e.target.closest('.chart-tool')) return;
     if (underFrozenPane(e.currentTarget, e.clientX, e.clientY)) return; // the press goes on to the cells
+    // Control+click on a Mac is the secondary click: the browser sends it as a primary press with Control held
+    // before the menu's own event, which selects the object as a right-click does (or keeps those selected).
+    // Taken as Ctrl-click, it took the object out of the selection, or added it, before the menu opened.
+    if (macSecondaryClick(e)) { e.stopPropagation(); return; }
     // A finger on an object not selected is the sheet's, as on the cells: a swipe scrolls (the box lets
     // the browser pan; see grid.css) and a tap selects the object. Only a selected object moves under a
     // finger, so a chart wider than a phone's screen no longer grabs every swipe and slides over the data.
