@@ -920,7 +920,14 @@ const REGISTERS = new Set(['cells', 'lines', 'props', 'book']);
  * inverse puts back what its own registers held, so a part the room has not confirmed is taken back alone.
  */
 export function splitChange(ops, inverses, limit = PART) {
-  if (!ops.every((op, i) => REGISTERS.has(op.t) && inverses[i]?.length === 1 && inverses[i][0].t === op.t)) return null;
+  // A sheet added whole (a copy of a long sheet, say) can be larger than a change on its own: it travels as the sheet
+  // without its cells, then its cells as writes like any other, which split as theirs do.
+  if (ops.some((op) => op.t === 'put')) {
+    const split = ops.flatMap((op, i) => (op.t === 'put' && inverses[i]?.length === 1 && inverses[i][0].t === 'drop' ? putInParts(op, inverses[i]) : [[op, inverses[i]]]));
+    ops = split.map(([op]) => op);
+    inverses = split.map(([, inv]) => inv);
+  }
+  if (!ops.every((op, i) => (REGISTERS.has(op.t) ? inverses[i]?.length === 1 && inverses[i][0].t === op.t : op.t === 'put' && inverses[i]?.length === 1 && inverses[i][0].t === 'drop'))) return null;
   const keysOf = (op) => (op.t === 'cells' ? (op.st ? [...new Set([...Object.keys(op.v || {}), ...Object.keys(op.st)])] : Object.keys(op.v || {})) : op.t === 'lines' ? Object.keys(op.v) : null);
   // Fewer cells or lines than this cannot make a change too large (a cell holds 32,767 characters at most).
   let count = 0;
@@ -1006,6 +1013,23 @@ function keepOthersWork(ops, theirs) {
     if (from <= r.to) runs.push({ from, to: r.to });
   }
   return runs.length ? [...ops.slice(0, -1), { ...last, runs }] : ops.slice(0, -1);
+}
+
+/** A sheet added whole as [operation, inverse] pairs: the sheet without its cells, taken back by dropping it, then its cells. */
+function putInParts(op, inverse) {
+  const cells = op.sheet?.cells || {};
+  const keys = Object.keys(cells);
+  if (!keys.length) return [[op, inverse]];
+  const v = {}, st = {}, iv = {}, ist = {};
+  for (const key of keys) {
+    const cell = cells[key];
+    v[key] = contentOf(cell);
+    iv[key] = null;
+    if (cell?.s && Object.keys(cell.s).length) { st[key] = { ...cell.s }; ist[key] = Object.fromEntries(Object.keys(cell.s).map((k) => [k, null])); }
+  }
+  const write = { t: 'cells', s: op.s, v, ...(Object.keys(st).length ? { st } : {}) };
+  const undo = { t: 'cells', s: op.s, v: iv, ...(Object.keys(ist).length ? { st: ist } : {}) };
+  return [[{ ...op, sheet: { ...op.sheet, cells: {} } }, inverse], [write, [undo]]];
 }
 
 /** Two register writes made at once: where both write one register, the winner's value stands. */
