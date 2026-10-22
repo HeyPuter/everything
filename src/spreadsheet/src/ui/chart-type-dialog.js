@@ -8,7 +8,7 @@ import { icon } from './icons.js';
 import { openModal } from './modal.js';
 import { renderChartSvg } from './chartsvg.js';
 import { chartSource, insertChart, themeChartFont } from './chart-actions.js';
-import { chartData } from '../core/charts.js';
+import { chartData, normalizeChart } from '../core/charts.js';
 import { CHART_FAMILIES, DEFAULT_SUBTYPE, changeSubtypePatch, chartSubtype, newExcelChart, subtypeOf } from '../core/chart-subtypes.js';
 import { recommendedSubtypes } from '../core/chart-design.js';
 import { maxOf } from '../core/numeric.js';
@@ -36,7 +36,9 @@ export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, 
 
   const draft = id => (changing ? { ...chart, ...changeSubtypePatch(chart, id, { font }) } : newExcelChart(wb, sheetId, range, id, { font }));
   const picture = (id, w, h) => {
-    const c = draft(id);
+    // Drawn as the chart will be once inserted (or changed): its settings filled in and checked, as the workbook
+    // keeps them. Drawn raw, a bar or scatter chart's plot came out at NaN, with an error in the console for each line.
+    const c = normalizeChart({ ...draft(id), id: chart?.id || 'preview' }) || draft(id);
     try { return renderChartSvg(chartData(wb, sheetId, c), c, w, h); } catch { return ''; }
   };
 
