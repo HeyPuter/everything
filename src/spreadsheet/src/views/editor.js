@@ -5356,17 +5356,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
    * from the cells beside them. { entries, examples, rows }: the cells to fill, how many examples taught it, and
    * the rows looked at ({ r, target }).
    */
-  function flashFillPlan(sheetId, r, c) {
-    const region = wb.dataRegion(sheetId, r, c) || { r1: r, c1: c, r2: r, c2: c };
+  const flashFillShown = (sheetId, r, c) => { const v = wb.getValue(sheetId, r, c); return v == null || (typeof v === 'object') ? null : wb.getDisplay(sheetId, r, c); };
+  const flashFillTarget = (sheetId, r, c) => { const cell = wb.getCell(sheetId, r, c); return cell?.v != null || cell?.f != null ? flashFillShown(sheetId, r, c) : null; };
+  /** Whether a cell is one of Flash Fill's examples: an entry of its own that shows something. */
+  const flashFillExample = (sheetId, r, c) => { const target = flashFillTarget(sheetId, r, c); return target != null && target !== ''; };
+  function flashFillPlan(sheetId, r, c, region = wb.dataRegion(sheetId, r, c)) {
+    region ||= { r1: r, c1: c, r2: r, c2: c };
     const area = { r1: region.r1, r2: region.r2, c1: Math.min(region.c1, c - 1 >= 0 ? c - 1 : c), c2: Math.max(region.c2, c) };
     const cols = [];
     for (let cc = area.c1; cc <= area.c2; cc++) if (cc !== c) cols.push(cc);
-    const shown = (rr, cc) => { const v = wb.getValue(sheetId, rr, cc); return v == null || (typeof v === 'object') ? null : wb.getDisplay(sheetId, rr, cc); };
     const rows = [];
-    for (let rr = area.r1; rr <= area.r2; rr++) {
-      const target = wb.getCell(sheetId, rr, c);
-      rows.push({ r: rr, sources: cols.map((cc) => shown(rr, cc)), target: target?.v != null || target?.f != null ? shown(rr, c) : null });
-    }
+    for (let rr = area.r1; rr <= area.r2; rr++) rows.push({ r: rr, sources: cols.map((cc) => flashFillShown(sheetId, rr, cc)), target: flashFillTarget(sheetId, rr, c) });
     // A header above the examples fits no pattern: try again without the first row before giving up.
     let filled = flashFill(rows), from = 0;
     if (!filled && rows.length > 1) { filled = flashFill(rows.slice(1)); from = 1; }
@@ -5386,7 +5386,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (!appOption('autoFlashFill') || grid.sheetId !== sheetId || r < 1) return;
     const above = wb.getCell(sheetId, r - 1, c);
     if (above?.v == null || above.f != null || typeof wb.getValue(sheetId, r, c) !== 'string') return;
-    const { entries, examples, rows } = flashFillPlan(sheetId, r, c);
+    // Only a cell below the one just typed can be offered, and only while the cell under it is still empty. A row
+    // added at the foot of a list, or an entry changed inside a filled column, is neither: the plan below reads every
+    // cell of the list (200 ms over 20,000 rows) and was worked out after every such entry only to be thrown away.
+    const region = wb.dataRegion(sheetId, r, c);
+    if (!region || region.r2 <= r || flashFillExample(sheetId, r + 1, c)) return;
+    const { entries, examples, rows } = flashFillPlan(sheetId, r, c, region);
     // The examples must be the column's first entries, the one just typed the last of them, with only blanks below.
     const typed = rows.filter((row) => row.target != null && row.target !== '').map((row) => row.r);
     if (examples < 2 || !entries.length || typed.at(-1) !== r || typed.some((rr, i) => i && rr !== typed[i - 1] + 1) || entries.some((e) => e.r < r)) return;
