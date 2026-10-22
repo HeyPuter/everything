@@ -112,6 +112,22 @@ export function cellLines(cells) {
   return lines;
 }
 
+/**
+ * The rows of `range` that `skipRow` leaves in (those a filter shows), as ranges of consecutive rows: an edit made over
+ * a filtered range passes over the rows the filter hides, and a replay over the whole range would change them too.
+ */
+function shownBands(range, skipRow) {
+  const rg = normalizeRange(range);
+  if (!skipRow) return [rg];
+  const out = [];
+  for (let r = rg.r1; r <= rg.r2; r++) {
+    if (skipRow(r)) continue;
+    const last = out.at(-1);
+    if (last && last.r2 === r - 1) last.r2 = r; else out.push({ ...rg, r1: r, r2: r });
+  }
+  return out;
+}
+
 /** Runs of consecutive indices: [3, 4, 5, 9] → [[3, 5], [9, 9]]. */
 function runs(indices) {
   const sorted = [...new Set(indices)].sort((a, b) => a - b);
@@ -191,11 +207,20 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     add(sheetId, cellLines(values));
     if (styled.length) add(sheetId, styleDiffLines(styled));
   }, { before: (sheetId, entries) => entries.map(({ r, c }) => wb.getCell(sheetId, r, c)) });
+  // Over a filtered range, the runs of rows the filter shows, one line each.
+  const bandLines = (range, skipRow, line) => {
+    const bands = shownBands(range, skipRow);
+    if (bands.length > MAX_CELL_LINES) return [`// Not recorded: a change to ${bands.length} runs of shown rows across ${address(range) || 'the sheet'}`];
+    return bands.flatMap(line);
+  };
   wrap('clearRange', ([sheetId, range, opts = {}]) => {
     const what = opts.contents === false ? 'formats' : opts.styles ? 'all' : 'contents';
-    add(sheetId, [`${rangeExpr(range)}.clear(${q(what)});`]);
+    add(sheetId, bandLines(range, opts.skipRow, (rg) => [`${rangeExpr(rg)}.clear(${q(what)});`]));
   });
-  wrap('applyStyle', ([sheetId, range, patch]) => add(sheetId, formatLines(normalizeRange(range), patch, { ...wb.styleAt(sheetId, range.r1, range.c1), ...patch })));
+  wrap('applyStyle', ([sheetId, range, patch, opts = {}]) => {
+    const style = { ...wb.styleAt(sheetId, range.r1, range.c1), ...patch };
+    add(sheetId, bandLines(range, opts.skipRow, (rg) => formatLines(rg, patch, style)));
+  });
   wrap('applyBorders', ([sheetId, range, kind, opts = {}]) => {
     const edge = BORDER_EDGE[kind];
     if (!edge) { add(sheetId, [`// Not recorded: border change on ${address(range) || 'the sheet'}`]); return; }
