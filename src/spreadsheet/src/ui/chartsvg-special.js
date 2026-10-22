@@ -11,7 +11,8 @@ import { maxOf, minOf } from '../core/numeric.js';
 import { bandPolygon, boxGroups, boxStats, buildHierarchy, hierarchyDepth, hierarchyNodes, isoSegment, stockSeries, sunburstLayout,
   surfaceBands, surfaceGrid, surfaceTriangles, topAncestor, treemapLayout } from '../core/chart-special.js';
 import { seriesColor, seriesPaint, inkOn, svgEsc as esc, svgNum as f, chartTipText as tipText, layoutLegend, chartAreaRect, elementEffectDefs,
-  effectAttr, chartTextBox, legendBoxRect, axisTextWidth, scaleTicks, chartMarker, categoryShortener, shadeColor, PLOT_STYLE, MARK_BUDGET, cappedLegend } from './chartsvg.js';
+  effectAttr, chartTextBox, legendBoxRect, axisTextWidth, scaleTicks, chartMarker, categoryShortener, shadeColor, PLOT_STYLE, MARK_BUDGET, cappedLegend,
+  layoutChartDataTable, renderChartDataTable } from './chartsvg.js';
 
 export const SPECIAL_CHART_TYPES = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
 
@@ -373,7 +374,8 @@ export function renderWaterfall(data, chart, width, height) {
   // Its axis labels answer a click, so an axis can be picked and formatted as on the other charts.
   const axis = valueAxis(fr, chart, scale, style, { grid: chart.gridlines !== false, el: 'yAxis' });
   plot.x += axis.width; plot.w = Math.max(10, plot.w - axis.width - 4);
-  if (!a?.hideXAxis && a?.xLabelPosition !== 'none') plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
+  // A data table (Add Chart Element ▸ Data Table) names the bars in its first row, in place of the category labels.
+  if (!a?.dataTable && !a?.hideXAxis && a?.xLabelPosition !== 'none') plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
   // A waterfall cannot leave bars out, since each floats on the running total of those before it: past a bar a
   // pixel, the changes sharing a pixel merge into one bar for their combined change, named for the run it covers.
   const px = Math.max(1, Math.floor(plot.w));
@@ -386,6 +388,11 @@ export function renderWaterfall(data, chart, width, height) {
     }
     steps = [...merged, steps[changes]]; categories = [...names, categories[changes]];
   }
+  // The table's columns are the bars, the total among them: each change, then the total.
+  const merged = steps.length !== s.values.length + 1;
+  const tableData = { ...data, categories, series: [{ ...s, values: steps.map((b, i) => (b.kind === 'total' ? b.to : merged || s.values[i] != null ? b.delta : null)),
+    pointStyles: merged ? undefined : s.pointStyles }] };
+  const table = a?.dataTable ? layoutChartDataTable(tableData, chart, plot, plot.y + plot.h, !a.plot) : null;
   const y = v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
   // The plot area answers a click and takes the Format pane's fill and border.
   const plotStroke = a?.plotStroke && a.plotStroke !== 'none' ? ` stroke="${esc(a.plotStroke)}" stroke-width="${a.plotStrokeWidth ?? 1}"` : '';
@@ -401,7 +408,7 @@ export function renderWaterfall(data, chart, width, height) {
   steps.forEach((b, i) => {
     const x = plot.x + slot * i + gap / 2, top = y(Math.max(b.from, b.to)), foot = y(Math.min(b.from, b.to));
     const fill = own.get(i) || paint(b.kind);
-    const label = b.kind === 'total' ? valueText(b.to, style) : `${b.delta > 0 ? '+' : b.delta < 0 ? '−' : ''}${valueText(Math.abs(b.delta), chartPointStyle(s, i, style))}`;
+    const label = b.kind === 'total' ? valueText(b.to, style) : `${b.delta > 0 ? '+' : b.delta < 0 ? '−' : ''}${valueText(Math.abs(b.delta), merged ? style : chartPointStyle(s, i, style))}`;
     const stroke = bar?.stroke && bar.stroke !== 'none' ? ` stroke="${esc(bar.stroke)}" stroke-width="${bar.strokeWidth ?? 1}"` : '';
     parts.push(`<rect class="chart-waterfall-bar" x="${f(x)}" y="${f(top)}" width="${f(barW)}" height="${f(Math.max(.75, foot - top))}" fill="${esc(fill)}"${stroke} data-el="series" data-series="0" data-point="${i}"${a ? effectAttr(a, 'series:0') : ''}><title>${esc(`${categories[i]}: ${label}`)}</title></rect>`);
     if (i < n - 1) parts.push(`<line class="chart-waterfall-connector" x1="${f(x + barW)}" y1="${f(y(b.to))}" x2="${f(x + slot)}" y2="${f(y(b.to))}" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="2 2"/>`);
@@ -410,7 +417,8 @@ export function renderWaterfall(data, chart, width, height) {
       labels.push(text(label, x + barW / 2, b.to >= b.from ? top - 4 : foot + st.label.size, st.label, 'middle', 'class="chart-data-label" data-el="dataLabels" data-series="0"'));
     }
   });
-  parts.push('</g>', labels.join(''), categoryAxis(fr, categories, plot, slot, 'xAxis'), fr.drawLegend(), '</svg>');
+  parts.push('</g>', labels.join(''), categoryAxis(fr, table ? categories.map(() => '') : categories, plot, slot, 'xAxis'),
+    table ? renderChartDataTable(tableData, chart, table) : '', fr.drawLegend(), '</svg>');
   return parts.join('');
 }
 

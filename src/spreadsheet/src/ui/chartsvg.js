@@ -1967,7 +1967,7 @@ function renderStyledCartesian(data, chart, width, height) {
  * Unlike an axis, it must not apply display units or percent-stack transforms.
  * CT_DTable: https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.drawing.charts.datatable
  */
-function layoutChartDataTable(data, chart, plot, limit, automatic, axisGap = 0) {
+export function layoutChartDataTable(data, chart, plot, limit, automatic, axisGap = 0) {
   const table = chart.appearance?.dataTable;
   if (!table || !data.categories.length || !data.series.length) return null;
   const { style } = table, pad = style.size / 2, keyWidth = table.keys ? style.size * 2.5 : 0;
@@ -1993,7 +1993,7 @@ function layoutChartDataTable(data, chart, plot, limit, automatic, axisGap = 0) 
     heights, height, scale, headLines, names, pad, keyWidth };
 }
 
-function renderChartDataTable(data, chart, box) {
+export function renderChartDataTable(data, chart, box) {
   const table = chart.appearance.dataTable, st = table.style;
   const { heading, column, width, heights, scale, headLines, names, pad, keyWidth } = box;
   const height = heights.reduce((a, b) => a + b, 0), parts = [`<g class="chart-data-table" role="table" aria-label="Chart data" transform="translate(${f(box.x)} ${f(box.y)}) scale(1 ${f(scale)})" font-family="${esc(fontStack(st.font))}" font-size="${st.size}" fill="${esc(st.color)}"${st.bold ? ' font-weight="700"' : ''}${st.italic ? ' font-style="italic"' : ''}>`,

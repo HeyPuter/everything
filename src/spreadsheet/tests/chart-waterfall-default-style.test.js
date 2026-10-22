@@ -55,3 +55,14 @@ it('leaves a waterfall in the app\'s own style as it was drawn', () => {
   expect(chart().appearance).toBeUndefined();
   expect(draw()).not.toContain('chart-waterfall-bar');
 });
+
+it('keeps its data table, a column for each bar and the total', () => {
+  const { chart, patch, draw } = waterfall();
+  patch({ appearance: { ...chart().appearance, dataTable: { horizontal: true, vertical: true, outline: true, keys: false } } });
+  const svg = draw();
+  expect(svg).toContain('class="chart-data-table"');
+  const cells = [...svg.matchAll(/role="cell"><title>([^<]*)<\/title>/g)].map((m) => m[1]);
+  expect(cells).toEqual(['Start', 'Feb', 'Mar', 'Total', 'Delta', '100', '-30', '45', '115']);
+  // The table names the bars, so the axis below them carries no labels of its own.
+  expect(svg).not.toMatch(/data-el="xAxis">Start</);
+});
