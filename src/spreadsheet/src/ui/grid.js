@@ -52,7 +52,7 @@ import { cellName, cellKey, rangeName, normalizeRange, parseRange, parseCellRef,
 import { splitAtCell, dropSplit } from '../core/split-panes.js';
 import { RTL_LEAD } from '../core/bidi.js';
 import { formatValue, formatGeneral, localeInfo, defaultAlign, layoutAlign, editText, fontStack, borderCss, errorHelp, indentWidth, dateTimeKind } from '../core/format.js';
-import { extractRefs, refToText, quoteSheet, MAX_ROW, MAX_COL } from '../core/refs.js';
+import { extractRefs, refToText, quoteSheet, selectionName, MAX_ROW, MAX_COL } from '../core/refs.js';
 import { tokenize } from '../core/formula/tokenizer.js';
 import { inString, signatureFor } from '../core/formula/hints.js';
 import { isError, FUNCTIONS } from '../core/formula/functions.js';
@@ -3290,7 +3290,8 @@ export function createGrid(opts) {
     // So is a note, which shows beside it too (unless notes are set to show nothing).
     const note = appOption('commentIndicators') === 'none' ? null : sheet().notes.get(cellKey(r, c));
     if (note) msg += `. Note: ${spoken(note)}`;
-    if (!S.isSingle(sel)) msg = `${rangeName(range)} selected. ${msg}`;
+    // Whole columns and rows are named as the Name Box names them (B:D, 3:5), not B1:D1048576.
+    if (!S.isSingle(sel)) msg = `${selectionName(range)} selected. ${msg}`;
     if (extras.length) msg = `${extras.length + 1} ranges selected. ${msg}`;
     opts.announce(msg);
   }
