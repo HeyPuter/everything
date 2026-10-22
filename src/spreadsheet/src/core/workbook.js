@@ -989,6 +989,8 @@ export function makeSheet({ id, name, kind, rows, cols, colWidths, rowHeights, r
       ...(t.bandedColumns === true ? { bandedColumns: true } : {}),
       ...normalizeTableHeaderState(t),
       ...(t.customStyle ? { customStyle: normalizeCustomTableStyle(t.customStyle) } : {}),
+      // The Excel style a file named (TableStyleMedium9), written back while the table keeps it.
+      ...(!t.customStyle && typeof t.nativeStyle === 'string' && /^TableStyle(?:Light|Medium|Dark)\d{1,2}$/.test(t.nativeStyle) ? { nativeStyle: t.nativeStyle } : {}),
       // Templates normally start at the first data row. An explicit origin
       // follows structural edits without losing relative cross-sheet refs.
       ...(Number.isInteger(t.calcRow) && t.calcRow >= 0 ? { calcRow: t.calcRow } : {}),
@@ -10149,8 +10151,8 @@ export class Workbook extends EventTarget {
     const next = { ...table };
     if (patch.style !== undefined) {
       next.style = String(patch.style);
-      // An explicit gallery choice replaces an imported theme even when the fallback key matches.
-      if (next.style !== table.style || patch.customStyle === null) delete next.customStyle;
+      // An explicit gallery choice replaces an imported theme (or Excel style) even when the fallback key matches.
+      if (next.style !== table.style || patch.customStyle === null) { delete next.customStyle; delete next.nativeStyle; }
     }
     if (patch.banded !== undefined) next.banded = !!patch.banded;
     for (const key of ['firstColumn', 'lastColumn', 'bandedColumns']) if (patch[key] !== undefined) {

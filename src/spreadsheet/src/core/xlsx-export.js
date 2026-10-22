@@ -318,7 +318,9 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, 
           const total = tableTotal(ws[X.utils.encode_cell({ r: t.range.r2, c })], t, columnNames[offset]);
           columns += xmlTag('tableColumn', { id: offset + 1, name: encodeXlsxAttribute(columnNames[offset]), ...total.attrs }, (formula || '') + total.formula || null);
         }
-        const name = `PuterTableStyle${id}`, appearance = tableStyleParts(t, wb);
+        // A table still in the Excel style its file named is written in that style, which Excel draws as its own.
+        const name = t.nativeStyle && !t.customStyle && t.style !== 'none' ? t.nativeStyle : `PuterTableStyle${id}`;
+        const appearance = name === t.nativeStyle ? null : tableStyleParts(t, wb);
         if (appearance) styles.tableStyle(name, appearance);
         const filterRef = X.utils.encode_range({ s: { r: t.range.r1, c: t.range.c1 }, e: { r: t.range.r2 - Number(t.totalsRow), c: t.range.c2 } });
         // A table whose Header Row is off has no AutoFilter: headerRowCount="0" and its names in tableColumn.

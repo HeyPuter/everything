@@ -1233,6 +1233,7 @@ const xmlAttr = (tag, name) => {
 };
 // The built-in table styles cycle through the theme's accent colours.
 const TABLE_STYLE_COLORS = ['gray', 'blue', 'orange', 'gray', 'orange', 'blue', 'green'];
+const BUILTIN_TABLE_STYLE = /^TableStyle(?:Light|Medium|Dark)\d{1,2}$/;
 
 /**
  * Excel tables from a sheet's table parts (xl/tables/tableN.xml), in this
@@ -1280,6 +1281,8 @@ function nativeTables(X, ws, definedNames, customStyles) {
       // Giving it our default theme recolors directly formatted headers.
       style: styleInfo && !styleName ? 'none' : styleIndex ? TABLE_STYLE_COLORS[(styleIndex - 1) % TABLE_STYLE_COLORS.length] : 'blue',
       ...(customStyle ? { style: 'custom', customStyle } : {}),
+      // One of Excel's own styles shows here in the nearest of the app's colours, and goes back out by its name.
+      ...(!customStyle && BUILTIN_TABLE_STYLE.test(styleName || '') ? { nativeStyle: styleName } : {}),
       banded: !['0', 'false'].includes(xmlAttr(styleInfo, 'showRowStripes')),
       ...(['1', 'true'].includes(xmlAttr(styleInfo, 'showFirstColumn')) ? { firstColumn: true } : {}),
       ...(['1', 'true'].includes(xmlAttr(styleInfo, 'showColumnStripes')) ? { bandedColumns: true } : {}),
