@@ -57,8 +57,10 @@ function resolve(owner, target) {
  * IDs are identities, not offsets (MS-XLSX 2.6.97). This metadata service does
  * not yet render a control, change filters, or serialize slicers into a new
  * workbook. Pivot caches remain explicitly distinguished from table bindings.
+ * With `unsupported`, a PivotTable slicer whose binding cannot be resolved is told to it and left
+ * unbound rather than refusing the package.
  */
-export function readXlsxSlicers(book) {
+export function readXlsxSlicers(book, { unsupported = null } = {}) {
   const roots = new Map(); let total = 0, worksheetBytes = 0;
   const root = (part, optional = false, worksheet = false) => {
     if (roots.has(part)) return roots.get(part);
@@ -160,7 +162,7 @@ export function readXlsxSlicers(book) {
       id: String(uint(sheet, 'sheetId')), tabId: uint(sheet, 'sheetId'), name: name(sheet, 'name'),
     }));
     const pivots = readXlsxPivots(book, { sheetByName: value => value == null ? null : sheets.find(sheet => key(sheet.name) === key(decodeXlsxString(value))) });
-    for (const [cache, pivot] of resolveNativePivotSlicers(tabular, pivots, sheets)) cache.pivot = pivot;
+    for (const [cache, pivot] of resolveNativePivotSlicers(tabular, pivots, sheets, { unsupported })) cache.pivot = pivot;
   }
   if (!caches.length && !views.length) return null;
   const relationships = root(workbookPart.replace(/(^|\/)([^/]+)$/, '$1_rels/$2.rels'));

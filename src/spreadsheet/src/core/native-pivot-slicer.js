@@ -10,7 +10,7 @@ const one = (values, label) => { if (values.length !== 1) fail(`missing or ambig
  * not the core pivot cacheId. A non-worksheet report ignores tabId (MS-XLSX
  * 2.6.73). Read definitions once per cache, without expanding saved records.
  */
-export function resolveNativePivotSlicers(slicers, pivots, sheets) {
+export function resolveNativePivotSlicers(slicers, pivots, sheets, { unsupported = null } = {}) {
   const byId = new Map(), byKey = new Map();
   for (const cache of pivots?.caches || []) {
     const data = readNativePivotCache(cache, { includeRecords: false });
@@ -21,6 +21,14 @@ export function resolveNativePivotSlicers(slicers, pivots, sheets) {
   }
   const results = new Map();
   for (const slicer of slicers) {
+    // On import, a slicer this app cannot model is told to `unsupported` and left out, rather than
+    // keeping the whole workbook from opening.
+    if (!unsupported) results.set(slicer, resolve(slicer));
+    else try { results.set(slicer, resolve(slicer)); } catch (e) { unsupported(slicer, e); }
+  }
+  return results;
+
+  function resolve(slicer) {
     const stored = slicer.connections != null;
     const source = stored ? byKey.get(slicer.cache) : byId.get(slicer.pivotCacheId);
     if (!source) fail('missing pivot source cache');
@@ -43,7 +51,6 @@ export function resolveNativePivotSlicers(slicers, pivots, sheets) {
       seen.add(report);
       return { name: decodeXlsxString(report.name), sheet: report.owner == null ? null : owners[0].name };
     });
-    results.set(slicer, { cacheKey: cache.key, slicerCacheId: data.slicerCacheId, field: { index, ...field }, reports });
+    return { cacheKey: cache.key, slicerCacheId: data.slicerCacheId, field: { index, ...field }, reports };
   }
-  return results;
 }

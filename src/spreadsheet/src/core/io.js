@@ -2832,9 +2832,14 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
   if (nativeSlicers?.caches.some(c => c.kind === 'pivot')) {
     wb.nativePivots = normalizeNativePivots(importNativePivotSlicerCaches(nativeSlicers, wb.nativePivots, wb.sheets));
     if (!wb.nativePivots) throw new Error('Native pivot storage exceeds limits');
-    for (const sheet of wb.sheets) for (const control of sheet.charts) if (control.type === 'slicer' && control.pivotCache != null) {
-      if (!slicerItems(wb, control)) throw new Error('Missing native pivot slicer binding');
-    }
+    // A slicer whose members cannot be listed here is left out with a word; the workbook still opens.
+    for (const sheet of wb.sheets) sheet.charts = sheet.charts.filter(control => {
+      if (control.type !== 'slicer' || control.pivotCache == null) return true;
+      let problem;
+      try { if (!slicerItems(wb, control)) problem = 'Missing native pivot slicer binding'; } catch (e) { problem = e?.message || String(e); }
+      if (problem) console.warn(`Slicer ${control.nativeName || control.title} is not shown: ${problem}`);
+      return !problem;
+    });
   }
   // PivotTable slicers travel in the app's own data (see xlsx-pivot-slicer-sidecar.js).
   restorePivotSlicerSidecar(wb, meta?.pivotSlicers, meta?.sheets);

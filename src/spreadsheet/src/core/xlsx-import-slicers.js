@@ -16,7 +16,7 @@ function slicerPaint(style, themes) {
 }
 
 /** A PivotTable slicer whose cache did not resolve to a worksheet PivotCache reads the Data Model. */
-export const olap = cache => cache?.kind === 'pivot' && !cache.pivot;
+export const olap = cache => cache?.kind === 'pivot' && !cache.pivot && !cache.unsupported;
 
 /** Native slicer views are authoritative, including deletion and external edits.
  * Their selection lives in the native table AutoFilter, not private drawing data.
@@ -30,7 +30,7 @@ export function importXlsxSlicers(book, sheets, themes = book.Themes, sheetXml =
   // after another application deletes the native views or their cache list.
   for (const sheet of sheets) sheet.charts = (sheet.charts || []).filter(c => c.type !== 'slicer');
   if (!decodeModelXml(bytes).xml.includes('slicerCaches') && !sheets.some(s => sheetXml?.(s.name)?.includes('slicerList'))) return;
-  const native = readXlsxSlicers(book);
+  const native = readXlsxSlicers(book, { unsupported: (cache, e) => { cache.unsupported = e?.message || String(e); } });
   if (!native) return;
   const caches = new Map(native.caches.map(c => [c.name, c]));
   const styles = new Map(native.styles.map(s => [s.name, s]));
@@ -40,6 +40,8 @@ export function importXlsxSlicers(book, sheets, themes = book.Themes, sheetXml =
     // A slicer over the Data Model (an OLAP cache) cannot filter anything here yet; its
     // reports keep the values Excel saved, and the workbook opens without the control.
     if (olap(cache)) { console.warn(`Slicer ${view.name} filters the Data Model, which is not supported yet; it is not shown`); continue; }
+    // Nor can one bound in a way this app cannot model; the rest of the workbook opens all the same.
+    if (cache?.unsupported) { console.warn(`Slicer ${view.name} is not shown: ${cache.unsupported}`); continue; }
     if (!sheet || !view.drawing) throw new Error('Missing native slicer drawing or worksheet');
     const styleName = view.style || native.defaultStyle;
     if (!paints.has(styleName)) paints.set(styleName, slicerPaint(styles.get(styleName), themes));
