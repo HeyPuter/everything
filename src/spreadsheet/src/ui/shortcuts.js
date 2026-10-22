@@ -42,6 +42,7 @@ const GROUPS = [
     // Floating objects: the grid selects and moves them from the keyboard.
     [`${MOD_KEY} + Alt + O`, 'Select the next chart, image, or text box (Shift: the previous one)'],
     ['Arrow keys / Shift + Arrow', `Nudge the selected chart, image, or text box 8px, or a whole cell (${MOD_KEY} + C copies it as a picture, Enter edits it, Delete removes it, Escape deselects)`],
+    [`${MOD_KEY} + D`, 'Duplicate the selected chart, image, or text box'],
   ]],
   ['Edit', [
     ['Type', 'Replace the cell contents (matching text from the column is suggested)'],
