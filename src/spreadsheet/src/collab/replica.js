@@ -442,8 +442,9 @@ export class Replica extends EventTarget {
           if (cell.s && Object.keys(cell.s).length) st[key] = { ...cell.s };
           any = true;
         } else if (was != null) {
+          // A formula that holds one #REF! more than it did is put back, one with a reference lost before as well.
           const now = n.f.get(at) ?? null;
-          if (now !== was && /#REF!/i.test(now ?? '') && !/#REF!/i.test(was)) { v[key] = contentOf(cell, was); any = true; }
+          if (now !== was && refErrors(now) > refErrors(was)) { v[key] = contentOf(cell, was); any = true; }
         }
         if (lenders?.size && cell.s && Object.keys(cell.s).length) {
           const p = parseKey(key);
@@ -1091,6 +1092,9 @@ function keepOthersWork(ops, theirs) {
   }
   return runs.length ? [...ops.slice(0, -1), { ...last, runs }] : ops.slice(0, -1);
 }
+
+/** How many #REF! errors a formula holds (none for no formula). */
+const refErrors = (f) => (f ? f.match(/#REF!/gi)?.length ?? 0 : 0);
 
 /** A sheet added whole as [operation, inverse] pairs: the sheet without its cells, taken back by dropping it, then its cells. */
 function putInParts(op, inverse) {
