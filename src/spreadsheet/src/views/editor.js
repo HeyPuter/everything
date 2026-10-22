@@ -3263,9 +3263,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'viewMode':
-        // Normal, Page Layout or Page Break Preview, for the sheet in view (each sheet keeps its own and saves it).
-        if (wb.sheet(grid.sheetId)?.kind === 'chart' || (grid.editing && !grid.commitEdit())) return;
-        wb.setSheetViewMode(grid.sheetId, arg === 'pageBreak' || arg === 'pageLayout' ? arg : 'normal');
+        // Normal, Page Layout or Page Break Preview, for the sheet in view (each sheet keeps its own and saves it), and
+        // for every grouped worksheet, as Excel switches the group.
+        if (wb.sheet(grid.sheetId)?.kind === 'chart' || !committed()) return;
+        for (const id of settingSheets()) wb.setSheetViewMode(id, arg === 'pageBreak' || arg === 'pageLayout' ? arg : 'normal');
         refreshPageView(true);
         notify(); keepFocus();
         return;
