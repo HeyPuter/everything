@@ -382,7 +382,8 @@ function SSF_init_table(t/*:any*/) {
 	t[40]= '#,##0.00;[Red](#,##0.00)';
 	t[45]= 'mm:ss';
 	t[46]= '[h]:mm:ss';
-	t[47]= 'mmss.0';
+	/* Puter Spreadsheet local patch: Excel shows built-in 47 as mm:ss.0 (30:00.0); the spec's listing drops the colon. */
+	t[47]= 'mm:ss.0';
 	t[48]= '##0.0E+0';
 	t[49]= '@';
 	t[56]= '"上午/下午 "hh"時"mm"分"ss"秒 "';
@@ -415,7 +416,7 @@ var table_fmt = {
 	40: '#,##0.00;[Red](#,##0.00)',
 	45: 'mm:ss',
 	46: '[h]:mm:ss',
-	47: 'mmss.0',
+	47: 'mm:ss.0',
 	48: '##0.0E+0',
 	49: '@',
 	56: '"上午/下午 "hh"時"mm"分"ss"秒 "'
@@ -1380,7 +1381,7 @@ var SSFImplicit/*{[number]:string}*/ = ({
 	"78": 'm/d/yy h:mm',
 	"79": 'mm:ss',
 	"80": '[h]:mm:ss',
-	"81": 'mmss.0'
+	"81": 'mm:ss.0'
 }/*:any*/);
 
 /* dateNF parse TODO: move to SSF */
