@@ -55,6 +55,18 @@ describe('a block merged around the selection', () => {
     grid.destroy();
   });
 
+  it('moves the active cell of whole rows off a block merged inside them, the rows kept as they are', async () => {
+    const { wb, id, grid } = await mount();
+    grid.selectByName('2:3');
+    grid.setSelection({ ...grid.selection, active: { r: 2, c: 0 } }, { scroll: false });
+    wb.mergeCells(id, { r1: 1, c1: 0, r2: 2, c2: 1 });
+    await flush();
+    expect(grid.active).toEqual({ r: 1, c: 0 });
+    expect(grid.selection.scope).toBe('rows');
+    expect(grid.viewport.getAttribute('aria-activedescendant')).toBe('gc-1-0');
+    grid.destroy();
+  });
+
   it('leaves the selection of a block that is unmerged as it was', async () => {
     const { wb, id, grid } = await mount();
     wb.mergeCells(id, { r1: 1, c1: 1, r2: 3, c2: 3 });

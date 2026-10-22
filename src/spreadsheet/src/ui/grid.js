@@ -6334,12 +6334,13 @@ export function createGrid(opts) {
     // assistant, a script, an undo) left the active cell under it: an entry typed then went into a covered
     // cell, kept but never shown. The selection takes in the block and the active cell moves to its anchor, as
     // a selection made over it would. A block unmerged leaves the selection as it was.
-    if (!edit && (type === 'structure' || type === 'history') && sheet().merges.length && !['rows', 'columns', 'sheet'].includes(sel.scope)) {
+    if (!edit && (type === 'structure' || type === 'history') && sheet().merges.length) {
       const m = mergeAt(sel.active.r, sel.active.c);
       const shown = S.selRange(sel);
-      const grown = wb.expandToMerges(sheetId, shown);
+      // Whole rows and columns are taken as they are (see setSelection); only their active cell moves off the block.
+      const grown = sel.scope ? shown : wb.expandToMerges(sheetId, shown);
       if ((m && (m.r1 !== sel.active.r || m.c1 !== sel.active.c)) || grown.r1 < shown.r1 || grown.c1 < shown.c1 || grown.r2 > shown.r2 || grown.c2 > shown.c2) {
-        setSelection({ active: sel.active, anchor: sel.anchor, focus: sel.focus }, { scroll: false, announce: false, add: true });
+        setSelection({ active: sel.active, anchor: sel.anchor, focus: sel.focus, ...(sel.scope ? { scope: sel.scope } : {}) }, { scroll: false, announce: false, add: true });
       }
     }
     if (resized?.length) refitResized(resized);
