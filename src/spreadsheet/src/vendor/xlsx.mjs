@@ -23916,6 +23916,8 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 			var props = ods_cell_props(name);
 			if(!props) return false;
 			if(props["background-color"] && props["background-color"] !== "transparent") return true;
+			/* Puter Spreadsheet local patch: so is one whose protection is not the default, a form's blank input cell left unlocked. */
+			if(props["cell-protect"] && !/^\s*protected\s*$/i.test(props["cell-protect"])) return true;
 			return ["border", "border-top", "border-bottom", "border-left", "border-right"].some(function(k) { return props[k] && !/^\s*none\b/i.test(props[k]); });
 		}
 		var merges/*:Array<Range>*/ = [], mrange = {}, mR = 0, mC = 0;
@@ -23956,6 +23958,8 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 						ws['!ref'] = encode_range(range);
 					}
 					if(merges.length) ws['!merges'] = merges;
+					/* Puter Spreadsheet local patch: a protected table (Tools ▸ Protect Sheet in LibreOffice). Its password key is not kept. */
+					if(parsexmlbool(sheetag["protected"])) ws['!odsProtected'] = true;
 					if(ws['!odsConditionalFormats']) ws['!odsConditionalFormats'] = odsConditionalFormatsXml(ws['!odsConditionalFormats'], { convert: ods_to_csf_formula, address: ods_to_csf_3D });
 					if(rowinfo.length) ws["!rows"] = rowinfo;
 					if(colinfo.length) ws["!cols"] = colinfo;
@@ -25049,7 +25053,8 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		var o/*:Array<string>*/ = [];
 		/* Puter Spreadsheet local patch: a hidden sheet (Workbook.Sheets[i].Hidden) uses the table style that does not display. */
 		var sheetHidden = (wb.Workbook||{}).Sheets && wb.Workbook.Sheets[i] && wb.Workbook.Sheets[i].Hidden;
-		o.push('      <table:table table:name="' + escapexml(wb.SheetNames[i]) + '" table:style-name="' + (sheetHidden ? "ta2" : "ta1") + '">\n');
+		/* Puter Spreadsheet local patch: a protected sheet (!odsProtected) is a protected table, with no password. */
+		o.push('      <table:table table:name="' + escapexml(wb.SheetNames[i]) + '" table:style-name="' + (sheetHidden ? "ta2" : "ta1") + '"' + (ws['!odsProtected'] ? ' table:protected="true"' : '') + '>\n');
 		var R=0,C=0, range = decode_range(ws['!ref']||"A1");
 		var marr/*:Array<Range>*/ = ws['!merges'] || [], mi = 0;
 		var validationLayout = ws['!validations'] && ws['!validations'].length ? odsValidationLayout(ws['!validations'], range, i) : null;

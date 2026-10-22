@@ -324,6 +324,7 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
   const text = (value) => (ods ? String(value).replace(/\r\n?/g, '\n').replace(/[\0-\b\v-\x1f￾￿]/g, '') : String(value));
   const numFmtOf = (style) => (ods ? odsFormatCode(styleToNumFmt(style)) : styleToNumFmt(style));
   const ws = {};
+  if (ods && sheet.protected) ws['!odsProtected'] = true;
   if (sheet.validations.length) ws['!validations'] = sheet.validations.map((rule) => ({
     ...rule,
     source: rule.type === 'formula' || (rule.type === 'list' && isRangeSource(rule.source))
@@ -2198,7 +2199,8 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
     scenarios: partXml ? parseScenariosXml(partXml) : own?.scenarios,
     validations: meta?.sheets?.[name]?.validations || (ws?.['!validations'] || []).map(({ _odsName, ...rule }) => rule),
     color: own?.color || part?.color || (!own && partXml ? xlsxColor(partXml.match(/<(?:\w+:)?tabColor\b[^>]*>/)?.[0], nativeStyles?.colors || themes) : null),
-    protected: own ? !!own.protected : !!part?.protected,
+    // An .ods from another program says a protected sheet on its table (see the vendor's !odsProtected).
+    protected: own ? !!own.protected : !!part?.protected || (!partXml && !!ws?.['!odsProtected']),
     groups: own ? own.groups || null : fileGroups(ws, filtered),
     advancedFilter: own?.advancedFilter,
     outlineSettings: partXml ? readXlsxOutlineSettings(partXml) : own?.outlineSettings,

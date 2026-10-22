@@ -27,9 +27,18 @@ function borderValue(style, side) {
   return `${BORDER_WIDTH[bs]} ${line} ${hexOf(edge.bc) || '#000000'}`;
 }
 
-/** Whether a style paints a cell with nothing in it: a fill or a border, which an .ods keeps for a blank cell. */
+/**
+ * Whether a style paints a cell with nothing in it: a fill or a border, which an .ods keeps for a blank cell.
+ * So does a blank cell's protection other than the default, the input cell of a protected form left unlocked.
+ */
 export function odsCellPaints(style) {
-  return !!style && typeof style === 'object' && (!!hexOf(style.bg) || SIDES.some(([side]) => !!style[side]));
+  return !!style && typeof style === 'object' && (!!hexOf(style.bg) || SIDES.some(([side]) => !!style[side]) || !!cellProtect(style));
+}
+
+/** A style's protection as table-cell-properties' style:cell-protect, or null for the default (locked, formula shown). */
+function cellProtect(style) {
+  const locked = style.locked !== false, hidden = style.formulaHidden === true;
+  return locked && !hidden ? null : !hidden ? 'none' : locked ? 'protected formula-hidden' : 'formula-hidden';
 }
 
 /**
@@ -47,6 +56,8 @@ export function odsCellStyleProperties(style) {
   }
   if (style.wrap) cell['fo:wrap-option'] = 'wrap';
   if (style.shrink) cell['style:shrink-to-fit'] = 'true';
+  const protect = cellProtect(style);
+  if (protect) cell['style:cell-protect'] = protect;
   if (['top', 'middle', 'bottom'].includes(style.valign)) cell['style:vertical-align'] = style.valign;
   if (Number.isFinite(style.rot) && style.rot !== 0 && Math.abs(style.rot) <= 90) cell['style:rotation-angle'] = String(style.rot < 0 ? 360 + style.rot : style.rot);
   // Justify is the paragraph's own; Excel's Center Across Selection, Distributed and Fill go as the side they are laid out against.
@@ -167,6 +178,10 @@ export function odsCellStyle(props) {
   }
   if (String(props['wrap-option'] ?? '').toLowerCase() === 'wrap') s.wrap = true;
   if (String(props['shrink-to-fit'] ?? '').toLowerCase() === 'true') s.shrink = true;
+  // Protection: none, hidden-and-protected, or protected and formula-hidden in any combination (protected alone is the default).
+  const protect = String(props['cell-protect'] ?? '').toLowerCase().split(/\s+/);
+  if (protect.includes('none') || (protect.includes('formula-hidden') && !protect.includes('protected'))) s.locked = false;
+  if (protect.includes('formula-hidden') || protect.includes('hidden-and-protected')) s.formulaHidden = true;
   const valign = String(props['vertical-align'] ?? '').toLowerCase();
   if (['top', 'middle', 'bottom'].includes(valign)) s.valign = valign;
   const angle = Number(props['rotation-angle']);
