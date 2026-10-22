@@ -57,7 +57,7 @@ import { normalizeFontColor, normalizeColorPalette, sameFontColor, DEFAULT_FONT_
 
 import { cellKey, parseKey, normalizeRange, cellName, MAX_TEXT } from './cell.js';
 import { parseDecimal } from './formula/number-text.js';
-import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, getLocale, dateNames, styleToNumFmt } from './format.js';
+import { fontName, parseInput, refineImpliedFormat, formatValue, serialToYMD, ymdToSerial, dateTimeKind, FORMAT_DETAIL_KEYS, NUMBER_FORMAT_KEYS, getLocale, dateNames, styleToNumFmt } from './format.js';
 import { xlsxLayoutDigitWidth } from './xlsx-styles.js';
 import { MAX_FORMAT_CODE_LENGTH, codeIsFraction, codeScalesPercent } from './numfmt.js';
 import { normalizeCalculationCompatibility } from './calculation-compatibility.js';
@@ -11115,7 +11115,7 @@ export class Workbook extends EventTarget {
     this._listLabelCache ??= new WeakMap();
     let labels = this._listLabelCache.get(values);
     if (labels) return labels;
-    labels = { byKey: new Map(), first: new Map() };
+    labels = { byKey: new Map(), first: new Map(), cellByKey: new Map() };
     let i = 0; // the option's place among the typed options, which optionsEntry dedupes by type and text as here
     values.source.cells.forEach(({ r, c }, k) => {
       const v = values[k];
@@ -11125,12 +11125,31 @@ export class Workbook extends EventTarget {
       const shown = this.getDisplay(values.source.sheetId, r, c, v);
       const text = shown.trim() ? shown : null;
       labels.byKey.set(key, text);
+      labels.cellByKey.set(key, { sheetId: values.source.sheetId, r, c });
       const label = (text ?? key.slice(key.indexOf(':') + 1)).trim().toLowerCase();
       if (!labels.first.has(label)) labels.first.set(label, i);
       i++;
     });
     this._listLabelCache.set(values, labels);
     return labels;
+  }
+
+  /**
+   * The number format a number picked from a dropdown brings into (r, c): the format of the source cell its
+   * option reads from, so a date, an amount or a percentage picked as the list shows it reads the same in the
+   * cell, as Excel enters the option's text as if it were typed. Null when the cell already shows a number
+   * format of its own (that one stays), the option has no cell behind it, or that cell shows General.
+   */
+  listOptionFormat(sheetId, rule, value, r, c) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || typeof value !== 'number') return null;
+    const own = this.styleAt(sheetId, r, c);
+    if (own?.fmt && own.fmt !== 'general') return null;
+    const labels = this._listLabels(rule, (source) => this._resolveValidationSource(sheet, rule, source, r, c));
+    const from = labels?.cellByKey.get(optionKey(value));
+    const source = from && this.styleAt(from.sheetId, from.r, from.c);
+    if (!source?.fmt || source.fmt === 'general') return null;
+    return Object.fromEntries(NUMBER_FORMAT_KEYS.map((key) => [key, source[key] ?? null]));
   }
 
   /** The chip colors ({ bg, color }) a list cell's text is drawn with, or null. */

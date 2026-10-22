@@ -745,7 +745,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             // input only when it still matches the particular label selected.
             const literal = typed || /^[=']/.test(options[i])
               || !checkValue({ type: 'list', source: [options[i]] }, parseInput(options[i]).v).ok;
-            wb.setInput(sheetId, r, c, values[i], { literal });
+            // A number reads in the cell as the list showed it: a cell of no number format of its own takes the
+            // source cell's, so a date picked as 2024-01-15 does not land as the serial 45306.
+            const format = typed ? wb.listOptionFormat(sheetId, rule, values[i], r, c) : null;
+            wb.setInput(sheetId, r, c, values[i], { literal, ...(format ? { style: format } : {}) });
             grid.focus();
           },
         };
