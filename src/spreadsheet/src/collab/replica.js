@@ -446,6 +446,10 @@ export class Replica extends EventTarget {
           // is one the deletion took away though its cell stayed (the first row of a table, become its header row).
           const now = n.f.get(at) ?? null;
           if (now !== was && (now == null || refErrors(now) > refErrors(was))) { v[key] = contentOf(cell, was); any = true; }
+        } else {
+          // A value the deletion changed though its cell stayed (made the text of a table's header, that row become it).
+          const moved = n.cells.get(at);
+          if (moved !== cell && !sameJSON(contentOf(moved), contentOf(cell))) { v[key] = contentOf(cell); any = true; }
         }
         if (lenders?.size && cell.s && Object.keys(cell.s).length) {
           const p = parseKey(key);
