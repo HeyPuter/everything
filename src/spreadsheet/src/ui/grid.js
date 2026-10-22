@@ -3507,7 +3507,10 @@ export function createGrid(opts) {
     else if (st?.valign === 'bottom') padTop = h - lineH - 5;
     else padTop = (h - lineH) / 2 - 2;
     editor.style.paddingTop = `${Math.max(0, padTop).toFixed(2)}px`;
-    editor.style.height = `${h}px`;
+    // On a touch screen the text is never under 16px (above), which a short row, or one zoomed out, cannot
+    // hold: at 50% a row is 10px, and the line typed was cut to a sliver. The box grows down to show it.
+    const forced = size > (st?.size || baseFontSize) * zoom;
+    editor.style.height = `${forced && single ? Math.max(h, Math.ceil(lineH)) : h}px`;
     edit.overflowBelow = 0;
     if (!single) {
       const screenTop = rowY(r) - bandST(r, view);
