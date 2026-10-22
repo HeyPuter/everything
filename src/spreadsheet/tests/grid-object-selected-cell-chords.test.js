@@ -67,3 +67,25 @@ it('duplicates a selected chart with Ctrl+D and leaves the cells behind it to th
   expect(commands.map(([cmd]) => cmd)).toEqual(['fillDown', 'bold']);
   grid.destroy();
 });
+
+it('leaves AutoSum, Repeat and the drop-down list to the cells while a chart is selected', async () => {
+  const { wb, id, grid, viewport, commands } = setup();
+  const chartId = wb.addChart(id, { type: 'column', range: { r1: 0, c1: 0, r2: 1, c2: 1 }, anchor: { r: 0, c: 3 }, w: 200, h: 120 });
+  await flush();
+  grid.selectChart(chartId);
+  const press = (k, code, init = {}) => viewport.dispatchEvent(new KeyboardEvent('keydown', { key: k, code, bubbles: true, cancelable: true, ...init }));
+  press('=', 'Equal', { altKey: true });
+  press('F4', 'F4');
+  press('ArrowDown', 'ArrowDown', { altKey: true });
+  expect(commands).toEqual([]);
+  expect(grid.selectedChart).toBe(chartId);
+  // Shift+F4 still finds the next match.
+  press('F4', 'F4', { shiftKey: true });
+  expect(commands.map(([cmd]) => cmd)).toEqual(['findNext']);
+  grid.selectChart(null);
+  commands.length = 0;
+  press('=', 'Equal', { altKey: true });
+  press('F4', 'F4');
+  expect(commands.map(([cmd]) => cmd)).toEqual(['autosum', 'repeat']);
+  grid.destroy();
+});

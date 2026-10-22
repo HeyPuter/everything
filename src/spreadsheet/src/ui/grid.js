@@ -5237,6 +5237,8 @@ export function createGrid(opts) {
       if (key === 'Enter') { e.preventDefault(); opts.onCommand?.(safeLinkUrl(wb.chartById(sheetId, selectedChart)?.hyperlink) ? 'openDrawingLink' : wb.chartById(sheetId, selectedChart)?.type === 'image' ? 'replaceImage' : 'editChart', selectedChart); return; }
       if (key === 'Escape') { e.preventDefault(); selectedChart = null; schedule(); return; }
       if (dir && !e.altKey) { e.preventDefault(); if (selectedSet.size > 1) nudgeObjects(dir[0], dir[1]); else nudgeChart(selectedChart, dir[0], dir[1], e.shiftKey); return; }
+      // AutoSum (Alt+=), Repeat (F4) and a cell's drop-down (Alt+Down) are the hidden cells', not the object's.
+      if ((e.altKey && (key === '=' || key === '+' || e.code === 'Equal' || key === 'ArrowDown')) || (key === 'F4' && !e.shiftKey && !e.altKey)) { e.preventDefault(); return; }
       // Moving on or starting to type leaves the chart; Delete afterwards then clears cells, not the chart.
       if (key === 'Tab' || key === 'F2' || (key.length === 1 && !e.altKey)) { selectedChart = null; schedule(); }
     }
