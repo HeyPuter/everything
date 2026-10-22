@@ -8610,7 +8610,9 @@ var SYLK = /*#__PURE__*/(function() {
 				case 'X': C = parseInt(record[rj].slice(1), 10)-1; C_seen_X = true; break;
 				case 'Y':
 					R = parseInt(record[rj].slice(1), 10)-1; if(!C_seen_X) C = 0;
-					for(j = arr.length; j <= R; ++j) arr[j] = [];
+					/* Puter Spreadsheet local patch: only the row named gets a list. Every row up to it got one, so a
+					 * file of thirty bytes naming row 99,999,999 made a hundred million and ran the tab out of memory. */
+					if(!arr[R]) arr[R] = [];
 					break;
 				case 'K':
 					val = record[rj].slice(1);
@@ -8668,7 +8670,7 @@ var SYLK = /*#__PURE__*/(function() {
 				case 'X': C = parseInt(record[rj].slice(1), 10)-1; ++F_seen; break;
 				case 'Y':
 					R = parseInt(record[rj].slice(1), 10)-1; /*C = 0;*/
-					for(j = arr.length; j <= R; ++j) arr[j] = [];
+					if(!arr[R]) arr[R] = []; /* Puter Spreadsheet local patch: see the cell record's */
 					break;
 				case 'M': Mval = parseInt(record[rj].slice(1), 10) / 20; break;
 				case 'F': break; /* ??? */
