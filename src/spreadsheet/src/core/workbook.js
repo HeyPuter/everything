@@ -692,6 +692,18 @@ function rectCandidates(list, r, rectOf) {
 }
 const ownRect = (item) => item;
 /**
+ * Whether a merge of `merges` overlaps rows r1..r2 and columns c1..c2: the merges filed under the bands of those
+ * rows (see rectCandidates) are tested, not the whole list. Every spill of a sheet asks this whenever the sheet's
+ * spills are worked out, which is after every edit, and a formatted report brings thousands of merges.
+ */
+function mergeWithin(merges, r1, c1, r2, c2) {
+  const hit = (m) => m.r2 >= r1 && m.r1 <= r2 && m.c2 >= c1 && m.c1 <= c2;
+  const b1 = Math.floor(r1 / RECT_BAND), b2 = Math.floor(r2 / RECT_BAND);
+  if (merges.length < 32 || b2 - b1 > 64) return merges.some(hit);
+  for (let b = b1; b <= b2; b++) if (rectCandidates(merges, b * RECT_BAND, ownRect).some(hit)) return true;
+  return false;
+}
+/**
  * Which of a list of ranges overlap a given one, found through bands of rows rather than by testing every one
  * (merging across thousands of rows asks once per row). Indexes into the list, in order.
  */
@@ -12685,7 +12697,7 @@ export class Workbook extends EventTarget {
     if (r + rows > rowLimit || c + cols > colLimit) return err('#SPILL!');
     if (st.fixed.overlapping({ r1: r, c1: c, r2: r + rows - 1, c2: c + cols - 1 }).next().value) return err('#SPILL!');
     // A merged block anywhere in the way stops the spill, the anchor's own merge included.
-    if (sheet.merges.some((m) => m.r2 >= r && m.r1 <= r + rows - 1 && m.c2 >= c && m.c1 <= c + cols - 1)) return err('#SPILL!');
+    if (mergeWithin(sheet.merges, r, c, r + rows - 1, c + cols - 1)) return err('#SPILL!');
     for (let i = 0; i < rows; i++) {
       for (let j = 0; j < cols; j++) {
         if (!i && !j) continue;
