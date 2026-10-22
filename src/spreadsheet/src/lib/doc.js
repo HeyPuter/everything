@@ -1,4 +1,5 @@
 import { workbookPathUri } from '../core/workbook-location.js';
+import { sheetKey } from '../core/refs.js';
 import { sheetFilters } from '../core/sheet-filters.js';
 /**
  * The open document: a Workbook plus where it lives on Puter and whether
@@ -243,6 +244,23 @@ function draftVerdict(draft, remoteModified) {
   }
   if (remoteModified == null || draft.savedAt > remoteModified) return 'current';
   return draft.savedAt > remoteModified - LEGACY_DRAFT_SLACK_MS ? 'older' : 'stale';
+}
+
+/**
+ * A snapshot's book with each of its sheets under the id of the sheet it takes the place of (the one of the same name,
+ * or failing that the next in order), as the book that was open had them. A file read back gives every sheet a new id,
+ * and restored with those, a shared workbook sent the restore as every sheet deleted and another put in: the others
+ * could not delete the last sheet before the new ones arrived, and ended up with an old sheet beside the restored ones.
+ * With the ids kept, the restore reaches them as changes to the sheets they have.
+ */
+function keepSheetIds(json, wb) {
+  const free = wb.sheets.map((s) => ({ id: s.id, key: sheetKey(s.name) }));
+  const taken = (sheet) => { const i = free.findIndex((f) => f.key === sheetKey(sheet.name)); return i < 0 ? null : free.splice(i, 1)[0].id; };
+  const named = json.sheets.map(taken);
+  const ids = new Map(json.sheets.map((sheet, i) => [sheet.id, named[i] ?? free.shift()?.id]).filter(([from, to]) => from && to && from !== to));
+  if (!ids.size) return json;
+  // A sheet's id is a token of its own wherever the book names it (its sheets, the active sheet, custom views, reports).
+  return JSON.parse(JSON.stringify(json).replace(/"(s[0-9a-z]+)"/g, (m, id) => (ids.has(id) ? `"${ids.get(id)}"` : m)));
 }
 
 export class Doc extends EventTarget {
@@ -769,7 +787,7 @@ export class Doc extends EventTarget {
     if (distrust) this.distrustExternal();
     // The record of edits (Show Changes) goes on through a restore, which is one more change to it.
     const changeHistory = this.wb.changeHistory;
-    this.wb.replaceWith(other.toJSON());
+    this.wb.replaceWith(keepSheetIds(other.toJSON(), this.wb));
     this.wb.changeHistory = changeHistory;
     recordStep(this.wb, 'structure', 'Restore version');
     this._changed('cells');
