@@ -190,7 +190,14 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   }
 
   wrap('setInput', ([sheetId, r, c, text, opts = {}]) => {
-    const value = text == null || text === '' ? null : text;
+    let value = text == null || text === '' ? null : text;
+    // A number typed with more digits than a cell keeps (12345678901234567890) is stored to 15 of them, as Excel keeps
+    // it: written as typed, the replay would keep more, so the number the cell holds is written.
+    const now = wb.getCell(sheetId, r, c);
+    if (opts.typed && typeof value === 'string' && now?.f == null && typeof now?.v === 'number') {
+      const read = parseInput(value)?.v;
+      if (typeof read === 'number' && read !== now.v) value = now.v;
+    }
     const asText = opts.literal && typeof value === 'string';
     add(sheetId, [`sheet.getRange(${q(cellName(r, c))}).setValue(${literal(value)}${asText ? ', { asText: true }' : ''});`]);
     if (opts.style) add(sheetId, formatLines({ r1: r, c1: c, r2: r, c2: c }, opts.style, wb.styleAt(sheetId, r, c)));
