@@ -208,7 +208,7 @@ export function openCellContextMenu(ctx, { x, y, kind, chartId }) {
     const flags = ctx.flags?.() || null;
     const merged = flags ? !!flags.merged : (ctx.ranges?.() ?? [range]).some((rg) => ctx.wb.mergesIn(ctx.sheetId(), rg).length > 0);
     const singleCell = flags ? !!flags.singleCell : nr === 1 && nc === 1;
-    const filtered = !!ctx.wb.filterAt(ctx.sheetId(), active.r, active.c);
+    const filtered = ctx.filterShownAt ? ctx.filterShownAt(ctx.sheetId(), active.r, active.c) : !!ctx.wb.filterAt(ctx.sheetId(), active.r, active.c);
     // The cell menu: clipboard, Insert… and Delete… by how the cells move, Clear Contents, Filter and Sort,
     // notes, Format Cells…, the pick list, Define Name and links. The app's further tools follow in submenus.
     items = [

@@ -983,6 +983,17 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   /**
+   * Whether the list at a cell shows a filter, as Data ▸ Filter reads it: a table's filter whose buttons are hidden
+   * (Table Design ▸ Filter Button off, or the one a slicer added) is shown as off, since the command shows them.
+   */
+  function filterShownAt(sheetId, r, c) {
+    const filter = wb.filterAt(sheetId, r, c);
+    const table = filter && filterTable(wb.sheet(sheetId), filter);
+    return !!filter && (!table || tableFilterButtonOn(wb, sheetId, table));
+  }
+  ctx.filterShownAt = filterShownAt;
+
+  /**
    * The rows a sort from one cell takes: the table or the filtered list the cell is in, whole, as Excel sorts
    * them, and otherwise the block of data around it (see dataRange). Read as a block, a list with a blank row
    * inside it was sorted only down to that row, while its filter menu's Sort A to Z sorted all of it.
@@ -1311,7 +1322,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const sheet = wb.sheet(sheetId);
     return {
       templates: !!templateDoc, pick: P.canPickFiles(), share: P.canShare(), mail: mailer.available(), ai: P.canAI(), aiPanel: !!aiPanel?.isOpen, saving: P.isApp() && P.canSaveFiles(),
-      fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: !!wb.filterAt(sheetId, grid.active.r, grid.active.c),
+      fullscreen: !!document.fullscreenEnabled, isFullscreen: isFullscreen(), filter: filterShownAt(sheetId, grid.active.r, grid.active.c),
       hasFormula: cell?.f != null, hasTable: !!wb.tableAt(sheetId, r, c), table: wb.tableAt(sheetId, r, c),
       tableFilterButton: tableFilterButtonOn(wb, sheetId, wb.tableAt(sheetId, r, c)), pivotReport: !!nativePivotAt(wb, sheetId, r, c), hasNote: !!wb.getNote(sheetId, r, c), hasLink: !!wb.linkAt(sheetId, r, c),
       languagePane: languagePane?.open ? languagePane.mode : null,

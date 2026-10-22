@@ -68,3 +68,24 @@ it('hides and shows a table’s filter buttons, keeping its slicer working and t
   expect(tableFilterButtonOn(wb, id, table)).toBe(true);
   expect([...wb.sheet(id).filterHidden]).toEqual([2]);
 });
+
+// The Filter command read as on (ticked in the Data menu, "Remove Filter" in the cell menu) for a table whose
+// buttons are hidden, such as the filter a slicer adds; it now reads as off there, since the command shows them.
+it('shows the Filter command as off for a table whose buttons are hidden', async () => {
+  const { wb, id, table } = await mount();
+  insertTableSlicers(wb, id, table.id, ['Region']); // the slicer filters through the table's own filter
+  await view.run('filter'); // hide the buttons
+  const filterItem = async () => {
+    view.el.querySelector('[data-menu="data"]').click();
+    await vi.advanceTimersByTimeAsync(1);
+    const item = [...document.querySelectorAll('.menu-item')].find((n) => n.querySelector('.menu-label')?.textContent === 'Filter');
+    const checked = item?.getAttribute('aria-checked');
+    closeMenu();
+    return checked;
+  };
+  expect(tableFilterButtonOn(wb, id, table)).toBe(false);
+  expect(await filterItem()).toBe('false');
+  await view.run('filter');
+  expect(tableFilterButtonOn(wb, id, table)).toBe(true);
+  expect(await filterItem()).toBe('true');
+});
