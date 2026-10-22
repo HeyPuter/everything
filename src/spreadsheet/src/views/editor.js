@@ -4779,6 +4779,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     return body !== '' && !/[\t\r\n]/.test(body);
   }
 
+  /** The rows and columns a paste of the clipboard writes once (transposed, when it is), or null when its text does not say. */
+  function pastedBlock(text, internal, transpose) {
+    const rows = internal ? clip.cells : text ? parseClipboard(text) : null;
+    const h = rows?.length || 0, w = h ? clipboardWidth(rows) : 0;
+    if (!h || !w) return null;
+    return transpose ? { h: w, w: h } : { h, w };
+  }
+
   function applyPaste(text, options = {}) {
     if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
     if (!oneRange('paste into')) return; // a paste lands in one range; several selected would take it in the last alone
@@ -4799,7 +4807,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     if (whole.r2 >= MAX_ROW || whole.c2 >= MAX_COL) {
       const extent = wb.sheet(grid.sheetId), used = wb.usedRange(grid.sheetId);
       const reach = (lo, hi, max, size, usedEnd) => (hi >= max ? Math.max(lo, size - 1, usedEnd ?? lo) : hi);
-      const clipped = { ...whole, r2: reach(whole.r1, whole.r2, MAX_ROW, extent.rows, used?.r2), c2: reach(whole.c1, whole.c2, MAX_COL, extent.cols, used?.c2) };
+      let clipped = { ...whole, r2: reach(whole.r1, whole.r2, MAX_ROW, extent.rows, used?.r2), c2: reach(whole.c1, whole.c2, MAX_COL, extent.cols, used?.c2) };
+      // The block tiles only as it would over the whole lines, whose length is a multiple of it or not (Excel's rule),
+      // never because the part laid out so far is: column A's 50 rows copied onto column C went in twice over a new
+      // sheet's 100 rows. Tiling, the lines cut short take whole repeats; not tiling, the block goes in once.
+      const block = special.insert ? null : pastedBlock(text, internal, special.transpose);
+      if (block) {
+        const { h, w } = block;
+        const th = whole.r2 - whole.r1 + 1, tw = whole.c2 - whole.c1 + 1;
+        const limit = sheetLimits(grid.sheetId);
+        const repeat = (lo, hi, n, end) => Math.min(end - 1, lo + Math.ceil((hi - lo + 1) / n) * n - 1);
+        clipped = th % h === 0 && tw % w === 0 && (th > h || tw > w)
+          ? { ...clipped, r2: repeat(clipped.r1, clipped.r2, h, limit.rows), c2: repeat(clipped.c1, clipped.c2, w, limit.cols) }
+          : { ...clipped, r2: Math.min(limit.rows - 1, clipped.r1 + h - 1), c2: Math.min(limit.cols - 1, clipped.c1 + w - 1) };
+      }
       grid.setSelection(S.fromRange(clipped, { ...grid.active }), { scroll: false });
     }
     const label = internal && clip.cut && mode === 'all' ? 'Move cells' : pasteLabel(special);
