@@ -5792,7 +5792,12 @@ export function createGrid(opts) {
       return;
     }
 
-    if (mod) {
+    // Excel for Mac takes Control as well as ⌘ for these: Fill Down and Fill Right, today's date, hiding and showing
+    // rows and columns, inserting and deleting cells, Format Cells and Insert Link (⌃+D, ⌃+R, ⌃+;, ⌃+9, ⌃+0,
+    // ⌃+Shift+9 and 0, ⌃+Shift+=, ⌃+-, ⌃+1, ⌃+K). They did nothing here.
+    const macControl = IS_MAC && e.ctrlKey && !e.metaKey && !e.altKey
+      && (['KeyD', 'KeyR', 'KeyK', 'Semicolon', 'Digit9', 'Digit0', 'Minus', 'Digit1'].includes(e.code) || (e.shiftKey && e.code === 'Equal'));
+    if (mod || macControl) {
       const k = key.toLowerCase();
       // Ctrl+F1 (⌘+Option+R on a Mac) shows or hides the ribbon's commands.
       if ((key === 'F1' && !e.shiftKey) || (e.altKey && e.code === 'KeyR')) { e.preventDefault(); opts.onCommand?.('toggleRibbon'); return; }
