@@ -3904,8 +3904,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         return;
       }
       case 'duplicateChart': {
-        const id = wb.duplicateChart(sheetId, arg?.id || arg || grid.selectedChart);
-        if (id) { grid.selectChart(id); toast('Duplicated. Drag the copy where you want it', { icon: 'duplicate', duration: 2200 }); }
+        // One of several objects selected, or of a group, duplicates them all (whole groups), as in Excel.
+        const id = arg?.id || arg || grid.selectedChart, selected = grid.selectedCharts || [];
+        const copies = id ? wb.duplicateObjects(sheetId, selected.includes(id) ? selected : [id]) : [];
+        if (copies.length) { grid.selectCharts(copies); toast(copies.length > 1 ? 'Duplicated. Drag the copies where you want them' : 'Duplicated. Drag the copy where you want it', { icon: 'duplicate', duration: 2200 }); }
         keepFocus();
         return;
       }

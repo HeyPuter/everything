@@ -9058,11 +9058,40 @@ export class Workbook extends EventTarget {
     const ch = sheet?.charts.find((c) => c.id === id);
     if (!ch) return null;
     if (this._locked(sheet)) return null;
+    const full = this._duplicateOf(sheet, ch);
+    if (!full) return null;
+    this._setCharts(sheet, [...sheet.charts, full], `Duplicate ${objectNoun(full)}`);
+    return full.id;
+  }
+
+  /**
+   * Ctrl+D on several objects selected, or on a group: a copy of each (whole groups), as duplicateChart makes
+   * one, in front of the rest in their own order, a group's copies grouped among themselves. One undo step;
+   * returns the copies' ids.
+   */
+  duplicateObjects(sheetId, ids) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._locked(sheet)) return [];
+    const picked = new Set(withGroups(sheet.charts, ids)), groups = new Map(), copies = [];
+    for (const ch of sheet.charts) {
+      if (!picked.has(ch.id)) continue;
+      if (ch.group && !groups.has(ch.group)) groups.set(ch.group, `g${newId().replace(/[^\w]/g, '').slice(0, 24)}`);
+      const full = this._duplicateOf(sheet, ch, ch.group ? groups.get(ch.group) : undefined);
+      if (full) copies.push(full);
+    }
+    if (!copies.length) return [];
+    this._setCharts(sheet, [...sheet.charts, ...copies], copies.length === 1 ? `Duplicate ${objectNoun(copies[0])}` : 'Duplicate objects');
+    return copies.map((c) => c.id);
+  }
+
+  /** A copy of an object, nudged down and right (see duplicateChart), in the group `group` or in none. */
+  _duplicateOf(sheet, ch, group) {
     const copy = JSON.parse(JSON.stringify(ch));
     delete copy.id;
     // The copy stands on its own: in the original's group it would be selected and moved with objects it was
     // never grouped with, and lie apart from them in the stacking order a group keeps together.
     delete copy.group;
+    if (group) copy.group = group;
     if (copy.type === 'slicer') delete copy.nativeName;
     // The copy sits 24 pixels down and right of the original, inside the sheet, and is anchored again to
     // the cell its corner now lies in, as a drag anchors what it moves: an object's anchor is the cell its
@@ -9074,10 +9103,7 @@ export class Workbook extends EventTarget {
     copy.dx = col.offset;
     copy.dy = row.offset;
     if (copy.title && !['image', 'text', 'slicer', 'smartart'].includes(copy.type)) copy.title = `${copy.title} (copy)`;
-    const full = reanchorCellDrawing(sheet, absoluteDrawingAnchor(sheet, normalizeChart({ ...copy, id: newId() })));
-    if (!full) return null;
-    this._setCharts(sheet, [...sheet.charts, full], `Duplicate ${objectNoun(full)}`);
-    return full.id;
+    return reanchorCellDrawing(sheet, absoluteDrawingAnchor(sheet, normalizeChart({ ...copy, id: newId() })));
   }
 
   chartById(sheetId, id) {
