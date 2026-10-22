@@ -4644,6 +4644,9 @@ export function createGrid(opts) {
     if (d.kind === 'move') {
       const target = movePreview;
       movePreview = null;
+      // Copy or move is the keys held as the block is dropped, as in Excel: Ctrl pressed after the last move
+      // of the mouse, just before letting go, still copies rather than moving the cells out of their place.
+      d.copy = e.altKey || e.ctrlKey;
       if (target && rangeName(target) !== rangeName(d.source)) {
         // Dropping onto cells that hold something asks first, when the options say to warn before overwriting.
         // A move that will be refused anyway says why at once, without asking first.
