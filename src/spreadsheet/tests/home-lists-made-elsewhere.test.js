@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { Doc } from '../src/lib/doc.js';
 import { homeView } from '../src/views/home.js';
-import { madeFiles } from '../src/lib/made.js';
+import { madeFiles, rememberMade } from '../src/lib/made.js';
 import { setStorageUser } from '../src/lib/account-storage.js';
 import { installMockPuter } from './helpers/mock-puter.js';
 import { memoryStorage } from './helpers/memory-storage.js';
@@ -68,4 +68,23 @@ it('follows one moved or renamed elsewhere, and forgets one deleted', async () =
   expect(files.map((f) => f.name)).not.toContain('Plan 2.xlsx');
   expect(files).toHaveLength(9);
   expect(JSON.parse(localStorage.getItem('spreadsheet:made:account:uuid%3Au-1:'))).toHaveLength(9);
+});
+
+it('names a duplicate by the app folder alone, not by files of that name elsewhere', async () => {
+  await makeTen();
+  // Blobs made in jsdom cannot be read back here: plain bytes stand in for the files.
+  const bytes = { arrayBuffer: async () => new ArrayBuffer(8) };
+  mock.fs.set('~/Desktop/Plan 1.xlsx', { ...mock.fs.get('~/Desktop/Plan 1.xlsx'), blob: bytes });
+  mock.fs.set('~/Desktop/Plan 1 copy.xlsx', { ...mock.fs.get('~/Desktop/Plan 1.xlsx'), uid: 'uid-copy' });
+  rememberMade({ path: '~/Desktop/Plan 1 copy.xlsx', uid: 'uid-copy' });
+  const view = homeView({});
+  document.body.append(view.el);
+  const row = () => [...view.el.querySelectorAll('.file-row')].find((r) => r.querySelector('.file-name')?.textContent === 'Plan 1');
+  expect(await until(() => row())).toBeTruthy();
+  row().querySelector('.file-menu-btn').click();
+  await until(() => [...document.querySelectorAll('.menu-item')].some((b) => b.textContent.includes('Duplicate')));
+  [...document.querySelectorAll('.menu-item')].find((b) => b.textContent.includes('Duplicate')).click();
+  await until(() => [...mock.fs.keys()].some((k) => /^Spreadsheets\/Plan 1 copy/.test(k)));
+  expect([...mock.fs.keys()].filter((k) => /Spreadsheets\/Plan 1 copy/.test(k))).toEqual([expect.stringMatching(/Spreadsheets\/Plan 1 copy\.xlsx$/)]);
+  view.destroy();
 });

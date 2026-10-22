@@ -492,7 +492,8 @@ export function homeView({ openPath, openFile, newDoc, sampleDoc, templateDoc, i
       const ext = file.name.slice(file.name.lastIndexOf('.'));
       let name = `${stem} copy${ext}`;
       let n = 2;
-      while (files.some((f) => f.name.toLowerCase() === name.toLowerCase())) name = `${stem} copy ${n++}${ext}`;
+      // The copy goes in the app folder: a file of that name elsewhere (the list holds spreadsheets made outside it) is no clash.
+      while (files.some((f) => P.inAppFolder(f.path) && f.name.toLowerCase() === name.toLowerCase())) name = `${stem} copy ${n++}${ext}`;
       // The displayed list may be stale, or another tab may claim the name.
       const written = await P.writeFile(`${P.FOLDER}/${name}`, new Blob([bytes]), { dedupe: true });
       // The copy holds the same content: whether it may load outside content is decided already.
