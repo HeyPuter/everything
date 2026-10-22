@@ -46,11 +46,20 @@ export function printTitleBands(sizes, capacity, { bodyStart = 0, repeat = null,
     const clipped = repeated + extent > capacity + Number.EPSILON * capacity * (end - start + 2);
     append(start, end, clipped ? Infinity : room);
     bands.push({ segments, size: Math.min(capacity, repeated + extent),
-      paintSize: clipped ? repeated + extent : Math.min(capacity, repeated + extent), clipped });
+      paintSize: clipped ? repeated + extent : Math.min(capacity, repeated + extent), clipped, start, end });
     start = end;
   }
   if (!bands.length && sizes.length) bands.push({ segments: [{ offset: 0, size: Math.min(capacity, offsets.at(-1)) }], size: Math.min(capacity, offsets.at(-1)), clipped: offsets.at(-1) > capacity });
   return bands;
+}
+
+/**
+ * Where each page's own lines begin along an axis whose titles (rows or columns to repeat) print again on every page
+ * after they are reached, as the print lays them out: the indices into `sizes` printTitleBands' pages start at, for
+ * the same `layout` ({ bodyStart, repeat }) and `forced` lines.
+ */
+export function printTitleStarts(sizes, capacity, layout, forced = null) {
+  return printTitleBands(sizes, capacity, layout, forced)?.filter((b) => b.end > b.start).map((b) => b.start) ?? null;
 }
 
 /** Pages break between columns/rows. An oversized line occupies one page.

@@ -5,7 +5,7 @@
  */
 import { savedPrintPrefs, sheetPrintPrefs, printableWidth, printableHeight, manualBreaksApply, printRange } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
-import { printBands } from './print-pagination.js';
+import { printBands, printTitleStarts } from './print-pagination.js';
 
 /**
  * { area, rows: [[r1, r2]...], cols: [[c1, c2]...], order, rowBreaks, colBreaks } for a sheet, or null when
@@ -40,12 +40,30 @@ export function pageBreaks(wb, sheetId) {
   const apply = manualBreaksApply(prefs);
   // The manual breaks inside the printed block, as offsets into it; one at its first line starts nothing.
   const forced = (list, from, to, on) => new Set(on ? (list || []).filter(at => at > from && at <= to).map(at => at - from) : []);
-  const axis = (sizes, capacity, from, manual) => {
-    const bands = (printBands(sizes, capacity, 0, manual)?.bands || [{ start: 0, end: sizes.length }]).filter((b) => b.end > b.start);
-    return { spans: bands.map((b) => [from + b.start, from + b.end - 1]), breaks: bands.slice(1).map((b) => ({ at: from + b.start, manual: manual.has(b.start) })) };
+  // Rows (or columns) to repeat print again above (or beside) every page after they are reached, taking room from the
+  // cells, as the print lays them out (printTitleBands): titles above the printed block come before it.
+  const titled = (sizes, capacity, from, to, titles, size, manual) => {
+    if (!titles || titles[0] > to) return null;
+    const above = [];
+    for (let i = titles[0]; i <= Math.min(titles[1], from - 1); i++) above.push(size(i));
+    const k = above.length;
+    const first = titles[0] < from ? 0 : k + titles[0] - from, last = titles[1] < from ? k - 1 : k + Math.min(titles[1], to) - from;
+    if (last < first) return null;
+    const starts = printTitleStarts([...above, ...sizes], capacity, { bodyStart: k, repeat: [first, last + 1] }, new Set([...manual].map((at) => at + k)));
+    return starts?.length ? starts.map((i) => i - k) : null;
   };
-  const rows = axis(rowSizes, height / scale, area.r1, forced(prefs.rowBreaks, area.r1, area.r2, apply.rows));
-  const cols = axis(colSizes, width / scale, area.c1, forced(prefs.colBreaks, area.c1, area.c2, apply.cols));
+  const axis = (sizes, capacity, from, to, manual, titles, size) => {
+    const starts = titled(sizes, capacity, from, to, titles, size, manual)
+      ?? (printBands(sizes, capacity, 0, manual)?.bands || [{ start: 0, end: sizes.length }]).filter((b) => b.end > b.start).map((b) => b.start);
+    return {
+      spans: starts.map((start, i) => [from + start, from + (starts[i + 1] ?? sizes.length) - 1]),
+      breaks: starts.slice(1).map((start) => ({ at: from + start, manual: manual.has(start) })),
+    };
+  };
+  const rowSize = (r) => (sheet.hiddenRows.has(r) || sheet.filterHidden.has(r) ? 0 : wb.rowHeight(sheetId, r));
+  const colSize = (c) => (sheet.hiddenCols.has(c) ? 0 : wb.colWidth(sheetId, c));
+  const rows = axis(rowSizes, height / scale, area.r1, area.r2, forced(prefs.rowBreaks, area.r1, area.r2, apply.rows), prefs.titleRows, rowSize);
+  const cols = axis(colSizes, width / scale, area.c1, area.c2, forced(prefs.colBreaks, area.c1, area.c2, apply.cols), prefs.titleCols, colSize);
   return { area: { ...area }, rows: rows.spans, cols: cols.spans, order: prefs.pageOrder || 'downThenOver', rowBreaks: rows.breaks, colBreaks: cols.breaks };
 }
 

@@ -7,7 +7,7 @@
  * their left, center and right sections editable in place), and the rulers in inches.
  */
 import { el } from './dom.js';
-import { printBands, quantizePrintScale } from './print-pagination.js';
+import { printBands, printTitleStarts, quantizePrintScale } from './print-pagination.js';
 import { printPageText, splitPrintSections, printRange, manualBreaksApply, effectivePrintSettings } from './print.js';
 import { MAX_ROW, MAX_COL } from '../core/refs.js';
 import { richHeaderSections } from './print-header.js';
@@ -77,12 +77,17 @@ export function pageLayoutMetrics(wb, sheetId) {
   // A manual page break starts a page here as it does in print, unless fitting to a number of pages overrides it.
   const apply = manualBreaksApply({ fit: p.fitToPage ? 'pages' : 'scale', fitWidth: p.fitWidth, fitHeight: p.fitHeight });
   const forced = (breaks, on) => (on && breaks?.length ? new Set(breaks.filter((at) => at > 0)) : null);
-  const starts = (sizes, capacity, breaks) => {
+  // Rows (or columns) to repeat print again on every page after they are reached, taking room from the cells there.
+  const starts = (sizes, capacity, breaks, titles) => {
+    if (titles && titles[0] < sizes.length) {
+      const titled = printTitleStarts(sizes, capacity, { repeat: [titles[0], Math.min(sizes.length, titles[1] + 1)] }, breaks);
+      if (titled?.length) return titled;
+    }
     const bands = printBands(sizes, capacity, 0, breaks)?.bands || [{ start: 0, end: sizes.length }];
     return bands.filter((b) => b.end > b.start).map((b) => b.start);
   };
-  const cols = starts(lineSizes(wb, sheet, 'col', 0, sheet.cols - 1), width / scale, forced(p.colBreaks, apply.cols));
-  const rows = starts(lineSizes(wb, sheet, 'row', 0, sheet.rows - 1), height / scale, forced(p.rowBreaks, apply.rows));
+  const cols = starts(lineSizes(wb, sheet, 'col', 0, sheet.cols - 1), width / scale, forced(p.colBreaks, apply.cols), p.titleCols);
+  const rows = starts(lineSizes(wb, sheet, 'row', 0, sheet.rows - 1), height / scale, forced(p.rowBreaks, apply.rows), p.titleRows);
   const bandOf = (list, i) => { let k = 0; while (k + 1 < list.length && list[k + 1] <= i) k++; return k; };
   const printed = area ? { a0: bandOf(cols, area.c1), a1: bandOf(cols, area.c2), d0: bandOf(rows, area.r1), d1: bandOf(rows, area.r2) } : { a0: 0, a1: 0, d0: 0, d1: 0 };
   return {
