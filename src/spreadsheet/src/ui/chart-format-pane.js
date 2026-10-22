@@ -283,9 +283,15 @@ export function createChartUi(ctx) {
       xAxis: a.axisStyles?.x?.color, yAxis: a.axisStyles?.y?.color, y2Axis: a.axisStyles?.y2?.color,
       'gridlines-x': a.gridlineStyles?.x?.color, 'gridlines-y': a.gridlineStyles?.y?.color,
     };
+    const lineWidths = {
+      chartArea: a.borderWidth, plotArea: a.plotStrokeWidth, xAxis: a.axisStyles?.x?.width, yAxis: a.axisStyles?.y?.width, y2Axis: a.axisStyles?.y2?.width,
+      'gridlines-x': a.gridlineStyles?.x?.width, 'gridlines-y': a.gridlineStyles?.y?.width,
+    };
     const seriesColor = seriesIndex != null ? chart.colors?.[+seriesIndex] : null;
     const fill = fills[key] ?? seriesColor;
     const line = lines[key] ?? (seriesIndex != null ? (isPieChart(chart) ? a.pie?.stroke : a.bars?.[+seriesIndex]?.stroke ?? a.lines?.[+seriesIndex]?.color) : null);
+    const seriesLine = a.lines?.[+seriesIndex] || a.lineDefault;
+    const width = lineWidths[key] ?? (seriesIndex != null ? (isPieChart(chart) ? a.pie?.strokeWidth : a.bars?.[+seriesIndex]?.strokeWidth ?? (lineOnly ? seriesLine?.width : null)) : null);
     const parts = [];
     if (!lineOnly && !/^(xTitle|yTitle|dataLabels)/.test(key)) {
       const kind = fill === 'none' ? 'none' : fill ? 'solid' : 'auto';
@@ -299,7 +305,9 @@ export function createChartUi(ctx) {
         choice(lineOnly && seriesIndex != null ? 'Line' : 'Border', kind, [['auto', 'Automatic'], ['none', lineOnly ? 'No line' : 'No line'], ['solid', 'Solid line']],
           v => format({ outline: v === 'none' ? 'none' : v === 'solid' ? (line && line !== 'none' ? line : '#595959') : null })),
         kind === 'solid' || (lineOnly && seriesIndex != null) ? color('Line Color', line && line !== 'none' ? line : '#4472c4', v => format({ outline: v })) : null,
-        number('Width (pt)', null, v => { if (v != null && v >= 0) format({ outlineWidth: Math.round(v * 4 / 3 * 100) / 100 }); }, { min: 0, max: 20, step: 0.25, placeholder: '' }));
+        // The width the line is drawn at, in points as Excel gives it; a title's or legend's border keeps no width of its own.
+        key === 'title' || key === 'legend' ? null : number('Width (pt)', Number.isFinite(width) ? Math.round(width * 3 / 4 * 100) / 100 : null,
+          v => { if (v != null && v >= 0) format({ outlineWidth: Math.round(v * 4 / 3 * 100) / 100 }); }, { min: 0, max: 20, step: 0.25, placeholder: '' }));
     }
     return parts.length ? section('Fill & Line', parts) : null;
   }
