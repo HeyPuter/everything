@@ -2926,7 +2926,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             el('table.details-table', {}, el('tbody', {},
               fact('Name', doc.name), fact('Location', doc.path || 'Not saved yet'), fact('Size', size), fact('Last saved', when),
               fact('Sheets', String(wb.sheets.length)), fact('Cells with content', cells.toLocaleString()), fact('Formulas', formulas.toLocaleString()),
-              fact('Named ranges', String(wb.names.length)), fact('Tables', String(wb.tableNames().length)), fact('Functions available', String(FUNCTION_NAMES.length)))),
+              fact('Named ranges', String(wb.names.filter((n) => !n.hidden).length)), fact('Tables', String(wb.tableNames().length)), fact('Functions available', String(FUNCTION_NAMES.length)))),
             el('table.details-table.details-sheets', {},
               el('thead', {}, el('tr', {}, el('th', {}, 'Sheet'), el('th.num', {}, 'Cells'), el('th.num', {}, 'Formulas'), el('th.num', {}, 'Charts'), el('th.num', {}, 'Tables'))),
               el('tbody', {}, ...rows))),
