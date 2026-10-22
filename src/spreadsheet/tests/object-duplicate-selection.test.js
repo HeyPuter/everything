@@ -71,3 +71,17 @@ it('duplicates every object selected, and only the one pressed when it is alone'
   expect(texts().map(t => t[0])).toEqual(['One', 'Two', 'Three', 'One', 'Three', 'One']);
   expect(wb.undoLabel()).toBe('Duplicate text box');
 });
+
+// The object menu's Delete (and the box's Delete button) on a member of a group took that member alone out of
+// the group, though the menu names the Delete key, which deletes everything selected.
+it('deletes the whole selection from the object menu, as the Delete key does', async () => {
+  const { wb, id, a, b, texts } = await mount();
+  wb.groupObjects(id, [a, b]);
+  await press(a);
+  view.run('deleteChart', a); await flush();
+  expect(texts()).toEqual([['Three', null]]);
+  wb.undo();
+  await press(texts().length && wb.sheet(id).charts.find(o => o.text === 'Three').id);
+  view.run('deleteChart', wb.sheet(id).charts.find(o => o.text === 'Three').id); await flush();
+  expect(texts().map(t => t[0])).toEqual(['One', 'Two']);
+});

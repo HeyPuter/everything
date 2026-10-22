@@ -3894,6 +3894,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'deleteChart': {
         const id = arg || grid.selectedChart;
         if (!id) return;
+        // One of several objects selected, or of a group, deletes them all, as the Delete key does.
+        const selected = grid.selectedCharts || [];
+        if (selected.length > 1 && selected.includes(id)) { run('deleteObjects', selected); return; }
         const kind = wb.chartById(sheetId, id)?.type;
         if (kind === 'timeline') { if (!deleteTimeline(wb, sheetId, id)) return; }
         else if (!wb.deleteChart(sheetId, id)) return;
