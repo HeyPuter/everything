@@ -4576,7 +4576,12 @@ export function createGrid(opts) {
       autoScrollAt = next;
       autoScroll = setInterval(() => {
         const at = autoScrollAt;
-        viewport.scrollBy(at.dx * 24, at.dy * 24);
+        // The farther past the edge the pointer is, the faster the sheet goes, as in Excel: a step of 24px a tick
+        // up to 25px out, and another for every 25px beyond, to eight. At one speed a drag to row 1,000 took 40 seconds.
+        const speed = (past) => 24 * Math.min(8, 1 + Math.floor(Math.max(0, past) / 25));
+        const pastX = at.dx < 0 ? at.left - at.e.clientX : at.e.clientX - at.rect.right;
+        const pastY = at.dy < 0 ? at.top - at.e.clientY : at.e.clientY - at.rect.bottom;
+        viewport.scrollBy(at.dx * speed(pastX), at.dy * speed(pastY));
         if (!drag) return;
         const x = clamp(at.e.clientX, at.left + 1, at.rect.right - 1), y = clamp(at.e.clientY, at.top + 1, at.rect.bottom - 1);
         // Rows or columns dragged by their headers land beside the line now at the edge.
