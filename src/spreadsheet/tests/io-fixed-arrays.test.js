@@ -88,7 +88,8 @@ it('round-trips fixed and resizable ODS matrices with independent and inherited 
   for (const c of [2, 5]) wb.applyStyle(id, { r1: 2, c1: c, r2: 2, c2: c }, { fmt: 'percent', dec: 1 });
   const bytes = new Uint8Array(await (await workbookToOds(wb)).arrayBuffer());
   const native = X.read(bytes, { type: 'array', cellNF: true });
-  expect(native.Sheets.Sheet1.F3).toMatchObject({ F: 'F3:F4', f: '_xlfn.SEQUENCE(A1)' });
+  // The file names SEQUENCE as LibreOffice does (COM.MICROSOFT.SEQUENCE), which the reader gives back plain.
+  expect(native.Sheets.Sheet1.F3).toMatchObject({ F: 'F3:F4', f: 'SEQUENCE(A1)' });
   expect(native.Sheets.Sheet1.D9).toMatchObject({ F: 'D9', f: 'SUM({1,2})' });
   const back = await workbookFromFile(bytes, 'matrices.ods'), bid = back.activeSheetId;
   expect(back.getCell(bid, 2, 2).array).toBeUndefined();

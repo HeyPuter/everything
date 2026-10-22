@@ -18,13 +18,13 @@ const cases = [
   ['SUM(IF(TRUE,(A1,B1),A2))', 'SUM(IF(TRUE;([.A1]~[.B1]);[.A2]))', 30],
   ['IF("x,y"="x,y",SUM((A1,B1)),0)', 'IF("x,y"="x,y";SUM(([.A1]~[.B1]));0)', 30],
   ['SUM((IF(TRUE,A1,A2),OFFSET(B1,0,0)))', 'SUM((IF(TRUE;[.A1];[.A2])~OFFSET([.B1];0;0)))', 30],
-  ['LET(pair,LAMBDA(x,y,SUM((x,y))),pair(A1,B1))', '_xlfn.LET(_xlpm.pair;_xlfn.LAMBDA(_xlpm.x;_xlpm.y;SUM((_xlpm.x~_xlpm.y)));_xlpm.pair([.A1];[.B1]))', 30],
-  ['SUM((LAMBDA(A1)(),B1))', 'SUM((_xlfn.LAMBDA([.A1])()~[.B1]))', 30],
-  ['LET(fn,LAMBDA(x,y,x+y),fn(SUM((A1,B1)),SUM({1,2;3,4})))', '_xlfn.LET(_xlpm.fn;_xlfn.LAMBDA(_xlpm.x;_xlpm.y;_xlpm.x+_xlpm.y);_xlpm.fn(SUM(([.A1]~[.B1]));SUM({1;2|3;4})))', 40],
+  ['LET(pair,LAMBDA(x,y,SUM((x,y))),pair(A1,B1))', 'COM.MICROSOFT.LET(pair;COM.MICROSOFT.LAMBDA(x;y;SUM((x~y)));pair([.A1];[.B1]))', 30],
+  ['SUM((LAMBDA(A1)(),B1))', 'SUM((COM.MICROSOFT.LAMBDA([.A1])()~[.B1]))', 30],
+  ['LET(fn,LAMBDA(x,y,x+y),fn(SUM((A1,B1)),SUM({1,2;3,4})))', 'COM.MICROSOFT.LET(fn;COM.MICROSOFT.LAMBDA(x;y;x+y);fn(SUM(([.A1]~[.B1]));SUM({1;2|3;4})))', 40],
   ['IF(FALSE,"(,{",SUM((A1,B1)))', 'IF(FALSE;"(,{";SUM(([.A1]~[.B1])))', 30],
   ['SUM ( ( A1 , B1 ) )', 'SUM ( ( [.A1] ~ [.B1] ) )', 30],
   ['SUM(A1,B1)', 'SUM([.A1];[.B1])', 30],
-  ['(LAMBDA(x,y,x+y))(10,20)', '(_xlfn.LAMBDA(_xlpm.x;_xlpm.y;_xlpm.x+_xlpm.y))(10;20)', 30],
+  ['(LAMBDA(x,y,x+y))(10,20)', '(COM.MICROSOFT.LAMBDA(x;y;x+y))(10;20)', 30],
 ];
 
 it.each(cases)('exports union and argument separators correctly in %s', async (formula, expected, value) => {

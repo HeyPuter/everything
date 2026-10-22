@@ -3,6 +3,7 @@ import { writeOdsSettings, readOdsSettings, readOdsViewSettings } from '../core/
 import { odsFilterReader, writeOdsFilter } from '../core/ods-filter.js';
 import { writeOdsValidations, readOdsValidations, odsValidationLayout, addOdsValidation, odsFormulaReader } from '../core/ods-validation.js';
 import { odsCellStyleProperties, odsTextStyleProperties } from '../core/ods-cell-styles.js';
+import { XLFN } from '../core/xlfn.js';
 import { xlmlCellProps } from '../core/xlml-styles.js';
 import { odsConditionalFormatsXml } from '../core/ods-condformat.js';
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
@@ -16030,6 +16031,21 @@ function csf_formula_reference(match) {
 	return "[" + first + (cells.length == 2 || sheets.length == 2 ? ":" + last : "") + "]";
 }
 
+/* Puter Spreadsheet local patch: Excel's file spelling marks the functions added since Excel 2007 with _xlfn. (and
+ * SORT and FILTER with _xlfn._xlws.), and LET and LAMBDA names with _xlpm.; LibreOffice reads none of these in an
+ * .ods, so every XLOOKUP or IFS there turned to #NAME? on its first recalculation. OpenFormula has some of them under
+ * their own names (IFNA, XOR, DAYS); the others are spelled COM.MICROSOFT.* as LibreOffice writes them. */
+var ods_plain_functions = {};
+"ACOT ACOTH ARABIC BASE BINOM.DIST.RANGE BITAND BITLSHIFT BITOR BITRSHIFT BITXOR COMBINA COT COTH CSC CSCH DAYS DECIMAL GAMMA GAUSS IFNA IMCOSH IMCOT IMCSC IMCSCH IMSEC IMSECH IMSINH IMTAN ISFORMULA ISOWEEKNUM MUNIT NUMBERVALUE PDURATION PERMUTATIONA PHI RRI SEC SECH SHEET SHEETS UNICHAR UNICODE XOR".split(" ").forEach(function(name) { ods_plain_functions[name] = true; });
+function ods_function_name(name) {
+	var m = /^_xlpm\.(.*)$/i.exec(name);
+	if(m) return m[1];
+	m = /^_xlfn\.(?:_xlws\.)?(.+)$/i.exec(name);
+	/* Only the functions Excel marks so: a spill reference (A1#, ANCHORARRAY) and the @ operator (SINGLE) have no
+	 * OpenFormula spelling, and keep Excel's, as does a name this app does not know. */
+	if(!m || !XLFN.has(m[1].toUpperCase())) return null;
+	return ods_plain_functions[m[1].toUpperCase()] ? m[1] : "COM.MICROSOFT." + m[1];
+}
 function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 	// Keep delimiter context across string-literal segments. A comma inside
 	// grouping parentheses joins references; calls and arrays use separators.
@@ -16064,6 +16080,7 @@ function csf_to_ods_formula(f/*:string*/)/*:string*/ {
 				while(end < f.length && /[\w.\u0080-\uFFFF]/.test(f.charAt(end))) ++end;
 				/* Puter Spreadsheet local patch: the functions OpenFormula spells as LEGACY.* (see ods_to_csf_formula). */
 				if(/^(?:CHIDIST|CHIINV|CHITEST|FDIST|FINV|NORMSDIST|NORMSINV|TDIST)$/i.test(f.slice(i, end)) && /^\s*\(/.test(f.slice(end))) replacement = "LEGACY." + f.slice(i, end);
+				else if(/^_xl(?:fn|pm)\./i.test(f.slice(i, end)) && (replacement = ods_function_name(f.slice(i, end))) != null) {}
 				else if(f.charAt(end) != "!" || !(match = csf_ods_name.exec(f.slice(i)))) { i = end - 1; continue; }
 				else { replacement = "'" + match[1] + "'.$$'" + match[2] + "'"; end = i + match[0].length; }
 			} else if((ch >= "0" && ch <= "9") || ch == ".") {
