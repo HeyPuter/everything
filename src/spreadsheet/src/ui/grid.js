@@ -5229,10 +5229,16 @@ export function createGrid(opts) {
     return true;
   }
 
+  /**
+   * Fit column c to what its rows on show hold. A column that holds nothing that asks for width (blank, or wrapped
+   * text alone) keeps its width, as Format > Fit columns leaves it, rather than shrinking to a 40px sliver.
+   */
   function autofitColumn(c) {
     const s = sheet();
     let best = 40;
+    let asked = false;
     const fit = (r, value, style, text) => {
+      asked = true;
       const cf = wb.conditionalStyle(sheetId, r, c, value);
       style = conditionalFontStyle(style, cf);
       const size = style?.size || baseFontSize;
@@ -5298,7 +5304,15 @@ export function createGrid(opts) {
         if (best >= 500) break;
       }
     }
-    wb.setColWidth(sheetId, c, Math.min(500, Math.ceil(best)));
+    if (asked) wb.setColWidth(sheetId, c, Math.min(500, Math.ceil(best)));
+  }
+
+  /** The columns that hold a value, a formula or part of a spilled array: all that autofitColumn can fit. */
+  function columnsWithContent(s) {
+    const cols = new Set();
+    for (const [key, cell] of s.cells) if (cell.v != null || cell.f != null) cols.add(Number(key.slice(key.indexOf(',') + 1)));
+    for (const a of wb._ensureSpills?.(s)?.anchors?.values() || []) for (let c = a.c; c < a.c + a.cols; c++) cols.add(c);
+    return cols;
   }
 
   function headerDoubleClick(e) {
@@ -5313,7 +5327,9 @@ export function createGrid(opts) {
       const c = Number(resizer.dataset.c);
       const lines = selectedLines('col', c);
       // The rows of wrapped text fitted to the new width join the step (the layout marked stale first, as in resizeEnd).
-      if (lines) wb.transaction('Fit columns', () => { const cols = []; const before = new Map(); for (const [from, to] of lines) for (let cc = from; cc <= to; cc++) if (!sheet().hiddenCols.has(cc)) { before.set(cc, wb.colWidth(sheetId, cc)); autofitColumn(cc); cols.push(cc); } invalidateOffsets(); refitWrappedRows(cols, before); });
+      // Only the columns holding something are visited: after Select All that is a handful of the 16,384, each of
+      // which walked the sheet's cells (ten seconds for 20,000 of them), and the empty ones were shrunk to slivers.
+      if (lines) wb.transaction('Fit columns', () => { const cols = []; const before = new Map(); const held = columnsWithContent(sheet()); for (const [from, to] of lines) for (let cc = from; cc <= to; cc++) if (held.has(cc) && !sheet().hiddenCols.has(cc)) { before.set(cc, wb.colWidth(sheetId, cc)); autofitColumn(cc); cols.push(cc); } invalidateOffsets(); refitWrappedRows(cols, before); });
       else wb.transaction('Fit column', () => { const before = new Map([[c, wb.colWidth(sheetId, c)]]); autofitColumn(c); invalidateOffsets(); refitWrappedRows([c], before); });
       return;
     }
