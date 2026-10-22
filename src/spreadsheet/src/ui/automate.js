@@ -79,7 +79,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   const output = el('div.sp-output', { role: 'log', 'aria-label': 'Script output', tabindex: 0 });
   const outputCount = el('span.sp-output-count');
   const clearOutput = el('button.icon-btn', { type: 'button', 'aria-label': 'Clear output', title: 'Clear output', html: icon('eraser', 15), onclick: () => { output.replaceChildren(); outputCount.textContent = ''; } });
-  const outputSplit = el('div.sp-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize output', tabindex: 0 });
+  const outputSplit = el('div.sp-split', { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': 'Resize output', tabindex: 0, 'aria-valuemin': 60, 'aria-valuemax': 600 });
   const outputBox = el('div.sp-output-box', {}, el('div.sp-output-head', {}, el('span.sp-output-title', {}, 'Output'), outputCount, clearOutput), output);
   const empty = el('div.sp-empty', { hidden: true },
     el('span.sp-empty-icon', { html: icon('codeEditor', 40) }),
@@ -93,7 +93,7 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
     el('div.sp-bar', {}, picker, more),
     el('div.sp-actions', {}, runButton, stopButton, status),
     el('div.sp-code', {}, editor.el));
-  const resizer = el('div.sp-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize Code Editor', tabindex: 0 });
+  const resizer = el('div.sp-resize', { role: 'separator', 'aria-orientation': 'vertical', 'aria-label': 'Resize Code Editor', tabindex: 0, 'aria-valuemin': 320 });
   const pane = el('section.scripts-pane', { role: 'region', 'aria-label': 'Code Editor', hidden: true },
     resizer,
     el('div.sp-head', {},
@@ -109,31 +109,42 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
   const keep = (key, v) => { try { localStorage.setItem(key, String(Math.round(v))); } catch { /* optional */ } };
   let width = stored(WIDTH_KEY, 440);
   let outputHeight = stored(OUTPUT_KEY, 150);
+  // What is drawn: the pane between 320px and 70% of the window, the output between 60 and 600px. A drag or a key
+  // starts from what is drawn and stops at its limits, so there is no stretch past a limit that moves nothing on the
+  // way back; a saved width wider than this window allows is kept (a larger window shows it all).
+  const widest = () => Math.max(320, window.innerWidth * 0.7);
+  const shownWidth = () => Math.max(320, Math.min(width, widest()));
+  const shownHeight = () => Math.max(60, Math.min(outputHeight, 600));
+  const setWidth = (w) => { width = Math.round(Math.max(320, Math.min(w, widest()))); };
+  const setHeight = (h) => { outputHeight = Math.round(Math.max(60, Math.min(h, 600))); };
   const applySizes = () => {
-    pane.style.width = `${Math.max(320, Math.min(width, Math.max(320, window.innerWidth * 0.7)))}px`;
-    outputBox.style.height = `${Math.max(60, Math.min(outputHeight, 600))}px`;
+    pane.style.width = `${shownWidth()}px`;
+    outputBox.style.height = `${shownHeight()}px`;
+    resizer.setAttribute('aria-valuenow', String(Math.round(shownWidth())));
+    resizer.setAttribute('aria-valuemax', String(Math.round(widest())));
+    outputSplit.setAttribute('aria-valuenow', String(shownHeight()));
   };
   applySizes();
   const drag = (handle, onMove, onEnd) => handle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     handle.setPointerCapture?.(e.pointerId);
-    const start = { x: e.clientX, y: e.clientY, width, outputHeight };
+    const start = { x: e.clientX, y: e.clientY, width: shownWidth(), outputHeight: shownHeight() };
     const move = (ev) => { onMove(ev, start); applySizes(); };
     const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); handle.removeEventListener('pointercancel', up); onEnd(); };
     handle.addEventListener('pointermove', move);
     handle.addEventListener('pointerup', up);
     handle.addEventListener('pointercancel', up);
   });
-  drag(resizer, (ev, start) => { width = start.width + (start.x - ev.clientX); }, () => keep(WIDTH_KEY, width));
-  drag(outputSplit, (ev, start) => { outputHeight = start.outputHeight + (start.y - ev.clientY); }, () => keep(OUTPUT_KEY, outputHeight));
+  drag(resizer, (ev, start) => setWidth(start.width + (start.x - ev.clientX)), () => keep(WIDTH_KEY, width));
+  drag(outputSplit, (ev, start) => setHeight(start.outputHeight + (start.y - ev.clientY)), () => keep(OUTPUT_KEY, outputHeight));
   resizer.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    e.preventDefault(); width += e.key === 'ArrowLeft' ? 24 : -24; applySizes(); keep(WIDTH_KEY, width);
+    e.preventDefault(); setWidth(shownWidth() + (e.key === 'ArrowLeft' ? 24 : -24)); applySizes(); keep(WIDTH_KEY, width);
   });
   outputSplit.addEventListener('keydown', (e) => {
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-    e.preventDefault(); outputHeight += e.key === 'ArrowUp' ? 20 : -20; applySizes(); keep(OUTPUT_KEY, outputHeight);
+    e.preventDefault(); setHeight(shownHeight() + (e.key === 'ArrowUp' ? 20 : -20)); applySizes(); keep(OUTPUT_KEY, outputHeight);
   });
   pane.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !isComposing(e) && !e.defaultPrevented && e.target !== editor.textarea) { e.preventDefault(); hidePane(); }
