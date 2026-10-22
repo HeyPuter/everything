@@ -18,7 +18,15 @@ export const xlsxText = xml => xml?.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|a
   const hex = /^#x/i.test(entity), code = parseInt(entity.slice(hex ? 2 : 1), hex ? 16 : 10);
   return code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
 });
-const attr = (xml, name) => xlsxText(xml?.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]);
+// One pattern per attribute name, made once: a save reads two attributes of each of a sheet's cells, and making the
+// pattern afresh for every read took a fifth of the time of saving a sheet of 200,000 cells.
+const attrPatterns = new Map();
+const attrPattern = (name) => {
+  let re = attrPatterns.get(name);
+  if (!re) attrPatterns.set(name, re = new RegExp(`\\s${name}="([^"]*)"`));
+  return re;
+};
+const attr = (xml, name) => xlsxText(xml?.match(attrPattern(name))?.[1]);
 const elements = (xml, tag) => [...(xml || '').matchAll(new RegExp(`<(?:\\w+:)?${tag}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/(?:\\w+:)?${tag}>)`, 'g'))].map(m => m[0]);
 const element = (xml, tag) => elements(xml, tag)[0];
 export { attr as xlsxAttr, elements as xlsxElements };
