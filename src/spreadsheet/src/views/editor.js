@@ -521,6 +521,9 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const chosen = (text) => named.has(identity(text)) || selectedByKey.has(identity(text));
     const selected = new Set(current?.values ? [...listed].filter(chosen) : listed);
     let valuesChanged = false; // a checkbox, Select all or Clear was used, so the value list is what Apply stores
+    // A box used since the search last changed. Until one is, a search narrows the choice to the values it finds, as
+    // Excel's does: typing "pen" and pressing Enter keeps the pens, where every value stayed ticked and Apply cleared the filter.
+    let touchedSinceSearch = false;
     const dataRange = { r1: f.range.r1 + 1, c1: f.range.c1, r2: f.range.r2, c2: f.range.c2 };
 
     const search = el('input.input', { type: 'search', placeholder: 'Search values', 'aria-label': 'Search values', autocomplete: 'off' });
@@ -598,6 +601,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // The values the search box finds (all of them while it is empty): Select all and Clear act on these, as the
     // list shows them, so "pen" then Clear unticks the pens rather than every value of the column.
     const found = () => { const q = search.value.trim().toLowerCase(); return all.filter((v) => !q || v.value.toLowerCase().includes(q)); };
+    /** The values Apply keeps: the ticked ones, less those a search left out while no box has been used since (a search finding nothing narrows nothing). */
+    const kept = () => {
+      const matches = touchedSinceSearch || !search.value.trim() ? [] : found();
+      if (!matches.length) return selected;
+      const shown = new Set(matches.map((v) => v.value));
+      return new Set([...selected].filter((v) => shown.has(v)));
+    };
     const render = () => {
       const matches = found();
       const shown = matches.slice(0, 300);
@@ -605,14 +615,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       const note = !shown.length ? 'No matches' : shown.length < matches.length ? `Showing ${shown.length} of ${matches.length} values. Type to find the rest` : null;
       listEl.replaceChildren(...shown.map(({ value, count }) => {
         const id = `fv-${Math.random().toString(36).slice(2, 8)}`;
-        const input = el('input', { type: 'checkbox', id, checked: selected.has(value), onchange: () => { valuesChanged = true; if (input.checked) selected.add(value); else selected.delete(value); updateSummary(); } });
+        const input = el('input', { type: 'checkbox', id, checked: selected.has(value), onchange: () => { valuesChanged = touchedSinceSearch = true; if (input.checked) selected.add(value); else selected.delete(value); updateSummary(); } });
         // The blank cells are listed as (Blanks); a cell whose text is exactly that is quoted to tell it apart.
         return el('label.filter-value', { for: id }, input, el('span.filter-value-text', {}, value === '' ? '(Blanks)' : value === '(Blanks)' ? '"(Blanks)"' : value), el('span.filter-count', {}, String(count)));
       }), ...(note ? [el('div.menu-header', {}, note)] : [])); // replaceChildren would print a bare `false`
       updateSummary();
     };
-    const updateSummary = () => { summary.textContent = `${selected.size} of ${all.length} selected`; };
-    search.addEventListener('input', render);
+    const updateSummary = () => { summary.textContent = `${kept().size} of ${all.length} selected`; };
+    search.addEventListener('input', () => { touchedSinceSearch = false; render(); });
     search.addEventListener('keydown', (e) => { if (isComposing(e) || navigate(e)) return; e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); apply(); } if (e.key === 'Escape') menu.close(); });
     listEl.addEventListener('keydown', (e) => { if (navigate(e)) return; if (e.key !== 'Escape' && e.key !== 'Tab') e.stopPropagation(); });
 
@@ -630,15 +640,16 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // Equal to and Not equal to take the number when the text reads as one, and the text itself otherwise.
         const raw = (v) => { const n = t.numeric || t.value === 'eq' || t.value === 'neq' ? numberOf(v) : null; return n != null ? n : v; };
         wb.setFilterCriteria(sheetId, c, { op: t.value, value: t.args >= 1 ? raw(condValue.value) : undefined, value2: t.args >= 2 ? raw(condValue2.value) : undefined });
-      } else if (!current?.color || valuesChanged) { // Apply with the values untouched keeps a colour filter as it is
-        if (all.every((v) => selected.has(v.value))) wb.setFilterCriteria(sheetId, c, null);
-        else wb.setFilterCriteria(sheetId, c, { values: [...selected], ...(current?.caseSensitive === false ? { caseSensitive: false } : {}) });
+      } else if (!current?.color || valuesChanged || kept() !== selected) { // Apply with the values untouched keeps a colour filter as it is
+        const keep = kept();
+        if (all.every((v) => keep.has(v.value))) wb.setFilterCriteria(sheetId, c, null);
+        else wb.setFilterCriteria(sheetId, c, { values: [...keep], ...(current?.caseSensitive === false ? { caseSensitive: false } : {}) });
       }
       grid.focus();
     };
     const actions = el('div.filter-actions', {},
-      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; for (const v of found()) selected.add(v.value); render(); } }, 'Select all'),
-      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; for (const v of found()) selected.delete(v.value); render(); } }, 'Clear'),
+      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = touchedSinceSearch = true; for (const v of found()) selected.add(v.value); render(); } }, 'Select all'),
+      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = touchedSinceSearch = true; for (const v of found()) selected.delete(v.value); render(); } }, 'Clear'),
       el('div.grow'),
       el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: apply }, 'Apply'));
 

@@ -85,3 +85,29 @@ it('acts on every value with the search box empty', async () => {
   button('Select all').click();
   expect(summary()).toBe('2 of 2 selected');
 });
+
+// Excel's quickest filter: type into the search box and press Enter, and only the values found stay in view.
+// With no box touched the search did nothing: every value was still ticked, so Apply cleared the filter.
+it('keeps only the values found when the search is applied without touching a box', async () => {
+  const { wb, id, summary } = await mount(['Pens', 'Pencils', 'Ink', 'Clips']);
+  await search('pen');
+  expect(summary()).toBe('2 of 4 selected');
+  document.querySelector('.menu input[type="search"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  expect([...wb.sheet(id).filterHidden].sort()).toEqual([3, 4]);
+});
+
+it('keeps only the found values that are still ticked', async () => {
+  const { wb, id, button } = await mount(['Pens', 'Pencils', 'Ink', 'Clips'], (wb, id) => {
+    wb.setFilterCriteria(id, 0, { values: ['Pens', 'Ink'] });
+  });
+  await search('pen');
+  button('Apply').click();
+  expect([...wb.sheet(id).filterHidden].sort()).toEqual([2, 3, 4]);
+});
+
+it('hides nothing for a search that finds no value', async () => {
+  const { wb, id, button } = await mount(['Pens', 'Ink']);
+  await search('zzz');
+  button('Apply').click();
+  expect([...wb.sheet(id).filterHidden]).toEqual([]);
+});
