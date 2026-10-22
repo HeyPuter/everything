@@ -275,10 +275,12 @@ async function main(workbook) {
   const used = await sheet.getUsedRange();
   if (!used) { console.log('The sheet is empty.'); return; }
   const values = await used.getValues();
+  // A formula that shows nothing ("") still holds something: its row is not blank.
+  const formulas = await used.getFormulas();
   let removed = 0;
   // From the bottom up, so each deletion leaves the rows still to check where they were.
   for (let r = values.length - 1; r >= 0; r--) {
-    if (values[r].every((v) => v === null || v === '')) {
+    if (values[r].every((v) => v === null || v === '') && formulas[r].every((f) => f === null || f === '')) {
       used.getRow(r).getEntireRow().delete();
       removed++;
     }
