@@ -2,7 +2,7 @@
  * The Insert Slicers dialog: a checkbox for every column of the table (or field of the
  * PivotTable) the active cell is in; OK puts one slicer on the sheet for each one ticked.
  */
-import { el, fieldId } from './dom.js';
+import { el, fieldId, MOD_KEY } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
 import { insertTableSlicers, insertPivotSlicers, pivotSlicerFields } from '../core/slicer-insert.js';
@@ -32,7 +32,8 @@ export function openInsertSlicersDialog(ctx, { table = null, pivot = null }) {
     modal.close();
     if (ids.length) {
       ctx.grid.selectChart?.(ids[ids.length - 1]);
-      toast(`${ids.length === 1 ? 'Slicer' : `${ids.length} slicers`} inserted. Click items to filter; Ctrl-click to choose several`, { icon: 'filter', duration: 2600 });
+      // On a Mac a Control-click is a right-click: several items are chosen with Command there, as the slicer reads it.
+      toast(`${ids.length === 1 ? 'Slicer' : `${ids.length} slicers`} inserted. Click items to filter; ${MOD_KEY}-click to choose several`, { icon: 'filter', duration: 2600 });
     }
   };
   const source = table ? `table ${table.name}` : `PivotTable ${decodeXlsxString(pivot.name)}`;
