@@ -6016,10 +6016,21 @@ export class Workbook extends EventTarget {
     }
     let clean = result;
     if (Number.isFinite(result)) {
-      const rounded = Number(result.toPrecision(12));
-      // Cleaning the input can undo convergence for sensitive formulas (for
-      // example A1-1e12). Keep it only if the formula still reaches the goal.
-      if (Number.isFinite(rounded) && rounded !== result && close(f(rounded))) clean = rounded;
+      // The answer is written with the fewest significant digits (12 at most) that still reach the goal, so
+      // =1/A1 set to 0.25 gives 4 rather than 3.99999999999. Cleaning the input can undo convergence for
+      // sensitive formulas (for example A1-1e12): a rounding is kept only if the formula still reaches the
+      // goal. A value rounded to more digits lies nearer the answer, so the digits are found by halving.
+      const reaches = (p) => { const r = Number(result.toPrecision(p)); return Number.isFinite(r) && close(f(r)) ? r : null; };
+      let best = reaches(12);
+      if (best !== null) {
+        let lo = 1, hi = 12;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          const r = reaches(mid);
+          if (r !== null) { best = r; hi = mid; } else lo = mid + 1;
+        }
+        clean = best;
+      }
     }
     if (original) sheet.cells.set(vKey, original); else sheet.cells.delete(vKey);
     this._invalidate();
