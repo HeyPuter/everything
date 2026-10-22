@@ -2690,7 +2690,10 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (!committed()) return;
         if (refusedByProtection('remove duplicates')) return;
         if (!oneRange('remove duplicates')) return;
-        let range = dataRange();
+        // From one cell of a table the whole table is checked (less its totals row), as Excel takes it; the block
+        // around the cell stopped at a blank row inside it.
+        const inTable = S.isSingle(grid.selection) && wb.tableAt(sheetId, grid.active.r, grid.active.c);
+        let range = inTable ? { ...inTable.range, r2: inTable.range.r2 - (inTable.totalsRow ? 1 : 0) } : dataRange();
         if (!range) { toast('Nothing to check', { icon: 'info' }); return; }
         // Data beside an explicit selection would stay put while the selection's duplicates went and the rows
         // below them moved up: the whole block is offered first, as for a sort.
