@@ -615,10 +615,21 @@ function find(wb, args) {
 /* ---------- Writing ---------- */
 
 /** Refuse a change to cells the sheet or a protected range locks, before anything is written. */
-function assertWritable(wb, sheetId, range) {
+function assertWritable(wb, sheetId, range, { contents = false } = {}) {
   const sheet = wb.sheet(sheetId);
-  if (wb.isProtected(sheetId)) throw new ToolError(`${sheet.name} is protected. The user can unprotect it from the sheet tab's menu.`);
-  if (range && wb.isLockedIn(sheetId, range)) throw new ToolError(`Part of ${qualified(wb, sheetId, range)} is a protected range and cannot be changed.`);
+  // New contents for cells formatted as unlocked go in on a protected sheet (a form's fields), as the user types them.
+  const unlocked = contents && range && wb.isProtected(sheetId) && unlockedCells(wb, sheetId, range);
+  if (wb.isProtected(sheetId) && !unlocked) throw new ToolError(`${sheet.name} is protected. The user can unprotect it from the sheet tab's menu.`);
+  const inProtectedRange = (rg) => (sheet.protectedRanges || []).some(({ range: g }) => g.r1 <= rg.r2 && g.r2 >= rg.r1 && g.c1 <= rg.c2 && g.c2 >= rg.c1);
+  if (range && (unlocked ? inProtectedRange(normalizeRange(range)) : wb.isLockedIn(sheetId, range))) throw new ToolError(`Part of ${qualified(wb, sheetId, range)} is a protected range and cannot be changed.`);
+}
+
+/** Is every cell of a (writable-sized) range formatted as unlocked? */
+function unlockedCells(wb, sheetId, range) {
+  const { r1, c1, r2, c2 } = normalizeRange(range);
+  if ((r2 - r1 + 1) * (c2 - c1 + 1) > MAX_WRITE_CELLS) return false;
+  for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) if (wb.styleAt(sheetId, r, c)?.locked !== false) return false;
+  return true;
 }
 
 /** The errors a block's formulas now show, with the workbook's own explanation of each. */
@@ -684,7 +695,7 @@ function writeCells(wb, args, env) {
   const range = { r1: start.r1, c1: start.c1, r2: start.r1 + rows.length - 1, c2: start.c1 + width - 1 };
   if (rows.length * width > MAX_WRITE_CELLS) throw new ToolError(`At most ${MAX_WRITE_CELLS} cells per call; write in smaller blocks, or use fill_formula for a repeated formula.`);
   if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) throw new ToolError('The block runs past the edge of the sheet.');
-  assertWritable(wb, sheetId, range);
+  assertWritable(wb, sheetId, range, { contents: true });
   if (wb.arrayEditBlocked(sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} crosses part of an array formula's result. Write around it, or replace the whole array.`);
   const refused = [];
   const planned = [];
@@ -731,7 +742,7 @@ function fillFormula(wb, args, env) {
   const cells = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
   if (cells > MAX_WRITE_CELLS) throw new ToolError(`At most ${MAX_WRITE_CELLS} cells per call.`);
   try { parseFormula(text.slice(1)); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
-  assertWritable(wb, sheetId, range);
+  assertWritable(wb, sheetId, range, { contents: true });
   if (wb.arrayEditBlocked(sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} crosses part of an array formula's result.`);
   if (!wb.canEnsureSize(sheetId, range.r2 + 1, range.c2 + 1)) throw new ToolError('The range runs past the edge of the sheet.');
   const note = reachingNote(env, reachesOut(wb, text.slice(1)));
