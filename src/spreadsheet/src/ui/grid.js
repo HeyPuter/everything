@@ -6537,7 +6537,15 @@ export function createGrid(opts) {
     selectedChart = null;
     chartView = null;
     windowAt = perSheet.get(id)?.windowAt || { r: 0, c: 0 };
+    // A sheet with a zoom of its own is laid out at it before its place is restored, as that place was kept at
+    // that zoom: zoomed afterwards (keeping the top-left cell), a sheet left at row 480 at 100% came back at
+    // row 960 when the sheet visited in between was at 50%.
+    const ownZoom = sheet()?.kind !== 'chart' ? sheet()?.viewZoom : null;
+    const nextZoom = Number.isFinite(ownZoom) ? Math.max(0.1, Math.min(4, Math.round(ownZoom * 100) / 100)) : userZoom;
+    const zoomed = nextZoom !== userZoom;
+    userZoom = nextZoom;
     rebuildOffsets();
+    if (zoomed) opts.onZoom?.(userZoom);
     const saved = perSheet.get(id) || savedSheetSelection();
     pendingOrigin = perSheet.has(id) ? null : sheet()?.viewOrigin || null;
     rendered.key = null;
