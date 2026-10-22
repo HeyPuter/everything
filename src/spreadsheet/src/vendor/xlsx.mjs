@@ -19446,8 +19446,13 @@ function parse_xlml_xml(d, _opts)/*:Workbook*/ {
 				for(var _col = 0; _col < cstys.length; ++_col) if(cstys[_col]) process_col(cstys[_col]);
 			}
 			if(seencol) process_col(csty);
-			cstys[(csty.Index-1||cstys.length)] = csty;
-			for(var i = 0; i < +csty.Span; ++i) cstys[cstys.length] = dup(csty);
+			/* Puter Spreadsheet local patch: a sheet has 16,384 columns. A column past them is not read, and a
+			 * span stops at the last: ss:Span="99999999" made a copy of the column for each, which ran the tab
+			 * out of memory, and an ss:Index that far made a list as long. */
+			var _cidx = csty.Index-1||cstys.length;
+			if(_cidx >= 16384) break;
+			cstys[_cidx] = csty;
+			for(var i = 0; i < +csty.Span && cstys.length < 16384; ++i) cstys[cstys.length] = dup(csty);
 			break;
 
 		case 'namedrange' /*case 'NamedRange'*/:
