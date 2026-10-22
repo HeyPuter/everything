@@ -983,6 +983,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   /**
+   * The rows a sort from one cell takes: the table or the filtered list the cell is in, whole, as Excel sorts
+   * them, and otherwise the block of data around it (see dataRange). Read as a block, a list with a blank row
+   * inside it was sorted only down to that row, while its filter menu's Sort A to Z sorted all of it.
+   */
+  function sortBlock() {
+    if (!S.isSingle(grid.selection)) return dataRange();
+    const { r, c } = grid.active;
+    const table = wb.tableAt(grid.sheetId, r, c);
+    if (table) return table.range;
+    const filter = wb.filterAt(grid.sheetId, r, c);
+    return filter ? toUsedExtent(filter.range) : dataRange();
+  }
+
+  /**
    * Whole columns or rows (a range reaching row 1,048,576 or column XFD) as far as the sheet's content goes,
    * as the data commands take them: a sort, a subtotal or a duplicate check over column A works on its
    * data, not on a million blank rows. Other ranges are left as they are.
@@ -2155,7 +2169,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         // A toolbar click leaves the focus on its button: the grid takes it back once the command is done.
         let widened = false;
         if (single || wholeCols) {
-          range = single ? dataRange() : wb.usedRange(sheetId);
+          range = single ? sortBlock() : wb.usedRange(sheetId);
           if (!range) { toast('Nothing to sort', { icon: 'info' }); keepFocus(); return; }
         } else {
           // Data right beside the selection would stay put while the selection's rows moved: offer the whole block.
@@ -2304,7 +2318,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       case 'sortDialog': {
         if (!committed()) return;
         if (!oneRange('sort')) return;
-        let range = dataRange();
+        let range = sortBlock();
         if (!range) { toast('Nothing to sort', { icon: 'info' }); return; }
         // An explicit selection with data beside it is offered the whole block, as the quick sort offers it.
         const block = !S.isSingle(grid.selection) && sortExpansion(wb, sheetId, range);
