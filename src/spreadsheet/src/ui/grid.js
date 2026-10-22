@@ -2741,8 +2741,8 @@ export function createGrid(opts) {
     return { anchor: { r, c }, dx: Math.round((left - colX(c)) / zoom), dy: Math.round((top - rowY(r)) / zoom) };
   }
 
-  /** Arrow keys on a selected chart: a nudge of a few pixels, or with Shift a whole cell of the anchor's size, kept inside the sheet. */
-  function nudgeChart(id, dr, dc, wholeCell) {
+  /** Arrow keys on a selected chart: a nudge of a few pixels (`pixels`), or with Shift a whole cell of the anchor's size, kept inside the sheet. */
+  function nudgeChart(id, dr, dc, wholeCell, pixels = 8) {
     const ch = wb.chartById(sheetId, id);
     // A slicer or timeline set not to move (Disable resizing and moving) stays put, as under the pointer.
     if (!ch || ch.lockedPosition) return;
@@ -2751,18 +2751,18 @@ export function createGrid(opts) {
     const rect = chartBoxRect(ch);
     const c = Math.min(ch.anchor.c, s.cols - 1);
     const r = Math.min(ch.anchor.r, s.rows - 1);
-    const stepX = wholeCell ? colW(dc < 0 ? Math.max(0, c - 1) : c) : 8 * zoom;
-    const stepY = wholeCell ? rowH(dr < 0 ? Math.max(0, r - 1) : r) : 8 * zoom;
+    const stepX = wholeCell ? colW(dc < 0 ? Math.max(0, c - 1) : c) : pixels * zoom;
+    const stepY = wholeCell ? rowH(dr < 0 ? Math.max(0, r - 1) : r) : pixels * zoom;
     const left = clamp(rect.left + dc * stepX, 0, Math.max(0, colOffsets.total() - rect.width));
     const top = clamp(rect.top + dr * stepY, 0, Math.max(0, rowOffsets.total() - rect.height));
     placeChart(id, left, top);
   }
 
-  /** Arrow keys with several objects selected: all of them move a few pixels together. */
-  function nudgeObjects(dr, dc) {
+  /** Arrow keys with several objects selected: all of them move a few pixels (`pixels`) together. */
+  function nudgeObjects(dr, dc, pixels = 8) {
     const rects = selectedObjects().filter((id) => !wb.chartById(sheetId, id)?.lockedPosition).map((id) => wb.objectRect(sheetId, id)).filter(Boolean);
     // They move as one: the one at the sheet's edge stops them all, rather than staying while the others close in on it.
-    const step = (d, at) => Math.max(d * 8, Math.min(0, -Math.min(...rects.map(at))));
+    const step = (d, at) => Math.max(d * pixels, Math.min(0, -Math.min(...rects.map(at))));
     const x = step(dc, (r) => r.x), y = step(dr, (r) => r.y);
     wb.placeObjects(sheetId, rects.map((r) => ({ id: r.id, x: r.x + x, y: r.y + y })), 'Move objects');
   }
@@ -5341,6 +5341,13 @@ export function createGrid(opts) {
       // Ctrl+C copies the chart itself, as a picture, rather than the cells behind it; Ctrl+D duplicates it, as in Excel.
       if (mod && key.toLowerCase() === 'c' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('copyChart', { id: selectedChart }); return; }
       if (mod && e.code === 'KeyD' && !e.shiftKey && !e.altKey) { e.preventDefault(); opts.onCommand?.('duplicateChart', { id: selectedChart }); return; }
+      // Ctrl/Cmd+arrow nudges the object a single pixel, as in Excel, rather than taking the cells behind it to the
+      // edge of their data (scrolling the sheet away from the object, as far as XFD); with Shift it does nothing.
+      if (dir && !e.altKey) {
+        e.preventDefault();
+        if (!e.shiftKey) { if (selectedSet.size > 1) nudgeObjects(dir[0], dir[1], 1); else nudgeChart(selectedChart, dir[0], dir[1], false, 1); }
+        return;
+      }
       // Ctrl+A selects every object on the sheet (those hidden in the Selection Pane aside), as in Excel, rather than
       // the cells behind them, which left the object looking selected over a whole sheet selected.
       if (mod && e.code === 'KeyA' && !e.shiftKey && !e.altKey) {
