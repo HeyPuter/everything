@@ -1473,8 +1473,7 @@ export function preparePrintRoot(root) {
       const chart = sheet.classList.contains('print-chart-sheet');
       if (chart && !numberPages) continue;
       const content = position || sheet;
-      const furniture = [...section.children].filter(n => n !== content && !n.matches('.print-margin-text, .print-header-fonts')).reduce((height, n) => height + outerHeight(n), layout.variantSpace || 0);
-      const width = printableWidth(opts), height = Math.max(1, printableHeight(opts) - furniture);
+      const width = printableWidth(opts);
       const margins = pageMargins(opts);
       const variants = opts.differentFirst || opts.differentOddEven;
       // Header variants continue across sheets and print areas,
@@ -1483,10 +1482,15 @@ export function preparePrintRoot(root) {
       // Laid out on screen the section is as wide as the window, not the paper: a sheet narrower than the
       // page, whose table fills the page's width, stretched to the window's and was cut into pages of a few
       // widened columns each. It is measured at the width it prints at, as the fitting above measures it.
+      // So is the title above it, which wraps onto more lines on paper than across a wide window: measured
+      // there, the room left for the cells came out too tall. Measuring both at one width lays the sheet out
+      // once rather than twice (seconds each for a sheet of 200,000 cells).
       const flowWidth = section.style.width;
       section.style.width = `${width}px`;
-      let pages;
+      let pages, height;
       try {
+        const furniture = [...section.children].filter(n => n !== content && !n.matches('.print-margin-text, .print-header-fonts')).reduce((total, n) => total + outerHeight(n), layout.variantSpace || 0);
+        height = Math.max(1, printableHeight(opts) - furniture);
         pages = chart ? [sheet] : paginatePrintColumns(sheet, { width, height, overflowRight: margins.right,
           overflowBottom: margins.bottom, headers: opts.headers, pageOrder: opts.pageOrder,
           force: numberPages || !!sheet.querySelector('.has-print-borders') });
