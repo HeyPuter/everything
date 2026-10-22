@@ -3872,8 +3872,7 @@ export function createGrid(opts) {
           opts.extendEntry?.({ sheetId, r, c, text });
           // A column widened for the entry has its rows of wrapped text fitted within the same step, as
           // a dragged column does, so Ctrl+Z takes the entry back rather than a row height first.
-          const was = wb.colWidth(sheetId, c);
-          if (widenForEntry(r, c)) { invalidateOffsets(); refitWrappedRows([c], new Map([[c, was]])); }
+          widenColumnForEntry(r, c);
         });
       }
       // The entry is in: a correction of its last word (AutoCorrect) follows as a step of its own.
@@ -5288,6 +5287,15 @@ export function createGrid(opts) {
     if (width + cellHorizontalPadding(indent) + 1 <= current || next <= current) return false;
     wb.setColWidth(sheetId, c, next);
     entryWidths.set(key, s.colWidths.get(c));
+    return true;
+  }
+
+  /** widenForEntry, and the rows of wrapped text in the column fitted to its new width: inside the entry's own step. */
+  function widenColumnForEntry(r, c) {
+    const was = wb.colWidth(sheetId, c);
+    if (!widenForEntry(r, c)) return false;
+    invalidateOffsets();
+    refitWrappedRows([c], new Map([[c, was]]));
     return true;
   }
 
@@ -7103,6 +7111,11 @@ export function createGrid(opts) {
     /** Show or hide the row numbers and column letters. */
     setShowHeaders(on) { wb.setHeaders(sheetId, on); },
     autoFitRows,
+    /**
+     * An entry put into (r, c) by a command rather than typed (Ctrl+; puts in today's date): its column widens to
+     * show it as a typed entry's does, a date or formatted number never left showing ###. Call within the entry's step.
+     */
+    widenForEntry: (r, c) => widenColumnForEntry(r, c),
     /**
      * Fit the rows of wrapped text in `cols` to their new widths; `before` (column → width) is what
      * each row was fitted for. Called from inside the transaction that wrote the widths, the heights

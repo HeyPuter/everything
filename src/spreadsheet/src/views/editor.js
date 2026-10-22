@@ -3158,7 +3158,14 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         const text = cmd === 'insertDate' ? formatDate(todaySerial(), 'iso') : `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
         const { r, c } = grid.active;
         if (grid.editing) grid.insertText(text);
-        else if (allowedByRule(wb.validateInput(sheetId, r, c, text), text)) wb.setInput(sheetId, r, c, text);
+        else if (allowedByRule(wb.validateInput(sheetId, r, c, text), text)) {
+          // Today's date (or the time) goes in as if typed: a column at its default width widens to show it, in the
+          // same step, rather than leaving ### where the date is, as Excel's Ctrl+; does.
+          wb.transaction(cmd === 'insertDate' ? 'Insert date' : 'Insert time', () => {
+            wb.setInput(sheetId, r, c, text);
+            grid.widenForEntry(r, c);
+          });
+        }
         keepFocus();
         return;
       }
