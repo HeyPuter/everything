@@ -3564,10 +3564,12 @@ export function createGrid(opts) {
       // The alignment the box draws its text with decides, so a number given none, edited aligned right, grows left too.
       const toLeft = !formula && (align === 'right' || (align === 'start' && RTL_LEAD.test(text)));
       const centred = !formula && align === 'center';
-      const maxW = w + (toLeft ? roomLeft : centred ? 2 * Math.min(roomLeft, roomRight) : roomRight);
+      // Centred, it grows by as much each way while there is room, then further the way there still is: held to
+      // twice the narrower side's room, a centred entry in column A (no room to its left) wrapped a word a line.
+      const maxW = w + (toLeft ? roomLeft : centred ? roomLeft + roomRight : roomRight);
       const width = clamp(needed, w, maxW);
       editor.style.width = `${width}px`;
-      edit.growLeft = toLeft ? width - w : centred ? (width - w) / 2 : 0;
+      edit.growLeft = toLeft ? width - w : centred ? clamp((width - w) / 2, width - w - roomRight, roomLeft) : 0;
       wrap = needed > maxW;
     }
     placeEditor(view);

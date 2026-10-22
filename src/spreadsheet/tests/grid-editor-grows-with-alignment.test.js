@@ -65,3 +65,23 @@ it('still grows right from a cell with no alignment', () => {
   expect(right).toBeGreaterThan(cellRight);
   grid.destroy();
 });
+
+// Held to twice the room on its narrower side, a centred entry in column A, which has no room to its left, kept
+// to the column's width and wrapped a word a line down the sheet. It grows on to the side that has room.
+it('grows on to the right from a centred cell with no room on its left', () => {
+  const { grid, left, right, width, cellLeft, cellRight } = edit({ align: 'center' }, 'A5');
+  expect(left).toBe(cellLeft);
+  expect(right).toBeGreaterThan(cellRight);
+  expect(width).toBeGreaterThanOrEqual(TEXT.length * 7);
+  expect(grid.el.querySelector('.grid-editor').classList.contains('wrap')).toBe(false);
+  grid.destroy();
+});
+
+it('grows evenly from a centred cell a little way in, then on to the right', () => {
+  const { grid, left, right, cellLeft, cellRight } = edit({ align: 'center' }, 'B5', `${TEXT}, and longer still`);
+  expect(left).toBeLessThan(cellLeft);
+  expect(left).toBeGreaterThanOrEqual(0); // as far as the sheet's first column, and no further
+  expect(left).toBeLessThanOrEqual(1);
+  expect(right - cellRight).toBeGreaterThan(cellLeft - left);
+  grid.destroy();
+});
