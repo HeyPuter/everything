@@ -307,3 +307,22 @@ it('honors external removal of hide-no-data despite saved private control metada
   });
   expect((await open(output)).sheetByName('Views').charts[0].hideItemsWithNoData).toBe(false);
 });
+it('deletes the slicers of a table whose sheet is deleted, or whose column a resize leaves out', async () => {
+  const { wb, sheet, owner, id } = make();
+  wb.addSheet('Spare');
+  wb.deleteSheet(sheet.id);
+  expect(wb.chartById(owner.id, id)).toBeFalsy();
+  await expect(bytes(wb)).resolves.toBeInstanceOf(Uint8Array);
+  wb.undo();
+  expect(wb.chartById(owner.id, id)).toBeTruthy();
+  const table = wb.sheetByName(sheet.name).tables[0];
+  wb.resizeTable(sheet.id, table.id, { ...table.range, c2: table.range.c2 + 1 }); // grown: the slicer stays
+  expect(wb.chartById(owner.id, id)).toBeTruthy();
+  wb.undo();
+  wb.resizeTable(sheet.id, table.id, { ...table.range, c1: table.range.c1 + 1 });
+  expect(wb.chartById(owner.id, id)).toBeFalsy();
+  expect(wb.undoLabels()[0]).toBe('Resize table');
+  await expect(bytes(wb)).resolves.toBeInstanceOf(Uint8Array);
+  wb.undo();
+  expect(slicerTarget(wb, wb.chartById(owner.id, id))?.col).toBe(3);
+});

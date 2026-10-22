@@ -1835,6 +1835,8 @@ export class Workbook extends EventTarget {
       ? tableRefsToA1(f, () => null, (table) => !!table && goneLower.includes(table.toLowerCase()), goneTables) : f);
     const rewrite = (f) => dropTables(unlink(shrink(f)));
     this._structural('Delete sheet', () => {
+      // Slicers on other sheets that filtered the sheet's tables go with them.
+      if (goneLower.length) this._dropLostSlicers(new Map(goneLower.map((name) => [name, true])));
       this._removeNativePivots((this.nativePivots?.tables || []).filter(p => p.owner === id), 'Delete sheet', true);
       if (this.nativePivots) this.nativePivots = { ...this.nativePivots, caches: this.nativePivots.caches.map(c =>
         c.sourceSheetId === id && c.sourceRef ? { ...c, sourceSheetId: null, sourceRef: '#REF!' } : c) };
@@ -10425,7 +10427,11 @@ export class Workbook extends EventTarget {
         return false;
       }
     }
+    // Columns the resize leaves out take their slicers with them, as a deleted column does.
+    const names = this.tableColumns(sheetId, table);
+    const cut = new Set(names.filter((_, i) => old.c1 + i < n.c1 || old.c1 + i > n.c2).map((name) => name.toLowerCase()));
     this.transaction('Resize table', () => {
+      if (cut.size) this._dropLostSlicers(new Map([[table.name.toLowerCase(), cut]]), (s, charts) => this._setCharts(s, charts, 'Resize table'));
       moveFooter();
       const live = this.tableById(sheetId, id);
       // A blank header reads as the ColumnN of its place, and a moved left edge changes its place: the name
