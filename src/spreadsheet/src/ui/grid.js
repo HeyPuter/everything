@@ -5556,9 +5556,15 @@ export function createGrid(opts) {
         e.preventDefault();
         const rg = S.selRange(sel);
         const corners = [{ r: rg.r1, c: rg.c1 }, { r: rg.r1, c: rg.c2 }, { r: rg.r2, c: rg.c2 }, { r: rg.r2, c: rg.c1 }];
-        const at = corners.findIndex((p) => p.r === sel.active.r && p.c === sel.active.c);
-        const next = corners[(at + 1) % 4];
-        const focus = corners[(corners.indexOf(next) + 2) % 4];
+        // The corner the active cell is on, a merged active cell standing on every corner it covers. The next corner
+        // is the next one elsewhere: a one-column or one-row selection has two corners each in one place, and
+        // stepping to the next of the four left the active cell where it was.
+        const own = mergeAt(sel.active.r, sel.active.c);
+        const holds = (p) => (own ? p.r >= own.r1 && p.r <= own.r2 && p.c >= own.c1 && p.c <= own.c2 : p.r === sel.active.r && p.c === sel.active.c);
+        let i = corners.findIndex(holds);
+        for (let n = 0; n < 4; n++) { i = (i + 1) % 4; if (!holds(corners[i])) break; }
+        const next = corners[i];
+        const focus = corners[(i + 2) % 4];
         setSelection({ ...S.fromRange(rg, next), anchor: next, focus }, { scroll: true });
         return;
       }
