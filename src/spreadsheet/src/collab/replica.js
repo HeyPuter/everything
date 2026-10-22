@@ -547,7 +547,7 @@ export class Replica extends EventTarget {
           }
           this._applyRemote(ch.ops, rec.username, ch.label);
           incoming.push(...ch.ops);
-          for (const e of [...this.undoStack, ...this.redoStack]) e.ops = keepWrittenLines(this._xform(e.ops, theirs, false)[0], theirs);
+          for (const e of [...this.undoStack, ...this.redoStack]) e.ops = keepOthersWork(this._xform(e.ops, theirs, false)[0], theirs);
           applied = true;
           if (ch.ops.some((o) => isStructure(o) || o.t === 'put')) structural = true;
           else touched.push(...ch.ops);
@@ -974,11 +974,13 @@ export function splitChange(ops, inverses, limit = PART) {
 
 /**
  * An undo (or redo) entry ending in a deletion of lines, as one taking back an insertion does, leaves out the lines
- * someone else has since written something into (`theirs`, a change just applied): Undo takes back only what this
- * person did, and only where nobody has changed it since, so rows another person typed into are not deleted with it.
+ * someone else has since written something into (`theirs`, a change just applied), and one ending in a deletion of a
+ * sheet (taking back an added sheet) leaves the sheet if someone else has worked on it: Undo takes back only what this
+ * person did, and only where nobody has changed it since, so another person's entries are not deleted with it.
  */
-function keepWrittenLines(ops, theirs) {
+function keepOthersWork(ops, theirs) {
   const last = ops.at(-1);
+  if (last?.t === 'drop') return theirs.some((t) => t.s === last.s && t.t !== 'drop') ? ops.slice(0, -1) : ops;
   if (last?.t !== 'delete') return ops;
   const written = new Set();
   const line = (key) => { const p = parseCellKey(key); if (p) written.add(last.axis === 'row' ? p.r : p.c); };
