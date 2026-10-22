@@ -260,6 +260,8 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
     if ((rg.r2 - rg.r1 + 1) * (rg.c2 - rg.c1 + 1) > MAX_BLOCK_CELLS) return null;
     return filledCells(sheetId, rg).map(({ r, c }) => wb.getCell(sheetId, r, c));
   } });
+  // A cut and paste or a drag of the selection border: the formulas that pointed at the cells follow them.
+  wrap('moveRange', ([sheetId, source, r0, c0]) => add(sheetId, [`${rangeExpr(source)}.moveTo(${q(cellName(r0, c0))});`]));
   wrap('mergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.merge();`]));
   wrap('unmergeCells', ([sheetId, range]) => add(sheetId, [`${rangeExpr(range)}.unmerge();`]));
   wrap('removeDuplicates', ([sheetId, range, opts = {}]) => {

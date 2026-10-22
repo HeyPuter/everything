@@ -73,6 +73,7 @@ export const SCRIPT_API = {
     ['unmerge', '()', 'Split merged cells.', 'chain'],
     ['sort', '([{ column, ascending }], { hasHeaders?, matchCase? })', 'Sort the rows by one or more columns, counted from the range’s left.', 'chain'],
     ['autoFill', '(destination)', 'Extend a pattern into a larger range, as the fill handle does.'],
+    ['moveTo', '(destination)', 'Move the cells to a place on the same sheet, as dragging them does: formulas that point at them follow.'],
     ['removeDuplicates', '(columns?, hasHeaders?)', 'Remove rows that repeat in the given columns (all by default).', 'chain'],
     ['setRowsHidden', '(hidden)', 'Hide or show the rows it spans.', 'chain'],
     ['setColumnsHidden', '(hidden)', 'Hide or show the columns it spans.', 'chain'],
@@ -146,7 +147,7 @@ export const SCRIPT_API = {
 export const SCRIPT_API_RETURNS = {
   getActiveWorksheet: 'Worksheet', getWorksheet: 'Worksheet', addWorksheet: 'Worksheet', getSelectedRange: 'Range',
   getRange: 'Range', getCell: 'Range', getRow: 'Range', getColumn: 'Range', getOffsetRange: 'Range', getResizedRange: 'Range',
-  getEntireRow: 'Range', getEntireColumn: 'Range', getLastCell: 'Range', autoFill: 'Range', getFormat: 'Format', getFill: 'Fill',
+  getEntireRow: 'Range', getEntireColumn: 'Range', getLastCell: 'Range', autoFill: 'Range', moveTo: 'Range', getFormat: 'Format', getFill: 'Fill',
   getFont: 'Font', addTable: 'Table',
 };
 

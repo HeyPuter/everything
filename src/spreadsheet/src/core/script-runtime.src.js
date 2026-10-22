@@ -526,6 +526,13 @@
       write(this._with({ op: 'fill', to: addressOf(to._b) }));
       return to;
     },
+    /** Move the cells (contents, formatting and the formulas that point at them) so their top-left lands on `destination`, on the same sheet. */
+    moveTo: function (destination) {
+      var to = destination instanceof Range ? destination : this.getWorksheet().getRange(destination);
+      if (to._sheet !== this._sheet) fail('moveTo moves cells within their own worksheet.');
+      write(this._with({ op: 'move', to: addressOf(to.getCell(0, 0)._b) }));
+      return to.getCell(0, 0).getResizedRange(this.getRowCount() - 1, this.getColumnCount() - 1);
+    },
     /** Remove rows whose values repeat in the given columns (all by default). */
     removeDuplicates: function (columns, hasHeaders) {
       write(this._with({ op: 'dedupe', columns: columns == null ? null : columns.map(function (c) { return int(c, 'The column', 0); }), hasHeaders: !!hasHeaders }));

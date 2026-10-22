@@ -420,6 +420,15 @@ const WRITES = {
     this.wb.ensureSize(sheet.id, to.r2 + 1, to.c2 + 1);
     this.wb.fill(sheet.id, range, to);
   },
+  move(op) {
+    const { sheet, range } = this.rangeOf(op);
+    const found = typeof op.to === 'string' ? this.wb.rangeFromText(sheet.id, op.to) : null;
+    if (!found || found.sheetId !== sheet.id) this.fail(`"${op.to}" is not a cell on ${sheet.name}.`);
+    const at = normalizeRange(found.range);
+    if (at.r1 === range.r1 && at.c1 === range.c1) return;
+    this.writable(sheet, range);
+    if (!this.wb.moveRange(sheet.id, range, at.r1, at.c1)) this.fail(`${this.where(sheet, range)} could not be moved to ${cellName(at.r1, at.c1)}: it would leave the sheet, or the sheet, a table, merged cells or an array formula is in the way.`);
+  },
   dedupe(op) {
     const { sheet, range: asked } = this.rangeOf(op);
     const range = this.clipped(sheet, asked);
