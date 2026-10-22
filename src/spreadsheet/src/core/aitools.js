@@ -540,9 +540,20 @@ function calculate(wb, args, env) {
   const long = typeof shown === 'string' && shown.length > MAX_CALC_TEXT;
   return {
     value: clipped(shown, MAX_CALC_TEXT),
-    ...(typeof value === 'number' ? { display: formatValue(value, {}) } : {}),
+    ...(typeof value === 'number' ? { display: formatValue(value, impliedStyle(wb, sheet.id, body)) } : {}),
     ...(long ? { note: `The text is ${shown.length.toLocaleString('en-US')} characters long; only the first ${MAX_CALC_TEXT.toLocaleString('en-US')} are shown.` } : {}),
   };
+}
+
+/**
+ * The format the result would show in, typed into a cell with none of its own: =MAX(B:B) over a column of dates reads
+ * as a date and =A2*B2 over prices as money, as on the sheet. Shown as a bare number, the latest order date came back
+ * as 45293, which the model was left to turn into a date itself or to report as it was.
+ */
+function impliedStyle(wb, sheetId, body) {
+  const cell = { f: body, s: null };
+  wb._applyImpliedStyle?.(sheetId, cell);
+  return cell.s || {};
 }
 
 function explainedError(wb, v) {
