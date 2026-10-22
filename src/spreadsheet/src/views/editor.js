@@ -1372,7 +1372,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const sheet = wb.sheet(sheetId);
     const visible = wb.visibleSheets;
     const at = visible.findIndex((s) => s.id === sheetId);
-    return { only: visible.length <= 1, first: at <= 0, last: at < 0 || at >= visible.length - 1, protected: !!sheet?.protected, holdsWork: !!sheet && sheetHoldsWork(sheet) };
+    return { only: visible.length <= 1, first: at <= 0, last: at < 0 || at >= visible.length - 1, protected: !!sheet?.protected, holdsWork: !!sheet && sheetHoldsWork(sheet), locked: !!wb.structureProtected };
   }
 
   /**

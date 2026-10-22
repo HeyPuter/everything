@@ -440,7 +440,7 @@
 .tab-add, .tab-all { width: 32px; height: 32px; }
 .tab-navigation { display: flex; align-items: center; gap: 2px; flex: none; }
 .tab-scroll-btn { width: 28px; height: 32px; }
-.tab-scroll-btn[aria-disabled="true"] { opacity: 0.35; cursor: default; background: none; color: var(--ink-3); }
+.tab-scroll-btn[aria-disabled="true"], .tab-add[aria-disabled="true"] { opacity: 0.35; cursor: default; background: none; color: var(--ink-3); }
 .tab-scroll-btn:focus-visible { outline-offset: -2px; }
 /* The bar is already the second surface an icon button's hover fills with: its buttons take the third, as the tabs do. */
 @media (hover: hover) { .sheet-tabs .icon-btn:hover:not([aria-disabled="true"]) { background: var(--surface-3); } }

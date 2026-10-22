@@ -114,6 +114,8 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   list.addEventListener('scroll', updateOverflow, { passive: true });
 
   async function rename(sheet) {
+    // Under Protect Workbook the name cannot change: say so now, not after a new one has been typed.
+    if (ctx.wb._structureLocked()) return;
     const name = await promptDialog({
       title: 'Rename sheet', label: 'Sheet name', value: sheet.name, confirmLabel: 'Rename', trim: false,
       validate: (v) => ctx.wb.validateSheetName(v, sheet.id),
@@ -144,27 +146,29 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
     const visible = ctx.wb.visibleSheets;
     const before = visible[visible.indexOf(sheet) - 1];
     const after = visible[visible.indexOf(sheet) + 1];
+    // Under Protect Workbook, what would add, remove, rename, move, colour, hide or show a sheet is greyed, as in Excel.
+    const locked = !!ctx.wb.structureProtected;
     openMenu({
       anchor, x, y, label: `${sheet.name} options`,
       items: [
         // The tab menu, in order: Insert, Delete, Rename, Move or Copy…, Protect, Tab Color, Hide, Unhide; the app's
         // own tab tools follow. The ellipsis marks the items that open a dialog first.
-        { label: 'Insert Sheet', icon: 'insertSheet', onSelect: () => act('newSheet', null, () => ctx.wb.addSheet()) },
-        { label: holdsWork(sheet) ? 'Delete…' : 'Delete', icon: 'deleteSheet', danger: true, disabled: ctx.wb.visibleSheets.length <= 1, onSelect: () => act('deleteSheet', sheet.id, () => remove(sheet)) },
-        { label: 'Rename…', icon: 'pencil', onSelect: () => renameVia(sheet) },
-        { label: 'Move or Copy…', icon: 'layers', onSelect: () => act('moveOrCopySheet', sheet.id, () => openMoveSheetDialog(ctx, sheet.id)) },
+        { label: 'Insert Sheet', icon: 'insertSheet', disabled: locked, onSelect: () => act('newSheet', null, () => ctx.wb.addSheet()) },
+        { label: holdsWork(sheet) ? 'Delete…' : 'Delete', icon: 'deleteSheet', danger: true, disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('deleteSheet', sheet.id, () => remove(sheet)) },
+        { label: 'Rename…', icon: 'pencil', disabled: locked, onSelect: () => renameVia(sheet) },
+        { label: 'Move or Copy…', icon: 'layers', disabled: locked, onSelect: () => act('moveOrCopySheet', sheet.id, () => openMoveSheetDialog(ctx, sheet.id)) },
         sheet.protected
           ? { label: 'Unprotect Sheet', icon: 'unprotect', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, false)) }
           : { label: 'Protect Sheet', icon: 'protectSheet', onSelect: () => act('protectSheet', sheet.id, () => ctx.wb.setSheetProtected(sheet.id, true)) },
-        { label: 'Tab Color', icon: 'fill', onSelect: () => colorMenu(sheet, anchor, x, y) },
-        { label: 'Hide', icon: 'hideEye', disabled: ctx.wb.visibleSheets.length <= 1, onSelect: () => act('hideSheet', sheet.id, () => ctx.wb.setSheetHidden(sheet.id, true)) },
+        { label: 'Tab Color', icon: 'fill', disabled: locked, onSelect: () => colorMenu(sheet, anchor, x, y) },
+        { label: 'Hide', icon: 'hideEye', disabled: locked || ctx.wb.visibleSheets.length <= 1, onSelect: () => act('hideSheet', sheet.id, () => ctx.wb.setSheetHidden(sheet.id, true)) },
         // Unhide lists the hidden sheets.
-        { label: 'Unhide', icon: 'showHide', disabled: !hiddenSheets().length, submenu: hiddenSheets().map((h) => ({ label: h.name, icon: 'showHide', onSelect: () => act('showSheet', h.id, () => ctx.wb.setSheetHidden(h.id, false)) })) },
+        { label: 'Unhide', icon: 'showHide', disabled: locked || !hiddenSheets().length, submenu: hiddenSheets().map((h) => ({ label: h.name, icon: 'showHide', onSelect: () => act('showSheet', h.id, () => ctx.wb.setSheetHidden(h.id, false)) })) },
         { separator: true },
-        { label: 'Duplicate', icon: 'duplicate', onSelect: () => act('duplicateSheet', sheet.id, () => ctx.wb.duplicateSheet(sheet.id)) },
+        { label: 'Duplicate', icon: 'duplicate', disabled: locked, onSelect: () => act('duplicateSheet', sheet.id, () => ctx.wb.duplicateSheet(sheet.id)) },
         ctx.run && { label: 'Copy to another spreadsheet…', icon: 'copy', onSelect: () => ctx.run('copySheetTo', sheet.id) },
-        { label: 'Move left', icon: 'chevL', disabled: !before, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(before)) },
-        { label: 'Move right', icon: 'chevR', disabled: !after, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(after)) },
+        { label: 'Move left', icon: 'chevL', disabled: locked || !before, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(before)) },
+        { label: 'Move right', icon: 'chevR', disabled: locked || !after, onSelect: () => ctx.wb.moveSheet(sheet.id, ctx.wb.sheets.indexOf(after)) },
         { separator: true },
         // Grouping: every sheet on show at once, or back to the one in view.
         { label: 'Select All Sheets', icon: 'layers', disabled: visible.length <= 1, onSelect: () => act('selectAllSheets', null, () => ctx.wb.groupSheets(visible.map((v) => v.id))) },
@@ -224,6 +228,10 @@ export function createSheetTabs(ctx, { excelLayout = false } = {}) {
   function refresh() {
     const active = ctx.wb.activeSheetId;
     allBtn.setAttribute('aria-haspopup', ctx.wb.sheets.length >= 8 ? 'dialog' : 'menu');
+    // Greyed under Protect Workbook, but still answering a click with the reason (the workbook's refusal).
+    const locked = !!ctx.wb.structureProtected;
+    addBtn.setAttribute('aria-disabled', String(locked));
+    addBtn.title = locked ? 'Add sheet (the workbook\'s structure is protected)' : 'Add sheet';
     // The grid is the panel these tabs control: each tab points at it, and it is named by the active tab.
     const panel = ctx.grid?.el || null;
     if (panel) { panel.setAttribute('role', 'tabpanel'); if (!panel.id) panel.id = 'sheet-panel'; }

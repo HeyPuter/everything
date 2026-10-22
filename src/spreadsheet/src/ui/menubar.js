@@ -300,22 +300,23 @@ export function menubarMenus(f = {}) {
     f.hasComment && home(i('Delete comment', 'deleteComment', 'deleteComment')),
     sep,
     // What the sheet tab's menu offers, for the active sheet, with the same greying: the last sheet showing cannot be
-    // hidden or deleted, an end one not moved past the end. Delete asks first only when the sheet holds work.
+    // hidden or deleted, an end one not moved past the end, and under Protect Workbook (`locked`) no sheet is added,
+    // renamed, coloured, moved, hidden or deleted. Delete asks first only when the sheet holds work.
     sub('Sheet', 'sheet', [
-      i('New sheet', 'plus', 'newSheet', null, { shortcut: 'Shift+F11' }),
+      i('New sheet', 'plus', 'newSheet', null, { shortcut: 'Shift+F11', disabled: !!f.sheet?.locked }),
       ...[
-        i('Duplicate sheet', 'duplicate', 'duplicateSheet'),
-        i('Move or Copy sheet…', 'layers', 'moveOrCopySheet'),
+        i('Duplicate sheet', 'duplicate', 'duplicateSheet', null, { disabled: !!f.sheet?.locked }),
+        i('Move or Copy sheet…', 'layers', 'moveOrCopySheet', null, { disabled: !!f.sheet?.locked }),
         i('Copy sheet to another spreadsheet…', 'copy', 'copySheetTo'),
-        i('Rename sheet…', 'pencil', 'renameSheet'),
-        i('Sheet color…', 'fill', 'sheetColor'),
+        i('Rename sheet…', 'pencil', 'renameSheet', null, { disabled: !!f.sheet?.locked }),
+        i('Sheet color…', 'fill', 'sheetColor', null, { disabled: !!f.sheet?.locked }),
         sep,
-        i('Move sheet left', 'chevL', 'moveSheet', 'left', { disabled: !!f.sheet?.first }),
-        i('Move sheet right', 'chevR', 'moveSheet', 'right', { disabled: !!f.sheet?.last }),
+        i('Move sheet left', 'chevL', 'moveSheet', 'left', { disabled: !!f.sheet?.first || !!f.sheet?.locked }),
+        i('Move sheet right', 'chevR', 'moveSheet', 'right', { disabled: !!f.sheet?.last || !!f.sheet?.locked }),
         sep,
         i(f.sheet?.protected ? 'Unprotect sheet' : 'Protect sheet', 'lock', 'protectSheet'),
-        i('Hide sheet', 'eyeOff', 'hideSheet', null, { disabled: !!f.sheet?.only }),
-        i(f.sheet?.holdsWork ? 'Delete sheet…' : 'Delete sheet', 'trash', 'deleteSheet', null, { disabled: !!f.sheet?.only, danger: true }),
+        i('Hide sheet', 'eyeOff', 'hideSheet', null, { disabled: !!f.sheet?.only || !!f.sheet?.locked }),
+        i(f.sheet?.holdsWork ? 'Delete sheet…' : 'Delete sheet', 'trash', 'deleteSheet', null, { disabled: !!f.sheet?.only || !!f.sheet?.locked, danger: true }),
       ].map(home),
       sep,
       // Grouping: edits on the sheet in view reach every grouped sheet (Shift- or Ctrl-click the tabs to pick some).
