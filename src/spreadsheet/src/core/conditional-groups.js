@@ -33,6 +33,24 @@ export function conditionalRuleGroups(rules) {
   return groups;
 }
 
+/**
+ * Whether two rules are the same rule over different cells: the same settings, with any condition formula reading
+ * alike from each one's corner. Where a rule's cells lie (its range, its statistical domain, the row its bands
+ * count from) is left out.
+ */
+export function sameConditionalRule(a, b) {
+  // A duplicates rule with a counting range of its own names cells of its own; it is left out.
+  if (a.type !== b.type || a.duplicateRange != null || b.duplicateRange != null) return false;
+  const { statisticsRange: _sa, bandOrigin: _ba, ...expected } = settings(a);
+  const { statisticsRange: _sb, bandOrigin: _bb, ...actual } = settings(b);
+  const predicate = conditionalPredicateField(a);
+  if (predicate) {
+    expected[predicate] = body(shiftFormula(a[predicate], b.range.r1 - a.range.r1, b.range.c1 - a.range.c1));
+    actual[predicate] = body(actual[predicate]);
+  }
+  return equal(expected, actual);
+}
+
 export function conditionalRangesCoverSource(source, ranges, sheetName) {
   const areas = duplicateSourceAreas(source);
   if (!areas?.length || areas.some(g => g.sheet && !sameSheetName(g.sheet, sheetName))) return false;

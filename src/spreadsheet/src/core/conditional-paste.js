@@ -5,6 +5,7 @@ import { shiftFormula } from './refs.js';
 import { cloneStyle } from './style-values.js';
 import { conditionalFormulaFields, mapConditionalFormulas, conditionalPredicateField, rebaseConditionalPredicate } from './conditional-scale.js';
 import { intersection, clearRangeRecordsAtCells, compactRangeRecords, removeRangeRecords, rangesCoveringCells } from './range-records.js';
+import { sameConditionalRule } from './conditional-groups.js';
 
 const sameRange = (a, b) => ['r1', 'c1', 'r2', 'c2'].every(k => a[k] === b[k]);
 const statistical = new Set(['dup', 'unique', 'top', 'bottom', 'scale', 'databar', 'icons']);
@@ -126,31 +127,73 @@ export function replaceConditionalFormats(saved, incoming, cells, newId, sheetNa
   if (incoming === null || !cells.length || !saved.length && !incoming.length) return saved;
   const native = nativeDuplicateDomains(saved, sheetName);
   const records = saved.map((rule, index) => ({ range: rule.range, rule, index }));
-  const remaining = clearRangeRecordsAtCells(records, cells);
+  const coverage = incoming.length ? rangesCoveringCells(cells) : [];
+  // A rule pasted over cells the same rule already covers (the format painter run inside a ranked column, formats
+  // pasted within one colour scale) leaves them to that rule, rather than cutting them out of it as a rule of
+  // their own that ranks only its own values.
+  const kept = [], pastedOver = new Map(), keptAt = new Map();
+  // The pasted rules by the bands of 16 rows they reach (a tall one is looked at for every rule), so a paste of
+  // thousands of rules over thousands does not compare every pair.
+  const bands = new Map(), tall = [], seen = new Int32Array(incoming.length).fill(-1);
+  incoming.forEach((rule, i) => {
+    const from = rule.range.r1 >> 4, to = rule.range.r2 >> 4;
+    if (to - from > 64) { tall.push(i); return; }
+    for (let b = from; b <= to; b++) { if (!bands.has(b)) bands.set(b, []); bands.get(b).push(i); }
+  });
+  if (incoming.length) for (const [index, rule] of saved.entries()) {
+    let cuts = [], copies = 0;
+    const g = rule.range, near = [...tall];
+    if (g.r2 - g.r1 > 1 << 16) near.push(...incoming.keys());
+    else for (let b = g.r1 >> 4; b <= g.r2 >> 4; b++) for (const i of bands.get(b) || []) if (seen[i] !== index) { seen[i] = index; near.push(i); }
+    for (const i of near) {
+      const pasted = incoming[i], p = pasted.range;
+      if (pasted.type !== rule.type || p.r1 > g.r2 || p.r2 < g.r1 || p.c1 > g.c2 || p.c2 < g.c1 || !sameConditionalRule(rule, pasted)) continue;
+      const area = intersection(g, p);
+      const over = coverage.map(({ range }) => intersection(area, range)).filter(Boolean);
+      if (!over.length) continue;
+      copies++;
+      cuts.push(...over);
+      if (!pastedOver.has(i)) pastedOver.set(i, []);
+      pastedOver.get(i).push(...over);
+    }
+    // Cells two copies of the rule were pasted over stay with it once.
+    if (copies > 1) cuts = cuts.reduce((list, cut) => [...removeRangeRecords(list, cut), { range: cut }], []).map(item => item.range);
+    for (const range of cuts) kept.push({ range, rule, index });
+    // Pieces of one rule share a statistical domain: every piece keeps the cells any of them kept.
+    const key = `domain:${rule.statisticsRange}`;
+    if (cuts.length && rule.statisticsRange) keptAt.set(key, [...(keptAt.get(key) || []), ...cuts]);
+  }
+  const remaining = [...clearRangeRecordsAtCells(records, cells), ...kept];
   const pieces = compactRangeRecords(remaining, r => r.index).sort((a, b) => a.index - b.index);
   const domains = new Map();
   for (const item of pieces) {
     if (!domains.has(item.index)) domains.set(item.index, []);
     domains.get(item.index).push(item.range);
   }
-  const kept = pieces.map(({ rule, range, index }) => {
+  const left = pieces.map(({ rule, range, index }) => {
     const same = sameRange(rule.range, range);
-    const updated = !same || rule.statisticsRange || native.has(rule) ? scoped(native.has(rule) ? { ...rule, statisticsRange: rule.duplicateRange } : rule, domains.get(index), cells, native.has(rule), sheetName) : rule;
+    // The cells a rule kept are still among the values it ranks (only an explicit domain reads them).
+    const own = rule.statisticsRange && keptAt.get(`domain:${rule.statisticsRange}`);
+    const removed = own ? cells.filter(({ r, c }) => !own.some(g => r >= g.r1 && r <= g.r2 && c >= g.c1 && c <= g.c2)) : cells;
+    const updated = !same || rule.statisticsRange || native.has(rule) ? scoped(native.has(rule) ? { ...rule, statisticsRange: rule.duplicateRange } : rule, domains.get(index), removed, native.has(rule), sheetName) : rule;
     const unchanged = updated.statisticsRange === rule.statisticsRange
       || native.has(rule) && !rule.statisticsRange && updated.duplicateRange === rule.duplicateRange;
     return same && unchanged ? rule : piece(updated, range, same ? rule.id : newId());
   });
-  if (!incoming.length) return kept.length === saved.length && kept.every((rule, i) => rule === saved[i]) ? saved : kept;
-  const coverage = rangesCoveringCells(cells);
-  const added = incoming.flatMap(rule => {
-    const ranges = coverage.map(({ range }) => intersection(rule.range, range)).filter(Boolean);
+  if (!incoming.length) return left.length === saved.length && left.every((rule, i) => rule === saved[i]) ? saved : left;
+  const added = incoming.flatMap((rule, i) => {
+    // The cells left to the rule they already had are no longer this copy's.
+    const within = area => (pastedOver.get(i) || []).reduce((list, cut) => removeRangeRecords(list, cut),
+      coverage.flatMap(({ range }) => { const cut = intersection(area, range); return cut ? [{ range: cut }] : []; })).map(item => item.range);
+    const ranges = within(rule.range);
     const source = rule.statisticsRange && duplicateSourceAreas(rule.statisticsRange);
-    const domain = source ? source.flatMap(g => coverage.map(({ range }) => intersection(g, range)).filter(Boolean)) : ranges;
+    const domain = source ? source.flatMap(within) : ranges;
     const shared = statistical.has(rule.type) && (domain.length > 1 || source) ? { ...rule, statisticsRange: duplicateSourceFormula(domain),
       ...(rule.statisticsRange && rule.duplicateRange === rule.statisticsRange ? { duplicateRange: duplicateSourceFormula(domain) } : {}) } : rule;
     const withBandOrigin = rule.type === 'bands' && ranges.some(g => !sameRange(g, rule.range)) ? scoped(shared, ranges) : shared;
     return ranges.map(range => piece(withBandOrigin, range, newId()));
   });
   // The pasted rules take priority over pre-existing rules.
-  return [...added, ...kept];
+  if (!added.length && left.length === saved.length && left.every((rule, i) => rule === saved[i])) return saved;
+  return [...added, ...left];
 }
