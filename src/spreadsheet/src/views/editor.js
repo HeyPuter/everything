@@ -1088,11 +1088,13 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
   }
 
   /**
-   * Remove the notes, or the links, of the selected cells: only cells that have one are visited. Grouped sheets each
+   * Remove the notes, or the links, of the selected cells shown: only cells that have one are visited. Grouped sheets each
    * lose their own, as Clear takes each one's contents: the active sheet's alone were cleared, the others' left.
    */
   function clearInSelection(kind) {
-    const inside = (r, c) => grid.ranges.some((rg) => r >= rg.r1 && r <= rg.r2 && c >= rg.c1 && c <= rg.c2);
+    // The rows a filter hides are left alone, as clearing their contents leaves them: a hidden row lost its note.
+    const hidden = wb.sheet(grid.sheetId)?.filterHidden;
+    const inside = (r, c) => !hidden?.has(r) && grid.ranges.some((rg) => r >= rg.r1 && r <= rg.r2 && c >= rg.c1 && c <= rg.c2);
     for (const id of wb.sheetGroup || [grid.sheetId]) {
       const sheet = wb.sheet(id);
       if (!sheet || sheet.kind === 'chart') continue;
