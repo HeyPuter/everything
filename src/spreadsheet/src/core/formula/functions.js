@@ -534,6 +534,7 @@ export function criteriaMatcher(criteria) {
     if (typeof target === 'number') {
       const eq = (v) => { const n = criteriaNumber(v); return n != null && compareValues(n, target) === 0; };
       eq.numberKey = numberKey(target); // looked up in an index of the range's numbers (numberIndex)
+      eq.target = target;
       return eq;
     }
     return (v) => typeof v === typeof target && v === target;
@@ -585,7 +586,7 @@ export function criteriaMatcher(criteria) {
     };
     // A plain text key can be looked up in an index of the range (criteriaIndex) instead of tested cell by cell.
     if (op === '=' && !wildcard && !rhsIsNum && rhsBool == null && rhsText !== '') eq.key = rhsLower;
-    if (op === '=' && rhsIsNum) eq.numberKey = numberKey(rhsNum);
+    if (op === '=' && rhsIsNum) { eq.numberKey = numberKey(rhsNum); eq.target = rhsNum; }
     return op === '=' ? eq : (v) => !eq(v);
   }
   const compare = (v) => {
@@ -738,8 +739,65 @@ function orderRun(index, match, lo = 0, hi = index.numbers.length) {
   return [lo, hi];
 }
 
+/**
+ * A running count down a column, =COUNTIF($A$1:A1,A1) filled down, names a range in every row that repeats the rows
+ * of the one above (see noteRangeRows). Each is read once, so none was ever indexed, and 10,000 rows tested 50 million
+ * cells. The ranges of such a family share one index instead, grown by the rows each longer range adds; a range takes
+ * the positions inside its own rows. Text is indexed while it is plain letters, digits and spaces, as the direct
+ * lookup of criteriaIndex wants; a family past that is tested cell by cell as before.
+ */
+const familyIndexes = new WeakMap(); // the first values array of a family → { cols, rows, plainRows, text, numbers }
+function familyCriterion(match, values) {
+  const root = RANGE_PARENTS.get(values);
+  if (!root) return false;
+  const cols = values[0]?.length || 0;
+  let index = familyIndexes.get(root);
+  if (!index) familyIndexes.set(root, index = { cols, rows: 0, plainRows: Infinity, text: new Map(), numbers: new Map(), checked: new Map() });
+  if (index.cols !== cols) return false;
+  const add = (map, key, p) => { const list = map.get(key); if (list) list.push(p); else map.set(key, [p]); };
+  for (; index.rows < values.length; index.rows++) {
+    const row = values[index.rows];
+    if (row.length !== cols) { index.cols = -1; return false; }
+    for (let c = 0; c < cols; c++) {
+      const v = row[c];
+      if (v == null) continue;
+      const p = index.rows * cols + c;
+      if (index.plainRows === Infinity && (typeof v === 'string' || isError(v))) {
+        if (typeof v === 'string' && /^[ 0-9A-Za-z]*$/.test(v)) add(index.text, foldComparisonText(v), p);
+        else index.plainRows = index.rows;
+      }
+      const n = criteriaNumber(v);
+      if (n != null) add(index.numbers, numberKey(n), p);
+    }
+  }
+  const limit = values.length * cols;
+  const within = (list) => {
+    let lo = 0, hi = list.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (list[mid] < limit) lo = mid + 1; else hi = mid; }
+    return hi === list.length ? list : list.slice(0, hi);
+  };
+  if (match.numberKey !== undefined) {
+    const group = within(index.numbers.get(match.numberKey) || []);
+    const at = (p) => { const r = Math.floor(p / cols); return values[r][p - r * cols]; };
+    // A group holds the numbers alike to 15 digits, which the criterion still tells apart across a rounding boundary.
+    // How far each group has been found to match its last number throughout is kept, so each cell is tested once.
+    const known = index.checked.get(match.numberKey);
+    const verified = known?.target === match.target ? known.upto : 0;
+    let upto = Math.min(verified, group.length);
+    while (upto < group.length && match(at(group[upto]))) upto++;
+    if (upto > verified && upto === group.length) index.checked.set(match.numberKey, { target: match.target, upto });
+    match.positions = upto === group.length ? group : group.filter((p) => match(at(p)));
+  } else {
+    if (values.length > index.plainRows || !/^[ 0-9A-Za-z]*$/.test(match.key)) return false;
+    match.positions = within(index.text.get(match.key) || []);
+  }
+  match.cols = cols;
+  return true;
+}
+
 /** Points a criterion at the index of its range, when there is one: match.positions lists the cells that can match, as r*match.cols+c. */
 function indexCriterion(match, range) {
+  if ((match.numberKey !== undefined || match.key !== undefined) && familyCriterion(match, range.values)) return;
   if (match.numberKey !== undefined) {
     const index = numberIndex(range.values);
     if (!index) return;

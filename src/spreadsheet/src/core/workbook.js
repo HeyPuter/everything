@@ -13445,6 +13445,7 @@ export class Workbook extends EventTarget {
         const longer = !kept && shorter !== undefined && shorter > ref.r2
           ? this._rangeCache.get(`${target.id}|${ref.r1},${ref.c1},${shorter},${ref.c2}`) : undefined;
         const repeats = !!longer && longer.length >= rows && longer[0]?.length === cols;
+        let parent = null;
         if (repeats) {
           // Not kept itself: the next one up is read from the longer one too, which kept too many shorter copies would evict.
           const last = LAST_CUT.get(longer);
@@ -13458,7 +13459,7 @@ export class Workbook extends EventTarget {
           // Worth it only while appending the missing rows costs no more than reading the range afresh.
           const blank = Object.freeze(new Array(cols).fill(null));
           out = kept.slice(); // the rows already read are shared, never written to
-          noteRangeRows(out, kept);
+          parent = kept; // noted as one family once its new rows prove settled (below)
           for (let rr = ref.r1 + kept.length; rr < ref.r1 + rows; rr++) {
             let row = blank;
             for (let cc = ref.c1; cc < ref.c1 + cols; cc++) {
@@ -13509,6 +13510,10 @@ export class Workbook extends EventTarget {
         }
         // Nor is one read while a circle is unsettled, since it may hold an answer that is withdrawn.
         if (!provisional && !this._hasDeferredSpills && !this._unsettled.length) {
+          // Only then does it join the family of the shorter range it carries on from, whose running totals and
+          // indexes it extends (see noteRangeRows): a row holding a cell still being calculated, or an answer a
+          // circle may yet withdraw, would stay in them for every longer range after it.
+          if (parent) noteRangeRows(out, parent);
           this._keepRange(cacheKey, out);
           // The longest of a family is the one a longer range carries on from; only its number is
           // held, so an array the budget has evicted simply leaves the next range to read afresh.
