@@ -429,10 +429,12 @@ export function pivotDefinitionNames(wb, sourceSheetId, built, pivotSheetName, a
   const label = (i) => (i == null ? null : fields[i]?.label ?? null);
   const definition = { row: label(spec.rowField), col: label(spec.colField), value: label(spec.valueField), agg: spec.agg, filter: label(spec.filters?.[0]?.field),
     sig: blockSignature(built.cells, built.filterCells.length) };
+  const fieldsRef = fieldsText(definition);
+  if (!fieldsRef) return [];
   return [
     { name: DEFINITION.source, ref: source, hidden: true, sheet: pivotSheetName },
     { name: DEFINITION.area, ref: absoluteRange(pivotSheetName, area), hidden: true, sheet: pivotSheetName },
-    { name: DEFINITION.fields, ref: fieldsText(definition), hidden: true, sheet: pivotSheetName },
+    { name: DEFINITION.fields, ref: fieldsRef, hidden: true, sheet: pivotSheetName },
   ];
 }
 
@@ -441,7 +443,28 @@ export function namesWithPivotDefinition(wb, sourceSheetId, built, pivotSheetNam
   return [...wb.names.filter((n) => !isDefinitionName(n, pivotSheetName)), ...pivotDefinitionNames(wb, sourceSheetId, built, pivotSheetName, area)];
 }
 
-const fieldsText = (definition) => `"${JSON.stringify(definition).replace(/"/g, '""')}"`;
+/**
+ * The fields as the name's formula: their JSON as string constants joined with &, each at most 255 characters, the
+ * longest a string constant in a formula may be (ECMA-376; Excel repairs a file holding a longer one). Null when the
+ * whole would pass FIELDS_LIMIT, well under the 8,192 characters a name's formula may have: such a pivot keeps no
+ * definition, rather than one Excel cannot read.
+ */
+const STRING_LIMIT = 255, FIELDS_LIMIT = 8000;
+function fieldsText(definition) {
+  const chars = [...JSON.stringify(definition)]; // by code point, so no constant ends in half a surrogate pair
+  const parts = [];
+  for (let i = 0; i < chars.length; i += STRING_LIMIT) parts.push(`"${chars.slice(i, i + STRING_LIMIT).join('').replace(/"/g, '""')}"`);
+  const text = parts.join('&');
+  return text.length <= FIELDS_LIMIT ? text : null;
+}
+
+/** The fields read back from the name's formula: string constants joined with & (one alone in files written before). */
+function parseFields(text) {
+  const t = String(text ?? '').trim();
+  if (!/^"(?:[^"]|"")*"(?:\s*&\s*"(?:[^"]|"")*")*$/.test(t)) return null;
+  const json = [...t.matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1].replace(/""/g, '"')).join('');
+  try { const parsed = JSON.parse(json); return parsed && typeof parsed === 'object' ? parsed : null; } catch { return null; }
+}
 
 /** The definition kept for the pivot table on a sheet: { source, area, fields } as their texts, or null. */
 function readDefinition(wb, sheetId) {
@@ -450,9 +473,8 @@ function readDefinition(wb, sheetId) {
   const get = (name) => wb.names.find((n) => isDefinitionName(n, sheet.name) && n.name.toLowerCase() === name.toLowerCase())?.ref;
   const source = get(DEFINITION.source), area = get(DEFINITION.area), fields = get(DEFINITION.fields);
   if (!source || !area || !fields) return null;
-  let parsed = null;
-  try { parsed = JSON.parse(String(fields).replace(/^"|"$/g, '').replace(/""/g, '"')); } catch { /* unreadable */ }
-  return parsed && typeof parsed === 'object' ? { source, area, fields: parsed } : null;
+  const parsed = parseFields(fields);
+  return parsed ? { source, area, fields: parsed, fieldsRef: fields } : null;
 }
 
 /**
@@ -542,7 +564,7 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
     for (const fc of built.filterCells) {
       wb.addValidation(sheetId, { range: { r1: fc.r + dr, c1: fc.c + dc, r2: fc.r + dr, c2: fc.c + dc }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
     }
-    const fields = fieldsText({ ...def.fields, sig: blockSignature(built.cells, built.filterCells.length) });
+    const fields = fieldsText({ ...def.fields, sig: blockSignature(built.cells, built.filterCells.length) }) ?? def.fieldsRef;
     const names = wb.names.map((n) => (!isDefinitionName(n, sheet.name) ? n
       : n.name.toLowerCase() === DEFINITION.area.toLowerCase() ? { ...n, ref: absoluteRange(sheet.name, next) }
         : n.name.toLowerCase() === DEFINITION.fields.toLowerCase() ? { ...n, ref: fields } : n));
