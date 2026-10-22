@@ -3761,7 +3761,7 @@ export function createGrid(opts) {
     const m = wb.mergeAt(sheetId, from.active.r, from.active.c);
     // Leaving a merge steps off its far edge; the other axis stays where the step began, so a
     // selection's focus inside a merge comes back to its own row or column.
-    const start = m ? { ...from, active: { r: dr > 0 ? m.r2 : dr < 0 ? m.r1 : from.active.r, c: dc > 0 ? m.c2 : dc < 0 ? m.c1 : from.active.c } } : from;
+    const start = m ? leavingMerge(from, m, dr, dc) : from;
     let next = S.move(start, dr, dc, b);
     while ((dr && rowHidden(s, next.active.r)) || (dc && s.hiddenCols.has(next.active.c))) {
       const further = S.move(next, dr && pastHidden(rowOffsets, next.active.r, dr), dc && pastHidden(colOffsets, next.active.c, dc), b);
@@ -3780,6 +3780,24 @@ export function createGrid(opts) {
     ensureOffsets();
     const run = offsets.blankRun(i);
     return run ? (dir > 0 ? run[1] + 1 - i : run[0] - 1 - i) : dir;
+  }
+
+  /**
+   * Where a step out of merged block m begins: its far edge along the step, and across it the row (or column)
+   * the step began on, or, when that line is hidden (a merged title whose first row is hidden is selected at
+   * its hidden anchor), the block's first line on show: a step sideways from it landed on a hidden cell.
+   */
+  function leavingMerge(from, m, dr, dc) {
+    const s = sheet();
+    const across = (at, lo, hi, hidden) => {
+      if (!hidden(at)) return at;
+      for (let i = lo; i <= hi; i++) if (!hidden(i)) return i;
+      return at;
+    };
+    return { ...from, active: {
+      r: dr > 0 ? m.r2 : dr < 0 ? m.r1 : across(from.active.r, m.r1, m.r2, (r) => rowHidden(s, r)),
+      c: dc > 0 ? m.c2 : dc < 0 ? m.c1 : across(from.active.c, m.c1, m.c2, (c) => s.hiddenCols.has(c)),
+    } };
   }
 
   /** Resolve a keyboard destination to visible lines, falling back at an edge. */
@@ -4055,7 +4073,7 @@ export function createGrid(opts) {
   function jumpFrom(from, dr, dc) {
     const s = sheet();
     const m = s.merges.length ? wb.mergeAt(sheetId, from.active.r, from.active.c) : null;
-    const start = m ? { ...from, active: { r: dr > 0 ? m.r2 : dr < 0 ? m.r1 : from.active.r, c: dc > 0 ? m.c2 : dc < 0 ? m.c1 : from.active.c } } : from;
+    const start = m ? leavingMerge(from, m, dr, dc) : from;
     const leap = (r, c, ddr, ddc) => Math.abs(ddr ? pastHidden(rowOffsets, r, ddr) : pastHidden(colOffsets, c, ddc));
     return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap);
   }
