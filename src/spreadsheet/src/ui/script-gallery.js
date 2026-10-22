@@ -44,10 +44,15 @@ export function openScriptGallery(wb, actions) {
       buttons: [button('Run', () => { modal.close(); actions.run({ name: s.name, code: s.code, source: 'workbook', id: s.id }); }, true),
         button('Edit', () => { modal.close(); actions.open(s.id); })],
     }));
+    // A script listed may be gone by the time it is asked for (deleted or renamed from another window, or the network
+    // lost): that is said, rather than the gallery closing on nothing.
+    const read = async (s) => {
+      try { return await actions.library.read(s.path); } catch (e) { toast(`“${s.name}” could not be read from My Scripts: ${e?.message || e}`, { icon: 'alert' }); return null; }
+    };
     const lib = (library || []).filter((s) => hit(s.name, '')).map((s) => card({
       name: s.name, about: 'In My Scripts, on your drive.', glyph: 'scriptLibrary',
-      buttons: [button('Run', async () => { modal.close(); actions.run({ name: s.name, code: await actions.library.read(s.path), source: 'library' }); }, true),
-        button('Add to workbook', async () => { modal.close(); actions.add({ name: s.name, code: await actions.library.read(s.path) }); }),
+      buttons: [button('Run', async () => { modal.close(); const code = await read(s); if (code != null) actions.run({ name: s.name, code, source: 'library' }); }, true),
+        button('Add to workbook', async () => { modal.close(); const code = await read(s); if (code != null) actions.add({ name: s.name, code }); }),
         button('Delete', async () => {
           if (!await confirmDialog({ title: 'Delete Script', message: `Delete “${s.name}” from My Scripts? Workbooks that hold a copy keep it.`, confirmLabel: 'Delete' })) return;
           try { await actions.library.remove(s.path); library = library.filter((x) => x !== s); render(); toast(`Deleted ${s.name}`, { icon: 'trash' }); } catch (e) { toast(`Could not delete: ${e?.message || e}`, { icon: 'alert' }); }

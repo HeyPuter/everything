@@ -452,7 +452,12 @@ export function createAutomate(ctx, { env = () => ({}), notify = () => {}, trans
       }
       case 'runScript': {
         if (arg?.sample) { const s = sampleById(arg.sample); if (s) await runCode({ name: s.name, code: s.code, source: 'sample' }); return; }
-        if (arg?.path && library) { const code = await library.readLibraryScript(arg.path); await runCode({ name: arg.name || 'Script', code, source: 'library' }); return; }
+        if (arg?.path && library) {
+          let code;
+          try { code = await library.readLibraryScript(arg.path); } catch (e) { toast(`“${arg.name || 'The script'}” could not be read from My Scripts: ${e?.message || e}`, { icon: 'alert' }); return; }
+          await runCode({ name: arg.name || 'Script', code, source: 'library' });
+          return;
+        }
         if (arg?.name != null) {
           // A script button names its script; a renamed or deleted script leaves the button with nothing to run.
           const named = scriptByName(wb, arg.name);
