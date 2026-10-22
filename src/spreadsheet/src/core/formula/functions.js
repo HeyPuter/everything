@@ -79,12 +79,29 @@ export function scalar(v) {
 function information(predicate) {
   return {
     localeContext: false,
-    fn: ([value]) => isRange(value)
-      ? { range: true, values: value.values.map((row) => row.map((v) => predicate(v))) }
-      : predicate(value),
+    fn: ([value]) => isRange(value) ? informationArray(value, predicate) : predicate(value),
     tolerant: true,
     elementwise: true,
   };
+}
+
+/**
+ * ISNUMBER(A:A) and its kin over a whole column stand for every row of it, as A:A>0 does: the answer keeps the
+ * column's extent, and past the rows read holds what the test gives for a blank cell (ISBLANK's TRUE), so it pairs
+ * with a whole column of another sheet rather than answering #VALUE! for unequal shapes.
+ */
+function informationArray(value, predicate) {
+  const values = value.values.map((row) => row.map((v) => predicate(v)));
+  const isTall = value.ref ? value.ref.kind === 'cols' : !!value.tall;
+  const isWide = value.ref ? value.ref.kind === 'rows' : !!value.wide;
+  if (!isTall && !isWide) return { range: true, values };
+  const out = { range: true, values, extent: rangeShape(value), ...(isTall ? { tall: true } : {}), ...(isWide ? { wide: true } : {}) };
+  if (isTall && !isWide) {
+    const past = value.fill || [];
+    const fill = Array.from({ length: values[0]?.length || 0 }, (_, c) => predicate(past[c] ?? null));
+    if (fill.some((v) => v !== null)) out.fill = fill;
+  }
+  return out;
 }
 
 /** The UTF-16 offset of the `count`-th character of `text`, or null when the text is shorter. */
@@ -914,11 +931,12 @@ function readWindow(range) {
 }
 
 /** `values` as a grid of exactly rows × cols, blank where it was read short; the grid itself when it already is. */
-function padGrid(values, rows, cols) {
+function padGrid(values, rows, cols, fill = null) {
   if (values.length === rows && (values[0]?.length || 0) === cols) return values;
   const out = new Array(rows);
   for (let r = 0; r < rows; r++) {
-    const row = values[r];
+    // Past the rows read, an array computed from a whole column holds what its expression gives for blank cells.
+    const row = values[r] ?? fill;
     if (row && row.length === cols) { out[r] = row; continue; }
     const full = new Array(cols);
     for (let c = 0; c < cols; c++) full[c] = row?.[c] ?? null;
@@ -949,7 +967,7 @@ function readAlike(ranges) {
   const windows = refs.map(readWindow);
   const rows = shapes.every((s) => s[0] === shapes[0][0]) ? Math.max(...windows.map((w) => w[0])) : null;
   const cols = shapes.every((s) => s[1] === shapes[0][1]) ? Math.max(...windows.map((w) => w[1])) : null;
-  return ranges.map((r) => (hasExtent(r) ? padGrid(r.values, rows ?? r.values.length, cols ?? (r.values[0]?.length || 0)) : r.values));
+  return ranges.map((r) => (hasExtent(r) ? padGrid(r.values, rows ?? r.values.length, cols ?? (r.values[0]?.length || 0), r.fill) : r.values));
 }
 
 /**
@@ -1307,7 +1325,8 @@ function alignWindows(ranges, axis) {
     const key = `${toRows},${toCols}`;
     let values = byWindow.get(key);
     if (!values) {
-      const blank = Object.freeze(new Array(toCols).fill(null));
+      // Past the rows read, an array computed from a whole column holds what its expression gives for blank cells.
+      const blank = r.fill?.length === toCols ? r.fill : Object.freeze(new Array(toCols).fill(null));
       values = new Array(toRows);
       for (let i = 0; i < toRows; i++) {
         const row = r.values[i];
