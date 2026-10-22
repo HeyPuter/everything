@@ -101,12 +101,18 @@ export function quickRule(range, key, { value = '', value2 = '', choice = null, 
   };
 }
 
-/** Numbers in a range, for the values a quick rule suggests first. */
+/**
+ * Numbers in a range, for the values a quick rule suggests first. Only the cells holding something are read, as
+ * the rules themselves read them: walking every coordinate froze the tab for seconds over a few whole columns
+ * selected, and for an hour over the whole sheet.
+ */
 function numbersIn(wb, sheetId, range) {
   const out = [];
-  for (let r = range.r1; r <= range.r2 && out.length < 5000; r++) for (let c = range.c1; c <= range.c2 && out.length < 5000; c++) {
-    const v = wb.getValue(sheetId, r, c);
+  const sheet = wb.sheet(sheetId);
+  if (!sheet) return out;
+  for (const v of wb._rangeValues(sheet, range)) {
     if (typeof v === 'number' && Number.isFinite(v)) out.push(v);
+    if (out.length >= 5000) break;
   }
   return out;
 }
