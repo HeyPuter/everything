@@ -84,7 +84,7 @@ export const SCRIPT_API = {
   Format: [
     ['getFill', '()', 'The cell fill.'],
     ['getFont', '()', 'The font.'],
-    ['setHorizontalAlignment', '(alignment)', '"left", "center", "right" or "general".', 'chain'],
+    ['setHorizontalAlignment', '(alignment)', '"left", "center", "right" or "general"; or "fill", "justify", "centerContinuous" or "distributed".', 'chain'],
     ['setVerticalAlignment', '(alignment)', '"top", "middle" or "bottom".', 'chain'],
     ['setWrapText', '(wrap)', 'Wrap long text onto more lines.', 'chain'],
     ['setTextRotation', '(degrees)', 'Turn the text from -90 to 90 degrees.', 'chain'],

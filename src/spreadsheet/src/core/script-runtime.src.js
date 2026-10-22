@@ -583,8 +583,8 @@
         getName: function () { return styleRead(range, 'font'); },
       };
     },
-    /** "left", "center", "right" or "general". */
-    setHorizontalAlignment: function (a) { style(this._range, { align: edge(a, ['left', 'center', 'right', 'general'], 'The alignment') }); return this; },
+    /** "left", "center", "right" or "general"; or "fill", "justify", "centerContinuous" (across selection) or "distributed". */
+    setHorizontalAlignment: function (a) { style(this._range, { align: edge(a, ['left', 'center', 'right', 'general', 'fill', 'justify', 'centerContinuous', 'distributed'], 'The alignment') }); return this; },
     /** "top", "middle" or "bottom". */
     setVerticalAlignment: function (a) { style(this._range, { valign: edge(a, ['top', 'middle', 'bottom'], 'The vertical alignment') }); return this; },
     setWrapText: function (on) { style(this._range, { wrap: bool(on, 'setWrapText') }); return this; },

@@ -246,7 +246,7 @@ function stylePatch(host, raw) {
       if (value != null && !font) host.fail(`"${value}" is not a font name.`);
       patch.font = font;
     } else if (key === 'align') {
-      if (!['left', 'center', 'right', 'general'].includes(value)) host.fail(`"${value}" is not an alignment.`);
+      if (!['left', 'center', 'right', 'general', 'fill', 'justify', 'centerContinuous', 'distributed'].includes(value)) host.fail(`"${value}" is not an alignment.`);
       patch.align = value === 'general' ? null : value;
     } else if (key === 'valign') {
       if (!['top', 'middle', 'bottom'].includes(value)) host.fail(`"${value}" is not a vertical alignment.`);
