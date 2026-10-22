@@ -34,7 +34,7 @@ import { parseRefText } from '../refs.js';
 
 export { FormulaSyntaxError };
 
-export function parseFormula(src, { namePositions = false, tablePositions = false } = {}) {
+export function parseFormula(src, { namePositions = false, tablePositions = false, starts = false } = {}) {
   const tokens = tokenize(src);
   let pos = 0;
 
@@ -137,7 +137,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
     while (isReference(node) && intersectionSpace() && ['ref', 'tref', 'name', 'lparen', 'error'].includes(peek().type)) {
       const start = peek().start, right = referenceRange();
       if (!isReference(right)) throw new FormulaSyntaxError('Expected an intersecting reference', start);
-      node = { type: 'intersection', left: node, right };
+      node = { type: 'intersection', left: node, right, ...(starts ? { start: node.start } : {}) };
     }
     return node;
   }
@@ -148,6 +148,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
   }
 
   function referenceAtom() {
+    const start = peek()?.start;
     let node = primary();
     // An adjacent parenthesis calls a returned LAMBDA; a separating space
     // combines reference expressions, including parenthesized areas.
@@ -155,6 +156,8 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
       next();
       node = { type: 'apply', fn: node, args: callArguments() };
     }
+    // `starts`: where the text of each operand begins, for edits made to the formula's own text.
+    if (starts && node.start === undefined) node.start = start;
     return node;
   }
 
@@ -166,7 +169,7 @@ export function parseFormula(src, { namePositions = false, tablePositions = fals
       const colon = next();
       const right = referenceAtom();
       if (!isReference(right)) throw new FormulaSyntaxError('Expected a reference after ":"', colon.start);
-      node = { type: 'range', left: node, right };
+      node = { type: 'range', left: node, right, ...(starts ? { start: node.start } : {}) };
     }
     return node;
   }
