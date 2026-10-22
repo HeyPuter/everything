@@ -7381,12 +7381,20 @@ export class Workbook extends EventTarget {
         });
         const points = [...boundaries].sort((a, b) => a - b);
         const parts = [];
+        // The moved lines the rule already covers bring their own piece along; only those from outside it join it.
+        const before = Math.max(0, Math.min(from + count, origin[lo]) - from), after = Math.max(0, from + count - Math.max(from, origin[hi] + 1));
+        const own = count - before - after;
         for (let i = 0; i < points.length - 1; i++) {
           const old = { ...origin, [lo]: points[i], [hi]: points[i + 1] - 1 };
           const part = { ...rule, range: { ...origin, [lo]: map(old[lo]), [hi]: map(old[hi]) } };
-          // Lines landing inside the rule join it, as they join a reference they land inside of.
-          if (old[hi] === to - 1 && origin[hi] >= to) part.range[hi] += count;
           if (expression) part[field] = renumber(relative ? shiftFormula(formula, old.r1 - origin.r1, old.c1 - origin.c1) : formula, sheet.name);
+          // Lines landing inside the rule join it, as they join a reference they land inside of: those from before
+          // the rule land first, after the piece ahead of them, and those from after it last, before the piece behind.
+          if (old[hi] === to - 1 && origin[hi] >= to) part.range[hi] += own ? before : count;
+          if (own && after && old[lo] === to && origin[lo] < to) {
+            part.range[lo] -= after;
+            if (relative) part[field] = shiftFormula(part[field], axis === 'row' ? -after : 0, axis === 'col' ? -after : 0);
+          }
           parts.push(part);
         }
         parts.sort((a, b) => a.range[lo] - b.range[lo]);
