@@ -3809,6 +3809,9 @@ export function createGrid(opts) {
       // instead of visiting every cell in its area.
       if (dir === 'down' && s.hiddenCols.has(p.c)) edge.r = back ? range.r1 : range.r2;
       else if (dir === 'right' && rowHidden(s, p.r)) edge.c = back ? range.c1 : range.c2;
+      // A run of hidden lines along the walk is passed in one leap, to its last line inside the range.
+      else if (dir === 'down' && rowHidden(s, p.r)) edge.r = clamp(p.r + pastHidden(rowOffsets, p.r, back ? -1 : 1) + (back ? 1 : -1), range.r1, range.r2);
+      else if (dir === 'right' && s.hiddenCols.has(p.c)) edge.c = clamp(p.c + pastHidden(colOffsets, p.c, back ? -1 : 1) + (back ? 1 : -1), range.c1, range.c2);
       else {
         const m = wb.mergeAt(sheetId, p.r, p.c);
         if (m && (m.r1 !== p.r || m.c1 !== p.c)) {
