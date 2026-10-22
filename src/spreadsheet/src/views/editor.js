@@ -825,7 +825,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const unmark = (e) => { if (e.target === blamed) clearError(); };
     // Where the link goes: a web address, a place on a sheet, or a named range.
     const hasSheets = (ref) => ref && wb.sheetByName(ref.sheet) && (!ref.sheetEnd || wb.sheetByName(ref.sheetEnd));
-    const namedRanges = wb.names.filter((n) => hasSheets(wb.parseNamedRef(n.ref)));
+    // The names the Name Manager shows: not the hidden ones that keep a pivot table's or Solver's workings.
+    const namedRanges = wb.names.filter((n) => !n.hidden && hasSheets(wb.parseNamedRef(n.ref)));
     const internal = existing && existing.url.startsWith('#') ? existing.url.slice(1) : null;
     const parsedInternal = internal ? wb.parseNamedRef(internal) : null;
     // A sheet picker cannot represent both endpoints of a span. Keep its
