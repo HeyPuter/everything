@@ -161,3 +161,19 @@ it('says where the changes to a .csv from the drive are kept when it is left uns
   press('Save before leaving?', 'Leave');
   expect(await leaving).toBe(true);
 });
+
+it('does not share a .csv from the drive when the Save dialog for its .xlsx is cancelled', async () => {
+  // Shared as it was, the .csv never sees the edits, and editing together would have the room write the
+  // workbook's .xlsx bytes over it.
+  answer = null;
+  puter.fs.share = vi.fn(async () => []);
+  puter.fs.getShares = vi.fn(async () => []);
+  mock.fs.set('~/Desktop/data.csv', { blob: new Blob(['a,b']), size: 3, modified: 1 });
+  const doc = setup(new Doc({ name: 'data', path: '~/Desktop/data.csv' }));
+  doc.wb.setInput(doc.wb.activeSheetId, 0, 0, 'Rent');
+  view.el.querySelector('.share-btn').click();
+  expect(await until(() => puter.ui.showSaveFilePicker.mock.calls.length === 1)).toBe(true);
+  await new Promise((r) => setTimeout(r, 50));
+  expect(document.querySelector('.share-dialog')).toBeNull();
+  expect(doc.path).toBe('~/Desktop/data.csv');
+});

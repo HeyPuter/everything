@@ -5881,7 +5881,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       try { await doc.save(); } catch (e) { toast(e?.message || 'Could not save the spreadsheet', { icon: 'alert', duration: 4000 }); return false; }
       if (destroyed) return false;
     }
-    if (!doc.path) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return false; }
+    // Puter's Save dialog cancelled (see doc.asksWhereToSave), there is no file, or only the .csv the edits never reach.
+    if (!doc.path || !doc.isXlsxPath) { toast('Save the spreadsheet first, then share it', { icon: 'info' }); return false; }
     return true;
   }
 
