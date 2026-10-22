@@ -929,9 +929,12 @@ function scannedCriterion(match, range) {
       const row = values[r];
       for (let c = 0; c < cols; c++) if (match(row[c])) positions.push(r * cols + c);
     }
-    if (positions.length > 100000) return; // tested cell by cell, as before
-    if (index.queries.size >= 256 || index.positions + positions.length > 100000) { index.queries.clear(); index.positions = 0; }
-    index.queries.set(key, positions); index.positions += positions.length;
+    // More cells than are kept are this formula's candidates alone: dropped, they were tested once more by the function
+    // itself, each formula over such a column taking twice as long as without the search.
+    if (positions.length <= 100000) {
+      if (index.queries.size >= 256 || index.positions + positions.length > 100000) { index.queries.clear(); index.positions = 0; }
+      index.queries.set(key, positions); index.positions += positions.length;
+    }
   }
   match.cols = cols;
   match.positions = positions;
