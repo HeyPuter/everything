@@ -1839,7 +1839,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             value: String(ctx.style().rot || 0), confirmLabel: 'Rotate',
             validate: (v) => (/^-?\d{1,2}$/.test(v.trim()) && Math.abs(Number(v)) <= 90 ? null : 'Enter a whole number from -90 to 90'),
           });
-          if (text == null) return;
+          if (text == null) { keepFocus(); return; }
           deg = Number(text);
         }
         deg = Math.max(-90, Math.min(90, Math.round(Number(deg) || 0)));
@@ -2562,7 +2562,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
             { separator: true },
             { label: 'Custom…', onSelect: async () => {
               const d = await promptDialog({ title: 'Split text', label: 'Separator', value: '', confirmLabel: 'Split', validate: (v) => (v.length ? null : 'Enter a separator') });
-              if (d != null) run('splitText', d);
+              if (d != null) run('splitText', d); else keepFocus();
             } },
             { label: 'Text to Columns…', icon: 'textToColumns', onSelect: () => run('splitTextDialog') },
           ],
@@ -2701,7 +2701,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
           value: String(current), confirmLabel: 'Resize',
           validate: (v) => (/^\d+$/.test(v) && Number(v) >= min && Number(v) <= max ? null : `Enter a number from ${min} to ${max}`),
         });
-        if (text == null) return;
+        // Cancelled, the keyboard goes back to the sheet as after a size given, not to the ribbon button that asked.
+        if (text == null) { keepFocus(); return; }
         const px = Number(text);
         // Every row (or column) of the sheet: its default size, not a size of their own for a million rows.
         if (wholeLines(r, isCol ? 'row' : 'col', sheetId)) { wb.setDefaultLineSize(sheetId, isCol ? 'col' : 'row', px); keepFocus(); return; }
