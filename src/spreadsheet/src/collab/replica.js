@@ -927,7 +927,9 @@ export function splitChange(ops, inverses, limit = PART) {
     ops = split.map(([op]) => op);
     inverses = split.map(([, inv]) => inv);
   }
-  if (!ops.every((op, i) => (REGISTERS.has(op.t) ? inverses[i]?.length === 1 && inverses[i][0].t === op.t : op.t === 'put' && inverses[i]?.length === 1 && inverses[i][0].t === 'drop'))) return null;
+  // Rows, columns or sheets that move go whole, each in the part it falls in, with its own inverse (an undone deletion
+  // of many rows puts them back, then writes back what was on them, which splits as any write does).
+  if (!ops.every((op, i) => (REGISTERS.has(op.t) ? inverses[i]?.length === 1 && inverses[i][0].t === op.t : (isStructure(op) || op.t === 'put') && Array.isArray(inverses[i])))) return null;
   const keysOf = (op) => (op.t === 'cells' ? (op.st ? [...new Set([...Object.keys(op.v || {}), ...Object.keys(op.st)])] : Object.keys(op.v || {})) : op.t === 'lines' ? Object.keys(op.v) : null);
   // Fewer cells or lines than this cannot make a change too large (a cell holds 32,767 characters at most).
   let count = 0;
@@ -949,7 +951,7 @@ export function splitChange(ops, inverses, limit = PART) {
   const add = (op, inv, size) => {
     if (!cur || (cur.size && cur.size + size > limit)) parts.push((cur = { ops: [], inverse: [], size: 0 }));
     cur.ops.push(op);
-    cur.inverse.unshift(inv);
+    cur.inverse.unshift(...inv);
     cur.size += size;
   };
   const piece = (op, keys) => {
@@ -964,11 +966,11 @@ export function splitChange(ops, inverses, limit = PART) {
     return out;
   };
   ops.forEach((op, i) => {
-    const inv = inverses[i][0];
     const { size, keys, sizes } = sized[i];
-    if (!keys || size <= limit) { add(op, inv, size); return; }
+    if (!keys || size <= limit) { add(op, inverses[i], size); return; }
+    const inv = inverses[i][0];
     let run = [], runSize = 0;
-    const flush = () => { if (run.length) add(piece(op, run), piece(inv, run), runSize); run = []; runSize = 0; };
+    const flush = () => { if (run.length) add(piece(op, run), [piece(inv, run)], runSize); run = []; runSize = 0; };
     keys.forEach((k, j) => {
       if (runSize && runSize + sizes[j] > limit) flush();
       run.push(k);
