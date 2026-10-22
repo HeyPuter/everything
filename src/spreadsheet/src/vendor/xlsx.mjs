@@ -16043,7 +16043,7 @@ function ods_function_name(name) {
 	m = /^_xlfn\.(?:_xlws\.)?(.+)$/i.exec(name);
 	/* Only the functions Excel marks so: a spill reference (A1#, ANCHORARRAY) and the @ operator (SINGLE) have no
 	 * OpenFormula spelling, and keep Excel's, as does a name this app does not know. */
-	if(!m || !XLFN.has(m[1].toUpperCase())) return null;
+	if(!m || !XLFN.has(m[1].toUpperCase()) || /^SINGLE$/i.test(m[1])) return null;
 	return ods_plain_functions[m[1].toUpperCase()] ? m[1] : "COM.MICROSOFT." + m[1];
 }
 function csf_to_ods_formula(f/*:string*/)/*:string*/ {
