@@ -4,7 +4,7 @@
  * chartsvg.js: data in, markup out. A chart in the default style draws in its appearance's fonts,
  * colours and layout; an older app chart in the theme's own colours.
  */
-import { axisLabel, niceScale, chartPointStyle } from '../core/charts.js';
+import { axisLabel, niceScale, chartPointStyle, waterfallSteps } from '../core/charts.js';
 import { chartAxisScale } from '../core/chart-axis-scale.js';
 import { formatValue, fontStack } from '../core/format.js';
 import { maxOf, minOf } from '../core/numeric.js';
@@ -15,9 +15,9 @@ import { seriesColor, seriesPaint, inkOn, svgEsc as esc, svgNum as f, chartTipTe
 
 export const SPECIAL_CHART_TYPES = new Set(['treemap', 'sunburst', 'boxWhisker', 'funnel', 'stock', 'surface']);
 
-const AXIS_TITLED = new Set(['boxWhisker', 'stock', 'surface']);
+const AXIS_TITLED = new Set(['boxWhisker', 'stock', 'surface', 'waterfall']);
 
-const TYPE_NAMES = { treemap: 'Treemap', sunburst: 'Sunburst', boxWhisker: 'Box and whisker chart', funnel: 'Funnel chart', stock: 'Stock chart', surface: 'Surface chart' };
+const TYPE_NAMES = { treemap: 'Treemap', sunburst: 'Sunburst', boxWhisker: 'Box and whisker chart', funnel: 'Funnel chart', stock: 'Stock chart', surface: 'Surface chart', waterfall: 'Waterfall chart' };
 
 /** Text styles: the appearance's, or the theme's ink for an app chart without one. */
 function textStyles(a) {
@@ -231,7 +231,7 @@ function renderSunburst(data, chart, width, height) {
 /* ---------- Axes shared by box and whisker, stock and contour charts ---------- */
 
 /** A vertical value axis down the left (or right) of `plot`: gridlines, tick labels; narrows the plot to make room. */
-function valueAxis(fr, chart, scale, style, { side = 'left', grid = true, format = null } = {}) {
+function valueAxis(fr, chart, scale, style, { side = 'left', grid = true, format = null, el = null } = {}) {
   const { a, st } = fr;
   const ticks = scaleTicks(scale);
   const label = v => (format ? format(v) : a?.yFormat && side === 'left' ? formatValue(v, { fmt: 'custom', code: a.yFormat }) : axisLabel(v, style, scale.step));
@@ -242,7 +242,7 @@ function valueAxis(fr, chart, scale, style, { side = 'left', grid = true, format
     for (const v of ticks) {
       const yy = y(v);
       if (grid && side === 'left') out.push(`<line class="chart-gridline" x1="${f(plot.x)}" y1="${f(yy)}" x2="${f(plot.x + plot.w)}" y2="${f(yy)}" stroke="${esc(gridColor)}" stroke-width="${gridStyle?.width ?? 1}"/>`);
-      if (side === 'left' && !a?.hideYAxis) out.push(text(label(v), plot.x - 6, yy + st.value.size * .35, st.value, 'end', 'class="chart-axis-label"'));
+      if (side === 'left' && !a?.hideYAxis) out.push(text(label(v), plot.x - 6, yy + st.value.size * .35, st.value, 'end', `class="chart-axis-label"${el ? ` data-el="${el}"` : ''}`));
       if (side === 'right') out.push(text(label(v), plot.x + plot.w + 6, yy + st.value.size * .35, st.value, 'start', 'class="chart-axis-label chart-axis-y2"'));
     }
     return out.join('');
@@ -262,7 +262,7 @@ function categoryGridlines(fr, n, plot) {
 }
 
 /** Category labels under slots across `plot`, every k-th where they would collide. */
-function categoryAxis(fr, categories, plot, slot) {
+function categoryAxis(fr, categories, plot, slot, el = null) {
   const { a, st } = fr;
   if (a?.hideXAxis || a?.xLabelPosition === 'none') return '';
   const short = categoryShortener(categories, 18);
@@ -272,7 +272,7 @@ function categoryAxis(fr, categories, plot, slot) {
   const out = [`<line class="chart-axis-line" x1="${f(plot.x)}" y1="${f(plot.y + plot.h)}" x2="${f(plot.x + plot.w)}" y2="${f(plot.y + plot.h)}" stroke="${esc(axisColor)}" stroke-width="1" data-el="xAxis"/>`];
   categories.forEach((c, i) => {
     if (i % every || !c) return;
-    out.push(text(short(c), plot.x + slot * (i + .5), plot.y + plot.h + st.axis.size * 1.3, st.axis, 'middle', 'class="chart-axis-label"'));
+    out.push(text(short(c), plot.x + slot * (i + .5), plot.y + plot.h + st.axis.size * 1.3, st.axis, 'middle', `class="chart-axis-label"${el ? ` data-el="${el}"` : ''}`));
   });
   return out.join('');
 }
@@ -348,6 +348,69 @@ function renderBoxWhisker(data, chart, width, height) {
   parts.push('</g>', labels.join(''));
   if (named) parts.push(categoryAxis(fr, grouped.categories, plot, slot));
   parts.push(fr.drawLegend(), '</svg>');
+  return parts.join('');
+}
+
+/* ---------- Waterfall ---------- */
+
+/**
+ * A waterfall in the default style: the first series' values as changes, each bar floating on the running total
+ * of those before it and joined to the next by a connector, then the total. Increases, decreases and the total
+ * take the chart's first three colours (the app's green-blue, red and grey otherwise), in the appearance's fonts,
+ * gridlines and axes, so Chart Styles and the Format pane reach it as they reach the other charts.
+ */
+export function renderWaterfall(data, chart, width, height) {
+  const s = data.series[0];
+  if (!s || !s.values.some(Number.isFinite)) return message(chart, width, height, 'No numbers to chart');
+  const style = s.style ?? data.valueStyle ?? null;
+  const paint = kind => (kind === 'increase' ? seriesPaint(chart, 0) : kind === 'decrease' ? chart.colors?.[1] || 'var(--critical, #c22a2a)' : chart.colors?.[2] || 'var(--ink-3, #918f88)');
+  const entries = [['Increase', 'increase'], ['Decrease', 'decrease'], ['Total', 'total']].map(([name, kind], i) => ({ name, i, paint: paint(kind) }));
+  let steps = waterfallSteps(s.values), categories = [...data.categories.slice(0, s.values.length), 'Total'];
+  const fr = chartFrame(chart, width, height, entries, `Waterfall chart of ${s.values.length} changes ending at a total of ${valueText(steps.at(-1).to, style)}.`);
+  const { parts, plot, st, a } = fr;
+  const lo = Math.min(0, ...steps.map(b => Math.min(b.from, b.to))), hi = Math.max(0, ...steps.map(b => Math.max(b.from, b.to)));
+  const scale = chartAxisScale(lo, hi, { min: chart.yMin, max: chart.yMax, step: a?.yStep, ticks: 5 });
+  // Its axis labels answer a click, so an axis can be picked and formatted as on the other charts.
+  const axis = valueAxis(fr, chart, scale, style, { grid: chart.gridlines !== false, el: 'yAxis' });
+  plot.x += axis.width; plot.w = Math.max(10, plot.w - axis.width - 4);
+  if (!a?.hideXAxis && a?.xLabelPosition !== 'none') plot.h = Math.max(10, plot.h - st.axis.size * 1.7);
+  // A waterfall cannot leave bars out, since each floats on the running total of those before it: past a bar a
+  // pixel, the changes sharing a pixel merge into one bar for their combined change, named for the run it covers.
+  const px = Math.max(1, Math.floor(plot.w));
+  if (steps.length > px) {
+    const changes = steps.length - 1, per = Math.ceil(changes / Math.max(1, px - 1)), merged = [], names = [];
+    for (let start = 0; start < changes; start += per) {
+      const end = Math.min(changes, start + per) - 1, delta = steps[end].to - steps[start].from;
+      merged.push({ from: steps[start].from, to: steps[end].to, delta, kind: delta < 0 ? 'decrease' : 'increase' });
+      names.push(end > start ? `${categories[start]}–${categories[end]}` : categories[start]);
+    }
+    steps = [...merged, steps[changes]]; categories = [...names, categories[changes]];
+  }
+  const y = v => plot.y + plot.h - (v - scale.min) / (scale.max - scale.min || 1) * plot.h;
+  // The plot area answers a click and takes the Format pane's fill and border.
+  const plotStroke = a?.plotStroke && a.plotStroke !== 'none' ? ` stroke="${esc(a.plotStroke)}" stroke-width="${a.plotStrokeWidth ?? 1}"` : '';
+  parts.push(`<rect data-el="plotArea" x="${f(plot.x)}" y="${f(plot.y)}" width="${f(plot.w)}" height="${f(plot.h)}" fill="${a?.plotFill && a.plotFill !== 'none' ? esc(a.plotFill) : 'transparent'}"${plotStroke}${a ? effectAttr(a, 'plotArea') : ''}/>`);
+  parts.push(axis.draw(plot, y));
+  const n = steps.length, slot = plot.w / n, gap = slot * .25, barW = Math.max(1, slot - gap);
+  parts.push(categoryGridlines(fr, n, plot));
+  const axisColor = a?.axisStyles?.x?.color && a.axisStyles.x.color !== 'none' ? a.axisStyles.x.color : a ? '#d9d9d9' : 'var(--grid)';
+  if (scale.min < 0 && scale.max > 0) parts.push(`<line class="chart-zero-line" x1="${f(plot.x)}" y1="${f(y(0))}" x2="${f(plot.x + plot.w)}" y2="${f(y(0))}" stroke="${esc(axisColor)}" stroke-width="1"/>`);
+  const clip = `waterfall-${Math.random().toString(36).slice(2, 8)}`, own = new Map((a?.pointColors?.[0] || []).map(p => [p.index, p.color])), bar = a?.bars?.[0];
+  parts.push(`<clipPath id="${clip}"><rect x="${f(plot.x)}" y="${f(plot.y - 2)}" width="${f(plot.w)}" height="${f(plot.h + 4)}"/></clipPath><g clip-path="url(#${clip})">`);
+  const labels = [];
+  steps.forEach((b, i) => {
+    const x = plot.x + slot * i + gap / 2, top = y(Math.max(b.from, b.to)), foot = y(Math.min(b.from, b.to));
+    const fill = own.get(i) || paint(b.kind);
+    const label = b.kind === 'total' ? valueText(b.to, style) : `${b.delta > 0 ? '+' : b.delta < 0 ? '−' : ''}${valueText(Math.abs(b.delta), chartPointStyle(s, i, style))}`;
+    const stroke = bar?.stroke && bar.stroke !== 'none' ? ` stroke="${esc(bar.stroke)}" stroke-width="${bar.strokeWidth ?? 1}"` : '';
+    parts.push(`<rect class="chart-waterfall-bar" x="${f(x)}" y="${f(top)}" width="${f(barW)}" height="${f(Math.max(.75, foot - top))}" fill="${esc(fill)}"${stroke} data-el="series" data-series="0" data-point="${i}"${a ? effectAttr(a, 'series:0') : ''}><title>${esc(`${categories[i]}: ${label}`)}</title></rect>`);
+    if (i < n - 1) parts.push(`<line class="chart-waterfall-connector" x1="${f(x + barW)}" y1="${f(y(b.to))}" x2="${f(x + slot)}" y2="${f(y(b.to))}" stroke="#7f7f7f" stroke-width="1" stroke-dasharray="2 2"/>`);
+    if (labelsOn(chart) && barW >= 6) {
+      // Above a rise, below a fall, outside the bar as Excel puts them.
+      labels.push(text(label, x + barW / 2, b.to >= b.from ? top - 4 : foot + st.label.size, st.label, 'middle', 'class="chart-data-label" data-el="dataLabels" data-series="0"'));
+    }
+  });
+  parts.push('</g>', labels.join(''), categoryAxis(fr, categories, plot, slot, 'xAxis'), fr.drawLegend(), '</svg>');
   return parts.join('');
 }
 

@@ -10,7 +10,7 @@ import { authoredBarGapWidth, chartPointStyle, niceScale, axisLabel, histogramBi
 import { formatValue, formatGeneral, fontStack, numFmtToStyle } from '../core/format.js';
 import { maxOf, minOf } from '../core/numeric.js';
 import { wrapLines } from '../core/textfit.js';
-import { SPECIAL_CHART_TYPES, renderSpecialChart } from './chartsvg-special.js';
+import { SPECIAL_CHART_TYPES, renderSpecialChart, renderWaterfall } from './chartsvg-special.js';
 
 // The light theme's --series-* tokens in tokens.css, in order: every fill reads at 3:1 on white.
 export const SERIES_COLORS = ['#337bfc', '#eb6834', '#0f8f61', '#b57a00', '#c4417a', '#4a3aa7', '#0e7490', '#8a5a00', '#918f88'];
@@ -455,6 +455,8 @@ function renderChartContent(data, chart, width, height) {
   // without rereading the potentially large chart series.
   if (data.titles) chart = { ...chart, ...Object.fromEntries(Object.entries(data.titles).filter(([key]) => chart[`${key}Ref`])) };
   if (SPECIAL_CHART_TYPES.has(chart.type)) return renderSpecialChart(data, chart, width, height);
+  // A waterfall in the default style draws in its appearance, as the newer types do; an app chart's below.
+  if (chart.type === 'waterfall' && chart.appearance) return renderWaterfall(data, chart, width, height);
   if (chart.type === 'radar' && chart.appearance?.radar) return renderNativeRadar(data, chart, width, height);
   if (['pie', 'donut'].includes(chart.type) && chart.appearance?.pie) return renderStyledPie(data, chart, width, height);
   // A histogram in the default style is a column chart of its bins' counts, and is drawn as one in that style, so its
