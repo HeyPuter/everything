@@ -1678,7 +1678,8 @@ export function createGrid(opts) {
         const unit = textWidth(typeof value === 'number' ? text.replace(/[0-9]/g, '0') : text, formatFont);
         const room = w - cellHorizontalPadding(cellIndent(value, st), zoom) - 1 - decorationWidth(filterHead, rule, cf, formatFont);
         const times = unit > 0 ? Math.min(1000, Math.floor(room / unit)) : 0;
-        if (times > 1) text = text.repeat(times);
+        // A screen reader still reads the entry once: "-" rather than a row of dashes, 7 rather than 7,777,777.
+        if (times > 1) { node.setAttribute('aria-label', text); text = text.repeat(times); }
       }
       node.textContent = text;
       // Text that does not fit spills over empty neighbours to the right,

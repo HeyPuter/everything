@@ -49,4 +49,17 @@ describe('Fill alignment', () => {
     expect(node(0, 0).textContent).toBe('x'.repeat(40));
     grid.destroy();
   });
+
+  // The cell's text is the entry repeated, which a screen reader read out whole: a 7 set to Fill was read as
+  // seven million seven hundred..., a ruling dash as a row of dashes. It is named by the entry it repeats.
+  it('names the cell by its entry for a screen reader, not by the repeats', async () => {
+    const { grid, node } = await mount((wb, id) => {
+      wb.setInput(id, 0, 0, '-');
+      wb.setInput(id, 1, 0, '7');
+      wb.applyStyle(id, { r1: 0, c1: 0, r2: 1, c2: 0 }, { align: 'fill' });
+    });
+    expect(node(0, 0).getAttribute('aria-label')).toBe('-');
+    expect(node(1, 0).getAttribute('aria-label')).toBe('7');
+    grid.destroy();
+  });
 });
