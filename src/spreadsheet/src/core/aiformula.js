@@ -39,7 +39,8 @@ export function describeSheet(wb, sheetId, active, { cells = true } = {}) {
     }
   }
   for (const t of wb.tablesOn?.(sheetId) || []) lines.push(`Table "${t.name}" with columns ${wb.tableColumns(sheetId, t).map((n) => `[${n}]`).join(', ')}; structured references like ${t.name}[${wb.tableColumns(sheetId, t)[0]}] work.`);
-  const names = wb.namesForSheet(sheetId);
+  // The names the Name Manager shows: not the hidden ones that keep a pivot table's or Solver's workings.
+  const names = wb.namesForSheet(sheetId).filter((n) => !n.hidden);
   if (names.length) lines.push(`Named ranges: ${names.map((n) => `${n.name} = ${n.ref}`).join(', ')}.`);
   if (wb.sheets.length > 1) lines.push(`Other sheets: ${wb.sheets.filter((s) => s.id !== sheetId).map((s) => `"${s.name}"`).join(', ')}.`);
   return lines.join('\n');
