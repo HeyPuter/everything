@@ -606,6 +606,9 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
       items: [...filtersFor(type).map((op) => ({ label: `${FILTER_OPS[op][0].toUpperCase()}${FILTER_OPS[op].slice(1)}…`, onSelect: () => { closePopup(); filterDialog(column, op); } })),
         { separator: true }, { label: 'Custom Filter…', onSelect: () => { closePopup(); filterDialog(column); } }] }));
     const truncated = counts.size >= 1000;
+    let okBtn = null;
+    // Enter in the search box confirms the list, as OK does.
+    search.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); okBtn.click(); } });
     popup = el('div.pq-popup', { role: 'dialog', 'aria-label': `Filter ${column}` },
       act('Sort Ascending', () => sortBy(column, false), 'sortAsc'),
       act('Sort Descending', () => sortBy(column, true), 'sortDesc'),
@@ -622,14 +625,16 @@ export function openQueryEditor(ctx, { queryId = null, draft = null } = {}) {
         ...boxes.map((b) => el('label.check', {}, b, el('span', {}, displayValue(b._value, type))))),
       truncated ? el('p.field-hint', {}, 'List may be incomplete.') : null,
       el('div.row.row-end', {},
-        el('button.btn.btn-primary', { type: 'button', onclick: () => {
-          const keep = boxes.filter((b) => b.checked).map((b) => b._value);
+        okBtn = el('button.btn.btn-primary', { type: 'button', onclick: () => {
+          // The values a search hides are left out, as in Power Query: "pen" and OK keeps the pens.
+          const on = (b) => b.checked && !b.closest('label').hidden;
+          const keep = boxes.filter(on).map((b) => b._value);
           closePopup();
           if (keep.length === boxes.length) return;
           // The list is read after this column's filter, so what that filter left out stays out. A list cut short at
           // 1,000 values names the ones cleared rather than the ones kept, so the values it did not show stay, as in
           // Power Query.
-          const cleared = boxes.filter((b) => !b.checked).map((b) => b._value), gone = new Set(cleared.map(keyOf));
+          const cleared = boxes.filter((b) => !on(b)).map((b) => b._value), gone = new Set(cleared.map(keyOf));
           if (list?.op === 'in') filterBy(column, [{ op: 'in', values: list.values.filter((v) => !gone.has(keyOf(v))) }], 'and', { replace: true });
           else if (truncated || list?.op === 'notIn') filterBy(column, [{ op: 'notIn', values: [...(list?.values || []), ...cleared] }], 'and', { replace: !!list });
           else filterBy(column, [{ op: 'in', values: keep }]);
