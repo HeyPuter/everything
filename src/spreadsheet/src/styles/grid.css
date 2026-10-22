@@ -987,7 +987,7 @@
 .cell.filter-head::after {
   content: "";
   position: absolute;
-  right: 4px;
+  right: calc(4px + var(--spill-right, 0px));
   top: 50%;
   width: 16px;
   height: 16px;

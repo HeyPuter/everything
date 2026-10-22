@@ -1728,6 +1728,9 @@ export function createGrid(opts) {
             node.classList.add('spill');
             // Its gridlines now run under the cells it covers, beside neighbours other than its own cell's.
             for (const side of ['Bottom', 'Right']) if (node.style[`border${side}Color`] === 'transparent') node.style[`border${side}Color`] = '';
+            // A filter button stays at its own cell's right edge, over the text running past it, as Excel draws it:
+            // carried to the end of the spilled text it sat in the empty cell beside, where a click selects that cell.
+            if (R.extent) node.style.setProperty('--spill-right', `${R.extent}px`);
             // Centred text keeps its own cell's centre: blocked on one side, it is clipped there rather than shifted the other way.
             // The padding goes on the side that runs further, so the box the text is centred in is centred on the cell:
             // put on the blocked side, it centred the text a whole column or more along, over the cells it ran into.

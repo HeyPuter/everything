@@ -491,7 +491,7 @@ button.chg-place { text-decoration: underline; text-underline-offset: 2px; text-
   --xl-filter-on: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M2 3h7.5L6.6 6.6v4L5 11.6V6.6z' fill='%23505050'/><path d='M9.5 9h5l-2.5 3z' fill='%23505050'/></svg>");
 }
 .cell.filter-head::after {
-  width: 15px; height: 15px; margin-top: -7.5px; right: 3px; border-radius: 2px;
+  width: 15px; height: 15px; margin-top: -7.5px; right: calc(3px + var(--spill-right, 0px)); border-radius: 2px;
   background-color: var(--surface); border: 1px solid #b4b4b4; box-sizing: border-box;
   background-image: var(--xl-filter-arrow); background-size: 15px 15px;
 }
