@@ -90,7 +90,7 @@ export const SCRIPT_API = {
     ['setWrapText', '(wrap)', 'Wrap long text onto more lines.', 'chain'],
     ['setTextRotation', '(degrees)', 'Turn the text from -90 to 90 degrees.', 'chain'],
     ['setIndent', '(level)', 'Indent the text.', 'chain'],
-    ['setBorder', '(edge, { style?, color? })', 'Borders: "all", "outline", "inside", "top", "bottom", "left", "right", or "none".', 'chain'],
+    ['setBorder', '(edge, { style?, color? })', 'Borders: "all", "outline", "inside", "top", "bottom", "left", "right", or "none"; style "none" takes an edge\'s off.', 'chain'],
     ['clearBorders', '()', 'Remove the borders.', 'chain'],
     ['setColumnWidth', '(pixels)', 'Width of its columns.', 'chain'],
     ['setRowHeight', '(pixels)', 'Height of its rows.', 'chain'],

@@ -603,12 +603,13 @@
     getWrapText: function () { return styleRead(this._range, 'wrap'); },
     /**
      * Borders on an edge: "all", "outline", "inside", "top", "bottom", "left", "right", "horizontal", "vertical", or
-     * "none" to remove them. Options: { style: "thin" | "medium" | "thick" | "dashed" | "dotted" | "double", color }.
+     * "none" to remove them. Options: { style: "thin" | "medium" | "thick" | "dashed" | "dotted" | "double" | "none", color };
+     * style "none" removes the borders on that edge alone.
      */
     setBorder: function (which, options) {
       var kind = BORDER_EDGES[edge(which || 'all', Object.keys(BORDER_EDGES), 'The border edge')];
       options = options || {};
-      var lineStyle = edge(options.style || 'thin', ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double', 'hair'], 'The border style');
+      var lineStyle = edge(options.style || 'thin', ['thin', 'medium', 'thick', 'dashed', 'dotted', 'double', 'hair', 'none'], 'The border style');
       write(this._range._with({ op: 'borders', kind: kind, style: lineStyle, color: options.color == null ? null : color(options.color, 'The border colour') }));
       return this;
     },

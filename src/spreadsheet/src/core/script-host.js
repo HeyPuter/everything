@@ -348,6 +348,8 @@ const WRITES = {
     this.writable(sheet, range);
     const kinds = ['all', 'outer', 'inner', 'horizontal', 'vertical', 'top', 'bottom', 'left', 'right', 'none'];
     if (!kinds.includes(op.kind)) this.fail(`"${op.kind}" is not a border.`);
+    // Style "none" takes the borders off the edges named, and leaves the cells' other borders.
+    if (op.style === 'none') { this.wb.applyBorders(sheet.id, range, op.kind, { perSide: true, remove: true, scope: lineScope(range) }); return; }
     const style = op.style === 'hair' ? 'dotted' : op.style || 'thin';
     if (!BORDER_STYLES.some(([k]) => k === style)) this.fail(`"${op.style}" is not a border style.`);
     if (op.color != null && !HEX.test(op.color)) this.fail(`"${op.color}" is not a colour.`);

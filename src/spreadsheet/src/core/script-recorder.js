@@ -227,7 +227,7 @@ export function startRecorder(wb, { startSheet = wb.activeSheetId, name = 'Recor
   wrap('applyBorders', ([sheetId, range, kind, opts = {}]) => {
     const edge = BORDER_EDGE[kind];
     if (!edge) { add(sheetId, [`// Not recorded: border change on ${address(range) || 'the sheet'}`]); return; }
-    const options = edge === 'none' ? '' : `, { style: ${q(opts.style || 'thin')}${opts.color ? `, color: ${q(opts.color)}` : ''} }`;
+    const options = edge === 'none' ? '' : opts.remove ? ', { style: "none" }' : `, { style: ${q(opts.style || 'thin')}${opts.color ? `, color: ${q(opts.color)}` : ''} }`;
     add(sheetId, [`${rangeExpr(range)}.getFormat().setBorder(${q(edge)}${options});`]);
   });
   wrap('insertRows', ([sheetId, at, n = 1]) => add(sheetId, [`${rangeExpr(lineRange('row', at, at + n - 1))}.insert();`]));
