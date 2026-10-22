@@ -12,7 +12,7 @@ import { themeColorBlock } from './themes.js';
 import { activeChart, seriesCountOf } from './chart-actions.js';
 import { chartData } from '../core/charts.js';
 import { CHART_FAMILIES, CHART_GALLERIES } from '../core/chart-subtypes.js';
-import { CHART_STYLES, chartElementPatch, chartElementState, chartStylePatch, colorPalettes, dataLabelPositions, hasAxes, isPieChart,
+import { CHART_STYLES, chartElementPatch, chartElementState, chartStylePatch, colorPalettes, dataLabelPositions, hasAxes, isPieChart, secondaryAxis,
   quickLayoutPatch, quickLayoutsFor } from '../core/chart-design.js';
 import { themedSeriesColors } from '../core/workbook-theme.js';
 import { arrangeGroup } from './arrange-ribbon.js';
@@ -80,10 +80,12 @@ function addElementMenu(ctx) {
     sub('Axes', 'chartColumn', axes && styled ? [
       check('Horizontal Axis', state.axes.horizontal, el2('axes', { axis: 'horizontal', on: !state.axes.horizontal })),
       check('Vertical Axis', state.axes.vertical, el2('axes', { axis: 'vertical', on: !state.axes.vertical })),
-      { separator: true }, { label: 'More Axis Options…', cmd: 'chart', arg: { action: 'formatPane', element: 'yAxis' } }] : [], !axes || !styled),
+      secondaryAxis(chart) && check('Secondary Vertical Axis', state.axes.secondary, el2('axes', { axis: 'secondary', on: !state.axes.secondary })),
+      { separator: true }, { label: 'More Axis Options…', cmd: 'chart', arg: { action: 'formatPane', element: 'yAxis' } }].filter(Boolean) : [], !axes || !styled),
     sub('Axis Titles', 'textBox', axes ? [
       check('Horizontal Axis Title', state.axisTitles.horizontal, el2('axisTitles', { axis: 'horizontal', on: !state.axisTitles.horizontal })),
-      check('Vertical Axis Title', state.axisTitles.vertical, el2('axisTitles', { axis: 'vertical', on: !state.axisTitles.vertical }))] : [], !axes),
+      check('Vertical Axis Title', state.axisTitles.vertical, el2('axisTitles', { axis: 'vertical', on: !state.axisTitles.vertical })),
+      secondaryAxis(chart) && check('Secondary Vertical Axis Title', state.axisTitles.secondary, el2('axisTitles', { axis: 'secondary', on: !state.axisTitles.secondary }))].filter(Boolean) : [], !axes),
     sub('Chart Title', 'textBox', [
       radio('None', state.chartTitle === 'none', el2('chartTitle', 'none')),
       radio('Above Chart', state.chartTitle === 'above', el2('chartTitle', 'above')),

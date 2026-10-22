@@ -24,14 +24,19 @@ export const styledChart = chart => !!chart?.appearance;
 const labelStyle = a => ({ ...(a?.xStyle || { font: 'calibri', size: 12, color: CHART_TEXT_GREY }), color: a?.xStyle?.color || CHART_TEXT_GREY });
 
 /** What Add Chart Element shows as on: each submenu's current choice. */
+/** Does the chart draw a secondary value axis (a combo chart's line on the right-hand axis)? */
+export const secondaryAxis = chart => chart.type === 'combo' && !!chart.secondaryAxis && !chart.appearance?.seriesTypes?.length;
+
 export function chartElementState(chart) {
   const a = chart.appearance || {};
   const horizontal = chart.type === 'bar';
   const valueLabels = a.valueLabels?.find(l => l?.show);
   return {
     // A bar chart's categories run down its left side: its horizontal axis is the value one.
-    axes: { horizontal: !(horizontal ? a.hideYAxis : a.hideXAxis), vertical: !(horizontal ? a.hideXAxis : a.hideYAxis) },
-    axisTitles: { horizontal: !!(horizontal ? chart.yTitle : chart.xTitle), vertical: !!(horizontal ? chart.xTitle : chart.yTitle) },
+    axes: { horizontal: !(horizontal ? a.hideYAxis : a.hideXAxis), vertical: !(horizontal ? a.hideXAxis : a.hideYAxis),
+      ...(secondaryAxis(chart) ? { secondary: !a.hideY2Axis } : {}) },
+    axisTitles: { horizontal: !!(horizontal ? chart.yTitle : chart.xTitle), vertical: !!(horizontal ? chart.xTitle : chart.yTitle),
+      ...(secondaryAxis(chart) ? { secondary: !!chart.y2Title } : {}) },
     chartTitle: chart.title || chart.titleRef ? 'above' : 'none',
     dataLabels: PIE.has(chart.type)
       ? (a.pie?.labels && (a.pie.labels.value || a.pie.labels.percent || a.pie.labels.category) ? a.pie.labels.position || 'bestFit' : 'none')
@@ -66,6 +71,8 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
       if (!AXES(chart.type) || !styled) return null;
       // The axis is named by the way it is drawn (Horizontal, Vertical) or by what it reads ('category',
       // 'value'): a bar chart's horizontal axis is its value axis.
+      // A combo chart's secondary value axis, on its right, is named on its own.
+      if (value.axis === 'secondary') return secondaryAxis(chart) ? done({ appearance: { hideY2Axis: !value.on } }) : null;
       const category = value.axis === 'category' || value.axis !== 'value' && (value.axis === 'horizontal') !== horizontal;
       const key = category ? 'hideXAxis' : 'hideYAxis';
       return done({ appearance: { [key]: !value.on } });
@@ -73,7 +80,8 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
     case 'axisTitles': {
       if (!AXES(chart.type)) return null;
       // A bar chart's categories run down its left side: its vertical axis title is the category one.
-      const key = (value.axis === 'horizontal') !== horizontal ? 'xTitle' : 'yTitle';
+      if (value.axis === 'secondary' && !secondaryAxis(chart)) return null;
+      const key = value.axis === 'secondary' ? 'y2Title' : (value.axis === 'horizontal') !== horizontal ? 'xTitle' : 'yTitle';
       return done({ [key]: value.on ? chart[key] || 'Axis Title' : '', [`${key}Ref`]: undefined });
     }
     case 'chartTitle':
