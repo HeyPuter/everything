@@ -756,10 +756,24 @@ function fillFormula(wb, args, env) {
   const note = reachingNote(env, reachesOut(wb, text.slice(1)));
   const hit = spillsHit(wb, sheetId, range);
   wb.ensureSize(sheetId, range.r2 + 1, range.c2 + 1);
+  // The fill passes over rows a filter hides and the cells under a merged cell's top-left one, as the user's own fill
+  // does: the count says what was filled, and what was left out is said, or the model takes the column for complete.
+  const hiddenRows = wb.sheet(sheetId).filterHidden;
+  let filtered = 0, merged = 0;
+  for (let r = range.r1; r <= range.r2; r++) {
+    if (hiddenRows?.has(r)) { filtered++; continue; }
+    for (let c = range.c1; c <= range.c2; c++) if (wb._coveredByMerge?.(sheetId, r, c)) merged++;
+  }
+  const skipped = filtered * (range.c2 - range.c1 + 1) + merged;
   wb.transaction('AI edit', () => wb.fillInput(sheetId, range, text, { r: range.r1, c: range.c1 }));
   const errors = formulaErrors(wb, sheetId, range);
   const blocked = blockedSpills(wb, sheetId, hit);
-  return { filled: qualified(wb, sheetId, range), cells, ...(errors.length ? { formula_errors: errors } : {}), ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}), ...(note ? { note } : {}) };
+  const left = [filtered && `${filtered} row${filtered === 1 ? '' : 's'} hidden by a filter`, merged && `${merged} cell${merged === 1 ? '' : 's'} inside merged cells`].filter(Boolean);
+  return {
+    filled: qualified(wb, sheetId, range), cells: cells - skipped,
+    ...(left.length ? { left_out: `${left.join(' and ')} ${skipped === 1 ? 'was' : 'were'} not filled, as a fill passes over them.` } : {}),
+    ...(errors.length ? { formula_errors: errors } : {}), ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}), ...(note ? { note } : {}),
+  };
 }
 
 function clearRange(wb, args, env) {
