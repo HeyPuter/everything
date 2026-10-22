@@ -12,8 +12,11 @@ export const SUBTOTAL_FUNCTIONS = [
 ];
 
 const SUBTOTAL_RE = /^\s*(?:_xlfn\.)?SUBTOTAL\s*\(/i;
-// The labels this feature writes: "West Total", "(blank) Total", "Grand Total"; never a bare "Total" or "Subtotal".
-const TOTAL_LABEL_RE = /\S\s+Total$/;
+// The word a total row's label ends in, by function, as Excel writes it: "West Total" and "Grand Total" for a sum,
+// "West Average" and "Grand Average" for an average, and so on, so a row of averages is not read as a total.
+const LABEL_WORDS = { 9: 'Total', 3: 'Count', 1: 'Average', 4: 'Max', 5: 'Min', 6: 'Product', 2: 'Count', 7: 'StdDev', 8: 'StdDevp', 10: 'Var', 11: 'Varp' };
+// The labels this feature writes: "West Total", "(blank) Average", "Grand Count"; never a bare "Total" or "Subtotal".
+const TOTAL_LABEL_RE = /\S\s+(?:Total|Count|Average|Max|Min|Product|StdDevp?|Varp?)$/;
 
 // Prefix text too: literal "number:1" must not collide with the number 1. Errors group by their code, so #N/A
 // rows do not fall under a #DIV/0! total.
@@ -129,8 +132,9 @@ export function addSubtotals(wb, sheetId, range, { groupCol, code = 9, totalCols
     // total under everything, spanning it all (SUBTOTAL skips the group totals, so nothing is counted twice).
     // The rows go in at once: one at a time, each renumbered the whole sheet, and thousands of groups took minutes.
     const last = end + groups.length + 1;
-    groups.forEach((g, i) => totalRow(g.to + i + 1, `${wb.getDisplay(sheetId, g.from, groupCol) || '(blank)'} Total`, g.from + i, g.to + i, g.to, {}));
-    totalRow(last, 'Grand Total', r0, last - 1, end, { bt: true, bs: 'thin' });
+    const word = LABEL_WORDS[code] || 'Total';
+    groups.forEach((g, i) => totalRow(g.to + i + 1, `${wb.getDisplay(sheetId, g.from, groupCol) || '(blank)'} ${word}`, g.from + i, g.to + i, g.to, {}));
+    totalRow(last, `Grand ${word}`, r0, last - 1, end, { bt: true, bs: 'thin' });
     if (!wb.insertRowsAt(sheetId, [...groups.map((g) => g.to + 1), end + 1])) { refused = true; return null; }
     wb.setCells(sheetId, entries, 'Add subtotals');
     if (group) {

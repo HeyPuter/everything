@@ -22,6 +22,7 @@ function addSubtotalsOneByOne(wb, sheetId, range, { groupCol, code = 9, totalCol
   const n = normalizeRange(range);
   const r0 = header ? n.r1 + 1 : n.r1;
   const cols = totalCols.filter((c) => c >= n.c1 && c <= n.c2 && c !== groupCol);
+  const word = { 9: 'Total', 1: 'Average' }[code];
   return wb.transaction('Add subtotals', () => {
     const end = n.r2 - removeSubtotals(wb, sheetId, n);
     if (sort) wb.sortRangeBy(sheetId, { ...n, r1: r0, r2: end }, [{ col: groupCol, ascending: true }]);
@@ -46,10 +47,10 @@ function addSubtotalsOneByOne(wb, sheetId, range, { groupCol, code = 9, totalCol
       const g = groups[i];
       const label = wb.getDisplay(sheetId, g.from, groupCol) || '(blank)';
       if (!wb.insertRows(sheetId, g.to + 1, 1)) throw new Error('refused');
-      totalRow(g.to + 1, `${label} Total`, g.from, g.to, {});
+      totalRow(g.to + 1, `${label} ${word}`, g.from, g.to, {});
     }
     const last = end + groups.length + 1;
-    totalRow(last, 'Grand Total', r0, last - 1, { bt: true, bs: 'thin' });
+    totalRow(last, `Grand ${word}`, r0, last - 1, { bt: true, bs: 'thin' });
     if (group) {
       wb.groupLines(sheetId, 'row', r0, last - 1);
       groups.forEach((g, i) => wb.groupLines(sheetId, 'row', g.from + i, g.to + i));
