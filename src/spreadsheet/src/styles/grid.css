@@ -348,13 +348,17 @@
 .cell.u { text-decoration: underline; }
 .cell.s { text-decoration: line-through; }
 .cell.u.s { text-decoration: underline line-through; }
-.cell.wrap { white-space: pre-wrap; overflow-wrap: anywhere; align-items: flex-start; padding-top: 4px; line-height: 1.3; }
+.cell.wrap { white-space: pre-wrap; overflow-wrap: anywhere; align-items: flex-start; line-height: 1.3; }
 /* A number never wraps: too wide for its cell it shows ### (or a shorter General form) on one line. */
 .cell.wrap.num { white-space: pre; overflow-wrap: normal; }
 .cell.err { color: var(--critical); font-weight: 600; }
 .cell.vt { align-items: flex-start; padding-top: 3px; }
 .cell.vm { align-items: center; padding-top: 0; }
 .cell.vb { align-items: flex-end; padding-bottom: 3px; }
+/* Wrapped lines fill the rows fitted for them (heightForLines: 1.3 lines a line, nothing more) in every font, as in
+   Calibri: the 4px kept above the first line and 3px below the last were the room of the old fit's 8 extra pixels,
+   and in a fitted row of Arial (a LibreOffice or Google Sheets file) they pushed the last line's descenders out. */
+.cell.wrap { padding-top: 0; padding-bottom: 0; }
 /* Retain the compact vertical metrics of existing Calibri workbooks.
    Horizontal text margins are independent of the font. */
 .cell.calibri { padding-top: 0; padding-bottom: 0; line-height: 1.2; }
