@@ -596,6 +596,8 @@
     /** "top", "middle" or "bottom". */
     setVerticalAlignment: function (a) { style(this._range, { valign: edge(a, ['top', 'middle', 'bottom'], 'The vertical alignment') }); return this; },
     setWrapText: function (on) { style(this._range, { wrap: bool(on, 'setWrapText') }); return this; },
+    /** What long text does: "overflow" into empty cells beside it, "wrap" onto more lines, or "clip" at the cell's edge. */
+    setTextWrapping: function (mode) { var m = edge(mode, ['overflow', 'wrap', 'clip'], 'The text wrapping'); style(this._range, { wrap: m === 'wrap', clip: m === 'clip' }); return this; },
     /** Degrees from -90 to 90. */
     setTextRotation: function (deg) { if (typeof deg !== 'number' || deg < -90 || deg > 90) fail('The rotation must be from -90 to 90 degrees.'); style(this._range, { rot: deg }); return this; },
     setIndent: function (n) { style(this._range, { indent: int(n, 'The indent', 0) }); return this; },

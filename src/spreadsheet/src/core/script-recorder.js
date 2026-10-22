@@ -71,10 +71,12 @@ export function formatLines(range, patch, style = patch) {
       case 'bg': lines.push(value ? `${R}.getFormat().getFill().setColor(${q(value)});` : `${R}.getFormat().getFill().clear();`); break;
       case 'align': fmt(`setHorizontalAlignment(${q(value || 'general')})`); break;
       case 'valign': fmt(`setVerticalAlignment(${q(value || 'middle')})`); break;
-      case 'wrap': fmt(`setWrapText(${!!value})`); break;
+      // With "clip at the cell's edge" in the patch, the three ways of text wrapping are one call.
+      case 'wrap': if (!('clip' in patch)) fmt(`setWrapText(${!!value})`); break;
       case 'rot': fmt(`setTextRotation(${Number(value) || 0})`); break;
       case 'indent': fmt(`setIndent(${Number(value) || 0})`); break;
-      case 'clip': case 'nolink': break; // follow from the keys beside them
+      case 'clip': fmt(`setTextWrapping(${q(value ? 'clip' : (('wrap' in patch ? patch.wrap : style?.wrap) ? 'wrap' : 'overflow'))})`); break;
+      case 'nolink': break; // follows from the keys beside it
       default:
         if (NUMBER_FORMAT_KEYS.includes(key)) numberFormat = true;
         else unknown.push(key);

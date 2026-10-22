@@ -88,6 +88,7 @@ export const SCRIPT_API = {
     ['setHorizontalAlignment', '(alignment)', '"left", "center", "right" or "general"; or "fill", "justify", "centerContinuous" or "distributed".', 'chain'],
     ['setVerticalAlignment', '(alignment)', '"top", "middle" or "bottom".', 'chain'],
     ['setWrapText', '(wrap)', 'Wrap long text onto more lines.', 'chain'],
+    ['setTextWrapping', '(mode)', 'Long text: "overflow" into empty cells beside it, "wrap" onto more lines, or "clip" at the cell\'s edge.', 'chain'],
     ['setTextRotation', '(degrees)', 'Turn the text from -90 to 90 degrees.', 'chain'],
     ['setIndent', '(level)', 'Indent the text.', 'chain'],
     ['setBorder', '(edge, { style?, color? })', 'Borders: "all", "outline", "inside", "top", "bottom", "left", "right", or "none"; style "none" takes an edge\'s off.', 'chain'],

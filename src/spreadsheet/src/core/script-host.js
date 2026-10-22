@@ -235,6 +235,7 @@ function stylePatch(host, raw) {
   for (const [key, value] of Object.entries(raw)) {
     if (STYLE_FLAGS.includes(key)) patch[key] = value ? true : null;
     else if (key === 'wrap') { patch.wrap = value ? true : null; if (value) patch.clip = null; }
+    else if (key === 'clip') { patch.clip = value ? true : null; if (value) patch.wrap = null; }
     else if (key === 'bg' || key === 'color') {
       if (value != null && !HEX.test(String(value))) host.fail(`"${value}" is not a colour.`);
       patch[key] = value == null ? null : String(value).toLowerCase();
