@@ -13292,6 +13292,7 @@ export class Workbook extends EventTarget {
       referenceMode,
       fixedArray,
       currentSheet: sheet.name,
+      nameScope, // the scope its defined names are looked up in
       cell: { r, c },
       sheetExists: (name) => !!this.sheetByName(name),
       indirectSheetExists: (name) => { const sheet = this.sheetByName(name); return !!sheet && !sheet.externalCache; },

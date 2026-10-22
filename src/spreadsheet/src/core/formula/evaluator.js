@@ -239,6 +239,8 @@ function finiteResult(v) {
   return v;
 }
 const NOT_TAKEN = Symbol('not taken');
+// The defined names being worked out, each for the scope it was looked up in and the cell asking (see 'call').
+const expandingNames = new Set();
 
 function mapRange(v, fn) {
   const values = fullValues(v);
@@ -721,9 +723,20 @@ export function evaluate(node, ctx, final = false) {
         const definesLambda = named?.type === 'call' && named.name === 'LAMBDA';
         const depth = definesLambda ? (ctx.nameDepth || 0) : (ctx.nameDepth || 0) + 1;
         if (depth > 64) return err('#CYCLE!');
-        // A workbook definition is outside the caller's lexical scope.
-        // Retain its calling cell, but do not capture LET/LAMBDA bindings.
-        const value = evaluateFormula(named, { ...nameCtx, locals: undefined, omitted: undefined, nameDepth: depth });
+        // Such a name met again for the same cell while it is still being worked out reads itself, and is a cycle at
+        // once: left to the depth limit, Price = IF(ISNUMBER(Price),Price,0) worked itself out twice at each of 64
+        // levels, which never ended. A LAMBDA it answers with may call it again once it has been worked out.
+        const key = definesLambda ? null : `${String(nameCtx.nameScope ?? '').toLowerCase()}|${node.name}|${nameCtx.currentSheet}|${nameCtx.cell?.r},${nameCtx.cell?.c}`;
+        if (key && expandingNames.has(key)) return err('#CYCLE!');
+        if (key) expandingNames.add(key);
+        let value;
+        try {
+          // A workbook definition is outside the caller's lexical scope.
+          // Retain its calling cell, but do not capture LET/LAMBDA bindings.
+          value = evaluateFormula(named, { ...nameCtx, locals: undefined, omitted: undefined, nameDepth: depth });
+        } finally {
+          if (key) expandingNames.delete(key);
+        }
         if (node.bare) return value;
         // Called with arguments: the name must hold a LAMBDA.
         if (!isLambda(value)) return isError(value) ? value : err('#VALUE!');
