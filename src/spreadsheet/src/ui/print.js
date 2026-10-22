@@ -1567,7 +1567,6 @@ function loadPrintFonts(root) {
   if (!fonts?.load || !fonts.check) return null;
   const used = new Map();
   root.classList.add('print-measuring');
-  root.getBoundingClientRect();
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   for (let text = walker.nextNode(); text; text = walker.nextNode()) {
     const parent = text.parentElement;
