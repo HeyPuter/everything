@@ -4432,7 +4432,7 @@ export function createGrid(opts) {
       return;
     }
     if (edit && !commitEdit()) return;
-    if (keyMode === 'add') { addRange(S.selRange(sel, true)); setSelection(S.single(r, c), { add: true }); drag = { kind: 'select' }; grab(viewport, e); viewport.focus({ preventScroll: true }); return; }
+    if (keyMode === 'add') { if (!addCursor) addRange(S.selRange(sel, true)); setSelection(S.single(r, c), { add: true }); drag = { kind: 'select' }; grab(viewport, e); viewport.focus({ preventScroll: true }); return; }
     // Shift stretches the range last selected; the ranges added before it with Ctrl/Cmd+click stay, as in Excel.
     if (e.shiftKey || keyMode === 'extend') setSelection(S.extendTo(sel, r, c), { add: true });
     else setSelection(S.single(r, c));
