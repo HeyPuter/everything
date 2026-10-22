@@ -1173,6 +1173,48 @@ function multiCriteria(pairs, baseRange) {
 }
 
 /**
+ * The answers of a criteria function kept for the values it read: SUMIFS(C:C,B:B,B2) filled down a list of 20,000
+ * rows in five categories added up 4,000 amounts for each row, 80 million in all, though there are five answers.
+ * The ranges' values arrays are shared by every formula that reads them in one calculation and replaced by any
+ * change, so an answer is kept beside the first range's array, under the other arrays, the extents of the ranges
+ * and the criteria themselves, and lives no longer than the values it was worked out from.
+ */
+const valuesIds = new WeakMap();
+let nextValuesId = 0;
+function rememberCriteria(fn, first, repeating) {
+  const criteriaAnswers = new WeakMap(); // the first range's values array → Map(key → answer), for this function
+  const criterion = (k) => k >= first && (repeating ? (k - first) % 2 === 0 : k === first);
+  const part = (v) => (v == null ? 'z' : typeof v === 'string' ? `s${v}` : typeof v === 'number' ? `n${v}` : typeof v === 'boolean' ? `b${v}`
+    : v === EMPTY ? 'E' : isError(v) ? `e${v.error}` : null);
+  return (args, ctx) => {
+    const base = isRange(args[0]) ? args[0].values : null;
+    // A range of a running family ($A$1:A9, see noteRangeRows) is read by one formula alone: nothing to keep.
+    if (!base || RANGE_PARENTS.has(base)) return fn(args, ctx);
+    // Reading a number or a date out of a criterion follows the regional settings.
+    let key = getLocale();
+    for (let k = 0; k < args.length; k++) {
+      const a = args[k];
+      let p;
+      if (isRange(a) && !(criterion(k) && a.values.length === 1 && a.values[0]?.length === 1)) {
+        let id = valuesIds.get(a.values);
+        if (id === undefined) valuesIds.set(a.values, id = ++nextValuesId);
+        const ref = a.ref;
+        p = `r${id}:${ref ? `${ref.sheet ?? ''}!${ref.r1},${ref.c1},${ref.r2},${ref.c2}` : (a.extent || '')}`;
+      } else p = part(scalar(a));
+      if (p === null) return fn(args, ctx); // a sparkline or other drawable: worked out as it stands
+      key += `\u0000${p}`;
+    }
+    let answers = criteriaAnswers.get(base);
+    if (!answers) criteriaAnswers.set(base, answers = new Map());
+    if (answers.has(key)) return answers.get(key);
+    const answer = fn(args, ctx);
+    if (answers.size >= 10000) answers.clear();
+    answers.set(key, answer);
+    return answer;
+  };
+}
+
+/**
  * The *IF family lifts over its criteria: an array or multi-cell range as a
  * criterion answers element by element, in the criterion's shape, so
  * SUM(COUNTIF(A1:A9,{"x","y"})) counts both values and SUMIFS(B1:B9,A1:A9,{"x","y"})
@@ -1183,6 +1225,7 @@ function multiCriteria(pairs, baseRange) {
  * with a range criterion for an array formula that may spill.
  */
 function overCriteria(fn, first, repeating = false, { errorCriteria = false } = {}) {
+  fn = rememberCriteria(fn, first, repeating);
   const lifted = (args, ctx) => {
     let grids = null;
     let rows = 1;

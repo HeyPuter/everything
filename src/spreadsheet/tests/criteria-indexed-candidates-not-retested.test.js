@@ -51,20 +51,21 @@ it('reads none of the cells an index found for a criterion again', () => {
   const labels = counted(Array.from({ length: 2000 }, (_, r) => [`k${r % 13}`]));
   const numbers = counted(Array.from({ length: 2000 }, (_, r) => [r % 97]));
   const amounts = { range: true, values: Array.from({ length: 2000 }, (_, r) => [r]) };
-  const third = (name, args) => {
-    FUNCTIONS[name].fn(args); FUNCTIONS[name].fn(args); // the second use indexes the range
+  // Two uses of the values with another criterion index the range; the answer asked for is then not one already kept.
+  const third = (name, args, swap, others = ['k0', 'k1']) => {
+    for (const other of others) FUNCTIONS[name].fn(args.map((a, k) => (k === swap ? other : a)));
     reads = 0;
     const answer = FUNCTIONS[name].fn(args);
     return [answer, reads];
   };
-  expect(third('COUNTIFS', [labels, 'k5'])).toEqual([154, 0]);
-  expect(third('SUMIF', [labels, 'k5', amounts])[1]).toBe(0);
-  expect(third('SUMIFS', [amounts, labels, 'k6'])[1]).toBe(0);
-  expect(third('AVERAGEIF', [labels, 'k7', amounts])[1]).toBe(0);
-  expect(third('MAXIFS', [amounts, labels, 'k8'])[1]).toBe(0);
-  expect(third('COUNTIFS', [numbers, '>40'])[1]).toBe(0);
+  expect(third('COUNTIFS', [labels, 'k5'], 1)).toEqual([154, 0]);
+  expect(third('SUMIF', [labels, 'k5', amounts], 1)[1]).toBe(0);
+  expect(third('SUMIFS', [amounts, labels, 'k6'], 2)[1]).toBe(0);
+  expect(third('AVERAGEIF', [labels, 'k7', amounts], 1)[1]).toBe(0);
+  expect(third('MAXIFS', [amounts, labels, 'k8'], 2)[1]).toBe(0);
+  expect(third('COUNTIFS', [numbers, '>40'], 1, ['>10', '>20'])[1]).toBe(0);
   // The other criteria are still tested, on the index's cells alone.
-  const [count, read] = third('COUNTIFS', [labels, 'k5', numbers, '>40']);
+  const [count, read] = third('COUNTIFS', [labels, 'k5', numbers, '>40'], 1);
   expect(count).toBe([...Array(2000).keys()].filter((r) => r % 13 === 5 && r % 97 > 40).length);
   expect(read).toBe(154);
 });
