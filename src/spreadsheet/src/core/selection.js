@@ -73,15 +73,18 @@ function extendedScope(previous, next) {
  * spreadsheet does. From a filled cell, run to the last filled cell before
  * a gap; from an empty one, to the next filled cell (or the sheet edge).
  */
-export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, nextFilled = null) {
+export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, nextFilled = null, pastHidden = null) {
   let { r, c } = sel.active;
   const maxR = bounds.rows - 1;
   const maxC = bounds.cols - 1;
   const inside = (rr, cc) => rr >= 0 && rr <= maxR && cc >= 0 && cc <= maxC;
+  // How far to step from a hidden line along the way, and back from one: past its whole run when `pastHidden`
+  // (given) knows it, since rows hidden to the sheet's end are a million of them; one line otherwise.
+  const over = (rr, cc, back) => (pastHidden ? Math.max(1, pastHidden(rr, cc, back ? -dr : dr, back ? -dc : dc)) : 1);
   const step = (rr, cc) => {
     rr += dr;
     cc += dc;
-    while (inside(rr, cc) && !isVisible(rr, cc)) { rr += dr; cc += dc; }
+    while (inside(rr, cc) && !isVisible(rr, cc)) { const k = over(rr, cc, false); rr += k * dr; cc += k * dc; }
     return { r: rr, c: cc };
   };
 
@@ -108,7 +111,7 @@ export function jump(sel, dr, dc, bounds, hasValue, isVisible = () => true, next
       if (!ahead) {
         // Nothing beyond: the sheet's last shown line.
         let er = dr > 0 ? maxR : dr < 0 ? 0 : r, ec = dc > 0 ? maxC : dc < 0 ? 0 : c;
-        while ((er !== r || ec !== c) && !isVisible(er, ec)) { er -= dr; ec -= dc; }
+        while ((er !== r || ec !== c) && !isVisible(er, ec)) { const k = Math.min(over(er, ec, true), Math.abs(er - r) + Math.abs(ec - c)); er -= k * dr; ec -= k * dc; }
         return single(er, ec);
       }
       // Stand just before it; the step lands on it, or past it over hidden lines.

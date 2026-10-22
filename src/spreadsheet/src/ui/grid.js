@@ -3748,28 +3748,39 @@ export function createGrid(opts) {
     const start = m ? { ...from, active: { r: dr > 0 ? m.r2 : dr < 0 ? m.r1 : from.active.r, c: dc > 0 ? m.c2 : dc < 0 ? m.c1 : from.active.c } } : from;
     let next = S.move(start, dr, dc, b);
     while ((dr && rowHidden(s, next.active.r)) || (dc && s.hiddenCols.has(next.active.c))) {
-      const further = S.move(next, dr, dc, b);
+      const further = S.move(next, dr && pastHidden(rowOffsets, next.active.r, dr), dc && pastHidden(colOffsets, next.active.c, dc), b);
       if (further.active.r === next.active.r && further.active.c === next.active.c) return from;
       next = further;
     }
     return next;
   }
 
+  /**
+   * How far to step from hidden line i going `dir` (1 or -1): past the whole run of hidden lines it lies in, in
+   * one leap, as the layout knows them, or one line. Rows hidden to the end of a sheet are a million of them,
+   * and an arrow press at the last row shown walked them one by one.
+   */
+  function pastHidden(offsets, i, dir) {
+    ensureOffsets();
+    const run = offsets.blankRun(i);
+    return run ? (dir > 0 ? run[1] + 1 - i : run[0] - 1 - i) : dir;
+  }
+
   /** Resolve a keyboard destination to visible lines, falling back at an edge. */
   function visibleTarget(target, dr, dc) {
     const s = sheet();
-    const line = (at, delta, total, hidden) => {
+    const line = (at, delta, total, hidden, offsets) => {
       if (!delta || !hidden(at)) return at;
       let i = at;
-      while (i >= 0 && i < total && hidden(i)) i += delta;
+      while (i >= 0 && i < total && hidden(i)) i += pastHidden(offsets, i, delta);
       if (i >= 0 && i < total) return i;
       i = at;
-      while (i >= 0 && i < total && hidden(i)) i -= delta;
+      while (i >= 0 && i < total && hidden(i)) i += pastHidden(offsets, i, -delta);
       return i >= 0 && i < total ? i : at;
     };
     return {
-      r: line(target.r, dr, bounds().rows, (r) => rowHidden(s, r)),
-      c: line(target.c, dc, bounds().cols, (c) => s.hiddenCols.has(c)),
+      r: line(target.r, dr, bounds().rows, (r) => rowHidden(s, r), rowOffsets),
+      c: line(target.c, dc, bounds().cols, (c) => s.hiddenCols.has(c), colOffsets),
     };
   }
 
@@ -4026,7 +4037,8 @@ export function createGrid(opts) {
     const s = sheet();
     const m = s.merges.length ? wb.mergeAt(sheetId, from.active.r, from.active.c) : null;
     const start = m ? { ...from, active: { r: dr > 0 ? m.r2 : dr < 0 ? m.r1 : from.active.r, c: dc > 0 ? m.c2 : dc < 0 ? m.c1 : from.active.c } } : from;
-    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled);
+    const leap = (r, c, ddr, ddc) => Math.abs(ddr ? pastHidden(rowOffsets, r, ddr) : pastHidden(colOffsets, c, ddc));
+    return S.jump(start, dr, dc, bounds(), hasValue, (r, c) => !rowHidden(s, r) && !s.hiddenCols.has(c), nextFilled, leap);
   }
 
   /**

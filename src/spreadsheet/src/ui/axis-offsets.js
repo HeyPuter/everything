@@ -216,6 +216,13 @@ export class AxisOffsets {
     return this.endPos - this.origin;
   }
 
+  /** The run of lines of no size (hidden lines) holding line i, as [first, last], or null when line i has a size. */
+  blankRun(i) {
+    if (this.explicit || !(i >= 0) || i >= this.n) return null;
+    const j = this._below(i + 1) - 1;
+    return j >= 0 && i <= this.lasts[j] && this.sizes[j] === 0 ? [this.keys[j], this.lasts[j]] : null;
+  }
+
   /** The non-default lines in a..b, as [index, size] pairs (for callers that walk them rather than every line). */
   overridesIn(a, b) {
     const out = [];
