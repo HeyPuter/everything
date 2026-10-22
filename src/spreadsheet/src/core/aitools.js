@@ -686,6 +686,7 @@ function writeCells(wb, args, env) {
   const refused = [];
   const planned = [];
   let reached = false;
+  let kept = 0;
   rows.forEach((row, i) => row.forEach((value, j) => {
     const input = inputFor(value);
     if (input === undefined) return;
@@ -694,8 +695,13 @@ function writeCells(wb, args, env) {
     const verdict = typeof input === 'string' ? wb.validateInput(sheetId, r, c, input) : wb.validateValue?.(sheetId, r, c, input) ?? { ok: true };
     if (!verdict.ok && verdict.rule?.strict !== false) { refused.push(`${cellName(r, c)} (${verdict.message || 'not allowed by its validation rule'})`); return; }
     if (typeof input === 'string' && input.startsWith('=') && reachesOut(wb, input.slice(1))) reached = true;
+    // A cell written back with what it already holds (a block the model read and rewrites) is left as it is: written
+    // again, it lost the link and the mixed formatting of its text that it had, though nothing was asked about.
+    const cell = wb.getCell(sheetId, r, c);
+    if (holds(cell) && (typeof input === 'string' ? keepsValue(wb, sheetId, r, c, cell, input) : cell.f == null && cell.v === input)) { kept++; return; }
     planned.push({ r, c, input });
   }));
+  if (!planned.length && kept && !refused.length) return { written: qualified(wb, sheetId, range), cells: 0, unchanged: kept };
   if (!planned.length) throw new ToolError(refused.length ? `Nothing was written: ${refused.slice(0, 5).join('; ')}.` : 'Every value was null, so nothing was written.');
   const note = reachingNote(env, reached);
   const written = new Set(planned.filter(({ input }) => input !== '').map(({ r, c }) => cellKey(r, c)));
@@ -707,6 +713,7 @@ function writeCells(wb, args, env) {
   return {
     written: qualified(wb, sheetId, range),
     cells: planned.length,
+    ...(kept ? { unchanged: kept } : {}),
     ...(refused.length ? { refused_by_validation: refused.slice(0, 10) } : {}),
     ...(errors.length ? { formula_errors: errors } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
