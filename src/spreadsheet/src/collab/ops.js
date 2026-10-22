@@ -161,8 +161,13 @@ export function validateOp(op) {
 
 /* ---------- Where positions go ---------- */
 
+/** Lists of runs known to be merged and sorted already (made here), which need not be sorted again. */
+const MERGED = new WeakSet();
+const merged = (list) => { MERGED.add(list); return list; };
+
 /** Merged, sorted deletion runs. */
 export function mergeRuns(runs) {
+  if (MERGED.has(runs)) return runs.map((r) => ({ from: r.from, to: r.to }));
   const sorted = runs.filter((r) => r.to >= r.from).map((r) => ({ from: r.from, to: r.to })).sort((a, b) => a.from - b.from);
   const out = [];
   for (const r of sorted) {
@@ -170,19 +175,48 @@ export function mergeRuns(runs) {
     if (last && r.from <= last.to + 1) last.to = Math.max(last.to, r.to);
     else out.push(r);
   }
-  return out;
+  return merged(out);
 }
+/** `runs` merged and sorted, without copying a list that is so already (for reading only). */
+const sortedRuns = (runs) => (MERGED.has(runs) ? runs : mergeRuns(runs));
 
-/** Lines deleted before line i (exclusive), and whether i itself is deleted. */
-function deletedBefore(runs, i) {
-  let n = 0;
-  for (const r of runs) {
-    if (r.from >= i) break;
-    n += Math.min(r.to, i - 1) - r.from + 1;
+/**
+ * A deletion's runs merged and sorted, with how many lines go before each, worked out once per list of runs: every
+ * position mapped through a deletion of the rows a filter showed (thousands of runs) merged them all again, and two
+ * such deletions made at once took seconds to transform against each other.
+ */
+const runIndexes = new WeakMap();
+function runIndex(runs) {
+  let index = runIndexes.get(runs);
+  if (!index) {
+    const list = sortedRuns(runs), before = [];
+    let n = 0;
+    for (const r of list) { before.push(n); n += r.to - r.from + 1; }
+    runIndexes.set(runs, (index = { merged: list, before }));
   }
-  return n;
+  return index;
 }
-const deletedAt = (runs, i) => runs.some((r) => i >= r.from && i <= r.to);
+/** The last of the merged runs that starts before line i (`at`: at or before it), or -1. */
+function lastRun(merged, i, at = false) {
+  let lo = 0, hi = merged.length - 1, found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (merged[mid].from < i || (at && merged[mid].from === i)) { found = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return found;
+}
+/** Lines of a deletion's runs before line i (exclusive). */
+function deletedBefore(runs, i) {
+  const { merged, before } = runIndex(runs);
+  const k = lastRun(merged, i);
+  return k < 0 ? 0 : before[k] + Math.min(merged[k].to, i - 1) - merged[k].from + 1;
+}
+/** Whether a deletion's runs take line i. */
+function deletedAt(runs, i) {
+  const { merged } = runIndex(runs);
+  const k = lastRun(merged, i, true);
+  return k >= 0 && i <= merged[k].to;
+}
 
 /**
  * Where line i (of `axis` on sheet `s`) is after `op`, or -1 when the operation removed it. Lines of other
@@ -193,10 +227,7 @@ export function mapLine(op, s, axis, i) {
   if (op.t === 'drop') return -1;
   if (op.axis !== axis) return i;
   if (op.t === 'insert') return i >= op.at ? i + op.n : i;
-  if (op.t === 'delete') {
-    const runs = mergeRuns(op.runs);
-    return deletedAt(runs, i) ? -1 : i - deletedBefore(runs, i);
-  }
+  if (op.t === 'delete') return deletedAt(op.runs, i) ? -1 : i - deletedBefore(op.runs, i);
   if (op.t === 'move') return moveIndex(op, i);
   return i;
 }
@@ -221,7 +252,7 @@ export function moveIndex({ from, count, to }, i) {
 export function mapGap(op, s, axis, i) {
   if (op.s !== s || op.axis !== axis) return i;
   if (op.t === 'insert') return i >= op.at ? i + op.n : i;
-  if (op.t === 'delete') return i - deletedBefore(mergeRuns(op.runs), i);
+  if (op.t === 'delete') return i - deletedBefore(op.runs, i);
   // The gap before a line goes wherever that line goes.
   if (op.t === 'move') return moveIndex(op, i);
   return i;
@@ -266,7 +297,7 @@ function runsOf(lines) {
 /** The lines of `runs`, each mapped through `op` (deleted ones dropped), as runs again. */
 function mapRuns(runs, op, s, axis) {
   const lines = [];
-  for (const r of mergeRuns(runs)) for (let i = r.from; i <= r.to; i++) { const j = mapLine(op, s, axis, i); if (j >= 0) lines.push(j); }
+  for (const r of sortedRuns(runs)) for (let i = r.from; i <= r.to; i++) { const j = mapLine(op, s, axis, i); if (j >= 0) lines.push(j); }
   lines.sort((a, b) => a - b);
   return runsOf(lines);
 }
@@ -274,12 +305,13 @@ function mapRuns(runs, op, s, axis) {
 /** A deletion's runs after an insertion: the inserted lines are not deleted, so a run around the insertion splits. */
 function runsAfterInsert(runs, ins) {
   const out = [];
-  for (const r of mergeRuns(runs)) {
+  for (const r of sortedRuns(runs)) {
     if (r.to < ins.at) out.push(r);
     else if (r.from >= ins.at) out.push({ from: r.from + ins.n, to: r.to + ins.n });
     else { out.push({ from: r.from, to: ins.at - 1 }); out.push({ from: ins.at + ins.n, to: r.to + ins.n }); }
   }
-  return out;
+  // Still in order and apart: the insertion opens a gap, never closes one.
+  return merged(out);
 }
 
 /** Map a structural line operation `a` through `b` (both on the same sheet and axis): the list `a` becomes after `b`. */

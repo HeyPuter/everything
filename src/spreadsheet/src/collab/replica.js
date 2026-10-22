@@ -676,15 +676,24 @@ export class Replica extends EventTarget {
    */
   _xform(a, b, aWins) {
     if (!a.length || !b.length) return [a, b];
+    // One operation at a time, folded along the list (an undone deletion of the rows a filter showed is thousands of
+    // insertions): taken by recursion, each step copied the rest of the list, which grew with the square of its length.
     if (a.length > 1) {
-      const [a0, b1] = this._xform([a[0]], b, aWins);
-      const [rest, b2] = this._xform(a.slice(1), b1, aWins);
-      return [[...a0, ...rest], b2];
+      const out = [];
+      let rest = b;
+      for (const x of a) { const [x2, b2] = this._xform([x], rest, aWins); out.push(...x2); rest = b2; }
+      return [out, rest];
     }
     if (b.length > 1) {
-      const [a1, b0] = this._xform(a, [b[0]], aWins);
-      const [a2, rest] = this._xform(a1, b.slice(1), aWins);
-      return [a2, [...b0, ...rest]];
+      let cur = a;
+      const out = [];
+      for (let k = 0; k < b.length; k++) {
+        if (cur.length > 1) { const [a2, rest] = this._xform(cur, b.slice(k), aWins); return [a2, [...out, ...rest]]; }
+        const [a1, y] = this._xform(cur, [b[k]], aWins);
+        out.push(...y);
+        cur = a1;
+      }
+      return [cur, out];
     }
     const x = a[0], y = b[0];
     const xs = isStructure(x), ys = isStructure(y);
