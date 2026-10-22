@@ -2445,7 +2445,12 @@ export class Workbook extends EventTarget {
       if (runs) cell.richText = runs;
       if (previous?.hyperlink) cell.hyperlink = previous.hyperlink;
     }
-    if (!sheet.tables.length) { this.setCells(sheetId, [{ r, c, cell }], label); return; }
+    if (!sheet.tables.length) {
+      // An entry under a filtered list joins it (see _autoExpandFilter), in the same step as the entry.
+      if (this._filterBelow(sheet, r, c)) this.transaction(label, () => { if (this.setCells(sheetId, [{ r, c, cell }], label)) this._autoExpandFilter(sheet, r, c, cell); });
+      else this.setCells(sheetId, [{ r, c, cell }], label);
+      return;
+    }
     // Inside a table: a renamed header rewrites the formulas that used the old column name.
     const table = this.tableAt(sheetId, r, c);
     const header = table && r === tableRows(table).header;
@@ -2469,6 +2474,7 @@ export class Workbook extends EventTarget {
       }
       if (table && !header) this._calculatedColumn(sheet, table, r, c, cell);
       this._autoExpandTable(sheet, r, c, cell);
+      this._autoExpandFilter(sheet, r, c, cell);
     });
   }
 
@@ -10571,6 +10577,34 @@ export class Workbook extends EventTarget {
         return;
       }
     }
+  }
+
+  /**
+   * An entry typed in the row just under a worksheet filter's list, within its columns, joins the list, as a
+   * record added at the foot of a filtered list does in Excel: left out, its value was missing from the filter
+   * menu and a filter chosen afterwards left the row showing whatever it held. The row is not judged until the
+   * filter is next applied, so it stays in view as it is typed. A table's filter grows with its table.
+   */
+  _autoExpandFilter(sheet, r, c, cell) {
+    if (!cell || (cell.v == null && cell.f == null)) return;
+    const f = this._filterBelow(sheet, r, c);
+    if (!f) return;
+    const from = { ...f.range }, to = { ...f.range, r2: r };
+    const move = (a, b) => {
+      const live = this.sheet(sheet.id);
+      if (!live) return;
+      mapSheetFilters(live, (x) => (sameFilterRange(x, { range: a }) && !filterTable(live, x) ? { ...x, range: { ...b } } : x));
+      this._changed('layout', live.id);
+    };
+    move(from, to);
+    this._push({ label: 'Filter', undo: () => move(to, from), redo: () => move(from, to) });
+  }
+
+  /** The worksheet filter whose list (r, c) lies just under, within its columns, or null. */
+  _filterBelow(sheet, r, c) {
+    if (!sheet.filter && !sheet.otherFilters?.length) return null;
+    const f = sheetFilters(sheet).find((x) => r === x.range.r2 + 1 && c >= x.range.c1 && c <= x.range.c2 && !filterTable(sheet, x));
+    return f && !this.tableAt(sheet.id, r, c) ? f : null;
   }
 
   /**
