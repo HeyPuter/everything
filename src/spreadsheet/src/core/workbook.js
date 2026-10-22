@@ -20,7 +20,7 @@ import { packedMoveReferences } from './packed-move-refs.js';
 import { copyNativeSparklines, mapPastedNativeSparklines, replacePastedNativeSparklines } from './native-sparkline-paste.js';
 import { copyValidations, mapPastedValidations, replaceValidations, moveValidations } from './validation-paste.js';
 import { NATIVE_ICON_SETS, nativeIconFor, nativeIconCount } from './native-icons.js';
-import { conditionalRuleGroups, conditionalGroupPieces, distinctConditionalRanges } from './conditional-groups.js';
+import { conditionalRuleGroups, conditionalGroupPieces, distinctConditionalRanges, splitRulePieces } from './conditional-groups.js';
 import { moveConditionalFormats, conditionalMoveBlocks } from './conditional-move.js';
 import { copyConditionalFormats, mapPastedConditionalFormats, replaceConditionalFormats } from './conditional-paste.js';
 import { BAR_FORMULAS, SCALE_FORMULAS, ICON_FORMULAS, conditionalThresholdIsFormula, conditionalThresholdFormula, conditionalFormulaFields, mapConditionalFormulas, conditionalPredicateField } from './conditional-scale.js';
@@ -7360,6 +7360,7 @@ export class Workbook extends EventTarget {
       const cut = axis === 'row' ? { ...GRID_RANGE, r1: from, r2: from + count - 1 } : { ...GRID_RANGE, c1: from, c2: from + count - 1 };
       sheet.ignoredErrors = moveLineRangeFlags(removeRangeFlags(sheet.ignoredErrors, cut), axis, edges, map);
       const splitRule = (rule, field) => {
+        const original = rule, conditional = field === 'value';
         if (field === 'value') {
           rule = mapConditionalFormulas(rule, (f, key) => key === conditionalPredicateField(rule) ? f : renumber(f, sheet.name));
           field = conditionalPredicateField(rule) || field;
@@ -7397,7 +7398,7 @@ export class Workbook extends EventTarget {
           if (joins) prev.range = { ...prev.range, [hi]: part.range[hi] };
           else merged.push(part);
         }
-        return merged.map((part, i) => (i ? { ...part, id: newId() } : part));
+        return (conditional ? splitRulePieces(original, merged) : merged).map((part, i) => (i ? { ...part, id: newId() } : part));
       };
       sheet.rules = sheet.rules.flatMap((rule) => splitRule(rule, 'value'));
       sheet.validations = sheet.validations.flatMap((rule) => splitRule(rule, 'source'));

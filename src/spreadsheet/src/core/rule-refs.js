@@ -2,6 +2,7 @@ import { mapConditionalFormulas, conditionalPredicateField } from './conditional
 /** Keep sparse rule expressions attached to their data during whole-line edits. */
 import { mapFormulaRefs, shiftFormula, adjustRefForInsert, adjustRefForDeletedLines, deleteMap, sameSheetName, MAX_ROW, MAX_COL } from './refs.js';
 import { isRangeSource } from './validation.js';
+import { splitRulePieces } from './conditional-groups.js';
 
 /**
  * `lines`, for a deletion: the deleteMap of every run deleted at once (at and count are then ignored), so a rule is
@@ -80,7 +81,7 @@ export function adjustLineRules(rules, field, { ownerSheet, sheetName, axis, at,
       if (prev && prev.range[hi] + 1 === range[lo] && source === (relative ? shiftFormula(prev[field], range.r1 - prev.range.r1, range.c1 - prev.range.c1) : prev[field])) prev.range[hi] = range[hi];
       else parts.push({ ...rule, range: { ...range }, [field]: source });
     }
-    return parts.map((part, i) => i ? { ...part, id: newId() } : part);
+    return (requestedField === 'value' ? splitRulePieces(rule, parts) : parts).map((part, i) => i ? { ...part, id: newId() } : part);
   });
 }
 
@@ -116,6 +117,6 @@ export function adjustBlockRules(rules, field, options) {
       const stripe = { ...rule, range, ...(relative ? { [field]: shiftFormula(String(rule[field] ?? ''), range.r1-origin.r1, range.c1-origin.c1) } : {}) };
       parts.push(...adjustLineRules([stripe], requestedField, { ...options, moveTargets: inside(range), referenceFilter }));
     }
-    return parts.map((part,i) => ({ ...part, id: i ? newId() : rule.id }));
+    return (requestedField === 'value' ? splitRulePieces(rule, parts) : parts).map((part,i) => ({ ...part, id: i ? newId() : rule.id }));
   });
 }
