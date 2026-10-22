@@ -11,6 +11,25 @@ import { rangeName } from '../core/cell.js';
 import { dateTimeKind, parseInput } from '../core/format.js';
 import * as S from '../core/selection.js';
 import { fillSeriesLines } from '../core/autofill-options.js';
+import { MAX_ROW, MAX_COL } from '../core/refs.js';
+
+/** As far as one cell's series runs to its stop value (Workbook.fillSeries). */
+const STOP_REACH = 10000;
+
+/**
+ * Whole columns (or rows) as far as the sheet's content goes, as Fill Down takes them: a series into all
+ * 1,048,576 rows wrote a million numbers, and over two minutes of them for a sheet selected whole. A stop
+ * value carries each line past the content as far as it would carry one cell's series.
+ */
+function toUsedExtent(wb, sheetId, range, direction, stop) {
+  if (range.r2 < MAX_ROW && range.c2 < MAX_COL) return range;
+  const used = wb.usedRange(sheetId);
+  const r2 = range.r2 < MAX_ROW ? range.r2
+    : Math.min(range.r2, Math.max(range.r1, used?.r2 ?? range.r1, direction === 'down' && stop != null ? range.r1 + STOP_REACH : range.r1));
+  const c2 = range.c2 < MAX_COL ? range.c2
+    : Math.min(range.c2, Math.max(range.c1, used?.c2 ?? range.c1, direction === 'right' && stop != null ? range.c1 + STOP_REACH : range.c1));
+  return { ...range, r2, c2 };
+}
 
 export function openSeriesDialog(ctx) {
   const sheetId = ctx.sheetId();
@@ -64,7 +83,7 @@ export function openSeriesDialog(ctx) {
       if (single) return refuse(null, 'Select the cells to fill, starting with the values to continue');
       if (ctx.wb.isProtected(sheetId)) { toast('This sheet is protected. Unprotect it to fill a series', { icon: 'lock' }); return; }
       if (ctx.wb.lockedIn(sheetId, range)) { modal.close(); return; }
-      const n = fillSeriesLines(ctx.wb, sheetId, range, { type: typeSelect.value, trend: trendBox.checked, direction: dirSelect.value });
+      const n = fillSeriesLines(ctx.wb, sheetId, toUsedExtent(ctx.wb, sheetId, range, dirSelect.value, null), { type: typeSelect.value, trend: trendBox.checked, direction: dirSelect.value });
       modal.close();
       if (!n) { toast('Nothing to fill: start each row or column with values to continue, followed by empty cells', { icon: 'info', duration: 3200 }); return; }
       toast(`Filled ${n} cell${n === 1 ? '' : 's'}`, { icon: 'check', duration: 1600 });
@@ -94,7 +113,7 @@ export function openSeriesDialog(ctx) {
     let n = 0;
     try {
       // Every row or column of the selection, each from its own first cell.
-      n = fillSeriesLines(ctx.wb, sheetId, range, { type: typeSelect.value, step, stop, unit: unitSelect.value, direction: dirSelect.value });
+      n = fillSeriesLines(ctx.wb, sheetId, toUsedExtent(ctx.wb, sheetId, range, dirSelect.value, stop), { type: typeSelect.value, step, stop, unit: unitSelect.value, direction: dirSelect.value });
     } finally { ctx.wb.removeEventListener('change', onProtection); }
     modal.close();
     if (refused) return;
