@@ -7674,6 +7674,57 @@ function fixedDecimals(v, dec, grouping) {
   return dec > shown ? text + '0'.repeat(dec - shown) : text;
 }
 
+/** The POSIX classes PCRE and RE2 read inside brackets, [[:digit:]], as the ASCII ranges they stand for there. */
+const POSIX_CLASSES = {
+  alpha: 'A-Za-z', digit: '0-9', alnum: 'A-Za-z0-9', upper: 'A-Z', lower: 'a-z', xdigit: '0-9A-Fa-f', word: '\\w',
+  space: '\\t\\n\\v\\f\\r ', blank: ' \\t', punct: '!-\\/:-@\\[-`{-~', cntrl: '\\x00-\\x1f\\x7f', print: ' -~', graph: '!-~',
+};
+
+/**
+ * A pattern written for Excel's engine (PCRE) or Sheets' (RE2) in JavaScript's dialect, for what the two
+ * read alike and JavaScript reads otherwise or not at all: the anchors \A, \z and \Z, which it took for the
+ * letters A, z and Z, so REGEXTEST("abc","\Aabc\z") was FALSE; the POSIX classes inside brackets,
+ * [[:digit:]], which it took for a set of the characters [:digt and a following ]; and the named groups
+ * (?P<name>...) and (?P=name), which it refused; and a ] first in a set, []] or [^]], one of its characters
+ * there and the end of an empty set to JavaScript. Everything else is left as written.
+ */
+function javascriptPattern(p) {
+  if (!/\\[AzZ]|\[\^?\]|\[:|\(\?P[<=]/.test(p)) return p;
+  let out = '';
+  let inClass = false;
+  for (let i = 0; i < p.length; i++) {
+    const ch = p[i];
+    if (ch === '\\') {
+      const next = p[i + 1] ?? '';
+      i++;
+      if (!inClass && next === 'A') out += '(?<![\\s\\S])';
+      else if (!inClass && next === 'z') out += '(?![\\s\\S])';
+      else if (!inClass && next === 'Z') out += '(?=\\n?(?![\\s\\S]))';
+      else out += ch + next;
+      continue;
+    }
+    if (inClass) {
+      const posix = ch === '[' ? /^\[:([a-z]+):\]/.exec(p.slice(i)) : null;
+      if (posix && POSIX_CLASSES[posix[1]]) { out += POSIX_CLASSES[posix[1]]; i += posix[0].length - 1; continue; }
+      if (ch === ']') inClass = false;
+      out += ch;
+      continue;
+    }
+    if (ch === '[') {
+      inClass = true;
+      out += ch;
+      // A ] first in the set, after any ^, is one of its characters, not its end.
+      if (p[i + 1] === '^') out += p[++i];
+      if (p[i + 1] === ']') { out += '\\]'; i++; }
+      continue;
+    }
+    const named = ch === '(' ? /^\(\?P(?:<([A-Za-z_]\w*)>|=([A-Za-z_]\w*)\))/.exec(p.slice(i)) : null;
+    if (named) { out += named[1] ? `(?<${named[1]}>` : `\\k<${named[2]}>`; i += named[0].length - 1; continue; }
+    out += ch;
+  }
+  return out;
+}
+
 /**
  * A regular expression from a pattern argument, or #VALUE! when it does not compile, or when
  * `subject`, the text it is to run on, is longer than the pattern can be tried on in reasonable time.
@@ -7686,6 +7737,7 @@ function regex(pattern, flags = '', subject = '') {
     for (const f of m[1]) if (!flags.includes(f)) flags += f;
     p = p.slice(m[0].length);
   }
+  p = javascriptPattern(p);
   if (nestedRepeat(p)) return err('#VALUE!');
   // Two overlapping repeats, (\w+)\s*(\w+)=, tried from every position of a long cell cost the cube of its
   // length, hours at the longest: past the pattern's limit the text is refused as the pattern would be.
