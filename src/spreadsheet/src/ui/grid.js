@@ -3300,6 +3300,9 @@ export function createGrid(opts) {
     // So is a note, which shows beside it too (unless notes are set to show nothing).
     const note = appOption('commentIndicators') === 'none' ? null : sheet().notes.get(cellKey(r, c));
     if (note) msg += `. Note: ${spoken(note)}`;
+    // A comment thread is marked on the cell too, and is said to be there, as Excel's screen reader support says.
+    const thread = appOption('commentIndicators') === 'none' ? null : sheet().comments?.get(cellKey(r, c));
+    if (thread) msg += thread.done ? '. Has a resolved comment' : '. Has a comment';
     // Whole columns and rows are named as the Name Box names them (B:D, 3:5), not B1:D1048576.
     if (!S.isSingle(sel)) msg = `${selectionName(range)} selected. ${msg}`;
     if (extras.length) msg = `${extras.length + 1} ranges selected. ${msg}`;
