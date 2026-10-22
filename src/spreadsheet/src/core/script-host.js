@@ -39,6 +39,8 @@ export function scriptAddress(rg) {
   if (wholeRows(rg)) return `${rg.r1 + 1}:${rg.r2 + 1}`;
   return rangeName(rg);
 }
+/** The colour and style a side of a cell is drawn with: its own, or the cell's. */
+const pen = (st, side) => ({ bc: st[`${side}Border`]?.bc ?? st.bc ?? null, bs: st[`${side}Border`]?.bs ?? st.bs ?? 'thin' });
 const lineScope = (rg) => (wholeCols(rg) && wholeRows(rg) ? 'sheet' : wholeCols(rg) ? 'columns' : wholeRows(rg) ? 'rows' : undefined);
 
 /** A JS Date as the serial number a cell stores, and the format that shows it. */
@@ -109,6 +111,41 @@ export class ScriptHost {
   /** Rows and columns keep their sizes and visibility on a protected sheet: said so, rather than a change that did not happen. */
   linesWritable(sheet) {
     if (sheet.protected) this.fail(`${sheet.name} is protected; unprotect it before the script changes its rows or columns.`);
+  }
+
+  /**
+   * One side set on cells: the pens (colour and style) of the cells' other sides as they are. The workbook keeps one pen
+   * per cell unless a side has its own, so a red top border repainted a cell's black bottom one red; these are put back
+   * on the sides that had them (restorePens), as the ribbon and Format Cells leave a cell's other borders.
+   */
+  otherPens(sheet, range, kind) {
+    const SIDE = { top: 'bt', bottom: 'bb', left: 'bl', right: 'br' }[kind];
+    if (!SIDE || lineScope(range)) return null;
+    const rg = { ...range, r2: Math.min(range.r2, sheet.rows - 1), c2: Math.min(range.c2, sheet.cols - 1) };
+    const edge = kind === 'top' ? { ...rg, r2: rg.r1 } : kind === 'bottom' ? { ...rg, r1: rg.r2 } : kind === 'left' ? { ...rg, c2: rg.c1 } : { ...rg, c1: rg.c2 };
+    if (edge.r2 < edge.r1 || edge.c2 < edge.c1 || (edge.r2 - edge.r1 + 1) * (edge.c2 - edge.c1 + 1) > 20000) return null;
+    const out = [];
+    for (let r = edge.r1; r <= edge.r2; r++) for (let c = edge.c1; c <= edge.c2; c++) {
+      const st = this.wb.styleAt(sheet.id, r, c) || {};
+      const pens = Object.fromEntries(['bt', 'bb', 'bl', 'br'].filter((k) => k !== SIDE && st[k]).map((k) => [k, pen(st, k)]));
+      if (Object.keys(pens).length) out.push({ r, c, pens });
+    }
+    return out;
+  }
+
+  restorePens(sheet, kept) {
+    const entries = [];
+    for (const { r, c, pens } of kept || []) {
+      const cell = this.wb.getCell(sheet.id, r, c);
+      const st = this.wb.styleAt(sheet.id, r, c) || {};
+      const patch = {};
+      for (const [k, was] of Object.entries(pens)) {
+        const now = pen(st, k);
+        if (st[k] && (now.bc !== was.bc || now.bs !== was.bs)) patch[`${k}Border`] = { ...st[`${k}Border`], ...was };
+      }
+      if (Object.keys(patch).length) entries.push({ r, c, cell: { ...cell, v: cell?.v ?? null, f: cell?.f ?? null, s: { ...(cell?.s || {}), ...patch } } });
+    }
+    if (entries.length) this.wb.setCells(sheet.id, entries, 'Borders');
   }
 
   writable(sheet, range) {
@@ -365,7 +402,9 @@ const WRITES = {
     const style = op.style === 'hair' ? 'dotted' : op.style || 'thin';
     if (!BORDER_STYLES.some(([k]) => k === style)) this.fail(`"${op.style}" is not a border style.`);
     if (op.color != null && !HEX.test(op.color)) this.fail(`"${op.color}" is not a colour.`);
+    const keep = this.otherPens(sheet, range, op.kind);
     this.wb.applyBorders(sheet.id, range, op.kind, { color: op.color ?? null, style, scope: lineScope(range) });
+    this.restorePens(sheet, keep);
   },
   clear(op) {
     const { sheet, range } = this.rangeOf(op);
