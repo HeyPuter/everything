@@ -575,7 +575,7 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   with the arrow keys and delete together. The Selection Pane lists every
   object on the sheet, front first and groups with their members, with an
   eye to hide or show each (Show All, Hide All), a double-click or F2 to
-  rename one, and rows that drag to restack; hidden objects do not print,
+  rename one, Delete to remove those picked, and rows that drag to restack; hidden objects do not print,
   and names, hidden state and order travel in the `.xlsx`.
 - **Multiple sheets**: add, rename, duplicate, reorder, color, hide, protect,
   and delete sheets from the tab bar, the Insert menu's Sheet submenu, or the

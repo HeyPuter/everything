@@ -2,7 +2,8 @@
  * The Selection Pane (Page Layout ▸ Arrange ▸ Selection Pane): every drawing object on the sheet, the front
  * one first, each with an eye that shows or hides it. A click selects an object on the sheet (Shift or
  * Cmd/Ctrl adds it to those selected), a double-click or F2 renames it, and dragging a row moves the object
- * through the stacking order; Show All and Hide All act on the whole sheet, the arrows on the selection.
+ * through the stacking order; Show All and Hide All act on the whole sheet, the arrows on the selection, and
+ * Delete removes the objects picked.
  */
 import { el } from './dom.js';
 import { icon } from './icons.js';
@@ -158,6 +159,14 @@ export function createSelectionPane(ctx) {
     } else if (e.key === 'F2' && at >= 0 && !rows[at].classList.contains('group')) {
       e.preventDefault();
       startRename(rows[at].dataset.id);
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && selected().size) {
+      // Delete removes the objects picked in the list, as the key does on the sheet; the pane keeps the keyboard.
+      e.preventDefault();
+      const ids = [...selected()];
+      if (ids.length > 1) ctx.run('deleteObjects', ids); else ctx.run('deleteChart', ids[0]);
+      cursor = null;
+      render(true);
+      list.focus();
     }
   });
 
