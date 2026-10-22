@@ -42,6 +42,9 @@ export function assignTips(names) {
 export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () => {}, blocked = () => false, onExit = () => {} }) {
   let state = null; // { level: 'tabs' | 'commands', typed, tips: [{ tip, target, kind, name }] }
   let altAlone = false;
+  // A pointer button held: Alt pressed during a drag is the drag's modifier (Alt-drag lines an object up with the
+  // cells), not a tap, and its release brought the tips up over the ribbon, taking the next key typed.
+  let pointerHeld = false;
   // Where the keyboard was when the tips came up (the find box, a pane's field, a sheet tab): dismissed, they
   // give it back there. Escape sent it to the sheet, and the field being typed in lost its place.
   let returnTo = null;
@@ -142,7 +145,7 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
 
   function onKeyDown(e) {
     if (isComposing(e)) return;
-    if (e.key === 'Alt') { altAlone = !e.repeat && !e.ctrlKey && !e.metaKey && !e.shiftKey; return; }
+    if (e.key === 'Alt') { altAlone = !e.repeat && !e.ctrlKey && !e.metaKey && !e.shiftKey && !pointerHeld; return; }
     altAlone = false;
     if (!state) {
       if (e.key === 'F10' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !blocked()) { e.preventDefault(); showTabs(); }
@@ -181,11 +184,15 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
   }
 
   const dismiss = () => exit({ focusGrid: false });
-  const onPointer = () => { altAlone = false; dismiss(); };
+  const onPointer = () => { altAlone = false; pointerHeld = true; dismiss(); };
+  const onPointerUp = () => { altAlone = false; pointerHeld = false; };
+  const onBlur = () => { pointerHeld = false; dismiss(); };
   document.addEventListener('keydown', onKeyDown, true);
   document.addEventListener('keyup', onKeyUp, true);
   document.addEventListener('pointerdown', onPointer, true);
-  window.addEventListener('blur', dismiss);
+  document.addEventListener('pointerup', onPointerUp, true);
+  document.addEventListener('pointercancel', onPointerUp, true);
+  window.addEventListener('blur', onBlur);
   window.addEventListener('resize', dismiss);
 
   return {
@@ -197,7 +204,9 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
       document.removeEventListener('keydown', onKeyDown, true);
       document.removeEventListener('keyup', onKeyUp, true);
       document.removeEventListener('pointerdown', onPointer, true);
-      window.removeEventListener('blur', dismiss);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('pointercancel', onPointerUp, true);
+      window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', dismiss);
       layer.remove();
     },
