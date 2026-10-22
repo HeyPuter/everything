@@ -181,10 +181,11 @@ export function subtypeFields(subtype) {
     stock: s.stock || null, surfaceView: s.surfaceView || null };
 }
 
-/** The default title: the series' name when one series is charted, else the placeholder "Chart title". */
+/** The default title: the series' name when one series is charted, else the placeholder "Chart title". A pie
+ * charts only its first series; a doughnut charts every series, a ring each. */
 export function defaultChartTitle(data, type) {
   const series = data?.series || [];
-  if (['pie', 'donut', 'histogram', 'waterfall', 'treemap', 'sunburst', 'funnel'].includes(type) || series.length === 1) {
+  if (['pie', 'histogram', 'waterfall', 'treemap', 'sunburst', 'funnel'].includes(type) || series.length === 1) {
     const name = series[0]?.name;
     if (name && !/^Series ?\d+$/.test(name)) return name;
   }

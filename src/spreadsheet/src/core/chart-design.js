@@ -352,7 +352,7 @@ export function detachedChart(wb, sheetId, chart) {
  * title, legend, xAxis, yAxis, gridlines-x, gridlines-y, series:j or point:j:i. `fill` and `outline` are a
  * hex colour or 'none'; `effect` is { shadow, glow }.
  */
-export function elementFormatPatch(chart, key, { fill, outline, outlineWidth, effect } = {}) {
+export function elementFormatPatch(chart, key, { fill, outline, outlineWidth, effect, rings = 1 } = {}) {
   if (!chart.appearance) {
     const m = /^series:(\d+)$/.exec(key);
     if (m && fill) { const colors = [...(chart.colors || [])]; colors[+m[1]] = fill; return { colors }; }
@@ -427,7 +427,9 @@ export function elementFormatPatch(chart, key, { fill, outline, outlineWidth, ef
     case !!point: {
       const j = +point[1], i = +point[2];
       if (fill === undefined) return null;
-      if (PIE.has(chart.type)) {
+      // A pie's slice, and a lone doughnut ring's, takes the chart's colour for its category; each ring of a doughnut
+      // of several series (`rings`) has its own colours, as Excel's do, kept as the other charts keep their points'.
+      if (PIE.has(chart.type) && !(chart.type === 'donut' && rings > 1)) {
         const colors = [...(chart.colors || [])];
         while (colors.length < i) colors.push(null);
         colors[i] = fill;

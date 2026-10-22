@@ -32,6 +32,9 @@ export function themeChartFont(wb) {
   return fontKeyFor(name, { literal: true }) || 'calibri';
 }
 
+/** How many rings a chart draws: a doughnut one per series, every other chart one. */
+export const ringCountOf = (wb, sheetId, chart) => (chart.type === 'donut' ? chartData(wb, sheetId, chart).series.length : 1);
+
 export const seriesCountOf = (wb, sheetId, chart) => {
   // A waterfall's colours are its increases', decreases' and total's, which Change Colors recolours together.
   if (chart.type === 'waterfall') return 3;
@@ -199,7 +202,7 @@ export function runChartAction(ctx, arg = {}) {
     case 'move': return openMoveChartDialog(ctx, chart);
     case 'format': {
       const key = arg.element || ctx.chartUi?.element() || 'chartArea';
-      return update(elementFormatPatch(chart, key, arg), 'Format chart');
+      return update(elementFormatPatch(chart, key, { ...arg, rings: ringCountOf(wb, sheetId, chart) }), 'Format chart');
     }
     case 'size': {
       const patch = {};

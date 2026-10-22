@@ -391,14 +391,14 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
   };
   const readPieChart = (space, chart, plot, group, geometry) => {
     const series = children(group, 'ser');
-    // Our pie model has one ring. Do not silently discard additional rings.
-    if (series.length !== 1) return null;
-    const s = series[0], values = ref(child(s, 'val'));
-    const literals = Object.fromEntries([['categories', child(s, 'cat')], ['values', child(s, 'val')]]
+    // A pie has one ring; a doughnut a ring per series, the first innermost. Do not silently discard further rings of a pie.
+    if (!series.length || series.length > 1 && group.name !== 'doughnutChart') return null;
+    const s = series[0];
+    const literalsOf = ser => Object.fromEntries([['categories', child(ser, 'cat')], ['values', child(ser, 'val')]]
       .map(([key, node]) => [key, literal(node)]).filter(([, data]) => data != null));
     // CT_NumDataSource permits either a worksheet reference or embedded numbers.
     // Literals are authoritative data, including an explicitly empty series.
-    if (!values && !literals.values) return null;
+    if (series.some(ser => !ref(child(ser, 'val')) && !literalsOf(ser).values)) return null;
     const title = child(chart, 'title'), legend = child(chart, 'legend');
     const baseStyle = style(child(space, 'txPr'), { size: 14.67 });
     const legendPos = ({ t: 'top', r: 'right', l: 'right', tr: 'right' }[val(legend, 'legendPos')] || 'bottom');
@@ -446,19 +446,20 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       split: (val(group, 'splitType') ?? 'pos') === 'pos' && number(group, 'splitPos') >= 1 ? Math.round(number(group, 'splitPos')) : 3,
       secondSize: number(group, 'secondPieSize') ?? 75, gap: number(group, 'gapWidth') ?? 100 } : null;
     return { type: group.name === 'doughnutChart' ? 'donut' : 'pie', range: { r1: 0, c1: 0, r2: 0, c2: 0 }, ...geometry,
-      ...(ofPie ? { ofPie } : {}), ...(number(s, 'explosion') > 0 ? { explosion: number(s, 'explosion') } : {}),
+      // Only the outer ring of a doughnut is drawn pulled out.
+      ...(ofPie ? { ofPie } : {}), ...(number(series.at(-1), 'explosion') > 0 ? { explosion: number(series.at(-1), 'explosion') } : {}),
       ...titleText(title), legend: !!legend, legendPos, includeHidden: val(chart, 'plotVisOnly') === '0',
-      sourceRefs: [{ name: text(path(s, 'tx', 'v')), nameRef: text(path(s, 'tx', 'strRef', 'f')), nativeNameText: cachedText(child(s, 'tx')),
-        categories: categories(child(s, 'cat')), values, categoryFormat: format(child(s, 'cat')), categoryPointFormats: pointFormats(child(s, 'cat')), nativeCategoryTexts: categoryTexts(child(s, 'cat')),
-        valueFormat: format(child(s, 'val')), valuePointFormats: pointFormats(child(s, 'val')), literal: literals }],
+      sourceRefs: series.map(s => ({ name: text(path(s, 'tx', 'v')), nameRef: text(path(s, 'tx', 'strRef', 'f')), nativeNameText: cachedText(child(s, 'tx')),
+        categories: categories(child(s, 'cat')), values: ref(child(s, 'val')), categoryFormat: format(child(s, 'cat')), categoryPointFormats: pointFormats(child(s, 'cat')), nativeCategoryTexts: categoryTexts(child(s, 'cat')),
+        valueFormat: format(child(s, 'val')), valuePointFormats: pointFormats(child(s, 'val')), literal: literalsOf(s) })),
       appearance: {
         ...(child(space, 'txPr') ? { textStyle: baseStyle } : {}),
-        ...roundedCorners(space), ...formatExtras(space, chart, plot, title, legend, [s]),
+        ...roundedCorners(space), ...formatExtras(space, chart, plot, title, legend, series),
         background: fill(child(space, 'spPr')) || '#ffffff', border: fill(path(space, 'spPr', 'ln')) !== 'none',
         plot: layout(plot), title: layout(title), legend: layout(legend), legendPos,
         titleStyle: style(title, { ...baseStyle, size: 24 }), legendStyle: style(child(legend, 'txPr'), baseStyle),
         legendHidden: children(legend, 'legendEntry').filter(e => ['1', 'true'].includes(val(e, 'delete'))).map(e => number(e, 'idx')),
-        pointColors: [children(s, 'dPt').map(p => ({ index: number(p, 'idx'), color: fill(child(p, 'spPr')) }))],
+        pointColors: series.map(s => children(s, 'dPt').map(p => ({ index: number(p, 'idx'), color: fill(child(p, 'spPr')) }))),
         pie: { holeSize: number(group, 'holeSize') ?? 50, firstSliceAngle: number(group, 'firstSliceAng') ?? 0,
           color: fill(child(s, 'spPr')), varyColors: !['0', 'false'].includes(val(group, 'varyColors')),
           stroke: fill(line), strokeWidth: Number(line?.attrs.w || 9525) / 9525,

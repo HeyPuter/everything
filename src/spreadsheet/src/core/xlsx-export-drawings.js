@@ -198,8 +198,10 @@ function chartXml(X, wb, sheet, ch) {
   // A stock chart with volume draws it as columns on the primary axis and its prices on a secondary one.
   const stockVolume = ch.type === 'stock' && ['vhlc', 'vohlc'].includes(ch.stock);
   const stockFields = ch.type === 'stock' ? { hlc: 3, ohlc: 4, vhlc: 4, vohlc: 5 }[ch.stock] || 3 : Infinity;
+  // A pie charts its first series; a doughnut, every series as a ring of its own.
+  const rings = ch.type === 'donut' ? data.series.length : 1;
   data.series.forEach((series, i) => {
-    if (circular && i) return;
+    if (circular && i >= rings) return;
     if (i >= stockFields) return;
     const type = ch.type === 'combo' ? ap.seriesTypes?.[i] || (i === data.series.length - 1 ? 'line' : 'column') : stockVolume && i === 0 ? 'column' : ch.type;
     const secondary = ch.secondaryAxis && ch.type === 'combo' && type === 'line' || stockVolume && type === 'stock';
@@ -228,7 +230,8 @@ function chartXml(X, wb, sheet, ch) {
     // App-authored bars keep their ordinary fill for negative values. Native
     // series retain both explicit booleans and the omitted (true) default.
     if (isBar && (!bar || typeof bar.invertIfNegative === 'boolean')) body += val('invertIfNegative', Number(bar?.invertIfNegative ?? false));
-    if (circular && ch.explosion) body += val('explosion', Math.round(ch.explosion));
+    // Only a doughnut's outer ring is pulled out (see renderPie).
+    if (circular && ch.explosion && i === rings - 1) body += val('explosion', Math.round(ch.explosion));
     if (type === 'stock') {
       // A high-low-close chart marks each close with a dash; prices with up/down bars need no markers.
       const close = !['ohlc', 'vohlc'].includes(ch.stock) && i === stockFields - 1;
@@ -238,12 +241,12 @@ function chartXml(X, wb, sheet, ch) {
       + val('size', Math.min(72, Math.max(2, Math.round(line?.markerSize ?? 5))))
       + tag('c:spPr', {}, paint(line?.markerFill || color) + tag('a:ln', {}, paint(line?.markerStroke || color))));
     if (circular) {
-      const colors = new Map((ap.pointColors?.[0] || []).map(p => [p.index, p.color]));
-      const borders = new Map((pie?.points || []).map(p => [p.index, p]));
+      const colors = new Map((ap.pointColors?.[i] || []).map(p => [p.index, p.color]));
+      const borders = new Map((i ? [] : pie?.points || []).map(p => [p.index, p]));
       const count = Math.max(series.values.length, refs[i]?.literal?.values?.length || 0);
       const indices = new Set([...Array.from({ length: count }, (_, j) => j), ...colors.keys(), ...borders.keys()]);
       for (const index of indices) {
-        const fill = ch.colors?.[index] || colors.get(index) || (pie?.varyColors === false && pie.color) || seriesColor(ch, index);
+        const fill = (rings > 1 && colors.get(index)) || ch.colors?.[index] || colors.get(index) || (pie?.varyColors === false && pie.color) || seriesColor(ch, index);
         const border = borders.get(index);
         body += tag('c:dPt', {}, val('idx', index) + tag('c:spPr', {}, paint(fill)
           + (border ? tag('a:ln', border.strokeWidth == null ? {} : { w: emu(border.strokeWidth) }, border.stroke == null ? '' : paint(border.stroke)) : '')));

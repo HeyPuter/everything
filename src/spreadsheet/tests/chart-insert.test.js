@@ -106,7 +106,8 @@ describe('Inserted charts in XLSX', () => {
     expect(!!chart.stack100).toBe(!!s.stack100);
     expect(chart.appearance.borderColor).toBe(CHART_LINE_GREY);
     if (s.type === 'column') expect(chart.appearance).toMatchObject(s.stacked ? { gapWidth: 150, overlap: 100 } : { gapWidth: 219, overlap: -27 });
-    expect(chartData(back, back.sheets[0].id, chart).series.length).toBe(['pie', 'donut'].includes(s.type) ? 1 : s.type === 'scatter' ? 1 : 2);
+    // A pie keeps its first series; a doughnut every series, a ring each.
+    expect(chartData(back, back.sheets[0].id, chart).series.length).toBe(s.type === 'pie' ? 1 : s.type === 'scatter' ? 1 : 2);
   });
 
   it('keeps title and legend boxes, effects and blank-cell plotting through a native-only cycle', async () => {
