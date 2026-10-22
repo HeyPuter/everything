@@ -50,7 +50,7 @@ it.each([[90, false], [270, false], [180, false], [0, true]])('resizes a text bo
   const ch = wb.chartById(id, text);
   expect([ch.w, ch.h]).toEqual([240, 100]);
   expect(corners(rect(), rotation, flipH)[0].map((v, i) => Math.abs(v - anchor[i]) <= 1)).toEqual([true, true]);
-  expect(wb.undoLabel()).toBe('Resize chart');
+  expect(wb.undoLabel()).toBe('Resize text box');
   grid.destroy();
 });
 

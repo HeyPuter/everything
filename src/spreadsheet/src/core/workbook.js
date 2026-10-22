@@ -110,7 +110,7 @@ import { normalizeChangeHistory, recordCellWrites, recordStep } from './change-h
 import { eachStoredCell } from './sparse-range.js';
 
 /** What a floating object is called in undo labels: chart, image, or text box. */
-function objectNoun(obj) {
+export function objectNoun(obj) {
   return obj?.type === 'slicer' ? 'slicer' : obj?.type === 'scroll' ? 'scroll bar' : obj?.type === 'image' ? 'image' : obj?.type === 'smartart' ? 'SmartArt' : obj?.type === 'text' ? obj.equation ? 'equation' : 'text box' : 'chart';
 }
 

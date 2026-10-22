@@ -72,3 +72,21 @@ it('takes the corner dragged to the nearest cell edge with Snap to Grid on, and 
   expect(free[0]).toBe(free[2]);
   expect(Math.abs(free[1] - free[3])).toBeLessThan(1);
 });
+
+// Moving or resizing a picture or text box was named "Move chart" and "Resize chart" in the Undo button's tip
+// and the undo history; each names its own kind of object now.
+it('names the kind of object moved or resized in the undo history', async () => {
+  const wb = new Workbook(), id = wb.sheets[0].id;
+  const oid = wb.addChart(id, { type: 'text', text: 'Note', anchor: { r: 2, c: 2 }, w: 200, h: 100 });
+  const grid = createGrid({ wb, sheetId: id, announce() {} });
+  document.body.replaceChildren(grid.el);
+  await flush();
+  const box = grid.el.querySelector(`.chart-box[data-chart="${oid}"]`);
+  pe(box.querySelector('.chart-resize'), 'pointerdown', 500, 300); pe(box, 'pointermove', 520, 310); pe(box, 'pointerup', 520, 310);
+  await flush();
+  expect(wb.undoLabel()).toBe('Resize text box');
+  pe(box, 'pointerdown', 100, 100); pe(box, 'pointermove', 140, 100); pe(box, 'pointerup', 140, 100);
+  await flush();
+  expect(wb.undoLabel()).toBe('Move text box');
+  grid.destroy();
+});

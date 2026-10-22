@@ -38,7 +38,7 @@ import { confirmDialog } from './modal.js';
  * caller's announce() callback.
  */
 import { measureRows } from '../core/row-height.js';
-import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS, MAX_COLS, safeLinkUrl } from '../core/workbook.js';
+import { MIN_COL_WIDTH, MAX_COL_WIDTH, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT, MAX_ROWS, MAX_COLS, safeLinkUrl, objectNoun } from '../core/workbook.js';
 import { pictureNode } from './picture.js';
 import { pictureFrameCss, pictureStyled } from '../core/picture-format.js';
 import { linkedPictureTarget, rangePicture, svgDataUrl } from '../core/range-picture.js';
@@ -2700,7 +2700,7 @@ export function createGrid(opts) {
         wb.placeObjects(sheetId, [id, ...d.others.map((m) => m.id)].map((m) => wb.objectRect(sheetId, m)).filter(Boolean)
           .map((r) => ({ id: r.id, x: r.x + shift.x, y: r.y + shift.y })), 'Move objects');
       } else if (d.kind === 'chartmove') placeChart(id, d.rect.left, d.rect.top);
-      else wb.updateChart(sheetId, id, { ...(d.rect.turned ? anchorAt(d.rect.left, d.rect.top) : {}), w: Math.round(d.rect.width / objectScale), h: Math.round(d.rect.height / objectScale) }, 'Resize chart');
+      else wb.updateChart(sheetId, id, { ...(d.rect.turned ? anchorAt(d.rect.left, d.rect.top) : {}), w: Math.round(d.rect.width / objectScale), h: Math.round(d.rect.height / objectScale) }, `Resize ${objectNoun(ch)}`);
     };
     // A drag the browser gives up (a touch it decided to scroll with, a lost capture) acts on
     // nothing, as the grid's own drags rule: the box goes back to its stored place.
@@ -2726,7 +2726,7 @@ export function createGrid(opts) {
 
   /** Anchor a chart at a canvas position: the cell under its top-left corner, plus the offset into it. */
   function placeChart(id, left, top) {
-    wb.updateChart(sheetId, id, anchorAt(left, top), 'Move chart');
+    wb.updateChart(sheetId, id, anchorAt(left, top), `Move ${objectNoun(wb.chartById(sheetId, id))}`);
   }
 
   /** The anchor of a canvas position: the cell under it and the offset into that cell (a chart sheet's own origin). */
