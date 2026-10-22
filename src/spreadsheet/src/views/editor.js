@@ -596,9 +596,11 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       if (t.numeric && (numberOf(v1) == null || (t.args === 2 && numberOf(v2) == null))) return 'This condition needs numbers';
       return null;
     };
+    // The values the search box finds (all of them while it is empty): Select all and Clear act on these, as the
+    // list shows them, so "pen" then Clear unticks the pens rather than every value of the column.
+    const found = () => { const q = search.value.trim().toLowerCase(); return all.filter((v) => !q || v.value.toLowerCase().includes(q)); };
     const render = () => {
-      const q = search.value.trim().toLowerCase();
-      const matches = all.filter((v) => !q || v.value.toLowerCase().includes(q));
+      const matches = found();
       const shown = matches.slice(0, 300);
       // A note under the list: no matches, or a list cut short, so the values past the cap are known to exist.
       const note = !shown.length ? 'No matches' : shown.length < matches.length ? `Showing ${shown.length} of ${matches.length} values. Type to find the rest` : null;
@@ -636,8 +638,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
       grid.focus();
     };
     const actions = el('div.filter-actions', {},
-      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; for (const v of all) selected.add(v.value); render(); } }, 'Select all'),
-      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; selected.clear(); render(); } }, 'Clear'),
+      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; for (const v of found()) selected.add(v.value); render(); } }, 'Select all'),
+      el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => { valuesChanged = true; for (const v of found()) selected.delete(v.value); render(); } }, 'Clear'),
       el('div.grow'),
       el('button.btn.btn-primary.btn-sm', { type: 'button', onclick: apply }, 'Apply'));
 
