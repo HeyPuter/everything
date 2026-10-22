@@ -77,7 +77,7 @@ const C = ['z', 'y', 'x'];
 const cells = [...A.map((v, r) => [r, 0, v]), ...C.map((v, r) => [r, 2, v])];
 const refused = (toast, what) => toast.mock.calls.some(([msg]) => msg === `Select one range to ${what}`);
 
-it('refuses to sort, filter, band, chart, subtotal or tabulate several ranges, and says so', async () => {
+it('refuses to sort, filter, band, subtotal or tabulate several ranges, and says so', async () => {
   const { wb, id, select, menu, toast } = await open(cells);
   await select('A1:A3', { r1: 0, c1: 2, r2: 2, c2: 2 });
   await menu('data', 'Sort', 'Sort range A to Z');
@@ -93,9 +93,11 @@ it('refuses to sort, filter, band, chart, subtotal or tabulate several ranges, a
   await menu('format', 'Alternating colors');
   expect(refused(toast, 'add alternating colors')).toBe(true);
   expect(wb.sheet(id).rules?.length || 0).toBe(0);
+  // Ranges over the same rows chart together, as in Excel (chart-multiple-ranges.test.js).
   await menu('insert', 'Chart…');
-  expect(refused(toast, 'insert a chart')).toBe(true);
-  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(refused(toast, 'insert a chart')).toBe(false);
+  expect(document.querySelector('[role="dialog"][aria-label="Insert Chart"]')).not.toBeNull();
+  closeAllModals(); await vi.advanceTimersByTimeAsync(1000);
   await menu('data', 'Subtotals…');
   expect(refused(toast, 'add subtotals')).toBe(true);
   expect(document.querySelector('[role="dialog"]')).toBeNull();

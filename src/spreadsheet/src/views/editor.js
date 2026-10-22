@@ -3859,23 +3859,21 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         keepFocus(); return;
       }
       case 'insertChart': {
-        // Insert ▸ Chart…: the Insert Chart dialog, on Recommended Charts or on the family asked for.
+        // Insert ▸ Chart…: the Insert Chart dialog, on Recommended Charts or on the family asked for. Ranges
+        // selected together are charted together, as in Excel (see chartSource).
         if (!committed()) return;
-        if (!oneRange('insert a chart')) return;
         const family = typeof arg === 'string' ? { donut: 'pie', bubble: 'scatter' }[arg] || arg : null;
         return runChartAction(ctx, family ? { action: 'insertDialog', family } : { action: 'recommended' });
       }
       case 'quickChart': {
         // Alt+F1: the default chart of the selection, on the sheet beside it.
         if (!committed()) return;
-        if (!oneRange('insert a chart')) return;
         insertExcelChart(ctx);
         return;
       }
       case 'insertChartSheet': {
         // F11: the default chart of the selection on a chart sheet of its own.
         if (!committed()) return;
-        if (!oneRange('insert a chart')) return;
         insertChartSheet(ctx);
         return;
       }

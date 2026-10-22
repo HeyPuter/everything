@@ -7,7 +7,8 @@ import { openModal } from './modal.js';
 import { toast } from './toast.js';
 import { chartData } from '../core/charts.js';
 import { normalizeRange } from '../core/cell.js';
-import { DEFAULT_SUBTYPE, changeSubtypePatch, newExcelChart } from '../core/chart-subtypes.js';
+import { MAX_COL, MAX_ROW } from '../core/refs.js';
+import { DEFAULT_SUBTYPE, changeSubtypePatch, chartAreas, newExcelChart } from '../core/chart-subtypes.js';
 import { chartElementPatch, chartStylePatch, colorsPatch, detachedChart, elementFormatPatch, quickLayoutPatch, switchRowColumnPatch } from '../core/chart-design.js';
 import { effectiveFontTheme } from '../core/font-theme.js';
 import { fontKeyFor } from '../core/format.js';
@@ -42,13 +43,30 @@ export const seriesCountOf = (wb, sheetId, chart) => {
   return ['pie', 'donut'].includes(chart.type) ? data.categories.length : data.series.length;
 };
 
+/**
+ * What a new chart reads: `range` (a range, or several selected together), else the selection: the data around
+ * a single cell, or every range selected together. Null, with a notice, when it cannot be charted.
+ */
+export function chartSource(ctx, range = null) {
+  // Whole columns (or rows) selected together reach as far as the sheet's content, as one selected alone does.
+  const used = ctx.wb.usedRange(ctx.sheetId());
+  const toUsed = r => ({ ...r, r2: r.r2 >= MAX_ROW ? Math.max(r.r1, Math.min(r.r2, used?.r2 ?? r.r1)) : r.r2,
+    c2: r.c2 >= MAX_COL ? Math.max(r.c1, Math.min(r.c2, used?.c2 ?? r.c1)) : r.c2 });
+  const ranges = range ? (Array.isArray(range) ? range : [range]) : ctx.ranges?.()?.length > 1 ? ctx.ranges().map(toUsed) : [ctx.dataRange?.(ctx.range()) || ctx.range()];
+  const areas = chartAreas(ranges);
+  if (!areas) { toast('Select ranges over the same rows (or the same columns) to chart them together', { icon: 'info', duration: 3500 }); return null; }
+  const r = areas.box;
+  if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { toast('That range is too large to chart', { icon: 'info' }); return null; }
+  return areas.lines ? ranges.map(normalizeRange) : r;
+}
+
 /** Insert a chart of `subtype` over `range` beside the data (or in view), select it and show Chart Design. */
 export function insertChart(ctx, subtype = DEFAULT_SUBTYPE, range = null) {
   const { wb } = ctx, sheetId = ctx.sheetId(), sheet = wb.sheet(sheetId);
   if (!sheet || sheet.kind === 'chart') return null;
-  const r = normalizeRange(range || ctx.dataRange?.(ctx.range()) || ctx.range());
-  if (r.r2 - r.r1 + 1 > 5000 || r.c2 - r.c1 + 1 > 200) { toast('That range is too large to chart', { icon: 'info' }); return null; }
-  const chart = newExcelChart(wb, sheetId, r, subtype, { font: themeChartFont(wb) });
+  const source = chartSource(ctx, range);
+  if (!source) return null;
+  const chart = newExcelChart(wb, sheetId, source, subtype, { font: themeChartFont(wb) });
   // Beside data that runs past the window, the chart goes in the middle of the window instead.
   Object.assign(chart, ctx.grid.placeInView?.(chart));
   // A chart placed in the sheet's last rows grows the sheet to hold it, as the Insert chart dialog does.
@@ -82,8 +100,9 @@ export function newChartSheet(wb, chart, name = chartSheetName(wb), index = wb.s
 export function insertChartSheet(ctx, subtype = DEFAULT_SUBTYPE) {
   const { wb } = ctx, sheetId = ctx.sheetId();
   if (wb.sheet(sheetId)?.kind === 'chart') return null;
-  const r = normalizeRange(ctx.dataRange?.(ctx.range()) || ctx.range());
-  const chart = detachedChart(wb, sheetId, newExcelChart(wb, sheetId, r, subtype, { font: themeChartFont(wb) }));
+  const source = chartSource(ctx);
+  if (!source) return null;
+  const chart = detachedChart(wb, sheetId, newExcelChart(wb, sheetId, source, subtype, { font: themeChartFont(wb) }));
   if (!chart.sourceRefs?.length) { toast('Select the data to chart first', { icon: 'info' }); return null; }
   let sheet = null;
   wb.transaction('Insert chart sheet', () => { sheet = newChartSheet(wb, chart); });

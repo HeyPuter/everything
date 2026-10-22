@@ -7,8 +7,9 @@
  * The look is an `appearance` (see charts.js): the same model imported charts carry, so new
  * charts draw through the native-style renderer and write the same DrawingML Excel reads back.
  */
-import { normalizeRange } from './cell.js';
+import { colName, normalizeRange } from './cell.js';
 import { chartData, defaultChart } from './charts.js';
+import { quoteSheet } from './refs.js';
 
 // Default chart text: Text 1 at 65% (#595959); its lines: Text 1 at 15% (#D9D9D9).
 export const CHART_TEXT_GREY = '#595959';
@@ -199,12 +200,15 @@ export function defaultChartTitle(data, type) {
  */
 export function newExcelChart(wb, sheetId, range, subtypeId = DEFAULT_SUBTYPE, { font = 'calibri' } = {}) {
   const subtype = chartSubtype(subtypeId) || chartSubtype(DEFAULT_SUBTYPE);
-  const r = normalizeRange(range);
+  // Several ranges selected together chart the box around them, less the lines between them (see chartAreas).
+  const areas = Array.isArray(range) ? chartAreas(range) : null;
+  const r = areas ? areas.box : normalizeRange(range);
   const sheet = wb.sheet(sheetId);
   const base = defaultChart(r, { r: r.r1, c: r.c2 + 1 });
   const chart = { ...base, ...subtypeFields(subtype), w: 480, h: 288, dx: 0, dy: 0, legendPos: 'bottom',
     appearance: excelChartAppearance(subtype, { font }) };
   if (sheet && r.c2 + 1 + 4 > sheet.cols) chart.anchor = { r: r.r2 + 2, c: r.c1 };
+  if (areas?.lines && sheet) Object.assign(chart, areaSources(wb, sheetId, sheet, chart, areas));
   const data = chartData(wb, sheetId, chart);
   chart.title = defaultChartTitle(data, chart.type);
   // A pie names its slices in the legend; a single series needs no legend of its name beside its title.
@@ -224,6 +228,49 @@ export function newExcelChart(wb, sheetId, range, subtypeId = DEFAULT_SUBTYPE, {
   if (chart.type === 'boxWhisker') chart.legend = data.series.length > 1;
   if (chart.legendPos !== 'bottom' && chart.appearance) chart.appearance = { ...chart.appearance, legendPos: chart.legendPos };
   return chart;
+}
+
+/**
+ * Ranges selected together (Ctrl-click) that a chart reads as one table, as Excel charts them: ranges over the
+ * same rows set their columns side by side, ranges over the same columns their rows one under another.
+ * Returns the box around them and the columns (rows) selected in it, `lines` null for a single range; null
+ * when the ranges do not line up so.
+ */
+export function chartAreas(ranges) {
+  const areas = ranges.map(normalizeRange);
+  if (!areas.length) return null;
+  if (areas.length === 1) return { box: areas[0], lines: null, across: true };
+  const across = areas.every(a => a.r1 === areas[0].r1 && a.r2 === areas[0].r2);
+  if (!across && !areas.every(a => a.c1 === areas[0].c1 && a.c2 === areas[0].c2)) return null;
+  const lines = new Set();
+  for (const a of areas) for (let i = across ? a.c1 : a.r1; i <= (across ? a.c2 : a.r2); i++) lines.add(i);
+  const box = { r1: Math.min(...areas.map(a => a.r1)), c1: Math.min(...areas.map(a => a.c1)), r2: Math.max(...areas.map(a => a.r2)), c2: Math.max(...areas.map(a => a.c2)) };
+  return { box, lines, across };
+}
+
+const refOf = (sheetName, r1, c1, r2 = r1, c2 = c1) => `${quoteSheet(sheetName)}!$${colName(c1)}$${r1 + 1}${r1 === r2 && c1 === c2 ? '' : `:$${colName(c2)}$${r2 + 1}`}`;
+
+/**
+ * The series of the box around ranges selected together, read with a series down each column (across each row
+ * of ranges one under another) and kept where their line is selected, each with references of its own; the
+ * labels likewise, when their line is selected.
+ */
+function areaSources(wb, sheetId, sheet, chart, { lines, across }) {
+  const seriesIn = across ? 'cols' : 'rows';
+  const data = chartData(wb, sheetId, { ...chart, seriesIn }), layout = data.sourceLayout;
+  if (!layout) return { seriesIn };
+  const at = (line, point) => (across ? [point, line] : [line, point]);
+  const span = line => (line == null || !lines.has(line) || !layout.points.length ? ''
+    : refOf(sheet.name, ...at(line, layout.points[0]), ...at(line, layout.points.at(-1))));
+  const xy = chart.type === 'scatter' || chart.type === 'bubble';
+  const categories = xy ? span(layout.xLine) : span(layout.categoryLine);
+  const sourceRefs = data.series.flatMap((s, i) => {
+    const line = layout.lines[i];
+    if (!lines.has(line)) return [];
+    const nameRef = layout.nameLine != null ? refOf(sheet.name, ...at(line, layout.nameLine)) : '';
+    return [{ name: s.name, nameRef, categories, values: span(line), ...(chart.type === 'bubble' ? { sizes: span(layout.sizeLine) } : {}) }];
+  });
+  return sourceRefs.length ? { seriesIn, sourceRefs } : { seriesIn };
 }
 
 /** Which subtype a chart is, for the galleries' and Change Chart Type's checked tile. */

@@ -7,9 +7,8 @@ import { el, isComposing } from './dom.js';
 import { icon } from './icons.js';
 import { openModal } from './modal.js';
 import { renderChartSvg } from './chartsvg.js';
-import { insertChart, themeChartFont } from './chart-actions.js';
+import { chartSource, insertChart, themeChartFont } from './chart-actions.js';
 import { chartData } from '../core/charts.js';
-import { normalizeRange } from '../core/cell.js';
 import { CHART_FAMILIES, DEFAULT_SUBTYPE, changeSubtypePatch, chartSubtype, newExcelChart, subtypeOf } from '../core/chart-subtypes.js';
 import { recommendedSubtypes } from '../core/chart-design.js';
 import { maxOf } from '../core/numeric.js';
@@ -23,7 +22,9 @@ const familyOf = id => CHART_FAMILIES.find(f => f.subtypes.includes(id)) || CHAR
 export function openChartTypeDialog(ctx, { mode = 'recommended', family = null, chart = null } = {}) {
   const { wb } = ctx, sheetId = ctx.sheetId();
   const changing = mode === 'change' && chart;
-  const range = changing ? chart.range : normalizeRange(ctx.dataRange?.(ctx.range()) || ctx.range());
+  // A new chart's data: the selection's (one range, or several selected together).
+  const range = changing ? chart.range : chartSource(ctx);
+  if (!range) return null;
   const font = themeChartFont(wb);
   const baseData = chartData(wb, sheetId, changing ? chart : newExcelChart(wb, sheetId, range, DEFAULT_SUBTYPE, { font }));
   // A treemap's reading of the range tells whether its label columns nest.
