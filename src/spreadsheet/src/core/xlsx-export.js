@@ -129,7 +129,10 @@ export function dataTableFormula(ref, row, col) {
   return `<f t="dataTable"${Object.entries(attrs).map(([k, v]) => ` ${k}="${v}"`).join('')}/>`;
 }
 
-export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null } = {}) {
+/**
+ * `pause`, when given, is awaited between sheets: the caller's chance to give the page a turn (see workbookToXlsx).
+ */
+export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null, pause = null } = {}) {
   const zip = X.CFB.read(new Uint8Array(bytes), { type: 'array' });
   const decoder = new TextDecoder(), encoder = new TextEncoder();
   const get = path => { const file = X.CFB.find(zip, path); return file ? decoder.decode(file.content) : ''; };
@@ -194,6 +197,7 @@ export async function completeXlsx(X, wb, book, bytes, { sourceWorkbook = null }
   const richValues = richValueWriter({ get, set, binary: put, contentType });
   const persons = createPersonList();
   for (const [i, sheet] of wb.sheets.entries()) {
+    if (i && pause) await pause();
     const ws = book.Sheets[sheet.name], path = `/xl/worksheets/sheet${i + 1}.xml`;
     if (sheet.kind === 'chart') {
       const chartPath = `/xl/chartsheets/sheet${i + 1}.xml`;

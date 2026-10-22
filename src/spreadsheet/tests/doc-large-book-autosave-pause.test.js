@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Doc, noteUserInput } from '../src/lib/doc.js';
 import { Workbook } from '../src/core/workbook.js';
 import { workbookFromFile, workbookToXlsx } from '../src/core/io.js';
@@ -71,8 +71,72 @@ it('encodes the book as it is when a sheet is added while the page has its turn'
   };
   try {
     const back = await workbookFromFile(await (await workbookToXlsx(wb)).arrayBuffer(), 'big.xlsx');
-    expect(turns).toBe(2);
+    // A book of two sheets is finished a sheet at a time, which may give the page further turns.
+    expect(turns).toBeGreaterThanOrEqual(2);
     expect(back.sheets.map((s) => s.name)).toEqual(['S', 'Late']);
     expect(back.getValue(back.sheets[0].id, 5999, 9)).toBe(59999);
   } finally { globalThis.MessageChannel = Real; }
+});
+
+describe('a large book of many sheets', () => {
+  function manySheets(sheets = 12, rows = 500) {
+    const wb = new Workbook({ sheets: Array.from({ length: sheets }, (_, i) => ({ name: `S${i + 1}` })) });
+    for (const sheet of wb.sheets) {
+      const entries = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < 10; c++) entries.push({ r, c, cell: c === 9 ? { f: `SUM(A${r + 1}:I${r + 1})` } : { v: r * 10 + c } });
+      wb.setCells(sheet.id, entries, 'Paste');
+    }
+    return wb;
+  }
+  // Counts the page's turns, running `during(turn)` in each.
+  function turnsWith(during = () => {}) {
+    const Real = globalThis.MessageChannel;
+    const state = { turns: 0, restore: () => { globalThis.MessageChannel = Real; } };
+    globalThis.MessageChannel = class {
+      constructor() {
+        this.port1 = { close() {} };
+        this.port2 = { postMessage: () => setTimeout(() => { during(++state.turns); this.port1.onmessage(); }, 0) };
+      }
+    };
+    return state;
+  }
+
+  it('gives the page turns between its sheets, not only between the steps', async () => {
+    const wb = manySheets();
+    const slow = vi.spyOn(performance, 'now');
+    let clock = 0;
+    slow.mockImplementation(() => (clock += 40)); // every sheet takes longer than a slice
+    const state = turnsWith();
+    try {
+      const back = await workbookFromFile(await (await workbookToXlsx(wb)).arrayBuffer(), 'many.xlsx');
+      // Two steps' turns, and more between the sheets as they are built and as the file is finished.
+      expect(state.turns).toBeGreaterThan(2 + 2 * (wb.sheets.length - 2));
+      expect(back.sheets.map((s) => s.name)).toEqual(wb.sheets.map((s) => s.name));
+      expect(back.getValue(back.sheets[11].id, 499, 9)).toBe(wb.getValue(wb.sheets[11].id, 499, 9));
+    } finally { state.restore(); slow.mockRestore(); }
+  });
+
+  it('finishes the file from the book as it is when a cell or the active sheet changes on a turn', async () => {
+    for (const change of [(wb) => wb.setInput(wb.sheets[11].id, 0, 0, 'late'), (wb) => wb.setActiveSheet(wb.sheets[5].id)]) {
+      const wb = manySheets();
+      const slow = vi.spyOn(performance, 'now');
+      let clock = 0;
+      slow.mockImplementation(() => (clock += 40));
+      // A turn late in the run (12 while the sheets are built, 2 between the steps), while the file is being finished.
+      const state = turnsWith((turn) => { if (turn === 20) change(wb); });
+      try {
+        const blob = await workbookToXlsx(wb);
+        expect(state.turns).toBeGreaterThanOrEqual(20);
+        const back = await workbookFromFile(await blob.arrayBuffer(), 'many.xlsx');
+        expect(back.getValue(back.sheets[11].id, 0, 0)).toBe(wb.getValue(wb.sheets[11].id, 0, 0));
+        expect(back.activeSheet.name).toBe(wb.activeSheet.name);
+        // One tab selected: the old active sheet's and the new one's together open in Excel as grouped sheets.
+        const X = await import('../src/vendor/xlsx.mjs');
+        const zip = X.CFB.read(new Uint8Array(await blob.arrayBuffer()), { type: 'array' });
+        const selected = zip.FullPaths.filter((path) => /worksheets\/sheet\d+\.xml$/.test(path)
+          && /tabSelected="1"/.test(new TextDecoder().decode(X.CFB.find(zip, path).content)));
+        expect(selected).toHaveLength(1);
+      } finally { state.restore(); slow.mockRestore(); }
+    }
+  });
 });

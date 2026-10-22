@@ -815,11 +815,12 @@ function collectMeta(wb, structuredNames = [], { ods = false, fileSheets = null,
 }
 
 /** The SheetJS workbook for this document; `meta` adds the very-hidden styling sheet this app reads back. */
-function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, history = true } = {}) {
+function buildBook(X, wb, { meta = true, odsSettings = false, ods = false, history = true, built = null } = {}) {
   const book = { SheetNames: [], Sheets: Object.create(null), Workbook: { Sheets: [] } };
   for (const sheet of wb.sheets) {
     book.SheetNames.push(sheet.name);
-    book.Sheets[sheet.name] = buildSheet(X, wb, sheet, { ods });
+    // `built`: the sheets already built for this book, by sheet (see workbookToXlsx).
+    book.Sheets[sheet.name] = built?.get(sheet) || buildSheet(X, wb, sheet, { ods });
     book.Workbook.Sheets.push({ name: sheet.name, Hidden: sheet.hidden ? (sheet.veryHidden ? 2 : 1) : 0 });
   }
   const structuredNames = [];
@@ -922,8 +923,8 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
   wb = sharedBook(wb);
   const { completeXlsx } = await import('./xlsx-export.js');
   const X = await XLSX();
-  const build = () => {
-    const book = buildBook(X, wb, { history });
+  const build = (built = null) => {
+    const book = buildBook(X, wb, { history, built });
     writeDocumentProperties(book, wb.documentProperties);
     return book;
   };
@@ -933,12 +934,43 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
   // cells held scrolling still for that long): the page gets a turn between the steps. The last step reads the
   // book again, so an edit made meanwhile has the steps before it done over, at once, to go with it.
   const large = wb.sheets.reduce((n, sheet) => n + sheet.cells.size, 0) > YIELD_CELLS;
-  let book = build();
+  // Its sheets are gathered one at a time, with a turn whenever a slice of time has gone: the cells of fifty sheets
+  // of 4,000 cells held the page for 0.6 s at once.
+  let built = null;
+  if (large && wb.sheets.length > 1) {
+    built = new Map();
+    let start = performance.now();
+    for (const sheet of [...wb.sheets]) {
+      if (performance.now() - start > YIELD_SLICE_MS) { await nextTask(); start = performance.now(); }
+      if (wb.sheets.includes(sheet)) built.set(sheet, buildSheet(X, wb, sheet));
+    }
+  }
+  let book = build(built);
   if (large) await nextTask();
   let bytes = write(book);
   if (large) {
     await nextTask();
     if (wb.version !== version) bytes = write(book = build());
+  }
+  // The file is finished a sheet at a time too. That step reads the workbook itself as well as what was built from it,
+  // so a change meanwhile (an edit, or another sheet made the active one, which would leave two tabs selected) has it
+  // done over, at once, from the book as it now is.
+  if (large && wb.sheets.length > 1) {
+    const stamp = () => `${wb.version}|${wb.activeSheetId}`;
+    const at = stamp();
+    let start = performance.now();
+    const pause = async () => {
+      if (performance.now() - start <= YIELD_SLICE_MS) return;
+      await nextTask();
+      if (stamp() !== at) throw STALE;
+      start = performance.now();
+    };
+    try {
+      return new Blob([await completeXlsx(X, wb, book, bytes, { sourceWorkbook, pause })], { type: XLSX_MIME });
+    } catch (e) {
+      if (e !== STALE) throw e;
+      bytes = write(book = build());
+    }
   }
   const data = await completeXlsx(X, wb, book, bytes, { sourceWorkbook });
   return new Blob([data], { type: XLSX_MIME });
@@ -946,6 +978,9 @@ export async function workbookToXlsx(wb, { sourceWorkbook = null, history = true
 
 /** A book of more cells than this takes long enough to encode that the page is given turns along the way. */
 const YIELD_CELLS = 50_000;
+/** About how long gathering or finishing a large book's sheets goes on before the page gets a turn. */
+const YIELD_SLICE_MS = 30;
+const STALE = Symbol('stale');
 /** Resolves in a task of its own, once the page has had its turn (input, a frame). */
 export function nextTask() {
   if (typeof MessageChannel !== 'function') return new Promise((resolve) => setTimeout(resolve, 0));
