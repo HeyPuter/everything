@@ -56,7 +56,11 @@ export function tableConversionStyle(wb, sheet, table) {
     const { r, c } = parseKey(key);
     if (r < g.r1 || r > g.r2 || c < g.c1 || c > g.c2) continue;
     const patch = patchAt(r, c, wb.styleAt(sheet.id, r, c));
-    if (Object.keys(patch).length) cells.push({ r, c, style: { ...cell.s, ...patch } });
+    if (!Object.keys(patch).length) continue;
+    // A key the patch takes away (nativeFill: null) is left out, as applyStyle leaves it out, unless it resets the line's.
+    const style = { ...cell.s, ...patch }, line = wb._lineStyle(sheet, r, c);
+    for (const k of Object.keys(style)) if (style[k] === null && line?.[k] == null) delete style[k];
+    cells.push({ r, c, style });
   }
   return { regions: compactRangeRecords(regions, record => JSON.stringify(record.values)), cells };
 }
