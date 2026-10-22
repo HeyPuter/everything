@@ -12126,11 +12126,13 @@ export class Workbook extends EventTarget {
           }
           if (node.name === 'LAMBDA' && !node.bare) return false; // uncalled, it is #CALC!; called, it is judged where it is called
           if (node.name === 'REDUCE' && !node.bare) {
-            // REDUCE answers whatever its lambda leaves in the accumulator: VSTACK there builds an array.
+            // REDUCE answers whatever its lambda leaves in the accumulator: VSTACK there builds an array, and so
+            // does a+v when the accumulator starts as one, REDUCE({0,0},A1:A3,LAMBDA(a,v,a+v)).
             const fn = node.args[node.args.length - 1];
-            if (isLambda(fn)) return expand(fn, scope, [], scope, sink);
+            const start = node.args.length >= 3 ? [node.args[0]] : [];
+            if (isLambda(fn)) return expand(fn, scope, start, scope, sink);
             const held = paramName(fn) && scope?.get(fn.name);
-            if (held?.lambda) return expand(held.lambda, held.scope, [], scope, sink);
+            if (held?.lambda) return expand(held.lambda, held.scope, start, scope, sink);
             return false; // a built-in or a defined LAMBDA folds the values to one
           }
           if (node.name === 'SUBTOTAL' && !node.bare) {
