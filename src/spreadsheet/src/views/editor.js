@@ -1085,22 +1085,27 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     for (const rg of runs) wb.unmergeCells(sid, rg);
   }
 
-  /** Remove the notes, or the links, of the selected cells: only cells that have one are visited. */
+  /**
+   * Remove the notes, or the links, of the selected cells: only cells that have one are visited. Grouped sheets each
+   * lose their own, as Clear takes each one's contents: the active sheet's alone were cleared, the others' left.
+   */
   function clearInSelection(kind) {
-    const sheet = wb.sheet(grid.sheetId);
-    if (!sheet) return;
     const inside = (r, c) => grid.ranges.some((rg) => r >= rg.r1 && r <= rg.r2 && c >= rg.c1 && c <= rg.c2);
-    if (kind === 'notes') {
-      for (const key of [...sheet.notes.keys()]) {
-        const { r, c } = parseKey(key);
-        if (inside(r, c)) wb.setNote(sheet.id, r, c, null);
+    for (const id of wb.sheetGroup || [grid.sheetId]) {
+      const sheet = wb.sheet(id);
+      if (!sheet || sheet.kind === 'chart') continue;
+      if (kind === 'notes') {
+        for (const key of [...sheet.notes.keys()]) {
+          const { r, c } = parseKey(key);
+          if (inside(r, c)) wb.setNote(sheet.id, r, c, null);
+        }
+        comments.clearIn(sheet.id, inside);
+        continue;
       }
-      comments.clearIn(sheet.id, inside);
-      return;
-    }
-    for (const key of [...sheet.cells.keys()]) {
-      const { r, c } = parseKey(key);
-      if (inside(r, c) && wb.linkAt(sheet.id, r, c)) wb.removeLink(sheet.id, r, c);
+      for (const key of [...sheet.cells.keys()]) {
+        const { r, c } = parseKey(key);
+        if (inside(r, c) && wb.linkAt(sheet.id, r, c)) wb.removeLink(sheet.id, r, c);
+      }
     }
   }
 
