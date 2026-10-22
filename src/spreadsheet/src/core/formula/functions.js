@@ -6014,7 +6014,14 @@ export const FUNCTIONS = {
         case 'contents': { if (!ref) return err('#VALUE!'); const v = ctx.getValue(target.sheet, r, c); return v == null ? 0 : v; }
         // "b" is an empty cell alone; a formula's "" is text, "l", as ISBLANK of it is FALSE.
         case 'type': { if (!ref) return err('#VALUE!'); const v = ctx.getValue(target.sheet, r, c); return v == null ? 'b' : typeof v === 'string' ? 'l' : 'v'; }
-        case 'filename': return '';
+        // The file and the sheet as Excel writes them, /Documents/[Budget.xlsx]Sheet1, so the usual MID(CELL("filename",A1),
+        // FIND("]",CELL("filename",A1))+1,99) finds the sheet's name; empty for a book never saved, as in Excel.
+        case 'filename': {
+          const path = ctx.filePath?.();
+          if (!path) return '';
+          const slash = path.lastIndexOf('/');
+          return `${path.slice(0, slash + 1)}[${path.slice(slash + 1)}]${target.sheet || ctx.currentSheet}`;
+        }
         case 'format': case 'color': case 'parentheses': case 'protect': case 'width': {
           const info = ctx.cellFormat?.(target.sheet, r, c);
           if (!info) return err('#VALUE!');

@@ -1296,6 +1296,7 @@ export class Workbook extends EventTarget {
     this._blankKeys = null; // the cells read as blank while the outermost cell of a circle is calculated again (see _judgeCircles)
     this._astByCell = new WeakMap(); // cell → { f, ast }: filled-down formulas are all distinct strings, so the text cache alone thrashes
     this.externalAllowed = true; // may IMPORT* formulas and web images reach out? Off for files from elsewhere until allowed
+    this.filePath = null; // the drive path of the file the book is saved as, which its document keeps up to date (CELL("filename")); never saved
     this._externalBlocked = false; // a blocked request has been noticed this version
     this._depth = 0; // nested _compute calls in progress
     this._deepening = new Set(); // cells being evaluated bottom-up after a stack overflow
@@ -13289,6 +13290,7 @@ export class Workbook extends EventTarget {
     };
     const ctx = {
       compatibilityVersion: this.calculationCompatibility.version,
+      filePath: () => this.filePath,
       referenceMode,
       fixedArray,
       currentSheet: sheet.name,

@@ -315,6 +315,18 @@ export class Doc extends EventTarget {
     }
   }
 
+  /** Where the file lives on the drive, null until it is first saved; the book knows it too, for CELL("filename"). */
+  get path() {
+    return this._path;
+  }
+
+  set path(path) {
+    this._path = path;
+    // Saved under another name or moved, the book's CELL("filename") formulas name the new file once they are
+    // next calculated, as in Excel; nothing is calculated again for it, mid-save.
+    this.wb.filePath = path;
+  }
+
   /** The file this document is: where it lives and its id on the drive, which the records kept for it are keyed by. */
   get file() {
     return { path: this.path, uid: this.uid };
