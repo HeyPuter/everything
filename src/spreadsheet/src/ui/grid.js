@@ -4128,8 +4128,11 @@ export function createGrid(opts) {
     else { focus = step(focus); anchor = focus; }
     // The range goes in as anchor and focus, not its corners: insertRef keeps them as the point the next
     // Shift+arrow stretches from, so stretching up or left kept going rather than shrinking back.
-    insertRef({ r1: anchor.r, c1: anchor.c, r2: focus.r, c2: focus.c });
+    const ref = insertRef({ r1: anchor.r, c1: anchor.c, r2: focus.r, c2: focus.c });
     scrollIntoView(focus);
+    // The reference picked is read out: the formula's text changes under the caret, which a screen reader
+    // does not speak, so the arrows seemed to do nothing.
+    if (ref) opts.announce?.(ref);
   }
 
   /** Insert a whole-column (B:D) or whole-row (2:3) reference, from a header press or drag. */
@@ -4168,6 +4171,7 @@ export function createGrid(opts) {
     positionEditor();
     renderRefHighlights();
     opts.onEdit?.({ editing: true, text: next, r: edit.r, c: edit.c });
+    return refText;
   }
 
   // The references of the formula being edited, kept from one paint to the next: the layer is painted on
