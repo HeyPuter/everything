@@ -5800,15 +5800,14 @@ export class Workbook extends EventTarget {
     const seen = new Set();
     const kept = [];
     let removed = 0;
+    let changed = false;
+    let emptyGone = false;
     for (let r = start; r <= n.r2; r++) {
       const cells = [];
       const parts = [];
-      let blank = true;
       for (let c = n.c1; c <= n.c2; c++) {
         const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
         cells.push(cell);
-        const v = cell && (cell.v != null || cell.f != null) ? this._compute(sheet, r, c) : null;
-        if (v != null && v !== '') blank = false;
         if (compare && !compare.has(c)) continue;
         // Rows match by the text they show: a date and its serial, or 1.5 and
         // 150%, are two values, while two cells that both read 0.3 are one.
@@ -5816,12 +5815,21 @@ export class Workbook extends EventTarget {
       }
       // Cell text can contain any delimiter, including control characters.
       // Keep column boundaries unambiguous so distinct rows are never deleted.
+      // Blank rows read the same as one another, so as in Excel the first of them stays and the rest go.
       const key = JSON.stringify(parts);
-      if (!blank && seen.has(key)) { removed++; continue; }
-      if (!blank) seen.add(key);
+      if (seen.has(key)) {
+        removed++;
+        // A blank row that goes changes nothing when it holds nothing at all and no kept row lies below it
+        // (the rows freed at the bottom, run through again): those alone are no duplicates removed.
+        if (table || cells.some((cell, j) => cell || sheet.notes.has(cellKey(r, n.c1 + j)) || sheet.comments.has(cellKey(r, n.c1 + j)))) changed = true;
+        else emptyGone = true;
+        continue;
+      }
+      seen.add(key);
+      if (emptyGone) changed = true;
       kept.push({ r, cells });
     }
-    if (!removed) return 0;
+    if (!removed || !changed) return 0;
     const entries = [];
     const notes = [];
     const keptRows = new Set(kept.map((row) => row.r));

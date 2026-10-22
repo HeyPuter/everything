@@ -1074,9 +1074,9 @@ describe('removeDuplicates', () => {
     expect(b.val('A6')).toBe('apple');
   });
 
-  it('ignores blank rows and respects the header flag', () => {
+  it('keeps the first blank row as it keeps the first of any rows, and respects the header flag', () => {
     const b = book({ A1: 'x', A3: 'x', A4: 'x' });
-    expect(b.wb.removeDuplicates(b.id, parseRange('A1:A5'))).toBe(2);
+    expect(b.wb.removeDuplicates(b.id, parseRange('A1:A5'))).toBe(3);
     expect(b.val('A1')).toBe('x');
     expect(b.cell('A3')).toBeUndefined();
   });
