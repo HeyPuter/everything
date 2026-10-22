@@ -13,7 +13,9 @@ export const copyFilter = f => f ? { ...f, range: { ...f.range }, criteria: { ..
 /** Apply a structural/reference transform to every context, retaining selection. */
 export function mapSheetFilters(sheet, transform) {
   sheet.filter = sheet.filter ? transform(sheet.filter) : null;
-  sheet.otherFilters = (sheet.otherFilters || []).map(transform).filter(Boolean);
+  // Two filters an edit brings onto one range are one, as a sheet read afresh keeps them (see makeSheet).
+  const ranges = new Set([filterRangeKey(sheet.filter)]);
+  sheet.otherFilters = (sheet.otherFilters || []).map(transform).filter((f) => f && !ranges.has(filterRangeKey(f)) && ranges.add(filterRangeKey(f)));
   // A sheet's views (View ▸ Sheet View) and the default filters kept aside while someone is in one follow
   // the same edits, so each still filters the rows it did. Each is replaced, never changed in place.
   if (sheet.sheetViews?.length) sheet.sheetViews = sheet.sheetViews.map(v => ({ ...v, filter: v.filter ? transform(v.filter) : null,
