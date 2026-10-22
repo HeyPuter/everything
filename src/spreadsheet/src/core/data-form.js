@@ -11,7 +11,7 @@
  */
 
 import { cellKey, colName } from './cell.js';
-import { editText } from './format.js';
+import { editText, parseInput } from './format.js';
 import { tableRows } from './tables.js';
 import { shiftFormula } from './refs.js';
 
@@ -149,12 +149,14 @@ function wildcardRegExp(text, prefix) {
   return new RegExp(`^${out}${prefix ? '' : '$'}`, 'i');
 }
 
-const asNumber = (v) => {
-  if (typeof v === 'number') return v;
-  if (typeof v === 'boolean') return null;
-  const t = String(v ?? '').trim().replace(/,/g, '');
-  if (t === '' || !/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?%?$/i.test(t)) return null;
-  return t.endsWith('%') ? Number(t.slice(0, -1)) / 100 : Number(t);
+/**
+ * A criterion's operand as the number it stands for, read as a typed entry is read under the regional format:
+ * 1,500 or 12% or $1,000 or a date such as 1/15/2024 (its serial), so ">1/1/2024" finds the later dates and
+ * ">$1,000" the larger amounts. Null for text that is no number.
+ */
+const asNumber = (text) => {
+  const parsed = parseInput(String(text ?? '').trim());
+  return parsed.f == null && typeof parsed.v === 'number' && Number.isFinite(parsed.v) ? parsed.v : null;
 };
 
 /**
