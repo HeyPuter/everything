@@ -174,7 +174,8 @@ const READS = {
     return this.grid(op, (sid, r, c) => {
       const cell = this.wb.getCell(sid, r, c);
       if (cell?.f != null) return `=${cell.f}`;
-      return scalar(cell?.v);
+      // A cell an array formula spills into holds no formula of its own: its value, as getValues gives it.
+      return scalar(cell?.v != null ? cell.v : this.wb.getValue(sid, r, c));
     });
   },
   texts(op) { return this.grid(op, (sid, r, c) => String(this.wb.getDisplay(sid, r, c) ?? '')); },
