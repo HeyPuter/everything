@@ -42,6 +42,9 @@ export function assignTips(names) {
 export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () => {}, blocked = () => false, onExit = () => {} }) {
   let state = null; // { level: 'tabs' | 'commands', typed, tips: [{ tip, target, kind, name }] }
   let altAlone = false;
+  // Where the keyboard was when the tips came up (the find box, a pane's field, a sheet tab): dismissed, they
+  // give it back there. Escape sent it to the sheet, and the field being typed in lost its place.
+  let returnTo = null;
   const layer = el('div.keytips-layer', { 'aria-hidden': 'true' });
   document.body.append(layer);
 
@@ -82,6 +85,7 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
   }
 
   function showTabs() {
+    if (!state) returnTo = document.activeElement;
     const file = fileButton();
     // Every tab, shown or not, takes part, so a tab's tip stays the same as contextual tabs come and go.
     // A tab may carry a fixed tip of its own (data-keytip): it stands apart from the rule, so a contextual tab
@@ -105,11 +109,15 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
     render();
   }
 
-  function exit({ focusGrid = true } = {}) {
+  /** `restore`: the tips were dismissed, not used, so the focus goes back to where they were called up from. */
+  function exit({ focusGrid = true, restore = false } = {}) {
     if (!state) return;
     state = null;
     ribbon.classList.remove('keytips-on');
     render();
+    const back = returnTo;
+    returnTo = null;
+    if (restore && back?.isConnected && back !== document.body && !ribbon.contains(back) && !back.closest('[hidden], [inert]')) { back.focus({ preventScroll: true }); return; }
     if (focusGrid) onExit();
   }
 
@@ -144,11 +152,11 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
       e.preventDefault(); e.stopPropagation();
       if (state.level === 'commands' && state.typed) { state.typed = ''; render(); }
       else if (state.level === 'commands') showTabs();
-      else exit();
+      else exit({ restore: true });
       return;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) { exit({ focusGrid: false }); return; }
-    if (e.key === 'F10' || e.key === 'Tab') { e.preventDefault(); exit(); return; }
+    if (e.key === 'F10' || e.key === 'Tab') { e.preventDefault(); exit({ restore: true }); return; }
     const ch = e.key.length === 1 ? e.key.toUpperCase() : null;
     e.preventDefault(); e.stopPropagation();
     if (!ch || !ALNUM.test(ch)) return;
@@ -166,7 +174,7 @@ export function attachKeyTips({ ribbon, fileButton = () => null, openFile = () =
     const alone = altAlone;
     altAlone = false;
     if (!alone) return;
-    if (state) { e.preventDefault(); exit(); return; }
+    if (state) { e.preventDefault(); exit({ restore: true }); return; }
     if (blocked()) return;
     e.preventDefault();
     showTabs();
