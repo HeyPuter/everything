@@ -33,6 +33,11 @@ export function createAccessibilityPane(ctx) {
     if (!force && ctx.wb.version === lastVersion) return;
     lastVersion = ctx.wb.version;
     findings = checkAccessibility(ctx.wb);
+    // Drawn again after every change, the results keep the tiers and rules folded or opened as the user left them,
+    // and the heading or item focus was on: drawn afresh, each edit (a co-author's too) undid both.
+    const opened = new Map([...results.querySelectorAll('details[data-key]')].map((d) => [d.dataset.key, d.open]));
+    const focused = results.contains(document.activeElement) ? document.activeElement.closest('[data-key]') : null;
+    const focusKey = focused?.dataset.key, onSummary = focused?.tagName === 'DETAILS';
     if (!findings.length) {
       results.replaceChildren(el('p.a11y-clear', {}, el('span', { html: icon('check', 18, 2) }),
         'No accessibility issues found. People with disabilities should not have difficulty reading this workbook.'));
@@ -40,16 +45,21 @@ export function createAccessibilityPane(ctx) {
       return;
     }
     const groups = groupFindings(findings).filter((g) => g.count);
-    results.replaceChildren(...groups.map((group) => el('details.a11y-tier', { open: true },
+    const open = (key, fallback) => opened.get(key) ?? fallback;
+    results.replaceChildren(...groups.map((group) => el('details.a11y-tier', { open: open(`tier:${group.severity}`, true), dataset: { key: `tier:${group.severity}` } },
       el('summary', {}, `${TIER[group.severity]} (${group.count})`),
       ...group.rules.map((rule) => {
-        const node = el('details.a11y-rule', { open: chosenRule === rule.rule },
+        const node = el('details.a11y-rule', { open: open(`rule:${rule.rule}`, chosenRule === rule.rule), dataset: { key: `rule:${rule.rule}` } },
           el('summary', { onclick: () => { chosenRule = rule.rule; describe(rule); } }, `${rule.label} (${rule.items.length})`),
           el('ul', {}, ...rule.items.map((item) => el('li', {}, el('button.a11y-item', {
-            type: 'button', onclick: () => { chosenRule = rule.rule; describe(rule); ctx.reveal(item); },
+            type: 'button', dataset: { key: `item:${rule.rule}:${item.label}` }, onclick: () => { chosenRule = rule.rule; describe(rule); ctx.reveal(item); },
           }, item.label)))));
         return node;
       }))));
+    if (focusKey) {
+      const same = [...results.querySelectorAll('[data-key]')].find((n) => n.dataset.key === focusKey);
+      (onSummary ? same?.querySelector(':scope > summary') : same)?.focus({ preventScroll: true });
+    }
     describe(chosenRule ? groupFindings(findings).flatMap((g) => g.rules).find((r) => r.rule === chosenRule) : null);
   }
 
