@@ -68,7 +68,9 @@ const large = descriptor => ({ ...descriptor, large: true });
 const threadCmd = (label, glyph, cmd, { needs = null, toggle = false, ...extra } = {}) => ({ label, glyph, ariaLabel: extra.ariaLabel || label, ...extra,
   resolve: (menus, ctx) => {
     const f = ctx?.flags?.() || {};
-    return { label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || (needs ? !f[needs] : false)), checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
+    // Grouped sheets: a comment belongs to one sheet's cell, so adding or deleting one waits, as the menus' does.
+    const grouped = !!f.grouped && GROUP_BLOCKED_COMMANDS.has(cmd);
+    return { label, cmd, disabled: !toggle && (!!f.editing || !!f.chartSheet || grouped || (needs ? !f[needs] : false)), hint: grouped ? GROUP_BLOCKED_HINT : undefined, checked: toggle ? !!f.commentsPane : undefined, shortcut: extra.shortcut };
   } });
 const NEW_COMMENT_KEY = `${MOD_KEY}+Shift+F2`;
 /** Commands that open a menu of their own, anchored on the button that ran them; those buttons announce the menu. */
