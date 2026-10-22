@@ -339,9 +339,9 @@ export function filledCells(wb, sheetId, range) {
   return n;
 }
 
-/** How many cells of a range have a note: the user's writing, as much as a value is. */
-function notesIn(wb, sheetId, range) {
-  const notes = wb.sheet(sheetId)?.notes;
+/** How many cells of a range have a note (or, with `kind` 'comments', a comment thread): the user's writing, as much as a value is. */
+function notesIn(wb, sheetId, range, kind = 'notes') {
+  const notes = wb.sheet(sheetId)?.[kind];
   if (!notes?.size) return 0;
   let n = 0;
   for (const key of notes.keys()) {
@@ -1264,8 +1264,9 @@ export function describeCall(wb, name, args = {}, env) {
       const data = range && range.r1 >= 0 ? filled(s, range) : 0;
       // The notes in them go too: removing a note on its own asks, and so does removing it with its row.
       const notes = range && range.r1 >= 0 ? notesIn(wb, s, range) : 0;
+      const threads = range && range.r1 >= 0 ? notesIn(wb, s, range, 'comments') : 0;
       const which = rows ? `row${n === 1 ? '' : 's'} ${lineNumber(args.start_row)}${n > 1 ? `–${lineNumber(args.start_row) + n - 1}` : ''}` : `column${n === 1 ? '' : 's'} ${String(args.start_column).toUpperCase()}${n > 1 && range ? `–${colName(range.c2)}` : ''}`;
-      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note')].filter(Boolean);
+      const removes = [data && `${plural(data, 'cell')} of data`, notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
       return { label: `Delete ${which} on ${sheetName(args.sheet)}`, destructive: removes.length > 0, detail: removes.length ? `Removes ${removes.join(' and ')}.` : null };
     }
     case 'sort_range': return { label: `Sort ${at(args.range).text}` };
