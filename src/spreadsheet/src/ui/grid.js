@@ -2635,7 +2635,8 @@ export function createGrid(opts) {
         let width = Math.max(minW, drag.from.width + ldx);
         let height = Math.max(minH, drag.from.height + ldy);
         // Images keep their proportions unless Shift is held; one unlocked (Picture Format ▸ Size) the other way round.
-        if (ch.type === 'image' && (ch.lockAspect !== false) !== ev.shiftKey) {
+        // Any other object keeps them while Shift is held, as in Excel.
+        if (ch.type === 'image' ? (ch.lockAspect !== false) !== ev.shiftKey : ev.shiftKey) {
           const ratio = drag.from.width / drag.from.height;
           if (Math.abs(ldx) >= Math.abs(ldy)) height = Math.max(minH, width / ratio); else width = Math.max(minW, height * ratio);
         }
