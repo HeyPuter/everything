@@ -23903,6 +23903,8 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 		var number_format_map = _nfm || Object.create(null), styles = Object.create(null);
 		var commonStyles = _styles || Object.create(null), inCommonStyles = false, styleNumberFormats = new WeakMap();
 		var columnNumberFormats = [], columnCount = 0, rowNumberFormatName = null;
+		/* Puter Spreadsheet local patch: where the rows and columns to repeat on every printed page start. */
+		var headerRowStart = null, headerColStart = null;
 		function ods_number_format(name) {
 			return resolve_ods_style_number_format(name && (styles[name] || commonStyles[name]), commonStyles, styleNumberFormats);
 		}
@@ -23978,6 +23980,8 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					if(merges.length) ws['!merges'] = merges;
 					/* Puter Spreadsheet local patch: a protected table (Tools ▸ Protect Sheet in LibreOffice). Its password key is not kept. */
 					if(parsexmlbool(sheetag["protected"])) ws['!odsProtected'] = true;
+					/* Puter Spreadsheet local patch: the sheet's print ranges, as their ODF addresses (read in io.js). */
+					if(sheetag["print-ranges"]) ws['!odsPrintRanges'] = unescapexml(sheetag["print-ranges"]);
 					if(ws['!odsConditionalFormats']) ws['!odsConditionalFormats'] = odsConditionalFormatsXml(ws['!odsConditionalFormats'], { convert: ods_to_csf_formula, address: ods_to_csf_3D });
 					if(rowinfo.length) ws["!rows"] = rowinfo;
 					if(colinfo.length) ws["!cols"] = colinfo;
@@ -24395,11 +24399,19 @@ function parse_content_xml(d/*:string*/, _opts, _nfm, _styles)/*:Workbook*/ {
 					columnCount += columnRepeat;
 				}
 				break;
-			case 'table-header-rows': break; // 9.1.7 <table:table-header-rows>
+			case 'table-header-rows': // 9.1.7 <table:table-header-rows>
+				/* Puter Spreadsheet local patch: the rows LibreOffice repeats at the top of every printed page (!odsTitleRows). */
+				if(Rn[1] === '/') { if(headerRowStart != null && R - 1 >= headerRowStart) ws['!odsTitleRows'] = [headerRowStart, R - 1]; headerRowStart = null; }
+				else if(Rn[0].charAt(Rn[0].length-2) !== '/') headerRowStart = R < 0 ? 0 : R;
+				break;
 			case 'table-rows': break; // 9.1.12 <table:table-rows>
 			/* TODO: outline levels */
 			case 'table-column-group': break; // 9.1.10 <table:table-column-group>
-			case 'table-header-columns': break; // 9.1.11 <table:table-header-columns>
+			case 'table-header-columns': // 9.1.11 <table:table-header-columns>
+				/* Puter Spreadsheet local patch: the columns repeated at the left of every printed page (!odsTitleCols). */
+				if(Rn[1] === '/') { if(headerColStart != null && columnCount - 1 >= headerColStart) ws['!odsTitleCols'] = [headerColStart, columnCount - 1]; headerColStart = null; }
+				else if(Rn[0].charAt(Rn[0].length-2) !== '/') headerColStart = columnCount;
+				break;
 			case 'table-columns': break; // 9.1.12 <table:table-columns>
 
 			case 'null-date': // 9.4.2 <table:null-date>
@@ -25072,7 +25084,7 @@ var write_content_ods/*:{(wb:any, opts:any):string}*/ = /* @__PURE__ */(function
 		/* Puter Spreadsheet local patch: a hidden sheet (Workbook.Sheets[i].Hidden) uses the table style that does not display. */
 		var sheetHidden = (wb.Workbook||{}).Sheets && wb.Workbook.Sheets[i] && wb.Workbook.Sheets[i].Hidden;
 		/* Puter Spreadsheet local patch: a protected sheet (!odsProtected) is a protected table, with no password. */
-		o.push('      <table:table table:name="' + escapexml(wb.SheetNames[i]) + '" table:style-name="' + (sheetHidden ? "ta2" : "ta1") + '"' + (ws['!odsProtected'] ? ' table:protected="true"' : '') + '>\n');
+		o.push('      <table:table table:name="' + escapexml(wb.SheetNames[i]) + '" table:style-name="' + (sheetHidden ? "ta2" : "ta1") + '"' + (ws['!odsProtected'] ? ' table:protected="true"' : '') + (ws['!odsPrintRanges'] ? ' table:print-ranges="' + escapexml(ws['!odsPrintRanges']) + '"' : '') + '>\n');
 		var R=0,C=0, range = decode_range(ws['!ref']||"A1");
 		var marr/*:Array<Range>*/ = ws['!merges'] || [], mi = 0;
 		var validationLayout = ws['!validations'] && ws['!validations'].length ? odsValidationLayout(ws['!validations'], range, i) : null;

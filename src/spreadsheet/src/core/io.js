@@ -325,6 +325,11 @@ function buildSheet(X, wb, sheet, { ods = false } = {}) {
   const numFmtOf = (style) => (ods ? odsFormatCode(styleToNumFmt(style)) : styleToNumFmt(style));
   const ws = {};
   if (ods && sheet.protected) ws['!odsProtected'] = true;
+  // The print area, as the space-separated range addresses of table:print-ranges.
+  if (ods && sheet.printSettings?.areas?.length) {
+    const at = `${odsSheetName(sheet.name)}.`;
+    ws['!odsPrintRanges'] = sheet.printSettings.areas.map((a) => `${at}${cellName(a.r1, a.c1)}:${at}${cellName(a.r2, a.c2)}`).join(' ');
+  }
   if (sheet.validations.length) ws['!validations'] = sheet.validations.map((rule) => ({
     ...rule,
     source: rule.type === 'formula' || (rule.type === 'list' && isRangeSource(rule.source))
@@ -2254,6 +2259,25 @@ function importSheet(X, ws, name, meta, date1904 = false, definedNames, fileForm
   };
 }
 
+/** A sheet name as an ODF range address spells it: bare when it is a plain word, else quoted. */
+const odsSheetName = (name) => (/^[\p{L}_][\p{L}\p{N}_]*$/u.test(name) ? name : `'${name.replace(/'/g, "''")}'`);
+
+/**
+ * The print settings an .ods from another program gives a sheet: its print ranges (table:print-ranges,
+ * "Sheet1.A1:Sheet1.D20 'My Sheet'.A23:.B26") and the rows and columns its header-rows and header-columns
+ * repeat on every page. Null when it names none.
+ */
+function odsPrintSettings(ws) {
+  const areas = [];
+  for (const address of String(ws?.['!odsPrintRanges'] || '').replace(/\$/g, '').match(/(?:'(?:[^']|'')*'|[^\s'])+/g) || []) {
+    const m = /^(?:'(?:[^']|'')*'|[^.:']*)?\.([A-Z]{1,3}\d{1,7})(?::(?:'(?:[^']|'')*'|[^.:']*)?\.([A-Z]{1,3}\d{1,7}))?$/i.exec(address);
+    const range = m && parseRange(`${m[1]}:${m[2] || m[1]}`);
+    if (range) areas.push(range);
+  }
+  const titleRows = ws?.['!odsTitleRows'], titleCols = ws?.['!odsTitleCols'];
+  return areas.length || titleRows || titleCols ? { areas, ...(titleRows ? { titleRows } : {}), ...(titleCols ? { titleCols } : {}) } : null;
+}
+
 /** CSV / TSV / TXT go through the app's own parser so "7,5" stays text. */
 /**
  * The separator a delimited text file uses: tab, comma, semicolon, or pipe,
@@ -2757,6 +2781,8 @@ export async function workbookFromFile(data, filename = '', { sourceWorkbook = n
       if (chartSheet) sheet.kind = 'chart';
       const printSettings = readXlsxPrint(partOf(n), book.Workbook?.Names, n, book.SheetNames.indexOf(n));
       sheet.printSettings = printSettings ? { ...meta?.sheets?.[n]?.printSettings, ...printSettings } : meta?.sheets?.[n]?.printSettings;
+      // An .ods from another program says its print ranges and repeated rows on the table itself.
+      if (!meta?.sheets?.[n] && !partOf(n)) sheet.printSettings = odsPrintSettings(book.Sheets[n]) ?? sheet.printSettings;
       // A native editor can delete the built-in title name. Absence in the
       // native package must override the app's older private metadata too.
       if (sheet.printSettings && partOf(n)) sheet.printSettings = { ...sheet.printSettings,
