@@ -29,13 +29,16 @@ export function parseDelimited(text, delim, { maxRows = Infinity, maxColumns = I
   let quoted = false;
   let i = 0;
   let rowStart = 0;
+  // A separator of several characters (Split Text's custom one, " - ") splits where the whole of it appears.
+  const long = typeof delim === 'string' && delim.length > 1;
+  const at = (k) => (long ? src.startsWith(delim, k) : src[k] === delim);
   while (i < src.length) {
     if (rows.length >= maxRows || row.length >= maxColumns) return null;
     const ch = src[i];
     if (quoted) {
       if (ch === '"') {
         if (src[i + 1] === '"') { field += '"'; i += 2; continue; }
-        if (strict && i + 1 < src.length && ![delim, '\r', '\n'].includes(src[i + 1])) return null;
+        if (strict && i + 1 < src.length && !at(i + 1) && src[i + 1] !== '\r' && src[i + 1] !== '\n') return null;
         quoted = false;
         i++;
         continue;
@@ -47,7 +50,7 @@ export function parseDelimited(text, delim, { maxRows = Infinity, maxColumns = I
     // A quote inside an unquoted field is part of it, strict or not: Excel quotes only a cell holding a
     // line break or a tab, so a cell reading 12" pipe comes as it is.
     if (ch === '"' && field === '') { quoted = true; i++; continue; }
-    if (ch === delim) { row.push(field); field = ''; i++; continue; }
+    if (long ? at(i) : ch === delim) { row.push(field); field = ''; i += long ? delim.length : 1; continue; }
     if (ch === '\n' || ch === '\r') {
       row.push(field); rows.push(row); row = []; field = '';
       i += ch === '\r' && src[i + 1] === '\n' ? 2 : 1;
