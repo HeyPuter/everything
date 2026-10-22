@@ -442,9 +442,10 @@ export class Replica extends EventTarget {
           if (cell.s && Object.keys(cell.s).length) st[key] = { ...cell.s };
           any = true;
         } else if (was != null) {
-          // A formula that holds one #REF! more than it did is put back, one with a reference lost before as well.
+          // A formula that holds one #REF! more than it did is put back, one with a reference lost before as well, and so
+          // is one the deletion took away though its cell stayed (the first row of a table, become its header row).
           const now = n.f.get(at) ?? null;
-          if (now !== was && refErrors(now) > refErrors(was)) { v[key] = contentOf(cell, was); any = true; }
+          if (now !== was && (now == null || refErrors(now) > refErrors(was))) { v[key] = contentOf(cell, was); any = true; }
         }
         if (lenders?.size && cell.s && Object.keys(cell.s).length) {
           const p = parseKey(key);
