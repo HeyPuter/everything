@@ -591,7 +591,10 @@ const WRITES = {
   },
   tableTotals(op) {
     const { sheet, table } = this.tableOf(op.table);
-    if (!this.wb.setTableTotals(sheet.id, table.id, !!op.on) && !!table.totalsRow !== !!op.on) this.fail(`The totals row of ${table.name} could not be ${op.on ? 'shown' : 'hidden'}.`);
+    this.wb.setTableTotals(sheet.id, table.id, !!op.on);
+    // Read again: the workbook replaces a table it changes, so the one found above still has the row it had.
+    const now = this.wb.sheet(sheet.id)?.tables.find((t) => t.id === table.id);
+    if (!!now?.totalsRow !== !!op.on) this.fail(`The totals row of ${table.name} could not be ${op.on ? 'shown' : 'hidden'}.`);
   },
   tableConvert(op) {
     const { sheet, table } = this.tableOf(op.table);
