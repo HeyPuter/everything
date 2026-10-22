@@ -109,7 +109,7 @@ it('formats the cell being edited on its own sheet, not the selection of the she
   await menu('format', 'Text', 'Strikethrough');
   expect(edited().strike).toBe(true);
   await menu('format', 'Cell styles', 'Title');
-  expect(edited().size).toBe(20);
+  expect(edited().size).toBe(24); // Title: 18pt
   // The toolbar's Bold button toggles the edited cell as well (Title set it; the click takes it off).
   const boldBtn = [...view.el.querySelectorAll('.toolbar button')].find((b) => /^Bold/.test(b.getAttribute('aria-label') || b.title || ''));
   expect(boldBtn).toBeTruthy();

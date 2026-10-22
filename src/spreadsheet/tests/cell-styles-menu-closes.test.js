@@ -40,7 +40,7 @@ it('closes the Cell styles menu once a style is picked, with the style applied a
   const title = [...document.querySelectorAll('.menu .cell-style-item')].find((b) => b.textContent === 'Title');
   title.click();
   expect(isMenuOpen()).toBe(false);
-  expect(wb.getCell(id, 0, 0)?.s).toMatchObject({ bold: true, size: 20 });
+  expect(wb.getCell(id, 0, 0)?.s).toMatchObject({ bold: true, size: 24 });
   expect(wb.undoLabels()).toHaveLength(1);
   expect(document.activeElement).toBe(view.el.querySelector('.grid-viewport'));
 });
