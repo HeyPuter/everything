@@ -6,7 +6,7 @@
 import { el, fieldId } from './dom.js';
 import { openModal } from './modal.js';
 import { formatWithCode, formatCodeError, CUSTOM_FORMAT_PRESETS } from '../core/numfmt.js';
-import { styleToNumFmt } from '../core/format.js';
+import { styleToNumFmt, formatGeneral } from '../core/format.js';
 
 export function openCustomFormatDialog(ctx) {
   const style = ctx.style();
@@ -25,7 +25,8 @@ export function openCustomFormatDialog(ctx) {
     const problem = code ? formatCodeError(code) : null;
     let text = '';
     try { text = code && !problem ? formatWithCode(sample, code) : ''; } catch { text = ''; }
-    preview.textContent = !code ? 'Type a code to preview it' : problem || `${sample} → ${text}`;
+    // The value as the cell would show it in General, with the regional decimal mark (1234,5678 in German).
+    preview.textContent = !code ? 'Type a code to preview it' : problem || `${formatGeneral(sample)} → ${text}`;
   };
   // A changed code, typed or picked from the examples, is no longer the one refused: the mark and the message go until the next Apply.
   const changed = () => {
