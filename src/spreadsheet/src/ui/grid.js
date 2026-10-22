@@ -4468,6 +4468,10 @@ export function createGrid(opts) {
     const cell = wb.getCell(sheetId, r, c);
     if (cell?.f != null) return; // a formula decides the value
     wb.setInput(sheetId, r, c, cell?.v === true ? 'FALSE' : 'TRUE');
+    // The box's new state is read out: the cell stays the active one, so a screen reader following the grid's
+    // cursor hears nothing of the change otherwise.
+    const now = wb.getCell(sheetId, r, c)?.v;
+    if (typeof now === 'boolean' && now !== (cell?.v === true)) opts.announce?.(`${cellName(r, c)}, ${now ? 'checked' : 'not checked'}`);
   }
 
   function startFill(e) {
