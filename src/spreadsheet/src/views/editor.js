@@ -2210,6 +2210,12 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
         if (arg) wb.toggleGroup(sheetId, arg.axis, arg.from, arg.to, arg.level);
         keepFocus();
         return;
+      case 'outlineLevel':
+        // The level buttons in the corner: the lines down to that level shown, the detail below it hidden.
+        if (!committed()) return;
+        if (arg) wb.showOutlineLevel(sheetId, arg.axis === 'col' ? 'col' : 'row', arg.level);
+        keepFocus();
+        return;
       case 'freeze': {
         // The entry goes in first, as for the other commands on lines: a formula showing another sheet to pick
         // references on froze that sheet, at the selection there.

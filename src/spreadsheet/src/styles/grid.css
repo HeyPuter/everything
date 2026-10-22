@@ -157,6 +157,28 @@
 @media (hover: hover) { .outline-btn:hover { border-color: var(--accent); color: var(--accent); } }
 /* Tiny controls keep a pointer target of 24px (WCAG 2.5.8) without growing on screen: 14px plus 5px around. */
 .outline-btn::before { content: ""; position: absolute; inset: -5px; }
+
+/* The outline's level buttons (1, 2, 3 …) over the corner: one per bracket column, side by side. */
+.outline-levels { grid-area: 1 / 1; position: relative; z-index: 4; pointer-events: none; }
+.grid.no-headers .outline-levels { visibility: hidden; }
+.outline-level {
+  position: absolute;
+  width: 12px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--ink-3);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font: 600 10px/12px var(--font);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.outline-level[data-axis="col"] { width: 14px; height: 12px; line-height: 10px; }
+@media (hover: hover) { .outline-level:hover { border-color: var(--accent); color: var(--accent); } }
+.outline-level::before { content: ""; position: absolute; inset: -5px 0; }
+.outline-level[data-axis="col"]::before { inset: 0 -5px; }
 .chart-resize::before { content: ""; position: absolute; inset: -6px; }
 
 @media (hover: hover) { .hcell:hover { background: var(--surface-3); color: var(--ink); } }

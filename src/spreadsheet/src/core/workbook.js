@@ -7919,6 +7919,27 @@ export class Workbook extends EventTarget {
     });
   }
 
+  /**
+   * The outline's level buttons (1, 2, 3 …): show the lines down to `level` and hide the detail below it, as Excel
+   * does. Groups at that level or deeper collapse, the ones above it expand; level 1 shows only the summary lines
+   * outside every group, and the button past the deepest level shows every line. One undo step.
+   */
+  showOutlineLevel(sheetId, axis, level) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet || this._gridLocked(sheet)) return false;
+    const key = axis === 'row' ? 'rows' : 'cols';
+    const groups = this.outlineGroups(sheetId, axis);
+    if (!groups.length || groups.every((g) => g.collapsed === (g.level >= level))) return false;
+    this._outlineStep(sheet, axis === 'row' ? 'Show row level' : 'Show column level', () => {
+      sheet.groups = { ...sheet.groups, [key]: groups.map(({ level: depth, ...g }) => ({ ...g, collapsed: depth >= level })) };
+      const hidden = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
+      const held = this._collapsedLines(sheet, key, 0, Infinity);
+      for (const g of groups) for (let i = g.from; i <= g.to; i++) { if (held.has(i)) hidden.add(i); else hidden.delete(i); }
+      if (sheetFilters(sheet).length) this._applyFilter(sheet);
+    });
+    return true;
+  }
+
   /** Change a sheet's outline settings (see normalizeOutlineSettings); an undo step of its own. */
   setOutlineSettings(sheetId, patch) {
     const sheet = this.sheet(sheetId);

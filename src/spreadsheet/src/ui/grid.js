@@ -378,7 +378,9 @@ export function createGrid(opts) {
   // first stretch of the scrolling pane's, as Excel divides its scrollbars at the bars.
   const splitScrollV = el('div.split-scroll.v', { 'aria-hidden': 'true', hidden: true }, el('div.split-scroll-size'));
   const splitScrollH = el('div.split-scroll.h', { 'aria-hidden': 'true', hidden: true }, el('div.split-scroll-size'));
-  const root = el('div.grid', {}, corner, colClip, rowClip, viewport, frzRows.el, frzCols.el, frzCorner.el, resizeGuide, resizeFeedback, freezeV, freezeH, splitV, splitH, splitScrollV, splitScrollH);
+  // The outline's level buttons (1, 2, 3 …) over the corner, beside the select-all button rather than inside it.
+  const outlineLevels = el('div.outline-levels');
+  const root = el('div.grid', {}, corner, outlineLevels, colClip, rowClip, viewport, frzRows.el, frzCols.el, frzCorner.el, resizeGuide, resizeFeedback, freezeV, freezeH, splitV, splitH, splitScrollV, splitScrollH);
   const hints = createFormulaHints({
     host: root,
     extraNames: (name) => {
@@ -5963,6 +5965,12 @@ export function createGrid(opts) {
   // The finger that held a heading until its menu opened lifts over the menu: its click must not run the item there.
   for (const clip of [colClip, rowClip]) clip.addEventListener('touchend', (e) => { if (pressMenu) { pressMenu = false; e.preventDefault(); } }, { passive: false });
   corner.addEventListener('click', () => { if (edit && !commitEdit()) return; setSelection(S.selectAll(bounds()), { scroll: false }); viewport.focus({ preventScroll: true }); });
+  outlineLevels.addEventListener('pointerdown', (e) => { if (e.target.closest?.('.outline-level')) e.preventDefault(); });
+  outlineLevels.addEventListener('click', (e) => {
+    const level = e.target.closest?.('.outline-level');
+    if (!level || edit && !commitEdit()) return;
+    opts.onCommand?.('outlineLevel', { axis: level.dataset.axis, level: Number(level.dataset.level) });
+  });
 
   // The on-screen keyboard that opens as a cell is typed into shrinks the viewport from below, often over
   // that very cell: a viewport that got smaller during an edit brings the cell back into view.
@@ -5998,12 +6006,15 @@ export function createGrid(opts) {
     applyZoomFont(cs.fontFamily || 'system-ui');
   }
 
-  /** Room for the group brackets beside the row numbers and above the column letters. */
+  /**
+   * Room for the group brackets beside the row numbers and above the column letters: a column of brackets for
+   * each level, and one more, as Excel leaves it, for the last of the level buttons (1, 2, 3 …) in the corner.
+   */
   function applyOutlineGutter() {
     const rowDepth = wb.outlineDepth(sheetId, 'row');
     const colDepth = wb.outlineDepth(sheetId, 'col');
-    const gw = rowDepth ? rowDepth * OUTLINE_STEP + 8 : 0;
-    const gh = colDepth ? colDepth * OUTLINE_STEP + 8 : 0;
+    const gw = rowDepth ? (rowDepth + 1) * OUTLINE_STEP + 8 : 0;
+    const gh = colDepth ? (colDepth + 1) * OUTLINE_STEP + 8 : 0;
     const ruler = pageLayout ? PAGE_RULER : 0;
     // The headings' letters and numbers grow with the zoom (chrome.css), and so do the headings above
     // 100%, as Excel's do: at 400% a 20px heading cut its letters in half and a row number to its last
@@ -6016,6 +6027,32 @@ export function createGrid(opts) {
     root.style.setProperty('--col-header-h', `${colHeaderH}px`);
     root.style.setProperty('--outline-w', `${gw}px`);
     root.style.setProperty('--outline-h', `${gh}px`);
+    outlineLevelButtons(rowDepth, colDepth, gw, gh, ruler);
+  }
+
+  /**
+   * The level buttons in the corner, as Excel's: one per level and one past the deepest, which show the lines down
+   * to that level (1 the summary lines alone, the last every line). The row levels lie across the row gutter at
+   * the height of the column letters, the column levels down the column gutter above the row numbers, each over
+   * its level's column of brackets. Without headings there is no corner to hold them.
+   */
+  let outlineLevelsKey = '';
+  function outlineLevelButtons(rowDepth, colDepth, gw, gh, ruler) {
+    const band = colHeaderH - gh - ruler; // the column letters' height
+    const numbers = rowHeaderW - gw - ruler; // the row numbers' width
+    const key = showHeaders && (rowDepth || colDepth) ? [rowDepth, colDepth, gw, gh, ruler, band, numbers].join() : '';
+    if (key === outlineLevelsKey) return;
+    outlineLevelsKey = key;
+    const button = (axis, level, depth, left, top) => el('button.outline-level', {
+      type: 'button', tabindex: -1, dataset: { axis, level },
+      'aria-label': `Show ${axis === 'row' ? 'row' : 'column'} outline level ${level}`,
+      title: level > depth ? `Show every ${axis === 'row' ? 'row' : 'column'}` : `Show level ${level}`,
+      style: { left: `${left}px`, top: `${top}px` },
+    }, String(level));
+    const buttons = [];
+    if (key && rowDepth) for (let k = 1; k <= rowDepth + 1; k++) buttons.push(button('row', k, rowDepth, ruler + (k - 1) * OUTLINE_STEP + 4, ruler + gh + Math.round((band - 14) / 2)));
+    if (key && colDepth) for (let k = 1; k <= colDepth + 1; k++) buttons.push(button('col', k, colDepth, ruler + gw + Math.round((numbers - 14) / 2), ruler + (k - 1) * OUTLINE_STEP + 4));
+    outlineLevels.replaceChildren(...buttons);
   }
 
   /**

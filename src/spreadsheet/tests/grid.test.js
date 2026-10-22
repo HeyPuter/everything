@@ -798,7 +798,7 @@ describe('outline groups', () => {
     wb.groupLines(id, 'row', 1, 3);
     await flush();
     expect(grid.el.style.getPropertyValue('--row-header-w')).not.toBe(before);
-    expect(grid.el.style.getPropertyValue('--outline-w')).toBe('20px');
+    expect(grid.el.style.getPropertyValue('--outline-w')).toBe('32px'); // a bracket column and one for the last level button
     const btn = grid.el.querySelector('.grid-rowhead .outline-btn');
     expect(btn).not.toBeNull();
     expect(btn.textContent).toBe('−');
