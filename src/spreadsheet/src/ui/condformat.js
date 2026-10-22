@@ -563,15 +563,18 @@ export function openConditionalFormatting(ctx) {
       // and `background` takes a url() that would fetch a remote image as soon as the list is drawn.
       const hex = (value, fallback) => swatchColor(value) || fallback;
       const ruleBg = swatchColor(fillColorCss(rule.style?.bg));
-      const preview = el('span.cf-preview', { style: rule.type === 'scale'
+      // A sample shows the rule on paper, whatever the app's theme, as the cells it paints will look: in dark mode a
+      // fill with no text colour of its own drew the dialog's pale ink on it (white on pale yellow), and a red text
+      // colour sat on the dark dialog, where the cells show it on white.
+      const preview = el('span.cf-preview.sheet-paper', { style: rule.type === 'scale'
         ? { background: `linear-gradient(90deg, ${hex(rule.from, '#ffffff')}, ${rule.mid ? `${hex(rule.mid, '#fef3c7')}, ` : ''}${hex(rule.to, '#4a8dff')})` }
         : rule.type === 'databar'
           ? { background: `linear-gradient(90deg, ${barColorOf(rule)} 60%, transparent 60%)`, border: '1px solid var(--hairline-strong)' }
         : rule.type === 'bands'
           ? { background: `repeating-linear-gradient(180deg, ${hex(rule.color1, '#f2f1ee')} 0 25%, ${hex(rule.color2, '#ffffff')} 25% 50%)`, border: '1px solid var(--hairline-strong)' }
           : rule.type === 'icons'
-            ? { border: '1px solid var(--hairline-strong)', color: (ICON_SETS[rule.set] || ICON_SETS.arrows).colors[0], fontSize: '11px' }
-          : { background: ruleBg || 'transparent', color: fontColorCss(rule.style?.color) || 'inherit', fontWeight: rule.style?.bold ? '700' : '500', border: ruleBg ? 0 : '1px solid var(--hairline-strong)' } },
+            ? { background: 'var(--surface)', border: '1px solid var(--hairline-strong)', color: (ICON_SETS[rule.set] || ICON_SETS.arrows).colors[0], fontSize: '11px' }
+          : { background: ruleBg || 'var(--surface)', color: fontColorCss(rule.style?.color) || 'var(--ink)', fontWeight: rule.style?.bold ? '700' : '500', border: ruleBg ? 0 : '1px solid var(--hairline-strong)' } },
       rule.type === 'icons' ? (ICON_SETS[rule.set] || ICON_SETS.arrows).glyphs[0] : rule.type === 'scale' || rule.type === 'bands' || rule.type === 'databar' ? '' : 'Aa');
       if (rule.type === 'icons' && NATIVE_ICON_SETS[rule.iconSet]) {
         const choice = nativeIconChoice(rule, nativeIconCount(rule) - 1);
