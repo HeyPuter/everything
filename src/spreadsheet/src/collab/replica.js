@@ -25,7 +25,7 @@
 
 import { Workbook, sheetShapeJSON, sameJSON, cloneCell } from '../core/workbook.js';
 import { cellKey, parseKey, cutText } from '../core/cell.js';
-import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure } from './ops.js';
+import { LINE_PROPS, SHEET_PROPS, BOOK_PROPS, MAX_LABEL, MAX_CHANGE, mapCellKey, mapLineKey, mergeRuns, transformStructure, isStructure, parseCellKey } from './ops.js';
 import { applyOps, contentOf, sheetJSON, lineValues, sheetProps } from './apply.js';
 
 const UNDO_LIMIT = 100;
@@ -547,7 +547,7 @@ export class Replica extends EventTarget {
           }
           this._applyRemote(ch.ops, rec.username, ch.label);
           incoming.push(...ch.ops);
-          for (const e of [...this.undoStack, ...this.redoStack]) e.ops = this._xform(e.ops, theirs, false)[0];
+          for (const e of [...this.undoStack, ...this.redoStack]) e.ops = keepWrittenLines(this._xform(e.ops, theirs, false)[0], theirs);
           applied = true;
           if (ch.ops.some((o) => isStructure(o) || o.t === 'put')) structural = true;
           else touched.push(...ch.ops);
@@ -966,6 +966,40 @@ export function splitChange(ops, inverses, limit = PART) {
     flush();
   });
   return parts.length > 1 ? parts.map(({ ops: o, inverse }) => ({ ops: o, inverse })) : null;
+}
+
+/**
+ * An undo (or redo) entry ending in a deletion of lines, as one taking back an insertion does, leaves out the lines
+ * someone else has since written something into (`theirs`, a change just applied): Undo takes back only what this
+ * person did, and only where nobody has changed it since, so rows another person typed into are not deleted with it.
+ */
+function keepWrittenLines(ops, theirs) {
+  const last = ops.at(-1);
+  if (last?.t !== 'delete') return ops;
+  const written = new Set();
+  const line = (key) => { const p = parseCellKey(key); if (p) written.add(last.axis === 'row' ? p.r : p.c); };
+  for (const t of theirs) {
+    if (t.s !== last.s) continue;
+    if (t.t === 'cells') {
+      for (const [k, v] of Object.entries(t.v || {})) if (v != null) line(k);
+      for (const [k, patch] of Object.entries(t.st || {})) if (Object.values(patch).some((v) => v != null)) line(k);
+    } else if (t.t === 'lines') {
+      for (const [k, v] of Object.entries(t.v)) {
+        if (v == null) continue;
+        if (LINE_PROPS[t.p] === 'cell') line(k);
+        else if (LINE_PROPS[t.p] === last.axis) written.add(Number(k));
+      }
+    }
+  }
+  if (!written.size) return ops;
+  const kept = [...written].sort((a, b) => a - b);
+  const runs = [];
+  for (const r of mergeRuns(last.runs)) {
+    let from = r.from;
+    for (const i of kept) if (i >= from && i <= r.to) { if (i > from) runs.push({ from, to: i - 1 }); from = i + 1; }
+    if (from <= r.to) runs.push({ from, to: r.to });
+  }
+  return runs.length ? [...ops.slice(0, -1), { ...last, runs }] : ops.slice(0, -1);
 }
 
 /** Two register writes made at once: where both write one register, the winner's value stands. */
