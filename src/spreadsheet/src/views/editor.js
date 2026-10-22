@@ -4717,6 +4717,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     }
     e.preventDefault();
     if (wb.sheet(grid.sheetId)?.kind === 'chart') { statusBar?.announce('Choose a worksheet to paste cells'); return; }
+    if (pasteBehindObject()) { grid.consumePlainPaste(); return; }
     pasteAndOffer(text, html, grid.consumePlainPaste() ? 'values' : 'all');
   }
 
@@ -5213,6 +5214,7 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const read = await readClipboard();
     if (!read) return;
     if (read.picture) { insertPastedImage(read.picture); return; }
+    if (pasteBehindObject()) return;
     const external = !isInternal(read.text, read.html);
     const go = (paste) => { pasteAndOffer(read.text, read.html, paste); grid.focus(); };
     openPasteSpecialDialog({ external, onPaste: go, onPasteLink: () => go({ link: true }), onClose: () => keepFocus() });
@@ -5275,8 +5277,20 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     const read = await readClipboard();
     if (!read) return;
     if (read.picture) { insertPastedImage(read.picture); return; }
+    if (pasteBehindObject()) return;
     pasteAndOffer(read.text, read.html, paste ?? mode ?? (valuesOnly ? 'values' : 'all'));
     grid.focus();
+  }
+
+  /**
+   * Cells pasted while a chart, picture or other object is selected would land in the cells selected behind it,
+   * out of sight (the chart's own data, just after inserting it): the paste is refused, and said so.
+   */
+  function pasteBehindObject() {
+    if (!grid.selectedChart) return false;
+    toast('Select the cells to paste into', { icon: 'info', duration: 2500 });
+    keepFocus();
+    return true;
   }
 
   /**
