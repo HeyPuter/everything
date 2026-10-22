@@ -879,12 +879,15 @@ export function chartData(wb, sheetId, chart) {
   const R = cells.length;
   const C = cells[0].length;
 
-  // Headers: the first row is labels when its cells are text over numbers.
+  // A blank top-left cell marks the first row and the first column as labels, as in Excel: years down the
+  // first column under an empty corner name the categories instead of plotting as a series of their own.
+  const blankCorner = R > 1 && C >= 2 && isBlank(cells[0][0].v) && !cells[0][0].text;
+  // Headers: the first row is labels when its cells are text over numbers, or when its corner is blank.
   let hasHeaders;
   if (chart.headers === true || chart.headers === false) hasHeaders = chart.headers;
   else {
     const first = cells[0];
-    const labelish = first.every((x) => isBlank(x.v) || !isNum(x.v) || x.dateLike);
+    const labelish = blankCorner || first.every((x) => isBlank(x.v) || !isNum(x.v) || x.dateLike);
     const numbersBelow = R > 1 && first.some((x, j) => cells.slice(1).some((row) => isNum(row[j].v)));
     hasHeaders = R > 1 && labelish && numbersBelow;
   }
@@ -908,7 +911,7 @@ export function chartData(wb, sheetId, chart) {
     const firstCol = body.map((row) => row[0]);
     const filled = firstCol.filter((x) => !isBlank(x.v));
     const textish = filled.filter((x) => !isNum(x.v) || x.dateLike).length;
-    categoryCol = filled.length > 0 && textish >= filled.length / 2;
+    categoryCol = filled.length > 0 && (textish >= filled.length / 2 || (blankCorner && hasHeaders));
     if (chart.type === 'scatter' || chart.type === 'bubble') categoryCol = false;
   }
   const categories = body.map((row, i) => (categoryCol ? row[0].text || `${i + 1}` : `${i + 1}`));
