@@ -685,7 +685,8 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   and table styling print as they show on screen. The home list sorts by last
   modified, name, or size, searches the names without their extensions, keeps
   its "2 min ago" times current, and files opened from elsewhere on the drive are
-  kept in a "Recently opened" strip on this device. Inside the Puter desktop the app registers for
+  kept in a "Recently opened" strip on this device. Inside the Puter desktop, spreadsheets saved where
+  you chose in Puter's Save dialog are listed with the rest, wherever they are moved. The app registers for
   "Open with" so double-clicking a spreadsheet opens it here.
 - **Regional formats**: pick how numbers and dates are written and read
   (account menu): `1.234,50` and `28.8.2026` in German, day-first dates in
@@ -878,7 +879,7 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   and so can the edits kept for a file deleted since — also when another
   spreadsheet has been saved under its name meanwhile, which neither takes
   those edits for its own nor writes over them.
-  Local drafts, print settings, and recently opened file lists are scoped to the signed-in
+  Local drafts, print settings, and the lists of recently opened files and of those saved outside the app folder are scoped to the signed-in
   Puter account. Older, unscoped browser records are retained but are not
   automatically offered to an account because their owner cannot be verified.
 - **Copy several ranges**: ranges added with Ctrl/Cmd+click copy together
@@ -994,6 +995,7 @@ src/
     drafts.js         unsaved edits kept in the browser until the file holds them
     versions.js       version history snapshots under Spreadsheets/.versions
     recent.js         recently opened files (KV), for the home screen
+    made.js           spreadsheets the app saved outside its folder (Puter's Save dialog), for the home screen
     session.js        sign-in state (nobody, or who) and settings
   ui/                 grid, toolbar, formula bar, sheet tabs, the menu bar
                       (menubar.js), popover menus with submenus (menu.js), the

@@ -35,6 +35,7 @@ import { draftKey, liveDraftKey, draftRevision, saveDraft, loadDraft, clearDraft
 import { adoptVersionsByUid, listVersions, saveVersion, readVersion, dueForVersion, moveVersions, parkVersions, RESTORE_LABEL } from './versions.js';
 import { storageScope, accountStorageKey, isAccountScope, isProvisionalScope } from './account-storage.js';
 import { optionState } from './option-state.js';
+import { rememberMade } from './made.js';
 
 const AUTOSAVE_MS = 1500;
 // Encoding a large book holds the page for a moment (about a second for 200,000 cells): its autosave waits for a pause
@@ -703,6 +704,8 @@ export class Doc extends EventTarget {
         if (!written) { this._setStatus(this.wb.dirty ? 'unsaved' : 'saved'); return false; }
         target = written.path;
         dir = target.slice(0, target.lastIndexOf('/'));
+        // Made by the app outside its folder: the home screen lists it with the folder's own (see recent.js).
+        rememberMade({ path: P.canonicalPath(target, written), uid: written.uid || written.id || null });
       } else try {
         attempt(target);
         written = await P.writeFile(target, blob, { dedupe: fresh && !reuse });
@@ -1010,6 +1013,7 @@ export class Doc extends EventTarget {
           return CANCELLED;
         }
         target = written.path;
+        rememberMade({ path: P.canonicalPath(target, written), uid: written.uid || written.id || null });
       } else written = await P.writeFile(target, blob, { overwrite: false });
       this.remoteModified = modifiedMs(written) ?? modifiedMs(await P.statFile(target).catch(() => null)) ?? Date.now();
       this.remoteSize = blob.size;

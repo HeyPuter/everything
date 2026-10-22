@@ -252,7 +252,7 @@ export async function listFiles() {
 export async function listDir(path) {
   try {
     const items = await sdk().fs.readdir(path);
-    return (items || []).map((it) => ({ name: it.name, path: it.path || `${path}/${it.name}`, size: it.size ?? 0, is_dir: !!it.is_dir, modified: it.modified ?? it.created ?? 0 }));
+    return (items || []).map((it) => ({ name: it.name, path: it.path || `${path}/${it.name}`, size: it.size ?? 0, is_dir: !!it.is_dir, modified: it.modified ?? it.created ?? 0, uid: it.uid || it.id || null }));
   } catch (e) {
     if (isNotFound(e)) return [];
     throw e;
