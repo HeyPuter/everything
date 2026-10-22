@@ -21,7 +21,8 @@ import { indexNativePivotField, withFieldItems } from './native-pivot-index-fiel
 import { nativePivotSlicerAvailability } from './native-pivot-slicer-availability.js';
 import { parseModelXml, modelChildren, standaloneModelXml } from './data-model-metadata.js';
 import { decodeXlsxString, encodeXlsxAttribute } from './xlsx-string.js';
-import { parseRefText, sheetKey } from './refs.js';
+import { MAX_COL, MAX_ROW, parseRefText, sheetKey } from './refs.js';
+import { placeAlong } from './charts.js';
 import { compareStoredValues } from './formula/functions.js';
 
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
@@ -43,14 +44,36 @@ export function defaultSlicerPaint(wb) {
   return resolveSlicerPaint({ name: DEFAULT_SLICER_STYLE, builtIn: true }, slicerThemes(wb));
 }
 
-/** Where new slicers go: beside the source, each one cascading a little from the one before. */
-function placement(at, i) {
-  return { anchor: { r: at.r, c: at.c }, dx: 24 * i, dy: 24 * i };
+/** How far apart cascading slicers stand, down and right, in pixels. */
+const CASCADE = 24;
+
+/**
+ * Where new slicers go: beside the source, each one cascading a little from the one before. Each is
+ * anchored to the cell its own corner lies in, as a drag anchors it, so it moves with the rows and
+ * columns it lies over rather than the first one's, and its offsets stay inside that cell.
+ */
+function placement(wb, sheetId, at, i) {
+  const col = placeAlong(c => wb.colWidth(sheetId, c), MAX_COL + 1, at.c, CASCADE * i, 1);
+  const row = placeAlong(r => wb.rowHeight(sheetId, r), MAX_ROW + 1, at.r, CASCADE * i, 1);
+  return { anchor: { r: row.index, c: col.index }, dx: col.offset, dy: row.offset };
 }
 
-/** How many slicers and timelines already stand at a cell, so new ones cascade on from them instead of covering them. */
-function standingAt(sheet, at) {
-  return sheet.charts.filter(c => (c.type === 'slicer' || c.type === 'timeline') && c.anchor?.r === at.r && c.anchor?.c === at.c).length;
+/**
+ * How many slicers and timelines already stand in the cascade from a cell, so new ones cascade on from
+ * them instead of covering them: those anchored at the cell, and those standing (give or take a nudge)
+ * where a later step of the cascade put them, in the cells past it.
+ */
+function standingAt(wb, sheetId, at) {
+  const along = (size, from, to) => { let s = 0; for (let k = from; k < to; k++) s += size(k); return s; };
+  return wb.sheet(sheetId).charts.filter(c => {
+    if ((c.type !== 'slicer' && c.type !== 'timeline') || !c.anchor) return false;
+    if (c.anchor.r === at.r && c.anchor.c === at.c) return true;
+    if (c.anchor.r < at.r || c.anchor.c < at.c) return false;
+    const x = along(k => wb.colWidth(sheetId, k), at.c, c.anchor.c) + (c.dx || 0);
+    const y = along(k => wb.rowHeight(sheetId, k), at.r, c.anchor.r) + (c.dy || 0);
+    const step = Math.round((x + y) / 2 / CASCADE);
+    return step >= 1 && Math.abs(x - step * CASCADE) < CASCADE / 2 && Math.abs(y - step * CASCADE) < CASCADE / 2;
+  }).length;
 }
 
 /** Why slicers cannot be inserted for this table now, or null. */
@@ -74,7 +97,7 @@ export function insertTableSlicers(wb, sheetId, tableId, columns, { at = null } 
   if (!chosen.length) return [];
   const paint = defaultSlicerPaint(wb), ids = [];
   const start = at || { r: table.range.r1, c: table.range.c2 + 2 };
-  const before = standingAt(sheet, start);
+  const before = standingAt(wb, sheetId, start);
   wb.transaction('Insert slicer', () => {
     // The slicer filters through the table's AutoFilter; a table without one gets one, its buttons hidden.
     if (!sheetFilters(sheet).some(f => filterTable(sheet, f)?.id === table.id)) {
@@ -83,7 +106,7 @@ export function insertTableSlicers(wb, sheetId, tableId, columns, { at = null } 
     }
     chosen.forEach((name, i) => {
       const control = normalizeSlicer({ type: 'slicer', tableRef: slicerTableReference(table.name, name), title: name,
-        ...placement(start, before + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
+        ...placement(wb, sheetId, start, before + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
       const id = wb.addChart(sheetId, control);
       if (id) ids.push(id);
     });
@@ -206,7 +229,7 @@ export function insertPivotSlicers(wb, sheetId, pivot, fieldIndexes, { at = null
   const indexed = pivotSlicerFields({ nativePivots: pivots }, pivot);
   const range = parseRefText(pivot.ref || '');
   const start = at || { r: range ? range.r1 : 0, c: range ? range.c2 + 2 : 0 };
-  const paint = defaultSlicerPaint(wb), taken = [], created = [], standing = standingAt(wb.sheet(sheetId), start);
+  const paint = defaultSlicerPaint(wb), taken = [], created = [], standing = standingAt(wb, sheetId, start);
   for (const field of chosen) {
     const name = freeSlicerCacheName(wb, field.name, taken);
     taken.push(name);
@@ -223,7 +246,7 @@ export function insertPivotSlicers(wb, sheetId, pivot, fieldIndexes, { at = null
     wb._push({ label: 'Insert slicer', undo: () => apply(before), redo: () => apply(pivots) });
     created.forEach((slicer, i) => {
       const control = normalizeSlicer({ type: 'slicer', pivotCache: slicer.name, title: chosen[i].name,
-        ...placement(start, standing + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
+        ...placement(wb, sheetId, start, standing + i), w: SLICER_DEFAULTS.w, h: SLICER_DEFAULTS.h, rowHeight: SLICER_DEFAULTS.rowHeight, paint });
       const id = wb.addChart(sheetId, control);
       if (id) ids.push(id);
     });

@@ -13,7 +13,8 @@ it('cascades slicers inserted later from the ones already beside the table inste
   const tableId = wb.addTable(id, { r1: 0, c1: 0, r2: 2, c2: 2 }, { name: 'Sales' });
   insertTableSlicers(wb, id, tableId, ['Region']);
   insertTableSlicers(wb, id, tableId, ['Rep', 'Amount']);
-  expect(offsets(wb, id)).toEqual([[0, 4, 0, 0], [0, 4, 24, 24], [0, 4, 48, 48]]);
+  // 24 pixels apart, each anchored to the cell its corner lies in (rows are 19.5 pixels high).
+  expect(offsets(wb, id)).toEqual([[0, 4, 0, 0], [1, 4, 24, 4.5], [2, 4, 48, 9]]);
 });
 
 it('places a PivotTable slicer clear of a timeline already beside the report', () => {
@@ -21,6 +22,7 @@ it('places a PivotTable slicer clear of a timeline already beside the report', (
   insertTimeline(wb, report.id, pivot, 2);
   insertPivotSlicers(wb, report.id, wb.nativePivots.tables[0], [0]);
   const [timeline, slicer] = wb.sheet(report.id).charts;
-  expect([timeline.anchor, slicer.anchor]).toEqual([{ r: 2, c: 3 }, { r: 2, c: 3 }]);
-  expect([slicer.dx, slicer.dy]).not.toEqual([timeline.dx, timeline.dy]);
+  expect(timeline.anchor).toEqual({ r: 2, c: 3 });
+  // The slicer takes the cascade's next step, in the cell its corner lies in.
+  expect([slicer.anchor, slicer.dx, slicer.dy]).toEqual([{ r: 3, c: 3 }, 24, 4.5]);
 });

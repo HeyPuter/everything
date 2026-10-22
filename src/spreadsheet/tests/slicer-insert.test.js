@@ -34,7 +34,8 @@ it('inserts one slicer per chosen table column, styled and placed beside the tab
   expect(ids).toHaveLength(2);
   const [a, b] = ids.map(x => wb.chartById(id, x));
   expect(a).toMatchObject({ type: 'slicer', title: 'Region', tableRef: 'Sales[Region]', anchor: { r: 0, c: 4 }, w: 192, h: 256, rowHeight: 241300 });
-  expect(b).toMatchObject({ title: 'Rep', dx: 24, dy: 24 });
+  // 24 pixels down and right of the first, anchored to the 19.5-pixel row its corner lies in.
+  expect(b).toMatchObject({ title: 'Rep', anchor: { r: 1, c: 4 }, dx: 24, dy: 4.5 });
   expect(a.paint.items.selectedItemWithData).toBeTruthy();
   expect(slicerItems(wb, a).map(i => [i.value, i.selected])).toEqual([['East', true], ['West', true]]);
   // One undo step takes them all away.
