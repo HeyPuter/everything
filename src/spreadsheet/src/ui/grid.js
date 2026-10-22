@@ -3237,18 +3237,21 @@ export function createGrid(opts) {
   /**
    * Ctrl+A (and Ctrl+Shift+Space): the block of data around the active cell first, keeping the
    * active cell, as in Excel; the whole sheet when pressed again, or when the active cell has no
-   * block around it. The select-all corner takes the whole sheet at once.
+   * block around it. The select-all corner takes the whole sheet at once. The whole sheet keeps the active
+   * cell where it was too, as in Excel and Sheets: moved to A1, the next entry typed (or Ctrl+Enter) went in
+   * there, and the sheet jumped back to the top to show it.
    */
+  const wholeSheet = () => ({ ...S.selectAll(bounds()), active: { ...sel.active } });
   function selectAllStep() {
     const { r, c } = sel.active;
     const b = bounds();
     const range = S.selRange(sel);
     // Once the whole sheet is selected, further presses keep it, as in Excel, rather than going back to the block.
-    if (range.r1 === 0 && range.c1 === 0 && range.r2 >= b.rows - 1 && range.c2 >= b.cols - 1) { setSelection(S.selectAll(b), { scroll: false }); return; }
+    if (range.r1 === 0 && range.c1 === 0 && range.r2 >= b.rows - 1 && range.c2 >= b.cols - 1) { setSelection(wholeSheet(), { scroll: false }); return; }
     const region = wb.dataRegion(sheetId, r, c);
     const block = region && (region.r1 !== region.r2 || region.c1 !== region.c2)
       && !(range.r1 === region.r1 && range.c1 === region.c1 && range.r2 === region.r2 && range.c2 === region.c2);
-    setSelection(block ? S.fromRange(region, { r, c }) : S.selectAll(b), { scroll: false });
+    setSelection(block ? S.fromRange(region, { r, c }) : wholeSheet(), { scroll: false });
   }
 
   /**
@@ -6028,7 +6031,7 @@ export function createGrid(opts) {
   rowClip.addEventListener('contextmenu', (e) => headerContextMenu(e, 'row'));
   // The finger that held a heading until its menu opened lifts over the menu: its click must not run the item there.
   for (const clip of [colClip, rowClip]) clip.addEventListener('touchend', (e) => { if (pressMenu) { pressMenu = false; e.preventDefault(); } }, { passive: false });
-  corner.addEventListener('click', () => { if (edit && !commitEdit()) return; setSelection(S.selectAll(bounds()), { scroll: false }); viewport.focus({ preventScroll: true }); });
+  corner.addEventListener('click', () => { if (edit && !commitEdit()) return; setSelection(wholeSheet(), { scroll: false }); viewport.focus({ preventScroll: true }); });
   outlineLevels.addEventListener('pointerdown', (e) => { if (e.target.closest?.('.outline-level')) e.preventDefault(); });
   outlineLevels.addEventListener('click', (e) => {
     const level = e.target.closest?.('.outline-level');
