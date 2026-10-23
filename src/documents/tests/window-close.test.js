@@ -122,6 +122,19 @@ describe('closing the Puter window', () => {
     expect(shown.view.doc.dirty).toBe(true);
   });
 
+  it('asks about the edits to a template, which stays on the drive as it is', async () => {
+    files.set('Documents/Letter.dotx', new Blob(['template']));
+    const doc = editorWith(new Doc({ name: 'Letter', path: 'Documents/Letter.dotx' }));
+    doc.attach(async () => new Blob(['edited']));
+    doc.changed();
+    const closing = closeWindow();
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    expect(question().textContent).toContain('Your changes to “Letter.dotx” have not been saved yet.');
+    expect(question().textContent).toContain('lose them');
+    press('Cancel');
+    expect(await closing).toBe(false);
+  });
+
   it('closes without saving when asked to', async () => {
     newDocument();
     const closing = closeWindow();

@@ -2,6 +2,7 @@ import { el } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import { session } from '../lib/session.js';
+import * as P from '../lib/puter.js';
 
 /**
  * The Puter desktop window's close button, which waits for this (lib/puter.js onWindowClose). Edits the
@@ -17,7 +18,10 @@ export const CLOSE_TITLE = 'Save before closing?';
 export function closeDialog(doc) {
   return new Promise((resolve) => {
     const content = el('div', {},
-      el('p.modal-text', {}, `“${doc.name}” has not been saved yet. Save it to choose where it goes on Puter, or close without saving and lose it.`),
+      // A template or other file opened from the drive stays as it is: only the edits, which go to a new .docx, are at stake.
+      el('p.modal-text', {}, doc.path
+        ? `Your changes to “${P.displayName(doc.path)}” have not been saved yet. Save them as a new document to choose where it goes on Puter, or close without saving and lose them.`
+        : `“${doc.name}” has not been saved yet. Save it to choose where it goes on Puter, or close without saving and lose it.`),
       el('div.row.row-end', { style: { flexWrap: 'wrap' } },
         el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'),
         el('button.btn.btn-danger', { type: 'button', onclick: () => { resolve('close'); modal.close(); } }, 'Close without saving'),

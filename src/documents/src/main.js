@@ -116,7 +116,10 @@ function leaveDialog(doc, { unsaveable = false } = {}) {
     return confirmDialog({
       title: LEAVE_TITLES[0],
       // A document that never reached a file has no "latest changes" to speak of; the whole of it is at stake.
-      message: doc.path || doc.lastSaved
+      message: doc.waitsForPlace && doc.path
+        // Inside the Puter desktop a template or other file's edits wait for a Save to put them in a new .docx; the file stays as it is.
+        ? `Your changes to “${P.displayName(doc.path)}” have not been saved yet. Keep editing to save them as a new document, or leave and discard them.`
+        : doc.path || doc.lastSaved
         ? 'Your latest changes could not be saved. Keep editing to try again, or leave and discard those changes.'
         : 'This document has not been saved yet. Keep editing to try again, or leave and discard it.',
       confirmLabel: 'Leave without saving', cancelLabel: 'Keep editing',

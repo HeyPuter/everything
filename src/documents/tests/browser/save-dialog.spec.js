@@ -215,6 +215,26 @@ test('publishing a template with edits saves it as a new .docx first, and publis
   expect(await docPath(page)).toBe('~/Desktop/Notice.docx');
 });
 
+test('leaving a template with edits says only the changes are unsaved, not the file', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Memo');
+  await page.evaluate(async () => {
+    const doc = window.__docs.current.view.doc;
+    await puter.fs.write('~/Desktop/Memo.dotx', await doc.exporter());
+    doc.discardEdits();
+  });
+  await page.goto('about:blank');
+  await openEditor(page, '#/edit/~%2FDesktop%2FMemo.dotx');
+  await text(page).press('End');
+  await page.keyboard.type(' text');
+  await page.evaluate(() => { window.__puterSaveAs = null; location.hash = '#/home'; });
+  const dialog = page.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(dialog).toContainText('Your changes to “Memo.dotx” have not been saved yet.');
+  await dialog.getByRole('button', { name: 'Leave without saving' }).click();
+  await expect(page.getByRole('heading', { name: 'Your documents' })).toBeVisible();
+  expect(await drive(page)).toEqual(['~/Desktop/Memo.dotx']);
+});
+
 test('File > Export downloads every format to this device, without the Save dialog', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Exported');
