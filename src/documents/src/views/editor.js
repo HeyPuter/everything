@@ -1106,7 +1106,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     openVersionHistory: cloud && versioning.enabled ? () => versionHistory.open() : null,
     publish: canPublish() || (cloud && publishing.enabled && P.canHost()) ? async () => {
       await ready; if (!engine || failed) throw new Error('The document is not open.');
-      if (!doc.path) { await save(); if (!doc.path) throw new Error('Save the document first.'); }
+      // A template or other file whose edits go to a new .docx (inside the Puter desktop, where Save puts it) is
+      // published as that .docx, as a new document is: the page then follows the file the edits are saved in.
+      if (!doc.path || doc.waitsForPlace) { await save(); if (!doc.path || doc.waitsForPlace) throw new Error('Save the document first.'); }
       engine.finishComposition();
       const html = exportBody(() => documentHtml(engine.model, { title: title.value || 'Document' }));
       return publishPage(doc.path, title.value || 'Document', html, { existing: await findSite(doc.path) });

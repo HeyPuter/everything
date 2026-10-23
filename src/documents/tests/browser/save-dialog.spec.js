@@ -160,6 +160,61 @@ test('time spent in the Save dialog while leaving is not reported as a stalled s
   expect(await drive(page)).toEqual(['~/Desktop/Untitled document.docx']);
 });
 
+test('sharing a template with edits saves it as a new .docx first, and shares that', async ({ page }) => {
+  test.setTimeout(60000);
+  await openEditor(page);
+  // A template on the drive, opened from there: its edits go to a new .docx at the first Save.
+  await text(page).fill('Dear reader,');
+  await page.evaluate(async () => {
+    const doc = window.__docs.current.view.doc;
+    await puter.fs.write('~/Desktop/Letter.dotx', await doc.exporter());
+    doc.discardEdits();
+  });
+  await page.goto('about:blank');
+  await openEditor(page, '#/edit/~%2FDesktop%2FLetter.dotx');
+  await text(page).press('End');
+  await page.keyboard.type(' hello');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Not saved yet');
+  await page.evaluate(() => { window.__puterSaveAs = null; });
+  await page.getByRole('button', { name: 'Share', exact: true }).first().click();
+  await page.getByRole('menuitem', { name: 'Invite People…' }).click();
+  const dialog = page.getByRole('dialog', { name: /^Share/ });
+  await dialog.getByRole('button', { name: 'Copy Link' }).click();
+  // Cancelled, nothing is shared: the template is not the file the edits go to.
+  await expect(dialog).toContainText('Save the document before sharing it.');
+  expect(await page.evaluate(() => window.__dialogs)).toEqual(['Letter.docx']);
+  expect(await docPath(page)).toBe('~/Desktop/Letter.dotx');
+  await page.evaluate(() => { window.__puterSaveAs = 'Letter.docx'; });
+  await dialog.getByRole('button', { name: 'Copy Link' }).click();
+  await expect(dialog.getByRole('textbox', { name: 'Invitation link' })).toHaveValue(/collab-/, { timeout: 15000 });
+  expect(await docPath(page)).toBe('~/Desktop/Letter.docx');
+});
+
+test('publishing a template with edits saves it as a new .docx first, and publishes that', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Notice');
+  await page.evaluate(async () => {
+    const doc = window.__docs.current.view.doc;
+    await puter.fs.write('~/Desktop/Notice.dotx', await doc.exporter());
+    doc.discardEdits();
+  });
+  await page.goto('about:blank');
+  await openEditor(page, '#/edit/~%2FDesktop%2FNotice.dotx');
+  await text(page).press('End');
+  await page.keyboard.type(' board');
+  await page.evaluate(() => { window.__puterSaveAs = null; });
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Share' }).click();
+  await view.getByRole('button', { name: 'Publish to the Web' }).click();
+  await expect(view.locator('.bs-share-note')).toHaveText('Save the document first.');
+  expect(await page.evaluate(() => Object.keys(puter.hosting._sites))).toEqual([]);
+  await page.evaluate(() => { window.__puterSaveAs = 'Notice.docx'; });
+  await view.getByRole('button', { name: 'Publish to the Web' }).click();
+  await expect(view.getByRole('button', { name: 'Stop Publishing' })).toBeVisible();
+  expect(await docPath(page)).toBe('~/Desktop/Notice.docx');
+});
+
 test('File > Export downloads every format to this device, without the Save dialog', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Exported');

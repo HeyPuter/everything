@@ -142,8 +142,10 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       engine.finishComposition();
       if (!local) {
         if (!await signIn()) throw new Error('Sign in to Puter to share this document.');
-        if (!doc.path) { progress('Saving the document first…'); await saveFirst(); }
-        if (!doc.path) throw new Error('Save the document before sharing it.');
+        // A template or other file whose edits go to a new .docx (inside the Puter desktop, at the first Save) is
+        // shared as that .docx, as a new document is: the room must not be the template's, nor the file it writes.
+        if (!doc.path || doc.waitsForPlace) { progress('Saving the document first…'); await saveFirst(); }
+        if (!doc.path || doc.waitsForPlace) throw new Error('Save the document before sharing it.');
       }
       const { shareDocument } = await loadLive();
       const p = pkg();
