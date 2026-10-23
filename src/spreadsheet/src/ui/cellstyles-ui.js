@@ -24,6 +24,13 @@ import {
 /** A sample's lower edge in a style's line: at least 2px so it shows, and 3px for a double line, which a thinner one draws single. */
 const sampleEdge = (b) => { const edge = borderCss({ bs: b.style, bc: b.color }); return `${edge.width === '1px' ? '2px' : edge.width} ${edge.style} ${edge.color || 'var(--ink)'}`; };
 
+/**
+ * A style's size as its sample draws it, in tiles held to 16px text: a size past the gallery's 13px grows the sample
+ * by a third as much, so Title, Heading and Subheading (24, 20 and 17⅓px) still read largest to smallest rather
+ * than all at the 16px cap.
+ */
+const sampleSize = (size) => (size ? `${Math.min(16, size > 13 ? 13 + (size - 13) / 3 : size)}px` : '13px');
+
 /** The sample's look for a definition: its ink, fill, weight, slant, size and lower edge. */
 function sampleCss(def) {
   const s = styleAsCell(def);
@@ -31,7 +38,7 @@ function sampleCss(def) {
   return {
     color: fontColorCss(s.color) || 'var(--ink)', background: fillColorCss(s.bg) || 'var(--surface)',
     fontWeight: s.bold ? '700' : '400', fontStyle: s.italic ? 'italic' : 'normal', textDecorationLine: [s.underline && 'underline', s.strike && 'line-through'].filter(Boolean).join(' ') || 'none',
-    fontSize: s.size ? `${Math.min(s.size, 16)}px` : '13px', border: '1px solid var(--hairline)',
+    fontSize: sampleSize(s.size), border: '1px solid var(--hairline)',
     borderBottom: bottom ? sampleEdge(bottom) : '1px solid var(--hairline)',
   };
 }
@@ -44,7 +51,7 @@ const presetCss = (preset, wb) => {
   const s = themedPreset(preset, wb);
   return {
     color: fontColorCss(s.patch.color) || 'var(--ink)', background: fillColorCss(s.patch.bg) || 'var(--surface)', border: '1px solid var(--hairline)', fontWeight: s.patch.bold ? '700' : '400',
-    fontSize: s.patch.size ? `${Math.min(s.patch.size, 16)}px` : '13px',
+    fontSize: sampleSize(s.patch.size),
     ...(s.patch.font ? { fontFamily: fontStack(s.patch.font) || '' } : {}),
     borderBottom: (s.borders || []).some((b) => b.kind === 'bottom') ? sampleEdge(s.borders.find((b) => b.kind === 'bottom')) : 'none',
   };
