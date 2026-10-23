@@ -1,0 +1,84 @@
+:root {
+  /* Typography */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-bounce: 350ms cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+}
+
+/* Light Theme */
+:root, [data-theme="light"] {
+  --bg-app: #f4f6f9;
+  --bg-sidebar: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #eef2f6;
+  --bg-active: #e2e8f0;
+
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text-main: #0f172a;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --primary: #0984e3;
+  --primary-hover: #0770c2;
+  --primary-gradient: linear-gradient(135deg, #0984e3 0%, #00cec9 100%);
+  --primary-glow: rgba(9, 132, 227, 0.25);
+
+  --accent-cyan: #00cec9;
+  --accent-purple: #6c5ce7;
+  --accent-green: #00b894;
+  --accent-amber: #e17055;
+  --accent-red: #d63031;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 20px rgba(9, 132, 227, 0.3);
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+  --bg-app: #090d16;
+  --bg-sidebar: #0f1422;
+  --bg-surface: #141a2c;
+  --bg-surface-elevated: #1b233a;
+  --bg-card: rgba(20, 26, 44, 0.85);
+  --bg-hover: #1e263d;
+  --bg-active: #283250;
+
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+
+  --primary: #00f2fe;
+  --primary-hover: #4facfe;
+  --primary-gradient: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  --primary-glow: rgba(0, 242, 254, 0.35);
+
+  --accent-cyan: #00f2fe;
+  --accent-purple: #a29bfe;
+  --accent-green: #00cec9;
+  --accent-amber: #fab1a0;
+  --accent-red: #ff7675;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 36px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 25px rgba(0, 242, 254, 0.35);
+}
