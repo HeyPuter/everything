@@ -4,6 +4,7 @@ import { rememberMade, forgetMade, madeFiles, withMade, madeLocation } from '../
 import { Doc, publishing, versioning } from '../src/lib/doc.js';
 import { homeView } from '../src/views/home.js';
 import { recentFiles } from '../src/lib/recent.js';
+import { listVersions } from '../src/lib/versions.js';
 import { closeAllModals } from '../src/ui/modal.js';
 
 vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn() }));
@@ -41,7 +42,7 @@ function installPuter() {
       files.set(target, files.get(path)); uids.set(target, uids.get(path)); files.delete(path); uids.delete(path);
       return entry(target);
     }),
-    delete: vi.fn(async (path) => { files.delete(path); }),
+    delete: vi.fn(async (path, { recursive = false } = {}) => { files.delete(path); if (recursive) for (const k of [...files.keys()]) if (k.startsWith(`${path}/`)) files.delete(k); }),
   };
   const ui = {
     showSaveFilePicker: vi.fn((blob, name) => {
@@ -82,6 +83,24 @@ describe('documents made elsewhere on the drive', () => {
     // Open recent lists it, though not while it is the document open.
     expect(recentFiles(withMade([], made), { exclude: doc.path })).toEqual([]);
     expect(recentFiles(withMade([], made)).map((f) => f.name)).toEqual(['Report.docx']);
+  });
+
+  it('a document saved elsewhere has a version history, which goes when it is deleted', async () => {
+    versioning.enabled = true;
+    const doc = Doc.blank({ name: 'Report' });
+    doc.attach(async () => new Blob(['typed']));
+    doc.changed();
+    expect(await doc.save()).toBe(true);
+    expect(doc.uid).toBe(uids.get('/alice/Desktop/Report.docx'));
+    // The first save leaves a snapshot, as one in the app folder does.
+    await vi.waitFor(async () => expect(await listVersions(doc.path, { uid: doc.uid })).toHaveLength(1));
+    const v = await doc.saveVersionNow({ label: 'Draft' });
+    expect(v).toBeTruthy();
+    expect(await listVersions(doc.path, { uid: doc.uid })).toHaveLength(2);
+    const { path, uid } = doc;
+    await doc.remove();
+    expect(await listVersions(path, { uid })).toEqual([]);
+    expect([...files.keys()].filter((k) => k.includes('.versions'))).toEqual([]);
   });
 
   it('follows a file moved or renamed elsewhere by its id, and forgets one deleted or in the trash', async () => {

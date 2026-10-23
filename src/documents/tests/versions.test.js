@@ -231,4 +231,34 @@ describe('snapshots on Puter', () => {
     expect(rename).not.toHaveBeenCalled();
     expect((await listVersions('Documents/Report.docx')).map((v) => v.time)).toEqual([T0]);
   });
+
+  it('keeps the history of a document elsewhere on the drive by its id, through a rename, until it is deleted', async () => {
+    // Inside the Puter desktop Save puts a new document where the user chooses, outside the app folder.
+    const path = '/demo/Desktop/Plan.docx', uid = 'file-uid-1';
+    expect(await snapshotIfDue(path, blob('first'), undefined, { now: T0, uid })).toBe(T0);
+    await saveVersion(path, blob('named'), { now: T0 + 1, uid });
+    const [folder] = new Set([...pf.files.keys()].map((k) => k.slice(0, k.lastIndexOf('/'))));
+    expect(folder).toMatch(/^Documents\/\.versions-by-id\/[a-z0-9]+$/);
+    expect((await listVersions(path, { uid })).map((v) => v.time)).toEqual([T0 + 1, T0]);
+    // The id stays the same through a rename or a move: so does the history, and nothing has to move.
+    const rename = vi.spyOn(pf.fs, 'rename');
+    await renameVersions(path, '/demo/Desktop/Final.docx');
+    expect(rename).not.toHaveBeenCalled();
+    expect(await listVersions('/demo/Work/Final.docx', { uid })).toHaveLength(2);
+    // Another file's id is another history; a file whose id is not known has none.
+    expect(await listVersions(path, { uid: 'file-uid-2' })).toEqual([]);
+    expect(await listVersions(path)).toEqual([]);
+    expect(await saveVersion(path, blob('x'))).toBeNull();
+    // Only a .docx has one, as in the app folder.
+    expect(await saveVersion('/demo/Desktop/Plan.dotx', blob('x'), { uid })).toBeNull();
+    await deleteVersions('/demo/Work/Final.docx', { uid });
+    expect([...pf.files.keys()].filter((k) => k.startsWith('Documents/.versions-by-id/'))).toEqual([]);
+  });
+
+  it('a document in the app folder keeps its history by name, whatever its id', async () => {
+    await saveVersion('Documents/A.docx', blob('one'), { now: T0 });
+    expect(await listVersions('Documents/A.docx', { uid: 'file-uid-1' })).toHaveLength(1);
+    await saveVersion('Documents/A.docx', blob('two'), { now: T0 + 1, uid: 'file-uid-1' });
+    expect([...pf.files.keys()].every((k) => !k.includes('.versions-by-id'))).toBe(true);
+  });
 });

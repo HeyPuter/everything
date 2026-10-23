@@ -8,7 +8,8 @@ import { test, expect } from '@playwright/test';
 
 const text = page => page.getByRole('textbox', { name: 'Document text' });
 const status = page => page.locator('.canvas-save-status');
-const drive = page => page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem('documents-mock-state') || '{"fs":{}}').fs));
+// The documents on the drive; their version history, kept in the app folder, is not one of them.
+const drive = page => page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem('documents-mock-state') || '{"fs":{}}').fs).filter(p => !p.includes('/.versions')));
 const docPath = page => page.evaluate(() => window.__docs.current.view.doc.path);
 
 async function openEditor(page, hash = '#/new') {
@@ -88,6 +89,24 @@ test('a document saved elsewhere through the Save dialog is listed on the docume
   const view = page.getByRole('dialog', { name: 'File' });
   await view.getByRole('tab', { name: 'Open' }).click();
   await expect(view.getByRole('button', { name: /^Plans/ })).toBeVisible();
+});
+
+test('a document saved elsewhere through the Save dialog keeps a version history', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('First version.');
+  await text(page).press('ControlOrMeta+s');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  expect(await docPath(page)).toBe('~/Desktop/Untitled document.docx');
+  await page.locator('.ed-menubar').getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Browse Version History', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Version History pane' });
+  // The first save left a snapshot, as it does for a document in the app folder.
+  await expect(pane.getByRole('listitem')).toHaveCount(1);
+  await pane.getByRole('button', { name: 'Save a Version Now' }).click();
+  await page.getByRole('dialog', { name: 'Save a version' }).getByRole('textbox').fill('Clean draft');
+  await page.getByRole('dialog', { name: 'Save a version' }).getByRole('button', { name: 'Save Version' }).click();
+  await expect(pane.getByRole('listitem').first()).toContainText('Clean draft');
+  await expect(page.locator('.toast-root')).not.toContainText('could not be saved');
 });
 
 test('File > Save: Save a Copy asks where and goes on in the copy', async ({ page }) => {

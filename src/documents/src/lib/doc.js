@@ -58,10 +58,12 @@ export function needsUnloadWarning(doc) {
 }
 
 export class Doc extends EventTarget {
-  constructor({ name = UNTITLED, path = null, blob = null, dirty = false, template = null, pendingImport = null, importInfo = null, modified = null } = {}) {
+  constructor({ name = UNTITLED, path = null, uid = null, blob = null, dirty = false, template = null, pendingImport = null, importInfo = null, modified = null } = {}) {
     super();
     this.name = name;
     this.path = path;
+    /** The file's id on the drive, which names the version history of a file outside the app folder; null when unknown. */
+    this.uid = uid;
     /** The file's time stamp as this window last saw it (from writing it, or given at opening); null when unknown. Another window's write changes it. */
     this._remoteModified = modified ?? null;
     /** Template id to lay out once the engine is ready (new documents only). */
@@ -294,6 +296,7 @@ export class Doc extends EventTarget {
         // A template or other non-docx source stays where it was: the new file is a copy of it.
         const copy = !!this.path;
         this.path = target;
+        this.uid = null; // a new file, in the app folder, whose history goes by its name
         this.name = Doc.nameFor(target);
         this._emitPath({ copy });
       }
@@ -341,7 +344,7 @@ export class Doc extends EventTarget {
   /** Leave a version snapshot when one is due. Never affects the save status. */
   _snapshot(blob) {
     if (!versioning.enabled || !this.path || this._snapshotting) return;
-    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.() })
+    this._snapshotting = snapshotIfDue(this.path, blob, this.lastVersionAt, { meta: this.versionMeta?.(), uid: this.uid })
       .then((t) => { this.lastVersionAt = t; })
       .catch((e) => { console.warn('[documents] version snapshot failed', e); })
       .finally(() => { this._snapshotting = null; });
@@ -353,7 +356,7 @@ export class Doc extends EventTarget {
     return this._withFileLock(async () => {
       if (!this.path) return null;
       if (this._snapshotting) await this._snapshotting;
-      const v = await saveVersion(this.path, await this.toBlob(), { meta: { ...this.versionMeta?.(), ...meta } });
+      const v = await saveVersion(this.path, await this.toBlob(), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
       if (v) this.lastVersionAt = v.time;
       return v;
     });
@@ -381,7 +384,7 @@ export class Doc extends EventTarget {
         if (this._snapshotting) await this._snapshotting;
         const current = await this.toBlob();
         checkCurrent();
-        const recovery = await saveVersion(path, current);
+        const recovery = await saveVersion(path, current, { uid: this.uid });
         if (!recovery) throw new Error('Could not keep a recovery version');
         this.lastVersionAt = recovery.time;
         checkCurrent();
@@ -544,6 +547,7 @@ export class Doc extends EventTarget {
         await forgetRoom(path);
         this._remoteModified = st?.modified ?? item.modified ?? null;
         this.path = path;
+        this.uid = st?.uid || st?.id || item.uid || null;
         this.name = Doc.nameFor(path);
         this.size = blob?.size ?? this.size;
         this.lastSaved = Date.now();
@@ -606,6 +610,7 @@ export class Doc extends EventTarget {
       await forgetRoom(target);
       this.size = blob?.size ?? this.size;
       this.path = target;
+      this.uid = null;
       this.name = clean;
       this.lastSaved = Date.now();
       this.lastVersionAt = undefined;
@@ -637,7 +642,7 @@ export class Doc extends EventTarget {
   async remove() {
     return this._withFileLock(async () => {
       if (!this.path) return;
-      const path = this.path;
+      const path = this.path, uid = this.uid;
       clearTimeout(this._timer);
       this._timer = null;
       try {
@@ -649,7 +654,7 @@ export class Doc extends EventTarget {
         this.path = null;
         this.savedVersion = this.version;
         this._setStatus('saved');
-        if (versioning.enabled) await deleteVersions(path);
+        if (versioning.enabled) await deleteVersions(path, { uid });
         forgetMade(path);
         await forgetRoom(path);
         // Nothing is left to update the page from; a page nobody can take down must not stay online.
@@ -671,7 +676,7 @@ export class Doc extends EventTarget {
       P.readFile(path), P.prepareDocumentPaths(),
     ]);
     if (HANWORD_IMPORTABLE.test(path)) return Doc.fromImportFile(new File([blob], P.displayName(path)));
-    return new Doc({ name: Doc.nameFor(path), path, blob, modified: stat?.modified });
+    return new Doc({ name: Doc.nameFor(path), path, uid: stat?.uid || stat?.id || null, blob, modified: stat?.modified });
   }
 
   /** Convert before opening: Hanword originals always become fresh DOCX copies. */

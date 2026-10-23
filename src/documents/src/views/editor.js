@@ -1063,7 +1063,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     setProperties: patch => { if (!pkg || pkg.readOnly || failed) return false; pkg.coreAuthor = session.username || pkg.coreAuthor; const changed = pkg.setCoreProperties(patch); if (changed) { doc.changed(); updateStatus(); } return changed; },
     statistics: () => { if (!engine) return null; const stats = documentStatisticsOf(engine.session.body?.text ?? engine.model.text); return { pages: engine.layout.pageCount, ...stats }; },
     location: () => editorCommands.documentLocation().location, size: () => doc.size,
-    versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path) : Promise.resolve([])) : null,
+    versions: cloud && versioning.enabled ? () => (doc.path ? listVersions(doc.path, { uid: doc.uid }) : Promise.resolve([])) : null,
     versionsAvailable: () => !!doc.path,
     // A version that could not be written says so, as the Version History pane does.
     saveVersionNow: () => doc.saveVersionNow().then(v => { if (!v) throw new Error('The version could not be saved.'); toast('Version saved'); }).catch(e => { if (!destroyed) error(e); }),

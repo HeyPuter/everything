@@ -382,7 +382,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       // Already gone (another window deleted or renamed it): the deletion is done, and so is the tidying up.
       try { await P.deleteFile(file.path); } catch (e) { if (!P.isNotFound(e)) throw e; }
       keepFocus = { index: Math.max(0, index) };
-      deleteVersions(file.path);
+      deleteVersions(file.path, { uid: file.uid });
       unpublishAt(file.path).catch((e) => console.warn('[documents] the published page could not be taken down', e));
       forgetStar(file.path);
       rememberGoal(file.path, null);

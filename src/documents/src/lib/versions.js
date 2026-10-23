@@ -1,7 +1,10 @@
 /**
  * Version history. Every document in the app folder gets a folder of
  * snapshots at `Documents/.versions/<name>/`, one .docx per version, named
- * by the moment it was taken. A snapshot is written after a save when the
+ * by the moment it was taken. A document elsewhere on the drive (inside the
+ * Puter desktop, Save puts a new one where the user chooses) keeps its
+ * snapshots at `Documents/.versions-by-id/<tag>/`, named after the file's id
+ * on the drive, which stays the same through a rename or a move. A snapshot is written after a save when the
  * last one is older than VERSION_INTERVAL_MS (or there is none), and whenever
  * the user asks for one; the oldest go once there are more than MAX_VERSIONS.
  * The folder follows the document through renames and goes with it when the
@@ -15,6 +18,12 @@ import { documentRoot } from './document-paths.js';
 export const VERSION_INTERVAL_MS = 10 * 60 * 1000;
 export const MAX_VERSIONS = 30;
 export const VERSIONS_DIR = `${P.FOLDER}/.versions`;
+/** Histories of documents outside the app folder, by file id. A sibling of VERSIONS_DIR, so no document name can reach it. */
+export const ELSEWHERE_VERSIONS_DIR = `${P.FOLDER}/.versions-by-id`;
+
+const hash = (s) => { const text = String(s ?? ''); let h = 5381; for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+// Two files on one short hash would read, prune and restore each other's snapshots: the tag is hashed twice over.
+const uidTag = (uid) => `${hash(uid)}${hash(`${uid}:${String(uid).length}`)}`;
 
 /** A single DOCX history folder, or null for paths that cannot own one safely. */
 export function versionsFolder(path) {
@@ -29,8 +38,18 @@ export function versionsFolder(path) {
   return `${VERSIONS_DIR}/${stem}`;
 }
 
-/** Puter listings return absolute paths; verify their app folder before sharing a history. */
-export async function resolveVersionsFolder(path) {
+/**
+ * Puter listings return absolute paths; verify their app folder before sharing a history. A .docx elsewhere on
+ * the drive has a history by its id (`uid`, when known); without one it has none.
+ */
+export async function resolveVersionsFolder(path, uid = null) {
+  const own = await appFolderHistory(path);
+  if (own || !uid || !/\.docx$/i.test(String(path || ''))) return own;
+  // A file inside the app folder but not directly in it (Documents/sub/A.docx) is elsewhere too.
+  return `${ELSEWHERE_VERSIONS_DIR}/${uidTag(uid)}`;
+}
+
+async function appFolderHistory(path) {
   if (!path?.startsWith('/')) return versionsFolder(path);
   // The app folder's absolute path is learned when a document opens; ask the cloud only when it is not known yet.
   const root = documentRoot() || (await P.statFile(P.FOLDER))?.path;
@@ -55,9 +74,9 @@ export function shouldSnapshot(lastTime, now, interval = VERSION_INTERVAL_MS) {
   return lastTime == null || now - lastTime >= interval;
 }
 
-/** The document's snapshots, newest first: { path, name, time, size }. */
-export async function listVersions(path) {
-  const folder = await resolveVersionsFolder(path);
+/** The document's snapshots, newest first: { path, name, time, size }. `uid`: the file's id, for one outside the app folder. */
+export async function listVersions(path, { uid = null } = {}) {
+  const folder = await resolveVersionsFolder(path, uid);
   if (!folder) return [];
   return listSnapshots(folder);
 }
@@ -71,8 +90,8 @@ async function listSnapshots(folder) {
 }
 
 /** Write a snapshot of `blob` now and trim the history to `keep` entries. */
-export async function saveVersion(path, blob, { now = Date.now(), keep = MAX_VERSIONS, meta = null } = {}) {
-  const folder = await resolveVersionsFolder(path);
+export async function saveVersion(path, blob, { now = Date.now(), keep = MAX_VERSIONS, meta = null, uid = null } = {}) {
+  const folder = await resolveVersionsFolder(path, uid);
   if (!folder || !blob) return null;
   return writeSnapshot(folder, blob, now, keep, meta);
 }
@@ -130,9 +149,9 @@ async function writeSnapshot(folder, blob, now, keep, meta = null) {
  * null for none, or undefined when not yet known (the folder is read once).
  * Resolves the time of the newest snapshot afterwards.
  */
-export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), meta = null } = {}) {
+export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), meta = null, uid = null } = {}) {
   if (lastTime != null && !shouldSnapshot(lastTime, now)) return lastTime;
-  const folder = await resolveVersionsFolder(path);
+  const folder = await resolveVersionsFolder(path, uid);
   if (!folder) return lastTime ?? null;
   let last = lastTime;
   if (last === undefined) last = (await listSnapshots(folder))[0]?.time ?? null;
@@ -141,7 +160,7 @@ export async function snapshotIfDue(path, blob, lastTime, { now = Date.now(), me
   return now;
 }
 
-/** Move the snapshot folder along with a renamed document (best effort). */
+/** Move the snapshot folder along with a renamed document (best effort). A history kept by the file's id stays where it is. */
 export async function renameVersions(oldPath, newPath) {
   try {
     const [from, to] = await Promise.all([resolveVersionsFolder(oldPath), resolveVersionsFolder(newPath)]);
@@ -160,9 +179,9 @@ export async function renameVersions(oldPath, newPath) {
 }
 
 /** Remove a deleted document's snapshots (best effort). */
-export async function deleteVersions(path) {
+export async function deleteVersions(path, { uid = null } = {}) {
   try {
-    const folder = await resolveVersionsFolder(path);
+    const folder = await resolveVersionsFolder(path, uid);
     if (!folder) return;
     await P.deleteFolder(folder);
   } catch (e) {

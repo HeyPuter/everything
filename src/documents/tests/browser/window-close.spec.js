@@ -9,7 +9,8 @@ import { test, expect } from '@playwright/test';
 
 const text = page => page.getByRole('textbox', { name: 'Document text' });
 const status = page => page.locator('.canvas-save-status');
-const drive = page => page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem('documents-mock-state') || '{"fs":{}}').fs));
+// The documents on the drive; their version history, kept in the app folder, is not one of them.
+const drive = page => page.evaluate(() => Object.keys(JSON.parse(sessionStorage.getItem('documents-mock-state') || '{"fs":{}}').fs).filter(p => !p.includes('/.versions')));
 const docPath = page => page.evaluate(() => window.__docs.current.view.doc.path);
 
 async function openEditor(page, hash = '#/new') {
@@ -54,7 +55,7 @@ test.describe('the Puter window\'s close button', () => {
     await page.keyboard.type(' and closed');
     await closeWindow(page);
     await expect.poll(() => exits(page)).toBe(1);
-    expect(await page.evaluate(() => window.__writes)).toEqual(['~/Desktop/Untitled document.docx']);
+    expect(await page.evaluate(() => window.__writes.filter(p => !p.includes('/.versions')))).toEqual(['~/Desktop/Untitled document.docx']);
     await expect(question(page)).toHaveCount(0);
   });
 
