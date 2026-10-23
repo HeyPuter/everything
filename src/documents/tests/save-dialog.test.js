@@ -330,6 +330,26 @@ describe('the first save inside the Puter desktop', () => {
     doc.destroy();
   });
 
+  it('counts only the time in the dialog as the user\'s, not a stalled connection after it answered', async () => {
+    let release;
+    // The room memory lives in the cloud: a stalled connection holds the step after the dialog.
+    puter.kv = { del: vi.fn(() => new Promise((resolve) => { release = resolve; })), get: async () => null, set: async () => {} };
+    const doc = Doc.blank();
+    doc.attach(async () => docx('v1'));
+    doc.changed();
+    const saving = doc.save();
+    await settle();
+    expect(doc.choosingPlace).toBe(true);
+    dialogs[0].save();
+    await vi.waitFor(() => expect(puter.kv.del).toHaveBeenCalled());
+    // Leaving now reports a slow save after a while, rather than waiting on the user for ever.
+    expect(doc.choosingPlace).toBe(false);
+    expect(doc.path).toBeNull();
+    release();
+    expect(await saving).toBe(true);
+    doc.destroy();
+  });
+
   it('saves a template being edited as a new .docx where the user chooses, and leaves the template as it was', async () => {
     const template = docx('template');
     files.set('Documents/Letter.dotx', template);

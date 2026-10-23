@@ -520,9 +520,12 @@ export class Doc extends EventTarget {
     return this.dirty && !!this.exporter && this.writes !== false && !this._deleted && this._needsPlace();
   }
 
-  /** Whether Puter's Save dialog is open for this document, so a save waiting on it is waiting on the user. */
+  /**
+   * Whether Puter's Save dialog is open for this document, so a save waiting on it is waiting on the user. Not the
+   * export before it, nor the writes after it: a connection that stalls there is a save taking too long.
+   */
   get choosingPlace() {
-    return !!this._choosing;
+    return !!this._dialogOpen;
   }
 
   /**
@@ -547,7 +550,9 @@ export class Doc extends EventTarget {
         version = this.version;
         // A document open read-only has no exporter: its copy is the file's own bytes, untouched.
         blob = await this.toBlob();
-        item = await P.saveFileAs(blob, suggestedName);
+        this._dialogOpen = true;
+        try { item = await P.saveFileAs(blob, suggestedName); }
+        finally { this._dialogOpen = false; }
       } catch (e) {
         this._setStatus('error', e?.message || String(e));
         throw e;
