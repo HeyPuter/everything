@@ -313,6 +313,23 @@ describe('the first save inside the Puter desktop', () => {
     doc.destroy();
   });
 
+  it('Save a Copy of a document open read-only copies the file as it is', async () => {
+    const original = docx('unsupported content, kept as is');
+    files.set('~/Desktop/Odd.docx', original);
+    // A read-only preview attaches no exporter: nothing on screen may be written over the file.
+    const doc = new Doc({ name: 'Odd', path: '~/Desktop/Odd.docx', blob: original });
+    const copying = doc.saveCopy();
+    await settle();
+    expect(dialogs[0].blob).toBe(original);
+    expect(dialogs[0].suggestedName).toBe('Odd copy.docx');
+    dialogs[0].save();
+    expect(await copying).toBeNull();
+    expect(doc.path).toBe('~/Desktop/Odd copy.docx');
+    expect(files.get('~/Desktop/Odd copy.docx')).toBe(original);
+    expect(doc.status).toBe('saved');
+    doc.destroy();
+  });
+
   it('saves a template being edited as a new .docx where the user chooses, and leaves the template as it was', async () => {
     const template = docx('template');
     files.set('Documents/Letter.dotx', template);

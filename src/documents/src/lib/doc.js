@@ -545,7 +545,8 @@ export class Doc extends EventTarget {
       try {
         if (this._ready) await this._ready;
         version = this.version;
-        blob = await this.exporter();
+        // A document open read-only has no exporter: its copy is the file's own bytes, untouched.
+        blob = await this.toBlob();
         item = await P.saveFileAs(blob, suggestedName);
       } catch (e) {
         this._setStatus('error', e?.message || String(e));
