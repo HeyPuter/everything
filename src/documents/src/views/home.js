@@ -1,5 +1,6 @@
 /**
- * Home: the list of documents in the app folder, with new / import / open
+ * Home: the list of documents in the app folder (and, inside the Puter
+ * desktop, those saved elsewhere from here: made.js), with new / import / open
  * actions. Rows open the editor; a per-row menu renames, duplicates,
  * downloads, or deletes. The list lives in the Puter cloud, so without a
  * session the screen offers the sign-in instead of the list.
@@ -26,6 +27,7 @@ import { HANWORD_IMPORTABLE } from '../lib/importers.js';
 import { importFiles, nothingImportable } from '../lib/importfiles.js';
 import { documentPathKey } from '../lib/document-paths.js';
 import { forgetRoom, moveRoom } from '../collab/room-memory.js';
+import { madeFiles, forgetMade, withMade, madeLocation, inAppFolder } from '../lib/made.js';
 
 export const SORTS = [
   { id: 'modified', label: 'Last modified' },
@@ -36,6 +38,7 @@ export const SORTS = [
 const SEARCH_AT_ONCE = 400;
 const SEARCH_PAUSE_MS = 120;
 const SORT_KEY = 'documents:sort';
+const dirOf = (path) => path.slice(0, path.lastIndexOf('/') + 1);
 
 /** Files ordered by the chosen key: newest, A to Z, or largest first. Names compare as shown, without their extension. */
 export function sortFiles(files, sort) {
@@ -134,9 +137,9 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         el('h2.home-h2', {}, 'Your documents'),
         el('div.home-list-tools', {}, sortBtn, search)),
       list, listStatus),
-    // Inside the Puter desktop a new document is saved where the user chooses; the list still shows the app's own folder.
+    // Inside the Puter desktop a new document is saved where the user chooses; the list shows those with the app folder's own.
     el('footer.home-foot', {}, ...(P.asksWhereToSave()
-      ? ['Listed here: .docx files in the app’s own ', el('code', {}, `${P.FOLDER}/`), ' folder. Save asks where to keep a new document.']
+      ? ['Listed here: the app’s own ', el('code', {}, `${P.FOLDER}/`), ' folder and the documents saved elsewhere on Puter from this device. Save asks where to keep a new document.']
       : ['Saved as .docx in your Puter cloud under ', el('code', {}, `${P.FOLDER}/`)])));
 
   /* Drag and drop anywhere on the home screen imports documents. */
@@ -249,10 +252,12 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     }
     renderList();
     try {
-      const loaded = await P.listFiles();
+      // With the app folder's files, the documents Puter's Save dialog put elsewhere on the drive.
+      const [folder, made] = await Promise.all([P.listFiles(), madeFiles().catch(() => Object.assign([], { unreachable: [] }))]);
       if (destroyed || request !== loadRequest) return;
-      files = loaded;
-      pruneStars(files);
+      files = withMade(folder, made);
+      // A document whose folder could not be read just now keeps its star.
+      pruneStars([...files, ...made.unreachable.map((path) => ({ path }))]);
     } catch (e) {
       if (destroyed || request !== loadRequest) return;
       console.error(e);
@@ -290,7 +295,8 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         const clean = stem(v);
         // Dots alone name no file: "..docx" would show as "." and lose its version history.
         if (!clean || /^\.+$/.test(clean)) return 'Enter a name';
-        if (files.some((f) => f.name.toLowerCase() === `${clean}${ext}`.toLowerCase() && f.path !== file.path)) return 'A file with that name already exists';
+        // Only a file in the same folder takes the name: the list holds documents saved elsewhere on the drive too.
+        if (files.some((f) => f.name.toLowerCase() === `${clean}${ext}`.toLowerCase() && f.path !== file.path && dirOf(f.path) === dirOf(file.path))) return 'A file with that name already exists';
         return null;
       },
       pendingLabel: 'Renaming…', prepare: async (name, { signal }) => {
@@ -309,6 +315,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         // Listings begun before the rename no longer describe that state.
         loadRequest += 1;
         moveStar(file.path, target);
+        forgetMade(file.path, target);
         moveGoal(file.path, target);
         movePosition(file.path, target);
         await moveRoom(file.path, target);
@@ -328,7 +335,8 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       const blob = await P.readFile(file.path);
       const stem = P.stripExtension(file.name);
       const ext = file.name.slice(file.name.lastIndexOf('.'));
-      const names = new Set(files.map((f) => f.name.toLowerCase()));
+      // The copy goes in the app folder: only names there are taken.
+      const names = new Set(files.filter((f) => inAppFolder(f.path)).map((f) => f.name.toLowerCase()));
       let name = `${stem} copy${ext}`;
       let n = 2;
       while (names.has(name.toLowerCase())) name = `${stem} copy ${n++}${ext}`;
@@ -363,7 +371,9 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
   async function remove(file) {
     const ok = await confirmDialog({
       title: 'Delete document?',
-      message: `"${P.stripExtension(file.name)}" will be moved out of your Documents folder and deleted. This cannot be undone.`,
+      message: inAppFolder(file.path)
+        ? `"${P.stripExtension(file.name)}" will be moved out of your Documents folder and deleted. This cannot be undone.`
+        : `"${P.stripExtension(file.name)}" will be deleted from ${madeLocation(file.path)} on Puter. This cannot be undone.`,
       confirmLabel: 'Delete',
     });
     if (!ok) return;
@@ -378,6 +388,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       rememberGoal(file.path, null);
       forgetPosition(file.path);
       forgetRoom(file.path);
+      forgetMade(file.path);
       files = files.filter((f) => f.path !== file.path);
       // A listing started before deletion can still contain this file. Fetch
       // a fresh snapshot and invalidate that request (or its stale error).
@@ -472,12 +483,14 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         type: 'button', 'aria-label': starred ? `Unstar ${file.name}` : `Star ${file.name}`, 'aria-pressed': String(starred), title: starred ? 'Unstar' : 'Star: keep at the top',
         onclick: (e) => { e.stopPropagation(); star(file); },
       }, icons.star.cloneNode(true));
+      const where = madeLocation(file.path);
       const row = el('div.file-row', { role: 'listitem', dataset: { path: file.path }, className: starred ? 'file-row is-starred' : 'file-row' },
-        el('button.file-main', { type: 'button', onclick: () => openPath(file.path) },
+        // A document saved elsewhere on the drive says where, so two of the same name can be told apart.
+        el('button.file-main', { type: 'button', title: where ? `${file.name} in ${where}` : null, onclick: () => openPath(file.path) },
           el('span.file-icon', {}, icons.brand.cloneNode(true)),
           el('span.file-text', {},
             el('span.file-name', {}, P.stripExtension(file.name)),
-            el('span.file-meta', {}, [starred ? 'Starred' : null, HANWORD_IMPORTABLE.test(file.name) ? `Hanword ${file.name.split('.').pop().toUpperCase()}` : null, relativeTime(file.modified), formatBytes(file.size)].filter(Boolean).join(' · ')))),
+            el('span.file-meta', {}, [starred ? 'Starred' : null, where || null, HANWORD_IMPORTABLE.test(file.name) ? `Hanword ${file.name.split('.').pop().toUpperCase()}` : null, relativeTime(file.modified), formatBytes(file.size)].filter(Boolean).join(' · ')))),
         starBtn, menuBtn);
       row.addEventListener('contextmenu', (e) => {
         e.preventDefault();

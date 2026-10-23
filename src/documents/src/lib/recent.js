@@ -1,6 +1,7 @@
 /**
  * The documents most recently worked on, for the File menu's "Open recent":
- * the app folder's files by modification time, newest first, minus the one
+ * the app folder's files, and those saved elsewhere through Puter's Save
+ * dialog (made.js), by modification time, newest first, minus the one
  * that is open.
  */
 

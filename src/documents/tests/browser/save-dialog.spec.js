@@ -70,6 +70,26 @@ test('leaving a new document asks where to save it; cancelling asks whether to l
   expect(await drive(page)).toEqual(['~/Desktop/Kept.docx']);
 });
 
+test('a document saved elsewhere through the Save dialog is listed on the documents screen and in Open recent', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Plans');
+  await page.evaluate(() => { window.__puterSaveAs = 'Plans.docx'; });
+  await text(page).press('ControlOrMeta+s');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  await page.evaluate(() => { location.hash = '#/home'; });
+  const row = page.locator('[data-path="~/Desktop/Plans.docx"]');
+  await expect(row).toBeVisible();
+  await expect(row.locator('.file-meta')).toContainText('Desktop');
+  await expect(row.locator('.file-main')).toHaveAttribute('title', 'Plans.docx in Desktop');
+  // A new document lists the first in Open recent.
+  await page.getByRole('button', { name: 'New document' }).first().click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'File', exact: true }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Open' }).click();
+  await expect(view.getByRole('button', { name: /^Plans/ })).toBeVisible();
+});
+
 test('File > Save: Save a Copy asks where and goes on in the copy', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Original');

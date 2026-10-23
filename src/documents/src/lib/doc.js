@@ -25,6 +25,7 @@ import { movePublication, unpublishAt } from './publish.js';
 import { moveStar } from './starred.js';
 import { forgetRoom, moveRoom } from '../collab/room-memory.js';
 import { HANWORD_IMPORTABLE, decodeTextFile, importHanword, importKind, toInsertPayload } from './importers.js';
+import { rememberMade, forgetMade } from './made.js';
 
 export const AUTOSAVE_MS = 1500;
 export const MAX_AUTOSAVE_MS = 30000;
@@ -473,6 +474,7 @@ export class Doc extends EventTarget {
     }
     // The star on the home screen follows the file, as a rename there does; left behind, the next listing drops it.
     moveStar(this.path, target);
+    forgetMade(this.path, target);
     await moveRoom(this.path, target);
     if (versioning.enabled) await renameVersions(this.path, target);
     // A published page stays up under its address; its record follows the
@@ -529,12 +531,20 @@ export class Doc extends EventTarget {
         throw e;
       }
       if (!item || this._deleted) return null;
+      // The dialog answers with a path from the home folder (~/Desktop/Report.docx) and no time stamp. The file
+      // as the drive has it gives the spelling the home screen's listing uses, so its star, room and reading
+      // position stay with it there, and the time stamp that arms the check for another window's writes.
+      const st = await P.statFile(item.path).catch(() => null);
+      const path = st?.path?.startsWith('/') && P.displayName(st.path) === P.displayName(item.path) ? st.path : item.path;
+      if (this._deleted) return null;
+      // Listed on the home screen with the app folder's own documents, though it was saved elsewhere.
+      rememberMade({ path, uid: st?.uid || st?.id || item.uid || null });
       await this._withFileLock(async () => {
         // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
-        await forgetRoom(item.path);
-        this._remoteModified = item.modified ?? null;
-        this.path = item.path;
-        this.name = Doc.nameFor(item.path);
+        await forgetRoom(path);
+        this._remoteModified = st?.modified ?? item.modified ?? null;
+        this.path = path;
+        this.name = Doc.nameFor(path);
         this.size = blob?.size ?? this.size;
         this.lastSaved = Date.now();
         this.lastVersionAt = undefined;
@@ -640,6 +650,7 @@ export class Doc extends EventTarget {
         this.savedVersion = this.version;
         this._setStatus('saved');
         if (versioning.enabled) await deleteVersions(path);
+        forgetMade(path);
         await forgetRoom(path);
         // Nothing is left to update the page from; a page nobody can take down must not stay online.
         if (publishing.enabled) unpublishAt(path).catch((e) => console.warn('[documents] the published page could not be taken down', e));

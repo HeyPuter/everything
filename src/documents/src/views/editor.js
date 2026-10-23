@@ -81,6 +81,7 @@ import { openCustomizeKeyboard } from './customize-keyboard.js';
 import { MARKUP_VIEWS } from './review.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
 import { recentFiles } from '../lib/recent.js';
+import { madeFiles, withMade } from '../lib/made.js';
 import { listVersions } from '../lib/versions.js';
 import { publishPage, findSite, unpublishPage } from '../lib/publish.js';
 import { listCustomTemplates } from '../lib/customtemplates.js';
@@ -882,7 +883,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     },
     recentDocuments: cloud ? async () => {
       if (session.signedOut) return [];
-      return recentFiles(await P.listFiles(), { exclude: doc.path }).map(f => ({ name: Doc.nameFor(f.path), path: f.path, when: relativeTime(f.modified) }));
+      // Documents saved elsewhere on the drive through Puter's Save dialog are recent too.
+      const [folder, made] = await Promise.all([P.listFiles(), madeFiles().catch(() => [])]);
+      return recentFiles(withMade(folder, made), { exclude: doc.path }).map(f => ({ name: Doc.nameFor(f.path), path: f.path, when: relativeTime(f.modified) }));
     } : null,
     openRecent: path => openPath?.(path),
     documentLocation: () => ({ location: local ? 'This device' : doc.path ? `Puter › ${doc.path.replace(/^(?:\/[^/]+|~)\//, '')}` : 'Puter (not saved yet)' }),

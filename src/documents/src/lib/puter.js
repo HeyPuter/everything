@@ -215,7 +215,7 @@ export async function deleteFolder(path) {
   await sdk().fs.delete(path, { recursive: true });
 }
 
-/** Everything directly inside a folder ({ name, path, size, modified, isDir }); [] when it does not exist. */
+/** Everything directly inside a folder ({ name, path, size, modified, isDir, uid }); [] when it does not exist. */
 export async function listFolder(path) {
   let items;
   try {
@@ -230,6 +230,7 @@ export async function listFolder(path) {
     size: it.size ?? 0,
     modified: it.modified ?? it.created ?? 0,
     isDir: !!(it.is_dir || it.isDir),
+    uid: it.uid || it.id || null,
   }));
 }
 
@@ -240,6 +241,16 @@ export async function renameFile(path, newName) {
 export async function statFile(path) {
   try {
     return await sdk().fs.stat(path);
+  } catch (e) {
+    if (isNotFound(e)) return null;
+    throw e;
+  }
+}
+
+/** A file looked up by its id, wherever it is now; null when there is no such file. */
+export async function statByUid(uid) {
+  try {
+    return await sdk().fs.stat({ uid });
   } catch (e) {
     if (isNotFound(e)) return null;
     throw e;
