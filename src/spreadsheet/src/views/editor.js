@@ -1212,10 +1212,15 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     // rows do: marked as sized by hand, a row grown for 28 point text kept that height back at 11 point.
     const sheet = wb.sheet(sid);
     const automatic = [];
+    // A row at the default height is someone's size where the default is: Row Height... over the whole sheet sets
+    // the default (30px, say) rather than every row's height, and fitted as automatic a row given 12 point text
+    // shrank from 30px to 21. The default a sheet starts with is a line of its Normal font, or a few pixels more.
+    const spare = sheet.defaultRowHeight - heightForLines(1, wb.normalStyle?.size || 13);
+    const byDefault = spare >= 0 && spare <= 4;
     for (const [r, px] of tallest) {
       if (wb.isHidden(sid, 'row', r)) continue;
       const mode = sheet.rowHeightModes.get(r);
-      if (sid === grid.sheetId && (mode === 'auto' || (mode == null && !sheet.rowHeights.has(r)))) { automatic.push(r); continue; }
+      if (sid === grid.sheetId && (mode === 'auto' || (byDefault && mode == null && !sheet.rowHeights.has(r)))) { automatic.push(r); continue; }
       const needed = heightForLines(1, px);
       if (wb.rowHeight(sid, r) < needed) wb.setRowHeight(sid, r, needed, { auto: mode === 'auto' });
     }

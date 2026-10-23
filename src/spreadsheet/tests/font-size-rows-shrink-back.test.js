@@ -54,3 +54,33 @@ it('lets an automatic row fit its text again when the font is made smaller', asy
   expect(wb.rowHeight(id, 1)).toBeGreaterThanOrEqual(heightForLines(1, 28 * 4 / 3));
   expect(wb.sheet(id).rowHeightModes.get(1)).toBe('fixed');
 });
+
+// Row Height… over the whole sheet sets the sheet's default row (30px, say) rather than storing a height for each
+// row, so every row there is sized by hand though none records it. Fitted as automatic, a row given a larger font
+// (12 point text) shrank from 30px to 21, and a Title style did the same.
+it('keeps the rows of a sheet whose default height was set by hand', async () => {
+  const doc = Doc.blank({ excel: true });
+  const { wb } = doc;
+  const id = wb.activeSheetId;
+  wb.setInput(id, 0, 0, 'Larger');
+  wb.setInput(id, 1, 0, 'Title');
+  wb.setDefaultLineSize(id, 'row', 30);
+  wb.clearHistory();
+  view = editorView({ doc, goHome() {}, openPath() {}, newDoc() {}, importFile() {} });
+  document.querySelector('#app').append(view.el);
+  await vi.advanceTimersByTimeAsync(1);
+  view.goTo('Sheet1!A1');
+  view.run('fontSize', 12 * 4 / 3);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.rowHeight(id, 0)).toBe(30);
+  expect(wb.sheet(id).rowHeightModes.get(0)).not.toBe('auto');
+  view.goTo('Sheet1!A2');
+  view.run('cellStyle', 'title');
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.rowHeight(id, 1)).toBe(heightForLines(1, 18 * 4 / 3) > 30 ? heightForLines(1, 18 * 4 / 3) : 30);
+  // Text too large for them still grows them.
+  view.goTo('Sheet1!A1');
+  view.run('fontSize', 28 * 4 / 3);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(wb.rowHeight(id, 0)).toBe(heightForLines(1, 28 * 4 / 3));
+});
