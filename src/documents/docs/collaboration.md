@@ -167,7 +167,10 @@ must be saved to Puter first (the dialog saves it).
 File → Browse Version History, the File view's Info page or the title bar's document details
 open a pane listing the saved versions (`lib/versions.js`: one every ten minutes of editing, newest
 30 kept), grouped by day, each with the account that saved it and an optional name, kept beside the
-snapshot as `<snapshot>.json`. **Save a Version Now** asks for an optional name. A version opens
+snapshot as `<snapshot>.json`. A document in the app folder keeps its snapshots under
+`Documents/.versions/<name>/`; one elsewhere on the drive (inside the Puter desktop, Save puts a new
+document where the user chooses) under `Documents/.versions-by-id/<tag>/`, named after the file's id,
+which follows it through renames and moves. **Save a Version Now** asks for an optional name. A version opens
 read-only beside the document in its own read-only canvas (both fit their width while it is open);
 **Compare** runs the Review tab's Compare with the version as the original and the open document as
 the revised one; **Restore**:
