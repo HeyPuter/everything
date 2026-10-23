@@ -133,6 +133,26 @@ describe('closing the Puter window', () => {
     expect(files.size).toBe(0);
   });
 
+  it('a Save dialog closed without an answer (Esc) keeps the window open, and the close button asks again', async () => {
+    const doc = newDocument();
+    const closing = closeWindow();
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    press('Save…');
+    await vi.waitFor(() => expect(dialogs).toHaveLength(1));
+    // Esc in Puter's dialog sends the app no answer; the desktop gives the window the focus back.
+    await new Promise((resolve) => setTimeout(resolve, P.DIALOG_FOCUS_MS + 20));
+    window.dispatchEvent(new MessageEvent('message', { data: { msg: 'focus' }, source: window }));
+    expect(await closing).toBe(false);
+    expect(puter.exit).not.toHaveBeenCalled();
+    expect(doc.dirty).toBe(true);
+    // The close button works again: it asks once more.
+    const again = closeWindow();
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    press('Close without saving');
+    expect(await again).toBe(true);
+    expect(puter.exit).toHaveBeenCalledOnce();
+  });
+
   it('Save… opens Puter\'s Save dialog and closes once the document is saved', async () => {
     const doc = newDocument();
     const closing = closeWindow();

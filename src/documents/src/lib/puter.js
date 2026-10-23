@@ -324,6 +324,8 @@ export function asksWhereToSave() {
 
 /** How long after the dialog is asked for a key or click can still reach this window before the desktop covers it. */
 export const DIALOG_COVER_MS = 1000;
+/** How long after the dialog is asked a "focus" from the desktop may still be one it sent before it put the dialog up. */
+export const DIALOG_FOCUS_MS = 300;
 
 /**
  * Puter's Save dialog with content. The desktop writes the file itself (and
@@ -332,10 +334,13 @@ export const DIALOG_COVER_MS = 1000;
  * null when the user cancels.
  *
  * The SDK's own promise never settles on a cancel; `undefinedOnCancel` does,
- * where the SDK has it. A write that fails in the desktop sends no answer at
- * all. The desktop covers this window while its dialog is open, so a key or
- * click that reaches the window again means the dialog has gone: that counts
- * as cancelled, or a document could never be saved again.
+ * where the SDK has it, but only for the dialog's Cancel button: closing it
+ * with Esc or its own close button, or a write that fails in the desktop,
+ * sends no answer at all. Whichever way the dialog goes, the desktop hands
+ * this window the focus back with a "focus" message; it also covers the
+ * window while its dialog is open, so a key or click that reaches the window
+ * again means the dialog has gone. Either counts as cancelled, or a document
+ * could never be saved again (nor its window closed while it waits).
  */
 export async function saveFileAs(blob, suggestedName) {
   if (!canSaveFiles()) return null;
@@ -350,7 +355,11 @@ export async function saveFileAs(blob, suggestedName) {
   }
 }
 
-/** Resolves null at the first key or click in this window once the desktop has had time to cover it. */
+/**
+ * Resolves null once the desktop hands this window the focus back (its dialog has closed), or at the first key or
+ * click in this window once the desktop has had time to cover it. The answer to a save comes before the focus
+ * (the desktop posts both, in that order), so a saved file is never taken for a cancel.
+ */
 function backInWindow(signal) {
   return new Promise((resolve) => {
     const target = globalThis.window;
@@ -358,6 +367,11 @@ function backInWindow(signal) {
     const asked = Date.now();
     const back = () => { if (Date.now() - asked >= DIALOG_COVER_MS) resolve(null); };
     for (const type of ['pointerdown', 'keydown']) target.addEventListener(type, back, { capture: true, signal });
+    const focused = (e) => {
+      if (e.source !== target.parent || e.data?.msg !== 'focus') return;
+      if (Date.now() - asked >= DIALOG_FOCUS_MS) resolve(null);
+    };
+    target.addEventListener('message', focused, { signal });
   });
 }
 

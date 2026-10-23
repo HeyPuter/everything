@@ -225,15 +225,21 @@
       },
       // Like the desktop's Save dialog: it writes the file under ~/Desktop and answers with a home-relative path;
       // a cancel settles only `undefinedOnCancel`. Tests answer it with window.__puterSaveAs: a name to save
-      // under instead of the suggested one, or null to cancel; a function of the suggested name for either.
+      // under instead of the suggested one, null to cancel, or 'dismiss' to close it as Esc does, with no answer
+      // at all; a function of the suggested name for any of these. However it closes, the desktop then hands the
+      // window the focus back with a "focus" message.
       showSaveFilePicker(data, suggestedName) {
+        // Sent once the dialog has gone, which takes the user a moment.
+        const focusBack = () => setTimeout(() => window.postMessage({ msg: 'focus' }, '*'), 400);
         const answer = (async () => {
           await delay();
           const chosen = typeof window.__puterSaveAs === 'function' ? window.__puterSaveAs(suggestedName) : window.__puterSaveAs;
-          if (chosen === null) { console.log('[puter-mock] save picker cancelled'); return undefined; }
+          if (chosen === 'dismiss') { console.log('[puter-mock] save picker dismissed'); focusBack(); return new Promise(() => {}); }
+          if (chosen === null) { console.log('[puter-mock] save picker cancelled'); focusBack(); return undefined; }
           const p = `~/Desktop/${chosen || suggestedName || `export-${Date.now()}`}`;
           const it = await window.puter.fs.write(p, data);
           console.log(`[puter-mock] save picker -> ${p}`);
+          focusBack();
           return { name: it.name, path: it.path, uid: it.uid };
         })();
         const saved = answer.then((it) => (it ? it : new Promise(() => {})));

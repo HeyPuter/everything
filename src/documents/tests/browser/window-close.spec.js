@@ -91,4 +91,22 @@ test.describe('the Puter window\'s close button', () => {
     await expect.poll(() => exits(page)).toBe(1);
     expect(await drive(page)).toEqual(['~/Desktop/Closing.docx']);
   });
+
+  test('a Save dialog closed with Esc keeps the window open, and the close button still works', async ({ page }) => {
+    await openEditor(page);
+    await text(page).fill('Draft');
+    await page.evaluate(() => { window.__puterSaveAs = 'dismiss'; });
+    await closeWindow(page);
+    await question(page).getByRole('button', { name: 'Save…' }).click();
+    await expect.poll(() => page.evaluate(() => window.__dialogs.length)).toBe(1);
+    // Esc sends no answer; the desktop hands the window the focus back, and the close is off.
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.doc.choosingPlace)).toBe(false);
+    expect(await exits(page)).toBe(0);
+    await expect(status(page)).toHaveAttribute('aria-label', 'Not saved yet');
+    // Pressed again, the close button asks again rather than waiting on the dialog that has gone.
+    await closeWindow(page);
+    await expect(question(page)).toBeVisible();
+    await question(page).getByRole('button', { name: 'Close without saving' }).click();
+    await expect.poll(() => exits(page)).toBe(1);
+  });
 });

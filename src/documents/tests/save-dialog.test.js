@@ -219,6 +219,45 @@ describe('the first save inside the Puter desktop', () => {
     doc.destroy();
   });
 
+  it('counts a dialog closed without an answer (Esc, its close button) as cancelled once the desktop hands the focus back', async () => {
+    const doc = Doc.blank();
+    doc.attach(async () => docx('v1'));
+    doc.changed();
+    let settled = false;
+    const closed = doc.save().then((saved) => { settled = true; return saved; });
+    await settle();
+    const focus = (source = window) => window.dispatchEvent(new MessageEvent('message', { data: { msg: 'focus' }, source }));
+    // A focus the desktop sent before it put the dialog up, and messages from anywhere else, are not the dialog closing.
+    focus();
+    await vi.advanceTimersByTimeAsync(P.DIALOG_FOCUS_MS);
+    window.dispatchEvent(new MessageEvent('message', { data: { msg: 'focus' } }));
+    window.dispatchEvent(new MessageEvent('message', { data: { msg: 'click' }, source: window }));
+    await settle();
+    expect(settled).toBe(false);
+    // Esc in Puter's dialog: the desktop closes it without a word to the app, and gives the window the focus back.
+    focus();
+    expect(await closed).toBe(false);
+    expect(doc.choosingPlace).toBe(false);
+    expect(doc.path).toBeNull();
+    expect(doc.status).toBe('unsaved');
+    doc.destroy();
+  });
+
+  it('a saved file is not taken for a cancel by the focus that follows it', async () => {
+    const doc = Doc.blank();
+    doc.attach(async () => docx('v1'));
+    doc.changed();
+    const saving = doc.save();
+    await settle();
+    await vi.advanceTimersByTimeAsync(P.DIALOG_FOCUS_MS);
+    // The desktop answers with the file, then closes its dialog and gives the window the focus back.
+    dialogs[0].save();
+    window.dispatchEvent(new MessageEvent('message', { data: { msg: 'focus' }, source: window }));
+    expect(await saving).toBe(true);
+    expect(doc.path).toBe('~/Desktop/Untitled document.docx');
+    doc.destroy();
+  });
+
   it('saves a template being edited as a new .docx where the user chooses, and leaves the template as it was', async () => {
     const template = docx('template');
     files.set('Documents/Letter.dotx', template);
