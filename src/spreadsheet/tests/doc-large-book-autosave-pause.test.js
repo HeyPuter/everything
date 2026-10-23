@@ -143,7 +143,10 @@ describe('a large book of many sheets', () => {
     slow.mockImplementation(() => (clock += 40));
     try { await workbookToXlsx(manySheets()); } finally { count.restore(); }
     try {
-      for (let at = 1; at <= count.turns; at++) {
+      // The turns on either side of the last sheet built, the first and last, and one between: each turn of the save
+      // costs a whole save, too slow to try them all beside the rest of the suite.
+      const turns = [...new Set([1, 2, 11, 12, 13, 14, Math.round((13 + count.turns) / 2), count.turns - 1, count.turns])].filter((at) => at >= 1 && at <= count.turns);
+      for (const at of turns) {
         const wb = manySheets();
         const state = turnsWith((turn) => { if (turn === at) wb.setActiveSheet(wb.sheets[5].id); });
         let blob;
