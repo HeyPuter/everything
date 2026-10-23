@@ -29,6 +29,13 @@ function installPuter({ env = 'app', picker = true, cancelAware = true } = {}) {
     stat: vi.fn(async (path) => { if (!files.has(path)) throw notFound(); return { path, modified: clock }; }),
     read: vi.fn(async (path) => { if (!files.has(path)) throw notFound(); return files.get(path); }),
     readdir: vi.fn(async () => []),
+    rename: vi.fn(async (path, name) => {
+      if (!files.has(path)) throw notFound();
+      const target = `${path.slice(0, path.lastIndexOf('/') + 1)}${name}`;
+      if (files.has(target)) throw new Error('A file with that name already exists');
+      files.set(target, files.get(path)); files.delete(path);
+      return { path: target, name, modified: ++clock };
+    }),
   };
   const ui = {};
   if (picker) {
@@ -255,6 +262,54 @@ describe('the first save inside the Puter desktop', () => {
     window.dispatchEvent(new MessageEvent('message', { data: { msg: 'focus' }, source: window }));
     expect(await saving).toBe(true);
     expect(doc.path).toBe('~/Desktop/Untitled document.docx');
+    doc.destroy();
+  });
+
+  it('gives a file named without .docx in the dialog the extension, and autosaves to it from then on', async () => {
+    const doc = Doc.blank();
+    let content = docx('v1');
+    doc.attach(async () => content);
+    doc.changed();
+    const saving = doc.save();
+    await settle();
+    // The whole name was typed over, extension and all.
+    dialogs[0].save('Notes');
+    expect(await saving).toBe(true);
+    expect(doc.path).toBe('~/Desktop/Notes.docx');
+    expect(doc.name).toBe('Notes');
+    expect(files.has('~/Desktop/Notes')).toBe(false);
+    expect(doc.waitsForPlace).toBe(false);
+    content = docx('v2');
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+    expect(files.get('~/Desktop/Notes.docx')).toBe(content);
+    expect(dialogs).toHaveLength(1);
+    doc.destroy();
+  });
+
+  it('keeps a name without .docx when the name with it is taken, and still autosaves to that file', async () => {
+    files.set('~/Desktop/Notes.docx', docx('someone else\'s'));
+    const doc = Doc.blank();
+    let content = docx('v1');
+    doc.attach(async () => content);
+    doc.changed();
+    const saving = doc.save();
+    await settle();
+    dialogs[0].save('Notes');
+    expect(await saving).toBe(true);
+    expect(doc.path).toBe('~/Desktop/Notes');
+    content = docx('v2');
+    doc.changed();
+    expect(doc.waitsForPlace).toBe(false);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
+    expect(files.get('~/Desktop/Notes')).toBe(content);
+    expect(files.get('~/Desktop/Notes.docx')).not.toBe(content);
+    // Save writes there too, without asking again.
+    content = docx('v3');
+    doc.changed();
+    expect(await doc.save()).toBe(true);
+    expect(files.get('~/Desktop/Notes')).toBe(content);
+    expect(dialogs).toHaveLength(1);
     doc.destroy();
   });
 

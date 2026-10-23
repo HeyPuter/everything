@@ -42,6 +42,20 @@ test('a new document is not saved until Save, which asks where and then autosave
   expect(await page.evaluate(() => window.__dialogs)).toHaveLength(1);
 });
 
+test('a name typed without .docx in the Save dialog gets it, and AutoSave goes on there', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Notes');
+  await page.evaluate(() => { window.__puterSaveAs = 'Notes'; });
+  await text(page).press('ControlOrMeta+s');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  expect(await docPath(page)).toBe('~/Desktop/Notes.docx');
+  await page.keyboard.type(' and more');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Unsaved changes');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  expect(await drive(page)).toEqual(['~/Desktop/Notes.docx']);
+  expect(await page.evaluate(() => window.__dialogs)).toHaveLength(1);
+});
+
 test('cancelling the Save dialog leaves the document unsaved without an error', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Draft');

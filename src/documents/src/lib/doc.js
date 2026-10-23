@@ -57,6 +57,23 @@ export function needsUnloadWarning(doc) {
   return doc.dirty || doc.status === 'saving' || !!doc._saving;
 }
 
+/**
+ * A file Puter's Save dialog wrote under a name without ".docx" ("Notes", "Plan v1.2") gets it, as a word
+ * processor's Save adds it. When that name is taken the file keeps the name the user gave it.
+ */
+async function withDocxExtension(item) {
+  const name = `${P.displayName(item.path)}.docx`;
+  const target = `${item.path.slice(0, item.path.lastIndexOf('/') + 1)}${name}`;
+  try {
+    if (await P.fileExists(target)) return item;
+    await P.renameFile(item.path, name);
+    return { ...item, path: target, name };
+  } catch (e) {
+    console.warn('[documents] could not add .docx to the saved file', e);
+    return item;
+  }
+}
+
 export class Doc extends EventTarget {
   constructor({ name = UNTITLED, path = null, uid = null, blob = null, dirty = false, template = null, pendingImport = null, importInfo = null, modified = null } = {}) {
     super();
@@ -107,7 +124,8 @@ export class Doc extends EventTarget {
 
   /** Editable .docx target; other extensions are saved as a fresh .docx. */
   get isDocxPath() {
-    return !!this.path && /\.docx$/i.test(this.path);
+    // A file the user named in Puter's Save dialog is the document's own, whatever its name ends with.
+    return !!this.path && (/\.docx$/i.test(this.path) || this.path === this._placedAs);
   }
 
   /** Wire the engine's export function. Fires a pending first save for imports. */
@@ -534,6 +552,9 @@ export class Doc extends EventTarget {
         throw e;
       }
       if (!item || this._deleted) return null;
+      // Puter's dialog keeps the name as typed. Without the extension ("Notes") the file would count as a source to
+      // copy from, as a template does: nothing would autosave to it, and every Save would ask again.
+      if (!/\.docx$/i.test(item.path)) item = await withDocxExtension(item);
       // The dialog answers with a path from the home folder (~/Desktop/Report.docx) and no time stamp. The file
       // as the drive has it gives the spelling the home screen's listing uses, so its star, room and reading
       // position stay with it there, and the time stamp that arms the check for another window's writes.
@@ -547,6 +568,7 @@ export class Doc extends EventTarget {
         await forgetRoom(path);
         this._remoteModified = st?.modified ?? item.modified ?? null;
         this.path = path;
+        this._placedAs = path;
         this.uid = st?.uid || st?.id || item.uid || null;
         this.name = Doc.nameFor(path);
         this.size = blob?.size ?? this.size;
