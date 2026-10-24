@@ -17,7 +17,13 @@ Firefox or Safari).
 ```sh
 npm ci
 npm run dev          # open the printed URL
+npm run copilot:bridge  # in another terminal, for the AI assistant
 ```
+
+The assistant uses the GitHub Copilot CLI credentials already signed in on this computer. Its
+local bridge and runtime are included with the npm dependencies; model requests still require
+internet access and send your prompts, scene details, screenshots and attached files to GitHub
+Copilot. The editor and its built-in Python runtime work offline.
 
 `?factory-startup` in the URL starts from the default scene without restoring the autosaved
 session.
@@ -88,14 +94,17 @@ adjustment, meta and effect strips plus audio mixdown; Movie Clip Editor with 2D
 feature detection, 2D stabilization, camera solving with scene orientation, plane tracks and the
 Follow Track / Camera Solver / Object Solver constraints.
 
-**Scripting.** A `bpy`-style API usable from JavaScript (offline) or Python (Pyodide, loaded on
-first use), Text Editor with run script, Python Console, script-registered operators and panels.
+**Scripting.** A `bpy`-style API usable from JavaScript or Python (Pyodide, loaded from local
+build assets on first use), Text Editor with run script, Python Console, script-registered
+operators and panels.
 
 **AI assistant.** A sidebar (open by default; the topbar's Assistant button or Window › AI Assistant
-shows and hides it, and the choice is remembered) where you describe what to build or change. It runs
-on Puter AI: it reads the scene, writes and runs scripts against the `bpy`-style API (a failing script
-is rolled back), looks up the API, takes viewport screenshots to check its work, and reads attached
-reference images, PDFs and text files. Everything it changes for one message is a single undo step.
+shows and hides it, and the choice is remembered) where you describe what to build or change. It
+uses the locally signed-in Copilot CLI through a loopback bridge: it reads the scene, writes and runs
+scripts against the `bpy`-style API (a failing script is rolled back), looks up the API, takes
+viewport screenshots to check its work, and reads attached reference images, PDFs and text files.
+Prompts, scene details, screenshots and attachments are sent to GitHub Copilot for model responses.
+Everything it changes for one message is a single undo step.
 
 **Files.** Native `.p3d` project format with autosave/recovery; import of `.blend` files written by
 Blender 2.80–5.x; import/export of glTF/GLB, FBX, OBJ/MTL, STL, PLY and USD (USDA/USDC/USDZ);
@@ -108,8 +117,9 @@ files, as read-only linked data (with library overrides) or as local copies.
 - No EEVEE-specific effects. The path tracer renders up to 8 volumes at once (one medium at a time where they overlap) and
   random-walk subsurface scattering for up to 64 materials; the realtime engine has no subsurface
   scattering.
-- Python scripting covers a documented subset of `bpy`; it needs network access once per session
-  to download Pyodide.
+- Python scripting covers a documented subset of `bpy`; the Pyodide runtime is bundled locally,
+  but third-party Python packages are not included.
+- The Copilot assistant needs the local bridge and an internet connection for model requests.
 - `.blend` import covers the active scene and common data (not volumes, point clouds or line
   rendering settings); unsupported data is reported, not lost
   silently. Export to `.blend` is not supported.

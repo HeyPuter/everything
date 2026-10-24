@@ -160,7 +160,7 @@ export interface Preferences {
   audio_sample_rate: number;
   audio_channels: number;
   audio_latency: 'interactive' | 'balanced' | 'playback';
-  /** features that need the network: the Python runtime download and the assistant */
+  /** features that send requests to the internet: Copilot AI */
   use_online_access: boolean;
 
   // --- Save & Load

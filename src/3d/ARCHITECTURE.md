@@ -50,7 +50,7 @@ src/
   scripting/  bpy-style API (JavaScript + Pyodide Python), Text Editor, Console, Info
   prefs/      Preferences editor: sections, keymap editor + key configurations, themes, studio
               lights / MatCaps / HDRIs, add-ons, NDOF devices
-  assistant/  AI assistant sidebar (Puter AI): agent loop, scene snapshot, tools over the scripting API
+  assistant/  Copilot AI assistant sidebar: agent loop, scene snapshot, local bridge and scripting tools
   assets/     Asset system: asset metadata on data-blocks (asset_data), catalogs, libraries (Current
               File, built-in Essentials, user libraries in IndexedDB), previews, Asset Browser editor
               (ASSETS), drag and drop, pose library, import of .blend asset marks (io/blend/assets.ts)

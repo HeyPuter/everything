@@ -483,8 +483,13 @@ test('search finds preferences across sections', async ({ page }) => {
   await expectNoErrors(errors);
 });
 
-test('network: with online access off, Python does not download', async ({ page }) => {
+test('network: with online access off, bundled Python loads without external requests', async ({ page }) => {
   const errors = await openApp(page);
+  const external: string[] = [];
+  page.on('request', (request) => {
+    const host = new URL(request.url()).hostname;
+    if (host !== 'localhost' && host !== '127.0.0.1' && !host.endsWith('.localhost')) external.push(request.url());
+  });
   await setPref(page, 'use_online_access', false);
   const msg = await page.evaluate(async () => {
     try {
@@ -494,8 +499,9 @@ test('network: with online access off, Python does not download', async ({ page 
       return (e as Error).message;
     }
   });
-  expect(msg).toContain('online access is turned off');
-  expect(errors.filter((e) => !e.includes('online access'))).toEqual([]);
+  expect(msg).toBe('loaded');
+  expect(external).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test('auto run: registered texts run when a project opens only if allowed', async ({ page }) => {

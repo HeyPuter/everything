@@ -177,6 +177,31 @@ describe('the conversation', () => {
     app.undoStep();
     expect(objectNames()).not.toContain('Ball');
   });
+
+  it('runs bridge-requested tools and records their results in the transcript', async () => {
+    const requests: unknown[][] = [];
+    const chat: ChatFn = async function* (messages, options) {
+      requests.push(structuredClone(messages));
+      const result = await options.onToolCall!({
+        id: 'bridge-call',
+        name: 'run_script',
+        input: { description: 'Add a bridge object', code: "bpy.ops.mesh.primitive_cube_add(); C.object.name = 'Bridge Cube';" },
+      });
+      expect(result.ok).toBe(true);
+      expect(result.content).toContain('"Bridge Cube"');
+      yield { type: 'text', text: 'Added it.' };
+    };
+    const agent = createAgent({ chat, tools: () => toolSpecs(host), runTool: (n, a) => runTool(host, n, a), system: SYSTEM_PROMPT, snapshot: () => sceneSnapshot(host), model: () => 'test' });
+    const texts: string[] = [];
+    const res = await agent.send('add a cube', (e) => e.type === 'text' && texts.push(e.text));
+
+    expect(res.error).toBeUndefined();
+    expect(res.steps.map((s) => s.status)).toEqual(['done']);
+    expect(texts.join('')).toBe('Added it.');
+    expect(objectNames()).toContain('Bridge Cube');
+    expect(requests).toHaveLength(1);
+    expect(agent.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'bridge-call')).toBe(true);
+  });
 });
 
 describe('undo marks', () => {

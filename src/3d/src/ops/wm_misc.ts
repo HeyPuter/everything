@@ -42,25 +42,12 @@ export function operatorCheatSheet(): string {
 // links
 
 /** Our own help destinations for wm.url_open_preset. */
-const feedbackDialog = () => (globalThis as unknown as { puter?: { ui?: { showFeedbackDialog?: () => Promise<boolean> } } }).puter?.ui?.showFeedbackDialog;
-
 const URL_PRESETS: [string, string, string][] = [
-  ['BUG', 'Report a Bug', 'Tell the people who make this app about a problem'],
   ['SHORTCUTS', 'Keyboard Shortcuts', 'The list of all key bindings'],
   ['ABOUT', 'About', 'Version, credits and licences'],
 ];
 
 function openUrlPreset(type: string): boolean {
-  if (type === 'BUG') {
-    // the Puter SDK is loaded on first use
-    void import('../assistant/puter').then(async (m) => {
-      await m.loadPuter();
-      const f = feedbackDialog();
-      if (!f) return app.report('WARNING', 'Feedback can be sent when the app runs in Puter');
-      if (await f()) app.report('INFO', 'Thank you for your feedback');
-    });
-    return true;
-  }
   if (type === 'SHORTCUTS') return app.run('wm.keymap_reference') !== 'CANCELLED';
   if (type === 'ABOUT') return app.run('wm.about') !== 'CANCELLED';
   return false;

@@ -5,12 +5,12 @@
 // caller, so a whole exchange can be played out in a test with a scripted
 // model.
 //
-// The transcript is in the shape Puter's AI takes (OpenAI's). Every tool call
+// The transcript is in the OpenAI chat shape. Every tool call
 // gets an answer, even one that was stopped, or the next request would be
 // refused as malformed. Screenshots go in a user message after the tool
 // results and only with the round that took them.
 
-import type { ChatFn, ChatMessage, ChatPart, ChatToolCall } from './ai';
+import type { ChatFn, ChatMessage, ChatPart, ChatToolCall, ChatToolResult } from './ai';
 import { ATTACHMENT_TURNS, type Attachment, type AttachmentMeta, attachmentMeta, attachmentWeight, attachmentsFit, attachmentsGone, attachmentsIntro } from './attach';
 import type { ToolResult, ToolSpec } from './tools';
 
@@ -164,7 +164,17 @@ export function createAgent(o: AgentOptions) {
     const emit = (e: AgentEvent) => { try { onEvent(e); } catch (err) { console.error(err); } };
     let stopResolve!: (v: typeof STOP) => void;
     const stopSignal = new Promise<typeof STOP>((r) => { stopResolve = r; });
-    const run = { stopped: false, stop() { if (!this.stopped) { this.stopped = true; stopResolve(STOP); } } };
+    let activeController: AbortController | null = null;
+    const run = {
+      stopped: false,
+      stop() {
+        if (!this.stopped) {
+          this.stopped = true;
+          activeController?.abort();
+          stopResolve(STOP);
+        }
+      },
+    };
     running = run;
     const steps: Step[] = [];
     let imagesRefused = false;
@@ -175,11 +185,33 @@ export function createAgent(o: AgentOptions) {
         let text = '';
         let wasCut = false;
         const calls: { id: string; name: string; input: Record<string, unknown> }[] = [];
+        const handled: { id: string; name: string; input: Record<string, unknown>; result: ChatToolResult }[] = [];
+        const onToolCall = async (call: { id: string; name: string; input: Record<string, unknown> }): Promise<ChatToolResult> => {
+          const step: Step = { id: call.id || newId(), name: call.name, args: call.input, status: 'running' };
+          steps.push(step);
+          emit({ type: 'step', step: { ...step } });
+          const result = await Promise.race([o.runTool(call.name, call.input), stopSignal]);
+          let handledResult: ChatToolResult;
+          if (result === STOP) {
+            step.status = 'skipped';
+            handledResult = { ok: false, content: 'Stopped by the user while running; its effect may or may not have been applied. Check the scene before continuing.' };
+          } else {
+            step.status = result.ok ? 'done' : 'error';
+            step.changed = !!result.changed;
+            step.summary = result.content.replace(/^Error:\s*/, '').split('\n')[0].slice(0, 300);
+            step.image = result.image;
+            handledResult = { ok: result.ok, content: result.content, image: result.image };
+          }
+          emit({ type: 'step', step: { ...step } });
+          handled.push({ ...call, result: handledResult });
+          return handledResult;
+        };
         let req = requestMessages(messages, o.system, { noShots: imagesRefused });
         let attempt = 0;
         for (;;) {
           try {
-            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS })[Symbol.asyncIterator]();
+            activeController = new AbortController();
+            const iter = o.chat(req, { model: o.model(), tools: o.tools(), maxTokens: MAX_OUTPUT_TOKENS, signal: activeController.signal, onToolCall })[Symbol.asyncIterator]();
             for (;;) {
               const next = await Promise.race([iter.next(), stopSignal]);
               if (next === STOP) { Promise.resolve(iter.return?.()).catch(() => {}); break; }
@@ -189,8 +221,10 @@ export function createAgent(o: AgentOptions) {
               else if (part.type === 'tool') calls.push({ id: part.id || newId(), name: part.name, input: part.input });
               else if (part.type === 'cut') wasCut = true;
             }
+            activeController = null;
             break;
           } catch (e) {
+            activeController = null;
             // A request with a screenshot that fails before anything arrived: try once more without images.
             let turnStart = -1;
             for (let i = messages.length - 1; i >= 0; i--) {
@@ -198,7 +232,7 @@ export function createAgent(o: AgentOptions) {
               if (x.role === 'user' && !x.screenshot) { turnStart = i; break; }
             }
             const hasShot = messages.some((m, i) => m.role === 'user' && m.screenshot && i > turnStart);
-            if (hasShot && !imagesRefused && !text && !calls.length && attempt === 0) { attempt++; imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
+            if (hasShot && !imagesRefused && !text && !calls.length && !handled.length && attempt === 0) { attempt++; imagesRefused = true; req = requestMessages(messages, o.system, { noShots: true }); continue; }
             throw e;
           }
         }
@@ -206,15 +240,26 @@ export function createAgent(o: AgentOptions) {
           if (text.trim()) messages.push({ role: 'assistant', content: text });
           return { stopped: true, steps };
         }
-        const empty = !text.trim() && !calls.length;
+        const allCalls = [...handled, ...calls.map((call) => ({ ...call, result: undefined }))];
+        const empty = !text.trim() && !allCalls.length;
         if (empty) text = 'I have nothing to add.';
-        if (wasCut && !calls.length) text = `${text.trimEnd()}\n\n[My reply was cut off: it reached the length limit.]`;
+        if (wasCut && !allCalls.length) text = `${text.trimEnd()}\n\n[My reply was cut off: it reached the length limit.]`;
         const last = calls.at(-1);
         const lastCut = wasCut && !!last && last.input.__unreadable != null;
         messages.push({
           role: 'assistant', content: text.trim() ? text : null,
-          ...(calls.length ? { tool_calls: calls.map((c): ChatToolCall => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}),
+          ...(allCalls.length ? { tool_calls: allCalls.map((c): ChatToolCall => ({ id: c.id, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.input) } })) } : {}),
         });
+        for (const call of handled) messages.push({ role: 'tool', tool_call_id: call.id, content: call.result.content });
+        const handledImages = handled.flatMap((call) => call.result.image ? [call.result.image] : []);
+        if (handledImages.length) {
+          const parts: ChatPart[] = [{ type: 'text', text: handledImages.length === 1 ? 'The screenshot from capture_view:' : `The ${handledImages.length} screenshots from capture_view, in order:` }];
+          for (const url of handledImages) {
+            const m = /^data:([^;,]+);base64,(.*)$/.exec(url);
+            if (m) parts.push({ type: 'image', source: { type: 'base64', media_type: m[1], data: m[2] } });
+          }
+          messages.push({ role: 'user', content: parts, screenshot: true });
+        }
         if (!calls.length) {
           if (empty) emit({ type: 'text', text });
           return { stopped: false, cut: wasCut, steps };

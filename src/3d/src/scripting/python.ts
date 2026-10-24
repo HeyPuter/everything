@@ -1,7 +1,4 @@
-// Python support via Pyodide (MPL-2.0), loaded lazily from the official jsDelivr CDN the
-// first time Python is used. JavaScript scripting works offline; Python needs the network
-// once per session to fetch the runtime.
-import { prefs } from '../app/prefs';
+// Python support via Pyodide (MPL-2.0), loaded lazily from the local app assets.
 import { app } from '../app/app';
 import { Struct, BoundArray, PropCollection, isIdWrapper, pyError } from './rna';
 import { bpy, callOperator, opModules, opNames, type ExecContext } from './api';
@@ -52,7 +49,7 @@ function mirrorSessionFiles(inst: PyodideAPI) {
 }
 
 export const PYODIDE_VERSION = '314.0.7';
-export const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+export const PYODIDE_INDEX_URL = '/pyodide/';
 export const PYODIDE_LICENSE = 'MPL-2.0';
 
 interface PyProxyFn {
@@ -86,13 +83,13 @@ let runtime: Record<string, PyProxyFn> | null = null;
 let loading: Promise<PyodideAPI> | null = null;
 
 type PyodideModule = { loadPyodide: (o: Record<string, unknown>) => Promise<PyodideAPI> };
-/** Where the runtime comes from: the CDN in the browser; tests point it at a local copy. */
+/** Where the runtime comes from: local app assets in production; tests may override it. */
 let pyodideSource: { load: () => Promise<PyodideModule>; indexURL?: string } = {
   load: () => import(/* @vite-ignore */ `${PYODIDE_INDEX_URL}pyodide.mjs`) as Promise<PyodideModule>,
   indexURL: PYODIDE_INDEX_URL,
 };
 
-/** Loads the runtime from elsewhere (a local package in tests) instead of the CDN. */
+/** Loads the runtime from a different source (used by tests). */
 export function setPyodideSource(load: () => Promise<PyodideModule>, indexURL?: string) {
   pyodideSource = { load, indexURL };
 }
@@ -377,20 +374,15 @@ function pyCall<T>(fn: () => T): T {
 export function loadPython(): Promise<PyodideAPI> {
   if (py) return Promise.resolve(py);
   if (loading) return loading;
-  if (!prefs.use_online_access) {
-    const msg = 'Python needs to download its runtime, but online access is turned off (Preferences ▸ System ▸ Network).';
-    output.push(msg, 'ERROR');
-    return Promise.reject(new Error(msg));
-  }
   setState('loading');
-  output.push(`Loading Python runtime… (Pyodide ${PYODIDE_VERSION} from cdn.jsdelivr.net)`, 'INFO');
+  output.push(`Loading local Python runtime… (Pyodide ${PYODIDE_VERSION})`, 'INFO');
   loading = (async () => {
     try {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, rej) => (timer = setTimeout(() => rej(new Error('timed out after 90 s')), 90000)));
       timeout.catch(() => {});
       const mod = await Promise.race([pyodideSource.load(), timeout]);
-      const inst = await Promise.race([mod.loadPyodide(pyodideSource.indexURL ? { indexURL: pyodideSource.indexURL } : {}), timeout]);
+      const inst = await Promise.race([mod.loadPyodide(pyodideSource.indexURL ? { indexURL: pyodideSource.indexURL, cdnUrl: pyodideSource.indexURL } : {}), timeout]);
       clearTimeout(timer);
       inst.setStdout({ batched: (s: string) => output.push(s, 'OUTPUT') });
       inst.setStderr({ batched: (s: string) => output.push(s, 'ERROR') });
@@ -412,8 +404,7 @@ export function loadPython(): Promise<PyodideAPI> {
       return inst;
     } catch (e) {
       loading = null;
-      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
-      const msg = `Could not load the Python runtime${offline ? ' (you appear to be offline)' : ''}: ${(e as Error)?.message ?? e}. Python needs a network connection the first time it is used; JavaScript scripting works offline.`;
+      const msg = `Could not load the bundled Python runtime: ${(e as Error)?.message ?? e}. Rebuild the app or reinstall its dependencies and try again.`;
       setState('error', msg);
       output.push(msg, 'ERROR');
       throw new Error(msg);

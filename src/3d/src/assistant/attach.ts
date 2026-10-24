@@ -14,7 +14,7 @@ import { type ScriptFile, offerScriptFile, scriptFile } from '../scripting/files
 
 export type AttachmentKind = 'image' | 'pdf' | 'text';
 
-/** Content blocks in the shape Puter passes to the model (Anthropic's). */
+/** Image and PDF content blocks passed to the model. */
 export type FileBlock =
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } }
   | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
