@@ -120,10 +120,13 @@ export function environment() {
     offlineUsers: new Set<string>(),
     dropEvents: false,
     now: Date.now(),
-    // Puter's handle routes: `refuse` answers mints with that error code; `mints` and `revoked` record calls.
+    // Puter's handle routes: `refuse` answers mints with that error code; `mints` and `revoked` record calls;
+    // `minted` holds every handle with its prefix, creation and revocation times, oldest first, as Puter lists them.
     refuse: null as string | null,
     mints: [] as string[],
     revoked: [] as string[],
+    minted: new Map<string, { prefix: string; createdAt: number; revokedAt: number | null }>(),
+    listings: 0,
     service: undefined as unknown as RoomService,
     route: undefined as ((user: User) => RoomService | undefined) | undefined,
     sdk: undefined as unknown as (user: User) => CollabPuter,
@@ -190,11 +193,21 @@ export function environment() {
     APIOrigin: 'https://api.puter.test',
     authToken: 'header.' + btoa(JSON.stringify({ app_uid: 'app-photo' })) + '.signature',
   };
-  const fetcher = (async (url: string, options: RequestInit) => {
+  const fetcher = (async (url: string, options: RequestInit = {}) => {
+    if (!options.method) {
+      env.listings++;
+      const query = new URL(url).searchParams;
+      const rows = [...env.minted].map(([handle, row]) => ({ handle, ...row }));
+      const at = Number(query.get('cursor') || 0),
+        end = at + Math.min(Number(query.get('limit')), 2);
+      return Response.json({ items: rows.slice(at, end), ...(end < rows.length ? { cursor: String(end) } : {}) });
+    }
     if (options.method === 'DELETE') {
       const handle = decodeURIComponent(String(url).split('/').pop()!);
       env.revoked.push(handle);
       handles.delete(handle);
+      const row = env.minted.get(handle);
+      if (row) row.revokedAt ??= Math.floor(env.now / 1000);
       return Response.json({ handle, revokedAt: Math.floor(env.now / 1000) });
     }
     const { granteeUid, prefix } = JSON.parse(String(options.body));
@@ -202,6 +215,10 @@ export function environment() {
     if (env.refuse) return Response.json({ message: 'Refused', code: env.refuse }, { status: 403 });
     const handle = 'handle-' + granteeUid;
     handles.set(handle, prefix);
+    if (!env.minted.get(handle) || env.minted.get(handle)!.revokedAt) {
+      env.minted.delete(handle);
+      env.minted.set(handle, { prefix, createdAt: Math.floor(env.now / 1000), revokedAt: null });
+    }
     return Response.json({ handle });
   }) as unknown as typeof fetch;
   const service = new RoomService(workerPuter, { now: () => env.now, fetcher, rooms: new Map() });
