@@ -531,6 +531,34 @@ describe('handles: minting, caching, backoff, and the bootstrap block', () => {
     expect(calls).toBe(2);
   });
 
+  it('an owner account with no confirmed email backs the whole worker off', async () => {
+    rt = await boot({ authToken: fakeAuthToken('app-teamchat-test') });
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'account_is_not_verified' }), { status: 403 }); };
+    const { wsId } = await workspaceWith(alice, [bob, carol]);
+    expect(calls).toBe(1);
+    expect((await as(carol).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
+    expect(calls).toBe(1);
+    expect((await as(alice).get('/api/server')).data.events).toMatchObject({ delegated: false, why: 'account_is_not_verified' });
+  });
+
+  it('a member who takes no shares from the owner backs off alone, for hours', async () => {
+    rt = await boot({ authToken: fakeAuthToken() });
+    const { wsId, code } = await workspaceWith(alice, []);
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ code: 'recipient_not_accepting_shares' }), { status: 400 }); };
+    const before = Date.now();
+    await as(bob).post('/api/join', { code });
+    expect(calls).toBe(1);
+    expect((await as(bob).get(`/api/ws/${wsId}`)).data.events).toBeUndefined();
+    expect(calls).toBe(1);
+    const doc = await rt.kv.get(KEYS.member(wsId, bob.uuid));
+    expect(doc.ev.until - before).toBeGreaterThanOrEqual(6 * 3600_000 - 1000);
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ handle: 'kvh-carol' }), { status: 200 }); };
+    await as(carol).post('/api/join', { code });
+    expect(calls).toBe(2);
+  });
+
   it('a 429 backs off the member alone; a different member still tries their own mint', async () => {
     rt = await boot({ authToken: fakeAuthToken() });
     const { wsId, code } = await workspaceWith(alice, []);

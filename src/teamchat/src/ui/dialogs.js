@@ -1655,6 +1655,9 @@ export function liveUpdatesState(info, appUid) {
   if (ev.why === 'events_kv_handle_limit_reached') {
     return { state: 'limit', detail: 'Paused: your Puter account is holding as many of these as it allows. Teamchat tries again on its own, and room frees whenever someone leaves.', canTurnOn: false };
   }
+  if (ev.why === 'account_is_not_verified') {
+    return { state: 'unverified', detail: 'Paused: your Puter account’s email address is not confirmed yet. Teamchat tries again on its own once it is.', canTurnOn: false };
+  }
   return { state: 'consent', detail: 'Off: needs your permission. Until then, everyone’s tabs check for themselves every few seconds.', canTurnOn: true };
 }
 

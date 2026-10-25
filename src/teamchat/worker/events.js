@@ -77,6 +77,12 @@ export function callerAppUid(user) {
  * retrying it every ten minutes buys nothing). Anything else (a network
  * failure, a timeout, an answer with no handle) gets the same short,
  * member-scoped backoff a transient failure deserves.
+ *
+ * Puter's KV shares added three more. account_is_not_verified is the
+ * owner's unconfirmed email, worker-wide until they confirm it.
+ * recipient_not_accepting_shares is one member who blocked the owner or
+ * takes no shares at all, and invalid_kv_share_prefix one workspace whose
+ * region a new share can no longer name; both are member-scoped and long.
  */
 const WORKER_BACKOFF_MS = {
   events_disabled: 6 * 3600_000,
@@ -85,10 +91,13 @@ const WORKER_BACKOFF_MS = {
   events_kv_handle_owner_only: 6 * 3600_000,
   events_kv_handle_outside_namespace: 6 * 3600_000,
   events_kv_handle_limit_reached: 3600_000,
+  account_is_not_verified: 3600_000,
 };
 const MEMBER_BACKOFF_MS = {
   too_many_requests: 2 * 60_000,
   events_kv_handle_requires_account: 6 * 3600_000,
+  recipient_not_accepting_shares: 6 * 3600_000,
+  invalid_kv_share_prefix: 6 * 3600_000,
 };
 const DEFAULT_MEMBER_BACKOFF_MS = 10 * 60_000;
 

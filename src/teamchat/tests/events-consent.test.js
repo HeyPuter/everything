@@ -246,6 +246,11 @@ describe('liveUpdatesState: what the "Live updates" row in Workspace settings sh
     expect(r).toMatchObject({ state: 'limit', canTurnOn: false });
   });
 
+  it('an owner whose email is not confirmed is paused, not asked for a permission that would not help', async () => {
+    const r = await state({ events: { appUid: 'app-teamchat-test', delegated: false, why: 'account_is_not_verified' } });
+    expect(r).toMatchObject({ state: 'unverified', canTurnOn: false });
+  });
+
   // 'unknown' (nothing has tripped a refusal yet) and a real refusal share
   // this branch on purpose: the owner's action is the same either way.
   it('a plain refusal, or nothing probed yet, both need the owner\'s permission', async () => {
