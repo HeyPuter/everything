@@ -72,13 +72,23 @@ export function environment() {
     kv, fs: fsFor(owner), auth: { getUser: async () => owner }, APIOrigin: 'https://api.puter.test',
     authToken: `header.${btoa(JSON.stringify({ app_uid: 'app-sheet' }))}.signature`,
   };
-  // Puter's handle routes. `env.refuse` answers mints with that error code; `env.mints` and `env.revoked` record calls.
-  Object.assign(env, { refuse: null, mints: [], revoked: [] });
-  const fetcher = async (url, options) => {
+  // Puter's handle routes. `env.refuse` answers mints with that error code; `env.mints` and `env.revoked` record calls;
+  // `env.minted` holds every handle with its prefix, creation and revocation times, oldest first, as Puter lists them.
+  const minted = new Map();
+  Object.assign(env, { refuse: null, mints: [], revoked: [], minted, listings: 0 });
+  const fetcher = async (url, options = {}) => {
+    if (!options.method) {
+      env.listings++;
+      const query = new URL(url).searchParams;
+      const rows = [...minted].map(([handle, row]) => ({ handle, ...row }));
+      const at = Number(query.get('cursor') || 0), end = at + Math.min(Number(query.get('limit')), 2);
+      return Response.json({ items: rows.slice(at, end), ...(end < rows.length ? { cursor: String(end) } : {}) });
+    }
     if (options.method === 'DELETE') {
       const handle = decodeURIComponent(String(url).split('/').pop());
       env.revoked.push(handle);
       handles.delete(handle);
+      if (minted.has(handle)) minted.get(handle).revokedAt ??= Math.floor(env.now / 1000);
       return Response.json({ handle, revokedAt: Math.floor(env.now / 1000) });
     }
     const { granteeUid, prefix } = JSON.parse(String(options.body));
@@ -86,6 +96,10 @@ export function environment() {
     if (env.refuse) return Response.json({ message: 'Refused', code: env.refuse }, { status: 403 });
     const handle = `handle-${granteeUid}`;
     handles.set(handle, prefix);
+    if (!minted.get(handle) || minted.get(handle).revokedAt) {
+      minted.delete(handle);
+      minted.set(handle, { prefix, createdAt: Math.floor(env.now / 1000), revokedAt: null });
+    }
     return Response.json({ handle });
   };
   const service = new RoomService(workerPuter, { now: () => env.now, fetcher, rooms: new Map() });

@@ -47,6 +47,16 @@ const DEFAULT_BACKOFF = 5 * MINUTE;
 const EVENTS_OFF = 'ss:~events-off';
 /** Handles taken back in one request; mints and revokes share the 60-a-minute budget. */
 const REVOKE_MAX = 20;
+/**
+ * How often the owner's opening of a workbook also looks through the handles this worker minted for ones nothing
+ * uses any more, and how much of the list one look reads. Set while a look is not due; the next page to read.
+ */
+const SWEEP_EVERY = 6 * HOUR;
+const SWEEP_PAGES = 5;
+const SWEEP_DUE = 'ss:~sweep-due';
+const SWEEP_CURSOR = 'ss:~sweep-cursor';
+/** A handle this new may not be in its member's record yet. */
+const SWEEP_SPARE = 10 * MINUTE;
 
 export function fail(status, message) {
   throw Object.assign(new Error(message), { status });
@@ -249,6 +259,7 @@ export class RoomService {
     if (!uid) return null;
     if (user.uuid === (await this.owner()).uuid) {
       if (consented) await this.kv.del(EVENTS_OFF).catch(() => {});
+      await this.sweepHandles().catch(() => {});
       return { app: uid, key: `ss:${room}:ev:signal` };
     }
     const cache = `ss:${room}:handle:${user.uuid}`;
@@ -283,17 +294,71 @@ export class RoomService {
     return null;
   }
 
-  /** Take back a member's handle. One Puter no longer knows is as good as taken back. */
+  /** Take back a member's handle. */
   async dropHandle(room, uuid) {
     const key = `ss:${room}:handle:${uuid}`;
     const handle = await this.kv.get(key);
-    if (!handle || !this.puter.APIOrigin) return;
+    if (handle && (await this.revokeHandle(handle))) await this.kv.del(key);
+  }
+
+  /** Revoke a handle at Puter; true once it is gone, as one Puter no longer knows already is. */
+  async revokeHandle(handle) {
+    if (!this.puter.APIOrigin) return false;
     const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles/${encodeURIComponent(handle)}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${this.puter.authToken}` },
       signal: AbortSignal.timeout(5000),
     }).catch(() => null);
-    if (res && (res.ok || res.status === 404)) await this.kv.del(key);
+    return !!res && (res.ok || res.status === 404);
+  }
+
+  /**
+   * Take back handles nothing uses any more: ones on a closed or deleted room, ones whose member left or whose
+   * access expired, and ones no member's record names, such as those removals forgot before removals revoked them.
+   * Puter lists them oldest first; a look reads a few pages and carries on from there next time.
+   */
+  async sweepHandles() {
+    if (!this.puter.APIOrigin || (await this.kv.get(SWEEP_DUE))) return;
+    await this.kv.set(SWEEP_DUE, true, Math.ceil((this.now() + SWEEP_EVERY) / 1000));
+    let cursor = (await this.kv.get(SWEEP_CURSOR)) || undefined;
+    const rooms = new Map();
+    let revoked = 0;
+    for (let page = 0; page < SWEEP_PAGES && revoked < REVOKE_MAX; page++) {
+      const query = new URLSearchParams({ limit: '200', ...(cursor ? { cursor } : {}) });
+      const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles?${query}`, {
+        headers: { Authorization: `Bearer ${this.puter.authToken}` },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      for (const item of data.items ?? []) {
+        const room = /^ss:([^:]+):ev:$/.exec(item.prefix ?? '')?.[1];
+        if (!room || item.revokedAt || item.createdAt * 1000 > this.now() - SWEEP_SPARE) continue;
+        if (!rooms.has(room)) rooms.set(room, await this.handleUsers(room));
+        const used = rooms.get(room).get(item.handle);
+        if (used?.live) continue;
+        if (used) await this.dropHandle(room, used.uuid).catch(() => {});
+        else await this.revokeHandle(item.handle);
+        if (++revoked >= REVOKE_MAX) break;
+      }
+      cursor = data.cursor;
+      if (!cursor) break;
+    }
+    // A look that reached the end starts from the beginning next time.
+    await this.kv.set(SWEEP_CURSOR, cursor ?? null);
+  }
+
+  /** A room's handles by id: whose they are, and whether that member may still hear of changes. */
+  async handleUsers(room) {
+    const out = new Map();
+    const meta = await this.kv.get(`ss:${room}:meta`);
+    const prefix = `ss:${room}:handle:`;
+    for (const row of await this.list(prefix)) {
+      const uuid = row.key.slice(prefix.length);
+      const m = meta && !meta.closed ? await this.kv.get(`ss:${room}:member:${uuid}`) : null;
+      out.set(row.value, { uuid, live: !!m && m.role !== 'removed' && !(m.expires && m.expires < this.now()) });
+    }
+    return out;
   }
 
   /* ---------- Requests ---------- */
