@@ -7,8 +7,9 @@ import { inviteLink } from '../lib/collab.js';
 
 /**
  * Share a list, two ways:
- *  - Collaborate: invite people who can add and edit tasks. Membership is a
- *    two-link handshake (invite out, confirmation back) — see collab.js.
+ *  - Collaborate: invite people who can add and edit tasks — by Puter
+ *    username (KV shares), or where those aren't available through the
+ *    two-link handshake (invite out, confirmation back). See collab.js.
  *  - Read-only link: publishes a live snapshot anyone can view.
  */
 export function openShareSheet(list) {
@@ -52,24 +53,33 @@ export function openShareSheet(list) {
     body.append(el('div.section-label', {}, 'Work on it together'), section);
 
     if (!fresh.collab) {
+      const byName = store.collabMode() === 'kv';
       section.append(el('div.card', { style: { padding: '16px' } },
-        el('p.small.muted', { style: { marginBottom: '12px' } },
-          'Invite people who can add, edit, and complete tasks with you. You approve each person before their changes join the list.'),
+        el('p.small.muted', { style: { marginBottom: '12px' } }, byName
+          ? 'Invite people by their Puter username to add, edit, and complete tasks with you. You can remove anyone at any time.'
+          : 'Invite people who can add, edit, and complete tasks with you. You approve each person before their changes join the list.'),
         el('button.btn.btn-primary.btn-block', {
           html: icon('users', 15, 2.2),
           onclick: async (e) => {
             e.currentTarget.disabled = true;
             try {
-              await store.enableCollab(fresh.id);
-              toast('Collaboration is on', { icon: 'users' });
+              const res = await store.enableCollab(fresh.id);
+              if (res.invite) toast('Collaboration is on', { icon: 'users' });
             } catch (err) {
               console.error(err);
-              toast(err.message || 'Could not start. Check your connection', { icon: 'wifiOff' });
+              toast(err.message || 'Could not start. Check your connection',
+                { icon: err.code === 'consent_denied' ? 'alert' : 'wifiOff' });
             }
             render();
+            body.querySelector('#invite-name')?.focus();
           },
         }, ' Invite people to edit')
       ));
+      return;
+    }
+
+    if (fresh.collab.mode === 'kv') {
+      renderKvCollab(fresh, section);
       return;
     }
 
@@ -104,21 +114,7 @@ export function openShareSheet(list) {
         );
         card.append(holder);
       }
-      card.append(el('button.btn.btn-ghost.btn-block', {
-        style: { marginTop: '12px', color: 'var(--danger)' },
-        onclick: async () => {
-          const ok = await confirmDialog({
-            title: 'Leave this list?',
-            message: 'The list and its tasks are removed from your account. Everyone else keeps working.',
-            confirmLabel: 'Leave list',
-          });
-          if (!ok) return;
-          await store.leaveCollab(fresh.id);
-          modal.close();
-          location.hash = '#/lists';
-          toast('You left the list');
-        },
-      }, 'Leave list'));
+      card.append(leaveButton(fresh));
       section.append(card);
       return;
     }
@@ -130,12 +126,103 @@ export function openShareSheet(list) {
       el('div.field', {},
         el('label', { for: 'invite-link' }, 'Invite link'),
         copyRow(inviteLink(fresh.collab.manifestUrl), 'invite link', 'invite-link')
-      )
+      ),
+      membersCard(fresh, {
+        removeMessage: 'Their changes stop syncing and the list becomes a private copy on their side.',
+        emptyMessage: 'No members yet. Send the invite link to get started.',
+      }),
+      stopButton(fresh, 'Members keep a private copy of the list as it is now, and nothing syncs anymore.')
     );
+  }
 
+  /* KV shares: invite by username, no links to pass around. */
+  function renderKvCollab(fresh, section) {
+    if (fresh.collab.role === 'member') {
+      const owner = fresh.collab.ownerName || 'the owner';
+      section.append(el('div.card', { style: { padding: '16px' } },
+        el('p.small.muted', {}, `Shared by ${owner}. Your edits sync with everyone in the list.`),
+        leaveButton(fresh)
+      ));
+      return;
+    }
+
+    const input = el('input.input', {
+      id: 'invite-name', placeholder: 'Puter username', autocomplete: 'off', autocapitalize: 'none',
+    });
+    const submit = el('button.btn.btn-primary', { type: 'submit' }, 'Invite');
+    const form = el('form', {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        if (!input.value.trim()) { input.focus(); return; }
+        submit.disabled = true;
+        try {
+          const res = await store.inviteMember(fresh.id, input.value);
+          if (res.fallback) {
+            toast('Inviting by username is not available here. Send the invite link instead', { icon: 'link', duration: 6000 });
+          } else {
+            toast(`${res.member.name} can now edit`, { icon: 'users' });
+          }
+          render();
+          body.querySelector('#invite-name')?.focus();
+        } catch (err) {
+          console.error(err);
+          submit.disabled = false;
+          toast(err.message || 'Could not invite. Check your connection', { icon: 'alert' });
+          input.focus();
+        }
+      },
+    }, el('div.field', {},
+      el('label', { for: 'invite-name' }, 'Invite by Puter username'),
+      el('div.row', {}, input, submit)
+    ));
+
+    section.append(
+      el('p.small.muted', { style: { margin: '0 2px 8px' } },
+        'People you invite see every task in this list and can add, edit, and complete tasks. Changes sync as they happen.'),
+      form,
+      membersCard(fresh, {
+        removeMessage: 'They lose access right away and keep a private copy of the list as it is now.',
+        emptyMessage: 'No one yet. Invite someone by their Puter username.',
+      }),
+      stopButton(fresh, 'Everyone loses access right away and keeps a private copy of the list as it is now.')
+    );
+  }
+
+  function leaveButton(fresh) {
+    return el('button.btn.btn-ghost.btn-block', {
+      style: { marginTop: '12px', color: 'var(--danger)' },
+      onclick: async () => {
+        const ok = await confirmDialog({
+          title: 'Leave this list?',
+          message: 'The list and its tasks are removed from your account. Everyone else keeps working.',
+          confirmLabel: 'Leave list',
+        });
+        if (!ok) return;
+        await store.leaveCollab(fresh.id);
+        modal.close();
+        location.hash = '#/lists';
+        toast('You left the list');
+      },
+    }, 'Leave list');
+  }
+
+  function stopButton(fresh, message) {
+    return el('button.btn.btn-ghost.btn-block', {
+      style: { marginTop: '12px', color: 'var(--danger)' },
+      onclick: async () => {
+        const ok = await confirmDialog({ title: 'Stop collaborating?', message, confirmLabel: 'Stop collaborating' });
+        if (!ok) return;
+        await store.disableCollab(fresh.id);
+        toast('Collaboration stopped');
+        render();
+      },
+    }, 'Stop collaborating');
+  }
+
+  /** Owner's member list, loaded from the store (manifest or live shares). */
+  function membersCard(fresh, { removeMessage, emptyMessage }) {
     const membersHolder = el('div.card', { style: { marginTop: '12px' } },
       el('div.empty', { style: { padding: '14px' } }, el('div.spinner', { role: 'status', 'aria-label': 'Loading members' })));
-    section.append(membersHolder);
     store.collabMembers(fresh.id).then(({ members }) => {
       if (!membersHolder.isConnected) return;
       clear(membersHolder);
@@ -158,7 +245,7 @@ export function openShareSheet(list) {
             onclick: async () => {
               const ok = await confirmDialog({
                 title: `Remove ${m.name}?`,
-                message: 'Their changes stop syncing and the list becomes a private copy on their side.',
+                message: removeMessage,
                 confirmLabel: 'Remove',
               });
               if (!ok) return;
@@ -175,8 +262,7 @@ export function openShareSheet(list) {
         ));
       }
       if (!members.length) {
-        membersHolder.append(el('p.small.muted', { style: { padding: '0 16px 14px' } },
-          'No members yet. Send the invite link to get started.'));
+        membersHolder.append(el('p.small.muted', { style: { padding: '0 16px 14px' } }, emptyMessage));
       }
     }).catch(() => {
       if (!membersHolder.isConnected) return;
@@ -184,21 +270,7 @@ export function openShareSheet(list) {
       membersHolder.append(el('p.small.muted', { style: { padding: '14px 16px' } },
         'Could not load members. Check your connection.'));
     });
-
-    section.append(el('button.btn.btn-ghost.btn-block', {
-      style: { marginTop: '12px', color: 'var(--danger)' },
-      onclick: async () => {
-        const ok = await confirmDialog({
-          title: 'Stop collaborating?',
-          message: 'Members keep a private copy of the list as it is now, and nothing syncs anymore.',
-          confirmLabel: 'Stop collaborating',
-        });
-        if (!ok) return;
-        await store.disableCollab(fresh.id);
-        toast('Collaboration stopped');
-        render();
-      },
-    }, 'Stop collaborating'));
+    return membersHolder;
   }
 
   /* ---------- read-only link ---------- */

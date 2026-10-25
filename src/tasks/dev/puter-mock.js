@@ -56,5 +56,50 @@
     },
   };
 
-  window.__puterMock = { kv, files };
+  // ?kvshare adds owner-side KV shares (invite by username). Any username
+  // works except "nobody", which doesn't exist.
+  const shares = [];
+  if (params.has('kvshare')) {
+    const fail = (code) => Promise.reject({ code, message: code });
+    window.puter.appID = 'app-tasks-dev';
+    const setOne = window.puter.kv.set;
+    Object.assign(window.puter.kv, {
+      async set(key, value) {
+        if (!Array.isArray(key)) return setOne(key, value);
+        for (const item of key) await setOne(item.key, item.value);
+        return true;
+      },
+      async list(pattern = '*', values = false) {
+        const p = String(pattern).replace(/\*$/, '');
+        return [...kv.keys()].filter((k) => k.startsWith(p)).sort()
+          .map((k) => (values ? { key: k, value: JSON.parse(JSON.stringify(kv.get(k))) } : k));
+      },
+      async share({ prefix, recipient, access = 'read', label = null }) {
+        if (recipient.includes('@')) return fail('invalid_recipient');
+        if (recipient === 'nobody') return fail('subject_does_not_exist');
+        let s = shares.find((x) => x.prefix === prefix && x.holder === recipient && !x.revokedAt);
+        if (!s) {
+          s = { handle: `h-${shares.length + 1}`, prefix, holder: recipient, createdAt: Date.now() / 1000 | 0, revokedAt: null };
+          shares.push(s);
+        }
+        Object.assign(s, { access, label });
+        return { ...s };
+      },
+      async unshare(handle) {
+        const s = shares.find((x) => x.handle === handle);
+        if (!s) return fail('subject_does_not_exist');
+        s.revokedAt ||= Date.now() / 1000 | 0;
+        return { handle, revokedAt: s.revokedAt };
+      },
+      async listShared() { return { items: [] }; },
+      async listSharedByMe() { return { items: shares.map((s) => ({ ...s })) }; },
+    });
+    window.puter.perms = {
+      Resource: { KV_SHARE: 'kvShare' },
+      // ?kvshare=deny answers the consent prompt with no.
+      async request() { return params.get('kvshare') !== 'deny'; },
+    };
+  }
+
+  window.__puterMock = { kv, files, shares };
 })();

@@ -41,13 +41,13 @@ no backend of its own — just Puter.js and Vite.
 - **Shared lists**: publish any list as a live, read-only link — the
   snapshot lives in the owner's Puter drive (`puter.fs.getReadURL`), is
   rewritten whenever the list changes, and can be revoked at any time;
-  viewers need no account. Or **collaborate**: invite people who can add,
-  edit, and complete tasks with you. Every participant publishes a replica
-  of the list in their own drive and merges the others' (same
-  tombstone/newest-edit-wins rules as device sync), so there is still no
-  server and nobody can write into anyone else's storage. Membership is a
-  two-link handshake: an invite link out, a confirmation link back, and
-  the owner approves each member and can remove them again.
+  viewers need no account. Or **collaborate**: invite people by their
+  Puter username to add, edit, and complete tasks with you. The list
+  lives under its own prefix in the owner's KV store, shared with each
+  member through a Puter KV share; their app finds it on its own (no link
+  to pass around), changes arrive live, and the owner can remove anyone,
+  which cuts their access right away. Where KV shares aren't available,
+  collaboration falls back to linked replicas with a two-link handshake.
 - **Calendar integration**: a month view inside the app, one-click `.ics`
   download, and a live `.ics` feed URL that Google/Apple Calendar can
   subscribe to.
@@ -71,6 +71,7 @@ no backend of its own — just Puter.js and Vite.
 | `puter.kv` `tasks:settings:v1` | preferences | small, hot |
 | `puter.kv` `tasks:lists:v1` | lists | small, hot |
 | `puter.kv` `tasks:items:v1` | open + recent tasks | one read per boot |
+| `puter.kv` `tasks:collab:<id>:*` | collaborative lists (meta, one key per task and per deletion) | shared with members via `puter.kv.share` |
 | `puter.fs` `tasks-data/log-YYYY-MM.json` | archived completions | grows unbounded |
 | `puter.fs` `tasks-data/shares/<id>.json` | shared-list snapshots | must be readable by others |
 | `puter.fs` `tasks-data/tasks.ics` | calendar feed | read by calendar apps |
@@ -92,25 +93,38 @@ npm run build    # production build in dist/
 To work on the UI without a Puter account, open
 `http://localhost:5174/dev/mock.html` — an in-memory mock of the SDK.
 Variants: `?signedout` shows the intro page, `?env=app` simulates running
-inside the Puter desktop (hides the sign-out row).
+inside the Puter desktop (hides the sign-out row), `?kvshare` adds
+owner-side KV shares so inviting by username can be tried (`?kvshare=deny`
+refuses the consent prompt).
 `dev/phone.html` previews mobile widths side by side.
 
 ## Notes on the sharing model
 
-Puter's KV store is strictly per-user, so cross-account sharing uses the
-filesystem: the owner writes a public JSON snapshot of the list and hands
-out a tokenized read URL. That gives viewers a live read-only copy with
-zero infrastructure.
+Read-only links use the filesystem: the owner writes a public JSON
+snapshot of the list and hands out a tokenized read URL. That gives
+viewers a live read-only copy, no account needed.
 
-Multi-writer lists build on the same primitive: each member publishes a
-*replica* file (tasks + deletion tombstones) in their own drive, a
-manifest in the owner's drive lists the members' replica URLs, and every
-app merges the others' replicas with the commutative rules in
-`src/lib/merge.js`. No account ever writes into another account's
-storage, which is why joining needs the two-link handshake (there is no
-inbox to deliver the member's replica URL through). Known limits: minted
-URLs live for a year (re-invite to renew), and a removed member keeps the
-data they already fetched — same as any shared link.
+Multi-writer lists use KV shares. Turning collaboration on asks once for
+consent to share the `tasks:collab:` prefix, then copies the list under a
+fresh `tasks:collab:<id>:` prefix: `meta` (name, icon, color, owner),
+`t:<taskId>` per task and `d:<taskId>` per deletion, so concurrent edits
+to different tasks never overwrite each other. Each invited username gets
+a `write` share of that prefix. Members find shares with
+`puter.kv.listShared()` at startup (and from the `kv.share.received`
+notification while open), and every app merges the prefix with its local
+copy using the commutative rules in `src/lib/merge.js`. Changes arrive
+through `puter.events` subscriptions, with focus and a 60-second poll as
+fallback. Removing a member or stopping collaboration is
+`puter.kv.unshare()`; a member whose share stops working keeps the list
+as a private copy. Each user pays for their own reads and writes.
+
+Older SDKs, and deployments with KV shares turned off, fall back to linked
+replicas: each member publishes a replica file in their own drive, a
+manifest in the owner's drive lists the replica URLs, and joining is a
+two-link handshake. Lists already collaborating that way stay on it; to
+move one to username invites, stop collaborating and invite again. Known
+limits of linked replicas: minted URLs live for a year, and a removed
+member keeps read access to URLs they already hold until those expire.
 
 ## License
 

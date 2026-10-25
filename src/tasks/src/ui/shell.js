@@ -303,6 +303,11 @@ export function mountShell(appRoot) {
     toast('Updated with the latest changes', { icon: 'cloud' });
   });
 
+  store.addEventListener('collab-joined', (e) => {
+    const { name, owner } = e.detail;
+    toast(owner ? `${owner} shared "${name}" with you` : `"${name}" was shared with you`, { icon: 'users', duration: 6000 });
+  });
+
   store.addEventListener('collab-ended', (e) => {
     toast(`"${e.detail.name}" is no longer shared. You keep your copy`, { icon: 'users', duration: 6000 });
   });

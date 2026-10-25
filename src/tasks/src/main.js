@@ -164,6 +164,9 @@ async function boot() {
     store.archiveOldCompleted().catch(() => {});
     store.syncShares().catch(() => {});
     store.syncCollab().catch(() => {});
+    // Lists shared by username: live updates, new-share notifications, and
+    // a listShared() pass that finds shares the notification missed.
+    store.startCollabWatch().catch(() => {});
   }, 800);
 
   // Keep per-task reminder timers current: every data change can move a
@@ -184,6 +187,7 @@ async function boot() {
     if (document.visibilityState !== 'visible') return;
     store.refreshFromCloud().catch(() => {});
     store.syncCollab().catch(() => {});
+    store.discoverShares().catch(() => {});
     // Writes can fail without the device ever going offline, so no 'online'
     // event would retry them; coming back to the tab is the other chance.
     if (store.pendingWrites()) store.flushPending().catch(() => {});
@@ -193,6 +197,13 @@ async function boot() {
   // The store flushes its own KV queue on 'online'; collab replicas need
   // the same nudge, or a reconnected tab holds its edits until next focus.
   window.addEventListener('online', () => { store.syncCollab().catch(() => {}); });
+  // Polling fallback for shared lists without a live subscription (events
+  // unavailable, or links), while the tab is in view.
+  setInterval(() => {
+    if (document.visibilityState !== 'visible') return;
+    store.syncCollab({ poll: true }).catch(() => {});
+    store.discoverShares().catch(() => {});
+  }, 60000);
 }
 
 /**
