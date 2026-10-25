@@ -53,6 +53,33 @@ const LOG_TAIL = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z:[0-9a-f]{16}$/;
 /** Log records a sync reads directly per document. */
 const MAX_HINTS = 16;
 
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+/**
+ * How long a refused event-handle mint is not tried again: every mint, refused or not, spends the account's
+ * budget of 60 a minute. These hold for every member: the account's consent (cleared as soon as it is granted),
+ * the platform, this worker's token, and the account itself.
+ */
+const SERVER_BACKOFF = {
+  events_kv_handle_not_delegated: 10 * MINUTE,
+  events_disabled: 6 * HOUR,
+  events_kv_handles_disabled: 6 * HOUR,
+  events_kv_handle_owner_only: 6 * HOUR,
+  events_kv_handle_outside_namespace: 6 * HOUR,
+  events_kv_handle_limit_reached: HOUR,
+  account_is_not_verified: HOUR,
+};
+/** These hold for one member of one space; anything else, a network failure included, waits the default. */
+const MEMBER_BACKOFF = {
+  recipient_not_accepting_shares: 6 * HOUR,
+  events_kv_handle_requires_account: 6 * HOUR,
+  invalid_kv_share_prefix: 6 * HOUR,
+  too_many_requests: 2 * MINUTE,
+};
+const DEFAULT_BACKOFF = 5 * MINUTE;
+/** Not a space's key (a space id has no `~`): set while handle mints are refused for every member. */
+const EVENTS_OFF = 'wk:~events-off';
+
 /** Documents this instance has read, by room and document. */
 export const DOCS = new Map();
 const MAX_DOCS = 200;
@@ -384,30 +411,44 @@ export class WikiService {
     }
   }
 
-  async events(room, user) {
+  /** `consented` comes from the account's browser once it lets this app hand space signals to other people. */
+  async events(room, user, { consented = false } = {}) {
     const app = appUid(this.puter.authToken);
     if (!app) return null;
-    if (user.uuid === (await this.accountOwner()).uuid) return { app, key: `wk:${room}:ev:signal` };
-    const cache = `wk:${room}:handle:${user.uuid}`;
-    let handle = await this.kv.get(cache);
-    if (!handle) {
-      try {
-        const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.puter.authToken}` },
-          body: JSON.stringify({ granteeUid: user.uuid, prefix: `wk:${room}:ev:` }),
-          signal: AbortSignal.timeout(3000),
-        });
-        const data = await res.json();
-        if (res.ok && data.handle) {
-          handle = data.handle;
-          await this.kv.set(cache, handle);
-        }
-      } catch {
-        /* polling keeps working without events */
-      }
+    if (user.uuid === (await this.accountOwner()).uuid) {
+      if (consented) await this.kv.del(EVENTS_OFF).catch(() => {});
+      return { app, key: `wk:${room}:ev:signal` };
     }
+    const handle = (await this.kv.get(`wk:${room}:handle:${user.uuid}`)) || (await this.mint(room, user));
     return handle ? { handle, key: 'signal' } : null;
+  }
+
+  /** A member's handle on the space's signal, unless a recent refusal still holds (see SERVER_BACKOFF). */
+  async mint(room, user) {
+    const wait = `wk:${room}:nohandle:${user.uuid}`;
+    const [off, held] = await Promise.all([this.kv.get(EVENTS_OFF), this.kv.get(wait)]);
+    if (off || held) return null;
+    let code = 'network';
+    try {
+      const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.puter.authToken}` },
+        body: JSON.stringify({ granteeUid: user.uuid, prefix: `wk:${room}:ev:` }),
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.handle) {
+        await this.kv.set(`wk:${room}:handle:${user.uuid}`, data.handle);
+        return data.handle;
+      }
+      code = data?.code;
+    } catch {
+      /* polling keeps working without events */
+    }
+    const until = (ms) => Math.ceil((this.now() + ms) / 1000);
+    if (SERVER_BACKOFF[code]) await this.kv.set(EVENTS_OFF, { code }, until(SERVER_BACKOFF[code])).catch(() => {});
+    else await this.kv.set(wait, { code }, until(MEMBER_BACKOFF[code] ?? DEFAULT_BACKOFF)).catch(() => {});
+    return null;
   }
 
   async dropHandle(room, target) {
@@ -493,7 +534,7 @@ export class WikiService {
       };
     }
 
-    if (input.op === 'events') return { events: await this.events(room, user) };
+    if (input.op === 'events') return { events: await this.events(room, user, { consented: input.consented === true }) };
 
     if (input.op === 'sync') {
       const wanted = input.docs && typeof input.docs === 'object' ? Object.entries(input.docs).slice(0, 40) : [];

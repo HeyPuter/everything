@@ -14,6 +14,7 @@ import { indexedDbCache, memoryCache } from './data/cache.js';
 import { App } from './ui/app.js';
 import { call, deploy, refreshDeployment } from './collab/api.js';
 import { parseLink } from './collab/protocol.js';
+import { grantEvents } from './collab/consent.js';
 
 const root = document.getElementById('app');
 applyTheme();
@@ -140,9 +141,7 @@ async function boot() {
       deploy: (progress) => deploy(puter, progress),
       refresh: (server) => refreshDeployment(puter, server),
       events: puter.events || null,
-      grantEvents: (space) => {
-        if (space.app && space.ownerUuid && puter.perms?.request) puter.perms.request(`manage:kv-share:${space.ownerUuid}:${space.app}:wk`).catch(() => {});
-      },
+      grantEvents: (space) => grantEvents(puter, space),
     };
     start({
       backend: puterBackend(puter),
