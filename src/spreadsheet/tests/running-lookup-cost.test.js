@@ -5,6 +5,8 @@ import { Workbook } from '../src/core/workbook.js';
 // the rows of the one above. Each range was read once, so none was ever indexed, and every row scanned its whole
 // range for a value seen nowhere before it: 20,000 rows of distinct values took nine seconds, 30,000 twenty,
 // whenever the column was worked out whole. The ranges of such a column now share one index, grown row by row.
+// The column takes about a second on a laptop and eight to ten seconds on a CI runner: the budget sits above
+// both, and below the twenty seconds the scan took on a laptop.
 const N = 30000;
 function book(formula, value = (r) => `item${r}`) {
   const wb = new Workbook(), id = wb.activeSheetId;
@@ -29,7 +31,7 @@ it.each([
   const got = new Array(N);
   const start = performance.now();
   for (const r of rows) got[r] = wb.getValue(id, r, 2);
-  expect(performance.now() - start).toBeLessThan(8000);
+  expect(performance.now() - start).toBeLessThan(15000);
   if (formula.startsWith('VLOOKUP')) expect([got[0], got[29999]]).toEqual([0, 29999 % 13]);
   else expect([got[0], got[999], got[29999]]).toEqual([1, 1000, 30000]);
 }, 120000);
