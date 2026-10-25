@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, vi } from 'vitest';
 import { installMockPuter, createMockPuter } from './helpers/mock-puter.js';
 
 let Store;
@@ -259,6 +259,24 @@ describe('ending access', () => {
     await B.syncCollab();
     expect(B.listById(mine.id).collab).toBeNull();
     expect(B.tasks.some((t) => t.title === 'kept')).toBe(true);
+  });
+
+  // A revoked share only stops its deliveries; the subscription itself stays open.
+  it('a watched list still learns its share was revoked, from a slower poll', async () => {
+    const { list, mine } = await share();
+    await B.syncCollab();
+    await sleep();
+    await A.removeMember(list.id, 'bob');
+    await B.syncCollab({ poll: true });
+    expect(B.listById(mine.id).collab).not.toBeNull(); // the live subscription stands in for the poll
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 5 * 60000);
+    try {
+      await B.syncCollab({ poll: true });
+    } finally {
+      clock.mockRestore();
+    }
+    expect(B.listById(mine.id).collab).toBeNull();
   });
 
   it('stopping collaboration revokes everyone and clears the prefix', async () => {

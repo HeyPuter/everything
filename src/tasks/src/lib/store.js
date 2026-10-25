@@ -75,6 +75,11 @@ export const ARCHIVE_DAYS = 30;
 const URL_TTL = '1y';
 /** A cloud read this old must be re-fetched (and merged) before writing. */
 const FRESH_MS = 60000;
+/**
+ * A polled KV list with a live subscription is still synced this often: a revoked
+ * share only stops its deliveries, so only a sync learns the handle is gone.
+ */
+const WATCHED_RESYNC_MS = 5 * 60000;
 /** Minimum spacing between refreshes (focus events can come in bursts). */
 const REFRESH_MIN_MS = 5000;
 /** Minimum spacing between unforced kv.listShared() discoveries. */
@@ -1845,13 +1850,16 @@ export class Store extends EventTarget {
   #collabPromise = null;
   #collabAgain = false;
   #collabPollOnly = false;
+  /** When each KV list was last synced, by list id. */
+  #kvSyncedAt = new Map();
 
   /**
    * Sync every collab list: merge with the shared prefix (KV) or pull the
    * other replicas and republish mine (links). A call during an in-flight
    * sync queues one more full pass (so a caller who just changed something
    * never gets a stale, already-running pass). `poll` skips KV lists whose
-   * live subscription already delivers their changes.
+   * live subscription already delivers their changes, unless one has gone
+   * unsynced for WATCHED_RESYNC_MS.
    */
   async syncCollab({ poll = false } = {}) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
@@ -1870,7 +1878,9 @@ export class Store extends EventTarget {
         for (const list of this.lists.filter((l) => l.collab)) {
           if (list.collab.mode !== 'kv') {
             await this.#syncCollabList(list).catch(() => {});
-          } else if (!pollOnly || !this.#watches.get(list.id)?.sub) {
+          } else if (!pollOnly || !this.#watches.get(list.id)?.sub
+            || Date.now() - (this.#kvSyncedAt.get(list.id) ?? 0) >= WATCHED_RESYNC_MS) {
+            this.#kvSyncedAt.set(list.id, Date.now());
             await this.#syncKvList(list).catch(() => {});
           }
         }
