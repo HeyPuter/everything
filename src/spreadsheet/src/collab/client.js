@@ -156,8 +156,19 @@ export class RoomClient extends EventTarget {
     if (!events || !on || this.closed) return;
     const subject = events.handle ? `kv:${events.handle}:${events.key}` : `kv:${events.app}:${events.key}`;
     try {
-      // A notice carries no data: it prompts a synchronization and a check-in.
-      this.subscription = await this.o.puter.events.onLocal(subject, () => { this.scheduleSync(100); this.soonCheckIn(); }, { includeValue: false });
+      // A notice of a change this copy already holds (its own, or one a peer link brought) needs nothing. Any other
+      // notice prompts a synchronization and a check-in; one without its value (Puter leaves out large ones) too.
+      // An author's own notice can arrive before the answer to its commit, so it is looked at again after a moment.
+      this.subscription = await this.o.puter.events.onLocal(subject, ({ event } = {}) => {
+        const rev = event?.value?.rev;
+        const held = () => Number.isInteger(rev) && this.replica && rev <= this.replica.rev;
+        if (held()) return;
+        setTimeout(() => {
+          if (this.closed || held()) return;
+          this.scheduleSync(0);
+          this.soonCheckIn();
+        }, 100);
+      }, { includeValue: true });
       if (this.closed) this.subscription.off();
     } catch { /* Polling and peer notices still deliver changes. */ }
   }

@@ -18,10 +18,10 @@ export function environment() {
     async incr(key, amount = 1) { const value = (data.get(key) || 0) + amount; data.set(key, value); return value; },
     async set(key, value) {
       data.set(key, clone(value));
-      for (const { subject, fn } of listeners.values()) {
+      for (const { subject, fn, includeValue } of listeners.values()) {
         const direct = subject === `kv:app-sheet:${key}`;
         const handle = [...handles].find(([h, prefix]) => subject === `kv:${h}:signal` && key === `${prefix}signal`);
-        if (direct || handle) queueMicrotask(() => fn({ event: { key, ts: env.now } }));
+        if (direct || handle) queueMicrotask(() => fn({ event: { key, ts: env.now, ...(includeValue ? { value: clone(value) } : {}) } }));
       }
       return true;
     },
@@ -120,9 +120,9 @@ export function environment() {
         },
       },
       events: {
-        onLocal: async (subject, fn) => {
+        onLocal: async (subject, fn, options = {}) => {
           const key = crypto.randomUUID();
-          listeners.set(key, { subject, fn });
+          listeners.set(key, { subject, fn, includeValue: !!options.includeValue });
           return { off: () => listeners.delete(key) };
         },
       },
