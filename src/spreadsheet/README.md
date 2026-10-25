@@ -126,8 +126,11 @@ regenerate the PNG/ICO favicons, Apple touch icon, and standard/maskable install
   drawn from a range with detected headers and categories (or from ranges
   selected together over the same rows, such as Month and Total; hidden and
   filtered-out rows and columns are left out unless the chart's Include
-  hidden cells option is on), stacked or 100% stacked, with optional value labels, axis titles, linear
-  trendlines, a color of your choice per series, the legend below, above, or
+  hidden cells option is on), stacked or 100% stacked, with optional value labels, axis titles,
+  trendlines (linear, exponential, logarithmic, polynomial of order 2 to 6,
+  power, or moving average, per series, with a forecast forward or back, a
+  set intercept, and the equation and R² written on the chart, as Excel
+  saves them in .xlsx files), a color of your choice per series, the legend below, above, or
   beside the plot, fixed axis bounds, gridlines that can be turned off,
   smooth curves for line and area charts, and axis and value labels in the
   data's currency, percent, or date format (large values read as K, M, B,

@@ -2,6 +2,7 @@ import { cellAnchorFrame, drawingAxisOffsets, exportCellAnchor } from './drawing
 import { slicerFrameXml, nativePivotSlicerParts } from './xlsx-export-slicers.js';
 /** DrawingML charts and pictures for readers which do not know the app's sidecar. */
 import { authoredBarGapWidth, chartPointStyle, chartData, textBoxText } from './charts.js';
+import { INTERCEPT_TYPES, trendFor } from './trendline.js';
 import { fontName, styleToNumFmt, formatValue, numFmtToStyle } from './format.js';
 import { xmlTag as tag, xmlText } from './xlsx-export-styles.js';
 import { renderChartSvg, standaloneSvg, seriesColor } from '../ui/chartsvg.js';
@@ -60,6 +61,15 @@ const lineShape = (style, background = '') => {
 // whose title carries it, even though CT_ManualLayout permits the element.
 const layout = (box, plotArea = false) => tag('c:layout', {}, box ? tag('c:manualLayout', {}, (plotArea ? val('layoutTarget', 'inner') : '') + val('xMode', 'edge') + val('yMode', 'edge')
   + val('wMode', 'factor') + val('hMode', 'factor') + ['x', 'y', 'w', 'h'].filter(k => Number.isFinite(box[k])).map(k => val(k, box[k])).join('')) : '');
+
+/** A series' trendline (CT_Trendline, its children in schema order); its equation label in General unless it has a format. */
+const trendlineXml = t => tag('c:trendline', {}, (t.name ? tag('c:name', {}, xmlText(t.name)) : '')
+  + lineShape({ color: t.color, width: t.width, dash: t.dash })
+  + val('trendlineType', t.type) + (t.type === 'poly' ? val('order', t.order) : '') + (t.type === 'movingAvg' ? val('period', t.period) : '')
+  + (t.type !== 'movingAvg' && t.forward ? val('forward', t.forward) : '') + (t.type !== 'movingAvg' && t.backward ? val('backward', t.backward) : '')
+  + (INTERCEPT_TYPES.has(t.type) && t.intercept != null ? val('intercept', t.intercept) : '')
+  + (t.dispEq || t.dispRSqr ? val('dispRSqr', Number(t.dispRSqr)) + val('dispEq', Number(t.dispEq))
+    + tag('c:trendlineLbl', {}, tag('c:numFmt', { formatCode: t.labelFormat || 'General', sourceLinked: 0 })) : ''));
 
 /** Format ▸ Shape Effects: a:effectLst for an element's outer shadow or glow. */
 const effectList = e => e?.shadow || e?.glow ? tag('a:effectLst', {}, (e.glow ? tag('a:glow', { rad: 63500 }, tag('a:srgbClr', { val: e.glow.slice(1).toUpperCase() }, tag('a:alpha', { val: 60000 }))) : '')
@@ -287,7 +297,8 @@ function chartXml(X, wb, sheet, ch) {
         + (rangeLabels?.position || labels?.position ? val('dLblPos', rangeLabels?.position || labels.position) : '')
         + val('showVal', Number(ch.labels && (labels ? labels.show : true))) + showRange);
     }
-    if (ch.trendline && !circular && ['column', 'bar', 'line', 'area', 'scatter', 'bubble'].includes(type)) body += tag('c:trendline', {}, val('trendlineType', 'linear'));
+    const trend = !circular && ['column', 'bar', 'line', 'area', 'scatter', 'bubble'].includes(type) ? trendFor(ch, i) : null;
+    if (trend) body += trendlineXml(trend);
     if (bubble) for (const error of bubble.errors || []) body += tag('c:errBars', {},
       val('errDir', error.axis) + val('errBarType', error.direction) + val('errValType', error.type)
       + val('noEndCap', Number(!error.caps)) + (error.type === 'stdErr' ? '' : val('val', error.value))

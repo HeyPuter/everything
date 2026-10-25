@@ -40,10 +40,14 @@ it('opens a chart without a trendline as one without', async () => {
   expect(back.activeSheet.charts[0].trendline).toBe(false);
 });
 
-it('does not draw a polynomial or moving-average trendline as a straight one', async () => {
-  for (const kind of ['<c:trendlineType val="poly"/><c:order val="2"/>', '<c:trendlineType val="movingAvg"/><c:period val="2"/>']) {
+// A polynomial or moving-average trendline was dropped, as the app drew only straight ones.
+it('opens a polynomial or moving-average trendline as one of its kind and saves it again', async () => {
+  for (const [kind, expected] of [['<c:trendlineType val="poly"/><c:order val="3"/>', { type: 'poly', order: 3 }],
+    ['<c:trendlineType val="movingAvg"/><c:period val="2"/>', { type: 'movingAvg', period: 2 }]]) {
     const zip = await saved(new Workbook({ sheets: [{ name: 'Data', charts: [chart('line', true)] }] }));
     const back = await workbookFromFile(asExcelFile(zip, xml => xml.replace('<c:trendlineType val="linear"/>', kind)), 'excel.xlsx');
-    expect(back.activeSheet.charts[0].trendline).toBe(false);
+    expect(back.activeSheet.charts[0].trendline).toBe(true);
+    expect(back.activeSheet.charts[0].trendlines[0]).toMatchObject(expected);
+    expect(chartXml(await saved(back))).toContain(`<c:trendline>${kind}</c:trendline>`);
   }
 });

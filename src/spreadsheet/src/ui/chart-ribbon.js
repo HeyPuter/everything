@@ -13,8 +13,9 @@ import { activeChart, seriesCountOf } from './chart-actions.js';
 import { chartData } from '../core/charts.js';
 import { CHART_FAMILIES, CHART_GALLERIES } from '../core/chart-subtypes.js';
 import { CHART_STYLES, chartElementPatch, chartElementState, chartStylePatch, colorPalettes, dataLabelPositions, hasAxes, isPieChart, secondaryAxis,
-  quickLayoutPatch, quickLayoutsFor } from '../core/chart-design.js';
+  quickLayoutPatch, quickLayoutsFor, trendlineAllowed } from '../core/chart-design.js';
 import { themedSeriesColors } from '../core/workbook-theme.js';
+import { TREND_TYPES, trendFor } from '../core/trendline.js';
 import { arrangeGroup } from './arrange-ribbon.js';
 
 const run = (ctx, arg) => ctx.run('chart', arg);
@@ -111,7 +112,9 @@ function addElementMenu(ctx) {
       { separator: true }, { label: 'More Legend Options…', cmd: 'chart', arg: { action: 'formatPane', element: 'legend' } }]),
     sub('Trendline', 'chartLine', can('trendline', 'linear') ? [
       radio('None', state.trendline === 'none', el2('trendline', 'none')),
-      radio('Linear', state.trendline === 'linear', el2('trendline', 'linear'))] : [], !can('trendline', 'linear')),
+      ...TREND_TYPES.map(([value, label]) => radio(label, state.trendline === value, el2('trendline', value))),
+      // The pane opens on the first series' trendline (adding none: it offers the kinds itself).
+      { separator: true }, { label: 'More Trendline Options…', cmd: 'chart', arg: { action: 'formatPane', element: 'trendline:0' } }] : [], !can('trendline', 'linear')),
   ];
 }
 
@@ -194,6 +197,8 @@ export function elementLabel(key, names = []) {
   if (m) return `Series "${names[+m[1]] ?? +m[1] + 1}" Point ${+m[2] + 1}`;
   m = /^dataLabels:(\d+)$/.exec(key);
   if (m) return `Series "${names[+m[1]] ?? +m[1] + 1}" Data Labels`;
+  m = /^(trendline|trendlineLabel):(\d+)$/.exec(key);
+  if (m) return `Series "${names[+m[2]] ?? +m[2] + 1}" Trendline 1${m[1] === 'trendlineLabel' ? ' Label' : ''}`;
   return key;
 }
 
@@ -204,7 +209,9 @@ export function chartElementKeys(chart, seriesCount) {
     ...(axes && !a.hideXAxis ? ['xAxis'] : []), ...(axes && !a.hideYAxis ? ['yAxis'] : []), ...(secondaryAxis(chart) && !a.hideY2Axis ? ['y2Axis'] : []),
     ...(axes && chart.xTitle ? ['xTitle'] : []), ...(axes && chart.yTitle ? ['yTitle'] : []),
     ...(axes && chart.gridlines !== false ? ['gridlines-y'] : []), ...(axes && a.xGridlines ? ['gridlines-x'] : []),
-    ...Array.from({ length: isPieChart(chart) ? 1 : seriesCount }, (_, j) => `series:${j}`)];
+    ...Array.from({ length: isPieChart(chart) ? 1 : seriesCount }, (_, j) => `series:${j}`),
+    ...Array.from({ length: trendlineAllowed(chart) ? seriesCount : 0 }, (_, j) => trendFor(chart, j)).flatMap((t, j) => (!t ? []
+      : t.type !== 'movingAvg' && (t.dispEq || t.dispRSqr) ? [`trendline:${j}`, `trendlineLabel:${j}`] : [`trendline:${j}`]))];
 }
 
 const STANDARD = ['#c00000', '#ff0000', '#ffc000', '#ffff00', '#92d050', '#00b050', '#00b0f0', '#0070c0', '#002060', '#7030a0'];

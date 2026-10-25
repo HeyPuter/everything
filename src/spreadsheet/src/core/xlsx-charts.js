@@ -7,6 +7,7 @@ import { refToText } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { CHART_DISPLAY_UNITS } from './charts.js';
 import { excelChartAppearance } from './chart-subtypes.js';
+import { normalizeTrend } from './trendline.js';
 import { nativeDrawing, drawingNodeKey } from './drawingml-native.js';
 import { resolveDrawingStyle } from './drawingml-style.js';
 import { drawingDecorative } from './drawingml-accessibility.js';
@@ -125,6 +126,27 @@ function pictureFormatOf(picture) {
 const val = (node, name) => child(node, name)?.attrs.val;
 const number = (node, name) => { const v = val(node, name); return v != null && Number.isFinite(Number(v)) ? Number(v) : null; };
 const text = node => node?.text || '';
+// A CT_Boolean element is true when present without a value.
+const flag = (node, name) => !!child(node, name) && ['1', 'true'].includes(val(node, name) ?? 'true');
+
+/**
+ * A series' trendline (its first c:trendline) as the chart keeps it (see trendline.js), or false where it
+ * has none. `lineColor` reads the colour of its a:ln.
+ */
+function trendlineOf(series, lineColor) {
+  const t = child(series, 'trendline');
+  if (!t) return false;
+  const ln = path(t, 'spPr', 'ln'), color = ln ? lineColor(ln) : null;
+  return normalizeTrend({
+    type: val(t, 'trendlineType') || 'linear', order: number(t, 'order'), period: number(t, 'period'),
+    forward: number(t, 'forward'), backward: number(t, 'backward'), intercept: number(t, 'intercept'),
+    dispEq: flag(t, 'dispEq'), dispRSqr: flag(t, 'dispRSqr'), name: text(child(t, 'name')),
+    labelFormat: path(t, 'trendlineLbl', 'numFmt')?.attrs.formatCode,
+    ...(color && color !== 'none' ? { color } : {}),
+    ...(Number(ln?.attrs.w) > 0 ? { width: Number(ln.attrs.w) / 9525 } : {}),
+    dash: val(ln, 'prstDash'),
+  });
+}
 const richText = node => descendants(node, 't').map(text).join('');
 
 // A group's children have their own coordinate system. A chart found somewhere
@@ -764,8 +786,9 @@ export async function readXlsxCharts(book, sheets = [], inventory = new Map(), {
       sourceRefs, colors: series.map((s, i) => radarOnly ? shapeFill(val(radar, 'radarStyle') === 'filled' ? child(s, 'spPr') : path(s, 'spPr', 'ln')) : fill(bubbleOnly || (mixed ? ['area', 'column'].includes(seriesTypes[i]) : i < columnCount) ? child(s, 'spPr') : path(s, 'spPr', 'ln'))),
       legend: !!legend, legendPos, gridlines: grids.y.visible,
       smooth: series.some(s => val(s, 'smooth') === '1'), includeHidden: val(chart, 'plotVisOnly') === '0',
-      // The app draws one straight trendline through every series: a curved one, or one on only some series, stays off.
-      trendline: series.every(s => children(s, 'trendline').some(t => (val(t, 'trendlineType') || 'linear') === 'linear')),
+      // Each series' trendline, of whichever kind; a series has at most one here (Excel allows several).
+      trendline: series.some(s => child(s, 'trendline')),
+      ...(series.some(s => child(s, 'trendline')) ? { trendlines: series.map(s => trendlineOf(s, fill)) } : {}),
       labels: bubbleOnly ? series.some(s => { const l = bubbleLabels(s); return l.value || l.size || l.category || l.series; })
         : series.some(s => (chartBoolean(child(s, 'dLbls'), 'showVal').showVal ?? chartBoolean(child(groups.find(g => g.children.includes(s)), 'dLbls'), 'showVal').showVal) === true
           || children(child(s, 'dLbls'), 'dLbl').some(p => chartBoolean(p, 'showVal').showVal === true)),

@@ -37,7 +37,7 @@ describe('charts over very large ranges', () => {
     const svg = renderChartSvg(data, { type: 'scatter', legend: false, trendline: true }, 440, 230);
     expect((svg.match(/<circle /g) || []).length).toBeLessThanOrEqual(2000);
     expect((svg.match(/<circle /g) || []).length).toBeGreaterThan(1000);
-    expect(svg).toContain('Trend: 2 per step');
+    expect(svg).toContain('Linear (y): y = 2x, R² = 1');
   });
 
   it('leaves ordinary charts as they were: every mark drawn, each with its tooltip', () => {

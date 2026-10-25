@@ -11,6 +11,7 @@ import { formatValue, formatGeneral, fontStack, numFmtToStyle } from '../core/fo
 import { maxOf, minOf } from '../core/numeric.js';
 import { wrapLines } from '../core/textfit.js';
 import { SPECIAL_CHART_TYPES, renderSpecialChart, renderWaterfall } from './chartsvg-special.js';
+import { fitTrend, trendEquation, trendEquationText, trendFor, trendName, trendPoints, trendRSquaredText } from '../core/trendline.js';
 
 // The light theme's --series-* tokens in tokens.css, in order: every fill reads at 3:1 on white.
 export const SERIES_COLORS = ['#337bfc', '#eb6834', '#0f8f61', '#b57a00', '#c4417a', '#4a3aa7', '#0e7490', '#8a5a00', '#918f88'];
@@ -703,17 +704,18 @@ function renderChartContent(data, chart, width, height) {
   const gridText = (v) => (stack100 ? `${Math.round(v)}%` : axisLabel(v, vs, yScale.step));
   // A mark's tooltip: the series, the category and the value in its own cells' format (with its share on a 100% stack).
   const tipFor = (s, i) => `${s.name} · ${categories[i]}: ${tipText(s.raw ? s.raw[i] : s.values[i], chartPointStyle(s, i, vs))}${s.raw ? ` (${Math.round(s.values[i])}%)` : ''}`;
-  // Trendlines: a dashed least-squares line per series, clipped to the plot.
+  // Trendlines: a dashed fit per series, clipped to the plot; their equations are written over the marks.
   const clipId = `clip-${Math.random().toString(36).slice(2, 8)}`;
   if (chart.trendline) parts.push(`<clipPath id="${clipId}"><rect x="${f(plot.x)}" y="${f(plot.y)}" width="${f(plot.w)}" height="${f(plot.h)}"/></clipPath>`);
-  const trend = (points, toX, color) => {
-    const fit = linearFit(points);
-    if (!fit) return;
-    const xsAll = points.filter((p) => p && p[0] != null && p[1] != null).map((p) => p[0]);
-    const x1 = minOf(xsAll);
-    const x2 = maxOf(xsAll);
-    parts.push(`<line x1="${f(toX(x1))}" y1="${f(vy(fit.intercept + fit.slope * x1))}" x2="${f(toX(x2))}" y2="${f(vy(fit.intercept + fit.slope * x2))}" stroke="${color}" stroke-width="1.5" stroke-dasharray="5 4" clip-path="url(#${clipId})"><title>${esc(`Trend: ${axisLabel(fit.slope)} per step`)}</title></line>`);
+  const trendLabels = [];
+  const trend = (points, toX, si) => {
+    const t = trendFor(chart, si);
+    const marks = t && trendlineMarks(points, t, { j: si, name: series[si].name, color: seriesPaint(chart, si), place: ([x, y]) => [toX(x), vy(y)], bounds: plot, clipId });
+    if (!marks) return;
+    parts.push(marks.svg);
+    if (marks.label) trendLabels.push(marks.label);
   };
+  const trendLabelText = () => trendLabelsSvg(trendLabels, { size: 11, color: 'var(--ink-2)' }, plot);
 
   // Where the axis spans more than a double can hold, measure in halves so the fraction stays finite. A value far
   // outside fixed bounds (the largest double over an axis of 0 to 1) is held to a few plot heights past the edge,
@@ -786,8 +788,8 @@ function renderChartContent(data, chart, width, height) {
         if (chart.labels && label != null) parts.push(`<text x="${f(sx(x))}" y="${f(vy(v) - r - 3)}" text-anchor="middle" font-size="10" fill="var(--ink-2)">${esc(label)}</text>`);
       });
     });
-    if (chart.trendline) series.forEach((s, si) => trend(s.values.map((v, i) => [xs[i], v]), sx, seriesPaint(chart, si)));
-    parts.push('</g>', ...categoryLabels);
+    if (chart.trendline) series.forEach((s, si) => trend(s.values.map((v, i) => [xs[i], v]), sx, si));
+    parts.push('</g>', trendLabelText(), ...categoryLabels);
     if (table) parts.push(renderChartDataTable(data, chart, table));
     parts.push('</svg>');
     return parts.join('');
@@ -973,10 +975,11 @@ function renderChartContent(data, chart, width, height) {
       }
     });
   }
+  // Categories count from 1 in the equation, as Excel's do.
   if (chart.trendline && !stacked && !horizontal && (chart.type === 'column' || chart.type === 'line')) {
-    for (const si of chart.type === 'line' ? lineIdx : barIdx) trend(series[si].values.map((v, i) => [i, v]), (i) => catPos(i) + slot / 2, seriesPaint(chart, si));
+    for (const si of chart.type === 'line' ? lineIdx : barIdx) trend(series[si].values.map((v, i) => [i + 1, v]), (x) => catPos(x - 1) + slot / 2, si);
   }
-  parts.push('</g>', ...categoryLabels);
+  parts.push('</g>', trendLabelText(), ...categoryLabels);
   if (table) parts.push(renderChartDataTable(data, chart, table));
   parts.push('</svg>');
   return parts.join('');
@@ -1687,16 +1690,21 @@ function renderStyledCartesian(data, chart, width, height) {
   const outsideLabels = [];
   const pointLabel = (...args) => { label(...args); outsideLabels.push(parts.pop()); };
   parts.push(`<g clip-path="url(#${clipId})">`);
-  // A linear trendline through a series' points, from its first category to its last: across a column or
-  // line chart, and down a bar chart, whose categories run up its side and whose values run across it.
-  const trendline = (s, color, valueY) => {
-    const points = s.values.map((v, i) => [xValue(i, s), v]).filter(p => p.every(Number.isFinite)
-      && (!dates || Number.isFinite(dates.fraction(p[0])))), fit = linearFit(points);
-    if (!fit) return;
-    const first = minOf(points.map(p => p[0])), last = maxOf(points.map(p => p[0]));
-    const at = x => (horizontal ? [valueX(fit.intercept + fit.slope * x), dates ? datePosition(x) : categoryY(x)] : [sx(x), valueY(fit.intercept + fit.slope * x)]);
-    const [x1, y1] = at(first), [x2, y2] = at(last);
-    parts.push(`<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" stroke="${color}" stroke-width="1.5" stroke-dasharray="5 4"/>`);
+  // A series' trendline, across a column or line chart, and down a bar chart, whose categories run up its side
+  // and whose values run across it. Categories count from 1 in its equation, as Excel's do; dates and values
+  // on the x axis count as themselves.
+  const trendLabels = [];
+  const trendline = (s, j, color, valueY) => {
+    const trend = trendFor(chart, j);
+    if (!trend) return;
+    const offset = dates || numericX || layered ? 0 : 1;
+    const points = s.values.map((v, i) => [xValue(i, s) + offset, v]).filter(p => p.every(Number.isFinite)
+      && (!dates || Number.isFinite(dates.fraction(p[0]))));
+    const place = ([x, y]) => (horizontal ? [valueX(y), dates ? datePosition(x) : categoryY(x - offset)] : [sx(x - offset), valueY(y)]);
+    const marks = trendlineMarks(points, trend, { j, name: s.name, color, place, straight: !scale.log && !xScale?.log, bounds: plot });
+    if (!marks) return;
+    parts.push(marks.svg);
+    if (marks.label) trendLabels.push(marks.label);
   };
   series.forEach((s, j) => {
     const color = seriesColor(chart, j), line = lineStyle(j), runs = [];
@@ -1725,7 +1733,7 @@ function renderStyledCartesian(data, chart, width, height) {
           : ` M ${f(x1 - 3)} ${f(y1)} H ${f(x1 + 3)} M ${f(x2 - 3)} ${f(y2)} H ${f(x2 + 3)}`;
         parts.push(`<path class="chart-error-bar" data-axis="${e.axis}" d="M ${f(x1)} ${f(y1)} L ${f(x2)} ${f(y2)}${caps}" fill="none" stroke="${e.color}" stroke-width="${e.width}"/>`);
       }
-      if (chart.trendline) trendline(s, color, sy);
+      if (chart.trendline) trendline(s, j, color, sy);
       return;
     }
     const columnIndex = layered ? columnIndices.indexOf(j) : j < columnCount ? j : -1;
@@ -1808,7 +1816,7 @@ function renderStyledCartesian(data, chart, width, height) {
           }
         }
       });
-      if (chart.trendline && !stacked) trendline(s, color, valueY);
+      if (chart.trendline && !stacked) trendline(s, j, color, valueY);
       return;
     }
     let run = [];
@@ -1850,11 +1858,11 @@ function renderStyledCartesian(data, chart, width, height) {
         }
       }
     }
-    if (chart.trendline) trendline(s, color, valueY);
+    if (chart.trendline) trendline(s, j, color, valueY);
   });
   parts.push('</g>');
   // Interior tick labels remain readable over bars, areas and other marks.
-  parts.push(axisLabels.join(''), outsideLabels.join(''));
+  parts.push(axisLabels.join(''), outsideLabels.join(''), trendLabelsSvg(trendLabels, a.yStyle, plot));
   for (const l of bubbleLabels) {
     // A label of the app's own that fits in its bubble takes the ink that reads on the bubble's colour.
     const base = l.labels.style, pos = l.labels.position;
@@ -2318,6 +2326,76 @@ function renderRadar(data, chart, right, top, bottom) {
     }
   });
   return out.join('');
+}
+
+/**
+ * A series' trendline (see trendline.js) through its [[x, y], ...] points: the line, dashed in the series'
+ * colour unless the trend has a line of its own, named with its equation and R² for its tooltip; and the
+ * label to write by its end where the trend shows its equation or R². `place([x, y])` puts a point of the
+ * fit in the plot; `straight` (both axes linear) draws a straight fit between its two ends. Null where the
+ * trend's kind cannot fit the points.
+ */
+function trendlineMarks(points, trend, { j, name, color, place, straight = true, bounds, clipId = null }) {
+  const fit = fitTrend(points, trend);
+  if (!fit) return null;
+  const format = trend.labelFormat ? v => formatValue(v, { fmt: 'custom', code: trend.labelFormat }) : null;
+  // A curve running off to infinity is held a few plots past the edge, where the clip hides it.
+  const hold = (v, lo, size) => Math.min(lo + 11 * size, Math.max(lo - 10 * size, v));
+  const at = trendPoints(fit, { straight }).map(p => place(p)).map(p => (p && p.every(Number.isFinite) ? [hold(p[0], bounds.x, bounds.w), hold(p[1], bounds.y, bounds.h)] : null));
+  const equation = trendEquationText(fit, format), r2 = trendRSquaredText(fit, format);
+  const tip = `${trendName(trend, name)}${equation ? `: ${equation}` : ''}${r2 ? `, ${r2}` : ''}`;
+  const width = trend.width ?? 1.5;
+  const dash = trend.dash ? (CHART_LINE_DASHES[trend.dash] || []).map(v => f(v * width)).join(' ') : '5 4';
+  const attrs = `stroke="${trend.color || color}" stroke-width="${f(width)}"${dash ? ` stroke-dasharray="${dash}"` : ''}${clipId ? ` clip-path="url(#${clipId})"` : ''} class="chart-trendline" data-el="trendline" data-series="${j}"`;
+  // A point the axes cannot place (at or below zero on a logarithmic one) breaks the curve there.
+  const d = at.map((p, k) => (p ? `${k && at[k - 1] ? 'L' : 'M'} ${f(p[0])} ${f(p[1])}` : '')).filter(Boolean).join(' ');
+  if (!d) return null;
+  let svg = at.length === 2 && at[0] && at[1] ? `<line x1="${f(at[0][0])}" y1="${f(at[0][1])}" x2="${f(at[1][0])}" y2="${f(at[1][1])}" ${attrs}><title>${esc(tip)}</title></line>`
+    : `<path d="${d}" fill="none" ${attrs}><title>${esc(tip)}</title></path>`;
+  // A thin dashed line is hard to hit: a wider, unpainted stroke along it takes the click.
+  svg += `<path d="${d}" fill="none" stroke="transparent" stroke-width="8" pointer-events="stroke"${clipId ? ` clip-path="url(#${clipId})"` : ''} class="chart-trendline-hit" data-el="trendline" data-series="${j}"/>`;
+  const lines = [trend.dispEq && trendEquation(fit, format), trend.dispRSqr && r2 && [{ text: r2 }]].filter(Boolean);
+  // The label sits by the end of the line that lies in the plot.
+  const end = at.filter(p => p && p[0] >= bounds.x - .5 && p[0] <= bounds.x + bounds.w + .5 && p[1] >= bounds.y - .5 && p[1] <= bounds.y + bounds.h + .5).at(-1);
+  return { svg, label: lines.length && end ? { lines, x: end[0], y: end[1], j, path: at.filter(Boolean) } : null };
+}
+
+/**
+ * Trendline labels: each by its line's end, above it or else below it, or failing both in a corner of the
+ * plot: the first of those places that crosses no trendline and no label drawn before it (or the one that
+ * crosses least), kept inside the plot. An exponent is set small and raised.
+ */
+function trendLabelsSvg(labels, style, plot) {
+  const size = style.size, lineH = size * 1.25, rise = size * .4;
+  const placed = [];
+  // Points every few pixels along each trendline, to tell whether a place for a label lies over one.
+  const along = labels.flatMap(l => l.path.flatMap((p, k) => (k ? Array.from({ length: 12 }, (_, t) => {
+    const q = l.path[k - 1];
+    return [q[0] + (p[0] - q[0]) * t / 12, q[1] + (p[1] - q[1]) * t / 12];
+  }) : [p])));
+  return labels.map(l => {
+    const widths = l.lines.map(runs => runs.reduce((w, r) => w + textW(r.text, r.sup ? size * .7 : size), 0));
+    const w = maxOf(widths), h = l.lines.length * lineH;
+    const hold = (right, top) => ({ right: Math.min(plot.x + plot.w - 4, Math.max(plot.x + w + 4, right)), top: Math.max(plot.y + 2, Math.min(plot.y + plot.h - h - 2, top)) });
+    const left = plot.x + w + 4, right = plot.x + plot.w - 4, high = plot.y + 2, low = plot.y + plot.h - h - 2;
+    const places = [hold(l.x, l.y - h - 6), hold(l.x, l.y + 6), hold(left, high), hold(right, high), hold(left, low), hold(right, low)];
+    const cost = ({ right: r, top: t }) => along.filter(([x, y]) => x > r - w - 3 && x < r + 3 && y > t - 3 && y < t + h + 3).length
+      + 1000 * placed.filter(p => r - w < p.right && r > p.right - p.w && t < p.top + p.h && t + h > p.top).length;
+    const costs = places.map(cost), best = places[costs.indexOf(Math.min(...costs))];
+    const { right: end, top } = best;
+    placed.push({ right: end, w, top, h });
+    const font = `${style.font ? ` font-family="${esc(fontStack(style.font))}"` : ''} font-size="${f(size)}"${style.bold ? ' font-weight="700"' : ''}${style.italic ? ' font-style="italic"' : ''} fill="${esc(style.color)}"`;
+    const text = l.lines.map((runs, k) => {
+      let up = false;
+      const spans = runs.map(r => {
+        const shift = !!r.sup === up ? 0 : r.sup ? -rise : rise;
+        up = !!r.sup;
+        return `<tspan${shift ? ` dy="${f(shift)}"` : ''}${r.sup ? ` font-size="${f(size * .7)}"` : ''}>${esc(r.text)}</tspan>`;
+      }).join('');
+      return `<text x="${f(end)}" y="${f(top + (k + .8) * lineH)}" text-anchor="end"${font}>${spans}</text>`;
+    }).join('');
+    return `<g class="chart-trendline-label" data-el="trendlineLabel" data-series="${l.j}">${text}</g>`;
+  }).join('');
 }
 
 /** Least-squares line through [[x, y], ...] points: { slope, intercept }, or null with fewer than two distinct x. */

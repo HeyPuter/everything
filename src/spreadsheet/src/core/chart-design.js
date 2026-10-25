@@ -8,6 +8,7 @@ import { colName } from './cell.js';
 import { chartData } from './charts.js';
 import { quoteSheet } from './refs.js';
 import { CHART_LINE_GREY, CHART_TEXT_GREY, excelChartAppearance, subtypeOf } from './chart-subtypes.js';
+import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from './trendline.js';
 
 const PIE = new Set(['pie', 'donut']);
 const BARS = new Set(['column', 'bar', 'combo', 'histogram', 'waterfall']);
@@ -20,6 +21,19 @@ export const isPieChart = chart => PIE.has(chart?.type);
 export const hasAxes = chart => AXES(chart?.type);
 /** Charts drawn in the default style carry an appearance; older app charts keep their own look and fewer options. */
 export const styledChart = chart => !!chart?.appearance;
+/** As in Excel, a pie, a stack, a radar chart, a histogram, a waterfall and the newer types take no trendline. */
+export const trendlineAllowed = chart => !PIE.has(chart.type) && !chart.stacked && !SPECIAL.has(chart.type) && !NO_TRENDLINE.has(chart.type);
+
+/**
+ * Give series `j` the trend (merged over the one it has), or take its trendline away (null), the other
+ * series keeping theirs: the fields to hand `wb.updateChart`, or null where the chart takes no trendline.
+ */
+export function trendlinePatch(chart, j, trend, seriesCount = 1) {
+  if (!trendlineAllowed(chart)) return null;
+  const list = Array.from({ length: Math.max(seriesCount, j + 1, chart.trendlines?.length || 0) }, (_, i) => trendFor(chart, i) || false);
+  list[j] = trend ? normalizeTrend({ ...(list[j] || DEFAULT_TREND), ...trend }) : false;
+  return list.some(Boolean) ? { trendline: true, trendlines: list } : { trendline: false, trendlines: undefined };
+}
 
 const labelStyle = a => ({ ...(a?.xStyle || { font: 'calibri', size: 12, color: CHART_TEXT_GREY }), color: a?.xStyle?.color || CHART_TEXT_GREY });
 
@@ -44,7 +58,9 @@ export function chartElementState(chart) {
     dataTable: a.dataTable ? (a.dataTable.keys ? 'keys' : 'noKeys') : 'none',
     gridlines: { horizontal: horizontal ? !!a.xGridlines : chart.gridlines !== false, vertical: horizontal ? chart.gridlines !== false : !!a.xGridlines },
     legend: chart.legend === false ? 'none' : chart.legendPos || 'bottom',
-    trendline: chart.trendline ? 'linear' : 'none',
+    // The kind every series' trendline shares, or 'mixed'.
+    trendline: !chart.trendline ? 'none' : (types => (types.size === 1 ? [...types][0] : 'mixed'))(
+      new Set((chart.trendlines?.length ? chart.trendlines : [DEFAULT_TREND]).filter(Boolean).map(t => t.type))),
   };
 }
 
@@ -119,10 +135,15 @@ export function chartElementPatch(chart, element, value, { seriesCount = 1 } = {
     case 'legend':
       if (value === 'none') return done({ legend: false });
       return done({ legend: true, legendPos: value, appearance: { legendPos: value, legend: null } });
-    case 'trendline':
-      // As in Excel, a radar chart, a histogram and a waterfall take no trendline, any more than a stack does.
-      if (PIE.has(chart.type) || chart.stacked || SPECIAL.has(chart.type) || NO_TRENDLINE.has(chart.type)) return null;
-      return done({ trendline: value === 'linear' });
+    case 'trendline': {
+      if (!trendlineAllowed(chart)) return null;
+      if (value === 'none') return done({ trendline: false, trendlines: undefined });
+      if (!TREND_TYPES.some(([type]) => type === value)) return null;
+      // A linear trendline on every series needs no list; another kind replaces each series' own, keeping its label and forecast.
+      if (value === 'linear' && !chart.trendline) return done({ trendline: true, trendlines: undefined });
+      const trendlines = Array.from({ length: Math.max(seriesCount, chart.trendlines?.length || 0) }, (_, i) => normalizeTrend({ ...(trendFor(chart, i) || {}), type: value }));
+      return done({ trendline: true, trendlines });
+    }
     default: return null;
   }
 }
@@ -361,6 +382,12 @@ export function detachedChart(wb, sheetId, chart) {
  * hex colour or 'none'; `effect` is { shadow, glow }.
  */
 export function elementFormatPatch(chart, key, { fill, outline, outlineWidth, effect, rings = 1 } = {}) {
+  // A trendline keeps its own line, in either style: Automatic (undefined) gives it its series' colour back.
+  const trend = /^trendline:(\d+)$/.exec(key);
+  if (trend) {
+    if (outline === undefined && outlineWidth == null || !trendFor(chart, +trend[1])) return null;
+    return trendlinePatch(chart, +trend[1], { ...(outline !== undefined ? { color: outline || undefined } : {}), ...(outlineWidth != null ? { width: outlineWidth } : {}) });
+  }
   if (!chart.appearance) {
     const m = /^series:(\d+)$/.exec(key);
     if (m && fill) { const colors = [...(chart.colors || [])]; colors[+m[1]] = fill; return { colors }; }

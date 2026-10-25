@@ -1,7 +1,7 @@
 /**
  * Insert / edit chart dialog: type, data range, title, orientation,
- * headers, stacking, legend, axis bounds, series colors, with a live
- * preview.
+ * headers, stacking, trendline, legend, axis bounds, series colors, with a
+ * live preview.
  */
 
 import { el, fieldId, isComposing } from './dom.js';
@@ -11,7 +11,8 @@ import { renderChartSvg, seriesColor } from './chartsvg.js';
 import { CHART_DESCRIPTION_MAX_LENGTH, CHART_TYPES, chartData, chartTitles, defaultChart, normalizeChart } from '../core/charts.js';
 import { parseRange, rangeName } from '../core/cell.js';
 import { changeSubtypePatch } from '../core/chart-subtypes.js';
-import { chartElementPatch } from '../core/chart-design.js';
+import { chartElementPatch, trendlineAllowed } from '../core/chart-design.js';
+import { DEFAULT_TREND, TREND_TYPES, normalizeTrend, trendFor } from '../core/trendline.js';
 
 const TYPE_ICONS = { column: 'chartColumn', bar: 'chartBar', line: 'chartLine', area: 'chartArea', pie: 'chartPie', donut: 'chartPie', scatter: 'chartScatter', combo: 'chartCombo', histogram: 'chartHistogram', waterfall: 'chartWaterfall', radar: 'chartRadar', bubble: 'chartBubble',
   treemap: 'chartTreemap', sunburst: 'chartSunburst', boxWhisker: 'chartBoxWhisker', funnel: 'chartFunnel', stock: 'chartStockOhlc', surface: 'chartSurface' };
@@ -77,9 +78,11 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     const stackable = ['column', 'bar', 'area', 'combo'].includes(draft.type);
     stackedOnly.hidden = !stackable;
     stack100Field.hidden = !stackable || !stackedBox.checked;
-    trendField.hidden = !['column', 'line', 'scatter'].includes(draft.type) || (draft.type === 'column' && stackedBox.checked);
+    // A chart in the app's own style draws trendlines on columns, lines and points; one in Excel's style wherever Excel does.
+    trendRow.hidden = !trendlineAllowed({ type: draft.type, stacked: stackableChecked() }) || !draft.appearance && !['column', 'line', 'scatter'].includes(draft.type);
+    syncTrend();
     axis2Field.hidden = draft.type !== 'combo';
-    stackedField.hidden = stackedOnly.hidden && stack100Field.hidden && trendField.hidden && axis2Field.hidden;
+    stackedField.hidden = stackedOnly.hidden && stack100Field.hidden && axis2Field.hidden;
     const pieLike = draft.type === 'pie' || draft.type === 'donut';
     // Radars, hierarchies and funnels have no axes to title or bound.
     const radar = ['radar', 'treemap', 'sunburst', 'funnel'].includes(draft.type);
@@ -114,7 +117,18 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   headersSel.value = String(draft.headers);
   const stackedBox = el('input', { type: 'checkbox', checked: !!draft.stacked });
   const stack100Box = el('input', { type: 'checkbox', checked: !!draft.stack100 });
-  const trendBox = el('input', { type: 'checkbox', checked: !!draft.trendline });
+  // The trendline every series takes: the first series' kind and label to begin with. A chart whose series differ
+  // keeps each its own unless these are changed.
+  const firstTrend = trendFor(draft, 0) || (draft.trendline ? DEFAULT_TREND : null);
+  let trendTouched = false;
+  const trendSel = el('select.select', { 'aria-label': 'Trendline' }, el('option', { value: 'none' }, 'None'),
+    ...TREND_TYPES.map(([value, label]) => el('option', { value }, label)));
+  trendSel.value = firstTrend?.type || 'none';
+  const orderSel = el('select.select', { 'aria-label': 'Order' }, ...[2, 3, 4, 5, 6].map(n => el('option', { value: String(n) }, String(n))));
+  orderSel.value = String(firstTrend?.order || 2);
+  const periodInput = el('input.input', { type: 'number', min: 2, max: 255, step: 1, value: firstTrend?.period || 2, 'aria-label': 'Period' });
+  const eqBox = el('input', { type: 'checkbox', checked: !!firstTrend?.dispEq });
+  const r2Box = el('input', { type: 'checkbox', checked: !!firstTrend?.dispRSqr });
   const axis2Box = el('input', { type: 'checkbox', checked: !!draft.secondaryAxis });
   const axis2Field = el('label.check', {}, axis2Box, el('span', {}, 'Line on its own axis (right)'));
   const legendSel = el('select.select', { 'aria-label': 'Legend' },
@@ -171,9 +185,33 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   }
   const stackedOnly = el('label.check', {}, stackedBox, el('span', {}, 'Stacked'));
   const stack100Field = el('label.check', {}, stack100Box, el('span', {}, '100% stacked'));
-  const trendField = el('label.check', {}, trendBox, el('span', {}, 'Trendline'));
-  const stackedField = el('div.check-group', {}, stackedOnly, stack100Field, trendField, axis2Field);
+  const stackedField = el('div.check-group', {}, stackedOnly, stack100Field, axis2Field);
+  const stackableChecked = () => ['column', 'bar', 'area', 'combo'].includes(draft.type) && stackedBox.checked;
   stackedBox.addEventListener('change', () => syncTypes());
+  const orderField = el('label.field', {}, el('span.field-label', {}, 'Order'), orderSel);
+  const periodField = el('label.field', {}, el('span.field-label', {}, 'Period'), periodInput);
+  const trendLabelFields = el('div.check-group', {}, el('label.check', {}, eqBox, el('span', {}, 'Show equation')), el('label.check', {}, r2Box, el('span', {}, 'Show R² value')));
+  const trendRow = el('div.row.row-2', {},
+    el('label.field', {}, el('span.field-label', {}, 'Trendline'), trendSel),
+    orderField, periodField, el('div.field', {}, el('span.field-label', {}, 'Trendline label'), trendLabelFields));
+  // Only what the kind takes shows: a polynomial's order, a moving average's period, the equation and R² of a fit.
+  const syncTrend = () => {
+    const kind = trendSel.value;
+    orderField.hidden = kind !== 'poly';
+    periodField.hidden = kind !== 'movingAvg';
+    trendLabelFields.parentNode.hidden = kind === 'none' || kind === 'movingAvg';
+  };
+  for (const input of [trendSel, orderSel, periodInput, eqBox, r2Box]) {
+    input.addEventListener('input', () => { trendTouched = true; syncTrend(); });
+    input.addEventListener('change', () => { trendTouched = true; syncTrend(); });
+  }
+  /** The trendline fields for a chart of `count` series: as the chart had them until the form changes them. */
+  function trendFields(count) {
+    if (!trendTouched || trendRow.hidden) return { trendline: !!draft.trendline, trendlines: draft.trendlines };
+    if (trendSel.value === 'none') return { trendline: false, trendlines: undefined };
+    const chosen = { type: trendSel.value, order: Number(orderSel.value), period: Number(periodInput.value), dispEq: eqBox.checked, dispRSqr: r2Box.checked };
+    return { trendline: true, trendlines: Array.from({ length: Math.max(1, count, draft.trendlines?.length || 0) }, (_, j) => normalizeTrend({ ...(trendFor(draft, j) || {}), ...chosen })) };
+  }
   const labelsField = el('label.check', {}, labelsBox, el('span', {}, 'Show values'));
   const xTitleInput = el('input.input', { type: 'text', value: draft.xTitle || '', 'aria-label': 'Horizontal axis title', placeholder: 'Optional', maxlength: 80 });
   const yTitleInput = el('input.input', { type: 'text', value: draft.yTitle || '', 'aria-label': 'Vertical axis title', placeholder: 'Optional', maxlength: 80 });
@@ -184,7 +222,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     el('label.field', {}, el('span.field-label', {}, 'Vertical axis title'), yTitleInput), y2TitleField);
 
   // The fields a problem can be laid at; the message names it and the field at fault is marked and focused.
-  const checkedFields = [rangeInput, yMinInput, yMaxInput, binsInput, ...sourceInputs.flatMap(s => [s.categories, s.values, ...(s.sizes ? [s.sizes] : [])])];
+  const checkedFields = [rangeInput, yMinInput, yMaxInput, binsInput, periodInput, ...sourceInputs.flatMap(s => [s.categories, s.values, ...(s.sizes ? [s.sizes] : [])])];
   /** Reads the form into the draft; null, or { msg, fields } for what stops the chart. */
   function readForm() {
     const problem = (msg, ...fields) => ({ msg, fields });
@@ -233,7 +271,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     draft.headers = headersSel.value === 'auto' ? 'auto' : headersSel.value === 'true';
     draft.stacked = stackedBox.checked;
     draft.stack100 = stackedBox.checked && stack100Box.checked;
-    draft.trendline = trendBox.checked; draft.secondaryAxis = axis2Box.checked;
+    draft.secondaryAxis = axis2Box.checked;
     y2TitleField.hidden = draft.type !== 'combo' || !draft.secondaryAxis;
     draft.legend = legendSel.value !== 'none';
     if (legendSel.value !== 'none') draft.legendPos = legendSel.value;
@@ -251,6 +289,8 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     // The field is hidden for every type but histogram, so only a histogram is held up by what it says.
     if (draft.type === 'histogram' && !binsOk) return problem('Bins must be a whole number from 2 to 100', binsInput);
     draft.bins = binsOk ? bins : null;
+    const period = Number(periodInput.value);
+    if (!trendRow.hidden && trendSel.value === 'movingAvg' && !(Number.isInteger(period) && period >= 2 && period <= 255)) return problem('The period must be a whole number from 2 to 255', periodInput);
     return null;
   }
 
@@ -291,7 +331,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
     // Updating a heading must not replace the source's name reference or cache.
     sourceInputs.forEach((s, i) => { s.heading.textContent = data.series[i]?.name || s.source.name || `Series ${i + 1}`; });
     const labelPatch = labelsPatch(data);
-    const shown = labelPatch?.appearance ? { ...draft, appearance: labelPatch.appearance } : draft;
+    const shown = { ...draft, ...trendFields(data.series.length), ...(labelPatch?.appearance ? { appearance: labelPatch.appearance } : {}) };
     preview.innerHTML = renderChartSvg(data, shown, draft.appearance ? draft.w : 440, draft.appearance ? draft.h : 230);
     syncColors(data);
   }
@@ -299,19 +339,20 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
   let redraw = 0;
   const refreshSoon = () => { clearTimeout(redraw); redraw = setTimeout(refresh, 150); };
   for (const input of sourceInputs.flatMap(s => [s.categories, s.values, ...(s.sizes ? [s.sizes] : [])])) input.addEventListener('input', refreshSoon);
-  for (const input of [rangeInput, seriesSel, headersSel, stackedBox, stack100Box, trendBox, axis2Box, legendSel, labelsBox, gridBox, smoothBox, hiddenBox, yMinInput, yMaxInput, binsInput]) input.addEventListener('input', refresh);
+  for (const input of [rangeInput, seriesSel, headersSel, stackedBox, stack100Box, trendSel, orderSel, periodInput, eqBox, r2Box, axis2Box, legendSel, labelsBox, gridBox, smoothBox, hiddenBox, yMinInput, yMaxInput, binsInput]) input.addEventListener('input', refresh);
   for (const input of [titleInput, descriptionInput, xTitleInput, yTitleInput, y2TitleInput]) input.addEventListener('input', refreshSoon);
-  for (const input of [seriesSel, headersSel, stackedBox, stack100Box, trendBox, axis2Box, legendSel, labelsBox, gridBox, smoothBox, hiddenBox]) input.addEventListener('change', refresh);
+  for (const input of [seriesSel, headersSel, stackedBox, stack100Box, trendSel, orderSel, eqBox, r2Box, axis2Box, legendSel, labelsBox, gridBox, smoothBox, hiddenBox]) input.addEventListener('change', refresh);
 
   const submit = (e) => {
     e?.preventDefault();
     if (!canChange()) return;
     const problem = readForm();
     if (problem) { refresh(); problem.fields[0].focus(); return; }
+    const trend = trendFields(readData().series.length);
     if (chart) {
       const labelPatch = labelsPatch(readData());
       wb.updateChart(sheetId, chart.id, {
-        type: draft.type, range: draft.range, title: draft.title, description: draft.description, seriesIn: draft.seriesIn, headers: draft.headers, stacked: draft.stacked, stack100: draft.stack100, trendline: draft.trendline,
+        type: draft.type, range: draft.range, title: draft.title, description: draft.description, seriesIn: draft.seriesIn, headers: draft.headers, stacked: draft.stacked, stack100: draft.stack100, ...trend,
         legend: draft.legend, legendPos: draft.legendPos, labels: draft.labels, gridlines: draft.gridlines, smooth: draft.smooth, xTitle: draft.xTitle, yTitle: draft.yTitle, y2Title: draft.y2Title,
         colors: draft.colors, yMin: draft.yMin, yMax: draft.yMax, bins: draft.bins, secondaryAxis: draft.secondaryAxis, includeHidden: draft.includeHidden,
         ...(draft.sourceRefs ? { sourceRefs: draft.sourceRefs } : {}),
@@ -340,7 +381,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
       place = { ...place, anchor: { r: r.r1, c: r.c2 + 1 } };
       if (place.anchor.c >= sheet.cols) wb.ensureSize(sheetId, sheet.rows, place.anchor.c + 1);
     }
-    const id = wb.addChart(sheetId, { ...draft, ...place });
+    const id = wb.addChart(sheetId, { ...draft, ...trend, ...place });
     modal.close();
     ctx.grid.selectChart(id);
   };
@@ -368,6 +409,7 @@ export function openChartDialog(ctx, { chart = null, range = null, type = null }
           el('label.field', {}, el('span.field-label', {}, 'Legend'), legendSel),
           el('div.field', {}, el('span.field-label', {}, 'Options'), el('div.check-group', {}, labelsField, gridField, smoothField, hiddenField))),
         el('div.row', {}, stackedField),
+        trendRow,
         el('div.field', {}, el('span.field-label', {}, 'Colors'), colorsRow)),
       el('div.chart-form-preview', {}, el('span.field-label', {}, 'Preview'), preview)),
     el('div.row.row-end', {},

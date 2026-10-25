@@ -1,5 +1,6 @@
 import { normalizeCellAnchor } from './drawing-cell-anchor.js';
 import { linkedChartText, normalizeLinkedChartText } from './chart-linked-text.js';
+import { normalizeTrendlines } from './trendline.js';
 /**
  * Charts: the model of a chart placed on a sheet, and the pure step that
  * turns a range of cells into categories and series for drawing.
@@ -17,6 +18,7 @@ import { linkedChartText, normalizeLinkedChartText } from './chart-linked-text.j
  *   seriesIn: 'auto' | 'cols' | 'rows',
  *   headers: 'auto' | true | false,  is the first row (or column) a header?
  *   legend: boolean, stacked: boolean, stack100: boolean (stacked to 100%), trendline: boolean,
+ *   trendlines?: (trend | false)[], each series' trendline: its kind, forecast and label (see trendline.js)
  *   labels: boolean,                 write each value on its bar or point
  *   xTitle, yTitle, y2Title: string,          axis titles
  *   colors: (string|null)[],         a hex color per series (per slice for pies); null keeps the palette color
@@ -349,6 +351,7 @@ function normalizeChartBody(raw) {
     || !['c1', 'c2'].every((key) => Number.isInteger(raw.range[key]) && raw.range[key] >= 0 && raw.range[key] <= MAX_COL)) return null;
   const type = CHART_TYPES.some(([t]) => t === raw.type) ? raw.type : 'column';
   const linkedText = normalizeLinkedChartText(raw.linkedText);
+  const trendlines = raw.trendline ? normalizeTrendlines(raw.trendlines) : null;
   return {
     id: raw.id,
     type,
@@ -369,6 +372,7 @@ function normalizeChartBody(raw) {
     stacked: !!raw.stacked,
     stack100: !!raw.stack100,
     trendline: !!raw.trendline,
+    ...(trendlines ? { trendlines } : {}),
     labels: !!raw.labels,
     xTitle: typeof raw.xTitle === 'string' ? raw.xTitle.slice(0, 80) : '',
     yTitle: typeof raw.yTitle === 'string' ? raw.yTitle.slice(0, 80) : '',

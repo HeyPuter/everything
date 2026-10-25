@@ -5,21 +5,25 @@
  * selected edits the title in place; Delete removes the selected element.
  *
  * The element is a key: chartArea, plotArea, title, legend, xAxis, yAxis, y2Axis, xTitle, yTitle,
- * gridlines-x, gridlines-y, series:j, point:j:i, dataLabels:j (see chart-design.js).
+ * gridlines-x, gridlines-y, series:j, point:j:i, dataLabels:j, trendline:j, trendlineLabel:j (see chart-design.js).
  */
 import { el, isComposing } from './dom.js';
 import { icon } from './icons.js';
-import { activeChart, isChartObject, ringCountOf } from './chart-actions.js';
+import { activeChart, isChartObject, ringCountOf, seriesCountOf } from './chart-actions.js';
 import { elementLabel } from './chart-ribbon.js';
+import { seriesColor } from './chartsvg.js';
 import { chartData, chartTitles, CHART_DISPLAY_UNITS } from '../core/charts.js';
-import { chartElementPatch, dataLabelPositions, elementFormatPatch, isPieChart } from '../core/chart-design.js';
+import { chartElementPatch, dataLabelPositions, elementFormatPatch, isPieChart, trendlineAllowed, trendlinePatch } from '../core/chart-design.js';
+import { INTERCEPT_TYPES, TREND_TYPES, trendFor, trendName, trendProblem } from '../core/trendline.js';
 import { barSpacing } from '../core/chart-subtypes.js';
 
 const PANE_TITLES = { chartArea: 'Format Chart Area', plotArea: 'Format Plot Area', title: 'Format Chart Title', legend: 'Format Legend',
   xAxis: 'Format Axis', yAxis: 'Format Axis', y2Axis: 'Format Axis', xTitle: 'Format Axis Title', yTitle: 'Format Axis Title',
   'gridlines-x': 'Format Gridlines', 'gridlines-y': 'Format Gridlines' };
+const KEY_TITLES = [[/^series:/, 'Format Data Series'], [/^point:/, 'Format Data Point'], [/^dataLabels:/, 'Format Data Labels'],
+  [/^trendline:/, 'Format Trendline'], [/^trendlineLabel:/, 'Format Trendline Label']];
 const AXIS_PLOTS = new Set(['line', 'area', 'column', 'bar', 'combo', 'scatter', 'bubble', 'histogram']);
-export const paneTitle = key => PANE_TITLES[key] || (/^series:/.test(key) ? 'Format Data Series' : /^point:/.test(key) ? 'Format Data Point' : /^dataLabels:/.test(key) ? 'Format Data Labels' : 'Format');
+export const paneTitle = key => PANE_TITLES[key] || KEY_TITLES.find(([pattern]) => pattern.test(key))?.[1] || 'Format';
 
 /** The element key a press on an SVG node names, given the element selected before it (a second press on a series picks its point). */
 export function elementForNode(node, previous = null) {
@@ -31,6 +35,7 @@ export function elementForNode(node, previous = null) {
     return `series:${j}`;
   }
   if (kind === 'dataLabels') return `dataLabels:${j ?? 0}`;
+  if ((kind === 'trendline' || kind === 'trendlineLabel') && j != null) return `${kind}:${j}`;
   return kind;
 }
 
@@ -41,8 +46,8 @@ function nodesFor(svg, key) {
   if (m) return [...svg.querySelectorAll(`[data-el="series"][data-series="${m[1]}"]`)];
   m = /^point:(\d+):(\d+)$/.exec(key);
   if (m) return [...svg.querySelectorAll(`[data-el="series"][data-series="${m[1]}"][data-point="${m[2]}"]`)];
-  m = /^dataLabels:(\d+)$/.exec(key);
-  if (m) return [...svg.querySelectorAll(`[data-el="dataLabels"][data-series="${m[1]}"]`)];
+  m = /^(dataLabels|trendline|trendlineLabel):(\d+)$/.exec(key);
+  if (m) return [...svg.querySelectorAll(`[data-el="${m[1]}"][data-series="${m[2]}"]`)];
   if (key === 'chartArea') return [];
   return [...svg.querySelectorAll(`[data-el="${key}"]`)];
 }
@@ -179,6 +184,16 @@ export function createChartUi(ctx) {
       return true;
     }
     if (e.key === 'Escape' && element !== 'chartArea') { e.preventDefault(); setElement('chartArea'); return true; }
+    // Delete takes a trendline off its series, or its label off the trendline.
+    const trend = /^(trendline|trendlineLabel):(\d+)$/.exec(element);
+    if ((e.key === 'Delete' || e.key === 'Backspace') && trend) {
+      e.preventDefault();
+      const j = +trend[2], line = trend[1] === 'trendline';
+      const patch = trendlinePatch(chart, j, line ? null : { dispEq: false, dispRSqr: false }, seriesCountOf(ctx.wb, ctx.sheetId(), chart));
+      if (patch && trendFor(chart, j)) ctx.run('chart', { action: 'patch', patch, label: line ? 'Delete trendline' : 'Delete trendline label' });
+      setElement('chartArea', { announce: false });
+      return true;
+    }
     if ((e.key === 'Delete' || e.key === 'Backspace') && element !== 'chartArea') {
       const removal = {
         title: ['chartTitle', 'none'], legend: ['legend', 'none'],
@@ -267,14 +282,16 @@ export function createChartUi(ctx) {
     select.addEventListener('change', () => onSet(select.value));
     return field(label, select);
   };
-  const text = (label, value, onSet) => {
-    const input = el('input.input', { type: 'text', value: value ?? '', 'aria-label': label });
+  const text = (label, value, onSet, { placeholder = null } = {}) => {
+    const input = el('input.input', { type: 'text', value: value ?? '', 'aria-label': label, ...(placeholder ? { placeholder } : {}) });
     input.addEventListener('change', () => onSet(input.value));
     return field(label, input);
   };
 
   /** Fill & Line for the element: its fill (where it has one) and its border or line. */
   function fillAndLine(chart, key) {
+    // A trendline's line is set in its own options.
+    if (/^trendline/.test(key)) return null;
     const a = chart.appearance || {};
     const seriesIndex = /^(?:series|point):(\d+)/.exec(key)?.[1];
     const lineOnly = /^(xAxis|yAxis|y2Axis|gridlines-)/.test(key) || (seriesIndex != null && ['line', 'scatter', 'radar'].includes(chart.type) && !/^point/.test(key));
@@ -342,6 +359,45 @@ export function createChartUi(ctx) {
       color('Text Color', st.color, v => set({ color: v })),
       checkbox('Bold', st.bold, on => set({ bold: on })),
       checkbox('Italic', st.italic, on => set({ italic: on })));
+  }
+
+  /** Format Trendline: its kind, forecast and intercept, its label, its line; a series without one is offered the kinds. */
+  function trendlineOptions(chart, j) {
+    if (!trendlineAllowed(chart)) return [el('p.chart-pane-note', {}, 'This kind of chart takes no trendline.')];
+    const data = chartData(ctx.wb, ctx.sheetId(), chart), s = data.series[j], t = trendFor(chart, j);
+    const set = (patch, label = 'Format trendline') => apply(trendlinePatch(chart, j, patch, seriesCountOf(ctx.wb, ctx.sheetId(), chart)), label);
+    const kind = choice('Trendline type', t?.type || 'none', [['none', 'None'], ...TREND_TYPES], v => (v === 'none' ? set(null, 'Delete trendline') : set({ type: v })));
+    if (!t) return [section('Trendline Options', kind)];
+    const fit = t.type !== 'movingAvg', points = s ? s.values.map((v, i) => [['scatter', 'bubble'].includes(chart.type) ? (s.x || data.x)?.[i] : i + 1, v]) : [];
+    const problem = s ? trendProblem(points, t) : null;
+    return [section('Trendline Options', kind,
+      t.type === 'poly' ? number('Order', t.order, v => { if (Number.isInteger(v) && v >= 2 && v <= 6) set({ order: v }); }, { min: 2, max: 6, step: 1, placeholder: '' }) : null,
+      t.type === 'movingAvg' ? number('Period', t.period, v => { if (Number.isInteger(v) && v >= 2 && v <= 255) set({ period: v }); }, { min: 2, max: 255, step: 1, placeholder: '' }) : null,
+      problem ? el('p.chart-pane-note', { role: 'status' }, problem) : null,
+      text('Trendline Name', t.name, v => set({ name: v.trim() }), { placeholder: trendName({ ...t, name: '' }, s?.name ?? `Series${j + 1}`) }),
+      fit ? [el('h3.chart-pane-sub', {}, 'Forecast'),
+        number('Forward (periods)', t.forward, v => { if (v == null || v >= 0) set({ forward: v ?? 0 }); }, { min: 0, placeholder: '0' }),
+        number('Backward (periods)', t.backward, v => { if (v == null || v >= 0) set({ backward: v ?? 0 }); }, { min: 0, placeholder: '0' })] : null,
+      // An exponential curve can only cross above zero.
+      INTERCEPT_TYPES.has(t.type) ? number('Set Intercept', t.intercept, v => { if (v == null || t.type !== 'exp' || v > 0) set({ intercept: v }); }) : null,
+      fit ? [checkbox('Display Equation on chart', t.dispEq, on => set({ dispEq: on })), checkbox('Display R-squared value on chart', t.dispRSqr, on => set({ dispRSqr: on }))] : null),
+    section('Line',
+      choice('Line', t.color ? 'solid' : 'auto', [['auto', 'Automatic'], ['solid', 'Solid line']], v => set({ color: v === 'solid' ? t.color || seriesColor(chart, j) : undefined })),
+      t.color ? color('Line Color', t.color, v => set({ color: v })) : null,
+      number('Width (pt)', Math.round((t.width ?? 1.5) * 3 / 4 * 100) / 100, v => { if (v != null && v >= 0.25 && v <= 15) set({ width: Math.round(v * 4 / 3 * 100) / 100 }); }, { min: 0.25, max: 15, step: 0.25, placeholder: '' }),
+      choice('Dash type', t.dash || 'auto', [['auto', 'Automatic'], ['solid', 'Solid'], ['sysDot', 'Round Dot'], ['sysDash', 'Square Dot'], ['dash', 'Dash'], ['dashDot', 'Dash Dot'], ['lgDash', 'Long Dash']],
+        v => set({ dash: v === 'auto' ? undefined : v })))];
+  }
+
+  /** Format Trendline Label: what it shows and the number format it shows it in. */
+  function trendlineLabelOptions(chart, j) {
+    const t = trendFor(chart, j);
+    if (!t) return [];
+    const set = patch => apply(trendlinePatch(chart, j, patch, seriesCountOf(ctx.wb, ctx.sheetId(), chart)), 'Format trendline label');
+    return [section('Label Options',
+      checkbox('Display Equation on chart', t.dispEq, on => set({ dispEq: on })),
+      checkbox('Display R-squared value on chart', t.dispRSqr, on => set({ dispRSqr: on })),
+      text('Number Format', t.labelFormat || 'General', v => set({ labelFormat: v.trim() || undefined })))];
   }
 
   function options(chart, key) {
@@ -463,6 +519,10 @@ export function createChartUi(ctx) {
           checkbox('Percentage', l.percent, on => setPie({ percent: on })), checkbox('Show Leader Lines', l.leaderLines, on => setPie({ leaderLines: on })),
           choice('Label Position', l.position, dataLabelPositions(chart), v => setPie({ position: v }))));
       }
+    } else if (/^trendline:\d+$/.test(key)) {
+      out.push(...trendlineOptions(chart, +key.split(':')[1]));
+    } else if (/^trendlineLabel:\d+$/.test(key)) {
+      out.push(...trendlineLabelOptions(chart, +key.split(':')[1]));
     } else if (key === 'chartArea' && a) {
       out.push(section('Chart Options',
         checkbox('Rounded corners', a.roundedCorners === true, on => apply({ appearance: { ...a, roundedCorners: on } })),

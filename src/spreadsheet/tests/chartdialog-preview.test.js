@@ -77,7 +77,6 @@ it('labels the primary gridline control clearly and retains independent category
 });
 
 it.each([
-  ['column', 'Trendline', 'trendline'],
   ['column', '100% stacked', 'stack100'],
   ['combo', 'Line on its own axis (right)', 'secondaryAxis'],
 ])('refreshes the %s preview immediately when %s changes', (type, label, property) => {
