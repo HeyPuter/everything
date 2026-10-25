@@ -239,6 +239,32 @@ const MEMBERS_FRESH = 5000;
 // from as they are rather than listed again, and a caller waits for a
 // refresh at most three seconds.
 const LISTS = new ListingQueue();
+// How long a refused live-event handle is not asked for again: every mint,
+// refused or not, spends the worker account's budget of 60 a minute. The
+// first set holds for every member (the account's consent, cleared as soon
+// as it is granted, the platform, this worker's token, the account itself),
+// the second for one member of one board; anything else, a network failure
+// included, waits the default.
+const MINUTE = 60_000,
+  HOUR = 60 * MINUTE;
+const SERVER_BACKOFF = {
+  events_kv_handle_not_delegated: 10 * MINUTE,
+  events_disabled: 6 * HOUR,
+  events_kv_handles_disabled: 6 * HOUR,
+  events_kv_handle_owner_only: 6 * HOUR,
+  events_kv_handle_outside_namespace: 6 * HOUR,
+  events_kv_handle_limit_reached: HOUR,
+  account_is_not_verified: HOUR,
+};
+const MEMBER_BACKOFF = {
+  recipient_not_accepting_shares: 6 * HOUR,
+  events_kv_handle_requires_account: 6 * HOUR,
+  invalid_kv_share_prefix: 6 * HOUR,
+  too_many_requests: 2 * MINUTE,
+};
+const DEFAULT_BACKOFF = 5 * MINUTE;
+// Not a board's key: a board id has no `~`.
+const EVENTS_OFF = "wb:~events-off";
 const STALLED = 2000;
 const REFUSED = 10_000;
 const PATIENCE = 3000;
@@ -1282,44 +1308,69 @@ export class BoardService {
     }
     if (!signal.writing && signal.done === signal.asked) SIGNALS.delete(room);
   }
-  async events(room, user) {
+  // `consented` comes from the worker account's browser once it lets this
+  // app hand its board signals to other people.
+  async events(room, user, { consented = false } = {}) {
     const uid = appUid(this.puter.authToken);
     if (!uid) return null;
     // Only the worker's own account can watch its app KV directly.
-    if (user.uuid === (await this.org.accountOwner()).uuid)
+    if (user.uuid === (await this.org.accountOwner()).uuid) {
+      if (consented) await this.kv.del(EVENTS_OFF).catch(() => {});
       return { app: uid, key: `wb:${room}:ev:signal`, owner: user.uuid };
-    const cache = `wb:${room}:handle:${user.uuid}`;
-    let handle = await this.kv.get(cache);
-    if (!handle) {
-      try {
-        const res = await this.fetcher(
-          `${this.puter.APIOrigin}/events/kv-handles`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${this.puter.authToken}`,
-            },
-            body: JSON.stringify({
-              granteeUid: user.uuid,
-              prefix: `wb:${room}:ev:`,
-            }),
-            signal: AbortSignal.timeout(3000),
-          },
-        );
-        const data = await res.json();
-        if (res.ok && data.handle) {
-          handle = data.handle;
-          await this.kv.set(cache, handle);
-          // Indexed by person, so ending their access ends it everywhere,
-          // including on boards an administrator watches without joining.
-          await this.kv.set(`org:uh:${user.uuid}:${room}`, true);
-        }
-      } catch {
-        /* Peer delivery and periodic synchronization remain available. */
-      }
     }
+    const handle =
+      (await this.kv.get(`wb:${room}:handle:${user.uuid}`)) ??
+      (await this.mint(room, user));
     return handle ? { handle, key: "signal" } : null;
+  }
+  // A member's handle on a board's signal, unless a recent refusal still
+  // holds; a refusal is remembered (see SERVER_BACKOFF).
+  async mint(room, user) {
+    const wait = `wb:${room}:nohandle:${user.uuid}`;
+    const [off, held] = await Promise.all([
+      this.kv.get(EVENTS_OFF),
+      this.kv.get(wait),
+    ]);
+    if (off || held) return null;
+    let code = "network";
+    try {
+      const res = await this.fetcher(
+        `${this.puter.APIOrigin}/events/kv-handles`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${this.puter.authToken}`,
+          },
+          body: JSON.stringify({
+            granteeUid: user.uuid,
+            prefix: `wb:${room}:ev:`,
+          }),
+          signal: AbortSignal.timeout(3000),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.handle) {
+        await this.kv.set(`wb:${room}:handle:${user.uuid}`, data.handle);
+        // Indexed by person, so ending their access ends it everywhere,
+        // including on boards an administrator watches without joining.
+        await this.kv.set(`org:uh:${user.uuid}:${room}`, true);
+        return data.handle;
+      }
+      code = data?.code;
+    } catch {
+      /* Peer delivery and periodic synchronization remain available. */
+    }
+    const until = (ms) => Math.ceil((this.now() + ms) / 1000);
+    if (SERVER_BACKOFF[code])
+      await this.kv
+        .set(EVENTS_OFF, { code }, until(SERVER_BACKOFF[code]))
+        .catch(() => {});
+    else
+      await this.kv
+        .set(wait, { code }, until(MEMBER_BACKOFF[code] ?? DEFAULT_BACKOFF))
+        .catch(() => {});
+    return null;
   }
   // Ends a person's presence, so they check in again with their new role,
   // and unless they keep access, their live board events.
@@ -1883,7 +1934,12 @@ export class BoardService {
         sharing: await this.sharing(user, policy),
       };
     }
-    if (input.op === "events") return { events: await this.events(room, user) };
+    if (input.op === "events")
+      return {
+        events: await this.events(room, user, {
+          consented: input.consented === true,
+        }),
+      };
     if (
       input.op === "invite" ||
       input.op === "invite-status" ||

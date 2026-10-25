@@ -451,6 +451,7 @@ import {
 } from "./model.js";
 import { local, CloudStore } from "./storage.js";
 import { CollaborationSession } from "./collaboration/session.js";
+import { allowLiveUpdates } from "./collaboration/consent.js";
 import { SharedDocument, rebase } from "./collaboration/document.js";
 import {
   ASSET,
@@ -11645,14 +11646,9 @@ async function shareBoard() {
               joined = true;
               session
                 .request("join")
-                .then((result) => {
-                  if (result.app && window.puter.perms?.request)
-                    window.puter.perms
-                      .request(
-                        `manage:kv-share:${result.owner}:${result.app}:wb`,
-                      )
-                      .catch(() => {});
-                })
+                .then((result) =>
+                  allowLiveUpdates(session, window.puter, result),
+                )
                 .catch(() => {
                   /* Live updates fall back to periodic synchronization. */
                 });
