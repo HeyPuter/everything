@@ -10,6 +10,9 @@
  *                         deleted: [tombstone…] }
  *    tasks:items:v1     { tasks: [task…], logMonths: ['2026-07', …],
  *                         deleted: [tombstone…] }
+ *    tasks:collab:<id>: one prefix per list shared over KV shares (meta,
+ *                       t:<taskId>, d:<taskId>; see collab.js). The only
+ *                       keys read with kv.list(), one prefix at a time.
  *
  *  Every KV value is wrapped in an envelope { v: 2, rev, epoch, at, device,
  *  data } (legacy bare values are still read). `rev`/`at`/`device` identify
@@ -42,6 +45,8 @@ import { unwrapDoc, sigOf, mergeRecords, mergeMonths, normalizeTombstones, sameD
 import {
   buildManifest, parseManifest, participantsOf, buildReplica, parseReplica,
   manifestPath, replicaPath, inviteLink, confirmLink,
+  KV_COLLAB_ROOT, SHARING_OFF, kvPrefixFor, isKvPrefix, taskKey, tombKey, memberListId,
+  buildMeta, parseMeta, readKvEntries, shareLabel, shareErrorMessage,
 } from './collab.js';
 
 const KV = {
@@ -72,6 +77,8 @@ const URL_TTL = '1y';
 const FRESH_MS = 60000;
 /** Minimum spacing between refreshes (focus events can come in bursts). */
 const REFRESH_MIN_MS = 5000;
+/** Minimum spacing between unforced kv.listShared() discoveries. */
+const DISCOVER_MIN_MS = 30000;
 
 export const PRIORITIES = [
   { value: 3, label: 'High', class: 'p3' },
@@ -105,16 +112,7 @@ export function normalizeList(raw, order = 0) {
       link: String(raw.shared.link || ''),
       expiresAt: Number(raw.shared.expiresAt) || null,
     } : null,
-    collab: raw.collab && raw.collab.manifestUrl && raw.collab.memberId ? {
-      role: raw.collab.role === 'owner' ? 'owner' : 'member',
-      memberId: String(raw.collab.memberId),
-      manifestUrl: String(raw.collab.manifestUrl),
-      ownerName: raw.collab.ownerName ? String(raw.collab.ownerName) : null,
-      approved: !!raw.collab.approved,
-      // When this account joined: tombstones for this list stamped before
-      // then are void (they predate the membership — see joinCollab).
-      joinedAt: Number(raw.collab.joinedAt) || 0,
-    } : null,
+    collab: normalizeCollab(raw.collab),
     // What a finished collaboration leaves behind on the private copy: who
     // ran it (so only that group's invite can re-adopt this list) and when
     // this account joined (so pre-join tombstones stay void afterwards).
@@ -126,6 +124,29 @@ export function normalizeList(raw, order = 0) {
     createdAt: raw.createdAt || now,
     updatedAt: raw.updatedAt || raw.createdAt || now,
   };
+}
+
+/**
+ * A list's collaboration block. Linked replicas (no `mode`) carry the
+ * manifest URL; KV shares carry the owner's prefix or the member's handle.
+ */
+function normalizeCollab(c) {
+  if (!c || !c.memberId) return null;
+  const role = c.role === 'owner' ? 'owner' : 'member';
+  const base = {
+    role,
+    memberId: String(c.memberId),
+    ownerName: c.ownerName ? String(c.ownerName) : null,
+    approved: !!c.approved,
+    // When this account joined: tombstones for this list stamped before
+    // then are void (they predate the membership — see joinCollab).
+    joinedAt: Number(c.joinedAt) || 0,
+  };
+  if (c.mode === 'kv') {
+    if (role === 'owner') return isKvPrefix(c.prefix) ? { mode: 'kv', ...base, prefix: String(c.prefix) } : null;
+    return c.handle ? { mode: 'kv', ...base, handle: String(c.handle) } : null;
+  }
+  return c.manifestUrl ? { ...base, manifestUrl: String(c.manifestUrl) } : null;
 }
 
 export function normalizeTask(raw, listId) {
@@ -225,7 +246,8 @@ function mintOf(d) {
 function pastCollabOf(list) {
   if (!list.collab) return list.pastCollab || null;
   return {
-    ownerId: list.collab.role === 'owner' ? list.collab.memberId : (list.collab.ownerName || ''),
+    ownerId: list.collab.role === 'owner' ? list.collab.memberId
+      : (list.collab.ownerName || list.collab.handle || ''),
     joinedAt: list.collab.joinedAt || 0,
     endedAt: Date.now(),
   };
@@ -330,6 +352,13 @@ export class Store extends EventTarget {
     if (mirror?.v === 2 && Array.isArray(mirror.dead)) {
       for (const p of mirror.dead) {
         if (typeof p === 'string' && p.startsWith(`${DATA_DIR}/`)) this.#deadFiles.add(p);
+      }
+    }
+    // Unshares owed the same way (see #deadShares), and only of this app's
+    // collab prefixes.
+    if (mirror?.v === 2 && Array.isArray(mirror.deadShares)) {
+      for (const e of mirror.deadShares) {
+        if (typeof e === 'string' && (e.startsWith('h:') || e.startsWith(`p:${KV_COLLAB_ROOT}`))) this.#deadShares.add(e);
       }
     }
     const result = await cloudPromise;
@@ -600,8 +629,10 @@ export class Store extends EventTarget {
     }
     this.#writeMirror(); // record which keys made it out of the queue
     this.#notifySync(wasPending);
-    // Owed file deletes ride the same retry moments (online, focus, boot).
+    // Owed file deletes and unshares ride the same retry moments (online,
+    // focus, boot).
     await this.#reapDeadFiles();
+    await this.#reapDeadShares();
   }
 
   /** Announce a change in the unsynced-write count, so the UI can show it. */
@@ -811,6 +842,7 @@ export class Store extends EventTarget {
         dirty: [...this.#dirty],
         // Published files whose delete is still owed (see #deadFiles).
         dead: [...this.#deadFiles],
+        deadShares: [...this.#deadShares],
       }));
     } catch { /* mirror is best-effort */ }
   }
@@ -858,7 +890,7 @@ export class Store extends EventTarget {
     const wasDefault = this.settings.defaultListId === id;
     if (wasDefault) this.settings.defaultListId = null;
     if (list.shared) this.#deleteFile(sharePath(id));
-    this.#deleteCollabFiles(list);
+    const released = this.#releaseCollab(list);
     // Two cloud documents, one delete: the tab can close between them, so
     // the order decides what a half-finished delete leaves behind. Tasks
     // first — an interrupted delete then shows an empty list the user can
@@ -866,16 +898,27 @@ export class Store extends EventTarget {
     // tombstone: they come back on the next boot, surface in Today,
     // search and tags, and nothing can reach them to clean them up.
     await this.#saveAll('items', 'lists', ...(wasDefault ? ['settings'] : []));
+    await released;
   }
 
-  #deleteCollabFiles(list) {
-    if (!list.collab) return;
-    if (list.collab.role === 'owner') {
-      // Members see the manifest disappear and keep their copy as a
-      // private list.
-      this.#deleteFile(manifestPath(list.id));
+  /**
+   * Undo what a collaboration published. Linked replicas: delete my replica
+   * (and, as owner, the manifest — members then keep private copies). KV
+   * shares: the owner revokes every share and clears the prefix, a member
+   * drops their handle. Failures stay queued for retry; never rejects.
+   */
+  #releaseCollab(list) {
+    const c = list.collab;
+    if (!c) return Promise.resolve();
+    if (c.mode !== 'kv') {
+      if (c.role === 'owner') this.#deleteFile(manifestPath(list.id));
+      this.#deleteFile(replicaPath(list.id, c.memberId));
+      return Promise.resolve();
     }
-    this.#deleteFile(replicaPath(list.id, list.collab.memberId));
+    this.#unwatch(list.id);
+    const entry = c.role === 'owner' ? `p:${c.prefix}` : `h:${c.handle}`;
+    this.#deadShares.add(entry);
+    return this.#reapShare(entry);
   }
 
   /* ---------- tasks ---------- */
@@ -1284,7 +1327,7 @@ export class Store extends EventTarget {
     if (this.logMonths.some((k) => logPath(k) === path)) return true;
     for (const l of this.lists) {
       if (l.shared && sharePath(l.id) === path) return true;
-      if (l.collab) {
+      if (l.collab && l.collab.mode !== 'kv') {
         if (replicaPath(l.id, l.collab.memberId) === path) return true;
         if (l.collab.role === 'owner' && manifestPath(l.id) === path) return true;
       }
@@ -1305,6 +1348,44 @@ export class Store extends EventTarget {
         // Already gone counts as done; anything else retries next pass.
         if (isMissingFile(err)) this.#deadFiles.delete(path);
       }
+    }
+  }
+
+  /* KV shares to stop, same idea as #deadFiles: 'h:<handle>' (a member's
+     own share) or 'p:<prefix>' (every share of an owner's prefix, plus its
+     keys). Ending a collaboration offline must still cut access later. */
+  #deadShares = new Set();
+
+  #shareIsLive(entry) {
+    return this.lists.some((l) => l.collab?.mode === 'kv'
+      && entry === (l.collab.role === 'owner' ? `p:${l.collab.prefix}` : `h:${l.collab.handle}`));
+  }
+
+  async #reapShare(entry) {
+    const kv = this.cloud.kv;
+    try {
+      if (entry.startsWith('h:')) {
+        await kv.unshare(entry.slice(2));
+      } else {
+        const prefix = entry.slice(2);
+        for (const s of await this.#kvShares(prefix)) await kv.unshare(s.handle);
+        for (const key of await kv.list(`${prefix}*`)) await kv.del(key);
+      }
+      this.#deadShares.delete(entry);
+    } catch (err) {
+      // A handle the server doesn't know has nothing left to stop.
+      if (entry.startsWith('h:') && err?.code === 'subject_does_not_exist') this.#deadShares.delete(entry);
+    }
+    this.#writeMirror();
+  }
+
+  async #reapDeadShares() {
+    for (const entry of [...this.#deadShares]) {
+      if (this.#shareIsLive(entry)) {
+        this.#deadShares.delete(entry);
+        continue;
+      }
+      await this.#reapShare(entry);
     }
   }
 
@@ -1332,7 +1413,7 @@ export class Store extends EventTarget {
     const hasCollab = this.lists.some((l) => l.collab);
     // #deadFiles: unsharing the very last list still owes its delete a
     // retry, and this debounce is what carries the reaper in-session.
-    if (!hasShares && !hasCollab && !this.settings.calFeed && !this.#deadFiles.size) return;
+    if (!hasShares && !hasCollab && !this.settings.calFeed && !this.#deadFiles.size && !this.#deadShares.size) return;
     clearTimeout(this.#shareTimer);
     this.#shareTimer = setTimeout(() => {
       this.syncShares().catch(() => {});
@@ -1371,16 +1452,147 @@ export class Store extends EventTarget {
     return { id: name, name };
   }
 
+  /** Set when this deployment refuses KV shares: new collaborations use links. */
+  #kvOff = false;
+
+  /** How a new collaboration is set up: 'kv' (invite by username) or 'link'. */
+  collabMode() {
+    return typeof this.cloud?.kv?.share === 'function' && !this.#kvOff ? 'kv' : 'link';
+  }
+
   /**
-   * Turn on collaboration for a list I own: publish my replica, write the
-   * manifest naming me as owner, and mint the invite link.
+   * Turn on collaboration for a list I own. With KV shares this asks for
+   * sharing consent (call it from a click), stores the list under its own
+   * prefix and resolves { mode: 'kv' }; people are then added with
+   * inviteMember. Otherwise it sets up linked replicas and resolves
+   * { invite } with the invite link. Throws if consent is refused.
    */
   async enableCollab(listId) {
     const list = this.listById(listId);
     if (!list) throw new Error('No such list');
     if (list.collab) {
-      return { invite: inviteLink(list.collab.manifestUrl) };
+      return list.collab.mode === 'kv' ? { mode: 'kv' } : { invite: inviteLink(list.collab.manifestUrl) };
     }
+    if (this.collabMode() === 'kv' && await this.#shareConsent()) return this.#enableKvCollab(list);
+    return this.#enableLinkCollab(list);
+  }
+
+  /**
+   * Consent to share `tasks:collab:` at write level (asked once; later calls
+   * resolve without a prompt). False when this page can't ask (not running
+   * as an app, no perms API): the caller falls back to links. Throws when
+   * the user declines.
+   */
+  async #shareConsent() {
+    const perms = this.cloud.perms;
+    if (typeof perms?.request !== 'function') return false;
+    let granted;
+    try {
+      if (perms.Resource?.KV_SHARE) {
+        granted = await perms.request(perms.Resource.KV_SHARE, { prefix: KV_COLLAB_ROOT, access: 'write' });
+      } else {
+        // SDKs from before the kvShare resource take the permission string.
+        const user = this.user?.uuid ? this.user : await this.cloud.auth.getUser();
+        if (!user?.uuid || !this.cloud.appID) return false;
+        granted = await perms.request('permission', {
+          permission: `manage:kv-share-write:${user.uuid}:${this.cloud.appID}:${KV_COLLAB_ROOT.slice(0, -1)}`,
+        });
+      }
+    } catch (err) {
+      if (err?.code === 'invalid_argument') return false;
+      throw err;
+    }
+    if (!granted) {
+      const err = new Error('Tasks needs your permission to share lists');
+      err.code = 'consent_denied';
+      throw err;
+    }
+    return true;
+  }
+
+  async #enableKvCollab(list) {
+    const me = await this.#collabIdentity();
+    // A fresh prefix per collaboration, so a restarted one never inherits
+    // keys or shares an earlier one left behind.
+    list.collab = normalizeCollab({
+      mode: 'kv', role: 'owner', prefix: kvPrefixFor(uid()), memberId: me.id, ownerName: me.id, approved: true,
+    });
+    try {
+      await this.#syncKvList(list);
+    } catch (err) {
+      list.collab = null;
+      throw err;
+    }
+    list.updatedAt = bump(list.updatedAt);
+    await this.#save('lists');
+    this.#watchCollab();
+    return { mode: 'kv' };
+  }
+
+  /** Owner (KV): share the list at write level with a Puter username. */
+  async inviteMember(listId, username) {
+    const list = this.listById(listId);
+    const c = list?.collab;
+    if (c?.mode !== 'kv' || c.role !== 'owner') throw new Error('Only the owner can invite people');
+    const name = String(username || '').trim().replace(/^@/, '');
+    if (!name) throw new Error('Enter a Puter username');
+    if (name.toLowerCase() === c.memberId.toLowerCase()) throw new Error('That is your own account');
+    const share = (label) => this.cloud.kv.share({ prefix: c.prefix, recipient: name, access: 'write', label });
+    let res;
+    try {
+      try {
+        res = await share(shareLabel(list.name));
+      } catch (err) {
+        // Consent withdrawn since: ask again (this runs from the invite
+        // click) and retry once. A label the server still rejects is
+        // dropped; members read the name from `meta` anyway.
+        if (err?.code === 'events_kv_handle_not_delegated' && await this.#shareConsent()) {
+          res = await share(shareLabel(list.name));
+        } else if (err?.code === 'kv_share_label_invalid') {
+          res = await share(null);
+        } else {
+          throw err;
+        }
+      }
+    } catch (err) {
+      if (SHARING_OFF.has(err?.code)) return this.#fallBackToLinks(list);
+      if (err?.code === 'consent_denied') throw err;
+      const out = new Error(shareErrorMessage(err, name));
+      out.code = err?.code || null;
+      throw out;
+    }
+    return { member: { id: res.holder, name: res.holder, handle: res.handle } };
+  }
+
+  /**
+   * The deployment turned KV shares off: move a collaboration nobody has
+   * joined yet over to linked replicas and hand back its invite link.
+   */
+  async #fallBackToLinks(list) {
+    this.#kvOff = true;
+    const live = await this.#kvShares(list.collab.prefix).catch(() => []);
+    if (live.length) throw new Error('Inviting by username is turned off right now');
+    const released = this.#releaseCollab(list);
+    list.collab = null;
+    const { invite } = await this.#enableLinkCollab(list);
+    await released;
+    return { fallback: true, invite };
+  }
+
+  /** Live shares of one of my prefixes. */
+  async #kvShares(prefix) {
+    const out = [];
+    let cursor;
+    do {
+      const page = await this.cloud.kv.listSharedByMe({ limit: 200, cursor });
+      out.push(...(page?.items || []).filter((s) => s.prefix === prefix && !s.revokedAt && s.holder));
+      cursor = page?.cursor;
+    } while (cursor);
+    return out;
+  }
+
+  /** Linked replicas: publish my replica and the manifest, mint the invite. */
+  async #enableLinkCollab(list) {
     const me = await this.#collabIdentity();
     list.collab = { role: 'owner', memberId: me.id, manifestUrl: '', ownerName: me.id, approved: true };
     try {
@@ -1403,11 +1615,12 @@ export class Store extends EventTarget {
   async disableCollab(listId) {
     const list = this.listById(listId);
     if (!list?.collab) return;
-    this.#deleteCollabFiles(list);
+    const released = this.#releaseCollab(list);
     list.pastCollab = pastCollabOf(list);
     list.collab = null;
     list.updatedAt = bump(list.updatedAt);
     await this.#save('lists');
+    await released;
   }
 
   /**
@@ -1429,6 +1642,7 @@ export class Store extends EventTarget {
     // and merges the attacker's deletions back in. An existing list may
     // therefore only be (re)joined by the same group that ran it before.
     let list = this.listById(manifest.listId);
+    if (list?.collab?.mode === 'kv') throw new Error('This invite does not match the list you already have');
     if (list) {
       const knownOwner = list.collab
         ? (list.collab.role === 'owner' ? list.collab.memberId : list.collab.ownerName)
@@ -1482,7 +1696,7 @@ export class Store extends EventTarget {
   /** Member: a fresh confirmation link (e.g. the first one got lost). */
   async confirmLinkFor(listId) {
     const list = this.listById(listId);
-    if (list?.collab?.role !== 'member') return null;
+    if (list?.collab?.role !== 'member' || list.collab.mode === 'kv') return null;
     await this.#publishReplica(list);
     const replicaUrl = await this.cloud.fs.getReadURL(replicaPath(list.id, list.collab.memberId), URL_TTL);
     return confirmLink({
@@ -1491,26 +1705,36 @@ export class Store extends EventTarget {
     });
   }
 
-  /** Member: leave the group — unpublish my replica and drop the list. */
+  /**
+   * Member: leave the group and drop the list. Deleting it also stops my
+   * share (KV) or unpublishes my replica (links).
+   */
   async leaveCollab(listId) {
     const list = this.listById(listId);
     if (!list?.collab) return;
     if (list.collab.role === 'owner') return this.disableCollab(listId);
-    await this.deleteList(listId); // also removes the replica file
+    await this.deleteList(listId);
   }
 
-  /** Owner: current membership, straight from the manifest. */
+  /** Owner: current membership — the live shares of the prefix, or the manifest. */
   async collabMembers(listId) {
     const list = this.listById(listId);
     if (list?.collab?.role !== 'owner') throw new Error('Only the owner can manage members');
+    if (list.collab.mode === 'kv') {
+      const shares = await this.#kvShares(list.collab.prefix);
+      return {
+        owner: { id: list.collab.memberId, name: list.collab.memberId },
+        members: shares.map((s) => ({ id: s.holder, name: s.holder, handle: s.handle })),
+      };
+    }
     const manifest = await this.#readOwnManifest(list);
     return { owner: manifest.owner, members: manifest.members };
   }
 
-  /** Owner: approve a member from their confirmation link. */
+  /** Owner (links): approve a member from their confirmation link. */
   async approveMember(listId, member) {
     const list = this.listById(listId);
-    if (list?.collab?.role !== 'owner') throw new Error('Only the owner can approve members');
+    if (list?.collab?.role !== 'owner' || list.collab.mode === 'kv') throw new Error('Only the owner can approve members');
     if (member.id === list.collab.memberId) throw new Error('You are already the owner');
     const members = await this.#withManifest(list, async (manifest) => {
       const next = manifest.members.filter((m) => m.id !== member.id);
@@ -1522,10 +1746,19 @@ export class Store extends EventTarget {
     return members;
   }
 
-  /** Owner: revoke a member. Their app converts the list back to private. */
+  /**
+   * Owner: revoke a member (a username for KV shares). Their app converts
+   * the list back to a private copy.
+   */
   async removeMember(listId, memberId) {
     const list = this.listById(listId);
     if (list?.collab?.role !== 'owner') throw new Error('Only the owner can remove members');
+    if (list.collab.mode === 'kv') {
+      for (const s of await this.#kvShares(list.collab.prefix)) {
+        if (s.holder === memberId) await this.cloud.kv.unshare(s.handle);
+      }
+      return;
+    }
     await this.#withManifest(list, (manifest) =>
       this.#writeManifest(list, manifest.owner, manifest.members.filter((m) => m.id !== memberId)));
   }
@@ -1611,27 +1844,310 @@ export class Store extends EventTarget {
 
   #collabPromise = null;
   #collabAgain = false;
+  #collabPollOnly = false;
 
   /**
-   * Pull every collab list's remote replicas, merge, and republish mine.
-   * A call during an in-flight sync queues one more full pass (so a caller
-   * who just changed something never gets a stale, already-running pass).
+   * Sync every collab list: merge with the shared prefix (KV) or pull the
+   * other replicas and republish mine (links). A call during an in-flight
+   * sync queues one more full pass (so a caller who just changed something
+   * never gets a stale, already-running pass). `poll` skips KV lists whose
+   * live subscription already delivers their changes.
    */
-  async syncCollab() {
+  async syncCollab({ poll = false } = {}) {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     if (this.#collabPromise) {
       this.#collabAgain = true;
+      this.#collabPollOnly &&= poll;
       return this.#collabPromise;
     }
+    this.#collabPollOnly = poll;
     this.#collabPromise = (async () => {
+      await this.#reapDeadShares();
       do {
+        const pollOnly = this.#collabPollOnly;
         this.#collabAgain = false;
+        this.#collabPollOnly = true;
         for (const list of this.lists.filter((l) => l.collab)) {
-          await this.#syncCollabList(list).catch(() => {});
+          if (list.collab.mode !== 'kv') {
+            await this.#syncCollabList(list).catch(() => {});
+          } else if (!pollOnly || !this.#watches.get(list.id)?.sub) {
+            await this.#syncKvList(list).catch(() => {});
+          }
         }
       } while (this.#collabAgain);
+      this.#watchCollab();
     })().finally(() => { this.#collabPromise = null; });
     return this.#collabPromise;
+  }
+
+  /**
+   * Merge a KV collaboration with its shared prefix, then write back what
+   * the prefix lacks: changed tasks, new tombstones, the owner's meta.
+   * Rejects on read/write failures; the next pass retries.
+   */
+  async #syncKvList(list) {
+    const c = list.collab;
+    const owner = c.role === 'owner';
+    const kv = this.cloud.kv;
+    const p = owner ? c.prefix : '';
+    const withOpts = (...args) => (owner ? args : [...args, { handle: c.handle }]);
+    // As in #syncCollabList: a leave, delete or merge landing mid-flight must
+    // not have this pass write the list's leave-tombstones to the group.
+    const detached = () => this.listById(list.id) !== list || list.collab !== c;
+    const handleGone = async (err) => {
+      if (owner || err?.code !== 'kv_handle_not_found' || detached()) return false;
+      await this.#endCollab(list, 'The list is no longer shared with you');
+      return true;
+    };
+
+    let remote;
+    try {
+      const entries = await kv.list(...withOpts(`${p}*`, true));
+      remote = readKvEntries((entries || []).map(({ key, value }) => ({ key: String(key).slice(p.length), value })));
+    } catch (err) {
+      if (await handleGone(err)) return;
+      throw err;
+    }
+    if (detached()) return;
+
+    const writes = [];
+    const dels = new Set();
+    if (owner) {
+      const meta = buildMeta(list, c.memberId);
+      if (!sameData(remote.rawMeta, meta)) writes.push({ key: 'meta', value: meta });
+    } else if (remote.meta) {
+      // The owner's name/icon/color, vetted through normalizeList: any
+      // member can write `meta`.
+      const m = normalizeList({ ...list, name: remote.meta.name, icon: remote.meta.icon, slot: remote.meta.slot }, list.order);
+      const ownerName = remote.meta.owner || c.ownerName;
+      if (list.name !== m.name || list.icon !== m.icon || list.slot !== m.slot || c.ownerName !== ownerName) {
+        Object.assign(list, { name: m.name, icon: m.icon, slot: m.slot });
+        c.ownerName = ownerName;
+        list.updatedAt = bump(list.updatedAt);
+        await this.#save('lists');
+        if (detached()) return;
+      }
+    }
+
+    const cutoff = Date.now() - ARCHIVE_DAYS * 86400000;
+    const remoteTasks = new Map();
+    for (const [id, raw] of remote.tasks) {
+      const t = normalizeTask({ ...raw, id, listId: list.id });
+      // Old completions live in each account's logbook; clear them from the
+      // prefix rather than merging them back.
+      if (isArchivedCompletion(t, cutoff)) {
+        dels.add(taskKey(id));
+        continue;
+      }
+      // The prefix only speaks for this list: an id colliding with a task
+      // elsewhere would collapse the two on the next full merge.
+      const local = this.taskById(id);
+      if (local && local.listId !== list.id) continue;
+      remoteTasks.set(id, t);
+    }
+    const remoteDel = [];
+    for (const d of remote.deleted.values()) {
+      const local = this.taskById(d.id);
+      if (local && local.listId !== list.id) continue;
+      remoteDel.push({ ...d, listId: list.id });
+    }
+
+    const mine = this.tasks.filter((t) => t.listId === list.id);
+    const localDel = this.deletedTasks.filter((d) => !this.#voidTombstone(d));
+    const merged = mergeRecords(mine, [...remoteTasks.values()], localDel, remoteDel, { pruneBefore: cutoff });
+    if (canon(merged.records, merged.deleted) !== canon(mine, this.deletedTasks)) {
+      this.tasks = [...this.tasks.filter((t) => t.listId !== list.id), ...merged.records];
+      this.deletedTasks = merged.deleted;
+      await this.#save('items');
+      this.dispatchEvent(new Event('remote-change'));
+      if (detached()) return;
+    }
+
+    const live = new Set(merged.records.map((t) => t.id));
+    for (const t of merged.records) {
+      if (isArchivedCompletion(t, cutoff)) continue;
+      const cur = remoteTasks.get(t.id);
+      if (!cur || !sameData(cur, t)) {
+        const { listId, ...wire } = t; // each account files it under its own list id
+        writes.push({ key: taskKey(t.id), value: wire });
+      }
+    }
+    const tombs = new Map(merged.deleted.filter((d) => d.listId === list.id).map((d) => [d.id, d]));
+    for (const d of tombs.values()) {
+      if (remote.deleted.get(d.id)?.at !== d.at) writes.push({ key: tombKey(d.id), value: { id: d.id, at: d.at } });
+      if (remote.tasks.has(d.id)) dels.add(taskKey(d.id));
+    }
+    for (const [id, d] of remote.deleted) {
+      // Past the echo window, or outlived by a newer edit.
+      if (!tombs.has(id) && (live.has(id) || d.at < cutoff)) dels.add(tombKey(id));
+    }
+
+    if (detached()) return;
+    try {
+      for (let i = 0; i < writes.length; i += 100) {
+        const batch = writes.slice(i, i + 100).map((w) => ({ key: p + w.key, value: w.value }));
+        await kv.set(...withOpts(batch));
+      }
+      for (const key of dels) await kv.del(...withOpts(p + key));
+    } catch (err) {
+      if (await handleGone(err)) return;
+      throw err;
+    }
+  }
+
+  /* ---------- KV collaboration: discovery and live updates ---------- */
+
+  #discoverPromise = null;
+  #discoveredAt = 0;
+
+  /**
+   * Member (KV): adopt the lists other users shared with this account. Runs
+   * at startup, on kv.share.received, and on focus/poll (throttled). A new
+   * share becomes a local list straight away; there is nothing to accept.
+   * Resolves to how many lists were added.
+   */
+  discoverShares({ force = false } = {}) {
+    if (typeof this.cloud?.kv?.listShared !== 'function') return Promise.resolve(0);
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return Promise.resolve(0);
+    // A forced call mid-flight may be about a share that pass started too
+    // early to see.
+    if (this.#discoverPromise) {
+      return force ? this.#discoverPromise.then(() => this.discoverShares({ force: true })) : this.#discoverPromise;
+    }
+    if (!force && Date.now() - this.#discoveredAt < DISCOVER_MIN_MS) return Promise.resolve(0);
+    this.#discoveredAt = Date.now();
+    this.#discoverPromise = this.#discover().finally(() => { this.#discoverPromise = null; });
+    return this.#discoverPromise;
+  }
+
+  async #discover() {
+    const found = [];
+    let cursor;
+    do {
+      const page = await this.cloud.kv.listShared({ limit: 200, cursor });
+      found.push(...(page?.items || []));
+      cursor = page?.cursor;
+    } while (cursor);
+    const me = await this.#collabIdentity();
+    const added = [];
+    for (const s of found) {
+      if (!s?.handle || s.access !== 'write') continue;
+      if (s.appUid && this.cloud.appID && s.appUid !== this.cloud.appID) continue;
+      if (this.#deadShares.has(`h:${s.handle}`)) continue; // left; the unshare is still owed
+      if (this.lists.some((l) => l.collab?.mode === 'kv' && l.collab.handle === s.handle)) continue;
+      const id = memberListId(s.handle);
+      // Left on another device whose unshare hasn't landed yet: the list's
+      // tombstone postdates the share.
+      const tomb = this.deletedLists.find((d) => d.id === id);
+      if (!this.listById(id) && tomb && tomb.at >= (Number(s.createdAt) || 0) * 1000) continue;
+      let meta;
+      try {
+        meta = parseMeta(await this.cloud.kv.get('meta', { handle: s.handle }));
+      } catch {
+        continue; // revoked meanwhile, or unreachable: the next pass retries
+      }
+      const existing = this.listById(id);
+      if (existing?.collab) continue;
+      await this.#dropOutsiderTombstones(id);
+      const collab = normalizeCollab({
+        mode: 'kv', role: 'member', handle: s.handle, memberId: me.id,
+        ownerName: meta?.owner || null, approved: true, joinedAt: Date.now(),
+      });
+      if (existing) {
+        // The private copy an earlier end of this share left behind.
+        existing.collab = collab;
+        existing.updatedAt = bump(existing.updatedAt);
+        added.push(existing);
+      } else {
+        const order = this.lists.reduce((m, l) => Math.max(m, l.order + 1), 0);
+        const list = normalizeList({
+          id, name: meta?.name || s.label || 'Shared list', icon: meta?.icon, slot: meta?.slot, collab,
+        }, order);
+        this.lists.push(list);
+        added.push(list);
+      }
+    }
+    if (!added.length) return 0;
+    await this.#save('lists');
+    for (const list of added) {
+      this.dispatchEvent(new CustomEvent('collab-joined', {
+        detail: { listId: list.id, name: list.name, owner: list.collab?.ownerName || null },
+      }));
+    }
+    this.#watchCollab();
+    this.syncCollab().catch(() => {});
+    return added.length;
+  }
+
+  /** Live kv subscriptions by list id: { subject, sub, closed, failed }. */
+  #watches = new Map();
+  #notifWatch = false;
+  #collabTimer = null;
+  /** Debounce (ms) for syncs triggered by kv events. */
+  collabDelay = 400;
+
+  /**
+   * Start KV collaboration in the background: subscribe to changes of
+   * every KV list (owner: its prefix; member: the handle), listen for
+   * kv.share.received, and look for new shares. Without the events API,
+   * focus and polling keep lists in sync.
+   */
+  startCollabWatch() {
+    this.#watchNotifications();
+    this.#watchCollab();
+    return this.discoverShares({ force: true }).catch(() => 0);
+  }
+
+  #watchNotifications() {
+    const events = this.cloud?.events;
+    if (this.#notifWatch || typeof events?.onLocal !== 'function'
+      || typeof this.cloud.kv?.listShared !== 'function') return;
+    this.#notifWatch = true;
+    events.onLocal('notif:app-user', ({ event }) => {
+      const type = event?.type || event?.notification?.type;
+      if (type === 'kv.share.received') this.discoverShares({ force: true }).catch(() => {});
+    }).catch(() => { this.#notifWatch = false; });
+  }
+
+  #watchCollab() {
+    const events = this.cloud?.events;
+    if (typeof events?.onLocal !== 'function') return;
+    const wanted = new Map();
+    for (const l of this.lists) {
+      const c = l.collab;
+      if (c?.mode !== 'kv' || (c.role === 'owner' && !this.cloud.appID)) continue;
+      wanted.set(l.id, c.role === 'owner' ? `kv:${this.cloud.appID}:${c.prefix}*` : `kv:${c.handle}:*`);
+    }
+    for (const [id, w] of this.#watches) {
+      if (wanted.get(id) !== w.subject) this.#unwatch(id);
+    }
+    for (const [id, subject] of wanted) {
+      if (this.#watches.has(id)) continue;
+      const w = { subject, sub: null, closed: false, failed: false };
+      this.#watches.set(id, w);
+      const onEvent = ({ event }) => {
+        // My own writes are applied already; a gap means re-read.
+        if (event?.op !== 'gap' && event?.self && !event?.viaWorker) return;
+        clearTimeout(this.#collabTimer);
+        this.#collabTimer = setTimeout(() => this.syncCollab().catch(() => {}), this.collabDelay);
+      };
+      // A failed subscribe stays recorded so it isn't retried every pass;
+      // polling covers that list.
+      events.onLocal(subject, onEvent, {
+        onError: () => { w.sub = null; w.failed = true; },
+      }).then((sub) => {
+        if (w.closed) Promise.resolve(sub?.off?.()).catch(() => {});
+        else w.sub = sub;
+      }, () => { w.failed = true; });
+    }
+  }
+
+  #unwatch(id) {
+    const w = this.#watches.get(id);
+    if (!w) return;
+    this.#watches.delete(id);
+    w.closed = true;
+    if (w.sub) Promise.resolve(w.sub.off?.()).catch(() => {});
   }
 
   async #syncCollabList(list) {
@@ -1759,14 +2275,15 @@ export class Store extends EventTarget {
 
   /** Collaboration over: keep the data, stop the syncing, tell the UI. */
   async #endCollab(list, reason) {
-    // Unpublish first — #deleteCollabFiles needs list.collab, and leaving
-    // the replica behind would keep a full snapshot of the list readable at
-    // a still-valid URL after access ended.
-    this.#deleteCollabFiles(list);
+    // Release first — it needs list.collab, and leaving the replica behind
+    // would keep a full snapshot of the list readable at a still-valid URL
+    // after access ended.
+    const released = this.#releaseCollab(list);
     list.pastCollab = pastCollabOf(list);
     list.collab = null;
     list.updatedAt = bump(list.updatedAt);
     await this.#save('lists');
+    await released;
     this.dispatchEvent(new CustomEvent('collab-ended', {
       detail: { listId: list.id, name: list.name, reason },
     }));
@@ -1858,7 +2375,7 @@ export class Store extends EventTarget {
     const incoming = new Set((data.lists || []).map((l) => l.id));
     for (const list of this.lists.filter((l) => !incoming.has(l.id))) {
       if (list.shared) this.#deleteFile(sharePath(list.id));
-      this.#deleteCollabFiles(list);
+      this.#releaseCollab(list);
     }
     this.#syncSig.clear();
     this.#adopt(
@@ -1885,7 +2402,7 @@ export class Store extends EventTarget {
     // queued (#deadFiles) and are retried until the files are really gone.
     for (const list of this.lists) {
       if (list.shared) this.#deleteFile(sharePath(list.id));
-      this.#deleteCollabFiles(list);
+      this.#releaseCollab(list);
     }
     const oldMonths = this.logMonths;
     if (this.settings.calFeed) this.#deleteFile(ICS_PATH);
