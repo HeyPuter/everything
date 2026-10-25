@@ -19,6 +19,34 @@ const HOLE_AFTER = 20_000;
 /** Records kept in memory per room. */
 const CACHE = 2000;
 const MAX_XLSX = 16_000_000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+/**
+ * How long a refused event-handle mint is not tried again. Every mint, refused or not, spends the owner's budget
+ * of 60 a minute. These hold for every member: the owner's consent (cleared at once when the owner grants it),
+ * the platform, this worker's token, and the owner's account.
+ */
+const SERVER_BACKOFF = {
+  events_kv_handle_not_delegated: 10 * MINUTE,
+  events_disabled: 6 * HOUR,
+  events_kv_handles_disabled: 6 * HOUR,
+  events_kv_handle_owner_only: 6 * HOUR,
+  events_kv_handle_outside_namespace: 6 * HOUR,
+  events_kv_handle_limit_reached: HOUR,
+  account_is_not_verified: HOUR,
+};
+/** These hold for one member of one workbook; anything else, a network failure included, waits the default. */
+const MEMBER_BACKOFF = {
+  recipient_not_accepting_shares: 6 * HOUR,
+  events_kv_handle_requires_account: 6 * HOUR,
+  invalid_kv_share_prefix: 6 * HOUR,
+  too_many_requests: 2 * MINUTE,
+};
+const DEFAULT_BACKOFF = 5 * MINUTE;
+/** Not a room's key (a room id has no `~`): set while handle mints are refused for every member. */
+const EVENTS_OFF = 'ss:~events-off';
+/** Handles taken back in one request; mints and revokes share the 60-a-minute budget. */
+const REVOKE_MAX = 20;
 
 export function fail(status, message) {
   throw Object.assign(new Error(message), { status });
@@ -212,25 +240,60 @@ export class RoomService {
     await this.kv.set(`ss:${room}:ev:signal`, { nonce: crypto.randomUUID(), ...(rev ? { rev } : {}) }).catch(() => {});
   }
 
-  async events(room, user) {
+  /**
+   * How a member hears of changes: the owner watches the room's signal key directly, everyone else through a
+   * handle on it minted for them. `consented` comes from the owner's browser once they allow sharing it.
+   */
+  async events(room, user, { consented = false } = {}) {
     const uid = appUid(this.puter.authToken);
     if (!uid) return null;
-    if (user.uuid === (await this.owner()).uuid) return { app: uid, key: `ss:${room}:ev:signal` };
+    if (user.uuid === (await this.owner()).uuid) {
+      if (consented) await this.kv.del(EVENTS_OFF).catch(() => {});
+      return { app: uid, key: `ss:${room}:ev:signal` };
+    }
     const cache = `ss:${room}:handle:${user.uuid}`;
     let handle = await this.kv.get(cache);
-    if (!handle && this.puter.APIOrigin) {
-      try {
-        const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.puter.authToken}` },
-          body: JSON.stringify({ granteeUid: user.uuid, prefix: `ss:${room}:ev:` }),
-          signal: AbortSignal.timeout(3000),
-        });
-        const data = await res.json();
-        if (res.ok && data.handle) { handle = data.handle; await this.kv.set(cache, handle); }
-      } catch { /* Peer notices and periodic synchronization still deliver changes. */ }
-    }
+    if (!handle && this.puter.APIOrigin) handle = await this.mint(room, user);
     return handle ? { handle, key: 'signal' } : null;
+  }
+
+  /** Mint a member's handle, unless a recent refusal still holds; a refusal is remembered (see SERVER_BACKOFF). */
+  async mint(room, user) {
+    const wait = `ss:${room}:nohandle:${user.uuid}`;
+    const [off, held] = await Promise.all([this.kv.get(EVENTS_OFF), this.kv.get(wait)]);
+    if (off || held) return null;
+    let code = 'network';
+    try {
+      const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.puter.authToken}` },
+        body: JSON.stringify({ granteeUid: user.uuid, prefix: `ss:${room}:ev:` }),
+        signal: AbortSignal.timeout(3000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.handle) {
+        await this.kv.set(`ss:${room}:handle:${user.uuid}`, data.handle);
+        return data.handle;
+      }
+      code = data?.code;
+    } catch { /* Peer notices and periodic synchronization still deliver changes. */ }
+    const until = (ms) => Math.ceil((this.now() + ms) / 1000);
+    if (SERVER_BACKOFF[code]) await this.kv.set(EVENTS_OFF, { code }, until(SERVER_BACKOFF[code])).catch(() => {});
+    else await this.kv.set(wait, { code }, until(MEMBER_BACKOFF[code] ?? DEFAULT_BACKOFF)).catch(() => {});
+    return null;
+  }
+
+  /** Take back a member's handle. One Puter no longer knows is as good as taken back. */
+  async dropHandle(room, uuid) {
+    const key = `ss:${room}:handle:${uuid}`;
+    const handle = await this.kv.get(key);
+    if (!handle || !this.puter.APIOrigin) return;
+    const res = await this.fetcher(`${this.puter.APIOrigin}/events/kv-handles/${encodeURIComponent(handle)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${this.puter.authToken}` },
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => null);
+    if (res && (res.ok || res.status === 404)) await this.kv.del(key);
   }
 
   /* ---------- Requests ---------- */
@@ -265,7 +328,7 @@ export class RoomService {
         return { rev: cp?.rev ?? 0, state, records, head: entry.head, role: member.role };
       }
       case 'events':
-        return { events: await this.events(room, user) };
+        return { events: await this.events(room, user, { consented: input.consented === true }) };
       case 'sync': {
         const since = input.since;
         if (!Number.isInteger(since) || since < 0) fail(400, 'Invalid revision.');
@@ -496,6 +559,9 @@ export class RoomService {
       await this.kv.set(`${prefix}meta`, { ...meta, closed: this.now() });
       this.rooms.delete(room);
       await this.notify(room);
+      // After the notice, so everyone still watching hears the room closed.
+      const handles = (await this.list(`${prefix}handle:`)).slice(0, REVOKE_MAX);
+      await Promise.all(handles.map((row) => this.dropHandle(room, row.key.slice(`${prefix}handle:`.length)).catch(() => {})));
       return { ok: true };
     }
     // Role changes, removal and access expiry.
@@ -510,8 +576,8 @@ export class RoomService {
     await this.setMember(room, { ...record, role, expires: expires ?? null });
     // Their live sessions end; they check in again with the new role.
     for (const row of await this.list(`${prefix}presence:`)) if (row.value.user === target) await this.kv.del(row.key);
-    if (role === 'removed') await this.kv.del(`${prefix}handle:${target}`).catch(() => {});
     await this.notify(room);
+    if (role === 'removed') await this.dropHandle(room, target).catch(() => {});
     return { ok: true };
   }
 }

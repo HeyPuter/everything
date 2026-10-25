@@ -53,6 +53,8 @@ export async function openRoom({ server, room, token, path = null, uid = null })
 /** The address that opens this shared workbook, with an invitation giving `role` (or none: for members only). */
 export async function invitationLink(client, role = null) {
   const token = role ? (await client.request({ op: 'invite', role })).token : undefined;
+  // Live updates for the people invited; the link works either way.
+  client.allowLiveUpdates().catch(() => {});
   return shareLink(location.href, { server: client.o.server, room: client.room, token });
 }
 

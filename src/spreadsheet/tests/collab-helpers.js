@@ -72,8 +72,18 @@ export function environment() {
     kv, fs: fsFor(owner), auth: { getUser: async () => owner }, APIOrigin: 'https://api.puter.test',
     authToken: `header.${btoa(JSON.stringify({ app_uid: 'app-sheet' }))}.signature`,
   };
-  const fetcher = async (_url, options) => {
+  // Puter's handle routes. `env.refuse` answers mints with that error code; `env.mints` and `env.revoked` record calls.
+  Object.assign(env, { refuse: null, mints: [], revoked: [] });
+  const fetcher = async (url, options) => {
+    if (options.method === 'DELETE') {
+      const handle = decodeURIComponent(String(url).split('/').pop());
+      env.revoked.push(handle);
+      handles.delete(handle);
+      return Response.json({ handle, revokedAt: Math.floor(env.now / 1000) });
+    }
     const { granteeUid, prefix } = JSON.parse(String(options.body));
+    env.mints.push(granteeUid);
+    if (env.refuse) return Response.json({ message: 'Refused', code: env.refuse }, { status: 403 });
     const handle = `handle-${granteeUid}`;
     handles.set(handle, prefix);
     return Response.json({ handle });

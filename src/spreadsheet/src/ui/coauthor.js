@@ -171,6 +171,7 @@ export function coauthorSection({ doc, onStarted }) {
       if (!name) { inviteName.focus(); return; }
       try {
         await client.request({ op: 'invite-user', username: name, role: inviteRole.value });
+        client.allowLiveUpdates().catch(() => {});
         inviteName.value = '';
         toast(`${name} can join with the workbook's link`, { icon: 'check', duration: 3000 });
         loadMembers();

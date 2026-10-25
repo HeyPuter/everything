@@ -107,6 +107,7 @@ export class RoomClient extends EventTarget {
     this.roomKey = res.publicKey;
     this.name = res.name;
     this.file = res.file;
+    this.events = res.events;
     // This account's unsent changes only: another account's, kept in this browser, are never sent as this one's.
     this.outboxKey = outboxKey(this.user.uuid, this.room);
     const kept = await this.o.store.get(this.outboxKey);
@@ -147,6 +148,21 @@ export class RoomClient extends EventTarget {
     await this.sync().catch((e) => this.failed(e));
     if (this.replica.pending.length) this.flush();
     return this.wb;
+  }
+
+  /**
+   * The owner's consent for this app to give the people they share with a handle on the room's change signal;
+   * without it, they hear of changes only by polling. Puter remembers the answer, so it prompts at most once.
+   */
+  async allowLiveUpdates() {
+    const { perms, appID } = this.o.puter;
+    const app = this.events?.app;
+    if (this.role !== 'owner' || !app || app !== appID || typeof perms?.request !== 'function') return false;
+    const granted = await (perms.Resource?.KV_SHARE
+      ? perms.request(perms.Resource.KV_SHARE, { prefix: 'ss:', access: 'watch' })
+      : perms.request('permission', { permission: `manage:kv-share:${this.user.uuid}:${app}:ss` })).catch(() => false);
+    if (granted) await this.request({ op: 'events', consented: true }).catch(() => {});
+    return !!granted;
   }
 
   connectedPeers() { return this.peers?.connectedSessions.length ?? 0; }
