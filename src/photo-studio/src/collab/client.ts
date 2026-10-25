@@ -63,6 +63,7 @@ export class RoomClient {
   user?: { uuid: string; username: string };
   owner = '';
   name = '';
+  events: { app?: string; handle?: string; key: string } | null = null;
   roomKey?: Jwk;
   status: Status = { state: 'connecting', pending: 0 };
   people = new Map<string, Person>();
@@ -200,6 +201,7 @@ export class RoomClient {
     this.owner = res.owner;
     this.roomKey = res.publicKey;
     this.name = res.name;
+    this.events = res.events;
     await this.sync();
     // Changes this browser made earlier and never delivered.
     const queued = await this.queued();
@@ -220,6 +222,22 @@ export class RoomClient {
     this.timers.push(setInterval(() => this.expirePeople(), 2000));
     if (!this.o.noPeers && this.o.puter.peer) await this.checkIn().catch(() => {});
     if (queued.length) this.flush();
+  }
+  /**
+   * The owner's consent for this app to give the people they share with a handle on the room's change signal;
+   * without it, they hear of changes only by polling. Puter remembers the answer, so it prompts at most once.
+   */
+  async allowLiveUpdates() {
+    const { perms, appID } = this.o.puter;
+    const app = this.events?.app;
+    if (this.role !== 'owner' || !app || app !== appID || !this.user || typeof perms?.request !== 'function') return false;
+    const kvShare = perms.Resource?.KV_SHARE;
+    const granted = await (kvShare
+      ? perms.request(kvShare, { prefix: 'ps:', access: 'watch' })
+      : perms.request('permission', { permission: `manage:kv-share:${this.user.uuid}:${app}:ps` })
+    ).catch(() => false);
+    if (granted) await this.request({ op: 'events', consented: true }).catch(() => {});
+    return !!granted;
   }
   private async queued(): Promise<OutboxEntry[]> {
     return (await this.o.store.all<OutboxEntry>('outbox')).filter((e) => e.room === this.o.room).sort(outboxOrder);

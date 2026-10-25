@@ -120,6 +120,10 @@ export function environment() {
     offlineUsers: new Set<string>(),
     dropEvents: false,
     now: Date.now(),
+    // Puter's handle routes: `refuse` answers mints with that error code; `mints` and `revoked` record calls.
+    refuse: null as string | null,
+    mints: [] as string[],
+    revoked: [] as string[],
     service: undefined as unknown as RoomService,
     route: undefined as ((user: User) => RoomService | undefined) | undefined,
     sdk: undefined as unknown as (user: User) => CollabPuter,
@@ -186,8 +190,16 @@ export function environment() {
     APIOrigin: 'https://api.puter.test',
     authToken: 'header.' + btoa(JSON.stringify({ app_uid: 'app-photo' })) + '.signature',
   };
-  const fetcher = (async (_url: string, options: RequestInit) => {
+  const fetcher = (async (url: string, options: RequestInit) => {
+    if (options.method === 'DELETE') {
+      const handle = decodeURIComponent(String(url).split('/').pop()!);
+      env.revoked.push(handle);
+      handles.delete(handle);
+      return Response.json({ handle, revokedAt: Math.floor(env.now / 1000) });
+    }
     const { granteeUid, prefix } = JSON.parse(String(options.body));
+    env.mints.push(granteeUid);
+    if (env.refuse) return Response.json({ message: 'Refused', code: env.refuse }, { status: 403 });
     const handle = 'handle-' + granteeUid;
     handles.set(handle, prefix);
     return Response.json({ handle });

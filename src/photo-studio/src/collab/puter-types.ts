@@ -4,6 +4,11 @@ import type { PeerApi } from './peers';
 export interface CollabPuter {
   authToken?: string;
   APIOrigin: string;
+  appID?: string;
+  perms?: {
+    request(resource: string, details?: Record<string, unknown>): Promise<unknown>;
+    Resource?: { KV_SHARE?: string };
+  };
   auth: {
     isSignedIn(): boolean;
     signIn(): Promise<unknown>;

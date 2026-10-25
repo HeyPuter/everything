@@ -126,6 +126,8 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
       void act(async () => {
         const role = value('role');
         const res = await req<{ token: string }>({ op: 'invite', role, review: purpose === 'review', days: Number(value('days')) });
+        // Live updates for the people invited; the link works either way.
+        void cs.client.allowLiveUpdates();
         const link: RoomLink = { server: cs.link.server, room: cs.link.room, token: res.token, review: purpose === 'review' };
         const row = form.querySelector<HTMLElement>('.collab-link')!;
         row.hidden = false;
@@ -144,6 +146,7 @@ ${purpose === 'edit' ? `<section aria-labelledby="collab-user-title"><h3 id="col
     if (a === 'user')
       void act(async () => {
         await req({ op: 'invite-user', username: value('username').trim(), role: value('userrole') });
+        void cs.client.allowLiveUpdates();
         form.querySelector<HTMLInputElement>('[name="username"]')!.value = '';
         form.querySelector<HTMLButtonElement>('[data-act="user"]')!.disabled = true;
         await refresh();
