@@ -146,6 +146,21 @@ export function moveOutlineBlock(model, id, direction, { withSubtree = true } = 
   return moveUnits(model, units, index, end, next);
 }
 
+/**
+ * Move Up / Move Down for selected rows of an outline view: they move together, as one block from the
+ * first selected unit to the last (with the hidden subtree of a collapsed heading, `collapsed(id)`). A
+ * block that is exactly a heading's section moves as that section does; another block passes one unit.
+ */
+export function moveOutlineSelection(model, ids, direction, { collapsed = () => false } = {}) {
+  const units = outlineUnits(model.paragraphs), indices = ids.map(id => unitOf(units, id)).filter(i => i >= 0);
+  if (!indices.length) return false;
+  const first = Math.min(...indices);
+  const end = Math.max(...indices.map(i => collapsed(units[i].id) ? subtreeEnd(units, i) : i + 1));
+  if (units[first].level < BODY_LEVEL && end === subtreeEnd(units, first)) return moveOutlineBlock(model, units[first].id, direction, { withSubtree: true });
+  if (direction < 0) return first > 0 && moveUnits(model, units, first, end, first - 1);
+  return end < units.length && !units[end].final && moveUnits(model, units, first, end, end + 1);
+}
+
 /** Drag and drop in the Navigation pane: the section headed by `id` goes before (or after the section of) `targetId`. */
 export function moveOutlineSection(model, id, targetId, placement = 'before') {
   const units = outlineUnits(model.paragraphs), index = unitOf(units, id), target = unitOf(units, targetId);

@@ -4,7 +4,7 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { createDocx, DocxPackage, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { StorySession } from '../src/engine/story-session.js';
-import { outlineRows, outlineUnits, outlineLevelOf, moveOutlineBlock, moveOutlineSection, setOutlineLevels, promotedLevel, demotedLevel,
+import { outlineRows, outlineUnits, outlineLevelOf, moveOutlineBlock, moveOutlineSection, moveOutlineSelection, setOutlineLevels, promotedLevel, demotedLevel,
   deleteOutlineSection, insertOutlineHeading, styleForOutlineLevel, BODY_LEVEL } from '../src/engine/outline-editing.js';
 
 let dom;
@@ -70,6 +70,22 @@ describe('moving sections', () => {
     expect(texts(model)).toEqual(['Results', 'Results body', 'Detail', 'Detail body', 'Intro', 'Intro body', '']);
     // A section cannot be dropped into itself.
     expect(moveOutlineSection(model, id('Intro'), id('Intro body'))).toBe(false);
+  });
+  it('moves selected rows together: a selected section as a section, other rows one unit at a time', async () => {
+    const { session, model, id } = await outlineDocument(SPEC);
+    // The Intro section, chosen by its outline symbol, in the order the rows were selected.
+    session.run(m => moveOutlineSelection(m, ['Intro', 'Intro body', 'Detail', 'Detail body'].map(id), 1));
+    expect(texts(model)).toEqual(['Results', 'Results body', 'Intro', 'Intro body', 'Detail', 'Detail body', '']);
+    session.run(m => moveOutlineSelection(m, ['Detail body', 'Intro', 'Detail', 'Intro body'].map(id), -1));
+    expect(texts(model)).toEqual(SPEC.map(([text]) => text));
+    // Two body rows pass the one row next to them, and never pass the document's final paragraph.
+    session.run(m => moveOutlineSelection(m, [id('Intro body'), id('Detail')], 1));
+    expect(texts(model)).toEqual(['Intro', 'Detail body', 'Intro body', 'Detail', 'Results', 'Results body', '']);
+    expect(moveOutlineSelection(model, [id('Results'), id('Results body')], 1)).toBe(false);
+    // A collapsed heading in the selection takes its hidden rows along.
+    const fresh = await outlineDocument(SPEC);
+    fresh.session.run(m => moveOutlineSelection(m, [fresh.id('Intro body'), fresh.id('Detail')], 1, { collapsed: each => each === fresh.id('Detail') }));
+    expect(texts(fresh.model)).toEqual(['Intro', 'Results', 'Intro body', 'Detail', 'Detail body', 'Results body', '']);
   });
   it('refuses to move section breaks', async () => {
     const { model, id } = await outlineDocument(SPEC);

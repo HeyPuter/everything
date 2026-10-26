@@ -129,6 +129,24 @@ test('Outline view edits text, levels and order through the Outlining tab, with 
   expect(errors).toEqual([]);
 });
 
+test('Outline view moves a section selected by its symbol as a whole, with the keyboard or the tab', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await headings(page);
+  // The page view's text box stays in the document, out of the accessibility tree, while the outline is shown.
+  const input = page.locator('textarea.canvas-input');
+  await (await viewTab(page)).getByRole('button', { name: 'Outline', exact: true }).click();
+  await expect(page.getByRole('tree', { name: 'Document outline' })).toBeVisible();
+  // Introduction's symbol selects it with Background and their text; Move Down takes all of it past Results.
+  await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-symbol').click();
+  await expect(page.locator('.outline-row.is-selected')).toHaveCount(4);
+  await ribbon(page).getByRole('button', { name: 'Move Down', exact: true }).click();
+  await expect(input).toHaveValue(/^Results\nThe final plan\.\nIntroduction\nThe plan in brief\.[^\n]*\nBackground\nWhy the plan matters\.$/);
+  await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-symbol').click();
+  await page.keyboard.press('Shift+Alt+ArrowUp');
+  await expect(input).toHaveValue(/^Introduction\nThe plan in brief\.[^\n]*\nBackground\nWhy the plan matters\.\nResults\nThe final plan\.$/);
+  expect(errors).toEqual([]);
+});
+
 test('Read Mode turns pages, blocks typing, changes page colour and returns with Escape', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 640 });
   await page.goto('/playground.html');

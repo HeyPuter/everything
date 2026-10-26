@@ -8,7 +8,7 @@
  * undoable step. Tables appear as one row and are edited in the other views.
  */
 import { el, isComposing, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
-import { outlineRows, outlineUnits, subtreeEnd, moveOutlineBlock, setOutlineLevels, promotedLevel, demotedLevel, BODY_LEVEL } from '../engine/outline-editing.js';
+import { outlineRows, outlineUnits, subtreeEnd, moveOutlineBlock, moveOutlineSelection, setOutlineLevels, promotedLevel, demotedLevel, BODY_LEVEL } from '../engine/outline-editing.js';
 
 const INDENT = 26;
 const LEVEL_NAMES = [...Array.from({ length: 9 }, (_, i) => `Level ${i + 1}`), 'Body Text'];
@@ -244,13 +244,12 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
   }
   function move(direction) {
     const ids = targets(); if (!ids.length) return;
-    const id = direction < 0 ? ids[0] : ids.at(-1), focus = focusedId;
+    const focus = focusedId;
     const offset = focus && rowNodes.get(focus) ? caretOffset(rowNodes.get(focus).children[1]) : 0;
-    const withSubtree = collapsedTarget(id) || selectedIds.size > 0;
     run(model => {
-      // A selection of several rows moves as a block: move its first or last unit repeatedly.
-      if (ids.length > 1 && !withSubtree) return ids.map(each => moveOutlineBlock(model, each, direction, { withSubtree: false })).some(Boolean);
-      return moveOutlineBlock(model, id, direction, { withSubtree });
+      // Selected rows (a section chosen by its outline symbol, or a Shift-selected run of rows) move as one block.
+      if (selectedIds.size) return moveOutlineSelection(model, ids, direction, { collapsed: each => collapsed.has(each) });
+      return moveOutlineBlock(model, ids[0], direction, { withSubtree: collapsedTarget(ids[0]) });
     }, { focus: () => focusRow(focus, offset) });
   }
   function toggle(id, open = collapsed.has(id)) {
