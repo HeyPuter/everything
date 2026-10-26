@@ -165,12 +165,14 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     }),
   };
   const themedColor = color => typeof color === 'object' && color?.scheme ? (theme() ? color : presets.resolveColor(color, palette())) : color;
-  /** The picture's pixel size at 96 pixels per inch, kept within the text column. */
+  /** The picture's pixel size at 96 pixels per inch, kept within the text column (or its table cell). */
   function naturalSize() {
     const engine = ready(); if (!engine) return null;
     const source = pictureSource(engine, selected());
     if (!source?.width) return null;
-    const page = engine.model.pageSettings, column = Math.max(IN, (page.width - page.left - page.right) * 635);
+    const model = engine.model, page = model.sectionPageSettings, context = model.tableContext;
+    const cell = context && engine.selectionLayout?.cells.find(box => box.id === context.cell.id);
+    const column = cell ? Math.max(IN / 4, (cell.width * 15 - context.cell.margins.left - context.cell.margins.right) * 635) : Math.max(IN, (page.width - page.left - page.right) * 635);
     const scale = Math.min(1, column / (source.width * EMU_PER_PX));
     return { width: Math.round(source.width * EMU_PER_PX * scale), height: Math.round(source.height * EMU_PER_PX * scale) };
   }

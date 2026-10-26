@@ -72,3 +72,35 @@ test('a drawing canvas inserted in a table cell fits the cell', async ({ page })
   expect(width).toBeGreaterThan(available * 0.9);
   expect(errors).toEqual([]);
 });
+
+test('Reset Picture & Size keeps a picture in a table cell within the cell', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 2 rows' }).click();
+  const available = await cellWidth(page);
+  const wide = await page.evaluate(async () => {
+    const canvas = Object.assign(document.createElement('canvas'), { width: 900, height: 600 }), g = canvas.getContext('2d');
+    g.fillStyle = '#2F6DB5'; g.fillRect(0, 0, 900, 600); g.fillStyle = '#E8833A'; g.fillRect(100, 100, 400, 300);
+    return [...new Uint8Array(await (await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))).arrayBuffer())];
+  });
+  await page.getByLabel('Insert picture file').setInputFiles({ name: 'wide.png', mimeType: 'image/png', buffer: Buffer.from(wide) });
+  await expect.poll(async () => (await drawings(page)).length).toBe(1);
+  // Made smaller first, so that resetting it changes it.
+  await onTab(page, 'picture');
+  const ribbon = page.locator('#ribbon-panel-picture');
+  await ribbon.getByRole('spinbutton', { name: /width \(in\)$/ }).fill('0.5');
+  await ribbon.getByRole('spinbutton', { name: /width \(in\)$/ }).press('Enter');
+  await expect.poll(async () => (await drawings(page))[0]).toBe(48);
+  await ribbon.getByRole('button', { name: 'Reset Picture', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Reset Picture & Size' }).click();
+  await expect.poll(async () => (await drawings(page))[0]).not.toBe(48);
+  const [width] = await drawings(page);
+  expect(width).toBeLessThanOrEqual(Math.ceil(available));
+  expect(width).toBeGreaterThan(available * 0.9);
+  expect(errors).toEqual([]);
+});
