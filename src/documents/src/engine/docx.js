@@ -1849,8 +1849,9 @@ export class DocxPackage {
           // In preview, let readBlocks recover locally instead of losing the story.
           if (children(root).some(n => n.namespaceURI !== W || !['p', 'tbl'].includes(n.localName))) unsupported('page story blocks not yet implemented');
           // Story bookmarks still need an editable identity scope.
-          // Runs, drawings, scoped hyperlinks and page fields use strict readers.
-          if (activeDescendants(root).filter(p => p.namespaceURI === W && p.localName === 'p').some(p => children(p).some(n => n.namespaceURI !== W || !['pPr', 'r', 'fldSimple', 'hyperlink'].includes(n.localName)))) unsupported('unsupported header/footer structure');
+          // Runs, drawings, scoped hyperlinks and page fields use strict readers. Proofing marks
+          // (§17.13.8.1 proofErr, cached spelling results) are left out of a rewritten story.
+          if (activeDescendants(root).filter(p => p.namespaceURI === W && p.localName === 'p').some(p => children(p).some(n => n.namespaceURI !== W || !['pPr', 'r', 'fldSimple', 'hyperlink', 'proofErr'].includes(n.localName)))) unsupported('unsupported header/footer structure');
           if (activeDescendants(root).some(n => n.namespaceURI === W && ['bookmarkStart', 'bookmarkEnd'].includes(n.localName))) unsupported('header/footer bookmark scope');
           if (activeDescendants(root).some(n => n.namespaceURI === W && forbidden.includes(n.localName) && !recordedFormatting(n))) unsupported('unsupported header/footer formatting');
           story.tables = [];
