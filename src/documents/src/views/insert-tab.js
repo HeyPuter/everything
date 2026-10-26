@@ -410,6 +410,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
 
   /* ---- Text boxes, WordArt, signature lines ---- */
+  // Drawings in table cells do not wrap text yet: one placed in a cell sits in front of the text.
+  const inCell = (engine, params) => engine.model.tableContext && params.anchor ? { ...params, anchor: { ...params.anchor, wrap: 'none' } } : params;
   function textBoxPreview(design) {
     const fill = design.shape.fill ? `#${design.shape.fill}` : 'none', stroke = design.shape.line ? `#${design.shape.line}` : 'none';
     const w = Math.min(70, design.width * 11), h = Math.min(90, design.height * 11), x = design.align === 'right' ? 80 - w : design.align === 'center' ? (85 - w) / 2 : 6, y = 26;
@@ -425,7 +427,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       prompt = text ? null : design.prompt;
       if (rect) engine.model.select(rect.position);
       const placement = rect ? { width: rect.dragged ? Math.max(EMU_PER_INCH / 4, rect.width) : null, height: rect.dragged ? Math.max(EMU_PER_INCH / 8, rect.height) : null, anchor: { horizontal: 'page', vertical: 'page', x: rect.x, y: rect.y, wrap: 'square', behind: false, order } } : {};
-      return sceneFragment(engine, textShapeXml(textBoxParams(design, { id, order, text, textWidth: textWidth(engine), ...placement })));
+      return sceneFragment(engine, textShapeXml(inCell(engine, textBoxParams(design, { id, order, text, textWidth: textWidth(engine), ...placement }))));
     }, { edit: () => ({ select: prompt }) });
   }
   function textBoxItems() {
@@ -445,13 +447,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     insertDrawing((engine, id, order) => {
       const text = selectedText(engine);
       prompt = text ? null : WORDART_PROMPT;
-      return sceneFragment(engine, textShapeXml(wordArtParams(style, { id, order, text: text || WORDART_PROMPT, textWidth: textWidth(engine) })));
+      return sceneFragment(engine, textShapeXml(inCell(engine, wordArtParams(style, { id, order, text: text || WORDART_PROMPT, textWidth: textWidth(engine) }))));
     }, { edit: () => ({ select: prompt }) });
   }
   function insertSignatureLine() {
     if (!ready()) return;
     openSignatureDialog({ onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: options => insertDrawing((engine, id, order) =>
-      sceneFragment(engine, withDescription(textShapeXml(signatureLineParams({ ...options, id, order })), `Signature line${options.signer ? ` for ${options.signer}` : ''}${options.instructions ? `. ${options.instructions}` : ''}`))) });
+      sceneFragment(engine, withDescription(textShapeXml(inCell(engine, signatureLineParams({ ...options, id, order }))), `Signature line${options.signer ? ` for ${options.signer}` : ''}${options.instructions ? `. ${options.instructions}` : ''}`))) });
   }
 
   /* ---- Drop cap ---- */
