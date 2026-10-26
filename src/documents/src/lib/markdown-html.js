@@ -10,6 +10,16 @@ import { toHtml } from 'hast-util-to-html';
  * text and formatting, and skips scripts, styles and embedded content as it does for pasted web pages.
  */
 export function markdownHtml(source) {
-  const tree = fromMarkdown(String(source ?? ''), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
-  return toHtml(toHast(tree, { allowDangerousHtml: true }), { allowDangerousHtml: true });
+  try {
+    const tree = fromMarkdown(String(source ?? ''), { extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()] });
+    return toHtml(toHast(tree, { allowDangerousHtml: true }), { allowDangerousHtml: true });
+  } catch (e) {
+    // Structure nested thousands deep (quotes in quotes, emphasis in emphasis) overflows the converters'
+    // recursion. The file's text still opens, one paragraph per line, as it would from a .txt file.
+    if (!(e instanceof RangeError)) throw e;
+    return plainHtml(source);
+  }
 }
+
+const escapeHtml = text => text.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const plainHtml = source => String(source ?? '').replace(/\r\n?/g, '\n').replace(/\n+$/, '').split('\n').map(line => `<p>${escapeHtml(line)}</p>`).join('');

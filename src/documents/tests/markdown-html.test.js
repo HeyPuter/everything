@@ -25,3 +25,9 @@ it('keeps the alignment that align attributes and <center> give blocks', () => {
     ['Documents', 'center'], ['A fast word processor.', 'right'], ['Logo line', 'center'], ['Old style', 'center'], ['Cell', 'left'], ['Centered table', 'left'], ['Body', 'left'],
   ]);
 });
+
+it('opens Markdown nested too deeply to convert as its plain text, one paragraph per line', () => {
+  // Thousands of nested quotations or emphasis markers overflow the Markdown converters' recursion.
+  expect(open(`Intro <b>&amp;</b>\r\n${'>'.repeat(5000)} deep\n`)).toEqual(['Intro <b>&amp;</b>', `${'>'.repeat(5000)} deep`]);
+  expect(open(`${'*'.repeat(5000)}a${'*'.repeat(5000)}`)).toEqual([`${'*'.repeat(5000)}a${'*'.repeat(5000)}`]);
+});
