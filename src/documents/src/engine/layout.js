@@ -191,8 +191,9 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(JSON.stringify([numbering ?? null, revisionView]));
   // Paragraphs keep their content through the passes of one layout; serialize each once.
   const paragraphKeys = storyOptions.paragraphKeys || new WeakMap();
-  // What pagination reads of each block, in order (paragraph-measure-cache.js flowName).
-  let flowNames = paragraphCache ? [] : null;
+  // What pagination reads of each block, in order (paragraph-measure-cache.js flowName). Only footnote
+  // settling reads it (layoutWithFootnotes); naming a table serializes all of its measured rows.
+  let flowNames = paragraphCache && storyOptions.noteReserve !== undefined ? [] : null;
   const pageKey = geometry => { let key = pageKeys.get(geometry); if (key === undefined) pageKeys.set(geometry, key = paragraphCache.intern(JSON.stringify(geometry))); return key; };
   // A screen view (web, draft, read) lays every section out on its own display geometry.
   const viewPage = storyOptions.viewGeometry || (geometry => geometry);

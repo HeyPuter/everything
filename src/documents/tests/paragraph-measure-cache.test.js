@@ -183,6 +183,16 @@ it('measures an AutoFit table\'s cells for its column widths only when they chan
   expect(plain(typed)).toEqual(plain(lay(doc, metrics)));
 });
 
+it('names what pagination reads of the blocks only for documents with footnotes', () => {
+  // Footnote settling compares those names between layouts; naming a table serializes every row.
+  const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
+  doc.select(6); doc.insertTable(30, 3);
+  const { measure } = cachedMeasure();
+  const named = vi.spyOn(ParagraphMeasureCache.prototype, 'flowName');
+  lay(doc, measure); lay(doc, measure);
+  expect(named).not.toHaveBeenCalled();
+});
+
 it('the canvas editor forgets measured paragraphs whenever it forgets measurements', () => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
     fontKerning: 'auto', getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }), measureText: text => ({ width: [...text].length * 8 }),
