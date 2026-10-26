@@ -183,7 +183,17 @@ export function openSymbolDialog({ onInsert, onClose }) {
     grid.replaceChildren(...chars.map(ch => cell(ch, choose)));
     const first = grid.firstElementChild; if (first) first.tabIndex = 0;
   };
-  const drawRecent = () => recent.replaceChildren(...recentSymbols().map(ch => cell(ch, choose)));
+  // The recent symbols are one Tab stop too (each cell alone was out of the keyboard's reach); Left, Right, Home and End move along them.
+  const drawRecent = () => { recent.replaceChildren(...recentSymbols().map(ch => cell(ch, choose))); if (recent.firstElementChild) recent.firstElementChild.tabIndex = 0; };
+  recent.addEventListener('keydown', e => {
+    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+    const cells = [...recent.children], at = cells.indexOf(document.activeElement); if (at < 0) return;
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: cells.length - 1 }[e.key];
+    if (next === undefined) return;
+    e.preventDefault();
+    const target = cells[Math.max(0, Math.min(cells.length - 1, next))];
+    cells[at].tabIndex = -1; target.tabIndex = 0; target.focus(); choose(target.textContent, null);
+  });
   grid.addEventListener('keydown', e => {
     const cells = [...grid.children], at = cells.indexOf(document.activeElement); if (at < 0) return;
     const columns = Math.max(1, Math.round(grid.clientWidth / (cells[0]?.offsetWidth || 32)) || 16);
