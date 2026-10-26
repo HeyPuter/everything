@@ -299,7 +299,10 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
   /* ---- Insert: drawing canvas ---- */
   async function insertCanvas() {
     const engine = ready(); if (!engine) return;
-    const p = engine.model.pageSettings, textWidth = Math.max(240, (p.width - p.left - p.right) / 15);
+    // The canvas fits the caret's section, or its table cell.
+    const model = engine.model, p = model.sectionPageSettings, context = model.tableContext;
+    const box = context && engine.selectionLayout?.cells.find(cell => cell.id === context.cell.id);
+    const textWidth = box ? Math.max(48, box.width - (context.cell.margins.left + context.cell.margins.right) / 15) : Math.max(240, (p.width - p.left - p.right) / 15);
     await committer.commit([{ add: [], canvas: true, width: Math.min(textWidth, 576), height: 288 }]);
     setTool('pen');
   }

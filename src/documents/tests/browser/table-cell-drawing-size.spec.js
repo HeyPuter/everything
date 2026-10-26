@@ -52,3 +52,23 @@ test('charts and diagrams inserted in a table cell fit the cell', async ({ page 
   expect((await drawings(page))[2]).toBe(528);
   expect(errors).toEqual([]);
 });
+
+test('a drawing canvas inserted in a table cell fits the cell', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  await onTab(page, 'insert');
+  await page.locator('#ribbon-panel-insert').getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 2 rows' }).click();
+  const available = await cellWidth(page);
+  await toCell(page, 0);
+  await onTab(page, 'draw');
+  await page.locator('#ribbon-panel-draw').getByRole('button', { name: 'Drawing Canvas', exact: true }).click();
+  await expect.poll(async () => (await drawings(page)).length).toBe(1);
+  const [width] = await drawings(page);
+  expect(width).toBeLessThanOrEqual(Math.ceil(available));
+  expect(width).toBeGreaterThan(available * 0.9);
+  expect(errors).toEqual([]);
+});
