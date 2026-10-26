@@ -32,6 +32,12 @@ zoom.addEventListener('change', () => editor?.setZoom(Number(zoom.value)));
 
 async function show({ name, bytes }) {
   const mine = ++version;
+  try { await render(mine, name, bytes); }
+  // An update that a newer one has replaced says nothing about the document shown.
+  catch (error) { if (mine === version) status.textContent = error?.message || 'The document could not be shown.'; }
+}
+
+async function render(mine, name, bytes) {
   modules ||= await loadEngine();
   const { CanvasEditor, openCanvasDocument, loadCanvasFonts } = modules;
   const { pkg, images, measure } = await openCanvasDocument(new Blob([bytes]));
@@ -54,7 +60,7 @@ else {
   const channel = new BroadcastChannel(`documents-window:${id}`);
   channel.onmessage = e => {
     const message = e.data || {};
-    if (message.type === 'document') show(message).catch(error => { status.textContent = error?.message || 'The document could not be shown.'; });
+    if (message.type === 'document') show(message);
     else if (message.type === 'error') status.textContent = message.message;
     else if (message.type === 'closed') status.textContent = 'The original window was closed. This copy no longer updates.';
   };
