@@ -108,3 +108,19 @@ test('a long selection is worked out once for all the pages painted after it', a
   expect(result.changed).toBe(true);
   expect(result.cleared).toBe(true);
 });
+
+test('pages the view grows to show are painted, not only those a scroll or window resize shows', async ({page}) => {
+  await page.evaluate(async () => {
+    const host = editor.host;
+    host.style.cssText = 'position:fixed;left:0;top:0;width:1000px;height:120px;overflow:auto;background:#ddd';
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    host.scrollTop = host.scrollHeight / 2;
+    await new Promise(resolve => setTimeout(resolve, 100));
+    editor.paintShownPages();
+  });
+  const before = await page.evaluate(() => editor.shownPages());
+  // A pane closes or Focus starts: the view grows without a window resize or scroll.
+  await page.evaluate(() => { editor.host.style.height = '800px'; });
+  await expect.poll(() => page.evaluate(() => editor.shownPages().length)).toBeGreaterThan(before.length);
+  await expect.poll(() => page.evaluate(() => editor.shownPages().filter(index => editor.stalePages.has(index)))).toEqual([]);
+});

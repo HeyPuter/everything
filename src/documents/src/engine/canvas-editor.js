@@ -191,6 +191,12 @@ export class CanvasEditor {
     this.stalePages = new Set();
     document.addEventListener('scroll', () => this.paintShownPages(), { capture: true, passive: true, signal: this.abort.signal });
     window.addEventListener('resize', () => this.paintShownPages(), { signal: this.abort.signal });
+    // The view also grows without the window: a pane closes, the ribbon folds, Focus starts.
+    if (typeof ResizeObserver === 'function') {
+      const resized = new ResizeObserver(() => this.paintShownPages());
+      resized.observe(this.host);
+      this.abort.signal.addEventListener('abort', () => resized.disconnect());
+    }
     this.relayout();
   }
   focus() { this.input.focus({ preventScroll: true }); this.syncInput(); this.paint(); }
