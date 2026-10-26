@@ -4,6 +4,7 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { tokenize, diffSequences, mergeDocuments, finalText, documentAuthor } from '../src/engine/compare.js';
+import { bodyFieldRanges } from '../src/engine/body-fields.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -163,6 +164,31 @@ describe('compare documents', () => {
     expect(changes(model)).toEqual([['del', 'gone'], ['del', ' more']]);
     expect(model.revisions.map(r => r.author)).toEqual(['Ada', 'Rev']);
   });
+});
+
+it('keeps the comment, bookmark and field of a last paragraph that joins a removed one', async () => {
+  const W16 = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const files = unzipSync(docx(p('Intro') + '<w:p><w:commentRangeStart w:id="0"/><w:r><w:t xml:space="preserve">Brand new close by </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> AUTHOR </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>Ada</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r><w:bookmarkStart w:id="5" w:name="Closing"/><w:bookmarkEnd w:id="5"/></w:p>'));
+  files['word/_rels/document.xml.rels'] = strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId9" Type="${W16}/comments" Target="comments.xml"/></Relationships>`);
+  files['word/comments.xml'] = strToU8(`<w:comments xmlns:w="${W}"><w:comment w:id="0" w:author="Ada"><w:p><w:r><w:t>Check this</w:t></w:r></w:p></w:comment></w:comments>`);
+  files['[Content_Types].xml'] = strToU8(strFromU8(files['[Content_Types].xml']).replace('</Types>', '<Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/></Types>'));
+  const original = await open(docx(p('Intro') + p('Zzz qqq') + p('Xxx yyy'))), revised = await open(zipSync(files));
+  const result = mergeDocuments({ paragraphs: revised.paragraphs, tables: revised.tables }, { paragraphs: original.paragraphs, tables: original.tables }, { author: 'Rev' });
+  const model = new TextDocument(result.paragraphs, revised.pageSettings, revised.numbering, revised.styles, result.tables, revised.assets, { comments: revised.comments });
+  expect(changes(model)).toEqual([['del', 'Zzz qqq\nXxx yyy'], ['ins', 'Brand new close by Ada']]);
+  const anchored = m => m.commentList.map(c => m.text.slice(c.start, c.end));
+  const fields = m => bodyFieldRanges(m.paragraphs).map(r => [r.field.type, m.text.slice(r.start, r.end)]);
+  expect(anchored(model)).toEqual(['Brand new close by Ada']);
+  expect(model.bookmarks.map(b => [b.name, b.start])).toEqual([['Closing', model.text.length]]);
+  expect(fields(model)).toEqual([['AUTHOR', 'Ada']]);
+  const bytes = new Uint8Array(await revised.export(result.paragraphs, revised.pageSettings, revised.numbering, revised.styles, result.tables, revised.assets, undefined, revised.comments).arrayBuffer());
+  for (const accept of [true, false]) {
+    const again = await open(bytes), reopened = new TextDocument(again.paragraphs, again.pageSettings, again.numbering, again.styles, again.tables, again.assets, { comments: again.comments });
+    expect(anchored(reopened)).toEqual(['Brand new close by Ada']);
+    reopened.resolveRevisions(accept);
+    expect(reopened.text).toBe(accept ? 'Intro\nBrand new close by Ada' : 'Intro\nZzz qqq\nXxx yyy');
+    if (accept) { expect(anchored(reopened)).toEqual(['Brand new close by Ada']); expect(fields(reopened)).toEqual([['AUTHOR', 'Ada']]); }
+  }
 });
 
 describe('combine documents', () => {

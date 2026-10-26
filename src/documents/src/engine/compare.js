@@ -407,6 +407,9 @@ export function mergeDocuments(base, other, { mode = 'compare', author = 'Author
     if (!before.markRevision) before.markRevision = { ...change };
     else if (before.whole && before.markRevision.type !== change.type) {
       const joined = out[first];
+      // The joined paragraph's bookmarks, comment anchors and fields come along, after the text before them.
+      const shift = fullLength(before);
+      for (const key of ['bookmarks', 'fieldMarkers']) if (joined[key]?.length) before[key] = [...(before[key] || []), ...joined[key].map(m => ({ ...m, offset: m.offset + shift }))];
       before.runs = [...before.runs, ...joined.runs];
       if (first === i) delete before.markRevision; else before.markRevision = joined.markRevision;
       out.splice(first, 1); i--;
