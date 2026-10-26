@@ -234,3 +234,34 @@ it('applies Design changes to a package whose parts are UTF-16', async () => {
   expect(readWatermark(parts)).toMatchObject({ text: 'DRAFT' });
   expect(hasPageFill(parts)).toBe(true);
 });
+
+it('applies a theme with picture fills without leaving references the document cannot resolve', async () => {
+  const { themeFileXml, themeXml, themePartXml } = await import('../src/engine/package-design.js');
+  const { strToU8 } = await import('fflate');
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  // An independently written theme whose third background fill is a picture, as theme packages carry.
+  const picture = `<a:blipFill rotWithShape="1"><a:blip xmlns:r="${R}" r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></a:blipFill>`;
+  const xml = themeXml(resolvedTheme('Citrus')).replace(/(<a:bgFillStyleLst>(?:.(?!<\/a:bgFillStyleLst>))*?)<a:gradFill\b[\s\S]*?<\/a:gradFill>(<\/a:bgFillStyleLst>)/, `$1${picture}$2`);
+  expect(xml).toContain('r:embed="rId1"');
+  const thmx = zipSync({ 'theme/theme/theme1.xml': strToU8(xml), 'theme/theme/_rels/theme1.xml.rels': strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/image" Target="../media/image1.png"/></Relationships>`), 'theme/media/image1.png': new Uint8Array([137, 80, 78, 71]) });
+  const unresolved = parts => {
+    const theme = new DOMParser().parseFromString(themePartXml(parts), 'application/xml');
+    const rels = parts['word/theme/_rels/theme1.xml.rels'] ? new DOMParser().parseFromString(strFromU8(parts['word/theme/_rels/theme1.xml.rels']), 'application/xml') : null;
+    const ids = new Set([...(rels?.documentElement.children || [])].map(n => n.getAttribute('Id')));
+    return [...theme.getElementsByTagName('*')].flatMap(n => [...n.attributes].filter(a => a.namespaceURI === R && !ids.has(a.value)).map(a => a.value));
+  };
+  const parts = await partsOf(blank());
+  applyDesignTheme(parts, { xml: themeFileXml(thmx) });
+  expect(unresolved(parts)).toEqual([]);
+  expect(readThemeInfo(parts).name).toBe('Citrus');
+  const pkg = await DocxPackage.open(zipSync(parts));
+  expect(pkg.readOnly).not.toBe(true);
+  // A theme part's own resolvable picture is kept when its XML is applied again to the same document.
+  const own = await partsOf(blank());
+  applyDesignTheme(own, { theme: resolvedTheme('Harbor') });
+  own['word/theme/_rels/theme1.xml.rels'] = strToU8(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/image" Target="../media/image1.png"/></Relationships>`);
+  own['word/media/image1.png'] = new Uint8Array([137, 80, 78, 71]);
+  applyDesignTheme(own, { xml });
+  expect(themePartXml(own)).toContain('r:embed="rId1"');
+  expect(unresolved(own)).toEqual([]);
+});

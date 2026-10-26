@@ -171,7 +171,7 @@ export function applyThemeParts(parts, change) {
   if (change.xml) {
     const xml = checkedThemeXml(change.xml);
     if (!path) { path = createThemePart(parts); created = true; }
-    parts[path] = strToU8(xml);
+    parts[path] = strToU8(resolvableThemeXml(parts, path, xml));
     return { created, path };
   }
   if (!path) {
@@ -202,6 +202,38 @@ export function applyThemeParts(parts, change) {
   if (name) root.setAttribute('name', name);
   writePart(parts, path, doc);
   return { created, path };
+}
+/**
+ * Theme XML from another package (a .thmx file, a saved or default theme) can name pictures by
+ * relationship IDs (r:embed) that only its own package resolved. Here a picture fill whose IDs do
+ * not resolve from the theme part is replaced by a plain fill of the style color, and any other
+ * unresolved reference is dropped, so the saved package never refers to a missing relationship.
+ */
+function resolvableThemeXml(parts, path, xml) {
+  if (!xml.includes(NS.r)) return xml;
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  const relsPath = relationshipPartPath(path), known = new Set();
+  if (parts[relsPath]) {
+    try {
+      for (const node of children(readPart(parts, relsPath).documentElement, NS.rel, 'Relationship')) {
+        const id = node.getAttribute('Id'), target = node.getAttribute('TargetMode') === 'External' || relationshipTarget(parts, path, id);
+        if (target === true || target && Object.hasOwn(parts, target)) known.add(id);
+      }
+    } catch { known.clear(); }
+  }
+  const unresolved = node => [...node.attributes].filter(a => a.namespaceURI === NS.r && !known.has(a.value));
+  let changed = false;
+  for (const node of [...doc.getElementsByTagNameNS('*', '*')]) {
+    if (!node.isConnected || !unresolved(node).length) continue;
+    changed = true;
+    let fill = node;
+    while (fill && !(fill.namespaceURI === A && fill.localName === 'blipFill')) fill = fill.parentElement;
+    if (fill) {
+      const [solid] = fragment('<a:solidFill><a:schemeClr val="phClr"/></a:solidFill>');
+      fill.replaceWith(doc.importNode(solid, true));
+    } else for (const attribute of unresolved(node)) node.removeAttributeNode(attribute);
+  }
+  return changed ? DECLARATION + new XMLSerializer().serializeToString(doc.documentElement) : xml;
 }
 function createThemePart(parts) {
   const path = uniquePath(parts, 'word/theme/theme', 'xml');
