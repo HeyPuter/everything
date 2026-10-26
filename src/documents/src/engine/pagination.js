@@ -464,15 +464,18 @@ function paginateSegments(segments, page, maxPages, startY, paginateParagraphs, 
             if (occupied) nextPage(); else y = freshTop();
             continue;
           }
+          // Moving on helps when the next physical page has the room this one lacks: the columns left
+          // on a page shared with an earlier section, or a page under a taller header, can have less.
+          const ahead = occupied ? textCapacityAt(page.flowColumns ? (Math.floor(pageIndex / page.flowColumns) + 1) * page.flowColumns : pageIndex + 1) : textCapacity;
           // Move the first line forward instead of leaving it alone. On an empty
           // page a single fitting line is unavoidable, so always make progress.
-          if (end - start === 1 && (occupied || y > freshTop()) && !exceeds(lineHeight(content[start]) + lineFitHeight(content[start + 1]), textCapacity)) {
+          if (end - start === 1 && (occupied || y > freshTop()) && !exceeds(lineHeight(content[start]) + lineFitHeight(content[start + 1]), Math.max(textCapacity, ahead))) {
             if (occupied) nextPage(); else y = freshTop();
             continue;
           }
           // Reserve a preceding line for a final singleton if that pair can fit.
           if (content.length - end === 1 && end - start >= 2 && !exceeds(lineHeight(content[end - 1]) + lineFitHeight(content[end]), textCapacity)) {
-            if (end - start === 2 && occupied && !exceeds(segmentFitHeight(segment), textCapacity)) { nextPage(); continue; }
+            if (end - start === 2 && occupied && !exceeds(segmentFitHeight(segment), Math.max(textCapacity, ahead))) { nextPage(); continue; }
             // Don't exchange one unavoidable singleton for another on this page.
             if (end - start > 2) end--;
           }

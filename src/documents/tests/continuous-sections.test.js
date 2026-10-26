@@ -94,3 +94,22 @@ it('balances columns without leaving one line of a paragraph alone in a column',
  expect(counts.every(n => n !== 1)).toBe(true);
  expect(counts.reduce((a, b) => a + b)).toBe(7);
 });
+
+it('moves a paragraph past columns too short for two of its lines on a shared page', async () => {
+ const { paragraph } = await import('../src/engine/model.js');
+ const { validatePageSettings } = await import('../src/engine/page-settings.js');
+ const measure = text => ({ width: text.length * 8, ascent: 15, descent: 5 });
+ const base = { width: 4320, height: 4320, top: 720, bottom: 720, left: 720, right: 720 };
+ const first = validatePageSettings(base);
+ const columns = validatePageSettings({ ...base, sectionType: 'continuous', columns: { count: 3, space: 360, equalWidth: true, separator: false } });
+ const lines = (n, format = {}) => paragraph(Array.from({ length: n }, (_, i) => `L${i}`).join('\v'), { format: { spaceAfter: 0, ...format } });
+ // Each column left on the first page holds one line: none can start the paragraph without an orphan.
+ const count = paragraph => {
+  const result = layoutDocument([Object.assign(lines(8), { sectionEnd: first }), paragraph], measure, pageGeometry(columns)), counts = {};
+  for (const line of result.lines.filter(l => l.paragraphId === paragraph.id)) counts[`${line.page}/${line.column}`] = (counts[`${line.page}/${line.column}`] || 0) + 1;
+  return counts;
+ };
+ expect(count(lines(40))).toEqual({ '1/0': 9, '1/1': 9, '1/2': 9, '2/0': 9, '2/1': 4 });
+ // Without widow and orphan control the short columns still take a line each.
+ expect(count(lines(40, { widowControl: false }))).toMatchObject({ '0/0': 1, '0/1': 1, '0/2': 1 });
+});
