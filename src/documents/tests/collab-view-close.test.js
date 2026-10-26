@@ -11,6 +11,8 @@ import { MemoryHub } from '../src/collab/transports.js';
 const hub = new MemoryHub(Y.encodeStateAsUpdate(createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('Shared')]), storyEdits: {} } }))));
 const joined = [];
 let release;
+// The file was shared before: its room is remembered.
+vi.mock('../src/collab/room-memory.js', async (importOriginal) => ({ ...await importOriginal(), rememberedRoom: async () => ({ server: 'https://documents-abc.puter.work', room: 'room1' }) }));
 vi.mock('../src/collab/live.js', async (importOriginal) => ({
   ...await importOriginal(),
   // Joining the owner's room takes a few round trips; the test decides when they end.

@@ -9,6 +9,8 @@ import { CollabClient } from '../src/collab/client.js';
 import { MemoryHub } from '../src/collab/transports.js';
 
 let hub;
+// The file was shared before: its room is remembered.
+vi.mock('../src/collab/room-memory.js', async (importOriginal) => ({ ...await importOriginal(), rememberedRoom: async () => ({ server: 'https://documents-abc.puter.work', room: 'r1' }) }));
 vi.mock('../src/collab/live.js', async (importOriginal) => ({
   ...await importOriginal(),
   // The owner reopening a document they shared: the room is the test's hub.

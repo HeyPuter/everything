@@ -292,9 +292,9 @@ export async function shareDocument({ engine, doc, user, name, baseBytes, local,
   return { client, link, reason };
 }
 
-/** Rejoin the room of a document this account shared before (owner reopening it). */
-export async function reconnect(path, user) {
-  const saved = await rememberedRoom(path);
+/** Rejoin the room of a document this account shared before (owner reopening it); `saved`: the room, when already looked up. */
+export async function reconnect(path, user, saved) {
+  if (saved === undefined) saved = await rememberedRoom(path);
   if (!saved?.server || !saved?.room) return null;
   try {
     const transport = workerTransport(saved.server, saved.room, null);
