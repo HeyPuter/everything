@@ -19,7 +19,7 @@ import { COVER_DESIGNS, insertCoverPage, removeCoverPage, coverPageRange } from 
 import { HEADER_DESIGNS, PAGE_NUMBER_DESIGNS, writeStoryLines, removePageNumberParagraphs, storyPageField } from '../engine/header-footer-designs.js';
 import { TEXT_BOX_DESIGNS, WORDART_STYLES, WORDART_PROMPT, textBoxParams, wordArtParams, signatureLineParams, textShapeXml } from '../engine/text-designs.js';
 import { SHAPE_PRESETS, LINE_PRESETS, UNFILLED_PRESETS, DEFAULT_SHAPE_STYLE, shapeDrawingXml } from '../engine/authored-shapes.js';
-import { readDrawingFragment, placeDrawing, freshDrawingAssetId, nextDrawingId, nextDrawingOrder, EMU_PER_INCH } from '../engine/inserted-drawings.js';
+import { readDrawingFragment, placeDrawing, freshDrawingAssetId, nextDrawingId, nextDrawingOrder, carriedFrame, xmlEscape, EMU_PER_INCH } from '../engine/inserted-drawings.js';
 import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
 import { imageInfo, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS } from '../engine/images.js';
 import { diagramDrawingXml, parseDiagramDescription, DIAGRAM_LAYOUTS } from '../engine/diagram-builder.js';
@@ -266,10 +266,17 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return;
     const current = layout ? null : selectedDiagram();
     openDiagramDialog({ initial: current || (layout ? { layout } : null), editing: !!current, onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: ({ layout, colors, items }) => {
-      insertDrawing((engine, id) => {
+      insertDrawing(async (engine, id) => {
         const width = Math.min(textWidth(engine), 6 * EMU_PER_INCH), height = Math.round(Math.min(width * 0.56, 3.5 * EMU_PER_INCH));
         const size = current ? { width: current.image.width, height: current.image.height } : { width, height };
-        return sceneFragment(engine, diagramDrawingXml({ layout, items, colors, id, ...size, anchor: current?.image.anchor || null }));
+        const fragment = await sceneFragment(engine, diagramDrawingXml({ layout, items, colors, id, ...size, anchor: current?.image.anchor || null }));
+        if (!current) return fragment;
+        // An edited diagram keeps its frame (position, wrapping and its outline, distances, title, decorative
+        // mark, locks); only its shapes and the outline kept as its description are new.
+        const { image } = current;
+        const shell = carriedFrame(image.shell, fragment.image.shell, new Set())
+          .replace(/(<wp:docPr\b[^>]*?)\sdescr="[^"]*"/, '$1').replace(/<wp:docPr\b/, `$& descr="${xmlEscape(fragment.image.alt)}"`);
+        return { ...fragment, image: { ...fragment.image, ...(image.anchor ? { anchor: image.anchor } : {}), ...(image.title !== undefined ? { title: image.title } : {}), ...(image.decorative !== undefined ? { decorative: image.decorative } : {}), name: image.name, shell } };
       }, { replace: current?.image || null });
     } });
   }
