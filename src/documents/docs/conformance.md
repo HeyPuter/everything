@@ -23353,6 +23353,13 @@ Supported subset:
   is rewritten on save with its moves in their own named range, as edited moves are, so editing
   elsewhere neither drops the range markers nor leaves an end without its start
   (`tests/move-range-docx.test.js`).
+- Changes tracked inside an inline rich-text or plain-text content control (§17.5.2.29
+  `sdtContent`; §17.13.5.18 `ins`, §17.13.5.14 `del`) are saved: a tracked deletion keeps the
+  control's text, so it now counts as a change of the control and its contents are rewritten
+  with the `w:del` wrapper instead of reusing the source runs. Inline control contents may hold
+  `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), with
+  `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
+  read-only fallback (`tests/control-revisions-docx.test.js`).
 - `revisionView` `insDel`/`formatting` are written from Show Markup; `doNotTrackMoves` and
   `doNotTrackFormatting` from Tracking Options and honored while editing. `hideSpellingErrors` and
   `hideGrammaticalErrors` are written from the Spelling menu. `writeProtection recommended="1"` is

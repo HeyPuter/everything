@@ -5,7 +5,8 @@ import { inlineSegments } from './images.js';
 export function controlSignature(runs) {
   const segments = [];
   for (const run of runs) {
-    const properties = JSON.stringify([run.properties, run.directFormat, run.overrides, run.styleId, !!run.styleChanged, run.link, run.image]);
+    // Tracked changes count: a deletion keeps the text, so a signature without them would reuse the source XML.
+    const properties = JSON.stringify([run.properties, run.directFormat, run.overrides, run.styleId, !!run.styleChanged, run.link, run.image, run.revision, run.formatRevision]);
     if (segments.at(-1)?.properties === properties) segments.at(-1).text += run.text;
     else segments.push({ properties, text: run.text });
   }
