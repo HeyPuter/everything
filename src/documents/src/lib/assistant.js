@@ -44,8 +44,9 @@ export function assistantPrompt({ request, text, scope, history = [] }) {
 export function readReply(response) {
   let text = cleanAnswer(responseText(response));
   let kind = 'answer';
-  const marker = /^(TEXT|ANSWER):[ \t]*\n?/i.exec(text);
-  if (marker) { kind = marker[1].toUpperCase() === 'TEXT' ? 'text' : 'answer'; text = cleanAnswer(text.slice(marker[0].length)); }
+  // Models often dress the label as Markdown ("**TEXT:**", "## Answer:"); it is the label all the same.
+  const marker = /^(?:#{1,6}[ \t]*)?([*_]{0,2})[ \t]*(TEXT|ANSWER)[ \t]*:[ \t]*\1[ \t]*\n?/i.exec(text);
+  if (marker) { kind = marker[2].toUpperCase() === 'TEXT' ? 'text' : 'answer'; text = cleanAnswer(text.slice(marker[0].length)); }
   if (!text) throw new Error('The assistant returned nothing to use');
   return { kind, text, paragraphs: answerParagraphs(text) };
 }

@@ -21,6 +21,11 @@ describe('assistant prompts and replies', () => {
     expect(readReply('ANSWER: It is about planning.').kind).toBe('answer');
     expect(readReply('No marker at all.').kind).toBe('answer');
     expect(() => readReply('TEXT:')).toThrow(/nothing/);
+    // A label dressed as Markdown is still the label, not text to insert.
+    expect(readReply('**TEXT:**\nA new opening line.')).toMatchObject({ kind: 'text', text: 'A new opening line.' });
+    expect(readReply('__Answer:__ It is about planning.')).toMatchObject({ kind: 'answer', text: 'It is about planning.' });
+    expect(readReply('## TEXT:\n\nDraft.')).toMatchObject({ kind: 'text', text: 'Draft.' });
+    expect(readReply('**Bold** opening, no label.')).toMatchObject({ kind: 'answer', text: '**Bold** opening, no label.' });
   });
   it('explains failures in plain words', () => {
     expect(assistantError(new Error('insufficient funds'))).toMatch(/allowance/);
