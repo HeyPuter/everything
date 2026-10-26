@@ -358,6 +358,7 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
   card.addEventListener('keydown', navigate);
   function navigate(e) {
     if (isComposing(e) || e.defaultPrevented) return;
+    if (stepNumber(e)) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       // A drop-down whose commands are all unavailable leaves the keyboard on its button: Escape there closes it.
@@ -382,6 +383,42 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
     const next = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
     if (next === null || !list.length) return;
     e.preventDefault(); list[(next + list.length) % list.length].focus();
+  }
+
+  /**
+   * Up and Down step a number field (an indent, a spacing, a size) and apply each step, as the field's own arrows
+   * do. Applying hands focus to the document, which took the keyboard out of the field after one step, and the next
+   * Up moved the caret instead (out of a table, its tab went with it): the field keeps the keyboard while stepping.
+   */
+  function stepNumber(e) {
+    const input = e.target;
+    if (!input.matches?.('input[type="number"]') || input.disabled || input.readOnly || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return false;
+    e.preventDefault();
+    // A drawing's new size lands a moment later and then hands focus to the document, unless the focus is somewhere
+    // that keeps it (see placeDrawing): the field keeps it while it is being stepped, until another key or a blur.
+    if (!('keepsFocus' in input.dataset)) {
+      input.dataset.keepsFocus = '';
+      const release = event => {
+        if (event.type === 'keydown' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) return;
+        delete input.dataset.keepsFocus;
+        input.removeEventListener('keydown', release); input.removeEventListener('blur', release);
+      };
+      input.addEventListener('keydown', release); input.addEventListener('blur', release);
+    }
+    const up = e.key === 'ArrowUp';
+    if (input.step && input.step !== 'any') {
+      if (input.value === '') input.value = input.min && Number(input.min) > 0 ? input.min : '0';
+      try { if (up) input.stepUp(); else input.stepDown(); } catch { return true; }
+    } else {
+      const value = input.value === '' ? 0 : Number(input.value);
+      if (!Number.isFinite(value)) return true;
+      const min = input.min === '' ? -Infinity : Number(input.min), max = input.max === '' ? Infinity : Number(input.max);
+      input.value = String(Math.min(max, Math.max(min, value + (up ? 1 : -1))));
+    }
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (input.isConnected && !input.closest('[hidden]')) input.focus();
+    return true;
   }
 
   select(current);

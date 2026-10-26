@@ -307,6 +307,61 @@ test('a gallery\'s More menu opened from the keyboard closes back to its button,
   await expect.poll(focused).toBe('Document text');
 });
 
+test('the arrow keys step the Layout tab\'s indent and spacing fields, keeping the keyboard in the field', async ({ page }) => {
+  await openEditor(page, 1600);
+  await page.getByRole('textbox', { name: 'Document text' }).fill('A paragraph to indent.');
+  await tab(page, 'Layout').click();
+  const panel = page.locator('#ribbon-panel-layout');
+  const paragraph = () => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return { left: m.paragraphFormatting?.indentLeft, before: m.paragraphFormatting?.spaceBefore ?? m.paragraphs[0].format?.spaceBefore }; });
+  for (const [name, from, to] of [['Indent left (in)', '0', '0.3'], ['Space before paragraph (pt)', '0', '3']]) {
+    const field = panel.getByRole('spinbutton', { name, exact: true });
+    await expect(field).toHaveValue(from);
+    await field.focus();
+    for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
+    await expect(field).toBeFocused();
+    await expect(field).toHaveValue(to);
+    await page.keyboard.press('ArrowDown');
+    await expect(field).toBeFocused();
+  }
+  // Enter in the indent field still applies and goes back to the document.
+  await panel.getByRole('spinbutton', { name: 'Indent left (in)', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeFocused();
+  const after = await paragraph();
+  expect(after.left).toBe(288); // 0.2 in, in twips
+  expect(await panel.getByRole('spinbutton', { name: 'Space before paragraph (pt)', exact: true }).inputValue()).toBe('2');
+  // A table row's height: stepping kept the caret in the table, so the table's tab stays.
+  await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.press('Enter');
+  await tab(page, 'Insert').click();
+  await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+  await tab(page, 'Table Layout').click();
+  const height = page.locator('#ribbon-panel-tableLayout').getByRole('spinbutton', { name: 'Height (in)', exact: true });
+  const start = Number(await height.inputValue());
+  await height.focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowUp');
+  await expect(height).toBeFocused();
+  await expect.poll(async () => Number(await height.inputValue())).toBeCloseTo(start + 0.03, 5);
+  // A shape's size applies a moment after each step; the keyboard stays in the field meanwhile.
+  await page.keyboard.press('Escape');
+  await tab(page, 'Insert').click();
+  await page.getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.locator('.shape-gallery-item').nth(2).click();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 200, y: 600 } });
+  await tab(page, 'Shape Format').click();
+  const shapeHeight = page.locator('#ribbon-panel-shapeFormat').getByRole('spinbutton', { name: 'Shape height (in)', exact: true });
+  const shapeStart = Number(await shapeHeight.inputValue());
+  await shapeHeight.focus();
+  for (let i = 0; i < 3; i++) { await page.keyboard.press('ArrowUp'); await page.waitForTimeout(150); }
+  await expect(shapeHeight).toBeFocused();
+  await expect.poll(async () => Number(await shapeHeight.inputValue())).toBeCloseTo(shapeStart + 0.03, 5);
+  // A typed size and Enter still apply and return to the document.
+  await shapeHeight.fill('1.5');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeFocused();
+  await expect(shapeHeight).toHaveValue('1.5');
+});
+
 test('the subscript and superscript icons draw their digit large enough to read at 16px', async ({ page }) => {
   await openEditor(page);
   for (const name of ['Subscript', 'Superscript']) {
