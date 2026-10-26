@@ -91,6 +91,15 @@ describe('Harvard', () => {
   });
 });
 
+describe('reference list order', () => {
+  it('orders by every author\'s name, a sole author before the same author with others', () => {
+    const work = (tag, authors, year) => ({ tag, type: 'Book', names: { Author: authors }, fields: { Title: `Work ${tag}`, Year: year, Publisher: 'Press' } });
+    const list = [work('SmithZ', [person('Smith', 'Zoe')], '2010'), work('SmithJones', [person('Smith', 'Ann'), person('Jones', 'Kim')], '2015'),
+      work('SmithBrown', [person('Smith', 'Ann'), person('Brown', 'Lee')], '2018'), work('Smith', [person('Smith', 'Ann')], '2020')];
+    for (const style of ['apa', 'chicago', 'harvard', 'mla']) expect(formatBibliography(style, list).map(e => e.tag), style).toEqual(['Smith', 'SmithBrown', 'SmithJones', 'SmithZ']);
+  });
+});
+
 describe('titles ending in a question or exclamation mark', () => {
   it('take no extra period or comma inside the quotation marks', () => {
     const question = { tag: 'Q20', type: 'JournalArticle', names: { Author: [person('Smith', 'Ann')] }, fields: { Title: 'Why do engines fail?', JournalName: 'Review', Year: '2020', Volume: '3', Pages: '1-2' } };

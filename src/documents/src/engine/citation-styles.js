@@ -559,7 +559,19 @@ const ENTRY = { apa: apaEntry, mla: mlaEntry, chicago: chicagoEntry, harvard: ha
 
 /* ---- Ordering, numbering and disambiguation ---- */
 const authorKey = source => contributors(source).list.map(p => sortKey(lastName(p)) + '/' + sortKey(p.first || '')).join(';');
-const entryKey = source => sortKey(contributors(source).list[0] ? lastName(contributors(source).list[0]) : field(source, 'Title'));
+// Entries are ordered by their authors' names (surname, then given names) one author after another, a work by one
+// author before works by that author with others, and a work without authors by its title in their place.
+const authorNames = source => { const list = contributors(source).list; return list.length ? list.map(p => [sortKey(lastName(p)), sortKey(p.first || '')]) : [[sortKey(field(source, 'Title')), '']]; };
+function compareAuthors(a, b) {
+  const x = authorNames(a), y = authorNames(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    if (!x[i]) return -1;
+    if (!y[i]) return 1;
+    const order = x[i][0].localeCompare(y[i][0]) || x[i][1].localeCompare(y[i][1]);
+    if (order) return order;
+  }
+  return 0;
+}
 
 /**
  * The context a style needs across a document: IEEE numbers in order of first citation, and the a/b/c
@@ -586,7 +598,7 @@ export function formatBibliography(style, sources, citedTags = []) {
   const context = citationContext(style, sources, citedTags);
   const real = sources.filter(s => !isPlaceholder(s));
   const ordered = style === 'ieee' ? [...real].sort((a, b) => context.numbers.get(a.tag) - context.numbers.get(b.tag))
-    : [...real].sort((a, b) => entryKey(a).localeCompare(entryKey(b)) || field(a, 'Year').localeCompare(field(b, 'Year')) || (context.letters.get(a.tag) || '').localeCompare(context.letters.get(b.tag) || '') || sortKey(field(a, 'Title')).localeCompare(sortKey(field(b, 'Title'))));
+    : [...real].sort((a, b) => compareAuthors(a, b) || field(a, 'Year').localeCompare(field(b, 'Year')) || (context.letters.get(a.tag) || '').localeCompare(context.letters.get(b.tag) || '') || sortKey(field(a, 'Title')).localeCompare(sortKey(field(b, 'Title'))));
   return ordered.map(source => ({ tag: source.tag, runs: format(source, { letter: context.letters.get(source.tag) || '', number: context.numbers.get(source.tag) }) }));
 }
 
