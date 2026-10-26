@@ -26,7 +26,7 @@ import { openModal } from '../ui/modal.js';
 import { HANWORD_IMPORTABLE } from '../lib/importers.js';
 import { importFiles, nothingImportable } from '../lib/importfiles.js';
 import { documentPathKey } from '../lib/document-paths.js';
-import { forgetRoom, moveRoom } from '../collab/room-memory.js';
+import { endRoom, forgetRoom, moveRoom } from '../collab/room-memory.js';
 import { madeFiles, forgetMade, withMade, madeLocation, inAppFolder } from '../lib/made.js';
 
 export const SORTS = [
@@ -389,7 +389,8 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       forgetStar(file.path);
       rememberGoal(file.path, null);
       forgetPosition(file.path);
-      forgetRoom(file.path);
+      // A shared document's guests are told it is gone, rather than go on editing what nobody saves.
+      endRoom(file.path);
       forgetMade(file.path);
       files = files.filter((f) => f.path !== file.path);
       // A listing started before deletion can still contain this file. Fetch

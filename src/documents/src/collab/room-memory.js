@@ -55,3 +55,18 @@ export async function moveRoom(from, to) {
 
 /** A deleted file, or a new file at a path, has no room. */
 export const forgetRoom = path => rememberRoom(path, null);
+
+/**
+ * A shared file was deleted: nobody saves its room any more. Sharing stops, so the people still in it are told
+ * and can keep a copy of their own rather than go on editing a document that is saved nowhere. Best effort.
+ */
+export async function endRoom(path) {
+  const room = await rememberedRoom(path);
+  if (room?.server && room?.room) {
+    try {
+      const { call } = await import('./api.js');
+      await call(sdk(), room.server, { op: 'stop', room: room.room });
+    } catch (e) { console.warn('[documents] sharing of the deleted document could not be stopped', e); }
+  }
+  await forgetRoom(path);
+}
