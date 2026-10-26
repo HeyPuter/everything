@@ -175,15 +175,19 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   }
   const message = el('p.field-error', { role: 'alert', hidden: true });
   let modal;
-  const form = el('form.ed-dialog-body.ed-font-dialog', { onsubmit: async e => {
-    e.preventDefault();
-    if (!form.reportValidity()) return;
+  /** Apply the changes made so far; false (with the reason shown) when they cannot be. */
+  const commit = async () => {
+    if (!form.reportValidity()) return false;
     if (Object.keys(patch).length) {
       let failure = null;
       const ok = await apply(patch, error => { failure = error; });
-      if (ok === false) { message.textContent = failure?.message || 'This formatting cannot be applied to the selection.'; message.hidden = false; return; }
+      if (ok === false) { message.textContent = failure?.message || 'This formatting cannot be applied to the selection.'; message.hidden = false; return false; }
     }
-    modal.close();
+    return true;
+  };
+  const form = el('form.ed-dialog-body.ed-font-dialog', { onsubmit: async e => {
+    e.preventDefault();
+    if (await commit()) modal.close();
   } },
   el('div.ed-font-tabs', { role: 'tablist', 'aria-label': 'Font settings' }, ...tabButtons),
   fontPanel, advancedPanel,
@@ -198,7 +202,8 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
         if (ok === false) { if (failure) { message.textContent = failure.message; message.hidden = false; } return; }
         modal.close();
       } }, 'Set As Default'),
-      textEffects && el('button.btn.btn-outline', { type: 'button', onclick: () => { modal.close(); textEffects(); } }, 'Text Effects…')),
+      // Text Effects takes the Font dialog's changes with it, as the Paragraph dialog's Tabs… does.
+      textEffects && el('button.btn.btn-outline', { type: 'button', onclick: async () => { if (!await commit()) return; modal.close(); textEffects(); } }, 'Text Effects…')),
     el('div.row.row-end', {}, el('button.btn.btn-ghost', { type: 'button', onclick: () => modal.close() }, 'Cancel'), el('button.btn.btn-primary', { type: 'submit' }, 'OK'))));
   revealInvalidControls(form);
   modal = openModal({ title, content: form, wide: true, onClose });
