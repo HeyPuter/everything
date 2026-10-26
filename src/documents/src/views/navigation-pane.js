@@ -79,6 +79,9 @@ export function createNavigationPane(api) {
     renderResults();
   });
 
+  /** The heading button for a paragraph, found by its id (no selector to escape, which not every environment offers). */
+  const headingButton = id => [...headingList.querySelectorAll('.nav-heading')].find(button => button.dataset.paragraph === id) || null;
+
   /* ---- Rendering ---- */
   function renderHeadings() {
     const next = JSON.stringify([entries, [...collapsed]]);
@@ -116,7 +119,7 @@ export function createNavigationPane(api) {
         rows.push(el('li', { role: 'none' }, row));
       });
       headingList.replaceChildren(...rows);
-      if (focused) headingList.querySelector(`[data-paragraph="${CSS.escape(focused)}"]`)?.focus();
+      if (focused) headingButton(focused)?.focus();
     }
     const here = entries.filter(entry => entry.start <= position).at(-1)?.id;
     for (const button of headingList.querySelectorAll('.nav-heading')) {
@@ -140,13 +143,13 @@ export function createNavigationPane(api) {
     } else if (key === 'ArrowLeft') {
       if (parent && !collapsed.has(entry.id)) { collapsed.add(entry.id); renderHeadings(); return; }
       const up = entries.slice(0, index).findLast(e => e.level < entry.level);
-      if (up) focus(headingList.querySelector(`[data-paragraph="${CSS.escape(up.id)}"]`));
+      if (up) focus(headingButton(up.id));
     }
   }
   /* ---- Rearranging headings: drag a heading to move its section; its menu changes levels ---- */
   const actions = () => api.headingActions?.() || null;
   const editable = () => !!actions()?.canEdit?.();
-  const refocus = id => requestAnimationFrame(() => headingList.querySelector(`[data-paragraph="${CSS.escape(id)}"]`)?.focus());
+  const refocus = id => requestAnimationFrame(() => headingButton(id)?.focus());
   let dragging = null;
   function dragHeading(row, heading, entry) {
     heading.draggable = true;
