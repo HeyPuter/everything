@@ -23836,8 +23836,13 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   `m:limLoc`, `m:subHide`/`m:supHide`), delimiters `m:d` (`m:begChr`/`m:endChr`), functions
   `m:func`, limits `m:limLow`, accents `m:acc`, bars `m:bar`, matrices `m:m` and equation arrays
   `m:eqArr`, with child elements in schema order. Equations are atomic objects: the canvas shows
-  their linear text; the editor dialog previews them as MathML. Gaps: alignment points in equation
-  arrays, delimiter separators, nested superscripts, two-dimensional canvas rendering.
+  their linear text; the editor dialog previews them as MathML. Edit Equation shows a selected
+  equation in the input syntax, so that updating it unchanged builds the same structures (binomials
+  as `m:type="noBar"` fractions, `m:m`, `m:eqArr`, `m:deg`, multi-letter accents and bars). Gaps:
+  alignment points in equation arrays, delimiter separators, nested superscripts, two-dimensional
+  canvas rendering; an edited equation loses structures the input syntax has no form for (`m:box`,
+  `m:borderBox`, `m:groupChr`, `m:phant`, `m:sPre`, `m:limUpp` outside a function name, an n-ary
+  operand followed by more terms before a relation) and run formatting other than plain style.
 
 ### Symbols
 

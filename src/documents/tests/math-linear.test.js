@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom';
 import { zipSync, strToU8, unzipSync, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
-import { parseLinearMath, linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../src/engine/math-linear.js';
+import { parseLinearMath, linearToOmml, ommlToLinear, ommlToEditableLinear, EQUATION_GALLERY } from '../src/engine/math-linear.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -157,6 +157,41 @@ describe('linear format to Office Math', () => {
     // Fragments retained without their own namespace declarations.
     expect(ommlToLinear('<m:oMath><m:r><m:t>a</m:t></m:r></m:oMath>')).toBe('a');
     expect(ommlToLinear('<broken')).toBe('');
+  });
+});
+
+describe('editing an existing equation', () => {
+  // Edit Equation shows the equation as linear text; typed back unchanged, it must build the same equation.
+  const same = linear => {
+    const xml = linearToOmml(linear), editable = ommlToEditableLinear(xml);
+    expect(linearToOmml(editable), `${linear} → ${editable}`).toBe(xml);
+    return editable;
+  };
+  it('writes every structure in a form that builds it again', () => {
+    for (const { linear } of EQUATION_GALLERY) same(linear);
+    // Binomials, matrices and equation arrays stay themselves; roots keep their degree.
+    expect(same('(n¦k)')).toBe('(n¦k)');
+    expect(same('|■(a&b@c&d)|')).toBe('|■(a&b@c&d)|');
+    expect(same('█(x+y=1@x-y=3)')).toBe('█(x+y=1@x−y=3)');
+    expect(same('∛x')).toBe('√(3&x)');
+    expect(same('\\sqrt(4&y)')).toBe('√(4&y)');
+    // Accents over several letters, scripts and fractions beside other terms, functions after scripts.
+    expect(same('\\hat(xy)')).toBe('hat(xy)');
+    expect(same('1/2 x')).toBe('1/2 x');
+    expect(same('a_n cos x')).toBe('a_n cos x');
+    expect(same('f^((n))(a)')).toBe('f^((n)) (a)');
+    for (const linear of ['"rate" x', 'x̅+y̲', '\\vec v', '\\operatorname{sgn} x', 'log_2 x', 'max_(i) a_i', '‖v‖', '|x|^2', '⌊x⌋', '√(x^2+1)', '(1+x)^n/n!',
+      'x^2y', 'e^(-x^2/2)', '∫_a^b f(x) dx=F(b)-F(a)', '■(1&0&0@0&1&0@0&0&1)', 'α_1^β', 'sin(x)/x', 'x/sin x', 'tan θ=sin θ/cos θ', '\\frac{a+b}{2}',
+      'P(A|B)=P(B|A)P(A)/P(B)', '√(√x)', 'e^(sin x)', 'x_(n+1)=x_n-f(x_n)/f′(x_n)', 'x^(a+b)', 'x_(i,j)', '(a)(b)', 'a\\overline(xy)']) same(linear);
+  });
+  it('reads equations written by other applications', () => {
+    const word = `<m:oMath xmlns:m="${M}" xmlns:w="${W}"><m:r><w:rPr><w:rFonts w:ascii="Cambria Math"/></w:rPr><m:t>y=</m:t></m:r><m:f><m:fPr><m:ctrlPr><w:rPr><w:i/></w:rPr></m:ctrlPr></m:fPr><m:num><m:r><m:t>1</m:t></m:r></m:num><m:den><m:r><m:t>2</m:t></m:r></m:den></m:f><m:r><m:t>x</m:t></m:r><m:rad><m:radPr><m:degHide m:val="1"/><m:ctrlPr/></m:radPr><m:deg/><m:e><m:r><m:t>x+1</m:t></m:r></m:e></m:rad><m:func><m:funcPr><m:ctrlPr/></m:funcPr><m:fName><m:r><m:rPr><m:sty m:val="p"/></m:rPr><m:t>sgn</m:t></m:r></m:fName><m:e><m:r><m:t>x</m:t></m:r></m:e></m:func><m:bar><m:barPr><m:pos m:val="top"/></m:barPr><m:e><m:r><m:t>z</m:t></m:r></m:e></m:bar></m:oMath>`;
+    const editable = ommlToEditableLinear(word);
+    expect(editable).toBe('y=1/2 x√(x+1) \\operatorname{sgn} x z̅');
+    const built = parse(linearToOmml(editable));
+    expect(['f', 'rad', 'func', 'bar'].map(name => all(built, name).length)).toEqual([1, 1, 1, 1]);
+    expect(text(child(all(built, 'func')[0], 'fName'))).toBe('sgn');
+    expect(ommlToEditableLinear('<broken')).toBe('');
   });
 });
 

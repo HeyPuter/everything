@@ -24,7 +24,7 @@ import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
 import { imageInfo, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS } from '../engine/images.js';
 import { diagramDrawingXml, parseDiagramDescription, DIAGRAM_LAYOUTS } from '../engine/diagram-builder.js';
 import { insertBodyField, fieldInstruction, evaluateField, documentProperties, setFieldContextProvider, DOCUMENT_PROPERTY_NAMES, formatDatePicture } from '../engine/field-results.js';
-import { linearToOmml, ommlToLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
+import { linearToOmml, ommlToLinear, ommlToEditableLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
 import { dropCapState, setDropCap } from '../engine/drop-caps.js';
 import { iconSvg } from '../lib/icon-library.js';
@@ -619,7 +619,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const engine = ready(); if (!engine) return;
     engine.finishComposition();
     const current = initial ? null : selectedMath();
-    openEquationDialog({ initial: initial?.linear ?? (current ? ommlToLinear(current.math.xml) : ''), display: initial?.display ?? /oMathPara/.test(current?.math.xml || ''), editing: !!current,
+    openEquationDialog({ initial: initial?.linear ?? (current ? ommlToEditableLinear(current.math.xml) : ''), display: initial?.display ?? /oMathPara/.test(current?.math.xml || ''), editing: !!current,
       onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: placeEquation });
   }
   function equationItems() {
