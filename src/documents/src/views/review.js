@@ -201,14 +201,17 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       return engine.session.body.revisionsAt?.(...engine.session.body.range) || [];
     },
     hasRevisions() { return (editor()?.session.body.revisions || []).length > 0; },
-    resolve(accept, scope = 'here', { moveNext = false, stopTracking = false } = {}) {
+    resolve(accept, scope = 'here', { moveNext = false, stopTracking = false, change = null } = {}) {
       const engine = ready(); if (!engine) return;
       if (locked()) { error(new Error('Tracking is locked: changes cannot be accepted or rejected.')); return; }
       if (engine.session.path !== null) engine.editStory(null);
       const body = engine.session.body, [a, b] = body.range;
+      // A balloon's buttons act on its own change. Its range can hold others (a paragraph's formatting change spans
+      // the paragraph), and resolving the range accepted or rejected every insertion and deletion in it too.
+      const own = change && (c => c.type === change.type && c.author === change.author && c.date === change.date && !!c.move === !!change.move);
       // "All shown" leaves the changes of reviewers and kinds hidden by Show Markup alone.
       const ok = run(() => scope === 'shown' ? body.resolveRevisions(accept, undefined, undefined, { only: change => shownChanges([change]).length > 0 })
-        : scope === 'all' ? body.resolveRevisions(accept) : body.resolveRevisions(accept, a, b));
+        : scope === 'all' ? body.resolveRevisions(accept) : own ? body.resolveRevisions(accept, change.start, change.end, { only: own }) : body.resolveRevisions(accept, a, b));
       if (!accept && body.formatRejectSkipped) error(new Error('Formatting changes cannot be rejected here yet, so they were kept. Accept them, or change the formatting back by hand.'));
       if (stopTracking) commands.toggleTracking(false);
       if (ok && moveNext) commands.goChange(1, { from: body.range[0] });
@@ -371,7 +374,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const engine = editor(), body = engine.session.body;
     const text = change.type === 'format' ? formatSummary(body, change) : body.text.slice(change.start, Math.min(change.end, body.text.length)).replace(/\n/g, ' ¶ ');
     const editable = !!ready() && !locked();
-    const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept); };
+    const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept, 'here', { change }); };
     return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
       el('div.wcc-head', {}, avatar(change.author), el('div.wcc-meta', {}, el('span.wcc-author', {}, change.author || 'Unknown author'), el('span.wcc-date', {}, time(change.date))),
         el('button.icon-btn.wcc-more', { type: 'button', title: 'Accept', 'aria-label': 'Accept change', disabled: !editable, onclick: () => act(true) }, '✓'),

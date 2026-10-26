@@ -785,3 +785,34 @@ test('correcting a misspelled possessive keeps its ’s', async ({ page }) => {
   await expect(input).toHaveValue('I saw receive’s notice.');
   expect(errors).toEqual([]);
 });
+
+test('a formatting balloon\'s Accept and Reject leave the other changes in its paragraph', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Plain words stay plain.');
+  await onTab(page, 'review');
+  await input.press('ControlOrMeta+Shift+e');
+  await expect(review(page).getByRole('button', { name: 'Track Changes', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await select(input, 6);
+  await page.keyboard.type('new ');
+  await select(input, 2);
+  await input.press('ControlOrMeta+e');
+  const changes = () => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return m.revisions.map(r => [r.type, m.text.slice(r.start, r.end)]); });
+  await expect.poll(changes).toEqual([['format', 'Plain new words stay plain.'], ['ins', 'new ']]);
+  const balloon = page.locator('.ed-revision-card');
+  await expect(balloon).toContainText('Formatted');
+  // Rejecting the centring takes it back and keeps the typed words, still tracked.
+  await balloon.getByRole('button', { name: 'Reject change' }).click();
+  await expect.poll(changes).toEqual([['ins', 'new ']]);
+  await expect(input).toHaveValue('Plain new words stay plain.');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].format.alignment)).not.toBe('center');
+  await select(input, 2);
+  await input.press('ControlOrMeta+e');
+  await balloon.getByRole('button', { name: 'Accept change' }).click();
+  await expect.poll(changes).toEqual([['ins', 'new ']]);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].format.alignment)).toBe('center');
+  expect(errors).toEqual([]);
+});
