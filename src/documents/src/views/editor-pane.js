@@ -3,7 +3,7 @@
  * AI (off until the reader turns it on, and marked as AI), and document statistics with readability
  * scores computed on this device. Corrections are ordinary edits, one undo step each.
  */
-import { el, listItem } from '../ui/dom.js';
+import { el, listItem, listboxKeys } from '../ui/dom.js';
 import * as P from '../lib/puter.js';
 import { engineApi } from '../lib/engine-api.js';
 import { textStatistics, easeLabel } from '../lib/readability.js';
@@ -40,12 +40,15 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
     reveal(editor(), m.start, m.end);
     const options = proofing.suggest(m.word);
     const editable = !pkg()?.readOnly;
+    const chooseItem = item => { for (const other of choice.children) other.setAttribute('aria-selected', String(other === item)); };
     const choice = el('div.rv-suggestions', { role: 'listbox', 'aria-label': `Suggestions for ${m.word}` }, ...(options.length ? options : []).map((option, i) => {
       const item = el('button.ed-proof-suggestion', { type: 'button', role: 'option', 'aria-selected': String(i === 0), dataset: { value: option }, disabled: !editable,
-        onclick: () => { for (const other of choice.children) other.setAttribute('aria-selected', String(other === item)); },
+        onclick: () => chooseItem(item),
         ondblclick: () => apply(option) }, option);
       return item;
     }));
+    // One Tab stop, on the chosen suggestion; the arrows move through the suggestions and choose as they go.
+    listboxKeys(choice, chooseItem);
     const selected = () => choice.querySelector('[aria-selected="true"]')?.dataset.value;
     const apply = option => { proofing.change(m, option); current = null; later(); };
     detail.replaceChildren(

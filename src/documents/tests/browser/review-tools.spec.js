@@ -72,6 +72,28 @@ test('the Editor pane corrects spelling and reports readability computed locally
   expect(errors).toEqual([]);
 });
 
+test('the Editor pane\'s spelling suggestions are one Tab stop that the arrow keys choose from', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'I will recieve it.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('listitem').filter({ hasText: 'recieve' }).click();
+  const options = pane.getByRole('listbox', { name: 'Suggestions for recieve' }).getByRole('option');
+  expect(await options.count()).toBeGreaterThan(1);
+  expect(await options.evaluateAll(all => all.filter(o => o.tabIndex >= 0).length)).toBe(1);
+  await options.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(1)).toBeFocused();
+  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.first()).toHaveAttribute('aria-selected', 'false');
+  const second = await options.nth(1).textContent();
+  await pane.getByRole('button', { name: 'Change', exact: true }).click();
+  await expect(input).toHaveValue(`I will ${second} it.`);
+  expect(errors).toEqual([]);
+});
+
 test('the Thesaurus inserts a synonym with the word\'s capitalization, and Word Count counts', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const input = await newDocument(page, 'Happy people smile. A big dog.');
