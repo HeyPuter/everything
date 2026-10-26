@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
-import { unzipSync } from 'fflate';
+import { unzipSync, zipSync } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument, paragraphText } from '../src/engine/model.js';
 import { listMarkers, NumberingDefinitionError } from '../src/engine/numbering.js';
@@ -15,7 +15,7 @@ const sameParts = (a, b) => { expect(Object.keys(a).sort()).toEqual(Object.keys(
 
 it.each([
   ['format', 'Unsupported numbering format'], ['inherited', 'Unsupported numbering format'],
-  ['missing', 'missing numbering definition'], ['missing-level', 'Numbering level 2 is missing'],
+  ['missing-level', 'Numbering level 2 is missing'],
   ['override', 'Unsupported numbering format'],
 ])('keeps rich paragraphs and neighboring lists when a definition fails: %s', async (name, issue) => {
   const bytes = source(name);
@@ -43,6 +43,33 @@ it.each([
   expect(listMarkers(story.paragraphs, pkg.numbering).filter(Boolean).map(marker => marker.text)).toEqual(['1.']);
   expect(() => new TextDocument(...args)).toThrow(NumberingDefinitionError);
   expect(() => pkg.export()).toThrow('read-only');
+});
+
+// A list reference to a numbering instance the part does not define (§17.9.18 numId, §17.9.15 num)
+// leaves the paragraph unnumbered, as Word shows it, instead of opening the document read-only.
+it('opens a reference to a missing numbering definition for editing, unnumbered, and keeps it', async () => {
+  const bytes = source('missing'), pkg = await DocxPackage.open(bytes);
+  expect(pkg.readOnly).toBeFalsy();
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  const retained = () => doc.paragraphs.filter(p => /^Retained (10|20)/.test(paragraphText(p)));
+  expect(retained()).toHaveLength(2);
+  for (const p of retained()) { expect(p.list).toBeNull(); expect(p.format.indentLeft).toBe(540); }
+  // Sibling lists keep their own counters.
+  expect(listMarkers(doc.paragraphs, pkg.numbering).filter(Boolean).map(marker => marker.text)).toEqual(['1.', '2.']);
+  const save = async () => unzipSync(new Uint8Array(await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets).arrayBuffer()));
+  sameParts(await save(), unzipSync(bytes));
+  // An edit to the paragraph keeps its reference, so the file means what it meant.
+  const at = doc.text.indexOf('Retained 10'); doc.select(at); doc.replace('Edited ');
+  const edited = await save(), xml = new TextDecoder().decode(edited['word/document.xml']);
+  expect(xml).toMatch(/<w:numPr><w:ilvl w:val="0"\/><w:numId w:val="2"\/><\/w:numPr>[^]*?Edited Retained 10/);
+  for (const name of Object.keys(edited)) if (name !== 'word/document.xml') expect(Buffer.from(edited[name]).equals(Buffer.from(unzipSync(bytes)[name])), name).toBe(true);
+  const reopened = await DocxPackage.open(zipSync(edited));
+  expect(reopened.readOnly).toBeFalsy();
+  // Applying a list replaces the dangling reference with a defined one.
+  doc.select(doc.text.indexOf('Edited Retained 10')); doc.toggleList('bullet');
+  const listed = doc.paragraphs.find(p => paragraphText(p).startsWith('Edited Retained 10')); expect(listed.list).not.toBeNull();
+  const again = await DocxPackage.open(zipSync(await save()));
+  expect(again.paragraphs.find(p => paragraphText(p).startsWith('Edited Retained 10')).list).toMatchObject({ numId: listed.list.numId });
 });
 
 it('preserves editable supported content and the original package', async () => {

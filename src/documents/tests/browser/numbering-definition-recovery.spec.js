@@ -29,7 +29,8 @@ test('rejected numbering definitions retain rich paragraphs and supported lists'
       sameGeometry: JSON.stringify(rendered[name].geometry) === JSON.stringify(rendered.healthy.geometry) }));
   }, inputs);
   for (const result of results) {
-    expect(result.editableControl).toBe(true); expect(result.readOnly).toBe(true);
+    // A reference to a missing definition is shown unnumbered and stays editable; the others are previews.
+    expect(result.editableControl).toBe(true); expect(result.readOnly).toBe(result.name !== 'missing');
     expect(result.tables).toBe(1); expect(result.errors).toEqual([]);
     expect(result.samePixels).toBe(true); expect(result.sameGeometry).toBe(true);
   }

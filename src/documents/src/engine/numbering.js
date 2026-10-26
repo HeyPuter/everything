@@ -14,6 +14,13 @@ export function levelFor(numbering, list) {
   if (level.error) throw new NumberingDefinitionError(level.error);
   return { ...level, start: override?.start ?? level.start };
 }
+// A reference to a numbering instance, or an instance's abstract definition, that the numbering part
+// does not contain leaves the paragraph unnumbered, as Word shows it. Its numPr stays in the source.
+// A definition that is present but could not be read is not missing: levelFor reports its error.
+export function hasNumberingDefinition(numbering, numId) {
+  const instance = numbering && Object.hasOwn(numbering.instances, numId) ? numbering.instances[numId] : null;
+  return !!instance && (!!instance.error || Object.hasOwn(numbering.abstracts, instance.abstractId));
+}
 export const listKind = (numbering, list) => list ? levelFor(numbering, list).format === 'bullet' ? 'bullet' : 'number' : null;
 
 export function mergeGeometry(base, patch = {}) {

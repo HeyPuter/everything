@@ -13,7 +13,7 @@ import { checkedShading } from './backgrounds.js';
 import { checkedVerticalAlign, checkedBaselineShift } from './vertical-align.js';
 import { normalizeColor } from './colors.js';
 import { PARAGRAPH_FORMAT, RUN_FORMAT, resolvedFormat, geometryPatch, checkedRunFormat, clearAutomaticSpacing } from './formatting.js';
-import { levelFor, NumberingDefinitionError } from './numbering.js';
+import { levelFor, NumberingDefinitionError, hasNumberingDefinition } from './numbering.js';
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { builtinOutlineLevel } from './outline.js';
 import { mergeSpacing, checkedLineSpacing } from './line-spacing.js';
@@ -165,7 +165,7 @@ export function resolveStyledParagraph(p, styles, numbering, options) {
     const inheritedReference = Object.assign({}, styles.defaults.reference, ...tableChain.map(s => s.reference), ...chain.map(s => s.reference));
     const ref = { ...inheritedReference, ...context.reference };
     p.list = null;
-    try { if (ref.numId && ref.numId !== '0') {
+    try { if (ref.numId && ref.numId !== '0' && hasNumberingDefinition(numbering, ref.numId)) {
       const list = { numId: ref.numId, level: ref.level ?? 0, direct: !!context.numberingDirect };
       const definition = levelFor(numbering, list);
       const inheritedList = { ...list, level: inheritedReference.level ?? 0, direct: false };
