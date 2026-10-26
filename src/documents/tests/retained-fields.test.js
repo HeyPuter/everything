@@ -34,3 +34,28 @@ it.each(Object.entries(cases))('opens %s for editing and keeps the field through
   const again = await DocxPackage.open(bytes);
   expect(new TextDocument(again.paragraphs).text).toBe(`${text}\nAfter!`);
 });
+
+it('opens reference-manager citations that carry field data and keeps the data through edits', async () => {
+  const data = 'PEVuZE5vdGU+PENpdGU+PEF1dGhvcj5TbWl0aDwvQXV0aG9yPjwvQ2l0ZT48L0VuZE5vdGU+AA==';
+  const begin = `<w:r><w:fldChar w:fldCharType="begin"><w:fldData xml:space="preserve">${data}</w:fldData></w:fldChar></w:r>`;
+  // The citation's instruction holds a nested data field, both with fldData on their begin delimiters.
+  const field = `${begin}<w:r><w:instrText xml:space="preserve"> ADDIN EN.CITE </w:instrText></w:r>${begin}<w:r><w:instrText xml:space="preserve"> ADDIN EN.CITE.DATA </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>(Smith, 2020)</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`;
+  const docx = body => zipSync(Object.fromEntries(Object.entries({
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">As shown </w:t></w:r>${body}</w:p><w:sectPr/></w:body></w:document>`,
+  }).map(([k, v]) => [k, strToU8(v)])));
+  const pkg = await DocxPackage.open(docx(field), { bestEffort: true });
+  expect(pkg.readOnly).toBeFalsy();
+  const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  expect(model.text).toBe('As shown (Smith, 2020)');
+  model.select(0, 2); model.replace('Then, as');
+  const bytes = new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer());
+  const main = new DOMParser().parseFromString(strFromU8(unzipSync(bytes)['word/document.xml']), 'application/xml');
+  expect([...main.getElementsByTagNameNS(W, 'fldData')].map(n => [n.parentNode.getAttributeNS(W, 'fldCharType'), n.textContent])).toEqual([['begin', data], ['begin', data]]);
+  const again = await DocxPackage.open(bytes);
+  expect(new TextDocument(again.paragraphs).text).toBe('Then, as shown (Smith, 2020)');
+  // Other delimiter content (form-field data, data on a separator) still opens read-only.
+  for (const other of [field.replace('<w:fldData xml:space="preserve">', '<w:ffData><w:name w:val="x"/></w:ffData><w:fldData>'), field.replace('<w:fldChar w:fldCharType="separate"/>', `<w:fldChar w:fldCharType="separate"><w:fldData>${data}</w:fldData></w:fldChar>`)])
+    expect((await DocxPackage.open(docx(other), { bestEffort: true })).readOnly).toBe(true);
+});

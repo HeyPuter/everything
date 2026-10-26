@@ -16,6 +16,14 @@ function boolean(node, name) {
   fail(`invalid field ${name}`);
 }
 
+// A field's opaque add-in data (§17.16.17 fldData, which reference managers write on the
+// begin delimiter) is kept, unread, with the delimiter in the field's retained envelope.
+function fieldData(delimiter) {
+  const [data, ...rest] = delimiter.children;
+  return !rest.length && delimiter.getAttributeNS(W, 'fldCharType') === 'begin' && is(data, 'fldData') && !data.children.length
+    && ![...data.attributes].some(a => a.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && a.namespaceURI !== 'http://www.w3.org/XML/1998/namespace');
+}
+
 export function fieldInstructionTokens(instruction, positions = false) {
   const tokens = [];
   const pattern = /\s*(?:"((?:\\["\\]|[^"\\]|\\(?!["\\]))*)"|(\S+))/gy;
@@ -97,7 +105,7 @@ export function pageFieldSegments(paragraph, readInstruction = pageFieldInstruct
       run.appendChild(content.cloneNode(true));
       if (is(content, 'fldChar')) {
         const kind = content.getAttributeNS(W, 'fldCharType');
-        if (content.children.length) fail('field delimiter child content');
+        if (content.children.length && !fieldData(content)) fail('field delimiter child content');
         if (kind === 'begin') {
           // A field nested in another field's instruction (IF "{ MERGEFIELD City }" = …) is part of that
           // instruction: it is kept in the envelope and shown in braces in the instruction text.
