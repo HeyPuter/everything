@@ -469,7 +469,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   function insertSignatureLine() {
     if (!ready()) return;
     openSignatureDialog({ onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: options => insertDrawing((engine, id, order) =>
-      sceneFragment(engine, withDescription(textShapeXml(inCell(engine, signatureLineParams({ ...options, id, order }))), `Signature line${options.signer ? ` for ${options.signer}` : ''}${options.instructions ? `. ${options.instructions}` : ''}`))) });
+      sceneFragment(engine, withDescription(textShapeXml(inCell(engine, signatureLineParams({ ...options, id, order, width: textWidth(engine) }))), `Signature line${options.signer ? ` for ${options.signer}` : ''}${options.instructions ? `. ${options.instructions}` : ''}`))) });
   }
 
   /* ---- Drop cap ---- */

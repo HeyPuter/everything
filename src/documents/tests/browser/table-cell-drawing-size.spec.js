@@ -136,3 +136,25 @@ test('an icon inserted in a narrow table cell fits the cell', async ({ page }) =
   expect((await drawings(page))[1]).toBe(96);
   expect(errors).toEqual([]);
 });
+
+test('a signature line inserted in a narrow table cell fits the cell', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  const insert = page.locator('#ribbon-panel-insert');
+  await onTab(page, 'insert');
+  await insert.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 1 row' }).click();
+  const available = await cellWidth(page);
+  await toCell(page, 0);
+  await onTab(page, 'insert');
+  await insert.getByRole('button', { name: 'Signature Line', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Signature Line' });
+  await dialog.getByRole('textbox', { name: 'Suggested signer', exact: true }).fill('Ada Lovelace');
+  await dialog.getByRole('button', { name: 'OK' }).or(dialog.getByRole('button', { name: 'Insert' })).click();
+  await expect.poll(async () => (await drawings(page)).length).toBe(1);
+  expect((await drawings(page))[0]).toBeLessThanOrEqual(Math.ceil(available));
+  expect(errors).toEqual([]);
+});

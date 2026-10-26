@@ -50,3 +50,14 @@ it('a signature line carries signer and title', async () => {
   expect(saved.shell).toContain('Director');
   expect(saved.shell).toMatch(/X_{10}/);
 });
+
+it('draws the signature rule on one line of the box, also in a narrow table cell', () => {
+  for (const width of [undefined, 2 * 914400, 1.2 * 914400]) {
+    const params = signatureLineParams({ id: 1, signer: 'Sam Lee', ...(width ? { width } : {}) });
+    expect(params.width).toBe(Math.round(Math.min(3 * 914400, width ?? Infinity)));
+    const lowLines = (params.text.match(/X(_+)</) || [])[1].length;
+    // Each 14 pt low line is at most 7.8 pt wide; the X and the rule stay within the box's insets.
+    expect(10 + (lowLines + 1) * 7.8).toBeLessThanOrEqual((params.width - 2 * 45720) / 12700);
+    expect(lowLines).toBeGreaterThanOrEqual(4);
+  }
+});

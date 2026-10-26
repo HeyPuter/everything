@@ -117,10 +117,12 @@ export function wordArtParams(style, { id, order = 1, text = WORDART_PROMPT, siz
 }
 
 /** A signature line: an X over a rule, then the signer's name and title; instructions travel as alt text. */
-export function signatureLineParams({ id, order = 1, signer = '', title = '', email = '', date = false } = {}) {
-  const width = Math.round(3 * EMU_PER_INCH), rows = 1 + [signer, title, email].filter(Boolean).length + (date ? 1 : 0);
-  // Text box paragraphs take no borders in this engine: the rule is a row of low lines after the X.
-  const paragraphs = [paragraphXml({ text: `X${'\u005F'.repeat(34)}`, run: { size: 14, color: '404040' }, spaceAfter: 0, spaceBefore: 12 })];
+export function signatureLineParams({ id, order = 1, signer = '', title = '', email = '', date = false, width: available = 3 * EMU_PER_INCH } = {}) {
+  const width = Math.round(Math.min(3 * EMU_PER_INCH, available)), rows = 1 + [signer, title, email].filter(Boolean).length + (date ? 1 : 0);
+  // Text box paragraphs take no borders in this engine: the rule is a row of low lines after the X, as many
+  // as fit on one line of the box between its insets (a 14 pt low line is at most about 7.8 pt wide).
+  const lowLines = Math.max(4, Math.floor(((width - 2 * 45720) / 12700 - 10) / 7.8) - 1);
+  const paragraphs = [paragraphXml({ text: `X${'\u005F'.repeat(lowLines)}`, run: { size: 14, color: '404040' }, spaceAfter: 0, spaceBefore: 12 })];
   for (const line of [signer, title, email]) if (line) paragraphs.push(paragraphXml({ text: line, run: { size: 10, color: '262626' }, spaceAfter: 0 }));
   if (date) paragraphs.push(paragraphXml({ text: 'Date: ____________', run: { size: 10, color: '595959' }, spaceAfter: 0 }));
   const height = Math.round((0.55 + rows * 0.2) * EMU_PER_INCH);
