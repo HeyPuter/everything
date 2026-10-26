@@ -21648,7 +21648,7 @@ with the existing mdast libraries with raw HTML disabled; HTML uses the importer
 existing body cleanup. Both then go through the formatted-paste conversion:
 headings become Heading 1–6 (§17.7.4), lists become bullet or numbered paragraphs
 with nesting levels (§17.9), and bold, italic, underline, strikethrough,
-super/subscript, color and http(s)/mailto links become run properties and
+super/subscript, color and http(s), mailto and tel links become run properties and
 hyperlinks (§17.3.2, §17.16.22). Known limits: tables become tab-separated
 paragraphs, code blocks keep their line breaks without a monospace font,
 quotations are not indented and pictures are omitted. Loading adds no undo step;

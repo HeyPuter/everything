@@ -182,7 +182,7 @@ function fromForeignHtml(body) {
     if (tag === 'BR') { if (!node.classList?.contains('Apple-interchange-newline')) append('\v', format, context.link); return; }
     const next = inherited(node, format);
     const ctx = { ...context };
-    if (tag === 'A' && /^(https?:|mailto:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
+    if (tag === 'A' && /^(https?:|mailto:|tel:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
     if (tag === 'PRE') ctx.pre = true;
     // Alignment is inherited, as on a page: from text-align, the align attribute READMEs center
     // blocks with or <center>. A table's align attribute centers the table, not its text, and the

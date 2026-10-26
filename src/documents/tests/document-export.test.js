@@ -196,3 +196,19 @@ describe('paragraph alignment', () => {
     expect(body(documentHtml(doc))).toBe('<p style="text-align:center">Title</p><p style="text-align:justify">Body</p><p style="text-align:right">Signed</p><p>Left</p>');
   });
 });
+
+describe('exported links', () => {
+  it('come back as links when the file is opened again, telephone links included', () => {
+    const doc = blankDoc();
+    doc.replace('Call us or write or visit');
+    const link = (word, target) => { const at = doc.text.indexOf(word); doc.select(at, at + word.length); doc.setHyperlink(target); };
+    link('Call us', 'tel:+15551234567'); link('write', 'mailto:hi@example.com'); link('visit', 'https://example.com/');
+    const targets = d => d.paragraphs[0].runs.filter(r => r.link).map(r => [r.text, r.link.target]);
+    const expected = [['Call us', 'tel:+15551234567'], ['write', 'mailto:hi@example.com'], ['visit', 'https://example.com/']];
+    for (const [exported, html] of [[documentMarkdown(doc), false], [documentHtml(doc), true]]) {
+      const back = blankDoc(), fragment = htmlFragment(html ? exported : markdownHtml(exported));
+      pasteFragment(back, fragment);
+      expect(targets(back)).toEqual(expected);
+    }
+  });
+});
