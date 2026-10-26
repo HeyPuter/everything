@@ -66,6 +66,9 @@ describe('decodeTextFile', () => {
     expect(decodeTextFile(bytes(0xef, 0xbb, 0xbf, [...Buffer.from('bom', 'utf8')]))).toBe('bom');
     // Not UTF-8: Windows-1252 "café" and a smart quote.
     expect(decodeTextFile(bytes(0x63, 0x61, 0x66, 0xe9, 0x20, 0x93))).toBe('café “');
+    // A Windows-1252 letter whose "ß“" happens to be a UTF-8 character is still read as Windows-1252.
+    const letter = 'Liebe Grüße aus München! Wir wünschen euch „viel Spaß“ und schöne Tage. Eure Jörg und Käthe.';
+    expect(decodeTextFile(new Uint8Array([...letter].map(ch => ({ '„': 0x84, '“': 0x93 })[ch] ?? ch.charCodeAt(0))))).toBe(letter);
     expect(decodeTextFile(new ArrayBuffer(0))).toBe('');
   });
 

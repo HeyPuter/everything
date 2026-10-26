@@ -130,9 +130,10 @@ export function declaredCharset(bytes) {
  * UTF-16 (Notepad's "Unicode", PowerShell output); anything else is UTF-8.
  * A file that is not valid UTF-8 throughout reads in the encoding an HTML
  * file declares (a page saved by an older Korean, Japanese or Chinese word
- * processor names EUC-KR, Shift_JIS or GBK), else it is Windows-1252 when
- * nothing in it decodes as a UTF-8 character, so a legacy file reads as
- * text instead of replacement characters; a UTF-8 file with a damaged byte
+ * processor names EUC-KR, Shift_JIS or GBK). Without one, a file that reads
+ * mostly as damaged UTF-8 is a legacy file: a Korean, Japanese or Chinese
+ * code page when it reads as one, else Windows-1252, so it reads as text
+ * instead of replacement characters; a UTF-8 file with a damaged byte
  * (cut short, or with one stray byte pasted in) keeps its text and shows
  * one replacement character where the damage is, rather than turning to
  * mojibake throughout.
@@ -152,13 +153,12 @@ export function decodeTextFile(bytes, kind = null) {
     } catch { /* an encoding the platform does not know */ }
   }
   const utf8 = new TextDecoder('utf-8').decode(b);
-  // UTF-8 with a damaged byte or two reads mostly as characters. A legacy Korean, Japanese or Chinese file
-  // reads mostly as replacement characters, with a few byte pairs that happen to be UTF-8 among them.
+  // UTF-8 with a damaged byte or two reads mostly as characters. A legacy file reads mostly as replacement
+  // characters, with a few byte pairs that happen to be UTF-8 among them ("Spaß“" in Windows-1252 is one).
   const valid = (utf8.match(/[^\x00-\x7f\ufffd]/g) || []).length, damaged = (utf8.match(/\ufffd/g) || []).length;
-  if (valid > damaged) return utf8;
+  if (valid >= damaged) return utf8;
   const cjk = legacyCjkText(b);
   if (cjk != null) return cjk;
-  if (valid) return utf8;
   try { return new TextDecoder('windows-1252').decode(b); } catch { return utf8; }
 }
 
