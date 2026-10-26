@@ -373,6 +373,20 @@ test('Text from File puts a web page in a table cell as its paragraphs, without 
   expect(errors).toEqual([]);
 });
 
+test('Text from File puts a Markdown file in a table cell as its text, without its marks', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Start' });
+  await ribbon.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+  await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+  await (await chooser).setFiles({ name: 'notes.md', mimeType: 'text/markdown', buffer: Buffer.from('# Notes\n\nSome **bold** words and a [link](https://example.com).\n\n- item\n') });
+  await expect.poll(() => input.inputValue()).toContain('Notes\nSome bold words and a link.\nitem');
+  expect(await input.inputValue()).not.toMatch(/[#*[\]]/);
+  await expect(ribbon.page().getByRole('tab', { name: 'Table Design' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test('Text from File leaves out what opening the file leaves out: hidden text, menus and front matter', async ({ page }) => {
   const { input, errors, ribbon } = await start(page, { text: 'Start' });
   const insert = async (name, mimeType, source) => {
