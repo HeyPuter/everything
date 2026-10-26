@@ -129,7 +129,8 @@ describe('Replace with Track Changes on', () => {
     const doc = tracked('one cat, two cat');
     doc.select(4, 7); doc.replace('');
     const before = JSON.stringify(doc.paragraphs);
-    expect(doc.replaceMatches('cat', '', { advanced: true, matchCase: true }, true)).toBe(2);
+    // The "cat" already deleted is not found while Track Changes is on, so one match is replaced.
+    expect(doc.replaceMatches('cat', '', { advanced: true, matchCase: true }, true)).toBe(1);
     expect(doc.revisions.map(r => [r.type, doc.text.slice(r.start, r.end)])).toEqual([['del', 'cat'], ['del', 'cat']]);
     doc.undo();
     expect(JSON.stringify(doc.paragraphs)).toBe(before);

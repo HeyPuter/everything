@@ -38,21 +38,34 @@ function literalMatcher(query, matchCase) {
   };
 }
 
+/** [start, end) of a paragraph's text tracked as deleted, or null when it has none. */
+export function deletedSpans(p) {
+  if (!p.runs.some(r => r.revision?.type === 'del')) return null;
+  const spans = []; let at = 0;
+  for (const run of p.runs) { if (run.revision?.type === 'del' && run.text) spans.push([at, at + run.text.length]); at += run.text.length; }
+  return spans;
+}
+/** Whether [start, end) takes in any of `spans`. */
+export const overlaps = (spans, start, end) => !!spans && spans.some(([a, b]) => a < end && b > start);
+
 // Search logical source paragraphs, so repeated headers are counted once and
 // formatting boundaries do not interrupt text. Never match half a grapheme.
-export function findText(paragraphs, query, { matchCase = false, wholeWord = false } = {}) {
+// With `skipDeleted` (Track Changes on), text tracked as deleted is not found: replacing it again
+// only added the replacement once more beside the deletion.
+export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false } = {}) {
   checkedSearchText(query);
   if (!query) return [];
   const matchLiteral = literalMatcher(query, matchCase);
   const matches = []; let at = 0;
   paragraphs.forEach((p, paragraph) => {
     const text = p.runs.map(r => r.text).join('');
+    const deleted = skipDeleted ? deletedSpans(p) : null;
     const boundaries = new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
     const wordStarts = new Set(), wordEnds = new Set();
     if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) { wordStarts.add(segment.index); wordEnds.add(segment.index + segment.segment.length); }
     let previousEnd = 0;
     for (const { start, end } of matchLiteral(text)) {
-      if (start >= previousEnd && boundaries.has(start) && boundaries.has(end) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end))) {
+      if (start >= previousEnd && boundaries.has(start) && boundaries.has(end) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end)) && !overlaps(deleted, start, end)) {
         matches.push({ start: at + start, end: at + end, paragraph, offset: start, text: text.slice(start, end) }); previousEnd = end;
       }
     }

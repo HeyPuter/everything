@@ -1870,6 +1870,8 @@ export class TextDocument {
     return true;
   }
   findMatches(query, options) {
+    // With Track Changes on, deleted text is not found: replacing it would only insert the replacement again.
+    if (this.trackChanges && !this.trackingInternal) options = { ...options, skipDeleted: true };
     // Advanced options (special characters, wildcards, formatting) use the advanced matcher.
     if (options?.advanced) return advancedFind(this.paragraphs, query, options, { styles: this.styles, numbering: this.numbering });
     return findText(this.paragraphs, query, options);

@@ -333,6 +333,22 @@ describe('fields inserted over a selection with Track Changes on', () => {
 });
 
 
+describe('Find and Replace with Track Changes on', () => {
+  it('does not find text already deleted, so Replace All twice replaces once', () => {
+    const show = m => m.paragraphs.map(p => p.runs.map(r => r.revision ? `[${r.revision.type}:${r.text}]` : r.text).join('')).join('|');
+    for (const advanced of [false, true]) {
+      const m = new TextDocument([paragraph('the cat sat on the cat mat')]);
+      m.trackChanges = true; m.revisionAuthor = 'R';
+      expect(m.replaceMatches('cat', 'dog', { advanced }, true)).toBe(2);
+      expect(m.findMatches('cat', { advanced })).toEqual([]);
+      expect(m.replaceMatches('cat', 'dog', { advanced }, true)).toBe(0);
+      expect(show(m)).toBe('the [del:cat][ins:dog] sat on the [del:cat][ins:dog] mat');
+      m.resolveRevisions(true);
+      expect(m.text).toBe('the dog sat on the dog mat');
+    }
+  });
+});
+
 describe('Replace over tracked text with Track Changes off', () => {
   it('writes the new text as plain text, not as part of the found text\'s insertion or deletion', async () => {
     const { pkg, model } = await open(trackedDocx({ track: false }));

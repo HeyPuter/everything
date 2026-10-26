@@ -23907,8 +23907,10 @@ paragraph properties and paragraph/character styles; replacement formatting is a
 ordinary formatting commands after the text replacement, in one transaction. `^g` matches inline
 pictures only; no pattern (`^g`, `^?`, wildcards) matches a field, equation or note reference, and
 `^p` never matches the paragraph mark that ends a section (`w:sectPr` in `w:pPr`; a section break is
-Word's `^b`, not supported here). Not supported: sounds like, all word forms, `^b`, and replacing
-with paragraph marks inside table cells.
+Word's `^b`, not supported here). With Track Changes on, text tracked as deleted (`w:del`) is not
+found, so a second Replace All does not insert its replacement again; with it off, deleted text is
+found and replacing it is an ordinary edit. Not supported: sounds like, all word forms, `^b`, and
+replacing with paragraph marks inside table cells.
 
 ### Paste
 
