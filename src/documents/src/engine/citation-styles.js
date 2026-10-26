@@ -38,6 +38,8 @@ const initials = name => clean(name).split(/\s+/).map(word => word.split('-').ma
 const ordinal = n => { const v = Number(n); if (!Number.isInteger(v)) return clean(n); const s = ['th', 'st', 'nd', 'rd'], m = v % 100; return v + (s[(m - 20) % 10] || s[m] || s[0]); };
 const editionText = (edition, abbreviation = 'ed.') => { const e = clean(edition); if (!e) return ''; return /^\d+$/.test(e) ? `${ordinal(e)} ${abbreviation}` : /ed\.?$/i.test(e) ? e : `${e} ${abbreviation}`; };
 const sentence = text => { const t = clean(text); return !t ? '' : /[.?!]$/.test(t) ? t : `${t}.`; };
+// A title in quotation marks takes the period or comma inside them, unless it ends in its own ? or !.
+const inQuotes = (title, mark) => `“${title}${/[?!]$/.test(title) ? '' : mark}”`;
 const sortKey = text => clean(text).toLowerCase().replace(/^(?:a|an|the)\s+/, '');
 
 /** The people a reference is listed under, and how: { list, role }. */
@@ -268,7 +270,7 @@ function mlaEntry(source) {
     r.end('.').add(' ');
   }
   const container = (text, ...rest) => { const items = rest.filter(Boolean); if (text) { r.add(' ').add(strip(text), true); if (items.length) r.add(','); } if (items.length) r.add(` ${items.join(', ')}`); r.end('.'); };
-  const quoted = () => { if (title) r.add(`“${title}.”`); };
+  const quoted = () => { if (title) r.add(inQuotes(title, '.')); };
   const italicTitle = () => { if (title) r.add(title, true).end('.'); };
   const date = mlaDate(field(source, 'Day'), field(source, 'Month'), year);
   const location = pages ? `${isRange(pages) ? 'pp.' : 'p.'} ${pages}` : '';
@@ -353,7 +355,7 @@ function chicagoEntry(source, { letter = '' } = {}) {
     r.end('.').add(' ');
   } else if (title) r.add(title, ['Book', 'Report', 'Film', 'Misc'].includes(source.type)).end('.').add(' ');
   r.add(`${year || 'n.d.'}${letter}`).end('.');
-  const addTitle = italic => { if (list.length && title) r.add(' ').add(italic ? title : `“${title}.”`, italic); if (italic && list.length && title) r.end('.'); };
+  const addTitle = italic => { if (list.length && title) r.add(' ').add(italic ? title : inQuotes(title, '.'), italic); if (italic && list.length && title) r.end('.'); };
   switch (source.type) {
     case 'Book': case 'Report': case 'Misc': case 'Patent':
       addTitle(true);
@@ -490,7 +492,7 @@ function ieeeEntry(source, { number = 1 } = {}) {
       break;
     }
     case 'BookSection': {
-      if (title) r.add(`“${title},” `);
+      if (title) r.add(`${inQuotes(title, ',')} `);
       r.add('in ').add(strip(field(source, 'BookTitle')), true);
       if (source.names?.Editor?.length) r.add(`, ${source.names.Editor.map(ieeeName).join(', ')}, ${source.names.Editor.length > 1 ? 'Eds' : 'Ed'}`);
       r.add('. ');
@@ -498,7 +500,7 @@ function ieeeEntry(source, { number = 1 } = {}) {
       break;
     }
     case 'JournalArticle': case 'ArticleInAPeriodical': {
-      if (title) r.add(`“${title},” `);
+      if (title) r.add(`${inQuotes(title, ',')} `);
       const journal = field(source, source.type === 'JournalArticle' ? 'JournalName' : 'PeriodicalTitle');
       if (journal) r.add(journal, true);
       const items = [field(source, 'Volume') ? `vol. ${field(source, 'Volume')}` : '', field(source, 'Issue') ? `no. ${field(source, 'Issue')}` : '', pp, date].filter(Boolean);
@@ -508,7 +510,7 @@ function ieeeEntry(source, { number = 1 } = {}) {
       break;
     }
     case 'ConferenceProceedings': {
-      if (title) r.add(`“${title},” `);
+      if (title) r.add(`${inQuotes(title, ',')} `);
       r.add('in ').add(strip(field(source, 'ConferenceName') || 'Proceedings'), true);
       const items = [city, year, pp].filter(Boolean);
       if (items.length) r.add(`, ${items.join(', ')}`);
@@ -516,13 +518,13 @@ function ieeeEntry(source, { number = 1 } = {}) {
       break;
     }
     case 'Report': {
-      if (title) r.add(`“${title},” `);
+      if (title) r.add(`${inQuotes(title, ',')} `);
       const items = [publisher, city, field(source, 'StandardNumber') ? `Rep. ${field(source, 'StandardNumber')}` : '', year].filter(Boolean);
       r.add(items.join(', ')).end('.');
       break;
     }
     case 'InternetSite': case 'DocumentFromInternetSite': {
-      if (title) r.add(`“${title}.” `);
+      if (title) r.add(`${inQuotes(title, '.')} `);
       if (field(source, 'InternetSiteTitle')) r.add(field(source, 'InternetSiteTitle'), true).end('.');
       if (url) r.add(` ${url}`);
       const accessed = field(source, 'YearAccessed');
@@ -531,7 +533,7 @@ function ieeeEntry(source, { number = 1 } = {}) {
       return r.done();
     }
     case 'Patent': {
-      if (title) r.add(`“${title},” `);
+      if (title) r.add(`${inQuotes(title, ',')} `);
       r.add([field(source, 'CountryRegion') ? `${field(source, 'CountryRegion')} Patent` : 'Patent', field(source, 'PatentNumber')].filter(Boolean).join(' '));
       if (date) r.add(`, ${date}`);
       r.end('.');

@@ -91,6 +91,17 @@ describe('Harvard', () => {
   });
 });
 
+describe('titles ending in a question or exclamation mark', () => {
+  it('take no extra period or comma inside the quotation marks', () => {
+    const question = { tag: 'Q20', type: 'JournalArticle', names: { Author: [person('Smith', 'Ann')] }, fields: { Title: 'Why do engines fail?', JournalName: 'Review', Year: '2020', Volume: '3', Pages: '1-2' } };
+    const entry = style => text(formatBibliography(style, [question])[0].runs);
+    expect(entry('mla')).toBe('Smith, Ann. “Why do engines fail?” Review, vol. 3, 2020, pp. 1–2.');
+    expect(entry('chicago')).toBe('Smith, Ann. 2020. “Why do engines fail?” Review 3: 1–2.');
+    expect(entry('ieee')).toBe('[1]\tA. Smith, “Why do engines fail?” Review, vol. 3, pp. 1–2, 2020.');
+    for (const style of ['mla', 'chicago', 'ieee']) expect(entry(style), style).not.toMatch(/[?!][.,]”/);
+  });
+});
+
 describe('initials', () => {
   it('keeps hyphenated initials and never fails on a stray hyphen', () => {
     const sartre = { tag: 'Sar43', type: 'Book', names: { Author: [person('Sartre', 'J.-P.')] }, fields: { Title: 'Being and nothingness', Year: '1943', Publisher: 'Gallimard' } };
