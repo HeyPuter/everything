@@ -34,7 +34,8 @@
   const now = () => Math.floor(Date.now() / 1000);
   const item = (path, f) => ({
     path, name: path.split('/').pop(), is_dir: !f, size: f?.size ?? null,
-    modified: f?.modified ?? now(), created: f?.created ?? now(), uid: `uid-${path}`,
+    // A file's id stays the same through a rename, as on Puter, where the app finds a moved document by it.
+    modified: f?.modified ?? now(), created: f?.created ?? now(), uid: f?.uid || `uid-${path}`,
     read: async () => window.puter.fs.read(path),
   });
   // A 64x40 blue PNG for the image picker.
@@ -165,7 +166,7 @@
           p = `${stem} (${n})${ext}`;
         }
         if (state.fs[p] && opts.overwrite === false) throw new Error('A file with that name already exists');
-        state.fs[p] = { b64: b64(buf), type: blob.type, size: buf.byteLength, modified: now(), created: state.fs[p]?.created ?? now() };
+        state.fs[p] = { b64: b64(buf), type: blob.type, size: buf.byteLength, modified: now(), created: state.fs[p]?.created ?? now(), uid: state.fs[p]?.uid || `uid-${p}-${Math.random().toString(36).slice(2, 8)}` };
         dirs.add(p.split('/').slice(0, -1).join('/'));
         persist();
         console.log(`[puter-mock] wrote ${p} (${buf.byteLength} bytes)`);
@@ -195,7 +196,14 @@
         return item(target, f);
       },
       async stat(path) {
-        await delay(20); await inject('stat', path);
+        await delay(20);
+        // Looked up by its id ({ uid }), a file is found wherever it is now.
+        if (path && typeof path === 'object') {
+          const found = Object.entries(state.fs).find(([, f]) => f.uid === path.uid);
+          if (!found) throw notFound(path.uid);
+          return item(...found);
+        }
+        await inject('stat', path);
         const p = norm(path);
         if (state.fs[p]) return item(p, state.fs[p]);
         if (dirs.has(p)) return item(p);
