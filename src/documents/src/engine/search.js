@@ -52,20 +52,47 @@ export const overlaps = (spans, start, end) => !!spans && spans.some(([a, b]) =>
 // formatting boundaries do not interrupt text. Never match half a grapheme.
 // With `skipDeleted` (Track Changes on), text tracked as deleted is not found: replacing it again
 // only added the replacement once more beside the deletion.
+// Text of these characters has a grapheme boundary between every two (none combines with a neighbour), and
+// matches without case as its lowercase form does: no character's lowercase differs in length or folds otherwise.
+const SIMPLE = /^[\t\v\f\u000e\u0020-\u007e\u00a0-\u00ff\ufffc]*$/;
+/**
+ * Every match of a query in paragraphs of simple text, as literalMatcher finds them (overlapping ones too, in linear
+ * time), comparing code units rather than asking a regular expression about each letter.
+ */
+function simpleMatcher(query, matchCase) {
+  const needle = matchCase ? query : query.toLowerCase(), prefix = new Uint32Array(needle.length);
+  for (let i = 1, matched = 0; i < needle.length; i++) {
+    while (matched && needle.charCodeAt(matched) !== needle.charCodeAt(i)) matched = prefix[matched - 1];
+    if (needle.charCodeAt(matched) === needle.charCodeAt(i)) matched++;
+    prefix[i] = matched;
+  }
+  return function* (text) {
+    const haystack = matchCase ? text : text.toLowerCase();
+    for (let i = 0, matched = 0; i < haystack.length; i++) {
+      const code = haystack.charCodeAt(i);
+      while (matched && needle.charCodeAt(matched) !== code) matched = prefix[matched - 1];
+      if (needle.charCodeAt(matched) === code) matched++;
+      if (matched === needle.length) { yield { start: i + 1 - matched, end: i + 1 }; matched = prefix[matched - 1]; }
+    }
+  };
+}
+
 export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false } = {}) {
   checkedSearchText(query);
   if (!query) return [];
-  const matchLiteral = literalMatcher(query, matchCase);
+  const matchLiteral = literalMatcher(query, matchCase), simpleQuery = SIMPLE.test(query), matchSimple = simpleQuery && simpleMatcher(query, matchCase);
   const matches = []; let at = 0;
   paragraphs.forEach((p, paragraph) => {
     const text = p.runs.map(r => r.text).join('');
     const deleted = skipDeleted ? deletedSpans(p) : null;
-    const boundaries = new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
+    // Segmenting every paragraph of a long document on each search held up typing while Find was open.
+    const simple = simpleQuery && SIMPLE.test(text);
+    const boundaries = simple ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
     const wordStarts = new Set(), wordEnds = new Set();
     if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) { wordStarts.add(segment.index); wordEnds.add(segment.index + segment.segment.length); }
     let previousEnd = 0;
-    for (const { start, end } of matchLiteral(text)) {
-      if (start >= previousEnd && boundaries.has(start) && boundaries.has(end) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end)) && !overlaps(deleted, start, end)) {
+    for (const { start, end } of simple ? matchSimple(text) : matchLiteral(text)) {
+      if (start >= previousEnd && (simple || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end)) && !overlaps(deleted, start, end)) {
         matches.push({ start: at + start, end: at + end, paragraph, offset: start, text: text.slice(start, end) }); previousEnd = end;
       }
     }

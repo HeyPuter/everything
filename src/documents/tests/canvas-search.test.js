@@ -151,3 +151,25 @@ it('rolls back before recording history when a later replacement violates format
   expect(() => doc.replaceMatches('a', 'ß', {}, true)).toThrow(/uppercase/); expect(doc.snapshot()).toEqual(before); expect(doc.history).toHaveLength(0);
   expect(() => doc.replaceMatches('a', 'x'.repeat(MAX_DOCUMENT_CHARACTERS / 2 + 1), {}, true)).toThrow(/5,000,000/); expect(doc.snapshot()).toEqual(before); expect(doc.history).toHaveLength(0);
 });
+
+it('finds the same matches in plain Latin text by comparing characters directly, and quickly in a long document', () => {
+  // Plain Latin text has a character boundary between every two characters and lowercases letter for letter, so it
+  // is searched without segmenting it; text with anything else (here a mathematical letter after it) is not.
+  const letters = ['a', 'A', 'b', 'B', 'à', 'À', 'ß', 'é', 'É', ' ', ' ', '\t', '-', '.', 'x', "'"];
+  let seed = 11; const random = n => (seed = (seed * 1103515245 + 12345) % 2147483648) % n;
+  for (let round = 0; round < 300; round++) {
+    const text = Array.from({ length: 1 + random(40) }, () => letters[random(letters.length)]).join('');
+    const from = random(text.length), query = [...text.slice(from, from + 1 + random(4))].map(c => random(2) ? c.toUpperCase() : c).join('');
+    for (const options of [{}, { matchCase: true }, { wholeWord: true }, { wholeWord: true, matchCase: true }]) {
+      const reference = findText([paragraph(`${text} \u{1D4B3}`)], query, options).filter(m => m.end <= text.length);
+      expect(findText([paragraph(text)], query, options), JSON.stringify([text, query, options])).toEqual(reference);
+    }
+  }
+  expect(find('aaaaa', 'AA')).toEqual([[0, 2], [2, 4]]);
+  // Overlapping candidates stay linear: half a long run of one letter, looked for in it.
+  expect(find('a'.repeat(100000), 'a'.repeat(50000))).toEqual([[0, 50000], [50000, 100000]]);
+  const long = Array.from({ length: 600 }, (_, i) => paragraph(`P${i} ${'Every page is another chance to make the editor a little better. '.repeat(12)}`));
+  const started = performance.now();
+  for (let i = 0; i < 10; i++) expect(findText(long, 'the')).toHaveLength(14400);
+  expect(performance.now() - started).toBeLessThan(250);
+});

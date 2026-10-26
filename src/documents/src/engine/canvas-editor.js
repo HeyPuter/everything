@@ -283,19 +283,27 @@ export class CanvasEditor {
     this.tintRects = { layout, rects };
     return rects;
   }
-  findHighlightRects() {
+  /**
+   * The tinted boxes of the open search's matches on one page. Each keystroke lays the document out again and moves
+   * the matches after it, so they are found only for the pages painted: finding every match's boxes in a long
+   * document held up typing while Find was open.
+   */
+  findHighlightRects(pageIndex) {
     const matches = this.findHighlights, layout = this.selectionLayout;
     if (!matches?.length || !layout) return [];
-    if (this.findRects?.layout === layout) return this.findRects.rects;
+    if (this.findRects?.layout !== layout) this.findRects = { layout, pages: new Map() };
+    const known = this.findRects.pages.get(pageIndex);
+    if (known) return known;
     const rects = [], { page, pages } = layout;
     // Matches are in document order, so each line looks only at the matches that can reach it.
     for (const line of [...layout.lines, ...(layout.repeatedLines || [])]) {
+      if (line.page !== pageIndex) continue;
       let low = 0, high = matches.length;
       while (low < high) { const mid = (low + high) >> 1; if (matches[mid].end <= line.start) low = mid + 1; else high = mid; }
       for (let i = low; i < matches.length && matches[i].start <= line.end; i++)
         for (const rect of selectionRects({ lines: [line], page, pages }, matches[i].start, matches[i].end)) rects.push({ ...rect, match: matches[i] });
     }
-    this.findRects = { layout, rects };
+    this.findRects.pages.set(pageIndex, rects);
     return rects;
   }
   selectMatch(match) {
@@ -758,7 +766,6 @@ export class CanvasEditor {
       ? [{ ...caretRect(this.selectionLayout, owned.start, this.caretAffinity, this.caretPage), empty: true }]
       : selectionRects(this.selectionLayout, owned.start, owned.end) : null;
     const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
-    const found = printing ? [] : this.findHighlightRects();
     const tinted = printing ? [] : this.rangeTintRects();
     const composing = printing ? null : this.compositionRange();
     const composedRects = composing ? selectionRects(this.selectionLayout, ...composing) : [];
@@ -885,7 +892,7 @@ export class CanvasEditor {
         }
         if (!printing && pageStory === (this.session.path !== null)) {
           ctx.fillStyle = 'rgba(255,196,0,.38)';
-          for (const r of found) if (r.page === index && (r.match.start !== start || r.match.end !== end)) ctx.fillRect(r.x, r.y, r.width, r.height);
+          for (const r of this.findHighlightRects(index)) if (r.page === index && (r.match.start !== start || r.match.end !== end)) ctx.fillRect(r.x, r.y, r.width, r.height);
         }
         ctx.fillStyle = 'rgba(55,105,180,.28)';
         if (!printing && pageStory === (this.session.path !== null)) for (const r of rects) if (r.page === index) ctx.fillRect(r.x, r.y, r.width, r.height);
