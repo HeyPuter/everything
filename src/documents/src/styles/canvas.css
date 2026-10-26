@@ -37,6 +37,9 @@
   .canvas-message-close { top: 0; right: 0; width: 44px; height: 44px; }
 }
 .canvas-message > p { margin: 0; }
+/* A converted Hanword file's report sits in the message bar as its other notices do. */
+.canvas-message > .import-notice { padding: 0; color: inherit; background: none; border: 0; font-size: inherit; max-height: none; overflow: visible; }
+.canvas-message > .import-notice p { margin: 6px 0 0; }
 /* A document that could not open keeps the header and menus; the message takes the workspace. */
 .canvas-failed > .canvas-toolbar-shell, .canvas-failed > .ed-ribbon, .canvas-failed .ribbon-tab, .canvas-failed > .canvas-editor-body, .canvas-failed > .canvas-statusbar { display: none; }
 .canvas-failed > .canvas-message.editor-error { position: static; flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; min-height: 0; overflow: auto; text-align: center; }

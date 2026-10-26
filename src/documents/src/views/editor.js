@@ -2,6 +2,7 @@ import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
 import { countWords } from '../core/text.js';
 import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
+import { importNotice } from '../ui/importnotice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
 import { openParagraphBorders, paragraphBorderLabel } from './paragraph-borders.js';
 import { openCellAlignment } from './cell-alignment.js';
@@ -1729,7 +1730,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];
-    const notices = [...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg), ...omittedPictureNotice(omittedPictures)];
+    // A converted Hanword file says it is an editable copy, and lists what its conversion approximated.
+    const notices = [importNotice(doc.importInfo), ...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg), ...omittedPictureNotice(omittedPictures)].filter(Boolean);
     if (pkg.fieldRefreshIssues?.length) notices.push(el('div', {}, 'Some page references could not be updated. Cached results were retained. ', el('ul', {}, ...[...new Set(pkg.fieldRefreshIssues)].map(issue => el('li', {}, issue)))));
     message.replaceChildren(...notices);
     // update() may already have run while the editor attached; the script-font notice it added was just replaced.
