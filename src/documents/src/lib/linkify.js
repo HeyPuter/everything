@@ -24,9 +24,10 @@ export function setAutolinkEnabled(on) {
   try { on ? storage()?.removeItem(KEY) : storage()?.setItem(KEY, '0'); } catch { /* private mode */ }
 }
 
-// Hosts whose last label is one of these are linked without a scheme.
+// Hosts whose last label is one of these are linked without a scheme. Endings that in writing are
+// almost always a file type ("install.sh", "libfoo.so") are left out: those link with a scheme or www.
 export const COMMON_TLDS = new Set(
-  ('com org net edu gov mil int io co dev app ai me info biz name pro us uk ca de fr jp cn au nl ru ch it es se no fi dk pl br in za ie nz kr mx be at cz gr pt ro tv fm gg xyz online site tech store blog news email cloud page link so sh to gl')
+  ('com org net edu gov mil int io co dev app ai me info biz name pro us uk ca de fr jp cn au nl ru ch it es se no fi dk pl br in za ie nz kr mx be at cz gr pt ro tv fm gg xyz online site tech store blog news email cloud page link to gl')
     .split(' '));
 
 const EMAIL = /^[^\s@]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9-]+)*\.[a-z]{2,24}$/i;

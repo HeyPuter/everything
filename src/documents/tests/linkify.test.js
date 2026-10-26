@@ -25,6 +25,10 @@ describe('hrefForToken', () => {
     expect(hrefForToken('Fig.2')).toBeNull();
     expect(hrefForToken('report.pdf')).toBeNull();
     expect(hrefForToken('photo.jpg')).toBeNull();
+    // File names, as in setup instructions: "run install.sh".
+    for (const token of ['install.sh', 'libcrypto.so', 'notes.md', 'main.py']) expect(hrefForToken(token)).toBeNull();
+    expect(hrefForToken('https://get.example.sh')).toBe('https://get.example.sh');
+    expect(hrefForToken('www.example.sh')).toBe('https://www.example.sh');
     expect(hrefForToken('plain')).toBeNull();
     expect(hrefForToken('javascript:alert(1)')).toBeNull();
     expect(hrefForToken('data:text/html,x')).toBeNull();
