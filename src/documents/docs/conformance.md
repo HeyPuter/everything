@@ -23767,7 +23767,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   with `mc:Ignorable="w14"` on the drawing (ECMA-376 Part 3 §10.2.1); warped text (`a:prstTxWarp`
   other than `textNoShape`) is not produced. The signature line is a text box (an X over a rule of
   low lines, signer, title, date line) with the instructions as alternative text; it is not a
-  digital-signature object.
+  digital-signature object. Text boxes wrap text squarely and WordArt and signature lines top and
+  bottom (`wp:wrapSquare`, `wp:wrapTopAndBottom`); in a table cell, where wrapped drawings are not
+  laid out yet, they are written in front of the text (`wp:wrapNone`), and the wrapping choices for
+  drawings in table cells are limited to in line, behind and in front of text.
 - **Diagrams**: an original approach rather than a diagram-definition (`dgm`) part. Eleven layouts
   (list, process, timeline, cycle, hierarchy, Venn, radial, matrix, pyramid) are generated as one
   `wpg:wgp` group (§20.4) of preset shapes with shape text, alpha fills (`a:alpha` §20.1.2.3.1) for
