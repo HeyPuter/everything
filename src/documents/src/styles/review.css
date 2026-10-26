@@ -40,6 +40,8 @@
   .ed-workspace .canvas-host.has-comment-markup .canvas-pages { padding-right: 12px; }
   .ed-comment-card { position: relative; left: auto !important; top: auto !important; width: auto; margin: 8px 12px; }
   .ed-comments-layer { position: static; width: auto; height: auto; }
+  /* The cards run along the bottom of the screen: they leave the Assistant button its corner (right 12px, 40px wide). */
+  .canvas-editor-content:has(> .as-fab:not([hidden]):not([aria-expanded="true"])) .ed-comment-card { margin-right: 64px; }
 }
 /* Toggled large commands (Track Changes, Show Comments, Print Layout) show their pressed state too. */
 .ribbon-card button.ribbon-large[aria-pressed="true"], .ribbon-flyout button.ribbon-large[aria-pressed="true"] { background: var(--ribbon-glass-pressed); box-shadow: var(--ribbon-glass-pressed-edge); color: var(--ed-ink); }
