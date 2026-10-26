@@ -1629,6 +1629,9 @@ export class CanvasEditor {
   beforeInput(e) {
     if (this.readOnly || this.viewOnly) { e.preventDefault(); return; }
     if (e.isComposing || this.composition || !e.cancelable) return;
+    // Any deletion over a block of table cells (Option or Ctrl+Backspace, Cmd+Backspace, Control+H) empties the
+    // block's own cells, as Delete does, not every cell its text range runs through.
+    if (e.inputType.startsWith('delete') && this.model.activeCellBlock) { e.preventDefault(); this.deleteSelection(); return; }
     this.nativeSelection();
     if (e.inputType === 'historyUndo' || e.inputType === 'historyRedo') { e.preventDefault(); e.inputType === 'historyUndo' ? this.undo() : this.redo(); return; }
     const actions = {

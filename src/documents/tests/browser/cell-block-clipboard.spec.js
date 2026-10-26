@@ -63,3 +63,15 @@ test('Enter, Shift+Enter and Clear Contents over a block of table cells leave th
   await page.evaluate(() => window.__docs.current.view.commands.clearContents());
   expect(await cells(page)).toEqual(['', '', 'C1', '', '', 'C2', 'A3', 'B3', 'C3']);
 });
+
+test('deleting a word or a line over a block of table cells empties only the cells in it', async ({ page }) => {
+  await grid(page);
+  const word = process.platform === 'darwin' ? 'Alt' : 'Control', line = process.platform === 'darwin' ? ['Meta+Backspace'] : [];
+  for (const chord of [`${word}+Backspace`, `${word}+Delete`, ...line]) {
+    await dragBlock(page);
+    await input(page).press(chord);
+    expect(await cells(page), chord).toEqual(['', '', 'C1', '', '', 'C2', 'A3', 'B3', 'C3']);
+    await input(page).press('ControlOrMeta+z');
+    expect(await cells(page)).toEqual(GRID);
+  }
+});
