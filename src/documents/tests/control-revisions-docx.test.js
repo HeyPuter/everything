@@ -58,3 +58,23 @@ describe('tracked changes inside content controls', () => {
     expect(pkg.readOnly).toBe(true);
   });
 });
+
+describe('comments inside content controls', () => {
+  const body = control('richText');
+  for (const [name, from, to] of [['ending inside', 'Before', 'Inside'], ['starting inside', 'text', 'after'], ['wholly inside', 'Inside', 'text']]) {
+    it(`reopens a comment ${name} a rich-text control for editing`, async () => {
+      const pkg = await DocxPackage.open(await fixture(body));
+      const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { comments: [] });
+      const start = model.text.indexOf(from) + 1, end = model.text.indexOf(to) + 2;
+      model.select(start, end); model.addComment({ author: 'Reviewer', text: 'Check this' });
+      const saved = await bytes(pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets, undefined, model.comments));
+      const reopened = await DocxPackage.open(saved);
+      expect(reopened.readOnly).toBeFalsy();
+      expect(reopened.comments.map(c => c.text)).toEqual(['Check this']);
+      const again = new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets, { comments: reopened.comments });
+      expect(again.text).toBe(model.text);
+      const markers = again.paragraphs.flatMap(p => (p.bookmarks || []).filter(m => m.comment).map(m => [m.edge, m.offset]));
+      expect(markers).toEqual([['start', start], ['end', end]]);
+    });
+  }
+});

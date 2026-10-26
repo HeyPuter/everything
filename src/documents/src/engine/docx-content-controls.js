@@ -221,7 +221,9 @@ export function contentControlReader(readRunProperties, parts = {}) {
       if (children(end).length > 1 || children(end).some(p => p.namespaceURI !== W || p.localName !== 'rPr')) fail('unsupported end properties');
       for (const p of children(end)) readRunProperties(p);
     }
-    const allowed = kind === 'cell' ? ['tc'] : kind === 'block' ? ['p', 'tbl', 'sdt', 'bookmarkStart', 'bookmarkEnd'] : ['r', 'hyperlink', 'proofErr', 'bookmarkStart', 'bookmarkEnd'];
+    // A rich-text control may hold a comment's range ends and its reference mark (§17.13.4).
+    const commentable = kind === 'inline' && !plain && !picture;
+    const allowed = kind === 'cell' ? ['tc'] : kind === 'block' ? ['p', 'tbl', 'sdt', 'bookmarkStart', 'bookmarkEnd'] : ['r', 'hyperlink', 'proofErr', 'bookmarkStart', 'bookmarkEnd', ...(commentable ? ['commentRangeStart', 'commentRangeEnd'] : [])];
     const emptyRichInline = kind === 'inline' && persistent && !plain && !picture;
     // Tracked insertions and deletions (§17.13.5) wrap a text control's runs, as the editor
     // itself writes them when changes are tracked inside the control; check the runs they hold.
@@ -256,7 +258,7 @@ export function contentControlReader(readRunProperties, parts = {}) {
     }
     // The drawing reader still validates each picture's supported contents.
     if (kind === 'inline') for (const item of inlineItems) {
-      if (['bookmarkStart', 'bookmarkEnd'].includes(item.localName)) continue;
+      if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].includes(item.localName)) continue;
       const runs = item.localName === 'hyperlink' ? children(item) : [item];
       if (!runs.length || runs.some(r => r.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd'].includes(r.localName))) fail('unsupported hyperlink contents');
       for (const r of runs) {
@@ -265,7 +267,7 @@ export function contentControlReader(readRunProperties, parts = {}) {
           // Keep them in the retained shell; they impose no editing lock.
           leaf(r, ['type']);
           if (!['spellStart', 'spellEnd', 'gramStart', 'gramEnd'].includes(r.getAttributeNS(W, 'type'))) fail('invalid proofing marker type');
-        } else if (r.localName === 'r' && children(r).some(t => t.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak', ...(!plain&&!picture?['fldChar','instrText']:[]), ...(persistent || picture ? ['drawing'] : [])].includes(t.localName))) fail('non-text contents');
+        } else if (r.localName === 'r' && children(r).some(t => t.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak', ...(!plain&&!picture?['fldChar','instrText','commentReference']:[]), ...(persistent || picture ? ['drawing'] : [])].includes(t.localName))) fail('non-text contents');
       }
     }
     const prompt = persistent && !picture ? placeholderRuns(child(child(pr, 'placeholder'), 'docPart')?.getAttributeNS(W, 'val'), kind) : undefined;

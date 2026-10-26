@@ -23360,6 +23360,11 @@ Supported subset:
   `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), with
   `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
   read-only fallback (`tests/control-revisions-docx.test.js`).
+- A comment whose range starts, ends or lies inside an inline rich-text content control
+  (§17.13.4.4 `commentRangeStart`, §17.13.4.3 `commentRangeEnd`, §17.13.4.5 `commentReference`)
+  is written with its markers and reference mark inside `sdtContent`, as desktop word processors
+  also write it; the reader accepts them there, so such a document reopens editable instead of
+  read-only. Plain-text and picture controls keep the stricter contents.
 - `revisionView` `insDel`/`formatting` are written from Show Markup; `doNotTrackMoves` and
   `doNotTrackFormatting` from Tracking Options and honored while editing. `hideSpellingErrors` and
   `hideGrammaticalErrors` are written from the Spelling menu. `writeProtection recommended="1"` is
