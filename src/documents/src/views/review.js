@@ -134,7 +134,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (engine.session.path !== null) engine.editStory(null);
     engine.model.select(thread.start, thread.end);
     pinnedRange = engine.model.range.join();
-    if (focusDocument) engine.focus();
+    // The document's text field takes the selection too: going back to it with the keyboard kept its own,
+    // which the next key put back.
+    if (focusDocument) engine.focus(); else engine.syncInput();
     engine.revealCaret?.(); engine.paint(); onChange();
     cards.get(thread.id)?.scrollIntoView?.({ block: 'nearest' });
   }

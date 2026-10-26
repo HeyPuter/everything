@@ -45,7 +45,8 @@ export function createReadAloud({ editor, onState = () => {} }) {
       const word = /^[^\s]+/u.exec(p.text.slice(offset + e.charIndex))?.[0] || '';
       if (!word) return;
       engine.model.select(at, Math.min(p.end, at + word.length));
-      engine.paint(); engine.revealCaret?.();
+      // Typing while it reads replaces the word shown selected, not where the caret was before.
+      engine.syncInput?.(); engine.paint(); engine.revealCaret?.();
     };
     utterance.onend = () => { if (utterance?.cancelled) return; index++; if (paragraphs[index]) delete paragraphs[index].speakFrom; speak(); };
     synth.speak(utterance);
