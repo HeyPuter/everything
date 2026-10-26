@@ -493,9 +493,11 @@ function pcbSpec(app, ed, objs) {
       break;
     default: {
       const netted = objs.filter((o) => ['track', 'via', 'arc', 'fill', 'region', 'pour', 'pad'].includes(o.t));
+      const copper = objs.filter((o) => (o.t === 'track' || o.t === 'arc') && isCopper(o.layer));
       sections.push({ title: 'General', fields: [
         { label: 'Selected', type: 'readonly', value: [...types].map((x) => names[x] || x).join(', ') },
         netted.length ? field(netted, app, { label: 'Net', type: 'select', options: netOptions(ed), get: (o) => o.net || '', set: (o, v) => ({ net: v || undefined }) }) : null,
+        copper.length ? field(copper, app, { label: 'Track width', type: 'length', get: (o) => o.w, set: (o, v) => ({ w: Math.max(1000, v) }) }) : null,
       ] });
     }
   }

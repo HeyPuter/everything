@@ -4,6 +4,7 @@ import { h, nextId, clear, shortcutLabel } from '../ui/dom.js';
 import { icon } from '../ui/icons.js';
 import { openDialog, buildForm, confirmDialog } from '../ui/dialog.js';
 import { formatLength, parseLength, mm } from '../core/units.js';
+import { isCopper } from '../model/layers.js';
 import { arcToPoints, bboxOfFlat, polyArea } from '../core/geom.js';
 import { planSync, applySync } from '../model/sync.js';
 import { planAnnotation } from '../model/annotate.js';
@@ -74,6 +75,8 @@ export async function rulesDialog(app, ed) {
   for (const [k, l] of [['rules', 'Clearances and sizes'], ['classes', 'Net classes']]) tabs.append(h('button', { type: 'button', role: 'tab', dataset: { k }, onClick: () => show(k) }, l));
   show('rules');
   const err = h('div.small.sev-error', { role: 'alert' });
+  const oldWidth = r.trackWidth;
+  let newWidth = null;
   await openDialog({
     title: 'Design rules', size: 'wide',
     body: [tabs, pageHost, err],
@@ -86,10 +89,19 @@ export async function rulesDialog(app, ed) {
         const next = { ...v, thermal: { ...r.thermal, spoke: v.spoke, gap: v.gap }, netClasses: classes };
         delete next.spoke; delete next.gap;
         ed.doc.store.transact('Edit design rules', (s) => s.update('rules', next));
+        newWidth = next.trackWidth;
         return true;
       },
     }],
   }).result;
+  // Offer to carry a new preferred width over to the tracks routed at the old one.
+  if (!newWidth || newWidth === oldWidth) return;
+  const ids = [...ed.doc.items()].filter((o) => (o.t === 'track' || o.t === 'arc') && isCopper(o.layer) && o.w === oldWidth).map((o) => o.id);
+  if (!ids.length) return;
+  const from = formatLength(oldWidth, u), to = formatLength(newWidth, u);
+  if (await confirmDialog({ title: 'Update existing tracks', message: `Change ${ids.length} existing track${ids.length === 1 ? '' : 's'} from ${from} to ${to}? New tracks use ${to} either way.`, confirm: 'Update tracks' })) {
+    ed.doc.store.transact('Change track width', (s) => { for (const id of ids) s.update(id, { w: newWidth }); });
+  }
 }
 
 export async function layerStackDialog(app, ed) {
