@@ -9,6 +9,9 @@ import { wordBreaks } from './dictionary-breaks.js';
 // split into words where the dictionary (Intl.Segmenter, as for line breaking) places a boundary
 // between two of their characters, as Option word steps and double-click already do.
 export function wordPosition(text, position, direction, inclusive = false) {
+  return nearby(text, position, direction, (part, at) => wordPositionIn(part, at, direction, inclusive));
+}
+function wordPositionIn(text, position, direction, inclusive) {
   const units = /(?:[\p{L}\p{N}\p{M}]+(?:['’][\p{L}\p{N}\p{M}]+)*|[^\p{L}\p{N}\p{M} \u00a0\t\n\r\v\f\u000e\ufffc]+)[ \u00a0]*|[ \u00a0]+|[\t\n\r\v\f\u000e\ufffc]/gu;
   // Where words start within a unit: its own start and any dictionary boundaries inside it.
   const starts = unit => {
@@ -34,6 +37,9 @@ export function wordPosition(text, position, direction, inclusive = false) {
 // to the end of the next word going right. Whitespace is skipped; a run of
 // adjacent punctuation is one stop, as in native Mac text fields.
 export function optionWordPosition(text, position, direction) {
+  return nearby(text, position, direction, (part, at) => optionWordPositionIn(part, at, direction));
+}
+function optionWordPositionIn(text, position, direction) {
   const units = [];
   for (const s of new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)) {
     if (!/\S/u.test(s.segment)) continue;
@@ -43,4 +49,20 @@ export function optionWordPosition(text, position, direction) {
   }
   if (direction < 0) return units.findLast(unit => unit.start < position)?.start ?? 0;
   return units.find(unit => unit.end > position)?.end ?? text.length;
+}
+
+// No word, space run or punctuation run reaches across a line feed (UAX #29 breaks on both sides of one), so a
+// step can be found in the paragraphs around the caret: reading the whole document for each one made every word
+// step in a long document cost several milliseconds. `find(part, at)` answers within `part`, the text from
+// `from`; an answer at the edge of that text may lie further out, and the search widens.
+const paragraphStart = (text, at) => at <= 0 ? 0 : text.lastIndexOf('\n', at - 1) + 1;
+const paragraphEnd = (text, at) => { const found = text.indexOf('\n', at); return found < 0 ? text.length : found + 1; };
+function nearby(text, position, direction, find) {
+  let from = paragraphStart(text, position), to = paragraphEnd(text, position);
+  for (;;) {
+    const result = from + find(text.slice(from, to), position - from);
+    if (direction < 0 ? result > from || from === 0 : result < to || to === text.length) return result;
+    const span = Math.max(256, (to - from) * 2);
+    from = paragraphStart(text, from - span); to = paragraphEnd(text, to + span);
+  }
 }

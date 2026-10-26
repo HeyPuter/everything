@@ -1449,8 +1449,11 @@ export class CanvasEditor {
       if (nativeWord) target = wordPosition(this.model.text, focus, direction);
       else if (word) target = optionWordPosition(this.model.text, focus, direction);
       else {
+        // The caret stops are in order: find the neighbours by halving, not by reading a long document's every stop.
         const stops = boundaries(this.model.text);
-        target = direction < 0 ? [...stops].reverse().find(p => p < focus) ?? 0 : stops.find(p => p > focus) ?? this.model.text.length;
+        let low = 0, high = stops.length;
+        while (low < high) { const middle = (low + high) >> 1; if (stops[middle] < focus) low = middle + 1; else high = middle; }
+        target = direction < 0 ? stops[low - 1] ?? 0 : stops[stops[low] === focus ? low + 1 : low] ?? this.model.text.length;
       }
       target = this.model.promptBoundary(target,direction);
       this.preferredX = null;
