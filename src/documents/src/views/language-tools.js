@@ -3,7 +3,7 @@
  * (§17.3.2.21 noProof), set the document's default language, and translate the selection or the
  * whole document with Puter's AI into a pane (with Insert) or a new document.
  */
-import { el } from '../ui/dom.js';
+import { el, listboxKeys } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
@@ -25,17 +25,23 @@ export function openLanguageDialog({ language, noProof, defaultLanguage, apply, 
   const options = [...new Set([...(language ? [language] : []), ...LANGUAGES])];
   let chosen = language || defaultLanguage || 'en-US';
   const list = el('div.rv-language-list', { role: 'listbox', 'aria-label': 'Languages' });
+  // Choosing marks the option where it is: redrawing the list took the keyboard off the option it was on.
+  const choose = tag => { chosen = tag; for (const option of list.children) option.setAttribute('aria-selected', String(option.dataset.tag === chosen)); };
+  let settle = null;
   const render = () => {
     const query = filter.value.trim().toLowerCase();
     list.replaceChildren(...options.filter(tag => !query || languageName(tag).toLowerCase().includes(query) || tag.toLowerCase().includes(query)).map(tag => el('button.rv-language', {
       type: 'button', role: 'option', 'aria-selected': String(tag === chosen), dataset: { tag },
-      onclick: () => { chosen = tag; render(); }, ondblclick: () => { chosen = tag; submit(); } }, el('span', {}, languageName(tag)), el('span.rv-language-tag', {}, tag === defaultLanguage ? `${tag} · default` : tag))));
+      onclick: () => choose(tag), ondblclick: () => { chosen = tag; submit(); } }, el('span', {}, languageName(tag)), el('span.rv-language-tag', {}, tag === defaultLanguage ? `${tag} · default` : tag))));
+    settle?.();
   };
   filter.addEventListener('input', render);
   const skip = el('input', { type: 'checkbox', checked: !!noProof });
   const detect = el('input', { type: 'checkbox', checked: DETECT_LANGUAGE.get(), onchange: () => DETECT_LANGUAGE.set(detect.checked) });
   const submit = () => { modal.close(); apply({ language: chosen, noProof: skip.checked }); };
   render();
+  // One Tab stop, on the chosen language; the arrows move through the list and choose as they go.
+  settle = listboxKeys(list, option => choose(option.dataset.tag));
   const modal = openModal({ title: 'Language', onClose, content: el('form.ed-dialog-body.rv-language-dialog', { onsubmit: e => { e.preventDefault(); submit(); } },
     el('p.field-hint', {}, 'Mark the selected text as:'),
     filter, list,

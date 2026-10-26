@@ -166,6 +166,36 @@ test('an accessibility quick fix applies where its issue is now after an edit be
   expect(errors).toEqual([]);
 });
 
+test('Set Proofing Language\'s list is one Tab stop that the arrow keys move through', async ({ page }) => {
+  const input = await newDocument(page, 'Hello and bonjour tout le monde.');
+  await select(input, 10, 31);
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Language"][aria-haspopup="menu"]')?.click());
+  await page.getByRole('menuitem', { name: 'Set Proofing Language…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Language' });
+  const list = dialog.getByRole('listbox', { name: 'Languages' });
+  const tabStops = () => list.getByRole('option').evaluateAll(options => options.filter(o => o.tabIndex >= 0).length);
+  expect(await tabStops()).toBe(1);
+  await dialog.getByRole('searchbox', { name: 'Find a language' }).focus();
+  await page.keyboard.press('Tab');
+  const first = list.getByRole('option', { selected: true });
+  await expect(first).toBeFocused();
+  const start = await first.getAttribute('data-tag');
+  await page.keyboard.press('ArrowDown');
+  const moved = list.locator(':focus');
+  await expect(moved).toHaveAttribute('aria-selected', 'true');
+  expect(await moved.getAttribute('data-tag')).not.toBe(start);
+  // Space or Enter on an option keeps the keyboard on it.
+  await page.keyboard.press(' ');
+  await expect(moved).toBeFocused();
+  expect(await tabStops()).toBe(1);
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('checkbox', { name: 'Do not check spelling or grammar' })).toBeFocused();
+  // Filtering keeps one Tab stop in what is left.
+  await dialog.getByRole('searchbox', { name: 'Find a language' }).fill('fr');
+  expect(await tabStops()).toBe(1);
+});
+
 test('Language marks text and Set As Default updates the document default', async ({ page }, info) => {
   const input = await newDocument(page, 'Hello and bonjour tout le monde.');
   await select(input, 10, 31);
