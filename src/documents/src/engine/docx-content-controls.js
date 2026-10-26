@@ -173,7 +173,7 @@ export function contentControlReader(readRunProperties, parts = {}) {
         readUnresolvedBinding(p);
       } else if (p.namespaceURI !== W) fail('unknown property extensions');
       else if (['temporary', 'showingPlcHdr'].includes(p.localName)) on(p);
-      else if (['richText', 'picture'].includes(p.localName)) leaf(p);
+      else if (['richText', 'picture', 'citation', 'bibliography'].includes(p.localName)) leaf(p);
       else if (p.localName === 'text') {
         leaf(p, ['multiLine']);
         const value = p.getAttributeNS(W, 'multiLine');
