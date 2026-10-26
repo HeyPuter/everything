@@ -192,7 +192,10 @@ export function protectionGuard(protection, user = {}, { contentControlRanges } 
       if (edit === 'trackedChanges') throw new ProtectionError('Changes to this document are tracked, and headers, footers and notes cannot be changed with tracking here.');
       if (edit !== 'none') throw new ProtectionError(edit === 'comments' ? 'This document is protected: only comments can be added.' : 'This part of the document is protected.');
     } else if (edit === 'trackedChanges') {
-      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)) throw new ProtectionError('Changes to this document are tracked. Turn tracking back on to edit.');
+      // Track Changes stays on while tracking is locked (restrict-editing.js): what gets here is a change tracking
+      // cannot record, such as field results renumbered in place (captions, citations, a table of contents) or a
+      // table's structure.
+      if (originalText(before.paragraphs) !== originalText(after) || JSON.stringify(before.tables) !== JSON.stringify(model.tables)) throw new ProtectionError('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
     } else if (edit !== 'none') {
       const regions = state => [...permissionRanges(state).filter(r => permissionApplies(r, user)), ...(edit === 'forms' && contentControlRanges ? contentControlRanges(state) : [])];
       const changed = protectedSignature(before.paragraphs, regions(before.paragraphs)) !== protectedSignature(after, regions(after));

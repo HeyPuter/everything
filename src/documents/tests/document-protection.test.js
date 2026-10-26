@@ -183,6 +183,9 @@ describe('enforcement', () => {
     expect(tryEdit(s, m => { m.select(0, 5); m.replace('Changed'); })).toBe(true);
     expect(model.revisions.map(r => r.type)).toEqual(['del', 'ins']);
     expect(tryEdit(s, m => m.resolveRevisions(true))).toBe(false);
+    // A change tracking cannot record says so, rather than asking to turn on tracking that is already on.
+    const refusal = action => { try { s.run(action); } catch (e) { return e.message; } return null; };
+    expect(refusal(m => { m.select(0, 3); m.replaceUntracked('Re'); })).toBe('This change can’t be tracked, and tracking is locked. Unlock tracking to make it.');
   });
 
   it('refuses new direct formatting under a formatting restriction', async () => {
