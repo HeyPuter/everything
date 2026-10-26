@@ -928,3 +928,22 @@ test('the Reviewing Pane button shows whether the pane is open, however the pane
   await expect(pane).toBeVisible();
   await expect(button).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('Show Comments is pressed exactly while the comments are shown', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  const input = await newDocument(page, 'Alpha beta gamma delta.');
+  await onTab(page, 'review');
+  await select(input, 6, 10);
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  await page.locator('.ed-comment-draft textarea').fill('About beta');
+  await page.locator('.ed-comment-draft').getByRole('button', { name: 'Post' }).click();
+  const card = page.locator('.ed-comment-card');
+  const show = review(page).getByRole('button', { name: 'Show Comments', exact: true });
+  await expect(card).toBeVisible();
+  await expect(show).toHaveAttribute('aria-pressed', 'true');
+  for (const shown of [false, true, false, true]) {
+    await show.click();
+    await expect(card).toHaveCount(shown ? 1 : 0);
+    await expect(show).toHaveAttribute('aria-pressed', String(shown));
+  }
+});

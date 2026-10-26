@@ -172,7 +172,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       commentsShown = true;
       selectThread(next);
     },
-    toggleShown() { commentsShown = !commentsShown; refresh(true); editor()?.focus(); },
+    toggleShown() { commentsShown = !commentsShown; refresh(true); onChange(); editor()?.focus(); },
     selectThreadById(id) { const thread = threads().find(t => t.id === id); if (thread) { commentsShown = true; selectThread(thread); } },
     /** Delete every comment by the reviewers shown (Show Markup › Specific People). */
     deleteAllShown() {
