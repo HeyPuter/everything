@@ -120,7 +120,7 @@ it('uses zero for table-level auto/percentage side margins while top/bottom and 
   expect(cell(doc, 'Inherited padding').margins).toEqual({ top: 60, left: 0, bottom: 120, right: 180 });
 });
 
-it.each(['<w:start w:w="-1"/>', '<w:start w:w="1.5"/>', '<w:start w:w="999999"/>', '<w:start w:w="bad"/>', '<w:start w:w="1em"/>', '<w:start w:type="bad"/>', '<w:start w:unknown="1"/>', '<w:start>text</w:start>', '<w:start><w:left/></w:start>', '<w:start/><w:start/>', '<w:insideH/>'])('rejects malformed margins before editable import: %s', async markup => {
+it.each(['<w:start w:w="-1"/>', '<w:start w:w="1.5.0"/>', '<w:start w:w="999999"/>', '<w:start w:w="bad"/>', '<w:start w:w="1em"/>', '<w:start w:type="bad"/>', '<w:start w:unknown="1"/>', '<w:start>text</w:start>', '<w:start><w:left/></w:start>', '<w:start/><w:start/>', '<w:insideH/>'])('rejects malformed margins before editable import: %s', async markup => {
   await expect(DocxPackage.open(rewrite(logical, markup))).rejects.toThrow(/cell margins/);
 });
 

@@ -60,7 +60,8 @@ function width(n, signed = false) {
   // An explicit unit takes precedence over a contradictory type (§17.4.87).
   if (percent) { type = 'pct'; value = Number(percent[1]) * 50; }
   else if (units) { type = 'dxa'; value = Math.round(Number(units[1]) * { mm: 1440 / 25.4, cm: 1440 / 2.54, in: 1440, pt: 20, pc: 240, pi: 240 }[units[2]]); }
-  else { if (!/^[+-]?\d+$/.test(raw)) fail('invalid measurements'); value = Number(raw); }
+  // A decimal without units ("9360.0", written by some producers) is read as the nearest whole value.
+  else { if (!/^[+-]?\d+(?:\.\d+)?$/.test(raw)) fail('invalid measurements'); value = Math.round(Number(raw)); }
   if (!Number.isFinite(value) || !signed && value < 0 || Math.abs(value) > 31680) fail('invalid measurements');
   return { type, value };
 }
@@ -100,7 +101,7 @@ function checkCellSpacing(node) {
   const integerText = raw.trim(); // XML Schema integer whitespace is collapsed.
   const measure = /^([+-]?\d+(?:\.\d+)?)(%|mm|cm|in|pt|pc|pi)$/.exec(raw);
   if (measure) type = measure[2] === '%' ? 'pct' : 'dxa';
-  else if (!/^[+-]?\d+$/.test(integerText)) fail('invalid measurements');
+  else if (!/^[+-]?\d+(?:\.\d+)?$/.test(integerText)) fail('invalid measurements');
   // §§17.4.43–45 ignore pct/auto spacing; nil denotes zero (§17.4.87).
   // Preserve these declarations in the XML shell. Nonzero physical spacing
   // needs a separate layout/border model and must not silently disappear.
@@ -411,6 +412,7 @@ function uniqueRowIdentifier(doc, tr) {
   for (const attr of [...tr.attributes]) if (attr.localName === 'paraId' || attr.localName === 'textId') tr.removeAttributeNode(attr);
 }
 
+const DECIMAL_WIDTHS = new Set(['tblW', 'tblInd', 'tcW', 'wBefore', 'wAfter', 'tblCellSpacing', 'top', 'start', 'left', 'bottom', 'end', 'right']);
 export function writeTable(block, doc, writeParagraph) {
   const make = name => doc.createElementNS(W, `w:${name}`);
   const from = (value, name) => value ? doc.importNode(parseXml(value).documentElement, true) : make(name);
@@ -611,5 +613,7 @@ export function writeTable(block, doc, writeParagraph) {
     node.append(tr);
     appendBoundary(node, row.id, undefined, 'after');
   }
+  // Widths and margins written as unitless decimals ("9360.0") were read as whole twips; the saved table states those values.
+  for (const n of node.getElementsByTagNameNS(W, '*')) if (DECIMAL_WIDTHS.has(n.localName) && /^[+-]?\d+\.\d+$/.test(n.getAttributeNS(W, 'w') ?? '')) n.setAttributeNS(W, 'w:w', String(Math.round(Number(n.getAttributeNS(W, 'w')))));
   return node;
 }

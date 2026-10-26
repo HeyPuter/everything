@@ -19,7 +19,8 @@ export function readCellMargins(parent, table = false) {
     let value;
     if (units) { type = 'dxa'; value = Math.round(Number(units[1]) * { mm: 1440 / 25.4, cm: 1440 / 2.54, in: 1440, pt: 20, pc: 240, pi: 240 }[units[2]]); }
     else if (percent) { type = 'pct'; value = Number(percent[1]); }
-    else { if (!/^\+?\d+$/.test(raw)) fail('invalid measurements'); value = Number(raw); }
+    // A decimal without units ("100.0", written by some producers) is read as the nearest whole value.
+    else { if (!/^\+?\d+(?:\.\d+)?$/.test(raw)) fail('invalid measurements'); value = Math.round(Number(raw)); }
     if (!Number.isFinite(value)) fail('invalid measurements');
     // Nil/pct/auto cell exceptions reset to table defaults. The
     // table-level leading/trailing defaults instead treat pct/auto as zero.

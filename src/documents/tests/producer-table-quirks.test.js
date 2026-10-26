@@ -4,7 +4,8 @@ import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage, W } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 
-// Tables as some producers write them: an unchanged tblGridChange record in the grid.
+// Tables as some producers write them: an unchanged tblGridChange record in the grid,
+// and widths and margins as decimals ("9360.0").
 let dom;
 beforeAll(() => { dom = new JSDOM(''); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
 afterAll(() => { dom.window.close(); delete globalThis.DOMParser; delete globalThis.XMLSerializer; });
@@ -50,4 +51,28 @@ it('keeps malformed grid revision records read-only', async () => {
     const pkg = await DocxPackage.open(docx(table({ grid: '<w:gridCol w:w="4680"/><w:gridCol w:w="4680"/>' + record })), { bestEffort: true });
     expect(pkg.readOnly).toBe(true);
   }
+});
+
+it('reads table widths and cell margins written as decimals without units', async () => {
+  const body = table({ tblW: '9360.0', margin: '100.0' })
+    .replace('<w:tblLayout', '<w:tblCellSpacing w:w="0.0" w:type="dxa"/><w:tblInd w:w="-115.4" w:type="dxa"/><w:tblLayout')
+    .replace('</w:tblPr>', '<w:tblCellMar><w:left w:w="99.6" w:type="dxa"/><w:right w:w="100.0" w:type="dxa"/></w:tblCellMar></w:tblPr>')
+    .replace('<w:tcMar>', '<w:tcW w:w="4680.0" w:type="dxa"/><w:tcMar>');
+  const pkg = await DocxPackage.open(docx(body), { bestEffort: true });
+  expect(pkg.readOnly).not.toBe(true);
+  const [first] = pkg.tables[0].rows[0].cells;
+  expect(pkg.tables[0]).toMatchObject({ width: { type: 'dxa', value: 9360 }, indent: -115 });
+  expect(first.width).toEqual({ type: 'dxa', value: 4680 });
+  expect(first.margins).toMatchObject({ top: 100, left: 100, right: 100 });
+  const doc = model(pkg);
+  doc.select(0); doc.replace('Z');
+  const saved = await save(pkg, doc);
+  // The saved table states the whole values it was read with, as the schema requires.
+  const widths = [...parse(strFromU8(saved['word/document.xml'])).getElementsByTagNameNS(W, '*')].filter(n => n.hasAttributeNS(W, 'w') && !['gridCol', 'pgSz'].includes(n.localName)).map(n => `${n.localName}=${n.getAttributeNS(W, 'w')}`);
+  expect(widths.sort()).toEqual(['left=100', 'right=100', 'tblCellSpacing=0', 'tblInd=-115', 'tblW=9360', 'tcW=4680', 'top=100']);
+  const reopened = await DocxPackage.open(zipSync(saved), { bestEffort: true });
+  expect(reopened.readOnly).not.toBe(true);
+  expect(reopened.paragraphs[0].runs.map(r => r.text).join('')).toBe('Za');
+  // Other malformed measurements are still refused.
+  for (const tblW of ['9360.', '.5', '1e3', '9360,0']) expect((await DocxPackage.open(docx(table({ tblW })), { bestEffort: true })).readOnly).toBe(true);
 });
