@@ -47,6 +47,8 @@ export function htmlBody(html, { preserveFallback = false } = {}) {
   const src = String(html ?? '');
   if (typeof DOMParser === 'undefined') return src.replace(/<(script|style|head)[\s\S]*?<\/\1>/gi, '');
   const parsed = new DOMParser().parseFromString(src, 'text/html');
+  // Formatting a page gives through its style sheet goes before the style sheet does.
+  if (parsed.body && parsed.styleSheets?.length) inlineSheetFormatting(parsed);
   // Markup the converter reads poorly (definition lists, captions, checkboxes, <font>, <center>, hidden content) takes a
   // form it reads well, before the form controls it would otherwise stand in are dropped with the rest of the non-content.
   if (parsed.body) normalizeMarkup(parsed.body);
@@ -78,6 +80,36 @@ export function htmlBody(html, { preserveFallback = false } = {}) {
     if (pre.firstChild?.nodeType === 3 && pre.firstChild.data.startsWith('\n')) pre.prepend(parsed.createComment(''));
   }
   return parsed.body ? parsed.body.innerHTML : src;
+}
+
+/** The style-sheet properties carried onto elements: emphasis, decoration, script position and alignment. */
+const SHEET_PROPERTIES = ['font-weight', 'font-style', 'text-decoration-line', 'vertical-align', 'text-align'];
+
+/**
+ * Write the formatting a page's style sheets give its elements into their style attributes, where the
+ * converter reads it: Google Docs, LibreOffice and many sites set bold, italics, underlines and
+ * alignment through classes (.c3 { font-weight: 700 }), which the converter, reading inline styles,
+ * would otherwise lose with the style sheet. Rules apply in document order, a later one over an
+ * earlier one, and never over the element's own style attribute. Colors are left out: a page's theme
+ * (light text for a dark background) would make text unreadable on a white page.
+ */
+function inlineSheetFormatting(doc) {
+  const own = new Map();
+  for (const sheet of doc.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch { continue; }
+    for (const rule of rules || []) {
+      if (!rule.selectorText || !rule.style) continue;
+      const properties = SHEET_PROPERTIES.filter((name) => rule.style.getPropertyValue(name));
+      if (!properties.length) continue;
+      let targets;
+      try { targets = doc.body.querySelectorAll(rule.selectorText); } catch { continue; }
+      for (const el of targets) {
+        if (!own.has(el)) own.set(el, new Set(SHEET_PROPERTIES.filter((name) => el.style.getPropertyValue(name))));
+        for (const name of properties) if (!own.get(el).has(name)) el.style.setProperty(name, rule.style.getPropertyValue(name));
+      }
+    }
+  }
 }
 
 /**

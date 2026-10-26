@@ -21655,6 +21655,18 @@ quotations are not indented and pictures are omitted. Loading adds no undo step;
 the document autosaves like other imports. Browser regressions cover Markdown and
 HTML structure, links, script removal, autosave, export and reopen.
 
+### Style-sheet formatting in imported HTML (2026-10-26)
+
+HTML that sets formatting through its style sheet rather than inline styles
+(Google Docs and LibreOffice exports, many web pages) lost its bold, italics,
+underlines and alignment on import, because the conversion reads inline styles
+only. Before conversion, each style rule's font-weight, font-style,
+text-decoration-line, vertical-align and text-align are now written onto the
+elements it selects, in document order and never over an element's own style
+attribute; specificity is not compared. Colors are not carried, so a page's
+dark theme cannot make text invisible on a white page. A browser regression
+imports class-styled HTML.
+
 ### Link appearance (2026-10-05)
 
 Links created with Insert link (Ctrl/Cmd+K) looked exactly like the text around
