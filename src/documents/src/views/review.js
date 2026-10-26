@@ -109,7 +109,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   }
 
   function selectThread(thread, { focusDocument = true } = {}) {
-    const engine = editor(); if (!engine || thread.start === null) return;
+    // A card or a Reviewing Pane entry can outlive edits that moved its anchor: select where the thread is now.
+    thread = threads().find(t => t.id === thread.id);
+    const engine = editor(); if (!engine || !thread || thread.start === null) return;
     activeId = thread.id; pinned = true; pinnedRange = editor()?.model.range.join() ?? '';
     engine.finishComposition();
     // Comment anchors are body positions: leave a header, footer or note first.

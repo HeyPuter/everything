@@ -670,3 +670,24 @@ test('a comment card that grows while a reply is typed pushes the cards below it
   })).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('choosing a comment in the Reviewing Pane selects its text after edits before it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Alpha beta gamma delta.');
+  await onTab(page, 'review');
+  await select(input, 6, 10);
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  await page.locator('.ed-comment-draft textarea').fill('About beta');
+  await page.locator('.ed-comment-draft').getByRole('button', { name: 'Post' }).click();
+  await (await reviewButton(page, 'Reviewing Pane', 'Tracking')).click();
+  const item = page.getByRole('complementary', { name: 'Reviewing Pane' }).locator('.review-pane-item');
+  await expect(item).toHaveCount(1);
+  await input.focus();
+  await select(input, 0);
+  await page.keyboard.type('Some more words ');
+  await expect(input).toHaveValue('Some more words Alpha beta gamma delta.');
+  await item.click();
+  await expect.poll(() => input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('beta');
+  expect(errors).toEqual([]);
+});
