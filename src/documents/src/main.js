@@ -59,8 +59,8 @@ function go(hash, { newDocument = false } = {}) {
 /** Why a document could not be opened, in the user's terms. */
 const openFailureMessage = (e) => (P.isNotFound(e) ? 'That file no longer exists' : e?.name === 'HwpError' ? e.message : 'Could not open the file');
 
-/** The URL that shows a document: its file, or the template it is being written from. */
-const docHash = (doc) => (doc.path ? `#/edit/${encodeURIComponent(doc.path)}` : doc.template ? `#/new/${encodeURIComponent(doc.template)}` : '#/new');
+/** The URL that shows a document: its file, the invitation to the shared document it is, or the template it is being written from. */
+const docHash = (doc) => (doc.path ? `#/edit/${encodeURIComponent(doc.path)}` : doc.collab?.hash ? doc.collab.hash : doc.template ? `#/new/${encodeURIComponent(doc.template)}` : '#/new');
 
 async function unmount(stillWanted = () => true) {
   const leaving = current;
@@ -381,7 +381,7 @@ async function openInvitation(link, requestedHash) {
     // The room holds the document; this tab never writes a file of its own unless sharing ends.
     const doc = new Doc({ name: joined.name, blob: new Blob([joined.base], { type: P.DOCX_MIME }) });
     doc.setSaving(false);
-    doc.collab = { client: joined.client, link };
+    doc.collab = { client: joined.client, link, hash: requestedHash };
     openEditor(doc);
     document.title = `${doc.name} — Documents`;
   } catch (e) {
