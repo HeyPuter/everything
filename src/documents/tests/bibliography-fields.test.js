@@ -91,3 +91,20 @@ describe('citations and bibliography fields', () => {
     expect(d.text.startsWith('(Lovelace)')).toBe(true);
   });
 });
+
+describe('updating citations keeps the caret where it was', () => {
+  it('so a citation inserted after an update goes where the caret is', async () => {
+    const { d } = await setup();
+    const second = { ...book, tag: 'Lov20b', fields: { ...book.fields, Title: 'A sketch of the engine' } };
+    d.select(0, d.text.length); d.replace('Claim one. Claim two.');
+    d.select('Claim one'.length); insertCitation(d, { tags: ['Lov20'] }, [book], 'apa');
+    const caret = d.text.indexOf('Claim two') + 'Claim two'.length;
+    d.select(caret);
+    // A second source by the same author and year turns the first citation into "2020a" or "2020b".
+    expect(updateCitations(d, [book, second], 'apa')).toBe(1);
+    expect(d.text).toMatch(/^Claim one \(Lovelace, 2020[ab]\)\. Claim two\.$/);
+    expect(d.range).toEqual([caret + 1, caret + 1]);
+    insertCitation(d, { tags: ['Lov20b'] }, [book, second], 'apa');
+    expect(d.text).toMatch(/^Claim one \(Lovelace, 2020[ab]\)\. Claim two \(Lovelace, 2020[ab]\)\.$/);
+  });
+});
