@@ -3,7 +3,7 @@
  * Fill Effects and More Colors. Each shows a live preview and applies through the callback it is given;
  * a callback that returns (or resolves to) false keeps the dialog open.
  */
-import { el, fieldId } from '../ui/dom.js';
+import { el, fieldId, isComposing } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { segmented } from '../ui/segmented.js';
 import { COLOR_SLOTS, COLOR_SLOT_LABELS, FONT_SCHEMES, WATERMARK_TEXTS } from '../engine/document-themes.js';
@@ -182,14 +182,28 @@ export function openFillEffects({ page, apply }) {
     else { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   };
   const colorInput = (key, label) => { const input = el('input.design-color-input', { type: 'color', value: `#${state[key]}`, 'aria-label': label, oninput: () => { state[key] = hexOf(input.value); draw(); } }); return el('label.design-color-field', {}, input, el('span', {}, label)); };
-  const tile = (list, key, paint) => el('div.design-tile-grid', { role: 'radiogroup', 'aria-label': { texture: 'Texture', pattern: 'Pattern', style: 'Shading style' }[key] }, ...list.map(([id, label]) => {
-    const preview = el('canvas', { width: 40, height: 40, 'aria-hidden': 'true' });
-    const ctx = preview.getContext('2d'); if (ctx) paint(ctx, id);
-    const button = el('button.design-tile', { type: 'button', role: 'radio', 'aria-checked': String(state[key] === id), title: label, 'aria-label': label, onclick: () => {
-      state[key] = id; for (const b of button.parentNode.children) b.setAttribute('aria-checked', String(b === button)); draw();
-    } }, preview);
-    return button;
-  }));
+  // Each set of tiles is a group of radio buttons: one Tab stop on the chosen tile, the arrows choose the previous or
+  // next one, Home and End the first and last.
+  const tile = (list, key, paint) => {
+    const group = el('div.design-tile-grid', { role: 'radiogroup', 'aria-label': { texture: 'Texture', pattern: 'Pattern', style: 'Shading style' }[key], onkeydown: e => {
+      if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+      const buttons = [...group.children], at = buttons.indexOf(e.target);
+      const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: buttons.length - 1 }[e.key];
+      if (at < 0 || next === undefined) return;
+      e.preventDefault();
+      const button = buttons[(next + buttons.length) % buttons.length];
+      button.click(); button.focus();
+    } }, ...list.map(([id, label]) => {
+      const preview = el('canvas', { width: 40, height: 40, 'aria-hidden': 'true' });
+      const ctx = preview.getContext('2d'); if (ctx) paint(ctx, id);
+      const button = el('button.design-tile', { type: 'button', role: 'radio', 'aria-checked': String(state[key] === id), tabindex: state[key] === id ? 0 : -1, title: label, 'aria-label': label, onclick: () => {
+        state[key] = id; for (const b of button.parentNode.children) { b.setAttribute('aria-checked', String(b === button)); b.tabIndex = b === button ? 0 : -1; } draw();
+      } }, preview);
+      return button;
+    }));
+    if (group.firstChild && ![...group.children].some(b => b.tabIndex === 0)) group.firstChild.tabIndex = 0;
+    return group;
+  };
   const gradientPanel = el('div.design-panel', {}, el('div.design-inline', {}, colorInput('color1', 'Color 1'), colorInput('color2', 'Color 2')),
     el('div.field', {}, el('span.field-label', {}, 'Shading style'), tile(GRADIENT_STYLES, 'style', (ctx, id) => drawGradient(ctx, 40, 40, { color1: '7FA7D9', color2: 'FFFFFF', style: id }))));
   const texturePanel = el('div.design-panel', {}, tile(TEXTURES, 'texture', (ctx, id) => drawTexture(ctx, 40, 40, { texture: id })));
