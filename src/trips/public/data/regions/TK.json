@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[-171206,-9331],[15,-12],[5,-18],[-20,30]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"TK-X01","arcs":[[0]],"properties":{"name":"Tokelau","iso":false}}]}}}

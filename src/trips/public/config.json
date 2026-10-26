@@ -1,0 +1,23 @@
+{
+  "providers": {
+    "tiles": ["openfreemap"],
+    "geocode": ["photon", "nominatim"],
+    "pois": ["photon"],
+    "placeInfo": ["wikimedia"],
+    "route": ["geo-osrm", "geo-valhalla", "ors", "straight"],
+    "weather": ["metno"],
+    "normals": ["nasa"],
+    "fx": ["frankfurter", "fawaz"],
+    "publicHolidays": ["nager", "openholidays"],
+    "schoolHolidays": ["openholidays"],
+    "subdivisions": ["openholidays"],
+    "images": ["unsplash", "openverse", "wikimedia"],
+    "flights": ["aerodatabox"],
+    "hazards": ["gdacs", "dwd"]
+  },
+  "geoWorker": null,
+  "pathA": false,
+  "directFiles": false,
+  "nagerVersion": 4,
+  "disabled": []
+}

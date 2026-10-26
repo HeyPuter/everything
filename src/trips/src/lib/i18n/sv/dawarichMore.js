@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Lägg till i resedagbok…',
+  'dawarichMore.added': { one: '{count} incheckning har lagts till i {journey}', other: '{count} incheckningar har lagts till i {journey}' },
+  'dawarichMore.addedOne': '1 incheckning har lagts till i {journey}',
+  'dawarichMore.openJourney': 'Öppna resedagbok',
+  'dawarichMore.untitledJourney': 'Namnlös resedagbok',
+  'dawarichMore.bucketTitle': 'Bucketlista',
+  'dawarichMore.bucketIntro': 'Platser och länder på din bucketlista som de här vistelserna nådde.',
+  'dawarichMore.bucketLabel': 'Träffar på bucketlistan',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Markera {count} som besökt', other: 'Markera {count} som besökta' },
+  'dawarichMore.markOne': 'Markera 1 som besökt',
+  'dawarichMore.choose': 'Välj vad som ska markeras',
+  'dawarichMore.marked': 'Besökt',
+  'dawarichMore.markedToast': 'Bucketlistan har uppdaterats',
+};

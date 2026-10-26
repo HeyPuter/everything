@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Přidat do deníku…',
+  'dawarichMore.added': { one: '{count} check-in přidán do deníku „{journey}“', few: '{count} check-iny přidány do deníku „{journey}“', other: '{count} check-inů přidáno do deníku „{journey}“' },
+  'dawarichMore.addedOne': '1 check-in přidán do deníku „{journey}“',
+  'dawarichMore.openJourney': 'Otevřít deník',
+  'dawarichMore.untitledJourney': 'Deník bez názvu',
+  'dawarichMore.bucketTitle': 'Seznam přání',
+  'dawarichMore.bucketIntro': 'Místa a země ze seznamu přání, kam vás tyto pobyty zavedly.',
+  'dawarichMore.bucketLabel': 'Shody se seznamem přání',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Označit {count} položku jako navštívenou', few: 'Označit {count} položky jako navštívené', other: 'Označit {count} položek jako navštívené' },
+  'dawarichMore.markOne': 'Označit 1 položku jako navštívenou',
+  'dawarichMore.choose': 'Vyberte položky k označení',
+  'dawarichMore.marked': 'Navštíveno',
+  'dawarichMore.markedToast': 'Seznam přání aktualizován',
+};

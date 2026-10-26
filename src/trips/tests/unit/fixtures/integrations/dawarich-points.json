@@ -1,0 +1,10 @@
+[
+  { "id": 1, "latitude": "40.7580", "longitude": "-73.9855", "timestamp": 1777896000, "accuracy": 8 },
+  { "id": 2, "latitude": "40.75801", "longitude": "-73.98551", "timestamp": 1777896060, "accuracy": 8 },
+  { "id": 3, "latitude": "40.7614", "longitude": "-73.9776", "timestamp": 1777896600, "accuracy": 12 },
+  { "id": 4, "latitude": "40.7700", "longitude": "-73.9700", "timestamp": 1777896900, "accuracy": 900 },
+  { "id": 5, "latitude": "40.7794", "longitude": "-73.9632", "timestamp": 1777897200, "accuracy": 10 },
+  { "id": 6, "latitude": "40.7306", "longitude": "-73.9895", "timestamp": 1777908000, "accuracy": 15 },
+  { "id": 7, "latitude": "40.7316", "longitude": "-73.9905", "timestamp": 1777908300, "accuracy": 15 },
+  { "id": 8, "latitude": null, "longitude": "-73.99", "timestamp": 1777908400 }
+]

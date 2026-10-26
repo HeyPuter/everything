@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Wyślij do AirTrail',
+  'airtrailPush.intro': 'Loty zarezerwowane w Trips, jeden lot AirTrail na każdy odcinek. Po wysłaniu zmiany wprowadzone tutaj można wysłać ponownie.',
+  'airtrailPush.new': 'Jeszcze nie w AirTrail',
+  'airtrailPush.changed': 'Zmieniono w Trips',
+  'airtrailPush.changedChip': 'Edytowano tutaj',
+  'airtrailPush.blockedCodes': { one: 'Aby wysłać {count} lot, podaj kody lotnisk i datę dla każdego odcinka.', few: 'Aby wysłać {count} loty, podaj kody lotnisk i datę dla każdego odcinka.', many: 'Aby wysłać {count} lotów, podaj kody lotnisk i datę dla każdego odcinka.', other: 'Aby wysłać {count} lotu, podaj kody lotnisk i datę dla każdego odcinka.' },
+  'airtrailPush.blockedCodesOne': 'Aby wysłać 1 lot, podaj kody lotnisk i datę dla każdego odcinka.',
+  'airtrailPush.blockedLegs': '{title}: odcinki zmieniły się od wysłania; zaktualizuj lot w AirTrail ręcznie.',
+  'airtrailPush.send': { one: 'Wyślij {count} lot', few: 'Wyślij {count} loty', many: 'Wyślij {count} lotów', other: 'Wyślij {count} lotu' },
+  'airtrailPush.sendOne': 'Wyślij 1 lot',
+  'airtrailPush.choose': 'Wybierz loty do wysłania',
+  'airtrailPush.sending': 'Wysyłanie: {title}…',
+  'airtrailPush.done': { one: 'Wysłano {count} lot do AirTrail', few: 'Wysłano {count} loty do AirTrail', many: 'Wysłano {count} lotów do AirTrail', other: 'Wysłano {count} lotu do AirTrail' },
+  'airtrailPush.doneOne': 'Wysłano 1 lot do AirTrail',
+  'airtrailPush.failed': 'Nie udało się wysłać: {title}.',
+  'airtrailPush.history': 'Wysłanie lotów do AirTrail',
+};

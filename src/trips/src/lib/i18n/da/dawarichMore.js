@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Føj til rejsedagbog…',
+  'dawarichMore.added': { one: '{count} indtjekning føjet til {journey}', other: '{count} indtjekninger føjet til {journey}' },
+  'dawarichMore.addedOne': '1 indtjekning føjet til {journey}',
+  'dawarichMore.openJourney': 'Åbn rejsedagbog',
+  'dawarichMore.untitledJourney': 'Unavngiven rejsedagbog',
+  'dawarichMore.bucketTitle': 'Bucketliste',
+  'dawarichMore.bucketIntro': 'Steder og lande på din bucketliste, som disse ophold nåede.',
+  'dawarichMore.bucketLabel': 'Match på bucketlisten',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Marker {count} som besøgt', other: 'Marker {count} som besøgt' },
+  'dawarichMore.markOne': 'Marker 1 som besøgt',
+  'dawarichMore.choose': 'Vælg punkter, der skal markeres',
+  'dawarichMore.marked': 'Besøgt',
+  'dawarichMore.markedToast': 'Bucketlisten er opdateret',
+};

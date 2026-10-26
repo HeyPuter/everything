@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Send to AirTrail',
+  'airtrailPush.intro': 'Flights booked in Trips, one AirTrail flight per leg. Once sent, your edits here can be sent again.',
+  'airtrailPush.new': 'Not in AirTrail yet',
+  'airtrailPush.changed': 'Changed in Trips',
+  'airtrailPush.changedChip': 'Edited here',
+  'airtrailPush.blockedCodes': '{count} flights need airport codes and a date on every leg before they can be sent.',
+  'airtrailPush.blockedCodesOne': '1 flight needs airport codes and a date on every leg before it can be sent.',
+  'airtrailPush.blockedLegs': '{title}: its legs changed since it was sent; update it in AirTrail by hand.',
+  'airtrailPush.send': 'Send {count} flights',
+  'airtrailPush.sendOne': 'Send 1 flight',
+  'airtrailPush.choose': 'Choose flights to send',
+  'airtrailPush.sending': 'Sending {title}…',
+  'airtrailPush.done': '{count} flights sent to AirTrail',
+  'airtrailPush.doneOne': '1 flight sent to AirTrail',
+  'airtrailPush.failed': '{title} could not be sent.',
+  'airtrailPush.history': 'Send flights to AirTrail',
+};

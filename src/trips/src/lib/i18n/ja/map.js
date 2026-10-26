@@ -1,0 +1,17 @@
+export default {
+  'map.label': '旅行の地図',
+  'map.attribution': '地図のクレジット',
+  'map.marker': '地図のマーカー',
+  'map.logo': 'MapLibreのロゴ',
+  'map.zoomIn': '拡大',
+  'map.zoomOut': '縮小',
+  'map.resetBearing': 'ドラッグで地図を回転、クリックで北向きに戻す',
+  'map.findLocation': '現在地を表示',
+  'map.locationUnavailable': '現在地を取得できません',
+  'map.attributionToggle': 'クレジットの表示を切り替え',
+  'map.mapFeedback': '地図のフィードバック',
+  'map.closePopup': 'ポップアップを閉じる',
+  'map.gesturesWindows': 'Ctrl+スクロールで地図をズーム',
+  'map.gesturesMac': '⌘+スクロールで地図をズーム',
+  'map.gesturesMobile': '2本の指で地図を移動',
+};

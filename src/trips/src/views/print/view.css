@@ -1,0 +1,31 @@
+/* Print view dialog: options beside the paper preview; one at a time on phones. */
+.modal-panel.print-view { inline-size: min(1240px, 100%); block-size: 100%; gap: 12px; padding: 16px 20px 18px; overflow: hidden; }
+.print-view .modal-body { display: flex; flex: 1; flex-direction: column; min-block-size: 0; }
+.print-body { display: flex; flex: 1; flex-direction: column; gap: 12px; min-block-size: 0; }
+.print-switch { display: none; }
+.print-layout { display: grid; flex: 1; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); gap: 16px; min-block-size: 0; }
+.print-options { display: flex; flex-direction: column; gap: 18px; min-block-size: 0; overflow: auto; padding-inline-end: 6px; }
+.print-fieldset { display: flex; flex-direction: column; gap: 6px; min-inline-size: 0; margin: 0; padding: 0; border: 0; }
+.print-fieldset legend { margin-block-end: 4px; padding: 0; font-size: 13.5px; font-weight: 700; }
+.print-fieldset .check-field[hidden] { display: none; }
+.print-field { display: flex; flex-direction: column; gap: 6px; padding-block: 4px; }
+.print-range { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.print-fieldset > .btn { align-self: flex-start; }
+.print-stage { display: flex; flex-direction: column; min-block-size: 0; overflow: hidden; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface-3); }
+.print-frame { flex: 1; inline-size: 100%; min-block-size: 0; border: 0; background: var(--surface-3); }
+.print-error { margin: auto; padding: 24px; color: var(--danger); text-align: center; }
+.print-view .modal-actions { align-items: center; }
+.print-status { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-inline-size: 0; margin-inline-end: auto; }
+.print-status-text { font-size: 13px; color: var(--ink-2); }
+.print-snapshot { position: fixed; inset-block-start: 0; inset-inline-start: 0; inline-size: 1px; block-size: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+
+@media (max-width: 760px) {
+  .modal-panel.print-view { block-size: 100%; padding: 12px 14px max(14px, var(--safe-b)); border-radius: 0; }
+  .print-switch { display: flex; }
+  .print-layout { position: relative; grid-template-columns: minmax(0, 1fr); }
+  .print-layout[data-show="preview"] .print-options { display: none; }
+  /* Kept laid out (not display: none) so the frame can still print while the options show. */
+  .print-layout[data-show="options"] .print-stage { position: absolute; inline-size: 1px; block-size: 1px; opacity: 0; pointer-events: none; }
+  .print-view .modal-actions { gap: 8px; }
+  .print-status { flex-basis: 100%; }
+}

@@ -1,0 +1,17 @@
+export default {
+  'map.label': '旅行地图',
+  'map.attribution': '地图版权信息',
+  'map.marker': '地图标记',
+  'map.logo': 'MapLibre 标志',
+  'map.zoomIn': '放大',
+  'map.zoomOut': '缩小',
+  'map.resetBearing': '拖动以旋转地图，点击以重置为正北',
+  'map.findLocation': '查找我的位置',
+  'map.locationUnavailable': '无法获取位置',
+  'map.attributionToggle': '显示或隐藏版权信息',
+  'map.mapFeedback': '地图反馈',
+  'map.closePopup': '关闭弹窗',
+  'map.gesturesWindows': '按住 Ctrl 并滚动以缩放地图',
+  'map.gesturesMac': '按住 ⌘ 并滚动以缩放地图',
+  'map.gesturesMobile': '用两根手指移动地图',
+};

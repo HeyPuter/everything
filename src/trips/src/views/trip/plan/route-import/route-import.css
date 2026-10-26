@@ -1,0 +1,9 @@
+.route-import { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.route-import-row { display: flex; gap: 8px; }
+.route-import-row .input { flex: 1; min-inline-size: 0; }
+.route-import-list { margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; }
+.route-import-stop { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.route-import-text { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; overflow-wrap: anywhere; }
+.route-import-meta { color: var(--ink-3); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; }
+.route-import-text .spinner { inline-size: 14px; block-size: 14px; border-width: 2px; }
+.route-import-options { display: flex; flex-direction: column; gap: 8px; }

@@ -1,0 +1,44 @@
+.week-view { display: grid; gap: 14px; padding-block-end: 24px; min-inline-size: 0; }
+.week-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.week-title { margin: 0; font-size: 19px; font-weight: 700; }
+.week-nav { display: flex; align-items: center; gap: 4px; }
+.week-summary { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.week-skeleton { display: grid; gap: 8px; }
+.week-skeleton .skeleton { block-size: 16px; }
+.week-notes { display: grid; gap: 6px; }
+.week-notes:empty { display: none; }
+.week-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding: 8px 12px; border-radius: var(--r-sm); background: var(--warn-wash); color: var(--warn-strong); font-size: 13px; }
+.week-note a { color: inherit; font-weight: 600; }
+
+.week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin: 0; padding: 0; list-style: none; }
+.week-day { display: flex; flex-direction: column; gap: 8px; min-inline-size: 0; padding: 10px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.week-day.is-today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.week-day.is-free { background: transparent; }
+.week-day-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px; margin: 0; font-size: 13px; font-weight: 700; color: var(--ink-2); }
+.week-today { padding: 1px 8px; border-radius: var(--r-full); background: var(--accent-wash); color: var(--accent-strong); font-size: 11.5px; font-weight: 700; }
+.week-free { margin: 0; color: var(--ink-3); font-size: 12.5px; }
+.week-trips { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.week-trip { display: grid; gap: 6px; padding-inline-start: 8px; border-inline-start: 3px solid var(--trip-color, var(--accent)); }
+.week-trip-link { display: flex; flex-direction: column; gap: 1px; color: var(--ink); text-decoration: none; min-inline-size: 0; }
+.week-trip-link:hover .week-trip-title { text-decoration: underline; }
+.week-trip-title { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.week-trip-day { color: var(--ink-3); font-size: 12px; }
+.week-items { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.week-item-link { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; column-gap: 6px; padding: 3px 4px; border-radius: 6px; color: var(--ink); font-size: 13px; text-decoration: none; }
+.week-item-link:is(a):hover { background: var(--row-hover); }
+.week-item-link .icon { align-self: center; color: var(--ink-3); }
+.week-item-time { color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; min-inline-size: 3.2em; }
+.week-item-label { overflow-wrap: anywhere; min-inline-size: 0; }
+.week-item-detail { grid-column: 3; color: var(--ink-3); font-size: 12px; }
+.week-untimed { margin: 0; color: var(--ink-3); font-size: 12px; }
+
+.week-reminders { display: grid; gap: 10px; padding: 14px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.week-section-title { margin: 0; font-size: 15px; font-weight: 700; }
+.week-reminders .notify-list { border: 0; border-radius: 0; background: transparent; }
+.week-reminders .notify-item { padding-inline: 0; }
+
+@media (max-width: 1100px) { .week-days { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } }
+@media (max-width: 640px) {
+  .week-days { grid-template-columns: minmax(0, 1fr); }
+  .week-day.is-free { flex-direction: row; align-items: baseline; justify-content: space-between; padding-block: 8px; }
+}

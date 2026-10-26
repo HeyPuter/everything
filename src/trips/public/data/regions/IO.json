@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[72358,-7268],[75,-48],[0,-109],[50,55],[-50,-62],[-7,109],[-68,55]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"IO-X01","arcs":[[0]],"properties":{"name":"British Indian Ocean Territory","iso":false}}]}}}

@@ -1,0 +1,26 @@
+.alt-chip { display: inline-flex; align-items: center; gap: 4px; min-block-size: 28px; padding: 2px 8px; border: 1px solid var(--hairline-strong); border-radius: 999px; background: var(--surface); color: var(--ink-2); font-size: 12.5px; font-weight: 600; }
+.alt-chip:hover { background: var(--surface-2); }
+.alt-dialog { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.alt-dialog .tabs { overflow-x: auto; }
+.alt-panel { display: flex; flex-direction: column; gap: 12px; padding-block: 12px; }
+.alt-intro, .alt-note, .alt-notes { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.alt-empty { margin: 0; color: var(--ink-3); }
+.alt-subhead { margin: 0; font-size: 14px; }
+.alt-stops { list-style: decimal; margin: 0; padding-inline-start: 22px; display: flex; flex-direction: column; gap: 6px; }
+.alt-stop { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-block-size: 36px; }
+.alt-stop-name { flex: 1 1 160px; min-inline-size: 0; overflow-wrap: anywhere; }
+.alt-stop-time { color: var(--ink-2); font-size: 13px; }
+.alt-stop[data-unique="true"] .alt-stop-name { font-weight: 600; }
+.alt-time { inline-size: 7.5em; }
+.alt-stop-actions { display: flex; gap: 2px; }
+.alt-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.alt-add { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
+.alt-add-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; align-items: end; }
+.alt-add-row > .field { margin-block-end: 0; }
+.alt-compare-pick { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.alt-compare-pick > .field { margin-block-end: 0; }
+.alt-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.alt-column { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); min-inline-size: 0; }
+.alt-stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 13px; }
+.alt-stats dt { color: var(--ink-2); }
+.alt-stats dd { margin: 0; }

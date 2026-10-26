@@ -1,0 +1,17 @@
+export default {
+  'map.label': '旅程地圖',
+  'map.attribution': '地圖版權資訊',
+  'map.marker': '地圖標記',
+  'map.logo': 'MapLibre 標誌',
+  'map.zoomIn': '放大',
+  'map.zoomOut': '縮小',
+  'map.resetBearing': '拖曳以旋轉地圖，點一下可重設為北方朝上',
+  'map.findLocation': '尋找我的位置',
+  'map.locationUnavailable': '無法取得位置',
+  'map.attributionToggle': '切換版權資訊',
+  'map.mapFeedback': '地圖意見回饋',
+  'map.closePopup': '關閉彈出視窗',
+  'map.gesturesWindows': '使用 Ctrl + 滾輪縮放地圖',
+  'map.gesturesMac': '使用 ⌘ + 滾輪縮放地圖',
+  'map.gesturesMobile': '用兩指移動地圖',
+};

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f1f1ee" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
+  <title>Trips UI kit</title>
+  <script>
+    try {
+      const theme = localStorage.getItem('trips:theme');
+      if (theme === 'light' || theme === 'dark') {
+        document.documentElement.dataset.theme = theme;
+        const color = document.querySelector(`meta[media="(prefers-color-scheme: ${theme})"]`).content;
+        document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+          meta.dataset.media = meta.media;
+          meta.removeAttribute('media');
+          meta.content = color;
+        });
+      }
+    } catch {}
+  </script>
+</head>
+<body>
+  <script type="module" src="./kit.js"></script>
+</body>
+</html>

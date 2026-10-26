@@ -1,0 +1,13 @@
+.cx-loading { display: grid; place-items: center; padding: 24px; }
+.cx-due-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.cx-due-row[data-overdue="true"] .field-hint, .cx-payment [data-overdue="true"] { color: var(--danger); }
+.cx-budget-total { display: flex; flex-direction: column; gap: 6px; }
+.cx-budget-total[data-over="true"] strong { color: var(--danger); }
+.cx-budget-bar[data-over="true"] .costs-bar-fill { background: var(--danger); }
+.costs-bar-row[data-over="true"] .cx-budget-state { color: var(--danger); }
+.cx-currencies { display: flex; flex-direction: column; gap: 16px; }
+.cx-across .costs-row { flex-wrap: wrap; }
+.cx-across-here { inline-size: 20px; flex: none; }
+.cx-extra-actions { justify-content: flex-start; }
+.cx-across-info a { color: var(--accent-strong); }
+.chip.chip-danger { color: var(--danger); background: var(--danger-wash); }

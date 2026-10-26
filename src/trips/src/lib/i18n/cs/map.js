@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Mapa cesty',
+  'map.attribution': 'Zdroje mapových dat',
+  'map.marker': 'Značka na mapě',
+  'map.logo': 'Logo MapLibre',
+  'map.zoomIn': 'Přiblížit',
+  'map.zoomOut': 'Oddálit',
+  'map.resetBearing': 'Přetažením mapu otočíte, kliknutím ji natočíte na sever',
+  'map.findLocation': 'Najít moji polohu',
+  'map.locationUnavailable': 'Poloha není k dispozici',
+  'map.attributionToggle': 'Zobrazit nebo skrýt zdroje mapy',
+  'map.mapFeedback': 'Zpětná vazba k mapě',
+  'map.closePopup': 'Zavřít vyskakovací okno',
+  'map.gesturesWindows': 'Mapu přiblížíte pomocí Ctrl + kolečka myši',
+  'map.gesturesMac': 'Mapu přiblížíte pomocí ⌘ + posouvání',
+  'map.gesturesMobile': 'Mapu posunete dvěma prsty',
+};

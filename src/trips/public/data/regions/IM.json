@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[-4790,54064],[80,157],[98,44],[81,101],[180,48],[-25,-66],[64,-61],[-87,-65],[8,-27],[-221,-138],[-92,28],[-86,-21]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"IM-X01","arcs":[[0]],"properties":{"name":"Isle of Man","iso":false}}]}}}

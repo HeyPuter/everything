@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Hozzáadás útinaplóhoz…',
+  'dawarichMore.added': '{count} check-in hozzáadva: {journey}',
+  'dawarichMore.addedOne': '1 check-in hozzáadva: {journey}',
+  'dawarichMore.openJourney': 'Útinapló megnyitása',
+  'dawarichMore.untitledJourney': 'Névtelen útinapló',
+  'dawarichMore.bucketTitle': 'Bakancslista',
+  'dawarichMore.bucketIntro': 'A bakancslistád helyei és országai, amelyeket ezek a tartózkodások elértek.',
+  'dawarichMore.bucketLabel': 'Bakancslista-egyezések',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': '{count} meglátogatottnak jelölése',
+  'dawarichMore.markOne': '1 meglátogatottnak jelölése',
+  'dawarichMore.choose': 'Válaszd ki a jelölendő elemeket',
+  'dawarichMore.marked': 'Meglátogatott',
+  'dawarichMore.markedToast': 'Bakancslista frissítve',
+};

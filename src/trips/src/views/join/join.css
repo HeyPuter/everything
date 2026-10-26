@@ -1,0 +1,19 @@
+.join-view { display: flex; justify-content: center; padding-block: 8px 24px; }
+.join-card { display: flex; flex-direction: column; gap: 10px; inline-size: 100%; max-inline-size: 480px; padding: 24px; overflow: visible; }
+.join-icon { display: inline-grid; place-items: center; inline-size: 44px; block-size: 44px; border-radius: 14px; background: var(--accent-wash); color: var(--accent-strong); }
+.join-icon-warn { background: var(--warn-wash); color: var(--warn-strong); }
+.join-title { font-size: 20px; overflow-wrap: anywhere; }
+.join-trip { font-weight: 600; overflow-wrap: anywhere; }
+.join-message { color: var(--ink); font-size: 15px; }
+.join-hint { color: var(--ink-2); font-size: 13.5px; }
+.join-loading { display: flex; align-items: center; gap: 10px; color: var(--ink-2); }
+.join-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-block-start: 8px; }
+.join-error { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--danger); font-size: 14px; }
+.join-view .members-alert, .join-card .members-alert { padding: 10px 12px; border: 1px solid var(--danger); border-radius: var(--r-sm); background: var(--danger-wash); color: var(--danger); font-size: 13.5px; }
+.join-inbox-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.join-inbox-item { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-sm); }
+.join-inbox-item .join-actions { margin-block-start: 6px; }
+@media (max-width: 639px) {
+  .join-card { padding: 18px 16px; }
+  .join-actions .btn { flex: 1 1 140px; }
+}

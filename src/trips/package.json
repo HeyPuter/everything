@@ -1,0 +1,52 @@
+{
+  "name": "trips",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "description": "Collaborative trip planning on your own Puter cloud.",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "npm run check:licenses",
+    "build": "npm run build:worker && vite build",
+    "build:mock": "npm run build:worker && vite build --mode mock",
+    "build:worker": "vite build --config vite.worker.config.js",
+    "build:geo": "vite build --config worker-geo/vite.config.js",
+    "build:notify": "vite build --config worker-notify/vite.config.js",
+    "build:icons": "node scripts/build-icons.mjs",
+    "publish:notify": "node scripts/publish-notify.mjs",
+    "preview": "vite preview",
+    "preview:mock": "vite preview --mode mock",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:bridge": "playwright test --config dev/fake-puter/playwright.config.js",
+    "test:e2e:client": "playwright test --config dev/client-data/playwright.config.js",
+    "test:e2e:map": "playwright test --config tests/map/playwright.config.js",
+    "check:licenses": "node tools/check-licenses.mjs",
+    "perf:bundle": "node tools/perf/bundle.mjs",
+    "perf:store": "node tools/perf/store.mjs",
+    "perf:worker": "node tools/perf/worker.mjs",
+    "perf:browser": "node tools/perf/browser.mjs"
+  },
+  "dependencies": {
+    "@dwayneparton/geojson-to-gpx": "0.2.0",
+    "@photostructure/tz-lookup": "11.6.1",
+    "@tmcw/togeojson": "7.1.3",
+    "fflate": "0.8.3",
+    "lucide": "1.55.0",
+    "maplibre-gl": "6.15.0",
+    "simple-opening-hours": "0.1.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "axe-core": "4.10.3",
+    "fake-indexeddb": "6.2.5",
+    "jsdom": "26.1.0",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

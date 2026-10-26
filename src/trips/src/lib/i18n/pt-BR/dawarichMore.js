@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Adicionar ao diário…',
+  'dawarichMore.added': { one: '{count} check-in adicionado a {journey}', other: '{count} check-ins adicionados a {journey}' },
+  'dawarichMore.addedOne': '1 check-in adicionado a {journey}',
+  'dawarichMore.openJourney': 'Abrir diário',
+  'dawarichMore.untitledJourney': 'Diário sem título',
+  'dawarichMore.bucketTitle': 'Lista de desejos',
+  'dawarichMore.bucketIntro': 'Lugares e países da sua lista de desejos alcançados nestas permanências.',
+  'dawarichMore.bucketLabel': 'Correspondências na lista de desejos',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': { one: 'Marcar {count} como visitado', other: 'Marcar {count} como visitados' },
+  'dawarichMore.markOne': 'Marcar 1 como visitado',
+  'dawarichMore.choose': 'Escolha o que marcar',
+  'dawarichMore.marked': 'Visitado',
+  'dawarichMore.markedToast': 'Lista de desejos atualizada',
+};

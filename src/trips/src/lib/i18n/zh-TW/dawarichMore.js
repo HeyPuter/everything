@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': '加入遊記…',
+  'dawarichMore.added': '已將 {count} 個打卡加入「{journey}」',
+  'dawarichMore.addedOne': '已將 1 個打卡加入「{journey}」',
+  'dawarichMore.openJourney': '開啟遊記',
+  'dawarichMore.untitledJourney': '未命名遊記',
+  'dawarichMore.bucketTitle': '願望清單',
+  'dawarichMore.bucketIntro': '這些停留地點到過的願望清單地點和國家。',
+  'dawarichMore.bucketLabel': '願望清單相符項目',
+  'dawarichMore.reached': '{stay}，{date}',
+  'dawarichMore.mark': '將 {count} 項標為去過',
+  'dawarichMore.markOne': '將 1 項標為去過',
+  'dawarichMore.choose': '選擇要標記的項目',
+  'dawarichMore.marked': '去過',
+  'dawarichMore.markedToast': '已更新願望清單',
+};

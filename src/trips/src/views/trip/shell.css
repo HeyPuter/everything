@@ -1,0 +1,19 @@
+.trip-view { gap: 16px; }
+.trip-head { display: flex; align-items: center; gap: 12px; min-block-size: 32px; margin-block-start: -14px; }
+.trip-subtitle { flex: 1 1 auto; min-inline-size: 0; color: var(--ink-2); font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.trip-head-actions { display: flex; align-items: center; gap: 8px; margin-inline-start: auto; }
+.trip-presence { display: inline-flex; align-items: center; }
+.trip-presence:not(:has(> :not([hidden]))), .trip-notice:not(:has(> :not([hidden]))) { display: none; }
+.trip-tab .collab-badge { margin-inline-start: 2px; }
+/* Contains the badges' visually hidden text, so the scrolling tab strip clips it instead of widening the page. */
+.trip-tabs { position: relative; }
+.trip-banners { display: flex; flex-direction: column; gap: 8px; }
+.trip-banner { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; padding: 12px 14px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); color: var(--ink); font-size: 14px; }
+.trip-banner > p { flex: 1 1 220px; min-inline-size: 0; }
+.trip-banner > .icon { flex: none; margin-block-start: 1px; }
+.trip-banner-actions { display: flex; gap: 8px; }
+.trip-banner-warn, .trip-banner-credit { border-color: var(--warn); background: var(--warn-wash); }
+.trip-banner-warn > .icon, .trip-banner-credit > .icon { color: var(--warn-strong); }
+.trip-banner-danger { border-color: var(--danger); background: var(--danger-wash); }
+.trip-banner-danger > .icon { color: var(--danger); }
+@media (max-width: 899px) { .trip-head { margin-block-start: -10px; } }

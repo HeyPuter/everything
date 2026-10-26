@@ -1,0 +1,22 @@
+.delete-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-block: 8px; }
+.delete-actions .btn { text-decoration: none; }
+.delete-warn { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-wash); color: var(--warn-strong); font-size: 13.5px; }
+.delete-warn .icon { flex: none; margin-block-start: 2px; }
+.delete-plan { display: grid; gap: 14px; margin-block-start: 8px; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+.delete-plan-title { margin: 0; font-size: 16px; font-weight: 700; }
+.delete-group { display: grid; gap: 6px; }
+.delete-group-title { margin: 0; font-size: 14px; font-weight: 600; }
+.delete-list { display: grid; gap: 3px; margin: 0; padding-inline-start: 20px; font-size: 14px; }
+.delete-list code { font-family: var(--mono); font-size: 13px; }
+.delete-confirm { display: grid; gap: 6px; max-inline-size: 420px; margin-block-start: 12px; }
+.delete-confirm-input { font-family: var(--mono); }
+.delete-steps { display: grid; gap: 4px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 14px; }
+.delete-step { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+.delete-step[data-state="done"] { color: var(--ink); }
+.delete-step[data-state="done"] .delete-step-mark { color: var(--success); }
+.delete-step[data-state="failed"] { color: var(--danger); }
+.delete-step-mark { display: inline-grid; place-items: center; inline-size: 18px; block-size: 18px; flex: none; }
+.delete-step[data-state="pending"] .delete-step-mark::before { content: ''; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--surface-3); }
+.delete-step[data-state="running"] .icon { animation: pulse 1.4s ease infinite; }
+.delete-done { display: grid; gap: 10px; justify-items: start; margin-block-start: 12px; padding: 14px 16px; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--success-wash); }
+.delete-done p { margin: 0; }

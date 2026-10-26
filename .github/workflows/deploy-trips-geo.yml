@@ -1,0 +1,55 @@
+name: Deploy Trips geo worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - src/trips/worker-geo/**
+      - src/trips/src/services/core.js
+      - .github/workflows/deploy-trips-geo.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-trips-geo
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/trips
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/trips/package-lock.json
+
+      - run: npm ci
+      - run: npm run check:licenses
+      - run: npm test -- tests/unit/services-geo-worker.test.js
+      - run: npm run build:geo
+
+      # Upstream providers stay off after a deploy until the operator writes
+      # geo:config in the worker's KV (src/trips/docs/services.md §3).
+      - name: Check deploy target
+        env:
+          WORKER_DIR: ${{ secrets.TRIPS_GEO_WORKER_DIR }}
+        run: ': "${WORKER_DIR:?TRIPS_GEO_WORKER_DIR secret is not set}"'
+
+      - name: Deploy worker
+        id: puter_worker
+        uses: HeyPuter/puter-worker-deploy-action@v1.0.1
+        with:
+          worker_name: trips-geo
+          source_path: src/trips/worker-geo/dist/trips-geo.js
+          puter_path: ${{ secrets.TRIPS_GEO_WORKER_DIR }}
+          puter_token: ${{ secrets.PUTER_API_TOKEN }}
+
+      - run: echo "${{ steps.puter_worker.outputs.deploy_action }} ${{ steps.puter_worker.outputs.worker_url }}"

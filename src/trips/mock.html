@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Trips</title>
+  <meta name="theme-color" content="#f1f1ee" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)" />
+  <link rel="icon" type="image/png" sizes="128x128" href="./icons/icon-128.png" />
+  <script>
+    (() => {
+      let theme;
+      try { theme = localStorage.getItem('trips:theme'); } catch {}
+      if (theme === 'light' || theme === 'dark') {
+        document.documentElement.dataset.theme = theme;
+        document.querySelectorAll('meta[name="theme-color"]').forEach((meta) => {
+          meta.content = theme === 'dark' ? '#0b0b0d' : '#f1f1ee';
+        });
+      }
+      let look;
+      try { look = JSON.parse(localStorage.getItem('trips:appearance')); } catch {}
+      if (look && typeof look === 'object') {
+        const root = document.documentElement;
+        const size = Math.round(Number(look.textSize) * 10) / 10;
+        if (size >= 0.8 && size <= 1.6 && size !== 1) root.style.setProperty('--text-scale', String(size));
+        if (look.contrast === 'more') root.dataset.contrast = 'more';
+        if (look.motion === 'reduce') root.dataset.motion = 'reduce';
+        if (look.density === 'compact') root.dataset.density = 'compact';
+        if (['teal', 'green', 'purple', 'orange', 'rose'].includes(look.accent)) root.dataset.accent = look.accent;
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="./src/styles/base.css" />
+  <script type="module" src="./dev/mock-boot.js"></script>
+</head>
+<body>
+  <div id="app">
+    <h1><img src="./icons/icon-192.png" width="56" height="56" alt="Trips" /></h1>
+  </div>
+</body>
+</html>

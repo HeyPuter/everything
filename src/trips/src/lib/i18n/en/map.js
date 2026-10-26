@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Trip map',
+  'map.attribution': 'Map attribution',
+  'map.marker': 'Map marker',
+  'map.logo': 'MapLibre logo',
+  'map.zoomIn': 'Zoom in',
+  'map.zoomOut': 'Zoom out',
+  'map.resetBearing': 'Drag to rotate map, click to reset north',
+  'map.findLocation': 'Find my location',
+  'map.locationUnavailable': 'Location not available',
+  'map.attributionToggle': 'Toggle attribution',
+  'map.mapFeedback': 'Map feedback',
+  'map.closePopup': 'Close popup',
+  'map.gesturesWindows': 'Use Ctrl + scroll to zoom the map',
+  'map.gesturesMac': 'Use ⌘ + scroll to zoom the map',
+  'map.gesturesMobile': 'Use two fingers to move the map',
+};

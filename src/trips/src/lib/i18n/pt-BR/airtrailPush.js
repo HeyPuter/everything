@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Enviar para o AirTrail',
+  'airtrailPush.intro': 'Voos reservados no Trips, um voo do AirTrail por trecho. Depois do envio, suas edições aqui podem ser enviadas de novo.',
+  'airtrailPush.new': 'Ainda não está no AirTrail',
+  'airtrailPush.changed': 'Alterado no Trips',
+  'airtrailPush.changedChip': 'Editado aqui',
+  'airtrailPush.blockedCodes': { one: '{count} voo precisa dos códigos dos aeroportos e de uma data em cada trecho antes de ser enviado.', other: '{count} voos precisam dos códigos dos aeroportos e de uma data em cada trecho antes de serem enviados.' },
+  'airtrailPush.blockedCodesOne': '1 voo precisa dos códigos dos aeroportos e de uma data em cada trecho antes de ser enviado.',
+  'airtrailPush.blockedLegs': '{title}: os trechos mudaram desde o envio; atualize-o manualmente no AirTrail.',
+  'airtrailPush.send': { one: 'Enviar {count} voo', other: 'Enviar {count} voos' },
+  'airtrailPush.sendOne': 'Enviar 1 voo',
+  'airtrailPush.choose': 'Escolha os voos para enviar',
+  'airtrailPush.sending': 'Enviando {title}…',
+  'airtrailPush.done': { one: '{count} voo enviado para o AirTrail', other: '{count} voos enviados para o AirTrail' },
+  'airtrailPush.doneOne': '1 voo enviado para o AirTrail',
+  'airtrailPush.failed': 'Não foi possível enviar {title}.',
+  'airtrailPush.history': 'Enviar voos para o AirTrail',
+};

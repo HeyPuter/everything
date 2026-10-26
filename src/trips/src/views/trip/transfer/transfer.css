@@ -1,0 +1,30 @@
+.transfer { display: flex; flex-direction: column; gap: 14px; }
+.transfer-lead { margin: 0; color: var(--ink); }
+.transfer-note { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.transfer-subhead { margin: 0 0 6px; font-size: 14px; }
+.transfer-how { margin: 0; padding-inline-start: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); font-size: 13.5px; }
+.transfer-pick, .transfer-bring { margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px; min-inline-size: 0; }
+.transfer-option { display: flex; align-items: center; gap: 10px; min-block-size: 44px; padding: 8px 12px; border: 1px solid var(--hairline); border-radius: var(--r-sm); cursor: pointer; }
+.transfer-option:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); }
+.transfer-option:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.transfer-option-name { flex: 1; min-inline-size: 0; overflow-wrap: anywhere; }
+.transfer-error { margin: 0; color: var(--danger); }
+.transfer-loading { display: flex; justify-content: center; margin: 0; }
+.transfer-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.transfer-step { display: flex; align-items: center; gap: 10px; color: var(--ink-2); }
+.transfer-step[data-state="done"] { color: var(--success-strong); }
+.transfer-step[data-state="now"] { color: var(--ink); font-weight: 600; }
+.transfer-step-icon { display: inline-flex; inline-size: 20px; justify-content: center; flex: none; }
+.transfer-step-icon .spinner { inline-size: 16px; block-size: 16px; border-width: 2px; }
+.transfer-step-text { display: flex; flex-direction: column; min-inline-size: 0; }
+.transfer-step-detail { font-size: 12.5px; font-weight: 400; color: var(--ink-3); }
+.transfer-status { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+.transfer-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.transfer-section h3 { display: flex; align-items: center; gap: 6px; }
+.transfer-section-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.transfer-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; margin-block-end: 12px; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); background: var(--surface); color: var(--ink-2); font-size: 13.5px; }
+.transfer-notice[data-tone="warn"] { border-color: var(--warn); background: var(--warn-wash); color: var(--warn-strong); }
+.transfer-notice .spinner { inline-size: 18px; block-size: 18px; border-width: 2px; }
+.transfer-notice-text { flex: 1 1 220px; min-inline-size: 0; }
+.transfer-notice-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.transfer-notice-actions:empty { display: none; }

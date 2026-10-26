@@ -1,0 +1,1 @@
+{"type":"Topology","transform":{"scale":[0.001,0.001],"translate":[0,0]},"arcs":[[[12453,41903],[0,1],[1,0],[-1,-1]]],"objects":{"regions":{"type":"GeometryCollection","geometries":[{"type":"Polygon","id":"VA-X01","arcs":[[0]],"properties":{"name":"Vatican City","local":"Vatican","iso":false}}]}}}

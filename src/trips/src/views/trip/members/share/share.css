@@ -1,0 +1,11 @@
+.share-body, .share-on, .share-off { display: flex; flex-direction: column; gap: 12px; min-inline-size: 0; }
+.share-link { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.share-link .field { inline-size: 100%; margin-block-end: 0; }
+.share-toggles { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.share-toggles legend { margin-block-end: 6px; padding: 0; }
+.share-toggle { align-items: flex-start; padding-block: 6px; }
+.share-toggle input { margin-block-start: 2px; flex: none; }
+.share-toggle-text { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.share-toggle:has(input:disabled) { cursor: default; color: var(--ink-3); }
+.share-currency, .share-expiry { max-inline-size: 320px; margin-block: 8px 0; }
+.share-actions { display: flex; flex-wrap: wrap; gap: 8px; }

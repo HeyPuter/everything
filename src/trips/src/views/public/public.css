@@ -1,0 +1,94 @@
+.public-shell { min-block-size: 100dvh; background: var(--page); }
+.public-view { display: flex; flex-direction: column; gap: 20px; max-inline-size: 960px; margin-inline: auto; padding: max(16px, var(--safe-t)) max(24px, var(--safe-r)) max(24px, var(--safe-b)) max(24px, var(--safe-l)); min-inline-size: 0; }
+.public-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.public-brand { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 700; text-decoration: none; border-radius: var(--r-xs); }
+.public-brand img { border-radius: 8px; }
+.public-badge { font-size: 12px; }
+.public-spacer { flex: 1; }
+.public-language { inline-size: auto; max-inline-size: 11em; }
+.public-main, .public-body { display: flex; flex-direction: column; gap: 20px; min-inline-size: 0; }
+.public-loading { display: flex; align-items: center; justify-content: center; gap: 12px; min-block-size: 240px; color: var(--ink-2); }
+.public-state .empty { min-block-size: 280px; }
+.public-state-title { font-size: 17px; }
+.public-foot { padding-block-start: 12px; border-block-start: 1px solid var(--hairline); color: var(--ink-3); font-size: 12.5px; }
+
+.public-hero { display: flex; flex-direction: column; gap: 14px; }
+.public-cover { inline-size: 100%; max-block-size: 300px; object-fit: cover; border-radius: var(--r-lg); background: var(--surface-2); }
+.public-hero-text { display: flex; flex-direction: column; gap: 8px; min-inline-size: 0; }
+.public-title { font-size: 28px; line-height: 1.2; overflow-wrap: anywhere; }
+.public-title:focus { outline: none; }
+.public-dates, .public-travelers { display: flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14.5px; }
+.public-dates .icon, .public-travelers .icon { flex: none; }
+.public-travelers span { min-inline-size: 0; overflow-wrap: anywhere; }
+.public-description { color: var(--ink); font-size: 15px; max-inline-size: 68ch; }
+
+.public-view .tab-set { display: flex; flex-direction: column; gap: 16px; min-inline-size: 0; }
+.public-view .tabs { overflow-x: auto; scrollbar-width: thin; }
+.public-view .tab-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-xs); }
+.public-itinerary, .public-bookings, .public-packing, .public-costs, .public-chat { display: flex; flex-direction: column; gap: 14px; min-inline-size: 0; }
+.public-card { border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.public-card-title { padding: 10px 14px; font-size: 15px; border-block-end: 1px solid var(--hairline); background: var(--surface-2); }
+.public-day-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 10px 14px; font-size: inherit; background: color-mix(in srgb, var(--day-color) 8%, var(--surface)); border-block-end: 1px solid var(--hairline); }
+.public-day-num { font-weight: 700; font-size: 15px; }
+.public-day-num::before { content: ''; display: inline-block; inline-size: 9px; block-size: 9px; margin-inline-end: 7px; border-radius: 50%; background: var(--day-color); vertical-align: 1px; }
+.public-day-date { color: var(--ink-2); font-size: 13.5px; font-weight: 400; }
+.public-day-name { inline-size: 100%; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.public-day-notes { padding: 8px 14px; color: var(--ink-2); font-size: 14px; border-block-end: 1px solid var(--hairline); }
+.public-stay { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 0; padding: 6px 14px; color: var(--ink-2); font-size: 13px; border-block-end: 1px solid var(--hairline); }
+.public-stay strong { color: var(--ink); font-weight: 600; }
+
+.public-rows { margin: 0; padding: 0; list-style: none; }
+.public-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; min-inline-size: 0; }
+.public-row + .public-row { border-block-start: 1px solid var(--hairline); }
+.public-row.is-cancelled .public-row-title { text-decoration: line-through; color: var(--ink-2); }
+.public-row-empty, .public-empty { padding: 14px; color: var(--ink-3); font-size: 14px; }
+.public-row-body { display: flex; flex-direction: column; gap: 4px; flex: 1; min-inline-size: 0; }
+.public-row-title { font-size: 14.5px; font-weight: 600; overflow-wrap: anywhere; }
+.public-row-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; color: var(--ink-2); font-size: 13px; }
+.public-sub { color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.public-time { color: var(--ink-2); }
+.public-phase { display: inline-flex; padding: 1px 7px; border-radius: var(--r-full); background: var(--surface-2); color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
+.public-bullet { display: inline-grid; place-items: center; flex: none; inline-size: 28px; block-size: 28px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); }
+.public-day .public-bullet { color: var(--day-color); }
+.public-notes { color: var(--ink-2); font-size: 13.5px; overflow-wrap: anywhere; }
+.public-hint { color: var(--ink-2); font-size: 13.5px; }
+.public-web { display: inline-flex; align-items: center; gap: 4px; color: var(--accent-strong); }
+.public-link { padding: 0; border: 0; background: none; color: var(--accent-strong); font-size: 13px; text-decoration: underline; min-block-size: 24px; }
+.public-legs { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
+.public-legs li { display: flex; flex-direction: column; gap: 2px; }
+.public-leg-route { font-size: 13.5px; font-weight: 600; }
+.public-code { font-family: var(--mono); font-size: 13px; }
+
+.public-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; }
+.public-file { display: inline-flex; align-items: center; gap: 6px; max-inline-size: 100%; min-block-size: 32px; padding: 4px 10px; border: 1px solid var(--hairline-strong); border-radius: var(--r-full); background: var(--surface); color: var(--ink); font-size: 12.5px; }
+.public-file:hover { background: var(--surface-2); }
+.public-file[aria-busy="true"] { cursor: progress; opacity: .7; }
+.public-file-name { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.public-file-size { color: var(--ink-3); }
+
+.public-check { display: inline-grid; place-items: center; flex: none; inline-size: 22px; block-size: 22px; margin-block-start: 1px; border: 1.5px solid var(--field-border); border-radius: 6px; color: var(--accent-ink); }
+.public-pack[data-done="true"] .public-check { background: var(--accent); border-color: var(--accent); }
+.public-pack[data-done="true"] .public-row-title { color: var(--ink-2); text-decoration: line-through; }
+
+.public-total-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 12px 14px 4px; font-size: 26px; font-weight: 700; }
+.public-total .public-hint { padding: 0 14px 12px; }
+.public-line { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.public-line > .public-row-title { flex: 1 1 160px; font-weight: 500; }
+.public-money { font-weight: 600; }
+.public-approx { color: var(--ink-3); font-size: 12.5px; font-weight: 500; }
+.public-amounts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; text-align: end; }
+
+.public-messages { display: flex; flex-direction: column; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.public-message { display: flex; gap: 10px; align-items: flex-start; }
+.public-message-body { display: flex; flex-direction: column; gap: 4px; min-inline-size: 0; flex: 1; overflow-wrap: anywhere; }
+.public-message-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; font-size: 13.5px; }
+
+.public-map { position: relative; block-size: min(70vh, 640px); min-block-size: 360px; border: 1px solid var(--hairline); border-radius: var(--r-md); overflow: hidden; }
+
+@media (max-width: 639px) {
+  .public-view { padding-inline: max(16px, var(--safe-s)) max(16px, var(--safe-e)); gap: 16px; }
+  .public-title { font-size: 23px; }
+  .public-cover { max-block-size: 200px; }
+  .public-map { block-size: 65vh; min-block-size: 320px; }
+  .public-row { padding-inline: 12px; }
+}

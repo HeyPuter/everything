@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Az utazás térképe',
+  'map.attribution': 'Térkép forrásmegjelölése',
+  'map.marker': 'Térképjelölő',
+  'map.logo': 'MapLibre-logó',
+  'map.zoomIn': 'Nagyítás',
+  'map.zoomOut': 'Kicsinyítés',
+  'map.resetBearing': 'Húzd a térkép forgatásához, kattints az északi irány visszaállításához',
+  'map.findLocation': 'Saját helyzet keresése',
+  'map.locationUnavailable': 'A helyzet nem érhető el',
+  'map.attributionToggle': 'Forrásmegjelölés be/ki',
+  'map.mapFeedback': 'Visszajelzés a térképről',
+  'map.closePopup': 'Felugró ablak bezárása',
+  'map.gesturesWindows': 'A térkép nagyításához használd a Ctrl + görgetést',
+  'map.gesturesMac': 'A térkép nagyításához használd a ⌘ + görgetést',
+  'map.gesturesMobile': 'A térkép mozgatásához használd két ujjadat',
+};

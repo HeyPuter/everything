@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Carte du voyage',
+  'map.attribution': 'Crédits de la carte',
+  'map.marker': 'Repère sur la carte',
+  'map.logo': 'Logo MapLibre',
+  'map.zoomIn': 'Zoom avant',
+  'map.zoomOut': 'Zoom arrière',
+  'map.resetBearing': 'Faire glisser pour faire pivoter la carte, cliquer pour la réorienter vers le nord',
+  'map.findLocation': 'Trouver ma position',
+  'map.locationUnavailable': 'Position non disponible',
+  'map.attributionToggle': 'Afficher ou masquer les crédits',
+  'map.mapFeedback': 'Signaler un problème sur la carte',
+  'map.closePopup': 'Fermer la fenêtre contextuelle',
+  'map.gesturesWindows': 'Utilisez Ctrl + molette pour zoomer sur la carte',
+  'map.gesturesMac': 'Utilisez ⌘ + molette pour zoomer sur la carte',
+  'map.gesturesMobile': 'Utilisez deux doigts pour déplacer la carte',
+};

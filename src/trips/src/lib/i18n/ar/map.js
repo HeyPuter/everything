@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'خريطة الرحلة',
+  'map.attribution': 'مصادر الخريطة',
+  'map.marker': 'علامة على الخريطة',
+  'map.logo': 'شعار MapLibre',
+  'map.zoomIn': 'تكبير',
+  'map.zoomOut': 'تصغير',
+  'map.resetBearing': 'اسحب لتدوير الخريطة، وانقر لإعادة الشمال إلى الأعلى',
+  'map.findLocation': 'تحديد موقعي',
+  'map.locationUnavailable': 'الموقع غير متاح',
+  'map.attributionToggle': 'إظهار المصادر أو إخفاؤها',
+  'map.mapFeedback': 'ملاحظات حول الخريطة',
+  'map.closePopup': 'إغلاق النافذة المنبثقة',
+  'map.gesturesWindows': 'استخدم Ctrl + التمرير لتكبير الخريطة',
+  'map.gesturesMac': 'استخدم ⌘ + التمرير لتكبير الخريطة',
+  'map.gesturesMobile': 'استخدم إصبعين لتحريك الخريطة',
+};

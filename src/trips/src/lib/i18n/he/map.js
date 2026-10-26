@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'מפת הטיול',
+  'map.attribution': 'ייחוס המפה',
+  'map.marker': 'סמן במפה',
+  'map.logo': 'הלוגו של MapLibre',
+  'map.zoomIn': 'התקרבות',
+  'map.zoomOut': 'התרחקות',
+  'map.resetBearing': 'גרירה לסיבוב המפה, לחיצה לאיפוס לכיוון צפון',
+  'map.findLocation': 'איתור המיקום שלי',
+  'map.locationUnavailable': 'המיקום לא זמין',
+  'map.attributionToggle': 'הצגה או הסתרה של הייחוס',
+  'map.mapFeedback': 'משוב על המפה',
+  'map.closePopup': 'סגירת החלון הקופץ',
+  'map.gesturesWindows': 'אפשר להשתמש ב-Ctrl + גלילה כדי לשנות את זום המפה',
+  'map.gesturesMac': 'אפשר להשתמש ב-⌘ + גלילה כדי לשנות את זום המפה',
+  'map.gesturesMobile': 'אפשר להשתמש בשתי אצבעות כדי להזיז את המפה',
+};

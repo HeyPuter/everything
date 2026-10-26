@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4ba7ff"/>
+      <stop offset="1" stop-color="#1b6be0"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dbe9ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#0a3a8c" flood-opacity="0.32"/>
+    </filter>
+  </defs>
+  <rect id="badge" x="16" y="16" width="992" height="992" rx="226" fill="url(#bg)"/>
+  <g id="glyph">
+    <g transform="translate(14 -14)">
+      <path d="M268 770 C 330 872, 470 878, 566 822" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="32" stroke-linecap="round" stroke-dasharray="0 64" stroke-dashoffset="-34"/>
+      <g filter="url(#shadow)">
+        <circle cx="262" cy="760" r="48" fill="url(#ink)"/>
+        <circle cx="262" cy="760" r="19" fill="#2a7ff0"/>
+        <path fill="url(#ink)" fill-rule="evenodd" d="M600 806 C 548 734, 408 578, 408 396 A 192 192 0 1 1 792 396 C 792 578, 652 734, 600 806 Z M674 396 A 74 74 0 1 0 526 396 A 74 74 0 1 0 674 396 Z"/>
+      </g>
+    </g>
+  </g>
+</svg>

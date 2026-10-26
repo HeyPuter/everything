@@ -1,0 +1,17 @@
+export default {
+  'map.label': 'Mapa del viaje',
+  'map.attribution': 'Atribución del mapa',
+  'map.marker': 'Marcador del mapa',
+  'map.logo': 'Logotipo de MapLibre',
+  'map.zoomIn': 'Acercar',
+  'map.zoomOut': 'Alejar',
+  'map.resetBearing': 'Arrastra para girar el mapa; haz clic para restablecer el norte',
+  'map.findLocation': 'Buscar mi ubicación',
+  'map.locationUnavailable': 'Ubicación no disponible',
+  'map.attributionToggle': 'Mostrar u ocultar atribución',
+  'map.mapFeedback': 'Comentarios sobre el mapa',
+  'map.closePopup': 'Cerrar ventana emergente',
+  'map.gesturesWindows': 'Usa Ctrl + desplazamiento para hacer zoom en el mapa',
+  'map.gesturesMac': 'Usa ⌘ + desplazamiento para hacer zoom en el mapa',
+  'map.gesturesMobile': 'Usa dos dedos para mover el mapa',
+};

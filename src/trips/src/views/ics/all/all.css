@@ -1,0 +1,4 @@
+.settings-ics-all { display: flex; flex-direction: column; gap: 14px; min-inline-size: 0; }
+.settings-ics-all .input[readonly] { font-family: var(--font-mono, monospace); font-size: 13px; }
+.ics-all-list { margin: 0; padding-inline-start: 18px; display: flex; flex-direction: column; gap: 4px; }
+.ics-all-list a { color: var(--accent-strong); overflow-wrap: anywhere; }

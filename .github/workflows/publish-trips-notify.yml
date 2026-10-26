@@ -1,0 +1,47 @@
+name: Publish Trips notify handler
+
+# Publishes the tripsNotify events handler against the Trips app. Manual only:
+# every subscriber runs the published handler as soon as it lands.
+on:
+  workflow_dispatch:
+    inputs:
+      replace:
+        description: Publish even if unchanged (also resumes suspended subscriptions)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-trips-notify
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/trips
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/trips/package-lock.json
+
+      - run: npm ci
+      - run: npm test -- tests/unit/notify-out-handler.test.js tests/unit/notify-out.test.js
+      - run: npm run build:notify
+      - run: npm run publish:notify -- --check
+
+      # The token must belong to the account that owns the Trips app.
+      - name: Publish handler
+        env:
+          PUTER_TOKEN: ${{ secrets.PUTER_API_TOKEN }}
+          PUTER_APP_UID: ${{ secrets.TRIPS_APP_UID }}
+          REPLACE: ${{ inputs.replace }}
+        run: |
+          if [ "$REPLACE" = "true" ]; then npm run publish:notify -- --replace; else npm run publish:notify; fi

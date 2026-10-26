@@ -1,0 +1,18 @@
+export default {
+  'airtrailPush.title': 'Naar AirTrail versturen',
+  'airtrailPush.intro': 'Vluchten die in Trips zijn geboekt, één AirTrail-vlucht per etappe. Na het versturen kun je je wijzigingen hier opnieuw versturen.',
+  'airtrailPush.new': 'Nog niet in AirTrail',
+  'airtrailPush.changed': 'Gewijzigd in Trips',
+  'airtrailPush.changedChip': 'Hier bewerkt',
+  'airtrailPush.blockedCodes': { one: '{count} vlucht heeft voor elke etappe luchthavencodes en een datum nodig voordat die kan worden verstuurd.', other: '{count} vluchten hebben voor elke etappe luchthavencodes en een datum nodig voordat ze kunnen worden verstuurd.' },
+  'airtrailPush.blockedCodesOne': '1 vlucht heeft voor elke etappe luchthavencodes en een datum nodig voordat die kan worden verstuurd.',
+  'airtrailPush.blockedLegs': '{title}: de etappes zijn gewijzigd sinds het versturen; werk de vlucht handmatig bij in AirTrail.',
+  'airtrailPush.send': { one: '{count} vlucht versturen', other: '{count} vluchten versturen' },
+  'airtrailPush.sendOne': '1 vlucht versturen',
+  'airtrailPush.choose': 'Kies vluchten om te versturen',
+  'airtrailPush.sending': '{title} versturen…',
+  'airtrailPush.done': { one: '{count} vlucht naar AirTrail verstuurd', other: '{count} vluchten naar AirTrail verstuurd' },
+  'airtrailPush.doneOne': '1 vlucht naar AirTrail verstuurd',
+  'airtrailPush.failed': '{title} kan niet worden verstuurd.',
+  'airtrailPush.history': 'Vluchten naar AirTrail versturen',
+};

@@ -1,0 +1,13 @@
+.chat-preview { margin-block-start: 6px; max-inline-size: 460px; }
+.chat-preview:empty { margin: 0; }
+.chat-preview-card {
+  display: flex; gap: 10px; align-items: stretch; padding: 8px 10px; border: 1px solid var(--hairline); border-inline-start: 3px solid var(--accent);
+  border-radius: var(--r-sm); background: var(--surface); color: var(--ink); text-decoration: none; overflow: hidden;
+}
+.chat-preview-card:hover { border-color: var(--hairline-strong); border-inline-start-color: var(--accent); }
+.chat-preview-image { flex: none; inline-size: 72px; block-size: 72px; object-fit: cover; border-radius: var(--r-xs); background: var(--surface-2); }
+.chat-preview-text { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; }
+.chat-preview-host { color: var(--ink-3); font-size: 12px; }
+.chat-preview-title { font-size: 14px; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chat-preview-desc { color: var(--ink-2); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+@media (max-width: 480px) { .chat-preview-image { inline-size: 56px; block-size: 56px; } }

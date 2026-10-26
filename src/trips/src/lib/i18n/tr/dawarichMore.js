@@ -1,0 +1,16 @@
+export default {
+  'dawarichMore.toJourney': 'Günlüğe ekle…',
+  'dawarichMore.added': '{count} check-in eklendi: {journey}',
+  'dawarichMore.addedOne': '1 check-in eklendi: {journey}',
+  'dawarichMore.openJourney': 'Günlüğü aç',
+  'dawarichMore.untitledJourney': 'Adsız seyahat günlüğü',
+  'dawarichMore.bucketTitle': 'Hayal listesi',
+  'dawarichMore.bucketIntro': 'Hayal listenizde olup bu konaklamalarla ulaştığınız yerler ve ülkeler.',
+  'dawarichMore.bucketLabel': 'Hayal listesi eşleşmeleri',
+  'dawarichMore.reached': '{stay}, {date}',
+  'dawarichMore.mark': '{count} öğeyi ziyaret edildi olarak işaretle',
+  'dawarichMore.markOne': '1 öğeyi ziyaret edildi olarak işaretle',
+  'dawarichMore.choose': 'İşaretlenecek öğeleri seçin',
+  'dawarichMore.marked': 'Ziyaret edildi',
+  'dawarichMore.markedToast': 'Hayal listesi güncellendi',
+};

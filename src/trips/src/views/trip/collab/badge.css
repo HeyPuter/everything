@@ -1,0 +1,2 @@
+/* `position: relative` keeps the absolutely placed sr-only label inside the scrolling tab strip on phones. */
+.collab-badge { position: relative; display: inline-flex; align-items: center; justify-content: center; min-inline-size: 18px; block-size: 18px; padding-inline: 5px; border-radius: var(--r-full); background: var(--accent); color: var(--accent-ink); font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
