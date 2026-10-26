@@ -12,6 +12,7 @@ import * as P from './puter.js';
 import { session } from './session.js';
 import { HANWORD_IMPORTABLE, importHanword } from './importers.js';
 import { importKind } from './importers.js';
+import { forgetRoom } from '../collab/room-memory.js';
 
 /** The formats the app takes from the device, named the way the user sees them. */
 export const IMPORT_FORMATS = 'DOCX, Hanword (.hwp, .hwpx), Markdown, HTML, or text files';
@@ -66,8 +67,10 @@ export async function importFiles(fileList, {
       const stem = P.stripExtension(f.name) || 'Untitled document';
       const name = await P.uniqueName(kind ? `${P.sanitizeName(stem) || 'Untitled document'}${kind}` : P.ensureDocx(stem));
       // Another tab or import may claim the checked name before this write.
-      await P.writeFile(`${P.FOLDER}/${name}`, converted?.blob || f, { dedupe: true });
+      const path = await P.createFile(`${P.FOLDER}/${name}`, converted?.blob || f);
       saved += 1;
+      // A new file under the name of one that was shared and deleted is not that document: it must not rejoin its room.
+      await forgetRoom(path);
     } catch (e) {
       console.error(e);
       issues.push(`${f.name}: ${e?.message || 'Import failed'}`);

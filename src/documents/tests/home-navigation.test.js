@@ -39,13 +39,13 @@ it('does not open a stale template menu after navigation', async () => {
 });
 
 it('finishes a bulk document write without opening a text import over the new view', async () => {
-  const written = pending(); vi.spyOn(P, 'writeFile').mockReturnValue(written.promise);
+  const written = pending(); vi.spyOn(P, 'createFile').mockReturnValue(written.promise);
   vi.spyOn(P, 'uniqueName').mockResolvedValue('Imported.docx');
   const input = view.el.querySelector('input[type="file"]');
   Object.defineProperty(input, 'files', { value: [new File(['word'], 'Imported.docx'), new File(['text'], 'Notes.txt')] });
   input.dispatchEvent(new Event('change')); await vi.advanceTimersByTimeAsync(0);
-  expect(P.writeFile).toHaveBeenCalledOnce();
-  leave(); written.resolve({}); await vi.advanceTimersByTimeAsync(0);
+  expect(P.createFile).toHaveBeenCalledOnce();
+  leave(); written.resolve('Documents/Imported.docx'); await vi.advanceTimersByTimeAsync(0);
   expect(importFile).not.toHaveBeenCalled();
 });
 
@@ -104,4 +104,21 @@ it('still opens a cloud selection while the document list is active', async () =
   [...view.el.querySelectorAll('button')].find((b) => b.textContent === 'Open from Puter').click();
   await vi.advanceTimersByTimeAsync(0);
   expect(openPath).toHaveBeenCalledWith('Documents/Selected.docx');
+});
+
+it('duplicates a document without joining the room of a shared one deleted elsewhere under the copy’s name', async () => {
+  const { rememberRoom, rememberedRoom } = await import('../src/collab/room-memory.js');
+  const kv = new Map();
+  vi.stubGlobal('puter', { kv: { get: async (k) => kv.get(k) ?? null, set: async (k, v) => { kv.set(k, v); }, del: async (k) => { kv.delete(k); } } });
+  const original = { name: 'Plan.docx', path: 'Documents/Plan.docx' };
+  P.listFiles.mockResolvedValue([original]);
+  await view.reload();
+  await rememberRoom('Documents/Plan copy.docx', { server: 'https://documents-abc.puter.work', room: 'old' });
+  vi.spyOn(P, 'readFile').mockResolvedValue(new Blob(['plan']));
+  vi.spyOn(P, 'createFile').mockResolvedValue('Documents/Plan copy.docx');
+  view.el.querySelector('[aria-label="Options for Plan.docx"]').click();
+  [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.querySelector('.menu-label')?.textContent === 'Duplicate').click();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(P.createFile).toHaveBeenCalledOnce();
+  expect(await rememberedRoom('Documents/Plan copy.docx')).toBeNull();
 });

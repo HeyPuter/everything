@@ -4,6 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const calls = vi.hoisted(() => ({ toasts: [], modals: [], written: [], here: true }));
 vi.mock('../src/ui/toast.js', () => ({ toast: vi.fn((message, options) => { calls.toasts.push([message, options]); return { dismiss() {} }; }) }));
 vi.mock('../src/ui/modal.js', () => ({ openModal: vi.fn((options) => { calls.modals.push(options); return { close() {} }; }) }));
+const rooms = vi.hoisted(() => ({ forgotten: [] }));
+vi.mock('../src/collab/room-memory.js', () => ({ forgetRoom: vi.fn(async (path) => { rooms.forgotten.push(path); }) }));
 vi.mock('../src/lib/session.js', () => ({ session: { signedOut: false, signIn: async () => true } }));
 vi.mock('../src/lib/puter.js', async (importOriginal) => {
   const actual = await importOriginal();
@@ -11,14 +13,14 @@ vi.mock('../src/lib/puter.js', async (importOriginal) => {
     ...actual,
     uniqueName: async (name) => name,
     // The user moves on while the first file is being written.
-    writeFile: vi.fn(async (path) => { calls.written.push(path); calls.here = false; if (/broken/.test(path)) throw new Error('Disk full'); }),
+    createFile: vi.fn(async (path) => { calls.written.push(path); calls.here = false; if (/broken/.test(path)) throw new Error('Disk full'); return path.replace(/\.docx$/, ' (1).docx'); }),
   };
 });
 
 import { importFiles, nothingImportable } from '../src/lib/importfiles.js';
 import { session } from '../src/lib/session.js';
 
-beforeEach(() => { calls.toasts.length = 0; calls.modals.length = 0; calls.written.length = 0; calls.here = true; });
+beforeEach(() => { rooms.forgotten.length = 0; calls.toasts.length = 0; calls.modals.length = 0; calls.written.length = 0; calls.here = true; });
 afterEach(() => { vi.clearAllMocks(); });
 
 const docx = (name) => new File(['PK'], name, { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
@@ -74,4 +76,10 @@ it('words the "nothing importable" message for a drop or for the file dialog', a
   expect(nothingImportable([log, log], { picked: true })).toBe('Those files cannot be imported. Choose DOCX, Hanword (.hwp, .hwpx), Markdown, HTML, or text files');
   await importFiles([log], { openFile: vi.fn(), nothingMessage: nothingImportable([log], { picked: true }) });
   expect(calls.toasts.map(([message]) => message)).toEqual(['That file cannot be imported. Choose DOCX, Hanword (.hwp, .hwpx), Markdown, HTML, or text files']);
+});
+
+it('forgets the room of a shared document deleted elsewhere under the name each written file got', async () => {
+  // Opened, a file under that name would otherwise rejoin the old document's room and be replaced by its state.
+  await importFiles([docx('Plan.docx'), docx('broken.docx'), docx('Letter.dotx')], { openFile: vi.fn() });
+  expect(rooms.forgotten).toEqual(['Documents/Plan (1).docx', 'Documents/Letter.dotx']);
 });

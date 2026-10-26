@@ -341,6 +341,8 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       let n = 2;
       while (names.has(name.toLowerCase())) name = `${stem} copy ${n++}${ext}`;
       const path = await P.createFile(`${P.FOLDER}/${name}`, blob);
+      // A copy is a document of its own, not one that was shared and deleted under its name: it must not join that room.
+      await forgetRoom(path);
       keepFocus = { path, control: 'file-menu-btn' };
       toast('Duplicated');
       load();
