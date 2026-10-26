@@ -169,7 +169,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
   const gallery = el('div.ribbon-gallery', { role: 'listbox', 'aria-label': 'Styles', 'aria-orientation': 'horizontal', dataset: { shrinkMin: '1', shrinkMax: '620' } });
   const galleryMore = command('More Styles', 'more', e => {
     if (c.paragraphStyle.disabled) return;
-    openMenu({ anchor: galleryMore, label: 'Styles', minWidth: 240, pointer: !!e?.detail, onClose: focusEditor, items: inDocument([
+    openMenu({ anchor: galleryMore, label: 'Styles', minWidth: 240, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, items: inDocument([
       ...optionItems(c.paragraphStyle).map(item => ({ ...item, radio: true, checked: c.paragraphStyle.value === [...c.paragraphStyle.options].find(o => o.textContent === item.label)?.value })),
       separator, { label: 'Create a Style…', icon: 'newStyle', disabled: c.newStyle.disabled, onSelect: () => c.newStyle.click() },
       { label: 'Modify Style…', icon: 'editStyle', disabled: c.editStyle.disabled, onSelect: () => c.editStyle.click() },

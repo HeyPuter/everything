@@ -823,7 +823,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       return { style, button };
     });
     pictureGallery.append(...pictureStyleButtons.map(i => i.button));
-    const pictureStylesMore = command('More Picture Styles', 'more', e => openMenu({ anchor: pictureStylesMore, label: 'Picture Styles', pointer: !!e?.detail, onClose: kit.focusEditor,
+    const pictureStylesMore = command('More Picture Styles', 'more', e => openMenu({ anchor: pictureStylesMore, label: 'Picture Styles', pointer: !!e?.detail, onClose: e?.detail ? kit.focusEditor : null,
       items: kit.inDocument(galleryItems([{ columns: 5, items: presets.PICTURE_STYLES.map(style => ({ label: style.name, preview: styleThumb(pictureSource(ready(), selected()), style, palette()), onSelect: () => commands.pictureStyle(style) })) }], { size: 'small', label: 'Picture Styles' })) }));
     pictureStylesMore.classList.add('ribbon-gallery-more');
     track(pictureStylesMore, pic);
@@ -864,7 +864,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       }));
     };
     renderShapeGallery();
-    const shapeStylesMore = command('More Shape Styles', 'more', e => openMenu({ anchor: shapeStylesMore, label: 'Shape Styles', pointer: !!e?.detail, onClose: kit.focusEditor,
+    const shapeStylesMore = command('More Shape Styles', 'more', e => openMenu({ anchor: shapeStylesMore, label: 'Shape Styles', pointer: !!e?.detail, onClose: e?.detail ? kit.focusEditor : null,
       items: kit.inDocument(galleryItems(presets.SHAPE_STYLE_KINDS.map(k => ({ header: k.name, columns: 7, items: presets.shapeStyles(!!theme()).filter(s => s.kind === k.id).map(style => ({ label: style.name, preview: shapeStyleThumb(style, palette(), { width: 36, height: 28, text: 'Abc' }), onSelect: () => commands.shapeStyle(style) })) })), { size: 'small', label: 'Shape Styles' })) }));
     shapeStylesMore.classList.add('ribbon-gallery-more');
     track(shapeStylesMore, () => editable() && (isShape(selected())));

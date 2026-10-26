@@ -306,7 +306,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
     const button = (label, icon, onclick, options = {}) => { const b = noSteal(command(label, icon, onclick, options)); enabled(b); return b; };
 
     /* Table Design */
-    const more = command('More Table Styles', 'more', e => openMenu({ anchor: more, label: 'Table Styles', minWidth: 300, pointer: !!e?.detail, onClose: focusEditor, className: 'table-style-menu', items: inDocument(styleMenuItems()) }));
+    const more = command('More Table Styles', 'more', e => openMenu({ anchor: more, label: 'Table Styles', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? focusEditor : null, className: 'table-style-menu', items: inDocument(styleMenuItems()) }));
     more.classList.add('ribbon-gallery-more'); noSteal(more); enabled(more);
     large(c.cellShading, { label: 'Shading', icon: 'cellShading' });
     const shading = split(c.cellShading, { label: 'Shading colors', size: 'large', open: (anchor, e) => shadingPalette(anchor, e) });

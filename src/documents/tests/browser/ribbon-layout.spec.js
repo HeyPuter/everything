@@ -261,6 +261,49 @@ test('a ribbon menu the mouse opens starts with no item chosen; one the keyboard
   expect(await focusedItem()).toBe('Sentence case.');
 });
 
+test('a gallery\'s More menu opened from the keyboard closes back to its button, and a choice goes to the document', async ({ page }) => {
+  await openEditor(page);
+  const focused = () => page.evaluate(() => document.activeElement.getAttribute('aria-label'));
+  await tab(page, 'Insert').click();
+  await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+  for (const [tabName, more, menu] of [['Home', 'More Styles', 'Styles'], ['Design', 'More Style Sets', 'Style Sets'], ['Table Design', 'More Table Styles', 'Table Styles']]) {
+    await tab(page, tabName).click();
+    const button = page.locator('.ribbon-panel:not([hidden])').getByRole('button', { name: more, exact: true });
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`.menu[aria-label="${menu}"]`)).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator(`.menu[aria-label="${menu}"]`)).toHaveCount(0);
+    await expect.poll(focused, more).toBe(more);
+    // Choosing from the menu still acts on the document and leaves the keyboard there.
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`.menu[aria-label="${menu}"]`)).toBeVisible();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`.menu[aria-label="${menu}"]`)).toHaveCount(0);
+    await expect.poll(focused, more).toBe('Document text');
+  }
+  // A shape's style gallery, whose choices are previews in a grid.
+  await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.press('Enter');
+  await tab(page, 'Insert').click();
+  await page.getByRole('button', { name: 'Shapes', exact: true }).click();
+  await page.locator('.shape-gallery-item').nth(2).click();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 200, y: 400 } });
+  await tab(page, 'Shape Format').click();
+  const more = page.locator('.ribbon-panel:not([hidden])').getByRole('button', { name: 'More Shape Styles', exact: true });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu[aria-label="Shape Styles"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect.poll(focused).toBe('More Shape Styles');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.menu[aria-label="Shape Styles"]')).toHaveCount(0);
+  await expect.poll(focused).toBe('Document text');
+});
+
 test('the subscript and superscript icons draw their digit large enough to read at 16px', async ({ page }) => {
   await openEditor(page);
   for (const name of ['Subscript', 'Superscript']) {

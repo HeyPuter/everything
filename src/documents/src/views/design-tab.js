@@ -344,7 +344,7 @@ export function createDesignTab({ editor, pkg, error, onChange = () => {}, comma
     const spacing = menuButton('Paragraph Spacing', 'paragraphSpacing', spacingItems, { size: 'small', text: 'Paragraph Spacing' });
     const effects = menuButton('Theme Effects', 'effects', effectItems, { size: 'small', text: 'Effects' });
     const setDefault = command('Set as Default', 'setDefault', setAsDefault, { text: 'Set as Default' });
-    const more = command('More Style Sets', 'more', e => openMenu({ anchor: more, label: 'Style Sets', minWidth: 300, pointer: !!e?.detail, onClose: () => editor()?.focus(), items: kit.inDocument(styleSetItems()) }));
+    const more = command('More Style Sets', 'more', e => openMenu({ anchor: more, label: 'Style Sets', minWidth: 300, pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: kit.inDocument(styleSetItems()) }));
     more.classList.add('ribbon-gallery-more');
     more.addEventListener('mousedown', e => e.preventDefault());
     for (const control of [themes, colors, fonts, effects]) when(control, () => engineReady() && editable());
