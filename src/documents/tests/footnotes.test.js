@@ -223,3 +223,25 @@ describe('footnotes', () => {
     expect(strFromU8(unzipSync(bytes)['word/footnotes.xml'])).not.toMatch(new RegExp(`w:id="${id}"`));
   });
 });
+
+describe('a note reference inserted where a field starts', () => {
+  it('goes before the field, so updating the field keeps the note', async () => {
+    const { insertBodyField } = await import('../src/engine/field-results.js');
+    const { bodyFieldRanges } = await import('../src/engine/body-fields.js');
+    const doc = new TextDocument([paragraph('')]);
+    doc.replace('Report '); insertBodyField(doc, ' DATE \\@ "yyyy" ', '1999'); doc.replace(' ends.');
+    doc.select('Report '.length);
+    doc.insertFootnoteReference('1', 'footnote');
+    const [field] = bodyFieldRanges(doc.paragraphs);
+    expect(doc.text).toBe('Report ￼1999 ends.');
+    expect(doc.text.slice(field.start, field.end)).toBe('1999');
+    // An empty result keeps both its ends together, after the note.
+    const empty = new TextDocument([paragraph('')]);
+    empty.replace('Author: .'); empty.select('Author: '.length); insertBodyField(empty, ' AUTHOR ', '');
+    empty.select('Author: '.length);
+    expect(bodyFieldRanges(empty.paragraphs).map(r => [r.start, r.end])).toEqual([[8, 8]]);
+    empty.insertMathRun({ xml: '<m:oMath/>', text: 'x' });
+    const [blank] = bodyFieldRanges(empty.paragraphs);
+    expect([blank.start, blank.end]).toEqual(['Author: ￼'.length, 'Author: ￼'.length]);
+  });
+});

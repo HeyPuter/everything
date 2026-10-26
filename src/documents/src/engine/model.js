@@ -151,6 +151,18 @@ function tableContent(doc, table) {
  * A comment anchored only in cells a table edit removed goes with them (and its replies), as in Word: left
  * without an anchor it could not be reached and was written to the file again on every save.
  */
+/**
+ * Make room for an object character inserted at `offset` of paragraph `p`: markers after it move on. A
+ * field that starts there (empty or not) starts after the object, which goes before it rather than into
+ * its result, where updating the field (F9) deleted it. With `commentEnds`, a comment ending there takes
+ * the object in, as text typed at its end would be.
+ */
+function shiftMarkersPastObject(p, offset, { commentEnds = false } = {}) {
+  for (const marker of p.bookmarks || []) if (marker.offset > offset || commentEnds && marker.offset === offset && marker.edge === 'end' && marker.comment) marker.offset++;
+  if (!p.fieldMarkers?.length) return;
+  const starting = new Set(p.fieldMarkers.filter(m => m.type === 'start' && m.offset === offset).map(m => m.field.id));
+  for (const marker of p.fieldMarkers) if (marker.offset > offset || marker.offset === offset && starting.has(marker.field.id)) marker.offset++;
+}
 function removeUnanchoredComments(doc, anchored) {
   if (!anchored?.size || !doc.comments) return;
   const kept = new Set(commentAnchors(doc.paragraphs).map(a => a.id)), gone = new Set([...anchored].filter(id => !kept.has(id)));
@@ -2106,7 +2118,7 @@ export class TextDocument {
     const run = { ...this.typingRun(at), text: OBJECT, field: { ...field }, overrides: {} };
     delete run.styleChanged; delete run.revision;
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
-    for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset) marker.offset++;
+    shiftMarkersPastObject(p, location.offset);
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
@@ -2121,7 +2133,7 @@ export class TextDocument {
     const at = this.range[0], location = locate(this.paragraphs, at), p = this.paragraphs[location.index];
     const run = { text: OBJECT, math: { xml: math.xml, text: math.text }, styleId: null, directFormat: {}, hasDirectProperties: false, styleManaged: true, properties: '', overrides: {} };
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
-    for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset) marker.offset++;
+    shiftMarkersPastObject(p, location.offset);
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
   }
@@ -2134,7 +2146,7 @@ export class TextDocument {
     // With Track Changes on the reference is an insertion like typed text, so rejecting it removes the note.
     if (this.trackChanges && !this.trackingInternal) run.revision = this.newRevision('ins');
     p.runs = normalize([...sliceRuns(p.runs, 0, location.offset), run, ...sliceRuns(p.runs, location.offset)]);
-    for (const marker of [...(p.bookmarks || []), ...(p.fieldMarkers || [])]) if (marker.offset > location.offset || marker.offset === location.offset && marker.edge === 'end' && marker.comment) marker.offset++;
+    shiftMarkersPastObject(p, location.offset, { commentEnds: true });
     this.hasNoteMarks = true;
     this.selection = { anchor: at + 1, focus: at + 1 };
     this.didChange(); return true;
