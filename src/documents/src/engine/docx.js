@@ -1609,7 +1609,9 @@ export class DocxPackage {
           // A rejected destination does not invalidate the wrapper's visible
           // contents. Preview them without an active link, retaining pictures
           // and supported formatting through the normal run reader.
-          const link = attempt(() => (context.pageStory ? storyLinkReaders.get(context.pageStory) : readLink)(r), undefined), before = runs.length, beforeFields=fieldMarkers.length;
+          // An empty wrapper (§17.16.22; some producers leave `<w:hyperlink/>` behind) shows nothing and
+          // links nothing; a paragraph rewritten after an edit simply has no wrapper there.
+          const link = attempt(() => (context.pageStory ? storyLinkReaders.get(context.pageStory) : readLink)(r), undefined);
           const content=preview||context.drawingText||context.pageStory?r:projectPrompts(r);
           for (const nested of children(content)) {
             if(macroPrompts.has(nested))bodyFields.prompt(macroPrompts.get(nested),children(nested),()=>textPosition,fieldMarkers,readRun,link);
@@ -1621,7 +1623,6 @@ export class DocxPackage {
             }
             else readRun(nested, link);
           }
-          if (runs.length === before && fieldMarkers.length === beforeFields) throw new UnsupportedDocumentError('empty hyperlinks');
         } else readRun(r);
       };
       for (const r of children(node)) {

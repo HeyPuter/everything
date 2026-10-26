@@ -145,7 +145,6 @@ it.each([
   ['invalid history',n=>n.setAttributeNS(W,'w:history','maybe')],
   ['unknown attribute',n=>n.setAttributeNS(W,'w:invalid','true')],
   ['nested link',n=>n.append(n.cloneNode(true))],
-  ['empty link',n=>n.replaceChildren()],
   ['field content',n=>n.append(n.ownerDocument.createElementNS(W,'w:fldSimple'))],
   ['raw text',n=>n.append(n.ownerDocument.createTextNode('unmodelled'))],
   ['CDATA text',n=>n.append(n.ownerDocument.createCDATASection('unmodelled'))],

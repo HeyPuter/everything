@@ -21,8 +21,14 @@ it('refreshes shared style shading without mutating the source stories and prese
  const p=await DocxPackage.open(source),d=model(p),before=structuredClone(p.pageStories);d.editParagraphStyle('Shared',{paragraph:{paragraphShading:'22AA88'}});const resolved=stories(p,d);expect(resolved.lines.every(l=>l.paragraphBackground?.value==='22AA88')).toBe(true);expect(p.pageStories).toEqual(before);
  const bytes=await save(p,d),again=await DocxPackage.open(bytes);expect(stories(again,model(again)).lines.every(l=>l.paragraphBackground?.value==='22AA88')).toBe(true);for(const path of Object.keys(p.pageStories.stories))expect(unzipSync(bytes)[path]).toEqual(p.parts[path]);d.undo();expect(stories(p,d).lines.every(l=>!l.paragraphBackground)).toBe(true);expect(unzipSync(await save(p,d))).toEqual(p.parts);
 });
-it.each(['<w:r><w:object/></w:r>','<w:bookmarkStart w:id="0" w:name="Here"/>','<w:hyperlink/>'])('keeps unsupported structural story content guarded: %s',async markup=>{
+it.each(['<w:r><w:object/></w:r>','<w:bookmarkStart w:id="0" w:name="Here"/>'])('keeps unsupported structural story content guarded: %s',async markup=>{
  const parts=unzipSync(source);parts['word/footer-default.xml']=strToU8(strFromU8(parts['word/footer-default.xml']).replace('</w:p>',markup+'</w:p>'));const bytes=zipSync(parts);const error=await DocxPackage.open(bytes).then(()=>null,e=>e);expect(error?.name).toBe('UnsupportedDocumentError');expect((await DocxPackage.open(bytes,{bestEffort:true})).readOnly).toBe(true);
+});
+// An empty hyperlink shows nothing (docs/conformance.md, Empty hyperlinks): the story opens, and saving keeps it.
+it('opens a story holding an empty hyperlink and preserves its XML',async()=>{
+ const parts=unzipSync(source);parts['word/footer-default.xml']=strToU8(strFromU8(parts['word/footer-default.xml']).replace('</w:p>','<w:hyperlink/></w:p>'));const bytes=zipSync(parts);
+ const p=await DocxPackage.open(bytes),d=model(p);expect(p.readOnly).not.toBe(true);
+ d.select(0);d.replace('Edited ');const saved=unzipSync(await save(p,d));expect(Buffer.from(saved['word/footer-default.xml']).equals(Buffer.from(parts['word/footer-default.xml']))).toBe(true);
 });
 it('resolves changed shared run formatting in retained nonempty stories and preserves their XML',async()=>{
  const parts=unzipSync(source);parts['word/footer-default.xml']=strToU8(strFromU8(parts['word/footer-default.xml']).replace('</w:p>','<w:r><w:t>Footer</w:t></w:r></w:p>'));
