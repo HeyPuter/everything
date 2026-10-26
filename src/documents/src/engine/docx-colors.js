@@ -22,11 +22,17 @@ function rgb(value) {
 // Resolve lazily: unused theme entries and unused style definitions can remain
 // untouched even when they contain a color space this preview cannot display.
 export function colorReader(parts, settings) {
-  let theme, mapping;
+  let theme, mapping, themeLinks;
+  const themeRelationships = () => {
+    if (!themeLinks) {
+      const rels = parts['word/_rels/document.xml.rels'] && parseXml(parts['word/_rels/document.xml.rels']);
+      themeLinks = children(rels?.documentElement).filter(n => n.namespaceURI === REL && n.getAttribute('Type') === R + 'theme');
+    }
+    return themeLinks;
+  };
   const themeBase = name => {
     if (!theme) {
-      const rels = parts['word/_rels/document.xml.rels'] && parseXml(parts['word/_rels/document.xml.rels']);
-      const links = children(rels?.documentElement).filter(n => n.namespaceURI === REL && n.getAttribute('Type') === R + 'theme');
+      const links = themeRelationships();
       if (links.length !== 1 || ![null, 'Internal'].includes(links[0].getAttribute('TargetMode'))) fail('a missing, external or duplicate theme relationship');
       const target = links[0].getAttribute('Target') || '';
       if (/[\\?#%:]/.test(target)) fail('an unsupported theme target');
@@ -70,6 +76,9 @@ export function colorReader(parts, settings) {
     }
     if (name !== null && name !== 'none') {
       if (!Object.hasOwn(names, name) && !Object.hasOwn(aliases, name)) fail('an unknown theme color');
+      // A package without a theme part (it is optional) leaves the stored color, which producers
+      // write as the resolved value, as the only one to show. The theme attributes are kept.
+      if (value !== null && !themeRelationships().length) return rgb(value);
       return themeColorTransform(themeBase(name), modifiers[tintAttr], modifiers[shadeAttr]);
     }
     return value === null ? 'auto' : rgb(value);

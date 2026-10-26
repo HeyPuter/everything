@@ -136,3 +136,28 @@ it('supports normalized theme targets, retains foreground under supported fills,
   equalParts(unzipSync(await save(filled, doc)), filled.parts);
   await expect(DocxPackage.open(revise('word/document.xml', '<w:color w:val="FF0000"/>', '<w:color w:val="FF0000"/><w14:textFill><w14:gradFill/></w14:textFill>'))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
 });
+
+it('opens theme-colored and theme-font text in a package without a theme part, showing the stored values', async () => {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  // Independently written: Word-style declarations that name both a theme slot and its resolved value.
+  const docx = (run, defaults = '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:asciiTheme="minorHAnsi" w:hAnsiTheme="minorHAnsi"/>') => zipSync(Object.fromEntries(Object.entries({
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/_rels/document.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+    'word/styles.xml': `<w:styles xmlns:w="${W}"><w:docDefaults><w:rPrDefault><w:rPr>${defaults}<w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/></w:style></w:styles>`,
+    'word/document.xml': `<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">Plain </w:t></w:r><w:r><w:rPr>${run}</w:rPr><w:t>themed</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`,
+  }).map(([k, v]) => [k, strToU8(v)])));
+  const themed = '<w:rFonts w:ascii="Calibri Light" w:hAnsi="Calibri Light" w:asciiTheme="majorHAnsi" w:hAnsiTheme="majorHAnsi"/><w:color w:val="2F5496" w:themeColor="accent1" w:themeShade="BF"/>';
+  const pkg = await DocxPackage.open(docx(themed), { bestEffort: true });
+  expect(pkg.readOnly).not.toBe(true);
+  const doc = model(pkg);
+  expect(run(doc, 'themed')).toMatchObject({ color: '2F5496', fontAscii: 'Calibri Light' });
+  expect(run(doc, 'Plain ').fontAscii).toBe('Calibri');
+  select(doc, 'themed'); doc.setRunFormat({ bold: true });
+  const reopened = model(await DocxPackage.open(await save(pkg, doc)));
+  expect(run(reopened, 'themed')).toMatchObject({ bold: true, color: '2F5496', fontAscii: 'Calibri Light' });
+  expect(run(reopened, 'themed').properties).toContain('w:themeColor="accent1"');
+  expect(run(reopened, 'themed').properties).toContain('w:asciiTheme="majorHAnsi"');
+  // A theme reference with no stored value still needs the theme.
+  for (const bytes of [docx('<w:color w:themeColor="accent1"/>'), docx('', '<w:rFonts w:asciiTheme="minorHAnsi"/>')]) await expect(DocxPackage.open(bytes)).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
+});

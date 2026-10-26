@@ -24,7 +24,10 @@ function languageScript(language) {
 }
 
 export function fontReader(parts, settings) {
-  let scheme, charsets, alternatives;
+  let scheme, charsets, alternatives, themeMissing;
+  // The theme part is optional. Without one, a declaration's explicit name (which producers
+  // write beside the theme reference) is the font; the theme reference is kept in the XML.
+  const noTheme = () => themeMissing ??= relatedPartPath(parts, 'theme') === null;
   const themeFont = token => {
     const match = /^(major|minor)(Ascii|HAnsi|EastAsia|Bidi)$/.exec(token);
     if (!match) fail('an unknown theme font');
@@ -105,7 +108,7 @@ export function fontReader(parts, settings) {
         const name = fonts.getAttributeNS(W, attr), theme = fonts.getAttributeNS(W, themes[attr]);
         // Theme wins within this declaration. The resolved scalar then replaces
         // either kind of declaration at earlier levels of the style hierarchy.
-        if (theme !== null) result[key] = themeFont(theme);
+        if (theme !== null && !(name !== null && noTheme())) result[key] = themeFont(theme);
         else if (name !== null) result[key] = checkedFontName(name);
       }
       if (result.fontEastAsia) result.fontEastAsiaCharset = charset(result.fontEastAsia);
