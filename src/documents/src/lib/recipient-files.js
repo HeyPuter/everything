@@ -9,9 +9,15 @@ import { unzipSync, strFromU8 } from 'fflate';
 
 const MAX_ROWS = 10000, MAX_COLUMNS = 200;
 
+// A spreadsheet's "sep=;" first line names the delimiter of the lines after it.
+const SEPARATOR_HINT = /^\uFEFF?sep=([^\r\n])\r?\n/i;
+
 /** Guess the delimiter of delimited text from its first lines: tab, semicolon or comma. */
 export function detectDelimiter(text) {
-  const sample = text.split(/\r?\n/).slice(0, 5).join('\n');
+  const hint = SEPARATOR_HINT.exec(text);
+  if (hint) return hint[1];
+  // Delimiters inside quoted values ("tea; coffee") are part of the value, not separators.
+  const sample = text.split(/\r?\n/).slice(0, 5).join('\n').replace(/"(?:[^"]|"")*"/g, '""');
   const count = c => (sample.match(new RegExp(c === '\t' ? '\\t' : c, 'g')) || []).length;
   const scores = [['\t', count('\t')], [';', count(';')], [',', count(',')]];
   scores.sort((a, b) => b[1] - a[1]);
@@ -20,7 +26,7 @@ export function detectDelimiter(text) {
 
 /** Parse delimited text (RFC 4180 quoting) into rows of strings. */
 export function parseDelimited(text, delimiter = detectDelimiter(text)) {
-  text = text.replace(/^﻿/, '');
+  text = text.replace(/^﻿/, '').replace(SEPARATOR_HINT, '');
   const rows = [];
   let row = [], field = '', quoted = false, i = 0;
   while (i < text.length) {

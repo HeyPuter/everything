@@ -21,6 +21,16 @@ describe('delimited text', () => {
     expect(list.rows[2].values[2]).toBe('Silva "Nana"');
     expect(list.rows.every(r => r.included)).toBe(true);
   });
+  it('leaves delimiters inside quoted values out of the guess, and follows a sep= line', async () => {
+    const quoted = 'Email,Interests\nann@example.com,"tea; coffee; cake"\nbob@example.com,"golf; tennis"\n';
+    expect(detectDelimiter(quoted)).toBe(',');
+    const list = await readRecipientFile(file('list.csv', quoted));
+    expect(list.columns).toEqual(['Email', 'Interests']);
+    expect(list.rows.map(r => r.values)).toEqual([['ann@example.com', 'tea; coffee; cake'], ['bob@example.com', 'golf; tennis']]);
+    const hinted = await readRecipientFile(file('excel.csv', '\uFEFFsep=;\nName;City, Country\nAnn;Oslo, Norway\n'));
+    expect(hinted.columns).toEqual(['Name', 'City, Country']);
+    expect(hinted.rows.map(r => r.values)).toEqual([['Ann', 'Oslo, Norway']]);
+  });
   it('detects tabs and semicolons and names blank or repeated headings', () => {
     expect(detectDelimiter('a\tb\tc\n1\t2\t3')).toBe('\t');
     expect(detectDelimiter('a;b;c\n1;2;3')).toBe(';');
