@@ -52,3 +52,28 @@ it('keeps outline navigation open and refreshes headings and the active section'
   panel.refresh(entries, 0); panel.node.querySelector('.nav-twisty').click();
   expect([...panel.node.querySelectorAll('[role="treeitem"]')].map(item => item.textContent)).toEqual(['First']);
 });
+it('offers no section commands for a heading in a table, and says why, rather than doing nothing', async () => {
+  const { outlineEntries } = await import('../src/engine/outline.js');
+  const { paragraph } = await import('../src/engine/model.js');
+  const listed = outlineEntries([paragraph('Plan', { format: { outlineLevel: 0 } }), { ...paragraph('Costs', { format: { outlineLevel: 1 } }), cellId: 'c1' }]);
+  expect(listed.map(e => [e.text, !!e.inTable])).toEqual([['Plan', false], ['Costs', true]]);
+  const act = { canEdit: () => true, move: vi.fn(), promote: vi.fn(), demote: vi.fn(), remove: vi.fn(), insert: vi.fn(), select: vi.fn() };
+  const panel = createNavigationPane({ navigate: vi.fn(), close: vi.fn(), focusEditor: vi.fn(), search: () => [], highlight: vi.fn(), text: () => '', pages: () => [], currentPage: () => 0, headingActions: () => act });
+  document.body.append(panel.node); panel.open({ focus: false });
+  panel.refresh([{ id: 'plan', text: 'Plan', level: 1, start: 0, page: 1 }, { id: 'costs', text: 'Costs', level: 2, start: 5, page: 1, inTable: true }, { id: 'next', text: 'Next', level: 2, start: 20, page: 1 }], 0);
+  const heading = id => panel.node.querySelector(`[data-paragraph="${id}"]`);
+  // An ordinary heading can be dragged and has its commands; the one in the table cannot.
+  expect(heading('next').draggable).toBe(true);
+  expect(heading('costs').draggable).toBe(false);
+  heading('costs').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  const menu = document.querySelector('[role="menu"]');
+  expect(menu.textContent).toContain('This heading is in a table');
+  const item = label => [...menu.querySelectorAll('[role="menuitem"]')].find(b => b.textContent.startsWith(label));
+  for (const label of ['Promote', 'Demote', 'New Heading Before', 'New Subheading', 'Select Heading and Content', 'Delete']) expect(item(label).disabled, label).toBe(true);
+  closeMenu();
+  // Alt+Shift+Arrow moves an ordinary section past the table's heading, never onto it.
+  heading('next').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, shiftKey: true, bubbles: true }));
+  expect(act.move).toHaveBeenCalledWith('next', 'plan', 'before');
+  heading('costs').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, shiftKey: true, bubbles: true }));
+  expect(act.move).toHaveBeenCalledTimes(1);
+});

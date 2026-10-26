@@ -102,17 +102,17 @@ export function createNavigationPane(api) {
           onkeydown: e => {
             if (e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') { e.preventDefault(); headingMenu(entry, heading, null); }
             else if (!e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowRight', 'ArrowLeft'].includes(e.key)) { e.preventDefault(); moveInTree(entry, e.key); }
-            else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable()) {
+            else if (e.altKey && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && editable() && !entry.inTable) {
               // Move the section past its neighbour, as dragging would.
               e.preventDefault();
               const at = entries.indexOf(entry), step = e.key === 'ArrowUp' ? -1 : 1;
               let target = at + step;
-              while (entries[target] && entries[target].level > entry.level) target += step;
+              while (entries[target] && (entries[target].level > entry.level || entries[target].inTable)) target += step;
               if (entries[target]) { actions().move(entry.id, entries[target].id, step < 0 ? 'before' : 'after'); refocus(entry.id); }
             }
           } }, el('span', {}, entry.text));
         const row = el('div.nav-heading-row', { style: { paddingInlineStart: `${4 + (entry.level - 1) * 14}px` } }, toggle, heading);
-        if (editable()) dragHeading(row, heading, entry);
+        if (editable() && !entry.inTable) dragHeading(row, heading, entry);
         rows.push(el('li', { role: 'none' }, row));
       });
       headingList.replaceChildren(...rows);
@@ -170,9 +170,11 @@ export function createNavigationPane(api) {
   }
   const clearDrop = () => { for (const row of headingList.querySelectorAll('.drop-before, .drop-after')) row.classList.remove('drop-before', 'drop-after'); };
   function headingMenu(entry, anchor, event) {
-    const act = actions(), can = editable();
+    // A heading in a table stays with its table: the commands that move, add or delete sections are off, and say why.
+    const act = actions(), can = editable() && !entry.inTable;
     const run = fn => () => { fn(); refocus(entry.id); };
     openMenu({ anchor, x: event?.clientX ?? null, y: event?.clientY ?? null, label: `${entry.text} heading`, pointer: !!event, items: [
+      ...(entry.inTable ? [{ note: 'This heading is in a table. Move or delete it with its table, in the document.' }] : []),
       { label: 'Promote', icon: 'promote', disabled: !can || entry.level <= 1, onSelect: run(() => act.promote(entry.id)) },
       { label: 'Demote', icon: 'demote', disabled: !can || entry.level >= 9, onSelect: run(() => act.demote(entry.id)) },
       { separator: true },
@@ -180,7 +182,7 @@ export function createNavigationPane(api) {
       { label: 'New Heading After', disabled: !can, onSelect: () => act.insert(entry.id, 'after') },
       { label: 'New Subheading', disabled: !can || entry.level >= 9, onSelect: () => act.insert(entry.id, 'sub') },
       { separator: true },
-      { label: 'Select Heading and Content', disabled: !act, onSelect: () => act.select(entry.id) },
+      { label: 'Select Heading and Content', disabled: !act || entry.inTable, onSelect: () => act.select(entry.id) },
       { label: 'Delete', icon: 'deleteComment', danger: true, disabled: !can, onSelect: () => act.remove(entry.id) },
       { separator: true },
       { label: 'Expand All', onSelect: () => { collapsed.clear(); signature = ''; renderHeadings(); refocus(entry.id); } },
