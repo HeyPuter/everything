@@ -51,7 +51,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const paneSummary = el('p.review-pane-summary');
   let paneOrientation = revisionView.options.paneOrientation || 'vertical';
   const pane = el('aside.review-pane', { 'aria-label': 'Reviewing Pane', hidden: true, dataset: { orientation: paneOrientation } },
-    el('div.canvas-panel-heading', {}, el('h2', {}, 'Revisions'), el('button.icon-btn', { type: 'button', 'aria-label': 'Close Reviewing Pane', onclick: () => { paneShown = false; refresh(true); editor()?.focus(); } }, '✕')),
+    el('div.canvas-panel-heading', {}, el('h2', {}, 'Revisions'), el('button.icon-btn', { type: 'button', 'aria-label': 'Close Reviewing Pane', onclick: () => { commands.toggleReviewingPane(false); editor()?.focus(); } }, '✕')),
     paneSummary, paneList);
   /** The Reviewing Pane's entries, every comment and change in document order, as the document is now. */
   function paneItems(engine) {
@@ -182,7 +182,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       run(() => { for (const id of ids) editor().model.deleteComment(id); }); activeId = null; refresh(true);
     },
     get paneShown() { return paneShown; },
-    toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); },
+    // The ribbon and menus read paneShown for their pressed and checked states: they are told it changed.
+    toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); onChange(); },
     // The Tracking Options dialog shows (and keeps) the orientation chosen here.
     setPaneOrientation(value = 'vertical') { paneOrientation = value; revisionView.options.paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
     /** 'everyone' writes Track Changes into the document; 'mine' tracks this session only. */
@@ -566,7 +567,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const speak = command('Read Aloud', 'readAloud', () => readAloud.active ? readAloud.stop() : readAloud.start(), { size: 'large', text: 'Read Aloud', shortcut: MOD_KEY === 'Cmd' ? 'Option+Cmd+Space' : 'Ctrl+Alt+Space' });
     speak.addEventListener('mousedown', e => e.preventDefault());
     when(speak, () => readAloud.supported && !!editor(), () => String(readAloud.active));
-    const reviewing = command('Reviewing Pane', 'reviewingPane', () => { paneShown = !paneShown; paneSignature = ''; refresh(true); }, { text: 'Reviewing Pane' });
+    const reviewing = command('Reviewing Pane', 'reviewingPane', () => commands.toggleReviewingPane(), { text: 'Reviewing Pane' });
     reviewing.addEventListener('mousedown', e => e.preventDefault());
     const reviewingSplit = split(reviewing, { label: 'Reviewing Pane options', open: (anchor, e) => openMenu({ anchor, label: 'Reviewing Pane', pointer: !!e?.detail, onClose: e?.detail ? () => editor()?.focus() : null, items: [
       { label: 'Reviewing Pane Vertical', radio: true, checked: paneShown && paneOrientation === 'vertical', onSelect: () => { commands.setPaneOrientation('vertical'); commands.toggleReviewingPane(true); } },

@@ -904,3 +904,27 @@ test('typing before tracked changes leaves the Reviewing Pane list as it is, and
   await expect(items.nth(1)).toContainText('new x');
   expect(errors).toEqual([]);
 });
+
+test('the Reviewing Pane button shows whether the pane is open, however the pane was opened or closed', async ({ page }) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await newDocument(page, 'Some text to review.');
+  await onTab(page, 'review');
+  const button = review(page).getByRole('button', { name: 'Reviewing Pane', exact: true });
+  const pane = page.getByRole('complementary', { name: 'Reviewing Pane' });
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await button.click();
+  await expect(pane).toBeVisible();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await button.click();
+  await expect(pane).toBeHidden();
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await button.click();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+  await pane.getByRole('button', { name: 'Close Reviewing Pane' }).click();
+  await expect(pane).toBeHidden();
+  await expect(button).toHaveAttribute('aria-pressed', 'false');
+  await review(page).getByRole('button', { name: 'Reviewing Pane options', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Reviewing Pane Horizontal' }).click();
+  await expect(pane).toBeVisible();
+  await expect(button).toHaveAttribute('aria-pressed', 'true');
+});
