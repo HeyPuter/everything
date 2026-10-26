@@ -30,18 +30,28 @@ export function createStylesPane({ editor, readOnly, actions }) {
   let view = 'styles', signature = '';
   let filter = stored(FILTER_KEY, 'recommended'), showPreview = stored(PREVIEW_KEY, '1') === '1';
   const heading = el('h2', {}, 'Styles');
-  const tabs = Object.entries(VIEWS).map(([id, label]) => el('button.styles-pane-tab', { type: 'button', role: 'tab', 'aria-selected': 'false', dataset: { view: id }, onclick: () => open(id) }, label));
-  const body = el('div.styles-pane-body');
+  const tabs = Object.entries(VIEWS).map(([id, label]) => el('button.styles-pane-tab', { type: 'button', role: 'tab', id: `styles-pane-tab-${id}`, 'aria-controls': 'styles-pane-view', 'aria-selected': 'false', tabindex: -1, dataset: { view: id }, onclick: () => open(id) }, label));
+  const body = el('div.styles-pane-body', { role: 'tabpanel', id: 'styles-pane-view' });
+  // The views are one tab stop; the arrows, Home and End move between them, as in the dialogs' tab strips.
+  const onTabKey = e => {
+    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+    const at = tabs.indexOf(e.target);
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (at < 0 || next === undefined) return;
+    e.preventDefault();
+    const tab = tabs[(next + tabs.length) % tabs.length];
+    open(tab.dataset.view); tab.focus();
+  };
   const node = el('aside.styles-pane', { 'aria-label': 'Styles pane', hidden: true, onkeydown: e => {
     if (e.key === 'Escape' && !isComposing(e) && !e.defaultPrevented) { e.preventDefault(); close(); actions.focusEditor(); }
   } },
   el('div.canvas-panel-heading', {}, heading, el('button.icon-btn', { type: 'button', 'aria-label': 'Close Styles pane', title: 'Close', onclick: () => { close(); actions.focusEditor(); } }, iconEl('x', 18))),
-  el('div.styles-pane-tabs', { role: 'tablist', 'aria-label': 'Styles pane views' }, ...tabs), body);
+  el('div.styles-pane-tabs', { role: 'tablist', 'aria-label': 'Styles pane views', onkeydown: onTabKey }, ...tabs), body);
 
   function open(next = view) {
     view = next; node.hidden = false; signature = '';
     heading.textContent = VIEWS[view];
-    for (const tab of tabs) tab.setAttribute('aria-selected', String(tab.dataset.view === view));
+    for (const tab of tabs) { const on = tab.dataset.view === view; tab.setAttribute('aria-selected', String(on)); tab.tabIndex = on ? 0 : -1; if (on) body.setAttribute('aria-labelledby', tab.id); }
     refresh();
   }
   function close() { node.hidden = true; }

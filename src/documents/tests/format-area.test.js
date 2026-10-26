@@ -112,6 +112,30 @@ it('contributes Format, Edit and View menu items and text/list context items', (
   area.destroy();
 });
 
+it('moves between the styles pane views with the arrow keys, one tab stop for all three', () => {
+  const doc = documentWith(['Head', 'Body one']);
+  const engine = fakeEngine(doc);
+  const area = createFormatArea({ editor: () => engine, pkg: () => ({ readOnly: false }), error: e => { throw e; }, host: () => document.body });
+  document.body.append(area.pane.node);
+  area.commands.stylesPane();
+  const tabs = [...area.pane.node.querySelectorAll('[role="tab"]')];
+  const panel = area.pane.node.querySelector('[role="tabpanel"]');
+  expect(tabs.map(tab => tab.tabIndex)).toEqual([0, -1, -1]);
+  expect(panel.getAttribute('aria-labelledby')).toBe(tabs[0].id);
+  tabs[0].focus();
+  tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  expect(area.pane.view).toBe('inspector');
+  expect(document.activeElement).toBe(tabs[1]);
+  expect(tabs.map(tab => tab.tabIndex)).toEqual([-1, 0, -1]);
+  expect(panel.getAttribute('aria-labelledby')).toBe(tabs[1].id);
+  tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+  expect(area.pane.view).toBe('reveal');
+  tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+  expect(area.pane.view).toBe('styles');
+  expect(document.activeElement).toBe(tabs[0]);
+  area.destroy();
+});
+
 it('applies a style from the styles pane and selects contiguous instances in one selection', () => {
   const doc = documentWith(['Head', 'Body one', 'Body two']);
   const engine = fakeEngine(doc);
