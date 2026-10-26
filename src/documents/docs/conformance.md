@@ -23232,6 +23232,8 @@ shells. Supported authoring subset:
   `w:gridSpan` (§17.4.17) and `w:vMerge` restart/continue (§17.4.84) for
   rectangular merges, splits into rows × columns, split table and Draw/Eraser.
   Merging keeps each non-empty cell's paragraphs in reading order.
+- Deleting a selection that wholly encloses a table and text around it removes
+  the whole `w:tbl`; a selection reaching only into a table clears its cells.
 - Rows that end early: Delete Cells → Shift cells left and Insert Cells → Shift
   cells right write `w:gridAfter` (§17.4.14) with an automatic `w:wAfter`
   (§17.4.85–86); shifting up/down moves cell content within unmerged columns.

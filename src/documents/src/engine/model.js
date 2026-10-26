@@ -1226,6 +1226,14 @@ export class TextDocument {
     this.checkpoint(); this.paragraphs.splice(index, 0, p); this.select(this.paragraphOffset(index)); this.didChange(); return true;
   }
   replaceAcrossCells(text, checkpoint, insertedImage) {
+    // A table the selection wholly encloses, with text outside it, goes with that text (as Select All, Delete
+    // empties a document), as it does when the selection also crosses a section break. The rest is replaced
+    // cell by cell.
+    if (this.removeEnclosedTables(checkpoint)) {
+      const [start, end] = this.range;
+      if (start !== end || text) this.replace(text, { checkpoint: false, insertedImage });
+      this.didChange(); return true;
+    }
     const [start, end] = this.range, groups = []; let at = 0;
     const removedBodyFields=this.hasBodyFields?new Set(bodyFieldRanges(this.paragraphs).filter(r=>start<=r.start&&end>=r.end&&(start<r.start||end>r.end)).map(r=>r.field.id)):undefined;
     // A surrounding selection owns the wrappers it removes, even when the
@@ -1243,6 +1251,38 @@ export class TextDocument {
       this.replace(i ? '' : text, { checkpoint: false, insertedImage: i ? undefined : insertedImage, removedPictureControls, removedBodyFields });
     }
     this.didChange(); return true;
+  }
+  /** Remove the tables wholly inside a selection that reaches past them; the selection keeps the rest. */
+  removeEnclosedTables(checkpoint) {
+    const [start, end] = this.range, offsets = [0];
+    for (const p of this.paragraphs) offsets.push(offsets.at(-1) + paragraphLength(p) + 1);
+    // Each table's paragraphs (with those of the tables nested in it) are one run of indexes.
+    const tableOf = new Map(this.tables.flatMap(table => tableCells(table).map(cell => [cell.id, table]))), first = new Map(), last = new Map();
+    this.paragraphs.forEach((p, i) => {
+      for (let table = tableOf.get(p.cellId); table; table = tableOf.get(table.parentCellId)) { if (!first.has(table)) first.set(table, i); last.set(table, i); }
+    });
+    const spans = this.tables.filter(table => first.has(table)).map(table => {
+      const from = offsets[first.get(table)], to = offsets[last.get(table) + 1] - 1;
+      return start <= from && to <= end && (start < from || to < end) ? { table, from, to } : null;
+    }).filter(Boolean);
+    // A table nested in an enclosed table goes with it.
+    const enclosedCells = new Set(spans.flatMap(span => tableCells(span.table).map(cell => cell.id)));
+    const outer = spans.filter(span => !span.table.parentCellId || !enclosedCells.has(span.table.parentCellId)).sort((a, b) => b.from - a.from);
+    if (!outer.length) return false;
+    if (checkpoint) this.checkpoint();
+    let removed = 0;
+    for (const { table } of outer) {
+      const state = tableContent(this, table);
+      this.paragraphs.splice(state.start, state.count);
+      this.tables = this.tables.filter(t => t !== table);
+      removeOrphanedTables(this);
+      repairStructuralBookmarks(this.paragraphs, state.bookmarks, this.tables, table.id);
+      normalizeBlockBookmarkScopes(this.paragraphs, this.tables);
+      removeUnanchoredComments(this, state.comments);
+      removed += offsets[state.start + state.count] - offsets[state.start];
+    }
+    this.selection = { anchor: start, focus: end - removed };
+    return true;
   }
   snapshot() { return { ...this.documentSnapshot(), ...this.typingSnapshot() }; }
   /** A copy of the document itself, which changes only with a new revision (didChange). */

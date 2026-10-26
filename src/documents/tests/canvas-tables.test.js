@@ -60,8 +60,9 @@ it('protects cell separators on deletion and preserves all cells during cross-ce
   expect(content(doc, table.rows[1].cells[0])[0]).toBe('pha café Á😀');
   expect(tableCells(doc.tables[0])).toHaveLength(8); documentBlocks(doc.paragraphs, doc.tables);
   doc.undo(); expect(doc.text).toBe(model(await DocxPackage.open(source)).text); expect(doc.selection).toEqual({ anchor: b, focus: a });
+  // Selecting everything takes the table with the text around it, as in other word processors.
   doc.select(0, doc.text.length); doc.replace('Clear');
-  expect(doc.tables).toHaveLength(1); expect(doc.paragraphs.filter(p => p.cellId)).toHaveLength(8); documentBlocks(doc.paragraphs, doc.tables);
+  expect(doc.text).toBe('Clear'); expect(doc.tables).toHaveLength(0); documentBlocks(doc.paragraphs, doc.tables);
 });
 
 it('creates tables at a caret, inserts and deletes rows/columns and round-trips structure with undo', async () => {

@@ -447,3 +447,66 @@ it.each([
   doc.undo();
   expect(doc.commentList.map(c => [c.text, doc.text.slice(c.start, c.end)])).toEqual([['about before', 'Before'], ['about b1', 'b1'], ['reply', 'b1']]);
 });
+
+describe('deleting a selection around tables', () => {
+  const tableBetween = () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Before']);
+    doc.select(doc.text.length); doc.replace('After');
+    return { pkg, doc };
+  };
+  it('removes a table the selection encloses together with text around it', async () => {
+    const { pkg, doc } = tableDocument(2, 2, ['Before']);
+    doc.select(doc.text.length); doc.replace('After');
+    expect(doc.text).toBe('Before\n\na0\na1\nb0\nb1\nAfter');
+    // From inside the paragraph before to inside the one after: the two ends join.
+    doc.select(3, doc.text.length - 2);
+    expect(doc.replace('')).toBe(true);
+    expect(doc.text).toBe('Befer');
+    expect(doc.tables).toEqual([]);
+    expect(doc.range).toEqual([3, 3]);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(xml).not.toContain('<w:tbl>');
+    expect(reopened.text).toBe('Befer');
+    // Select All and typing replaces everything, tables too.
+    const other = tableBetween().doc;
+    other.select(0, other.text.length); other.replace('X');
+    expect([other.text, other.tables.length]).toEqual(['X', 0]);
+    // A selection from the end of the paragraph before to the start of the one after takes just the table.
+    const exact = tableBetween().doc;
+    exact.select(exact.text.indexOf('\na0'), exact.text.indexOf('After'));
+    exact.replace('');
+    expect([exact.text, exact.tables.length]).toEqual(['Before\nAfter', 0]);
+  });
+
+  it('clears the cells of a table the selection only reaches into, or covers exactly', () => {
+    const { doc } = tableBetween();
+    doc.select(3, doc.text.indexOf('a1') + 1);
+    doc.replace('');
+    expect(doc.tables).toHaveLength(1);
+    expect(shape(doc)).toEqual([' 1', 'b0 b1']);
+    const exact = tableBetween().doc, cells = [exact.text.indexOf('a0'), exact.text.indexOf('b1') + 2];
+    exact.select(...cells);
+    exact.replace('');
+    expect(shape(exact)).toEqual([' ', ' ']);
+  });
+
+  it('removes a nested table enclosed in its cell, keeping the outer table, and the comments inside', () => {
+    const { doc } = tableDocument(1, 2);
+    at(doc, 0, 0); doc.select(doc.range[0] + 2); doc.replace('\n');
+    doc.insertTable(1, 2, 3000);
+    const inner = doc.tables[1];
+    doc.selectCell(tableCells(inner)[0].id); doc.select(doc.range[0], doc.range[0] + 1); doc.replace('n');
+    doc.select(doc.range[0] - 1, doc.range[0]);
+    doc.addComment({ author: 'Ann', text: 'Inside' });
+    expect(doc.comments).toHaveLength(1);
+    // From inside the outer cell's text to its last paragraph: the nested table is wholly selected.
+    const outerCell = cellAt(doc, 0, 0, doc.tables[0]).id, own = doc.paragraphs.filter(p => p.cellId === outerCell);
+    const start = doc.paragraphOffset(doc.paragraphs.indexOf(own[0])) + 1, end = doc.paragraphOffset(doc.paragraphs.indexOf(own.at(-1)));
+    doc.select(start, end);
+    doc.replace('');
+    expect(doc.tables).toHaveLength(1);
+    expect(shape(doc)).toEqual(['a a1']);
+    expect(doc.comments).toEqual([]);
+    valid(doc);
+  });
+});
