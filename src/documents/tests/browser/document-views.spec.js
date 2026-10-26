@@ -220,6 +220,24 @@ test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift
   await expect(input).toBeFocused();
 });
 
+test('views without a horizontal ruler hide its tab-type button too', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Some text');
+  const selector = page.locator('.canvas-tab-selector');
+  await expect(selector).toBeVisible();
+  const status = page.locator('.ed-statusbar');
+  await status.getByRole('button', { name: 'Outline', exact: true }).click();
+  await expect(page.locator('.canvas-ruler-top')).toBeHidden();
+  await expect(selector).toBeHidden();
+  await status.getByRole('button', { name: 'Read Mode', exact: true }).click();
+  await expect(page.getByRole('toolbar', { name: 'Read Mode' })).toBeVisible();
+  await expect(selector).toBeHidden();
+  await page.keyboard.press('Escape');
+  await status.getByRole('button', { name: 'Print Layout', exact: true }).click();
+  await expect(selector).toBeVisible();
+});
+
 test('Read Mode stays read-only after going to a heading from the Navigation pane', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await headings(page);

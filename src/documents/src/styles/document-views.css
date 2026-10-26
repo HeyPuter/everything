@@ -10,6 +10,8 @@
 .ed-workspace .canvas-host.view-draft { box-shadow: inset 0 1px 0 var(--ed-line); }
 .ed-view-web .canvas-ruler-side, .ed-view-draft .canvas-ruler-side, .ed-view-outline .canvas-ruler-side,
 .ed-view-outline .canvas-ruler-top, .ed-view-read .canvas-ruler-side, .ed-view-read .canvas-ruler-top { display: none; }
+/* The tab-type button sets the kind of tab stop the horizontal ruler adds: it goes with that ruler. */
+.ed-view-outline .canvas-tab-selector, .ed-view-read .canvas-tab-selector { display: none; }
 .ed-view-outline .canvas-document-surface.has-rulers { padding-top: 0; }
 
 /* Draft's style area: paragraph style names in a column beside the text. */
