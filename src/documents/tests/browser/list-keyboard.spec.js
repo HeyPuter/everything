@@ -81,3 +81,18 @@ test('elsewhere Alt+Shift+Right and Left change a list item\'s level', async ({ 
   await input(page).press('Alt+Shift+ArrowLeft');
   expect(await items(page)).toEqual([['Alpha bravo', 0], ['Charlie', 0]]);
 });
+
+test('in Viewing mode Tab moves the keyboard on from the document, as from any read-only field', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha\nBravo');
+  await input(page).evaluate(el => { el.setSelectionRange(0, 11); el.dispatchEvent(new Event('select')); });
+  await page.getByRole('button', { name: 'Bulleted list', exact: true }).click();
+  await page.getByRole('button', { name: /^Editing mode/ }).click();
+  await page.getByRole('menuitemradio', { name: /^Viewing/ }).click();
+  // At the start of a list item, where Tab would demote it while editing.
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(6, 6); el.dispatchEvent(new Event('select')); });
+  await input(page).press('Tab');
+  await expect(input(page)).not.toBeFocused();
+  expect(await items(page)).toEqual([['Alpha', 0], ['Bravo', 0]]);
+});

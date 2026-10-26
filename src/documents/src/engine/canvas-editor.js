@@ -1551,7 +1551,9 @@ export class CanvasEditor {
     if (e.key === 'F9' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
       e.preventDefault(); if (this.onUpdateFields) this.onUpdateFields(); else this.updatePageReferences(); return;
     }
-    const leaveWithTab = e.key === 'Tab' && this.leaveWithTab;
+    // Where nothing can be typed (a read-only preview, Viewing), Tab moves on to the next control, as from any
+    // read-only field, rather than doing nothing.
+    const leaveWithTab = e.key === 'Tab' && (this.leaveWithTab || this.readOnly || this.viewOnly);
     this.leaveWithTab = false;
     // A letter chord follows the letter the layout types (QWERTZ moves Z, AZERTY moves A), and the
     // physical key only when the layout types another script there.
