@@ -445,7 +445,10 @@ export class CanvasEditor {
     if (this.viewOnly && this.session.path !== null) this.editStory(null);
     this.onSelection?.();
   }
-  /** Insert a picture file at the selection, at its own size or `size` (EMUs, as copied), within the column. */
+  /**
+   * Insert a picture file at the selection, at its own size or `size` (EMUs, as copied, with the copy's crop,
+   * flips and rotation), within the column.
+   */
   async insertImageFile(file, size = {}) {
     if (this.readOnly || this.viewOnly) return false;
     if (!this.preparePicture && file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
@@ -472,7 +475,8 @@ export class CanvasEditor {
     let id; do { id = `canvas-image-${++nextAsset}`; } while (this.model.assets[id]);
     this.model.assets[id] = asset; this.images.set(id, bitmap);
     const extent = key => Math.max(1, Math.floor(scale === 1 && sized ? size[key] : natural[key] * scale * EMU_PER_PX));
-    const ok = this.execute(() => this.model.insertImage(id, { width: extent('width'), height: extent('height'), alt: xmlAttributeText(String(size.alt || '')) }));
+    const copied = sized ? Object.fromEntries(['crop', 'flipH', 'flipV', 'rotation'].filter(key => size[key] !== undefined).map(key => [key, size[key]])) : {};
+    const ok = this.execute(() => this.model.insertImage(id, { width: extent('width'), height: extent('height'), alt: xmlAttributeText(String(size.alt || '')), ...copied }));
     if (!ok) { delete this.model.assets[id]; this.images.delete(id); bitmap.close(); }
     this.focus(); return ok;
   }

@@ -55,6 +55,14 @@ it('copies a selected picture as the picture, which a paste here inserts at its 
   expect(picture.file.type).toBe('image/png');
   const read = await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(new Uint8Array(reader.result)); reader.readAsArrayBuffer(picture.file); });
   expect(read).toEqual(bytes);
+  // A cropped, flipped and turned picture: other applications get the whole image at its own size, a paste
+  // here its frame, crop, flip and rotation; a crop that cannot be applied is left out.
+  Object.assign(d.paragraphs[0].runs[1].image, { crop: { left: 0, top: 10000, right: 0, bottom: 0 }, flipV: true, rotation: 5400000 });
+  const cropped = pictureHtml(d);
+  expect(cropped).not.toMatch(/ width=/);
+  expect(htmlPicture(cropped)).toMatchObject({ width: 457200, height: 228600, crop: { left: 0, top: 10000, right: 0, bottom: 0 }, flipV: true, rotation: 5400000 });
+  const junk = cropped.replace(/data-documents-picture="[^"]*"/, `data-documents-picture="${JSON.stringify({ width: 9525, height: 9525, crop: { left: 60000, right: 60000 }, flipH: 'yes', rotation: -1 }).replace(/"/g, '&quot;')}"`);
+  expect(htmlPicture(junk)).toEqual({ file: expect.any(File), alt: '', width: 9525, height: 9525 });
   // Another application's picture HTML is not taken for one of ours.
   expect(htmlPicture('<img src="data:image/png;base64,iVBORw0KGgo=">')).toBe(null);
   // Charts and drawings are not copied as pictures.

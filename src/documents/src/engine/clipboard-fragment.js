@@ -3,6 +3,7 @@ import { runFormat } from './formatting.js';
 import { listKind } from './numbering.js';
 import { HIGHLIGHTS } from './backgrounds.js';
 import { showLink } from './link-appearance.js';
+import { normalizeCrop, FULL_TURN } from './images.js';
 
 // Formatted copy and paste. A copy carries HTML for other applications, with
 // the editor's own fragment embedded for an exact paste back here. Pasting
@@ -120,9 +121,11 @@ export function copiesPicture(model) {
 export function pictureHtml(model) {
   if (!copiesPicture(model)) return '';
   const image = model.selectedImage, asset = model.assets[image.assetId];
-  // A cropped picture's frame has the cropped shape: the pasted whole image takes its own proportions.
+  // A paste here keeps the frame, crop, flips and rotation. Other applications get the whole image: a cropped
+  // picture's frame has the cropped shape, so the image takes its own proportions there.
   const cropped = Object.values(image.crop || {}).some(Boolean);
-  const data = { alt: image.alt || '', ...(cropped ? {} : { width: image.width, height: image.height }) };
+  const data = { alt: image.alt || '', width: image.width, height: image.height, ...(cropped ? { crop: image.crop } : {}),
+    ...(image.flipH ? { flipH: true } : {}), ...(image.flipV ? { flipV: true } : {}), ...(image.rotation ? { rotation: image.rotation } : {}) };
   const size = cropped ? '' : ` width="${Math.round(image.width / EMU_PER_PX)}" height="${Math.round(image.height / EMU_PER_PX)}"`;
   return `<img src="data:${asset.mime};base64,${base64(asset.bytes)}" alt="${escape(data.alt)}"${size} ${PICTURE_ATTRIBUTE}="${escape(JSON.stringify(data))}">`;
 }
@@ -138,7 +141,12 @@ export function htmlPicture(html) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   const size = ['width', 'height'].every(key => Number.isSafeInteger(data[key]) && data[key] > 0 && data[key] <= MAX_PICTURE_EMU) ? { width: data.width, height: data.height } : {};
-  return { file: new File([bytes], `picture.${match[1].split('/')[1]}`, { type: match[1].toLowerCase() }), alt: typeof data.alt === 'string' ? data.alt.slice(0, 2000) : '', ...size };
+  // A crop only goes with the frame it was made for.
+  let crop = null;
+  try { if (size.width && data.crop) crop = normalizeCrop(data.crop); } catch { crop = null; }
+  const turn = Number.isInteger(data.rotation) && data.rotation > 0 && data.rotation < FULL_TURN ? { rotation: data.rotation } : {};
+  return { file: new File([bytes], `picture.${match[1].split('/')[1]}`, { type: match[1].toLowerCase() }), alt: typeof data.alt === 'string' ? data.alt.slice(0, 2000) : '', ...size,
+    ...(crop ? { crop } : {}), ...(data.flipH === true ? { flipH: true } : {}), ...(data.flipV === true ? { flipV: true } : {}), ...turn };
 }
 
 /* ---------- HTML from this editor or another application ---------- */

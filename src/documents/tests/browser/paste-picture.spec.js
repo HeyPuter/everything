@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { unzipSync, strFromU8 } from 'fflate';
+import { downloadDocx } from './helpers/editor-tools.js';
 
 const input = page => page.getByRole('textbox', { name: 'Document text' });
 const pictures = page => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image).length);
@@ -116,4 +118,51 @@ test('a picture copied or cut in the document pastes as the picture, at its size
     await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
     await expect.poll(() => page.evaluate(async () => { const [item] = await navigator.clipboard.read(); return item.types.includes('text/html') ? /<img[^>]+data-documents-picture/.test(await (await item.getType('text/html')).text()) : false; })).toBe(true);
   } finally { await context.close(); }
+});
+
+test('a cropped, flipped picture copied and pasted keeps its crop, flip and frame, and saves them', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('A ');
+  await input(page).evaluate((el, bytes) => {
+    el.focus(); const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, png);
+  await expect.poll(() => pictures(page)).toBe(1);
+  const images = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image)
+    .map(({ image }) => ({ width: image.width, height: image.height, crop: image.crop || null, flipH: !!image.flipH, rotation: image.rotation || 0 })));
+  // Crop the right half away and flip it, then copy it.
+  const html = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, image = e.model.selectedImage;
+    e.setImageProperties({ crop: { left: 0, top: 0, right: 50000, bottom: 0 }, width: Math.round(image.width / 2), flipH: true });
+    const data = new DataTransfer();
+    e.input.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData('text/html');
+  });
+  expect(html).toContain('data-documents-picture');
+  const [source] = await images();
+  await input(page).press('ControlOrMeta+End');
+  await input(page).evaluate((el, html) => {
+    const data = new DataTransfer(); data.setData('text/html', html); data.setData('text/plain', '￼');
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, html);
+  await expect.poll(() => pictures(page)).toBe(2);
+  const [, pasted] = await images();
+  expect(pasted).toEqual(source);
+  expect(pasted.crop).toEqual({ left: 0, top: 0, right: 50000, bottom: 0 });
+  // Undo takes the pasted picture away in one step.
+  await input(page).press('ControlOrMeta+z');
+  await expect.poll(() => pictures(page)).toBe(1);
+  await input(page).press('ControlOrMeta+Shift+z');
+  await expect.poll(() => pictures(page)).toBe(2);
+  // Both pictures save their crop and flip.
+  const download = page.waitForEvent('download');
+  await downloadDocx(page);
+  const path = info.outputPath('cropped-paste.docx');
+  await (await download).saveAs(path);
+  const xml = strFromU8(unzipSync(readFileSync(path))['word/document.xml']);
+  expect(xml.match(/<a:srcRect l="0" t="0" r="50000" b="0"\/>/g)).toHaveLength(2);
+  expect(xml.match(/<a:xfrm flipH="1"/g)).toHaveLength(2);
+  expect(errors).toEqual([]);
 });
