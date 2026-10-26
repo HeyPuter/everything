@@ -119,6 +119,26 @@ describe('Markdown text that looks like markup', () => {
     lines.select(1, 2); lines.toggleBold();
     expect(documentMarkdown(lines)).toBe('A\\\nB\n');
   });
+  it('keeps emphasis that changes between two runs with nothing between them', () => {
+    const cases = [[['important', 'bi'], ['!', 'b']], [['foo', 'bi'], ['bar', 'i']], [['Warning', 'b'], [':', 'bi'], [' read this', '']], [['Hello', 'b'], ['World', 'bi']], [['old', 's'], ['new', 'sb']]];
+    const styled = d => d.paragraphs[0].runs.filter(r => r.text).map(r => `${r.text}:${r.bold ? 'b' : ''}${r.italic ? 'i' : ''}${r.strikethrough && r.strikethrough !== 'none' ? 's' : ''}`);
+    for (const runs of cases) {
+      const doc = blankDoc();
+      doc.replace(runs.map(([text]) => text).join(''));
+      let at = 0;
+      for (const [text, format] of runs) {
+        doc.select(at, at + text.length); at += text.length;
+        doc.setRunFormat({ bold: format.includes('b'), italic: format.includes('i'), strikethrough: format.includes('s') ? 'single' : 'none' });
+      }
+      const markdown = documentMarkdown(doc);
+      // Markers never run into the previous run's closing ones ("***important*****!**" showed "**!**").
+      expect(markdown).not.toMatch(/\*{4}|~{4}/);
+      const back = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+      for (const p of fragment.paragraphs) p.mark = true;
+      pasteFragment(back, fragment);
+      expect(styled(back)).toEqual(styled(doc));
+    }
+  });
   it('after a line break too', () => {
     const doc = blankDoc();
     doc.replace('Intro\v- dash\v===\v3. three');

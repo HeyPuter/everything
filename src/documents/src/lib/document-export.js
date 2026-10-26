@@ -161,11 +161,14 @@ const edge = (piece, end) => !piece ? '' : !piece.core ? (end ? piece.text.at(-1
 // after whitespace or punctuation and closes only before them, so x**\_y\_**z would show its asterisks.
 const PUNCTUATION = /[\p{P}\p{S}]/u;
 const loose = c => !c || /[\s\0]/.test(c) || PUNCTUATION.test(c);
-function runMarkdown(piece, before, after) {
+function runMarkdown(piece, before, after, touching = false) {
   if (!piece.core) return piece.text;
   const { lead, core, trail, run } = piece, chars = [...core];
-  // Emphasis that markers cannot give there is written as HTML, which reads back the same.
-  const tags = PUNCTUATION.test(chars[0]) && !loose(lead.at(-1) || before) || PUNCTUATION.test(chars.at(-1)) && !loose(trail[0] || after);
+  // Emphasis that markers cannot give there is written as HTML, which reads back the same. So is emphasis
+  // whose markers would run straight into the previous run's closing ones: "***a*****b**" reads back with
+  // stray asterisks.
+  const tags = PUNCTUATION.test(chars[0]) && !loose(lead.at(-1) || before) || PUNCTUATION.test(chars.at(-1)) && !loose(trail[0] || after)
+    || touching && !lead && !piece.link;
   let out = core;
   if (piece.strike) out = tags ? `<del>${out}</del>` : `~~${out}~~`;
   if (run.italic) out = tags ? `<em>${out}</em>` : `*${out}*`;
@@ -179,7 +182,11 @@ function runMarkdown(piece, before, after) {
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
 const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
   const pieces = p.runs.map(run => runPieces(run, heading)).filter(piece => piece.text);
-  return pieces.map((piece, i) => runMarkdown(piece, edge(pieces[i - 1], true), edge(pieces[i + 1], false))).join('').replace(/^\0+|\0+$/g, '')
+  let previous = '';
+  return pieces.map((piece, i) => {
+    const touching = !!pieces[i - 1]?.core && !pieces[i - 1].trail && /[*~]$/.test(previous);
+    return (previous = runMarkdown(piece, edge(pieces[i - 1], true), edge(pieces[i + 1], false), touching));
+  }).join('').replace(/^\0+|\0+$/g, '')
     .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 };
 function blocksMarkdown(blocks, model) {
