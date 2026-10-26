@@ -122,6 +122,8 @@
 .styles-pane-kind { flex: none; color: var(--ink-2); font-size: 12px; }
 .styles-pane-more { opacity: 0; }
 .styles-pane-item:hover .styles-pane-more, .styles-pane-item:focus-within .styles-pane-more { opacity: 1; }
+/* A touch screen has no hover to reveal it: the options button always shows there. */
+@media (hover: none) { .styles-pane-more { opacity: 1; } }
 .styles-pane-footer { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--hairline); }
 .styles-inspector-section h3, .styles-reveal-section h3 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
 .styles-inspector-section { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--hairline-strong); border-radius: 6px; }

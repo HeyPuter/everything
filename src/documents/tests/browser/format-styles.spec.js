@@ -150,3 +150,19 @@ test('Modify Style refuses a name another style already has', async ({ page }, i
 async function screenshotPane(page, info, name) {
   await page.screenshot({ path: info.outputPath(name) });
 }
+
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  test('the Styles pane shows each style\'s options button, which has no hover to reveal it', async ({ page }) => {
+    await page.goto('/mock.html#/new');
+    await page.locator('.ribbon-card').waitFor();
+    await expect(page.getByRole('textbox', { name: 'Document text' })).toBeVisible();
+    await page.getByRole('textbox', { name: 'Document text' }).press('ControlOrMeta+Alt+Shift+S');
+    const pane = page.getByRole('complementary', { name: 'Styles pane' });
+    const options = pane.getByRole('button', { name: 'Heading 1 options' });
+    await expect(options).toBeVisible();
+    expect(Number(await options.evaluate(button => getComputedStyle(button).opacity))).toBe(1);
+    await options.tap();
+    await expect(page.getByRole('menu', { name: 'Heading 1' })).toBeVisible();
+  });
+});
