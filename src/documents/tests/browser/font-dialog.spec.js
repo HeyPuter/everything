@@ -83,3 +83,21 @@ test('color buttons in the Font and Borders and Shading dialogs tell a screen re
   await borders.getByRole('tab', { name: 'Shading' }).click();
   await expect(borders.getByRole('button', { name: 'Fill', exact: true })).toHaveAccessibleDescription('No Color');
 });
+
+test('the Font dialog shows its color buttons\' names in full', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Colored words');
+  await input.press('ControlOrMeta+d');
+  const font = page.getByRole('dialog', { name: 'Font' });
+  // Underline color shared the narrow Size column: "Automatic" ran under the button's padding to its edge.
+  for (const name of ['Font color', 'Underline color']) {
+    const room = await font.getByRole('button', { name, exact: true }).evaluate(button => {
+      const label = button.querySelector('.ed-font-color-name').getBoundingClientRect();
+      return Math.round(button.getBoundingClientRect().right - parseFloat(getComputedStyle(button).paddingRight) - label.right);
+    });
+    expect(room, name).toBeGreaterThanOrEqual(0);
+  }
+});

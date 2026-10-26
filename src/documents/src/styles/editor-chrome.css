@@ -356,7 +356,7 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
 .ed-font-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
 .ed-font-panel { display: grid; gap: 12px; }
 .ed-font-panel[hidden] { display: none; }
-.ed-font-grid { display: grid; grid-template-columns: 2fr 1.2fr 0.8fr; gap: 10px; }
+.ed-font-grid { display: grid; grid-template-columns: 1.7fr 1.2fr 1.1fr; gap: 10px; }
 .ed-font-field { display: grid; gap: 4px; min-width: 0; }
 .ed-font-color { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-start; width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; }
 .ed-font-chip { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--hairline-strong); flex: none; }
