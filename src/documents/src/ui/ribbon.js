@@ -156,6 +156,12 @@ export function createRibbon({ tabs, fileButton, focusEditor, onSelect }) {
     flyout = { node, body, button, popup };
     popup.addEventListener('keydown', e => { if (e.key === 'Escape' && !isComposing(e)) { e.preventDefault(); e.stopPropagation(); closeFlyout({ focus: true }); } });
     popup.addEventListener('keydown', navigate);
+    // The drop-down sits at the end of the page, so Tab out of it went on from there, to the top of the page. Tab
+    // (which the drop-down's own fields did not take) closes it from its button instead, and the browser then
+    // moves on from the button, to whatever follows or precedes the ribbon.
+    popup.addEventListener('keydown', e => {
+      if (e.key === 'Tab' && !e.defaultPrevented && !e.altKey && !e.ctrlKey && !e.metaKey && !isComposing(e)) closeFlyout({ focus: true });
+    });
     // A drop-down closes once the keyboard leaves it: Tab past its ends, or a command handing focus back
     // to the document. (No related target means the window lost focus or a click landed on nothing.)
     popup.addEventListener('focusout', e => {

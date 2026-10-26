@@ -86,6 +86,17 @@ test('a collapsed group\'s drop-down closes when the keyboard leaves it', async 
   await page.keyboard.press('Tab');
   await expect(flyout).toHaveCount(0);
   await expect(paragraph).toHaveAttribute('aria-expanded', 'false');
+  // Tab goes on from the ribbon, as from the group's button; the drop-down sits at the end of the page, and Tab
+  // from it used to wrap to the top of the page.
+  const after = await page.evaluate(() => document.activeElement.getAttribute('aria-label'));
+  await paragraph.focus();
+  await page.keyboard.press('Tab');
+  expect(after).toBe(await page.evaluate(() => document.activeElement.getAttribute('aria-label')));
+  await paragraph.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Shift+Tab');
+  await expect(flyout).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'Home', exact: true })).toBeFocused();
 
   // A command that hands the keyboard back to the document closes it too.
   await openEditor(page, 720);
