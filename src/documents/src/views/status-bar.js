@@ -4,11 +4,9 @@ import { openModal } from '../ui/modal.js';
 import { commandIconEl } from '../ui/ribbon.js';
 import { localStore } from '../lib/storage.js';
 import { DOCUMENT_VIEWS } from './classic-menus.js';
+import { LANGUAGES } from './review-ui.js';
 
 const STORE = 'documents:statusbar';
-/** Proofing languages offered by the language picker, as BCP 47 tags (w:lang values, §17.3.2.20). */
-export const LANGUAGES = ['en-US', 'en-GB', 'en-CA', 'en-AU', 'fr-FR', 'fr-CA', 'de-DE', 'es-ES', 'es-MX', 'it-IT', 'pt-BR', 'pt-PT', 'nl-NL', 'sv-SE', 'da-DK', 'nb-NO', 'fi-FI',
-  'pl-PL', 'cs-CZ', 'tr-TR', 'el-GR', 'ru-RU', 'uk-UA', 'ar-SA', 'he-IL', 'fa-IR', 'hi-IN', 'ja-JP', 'zh-CN', 'zh-TW', 'ko-KR'];
 
 /** "English (United States)" for "en-US", in the user's language. */
 export function languageName(tag, locale) {

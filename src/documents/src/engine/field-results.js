@@ -8,6 +8,7 @@ import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
+import { countWords } from '../core/text.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -139,7 +140,7 @@ export function evaluateField(instruction, context = {}) {
     if (!date || Number.isNaN(date.getTime())) return '';
     return formatDatePicture(date, picture ?? fallback);
   };
-  const words = text => String(text || '').replace(/\ufffc/g, ' ').trim().split(/\s+/u).filter(Boolean).length;
+  const words = text => countWords(String(text || '').replace(/\ufffc/g, ' '));
   let value;
   switch (name) {
     case 'DATE': value = dated(now, 'M/d/yyyy'); break;

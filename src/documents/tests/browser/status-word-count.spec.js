@@ -37,3 +37,15 @@ test('the status bar word count follows typing, selection, undo and same-length 
   await page.keyboard.press('Shift+Home');
   await expect(count).toHaveText('4 of 4 words');
 });
+
+test('the status bar counts the words of Thai text written without spaces', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const count = page.locator('.ed-statusbar .ed-word-count');
+  await text(page).fill('ฉันไปโรงเรียนทุกวันเพราะอยากเรียนรู้');
+  await expect(count).toHaveText('9 words');
+  await select(page, 0, 13);
+  await expect(count).toHaveText('3 of 9 words');
+  await text(page).fill('ฉัน ไป โรงเรียน ทุก วัน');
+  await expect(count).toHaveText('5 words');
+});

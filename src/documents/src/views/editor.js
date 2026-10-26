@@ -1,5 +1,6 @@
 import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
+import { countWords } from '../core/text.js';
 import { previewNotice, pictureFontNotice, scriptFontNotice } from './preview-notice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
 import { openParagraphBorders, paragraphBorderLabel } from './paragraph-borders.js';
@@ -1435,8 +1436,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   function updateWordCount() {
     const text = engine.model.text, [a, b] = engine.model.range;
     if (text !== counted.text || a !== counted.a || b !== counted.b) {
-      const total = text === counted.text ? counted.total : text.trim().split(/\s+/u).filter(Boolean).length;
-      const chosen = a !== b ? text.slice(a, b).trim().split(/\s+/u).filter(Boolean).length : null;
+      const total = text === counted.text ? counted.total : countWords(text);
+      const chosen = a !== b ? countWords(text.slice(a, b)) : null;
       counted = { text, a, b, total, chosen };
     }
     const { total, chosen } = counted;

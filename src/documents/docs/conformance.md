@@ -7245,8 +7245,11 @@ editing, undo and package preservation; `tests/browser/thai-wrap.spec.js`
 checks every line end against segmenter boundaries with browser canvas
 measurement through editing, undo, export and reopen. No native reference PDF
 was recorded: line positions follow the browser's dictionary and fonts, not a
-reference application's. Remaining gaps: Ctrl+Arrow word movement, word count
-and spelling still treat a run of these scripts as one word; Tai Tham, Tai Viet
+reference application's. The word count (status bar, selection and `NUMWORDS`)
+counts the segmenter's words inside runs of these scripts and keeps the
+whitespace rule elsewhere; spelling skips words with no Latin letter, since
+only the English dictionary is loaded. Remaining gaps: Ctrl+Arrow word
+movement still treats a run of these scripts as one word; Tai Tham, Tai Viet
 and New Tai Lue (also class SA) are not segmented; CJK and East Asian kinsoku
 rules (§17.3.1.16) remain separate.
 
@@ -22206,6 +22209,9 @@ load when saved body spelling is complete; flagged words are validated against
 the dictionary. Explicit recheck bypasses this cache. Dictionary selection from
 `w:lang` (§17.3.2.20) is not yet
 implemented: eligible text is checked as US English, as shown in the status bar.
+Words with no Latin letter (Thai, Cyrillic, Greek, Han and other scripts) are not
+checked, since no dictionary for them is loaded; marking such text with its language
+also records it for other editors.
 
 By default, words in UPPERCASE, words containing numbers,
 and internet and file addresses are skipped; hyphenated compounds are checked part
@@ -23384,7 +23390,7 @@ Tests: `tests/core-properties.test.js` with the independently written fixture
 round trip in `tests/browser/app-chrome.spec.js`.
 
 **Proofing language (§17.3.2.20 `w:lang`, §17.3.2.23 `w:noProof`).** The status bar's language
-picker applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
+picker (the same language list as Review → Language, including Thai) applies `w:lang/@w:val` (a BCP 47 tag) and optionally `w:noProof` to the selection through the
 engine's run formatting, so it is one undo step and round-trips. East Asian and complex-script
 language attributes (`w:eastAsia`, `w:bidi`) are preserved but not offered in the picker. The spelling
 checker itself checks English; other languages are marked for other editors.

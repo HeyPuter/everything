@@ -5,15 +5,31 @@
  * "snake_case_name", "user@example.com" and "a/b" are one word each, as is
  * a lone dash. Combining marks and the zero-width joiners Persian and Indic
  * scripts write inside words sit inside their word and split nothing.
+ * Thai, Lao, Khmer and Myanmar put no spaces between words, so a run that
+ * holds them counts the words Intl.Segmenter finds in it.
  */
 
 const WORD_RE = /[^\s\u200B]+/gu;
 const WHITESPACE_RE = /\s/;
+const SPACELESS_RE = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
+let segmenter;
+
+function spacelessWords(token) {
+  segmenter ??= typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'word' }) : null;
+  if (!segmenter) return 1;
+  let count = 0;
+  for (const segment of segmenter.segment(token)) if (segment.isWordLike) count++;
+  return Math.max(1, count); // a run of marks alone is still one word
+}
 
 export function countWords(text) {
   if (!text) return 0;
-  const m = String(text).match(WORD_RE);
-  return m ? m.length : 0;
+  const s = String(text), m = s.match(WORD_RE);
+  if (!m) return 0;
+  if (!SPACELESS_RE.test(s)) return m.length;
+  let count = 0;
+  for (const token of m) count += SPACELESS_RE.test(token) ? spacelessWords(token) : 1;
+  return count;
 }
 
 export function countCharacters(text, { spaces = true } = {}) {

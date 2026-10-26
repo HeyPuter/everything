@@ -113,7 +113,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
       { label: 'Set Proofing Language…', onSelect: languageDialog, disabled: !ready() },
       { label: 'Detect Language Automatically', checked: DETECT_LANGUAGE.get(), onSelect: () => { DETECT_LANGUAGE.set(!DETECT_LANGUAGE.get()); proofing.recheck(); } },
       { separator: true },
-      { label: 'Set Default Proofing Language', disabled: !ready(), items: LANGUAGES.slice(0, 18).map(tag => ({ label: languageName(tag), radio: true, checked: (pkg()?.reviewSettings?.defaultLanguage || 'en-US') === tag, onSelect: () => setSettings({ defaultLanguage: tag }) })) },
+      { label: 'Set Default Proofing Language', disabled: !ready(), items: LANGUAGES.map(tag => ({ label: languageName(tag), radio: true, checked: (pkg()?.reviewSettings?.defaultLanguage || 'en-US') === tag, onSelect: () => setSettings({ defaultLanguage: tag }) })) },
     ],
     /** For the status bar: the proofing language at the caret. */
     proofingLanguage() { const engine = editor(); const tag = engine?.model.runFormatting?.fontLanguage || pkg()?.reviewSettings?.defaultLanguage || 'en-US'; return { tag, name: languageName(tag), open: languageDialog }; },

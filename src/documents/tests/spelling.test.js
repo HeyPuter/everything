@@ -20,6 +20,10 @@ describe('words to check', () => {
     const list = wordsToCheck('a well-knwn fact');
     expect(list.map(w => [w.word, w.start, w.end])).toEqual([['a', 0, 1], ['well', 2, 6], ['knwn', 7, 11], ['fact', 12, 16]]);
   });
+  it('checks only words with Latin letters, since the dictionary is English', () => {
+    expect(words('ฉันไปโรงเรียนทุกวัน hello wrold now')).toEqual(['hello', 'wrold', 'now']);
+    expect(words('Привет мир, γεια σου, 你好 and café')).toEqual(['and', 'café']);
+  });
 });
 
 describe('suggestions', () => {

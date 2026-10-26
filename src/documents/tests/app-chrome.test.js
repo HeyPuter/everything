@@ -202,6 +202,14 @@ describe('status bar', () => {
     document.body.append(bar.el);
     bar.refresh();
     expect(bar.el.querySelector('.ed-status-language').textContent).toBe('German (Germany)');
+    // The language picker offers the same languages as the Review tools, Thai among them.
+    vi.stubGlobal('matchMedia', () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    bar.el.querySelector('.ed-status-language').click();
+    const search = document.querySelector('.ed-language-list').previousElementSibling;
+    search.value = 'th-TH';
+    search.dispatchEvent(new Event('input'));
+    expect([...document.querySelectorAll('.ed-language-list [role="option"]')].map(o => o.dataset.tag)).toEqual(['th-TH']);
+    document.querySelector('.modal-actions .btn-ghost').click();
     // Track Changes shows only while tracking, until chosen to stay.
     expect(bar.el.querySelector('.ed-status-track').classList.contains('is-user-hidden')).toBe(true);
     bar.toggle('track');

@@ -20,6 +20,12 @@ describe('text statistics', () => {
     expect(countWords('--- ... !!!')).toBe(3);
     expect(countWords('snake_case_name user@example.com a/b hello—world www.example.com/path?q=1 😀 😀')).toBe(7);
     expect(countWords('x - y')).toBe(3);
+    // Thai, Lao, Khmer and Myanmar write no spaces between words.
+    expect(countWords('ฉันไปโรงเรียนทุกวันเพราะอยากเรียนรู้')).toBe(9);
+    expect(countWords('ฉันไปโรงเรียน')).toBe(3);
+    expect(countWords('ฉัน ไป โรงเรียน ทุก วัน')).toBe(5);
+    expect(countWords('hello ฉันไป world')).toBe(4);
+    expect(countWords('ฉัน\u200Bไป')).toBe(2);
   });
 
   it('counts characters with and without spaces, ignoring line breaks', () => {

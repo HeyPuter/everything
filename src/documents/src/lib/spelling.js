@@ -52,7 +52,8 @@ export function wordsToCheck(text) {
     const word = segment.segment.replace(/’/g, "'");
     if (/\d/.test(word) || /_/.test(word)) continue;
     if (word.length > 1 && word === word.toUpperCase() && /\p{Lu}/u.test(word)) continue;
-    if (!/\p{L}/u.test(word)) continue;
+    // The only dictionary is English: a word with no Latin letter (Thai, Cyrillic, Han...) is not checked.
+    if (!/\p{Script=Latin}/u.test(word)) continue;
     // Possessive and contraction forms the dictionary may lack: check the word itself.
     const trimmed = word.replace(/'s$/i, '').replace(/^'+|'+$/g, '');
     words.push({ start, end, word: trimmed || word });

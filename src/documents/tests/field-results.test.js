@@ -57,6 +57,7 @@ describe('field evaluation', () => {
     expect(evaluateField(' USERINITIALS ', context)).toBe('AB');
     expect(evaluateField(' NUMPAGES \\* roman ', context)).toBe('iv');
     expect(evaluateField(' NUMWORDS ', context)).toBe('3');
+    expect(evaluateField(' NUMWORDS ', { ...context, text: 'ฉันไปโรงเรียน every day' })).toBe('5');
     expect(evaluateField(' SEQ Figure ', context)).toBe(null);
   });
   it('writes instructions with quoted arguments and switches', () => {

@@ -102,3 +102,22 @@ it('wraps the independent fixture on word boundaries through editing, undo and e
   const original = unzipSync(source);
   for (const name of Object.keys(original)) expect(Buffer.from(saved[name]).equals(Buffer.from(original[name])), name).toBe(true);
 });
+
+it('counts and proofs the fixture\'s Thai, Lao and mixed text by word, across runs', async () => {
+  const { countWords } = await import('../src/core/text.js');
+  const { proofingText, wordsToCheck } = await import('../src/lib/spelling.js');
+  const pkg = await DocxPackage.open(readFileSync('public/fixtures/thai-wrap.docx'));
+  const cases = JSON.parse(readFileSync('tests/fixtures/thai-wrap/cases.json', 'utf8'));
+  const segmenterWords = text => [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(text)].filter(s => s.isWordLike).length;
+  for (const c of cases) {
+    const text = c.runs.join('');
+    // Spaces still separate words; inside a run of these scripts the segmenter's words are counted.
+    expect(countWords(text), c.name).toBe(text.split(/\s+/).filter(Boolean).reduce((n, token) => n + (/[\p{Script=Thai}\p{Script=Lao}]/u.test(token) ? Math.max(1, segmenterWords(token)) : 1), 0));
+  }
+  const split = cases.find(c => c.name === 'split-run');
+  expect(countWords(split.runs.join(''))).toBe(segmenterWords(split.runs.join('')));
+  const text = pkg.paragraphs.map(p => p.runs.map(r => r.text).join('')).join('\n');
+  const checked = wordsToCheck(proofingText(text, pkg.paragraphs)).map(w => w.word);
+  expect(checked.some(w => /[\p{Script=Thai}\p{Script=Lao}]/u.test(w))).toBe(false);
+  expect(checked).toEqual(expect.arrayContaining(['Python', 'JavaScript']));
+});

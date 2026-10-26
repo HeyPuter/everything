@@ -94,3 +94,13 @@ test('the Spelling pane corrects the word where it is now after the text before 
   }
   expect(errors).toEqual([]);
 });
+
+test('Thai text is not checked against the English dictionary, and Thai can be chosen as its language', async ({ page }) => {
+  await newDocument(page, 'ฉันไปโรงเรียนทุกวัน hello wrold now ');
+  await expect(proofing(page)).toHaveAttribute('aria-label', /1 error found/);
+  await page.locator('.ed-status-language').click();
+  const dialog = page.getByRole('dialog', { name: 'Language' });
+  await dialog.getByRole('searchbox', { name: 'Search languages' }).fill('Thai');
+  await expect(dialog.getByRole('option')).toHaveCount(1);
+  await expect(dialog.getByRole('option')).toContainText('th-TH');
+});
