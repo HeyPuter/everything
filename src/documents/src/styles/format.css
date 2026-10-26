@@ -108,7 +108,7 @@
 .styles-pane-list { display: grid; gap: 2px; }
 .styles-pane-item { display: flex; align-items: center; border-radius: 6px; }
 .styles-pane-item:hover, .styles-pane-item:focus-within { background: var(--accent-wash); }
-.styles-pane-item[aria-selected="true"] { box-shadow: inset 0 0 0 1px var(--accent); }
+.styles-pane-item.is-current { box-shadow: inset 0 0 0 1px var(--accent); }
 .styles-pane-apply { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 0; background: transparent; color: inherit; text-align: left; }
 .styles-pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .styles-pane-kind { flex: none; color: var(--ink-2); font-size: 12px; }

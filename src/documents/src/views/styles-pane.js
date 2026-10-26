@@ -87,8 +87,10 @@ export function createStylesPane({ editor, readOnly, actions }) {
       const active = s.id === current || s.id === character;
       const look = showPreview ? preview(s.id) : {};
       const more = el('button.icon-btn.styles-pane-more', { type: 'button', 'aria-label': `${styleDisplayName(s.name)} options`, title: 'Style options', 'aria-haspopup': 'menu', onclick: e2 => { e2.stopPropagation(); menu(s, more); } }, iconEl('more', 16));
-      const item = el('div.styles-pane-item', { role: 'option', 'aria-selected': String(active), dataset: { style: s.id } },
-        el('button.styles-pane-apply', { type: 'button', disabled: ro, 'aria-label': `Apply ${styleDisplayName(s.name)} (${s.type === 'character' ? 'character' : 'paragraph'} style)`, title: `Apply ${styleDisplayName(s.name)}${s.count ? ` · used ${s.count} ${s.count === 1 ? 'time' : 'times'}` : ''}`, onclick: () => actions.apply(s.id),
+      // A list of buttons rather than a listbox: a listbox's options cannot hold buttons, and these rows hold two each.
+      // The style of the selection is the list's current item.
+      const item = el(`div.styles-pane-item${active ? '.is-current' : ''}`, { role: 'listitem', dataset: { style: s.id } },
+        el('button.styles-pane-apply', { type: 'button', disabled: ro, 'aria-current': active ? 'true' : null, 'aria-label': `Apply ${styleDisplayName(s.name)} (${s.type === 'character' ? 'character' : 'paragraph'} style)`, title: `Apply ${styleDisplayName(s.name)}${s.count ? ` · used ${s.count} ${s.count === 1 ? 'time' : 'times'}` : ''}`, onclick: () => actions.apply(s.id),
           oncontextmenu: ev => { ev.preventDefault(); menu(s, more, ev); } },
         el('span.styles-pane-name', { style: look }, styleDisplayName(s.name)),
         el('span.styles-pane-kind', { 'aria-label': s.type === 'character' ? 'Character style' : 'Paragraph style', title: s.type === 'character' ? 'Character style' : 'Paragraph style' }, s.type === 'character' ? 'a' : '¶')), more);
@@ -106,7 +108,8 @@ export function createStylesPane({ editor, readOnly, actions }) {
           el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: !currentStyle || !currentCount, onclick: () => actions.selectAll(currentStyle.id) }, currentCount ? `Select All ${currentCount} Instance${currentCount === 1 ? '' : 's'}` : 'Select All Instances'),
           el('button.btn.btn-outline.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.create() }, 'New Style…'),
           el('button.btn.btn-ghost.btn-sm', { type: 'button', disabled: ro, onclick: () => actions.clearFormatting() }, 'Clear Formatting'))),
-      el('div.styles-pane-list', { role: 'listbox', 'aria-label': 'Apply a style' }, ...items, !items.length && el('p.field-hint', {}, 'No styles to show with this filter.')),
+      el('div.styles-pane-list', { role: 'list', 'aria-label': 'Apply a style' }, ...items),
+      ...(items.length ? [] : [el('p.field-hint', {}, 'No styles to show with this filter.')]),
       el('div.styles-pane-footer', {}, el('label.ed-font-field', {}, el('span.field-label', {}, 'List'), filterSelect), el('label.ed-check', {}, previewBox, 'Show styles as they look'),
         el('button.btn.btn-ghost.btn-sm', { type: 'button', onclick: () => actions.manage() }, 'Manage Styles…')));
   }

@@ -148,6 +148,12 @@ it('applies a style from the styles pane and selects contiguous instances in one
   expect(doc.paragraphStyle).toBe('Heading1');
   area.refresh();
   expect(area.pane.node.querySelector('.styles-pane-current-name').textContent).toBe('Heading 1');
+  // The styles are a list of buttons (a listbox's options cannot hold buttons); the selection's style is the current one.
+  const list = area.pane.node.querySelector('[aria-label="Apply a style"]');
+  expect(list.getAttribute('role')).toBe('list');
+  expect([...list.children].every(row => row.getAttribute('role') === 'listitem')).toBe(true);
+  expect([...list.querySelectorAll('[aria-current="true"]')].map(b => b.getAttribute('aria-label'))).toEqual(['Apply Heading 1 (paragraph style)']);
+  expect(list.nextElementSibling.textContent).not.toBe('false');
   // Normal: the two body paragraphs are adjacent, so they become one selection.
   doc.select(doc.text.indexOf('Body one'));
   area.refresh();
