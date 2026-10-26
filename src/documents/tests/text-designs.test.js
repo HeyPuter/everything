@@ -61,3 +61,12 @@ it('draws the signature rule on one line of the box, also in a narrow table cell
     expect(lowLines).toBeGreaterThanOrEqual(4);
   }
 });
+
+it('fits each text box design to a narrower text column or table cell', () => {
+  for (const design of TEXT_BOX_DESIGNS) {
+    expect(textBoxParams(design, { id: 1 }).width).toBe(Math.round(Math.min(design.width, 6.5) * 914400));
+    const narrow = textBoxParams(design, { id: 1, textWidth: 1.5 * 914400 });
+    expect(narrow.width).toBe(Math.round(Math.min(design.width, 1.5) * 914400));
+    expect(narrow.anchor.x + narrow.width).toBeLessThanOrEqual(1.5 * 914400);
+  }
+});

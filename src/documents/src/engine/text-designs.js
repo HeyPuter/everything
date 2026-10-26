@@ -98,7 +98,8 @@ export const WORDART_STYLES = Object.freeze([
 
 /** Shape parameters for shapeDrawingXml from a text box design, at the given id and stacking order. */
 export function textBoxParams(design, { id, order = 1, text = '', textWidth = 6.5 * EMU_PER_INCH, x = null, y = 0, width = null, height = null, anchor: placement = null } = {}) {
-  const w = width ?? Math.round(design.width * EMU_PER_INCH), h = height ?? Math.round(design.height * EMU_PER_INCH);
+  // A design's width fits the text column or table cell it goes in.
+  const w = width ?? Math.round(Math.min(design.width * EMU_PER_INCH, textWidth)), h = height ?? Math.round(design.height * EMU_PER_INCH);
   const left = x ?? (design.align === 'right' ? Math.max(0, textWidth - w) : design.align === 'center' ? Math.max(0, (textWidth - w) / 2) : 0);
   return { id, name: `Text Box ${id}`, preset: design.preset || 'rect', width: w, height: h, ...design.shape,
     anchor: placement || { horizontal: 'column', vertical: 'paragraph', x: Math.round(left), y: Math.round(y), wrap: 'square', behind: false, order },
