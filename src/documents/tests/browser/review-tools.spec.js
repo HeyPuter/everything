@@ -392,6 +392,25 @@ test('AI grammar suggestions are opt-in, marked and applied as ordinary edits', 
   expect(await page.evaluate(() => window.__prompts.length)).toBe(1);
 });
 
+test('an AI suggestion is accepted while a header is being edited', async ({ page }) => {
+  await fakeAi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Thanks alot for the review.');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  const item = pane.locator('.rv-ai-item');
+  await expect(item).toContainText('alot → a lot');
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Header', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Edit Header' }).click();
+  await expect(page.locator('#ribbon-tab-headerFooter')).toHaveAttribute('aria-selected', 'true');
+  await item.getByRole('button', { name: 'Accept' }).click();
+  await expect(input).toHaveValue('Thanks a lot for the review.');
+  await expect(page.locator('.toast')).toHaveCount(0);
+});
+
 test('Translate puts the selection\'s translation in a pane to insert', async ({ page }, info) => {
   await fakeAi(page);
   await page.setViewportSize({ width: 1440, height: 900 });

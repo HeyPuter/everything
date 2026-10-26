@@ -89,7 +89,8 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
   const key = s => `${s.start}:${s.original}:${s.suggestion}`;
   function acceptSuggestion(s) {
     const engine = editor(); if (!engine) return;
-    if (engine.model.text.slice(s.start, s.end) !== s.original) { error(new Error('The text changed since it was checked. Check again.')); return; }
+    // Suggestions are in the body's text: compare there, not with a header or footer being edited.
+    if (engine.session.body.text.slice(s.start, s.end) !== s.original) { error(new Error('The text changed since it was checked. Check again.')); return; }
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
     const delta = s.suggestion.length - s.original.length;
