@@ -111,7 +111,7 @@ describe('the first save inside the Puter desktop', () => {
     expect(doc.dirty).toBe(false);
     expect(doc.status).toBe('saved');
     expect(doc.choosingPlace).toBe(false);
-    expect(paths).toEqual([{ path: '~/Desktop/Report.docx', name: 'Report', copy: false }]);
+    expect(paths).toEqual([{ path: '~/Desktop/Report.docx', name: 'Report', copy: false, savedAs: false }]);
     // The dialog wrote the file; later edits autosave there with an ordinary write and no dialog.
     expect(puter.fs.write).not.toHaveBeenCalled();
     doc.attach(async () => v2);
@@ -367,7 +367,8 @@ describe('the first save inside the Puter desktop', () => {
     dialogs[0].save();
     expect(await saving).toBe(true);
     expect(doc.path).toBe('~/Desktop/Letter.docx');
-    expect(paths).toEqual([{ path: '~/Desktop/Letter.docx', name: 'Letter', copy: true }]);
+    // The template's own first .docx, not a copy the user went on in: anything shared from the document goes with it.
+    expect(paths).toEqual([{ path: '~/Desktop/Letter.docx', name: 'Letter', copy: true, savedAs: false }]);
     expect(files.get('Documents/Letter.dotx')).toBe(template);
     doc.destroy();
   });
@@ -411,7 +412,7 @@ describe('Save a copy inside the Puter desktop', () => {
     expect(await copying).toBeNull();
     expect(doc.path).toBe('~/Desktop/Report copy.docx');
     expect(doc.name).toBe('Report copy');
-    expect(paths).toEqual([{ path: '~/Desktop/Report copy.docx', name: 'Report copy', copy: true }]);
+    expect(paths).toEqual([{ path: '~/Desktop/Report copy.docx', name: 'Report copy', copy: true, savedAs: true }]);
     expect(files.get('~/Desktop/Report copy.docx')).toBe(current);
     expect(files.get('Documents/Report.docx')).toBe(original);
     // Edits now go to the copy.

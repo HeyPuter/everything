@@ -699,7 +699,7 @@ describe('Doc', () => {
     await vi.advanceTimersByTimeAsync(AUTOSAVE_MS + 5);
     expect(doc.path).toBe('Documents/Old.docx');
     // The template keeps its star, goal and reading position; the copy gets them too.
-    expect(paths.mock.calls[0][0].detail).toEqual({ path: 'Documents/Old.docx', name: 'Old', copy: true });
+    expect(paths.mock.calls[0][0].detail).toEqual({ path: 'Documents/Old.docx', name: 'Old', copy: true, savedAs: false });
   });
 
   it('renames the copy a template becomes, not the template file, while edits are pending', async () => {

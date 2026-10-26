@@ -123,6 +123,36 @@ test('an invited editor keeps edits made after the owner stopped sharing', async
   await ownerContext.close(); await guestContext.close();
 });
 
+test('Save As in a shared document goes on in a copy the others do not see', async ({ browser }) => {
+  test.setTimeout(120000);
+  const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const owner = await ownerContext.newPage();
+  await owner.goto('/mock.html?user=ada#/new');
+  await expect(owner.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await text(owner).fill('Quarterly plan.');
+  await expect(status(owner)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const link = await shareForEditing(owner);
+  const guestContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const guest = await guestContext.newPage();
+  await guest.goto(link.replace('mock.html', 'mock.html?user=bob'));
+  await expect.poll(() => text(guest).evaluate(el => el.value), { timeout: 15000 }).toBe('Quarterly plan.');
+  await owner.getByRole('button', { name: 'File', exact: true }).click();
+  const view = owner.getByRole('dialog', { name: 'File' });
+  await view.getByRole('tab', { name: 'Save' }).click();
+  await view.getByRole('textbox', { name: 'New file name' }).fill('Private copy');
+  await view.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect(view.getByRole('status')).toHaveText('Saved. You are now editing the copy.');
+  await owner.keyboard.press('Escape');
+  await expect(owner.locator('.cl-banner')).toContainText('your own copy now, which is not shared');
+  await text(owner).evaluate(el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event('select')); });
+  await text(owner).pressSequentially(' Private note.');
+  await expect(status(owner)).toHaveAttribute('aria-label', 'Saved to Puter');
+  // The copy's text stays out of the shared document.
+  await guest.waitForTimeout(2000);
+  expect(await text(guest).evaluate(el => el.value)).toBe('Quarterly plan.');
+  await ownerContext.close(); await guestContext.close();
+});
+
 test('File > Save: pressing Save As twice saves one copy and says so', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Original');

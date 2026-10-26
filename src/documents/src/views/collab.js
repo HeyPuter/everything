@@ -115,6 +115,19 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     return live;
   }
 
+  /**
+   * Save As and Save a Copy go on in a new document of the user's own. It is not the shared one: this tab leaves the
+   * room, with the changes made before the copy delivered, so nothing typed in the copy reaches the others (or, through
+   * the room, the original file). A guest's copy is theirs to save from here on.
+   */
+  const onPath = e => {
+    if (!live || !e.detail?.savedAs) return;
+    live.end(null);
+    setBanner('You are editing your own copy now, which is not shared. Everyone else goes on with the shared document.');
+    onChange();
+  };
+  doc.addEventListener?.('path', onPath);
+
   /** After the editor opened: join the room the document came from, or the one its owner shared before. */
   async function attach() {
     try {
@@ -210,6 +223,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     refresh() { renderChip(); },
     destroy() {
       destroyed = true; dialog?.close();
+      doc.removeEventListener?.('path', onPath);
       // A room joined from an invitation whose session never began (the editor closed while opening, or could
       // not open the document) is left here; a session that began leaves it when it ends.
       if (!live && doc.collab?.client) doc.collab.client.close().catch(() => {});

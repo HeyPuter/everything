@@ -144,6 +144,11 @@ saves them. Version snapshots continue to be taken by the writing tab and record
 When sharing stops or access is removed, the document stays open as the person's own copy, with
 **Save a Copy** to keep it.
 
+Save As and Save a Copy in a shared document go on in a new document of the person's own: the tab
+leaves the room once the changes made before the copy are delivered, so nothing typed in the copy
+reaches the others or, through the room, the original file. A guest's copy saves like any other
+document from then on.
+
 ## Share dialog
 
 Share (title bar, File → Share → Invite People…, the File view's Share page, Tools menu) opens one dialog:

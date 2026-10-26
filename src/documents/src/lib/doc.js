@@ -431,8 +431,12 @@ export class Doc extends EventTarget {
     });
   }
 
-  _emitPath({ copy = false } = {}) {
-    this.dispatchEvent(new CustomEvent('path', { detail: { path: this.path, name: this.name, copy } }));
+  /**
+   * The document has another file. `copy`: the file it came from stays as it was. `savedAs`: the user chose to go on
+   * in a copy (Save As, Save a Copy), a new document of their own; what was shared from the original stays with it.
+   */
+  _emitPath({ copy = false, savedAs = false } = {}) {
+    this.dispatchEvent(new CustomEvent('path', { detail: { path: this.path, name: this.name, copy, savedAs } }));
   }
 
   /** Path changes share the save lock so no write can finish at an obsolete path. */
@@ -581,7 +585,7 @@ export class Doc extends EventTarget {
         this.lastSaved = Date.now();
         this.lastVersionAt = undefined;
         this.savedVersion = version;
-        this._emitPath({ copy });
+        this._emitPath({ copy, savedAs: copy && !first });
         if (first) this._snapshot(blob);
         // Edits made while the dialog was open keep the doc dirty, and now have a file to autosave to.
         this._setStatus(this.dirty ? 'unsaved' : 'saved');
@@ -644,7 +648,7 @@ export class Doc extends EventTarget {
       this.lastVersionAt = undefined;
       this.savedVersion = version;
       this._setStatus(this.dirty ? 'unsaved' : 'saved');
-      this._emitPath({ copy: true });
+      this._emitPath({ copy: true, savedAs: true });
       return null;
     } catch (e) {
       if (cancelled()) {
