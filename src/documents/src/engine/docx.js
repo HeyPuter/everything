@@ -1012,11 +1012,23 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
           useLink(run.link, writtenControls.get(control.id));
         } else useLink(run.link, fieldContainer());
         if (run.field) {
-          if (run.text !== OBJECT || Object.keys(run.overrides || {}).length || run.styleChanged) throw new Error('Editing page-field results or their formatting is not supported in page stories yet.');
+          if (run.text !== OBJECT) throw new Error('Editing page-field results is not supported in page stories yet.');
           const envelope = xml(`<w:p xmlns:w="${W}">${run.field.source}</w:p>`).documentElement;
           const segments = pageFieldSegments(envelope);
           if (segments.length !== 1 || !segments[0].field || segments[0].field.instruction !== run.field.instruction) throw new Error('Invalid retained page-story field.');
-          for (const child of [...envelope.children]) parent.append(doc.importNode(child, true));
+          // Formatting applied to the field (Bold over "Page 1 of 2") goes on every run of its envelope,
+          // delimiters, instruction and result alike, as a word processor formats a field.
+          const formatted = Object.keys(run.overrides || {}).length || run.styleChanged;
+          for (const source of [...envelope.children]) {
+            const node = doc.importNode(source, true);
+            if (formatted) for (const r of node.namespaceURI === W && node.localName === 'r' ? [node] : [...node.getElementsByTagNameNS(W, 'r')]) {
+              const old = child(r, 'rPr');
+              let properties = writeRunFormat(old || null, run.overrides || {}, make, inheritedStrike(run.styleId), inheritedCaps(run.styleId));
+              properties = writeRunStyle(properties, run.styleId, run.styleChanged, make);
+              if (properties && properties !== old) { old?.remove(); r.prepend(properties); }
+            }
+            parent.append(node);
+          }
           continue;
         }
         const r = make('r');

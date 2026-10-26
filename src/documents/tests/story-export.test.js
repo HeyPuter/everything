@@ -44,10 +44,13 @@ it('creates a story-local hyperlink and reopens it without changing body relatio
   d.undo(); expect(unzipSync(await save(pkg, path, d))).toEqual(pkg.parts);
 });
 
-it('rejects unsupported page-field formatting rather than dropping the change', async () => {
+it('saves page-field formatting on the field rather than dropping the change', async () => {
   const pkg = await open('tests/fixtures/page-stories/footer-variants.docx'), path = 'word/footer-even.xml', d = model(pkg, path);
   const run = d.paragraphs.flatMap(p => p.runs).find(r => r.field);
   run.overrides = { bold: true };
+  const reopened = await DocxPackage.open(await save(pkg, path, d));
+  expect(reopened.pageStories.stories[path].paragraphs.flatMap(p => p.runs).find(r => r.field).bold).toBe(true);
+  run.text = 'x';
   await expect(save(pkg, path, d)).rejects.toThrow('page-field results');
 });
 
