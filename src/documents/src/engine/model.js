@@ -617,6 +617,9 @@ export class TextDocument {
   insertParagraph() {
     const p = this.selectedParagraphs[0];
     if (this.range[0] === this.range[1] && p.list && !paragraphText(p)) {
+      // An empty nested item steps out one level, as in other word processors; only at the top level does
+      // Enter end the list. A level the list does not define ends it too.
+      if (p.list.level > 0) { try { if (this.changeListLevel(-1)) return true; } catch { /* ends the list below */ } }
       this.checkpoint(); p.list = null; p.listChanged = true; this.didChange(); return true;
     }
     const at = locate(this.paragraphs, this.range[0]), atEnd = this.range[0] === this.range[1] && at.offset === paragraphLength(p);

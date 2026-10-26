@@ -91,6 +91,16 @@ describe('original numbering projection and editing', () => {
     expect(doc.paragraphs).toHaveLength(2); expect(labels(doc)).toEqual(['1.', '2.']);
     doc.undo(); expect(labels(doc)).toEqual(['1.', '2.', '3.']);
   });
+  it('steps an empty nested item out one level with Enter, and ends the list only at the top level', () => {
+    const doc = new TextDocument([paragraph('First')]); doc.toggleList('number');
+    doc.select(doc.text.length); doc.insertParagraph(); doc.changeListLevel(1); doc.replace('Inner');
+    doc.insertParagraph(); expect(labels(doc)).toEqual(['1.', '1.1.', '1.2.']);
+    // Enter on the empty nested item makes it the next item one level up, rather than leaving the list.
+    doc.insertParagraph(); expect(labels(doc)).toEqual(['1.', '1.1.', '2.']); expect(doc.paragraphs).toHaveLength(3);
+    doc.insertParagraph(); expect(labels(doc)).toEqual(['1.', '1.1.', null]);
+    doc.undo(); expect(labels(doc)).toEqual(['1.', '1.1.', '2.']);
+    doc.undo(); expect(labels(doc)).toEqual(['1.', '1.1.', '1.2.']);
+  });
   it('restarts a nested sequence without changing ancestor numbers or the following shallower sequence', async () => {
     const pkg = await fixture(), doc = docOf(pkg); doc.select(indexed(doc, 3)); doc.restartNumbering();
     expect(labels(doc).slice(0, 7)).toEqual(['3.', '4.', '4.a)', '4.a)', '5.', '7.', '8.']);

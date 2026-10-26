@@ -33,3 +33,18 @@ test('Tab and Shift+Tab at the start of a list item demote and promote it', asyn
   expect((await items(page))[0]).toEqual(['Alpha', 0]);
   await expect(input(page)).not.toBeFocused();
 });
+
+test('Enter on an empty nested list item steps it out a level, then ends the list', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('* Alpha'); await page.keyboard.press('Enter');
+  await page.keyboard.press('Tab'); await page.keyboard.type('Inner'); await page.keyboard.press('Enter');
+  expect(await items(page)).toEqual([['Alpha', 0], ['Inner', 1], ['', 1]]);
+  await page.keyboard.press('Enter');
+  expect(await items(page)).toEqual([['Alpha', 0], ['Inner', 1], ['', 0]]);
+  await page.keyboard.type('Bravo');
+  expect(await items(page)).toEqual([['Alpha', 0], ['Inner', 1], ['Bravo', 0]]);
+  await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
+  expect(await items(page)).toEqual([['Alpha', 0], ['Inner', 1], ['Bravo', 0], ['', null]]);
+});
