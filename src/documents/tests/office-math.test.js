@@ -5,6 +5,7 @@ import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { layoutDocument } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
+import { linearMath, MATH_DEPTH_LIMIT } from '../src/engine/office-math.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -36,4 +37,25 @@ it('opens equations for editing, shows them linearly and saves their markup unch
   const again = new TextDocument((await DocxPackage.open(new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets).arrayBuffer()))).paragraphs);
   expect(again.text).toBe('Please Solve ￼ now.\n￼');
   expect(again.paragraphs[0].runs.find(r => r.math).math.text).toBe('x=(-b±√(b^2-4ac))/(2a)');
+});
+
+// A bare element tree: jsdom's own parser and serializer recurse, so they cannot hold a tree this deep.
+class Element {
+  constructor(localName, children = [], text = '') { Object.assign(this, { namespaceURI: M, localName, children, text }); }
+  get textContent() { return this.text || this.getElementsByTagName('*').map(n => n.text).join(''); }
+  getAttributeNS() { return null; }
+  getElementsByTagName() {
+    const out = [], stack = [...this.children].reverse();
+    while (stack.length) { const n = stack.pop(); out.push(n); stack.push(...[...n.children].reverse()); }
+    return out;
+  }
+}
+it('reads an equation nested far too deeply as text instead of exhausting the stack', () => {
+  // Brackets inside brackets 20,000 deep, deeper than any recursive reader survives. The levels
+  // past the limit read as their characters, so nothing of the equation's text is lost.
+  let inner = new Element('r', [new Element('t', [], 'x')]);
+  for (let i = 0; i < 20000; i++) inner = new Element('d', [new Element('e', [inner])]);
+  const root = new Element('oMath', [inner, new Element('r', [new Element('t', [], '+1')])]);
+  const levels = MATH_DEPTH_LIMIT / 2;
+  expect(linearMath(root)).toBe(`${'('.repeat(levels)}x${')'.repeat(levels)}+1`);
 });

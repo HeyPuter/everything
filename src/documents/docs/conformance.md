@@ -23848,6 +23848,11 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   canvas rendering; an edited equation loses structures the input syntax has no form for (`m:box`,
   `m:borderBox`, `m:groupChr`, `m:phant`, `m:sPre`, `m:limUpp` outside a function name, an n-ary
   operand followed by more terms before a relation) and run formatting other than plain style.
+- Nesting depth: an equation's structure is read to 400 elements deep (about 200 nested
+  structures, far beyond Word's own equations). Deeper content shows, previews and reads into Edit
+  Equation as its plain characters, so a generated or hostile file nested thousands deep opens
+  instead of exhausting the stack; its `m:oMath` XML is still saved unchanged. Tests:
+  `tests/office-math.test.js`, `tests/browser/deep-equation.spec.js`.
 
 ### Symbols
 

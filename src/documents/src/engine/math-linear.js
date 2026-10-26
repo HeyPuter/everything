@@ -2,7 +2,7 @@
 // The syntax is a practical subset of the UnicodeMath linear format with a few
 // TeX control words. Parsing is forgiving: anything that does not build up is
 // kept as literal text, so typing never fails half-way through an equation.
-import { MATH, linearMath } from './office-math.js';
+import { MATH, MATH_DEPTH_LIMIT, linearMath, mathPlainText } from './office-math.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
@@ -461,7 +461,15 @@ function base(node) {
   if (items.length === 1 && (items[0].kind === 'run' && singleChar(items[0].text) || ['d', 'acc', 'bar'].includes(items[0].kind) && !/^\w+\(/.test(items[0].text))) return items[0].text;
   return bracket(editableSequence(node));
 }
+// Structures nested more deeply than Office Math's depth limit (each spans two or more elements)
+// read back as their plain text rather than exhausting the stack.
+let editableDepth = 0;
 function editableNode(node) {
+  if (editableDepth >= MATH_DEPTH_LIMIT / 2) return mathPlainText(node);
+  editableDepth++;
+  try { return editableStructure(node); } finally { editableDepth--; }
+}
+function editableStructure(node) {
   const e = mathChild(node, 'e');
   switch (node.localName) {
     case 'oMathPara': return mathKids(node, 'oMath').map(editableNode).join(' ');

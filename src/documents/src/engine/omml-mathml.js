@@ -1,5 +1,7 @@
 // Office Math (ECMA-376 Part 1 §22.1) to MathML Core markup, for previews in the equation editor
 // and the equation gallery. The document keeps the OMML; this is display only.
+import { MATH_DEPTH_LIMIT, mathPlainText } from './office-math.js';
+
 const MATH = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
 const kids = node => [...(node?.children || [])];
 const m = (node, name) => kids(node).find(n => n.namespaceURI === MATH && n.localName === name);
@@ -12,10 +14,11 @@ function runTokens(text, plain) {
   if (plain) return `<mtext>${escape(text)}</mtext>`;
   return [...String(text).matchAll(/\d+(?:\.\d+)?|\s+|./gu)].map(([t]) => /^\d/.test(t) ? `<mn>${t}</mn>` : /^\s+$/.test(t) ? '<mspace width="0.25em"/>' : OPERATORS.test(t) ? `<mo>${escape(t)}</mo>` : `<mi>${escape(t)}</mi>`).join('');
 }
-const row = node => `<mrow>${kids(node).map(convert).join('')}</mrow>`;
-
-function convert(node) {
+function toMathml(node, depth = 0) {
   if (!node || node.namespaceURI !== MATH) return '';
+  // Structure nested beyond the limit previews as its text (see office-math.js).
+  if (depth >= MATH_DEPTH_LIMIT) return `<mtext>${escape(mathPlainText(node))}</mtext>`;
+  const convert = child => toMathml(child, depth + 1), row = n => `<mrow>${kids(n).map(convert).join('')}</mrow>`;
   switch (node.localName) {
     case 'oMathPara': return kids(node).filter(n => n.localName === 'oMath').map(n => `<mrow>${kids(n).map(convert).join('')}</mrow>`).join('<mspace linebreak="newline"/>');
     case 'oMath': case 'e': case 'num': case 'den': case 'sub': case 'sup': case 'deg': case 'fName': case 'lim': return row(node);
@@ -59,5 +62,5 @@ function convert(node) {
 export function ommlToMathml(xml, { display = false } = {}) {
   const root = new DOMParser().parseFromString(xml, 'application/xml').documentElement;
   if (!root || root.localName === 'parsererror' || root.getElementsByTagName('parsererror').length) return '';
-  return `<math xmlns="http://www.w3.org/1998/Math/MathML"${display || root.localName === 'oMathPara' ? ' display="block"' : ''}>${convert(root)}</math>`;
+  return `<math xmlns="http://www.w3.org/1998/Math/MathML"${display || root.localName === 'oMathPara' ? ' display="block"' : ''}>${toMathml(root)}</math>`;
 }

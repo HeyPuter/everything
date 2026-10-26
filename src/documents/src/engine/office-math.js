@@ -7,10 +7,26 @@ const kids = node => [...(node?.children || [])];
 const m = (node, name) => kids(node).find(n => n.namespaceURI === MATH && n.localName === name);
 const val = (node, name) => m(node, name)?.getAttributeNS(MATH, 'val');
 
-/** Linear text for an Office Math element. */
-export function linearMath(node) {
+// Elements nested deeper than this inside one equation are read as their plain text. Word's
+// equations stay far below it; a generated or hostile file nested thousands deep would otherwise
+// exhaust the call stack of every reader that walks the structure (display text, previews, Edit
+// Equation). The equation's XML is still saved unchanged.
+export const MATH_DEPTH_LIMIT = 400;
+
+/** The characters of a math subtree in document order, without walking it recursively. */
+export function mathPlainText(node) {
   if (!node) return '';
-  const all = n => kids(n).map(linearMath).join('');
+  const text = [];
+  for (const t of node.getElementsByTagName('*')) if (t.localName === 't' && (t.namespaceURI === MATH || t.namespaceURI === W)) text.push(t.textContent);
+  return node.localName === 't' ? node.textContent : text.join('');
+}
+
+/** Linear text for an Office Math element. */
+export function linearMath(node, depth = 0) {
+  if (!node) return '';
+  if (depth >= MATH_DEPTH_LIMIT) return mathPlainText(node);
+  const linear = n => linearMath(n, depth + 1);
+  const all = n => kids(n).map(linear).join('');
   const group = n => { const t = all(n); return [...t].length > 1 && !/^\(.*\)$/.test(t) ? `(${t})` : t; };
   if (node.namespaceURI === W) {
     if (node.localName === 't') return node.textContent;
@@ -21,7 +37,7 @@ export function linearMath(node) {
   switch (node.localName) {
     case 't': return node.textContent;
     case 'rPr': case 'ctrlPr': case 'oMathParaPr': case 'fPr': case 'radPr': case 'dPr': case 'naryPr': case 'sSupPr': case 'sSubPr': case 'sSubSupPr': case 'funcPr': case 'accPr': case 'barPr': case 'limLowPr': case 'limUppPr': case 'eqArrPr': case 'mPr': case 'boxPr': case 'borderBoxPr': case 'groupChrPr': case 'sPrePr': case 'phantPr': return '';
-    case 'oMathPara': return kids(node).filter(n => n.localName === 'oMath').map(linearMath).join('\n');
+    case 'oMathPara': return kids(node).filter(n => n.localName === 'oMath').map(linear).join('\n');
     case 'f': return `${group(m(node, 'num'))}/${group(m(node, 'den'))}`;
     case 'sSup': return `${all(m(node, 'e'))}^${group(m(node, 'sup'))}`;
     case 'sSub': return `${all(m(node, 'e'))}_${group(m(node, 'sub'))}`;
@@ -33,7 +49,7 @@ export function linearMath(node) {
     }
     case 'd': {
       const pr = m(node, 'dPr'), open = val(pr, 'begChr') ?? '(', close = val(pr, 'endChr') ?? ')', sep = val(pr, 'sepChr') ?? '|';
-      return `${open}${kids(node).filter(n => n.localName === 'e').map(linearMath).join(sep)}${close}`;
+      return `${open}${kids(node).filter(n => n.localName === 'e').map(linear).join(sep)}${close}`;
     }
     case 'nary': {
       const pr = m(node, 'naryPr'), symbol = val(pr, 'chr') ?? '∫';
@@ -45,8 +61,8 @@ export function linearMath(node) {
     case 'bar': return `${all(m(node, 'e'))}̅`;
     case 'limLow': return `${all(m(node, 'e'))}_${group(m(node, 'lim'))}`;
     case 'limUpp': return `${all(m(node, 'e'))}^${group(m(node, 'lim'))}`;
-    case 'eqArr': return kids(node).filter(n => n.localName === 'e').map(linearMath).join('; ');
-    case 'm': return `[${kids(node).filter(n => n.localName === 'mr').map(r => kids(r).filter(n => n.localName === 'e').map(linearMath).join(', ')).join('; ')}]`;
+    case 'eqArr': return kids(node).filter(n => n.localName === 'e').map(linear).join('; ');
+    case 'm': return `[${kids(node).filter(n => n.localName === 'mr').map(r => kids(r).filter(n => n.localName === 'e').map(linear).join(', ')).join('; ')}]`;
     default: return all(node);
   }
 }
