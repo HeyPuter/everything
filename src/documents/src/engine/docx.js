@@ -1320,6 +1320,8 @@ export class DocxPackage {
       for (const segment of pageFieldSegments(node)) {
         if (segment.node) normalized.appendChild(segment.node.cloneNode(true));
         else {
+          // A field here is shown by its result text alone, so a picture result (INCLUDEPICTURE) stays a preview.
+          if (segment.resultNodes.some(n => [...n.getElementsByTagNameNS(W, '*')].some(c => ['drawing', 'pict', 'object'].includes(c.localName)))) throw new UnsupportedDocumentError('pictures in header, footer or text box field results');
           const run = node.ownerDocument.createElementNS(W, 'w:r');
           // Body fields without MERGEFORMAT regenerate using instruction-run
           // formatting (paragraph defaults for a simple field's attribute).
@@ -1850,7 +1852,8 @@ export class DocxPackage {
           if (preview) {
             projectControlContents(root);
             projectCachedFieldResults(root, styles, field => {
-              try { pageFieldInstruction(field.instruction); return false; }
+              // A picture result (INCLUDEPICTURE) shows as its picture in the preview.
+              try { pageFieldInstruction(field.instruction); return /^\s*INCLUDEPICTURE(?:\s|$)/i.test(field.instruction); }
               catch (error) {
                 if (!(error instanceof UnsupportedDocumentError)) throw error;
                 recordPreviewIssue(issues, error); return true;

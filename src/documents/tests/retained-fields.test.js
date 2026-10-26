@@ -59,3 +59,37 @@ it('opens reference-manager citations that carry field data and keeps the data t
   for (const other of [field.replace('<w:fldData xml:space="preserve">', '<w:ffData><w:name w:val="x"/></w:ffData><w:fldData>'), field.replace('<w:fldChar w:fldCharType="separate"/>', `<w:fldChar w:fldCharType="separate"><w:fldData>${data}</w:fldData></w:fldChar>`)])
     expect((await DocxPackage.open(docx(other), { bestEffort: true })).readOnly).toBe(true);
 });
+
+it('opens pictures pasted from web pages (INCLUDEPICTURE fields) for editing and keeps field and picture', async () => {
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
+  const drawing = '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="914400" cy="914400"/><wp:docPr id="1" name="Picture 1" descr="https://example.com/logo.png"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="Picture 1"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdPic"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
+  const files = {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/></Relationships>`,
+    'word/_rels/document.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdPic" Type="${R}/image" Target="media/image1.png"/></Relationships>`,
+    'word/document.xml': `<w:document xmlns:w="${W}" xmlns:r="${R}" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body><w:p><w:r><w:t xml:space="preserve">Logo: </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> INCLUDEPICTURE "https://example.com/logo.png" \\* MERGEFORMATINET </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r>${drawing}<w:r><w:fldChar w:fldCharType="end"/></w:r></w:p><w:sectPr/></w:body></w:document>`,
+  };
+  const parts = Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])); parts['word/media/image1.png'] = png;
+  const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });
+  expect(pkg.readOnly).toBeFalsy();
+  const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  model.select(0, 4); model.replace('Brand');
+  const bytes = new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer());
+  const main = new DOMParser().parseFromString(strFromU8(unzipSync(bytes)['word/document.xml']), 'application/xml');
+  expect(main.getElementsByTagNameNS(W, 'instrText')[0].textContent).toContain('INCLUDEPICTURE "https://example.com/logo.png"');
+  expect(main.getElementsByTagNameNS(W, 'drawing')).toHaveLength(1);
+  const again = await DocxPackage.open(bytes);
+  expect(again.paragraphs[0].runs.filter(r => r.image)).toHaveLength(1);
+  expect(new TextDocument(again.paragraphs).text.startsWith('Brand: ')).toBe(true);
+  // In a header the field is shown by its result text alone, so a picture result keeps the read-only preview, picture shown.
+  const header = { ...parts };
+  header['word/header1.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace(/^<w:document/, '<w:hdr').replace('<w:body>', '').replace('<w:sectPr/></w:body></w:document>', '</w:hdr>'));
+  header['word/_rels/header1.xml.rels'] = parts['word/_rels/document.xml.rels'];
+  header['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('</Relationships>', `<Relationship Id="rIdH" Type="${R}/header" Target="header1.xml"/></Relationships>`));
+  header['[Content_Types].xml'] = strToU8(strFromU8(parts['[Content_Types].xml']).replace('</Types>', '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/></Types>'));
+  header['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:sectPr/>', '<w:sectPr><w:headerReference w:type="default" r:id="rIdH"/></w:sectPr>'));
+  const preview = await DocxPackage.open(zipSync(header), { bestEffort: true });
+  expect(preview.readOnly).toBe(true);
+  expect(preview.pageStories.stories['word/header1.xml'].paragraphs[0].runs.filter(r => r.image)).toHaveLength(1);
+});

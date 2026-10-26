@@ -46,7 +46,9 @@ export const RETAINED_FIELDS = new Set(['SEQ', 'REF', 'NOTEREF', 'STYLEREF', 'DA
   'REVNUM', 'SECTION', 'TEMPLATE', 'USERNAME', 'USERINITIALS', 'USERADDRESS', 'QUOTE', 'LISTNUM', 'AUTONUM', 'AUTONUMLGL', 'AUTONUMOUT', 'MERGEFIELD',
   'MERGEREC', 'MERGESEQ', 'ADDIN', 'CITATION', 'BIBLIOGRAPHY', 'GREETINGLINE', 'ADDRESSBLOCK', 'FILLIN', 'GOTOBUTTON', 'SYMBOL', 'TA', 'TOA', 'TC', 'RD', 'SET', 'ASK', 'PRIVATE', 'BARCODE', 'DISPLAYBARCODE', 'ADVANCE', 'EQ',
   // Mail merge rules (§17.16.5.26 IF, .38 NEXT, .39 NEXTIF, .58 SKIPIF), evaluated by merge-fields.js.
-  'IF', 'NEXT', 'NEXTIF', 'SKIPIF']);
+  'IF', 'NEXT', 'NEXTIF', 'SKIPIF',
+  // A picture a web page linked to, kept as the field's cached result picture (§17.16.5); the link is not fetched.
+  'INCLUDEPICTURE']);
 
 export function pageFieldInstruction(instruction) {
   // Retained instructions can carry arbitrary data (citation add-ins embed JSON), so they are not tokenized.
