@@ -64,6 +64,20 @@ export function subtreeEnd(units, index) {
   return end;
 }
 
+/**
+ * The two ends of every range that can run between paragraphs (bookmarks, comments, editable regions and
+ * fields): [{ start, end, field }] with the paragraphs holding each end.
+ */
+function rangeEnds(paragraphs) {
+  const ends = new Map();
+  const note = (key, edge, p, field) => { if (!ends.has(key)) ends.set(key, { field }); ends.get(key)[edge] = p; };
+  for (const p of paragraphs) {
+    for (const m of p.bookmarks || []) if (m.edge === 'start' || m.edge === 'end') note(`b:${m.id}`, m.edge, p, false);
+    for (const m of p.fieldMarkers || []) if (m.field) note(`f:${m.field.id}`, m.type === 'start' ? 'start' : 'end', p, true);
+  }
+  return [...ends.values()];
+}
+
 const movable = p => !p.sectionEnd && !p.blockControls?.length && !p.frame && !p.frameProperties;
 function checkMovable(paragraphs) {
   if (!paragraphs.every(movable)) throw new Error('Content with section breaks, frames or block controls cannot be moved in the outline yet.');
@@ -83,10 +97,17 @@ function moveUnits(model, units, first, end, target) {
   const last = paragraphs.at(-1);
   if (at === paragraphs.length && !last.cellId && !paragraphText(last).length && to !== paragraphs.length) at = paragraphs.length - 1;
   if (at >= from && at <= to) return false;
+  // A reorder is not a change Track Changes can show here; done untracked, reviewers would never see it.
+  if (model.trackChanges) throw new Error('Moving text in the outline cannot be tracked. Turn off Track Changes to move it.');
+  // A range from the moved text into the text it passes would end before it starts: the document could not be saved.
+  const inside = new Set(moving), passed = new Set(at < from ? paragraphs.slice(at, from) : paragraphs.slice(to, at));
+  if (rangeEnds(paragraphs).some(({ start, end }) => start && end && (inside.has(start) && passed.has(end) || inside.has(end) && passed.has(start)))) {
+    throw new Error('A bookmark, comment or field runs from this text into the text it would move past, so it cannot be moved.');
+  }
   // The caret keeps its place in the text it was in.
   const [anchor, focus] = [model.selection.anchor, model.selection.focus];
   const before = model.paragraphOffset(from), length = model.paragraphOffset(to) - before;
-  const inside = value => value >= before && value < before + length;
+  const within = value => value >= before && value < before + length;
   model.checkpoint();
   const rest = [...paragraphs.slice(0, from), ...paragraphs.slice(to)];
   const insertAt = at > from ? at - (to - from) : at;
@@ -94,8 +115,8 @@ function moveUnits(model, units, first, end, target) {
   model.paragraphs = rest;
   model.didChange();
   const moved = model.paragraphOffset(insertAt);
-  const map = value => inside(value) ? moved + value - before : value;
-  if (inside(anchor) || inside(focus)) model.select(map(anchor), map(focus));
+  const map = value => within(value) ? moved + value - before : value;
+  if (within(anchor) || within(focus)) model.select(map(anchor), map(focus));
   else model.select(Math.min(anchor, model.text.length), Math.min(focus, model.text.length));
   return true;
 }
@@ -205,10 +226,26 @@ export function deleteOutlineSection(model, id) {
   const units = outlineUnits(model.paragraphs), index = unitOf(units, id);
   if (index < 0) return false;
   const end = subtreeEnd(units, index), from = units[index].from, to = units[end - 1].to;
-  checkMovable(model.paragraphs.slice(from, to));
+  const paragraphs = model.paragraphs, removed = new Set(paragraphs.slice(from, to));
+  checkMovable([...removed]);
+  // With Track Changes on, the section is marked deleted, for reviewers to accept or reject.
+  if (model.trackChanges) {
+    const start = model.paragraphOffset(from);
+    if (to < paragraphs.length) model.select(start, model.paragraphOffset(to));
+    else model.select(from ? start - 1 : 0, model.text.length);
+    if (!model.replace('')) return false;
+    model.select(start);
+    return true;
+  }
+  // As deleting the text would: bookmarks and comments in the section stay, where it was, so a range
+  // running out of it keeps both ends and no comment is left without an anchor. A field cannot lose one end.
+  if (rangeEnds(paragraphs).some(r => r.field && r.start && r.end && removed.has(r.start) !== removed.has(r.end))) throw new Error('A field runs from this section into the text around it, so the section cannot be deleted here. Select the text and delete it instead.');
   model.checkpoint();
-  const rest = [...model.paragraphs.slice(0, from), ...model.paragraphs.slice(to)];
+  const rest = [...paragraphs.slice(0, from), ...paragraphs.slice(to)];
   const keep = rest.length ? rest : [resolveStyledParagraph(paragraph(), model.styles, model.numbering)];
+  const hostIndex = Math.min(from, keep.length - 1), hostAt = from < keep.length ? 0 : paragraphText(keep[hostIndex]).length;
+  const kept = [...removed].flatMap(p => (p.bookmarks || []).map(marker => ({ ...marker, offset: hostAt })));
+  if (kept.length) keep[hostIndex] = { ...keep[hostIndex], bookmarks: [...(keep[hostIndex].bookmarks || []), ...kept] };
   model.paragraphs = keep;
   model.didChange();
   model.select(model.paragraphOffset(Math.min(from, keep.length - 1)));

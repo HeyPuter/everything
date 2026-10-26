@@ -78,6 +78,62 @@ describe('moving sections', () => {
   });
 });
 
+describe('sections that ranges or Track Changes reach', () => {
+  const saveable = (pkg, model) => pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets, undefined, model.comments);
+  it('refuses to move a section past text that a bookmark or comment from it reaches into', async () => {
+    const { pkg, session, model, id } = await outlineDocument(SPEC);
+    model.comments = [];
+    // From "Intro body" into "Results body", so moving Results up past Intro's section would end it before it starts.
+    model.select(model.text.indexOf('body'), model.text.indexOf('Results body') + 3); model.addBookmark('Span');
+    const before = texts(model);
+    expect(() => session.run(m => moveOutlineBlock(m, id('Results'), -1))).toThrow(/bookmark, comment or field/);
+    expect(texts(model)).toEqual(before);
+    expect(() => saveable(pkg, model)).not.toThrow();
+    // A section the range does not reach into still moves.
+    session.run(m => moveOutlineBlock(m, id('Detail'), -1));
+    expect(texts(model).slice(0, 2)).toEqual(['Intro', 'Detail']);
+    const reach = model.paragraphs.findIndex(p => texts({ paragraphs: [p] })[0] === 'Intro body');
+    model.paragraphs.forEach(p => { delete p.bookmarks; });
+    model.select(model.paragraphOffset(reach) + 2, model.text.indexOf('Results body') + 3);
+    model.addComment({ author: 'A', text: 'Across' });
+    expect(() => moveOutlineBlock(model, id('Results'), -1)).toThrow(/bookmark, comment or field/);
+  });
+  it('keeps bookmarks and comments of a deleted section where it was, as deleting its text would', async () => {
+    const { pkg, session, model, id } = await outlineDocument(SPEC);
+    model.comments = [];
+    model.select(model.text.indexOf('Detail body'), model.text.indexOf('Results body') + 7); model.addBookmark('Span');
+    model.select(model.text.indexOf('Detail body'), model.text.indexOf('Detail body') + 6);
+    const inside = model.addComment({ author: 'A', text: 'Inside' });
+    model.replyToComment(inside, { author: 'B', text: 'Reply' });
+    model.select(model.text.indexOf('Intro body'), model.text.indexOf('Detail body') + 6);
+    const across = model.addComment({ author: 'A', text: 'Across' });
+    session.run(m => deleteOutlineSection(m, id('Detail')));
+    expect(texts(model)).toEqual(['Intro', 'Intro body', 'Results', 'Results body', '']);
+    const bookmark = model.bookmarks.find(b => b.name === 'Span');
+    expect(model.text.slice(bookmark.start, bookmark.end)).toBe('Results\nResults');
+    // No comment is left without an anchor: the one inside is now a point where the section was.
+    const anchors = Object.fromEntries(model.commentList.map(c => [c.id, model.text.slice(c.start, c.end)]));
+    expect(model.comments).toHaveLength(3);
+    expect(anchors[across]).toBe('Intro body\n');
+    expect(anchors[inside]).toBe('');
+    expect(model.commentList.find(c => c.id === inside).start).toBe(model.text.indexOf('Results'));
+    expect(() => saveable(pkg, model)).not.toThrow();
+    session.undo();
+    expect(texts(model)).toEqual(SPEC.map(([text]) => text));
+    expect(model.comments).toHaveLength(3);
+  });
+  it('marks a deleted section as a tracked deletion, and refuses an untracked move, with Track Changes on', async () => {
+    const { session, model, id } = await outlineDocument(SPEC);
+    model.trackChanges = true; model.revisionAuthor = 'Reviewer';
+    expect(() => session.run(m => moveOutlineBlock(m, id('Results'), -1))).toThrow(/Track Changes/);
+    session.run(m => deleteOutlineSection(m, id('Detail')));
+    expect(texts(model)).toEqual(SPEC.map(([text]) => text));
+    expect(model.revisions.map(r => [r.type, model.text.slice(r.start, r.end)])).toEqual([['del', 'Detail\nDetail body\n']]);
+    model.resolveRevisions(false);
+    expect(model.revisions).toEqual([]);
+  });
+});
+
 describe('promoting and demoting', () => {
   it('uses the heading styles and moves subheadings along when asked', async () => {
     const { session, model, id } = await outlineDocument(SPEC);

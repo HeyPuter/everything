@@ -23969,8 +23969,14 @@ Code: [engine/document-views.js](../src/engine/document-views.js) (screen geomet
 - Move Up/Down and Navigation-pane dragging reorder whole paragraphs (`w:p`) and tables (`w:tbl`),
   a heading together with the paragraphs it leads. Sections (`w:sectPr` in `w:pPr`), frames
   (`w:framePr`) and block-level content controls are not moved (the command reports why). The
-  document's closing empty paragraph stays last. Deleting a section in the Navigation pane removes
-  its paragraphs; new headings are empty paragraphs with the heading style.
+  document's closing empty paragraph stays last. A move that would put a bookmark, comment or field
+  end (§17.13.6.2 `bookmarkEnd`, §17.13.4.3 `commentRangeEnd`, §17.16.18 `fldChar`) before its start
+  is refused, and so is any move with Track Changes on, since a reorder is not recorded as a
+  revision. Deleting a section in the Navigation pane removes its paragraphs and keeps their
+  bookmark and comment markers where the section was, as deleting the text does; a field that runs
+  out of the section blocks the deletion. With Track Changes on the section is marked deleted
+  (§17.13.5.14 `w:del`, paragraph-mark deletions) instead. New headings are empty paragraphs with
+  the heading style.
 - Gaps: master documents and subdocuments (`w:subDoc`, the `masterPages` view) are not supported;
   outline numbering linked to headings follows the existing numbering support only.
 ## Picture and shape effects, preset picture geometry and hidden drawings (2026-10-13)
