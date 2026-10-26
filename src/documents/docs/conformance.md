@@ -7250,6 +7250,12 @@ counts the segmenter's words inside runs of these scripts and keeps the
 whitespace rule elsewhere; spelling skips words with no Latin letter, since
 only the English dictionary is loaded. Remaining gaps: Ctrl+Arrow word
 movement still treats a run of these scripts as one word; Tai Tham, Tai Viet
+reference application's. Ctrl+Arrow word movement (and a selection collapsed by
+it) steps to the same dictionary boundaries inside a run of these scripts, as
+Option+Arrow and double-click already did; `tests/word-navigation.test.js`
+covers Thai and Khmer, and Latin, Greek and Chinese runs keep the native
+reference's units. Remaining gaps: word count
+and spelling still treat a run of these scripts as one word; Tai Tham, Tai Viet
 and New Tai Lue (also class SA) are not segmented; CJK and East Asian kinsoku
 rules (§17.3.1.16) remain separate.
 
