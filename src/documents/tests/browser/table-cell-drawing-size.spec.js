@@ -104,3 +104,35 @@ test('Reset Picture & Size keeps a picture in a table cell within the cell', asy
   expect(width).toBeGreaterThan(available * 0.9);
   expect(errors).toEqual([]);
 });
+
+test('an icon inserted in a narrow table cell fits the cell', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).focus();
+  const insert = page.locator('#ribbon-panel-insert');
+  await onTab(page, 'insert');
+  await insert.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '8 columns, 1 row' }).click();
+  const available = await cellWidth(page);
+  expect(available).toBeLessThan(96);
+  await toCell(page, 0);
+  await onTab(page, 'insert');
+  await insert.getByRole('button', { name: 'Icons', exact: true }).click();
+  const icons = page.getByRole('dialog', { name: 'Icons' });
+  await icons.locator('.insert-icon').first().click();
+  await icons.getByRole('button', { name: /^Insert/ }).click();
+  await expect.poll(async () => (await drawings(page)).length).toBe(1);
+  const [width] = await drawings(page);
+  expect(width).toBeLessThanOrEqual(Math.ceil(available));
+  // Outside tables an icon is an inch square.
+  await page.keyboard.press('ControlOrMeta+End');
+  await onTab(page, 'insert');
+  await insert.getByRole('button', { name: 'Icons', exact: true }).click();
+  await icons.locator('.insert-icon').first().click();
+  await icons.getByRole('button', { name: /^Insert/ }).click();
+  await expect.poll(async () => (await drawings(page)).length).toBe(2);
+  expect((await drawings(page))[1]).toBe(96);
+  expect(errors).toEqual([]);
+});

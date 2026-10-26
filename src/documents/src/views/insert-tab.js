@@ -206,7 +206,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     openIconsDialog({ onClose: () => queueMicrotask(() => editor()?.focus()), onInsert: async (icons, color) => {
       for (const icon of icons) {
         const svg = iconSvg(icon.id, { color, size: 96 }), { png } = await rasterize(new Blob([iconSvg(icon.id, { color, size: 192 })], { type: 'image/svg+xml' }), 192);
-        const ok = await insertDrawing((engine, id) => pictureFragment(engine.model, pkg().parts, { png, svg, width: EMU_PER_INCH, height: EMU_PER_INCH, id, name: `Graphic ${id}`, descr: icon.name, stem: 'canvas-icon' }), { body: false });
+        // An inch square, or narrower to fit a narrow table cell.
+        const ok = await insertDrawing((engine, id) => { const side = Math.round(Math.min(EMU_PER_INCH, textWidth(engine))); return pictureFragment(engine.model, pkg().parts, { png, svg, width: side, height: side, id, name: `Graphic ${id}`, descr: icon.name, stem: 'canvas-icon' }); }, { body: false });
         if (!ok) break;
         // The next icon follows this one rather than replacing it.
         const engine = ready(); if (engine) { engine.model.select(engine.model.range[1]); engine.syncInput(); }
