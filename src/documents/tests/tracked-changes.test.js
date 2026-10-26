@@ -221,8 +221,32 @@ describe('tracked change edge cases', () => {
     expect(xml).toMatch(/<w:ins [^>]*w:author="Ada"[^>]*><w:del [^>]*w:author="Me"[^>]*><w:r><w:delText xml:space="preserve">theirs<\/w:delText><\/w:r><\/w:del><\/w:ins>/);
     const again = await open(await save(pkg, model));
     expect(summary(again.model)).toEqual([['del', 'Me', 'theirs']]);
-    again.model.resolveRevisions(false);
+    // Rejecting the deletion alone (at the caret) brings Ada's insertion back.
+    again.model.select(4); again.model.resolveRevisions(false, ...again.model.range);
     expect(summary(again.model)).toEqual([['ins', 'Ada', 'theirs']]);
+  });
+  it('rejects another reviewer\'s insertion under a deletion with Reject All, leaving the original text', async () => {
+    const files = unzipSync(trackedDocx());
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">A </w:t></w:r><w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"><w:r><w:t>theirs</w:t></w:r></w:ins><w:r><w:t xml:space="preserve"> B</w:t></w:r></w:p><w:p><w:r><w:t>Next</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    const { pkg, model } = await open(zipSync(files));
+    model.select(2, 13); model.replace('');
+    expect(summary(model)).toEqual([['del', 'Me', 'theirs B\nNe', '¶']]);
+    const again = await open(await save(pkg, model));
+    again.model.resolveRevisions(false);
+    expect(again.model.text).toBe('A  B\nNext');
+    expect(again.model.revisions).toEqual([]);
+    // Rejecting a selection rejects both changes in it too; with Ada's changes hidden, only the deletion goes.
+    const selected = await open(await save(pkg, model));
+    selected.model.resolveRevisions(false, 0, 8);
+    expect(summary(selected.model)).toEqual([['del', 'Me', ' B\nNe', '¶']]);
+    expect(selected.model.text).toBe('A  B\nNext');
+    const shown = await open(await save(pkg, model));
+    shown.model.resolveRevisions(false, undefined, undefined, { only: change => change.author !== 'Ada' });
+    expect(summary(shown.model)).toEqual([['ins', 'Ada', 'theirs']]);
+    expect(shown.model.text).toBe('A theirs B\nNext');
+    const undone = await open(await save(pkg, model));
+    undone.model.resolveRevisions(false); undone.model.undo();
+    expect(summary(undone.model)).toEqual([['del', 'Me', 'theirs B\nNe', '¶']]);
   });
   it('never marks a table cell\'s final paragraph mark as deleted', async () => {
     const files = unzipSync(trackedDocx());

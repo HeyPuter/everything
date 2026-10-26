@@ -22096,6 +22096,8 @@ Supported subset:
   Enter record insertions; Delete/Backspace/selection replacement record deletions; deleting your
   own pending insertion removes it outright.
 - Accept/Reject this change, and move to next, all changes, and all changes and stop tracking.
+  Rejecting one deletion of another reviewer's insertion (`w:del` inside `w:ins`) brings the insertion
+  back; rejecting a selection or all changes rejects both, so Reject All leaves no change behind.
   Accepting a deletion that crosses a field's begin or end (§17.16.18) removes the text on either
   side of the boundary separately; the field keeps the rest of its result.
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7

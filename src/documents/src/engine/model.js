@@ -2225,10 +2225,22 @@ export class TextDocument {
     this.formatRejectSkipped = false;
     // Resolving changes is not itself a tracked formatting change.
     this.formatTrackingSuppressed = true;
-    const targets = (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
+    const changes = () => (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
       .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
+    let targets = changes();
     if (!targets.length) return false;
     this.checkpoint();
+    // Rejecting a deletion of another reviewer's insertion brings that insertion back. Rejecting a range (or
+    // all changes) rejects that insertion too when it is in scope, as a second Reject All would have: the text
+    // goes, instead of staying as an insertion after Reject All.
+    if (!accept && start !== end) {
+      const restored = new Set();
+      for (const r of targets) if (r.type === 'del') eachRevisionTarget(this.paragraphs, r.start, r.end, ({ paragraph, run, mark }) => {
+        const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision', inserted = target[key]?.inserted;
+        if (target[key]?.type === 'del' && inserted && only({ type: 'ins', author: inserted.author, date: inserted.date })) { target[key] = { type: 'ins', ...inserted }; restored.add(paragraph); }
+      });
+      if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
+    }
     this.trackingInternal = true;
     const caret = targets[0].start;
     try {
