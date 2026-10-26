@@ -511,3 +511,38 @@ describe('fields inside tracked changes', () => {
     expect(model.text).toBe('Keep  removed end.Second');
   });
 });
+
+describe('revision UTC times', () => {
+  const W16DU = 'http://schemas.microsoft.com/office/word/2023/wordml/word16du';
+  const utcDocx = ({ ignorable = true } = {}) => {
+    const files = unzipSync(trackedDocx({ track: false }));
+    const utc = ' w16du:dateUtc="2026-01-01T08:00:00Z"';
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:w16du="${W16DU}"${ignorable ? ' mc:Ignorable="w16du"' : ''}><w:body>`
+      + `<w:p><w:pPr><w:rPr><w:ins w:id="9" w:author="Ada" w:date="2026-01-01T00:00:00Z"${utc}/></w:rPr></w:pPr><w:r><w:t xml:space="preserve">Keep </w:t></w:r><w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z"${utc}><w:r><w:t>added</w:t></w:r></w:ins><w:del w:id="2" w:author="Grace" w:date="2026-01-02T00:00:00Z"${utc}><w:r><w:delText xml:space="preserve"> removed</w:delText></w:r></w:del><w:r><w:rPr><w:b/><w:rPrChange w:id="6" w:author="Grace" w:date="2026-01-02T00:00:00Z"${utc}><w:rPr/></w:rPrChange></w:rPr><w:t xml:space="preserve"> end.</w:t></w:r></w:p>`
+      + `<w:p><w:r><w:t>Second</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    return zipSync(files);
+  };
+  const utcTimes = bytes => {
+    const doc = new DOMParser().parseFromString(strFromU8(unzipSync(bytes)['word/document.xml']), 'application/xml');
+    return [...doc.getElementsByTagNameNS(W16DU, '*'), ...doc.getElementsByTagNameNS(W, '*')].filter(n => n.hasAttributeNS(W16DU, 'dateUtc')).map(n => n.localName).sort();
+  };
+  it('opens insertions and deletions that carry a UTC time for editing and keeps the time when saved', async () => {
+    const source = utcDocx(), { pkg, model } = await open(source);
+    expect(pkg.readOnly).toBeFalsy();
+    expect(summary(model)).toEqual([['ins', 'Ada', 'added'], ['del', 'Grace', ' removed'], ['format', 'Grace', ' end.'], ['ins', 'Ada', '\n', '¶']]);
+    expect(unzipSync(await save(pkg, model))).toEqual(unzipSync(source));
+    // Editing the paragraph rewrites it; each recorded revision keeps its UTC time, new ones have none.
+    model.trackChanges = true; model.select(0); model.replace('New ');
+    const saved = await save(pkg, model);
+    expect(utcTimes(saved)).toEqual(['del', 'ins', 'ins', 'rPrChange']);
+    const reopened = await open(saved);
+    expect(reopened.pkg.readOnly).toBeFalsy();
+    expect(reopened.model.revisions.find(r => r.type === 'ins' && reopened.model.text.slice(r.start, r.end) === 'added')).toBeTruthy();
+  });
+  it('leaves out the UTC time when the part does not declare it ignorable', async () => {
+    const { pkg, model } = await open(utcDocx({ ignorable: false }));
+    expect(pkg.readOnly).toBeFalsy();
+    model.select(0); model.replace('New ');
+    expect(utcTimes(await save(pkg, model))).toEqual([]);
+  });
+});

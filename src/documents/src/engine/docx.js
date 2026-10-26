@@ -784,11 +784,25 @@ export function createDocx(paragraphs = [paragraph()], pageSettings, numbering =
 
 let revisionIds = 0x3F000000;
 /** A w:ins or w:del element for a revision record (§17.13.5.18, §17.13.5.14). */
+// A revision's UTC time ([MS-DOCX] w16du:dateUtc), which current Word writes beside w:date.
+const W16DU = 'http://schemas.microsoft.com/office/word/2023/wordml/word16du';
+const MC_NS = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+// It is written back only where the part's root still declares it ignorable, so
+// consumers that do not know the namespace can skip it.
+function ignorableUtcPrefix(doc) {
+  const root = doc.documentElement, prefix = root.lookupPrefix(W16DU);
+  return prefix && (root.getAttributeNS(MC_NS, 'Ignorable') || '').split(/\s+/).includes(prefix) ? prefix : null;
+}
+function writeRevisionDate(node, revision) {
+  if (revision.date) node.setAttributeNS(W, 'w:date', revision.date);
+  const prefix = revision.dateUtc && ignorableUtcPrefix(node.ownerDocument);
+  if (prefix) node.setAttributeNS(W16DU, `${prefix}:dateUtc`, revision.dateUtc);
+}
 function revisionElement(doc, revision) {
   const node = doc.createElementNS(W, revision.move ? (revision.type === 'del' ? 'w:moveFrom' : 'w:moveTo') : revision.type === 'del' ? 'w:del' : 'w:ins');
   node.setAttributeNS(W, 'w:id', String(revisionIds++));
   node.setAttributeNS(W, 'w:author', revision.author || '');
-  if (revision.date) node.setAttributeNS(W, 'w:date', revision.date);
+  writeRevisionDate(node, revision);
   return node;
 }
 /** Write (or clear) a tracked paragraph mark in pPr/rPr; revision elements come first there. */
@@ -813,7 +827,7 @@ function writeRunChange(properties, revision, make, previousProperties) {
   const change = make('rPrChange');
   change.setAttributeNS(W, 'w:id', revision.id || String(revisionIds++));
   change.setAttributeNS(W, 'w:author', revision.author || '');
-  if (revision.date) change.setAttributeNS(W, 'w:date', revision.date);
+  writeRevisionDate(change, revision);
   change.append(former); properties.append(change);
   return properties;
 }
@@ -888,7 +902,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
           const change = make('pPrChange');
           change.setAttributeNS(W, 'w:id', p.formatRevision.id || String(revisionIds++));
           change.setAttributeNS(W, 'w:author', p.formatRevision.author || '');
-          if (p.formatRevision.date) change.setAttributeNS(W, 'w:date', p.formatRevision.date);
+          writeRevisionDate(change, p.formatRevision);
           change.append(former);
           let target = pPr; if (!target) { target = make('pPr'); node.prepend(target); }
           target.append(change);
@@ -929,7 +943,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         return writtenControls.get(control.id);
       };
       // Tracked runs sit in w:ins/w:del wrappers; neighbours with the same revision share one.
-      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
+      const matches = (node, revision) => node?.namespaceURI === W && node.localName === (revision.move ? (revision.type === 'del' ? 'moveFrom' : 'moveTo') : revision.type === 'del' ? 'del' : 'ins') && node.getAttributeNS(W, 'author') === (revision.author || '') && (node.getAttributeNS(W, 'date') || '') === (revision.date || '') && (node.getAttributeNS(W16DU, 'dateUtc') || '') === (revision.dateUtc && ignorableUtcPrefix(doc) ? revision.dateUtc : '') && (moveNames.get(node) || '') === (revision.move ? revision.moveName || 'move' : '');
       const place = (r, run) => {
         if (!run.revision) { parent.append(r); return; }
         const { inserted, ...revision } = run.revision;
@@ -1263,14 +1277,15 @@ export class DocxPackage {
     // paragraphs, or opened or closed in another paragraph) cannot reuse its source XML:
     // that lacks the range's other marker. Saving writes its moves with their own ranges.
     const crossingMoves = new WeakSet();
+    const revisionTime = node => ({ author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '', ...(node.getAttributeNS(W16DU, 'dateUtc') ? { dateUtc: node.getAttributeNS(W16DU, 'dateUtc') } : {}) });
     const readRevision = node => {
-      for (const attr of [...node.attributes]) if (attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(attr.namespaceURI === W && ['id', 'author', 'date', 'name'].includes(attr.localName))) throw new UnsupportedDocumentError(`revision attribute ${attr.name}`);
+      for (const attr of [...node.attributes]) if (attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(attr.namespaceURI === W && ['id', 'author', 'date', 'name'].includes(attr.localName)) && !(attr.namespaceURI === W16DU && attr.localName === 'dateUtc')) throw new UnsupportedDocumentError(`revision attribute ${attr.name}`);
       const type = ['ins', 'moveTo'].includes(node.localName) ? 'ins' : 'del';
       const move = ['moveFrom', 'moveTo'].includes(node.localName);
-      return { type, author: node.getAttributeNS(W, 'author') || '', date: node.getAttributeNS(W, 'date') || '', ...(move ? { move: true, moveName: moveNames[node.localName === 'moveFrom' ? 'from' : 'to'] || '' } : {}) };
+      return { type, ...revisionTime(node), ...(move ? { move: true, moveName: moveNames[node.localName === 'moveFrom' ? 'from' : 'to'] || '' } : {}) };
     };
     // A recorded formatting change keeps its former formatting for rejection (§17.13.5.29/.30).
-    const changeMeta = change => ({ type: 'format', author: change.getAttributeNS(W, 'author') || '', date: change.getAttributeNS(W, 'date') || '', ...(change.getAttributeNS(W, 'id') ? { id: change.getAttributeNS(W, 'id') } : {}) });
+    const changeMeta = change => ({ type: 'format', ...revisionTime(change), ...(change.getAttributeNS(W, 'id') ? { id: change.getAttributeNS(W, 'id') } : {}) });
     const readRunChange = rPr => {
       const change = child(rPr, 'rPrChange'); if (!change) return null;
       const inner = child(change, 'rPr');
@@ -1357,7 +1372,7 @@ export class DocxPackage {
         if (revisionNodes.length) {
           const pair = revisionNodes.length === 2 && revisionNodes[0].localName === 'ins' && revisionNodes[1].localName === 'del';
           if (context.drawingText || context.pageStory || revisionNodes.length > 1 && !pair) throw new UnsupportedDocumentError('tracked paragraph marks outside the main body');
-          markRevision = pair ? { ...readRevision(revisionNodes[1]), inserted: (({ author, date }) => ({ author, date }))(readRevision(revisionNodes[0])) } : readRevision(revisionNodes[0]);
+          markRevision = pair ? { ...readRevision(revisionNodes[1]), inserted: (({ type, ...time }) => time)(readRevision(revisionNodes[0])) } : readRevision(revisionNodes[0]);
           const source = node;
           node = node.cloneNode(true);
           // Keep the inherited markup-compatibility and namespace context (an ancestor's
@@ -1556,7 +1571,7 @@ export class DocxPackage {
           const outer = currentRevision, revision = readRevision(r);
           // A deletion can nest inside another reviewer's insertion (a deleted insertion).
           if (outer && !(outer.type === 'ins' && revision.type === 'del' && !outer.inserted)) throw new UnsupportedDocumentError('nested revisions');
-          currentRevision = outer ? { ...revision, inserted: { author: outer.author, date: outer.date } } : revision;
+          currentRevision = outer ? { ...revision, inserted: { author: outer.author, date: outer.date, ...(outer.dateUtc ? { dateUtc: outer.dateUtc } : {}) } } : revision;
           try { for (const nested of children(r)) readInline(nested); }
           finally { currentRevision = outer; }
           return;
