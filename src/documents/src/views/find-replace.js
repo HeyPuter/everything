@@ -49,7 +49,11 @@ export function findReplacePanel(api) {
   const previous = action('Previous match', 'arrowUp', () => navigate(-1)), next = action('Next match', 'arrowDown', () => navigate(1));
   const replace = el('button.btn', { type: 'button', onclick: () => change(false) }, 'Replace');
   const all = el('button.btn', { type: 'button', onclick: () => change(true) }, 'Replace all');
-  const close = () => { if (node.hidden) return; node.hidden = true; api.highlight?.([]); api.close(); };
+  // Whether the document shows this panel's matches. Hidden, the panel leaves the tints alone unless they
+  // are its own: the Navigation pane's search tints the document with the panel closed.
+  let highlighted = false;
+  const highlight = matches => { highlighted = matches.length > 0; api.highlight?.(matches); };
+  const close = () => { if (node.hidden) return; node.hidden = true; highlight([]); api.close(); };
 
   /* ---- More options ---- */
   const findFormatLabel = el('span.canvas-find-format'), replaceFormatLabel = el('span.canvas-find-format');
@@ -122,7 +126,7 @@ export function findReplacePanel(api) {
   // than the rest of the update.
   let searched = null;
   function refresh() {
-    if (node.hidden) { searched = null; api.highlight?.([]); return { matches: [], current: -1 }; }
+    if (node.hidden) { searched = null; if (highlighted) highlight([]); return { matches: [], current: -1 }; }
     const range = api.range();
     if (!panelRange || range[0] !== panelRange[0] || range[1] !== panelRange[1]) { userRange = [...range]; panelRange = null; }
     let matches = [];
@@ -134,7 +138,7 @@ export function findReplacePanel(api) {
       try { matches = searching ? api.matches(query.value, options()) : []; error.hidden = true; if (searching && version) searched = { key, version, matches }; }
       catch (e) { error.textContent = e.message; error.hidden = false; }
     }
-    api.highlight?.(matches);
+    highlight(matches);
     const [start, end] = api.range(), current = matches.findIndex(m => m.start === start && m.end === end && (!m.story || api.isCurrentStory?.(m.story)));
     count.textContent = !searching ? 'Enter text to find' : !matches.length ? 'No matches' : current < 0 ? `${matches.length} ${matches.length === 1 ? 'match' : 'matches'}` : `${current + 1} of ${matches.length}`;
     previous.disabled = next.disabled = !matches.length;

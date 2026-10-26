@@ -144,3 +144,26 @@ test('Escape in the Navigation search clears it and returns to the document; wit
   await expect(pane).toBeHidden();
   await expect(input).toBeFocused();
 });
+
+test('the search\'s matches stay tinted in the document while typing', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('The plan in brief.\nWhy the plan matters.\nThe final plan.');
+  await input.press('ControlOrMeta+f');
+  const pane = page.getByRole('complementary', { name: 'Navigation' });
+  await pane.getByRole('searchbox', { name: 'Search document' }).fill('plan');
+  await expect(pane.getByRole('status')).toHaveText('3 results');
+  const tinted = () => page.evaluate(() => window.__docs.current.view.engine.findHighlights.map(m => m.start));
+  expect(await tinted()).toEqual([4, 27, 51]);
+  await input.focus();
+  await input.press('ControlOrMeta+Home');
+  await page.keyboard.type('So ');
+  await expect.poll(tinted).toEqual([7, 30, 54]);
+  // The closed Find and Replace panel's update follows a frame later; the tints are still there.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 150))));
+  expect(await tinted()).toEqual([7, 30, 54]);
+  expect(errors).toEqual([]);
+});

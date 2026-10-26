@@ -50,3 +50,19 @@ it('searches the user\'s selection, not the match it selected, and keeps searchi
   expect(scope.value).toBe('selection');
   expect(panel.node.querySelector('.canvas-find-count').textContent).toBe('No matches');
 });
+
+it('a closed panel leaves alone the tints of a search it did not make, and clears only its own', () => {
+  const highlight = vi.fn();
+  const panel = findReplacePanel({ matches: () => [{ start: 0, end: 3, text: 'cat' }], version: () => [1], range: () => [0, 0], select() {}, highlight, replace() {}, readOnly: () => false, close() {} });
+  document.body.append(panel.node);
+  // Closed from the start: the Navigation pane's search tints the document, and each update leaves them be.
+  panel.refresh(); panel.refresh();
+  expect(highlight).not.toHaveBeenCalled();
+  panel.open('cat');
+  expect(highlight).toHaveBeenLastCalledWith([{ start: 0, end: 3, text: 'cat' }]);
+  panel.node.querySelector('.canvas-find-heading button').click();
+  expect(highlight).toHaveBeenLastCalledWith([]);
+  highlight.mockClear();
+  panel.refresh();
+  expect(highlight).not.toHaveBeenCalled();
+});
