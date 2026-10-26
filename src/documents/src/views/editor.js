@@ -680,14 +680,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const customZoom = el('option', { value: 'custom', hidden: true });
   zoom.append(customZoom);
   const zoomControl = {
-    set(value) {
+    set(value, at) {
       singlePages();
       if (value === 'fit') { zoom.value = 'fit'; fitWidth(); syncZoom(); return; }
       const scale = Math.max(0.1, Math.min(2, Number(value)));
       const preset = [...zoom.options].find(o => o !== customZoom && Number(o.value) === scale);
       if (preset) zoom.value = preset.value;
       else { customZoom.value = String(scale); customZoom.textContent = `${Math.round(scale * 100)}%`; customZoom.hidden = false; zoom.value = customZoom.value; }
-      engine?.setZoom(scale); syncZoom();
+      engine?.setZoom(scale, at); syncZoom();
     },
     /** The zoom as chosen: 'fit' while the page follows the window's width, otherwise the scale. */
     get value() { return zoom.value === 'fit' ? 'fit' : engine?.zoom ?? 1; },

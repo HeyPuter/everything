@@ -220,9 +220,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
       const from = engine.zoom, to = Math.max(0.1, Math.min(2, Math.round(from * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025)) * 100) / 100));
       if (to === from) return;
       // Keep the point under the pointer where it is.
-      const box = host.getBoundingClientRect(), x = e.clientX - box.left + host.scrollLeft, y = e.clientY - box.top + host.scrollTop;
-      w.setZoom?.(to);
-      host.scrollLeft = x * to / from - (e.clientX - box.left); host.scrollTop = y * to / from - (e.clientY - box.top);
+      w.setZoom?.(to, { clientX: e.clientX, clientY: e.clientY });
     } else if (sideToSide && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
       // Side to side: the wheel turns pages across.
       e.preventDefault(); host.scrollLeft += e.deltaY;
@@ -231,7 +229,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   // Safari's pinch gesture.
   let gestureZoom = null;
   host.addEventListener('gesturestart', e => { e.preventDefault(); gestureZoom = editor()?.zoom ?? 1; });
-  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100))); });
+  host.addEventListener('gesturechange', e => { e.preventDefault(); if (gestureZoom && mode !== 'read' && mode !== 'outline') w.setZoom?.(Math.max(0.1, Math.min(2, Math.round(gestureZoom * e.scale * 100) / 100)), { clientX: e.clientX, clientY: e.clientY }); });
 
   /** View → Zoom: presets, fit choices, many pages and a percentage, previewed live. */
   function zoomDialog() {

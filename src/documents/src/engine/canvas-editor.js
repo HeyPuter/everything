@@ -540,9 +540,10 @@ export class CanvasEditor {
   }
   undo() { this.travelHistory('undo'); }
   redo() { this.travelHistory('redo'); }
-  setZoom(value) {
+  /** `at`: { clientX, clientY }, a point to keep where it is (a pointer zooming); otherwise the view's middle. */
+  setZoom(value, at = null) {
     if (!Number.isFinite(value)) return;
-    const zoom = Math.max(0.1, Math.min(2, value)), anchor = zoom !== this.zoom ? this.viewAnchor() : null;
+    const zoom = Math.max(0.1, Math.min(2, value)), anchor = zoom !== this.zoom ? this.viewAnchor(at) : null;
     this.zoom = zoom;
     this.resizeCanvases();
     // The text in the middle of the view stays there: keeping the scroll offset instead showed another
@@ -557,22 +558,23 @@ export class CanvasEditor {
     }
   }
   /**
-   * The page point at the middle of the visible part of the view, and where it is on screen.
-   * `atStart`: the view shows the start of the document, which it keeps showing.
+   * The page point at the middle of the visible part of the view (or at `at`, a point on screen), and
+   * where it is on screen. `atStart`: the view shows the start of the document, which it keeps showing.
    */
-  viewAnchor() {
+  viewAnchor(at = null) {
     if (!this.canvases?.length) return null;
     const host = this.host.getBoundingClientRect();
     const top = Math.max(host.top, 0), bottom = Math.min(host.bottom, window.innerHeight), left = Math.max(host.left, 0), right = Math.min(host.right, window.innerWidth);
     if (bottom <= top || right <= left) return null;
-    const x = (left + right) / 2, y = (top + bottom) / 2;
+    const pointed = Number.isFinite(at?.clientX) && Number.isFinite(at?.clientY);
+    const x = pointed ? Math.max(left, Math.min(at.clientX, right)) : (left + right) / 2, y = pointed ? Math.max(top, Math.min(at.clientY, bottom)) : (top + bottom) / 2;
     let best = null;
     this.canvases.forEach((canvas, index) => {
       const r = canvas.getBoundingClientRect(), distance = Math.max(r.top - y, 0, y - r.bottom) + Math.max(r.left - x, 0, x - r.right);
       if (!best || distance < best.distance) best = { index, r, distance };
     });
     // A point between pages or beside them is kept relative to the nearest page.
-    return { index: best.index, x: (x - best.r.left) / this.zoom, y: (y - best.r.top) / this.zoom, left: x, top: y, atStart: this.host.scrollTop <= 0 };
+    return { index: best.index, x: (x - best.r.left) / this.zoom, y: (y - best.r.top) / this.zoom, left: x, top: y, atStart: !pointed && this.host.scrollTop <= 0 };
   }
   setAccessible(value) {
     this.accessible = value;

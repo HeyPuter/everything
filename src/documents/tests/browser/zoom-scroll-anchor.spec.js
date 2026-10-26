@@ -40,3 +40,30 @@ test('zooming keeps the middle of the view on the same text', async ({page}) => 
   expect(top[0]).toBeGreaterThanOrEqual(0);
   expect(top[2]).toBeGreaterThanOrEqual(0);
 });
+
+// Ctrl + wheel and pinches zoom about the pointer: the text under it stays under it.
+test('zooming with the wheel keeps the point under the pointer', async ({page}) => {
+  await page.setViewportSize({width: 700, height: 800});
+  await page.goto('/playground.html');
+  await page.getByRole('button', {name: 'Across pages'}).click();
+  const first = page.locator('canvas.canvas-page').first();
+  await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
+  // The page point under the pointer, from the page canvas's size on screen (a Letter page is 816 wide).
+  const under = (x, y) => page.evaluate(({x, y}) => {
+    const canvas = [...document.querySelectorAll('canvas.canvas-page')].find(c => { const r = c.getBoundingClientRect(); return r.top <= y && r.bottom >= y; });
+    const r = canvas.getBoundingClientRect(), zoom = r.width / 816;
+    return {page: canvas.dataset.page, x: (x - r.left) / zoom, y: (y - r.top) / zoom, zoom};
+  }, {x, y});
+  const box = await first.boundingBox();
+  const x = Math.round(box.x + Math.min(box.width, 700) * 0.6), y = Math.round(box.y + 420);
+  await page.mouse.move(x, y);
+  const start = await under(x, y);
+  for (const delta of [-200, -120, 300]) {
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, delta); await page.keyboard.up('Control');
+    await expect.poll(async () => (await under(x, y)).zoom).not.toBeCloseTo(start.zoom, 3);
+    const now = await under(x, y);
+    expect(now.page).toBe(start.page);
+    expect(Math.abs(now.y - start.y), `zoom ${now.zoom}`).toBeLessThan(4 / now.zoom);
+    expect(Math.abs(now.x - start.x), `zoom ${now.zoom}`).toBeLessThan(4 / now.zoom);
+  }
+});
