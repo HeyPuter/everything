@@ -334,6 +334,8 @@ export class Doc extends EventTarget {
       const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
       this._setStatus(offline ? 'offline' : 'error', e?.message || String(e));
       if (!auto) throw e;
+      // Nothing retries a file another window took over, and nobody pressed Save to hear of it: the view says so.
+      if (e?.conflict) this.dispatchEvent(new CustomEvent('conflict', { detail: { message: e.message } }));
       // Try again later; a transient failure should not lose the edit. Offline,
       // nothing can succeed until the connection is back, and the app saves then.
       // A file another window took over is not retried on its own: the same answer would come back every time.

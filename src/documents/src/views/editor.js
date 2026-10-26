@@ -1496,6 +1496,17 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (e.key === 'Escape') { e.preventDefault(); title.value = doc.name; refreshTitle(); title.blur(); engine?.focus(); }
   });
   doc.addEventListener('status', updateStatus);
+  // An autosave refused because another window changed the file is not tried again, so the user hears of it, once
+  // until the document saves again, with the way to keep the edits.
+  let conflictTold = false;
+  const onConflict = e => {
+    if (destroyed || conflictTold) return;
+    conflictTold = true;
+    toast(e.detail.message, { icon: 'alert', duration: 15000, action: { label: 'Save a Copy', onClick: () => backstage.open('save') } });
+  };
+  const onSaved = () => { if (doc.status === 'saved') conflictTold = false; };
+  doc.addEventListener('conflict', onConflict);
+  doc.addEventListener('status', onSaved);
   // A first save can name the file otherwise than the name shown ("Untitled document 2" when the first is taken):
   // the title shows the document's name, unless the user is typing a new one there.
   const onPath = () => {
@@ -1745,6 +1756,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       fitObserver?.disconnect(); rulers?.destroy(); views.destroy(); chrome.destroy(); formatArea.destroy(); review.destroy(); reviewTools.destroy(); collab.destroy(); versionHistory.destroy(); assistant.destroy(); references.destroy(); insert.destroy(); draw.destroy(); pictures.destroy(); editingCommands.destroy(); proofing.destroy(); for (const module of pageModules) module.destroy();
       releasePictures();
       doc.removeEventListener('status', updateStatus);
+      doc.removeEventListener('conflict', onConflict);
+      doc.removeEventListener('status', onSaved);
       doc.removeEventListener('path', onPath);
       session.removeEventListener('change', onSession);
       doc.destroy(); engine?.destroy();

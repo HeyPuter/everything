@@ -185,6 +185,32 @@ test('a guest leaving a shared document with changes the others have not receive
   await ownerContext.close(); await guestContext.close();
 });
 
+test('an autosave refused because another window changed the file says so once, with Save a Copy', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Mine');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+  // Time stamps are whole seconds: the other window writes in a later one.
+  await page.waitForTimeout(1100);
+  await page.evaluate(async () => { const { path } = window.__docs.current.view.doc; await puter.fs.write(path, await puter.fs.read(path)); });
+  await text(page).press('End');
+  await page.keyboard.type(' and more');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Not saved');
+  const notice = page.locator('.toast', { hasText: 'changed in another window' });
+  await expect(notice).toHaveCount(1);
+  // Further edits fail the same way without repeating it.
+  await page.keyboard.type(' still');
+  await page.waitForTimeout(2500);
+  await expect(notice).toHaveCount(1);
+  await notice.getByRole('button', { name: 'Save a Copy' }).click();
+  const view = page.getByRole('dialog', { name: 'File' });
+  await expect(view.getByRole('tab', { name: 'Save' })).toHaveAttribute('aria-selected', 'true');
+  await view.getByRole('textbox', { name: 'New file name' }).fill('Mine kept');
+  await view.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect(view.getByRole('status')).toHaveText('Saved. You are now editing the copy.');
+  await page.keyboard.press('Escape');
+  await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+});
+
 test('File > Save: pressing Save As twice saves one copy and says so', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Original');
