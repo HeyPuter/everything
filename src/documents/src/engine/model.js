@@ -398,9 +398,10 @@ export class TextDocument {
    * The selection as plain text. An object's place holder character (U+FFFC) is not text: a field
    * gives its result, an equation its text and a note reference `noteText(run, offset)` (the number
    * shown, which only layout knows), so neither another application nor a paste back here gets it.
+   * `[start, end]` is another range to read instead of the selection.
    */
-  clipboardText(noteText = () => '') {
-    const [start, end] = this.range; let at = 0, text = '';
+  clipboardText(noteText = () => '', [start, end] = this.range) {
+    let at = 0, text = '';
     for (const p of this.paragraphs) {
       for (const run of p.runs) {
         const length = run.text.length;

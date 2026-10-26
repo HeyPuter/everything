@@ -42,7 +42,8 @@ import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRec
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext } from './tables.js';
-import { cellBlockRects } from './table-selection.js';
+import { cellBlockRects, cellBlockPlacements } from './table-selection.js';
+import { clearCells } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
@@ -1836,24 +1837,44 @@ export class CanvasEditor {
   copy(e, cut) {
     if (this.composition || !e.clipboardData) return;
     const [start, end] = this.model.range;
-    if (start === end) return;
+    if (start === end && !this.model.activeCellBlock) return;
     e.preventDefault();
     const { text, html } = this.clipboardData();
     e.clipboardData.setData('text/plain', text);
     if (html) e.clipboardData.setData('text/html', html);
-    if (cut) this.execute(() => this.model.replace(''));
+    if (cut) this.cutSelection();
+  }
+  /**
+   * Remove what a cut takes: the selected text, or the contents of a block of table cells. A block's text range
+   * runs through every cell between its corners in reading order (or covers only its first cell), so removing
+   * that range cleared cells that were not selected.
+   */
+  cutSelection() {
+    return this.execute(() => this.model.activeCellBlock ? clearCells(this.model) : this.model.replace(''));
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }
   /** The selection as plain text, and as formatted HTML when it holds only text or one picture. */
   clipboardData() {
-    const picture = pictureHtml(this.model);
-    const fragment = !picture && copyFragment(this.model);
     // A note reference copies as the number or mark it shows on the page.
     const noteText = (run, at) => {
       const shown = this.selectionLayout.lines.find(line => line.start <= at && at < line.end)?.fragments?.find(f => f.noteMark && f.start === at)?.text;
       return (shown || '').replace(/[\u200b\u2002]/g, '');
     };
+    // A block of table cells copies as its rows, with a tab between cells, as other applications copy a table.
+    const block = this.model.activeCellBlock;
+    if (block) {
+      const model = this.model, rows = new Map();
+      for (const { cell, rowIndex } of cellBlockPlacements(block.table, block)) {
+        const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
+        const text = first < 0 ? '' : model.clipboardText(noteText, [model.paragraphOffset(first), model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length]);
+        if (!rows.has(rowIndex)) rows.set(rowIndex, []);
+        rows.get(rowIndex).push(text);
+      }
+      return { text: [...rows.values()].map(cells => cells.join('\t')).join('\n'), html: '' };
+    }
+    const picture = pictureHtml(this.model);
+    const fragment = !picture && copyFragment(this.model);
     return { text: this.model.clipboardText(noteText), html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */

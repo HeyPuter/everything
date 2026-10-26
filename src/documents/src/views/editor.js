@@ -167,7 +167,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard.write) {
         await navigator.clipboard.write([new ClipboardItem({ 'text/plain': new Blob([text], { type: 'text/plain' }), 'text/html': new Blob([html], { type: 'text/html' }) })]);
       } else await navigator.clipboard.writeText(text);
-      if (cut && !destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.execute(() => editor.model.replace(''));
+      if (cut && !destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) editor.cutSelection();
     } catch (e) { if (!destroyed) error(e); }
     if (!destroyed) engine?.focus();
   };
