@@ -308,3 +308,21 @@ describe('Markdown web addresses next to other text', () => {
     expect(documentMarkdown(doc)).toBe('Visit www.example.org today or www.example.net.\n');
   });
 });
+
+describe('Markdown text split between runs it writes alike', () => {
+  const reopen = markdown => {
+    const doc = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(doc, fragment);
+    return doc.paragraphs.map(p => p.runs.map(r => r.text).join(''));
+  };
+  it('reads back as the same text when the runs differ only in color', () => {
+    for (const [text, colored] of [['Read http://example.com/a_b now', 'p://example.com/a'], ['Write AT&amp;T as typed', 'amp;'], ['Keep &#65; as is', '#65']]) {
+      const doc = blankDoc();
+      doc.replace(text);
+      const at = text.indexOf(colored); doc.select(at, at + colored.length); doc.setRunFormat({ color: 'C00000' });
+      expect(doc.paragraphs[0].runs.length).toBeGreaterThan(1);
+      expect(reopen(documentMarkdown(doc))).toEqual([text]);
+    }
+  });
+});

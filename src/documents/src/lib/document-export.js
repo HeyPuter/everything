@@ -226,12 +226,33 @@ function runMarkdown(piece, before, after, touching = false) {
   if (piece.link) out = `[${out}](${piece.link.replace(/[()\s|]/g, encodeURIComponent)})`;
   return lead + out + trail;
 }
+/**
+ * A paragraph's runs joined where Markdown writes them alike: runs that differ only in what it cannot show
+ * (a font, a color, a language) are one text, escaped as a whole. Escaped apart, text split between them
+ * read back differently: "htt" and "p://example.com/a_b" were linked with a backslash in the address, and
+ * "&" and "amp;" became one ampersand.
+ */
+function markdownRuns(runs, heading) {
+  const key = run => [!!run.bold && !heading, !!run.italic, !!run.strikethrough && run.strikethrough !== 'none',
+    ['superscript', 'subscript'].includes(run.verticalAlign) ? run.verticalAlign : '', safeLink(run) || ''].join('\0');
+  const out = [];
+  let last = null;
+  for (const run of runs) {
+    const text = runText(run);
+    if (!text) continue;
+    const k = key(run);
+    if (last && last.key === k) last.run.text += text;
+    else { last = { key: k, run: { ...run, text, vanish: false } }; out.push(last); }
+  }
+  return out.map(entry => entry.run);
+}
 /** A paragraph's Markdown, its line, page and column breaks written as `lineBreak`. */
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
 const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
-  const texts = p.runs.map(runText), following = [];
+  const runs = markdownRuns(p.runs, heading);
+  const texts = runs.map(runText), following = [];
   for (let i = texts.length - 1, next = ''; i >= 0; i--) { following[i] = next; next = texts[i][0] || next; }
-  const pieces = p.runs.map((run, i) => runPieces(run, heading, following[i])).filter(piece => piece.text);
+  const pieces = runs.map((run, i) => runPieces(run, heading, following[i])).filter(piece => piece.text);
   const written = [];
   pieces.forEach((piece, i) => {
     const previous = written[i - 1] || '';
