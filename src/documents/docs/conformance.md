@@ -23574,7 +23574,9 @@ package, layout or read-only status; it is not written to the file (it is not `w
 
 **Exports.** Web page, Markdown and plain-text exports are readable approximations of the body
 (headings, paragraphs, lists, tables, links, bold/italic/underline/strike/super/subscript); headers,
-footers, notes, comments, pictures and page layout are omitted. They are not OOXML output.
+footers, notes, comments, pictures and page layout are omitted. They are not OOXML output. They
+read the text with tracked changes accepted (§17.13.5), and a heading numbered through a list
+(§17.9) stays a heading with its number written before its text.
 ### Mailings: envelopes, labels and mail merge (2026-10-13)
 
 The Mailings tab stores mail merge as WordprocessingML that other word

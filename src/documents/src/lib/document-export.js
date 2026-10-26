@@ -91,7 +91,10 @@ function runHtml(run, heading = false) {
   if (link) html = `<a href="${escapeHtml(link)}">${html}</a>`;
   return html;
 }
-function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
+// A heading numbered through a list ("1.2 Scope") stays a heading, its number written before its text, as the
+// page shows it: written as a list item, it lost its heading level.
+const headingNumber = (p, level, markers) => (level && markers.get(p)?.replace(/\t$/, ' ')) || '';
+function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemMarkers(model)) {
   // The open lists, outermost first; each holds an open item a deeper list nests in.
   let html = '';
   const lists = [];
@@ -103,12 +106,12 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
       html += '<table>' + block.rows.map(row => '<tr>' + row.cells.filter(cell => cell.rowSpan !== 0).map(cell => {
         const span = (cell.span || 1) > 1 ? ` colspan="${cell.span}"` : '';
         const rows = cell.rowSpan > 1 ? ` rowspan="${cell.rowSpan}"` : '';
-        return `<td${span}${rows}>${blocksHtml(cell.content.map(c => c.type ? c : { type: 'paragraph', ...c }), model, numbers)}</td>`;
+        return `<td${span}${rows}>${blocksHtml(cell.content.map(c => c.type ? c : { type: 'paragraph', ...c }), model, numbers, markers)}</td>`;
       }).join('') + '</tr>').join('') + '</table>';
       continue;
     }
-    const p = paragraphOf(block);
-    const kind = kindOf(p, model.numbering), tag = kind === 'bullet' ? 'ul' : kind ? 'ol' : null;
+    const p = paragraphOf(block), level = headingLevel(p, model.styles);
+    const kind = level ? null : kindOf(p, model.numbering), tag = kind === 'bullet' ? 'ul' : kind ? 'ol' : null;
     if (!tag) closeLists();
     else {
       const depth = listLevel(p);
@@ -121,8 +124,7 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
         lists.push({ tag, depth });
       }
     }
-    const level = headingLevel(p, model.styles);
-    const inner = p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
+    const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
     const alignment = p.format?.alignment;
     const align = ['center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
     html += tag ? `<li${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
@@ -265,7 +267,7 @@ const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
     .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 };
 function blocksMarkdown(blocks, model) {
-  const out = [], numbers = itemNumbers(model);
+  const out = [], numbers = itemNumbers(model), markers = itemMarkers(model);
   // The open list levels, outermost first: where each level's markers start and its items' text begins.
   let lists = [], previousList = null;
   for (const block of blocks) {
@@ -280,7 +282,7 @@ function blocksMarkdown(blocks, model) {
       previousList = null; lists = [];
       continue;
     }
-    const p = block.paragraph, kind = kindOf(p, model.numbering), level = headingLevel(p, model.styles);
+    const p = block.paragraph, level = headingLevel(p, model.styles), kind = level ? null : kindOf(p, model.numbering);
     const text = paragraphMarkdown(p, !!level);
     if (kind) {
       // A deeper item is indented to its parent item's text, which nests it under that item.
@@ -299,7 +301,7 @@ function blocksMarkdown(blocks, model) {
       continue;
     }
     previousList = null; lists = [];
-    if (level) out.push(`${'#'.repeat(level)} ${text.trim()}`);
+    if (level) out.push(`${'#'.repeat(level)} ${mdEscape(headingNumber(p, level, markers))}${text.trim()}`);
     else if (text.trim()) out.push(text);
   }
   return out.join('\n\n');

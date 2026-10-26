@@ -98,4 +98,18 @@ describe('text exports', () => {
     expect(documentHtml(m)).toContain('<table><tr><td>');
     expect(documentMarkdown(m)).toContain('| --- | --- |');
   });
+  it('keeps headings numbered through a list as headings, with their numbers', () => {
+    const { engine } = editor('Introduction\nBody text\nScope\nDetail\nNotes');
+    const m = engine.model;
+    for (const heading of ['Introduction', 'Scope']) { m.select(m.text.indexOf(heading)); m.setParagraphStyle('Heading1'); }
+    m.select(0, m.text.indexOf('Detail')); m.toggleList('number');
+    m.select(m.text.indexOf('Body')); m.toggleList('number');
+    m.select(m.text.indexOf('Detail')); m.setParagraphStyle('Heading2');
+    const shown = documentPlainText(m).split('\n');
+    expect(shown.slice(0, 3)).toEqual(['1.\tIntroduction', 'Body text', '2.\tScope']);
+    const md = documentMarkdown(m), html = documentHtml(m);
+    expect(md).toMatch(/^# 1\. Introduction\n\nBody text\n\n# 2\. Scope\n/);
+    expect(html).toContain('<h1>1. Introduction</h1><p>Body text</p><h1>2. Scope</h1><h2>Detail</h2>');
+    expect(md).not.toMatch(/^\d\. /m);
+  });
 });
