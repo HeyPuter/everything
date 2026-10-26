@@ -86,3 +86,22 @@ test('inserts a text box, edits its text, recolors it and saves its paragraphs',
   await reopenDocx(page, input, path, await input.inputValue());
   expect(errors).toEqual([]);
 });
+
+test('the drawing text editor lays its lines out as wide as the text box', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Document text' }).fill('Body text.');
+  // A 2-inch sidebar: its text frame is 2 inches less 0.1-inch insets on each side.
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Sidebar/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit drawing text' });
+  await expect(dialog).toBeVisible();
+  const draft = dialog.locator('canvas.canvas-page').first();
+  const margins = 2 * 360 / 15; // The draft page's own margins, in CSS pixels.
+  await expect.poll(async () => Math.round((await draft.boundingBox()).width - margins)).toBe(Math.round(1.8 * 96));
+  // The sample text wraps inside the frame, so the whole draft page shows in the dialog without scrolling sideways.
+  const scroller = dialog.locator('.canvas-host');
+  expect(await scroller.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
