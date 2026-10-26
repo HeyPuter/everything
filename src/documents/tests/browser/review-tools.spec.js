@@ -747,3 +747,28 @@ test('the Reviewing Pane orientation chosen in Tracking Options applies at once 
   await expect(pane).toHaveAttribute('data-orientation', 'vertical');
   expect(errors).toEqual([]);
 });
+
+test('typing before a comment leaves the Comments pane list as it is', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Alpha beta gamma delta.');
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.execute(() => engine.model.addComment({ author: 'Grace', text: 'About beta', range: [6, 10] })); });
+  await onTab(page, 'review');
+  await page.evaluate(() => document.querySelector('#ribbon-panel-review [aria-label="Show Comments options"]')?.click());
+  await page.getByRole('menuitemradio', { name: 'List' }).click();
+  const item = page.getByRole('complementary', { name: 'Comments pane' }).locator('.rv-comment');
+  await expect(item).toHaveCount(1);
+  await item.evaluate(node => { node.dataset.probe = 'kept'; });
+  await input.focus();
+  await select(input, 0);
+  await page.keyboard.type('Intro ');
+  await expect(input).toHaveValue('Intro Alpha beta gamma delta.');
+  // Rebuilding the whole list at every keystroke slowed typing in a much-commented document.
+  await expect(item).toHaveAttribute('data-probe', 'kept');
+  await item.click();
+  await expect.poll(() => page.evaluate(() => { const model = window.__docs.current.view.engine.model; return model.text.slice(...model.range); })).toBe('beta');
+  expect(errors).toEqual([]);
+});

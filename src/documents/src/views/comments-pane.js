@@ -26,7 +26,9 @@ export function createCommentsPane({ editor, review, people }) {
   function render(force = true) {
     if (!pane.isOpen) return;
     const all = threads();
-    const next = JSON.stringify([all.map(t => [t.id, t.root, t.replies]), author, query, resolved.checked, review.commands.activeThread()?.id, review.commands.canComment()]);
+    // Anchor offsets are left out: the list does not show them (a chosen thread is selected where it is now),
+    // and typing before a comment would otherwise rebuild the whole list at every keystroke.
+    const next = JSON.stringify([all.map(t => [t.id, t.root, t.replies]), author, query, resolved.checked, review.commands.activeThread()?.id, review.commands.canComment()], (key, value) => key === 'start' || key === 'end' ? undefined : value);
     if (!force && next === signature) return;
     signature = next;
     const names = people();
