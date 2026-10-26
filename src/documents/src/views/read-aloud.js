@@ -5,21 +5,37 @@
  */
 import { el, isComposing, MOD_KEY } from '../ui/dom.js';
 import { commandIconEl } from '../ui/ribbon.js';
+import { revisionView } from '../engine/revisions.js';
 
-/** Paragraph ranges [{ start, end, text }] of a model, skipping empty ones. */
-export function speakableParagraphs(text) {
-  const out = []; let at = 0;
-  for (const line of text.split('\n')) {
-    const clean = line.replace(/￼/g, ' ');
-    if (clean.trim()) out.push({ start: at, end: at + line.length, text: clean });
-    at += line.length + 1;
+/**
+ * What Read Aloud says of each paragraph that has words: [{ start, end, text, at }], where `start` and `end` are the
+ * paragraph's document positions and `at[i]` is the position of `text[i]`. Text tracked as deleted is left out, as the
+ * page strikes it out (in the Original view, the inserted text is, as the page hides it).
+ */
+export function speakableParagraphs(paragraphs, view = revisionView.mode) {
+  const skip = view === 'original' ? 'ins' : 'del', out = [];
+  let position = 0;
+  for (const p of paragraphs) {
+    const start = position, at = [];
+    let text = '';
+    for (const run of p.runs) {
+      if (run.revision?.type !== skip && run.text) {
+        text += run.text.replace(/\ufffc/g, ' ');
+        for (let i = 0; i < run.text.length; i++) at.push(position + i);
+      }
+      position += run.text.length;
+    }
+    if (text.trim()) out.push({ start, end: position, text, at });
+    position++;
   }
   return out;
 }
 
 export function createReadAloud({ editor, onState = () => {} }) {
   const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
-  let active = false, paused = false, index = 0, paragraphs = [], utterance = null;
+  // `current` is the paragraph being read and `from` where in its text the utterance began. `seen` is the
+  // document's text its positions belong to: an edit while it reads moves them (follow).
+  let active = false, paused = false, current = null, from = 0, seen = '', utterance = null;
   const play = el('button.icon-btn.read-aloud-play', { type: 'button', 'aria-label': 'Pause', title: 'Pause', onclick: () => toggle() });
   const bar = el('div.read-aloud-bar', { role: 'toolbar', 'aria-label': 'Read Aloud', hidden: true },
     el('button.icon-btn', { type: 'button', 'aria-label': 'Previous paragraph', title: 'Previous paragraph', onclick: () => jump(-1) }, commandIconEl('previousArrow', 16)),
@@ -30,26 +46,63 @@ export function createReadAloud({ editor, onState = () => {} }) {
     play.replaceChildren(el('span', { 'aria-hidden': 'true' }, paused ? '▶' : '❚❚'));
     play.setAttribute('aria-label', paused ? 'Play' : 'Pause'); play.title = play.getAttribute('aria-label');
   };
+  const body = () => editor()?.session?.body;
 
-  function speak() {
-    const engine = editor();
-    if (!active || !engine || !synth) return;
-    if (index >= paragraphs.length) { stop(); return; }
-    const p = paragraphs[index];
-    const offset = p.speakFrom ?? 0;
-    utterance = new SpeechSynthesisUtterance(p.text.slice(offset));
-    utterance.lang = document.documentElement.lang || navigator.language || 'en-US';
-    utterance.onboundary = e => {
+  /**
+   * Move the paragraph being read through the edits made since `seen`: the texts differ in one span, before which
+   * positions stay, after which they move by the change in length, and inside which the words are gone.
+   */
+  function follow() {
+    const now = body()?.text ?? '';
+    if (now === seen) return;
+    const max = Math.min(now.length, seen.length);
+    let a = 0, b = 0;
+    while (a < max && now.charCodeAt(a) === seen.charCodeAt(a)) a++;
+    while (b < max - a && now.charCodeAt(now.length - 1 - b) === seen.charCodeAt(seen.length - 1 - b)) b++;
+    const oldEnd = seen.length - b, newEnd = now.length - b, delta = now.length - seen.length;
+    const map = position => position < a ? position : position >= oldEnd ? position + delta : null;
+    if (current) {
+      current.at = current.at.map(position => position === null ? null : map(position));
+      current.start = map(current.start) ?? a; current.end = map(current.end) ?? newEnd;
+    }
+    seen = now;
+  }
+  /** Read the paragraph `list[index]` from the character `offset` of its text. */
+  function speakParagraph(list, index, offset = 0) {
+    if (!active || !synth) return;
+    const p = list[index];
+    if (!p) { stop(); return; }
+    current = p; from = offset; seen = body()?.text ?? '';
+    const said = utterance = new SpeechSynthesisUtterance(p.text.slice(offset));
+    said.lang = document.documentElement.lang || navigator.language || 'en-US';
+    said.onboundary = e => {
       if (e.name && e.name !== 'word') return;
-      const at = p.start + offset + e.charIndex;
-      const word = /^[^\s]+/u.exec(p.text.slice(offset + e.charIndex))?.[0] || '';
+      const engine = editor(); if (utterance !== said || !engine) return;
+      const i = from + e.charIndex, word = /^[^\s]+/u.exec(p.text.slice(i))?.[0] || '';
       if (!word) return;
-      engine.model.select(at, Math.min(p.end, at + word.length));
+      follow();
+      // A word edited away is not shown; nor is one while a header, footer or note is being edited.
+      const a = p.at[i], b = p.at[i + word.length - 1];
+      if (a == null || b == null || engine.session.path !== null) return;
+      engine.model.select(a, b + 1);
       // Typing while it reads replaces the word shown selected, not where the caret was before.
       engine.syncInput?.(); engine.paint(); engine.revealCaret?.();
     };
-    utterance.onend = () => { if (utterance?.cancelled) return; index++; if (paragraphs[index]) delete paragraphs[index].speakFrom; speak(); };
-    synth.speak(utterance);
+    said.onend = () => { if (said.cancelled || utterance !== said) return; next(); };
+    synth.speak(said);
+  }
+  /** The paragraphs as they are now, and which of them `current` is (or the first after where it was). */
+  function locate() {
+    follow();
+    const list = speakableParagraphs(body()?.paragraphs || []);
+    const index = current ? list.findIndex(p => p.end >= current.start) : -1;
+    return { list, index };
+  }
+  /** Read on from the paragraph after the one just read, as the document is now. */
+  function next() {
+    follow();
+    const end = current?.end ?? 0, list = speakableParagraphs(body()?.paragraphs || []);
+    speakParagraph(list, list.findIndex(p => p.start > end));
   }
 
   function start() {
@@ -57,19 +110,19 @@ export function createReadAloud({ editor, onState = () => {} }) {
     if (!engine || !synth) return false;
     stop();
     engine.finishComposition();
-    paragraphs = speakableParagraphs(engine.model.text);
-    const [a] = engine.model.range;
-    index = paragraphs.findIndex(p => p.end >= a);
+    const list = speakableParagraphs(engine.session.body.paragraphs);
+    const caret = engine.session.path === null ? engine.model.range[0] : 0;
+    let index = list.findIndex(p => p.end >= caret);
     if (index < 0) index = 0;
-    if (paragraphs[index] && a > paragraphs[index].start) paragraphs[index].speakFrom = a - paragraphs[index].start;
+    const p = list[index], offset = p && caret > p.start ? Math.max(0, p.at.findIndex(position => position >= caret)) : 0;
     active = true; paused = false; bar.hidden = false; setPlayIcon(); onState(true);
-    speak();
+    speakParagraph(list, index, offset);
     return true;
   }
   function cancelCurrent() { if (utterance) utterance.cancelled = true; synth?.cancel(); }
   function stop() {
     if (!active) return;
-    active = false; paused = false; cancelCurrent(); utterance = null; bar.hidden = true; onState(false);
+    active = false; paused = false; cancelCurrent(); utterance = null; current = null; bar.hidden = true; onState(false);
     editor()?.focus();
   }
   function toggle() {
@@ -80,10 +133,11 @@ export function createReadAloud({ editor, onState = () => {} }) {
   function jump(direction) {
     if (!active) return;
     cancelCurrent();
-    index = Math.max(0, Math.min(paragraphs.length - 1, index + direction));
-    if (paragraphs[index]) delete paragraphs[index].speakFrom;
+    const { list, index } = locate();
     paused = false; setPlayIcon();
-    speak();
+    // The paragraph being read was removed: "next" is the one now in its place.
+    const here = index < 0 ? list.length : index, gone = !current || current.at.every(position => position === null);
+    speakParagraph(list, Math.max(0, Math.min(list.length - 1, here + (gone && direction > 0 ? 0 : direction))));
   }
 
   const keyAbort = new AbortController();
