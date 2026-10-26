@@ -373,6 +373,24 @@ test('Text from File puts a web page in a table cell as its paragraphs, without 
   expect(errors).toEqual([]);
 });
 
+test('Text from File leaves out what opening the file leaves out: hidden text, menus and front matter', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Start' });
+  const insert = async (name, mimeType, source) => {
+    await input.press('ControlOrMeta+End'); await input.press('Enter');
+    await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+    await (await chooser).setFiles({ name, mimeType, buffer: Buffer.from(source) });
+  };
+  await insert('page.html', 'text/html', '<nav>Home | About</nav><p>Shown</p><p hidden>Hidden note</p><div style="display:none">Popup text</div><p>Also shown</p>');
+  await expect.poll(() => input.inputValue()).toBe('Start\nShown\nAlso shown');
+  await insert('post.md', 'text/markdown', '---\ntitle: Draft\n---\n\nPost body\n');
+  await expect.poll(() => input.inputValue()).toBe('Start\nShown\nAlso shown\nPost body');
+  await insert('log.txt', 'text/plain', 'one\u0000two\u0007\n');
+  await expect.poll(() => input.inputValue()).toBe('Start\nShown\nAlso shown\nPost body\nonetwo');
+  expect(errors).toEqual([]);
+});
+
 test('a picture Puter AI could not make is explained in plain words', async ({ page }) => {
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();

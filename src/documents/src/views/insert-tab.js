@@ -555,19 +555,22 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         text = source.text.replace(/[\uFFFC]/g, '').replace(/[\f\u000e]/g, '\n');
         if (!fragment) toast('Pictures, tables and fields in that file were inserted as text.', { icon: 'info' });
       } else {
-        // Decoded as opening the file decodes it: a byte order mark names UTF-16 (Notepad's "Unicode"), and a
+        // Decoded and read as opening the file reads it: a byte order mark names UTF-16 (Notepad's "Unicode"), and a
         // file that is not UTF-8 is read in the code page it was written in rather than as replacement characters.
-        const { decodeTextFile } = await import('../lib/importers.js');
-        const raw = decodeTextFile(await file.arrayBuffer(), /\.html?$/i.test(file.name) ? 'html' : null);
-        if (/\.(md|markdown)$/i.test(file.name)) { const { markdownHtml } = await import('../lib/markdown-html.js'); fragment = formatted ? htmlFragment(markdownHtml(raw)) : null; text = raw; }
-        else if (/\.html?$/i.test(file.name)) {
+        // A web page gives its body without hidden content, menus and form controls, Markdown leaves out its front
+        // matter, and control characters go.
+        const { decodeTextFile, toInsertPayload } = await import('../lib/importers.js');
+        const kind = /\.(md|markdown)$/i.test(file.name) ? 'markdown' : /\.html?$/i.test(file.name) ? 'html' : 'text';
+        const raw = toInsertPayload(decodeTextFile(await file.arrayBuffer(), kind), kind).value;
+        if (kind === 'markdown') { const { markdownHtml } = await import('../lib/markdown-html.js'); fragment = formatted ? htmlFragment(markdownHtml(raw)) : null; text = raw; }
+        else if (kind === 'html') {
           // Without formatting (in a table cell, say) the page's text goes in as its paragraphs, not as the markup's
           // raw text content, which runs paragraphs together and includes the text of scripts and styles.
           const converted = htmlFragment(raw);
           fragment = formatted ? converted : null;
           text = converted ? converted.paragraphs.map(p => p.text).join('\n') : '';
         }
-        else text = raw.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
+        else text = raw.replace(/\n+$/, '');
       }
       run(engine, () => fragment ? pasteFragment(engine.model, fragment) : engine.model.replace(text));
     } catch (e) { fail(e); }
