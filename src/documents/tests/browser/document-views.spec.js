@@ -111,6 +111,12 @@ test('Outline view edits text, levels and order through the Outlining tab, with 
   await page.keyboard.press('End');
   await page.keyboard.type(' Really.');
   await expect(input).toHaveValue(/The final plan\. Really\./);
+  // Undo takes back typing a word at a time, as in the page views, not a character at a time.
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(input).toHaveValue(/The final plan\. \n/);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(input).toHaveValue(/The final plan\. Really\./);
+  await page.keyboard.press('End');
   // Tab demotes, Shift+Tab promotes; Enter splits the paragraph.
   await page.keyboard.press('Enter');
   await page.keyboard.type('Next step');

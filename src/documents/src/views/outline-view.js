@@ -190,6 +190,9 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
     if (ok && focus) focus();
     return ok && changed;
   }
+  // Typing in one place is one undo step per word, as in the page views (CanvasEditor.typeText):
+  // a character typed where the last one ended joins its step, unless it starts a new word.
+  let typingGroup = null;
   function commitText(id, text) {
     if (composing || !text.isContentEditable) return;
     const ed = engine(), row = rows.find(r => r.id === id);
@@ -199,12 +202,18 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
     let prefix = 0; while (prefix < old.length && prefix < value.length && old[prefix] === value[prefix]) prefix++;
     let suffix = 0; while (suffix < old.length - prefix && suffix < value.length - prefix && old[old.length - 1 - suffix] === value[value.length - 1 - suffix]) suffix++;
     const offset = caretOffset(text);
+    const inserted = value.slice(prefix, value.length - suffix), typed = !!inserted && prefix === old.length - suffix;
+    const group = typingGroup;
+    const merge = typed && !!group && group.id === id && group.at === prefix && group.revision === ed.session.revision && group.path === ed.session.path
+      && !(/\S/u.test(inserted[0]) && /\s/u.test(group.last));
+    typingGroup = null;
     const ok = ed.execute(() => {
       const index = ed.model.paragraphs.findIndex(p => p.id === id);
       const start = ed.model.paragraphOffset(index);
       ed.model.select(start + prefix, start + old.length - suffix);
-      ed.model.replace(value.slice(prefix, value.length - suffix));
-    }, e => error(e));
+      ed.model.replace(inserted);
+    }, e => error(e), { record: !merge });
+    if (ok && typed) typingGroup = { id, at: prefix + inserted.length, revision: ed.session.revision, path: ed.session.path, last: inserted.at(-1) };
     render();
     if (!ok) { text.textContent = old; }
     placeCaret(text, offset);
