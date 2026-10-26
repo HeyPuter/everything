@@ -444,6 +444,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       if (visible && commentsShown && draft) nodes.push(draftCard());
       nodes.push(...balloons.map(balloonCard));
       layer.replaceChildren(...nodes);
+      // A card that grows (a reply or edit being typed, a wrapped draft) pushes the cards below it down.
+      cardResize.disconnect(); for (const node of nodes) cardResize.observe(node);
       if (keep && !force) {
         const target = keep.draft ? layer.querySelector('.ed-comment-draft textarea') : cards.get(keep.thread)?.querySelector('textarea');
         if (target) { target.value = keep.value; target.dispatchEvent(new Event('input')); target.focus(); target.setSelectionRange(keep.start, keep.end); }
@@ -571,6 +573,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && code === 'KeyE') { e.preventDefault(); commands.toggleTracking(); }
   }, { signal: keyAbort.signal });
   const resize = typeof ResizeObserver === 'undefined' ? { observe() {}, disconnect() {} } : new ResizeObserver(() => { positionsKey = ''; refresh(); });
+  const cardResize = typeof ResizeObserver === 'undefined' ? { observe() {}, disconnect() {} } : new ResizeObserver(() => { if (!layer.hidden) place(); });
 
-  return { commands, extendTab, contextItems, refresh, layer, pane, destroy() { keyAbort.abort(); resize.disconnect(); layer.remove(); readAloud.destroy(); } };
+  return { commands, extendTab, contextItems, refresh, layer, pane, destroy() { keyAbort.abort(); resize.disconnect(); cardResize.disconnect(); layer.remove(); readAloud.destroy(); } };
 }

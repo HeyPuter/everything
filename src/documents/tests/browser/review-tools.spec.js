@@ -644,3 +644,29 @@ test('a comment being written survives edits elsewhere in the document', async (
   await expect(input).toHaveValue('More Intro Alpha beta gamma.');
   expect(errors).toEqual([]);
 });
+
+test('a comment card that grows while a reply is typed pushes the cards below it down', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Alpha beta gamma delta.\nSecond line here.\nThird line.');
+  await onTab(page, 'review');
+  for (const [start, end, text] of [[6, 10, 'First comment'], [24, 30, 'Second comment']]) {
+    await select(input, start, end);
+    await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+    await page.locator('.ed-comment-draft textarea').fill(text);
+    await page.locator('.ed-comment-draft').getByRole('button', { name: 'Post' }).click();
+  }
+  const cards = page.locator('.ed-comment-card');
+  await expect(cards).toHaveCount(2);
+  await cards.first().click();
+  const reply = cards.first().locator('.wcc-reply textarea');
+  await reply.click();
+  await reply.pressSequentially('First line');
+  for (let i = 0; i < 5; i++) { await reply.press('Shift+Enter'); await reply.pressSequentially(`More text ${i}`); }
+  // The second card sits below the first, however tall the first has grown.
+  await expect.poll(() => cards.evaluateAll(nodes => {
+    const [first, second] = nodes.map(n => n.getBoundingClientRect());
+    return second.top >= first.bottom;
+  })).toBe(true);
+  expect(errors).toEqual([]);
+});
