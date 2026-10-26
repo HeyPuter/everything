@@ -259,8 +259,8 @@ export function contentControlReader(readRunProperties, parts = {}) {
     // The drawing reader still validates each picture's supported contents.
     if (kind === 'inline') for (const item of inlineItems) {
       if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].includes(item.localName)) continue;
-      const runs = item.localName === 'hyperlink' ? children(item) : [item];
-      if (!runs.length || runs.some(r => r.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd'].includes(r.localName))) fail('unsupported hyperlink contents');
+      const runs = item.localName === 'hyperlink' ? trackedRuns(children(item)) : [item];
+      if (!runs?.length || runs.some(r => r.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd'].includes(r.localName))) fail('unsupported hyperlink contents');
       for (const r of runs) {
         if (r.localName === 'proofErr') {
           // Spelling/grammar range markers are annotations, not control text.

@@ -23357,8 +23357,8 @@ Supported subset:
   `sdtContent`; §17.13.5.18 `ins`, §17.13.5.14 `del`) are saved: a tracked deletion keeps the
   control's text, so it now counts as a change of the control and its contents are rewritten
   with the `w:del` wrapper instead of reusing the source runs. Inline control contents may hold
-  `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), with
-  `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
+  `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), also
+  within a hyperlink there, with `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
   read-only fallback (`tests/control-revisions-docx.test.js`).
 - A comment whose range starts, ends or lies inside an inline rich-text content control
   (§17.13.4.4 `commentRangeStart`, §17.13.4.3 `commentRangeEnd`, §17.13.4.5 `commentReference`)

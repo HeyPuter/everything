@@ -53,6 +53,20 @@ describe('tracked changes inside content controls', () => {
       expect(again.text).toBe(model.text);
     });
   }
+  it('reopens tracked changes in linked text inside a rich-text control for editing', async () => {
+    const parts = unzipSync(await fixture(control('richText').replace('<w:r><w:t>Inside text</w:t></w:r>', '<w:r><w:t xml:space="preserve">In </w:t></w:r><w:hyperlink w:anchor="Target"><w:r><w:t>linked words</w:t></w:r></w:hyperlink>')));
+    const pkg = await DocxPackage.open(zipSync(parts));
+    const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { trackChanges: true });
+    model.revisionAuthor = 'Reviewer';
+    const at = model.text.indexOf('linked') + 2;
+    model.select(at, at + 2); model.replace('X');
+    const expected = revisions(model.paragraphs);
+    expect(expected).toEqual([['del', 'nk', true], ['ins', 'X', true]]);
+    const reopened = await DocxPackage.open(await save(pkg, model));
+    expect(reopened.readOnly).toBeFalsy();
+    expect(revisions(reopened.paragraphs)).toEqual(expected);
+    expect(reopened.paragraphs[0].runs.filter(r => r.link).map(r => r.text).join('')).toBe('linkXed words');
+  });
   it('still rejects text outside runs and revisions in an inline control', async () => {
     const pkg = await DocxPackage.open(await fixture(control('richText').replace('<w:r><w:t>Inside text</w:t></w:r>', '<w:ins w:id="1" w:author="A"><w:r><w:t>In</w:t></w:r></w:ins><w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple>')), { bestEffort: true });
     expect(pkg.readOnly).toBe(true);
