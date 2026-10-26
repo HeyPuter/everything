@@ -2350,8 +2350,10 @@ export class TextDocument {
     const first = this.paragraphs[a.index], last = this.paragraphs[b.index];
     // Removing an empty paragraph's mark removes that paragraph: the following
     // paragraph keeps its own style and properties, as when Backspace at the
-    // start of a heading deletes the empty line above it.
-    const emptyFirst = !text && !crossesSection && b.index === a.index + 1 && b.offset === 0 && !first.runs.length
+    // start of a heading deletes the empty line above it. Deleting whole
+    // paragraphs (from a paragraph's start to the start of a later one) likewise
+    // leaves the paragraph after them as it was.
+    const emptyFirst = !text && !crossesSection && b.index > a.index && a.offset === 0 && b.offset === 0
       && !blockBoundary && !persistentBlock && !persistent && sameValue(first.blockControls, last.blockControls);
     const boundaryRuns = controlCaret && start === end ? splitControlCaretRuns(first.runs, a.offset, controlCaret.side === 'inside' ? { ...controlCaret, side: 'before' } : controlCaret) : undefined;
     const lines = text.split('\n');

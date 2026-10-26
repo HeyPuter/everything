@@ -50,6 +50,29 @@ describe('removing an empty paragraph', () => {
     doc.select(6); doc.delete(-1);
     expect(shape(doc)).toEqual([[null, 'IntroTitle', 'left']]);
   });
+  it('keeps the paragraph after deleted whole paragraphs as it was, also when a tracked deletion is accepted', () => {
+    const outline = () => new TextDocument([paragraph('Old title', { styleId: 'Heading1', format: { alignment: 'center' } }), paragraph('Old intro'), paragraph('Section'), paragraph('Body')], undefined, undefined, headingStyles());
+    // From the start of the heading to the start of "Section": the heading and the paragraph after it, marks included.
+    const doc = outline(), before = shape(doc);
+    doc.paragraphs[2].styleId = 'Heading1';
+    doc.select(0, 'Old title\nOld intro\n'.length); doc.delete(-1);
+    expect(shape(doc)).toEqual([['Heading1', 'Section', 'left'], [null, 'Body', 'left']]);
+    doc.undo(); expect(shape(doc).map(p => p[1])).toEqual(before.map(p => p[1]));
+    // Deleting the plain paragraph before a heading leaves the heading a heading.
+    const plain = new TextDocument([paragraph('Intro'), paragraph('Title', { styleId: 'Heading1' })], undefined, undefined, headingStyles());
+    plain.select(0, 6); plain.delete(1);
+    expect(shape(plain)).toEqual([['Heading1', 'Title', 'left']]);
+    const tracked = outline();
+    tracked.trackChanges = true;
+    tracked.select(0, 'Old title\n'.length); tracked.replace('');
+    expect(tracked.revisions).toHaveLength(1);
+    tracked.resolveRevisions(true);
+    expect(shape(tracked)).toEqual([[null, 'Old intro', 'left'], [null, 'Section', 'left'], [null, 'Body', 'left']]);
+    // A deletion that starts inside a paragraph still merges into that paragraph, as Backspace does.
+    const partial = new TextDocument([paragraph('Old title', { styleId: 'Heading1' }), paragraph('Old intro')], undefined, undefined, headingStyles());
+    partial.select(3, 'Old title\n'.length); partial.delete(-1);
+    expect(shape(partial)).toEqual([['Heading1', 'OldOld intro', 'left']]);
+  });
   it('saves and reopens the surviving heading with its style and source properties', async () => {
     const dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer;
     const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';

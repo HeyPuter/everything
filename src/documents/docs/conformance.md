@@ -21317,6 +21317,19 @@ measured regression after deferring projection to unmatched stories; it is not
 a whole-document performance certificate.
 
 
+### Deleting whole paragraphs (2026-10-26)
+
+Paragraph properties live on the paragraph mark (§17.3.1.26 `pPr`, §17.3.1.29).
+A deletion from the start of a paragraph to the start of a later one removes
+those paragraphs with their marks, so the paragraph after them keeps its own
+mark's style and properties, as removing an empty paragraph already did; before,
+it took the first deleted paragraph's (a Heading 2 after a deleted Heading 1
+became Heading 1). Accepting such a tracked deletion (`w:del` on the runs and on
+the marks' `w:rPr`, §17.13.5) behaves the same. A deletion that starts
+inside a paragraph, including Backspace at a paragraph's start, still merges
+into the first paragraph and keeps its formatting. Unit tests cover the
+deletion, undo and the accepted tracked deletion.
+
 ### Section-break editing and inherited stories (2026-10-05)
 
 ECMA-376 Part 1 17.6.17–18 and 17.10.2/17.10.5 describe section storage
