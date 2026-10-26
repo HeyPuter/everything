@@ -6,6 +6,7 @@ import { TextDocument, paragraph } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
 import { insertCaption, referenceTargets, insertCrossReference } from '../src/engine/captions.js';
 import { updateSequenceFields } from '../src/engine/field-update.js';
+import { footnoteOpeningRuns } from '../src/engine/footnotes.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -47,6 +48,24 @@ describe('captions and cross-references', () => {
     const xml = strFromU8(unzipSync(await save(pkg, d))['word/document.xml']);
     expect(xml).toMatch(/<w:bookmarkStart w:id="\d+" w:name="_Ref\d+"\/>/);
     expect(xml).toMatch(/<w:hyperlink w:anchor="_Ref\d+"[^>]*>.*REF _Ref\d+ \\h .*<\/w:hyperlink>/);
+  });
+
+  it('leaves a note mark in the target out of a cross-reference\'s text', async () => {
+    const { pkg, d } = await setup();
+    d.select(d.text.indexOf('Chart two')); insertCaption(d, { label: 'Figure', text: 'Second chart' });
+    const { id, path } = pkg.addFootnote();
+    d.select(d.text.indexOf('Second chart') + 6); d.insertFootnoteReference(id);
+    const note = new TextDocument([paragraph()], d.pageSettings, d.numbering, d.styles, [], d.assets);
+    note.paragraphs[0].runs = footnoteOpeningRuns(note.typingRun(0));
+    const target = referenceTargets(d).captions[0];
+    expect(target.label).toBe('Figure 1: Second chart');
+    expect(target.captionText).toBe('Second chart');
+    for (const show of ['entire', 'caption', 'label']) { d.select(d.text.length); d.replace(` ${show}: `); insertCrossReference(d, target, { show }); }
+    expect(d.text.split('\n').at(-1)).toBe('Conclusion entire: Figure 1: Second chart caption: Second chart label: Figure 1');
+    const bytes = new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets, { [path]: { paragraphs: note.paragraphs, tables: [] } }).arrayBuffer());
+    expect(strFromU8(unzipSync(bytes)['word/document.xml'])).not.toContain('\uFFFC');
+    const reopened = new TextDocument((await DocxPackage.open(bytes)).paragraphs);
+    expect(reopened.text.split('\n').at(-1)).toBe('Conclusion entire: Figure 1: Second chart caption: Second chart label: Figure 1');
   });
 
   it('places a table caption below the table', async () => {

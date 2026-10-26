@@ -92,8 +92,9 @@ export function referenceTargets(doc, { notes = [] } = {}) {
     const pIndex = doc.paragraphs.findIndex(p => p.id === r.startParagraph), start = offsetOf(doc, pIndex);
     const whole = text.slice(start, start + length(doc.paragraphs[pIndex]));
     const rest = text.slice(r.end, start + whole.length), separator = /^\s*[:.\-–—]?\s*/.exec(rest)[0].length;
-    captions.push({ kind: seq.id, label: whole.trim(), start, end: r.end, numberLabel: text.slice(start, r.end), paragraphId: r.startParagraph,
-      paragraphEnd: start + whole.length, textStart: r.end + separator, captionText: rest.slice(separator) });
+    const named = value => value.replace(/\uFFFC/g, '');
+    captions.push({ kind: seq.id, label: named(whole).trim(), start, end: r.end, numberLabel: named(text.slice(start, r.end)), paragraphId: r.startParagraph,
+      paragraphEnd: start + whole.length, textStart: r.end + separator, captionText: named(rest.slice(separator)) });
   }
   const bookmarks = bookmarkEntries(doc.paragraphs, doc.tables).filter(b => !b.name.startsWith('_')).map(b => ({ kind: 'bookmark', label: b.name, name: b.name, start: b.start, end: b.end }));
   const noteTargets = { footnote: [], endnote: [] };
@@ -159,8 +160,11 @@ export function insertCrossReference(doc, target, { show = 'text', hyperlink = t
     insertReferenceField(doc, ` NOTEREF ${name}${show === 'formatted' ? ' \\f' : ''}${h} `, target.display || '1', name, hyperlink);
     if (show === 'formatted') { const at = doc.range[0], n = (target.display || '1').length; doc.select(at - n, at); doc.setRunFormat({ verticalAlign: 'superscript' }); doc.select(at); }
   } else {
-    const placeholder = show === 'label' ? (target.numberLabel || target.label) : show === 'entire' ? doc.text.slice(start, end) : show === 'caption' ? doc.text.slice(start, end) : (doc.text.slice(start, end) || target.label || name);
-    insertReferenceField(doc, ` REF ${name}${h} `, placeholder.replace(/\n/g, ' '), name, hyperlink);
+    // Notes, pictures, equations and fields in the target are object characters in the text: the result
+    // is plain text, so they are left out (kept, they were saved as invisible characters).
+    const plain = value => value.replace(/\uFFFC/g, '').replace(/[\n\f\u000e]/g, ' ');
+    const placeholder = show === 'label' ? plain(target.numberLabel || target.label) : show === 'entire' || show === 'caption' ? plain(doc.text.slice(start, end)) : (plain(doc.text.slice(start, end)) || target.label || name);
+    insertReferenceField(doc, ` REF ${name}${h} `, placeholder || target.label || name, name, hyperlink);
   }
   if (aboveBelow && show !== 'position') {
     doc.replace(' ', { checkpoint: false });
