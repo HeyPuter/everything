@@ -121,7 +121,8 @@ export function createRibbonModes({ workspace, header, toolbar, ribbon, tabs, ti
     peek(true);
   }, true);
   tabRow.addEventListener('dblclick', e => { if (!e.target.closest('.ribbon-tab')) return; setMode(mode === 'always' ? 'tabs' : 'always'); });
-  tabRow.addEventListener('keydown', e => { if (mode !== 'always' && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') && e.target.matches('.ribbon-tab')) peek(true); });
+  // Before the tab list's own keys (capture): Down there moves into the commands, which must be showing to take focus.
+  tabRow.addEventListener('keydown', e => { if (mode !== 'always' && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') && e.target.matches('.ribbon-tab')) peek(true); }, true);
   // A command run from the shown commands puts them away (a menu or dialog it opens keeps them up until it closes).
   toolbar.addEventListener('click', e => {
     if (!peeking || e.target.closest('.ed-ribbon-toggle')) return;

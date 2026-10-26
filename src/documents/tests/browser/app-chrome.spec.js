@@ -289,6 +289,21 @@ test('the ribbon collapses to its tabs and shows KeyTips for the keyboard', asyn
   await expect(page.locator('.ed-keytip')).toHaveCount(0);
 });
 
+test('Down on a tab of a collapsed ribbon shows its commands and moves into them', async ({ page }) => {
+  await openEditor(page);
+  const card = page.locator('.ed-ribbon');
+  await text(page).press(MAC ? 'Meta+Alt+r' : 'Control+F1');
+  await expect(card).toBeHidden();
+  await page.locator('#ribbon-tab-home').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(card).toBeVisible();
+  await expect(page.locator('#ribbon-panel-home').getByRole('button', { name: 'Paste', exact: true })).toBeFocused();
+  // Escape puts the commands away again and returns to the document.
+  await page.keyboard.press('Escape');
+  await expect(card).toBeHidden();
+  await expect(text(page)).toBeFocused();
+});
+
 test('command search and KeyTips reach the Draw and Mailings tabs the feature modules add', async ({ page }) => {
   await openEditor(page);
   const search = page.getByRole('combobox', { name: 'Search for commands' });
