@@ -9,6 +9,7 @@ import { bodyFieldRanges } from '../src/engine/body-fields.js';
 import { insertCrossReference, referenceTargets } from '../src/engine/captions.js';
 import { insertCitation } from '../src/engine/bibliography-fields.js';
 import { insertFormula } from '../src/engine/table-formula.js';
+import { insertMergeField } from '../src/engine/mail-merge-model.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -95,6 +96,26 @@ it.each([
   insertBodyField(doc, fieldInstruction({ name: 'DATE' }), '2026');
   insert(doc);
   expect(bodyFieldRanges(doc.paragraphs).map(r => [r.field.type, doc.text.slice(r.start, r.end), r.parentId ?? null])).toEqual([[type, result, null], ['DATE', '2026', null]]);
+});
+
+it.each([
+  ['a cross-reference', doc => { doc.select(doc.text.indexOf('Target'), doc.text.length); doc.addBookmark('Target'); doc.select(6); insertCrossReference(doc, referenceTargets(doc).bookmarks[0]); }, 'REF', 'Target'],
+  ['a citation', doc => { doc.select(6); insertCitation(doc, { tags: ['Lov20'] }, [source], 'apa'); }, 'CITATION', '(Lovelace, 2020)'],
+  ['a date', doc => { doc.select(6); insertBodyField(doc, fieldInstruction({ name: 'DATE' }), '2026'); }, 'DATE', '2026'],
+])('inserts a merge field or formula just after %s, beside it', async (name, insert, type, result) => {
+  for (const [second, secondType, secondResult] of [[doc => insertMergeField(doc, ' MERGEFIELD First '), 'MERGEFIELD', '«First»'], [doc => insertFormula(doc, '=1+1'), '=', '2']]) for (const tracked of [false, true]) {
+    const { pkg, doc } = blank();
+    doc.replace('Date:  end\nTarget');
+    insert(doc);
+    doc.trackChanges = tracked; doc.revisionAuthor = 'Me';
+    // The caret is just after the first field, where its end marker is.
+    expect(bodyFieldRanges(doc.paragraphs).at(-1).end).toBe(doc.range[0]);
+    second(doc);
+    const fields = d => bodyFieldRanges(d.paragraphs).map(r => [r.field.type, d.text.slice(r.start, r.end), r.parentId ?? null]);
+    expect(fields(doc)).toEqual([[type, result, null], [secondType, secondResult, null]]);
+    const reopened = await DocxPackage.open(new Uint8Array(await (await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets)).arrayBuffer()));
+    expect(fields(new TextDocument(reopened.paragraphs, reopened.pageSettings, reopened.numbering, reopened.styles, reopened.tables, reopened.assets))).toEqual(fields(doc));
+  }
 });
 
 it('deletes the text between two fields inserted out of text order, and saves them side by side', async () => {

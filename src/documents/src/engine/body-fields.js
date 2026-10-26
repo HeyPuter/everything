@@ -126,6 +126,11 @@ export function placeBodyFields(paragraphs, ranges) {
  * start of a field the new one was inserted before), or end an empty field the result filled.
  */
 export const newFieldEndOrder = (p, offset, order) => Math.min(order, ...(p.fieldMarkers || []).filter(m => m.offset === offset).map(m => (m.order ?? 0) - 1));
+/**
+ * The order of a new field's start marker at `offset` in paragraph p: after the field markers already there, which
+ * end the fields just before it. Ordered before them, the new field began inside the field before it.
+ */
+export const newFieldStartOrder = (p, offset, order) => Math.max(order, ...(p.fieldMarkers || []).filter(m => m.offset === offset).map(m => (m.order ?? 0) + 1));
 
 // Whole-cell/row deletion removes its field markers with the owned paragraphs.
 // New blank cells must never inherit those markers from a formatting template.

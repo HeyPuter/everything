@@ -5,7 +5,7 @@
 // cell references (A1, A1:B3), ABOVE/BELOW/LEFT/RIGHT, and the functions below.
 import { cellContext, rowGrid, verticalMerges } from './tables.js';
 import { paragraphText, locate } from './model.js';
-import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
+import { bodyFieldRanges, newFieldEndOrder, newFieldStartOrder } from './body-fields.js';
 import { newBodyField } from './toc.js';
 import { bookmarkEntries } from './bookmarks.js';
 import { fieldInstructionTokens } from './docx-page-fields.js';
@@ -312,7 +312,8 @@ export function insertFormula(model, formula, picture = null) {
   const start = model.range[0];
   model.replace(result, { checkpoint: false });
   const location = locate(model.paragraphs, start), paragraph = model.paragraphs[location.index];
-  const startOrder = order++, endOrder = order++, end = location.offset + result.length;
+  const startOrder = newFieldStartOrder(paragraph, location.offset, order), endOrder = startOrder + 1, end = location.offset + result.length;
+  order = endOrder + 1;
   (paragraph.fieldMarkers ||= []).push({ type: 'start', field, offset: location.offset, order: startOrder }, { type: 'end', field, offset: end, order: result ? newFieldEndOrder(paragraph, end, endOrder) : endOrder });
   model.hasBodyFields = true;
   bodyFieldRanges(model.paragraphs);
