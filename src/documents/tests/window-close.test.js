@@ -215,4 +215,22 @@ describe('closing the Puter window', () => {
     expect(await closeWindow()).toBe(true);
     expect(puter.exit).toHaveBeenCalledOnce();
   });
+
+  it('waits for the answer to a question about the open document already on screen, rather than asking it again', async () => {
+    const doc = newDocument();
+    let asking = true;
+    closeWindow = createCloseWindow({ open: () => shown, leaveDialog, exit: P.exitApp, asking: () => asking });
+    expect(await closeWindow()).toBe(false);
+    expect(question()).toBeNull();
+    expect(leaveDialog).not.toHaveBeenCalled();
+    expect(puter.exit).not.toHaveBeenCalled();
+    expect(document.querySelector('.toast-root').textContent).toContain('Answer the question about the open document first');
+    // Once it is answered, the close button asks as usual.
+    asking = false;
+    const closing = closeWindow();
+    await vi.waitFor(() => expect(question()).not.toBeNull());
+    press('Cancel');
+    expect(await closing).toBe(false);
+    expect(doc.dirty).toBe(true);
+  });
 });

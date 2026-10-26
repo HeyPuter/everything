@@ -380,7 +380,7 @@ async function start() {
     else launchedPath = first.path;
   });
   // The Puter desktop window's close button waits for the document's edits, and asks about a never-saved one.
-  P.onWindowClose(createCloseWindow({ open: () => current, leaveDialog, exit: P.exitApp }));
+  P.onWindowClose(createCloseWindow({ open: () => current, leaveDialog, exit: P.exitApp, asking: leaveQuestionOpen }));
   await boot();
 }
 

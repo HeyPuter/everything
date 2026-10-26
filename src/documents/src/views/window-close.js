@@ -67,12 +67,17 @@ export async function readyToClose({ open, leaveDialog }) {
 
 /**
  * The handler for the close button. Pressed again while a question or a save is under way, it changes
- * nothing: the answer to that decides.
+ * nothing: the answer to that decides. `asking()`: whether the question about leaving the open document is
+ * already on screen for another reason (going to the documents, say); the window waits for that answer too.
  */
-export function createCloseWindow({ open, leaveDialog, exit }) {
+export function createCloseWindow({ open, leaveDialog, exit, asking = () => false }) {
   let closing = null;
   return () => {
     if (closing) return closing;
+    if (asking()) {
+      toast('Answer the question about the open document first', { icon: 'info' });
+      return Promise.resolve(false);
+    }
     closing = readyToClose({ open, leaveDialog })
       .then((ok) => { if (ok) exit(); return ok; }, (e) => { console.error(e); return false; })
       .finally(() => { closing = null; });

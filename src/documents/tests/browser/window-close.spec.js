@@ -39,6 +39,25 @@ test.describe('the Puter window\'s close button', () => {
   const exits = page => page.evaluate(() => window.__exits || 0);
   const question = page => page.getByRole('dialog', { name: 'Save before closing?' });
 
+  test('pressed while the question about leaving is up, it waits for that answer instead of asking again', async ({ page }) => {
+    await openEditor(page);
+    await text(page).fill('Saved');
+    await text(page).press('ControlOrMeta+s');
+    await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
+    await page.evaluate(() => window.__puterFaults.push({ op: 'write', message: 'The cloud is unreachable' }));
+    await page.keyboard.type(' and more');
+    await expect(status(page)).toHaveAttribute('aria-label', 'Not saved');
+    await page.getByRole('button', { name: 'All Documents' }).click();
+    const leaving = page.getByRole('dialog', { name: 'Leave without saving?' });
+    await expect(leaving).toHaveCount(1);
+    await closeWindow(page);
+    await expect(page.locator('.toast-root')).toContainText('Answer the question about the open document first');
+    await expect(leaving).toHaveCount(1);
+    expect(await exits(page)).toBe(0);
+    await leaving.getByRole('button', { name: 'Keep editing' }).click();
+    await expect(leaving).toHaveCount(0);
+  });
+
   test('closes at once when nothing is waiting to be saved', async ({ page }) => {
     await openEditor(page);
     await closeWindow(page);
