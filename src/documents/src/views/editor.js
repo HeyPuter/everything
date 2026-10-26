@@ -83,6 +83,7 @@ import { openCustomizeKeyboard } from './customize-keyboard.js';
 import { MARKUP_VIEWS } from './review.js';
 import { documentHtml, documentMarkdown, documentPlainText } from '../lib/document-export.js';
 import { recentFiles } from '../lib/recent.js';
+import { importableFiles, nothingImportable } from '../lib/importfiles.js';
 import { madeFiles, withMade } from '../lib/made.js';
 import { listVersions } from '../lib/versions.js';
 import { publishPage, findSite, unpublishPage } from '../lib/publish.js';
@@ -109,6 +110,12 @@ import { openCompareDialog } from './compare-dialog.js';
 export const FLUSH_STALL_MS = 15000;
 
 /** First canvas milestone. Cloud persistence remains owned by Doc. */
+/** Whether `file` starts as a ZIP package does (a DOCX under another name). */
+async function isZipPackage(file) {
+  try { const head = new Uint8Array(await file.slice(0, 4).arrayBuffer()); return head[0] === 0x50 && head[1] === 0x4b && head[2] === 3 && head[3] === 4; }
+  catch { return false; }
+}
+
 export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromTemplate, local = false }) {
   const printAbort = new AbortController();
   let printing = false;
@@ -264,9 +271,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const button = (label, action, attrs = {}) => el('button.btn', { type: 'button', onclick: action, ...attrs }, label);
   // A tool with a shortcut names it in its tooltip and carries it for the menus that list the same command.
   const tool = (label, name, action, { shortcut = null, ...attrs } = {}) => el('button.icon-btn.canvas-tool', { type: 'button', disabled: true, 'aria-label': label, title: shortcut ? `${label} (${shortcut})` : label, dataset: { icon: name, ...(shortcut ? { shortcut } : {}) }, onclick: action, ...attrs }, iconEl(name, 19));
-  const openInput = el('input', { type: 'file', accept: '.docx', hidden: true, 'aria-label': 'Open DOCX file', onchange: () => {
+  // Open takes what Import on the documents screen takes (Hanword, Markdown, HTML, text), as File > Open says.
+  const openInput = el('input', { type: 'file', accept: P.IMPORT_ACCEPT, hidden: true, 'aria-label': 'Open DOCX file', onchange: async () => {
     const file = openInput.files?.[0]; openInput.value = '';
-    if (file) importFile(file);
+    if (!file) return;
+    // A file the picker let through under "All files" is named rather than opened as a document that then fails.
+    // A package under another name (a download saved as .zip or without an extension) still opens, as it used to.
+    if (!importableFiles([file]).length && !await isZipPackage(file)) { toast(nothingImportable([file], { picked: true }), { icon: 'alert' }); return; }
+    importFile(file);
   } });
   const error = e => toast(e?.message || String(e), { icon: 'alert', duration: 8000 });
   const download = async () => {

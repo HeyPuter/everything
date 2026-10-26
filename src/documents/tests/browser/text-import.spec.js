@@ -37,7 +37,7 @@ async function state(page, text) {
 async function importFile(page, name, mimeType, source) {
   await page.goto('/mock.html#/new');
   await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
-  await page.locator('input[type=file][accept=".docx"]').setInputFiles({ name, mimeType, buffer: Buffer.from(source) });
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name, mimeType, buffer: Buffer.from(source) });
   await expect(page.getByRole('textbox', { name: 'Document name' })).toHaveValue(name.replace(/\.\w+$/, ''));
   await showAllTools(page); // the Paragraph style list is in the Formatting Pane
 }

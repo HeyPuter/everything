@@ -6,7 +6,7 @@ const fileButton = page => page.getByRole('button', { name: 'File', exact: true 
 async function openTextImport(page) {
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
-  await page.locator('input[type=file][accept=".docx"]').setInputFiles({ name: 'damaged.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('not a zip') });
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'damaged.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('not a zip') });
 }
 
 test('a document that cannot open keeps the header and offers ways forward', async ({ page }) => {
@@ -37,7 +37,7 @@ test('a document that cannot open keeps the header and offers ways forward', asy
 test('a damaged file keeps its original available beside the navigation', async ({ page }) => {
   await page.goto('/mock.html#/new');
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
-  await page.locator('input[type=file][accept=".docx"]').setInputFiles({ name: 'broken.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('not a zip') });
+  await page.locator('input[type=file][aria-label="Open DOCX file"]').setInputFiles({ name: 'broken.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from('not a zip') });
   const message = page.locator('.canvas-message.editor-error');
   await expect(message).toContainText('Could not read this DOCX archive');
   const download = page.waitForEvent('download');
