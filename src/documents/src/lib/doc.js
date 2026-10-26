@@ -194,7 +194,9 @@ export class Doc extends EventTarget {
     // time stamp on the file is no change from another window.
     if (on && takeOver && this.writes === false) this._remoteModified = null;
     this.writes = !!on;
-    if (!this.writes) { clearTimeout(this._timer); this._timer = null; this.savedVersion = this.version; this._setStatus('saved'); }
+    if (!this.writes) { clearTimeout(this._timer); this._timer = null; this.savedVersion = this.version; this.status = 'saved'; this.error = null; }
+    // Who saves is part of what the status says ("Shared · saved by the owner"): it is told again either way.
+    this.dispatchEvent(new CustomEvent('status', { detail: { status: this.status, error: this.error } }));
   }
 
   /** The engine reports an edit. */

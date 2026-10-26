@@ -52,6 +52,18 @@ describe('Doc', () => {
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+  it('tells the view when saving passes to another tab of a shared document, and back', () => {
+    // A guest's status reads "Shared · saved by the owner" only while the owner saves; once sharing ends it is their own copy.
+    const doc = track(new Doc({ name: 'Plan' }));
+    doc.setSaving(false);
+    expect(statuses).toEqual(['saved']);
+    doc.setSaving(true);
+    expect(statuses).toEqual(['saved', 'saved']);
+    expect(doc.writes).toBe(true);
+    doc.setSaving(true);
+    expect(statuses).toHaveLength(2);
+  });
+
   it('starts blank, clean, and untitled', () => {
     const doc = Doc.blank();
     expect(doc.name).toBe(UNTITLED);
