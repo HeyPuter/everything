@@ -81,6 +81,8 @@
 .fmt-bullets-dialog .fmt-list-grid + .row { flex-wrap: wrap; }
 .fmt-list-tile { display: grid; place-items: center; height: 82px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: #fff; color: #222; }
 .fmt-list-tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+/* The tiles are white paper in every theme: None keeps the light theme's gray, not the dark theme's. */
+.fmt-list-tile .list-library-none { color: #4f4e4b; }
 .fmt-list-tile-sample { display: grid; gap: 6px; width: 70%; }
 .fmt-list-tile-sample span { display: flex; align-items: center; gap: 6px; }
 .fmt-list-tile-sample b { min-width: 16px; font-size: 11px; font-weight: 500; }

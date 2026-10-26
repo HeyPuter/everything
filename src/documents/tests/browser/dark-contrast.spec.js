@@ -59,6 +59,13 @@ test.describe('dark theme', () => {
     await expect(page.locator('.fmt-level-item[aria-selected="true"]')).toBeVisible();
     for (const item of await measure(page, '.fmt-level-item[aria-selected="true"]', { own: true })) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
   });
+  test('the None choice in Bullets and Numbering stays readable on its white tile', async ({ page }) => {
+    await open(page);
+    await (await menuBarMenu(page, 'Format')).getByRole('menuitem', { name: 'Bullets and Numbering…' }).click();
+    const none = await measure(page, '.fmt-list-tile .list-library-none');
+    expect(none.length).toBeGreaterThan(0);
+    for (const item of none) expect(item.ratio).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 test('the light theme shows a style sample in the style’s own color', async ({ page }) => {
