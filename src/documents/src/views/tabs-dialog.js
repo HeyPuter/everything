@@ -79,7 +79,8 @@ export function openTabsDialog({ tabs: initial, defaultTabStop, unit = 'in', app
   const setButton = el('button.btn.btn-outline', { type: 'button', onclick: () => { try { set(); modal.form.querySelector('.field-error').hidden = true; } catch (e) { modal.fail(e.message); } } }, 'Set');
   const clearButton = el('button.btn.btn-outline', { type: 'button', onclick: clear }, 'Clear');
   const clearAll = el('button.btn.btn-outline', { type: 'button', onclick: () => { cleared.push(...stops.map(s => s.position)); stops = []; changed = true; render(); } }, 'Clear All');
-  position.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); setButton.click(); } });
+  // Enter sets the stop typed in the field; with the field empty there is nothing to set, and Enter is OK.
+  position.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && position.value.trim()) { e.preventDefault(); setButton.click(); } });
   render();
   if (stops[0]) pick(0);
 

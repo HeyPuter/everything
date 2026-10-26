@@ -471,3 +471,22 @@ test('on a phone, Preferences opens as a full-width sheet like the other dialogs
   // Its desktop width (96vw) applied on phones too, leaving it inset 8px from both edges.
   expect(await panel.evaluate(node => { const box = node.getBoundingClientRect(); return [Math.round(box.left), Math.round(box.width)]; })).toEqual([0, 390]);
 });
+
+test('Enter in the Tabs dialog with no position typed is OK, not an error', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Tabbed\ttext');
+  await (await openMenu(page, 'Format')).getByRole('menuitem', { name: /^Tabs…/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'Tabs' });
+  await dialog.getByRole('spinbutton', { name: 'Default tab stops (in)' }).fill('1');
+  await dialog.getByRole('textbox', { name: 'Tab stop position (in)' }).focus();
+  // Enter in the empty position field said "Enter a tab stop position." and kept the dialog open.
+  await page.keyboard.press('Enter');
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.model.pageSettings.defaultTabStop)).toBe(1440);
+  // With a position typed, Enter still sets that stop and keeps the dialog open for the next one.
+  await (await openMenu(page, 'Format')).getByRole('menuitem', { name: /^Tabs…/ }).click();
+  await dialog.getByRole('textbox', { name: 'Tab stop position (in)' }).fill('2');
+  await page.keyboard.press('Enter');
+  await expect(dialog.getByRole('listbox', { name: 'Tab stops' }).getByRole('option')).toHaveCount(1);
+  await expect(dialog).toBeVisible();
+});
