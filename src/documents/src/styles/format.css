@@ -31,7 +31,7 @@
 .fmt-listbox:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fmt-listbox-item { display: flex; justify-content: space-between; gap: 8px; padding: 5px 8px; border-radius: 4px; font-size: 13px; cursor: pointer; }
 .fmt-listbox-item:hover { background: var(--accent-wash); }
-.fmt-listbox-item[aria-selected="true"] { background: var(--accent); color: #fff; }
+.fmt-listbox-item[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 .fmt-listbox-meta { color: inherit; opacity: .75; font-size: 12px; }
 .fmt-listbox-empty { padding: 8px; color: var(--ink-2); font-size: 12px; }
 
@@ -74,7 +74,7 @@
 .fmt-multilevel-levels { display: grid; gap: 4px; align-content: start; }
 .fmt-level-list { display: grid; border: 1px solid var(--hairline-strong); border-radius: 6px; overflow: hidden; }
 .fmt-level-item { padding: 4px 0; text-align: center; font-size: 13px; cursor: pointer; }
-.fmt-level-item[aria-selected="true"] { background: var(--accent); color: #fff; }
+.fmt-level-item[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
 .fmt-multilevel-fields { display: grid; gap: 10px; }
 .fmt-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 10px; }
 /* The commands under the gallery wrap on a phone rather than widen the sheet past the window. */
