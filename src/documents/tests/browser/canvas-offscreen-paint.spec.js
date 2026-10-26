@@ -86,3 +86,25 @@ test('moving the caret repaints only the pages on screen; a document of up to 80
   expect(short.painted).toBe(short.count);
   expect(short.stale).toBe(0);
 });
+
+test('a long selection is worked out once for all the pages painted after it', async ({page}) => {
+  const result = await page.evaluate(() => {
+    const last = editor.canvases.length - 1, page = Math.floor(last / 2);
+    editor.model.select(0, editor.model.text.length); editor.paint();
+    // Count what each paint reads of the layout: Select All spans every line of the document.
+    const real = editor.selectionLayout; let reads = 0;
+    editor.selectionLayout = new Proxy(real, {get: (target, key, receiver) => { if (key === 'lines') reads++; return Reflect.get(target, key, receiver); }});
+    editor.paint({pages: [page]}); const first = reads; reads = 0;
+    editor.paint({pages: [page + 1]}); const later = reads;
+    editor.selectionLayout = real;
+    const selected = pixels(page);
+    editor.model.select(0, 5); editor.paint({pages: [page]}); const short = pixels(page);
+    editor.model.select(0, 0); editor.paint({pages: [page]}); const none = pixels(page);
+    return {first, later, changed: selected !== short, cleared: short === none};
+  });
+  // The first page painted works the selection out; the next reuses it.
+  expect(result.later).toBeLessThan(result.first);
+  // Changing the selection still repaints the highlight.
+  expect(result.changed).toBe(true);
+  expect(result.cleared).toBe(true);
+});

@@ -284,6 +284,17 @@ export class CanvasEditor {
     return rects;
   }
   /**
+   * The selection's rectangles on every page. Pages left for later are painted a couple at a time and
+   * as they scroll into view; a long selection (all of a long document) is worked out once per layout.
+   */
+  selectedRects(start, end) {
+    const layout = this.selectionLayout, cached = this.selectionRectCache;
+    if (cached?.layout === layout && cached.start === start && cached.end === end) return cached.rects;
+    const rects = selectionRects(layout, start, end);
+    this.selectionRectCache = { layout, start, end, rects };
+    return rects;
+  }
+  /**
    * The tinted boxes of the open search's matches on one page. Each keystroke lays the document out again and moves
    * the matches after it, so they are found only for the pages painted: finding every match's boxes in a long
    * document held up typing while Find was open.
@@ -759,7 +770,7 @@ export class CanvasEditor {
     // A shape selected on its own shows only its frame handles.
     const shapeOnly = end === start + 1 && this.drawingEditor?.canResize(this.model.selectedImage);
     // A rectangular cell selection highlights whole cells rather than the text range through them.
-    const rects = shapeOnly ? [] : this.model.cellBlock ? cellBlockRects(this.selectionLayout, this.model) : selectionRects(this.selectionLayout, start, end);
+    const rects = shapeOnly ? [] : this.model.cellBlock ? cellBlockRects(this.selectionLayout, this.model) : this.selectedRects(start, end);
     const owned = this.model.selection.controlCaret?.side === 'inside' && start === end && !this.accessible && document.activeElement === this.input
       ? inlineControlCaret(this.model.paragraphs, start, this.model.selection.controlCaret) : null;
     const controlRects = owned && !owned.control.hiddenAppearance ? owned.start === owned.end
