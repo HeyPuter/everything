@@ -72,3 +72,25 @@ it('keeps lines together and avoids an orphan at the start of a continuous secti
  const free = lines(4, { widowControl: false });
  expect(layoutDocument([Object.assign(lines(7), { sectionEnd: first }), free], measure, pageGeometry(next)).lines.filter(l => l.paragraphId === free.id).map(l => l.page)).toEqual([0, 0, 1, 1]);
 });
+
+it('balances columns without leaving one line of a paragraph alone in a column', async () => {
+ const { paragraph } = await import('../src/engine/model.js');
+ const { validatePageSettings } = await import('../src/engine/page-settings.js');
+ const measure = text => ({ width: text.length * 8, ascent: 15, descent: 5 });
+ const base = { width: 4320, height: 8640, top: 720, bottom: 720, left: 720, right: 720 };
+ const intro = validatePageSettings(base), after = validatePageSettings({ ...base, sectionType: 'continuous' });
+ const three = validatePageSettings({ ...base, sectionType: 'continuous', columns: { count: 3, space: 360, equalWidth: true, separator: false } });
+ const lines = (n, format = {}) => paragraph(Array.from({ length: n }, (_, i) => `Line ${i}`).join('\v'), { format: { spaceAfter: 0, ...format } });
+ // Two lines balanced over three columns: widow and orphan control keeps them together.
+ for (const [format, columns] of [[{}, [0, 0]], [{ widowControl: false }, [0, 1]]]) {
+  const pair = Object.assign(lines(2, format), { sectionEnd: three });
+  const result = layoutDocument([Object.assign(paragraph('Intro'), { sectionEnd: intro }), pair, paragraph('After')], measure, pageGeometry(after));
+  expect(result.lines.filter(l => l.paragraphId === pair.id).map(l => l.column)).toEqual(columns);
+ }
+ // Seven lines balance three, two, two rather than leaving a widow or an orphan alone.
+ const seven = Object.assign(lines(7), { sectionEnd: three });
+ const balanced = layoutDocument([Object.assign(paragraph('Intro'), { sectionEnd: intro }), seven, paragraph('After')], measure, pageGeometry(after));
+ const counts = [0, 1, 2].map(column => balanced.lines.filter(l => l.paragraphId === seven.id && l.column === column).length);
+ expect(counts.every(n => n !== 1)).toBe(true);
+ expect(counts.reduce((a, b) => a + b)).toBe(7);
+});

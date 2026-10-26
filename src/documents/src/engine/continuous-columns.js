@@ -39,10 +39,20 @@ export function paginateColumnRegion(blocks, page, paginate, maxPages, startY, p
   }
   if (chain.length) keep.push(chain);
   const constrained = keep.filter(group => group.every(start => natural.get(start) === natural.get(group[0])));
+  // Widow and orphan control holds in balanced columns too: a shorter region must not leave one line of
+  // a paragraph alone in a column where the full-height layout kept at least two together.
+  const controlled = blocks.filter(block => block.format?.widowControl).map(block => (block.lines || []).filter(line => !line.virtual).map(line => line.start)).filter(group => group.length > 1);
+  const alone = positions => controlled.map(group => {
+    const counts = new Map();
+    for (const start of group) counts.set(positions.get(start), (counts.get(positions.get(start)) || 0) + 1);
+    return [...counts.values()].filter(n => n === 1).length;
+  });
+  const naturalAlone = alone(natural);
   const fits = (trial, height) => {
     if (Math.ceil(trial.pageCount / count) > last + 1) return false;
     const positions = new Map(trial.lines.map(line => [line.start, line.page]));
     if (constrained.some(group => group.some(start => positions.get(start) !== positions.get(group[0])))) return false;
+    if (alone(positions).some((n, i) => n > naturalAlone[i])) return false;
     // A paginator may retain an oversized first line or clipped table cell.
     // Such overflow must not make an artificially short balancing trial pass.
     return trial.lines.every(line => line.virtual || line.continuousBoundaryLine || Math.floor(line.page / count) !== last ||
