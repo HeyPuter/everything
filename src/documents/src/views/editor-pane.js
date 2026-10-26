@@ -117,8 +117,11 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
       const found = await checkGrammar(paragraphs, { chat: prompt => P.aiChat(prompt), kinds: kinds.length ? kinds : ['grammar'], signal });
       if (signal.aborted) return;
       if (editor()?.session.body.revision !== revision) { aiStatus.textContent = 'The document changed during the check. Check again.'; return; }
-      aiSuggestions = found; ignoredSuggestions = new Set();
-      aiStatus.textContent = found.length ? `${found.length} ${found.length === 1 ? 'suggestion' : 'suggestions'}` : 'No grammar or style suggestions.';
+      // An object (a note reference, field or picture) was sent as a space. A suggestion that takes it in ("claim ."
+      // → "claim.") could not be accepted, and would delete the object if it were: it is not offered.
+      const body = editor()?.session.body.text || '';
+      aiSuggestions = found.filter(s => body.slice(s.start, s.end) === s.original); ignoredSuggestions = new Set();
+      aiStatus.textContent = aiSuggestions.length ? `${aiSuggestions.length} ${aiSuggestions.length === 1 ? 'suggestion' : 'suggestions'}` : 'No grammar or style suggestions.';
     } catch (e) { if (!signal.aborted) aiStatus.textContent = e.message; }
     finally { if (aiBusy?.signal === signal) aiBusy = null; renderAi(); onState(); }
   }

@@ -367,7 +367,7 @@ async function fakeAi(page) {
     window.puter = { ai: { chat: async prompt => {
       window.__prompts.push(prompt);
       const items = [...prompt.matchAll(/^\[(\d+)\] (.*)$/gm)].map(m => m[2]);
-      if (prompt.includes('proofreader')) return { message: { content: JSON.stringify(items.flatMap((text, i) => text.includes('alot') ? [{ paragraph: i + 1, original: 'alot', suggestion: 'a lot', kind: 'grammar', reason: 'Two words.' }] : [])) } };
+      if (prompt.includes('proofreader')) return { message: { content: JSON.stringify(items.flatMap((text, i) => [...(text.includes('alot') ? [{ paragraph: i + 1, original: 'alot', suggestion: 'a lot', kind: 'grammar', reason: 'Two words.' }] : []), ...(text.includes('claim .') ? [{ paragraph: i + 1, original: 'claim .', suggestion: 'claim.', kind: 'punctuation', reason: 'No space before a period.' }] : [])])) } };
       if (prompt.includes('Translate each numbered paragraph')) return JSON.stringify(items.map(text => `«${text.toUpperCase()}»`));
       return '[]';
     } } };
@@ -390,6 +390,30 @@ test('AI grammar suggestions are opt-in, marked and applied as ordinary edits', 
   await item.getByRole('button', { name: 'Accept' }).click();
   await expect(input).toHaveValue('Thanks a lot for the review.');
   expect(await page.evaluate(() => window.__prompts.length)).toBe(1);
+});
+
+test('an AI suggestion that would take in a note reference is not offered', async ({ page }) => {
+  await fakeAi(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'Thanks alot for the claim.');
+  await select(input, 25, 25);
+  await onTab(page, 'references');
+  await page.locator('#ribbon-panel-references').getByRole('button', { name: 'Insert Footnote', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Footnote text' })).toBeFocused();
+  await page.keyboard.type('Source.');
+  await page.keyboard.press('Escape');
+  await onTab(page, 'review');
+  await review(page).getByRole('button', { name: 'Editor', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Editor pane' });
+  await pane.getByRole('checkbox', { name: /Suggest with/ }).check();
+  await pane.getByRole('button', { name: 'Check with AI' }).click();
+  // The reference reached the AI as a space, so it saw "claim ." and suggested taking the space out.
+  expect((await page.evaluate(() => window.__prompts))[0]).toContain('claim .');
+  await expect(pane.locator('.rv-ai-item')).toHaveCount(1);
+  await expect(pane.locator('.rv-ai-item')).toContainText('alot → a lot');
+  await expect(pane.locator('.rv-ai-body .rv-status')).toHaveText('1 suggestion');
+  await pane.locator('.rv-ai-item').getByRole('button', { name: 'Accept' }).click();
+  await expect(input).toHaveValue('Thanks a lot for the claim\ufffc.');
 });
 
 test('an AI suggestion is accepted while a header is being edited', async ({ page }) => {
