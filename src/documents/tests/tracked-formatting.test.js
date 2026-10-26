@@ -80,6 +80,29 @@ describe('tracked formatting', () => {
     }
   });
 
+  it('rejects a formatting change hidden under a later deletion with Reject All', async () => {
+    const { pkg, model, session } = fresh();
+    session.run(m => { m.select(6, 10); m.setRunFormat({ bold: true }); });
+    model.revisionAuthor = 'You';
+    session.run(m => { m.select(0, 11); m.replace(''); });
+    const changes = m => m.revisions.map(r => [r.type, r.author, m.text.slice(r.start, r.end)]);
+    expect(changes(model)).toEqual([['del', 'You', 'Alpha beta ']]);
+    const reopened = await open(await save(pkg, model));
+    for (const m of [model, reopened.model]) {
+      m.resolveRevisions(false);
+      expect(changes(m)).toEqual([]);
+      expect(m.formatRejectSkipped).toBe(false);
+      expect(m.paragraphs[0].runs.map(r => r.text).join('')).toBe('Alpha beta gamma');
+      expect(m.paragraphs[0].runs.some(r => r.bold)).toBe(false);
+    }
+    // Rejecting the deletion alone brings the formatting change back into view, to review on its own.
+    const single = fresh();
+    single.session.run(m => { m.select(6, 10); m.setRunFormat({ bold: true }); });
+    single.session.run(m => { m.select(0, 11); m.replace(''); });
+    single.model.select(3); single.model.resolveRevisions(false, ...single.model.range);
+    expect(changes(single.model)).toEqual([['format', 'Me', 'beta']]);
+  });
+
   it('keeps the original formatting through several changes and drops a change undone by hand', () => {
     const { model, session } = fresh();
     session.run(m => { m.select(0, 5); m.setRunFormat({ italic: true }); });

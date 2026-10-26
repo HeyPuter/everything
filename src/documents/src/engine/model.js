@@ -2278,6 +2278,10 @@ export class TextDocument {
         if (keep) visitWithin(r.start, r.end, ({ paragraph, run, mark }) => {
           const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision', next = kept(target[key]);
           if (next) target[key] = next; else delete target[key];
+          // Deleted text hides a formatting change made to it before. Rejecting a selection or all changes brings
+          // the text back and rejects that change too, instead of leaving it behind as a change of its own.
+          const hidden = !accept && r.type === 'del' && start !== end && !mark && !run.revision && runFormatChange(run);
+          if (hidden && only(hidden)) { if (rejectFormatChange(run)) acceptFormatChange(run, 'run'); else this.formatRejectSkipped = true; if (this.stylesEnabled) resolveStyledParagraph(paragraph, this.styles, this.numbering); }
         });
         else {
           const index = indexAt(r.start), p = this.paragraphs[index], from = r.start - starts[index], to = r.end - starts[index];
