@@ -8,7 +8,9 @@ import { paginateColumnWidths } from './unequal-columns.js';
 export function paginateColumnRegion(blocks, page, paginate, maxPages, startY, previousAfter = 0, balance = false) {
   const count = page.columns?.count || 1;
   const bounds = index => pageBounds(page, index);
-  const regionPage = (last = -1, height = 0) => ({ ...page,
+  // Text above on the same page: keep and widow rules move a paragraph on rather than starting it here.
+  const shared = startY > bounds(0).top + 1e-6;
+  const regionPage = (last = -1, height = 0) => ({ ...page, ...(shared ? { startsOccupied: true } : {}),
     // Required empty boundaries extend the last column after balancing its content.
     // Preserve the physical-page limit rather than the shorter trial limit.
     ...(last >= 0 ? { balanceBoundaryBottom: bounds(last).bottom } : {}),

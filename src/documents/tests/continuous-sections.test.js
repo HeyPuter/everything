@@ -47,3 +47,28 @@ it('keeps vertical navigation in source order when an unbalanced final column is
  expect(layout.pageRegions[0].length).toBe(2);
  for(let i=0;i<lines.length-1;i++)expect(verticalLine(layout,lines[i],1,lines[i].stops[0].x)?.start).toBe(lines[i+1].start);
 });
+
+it('keeps lines together and avoids an orphan at the start of a continuous section, as within one section', async () => {
+ const { paragraph } = await import('../src/engine/model.js');
+ const { validatePageSettings } = await import('../src/engine/page-settings.js');
+ const measure = text => ({ width: text.length * 8, ascent: 15, descent: 5 });
+ const base = { width: 4320, height: 4320, top: 720, bottom: 720, left: 720, right: 720 };
+ const first = validatePageSettings(base), next = validatePageSettings({ ...base, sectionType: 'continuous' });
+ const lines = (n, format = {}) => paragraph(Array.from({ length: n }, (_, i) => `Line ${i}`).join('\v'), { format: { spaceAfter: 0, ...format } });
+ // Nine lines fit a page: eight above leave room for one more line at the foot of the first page.
+ for (const format of [{}, { keepLines: true }, { widowControl: false, keepLines: true }]) {
+  const target = lines(4, format), single = layoutDocument([lines(8), target], measure, pageGeometry(first));
+  const sectioned = layoutDocument([Object.assign(lines(8), { sectionEnd: first }), target], measure, pageGeometry(next));
+  const pages = result => result.lines.filter(l => l.paragraphId === target.id).map(l => l.page);
+  expect(pages(single)).toEqual([1, 1, 1, 1]);
+  expect(pages(sectioned)).toEqual([1, 1, 1, 1]);
+ }
+ // In columns, the other columns on the shared page are just as short: the paragraph moves to the next page.
+ const columns = validatePageSettings({ ...base, sectionType: 'continuous', columns: { count: 2, space: 360, equalWidth: true, separator: false } });
+ const kept = lines(4, { keepLines: true });
+ const flowed = layoutDocument([Object.assign(lines(8), { sectionEnd: first }), kept, lines(30)], measure, pageGeometry(columns));
+ expect(flowed.lines.filter(l => l.paragraphId === kept.id).map(l => [l.page, l.column])).toEqual([[1, 0], [1, 0], [1, 0], [1, 0]]);
+ // A paragraph that may split still fills the shared page.
+ const free = lines(4, { widowControl: false });
+ expect(layoutDocument([Object.assign(lines(7), { sectionEnd: first }), free], measure, pageGeometry(next)).lines.filter(l => l.paragraphId === free.id).map(l => l.page)).toEqual([0, 0, 1, 1]);
+});

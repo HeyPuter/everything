@@ -8862,6 +8862,10 @@ table cells, caret hit testing and vertical navigation use each region's
 column geometry. Balancing operates on measured blocks and preserves keep
 groups that fit at full height; candidate regions must contain their actual
 line/cell geometry. Ordinary next-page sections retain their existing path.
+A region that starts below earlier sections on a shared page treats that page
+(and each of its columns) as already occupied: keep-lines, keep-with-next,
+page-break-before and widow/orphan control move a paragraph on to the next
+column or page there, as they do part-way down a page within one section.
 
 A shared page uses its first occupying section's header/footer. Later pages
 use the continuing section's stories. Section page totals count every occupied

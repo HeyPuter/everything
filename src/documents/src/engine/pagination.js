@@ -222,11 +222,14 @@ function paginateSegments(segments, page, maxPages, startY, paginateParagraphs, 
     capacity = bottom - top;
   };
   bounds();
-  let y = startY, previousAfter = 0, previous = null, previousLine = null, occupied = startY > top, deferredAfter = 0, shadeAfter = 0;
+  // A continuous section's region starts below the sections above it on the same page: that page is
+  // occupied even though the region's own top is where it starts (continuous-columns.js).
+  let y = startY, previousAfter = 0, previous = null, previousLine = null, occupied = startY > top || !!page.startsOccupied, deferredAfter = 0, shadeAfter = 0;
   const advance = (physical = false) => {
     const next = physical && page.flowColumns ? (Math.floor(pageIndex / page.flowColumns) + 1) * page.flowColumns : pageIndex + 1;
     if (next >= maxPages) throw new Error(`This preview supports up to ${Math.floor(maxPages / (page.flowColumns || 1))} pages. Reduce the document length or adjust its formatting.`);
-    pageIndex = next; bounds(); y = top; previousAfter = 0; occupied = false; activeBands.length = 0;
+    // The other columns on that shared page are as short as the first: rules that move text on, move it on.
+    pageIndex = next; bounds(); y = top; previousAfter = 0; occupied = !!page.startsOccupied && next < (page.flowColumns || 1); activeBands.length = 0;
   };
   const place = (line, anchorBefore = 0) => {
     if (floatingBreak(line) && exceeds(y + line.height + borderOutset(line.paragraphFrame?.borders.bottom), bottom)) y = Math.max(top + borderOutset(line.paragraphFrame?.borders.top), bottom - borderOutset(line.paragraphFrame?.borders.bottom) - line.height);
