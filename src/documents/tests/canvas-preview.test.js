@@ -36,7 +36,7 @@ it('keeps ordinary documents editable and round-trips their edits', async () => 
 
 it('uses only one alternate branch and flattens unsupported nested tables without losing text', async () => {
   const parts = unzipSync(source());
-  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:body>', '<w:body><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:x="urn:unknown"><mc:Choice Requires="x"><w:p><w:r><w:t>Unused choice</w:t></w:r></w:p></mc:Choice><mc:Fallback><w:p><w:r><w:t>Fallback text</w:t></w:r></w:p></mc:Fallback></mc:AlternateContent><w:tbl><w:tr><w:tc><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Nested cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr></w:tbl>'));
+  parts['word/document.xml'] = strToU8(strFromU8(parts['word/document.xml']).replace('<w:body>', '<w:body><mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:x="urn:unknown"><mc:Choice Requires="x"><w:p><w:r><w:t>Unused choice</w:t></w:r></w:p></mc:Choice><mc:Fallback><w:p><w:r><w:t>Fallback text</w:t></w:r></w:p></mc:Fallback></mc:AlternateContent><w:tbl><w:tblPr><w:tblLayout w:type="fixed"/></w:tblPr><w:tr><w:tc><w:tbl><w:tblPr><w:tblLayout w:type="fixed"/></w:tblPr><w:tr><w:tc><w:p><w:r><w:t>Nested cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:tc></w:tr></w:tbl>'));
   const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });
   expect(text(pkg)).toContain('Fallback text\nNested cell\nBest-effort opening');
   expect(text(pkg)).not.toContain('Unused choice');

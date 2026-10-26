@@ -252,7 +252,7 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
   const pr = child(node, 'tblPr'), grid = child(node, 'tblGrid');
   const markerNames = readBookmark ? ['bookmarkStart', 'bookmarkEnd'] : [];
   if (children(node).some(n => n.namespaceURI !== W || !['tblPr', 'tblGrid', 'tr', ...markerNames].includes(n.localName))) fail('nested or wrapped table content');
-  if (children(node).filter(n => n.localName === 'tblPr').length > 1 || children(node).filter(n => n.localName === 'tblGrid').length !== 1) fail('missing or duplicate table grids');
+  if (children(node).filter(n => n.localName === 'tblPr').length > 1 || children(node).filter(n => n.localName === 'tblGrid').length > 1) fail('missing or duplicate table grids');
   let definitions = children(stylesRoot).filter(n => n.localName === 'style' && attr(n, 'type') === 'table');
   const requested = attr(child(pr, 'tblStyle'), 'val');
   const defaultStyle = definitions => definitions.filter(n => ['1', 'true', 'on'].includes(attr(n, 'default'))).at(-1);
@@ -309,7 +309,9 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
   const gridItems = children(grid), gridChange = gridItems.at(-1)?.namespaceURI === W && gridItems.at(-1).localName === 'tblGridChange' ? gridItems.pop() : null;
   if (gridChange) checkGridChange(gridChange);
   const columns = gridItems.map(n => { if (n.namespaceURI !== W || n.localName !== 'gridCol') fail('changed grids'); return integer(attr(n, 'w')); });
-  if (!columns.length || columns.length > 32 || format.layout === 'fixed' && columns.some(w => !w)) fail('missing, zero or excessive grid columns');
+  // An omitted or empty grid (written by some converters) is rebuilt from the rows with
+  // zero-width columns (§17.4.48, §17.4.17); only an automatically sized table can lay those out.
+  if (!columns.length && format.layout === 'fixed' || columns.length > 32 || format.layout === 'fixed' && columns.some(w => !w)) fail('missing, zero or excessive grid columns');
   const table = { id: tableId('t'), ...format, styleId: styleId || null, grid: columns, shell: shell(node, ['tblPr', 'tblGrid']), rows: [] }, paragraphs = [], contentByCell = new Map(), wrappedCellSources = new Map();
   const conditional = conditionalStyle(chain, pr, cellBase, rowBase, readColor, preview, properties);
   // The look chooses the style's regions (Table Style Options), with or without regions to choose.
@@ -446,7 +448,8 @@ export function writeTable(block, doc, writeParagraph) {
     pr.append(prop('tblLayout', { type: table.layout }));
     const margins = make('tblCellMar'); for (const side of ['top', 'left', 'bottom', 'right']) margins.append(prop(side, { type: 'dxa', w: table.margins[side] })); pr.append(margins); node.append(pr);
   }
-  if (!table.shell || table.gridChanged) {
+  // A source table without a grid gets its effective grid, which the schema requires.
+  if (!table.shell || table.gridChanged || !child(node, 'tblGrid')) {
     const grid = make('tblGrid'); for (const w of table.grid) grid.append(prop('gridCol', { w }));
     const old = child(node, 'tblGrid'), change = child(old, 'tblGridChange');
     if (change) grid.append(change);

@@ -76,3 +76,23 @@ it('reads table widths and cell margins written as decimals without units', asyn
   // Other malformed measurements are still refused.
   for (const tblW of ['9360.', '.5', '1e3', '9360,0']) expect((await DocxPackage.open(docx(table({ tblW })), { bestEffort: true })).readOnly).toBe(true);
 });
+
+it('rebuilds an omitted or empty grid of an automatically sized table from its rows', async () => {
+  const autofit = grid => table({ grid: '' }).replace('<w:tblLayout w:type="fixed"/>', '').replace('<w:tblGrid></w:tblGrid>', grid);
+  for (const grid of ['<w:tblGrid/>', '']) {
+    const body = autofit(grid);
+    const pkg = await DocxPackage.open(docx(body), { bestEffort: true });
+    expect(pkg.readOnly).not.toBe(true);
+    expect(pkg.tables[0].grid).toEqual([0, 0]);
+    const doc = model(pkg);
+    doc.select(0); doc.replace('Z');
+    const saved = await save(pkg, doc);
+    const grids = parse(strFromU8(saved['word/document.xml'])).getElementsByTagNameNS(W, 'tblGrid');
+    // The schema requires a grid: an omitted one is written as the rebuilt grid, an empty one stays empty.
+    expect([...grids].map(g => g.children.length)).toEqual([grid ? 0 : 2]);
+    const reopened = await DocxPackage.open(zipSync(saved), { bestEffort: true });
+    expect(reopened.readOnly).not.toBe(true); expect(reopened.paragraphs[0].runs[0].text).toBe('Za');
+  }
+  // A fixed-layout table needs the widths a grid gives it.
+  expect((await DocxPackage.open(docx(table({ grid: '' }).replace('<w:tblGrid></w:tblGrid>', '<w:tblGrid/>')), { bestEffort: true })).readOnly).toBe(true);
+});
