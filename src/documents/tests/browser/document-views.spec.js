@@ -144,6 +144,10 @@ test('Outline view moves a section selected by its symbol as a whole, with the k
   await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-symbol').click();
   await page.keyboard.press('Shift+Alt+ArrowUp');
   await expect(input).toHaveValue(/^Introduction\nThe plan in brief\.[^\n]*\nBackground\nWhy the plan matters\.\nResults\nThe final plan\.$/);
+  // Pressing Alt before Shift keeps the selection: Alt on its own is not an edit.
+  await page.locator('.outline-row', { hasText: 'Introduction' }).locator('.outline-symbol').click();
+  await page.keyboard.press('Alt+Shift+ArrowDown');
+  await expect(input).toHaveValue(/^Results\nThe final plan\.\nIntroduction\nThe plan in brief\.[^\n]*\nBackground\nWhy the plan matters\.$/);
   expect(errors).toEqual([]);
 });
 

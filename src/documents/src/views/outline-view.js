@@ -311,7 +311,8 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
     const selection = window.getSelection(), collapsedCaret = selection.isCollapsed;
     if (e.key === 'Backspace' && !mod && collapsedCaret && caretOffset(text) === 0) { if (mergeWith(id, -1)) handled(); else handled(); return; }
     if (e.key === 'Delete' && !mod && collapsedCaret && caretOffset(text) === text.textContent.length) { if (mergeWith(id, 1)) handled(); else handled(); }
-    if (selectedIds.size && !e.shiftKey) { selectedIds.clear(); markSelected(); }
+    // A modifier pressed on its own (Alt before Shift in Alt+Shift+↓) is the start of a command, not an edit.
+    if (selectedIds.size && !e.shiftKey && !['Alt', 'Control', 'Meta', 'Shift', 'CapsLock', 'AltGraph'].includes(e.key)) { selectedIds.clear(); markSelected(); }
   }
 
   /* ---- View options ---- */
