@@ -1,4 +1,5 @@
 import { inlineSegments } from './images.js';
+import { fieldInstructionTokens } from './docx-page-fields.js';
 const length = p => p.runs.reduce((n, r) => n + r.text.length, 0);
 /** Fields without a visible result: index (XE), authority (TA) and contents (TC) entries. */
 export const ENTRY_FIELDS = new Set(['XE', 'TA', 'TC']);
@@ -129,11 +130,28 @@ export const newFieldEndOrder = (p, offset, order) => Math.min(order, ...(p.fiel
 // Whole-cell/row deletion removes its field markers with the owned paragraphs.
 // New blank cells must never inherit those markers from a formatting template.
 
+// A cross-reference (REF, NOTEREF) names its bookmark as its first argument: [start, end] in the instruction.
+function referenceArgument(field){
+  if(field.bookmarkCodeRange||!/^\s*(?:REF|NOTEREF)\s/i.test(field.instruction||''))return null;
+  let args;try{args=fieldInstructionTokens(field.instruction,true);}catch{return null;}
+  return args[1]&&!args[1].value.startsWith('\\')?{bookmark:args[1].value,range:[args[1].start,args[1].end]}:null;
+}
+
 export function renameBodyFieldBookmarks(paragraphs,oldName,newName){
   const seen=new Set();
   for(const p of paragraphs)for(const marker of p.fieldMarkers||[]){
     if(marker.link?.anchor===oldName)marker.link={...marker.link,anchor:newName};
     const field=marker.field;if(seen.has(field))continue;seen.add(field);
+    // Cross-references follow the bookmark too: left with the old name, the next update showed
+    // "Error! Reference source not found."
+    const reference=referenceArgument(field);
+    if(reference){
+      if(reference.bookmark!==oldName)continue;
+      const [start,end]=reference.range,replacement=field.instruction[start]==='"'?`"${newName}"`:newName;
+      field.originalInstruction??=field.instruction;
+      field.instruction=field.instruction.slice(0,start)+replacement+field.instruction.slice(end);
+      continue;
+    }
     if(field.bookmark!==oldName||!field.bookmarkCodeRange)continue;
     const [start,end]=field.bookmarkCodeRange,quoted=field.instruction[start]==='"',replacement=quoted?`"${newName}"`:newName;
     field.originalInstruction??=field.instruction;

@@ -74,3 +74,16 @@ it('retains structural and self-referencing results while other fields refresh',
   });
   expect(retained(fields(unzipSync(bytes)['word/document.xml']))).toEqual(retained(fields(pkg.parts['word/document.xml'])));
 });
+
+it('renaming a bookmark renames the cross-references to it, so an update still finds it', async () => {
+  const { pkg, model } = await open(source + field('REF Target \\h') + field('NOTEREF &quot;Target&quot;') + field('REF Other'));
+  const bookmark = model.bookmarks.find(b => b.name === 'Target');
+  model.renameBookmark(bookmark.id, 'Renamed');
+  updateSequenceFields(model);
+  expect(model.text.split('\n')[1]).toBe('  source text  ');
+  const xml = strFromU8(unzipSync(new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer()))['word/document.xml']);
+  expect(xml).toContain('REF Renamed \\h');
+  expect(xml).toContain('NOTEREF &quot;Renamed&quot;');
+  expect(xml).toContain('REF Other');
+  expect(xml).not.toMatch(/REF Target/);
+});
