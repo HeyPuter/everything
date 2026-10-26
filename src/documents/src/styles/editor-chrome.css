@@ -215,6 +215,10 @@
 }
 :is(.ribbon-card, .ribbon-flyout) button.ribbon-style[aria-selected="true"] { border-color: var(--ed-accent); box-shadow: inset 0 0 0 1px var(--ed-accent); background: var(--ed-accent-wash); }
 .ribbon-style-sample { font-family: Georgia, 'Times New Roman', serif; font-size: 13px; color: var(--ed-ink-3); white-space: nowrap; overflow: hidden; max-width: 100%; }
+/* A style's own color (styleColor). On a dark theme it is lightened, keeping its hue, until it reads at 4.5:1. */
+.ribbon-style-sample[style*="--style-color"] { color: var(--style-color); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ribbon-style-sample[style*="--style-color"] { color: oklch(from var(--style-color) max(l, 0.75) c h); } }
+:root[data-theme="dark"] .ribbon-style-sample[style*="--style-color"] { color: oklch(from var(--style-color) max(l, 0.75) c h); }
 .ribbon-style-name { font-size: 11px; color: var(--ed-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 :is(.ribbon-card, .ribbon-flyout) button.ribbon-gallery-more { min-width: 18px; width: 18px; height: auto; padding: 0; }
 .ribbon-gallery-more svg.ico { transform: rotate(90deg); width: 12px; height: 12px; }
@@ -360,6 +364,9 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
 .ed-font-field { display: grid; gap: 4px; min-width: 0; }
 .ed-font-color { display: inline-flex; align-items: center; gap: 8px; justify-content: flex-start; width: 100%; min-width: 0; overflow: hidden; white-space: nowrap; }
 .ed-font-chip { width: 16px; height: 16px; border-radius: 3px; border: 1px solid var(--hairline-strong); flex: none; }
+/* On a dark theme the faint edge vanishes against black (Automatic) and dark colors: the control edge stands out at 3:1. */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ed-font-chip { border-color: var(--control-border); } }
+:root[data-theme="dark"] .ed-font-chip { border-color: var(--control-border); }
 .ed-font-effects, .ed-font-advanced { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 16px; border: 1px solid var(--hairline-strong); border-radius: 6px; padding: 8px 12px 12px; margin: 0; }
 .ed-font-effects legend, .ed-font-advanced legend { font-size: 12px; color: var(--ink-2); padding: 0 4px; }
 .ed-font-advanced { grid-template-columns: 1fr; }

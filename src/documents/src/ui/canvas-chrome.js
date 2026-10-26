@@ -1,4 +1,4 @@
-import { el, isComposing, MOD_KEY, shortcutCode } from './dom.js';
+import { el, isComposing, MOD_KEY, shortcutCode, styleColor } from './dom.js';
 import { iconEl } from './icons.js';
 import { openMenu, closeMenu } from './menu.js';
 import { openShortcuts } from './shortcuts.js';
@@ -197,7 +197,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
         title: option.textContent, onclick: () => { c.paragraphStyle.value = option.value; c.paragraphStyle.dispatchEvent(new Event('change', { bubbles: true })); },
         oncontextmenu: e => { e.preventDefault(); openMenu({ anchor: item, x: e.clientX, y: e.clientY, label: option.textContent, onClose: focusEditor, items: inDocument([
           { label: 'Apply', onSelect: () => item.click() }, { label: 'Modify…', icon: 'editStyle', onSelect: () => { item.click(); queueMicrotask(() => c.editStyle.click()); } }]) }); } },
-      el('span.ribbon-style-sample', { 'aria-hidden': 'true', style: { fontFamily: look.fontFamily || '', fontWeight: look.bold ? '700' : '', fontStyle: look.italic ? 'italic' : '', color: look.color || '', fontSize: look.size ? `${Math.max(10, Math.min(14, look.size * 0.8))}px` : '' } }, 'AaBbCcDdEe'),
+      styleColor(el('span.ribbon-style-sample', { 'aria-hidden': 'true', style: { fontFamily: look.fontFamily || '', fontWeight: look.bold ? '700' : '', fontStyle: look.italic ? 'italic' : '', fontSize: look.size ? `${Math.max(10, Math.min(14, look.size * 0.8))}px` : '' } }, 'AaBbCcDdEe'), look.color),
       el('span.ribbon-style-name', {}, option.textContent));
       item.addEventListener('mousedown', e => e.preventDefault());
       return item;

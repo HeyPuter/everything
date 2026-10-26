@@ -111,6 +111,10 @@
 .styles-pane-item.is-current { box-shadow: inset 0 0 0 1px var(--accent); }
 .styles-pane-apply { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 0; background: transparent; color: inherit; text-align: left; }
 .styles-pane-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A style's own color (styleColor). On a dark theme it is lightened, keeping its hue, until it reads at 4.5:1. */
+.styles-pane-name[style*="--style-color"] { color: var(--style-color); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .styles-pane-name[style*="--style-color"] { color: oklch(from var(--style-color) max(l, 0.75) c h); } }
+:root[data-theme="dark"] .styles-pane-name[style*="--style-color"] { color: oklch(from var(--style-color) max(l, 0.75) c h); }
 .styles-pane-kind { flex: none; color: var(--ink-2); font-size: 12px; }
 .styles-pane-more { opacity: 0; }
 .styles-pane-item:hover .styles-pane-more, .styles-pane-item:focus-within .styles-pane-more { opacity: 1; }

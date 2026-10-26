@@ -181,3 +181,13 @@ export function relativeTime(ts, now = Date.now()) {
 export function scrollBehavior() {
   return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 }
+
+/**
+ * Give a style sample its style's color through --style-color, which the stylesheets paint as is in
+ * a light theme and lighten where needed in a dark one: colors chosen for white paper (a gray subtitle,
+ * a dark blue heading) are unreadable on dark panels.
+ */
+export function styleColor(node, color) {
+  if (color) node.style.setProperty('--style-color', color);
+  return node;
+}

@@ -1,4 +1,4 @@
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, styleColor } from '../ui/dom.js';
 import { iconEl } from '../ui/icons.js';
 import { openMenu } from '../ui/menu.js';
 import { styleRun } from '../engine/styles.js';
@@ -92,7 +92,7 @@ export function createStylesPane({ editor, readOnly, actions }) {
       const item = el(`div.styles-pane-item${active ? '.is-current' : ''}`, { role: 'listitem', dataset: { style: s.id } },
         el('button.styles-pane-apply', { type: 'button', disabled: ro, 'aria-current': active ? 'true' : null, 'aria-label': `Apply ${styleDisplayName(s.name)} (${s.type === 'character' ? 'character' : 'paragraph'} style)`, title: `Apply ${styleDisplayName(s.name)}${s.count ? ` · used ${s.count} ${s.count === 1 ? 'time' : 'times'}` : ''}`, onclick: () => actions.apply(s.id),
           oncontextmenu: ev => { ev.preventDefault(); menu(s, more, ev); } },
-        el('span.styles-pane-name', { style: look }, styleDisplayName(s.name)),
+        styleColor(el('span.styles-pane-name', { style: { ...look, color: '' } }, styleDisplayName(s.name)), look.color),
         el('span.styles-pane-kind', { 'aria-label': s.type === 'character' ? 'Character style' : 'Paragraph style', title: s.type === 'character' ? 'Character style' : 'Paragraph style' }, s.type === 'character' ? 'a' : '¶')), more);
       return item;
     });
