@@ -166,8 +166,10 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
       const m = engine.model;
       if (how === 'replace') m.select(p.start, p.end);
       else if (how === 'below' || how === 'after') {
-        // After the selection's last paragraph, as new paragraphs.
-        const end = how === 'after' ? p.end : (() => { const at = m.text.indexOf('\n', p.end); return at < 0 ? m.text.length : at; })();
+        // After the selection's last paragraph, as new paragraphs. A selection that takes in its last paragraph's
+        // mark (Shift+Down from a paragraph's start) ends in that paragraph, not at the start of the next.
+        const last = p.end > p.start && m.text[p.end - 1] === '\n' ? p.end - 1 : p.end;
+        const end = how === 'after' ? last : (() => { const at = m.text.indexOf('\n', last); return at < 0 ? m.text.length : at; })();
         m.select(end, end);
         return m.replace(how === 'after' ? ` ${text}` : `\n${text}`);
       }

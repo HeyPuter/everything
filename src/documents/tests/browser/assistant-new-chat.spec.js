@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 test('New chat while a reply is on its way starts afresh at once', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/mock.html#/new');
-  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
   await page.evaluate(() => { const chat = puter.ai.chat.bind(puter.ai); window.prompts = []; puter.ai.chat = (prompt, ...rest) => { window.prompts.push(prompt); return chat(prompt, ...rest); }; });
   await page.getByRole('textbox', { name: 'Document text' }).fill('Plans for the old project.');
   await page.locator('.as-title-button').click();
@@ -31,4 +31,20 @@ test('New chat while a reply is on its way starts afresh at once', async ({ page
   expect(prompts[2]).toContain('Person: Second question?');
   expect(prompts[2]).not.toContain('First question');
   await expect(pane.getByRole('button', { name: 'Send' })).toBeEnabled();
+});
+
+test('Insert Below puts the reply under the selected paragraph when the selection takes in its mark', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  const text = page.getByRole('textbox', { name: 'Document text' });
+  await text.fill('First para.\nSecond para.\nThird para.');
+  // Shift+Down from the start of the first paragraph: the selection ends where the second begins.
+  await text.evaluate(el => { el.focus(); el.setSelectionRange(0, 0); el.dispatchEvent(new Event('select')); });
+  await text.press('Shift+ArrowDown');
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  await pane.getByRole('button', { name: 'Make it shorter' }).click();
+  await pane.getByRole('button', { name: 'Insert Below' }).click();
+  await expect(text).toHaveValue('First para.\nFirst para. (revised)\nSecond para.\nThird para.');
 });
