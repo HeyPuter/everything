@@ -16,7 +16,8 @@ function validPolygon(wrap) {
     && [...n.attributes].every(a => a.namespaceURI || ['x', 'y'].includes(a.localName)));
 }
 // Retain supported floating coordinate systems and wrapping independently of
-// inline image metrics. Numeric square anchors use page-aware text exclusions;
+// inline image metrics. Square anchors (column, paragraph, page or margin
+// coordinates, by offset or alignment) use page-aware text exclusions;
 // centered full-column pictures retain the existing standalone band path.
 export function readAnchor(anchor) {
   for (const attr of [...anchor.attributes]) if (!attr.namespaceURI && !['simplePos', 'behindDoc', 'locked', 'layoutInCell', 'allowOverlap', 'relativeHeight', 'hidden', 'distT', 'distB', 'distL', 'distR'].includes(attr.localName)) fail(`unsupported ${attr.localName}`);
@@ -24,7 +25,10 @@ export function readAnchor(anchor) {
   // flows around the object's rectangle, as for square wrapping.
   const contour = child(anchor, 'wrapTight') || child(anchor, 'wrapThrough');
   const square = child(anchor, 'wrapSquare') || contour;
-  const sideWrapped = square && child(child(anchor, 'positionH'), 'posOffset') && child(child(anchor, 'positionV'), 'posOffset');
+  // A picture centred in its column at its paragraph's top keeps the standalone band path below; every
+  // other square, tight or through wrap is placed like a floating object and excludes text around it.
+  const placed = (name, base, alignment) => { const pos = child(anchor, name); return pos?.getAttribute('relativeFrom') === base && child(pos, 'align')?.textContent === alignment; };
+  const sideWrapped = !!square && !(placed('positionH', 'column', 'center') && placed('positionV', 'paragraph', 'top'));
   const positioned = !!child(anchor, 'wrapTopAndBottom') || !!child(anchor, 'wrapNone') || !!sideWrapped;
   if (anchor.hasAttribute('hidden') && !['0', 'false'].includes(anchor.getAttribute('hidden'))) fail('hidden drawings');
   // Locking prevents automatic re-anchoring when an object is repositioned; it
@@ -52,9 +56,13 @@ export function readAnchor(anchor) {
   if (positioned) {
     const offsets = {}, noWrap = !!child(anchor, 'wrapNone'), bandWrap = !!child(anchor, 'wrapTopAndBottom');
     const bases = {};
+    // Square wrapping takes page and margin coordinates (and alignment against them) as well as column and
+    // paragraph offsets (§20.4.2.10, §20.4.2.11); a line-relative wrapped object is outside the subset.
+    const pageBases = axis => noWrap ? ['page', 'margin', ...(axis === 'y' ? ['topMargin', 'bottomMargin', 'line'] : [])]
+      : bandWrap && axis === 'x' ? ['page', 'margin'] : sideWrapped ? ['page', 'margin', ...(axis === 'y' ? ['topMargin', 'bottomMargin'] : [])] : [];
     for (const [name, relative, axis] of [['positionH', 'column', 'x'], ['positionV', 'paragraph', 'y']]) {
       const pos = child(anchor, name), base = pos?.getAttribute('relativeFrom');
-      if (children(anchor).filter(n => n.namespaceURI === WP && n.localName === name).length !== 1 || ![relative, ...(noWrap || bandWrap && axis === 'x' ? ['page', 'margin', ...(axis === 'y' ? ['topMargin', 'bottomMargin', 'line'] : [])] : [])].includes(base) || children(pos).length !== 1 || [...pos.attributes].some(a => !a.namespaceURI && a.localName !== 'relativeFrom')) fail(`unsupported ${name}`);
+      if (children(anchor).filter(n => n.namespaceURI === WP && n.localName === name).length !== 1 || ![relative, ...pageBases(axis)].includes(base) || children(pos).length !== 1 || [...pos.attributes].some(a => !a.namespaceURI && a.localName !== 'relativeFrom')) fail(`unsupported ${name}`);
       bases[axis === 'x' ? 'horizontal' : 'vertical'] = base;
       const content = children(pos)[0];
       const branch = content.namespaceURI === MC && content.localName === 'AlternateContent' ? alternateBranch(content) : pos;
@@ -73,7 +81,7 @@ export function readAnchor(anchor) {
         const raw = offset.textContent.trim();
         if (children(offset).length || !/^[+-]?\d+$/.test(raw) || Math.abs(Number(raw)) > 20116800) fail(`invalid ${name} offset`);
         offsets[axis] = Number(raw);
-      } else if ((noWrap || bandWrap && axis === 'x') && align && (axis === 'x' || !['paragraph', 'line'].includes(base))) {
+      } else if ((noWrap || sideWrapped || bandWrap && axis === 'x') && align && (axis === 'x' || !['paragraph', 'line'].includes(base))) {
         const raw = align.textContent.trim();
         if (children(align).length || !(axis === 'x' ? ['left', 'center', 'right'] : ['top', 'center', 'bottom']).includes(raw)) fail(`unsupported ${name} alignment`);
         offsets[axis] = 0; offsets[axis + 'Align'] = raw;

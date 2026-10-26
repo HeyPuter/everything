@@ -16,7 +16,8 @@ export const EMU_PER_PX = 9525;
 // Keep authored EMUs in the model/package; only layout uses this conversion.
 // Independent signed body, group and cell controls: anchor-offset-precision.
 export const drawingOffsetPixels = emu => Math.trunc(emu / 635) / 15;
-export const isSideWrappedImage = image => image?.anchor?.wrap === 'square' && image.anchor.horizontal === 'column';
+// Every square wrap except the legacy column-centred band ('columnCenter') excludes text around its frame.
+export const isSideWrappedImage = image => image?.anchor?.wrap === 'square' && image.anchor.horizontal !== 'columnCenter';
 export const isPositionedImage = image => image?.anchor?.wrap === 'none' || image?.anchor?.wrap === 'topAndBottom' || isSideWrappedImage(image);
 export const EMU_PER_INCH = 914400;
 export const CROP_SIDES = ['left', 'top', 'right', 'bottom'];

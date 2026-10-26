@@ -33,8 +33,10 @@ it('resolves positioned drawings in the section and column owning the anchor', a
   // pictures across hard breaks). A wrapped picture sharing this text paragraph
   // stays guarded; positioned-breaks.test.js covers the wrapped hard-break guard.
   expect(render().floatingObjects.map(f => f.page)).toEqual([0, 1, 2]);
+  // The picture is page-positioned; square-wrapped, it excludes text like any side-wrapped picture,
+  // and those are guarded in section columns.
   moved.image.anchor.wrap = 'square';
-  expect(render).toThrow('Floating pictures require a standalone');
+  expect(render).toThrow('Square-wrapped drawings and floating tables in section columns are not supported yet.');
 });
 
 for (const name of ['short', 'equal-flow', 'unequal', 'separator', 'explicit-break', 'wide-table']) {
