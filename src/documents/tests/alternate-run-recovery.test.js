@@ -52,3 +52,30 @@ it('contains an unsupported selected child instead of trying the fallback', asyn
   expect(pkg.previewIssues.some(s => s.includes('ruby'))).toBe(true);
   expect(pkg.parts).toEqual(parts);
 });
+it('opens emoji that Word stores as symbol extensions for editing', async () => {
+  const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const emoji = (char, text) => `<w:r><w:rPr><w:b/></w:rPr><mc:AlternateContent><mc:Choice Requires="w16se"><w16se:symEx w16se:font="Segoe UI Emoji" w16se:char="${char}"/></mc:Choice><mc:Fallback><w:t>${text}</w:t></mc:Fallback></mc:AlternateContent></w:r>`;
+  const files = {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    '_rels/.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+    'word/document.xml': `<w:document xmlns:w="${W}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:w16se="http://schemas.microsoft.com/office/word/2015/wordml/symex" mc:Ignorable="w16se"><w:body>`
+      + `<w:p><w:r><w:t xml:space="preserve">Great work </w:t></w:r>${emoji('1F600', '😀')}${emoji('1F44D', '👍')}<w:r><w:t xml:space="preserve"> team</w:t></w:r></w:p>`
+      + `<w:p><w:r><w:t xml:space="preserve">Untouched </w:t></w:r>${emoji('1F389', '🎉')}</w:p><w:sectPr/></w:body></w:document>`,
+  };
+  const bytes = zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])));
+  const pkg = await DocxPackage.open(bytes, { bestEffort: true });
+  expect(pkg.readOnly).not.toBe(true);
+  const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  expect(model.text).toBe('Great work 😀👍 team\nUntouched 🎉');
+  expect(model.paragraphs[0].runs.find(r => r.text.includes('😀')).bold).toBe(true);
+  expect(unzipSync(new Uint8Array(await pkg.export().arrayBuffer()))).toEqual(unzipSync(bytes));
+  model.select(0, 5); model.replace('Nice');
+  const saved = unzipSync(new Uint8Array(await pkg.export(model.paragraphs, model.pageSettings, model.numbering, model.styles, model.tables, model.assets).arrayBuffer()));
+  const xml = strFromU8(saved['word/document.xml']);
+  // The rewritten paragraph keeps its emoji as text; the untouched one keeps its symbol extension.
+  expect(xml.match(/w16se:symEx/g)).toHaveLength(1);
+  const reopened = await DocxPackage.open(zipSync(saved));
+  expect(reopened.readOnly).not.toBe(true);
+  expect(new TextDocument(reopened.paragraphs).text).toBe('Nice work 😀👍 team\nUntouched 🎉');
+  expect(reopened.paragraphs[0].runs.find(r => r.text.includes('👍')).bold).toBe(true);
+});

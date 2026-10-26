@@ -1513,6 +1513,13 @@ export class DocxPackage {
           else if (t.namespaceURI === W && t.localName === 'drawing') pushDrawing(t, () => paragraphImageReader(t));
           else if (t.namespaceURI === MC && t.localName === 'AlternateContent') {
             const branch = alternateBranch(t);
+            // A selected branch of plain text, such as the Fallback of the symbol extension
+            // (w16se:symEx) Word writes for each emoji, is that text (Part 3 §10.2.1). A rewritten
+            // paragraph keeps the text and drops the choice this editor does not understand.
+            if (branch.children.length && [...branch.children].every(n => n.namespaceURI === W && n.localName === 't')) {
+              pendingChildren.push(children(branch)[Symbol.iterator]());
+              continue;
+            }
             if (branch.children.length !== 1 || branch.firstElementChild.namespaceURI !== W || branch.firstElementChild.localName !== 'drawing') {
               if (!preview) throw new UnsupportedDocumentError('alternate content other than one drawing');
               // Part 3 substitutes the selected branch's contents, which can
