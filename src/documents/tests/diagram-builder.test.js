@@ -31,6 +31,22 @@ it('lays out every diagram inside its frame', () => {
   }
 });
 
+it('keeps every item visible when a diagram holds many items', () => {
+  // With 15 to 30 items the fixed gaps used to take the whole frame: Vertical List, Basic Process,
+  // Pyramid and Organization Chart items came out zero high or zero wide.
+  const width = 5486400, height = 3071000;
+  for (const n of [15, 20, 30]) {
+    const items = Array.from({ length: n }, (_, i) => ({ text: `Step ${i + 1}`, children: i % 4 ? [] : [{ text: 'Detail', children: [] }, { text: 'More', children: [] }] }));
+    for (const layout of DIAGRAM_LAYOUTS) {
+      const shapes = diagramShapes(layout.id, items, { width, height }), least = Math.min(width, height) / n / 4;
+      for (const s of shapes.filter(s => s.role === 'node' || s.role === 'detail')) {
+        expect(Math.min(s.w, s.h), `${layout.id} with ${n} items`).toBeGreaterThan(least);
+        expect(s.x + s.w, layout.id).toBeLessThanOrEqual(width + 2); expect(s.y + s.h, layout.id).toBeLessThanOrEqual(height + 2);
+      }
+    }
+  }
+});
+
 it('every layout and color set saves as a group of shapes that reopens editable and regenerates from its description', async () => {
   const items = parseOutline(DEFAULT_OUTLINE);
   for (const layout of DIAGRAM_LAYOUTS) for (const colors of [DIAGRAM_COLORS[0].id, 'colorful']) {

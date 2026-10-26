@@ -23781,6 +23781,9 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   `Diagram: <layout> (<colors>)` followed by the indented outline; Edit Diagram reads it back and
   replaces the group in one undo step. Diagrams edited in another application keep their XML but
   regenerate from their description when edited here.
+  Gaps between items shrink as items crowd in (together at most a third of the frame), so a list,
+  process, pyramid or organization chart of 15–30 items keeps every shape visible rather than
+  zero-sized; text in shapes that small is still shrunk only to 8 pt. `tests/diagram-builder.test.js`.
 - **Charts** (§21.2 DrawingML charts): `c:chartSpace` parts with literal data (`c:strLit`,
   `c:numLit`), explicit text properties and no external workbook. Column and bar
   (`c:barChart`, `c:barDir` `col`/`bar`; clustered, stacked, percentStacked), line with or without

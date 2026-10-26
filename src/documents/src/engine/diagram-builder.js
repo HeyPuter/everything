@@ -74,21 +74,25 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
   const n = top.length, shapes = [], gap = toEmu(0.12);
   const node = (x, y, w, h, preset, text, extra = {}) => shapes.push({ x, y, w, h, preset, role: 'node', text, level: 0, ...extra });
   const label = item => item.children.length ? `${item.text}\n${item.children.map(c => `• ${c.text}`).join('\n')}` : item.text;
+  // Gaps between `count` items along `length` shrink as items crowd in: together they take at most a
+  // third of it, so no item is squeezed to nothing (Word's layouts space items in proportion too).
+  const spacing = (length, count, preferred = gap) => count > 1 ? Math.min(preferred, length / 3 / (count - 1)) : preferred;
   switch (layoutId) {
     case 'verticalList': {
-      const h = (height - gap * (n - 1)) / n;
+      const between = spacing(height, n), h = (height - between * (n - 1)) / n;
       top.forEach((item, i) => {
-        node(0, i * (h + gap), width * 0.32, h, 'roundRect', item.text, { index: i });
-        if (item.children.length) shapes.push({ x: width * 0.32 + gap, y: i * (h + gap) + h * 0.08, w: width * 0.68 - gap, h: h * 0.84, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i });
+        node(0, i * (h + between), width * 0.32, h, 'roundRect', item.text, { index: i });
+        if (item.children.length) shapes.push({ x: width * 0.32 + gap, y: i * (h + between) + h * 0.08, w: width * 0.68 - gap, h: h * 0.84, preset: 'rect', role: 'detail', text: item.children.map(c => `• ${c.text}`).join('\n'), index: i });
       });
       break;
     }
     case 'basicProcess': {
-      const arrow = Math.min(toEmu(0.45), width / (n * 4)), w = (width - arrow * (n - 1) - gap * 2 * (n - 1)) / n, h = Math.min(height, w * 0.75), y = (height - h) / 2;
+      // Arrows take at most a quarter of the width, the gaps beside them at most a third.
+      const arrow = Math.min(toEmu(0.45), width / (n * 4)), side = spacing(width / 2, n), w = (width - arrow * (n - 1) - side * 2 * (n - 1)) / n, h = Math.min(height, w * 0.75), y = (height - h) / 2;
       top.forEach((item, i) => {
-        const x = i * (w + arrow + gap * 2);
+        const x = i * (w + arrow + side * 2);
         node(x, y, w, h, 'roundRect', label(item), { index: i });
-        if (i < n - 1) shapes.push({ x: x + w + gap, y: height / 2 - arrow * 0.6, w: arrow, h: arrow * 1.2, preset: 'rightArrow', role: 'accent', index: i });
+        if (i < n - 1) shapes.push({ x: x + w + side, y: height / 2 - arrow * 0.6, w: arrow, h: arrow * 1.2, preset: 'rightArrow', role: 'accent', index: i });
       });
       break;
     }
@@ -126,7 +130,9 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       const rootW = Math.min(width * 0.32, toEmu(2));
       node((width - rootW) / 2, 0, rootW, boxH, 'roundRect', root.text, { index: 0 });
       if (!kids.length) break;
-      const colW = width / kids.length, kidW = Math.min(colW - gap * 2, toEmu(1.8)), y1 = rowH + gap * 2;
+      const colW = width / kids.length, kidW = Math.min(colW - Math.min(gap * 2, colW / 3), toEmu(1.8)), y1 = rowH + gap * 2;
+      // Sub-items hang from a stem inside their parent's left edge; a narrow parent brings them closer.
+      const indent = Math.min(toEmu(0.25), kidW / 3), stem = indent * 0.4;
       const busY = boxH + (y1 - boxH) / 2;
       shapes.push({ x: width / 2 - bar / 2, y: boxH, w: bar, h: busY - boxH, preset: 'rect', role: 'connector' });
       if (kids.length > 1) shapes.push({ x: colW / 2, y: busY - bar / 2, w: width - colW, h: bar, preset: 'rect', role: 'connector' });
@@ -135,12 +141,12 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
         shapes.push({ x: cx - bar / 2, y: busY, w: bar, h: y1 - busY, preset: 'rect', role: 'connector' });
         node(cx - kidW / 2, y1, kidW, boxH, 'roundRect', kid.text, { index: i + 1, level: 1 });
         if (levels === 3 && kid.children.length) {
-          const y2 = y1 + rowH + gap * 2, m = kid.children.length, subH = Math.min(boxH, (height - y2 - gap * (m - 1)) / m);
-          shapes.push({ x: cx - kidW / 2 + toEmu(0.1), y: y1 + boxH, w: bar, h: y2 - y1 - boxH + subH * (m - 0.5) + gap * (m - 1), preset: 'rect', role: 'connector' });
+          const y2 = y1 + rowH + gap * 2, m = kid.children.length, between = spacing(height - y2, m), subH = Math.min(boxH, (height - y2 - between * (m - 1)) / m);
+          shapes.push({ x: cx - kidW / 2 + stem, y: y1 + boxH, w: bar, h: y2 - y1 - boxH + subH * (m - 0.5) + between * (m - 1), preset: 'rect', role: 'connector' });
           kid.children.forEach((sub, j) => {
-            const y = y2 + j * (subH + gap);
-            shapes.push({ x: cx - kidW / 2 + toEmu(0.1), y: y + subH / 2 - bar / 2, w: toEmu(0.15), h: bar, preset: 'rect', role: 'connector' });
-            shapes.push({ x: cx - kidW / 2 + toEmu(0.25), y, w: kidW - toEmu(0.25), h: subH, preset: 'rect', role: 'detail', text: sub.text, index: i + 1, level: 2 });
+            const y = y2 + j * (subH + between);
+            shapes.push({ x: cx - kidW / 2 + stem, y: y + subH / 2 - bar / 2, w: indent - stem, h: bar, preset: 'rect', role: 'connector' });
+            shapes.push({ x: cx - kidW / 2 + indent, y, w: kidW - indent, h: subH, preset: 'rect', role: 'detail', text: sub.text, index: i + 1, level: 2 });
           });
         }
       });
@@ -168,10 +174,10 @@ export function diagramShapes(layoutId, items, { width = toEmu(6), height = toEm
       break;
     }
     case 'pyramid': {
-      const h = (height - gap * (n - 1)) / n, base = Math.min(width, height * 1.4), slope = base / 2 / height;
+      const between = spacing(height, n), h = (height - between * (n - 1)) / n, base = Math.min(width, height * 1.4), slope = base / 2 / height;
       top.forEach((item, i) => {
         // Each level is a band of the same triangle: its bottom width grows with its depth.
-        const y = i * (h + gap), w = 2 * (y + h) * slope, x = (width - w) / 2;
+        const y = i * (h + between), w = 2 * (y + h) * slope, x = (width - w) / 2;
         if (i === 0) node(x, y, w, h, 'triangle', item.text, { index: i });
         else node(x, y, w, h, 'trapezoid', item.text, { index: i, adj: Math.round(h * slope / Math.min(w, h) * 100000) });
       });
