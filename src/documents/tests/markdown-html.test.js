@@ -31,3 +31,11 @@ it('opens Markdown nested too deeply to convert as its plain text, one paragraph
   expect(open(`Intro <b>&amp;</b>\r\n${'>'.repeat(5000)} deep\n`)).toEqual(['Intro <b>&amp;</b>', `${'>'.repeat(5000)} deep`]);
   expect(open(`${'*'.repeat(5000)}a${'*'.repeat(5000)}`)).toEqual([`${'*'.repeat(5000)}a${'*'.repeat(5000)}`]);
 });
+
+it('opens footnotes as their numbered notes, without the arrows a web page links back with', () => {
+  const lines = open('A claim[^1] and[^1] another[^n].\n\n[^1]: The source.\n[^n]: Second note\n\n    with more.\n');
+  expect(lines.join('\n')).not.toContain('↩');
+  expect(lines).toContain('The source.');
+  expect(lines).toContain('with more.');
+  expect(lines[0]).toBe('A claim1 and1 another2.');
+});
