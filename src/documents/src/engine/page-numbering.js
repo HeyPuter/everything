@@ -53,7 +53,9 @@ export function formatPageNumber(value, format = 'decimal') {
 export function pageNumberSequence(pageSections, definition, approximations = []) {
   let previous = null, number = 0;
   return pageSections.map(section => {
-    if (section === null) return null; // Duplex filler pages have no story/count.
+    // A filler page before an odd- or even-page section has no stories, but it takes the number
+    // in between (layout.js): the section after it continues from there unless it restarts.
+    if (section === null) { number++; return null; }
     const start = approximations.some(item => item.section === section) ? undefined : definition?.sections[section]?.pageNumbering?.start;
     number = section !== previous && start !== undefined ? start : number + 1;
     previous = section;

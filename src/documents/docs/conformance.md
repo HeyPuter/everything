@@ -5790,7 +5790,11 @@ restart changes parity inserts a completely blank page. This extends the literal
 next-page behavior in §17.6.22. Parity is compared with the next logical value
 of the preceding section, not the physical document index. These filler pages
 have no story, count toward NUMPAGES and the existing 200-page resource limit,
-and do not count toward SECTIONPAGES. Preflight and the editor use the same
+and do not count toward SECTIONPAGES. The blank page before an odd- or even-page
+section (§17.18.77) takes the page number in between, so a following section that
+continues numbering starts on the requested parity; PAGE fields, odd/even story
+selection and the body's header/footer clearance all read that same sequence.
+Preflight and the editor use the same
 pagination inputs, so exceeding the limit falls back before editor attachment.
 
 Four independent 13-section fixtures and retained reference PDFs cover 99 physical

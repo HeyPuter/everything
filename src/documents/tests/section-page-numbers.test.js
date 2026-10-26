@@ -41,6 +41,26 @@ it('keeps continuation distinct from a repeated restart, including zero and fill
   expect(formatPageNumber(0,'lowerRoman')).toBe(' ');expect(formatPageNumber(0,'upperLetter')).toBe(' ');
 });
 
+it('numbers the pages after an odd-page filler from the page after it, as the body reserves them',()=>{
+  // One page, then an odd-page section: page 2 is a blank filler and the section starts on page 3.
+  expect(pageNumberSequence([0,null,1],{sections:[{},{}]})).toEqual([1,null,3]);
+  const s0=DEFAULT_PAGE_SETTINGS,s1={...DEFAULT_PAGE_SETTINGS,sectionType:'oddPage'};
+  const folio={kind:'footer',paragraphs:[paragraph('',{runs:[{text:'Page '},{text:'\uFFFC',field:{type:'PAGE',cachedText:'1'}}]})]};
+  // Even pages have a three-line footer; with the wrong number, the body runs into it.
+  const tall={kind:'footer',paragraphs:['Even','page','footer'].map(text=>paragraph(text))};
+  const definition={evenAndOdd:true,sections:[{header:{},footer:{default:'f',even:'e'}},{header:{},footer:{default:'f',even:'e'}}],stories:{f:folio,e:tall}};
+  const ps=[paragraph('Chapter one',{sectionEnd:s0}),...Array.from({length:60},(_,i)=>paragraph(`Chapter two ${i}`))];
+  const body=layoutDocument(ps,measure,pageGeometry(s1),undefined,[],definition);
+  const stories=layoutPageStories(body,definition,[s0,s1],measure);
+  const text=page=>stories.lines.filter(l=>l.page===page).map(l=>l.fragments.map(f=>f.text).join('')).join('/');
+  expect(body.pageSections.slice(0,4)).toEqual([0,null,1,1]);
+  expect([0,1,2,3].map(text)).toEqual(['Page 1','','Page 3','Even/page/footer']);
+  for(let page=0;page<body.pageCount;page++){
+    const footer=stories.lines.filter(l=>l.page===page),lines=body.lines.filter(l=>l.page===page);
+    if(footer.length&&lines.length) expect(Math.max(...lines.map(l=>l.y+l.height))).toBeLessThanOrEqual(Math.min(...footer.map(l=>l.y)));
+  }
+});
+
 it.each(['w:start="-1"','w:start="1.5"','w:start="2147483648"','w:start="NaN"','w:unknown="1"'])('guards malformed or out-of-range page numbering: %s',attrs=>{
   const root=parseXml(`<w:sectPr xmlns:w="${W}"><w:pgNumType ${attrs}/></w:sectPr>`).documentElement;
   expect(()=>readPageNumbering(root)).toThrow();

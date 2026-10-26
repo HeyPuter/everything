@@ -98,7 +98,7 @@ it('rolls back layout failure including history, dirty flags and selection', asy
 });
 it('recalculates against changed pagination instead of making a single stale pass', async () => {
   const p = await DocxPackage.open(source), d = model(p); let passes = 0;
-  const result = refreshPageReferences(d, current => { passes++; const layout = layoutOf(p)(current); if (values(current)[0] !== '99') layout.pageSections = [null, 0]; return layout; }, p.pageStories);
+  const result = refreshPageReferences(d, current => { passes++; const layout = layoutOf(p)(current); if (values(current)[0] !== '99') layout.lines = layout.lines.map(line => ({ ...line, page: 0 })); return layout; }, p.pageStories);
   expect(passes).toBe(3); expect(result.changed).toBe(3); expect(values(d)).toEqual(['1', '1', '1', '66']); expect(d.history).toHaveLength(1);
 });
 it('refreshes page references with Track Changes on, leaving no tracked change', async () => {
