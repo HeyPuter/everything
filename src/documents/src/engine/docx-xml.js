@@ -7,6 +7,10 @@ export function wordText(node) {
     ? text : text.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, '');
 }
 
+// A line feed or carriage return inside w:t or w:delText is XML whitespace, not a break: breaks are
+// w:br and w:cr (§17.3.3.1, §17.3.3.4). Word shows each one as a space.
+export const runText = node => wordText(node).replace(/\r\n|[\r\n]/g, ' ');
+
 export function parseXml(bytes) {
   let text;
   if (bytes instanceof Uint8Array) {

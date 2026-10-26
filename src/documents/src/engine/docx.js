@@ -86,7 +86,7 @@ import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS } from
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
-import { parseXml as xml, wordText } from './docx-xml.js';
+import { parseXml as xml, runText } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
 import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
@@ -1470,8 +1470,8 @@ export class DocxPackage {
             push();bodyFields.token(t,r,textPosition,fieldMarkers,link);continue;
           }
           if (!context.drawingText && !context.pageStory && bodyFields.inCode) { if (bodyFields.absorb(t, r)) continue; throw new UnsupportedDocumentError('visible content inside a body field instruction'); }
-          if (t.namespaceURI === W && t.localName === 't') text += wordText(t);
-          else if (t.namespaceURI === W && t.localName === 'delText' && currentRevision?.type === 'del') text += wordText(t);
+          if (t.namespaceURI === W && t.localName === 't') text += runText(t);
+          else if (t.namespaceURI === W && t.localName === 'delText' && currentRevision?.type === 'del') text += runText(t);
           else if (t.namespaceURI === W && t.localName === 'sym') {
             const font = t.getAttributeNS(W, 'font'), code = t.getAttributeNS(W, 'char');
             if (!font?.trim() || !/^[\da-f]{4}$/i.test(code || '') || t.children.length || t.textContent.trim() || [...t.attributes].some(a => a.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(a.namespaceURI === W && ['font', 'char'].includes(a.localName)))) throw new UnsupportedDocumentError('malformed symbols');

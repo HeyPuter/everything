@@ -1,7 +1,7 @@
 import { paragraph } from './model.js';
 import { MC, alternateBranch } from './docx-compatibility.js';
 import { previewMacroButtons } from './docx-macro-buttons.js';
-import { wordText } from './docx-xml.js';
+import { runText } from './docx-xml.js';
 
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
 const children = node => [...(node?.children || [])];
@@ -34,7 +34,7 @@ export function previewParagraphs(root) {
           if (property) format[key] = !['false', '0', 'off'].includes(property.getAttributeNS(node.namespaceURI, 'val'));
         }
       }
-      const text = name === 't' ? wordText(node).replace(/\r\n?|\n/g, '\v')
+      const text = name === 't' ? runText(node)
         : name === 'tab' ? '\t' : ['br', 'cr'].includes(name) ? '\v'
         : name === 'noBreakHyphen' ? '\u2011' : name === 'softHyphen' ? '\u00ad' : null;
       if (text !== null) { runs.push({ text, ...format }); return; }
