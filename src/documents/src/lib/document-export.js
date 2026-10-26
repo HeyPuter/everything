@@ -140,6 +140,30 @@ ${body}
 // Text keeps its characters on reading back: emphasis, code, link, heading, HTML and table punctuation, a
 // strikethrough tilde, and an ampersand that would start a character reference are escaped.
 const mdEscape = text => text.replace(/([\\`*_[\]#<>|~])/g, '\\$1').replace(/&(?=#\d+;|#x[\da-f]+;|[a-z][a-z\d]*;)/gi, '\\&');
+// A web address in the text is written as an autolink (<https://…>), whose characters read back as they are.
+// Escaped, Markdown readers would link it with the backslashes in it: "https://example.com/a\\_b" is linked
+// as typed, backslashes and all. Trailing punctuation ends the sentence, not the address, as in GitHub's
+// autolinks. An address an autolink cannot carry (one with a pipe, which would split a table cell) and a
+// www. address that needs escapes start with a character reference instead, so no reader links them and
+// their escapes read back as text.
+const WEB_ADDRESS = /(?<![A-Za-z])(?:https?:\/\/|www\.)[^\s<>\u0000-\u001f\u007f]+/giu;
+function mdText(text) {
+  let out = '', at = 0;
+  for (const match of text.matchAll(WEB_ADDRESS)) {
+    let address = match[0];
+    if (/^https?:/i.test(address) && !address.includes('|')) {
+      for (;;) {
+        const last = address.at(-1);
+        if (/[?!.,:*_~'"]/.test(last) || last === ')' && address.split('(').length < address.split(')').length) address = address.slice(0, -1);
+        else break;
+      }
+      out += `${mdEscape(text.slice(at, match.index))}<${address}>`;
+    } else if (mdEscape(address) !== address) out += `${mdEscape(text.slice(at, match.index))}&#${address.charCodeAt(0)};${mdEscape(address.slice(1))}`;
+    else continue;
+    at = match.index + address.length;
+  }
+  return out + mdEscape(text.slice(at));
+}
 // A line of text that starts like a block (a list item, a thematic break, a setext underline or indented
 // code) would become one; the punctuation is escaped and indentation's first space written as a reference.
 const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${space.charCodeAt(0)};${space.slice(1)}`)
@@ -148,8 +172,10 @@ const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${spac
 const BREAK = '\0';
 // A run's escaped text, split around its core when the run writes markers, tags or a link around it.
 function runPieces(run, heading) {
-  const text = mdEscape(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
-  const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading, link = safeLink(run);
+  const link = safeLink(run);
+  // A link's text cannot hold another link, so an address in it stays escaped text.
+  const text = (link ? mdEscape : mdText)(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
+  const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading;
   if (!/[^\s\0]/.test(text) || !(strike || run.italic || bold || ['superscript', 'subscript'].includes(run.verticalAlign) || link)) return { text };
   // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
   const [, lead, core, trail] = /^([\s\0]*)([\s\S]*?)([\s\0]*)$/.exec(text);

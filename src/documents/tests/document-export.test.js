@@ -231,6 +231,20 @@ describe('exported links', () => {
       expect(targets(back)).toEqual(expected);
     }
   });
+  it('keeps web addresses in the text as they are typed', () => {
+    const lines = ['See https://example.com/path_name_here#top_part for more.', 'Docs (https://en.wikipedia.org/wiki/Foo_(bar)), then www.example.com/a_b*c.', 'Piped https://example.com/a~b|c and 1http://x.y/*a*'];
+    const doc = blankDoc();
+    lines.forEach((line, i) => { if (i) doc.insertParagraph(); doc.replace(line); });
+    const markdown = documentMarkdown(doc);
+    // An address reads best, and links in any Markdown reader, as an autolink; the sentence's punctuation stays outside it.
+    expect(markdown).toContain('See <https://example.com/path_name_here#top_part> for more.');
+    expect(markdown).toContain('(<https://en.wikipedia.org/wiki/Foo_(bar)>),');
+    const back = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(back, fragment);
+    expect(back.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(lines);
+    expect(back.paragraphs[0].runs.find(r => r.link)?.link.target).toBe('https://example.com/path_name_here#top_part');
+  });
   it('keeps a link that follows an exclamation mark, rather than reading it back as a picture', () => {
     const doc = blankDoc();
     doc.replace('Wow!docs and more');
