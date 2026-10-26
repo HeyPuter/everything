@@ -944,6 +944,8 @@ function convertible(p) {
   if (p.sectionEnd) return 'Section breaks cannot become table cells.';
   if (p.fieldMarkers?.length || p.bookmarks?.length) return 'Text with fields, bookmarks or comments cannot be converted yet.';
   if (p.blockControls?.length || p.runs.some(r => r.contentControl || r.revision)) return 'Text in content controls or tracked changes cannot be converted yet.';
+  // Drawings in table cells do not wrap text yet.
+  if (p.runs.some(r => r.image?.anchor && r.image.anchor.wrap !== 'none')) return 'Text with a picture or shape that text wraps around cannot become a table yet. Set it to In Line with Text or In Front of Text first.';
   return null;
 }
 

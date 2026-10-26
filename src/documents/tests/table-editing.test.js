@@ -529,3 +529,13 @@ describe('inserting columns into an AutoFit table', () => {
     }
   });
 });
+
+it('explains that text holding a picture text wraps around cannot become a table yet', async () => {
+  const pkg = await DocxPackage.open(readFileSync('public/fixtures/square-wrap-flow.docx')), doc = open(pkg);
+  const at = doc.text.indexOf('CASE left');
+  doc.select(at, doc.text.indexOf('Following paragraph') + 5);
+  expect(doc.selectedParagraphs.some(p => p.runs.some(r => r.image?.anchor?.wrap === 'square'))).toBe(true);
+  const before = doc.text;
+  expect(() => T.convertTextToTable(doc, { separator: 'tab' })).toThrow(/picture or shape that text wraps around.*In Line with Text/);
+  expect([doc.text, doc.tables.length]).toEqual([before, 0]);
+});
