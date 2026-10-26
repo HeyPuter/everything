@@ -273,3 +273,21 @@ describe('numbering codec and preservation', () => {
     })).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });
   });
 });
+
+it('gives a restarted list a new instance without repeating the source durable identifier', async () => {
+  const CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
+  const base = await fixture();
+  const pkg = await rewrite(base, xmls => {
+    const root = xmls['word/numbering.xml'].documentElement;
+    root.setAttributeNS('http://www.w3.org/2000/xmlns/', 'xmlns:w16cid', CID);
+    [...root.getElementsByTagNameNS(W, 'num')].forEach((num, i) => num.setAttributeNS(CID, 'w16cid:durableId', String(1000 + i)));
+  });
+  const doc = docOf(pkg); doc.select(indexed(doc, 3)); doc.restartNumbering();
+  const saved = await exportDoc(pkg, doc);
+  const numbering = new DOMParser().parseFromString(strFromU8(unzipSync(saved)['word/numbering.xml']), 'application/xml');
+  const nums = [...numbering.getElementsByTagNameNS(W, 'num')];
+  const ids = nums.map(num => num.getAttributeNS(CID, 'durableId')).filter(Boolean);
+  expect(nums.length).toBeGreaterThan(ids.length);
+  expect(new Set(ids).size).toBe(ids.length);
+  expect(labels(docOf(await DocxPackage.open(saved)))).toEqual(labels(doc));
+});

@@ -21,6 +21,7 @@ import { writeFontProperties } from './docx-fonts.js';
 import { LEVEL_PARAGRAPH_ELEMENTS } from './numbering-paragraph.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+const W16CID = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const OFFICE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering';
 const TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml';
@@ -363,6 +364,8 @@ export function writeNumbering(parts, numbering) {
     // extension metadata must survive even when this preview cannot render them.
     const node = instance.sourceXml ? doc.importNode(xml(instance.sourceXml).documentElement, true) : make('num');
     node.setAttributeNS(W, 'w:numId', id);
+    // A clone is a new instance: the source's durable identifier ([MS-DOCX] w16cid:durableId) must stay unique.
+    for (const attribute of [...node.attributes]) if (attribute.namespaceURI === W16CID && attribute.localName === 'durableId') node.removeAttributeNode(attribute);
     if (!instance.sourceXml) node.append(make('abstractNumId', instance.abstractId));
     const overrides = instance.sourceXml ? Object.entries(instance.startChanges || {}).map(([index, start]) => [index, { start }]) : Object.entries(instance.overrides);
     for (const [index, override] of overrides) {
