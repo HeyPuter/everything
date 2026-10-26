@@ -251,6 +251,23 @@ test('zoom: dialog presets, many pages, text width and Ctrl + wheel', async ({ p
   await expect(slider).toHaveValue(now);
 });
 
+test('the Zoom dialog fits its fields inside the dialog', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  await expect(dialog).toBeVisible();
+  // The form was wider than the dialog's content box: the Percent field ran into the right edge and the dialog scrolled sideways.
+  const fit = await dialog.evaluate(panel => {
+    const box = panel.getBoundingClientRect(), padding = parseFloat(getComputedStyle(panel).paddingRight);
+    const field = panel.querySelector('input[aria-label="Percent"]').getBoundingClientRect();
+    return { scrolls: panel.scrollWidth > panel.clientWidth, gap: Math.round(box.right - padding - field.right) };
+  });
+  expect(fit.scrolls).toBe(false);
+  expect(fit.gap).toBeGreaterThanOrEqual(0);
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('cancelling the Zoom dialog keeps the page following the window width', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'New', exact: true }).click();

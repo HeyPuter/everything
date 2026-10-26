@@ -109,7 +109,6 @@
 }
 
 /* ---- Zoom dialog ---- */
-.view-zoom-dialog { min-width: min(420px, 86vw); }
 .view-zoom-set { display: grid; grid-template-columns: auto auto; gap: 8px 20px; margin: 0; padding: 0; border: 0; }
 .view-zoom-set legend { padding: 0; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--muted, var(--ed-ink-3)); }
 .view-zoom-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 14px; }
