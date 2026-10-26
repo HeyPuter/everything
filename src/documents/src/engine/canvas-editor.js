@@ -512,8 +512,37 @@ export class CanvasEditor {
   redo() { this.travelHistory('redo'); }
   setZoom(value) {
     if (!Number.isFinite(value)) return;
-    this.zoom = Math.max(0.1, Math.min(2, value));
+    const zoom = Math.max(0.1, Math.min(2, value)), anchor = zoom !== this.zoom ? this.viewAnchor() : null;
+    this.zoom = zoom;
     this.resizeCanvases();
+    // The text in the middle of the view stays there: keeping the scroll offset instead showed another
+    // part of a long document, pages away, after each zoom step.
+    if (anchor) {
+      const r = this.canvases[anchor.index]?.getBoundingClientRect();
+      if (r) {
+        // Whole pixels: a page scrolled to a fractional position is resampled, which blurs it.
+        if (!anchor.atStart) this.host.scrollTop = Math.round(this.host.scrollTop + r.top + anchor.y * zoom - anchor.top);
+        this.host.scrollLeft = Math.round(this.host.scrollLeft + r.left + anchor.x * zoom - anchor.left);
+      }
+    }
+  }
+  /**
+   * The page point at the middle of the visible part of the view, and where it is on screen.
+   * `atStart`: the view shows the start of the document, which it keeps showing.
+   */
+  viewAnchor() {
+    if (!this.canvases?.length) return null;
+    const host = this.host.getBoundingClientRect();
+    const top = Math.max(host.top, 0), bottom = Math.min(host.bottom, window.innerHeight), left = Math.max(host.left, 0), right = Math.min(host.right, window.innerWidth);
+    if (bottom <= top || right <= left) return null;
+    const x = (left + right) / 2, y = (top + bottom) / 2;
+    let best = null;
+    this.canvases.forEach((canvas, index) => {
+      const r = canvas.getBoundingClientRect(), distance = Math.max(r.top - y, 0, y - r.bottom) + Math.max(r.left - x, 0, x - r.right);
+      if (!best || distance < best.distance) best = { index, r, distance };
+    });
+    // A point between pages or beside them is kept relative to the nearest page.
+    return { index: best.index, x: (x - best.r.left) / this.zoom, y: (y - best.r.top) / this.zoom, left: x, top: y, atStart: this.host.scrollTop <= 0 };
   }
   setAccessible(value) {
     this.accessible = value;
