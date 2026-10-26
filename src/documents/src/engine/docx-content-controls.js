@@ -221,8 +221,8 @@ export function contentControlReader(readRunProperties, parts = {}) {
       if (children(end).length > 1 || children(end).some(p => p.namespaceURI !== W || p.localName !== 'rPr')) fail('unsupported end properties');
       for (const p of children(end)) readRunProperties(p);
     }
-    // A rich-text control may hold a comment's range ends and its reference mark (§17.13.4).
-    const commentable = kind === 'inline' && !plain && !picture;
+    // A text control may hold a comment's range ends and its reference mark (§17.13.4).
+    const commentable = kind === 'inline' && !picture;
     const allowed = kind === 'cell' ? ['tc'] : kind === 'block' ? ['p', 'tbl', 'sdt', 'bookmarkStart', 'bookmarkEnd'] : ['r', 'hyperlink', 'proofErr', 'bookmarkStart', 'bookmarkEnd', ...(commentable ? ['commentRangeStart', 'commentRangeEnd'] : [])];
     const emptyRichInline = kind === 'inline' && persistent && !plain && !picture;
     // Tracked insertions and deletions (§17.13.5) wrap a text control's runs, as the editor
@@ -239,9 +239,10 @@ export function contentControlReader(readRunProperties, parts = {}) {
       // Typing replaces the cache; formatting still targets the whole control.
       if (kind !== 'inline' && (!paragraphs.length || paragraphs.length !== 1 && !placeholder || children(container).some(n => n.namespaceURI !== W || !['p', ...(kind === 'cell' ? ['tcPr'] : [])].includes(n.localName)))) fail('plain-text controls spanning multiple paragraphs or tables');
       const runs = kind === 'inline' ? inlineItems : paragraphs.flatMap(p => children(p)).filter(n => n.localName !== 'pPr');
-      if (!runs.length || runs.some(n => n.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd'].includes(n.localName))) fail('non-text plain-control contents');
-      for (const r of runs.filter(n => n.localName === 'r')) if (children(r).some(n => n.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak'].includes(n.localName))) fail('non-text plain-control runs');
-      const formats = runs.filter(n => n.localName === 'r').map(r => readRunProperties(child(r, 'rPr')));
+      if (!runs.length || runs.some(n => n.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd', ...(commentable ? ['commentRangeStart', 'commentRangeEnd'] : [])].includes(n.localName))) fail('non-text plain-control contents');
+      const referenceMark = r => commentable && children(r).some(n => n.namespaceURI === W && n.localName === 'commentReference') && children(r).every(n => n.namespaceURI === W && ['rPr', 'commentReference'].includes(n.localName));
+      for (const r of runs.filter(n => n.localName === 'r' && !referenceMark(n))) if (children(r).some(n => n.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak'].includes(n.localName))) fail('non-text plain-control runs');
+      const formats = runs.filter(n => n.localName === 'r' && !referenceMark(n)).map(r => readRunProperties(child(r, 'rPr')));
       const signature = r => JSON.stringify([r.styleId, r.directFormat]);
       if (!placeholder && formats.some(r => signature(r) !== signature(formats[0]))) fail('mixed formatting in a plain-text control');
     }
@@ -267,7 +268,7 @@ export function contentControlReader(readRunProperties, parts = {}) {
           // Keep them in the retained shell; they impose no editing lock.
           leaf(r, ['type']);
           if (!['spellStart', 'spellEnd', 'gramStart', 'gramEnd'].includes(r.getAttributeNS(W, 'type'))) fail('invalid proofing marker type');
-        } else if (r.localName === 'r' && children(r).some(t => t.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak', ...(!plain&&!picture?['fldChar','instrText','commentReference']:[]), ...(persistent || picture ? ['drawing'] : [])].includes(t.localName))) fail('non-text contents');
+        } else if (r.localName === 'r' && children(r).some(t => t.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak', ...(!plain&&!picture?['fldChar','instrText']:[]), ...(commentable?['commentReference']:[]), ...(persistent || picture ? ['drawing'] : [])].includes(t.localName))) fail('non-text contents');
       }
     }
     const prompt = persistent && !picture ? placeholderRuns(child(child(pr, 'placeholder'), 'docPart')?.getAttributeNS(W, 'val'), kind) : undefined;

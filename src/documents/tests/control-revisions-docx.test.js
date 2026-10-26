@@ -74,9 +74,9 @@ describe('tracked changes inside content controls', () => {
 });
 
 describe('comments inside content controls', () => {
-  const body = control('richText');
-  for (const [name, from, to] of [['ending inside', 'Before', 'Inside'], ['starting inside', 'text', 'after'], ['wholly inside', 'Inside', 'text']]) {
-    it(`reopens a comment ${name} a rich-text control for editing`, async () => {
+  for (const [type, label] of [['richText', 'rich-text'], ['text', 'plain-text']]) for (const [name, from, to] of [['ending inside', 'Before', 'Inside'], ['starting inside', 'text', 'after'], ['wholly inside', 'Inside', 'text']]) {
+    const body = control(type);
+    it(`reopens a comment ${name} a ${label} control for editing`, async () => {
       const pkg = await DocxPackage.open(await fixture(body));
       const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { comments: [] });
       const start = model.text.indexOf(from) + 1, end = model.text.indexOf(to) + 2;
@@ -89,6 +89,12 @@ describe('comments inside content controls', () => {
       expect(again.text).toBe(model.text);
       const markers = again.paragraphs.flatMap(p => (p.bookmarks || []).filter(m => m.comment).map(m => [m.edge, m.offset]));
       expect(markers).toEqual([['start', start], ['end', end]]);
+      // The reopened control still takes typing, and saves and reopens again.
+      const at = again.text.indexOf('Inside') + 1;
+      again.select(at); again.replace('Z');
+      const twice = await DocxPackage.open(await bytes(reopened.export(again.paragraphs, again.pageSettings, again.numbering, again.styles, again.tables, again.assets, undefined, again.comments)));
+      expect(twice.readOnly).toBeFalsy();
+      expect(new TextDocument(twice.paragraphs, twice.pageSettings, twice.numbering, twice.styles, twice.tables, twice.assets).text).toBe(again.text);
     });
   }
 });
