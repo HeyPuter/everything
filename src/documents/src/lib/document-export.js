@@ -6,6 +6,8 @@
  */
 import { documentBlocks } from '../engine/tables.js';
 import { listKind, listMarkers } from '../engine/numbering.js';
+import { TextDocument } from '../engine/model.js';
+import { hasRevisions } from '../engine/revisions.js';
 
 const OBJECT = '￼';
 const escapeHtml = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -24,6 +26,19 @@ export function headingLevel(p, styles) {
 function safeLink(run) {
   const target = run.link?.target;
   return typeof target === 'string' && /^(https?:|mailto:|tel:)/i.test(target) ? target : null;
+}
+/**
+ * The document as it reads with its tracked changes accepted: deleted text gone, inserted text kept, as the
+ * page shows it once reviewed. A copy is resolved, so the open document keeps its changes for review.
+ */
+function finalModel(model) {
+  if (!model?.paragraphs || !hasRevisions(model.paragraphs)) return model;
+  try {
+    const accepted = new TextDocument(model.paragraphs, model.pageSettings, model.numbering, model.stylesEnabled ? model.styles : undefined, model.tables || [], model.assets);
+    if (!model.stylesEnabled) accepted.styles = model.styles;
+    accepted.resolveRevisions(true);
+    return accepted;
+  } catch { return model; }
 }
 const kindOf = (p, numbering) => { try { return listKind(numbering, p.list); } catch { return null; } };
 function blocksOf(model) {
@@ -118,6 +133,7 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model)) {
 
 /** A standalone, readable web page of the document. */
 export function documentHtml(model, { title = 'Document' } = {}) {
+  model = finalModel(model);
   const body = blocksHtml(blocksOf(model), model);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -261,6 +277,7 @@ function blocksMarkdown(blocks, model) {
 }
 
 export function documentMarkdown(model) {
+  model = finalModel(model);
   return `${blocksMarkdown(blocksOf(model), model).trim()}\n`;
 }
 
@@ -276,6 +293,7 @@ function itemMarkers(model) {
   return markers;
 }
 export function documentPlainText(model) {
+  model = finalModel(model);
   const lines = [], markers = itemMarkers(model);
   // A list item keeps its number or bullet, indented two spaces a level, as text has no other way to show them.
   const marker = (p, indent = true) => markers.has(p) ? (indent ? '  '.repeat(listLevel(p)) : '') + markers.get(p) : '';

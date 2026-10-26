@@ -256,3 +256,23 @@ describe('exported links', () => {
     expect(back.paragraphs[0].runs.map(r => [r.text, r.link?.target ?? null])).toEqual([['Wow!', null], ['docs', 'https://example.com/'], [' and more', null]]);
   });
 });
+
+describe('tracked changes', () => {
+  // Typed with Track Changes off, then revised with it on: "old" deleted, "new" inserted, and the break between the paragraphs deleted.
+  const reviewed = () => {
+    const doc = new TextDocument([paragraph()], undefined, undefined, undefined, [], {}, { trackChanges: false });
+    doc.replace('Hello old world\nSecond part');
+    doc.trackChanges = true;
+    const at = doc.text.indexOf('old'); doc.select(at, at + 3); doc.replace('new');
+    const end = doc.text.indexOf('\n'); doc.select(end, end + 1); doc.replace('');
+    return doc;
+  };
+  it('exports the text as it reads with the changes accepted, leaving the document under review', () => {
+    const doc = reviewed();
+    expect(documentPlainText(doc)).toBe('Hello new worldSecond part\n');
+    expect(documentMarkdown(doc)).toBe('Hello new worldSecond part\n');
+    expect(body(documentHtml(doc))).toBe('<p>Hello new worldSecond part</p>');
+    expect(doc.revisions.map(r => r.type).sort()).toEqual(['del', 'del', 'ins']);
+    expect(doc.text).toBe('Hello oldnew world\nSecond part');
+  });
+});
