@@ -341,6 +341,25 @@ describe('table commands', () => {
     expect((await roundTrip(pkg, doc)).xml).not.toContain('tblpPr');
   });
 
+  it('separates converted cells with plain text when a cell ends in an equation or a note reference', async () => {
+    const convert = insert => {
+      const { pkg, doc } = tableDocument(2, 2);
+      for (const r of [0, 1]) { at(doc, r, 0); doc.select(doc.range[0] + 2); insert(doc); }
+      at(doc, 0, 0);
+      expect(T.convertTableToText(doc, { separator: 'tab' })).toBe(true);
+      const rows = doc.paragraphs.filter(p => p.runs.some(r => r.text.includes('\t')));
+      expect(rows.map(paragraphText)).toEqual(['a0\uFFFC\ta1', 'b0\uFFFC\tb1']);
+      // Only the object itself is one; each tab is an ordinary run.
+      for (const p of rows) for (const run of p.runs) if (run.text === '\t') for (const key of ['math', 'noteMark', 'image', 'field']) expect(run).not.toHaveProperty(key);
+      return { pkg, doc };
+    };
+    const { pkg, doc } = convert(doc => doc.insertMathRun({ xml: '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>x</m:t></m:r></m:oMath>', text: 'x' }));
+    // The document still saves, with one equation per row.
+    const { xml } = await roundTrip(pkg, doc);
+    expect(xml.match(/<m:oMath\b/g)).toHaveLength(2);
+    convert(doc => doc.insertFootnoteReference(1));
+  });
+
   it('draws lines that split cells and erases lines that merge them', () => {
     const { doc } = tableDocument();
     const table = doc.tables[0];

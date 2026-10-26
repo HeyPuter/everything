@@ -915,6 +915,8 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
 /* ---- Converting between text and tables ---- */
 
 const SEPARATORS = { tab: '\t', comma: ',', paragraph: null };
+// Run properties that make a run an object or a marked change rather than plain formatted text.
+const OBJECT_RUN_KEYS = ['image', 'math', 'field', 'noteMark', 'contentControl', 'bodySymbol', 'positionalTab', 'noBreakHyphen', 'breakClear', 'revision', 'formatRevision', 'link'];
 function separatorChar(separator, other) {
   if (separator === 'other') { if (typeof other !== 'string' || [...other].length !== 1 || /[\n\v\f]/.test(other)) throw new Error('Type one separator character.'); return other; }
   if (!(separator in SEPARATORS)) throw new Error('Choose how the text is separated.');
@@ -1036,7 +1038,13 @@ export function convertTableToText(model, { separator = 'tab', other } = {}) {
       for (const marker of source?.fieldMarkers || []) (p.fieldMarkers ||= []).push({ ...marker, offset: marker.offset + at });
       for (const marker of source?.bookmarks || []) { const m = { ...marker, offset: marker.offset + at }; delete m.blockBoundary; delete m.blockScope; (p.bookmarks ||= []).push(m); }
       if (source) for (const run of source.runs) { p.runs.push(copy(run)); at += run.text.length; }
-      if (text) { const style = p.runs.at(-1) || { ...(cells[0]?.[0]?.runs[0] || {}), properties: '', overrides: {} }; p.runs.push({ ...copy(style), text }); delete p.runs.at(-1).image; delete p.runs.at(-1).field; at += text.length; }
+      if (text) {
+        // The separator takes the formatting of the text before it, as plain text: not a copy of an
+        // object run (a picture, equation, note reference, field or control) nor of a change mark.
+        const style = p.runs.at(-1) || { ...(cells[0]?.[0]?.runs[0] || {}), properties: '', overrides: {} }, run = { ...copy(style), text };
+        for (const key of OBJECT_RUN_KEYS) delete run[key];
+        p.runs.push(run); at += text.length;
+      }
     };
     cells.forEach((content, i) => {
       if (i) append(null, char);
