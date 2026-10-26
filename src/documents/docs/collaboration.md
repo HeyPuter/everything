@@ -142,6 +142,10 @@ when the owner has several open (presence entries say which tabs can write). It 
 tab's `Doc` stops saving (`setSaving(false)`): their edits reach the file through the room, so they
 are never "unsaved". When the owner is away the room keeps the changes and the owner's next visit
 saves them. Version snapshots continue to be taken by the writing tab and record who saved them.
+When the owner reopens a shared document and the room's state differs from the file (changes made
+while the owner was away, or a change to the file the room never saw: another app, a visit that
+could not reach the room), the file as it was is kept as a version, *Before the shared changes*,
+before the room's state is saved over it, and the owner is told.
 
 When sharing stops or access is removed, the document stays open as the person's own copy, with
 **Save a Copy** to keep it.

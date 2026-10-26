@@ -173,3 +173,24 @@ it('reports an autosave refused for another window\'s change, which nothing retr
   expect(conflicts).toHaveLength(1);
   expect(puter.fs.write).not.toHaveBeenCalled();
 });
+
+it('keeps the file as the drive has it as a version, and a save waiting for that writes only afterwards', async () => {
+  versioning.enabled = true;
+  const doc = await open();
+  const order = [];
+  puter.fs.readdir = vi.fn(async () => []);
+  const write = puter.fs.write;
+  puter.fs.write = vi.fn(async (name, blob, options) => { order.push(name.includes('.versions/') ? 'version' : 'file'); return write(name, blob, options); });
+  doc.changed();
+  const keeping = doc.keepFileVersion({ label: 'Before the shared changes' });
+  const saving = doc.save();
+  const version = await keeping;
+  expect(await saving).toBe(true);
+  expect(version.path).toMatch(/^Documents\/\.versions\/Report\//);
+  expect(await files.get(version.path).blob.text()).toBe('original');
+  // The version is written first; the file only once it is kept.
+  expect(order[0]).toBe('version');
+  expect(order.filter((w) => w === 'file')).toHaveLength(1);
+  expect(order.at(-1)).toBe('file');
+  expect(await files.get(path).blob.text()).toBe('my edits');
+});

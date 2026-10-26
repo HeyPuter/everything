@@ -90,7 +90,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
   }
 
   /* ---- Sessions ---- */
-  async function begin(client, link) {
+  async function begin(client, link, { reopened = false } = {}) {
     const engine = editor(); if (!engine) return null;
     const { LiveSession } = await loadLive();
     // The editor closed while the room was being joined: leave it rather than run a session no one sees.
@@ -98,8 +98,17 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     const api = engineApi();
     const me = user();
     const commentGuard = api?.protectionGuard({ edit: 'comments', enforcement: true }, { name: me.name, email: me.name });
+    const fileText = engine.session?.body?.text;
     live = new LiveSession({ engine, doc, client, link, user: me, baseAssets: Object.keys(pkg()?.assets || {}), commentGuard,
       onApplied: () => onChange(), onError: e => error(e) });
+    // Reopening a document it shared, the owner sees the room's state, which the file is then saved to. The room may lack
+    // what the file has: a change made outside it (another app, a session that could not reach the room). The file as it
+    // was is kept as a version before anything writes over it.
+    if (reopened && fileText !== undefined && engine.session.body.text !== fileText && doc.keepFileVersion) {
+      doc.keepFileVersion({ label: 'Before the shared changes' })
+        .then(v => { if (v && !destroyed) toast('The shared document had changes this file did not, and they are shown now. The file as it was is kept in Version History.', { icon: 'info', duration: 10000 }); })
+        .catch(e => console.warn('[documents] the file could not be kept as a version', e));
+    }
     for (const name of ['people', 'status', 'saver']) live.addEventListener(name, () => { renderPeople(); onChange(); });
     for (const name of ['role', 'mode', 'single', 'conflict']) live.addEventListener(name, e => { renderBanner(e); renderPeople(); onChange(); });
     live.addEventListener('ended', e => {
@@ -140,7 +149,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       if (!local && doc.path && !readOnly()) {
         const { reconnect } = await loadLive();
         const found = await reconnect(doc.path, user());
-        if (found) await begin(found.client, found.link);
+        if (found) await begin(found.client, found.link, { reopened: true });
       }
     } catch (e) { error(e); }
   }

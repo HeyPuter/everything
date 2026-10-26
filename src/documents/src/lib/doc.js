@@ -382,6 +382,20 @@ export class Doc extends EventTarget {
     });
   }
 
+  /**
+   * Keep the file as the drive has it now as a version, before anything here writes over it: the state of a shared
+   * document replacing it on reopening, say. Taken under the file lock, so a save waits for it. Resolves the version,
+   * or null when the file has no history.
+   */
+  keepFileVersion(meta = {}) {
+    return this._withFileLock(async () => {
+      if (!versioning.enabled || !this.path || this._deleted) return null;
+      const v = await saveVersion(this.path, await P.readFile(this.path), { meta: { ...this.versionMeta?.(), ...meta }, uid: this.uid });
+      if (v) this.lastVersionAt = v.time;
+      return v;
+    });
+  }
+
   /** Restore under the file lock, preserving current content and any newer edits. */
   async restoreVersion(versionPath, { stillWanted = () => true } = {}) {
     return this._withFileLock(async () => {
