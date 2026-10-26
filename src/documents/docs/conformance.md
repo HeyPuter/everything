@@ -21668,6 +21668,15 @@ embedded fragments; browser regressions cover in-document round trips, cut, the
 Edit menu, HTML from other web editors, undo, export and the plain fallbacks. The
 exported document.xml, styles.xml and numbering.xml pass `npm run check:conformance`.
 
+A selected PNG, JPEG or TIFF picture on its own (not a chart, diagram or
+drawing) copies as an HTML `<img>` with its bytes as a data URL, its displayed
+size and its alternative text (`wp:docPr/@descr`, §20.4.2.5) beside the plain
+alternative-text fallback, so pasting it here (keyboard, Edit menu or Paste
+Special's HTML format) inserts it as a new inline picture (§20.4.2.8) of the
+same size, scaled down to fit the column. Crop, effects, rotation and a
+floating position are not carried; a cropped picture pastes whole at its own
+proportions. The picture's context menu now offers Cut and Copy.
+
 ### Long formatted pastes (2026-10-05)
 
 Pasting long formatted content took a minute for ~1,600 paragraphs: every

@@ -94,6 +94,52 @@ export function fragmentHtml(fragment) {
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
 }
 
+/* ---------- A picture ---------- */
+
+export const PICTURE_ATTRIBUTE = 'data-documents-picture';
+const PICTURE_MIME = /^image\/(png|jpeg|tiff)$/i, EMU_PER_PX = 9525, MAX_PICTURE_EMU = 22 * 914400;
+
+function base64(bytes) {
+  let binary = '';
+  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode.apply(null, bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
+}
+
+/**
+ * Whether the selection is one picture a copy carries as HTML: the image for other applications, with
+ * its size and alternative text so a paste back here inserts the picture rather than its plain-text
+ * stand-in. Charts, diagrams and drawings, and pictures in formats a paste cannot insert, are not.
+ */
+export function copiesPicture(model) {
+  const image = model.selectedImage, asset = image && model.assets[image.assetId];
+  return !!image && !image.kind && asset?.bytes instanceof Uint8Array && PICTURE_MIME.test(asset.mime || '');
+}
+
+/** The HTML `copiesPicture` describes, or '' when the selection is not such a picture. */
+export function pictureHtml(model) {
+  if (!copiesPicture(model)) return '';
+  const image = model.selectedImage, asset = model.assets[image.assetId];
+  // A cropped picture's frame has the cropped shape: the pasted whole image takes its own proportions.
+  const cropped = Object.values(image.crop || {}).some(Boolean);
+  const data = { alt: image.alt || '', ...(cropped ? {} : { width: image.width, height: image.height }) };
+  const size = cropped ? '' : ` width="${Math.round(image.width / EMU_PER_PX)}" height="${Math.round(image.height / EMU_PER_PX)}"`;
+  return `<img src="data:${asset.mime};base64,${base64(asset.bytes)}" alt="${escape(data.alt)}"${size} ${PICTURE_ATTRIBUTE}="${escape(JSON.stringify(data))}">`;
+}
+
+/** The picture a copy from this editor carries in its HTML, as a file with its size and alternative text, or null. */
+export function htmlPicture(html) {
+  if (typeof DOMParser === 'undefined' || !html || !html.includes(PICTURE_ATTRIBUTE)) return null;
+  const img = new DOMParser().parseFromString(html, 'text/html').querySelector(`img[${PICTURE_ATTRIBUTE}]`);
+  const match = /^data:(image\/(?:png|jpeg|tiff));base64,([A-Za-z0-9+/=]+)$/i.exec(img?.getAttribute('src') || '');
+  if (!match) return null;
+  let data = {}, binary;
+  try { data = JSON.parse(img.getAttribute(PICTURE_ATTRIBUTE)) || {}; binary = atob(match[2]); } catch { return null; }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const size = ['width', 'height'].every(key => Number.isSafeInteger(data[key]) && data[key] > 0 && data[key] <= MAX_PICTURE_EMU) ? { width: data.width, height: data.height } : {};
+  return { file: new File([bytes], `picture.${match[1].split('/')[1]}`, { type: match[1].toLowerCase() }), alt: typeof data.alt === 'string' ? data.alt.slice(0, 2000) : '', ...size };
+}
+
 /* ---------- HTML from this editor or another application ---------- */
 
 const BLOCKS = new Set(['P', 'DIV', 'CENTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TR', 'TABLE', 'UL', 'OL', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'MAIN', 'ADDRESS', 'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD', 'HR', 'TBODY', 'THEAD', 'TFOOT', 'BODY']);

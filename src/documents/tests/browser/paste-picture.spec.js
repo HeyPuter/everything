@@ -77,3 +77,43 @@ test('a pasted picture larger than the session holds is scaled down, as Insert >
   expect(stored.ratio).toBeCloseTo(5000 / 3600, 2);
   await expect(page.getByText('Images must be at most')).toHaveCount(0);
 });
+
+test('a picture copied or cut in the document pastes as the picture, at its size, not as text', async ({ browser }) => {
+  const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  const page = await context.newPage();
+  try {
+    await page.goto('/mock.html#/new');
+    await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+    await input(page).fill('Before ');
+    await input(page).evaluate((el, bytes) => {
+      el.focus(); const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], 'image.png', { type: 'image/png' }));
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    }, png);
+    await expect.poll(() => pictures(page)).toBe(1);
+    // Resized and described, as a picture in a document usually is.
+    await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(7, 8); e.execute(() => e.model.setImageProperties({ width: 457200, height: 228600, alt: 'Logo' })); e.syncInput(); });
+    const images = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).filter(r => r.image).map(({ image: { width, height, alt } }) => ({ width, height, alt })));
+    const copied = { width: 457200, height: 228600, alt: 'Logo' };
+    await input(page).press('ControlOrMeta+c');
+    await input(page).press('ControlOrMeta+End');
+    await input(page).press('ControlOrMeta+v');
+    await expect.poll(images).toEqual([copied, copied]);
+    await expect(input(page)).toHaveValue('Before ￼￼');
+    // Cut removes it, and Edit > Paste (the system clipboard) brings it back.
+    await input(page).evaluate(el => { el.focus(); el.setSelectionRange(8, 9); el.dispatchEvent(new Event('select')); });
+    await input(page).press('ControlOrMeta+x');
+    await expect.poll(images).toEqual([copied]);
+    await input(page).evaluate(el => { el.focus(); el.setSelectionRange(0, 0); el.dispatchEvent(new Event('select')); });
+    await page.locator('.ribbon-card').getByRole('button', { name: 'Paste', exact: true }).click();
+    await expect.poll(images).toEqual([copied, copied]);
+    await expect(input(page)).toHaveValue('￼Before ￼');
+    // The picture's menu copies it too.
+    await page.evaluate(() => navigator.clipboard.writeText(''));
+    await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 1); e.syncInput(); e.onSelection(); });
+    const frame = await page.locator('.canvas-image-frame').boundingBox();
+    await page.mouse.click(frame.x + frame.width / 2, frame.y + frame.height / 2, { button: 'right' });
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.range)).toEqual([0, 1]);
+    await page.getByRole('menuitem', { name: 'Copy', exact: true }).click();
+    await expect.poll(() => page.evaluate(async () => { const [item] = await navigator.clipboard.read(); return item.types.includes('text/html') ? /<img[^>]+data-documents-picture/.test(await (await item.getType('text/html')).text()) : false; })).toBe(true);
+  } finally { await context.close(); }
+});

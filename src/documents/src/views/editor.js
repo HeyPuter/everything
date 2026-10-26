@@ -147,7 +147,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const clipboardState = () => {
     if (!engine) return { cut: false, copy: false, paste: false };
     const image = engine.model.selectedImage, editable = !pkg.readOnly && !engine.viewOnly;
-    const textSelected = engine.model.range[0] !== engine.model.range[1] && !image;
+    // A picture copies as itself (charts, diagrams and drawings do not copy yet).
+    const textSelected = engine.model.range[0] !== engine.model.range[1] && (!image || engine.copiesPicture());
     return { cut: editable && textSelected, copy: textSelected, paste: editable && !image };
   };
   const copyText = async cut => {

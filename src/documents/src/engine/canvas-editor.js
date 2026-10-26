@@ -2,7 +2,8 @@ import { isNoteStoryKind } from './footnotes.js';
 import { StorySession } from './story-session.js';
 import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
-import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits } from './clipboard-fragment.js';
+import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
+import { xmlAttributeText } from './text-limits.js';
 import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
 
@@ -418,7 +419,8 @@ export class CanvasEditor {
     if (this.viewOnly && this.session.path !== null) this.editStory(null);
     this.onSelection?.();
   }
-  async insertImageFile(file) {
+  /** Insert a picture file at the selection, at its own size or `size` (EMUs, as copied), within the column. */
+  async insertImageFile(file, size = {}) {
     if (this.readOnly || this.viewOnly) return false;
     if (!this.preparePicture && file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
     this.finishComposition();
@@ -439,10 +441,12 @@ export class CanvasEditor {
     const cellPage = cell ? { ...p, left: cell.x + context.cell.margins.left / 15, right: p.width - cell.x - cell.width + context.cell.margins.right / 15 } : p;
     const format = paragraphFormat(paragraph, this.model.numbering), edges = [true, false].map(first => paragraphEdges(format, cellPage, first));
     const width = Math.min(...edges.map(e => e.right - e.left));
-    const height = Math.max(1, (p.height - p.top - p.bottom) / (format.lineRule === 'auto' ? format.lineSpacing : 1) - 32), scale = Math.min(1, width / bitmap.width, height / bitmap.height);
+    const sized = size.width > 0 && size.height > 0, natural = sized ? { width: size.width / EMU_PER_PX, height: size.height / EMU_PER_PX } : bitmap;
+    const height = Math.max(1, (p.height - p.top - p.bottom) / (format.lineRule === 'auto' ? format.lineSpacing : 1) - 32), scale = Math.min(1, width / natural.width, height / natural.height);
     let id; do { id = `canvas-image-${++nextAsset}`; } while (this.model.assets[id]);
     this.model.assets[id] = asset; this.images.set(id, bitmap);
-    const ok = this.execute(() => this.model.insertImage(id, { width: Math.max(1, Math.floor(bitmap.width * scale * EMU_PER_PX)), height: Math.max(1, Math.floor(bitmap.height * scale * EMU_PER_PX)), alt: '' }));
+    const extent = key => Math.max(1, Math.floor(scale === 1 && sized ? size[key] : natural[key] * scale * EMU_PER_PX));
+    const ok = this.execute(() => this.model.insertImage(id, { width: extent('width'), height: extent('height'), alt: xmlAttributeText(String(size.alt || '')) }));
     if (!ok) { delete this.model.assets[id]; this.images.delete(id); bitmap.close(); }
     this.focus(); return ok;
   }
@@ -1831,21 +1835,27 @@ export class CanvasEditor {
     if (html) e.clipboardData.setData('text/html', html);
     if (cut) this.execute(() => this.model.replace(''));
   }
-  /** The selection as plain text, and as formatted HTML when it holds only text. */
+  /** Whether the selection is one picture that copies as itself (see clipboardData). */
+  copiesPicture() { return copiesPicture(this.model); }
+  /** The selection as plain text, and as formatted HTML when it holds only text or one picture. */
   clipboardData() {
-    const fragment = copyFragment(this.model);
+    const picture = pictureHtml(this.model);
+    const fragment = !picture && copyFragment(this.model);
     // A note reference copies as the number or mark it shows on the page.
     const noteText = (run, at) => {
       const shown = this.selectionLayout.lines.find(line => line.start <= at && at < line.end)?.fragments?.find(f => f.noteMark && f.start === at)?.text;
       return (shown || '').replace(/[\u200b\u2002]/g, '');
     };
-    return { text: this.model.clipboardText(noteText), html: fragment ? fragmentHtml(fragment) : '' };
+    return { text: this.model.clipboardText(noteText), html: picture || (fragment ? fragmentHtml(fragment) : '') };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {
     // U+FFFC stands in for an object (a picture, field or note) in other applications' text, and is
     // this document's own placeholder for one: pasted as a character it would be an invisible stray.
     text = String(text || '').replace(/\ufffc/g, '');
+    // A picture copied here comes back as the picture, not as its plain-text stand-in.
+    const picture = htmlPicture(html);
+    if (picture) { if (!this.readOnly && !this.viewOnly) this.insertImageFile(picture.file, picture).catch(error => this.onError(error)); return; }
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
     if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));
