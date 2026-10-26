@@ -586,10 +586,13 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
     // another, which could repeat an id in use, and a part with repeated ids no longer opens for editing.
     const frameProperties = image.shell && drawing.getElementsByTagNameNS(WP, 'docPr')[0];
     if (frameProperties && Number.isInteger(image.id) && frameProperties.getAttribute('id') !== String(image.id)) frameProperties.setAttribute('id', String(image.id));
+    // A shape Word stores as alternate content (a DrawingML choice with a VML fallback) is
+    // laid out from its selected branch's drawing; that drawing's frame is the one rewritten.
+    const frameHost = image.shell && drawing.namespaceURI === MC && drawing.localName === 'AlternateContent' ? alternateBranch(drawing).firstElementChild : drawing;
     // A changed wrapping rewrites the whole frame, including the position and layer it records.
-    if (image.wrapChanged && image.shell) reframeDrawing(doc, drawing, image);
+    if (image.wrapChanged && image.shell) reframeDrawing(doc, frameHost, image);
     else if (image.anchorChanged && image.shell) {
-      const anchor = drawing.getElementsByTagNameNS(WP, 'anchor')[0];
+      const anchor = frameHost.getElementsByTagNameNS(WP, 'anchor')[0];
       if (!anchor) throw new Error('The source drawing has no editable floating anchor.');
       anchor.setAttribute('behindDoc', image.anchor.behind ? '1' : '0');
       anchor.setAttribute('relativeHeight', String(image.anchor.order));

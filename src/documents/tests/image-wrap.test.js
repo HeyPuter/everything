@@ -71,3 +71,24 @@ it('explains which drawings keep their wrapping', () => {
   expect(wrapUnavailable({ rotation: 5400000 }, 'square')).toMatch(/in front of or behind/);
   expect(wrapUnavailable({ rotation: 5400000 }, 'front')).toBe(null);
 });
+
+it('changes the wrapping of a shape stored as alternate content and keeps saving', async () => {
+  // Word stores shapes, text boxes and groups as a DrawingML choice with a VML fallback.
+  const pkg = await DocxPackage.open(new Uint8Array(readFileSync('public/fixtures/shape-locks.docx')));
+  const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+  let offset = 0, found;
+  for (const p of doc.paragraphs) { for (const r of p.runs) { if (!found && r.image?.retainedDrawing && r.image.shell.includes('AlternateContent')) found = { offset, image: r.image }; offset += r.text.length; } offset++; }
+  expect(found).toBeTruthy();
+  for (const mode of ['square', 'inline', 'front']) {
+    doc.select(found.offset, found.offset + 1);
+    expect(wrapUnavailable(doc.selectedImage, mode)).toBeNull();
+    expect(setImageWrap(doc, mode)).toBe(true);
+    const { bytes, reopened } = await save(pkg, doc);
+    expect(reopened.readOnly).not.toBe(true);
+    const image = imagesOf(reopened).find(i => i.id === found.image.id);
+    expect(imageWrapMode(image)).toBe(mode);
+    // The fallback stays with the choice, so the saved shape is still alternate content.
+    expect(image.shell).toContain('AlternateContent');
+    expect(bytes.length).toBeGreaterThan(0);
+  }
+});
