@@ -70,7 +70,8 @@ export function createNavigationPane(api) {
   search.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || isComposing(e) || !matches.length) return;
     e.preventDefault();
-    current = (current + (e.shiftKey ? -1 : 1) + matches.length) % matches.length;
+    // From a fresh search, Shift+Enter goes to the last result (it went to the one before the last).
+    current = current < 0 ? (e.shiftKey ? matches.length - 1 : 0) : (current + (e.shiftKey ? -1 : 1) + matches.length) % matches.length;
     api.selectMatch(matches[current]);
     status.textContent = `Result ${current + 1} of ${matches.length}`;
     renderResults();
