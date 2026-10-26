@@ -272,6 +272,23 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     const keepBoundaryLine = Boolean(nextSectionPage?.sectionType === 'continuous' &&
       ['width', 'height'].every(key => page[key] === nextSectionPage[key]) &&
       (sourceBlocks[blockIndex - 1]?.table && page.compatibilityMode >= 15 || currentSection.count === 0));
+    // A cell's AutoFit widths, remembered across layouts by what they read: the cell's own properties
+    // and borders, its paragraphs and list labels, the page, numbering and revision view. Cells holding
+    // nested tables or pictures are measured every time, as their paragraphs are (measureBlock).
+    const cellWidths = (cell, page, borders) => {
+      const compute = () => cellIntrinsicWidths(cell, measure, page, numbering, markers, borders);
+      if (!paragraphCache || cell.content.some(block => !block.paragraph || block.paragraph.runs.some(r => r.image))) return compute();
+      let key;
+      try {
+        const content = cell.content.map(({ paragraph, index }) => {
+          let keys = paragraphKeys.get(paragraph);
+          if (!keys) paragraphKeys.set(paragraph, keys = { content: JSON.stringify(paragraph), byContext: new Map() });
+          return `${keys.content},${JSON.stringify(markers[index] ?? null)}`;
+        });
+        key = `${pageKey(page)}:${sharedKey}:${JSON.stringify([{ ...cell, content: undefined }, borders ?? null])}:[${content.join(',')}]`;
+      } catch { return compute(); }
+      return paragraphCache.cellWidths(key, compute);
+    };
     const measureBlock = (block, page, cellEdges) => {
       if (block.paragraph) {
         const previous = paragraphs[block.index - 1];
@@ -315,7 +332,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
       const intrinsic = table.layout === 'autofit' ? table.grid.map(() => ({ min: 0, max: 0, floor: 0, paddingFloor: 0, contentMin: 0 })) : null, spans = [];
       if (intrinsic) for (const row of block.rows) for (const { cell, column, span } of rowGrid(row)) {
         if (!cell.rowSpan) continue;
-        const metrics = cellIntrinsicWidths(cell, measure, page, numbering, markers, cellBorders.get(cell.id));
+        const metrics = cellWidths(cell, page, cellBorders.get(cell.id));
         const values = Object.fromEntries(['min', 'max', 'floor', 'paddingFloor', 'contentMin'].map(key => [key, metrics[key] * 15]));
         if (span > 1) spans.push({ column, span, ...values });
         else for (const key of ['min', 'max', 'floor', 'paddingFloor', 'contentMin']) intrinsic[column][key] = Math.max(intrinsic[column][key], values[key]);

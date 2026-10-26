@@ -95,7 +95,7 @@ function flowJson(measured, horizontal) {
 }
 
 export class ParagraphMeasureCache {
-  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.flows = new Map(); this.stories = new Map(); }
+  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); }
   /** A page story measured earlier with the same inputs (page-story-measure.js), or undefined. */
   story(key) {
     const entry = this.stories.get(key);
@@ -104,6 +104,18 @@ export class ParagraphMeasureCache {
     return entry.value;
   }
   rememberStory(key, value) { this.stories.set(key, { value, used: this.generation }); }
+  /**
+   * A table cell's AutoFit content widths for `key` (layout.js names the cell's properties, borders,
+   * paragraphs and list labels), computing them with `compute()` when no earlier layout did. Typing
+   * elsewhere leaves every cell of a long AutoFit table as it was; measuring them all again took
+   * most of each keystroke.
+   */
+  cellWidths(key, compute) {
+    let entry = this.cells.get(key);
+    if (!entry) this.cells.set(key, entry = { value: compute() });
+    entry.used = this.generation;
+    return entry.value;
+  }
   /**
    * A short name for what pagination reads of measured blocks (a body paragraph's measurement
    * or a table's rows): equal names paginate alike wherever their text and offsets differ.
@@ -139,6 +151,7 @@ export class ParagraphMeasureCache {
     for (const [key, entry] of this.entries) if (entry.used < this.generation - keep) this.entries.delete(key);
     for (const [text, name] of this.names) if (name.used < this.generation - keep) this.names.delete(text);
     for (const [key, entry] of this.stories) if (entry.used < this.generation - keep) this.stories.delete(key);
+    for (const [key, entry] of this.cells) if (entry.used < this.generation - keep) this.cells.delete(key);
   }
   /** The measured paragraph for `key` at document `offset`, measuring it with `measure()` on a miss. */
   measure(key, offset, measure) {
@@ -167,5 +180,5 @@ export class ParagraphMeasureCache {
     }
     return measured;
   }
-  clear() { this.entries.clear(); this.names.clear(); this.flowNames = new WeakMap(); this.flows.clear(); this.stories.clear(); }
+  clear() { this.entries.clear(); this.names.clear(); this.flowNames = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
 }
