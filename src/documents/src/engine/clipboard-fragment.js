@@ -193,10 +193,13 @@ function fromForeignHtml(body) {
   const paragraphs = [];
   let current = null;
   const start = (props = {}) => { current = { text: '', runs: [], mark: true, styleId: null, styleName: null, alignment: null, list: null, ...props }; paragraphs.push(current); };
-  const append = (text, format, link) => {
+  const append = (text, format, link, pre = false) => {
     // Whitespace between blocks is source layout, not a paragraph.
     if (!text || !current && !/\S|\v/.test(text)) return;
     if (!current) start();
+    // Preformatted text keeps the spaces it starts or ends with (an indented line of code).
+    if (!current.filled) current.preStart = pre;
+    current.preEnd = pre;
     current.filled = true;
     const last = current.runs.at(-1);
     if (last && last.link === link && RUN_KEYS.every(key => last.format[key] === format[key])) last.text += text;
@@ -208,8 +211,8 @@ function fromForeignHtml(body) {
     if (current && !current.filled && paragraphs.at(-1) === current) paragraphs.pop();
     if (current?.runs.length) {
       // Whitespace around a block's content is layout in HTML, not text.
-      current.runs[0].text = current.runs[0].text.replace(/^ +/, '');
-      const last = current.runs.at(-1); last.text = last.text.replace(/ +$/, '');
+      if (!current.preStart) current.runs[0].text = current.runs[0].text.replace(/^ +/, '');
+      const last = current.runs.at(-1); if (!current.preEnd) last.text = last.text.replace(/ +$/, '');
       current.runs = current.runs.filter(r => r.text);
       // A block holding only no-break spaces is an empty paragraph kept open (Word's <o:p>&nbsp;</o:p>).
       if (/^[ \u00a0]*$/.test(current.runs.map(r => r.text).join(''))) current.runs = [];
@@ -222,7 +225,7 @@ function fromForeignHtml(body) {
       let text = context.pre ? node.data : node.data.replace(/[\s ]*\n[\s ]*/g, ' ').replace(/[ \t\r\f]+/g, ' ');
       if (context.pre) text = text.replace(/\r\n?/g, '\n').replace(/\n/g, '\v');
       if (!context.pre && (!current || /[ \t\v]$/.test(current.text) || !current.text) && text.startsWith(' ')) text = text.slice(1);
-      append(text, format, context.link);
+      append(text, format, context.link, !!context.pre);
       return;
     }
     if (node.nodeType !== 1 || SKIPPED.has(node.tagName) || /^ignore$/i.test(msoList(node))) return;
@@ -231,7 +234,11 @@ function fromForeignHtml(body) {
     const next = inherited(node, format);
     const ctx = { ...context };
     if (tag === 'A' && /^(https?:|mailto:|tel:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
-    if (tag === 'PRE') ctx.pre = true;
+    // Preformatted text (pre, or white-space: pre or pre-wrap, as Google Docs and code editors write it) keeps its
+    // tabs, runs of spaces and line breaks.
+    const space = node.style?.whiteSpace;
+    if (tag === 'PRE' || /^(pre|pre-wrap|break-spaces)$/.test(space || '')) ctx.pre = true;
+    else if (/^(normal|nowrap|pre-line)$/.test(space || '')) ctx.pre = false;
     // Alignment is inherited, as on a page: from text-align, the align attribute READMEs center
     // blocks with or <center>. A table's align attribute centers the table, not its text, and the
     // cells of a table centered by its container (as Word writes one) keep their own alignment.
@@ -259,7 +266,7 @@ function fromForeignHtml(body) {
   walk(body, { bold: false, italic: false }, {});
   // Empty blocks between content are blank paragraphs; leading and trailing ones are not content.
   for (const p of paragraphs) {
-    delete p.filled;
+    delete p.filled; delete p.preStart; delete p.preEnd;
     const last = p.runs.at(-1);
     if (last) { last.text = last.text.replace(/\v+$/, ''); p.runs = p.runs.filter(r => r.text); }
     p.text = p.runs.map(r => r.text).join('');

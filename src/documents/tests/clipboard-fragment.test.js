@@ -12,6 +12,20 @@ it('collapses HTML whitespace and keeps line breaks, tabs between cells and pref
   expect(htmlFragment('<p> </p><br>')).toBeNull();
 });
 
+it('keeps the tabs, spaces and indentation of preformatted text, as Google Docs and code editors copy it', () => {
+  // A preformatted block keeps the spaces its first line starts with.
+  expect(texts('<pre>    indented\n  more</pre>')).toEqual(['    indented\v  more']);
+  // Google Docs writes each run with white-space: pre-wrap.
+  expect(texts('<b style="font-weight:normal" id="docs-internal-guid-1"><p dir="ltr"><span style="font-weight:400;white-space:pre;white-space:pre-wrap;">Name\tQty   x</span></p><p dir="ltr"><span style="white-space:pre-wrap">    indented</span></p></b>')).toEqual(['Name\tQty   x', '    indented']);
+  // Code editors write lines of code inside a white-space: pre block.
+  expect(texts('<div style="white-space: pre;"><div><span>def f():</span></div><div><span>    return 1</span></div></div>')).toEqual(['def f():', '    return 1']);
+  // Ordinary white space inside it collapses again.
+  expect(texts('<p style="white-space:pre-wrap">a  <span style="white-space:normal">b   c</span>  d</p>')).toEqual(['a  b c  d']);
+  // What this editor copies comes back the same without its own fragment, as another application may hand it on.
+  const own = fragmentHtml({ paragraphs: [{ text: '\tTab   spaced', runs: [{ text: '\tTab   spaced', format: {} }], mark: false, styleId: null, alignment: 'left', list: null }] });
+  expect(texts(own.replace(new RegExp(`\\s${FRAGMENT_ATTRIBUTE}="[^"]*"`), ''))).toEqual(['\tTab   spaced']);
+});
+
 it('marks headings and nested lists, and keeps a lone phrase in the destination paragraph', () => {
   const fragment = htmlFragment('<h3>Title</h3><ol><li>One<ul><li>Inner</li></ul></li></ol>');
   expect(fragment.paragraphs.map(p => [p.text, p.styleName, p.list, p.mark])).toEqual([
