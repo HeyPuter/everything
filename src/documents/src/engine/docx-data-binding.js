@@ -4,6 +4,9 @@ import { UnsupportedDocumentError } from './errors.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CUSTOM = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml';
+// Besides custom XML parts, bindings map the document properties: Word exposes the core and
+// extended properties parts as stores (the built-in store IDs of document-property controls).
+const STORES = new Set([CUSTOM, 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties']);
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const fail = reason => { throw new UnsupportedDocumentError(`content-control data bindings with ${reason}`); };
 
@@ -14,7 +17,7 @@ function customXmlDocuments(parts) {
     const location = /^(?:(.*)\/)?_rels\/([^/]*)\.rels$/.exec(name);
     if (!location) continue;
     for (const link of parseXml(bytes).documentElement.children) {
-      if (link.namespaceURI !== REL || link.localName !== 'Relationship' || link.getAttribute('Type') !== CUSTOM) continue;
+      if (link.namespaceURI !== REL || link.localName !== 'Relationship' || !STORES.has(link.getAttribute('Type'))) continue;
       if (![null, 'Internal'].includes(link.getAttribute('TargetMode'))) fail('external custom XML stores');
       const target = link.getAttribute('Target');
       if (!target || /[\\?#:\s]/.test(target) || target.startsWith('//')) fail('invalid custom XML targets');

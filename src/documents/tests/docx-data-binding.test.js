@@ -68,3 +68,15 @@ it('does not prove inactivity for external custom XML relationships', () => {
   data['word/_rels/document.xml.rels'] = data['word/_rels/document.xml.rels'].replace('Id="data"', 'Id="data" TargetMode="External"');
   expect(() => unresolvedBindingReader(data)(binding())).toThrow(/external custom XML stores/);
 });
+it.each([
+  ['core', 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties', 'docProps/core.xml', '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Stored title</dc:title></cp:coreProperties>', '/ns1:coreProperties[1]/ns0:title[1]', "xmlns:ns0='http://purl.org/dc/elements/1.1/' xmlns:ns1='http://schemas.openxmlformats.org/package/2006/metadata/core-properties'"],
+  ['extended', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties', 'docProps/app.xml', '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Company>Stored company</Company></Properties>', '/ns0:Properties[1]/ns0:Company[1]', "xmlns:ns0='http://schemas.openxmlformats.org/officeDocument/2006/extended-properties'"],
+])('treats the %s document properties as a store a binding can map', (kind, type, path, xml, xpath, prefixes) => {
+  const data = {
+    '_rels/.rels': `<Relationships xmlns="${REL}"><Relationship Id="props" Type="${type}" Target="${path}"/></Relationships>`,
+    [path]: xml,
+  };
+  // Word maps document-property controls to these package parts by their built-in store IDs.
+  expect(() => unresolvedBindingReader(data)(binding(xpath, prefixes))).toThrow(/active XML mappings/);
+  expect(() => unresolvedBindingReader(data)(binding(xpath.replace(/\w+\[1\]$/, 'absent[1]'), prefixes))).not.toThrow();
+});

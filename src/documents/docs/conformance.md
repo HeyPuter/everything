@@ -13119,7 +13119,10 @@ another custom XML store; the identifier alone does not prove inactivity.
 
 The editable importer accepts an unresolved `w15:dataBinding` only after its
 absolute child-element XPath selects no node in any related package custom XML
-store. The resolver compares namespace URIs, supports positive positional
+store, nor in the core (Part 2 §11) or extended document properties parts, which
+document-property controls map through their built-in store IDs. A control bound
+to a stored title, for example, stays read-only rather than saving edited text the
+stored property would replace. The resolver compares namespace URIs, supports positive positional
 predicates per parent, and retains the original binding and custom data. The
 saved control contents remain editable through the existing persistent rich/plain
 control model. No external stores are fetched. Missing or invalid store parts,
