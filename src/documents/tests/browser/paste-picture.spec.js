@@ -54,3 +54,26 @@ test('a picture dropped on the page is inserted where it lands', async ({ page }
   await expect(input(page)).toHaveValue('Alpha ￼bravo\nCharlie');
   await expect(page.getByText('Drop pictures on the page to insert them')).toHaveCount(0);
 });
+
+test('a pasted picture larger than the session holds is scaled down, as Insert > Pictures does', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Photo: ');
+  // An 18-megapixel photo or screenshot, over the 16-megapixel session limit.
+  await input(page).evaluate(async el => {
+    const canvas = Object.assign(document.createElement('canvas'), { width: 5000, height: 3600 }), g = canvas.getContext('2d');
+    g.fillStyle = '#3a7'; g.fillRect(0, 0, 5000, 3600);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    el.focus(); const data = new DataTransfer(); data.items.add(new File([blob], 'image.png', { type: 'image/png' }));
+    el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect.poll(() => pictures(page)).toBe(1);
+  const stored = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine, image = e.model.paragraphs.flatMap(p => p.runs).find(r => r.image).image, bitmap = e.images.get(image.assetId);
+    return { width: bitmap.width, height: bitmap.height, ratio: image.width / image.height };
+  });
+  expect(stored.width * stored.height).toBeLessThanOrEqual(16 * 1024 * 1024);
+  expect(stored.width / stored.height).toBeCloseTo(5000 / 3600, 2);
+  expect(stored.ratio).toBeCloseTo(5000 / 3600, 2);
+  await expect(page.getByText('Images must be at most')).toHaveCount(0);
+});

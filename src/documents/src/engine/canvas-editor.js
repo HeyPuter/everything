@@ -63,7 +63,7 @@ const QUIET_PAINT_MS = 600;
 
 /** Canvas paint surface plus a real textarea for native input, composition and accessible text. */
 export class CanvasEditor {
-  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null } = {}) {
+  constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
     this.host = host;
     this.inputLabel = inputLabel;
     this.readOnly = readOnly;
@@ -76,6 +76,8 @@ export class CanvasEditor {
     this.onChange = onChange; this.onSelection = onSelection; this.onSave = onSave; this.onError = onError;
     this.correctTyping = correctTyping; this.linkTyping = linkTyping;
     this.onUpdateFields = onUpdateFields;
+    // Turns a picture file into one the session can hold (the app scales down large photos and screenshots).
+    this.preparePicture = preparePicture;
     this.onLink = onLink; this.onOpenLink = onOpenLink; this.onLinkClick = onLinkClick; this.visitedLinks = new Set();
     this.zoom = 1;
     // The document view laid out on screen (document-views.js); null is Print Layout.
@@ -418,9 +420,15 @@ export class CanvasEditor {
   }
   async insertImageFile(file) {
     if (this.readOnly || this.viewOnly) return false;
-    if (file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
+    if (!this.preparePicture && file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
     this.finishComposition();
-    const path = this.session.path, revision = this.session.revision, selection = { ...this.model.selection }, bytes = new Uint8Array(await file.arrayBuffer()), info = imageInfo(bytes), asset = { bytes, mime: info.mime };
+    const path = this.session.path, revision = this.session.revision, selection = { ...this.model.selection };
+    // A pasted photo or screenshot can be larger than the session holds; it is scaled down as Insert > Pictures does.
+    if (this.preparePicture) {
+      file = await this.preparePicture(file);
+      if (file.size > 10 * 1024 * 1024) throw new Error('Choose a PNG, JPEG or TIFF image up to 10 MB.');
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer()), info = imageInfo(bytes), asset = { bytes, mime: info.mime };
     validateImageAssets(this.model.assets, asset);
     const bitmap = await decodeImage(asset);
     if (this.destroyed) { bitmap.close(); return false; }

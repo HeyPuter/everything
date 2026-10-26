@@ -62,7 +62,7 @@ import { createReviewTools } from './review-tools.js';
 import { createReferences } from './references.js';
 import { createMailings } from './mailings.js';
 import { createDocumentViews } from './document-views.js';
-import { createInsert } from './insert-tab.js';
+import { createInsert, pictureFile } from './insert-tab.js';
 import { imageFilesFrom } from '../lib/images.js';
 import { createDraw } from './draw-tab.js';
 import { createPictures } from './pictures.js';
@@ -1544,6 +1544,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       // The account menu's typing settings, read at each keystroke so a change applies at once.
       correctTyping: (before, typed, { list }) => (autocorrectEnabled() && (listMarker(before, typed, list) || correction(before, typed))) || (capitalizeSentencesEnabled() && sentenceCapital(before, typed)) || null,
       linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
+      preparePicture: pictureFile,
     });
     // Undo past the editor's own history steps back through design-wide changes.
     created.onHistoryEnd = direction => {
