@@ -1,5 +1,6 @@
 import { writeTableStyleDefinition } from './docx-table-styles.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
+import { rejectFormatChange } from './revisions.js';
 import { pruneReleasedMedia } from './docx-media-release.js';
 import { invalidateProofingState } from './docx-proofing-state.js';
 import { completedSpelling, bodySpellingCache, proofingFingerprint } from './docx-proofing-cache.js';
@@ -876,7 +877,10 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
         const pPr = child(node, 'pPr');
         if (p.formatRevision?.previous) {
           for (const n of children(pPr)) if (n.namespaceURI === W && n.localName === 'pPrChange') n.remove();
-          const previous = { ...p, ...p.formatRevision.previous };
+          // The paragraph as it was: formatting fields it has now but did not have then are left out (as rejecting
+          // the change leaves them out). Merged over the paragraph, they wrote the new formatting as the former.
+          const previous = { ...p };
+          rejectFormatChange(previous);
           const scratch = previous.shell ? doc.importNode(xml(previous.shell).documentElement, true) : make('p');
           writeParagraphFormat(scratch, previous, make, numbering);
           const former = child(scratch, 'pPr') || make('pPr');

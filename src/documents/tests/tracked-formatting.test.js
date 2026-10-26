@@ -63,6 +63,23 @@ describe('tracked formatting', () => {
     expect(await documentXml(again.pkg, again.model)).not.toMatch(/pPrChange|w:jc/);
   });
 
+  it('saves the former paragraph formatting of a paragraph read from a file, so rejecting after reopening restores it', async () => {
+    const source = zip(packageFiles('<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:t>Opened from a file</w:t></w:r></w:p><w:p><w:r><w:t>Plain</w:t></w:r></w:p>'));
+    for (const index of [0, 1]) {
+      const { pkg, model } = await open(source), session = new StorySession(model, null);
+      session.run(m => { m.select(model.paragraphOffset(index) + 2); m.setParagraphFormat({ alignment: 'center' }); });
+      const xml = await documentXml(pkg, model);
+      // The former properties are the paragraph's own, without the centring.
+      expect(xml.match(/<w:pPrChange [^>]*>.*?<\/w:pPrChange>/)[0]).not.toMatch(/w:jc/);
+      const again = await open(await save(pkg, model));
+      expect(again.model.paragraphs[index].format.alignment).toBe('center');
+      again.model.resolveRevisions(false);
+      expect(again.model.formatRejectSkipped).toBe(false);
+      expect(again.model.paragraphs[index].format.alignment).toBe('left');
+      expect(again.model.paragraphs[0].format.spaceAfter).toBe(6);
+    }
+  });
+
   it('keeps the original formatting through several changes and drops a change undone by hand', () => {
     const { model, session } = fresh();
     session.run(m => { m.select(0, 5); m.setRunFormat({ italic: true }); });
