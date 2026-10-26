@@ -187,6 +187,17 @@ export class CollabBinding extends EventTarget {
     }
   }
 
+  /**
+   * Starting to share: pictures this copy added since its file was opened are not in the document the room starts
+   * from. They go into the shared asset map now, as part of the starting point rather than an undoable change.
+   */
+  shareOwnAssets() {
+    if (this.destroyed) return;
+    this.flush();
+    this.undoManager.clear();
+    this.refreshHistory();
+  }
+
   /* ---------- Single-editor mode ---------- */
 
   holdsLock() { return this.meta.get('lock')?.session === this.session.id; }

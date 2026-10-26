@@ -50,7 +50,7 @@ function holdEditing(engine) {
 
 const MODE_REASONS = { 'content controls without text': 'form fields that are still empty', 'line feeds inside a run': 'text this editor keeps as a single run' };
 
-export function createCollaboration({ editor, pkg, doc, local, error, onChange = () => {}, documentName, user, saveFirst, exportDocx, exportPdf, signIn = async () => true, readOnly = () => false }) {
+export function createCollaboration({ editor, pkg, doc, local, error, onChange = () => {}, documentName, user, saveFirst, exportDocx, exportPdf, signIn = async () => true, readOnly = () => false, baseAssets = () => Object.keys(pkg()?.assets || {}) }) {
   let live = null, starting = null, liveModule = null, dialog = null, destroyed = false;
   const loadLive = () => (liveModule ||= import('../collab/live.js'));
   // The room an owner shared this file in, looked up while the editor loads rather than after.
@@ -121,7 +121,7 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     const me = user();
     const commentGuard = api?.protectionGuard({ edit: 'comments', enforcement: true }, { name: me.name, email: me.name });
     const fileText = engine.session?.body?.text;
-    live = new LiveSession({ engine, doc, client, link, user: me, baseAssets: Object.keys(pkg()?.assets || {}), commentGuard,
+    live = new LiveSession({ engine, doc, client, link, user: me, baseAssets: baseAssets(), commentGuard,
       onApplied: () => onChange(), onError: e => error(e) });
     // Reopening a document it shared, the owner sees the room's state, which the file is then saved to. The room may lack
     // what the file has: a change made outside it (another app, a session that could not reach the room). The file as it
@@ -207,6 +207,8 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
       const baseBytes = p?.parts ? zipSync(p.parts) : new Uint8Array(await exportDocx().arrayBuffer());
       const { client, link, reason } = await shareDocument({ engine, doc, user: user(), name: documentName() || 'Untitled document', baseBytes, local, progress });
       if (!await begin(client, link)) throw new Error('The document was closed.');
+      // Pictures added since the file was opened are not in the document the room starts from.
+      live.binding.shareOwnAssets();
       if (reason) toast('Others will see this document read-only while you edit it: it has content only one person can change at a time.', { icon: 'info', duration: 8000 });
       progress('');
       return live;

@@ -1041,7 +1041,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   };
   // Edits made while the document is shared are undone through the room, not the editor's history: an earlier
   // Design change undone afterwards would reopen the package as it was then, without them.
-  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, local, error, onChange: () => { if (collab?.live) { designVersions.undo = []; designVersions.redo = []; } update(); }, documentName: () => title.value, user: collabUser,
+  // The pictures each package had when it was opened: its parts hold their bytes, which pictures added later lack.
+  const openedAssets = new WeakMap();
+  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, baseAssets: () => openedAssets.get(pkg) || Object.keys(pkg?.assets || {}), doc, local, error, onChange: () => { if (collab?.live) { designVersions.undo = []; designVersions.redo = []; } update(); }, documentName: () => title.value, user: collabUser,
     saveFirst: () => save(), exportDocx: exportDocxBlob, exportPdf: exportPdfBlob, signIn: async () => !session.signedOut || await session.signIn(), readOnly: () => !!pkg?.readOnly });
   const versionHistory = createVersionHistory({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, error, author: () => session.username, live: () => collab.live,
     restoreFile: version => restoreVersionFile(version, { confirm: false }), onChange: () => fitWidth(),
@@ -1600,7 +1602,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     }
     const previous = engine, range = [...previous.model.range], scrollTop = host.scrollTop, scrollLeft = host.scrollLeft, scale = previous.zoom;
     previous.destroy(); releasePictures();
-    pkg = opened.pkg; decodedPictures = opened.images;
+    pkg = opened.pkg; decodedPictures = opened.images; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
     engine = createEngine(CanvasEditor, opened.images, opened.measure);
     engine.setZoom(scale);
     const length = engine.model.text.length;
@@ -1664,7 +1666,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // A host that already opened the file (the local playground validates it first) hands it over once.
     const handed = doc.opened; doc.opened = null;
     const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
-    pkg = opened.pkg;
+    pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();
     if (destroyed) { releasePictures(); return; }
