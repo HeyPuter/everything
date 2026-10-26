@@ -18,7 +18,8 @@ test('matches native cell leading spacing across alignment and contextual bounda
   const p=await DocxPackage.open(Uint8Array.from(atob(bytes),c=>c.charCodeAt(0)));await loadCanvasFonts(p);const ctx=document.createElement('canvas').getContext('2d'),measure=(t,s)=>measureCanvasText(ctx,t,s);
   const body=layoutDocument(p.paragraphs,measure,pageGeometry(p.pageSettings),p.numbering,p.tables,p.pageStories);
   const story=layoutPageStories(body,p.pageStories,[...p.paragraphs.filter(p=>p.sectionEnd).map(p=>p.sectionEnd),p.pageSettings],measure,p.numbering,{styles:p.styles});
-  return [...body.lines,...story.lines].map(l=>({page:l.page,text:l.fragments.map(f=>f.text).join(''),x:l.fragments[0].x*.75,baseline:l.baseline*.75,
+  // The empty paragraph a document ending in a table gets (as Word gives it) has no text to compare.
+  return [...body.lines,...story.lines].filter(l=>l.fragments.length).map(l=>({page:l.page,text:l.fragments.map(f=>f.text).join(''),x:l.fragments[0].x*.75,baseline:l.baseline*.75,
    closing:l.fragments.at(-1).text.endsWith(']')?(l.fragments.at(-1).x+measure(l.fragments.at(-1).text.slice(0,-1),l.fragments.at(-1)).width)*.75:null}));
  },readFileSync(source).toString('base64'));
  writeFileSync(info.outputPath('actual.json'),JSON.stringify(actual,null,2));

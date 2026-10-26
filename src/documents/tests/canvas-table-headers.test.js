@@ -113,7 +113,8 @@ it('places a header-only table once with its preceding kept heading and retains 
   const heading = result.lines.find(l => l.paragraphId === doc.paragraphs[2].id);
   expect(heading.page).toBe(1); expect(result.cells).toHaveLength(2); expect(result.cells.every(c => c.page === heading.page)).toBe(true);
   expect(result.lines.filter(l => l.header)).toHaveLength(2);
-  const out = model(await DocxPackage.open(await save(pkg, doc))); expect(out.text).toBe(doc.text); expect(headerRowCount(out.tables[0])).toBe(2);
+  // The saved body ends with the table; reopening gives it a final paragraph to type in.
+  const out = model(await DocxPackage.open(await save(pkg, doc))); expect(out.text).toBe(doc.text + '\n'); expect(headerRowCount(out.tables[0])).toBe(2);
 });
 
 it('ignores noncontiguous header flags and rejects crossing merges, oversized headers and insufficient body space', async () => {

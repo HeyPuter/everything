@@ -1804,7 +1804,16 @@ export class DocxPackage {
         if (!p.bookmarks?.length) delete p.bookmarks;
       }
     } catch (e) { throw new UnsupportedDocumentError(e.message); }
-    if (!paragraphs.length || paragraphs.at(-1).sectionEnd) paragraphs.push(paragraph());
+    // An empty body, one whose last paragraph ends a section, or one ending in a table (as some
+    // generators write it) still needs a final paragraph to type in, as word processors add one.
+    // Read it as an empty w:p so it takes the document's styles rather than built-in defaults,
+    // and an unedited save leaves the body as it was.
+    if (!paragraphs.length || paragraphs.at(-1).sectionEnd || paragraphs.at(-1).cellId) {
+      const added = readParagraph(doc.createElementNS(W, 'w:p'));
+      // Not in the source: saved only once something is typed or set in it.
+      const original = originals.get(added.id); if (original) original.added = true;
+      paragraphs.push(added);
+    }
     if (documentText(paragraphs).length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     checkMarkers(paragraphs);
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
@@ -2265,6 +2274,8 @@ export class DocxPackage {
     const sectionSource = p => p.sectionProperties ? { xml: p.sectionProperties, settings: sourceSections.get(p.sectionProperties) || p.sectionEnd } : finalSource;
     if (section) writePageSettings(section, pageSettings, this.initialPageSettings, make, !this.originals.size);
     const writeParagraph = paragraphWriter(doc, styles, numbering, this.originals, writeImage, writeLink, sectionSource);
+    // The final paragraph the reader added to a body without one stays out of the file while it is untouched.
+    blocks = blocks.filter(block => { const original = block.type === 'paragraph' && this.originals.get(block.paragraph.id); return !(original?.added && original.signature === signature(block.paragraph)); });
     appendControlledBlocks(body, blocks.map(block => ({ ...block, blockControls: (block.type === 'table' ? block.table : block.paragraph).blockControls })), block => block.type === 'table' ? writeTable(block, doc, writeParagraph) : writeParagraph(block.paragraph), doc, null, section || null);
     const sectionParagraphs = paragraphs.filter(p => p.sectionEnd);
     const sourceSectionCount = this.paragraphs.filter(p => p.sectionEnd).length + 1;

@@ -244,3 +244,39 @@ describe('OOXML run-format conformance', () => {
     expect((await DocxPackage.open(output)).readOnly).not.toBe(true);
   });
 });
+
+describe('documents without a final paragraph', () => {
+  const styled = (body, finalSection = '<w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr>') => {
+    const parts = unzipSync(docxBytes);
+    parts['word/styles.xml'] = strToU8(`<w:styles xmlns:w="${W}"><w:docDefaults><w:rPrDefault><w:rPr><w:sz w:val="28"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:spacing w:after="0" w:line="360" w:lineRule="auto"/><w:jc w:val="center"/></w:pPr></w:style></w:styles>`);
+    parts['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body>${body}${finalSection}</w:body></w:document>`);
+    return zipSync(parts);
+  };
+  let docxBytes;
+  beforeAll(async () => { docxBytes = await bytes(createDocx().export()); });
+  it.each([['an empty body', ''], ['a body whose last paragraph ends a section', '<w:p><w:pPr><w:sectPr><w:pgSz w:w="12240" w:h="15840"/></w:sectPr></w:pPr><w:r><w:t>First section</w:t></w:r></w:p>'],
+    ['a body ending in a table', '<w:p><w:r><w:t>Report</w:t></w:r></w:p><w:tbl><w:tblPr><w:tblW w:w="5000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>']])('gives %s a styled paragraph to type in and saves it without built-in formatting', async (_, body) => {
+    const input = styled(body), pkg = await DocxPackage.open(input);
+    const last = pkg.paragraphs.at(-1);
+    expect(last.cellId).toBeFalsy();
+    expect(last.format).toMatchObject({ spaceAfter: 0, lineSpacing: 1.5, alignment: 'center' });
+    expect(unzipSync(await bytes(pkg.export()))).toEqual(unzipSync(input));
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    doc.select(doc.text.length); doc.replace('Typed');
+    expect(doc.paragraphs.at(-1).runs[0].fontSize).toBe(14);
+    const saved = strFromU8(unzipSync(await bytes(pkg.export(doc.paragraphs)))['word/document.xml']);
+    const main = new DOMParser().parseFromString(saved, 'application/xml'), paragraphs = main.getElementsByTagNameNS(W, 'p'), typed = paragraphs[paragraphs.length - 1];
+    expect(typed.textContent).toBe('Typed');
+    expect(typed.getElementsByTagNameNS(W, 'pPr')).toHaveLength(0);
+    expect(typed.getElementsByTagNameNS(W, 'rPr')).toHaveLength(0);
+  });
+  it('leaves the added final paragraph out of the file while it is untouched', async () => {
+    const table = '<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="5000"/></w:tblGrid><w:tr><w:tc><w:p><w:r><w:t>Cell</w:t></w:r></w:p></w:tc></w:tr></w:tbl>';
+    const pkg = await DocxPackage.open(styled(`<w:p><w:r><w:t>Report</w:t></w:r></w:p>${table}`));
+    const doc = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
+    doc.select(0); doc.replace('Annual ');
+    const body = new DOMParser().parseFromString(strFromU8(unzipSync(await bytes(pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables)))['word/document.xml']), 'application/xml').getElementsByTagNameNS(W, 'body')[0];
+    expect([...body.children].map(n => n.localName)).toEqual(['p', 'tbl', 'sectPr']);
+    expect(body.textContent).toBe('Annual ReportCell');
+  });
+});
