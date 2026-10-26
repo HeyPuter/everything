@@ -53,40 +53,54 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const pane = el('aside.review-pane', { 'aria-label': 'Reviewing Pane', hidden: true, dataset: { orientation: paneOrientation } },
     el('div.canvas-panel-heading', {}, el('h2', {}, 'Revisions'), el('button.icon-btn', { type: 'button', 'aria-label': 'Close Reviewing Pane', onclick: () => { paneShown = false; refresh(true); editor()?.focus(); } }, '✕')),
     paneSummary, paneList);
+  /** The Reviewing Pane's entries, every comment and change in document order, as the document is now. */
+  function paneItems(engine) {
+    const body = engine.session.body, changes = body.revisions, notes = threads();
+    // The document's text, read once: each read checks every paragraph, and reading it per change made typing
+    // with the pane open slow in a document with many changes.
+    const text = body.text, formatSummary = formatSummaries(body);
+    const items = [
+      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(c) : (text.slice(c.start, Math.min(c.end, text.length)) + (c.end > text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); navigated = c; engine.focus(); engine.revealCaret?.(); onChange(); } })),
+      ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),
+    ].sort((a, b) => a.at - b.at);
+    return { changes, notes, items };
+  }
   function renderPane() {
     const engine = editor();
     if (!paneShown || !engine) { pane.hidden = true; return; }
     pane.hidden = false;
-    const body = engine.session.body, changes = body.revisions, notes = threads();
-    const sig = JSON.stringify([changes, notes.map(t => [t.id, t.root.text, t.replies.length, t.root.done])]);
-    if (sig === paneSignature) return;
-    paneSignature = sig;
+    const { changes, notes, items } = paneItems(engine);
     const count = type => changes.filter(c => c.type === type).length;
     const n = (value, one, many) => `${value} ${value === 1 ? one : many}`;
-    paneSummary.textContent = `${n(changes.length + notes.length, 'revision', 'revisions')}: ${n(count('ins'), 'insertion', 'insertions')}, ${n(count('del'), 'deletion', 'deletions')}, ${count('format')} formatting, ${n(notes.length, 'comment', 'comments')}`;
-    const items = [
-      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(body, c) : (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); navigated = c; engine.focus(); engine.revealCaret?.(); onChange(); } })),
-      ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),
-    ].sort((a, b) => a.at - b.at);
-    paneList.replaceChildren(...items.map(item => listItem(el('button.review-pane-item', { type: 'button', onclick: item.select },
+    const summary = `${n(changes.length + notes.length, 'revision', 'revisions')}: ${n(count('ins'), 'insertion', 'insertions')}, ${n(count('del'), 'deletion', 'deletions')}, ${count('format')} formatting, ${n(notes.length, 'comment', 'comments')}`;
+    // Where the changes are does not change the list (an entry selects its change where it is when chosen), so
+    // typing before them does not rebuild every entry.
+    const sig = JSON.stringify([summary, items.map(item => [item.kind, item.author, item.date, item.text])]);
+    if (sig === paneSignature) return;
+    paneSignature = sig;
+    paneSummary.textContent = summary;
+    paneList.replaceChildren(...items.map((item, index) => listItem(el('button.review-pane-item', { type: 'button', onclick: () => { const current = editor(); if (current) paneItems(current).items[index]?.select(); } },
       el('span.review-pane-head', {}, el('strong', {}, item.author || 'Unknown author'), ' ', el('span', {}, item.kind)),
       el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)')))));
     if (!items.length) paneList.append(el('p.field-hint', {}, 'No comments or tracked changes.'));
   }
-  /** What a formatting change did, e.g. "Bold, Font size 14 pt". */
-  function formatSummary(body, change) {
-    let at = 0;
-    for (const p of body.paragraphs) {
-      const size = p.runs.reduce((n, r) => n + r.text.length, 0);
-      if (at + size + 1 > change.start) {
-        if (p.formatRevision && change.end > at + size) return describeFormatChange(p).join(', ');
-        let offset = at;
-        for (const run of p.runs) { if (offset >= change.start && run.formatRevision) return describeFormatChange(run).join(', '); offset += run.text.length; }
-        return 'Formatted';
-      }
-      at += size + 1;
-    }
-    return 'Formatted';
+  /**
+   * What formatting changes did, e.g. "Bold, Font size 14 pt": summarize(change). Paragraph starts are measured
+   * once, so summarizing every change of a long document does not walk it from the start for each.
+   */
+  function formatSummaries(body) {
+    const starts = []; let at = 0;
+    for (const p of body.paragraphs) { starts.push(at); at += p.runs.reduce((n, r) => n + r.text.length, 0) + 1; }
+    return change => {
+      let low = 0, high = starts.length - 1;
+      while (low < high) { const middle = (low + high + 1) >> 1; if (starts[middle] <= change.start) low = middle; else high = middle - 1; }
+      const p = body.paragraphs[low]; if (!p) return 'Formatted';
+      const size = (starts[low + 1] ?? at) - starts[low] - 1;
+      if (p.formatRevision && change.end > starts[low] + size) return describeFormatChange(p).join(', ');
+      let offset = starts[low];
+      for (const run of p.runs) { if (offset >= change.start && run.formatRevision) return describeFormatChange(run).join(', '); offset += run.text.length; }
+      return 'Formatted';
+    };
   }
   /** Changes shown under the current Show Markup choices (reviewers, kinds). */
   const shownChanges = list => list.filter(c => !revisionView.options.hiddenAuthors.includes(c.author) && (c.type === 'format' ? revisionView.options.showFormatting : revisionView.options.showInsDel));
@@ -375,9 +389,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (mode === 'inline') return [];
     return shownChanges(engine.session.body.revisions).filter(c => c.type === 'format' || mode === 'balloons' && c.type === 'del' && !c.move);
   }
-  function balloonCard(change) {
+  function balloonCard(change, documentText, formatSummary) {
     const engine = editor(), body = engine.session.body;
-    const text = change.type === 'format' ? formatSummary(body, change) : body.text.slice(change.start, Math.min(change.end, body.text.length)).replace(/\n/g, ' ¶ ');
+    const text = change.type === 'format' ? formatSummary(change) : documentText.slice(change.start, Math.min(change.end, documentText.length)).replace(/\n/g, ' ¶ ');
     const editable = !!ready() && !locked();
     const act = accept => { body.select(change.start, Math.min(change.end, body.text.length)); commands.resolve(accept, 'here', { change }); };
     return el('article.ed-comment-card.ed-revision-card', { dataset: { anchor: String(change.start), kind: change.type }, 'aria-label': `${change.type === 'format' ? 'Formatted' : 'Deleted'} by ${change.author || 'unknown author'}` },
@@ -458,7 +472,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       cards.clear();
       const nodes = visible && commentsShown ? list.map(thread => { const node = card(thread); cards.set(thread.id, node); return node; }) : [];
       if (visible && commentsShown && draft) nodes.push(draftCard());
-      nodes.push(...balloons.map(balloonCard));
+      if (balloons.length) { const body = engine.session.body, documentText = body.text, summarize = formatSummaries(body); nodes.push(...balloons.map(change => balloonCard(change, documentText, summarize))); }
       layer.replaceChildren(...nodes);
       // A card that grows (a reply or edit being typed, a wrapped draft) pushes the cards below it down.
       cardResize.disconnect(); for (const node of nodes) cardResize.observe(node);

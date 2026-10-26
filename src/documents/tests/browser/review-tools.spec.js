@@ -847,3 +847,36 @@ test('Reject after Next Change rejects the change it went to, not the others ins
   await expect(input).toHaveValue('Plain words stay plain.\nSecond paragraph.');
   expect(errors).toEqual([]);
 });
+
+test('typing before tracked changes leaves the Reviewing Pane list as it is, and its entries still select their changes', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Alpha beta gamma.\nSecond line here.');
+  await page.evaluate(() => {
+    const engine = window.__docs.current.view.engine, m = engine.model;
+    engine.execute(() => { m.trackChanges = true; m.revisionAuthor = 'Ada'; m.select(6, 10); m.replace(''); m.select(m.text.indexOf('line')); m.replace('new '); m.select(0, 5); m.setRunFormat({ bold: true }); m.trackChanges = false; });
+  });
+  await onTab(page, 'review');
+  await (await reviewButton(page, 'Reviewing Pane', 'Tracking')).click();
+  const pane = page.getByRole('complementary', { name: 'Reviewing Pane' });
+  const items = pane.locator('.review-pane-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText('beta');
+  await expect(items.nth(1)).toContainText('new');
+  await items.nth(1).evaluate(node => { node.dataset.probe = 'kept'; });
+  await input.focus();
+  await select(input, 0);
+  await page.keyboard.type('Intro ');
+  await expect(input).toHaveValue('Intro Alpha beta gamma.\nSecond new line here.');
+  // Rebuilding every entry on each keystroke slowed typing in a document with many changes.
+  await expect(items.nth(1)).toHaveAttribute('data-probe', 'kept');
+  await items.nth(1).click();
+  await expect.poll(() => page.evaluate(() => { const model = window.__docs.current.view.engine.model; return model.text.slice(...model.range); })).toBe('new ');
+  // A change to what an entry shows does rebuild the list.
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine, m = engine.model; engine.execute(() => { m.trackChanges = true; m.revisionAuthor = 'Ada'; m.select(m.text.indexOf('new ') + 4); m.replace('x'); m.trackChanges = false; }); });
+  await expect(items.nth(1)).toContainText('new x');
+  expect(errors).toEqual([]);
+});
