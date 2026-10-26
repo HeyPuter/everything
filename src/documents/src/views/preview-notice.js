@@ -74,3 +74,10 @@ export function scriptFontNotice(fonts = []) {
   return [el('p', { 'data-script-font-warning': '' },
     `Superscript or subscript sizing and placement are approximate for ${unique.join(', ')}. ${help}`)];
 }
+
+/** The pictures an imported Markdown file or web page held, which the import leaves out. */
+export function omittedPictureNotice(count = 0) {
+  if (!count) return [];
+  return [el('p', { 'data-omitted-pictures': '' },
+    `${count === 1 ? 'The picture' : `The ${count.toLocaleString()} pictures`} in this file ${count === 1 ? 'was' : 'were'} not imported: pictures in Markdown and web pages are left out. Add ${count === 1 ? 'it' : 'them'} with Insert > Pictures.`)];
+}

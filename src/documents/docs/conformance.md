@@ -21749,7 +21749,8 @@ with nesting levels (§17.9), and bold, italic, underline, strikethrough,
 super/subscript, color and http(s), mailto and tel links become run properties and
 hyperlinks (§17.3.2, §17.16.22). Known limits: tables become tab-separated
 paragraphs, code blocks keep their line breaks without a monospace font,
-quotations are not indented and pictures are omitted. Loading adds no undo step;
+quotations are not indented and pictures are omitted (the notice bar says how
+many were left out). Loading adds no undo step;
 the document autosaves like other imports. Browser regressions cover Markdown and
 HTML structure, links, script removal, autosave, export and reopen.
 

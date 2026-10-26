@@ -116,3 +116,16 @@ test('a text file too long to open shows why, with ways forward', async ({ page 
   await expect(message).toContainText('up to 200 pages');
   await expect(message.getByRole('button', { name: 'Back to documents', exact: true })).toBeInViewport();
 });
+
+test('a Markdown file or web page says how many of its pictures were left out', async ({ page }) => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  await importFile(page, 'pictures.md', 'text/markdown', `# Trip\n\n![Beach](${png}) and ![Hill](https://example.com/hill.jpg)\n`);
+  await expect(input(page)).toHaveValue('Trip\nand');
+  await expect(page.locator('[data-omitted-pictures]')).toHaveText('The 2 pictures in this file were not imported: pictures in Markdown and web pages are left out. Add them with Insert > Pictures.');
+  await importFile(page, 'page.html', 'text/html', `<p>One <img src="${png}" alt="dot"> picture</p>`);
+  await expect(input(page)).toHaveValue('One picture');
+  await expect(page.locator('[data-omitted-pictures]')).toHaveText(/^The picture in this file was not imported/);
+  await importFile(page, 'plain.md', 'text/markdown', '# No pictures\n');
+  await expect(input(page)).toHaveValue('No pictures');
+  await expect(page.locator('[data-omitted-pictures]')).toHaveCount(0);
+});

@@ -1,7 +1,7 @@
 import { MAX_FONT_SIZE } from '../engine/font-size.js';
 import { stepFontSize, FALLBACK_SIZES } from '../lib/fontsize.js';
 import { countWords } from '../core/text.js';
-import { previewNotice, pictureFontNotice, scriptFontNotice } from './preview-notice.js';
+import { previewNotice, pictureFontNotice, scriptFontNotice, omittedPictureNotice } from './preview-notice.js';
 import { createCanvasRulers } from '../ui/canvas-rulers.js';
 import { openParagraphBorders, paragraphBorderLabel } from './paragraph-borders.js';
 import { openCellAlignment } from './cell-alignment.js';
@@ -1687,6 +1687,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine.session.run(() => { engine.model.replace(importedText); engine.model.select(0); }, () => engine.validateStory(), { record: false });
       engine.relayout();
     }
+    // Pictures in a Markdown file or web page are not brought in yet: the notices say how many were left out.
+    const omittedPictures = importedHtml && /<img\b/i.test(importedHtml) ? new DOMParser().parseFromString(importedHtml, 'text/html').querySelectorAll('img').length : 0;
     if (importedHtml !== null) {
       const fragment = htmlFragment(importedHtml);
       if (fragment) {
@@ -1727,7 +1729,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];
-    const notices = [...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg)];
+    const notices = [...(pkg.readOnly ? previewNotice({ ...pkg, previewIssues }) : []), ...pictureFontNotice(pkg), ...omittedPictureNotice(omittedPictures)];
     if (pkg.fieldRefreshIssues?.length) notices.push(el('div', {}, 'Some page references could not be updated. Cached results were retained. ', el('ul', {}, ...[...new Set(pkg.fieldRefreshIssues)].map(issue => el('li', {}, issue)))));
     message.replaceChildren(...notices);
     // update() may already have run while the editor attached; the script-font notice it added was just replaced.
