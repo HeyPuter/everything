@@ -17,7 +17,8 @@ export function createPane(context) {
   const { selected, describe, kind, commands, palette, theme, pickColor, onClose } = context;
   const heading = el('h2', {}, 'Format');
   const tabs = el('div.pic-pane-tabs', { role: 'tablist', 'aria-label': 'Format sections' });
-  const body = el('div.canvas-panel-scroll.pic-pane-body');
+  const panelId = `pic-pane-body-${++ids}`;
+  const body = el('div.canvas-panel-scroll.pic-pane-body', { role: 'tabpanel', id: panelId });
   // Formatting from the pane keeps the keyboard in the pane (see placeDrawing).
   const node = el('aside.pic-pane', { 'aria-label': 'Format pane', 'data-keeps-focus': '' },
     el('div.canvas-panel-heading', {}, heading, el('button.icon-btn', { type: 'button', 'aria-label': 'Close Format pane', onclick: () => close() }, iconEl('x', 18))),
@@ -26,12 +27,13 @@ export function createPane(context) {
   let section = 'fill', drawn = null;
   const SECTIONS = [['fill', 'Fill & Line', 'shapeFill'], ['effects', 'Effects', 'pictureEffects'], ['layout', 'Layout & Properties', 'position'], ['picture', 'Picture', 'pictures']];
   const tabButtons = SECTIONS.map(([id, label, icon]) => {
-    const button = el('button.pic-pane-tab', { type: 'button', role: 'tab', 'aria-selected': 'false', 'aria-label': label, title: label, dataset: { section: id }, onclick: () => show(id) }, commandIconEl(icon, 18));
+    const button = el('button.pic-pane-tab', { type: 'button', role: 'tab', id: `${panelId}-${id}`, 'aria-controls': panelId, 'aria-selected': 'false', tabindex: -1, 'aria-label': label, title: label, dataset: { section: id }, onclick: () => show(id) }, commandIconEl(icon, 18));
     tabs.append(button); return button;
   });
   tabs.addEventListener('keydown', e => {
     const list = tabButtons.filter(b => !b.hidden), at = list.indexOf(document.activeElement);
-    const next = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : null;
+    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+    const next = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: list.length - 1 }[e.key] ?? null;
     if (next !== null && at >= 0) { e.preventDefault(); const b = list[(next + list.length) % list.length]; b.focus(); b.click(); }
   });
 
@@ -204,7 +206,7 @@ export function createPane(context) {
     heading.textContent = !image ? 'Format' : picture ? 'Format Picture' : kind(image) === 'group' ? 'Format Group' : 'Format Shape';
     tabButtons.find(b => b.dataset.section === 'picture').hidden = !picture;
     if (section === 'picture' && !picture) section = 'fill';
-    for (const button of tabButtons) { const on = button.dataset.section === section; button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1; }
+    for (const button of tabButtons) { const on = button.dataset.section === section; button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1; if (on) body.setAttribute('aria-labelledby', button.id); }
     // Controls get new ids on each render: the focused one is found again by its section, group and label.
     const keyOf = n => [n.closest('details')?.querySelector('summary')?.textContent, n.closest('[role="radiogroup"]')?.getAttribute('aria-label'),
       n.getAttribute('aria-label') || n.labels?.[0]?.textContent || n.closest('label')?.textContent || n.textContent, n.tagName, n.type].join('\u0000');

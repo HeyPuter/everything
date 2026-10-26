@@ -164,6 +164,17 @@ test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ p
   await ribbon.getByRole('button', { name: 'Format Shape', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Format pane' });
   await expect(pane.getByRole('heading', { name: 'Format Shape' })).toBeVisible();
+  // The sections are tabs of one tab panel: one tab stop, with the arrows, Home and End moving between them.
+  const sections = pane.getByRole('tablist', { name: 'Format sections' });
+  await expect(pane.getByRole('tabpanel', { name: 'Fill & Line' })).toBeVisible();
+  await sections.getByRole('tab', { name: 'Fill & Line' }).focus();
+  await page.keyboard.press('End');
+  await expect(sections.getByRole('tab', { name: 'Layout & Properties' })).toBeFocused();
+  await expect(pane.getByRole('tabpanel', { name: 'Layout & Properties' })).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(sections.getByRole('tab', { name: 'Fill & Line', selected: true })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(pane.getByRole('button', { name: 'Close Format pane' })).toBeFocused();
   await pane.getByRole('spinbutton', { name: 'Width' }).fill('2.5'); await pane.getByRole('spinbutton', { name: 'Width' }).press('Enter');
   await shot(page, 'format-pane');
   await pane.getByRole('button', { name: 'Close Format pane' }).click();
