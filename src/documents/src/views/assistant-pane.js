@@ -32,6 +32,16 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   const scopeSelection = el('button.as-scope-option', { type: 'button', role: 'radio', onclick: () => setScope('selection') }, 'Selection');
   const scopeDocument = el('button.as-scope-option', { type: 'button', role: 'radio', onclick: () => setScope('document') }, 'Whole document');
   const scopeGroup = el('div.as-scope', { role: 'radiogroup', 'aria-label': 'Send with your message' }, scopeSelection, scopeDocument);
+  // A radio group is one Tab stop, on the checked choice; the arrow keys switch between the choices that are available.
+  scopeGroup.addEventListener('keydown', e => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+    const choices = [scopeSelection, scopeDocument].filter(option => !option.disabled), at = choices.indexOf(document.activeElement);
+    if (at < 0) return;
+    e.preventDefault();
+    const next = choices[(at + step + choices.length) % choices.length];
+    scope = next === scopeSelection ? 'selection' : 'document'; renderContext(); renderEmpty(); next.focus();
+  });
   const context = el('p.as-context', { 'aria-live': 'polite' });
   const input = el('textarea.input.as-input', { rows: 3, placeholder: 'Ask about this document, or ask for a draft or a rewrite…', 'aria-label': 'Message the assistant', enterKeyHint: 'send' });
   const send = el('button.btn.btn-primary.as-send', { type: 'submit', 'aria-label': 'Send', title: 'Send (Enter)' }, 'Send');
@@ -75,6 +85,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     if (scope === 'selection' && !s) scope = 'document';
     scopeSelection.setAttribute('aria-checked', String(scope === 'selection'));
     scopeDocument.setAttribute('aria-checked', String(scope === 'document'));
+    scopeSelection.tabIndex = scope === 'selection' ? 0 : -1; scopeDocument.tabIndex = scope === 'document' ? 0 : -1;
     scopeSelection.disabled = !s;
     const p = payload();
     const count = p ? words(p.text) : 0;

@@ -95,3 +95,30 @@ test('A reply with bullets and numbers goes in as list paragraphs, not as text w
   await pane.getByRole('button', { name: 'Undo' }).click();
   await expect(text).toHaveValue('Release notes');
 });
+
+test('what the Assistant sends is one radio group that the arrow keys switch', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Plans for the old project.');
+  await input.evaluate(el => { el.focus(); el.setSelectionRange(0, 5); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  const group = pane.getByRole('radiogroup', { name: 'Send with your message' });
+  const selection = group.getByRole('radio', { name: 'Selection' }), whole = group.getByRole('radio', { name: 'Whole document' });
+  await expect(selection).toBeEnabled();
+  const stops = () => group.getByRole('radio').evaluateAll(radios => radios.filter(r => r.tabIndex >= 0).length);
+  expect(await stops()).toBe(1);
+  const checked = group.getByRole('radio', { checked: true });
+  await checked.focus();
+  const before = await checked.textContent();
+  await page.keyboard.press('ArrowRight');
+  const after = before === 'Selection' ? whole : selection;
+  await expect(after).toBeFocused();
+  await expect(after).toHaveAttribute('aria-checked', 'true');
+  expect(await stops()).toBe(1);
+  await page.keyboard.press('ArrowLeft');
+  await expect(before === 'Selection' ? selection : whole).toBeFocused();
+  await expect(before === 'Selection' ? selection : whole).toHaveAttribute('aria-checked', 'true');
+});
