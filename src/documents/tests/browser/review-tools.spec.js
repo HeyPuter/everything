@@ -816,3 +816,34 @@ test('a formatting balloon\'s Accept and Reject leave the other changes in its p
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].format.alignment)).toBe('center');
   expect(errors).toEqual([]);
 });
+
+test('Reject after Next Change rejects the change it went to, not the others inside it', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Plain words stay plain.\nSecond paragraph.');
+  await onTab(page, 'review');
+  await input.press('ControlOrMeta+Shift+e');
+  await select(input, 6);
+  await page.keyboard.type('new ');
+  await select(input, 2);
+  await input.press('ControlOrMeta+e');
+  const changes = () => page.evaluate(() => { const m = window.__docs.current.view.engine.model; return m.revisions.map(r => [r.type, m.text.slice(r.start, r.end)]); });
+  await expect.poll(changes).toEqual([['format', 'Plain new words stay plain.\n'], ['ins', 'new ']]);
+  await select(input, 0);
+  await (await reviewButton(page, 'Next Change', 'Changes')).click();
+  await expect.poll(() => input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('Plain new words stay plain.\n');
+  await review(page).getByRole('button', { name: 'Reject', exact: true }).click();
+  // The centring goes; the typed words stay, still tracked, and Next went on to them.
+  await expect.poll(changes).toEqual([['ins', 'new ']]);
+  await expect(input).toHaveValue('Plain new words stay plain.\nSecond paragraph.');
+  await expect.poll(() => input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('new ');
+  // A selection the reader made still resolves every change in it.
+  await select(input, 0, 10);
+  await review(page).getByRole('button', { name: 'Reject', exact: true }).click();
+  await expect.poll(changes).toEqual([]);
+  await expect(input).toHaveValue('Plain words stay plain.\nSecond paragraph.');
+  expect(errors).toEqual([]);
+});

@@ -41,6 +41,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const layer = el('div.ed-comments-layer', { role: 'complementary', 'aria-label': 'Comments' });
   let markupButton = null;
   let activeId = null, pinned = false, pinnedRange = '', draft = null, editing = null, signature = '', positionsKey = '';
+  // The tracked change last selected with Previous/Next Change or from the Reviewing Pane.
+  let navigated = null;
   const cards = new Map();
   const readAloud = createReadAloud({ editor, onState: () => onChange() });
   /* ---- Reviewing Pane: every comment and change in document order ---- */
@@ -63,7 +65,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const n = (value, one, many) => `${value} ${value === 1 ? one : many}`;
     paneSummary.textContent = `${n(changes.length + notes.length, 'revision', 'revisions')}: ${n(count('ins'), 'insertion', 'insertions')}, ${n(count('del'), 'deletion', 'deletions')}, ${count('format')} formatting, ${n(notes.length, 'comment', 'comments')}`;
     const items = [
-      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(body, c) : (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); engine.focus(); engine.revealCaret?.(); onChange(); } })),
+      ...changes.map(c => ({ at: c.start, kind: c.move ? (c.type === 'ins' ? 'Moved (to)' : 'Moved (from)') : { ins: 'Inserted', del: 'Deleted', format: 'Formatted' }[c.type] || 'Changed', author: c.author, date: c.date, text: c.type === 'format' ? formatSummary(body, c) : (body.text.slice(c.start, Math.min(c.end, body.text.length)) + (c.end > body.text.length ? '\n' : '')).replace(/\n/g, ' ¶ ').trim(), select: () => { body.select(c.start, Math.min(c.end, body.text.length)); navigated = c; engine.focus(); engine.revealCaret?.(); onChange(); } })),
       ...notes.map(t => ({ at: t.start ?? Infinity, kind: t.root.done ? 'Comment (resolved)' : 'Comment', author: t.root.author, date: t.root.date, text: t.root.text, select: () => selectThread(t) })),
     ].sort((a, b) => a.at - b.at);
     paneList.replaceChildren(...items.map(item => listItem(el('button.review-pane-item', { type: 'button', onclick: item.select },
@@ -208,6 +210,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const body = engine.session.body, [a, b] = body.range;
       // A balloon's buttons act on its own change. Its range can hold others (a paragraph's formatting change spans
       // the paragraph), and resolving the range accepted or rejected every insertion and deletion in it too.
+      // A change reached with Previous/Next (or the Reviewing Pane) and still selected as it was is the one meant.
+      if (!change && scope === 'here' && navigated && a === navigated.start && b === Math.min(navigated.end, body.text.length)
+        && body.revisions.some(c => c.start === navigated.start && c.end === navigated.end && c.type === navigated.type && c.author === navigated.author && c.date === navigated.date)) change = navigated;
       const own = change && (c => c.type === change.type && c.author === change.author && c.date === change.date && !!c.move === !!change.move);
       // "All shown" leaves the changes of reviewers and kinds hidden by Show Markup alone.
       const ok = run(() => scope === 'shown' ? body.resolveRevisions(accept, undefined, undefined, { only: change => shownChanges([change]).length > 0 })
@@ -225,7 +230,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const next = direction > 0 ? list.find(r => r.start >= at && !(r.start === a && r.end === b)) || list[0] : [...list].reverse().find(r => r.end <= at && !(r.start === a && r.end === b)) || list.at(-1);
       engine.finishComposition();
       if (engine.session.path !== null) engine.editStory(null);
-      body.select(next.start, Math.min(next.end, body.text.length));
+      body.select(next.start, Math.min(next.end, body.text.length)); navigated = next;
       engine.focus(); engine.revealCaret?.(); engine.paint(); onChange();
     },
     get shown() { return commentsShown; },
