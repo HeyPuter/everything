@@ -34,6 +34,11 @@ const SIGNS = new Set('+-−±∓');
 const ROOT_DEGREE = { '∛': '3', '∜': '4' };
 
 const run = (text, plain = false) => ({ type: 'run', text, ...(plain ? { plain } : {}) });
+// Structures nest at most this deep. Deeper input stays literal text, as input that does not build
+// up does, so parsing never exhausts the stack and the markup stays well inside the depth Office
+// Math readers walk (MATH_DEPTH_LIMIT): each level adds at most a few elements.
+const MAX_NESTING = 48;
+const literal = tok => tok.t === 'text' ? [{ type: 'text', text: tok.v }] : tok.t === 'glue' ? [] : [run(tok.t === 'tex' || tok.t === 'accent' ? `\\${tok.v}` : tok.v)];
 
 function tokenize(source) {
   // Split precomposed accented Latin letters so x̂-style accents build up.
@@ -118,7 +123,7 @@ const unwrap = nodes => nodes.length === 1 && nodes[0].type === 'delim' && ['()'
 const isOperand = n => n.type !== 'space' && n.type !== 'slash' && !n.op;
 
 class Parser {
-  constructor(tokens) { this.k = tokens; this.i = 0; }
+  constructor(tokens) { this.k = tokens; this.i = 0; this.depth = 0; }
   peek() { return this.k[this.i]; }
   skipSpace() { while (this.peek()?.t === 'space') this.i++; }
   stops(tok, ctx) {
@@ -136,7 +141,7 @@ class Parser {
       else if (tok.t === 'op') { items.push({ ...run(tok.v), op: true }); this.i++; }
       else items.push(...this.term(ctx));
     }
-    return fractions(items);
+    return fractions(items, MAX_NESTING - this.depth);
   }
   term(ctx) {
     const nodes = this.primary(ctx);
@@ -144,7 +149,7 @@ class Parser {
     return [...nodes.slice(0, -1), ...this.postfix(nodes.at(-1), ctx)];
   }
   marks(node) {
-    while (this.peek()?.t === 'comb') node = accent(this.k[this.i++].v, [node]);
+    for (let level = this.depth; this.peek()?.t === 'comb' && level < MAX_NESTING; level++) node = accent(this.k[this.i++].v, [node]);
     return node;
   }
   postfix(node, ctx) {
@@ -163,20 +168,26 @@ class Parser {
     return found;
   }
   scriptOperand(ctx) {
+    // Signs lead an operand, as in x^-1 or x^+-2.
+    const signs = [];
+    for (let tok; (tok = this.peek())?.t === 'op' && SIGNS.has(tok.v) && !this.stops(tok, ctx); this.i++) signs.push(run(tok.v));
+    const rest = this.operand(ctx);
+    return signs.length ? [...signs, ...(rest || [])] : rest;
+  }
+  operand(ctx) {
     const tok = this.peek();
-    if (!tok || this.stops(tok, ctx)) return null;
-    if (tok.t === 'op') {
-      if (!SIGNS.has(tok.v)) return null;
-      this.i++;
-      const rest = this.scriptOperand(ctx);
-      return [{ ...run(tok.v) }, ...(rest || [])];
-    }
+    if (!tok || this.stops(tok, ctx) || tok.t === 'op') return null;
     if (['space', 'slash', 'sub', 'sup', 'amp', 'at', 'close', 'glue'].includes(tok.t)) return null;
     if (tok.t === 'word' && !tok.fn && !FUNCS.has(tok.v)) { this.i++; return [this.marks(run(tok.v))]; }
     const nodes = this.primary(ctx);
     return nodes.length ? unwrap([...nodes.slice(0, -1), this.marks(nodes.at(-1))]) : null;
   }
   primary(ctx) {
+    if (this.depth >= MAX_NESTING) return literal(this.k[this.i++]);
+    this.depth++;
+    try { return this.structure(ctx); } finally { this.depth--; }
+  }
+  structure(ctx) {
     const tok = this.k[this.i++];
     switch (tok.t) {
       case 'num': case 'sym': return [run(tok.v)];
@@ -295,8 +306,9 @@ function accent(mark, e) {
 
 // Builds a/b from the operands either side of each slash, left to right, so
 // a/b/c is (a/b)/c. An operand is the run of terms up to an operator or space.
-function fractions(items) {
-  const out = [];
+// A chain like a/b/c/… nests one level per slash; past `budget` levels a slash stays literal.
+function fractions(items, budget = MAX_NESTING) {
+  const out = [], levels = new Map();
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     if (item.type !== 'slash') { out.push(item); continue; }
@@ -304,8 +316,10 @@ function fractions(items) {
     while (out.length && isOperand(out.at(-1))) num.unshift(out.pop());
     let j = i + 1; const den = [];
     while (j < items.length && isOperand(items[j])) den.push(items[j++]);
-    if (!num.length || !den.length) { out.push(...num, { ...run(item.text), op: true }); continue; }
-    out.push({ type: 'frac', ...(item.noBar ? { noBar: true } : {}), num: unwrap(num), den: unwrap(den) });
+    const level = 1 + Math.max(0, ...num.map(n => levels.get(n) || 0));
+    if (!num.length || !den.length || level > budget) { out.push(...num, { ...run(item.text), op: true }); continue; }
+    const frac = { type: 'frac', ...(item.noBar ? { noBar: true } : {}), num: unwrap(num), den: unwrap(den) };
+    levels.set(frac, level); out.push(frac);
     i = j - 1;
   }
   return out.filter(n => n.type !== 'space').map(n => n.op ? run(n.text) : n);

@@ -4,6 +4,7 @@ import { zipSync, strToU8, unzipSync, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { parseLinearMath, linearToOmml, ommlToLinear, ommlToEditableLinear, EQUATION_GALLERY } from '../src/engine/math-linear.js';
+import { MATH_DEPTH_LIMIT } from '../src/engine/office-math.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -142,6 +143,27 @@ describe('linear format to Office Math', () => {
     expect(() => linearToOmml('')).toThrow();
     expect(() => linearToOmml('   ')).toThrow();
     expect(parseLinearMath('x^2').body[0]).toMatchObject({ type: 'sup', e: [{ type: 'run', text: 'x' }], sup: [{ type: 'run', text: '2' }] });
+  });
+
+  it('keeps structure nested beyond the depth limit as literal text', () => {
+    // Thousands of nested brackets, roots, accents or a long a/b/c… chain used to exhaust the stack.
+    const nesting = xml => { let depth = 0, most = 0; for (const [, end, empty] of xml.matchAll(/<(\/?)[^>]*?(\/?)>/g)) { if (end) depth--; else if (!empty) most = Math.max(most, ++depth); } return most; };
+    const n = 20000;
+    for (const input of ['('.repeat(n) + 'x' + ')'.repeat(n), '('.repeat(n) + 'x', '√'.repeat(n) + 'x', '∑'.repeat(n) + 'x', 'sin '.repeat(n) + 'x', '\\hat{'.repeat(n) + 'x' + '}'.repeat(n),
+      'a/'.repeat(n) + 'b', 'x' + '\u0302'.repeat(n), 'x^' + '-'.repeat(n) + '1']) {
+      const xml = linearToOmml(input);
+      // Office Math readers walk 400 elements deep; typed equations stay well inside that.
+      expect(nesting(xml), input.slice(0, 6)).toBeLessThan(MATH_DEPTH_LIMIT / 2);
+    }
+    // The levels past the limit keep every character.
+    const parens = math(`${'('.repeat(100)}x${')'.repeat(100)}`), built = all(parens, 'd').length;
+    expect(built).toBeGreaterThanOrEqual(40);
+    expect(built + [...text(parens)].filter(c => c === '(').length).toBe(100);
+    expect(built + [...text(parens)].filter(c => c === ')').length).toBe(100);
+    const chain = math(`${'a/'.repeat(100)}b`);
+    expect(all(chain, 'f').length + [...text(chain)].filter(c => c === '/').length).toBe(100);
+    expect(text(chain).replace(/\//g, '')).toBe(`${'a'.repeat(100)}b`);
+    expect(text(math(`x^${'-'.repeat(50)}1`))).toBe(`x${'−'.repeat(50)}1`);
   });
 
   it('wraps display equations in m:oMathPara', () => {

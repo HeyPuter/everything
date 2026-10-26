@@ -23853,6 +23853,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   Equation as its plain characters, so a generated or hostile file nested thousands deep opens
   instead of exhausting the stack; its `m:oMath` XML is still saved unchanged. Tests:
   `tests/office-math.test.js`, `tests/browser/deep-equation.spec.js`.
+  Typed linear input builds structures at most 48 levels deep (a chain such as `a/b/c/…` or a
+  stack of accents counts one level per step); deeper brackets, roots, operators, accents and
+  slashes stay literal characters, as other input that does not build up does. Tests:
+  `tests/math-linear.test.js`.
 
 ### Symbols
 
