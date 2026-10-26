@@ -507,6 +507,9 @@ export class CanvasEditor {
   setAccessible(value) {
     this.accessible = value;
     this.host.classList.toggle('accessible-editing', value);
+    // The hidden field follows the caret with inline offsets and the caret's height (positionInput);
+    // shown as the text, it takes the size Text mode gives it. Leaving Text mode places it again (paint).
+    if (value) for (const property of ['left', 'top', 'height']) this.input.style.removeProperty(property);
     this.syncInput(); this.paint(); this.focus();
   }
   /**

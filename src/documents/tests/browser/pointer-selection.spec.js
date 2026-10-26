@@ -141,6 +141,22 @@ test('a click in Text mode moves the selection the toolbar acts on', async ({ pa
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.paragraphs[0].runs.some(r => r.bold))).toBe(false);
 });
 
+test('Text mode shows the text in a field that fills the editing area', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.locator('canvas.canvas-page').first().click({ position: { x: 150, y: 110 } });
+  await page.keyboard.type('Hello world');
+  await page.getByRole('checkbox', { name: 'Text mode', exact: true }).check();
+  // The field no longer keeps the caret's height, which it followed while hidden.
+  const area = await page.locator('.canvas-host').boundingBox(), field = await input(page).boundingBox();
+  expect(field.height).toBeGreaterThan(area.height - 100);
+  await page.getByRole('checkbox', { name: 'Text mode', exact: true }).uncheck();
+  await input(page).focus();
+  // Hidden again, it follows the caret.
+  const caret = await page.evaluate(() => { const e = window.__docs.current.view.engine; return e.input.getBoundingClientRect().height; });
+  expect(caret).toBeLessThan(40);
+});
+
 test('on a Mac, Control+click keeps the selection for the context menu it opens', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
   await page.goto('/mock.html#/new');
