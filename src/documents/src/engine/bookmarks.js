@@ -238,6 +238,9 @@ export function repairStructuralBookmarks(paragraphs, state, tables = [], change
     for (const edge of ['start', 'end']) {
       const segment = edge === 'start' ? first : last;
       let p = paragraphs[indices.get(segment.id)], offset = segment[edge];
+      // Everything after the start went (a table the bookmark enclosed was deleted): the end
+      // closes up onto the start, which can stand past its paragraph's text, before a table.
+      if (edge === 'end' && first === last && offset < first.start) offset = first.start;
       let marker = entry[edge + 'Marker'];
       const table = marker.blockTableId && tables.find(t => t.id === marker.blockTableId);
       if (marker.tableBoundary) {

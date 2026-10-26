@@ -69,6 +69,25 @@ it.each(['row','column'])('keeps a bookmark around a whole table consistent when
   expect(model(await DocxPackage.open(await save(pkg,d))).bookmarks[0].end).toBe(previousEnd);
   d.undo();d.undo();expect(unzipSync(await save(pkg,d))).toEqual(parts);
 });
+it.each([
+  ['Delete Table',d=>d.deleteTablePart('table')],
+  ['Delete Rows',d=>{d.setCellBlock({tableId:d.tables[0].id,top:0,bottom:0,left:0,right:1});return d.deleteTablePart('row');}],
+  ['a selection around it',d=>{d.select(d.text.indexOf('block')+2,d.text.indexOf('After block')+3);return d.replace('');}],
+])('keeps a document saveable after %s removes a table a bookmark encloses',async(name,remove)=>{
+  const source=readFileSync('public/fixtures/block-bookmark-table.docx'),parts=unzipSync(source);
+  const pkg=await DocxPackage.open(source),d=model(pkg);
+  d.select(d.text.indexOf('Control alpha'));
+  expect(remove(d)).toBe(true);
+  expect(d.tables).toHaveLength(0);
+  // The bookmark stays, empty, where the table was.
+  expect(d.bookmarks.map(b=>b.name)).toEqual(['WholeBlock']);
+  expect(d.bookmarks[0].end).toBe(d.bookmarks[0].start);
+  const reopened=await DocxPackage.open(await save(pkg,d));
+  expect(reopened.readOnly).toBeFalsy();
+  expect(model(reopened).text).toBe(d.text);
+  expect(model(reopened).bookmarks.map(b=>b.name)).toEqual(['WholeBlock']);
+  d.undo();expect(unzipSync(await save(pkg,d))).toEqual(parts);
+});
 it('moves block bookmark placement to the surviving cell when merging cells',async()=>{
   const source=readFileSync('public/fixtures/block-bookmark-merged.docx'),pkg=await DocxPackage.open(source),d=model(pkg);
   d.select(d.text.indexOf('First cell'),d.text.indexOf('After cell control')+3);d.mergeCells();
