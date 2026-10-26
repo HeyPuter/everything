@@ -34,9 +34,11 @@ describe('canvas document transactions', () => {
     expect(doc.paragraphs[0].runs.map(r => [r.text, r.bold])).toEqual([['a', false], ['X', true], ['b', false]]);
     doc.undo(); expect(doc.text).toBe('ab');
   });
-  it('deletes a whole emoji or combining sequence and restores the caret with undo', () => {
+  it('deletes a whole emoji, the accent of a combining sequence, and restores the caret with undo', () => {
     const doc = new TextDocument([paragraph('a👨‍👩‍👧‍👦é')]);
     doc.select(doc.text.length);
+    // Backspace takes back the accent typed after its letter, as text fields do (backspace-clusters.test.js).
+    doc.delete(-1); expect(doc.text).toBe('a👨‍👩‍👧‍👦e');
     doc.delete(-1); expect(doc.text).toBe('a👨‍👩‍👧‍👦');
     doc.delete(-1); expect(doc.text).toBe('a');
     doc.undo(); expect(doc.selection.focus).toBe('a👨‍👩‍👧‍👦'.length);

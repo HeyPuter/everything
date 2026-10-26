@@ -253,6 +253,18 @@ function editedBoundaries(old, points, text) {
   return result;
 }
 
+// Backspace takes back the last character of a cluster, as text fields do: a vowel sign, virama or tone mark
+// typed after its consonant, or an accent after its letter, rather than the whole syllable. Emoji sequences,
+// flags, keycaps and variation sequences go whole, as one symbol; so does a cluster whose remainder would join
+// the character after the caret (a virama before a consonant).
+const WHOLE_CLUSTER = /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u200d\u20e3\ufe00-\ufe0f\u{e0020}-\u{e007f}\u{e0100}-\u{e01ef}\ufffc\r\n\t\v\f\u000e]/u;
+function backspaceStart(text, from, to, nextEnd) {
+  const cluster = text.slice(from, to), last = String.fromCodePoint(cluster.codePointAt(cluster.length - (/[\udc00-\udfff]/.test(cluster.at(-1)) ? 2 : 1)));
+  if (last.length >= cluster.length || WHOLE_CLUSTER.test(cluster)) return from;
+  const kept = cluster.length - last.length, rest = cluster.slice(0, kept) + text.slice(to, nextEnd);
+  return kept === rest.length || [...inlineSegments(rest)].some(s => s.index === kept) ? from + kept : from;
+}
+
 export function locate(paragraphs, position) {
   // Clamp within the walk; joining the whole document text made every lookup allocate it.
   let offset = Math.max(0, position);
@@ -2519,7 +2531,7 @@ export class TextDocument {
       this.selection = { anchor: after, focus: after };
       return this.delete(direction);
     }
-    const target = points[at + direction];
+    let target = points[at + direction];
     if (target === undefined) return false;
     const other = this.paragraphs[locate(this.paragraphs, target).index];
     if (direction < 0 && location.offset === 0 && p.cellId && !other.cellId && other.sectionEnd && paragraphLength(other)) {
@@ -2557,6 +2569,8 @@ export class TextDocument {
         } catch (error) { this.selection = selection; throw error; }
       }
     }
+    // Tracked, a deleted mark would stay in the cluster: the caret could not stop before it.
+    if (direction < 0 && !(this.trackChanges && !this.trackingInternal)) target = backspaceStart(this.text, target, start, points[at + 1] ?? start);
     // Snapshot before extending the deletion range, so undo restores the caret.
     this.checkpoint();
     this.selection = { anchor: start, focus: target };

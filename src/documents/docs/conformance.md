@@ -21882,6 +21882,18 @@ presses is now one step; moving the caret, clicking,
 typing, switching direction or any other edit starts a new one. A browser
 regression covers both keys, undo and redo.
 
+### Backspace in complex scripts (2026-10-26)
+
+The caret still stops only between whole characters (grapheme clusters), but
+Backspace now takes back the last code point of the cluster before it, as text
+fields do: a Devanagari, Bengali or Tamil vowel sign or conjunct consonant, a Thai
+vowel or tone mark, an Arabic mark or a combining accent, rather than the whole
+syllable. Emoji sequences, flags, keycaps and variation sequences go whole. So does
+a cluster whose remainder would join the character after the caret (a virama
+before a consonant), and any cluster while Track Changes is on, where the
+struck-out mark would stay inside it. Delete still removes the whole cluster after
+the caret. `tests/backspace-clusters.test.js` covers these cases.
+
 ### Status bar menus (2026-10-05)
 
 The status bar's Zoom (and header/footer Editing) menus used the browser's native
