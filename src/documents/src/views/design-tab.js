@@ -45,7 +45,7 @@ function colorStrip(colors) {
 export function createDesignTab({ editor, pkg, error, onChange = () => {}, commands: base = {} }) {
   /** A gallery choice in a menu closes the menus and returns to the document before acting. */
   const choose = action => () => { closeMenu(); editor()?.focus(); action(); };
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly ? engine : null; };
   const editable = () => !!ready() && !!base.changePackage;
   let api = null;
   const loading = design().then(module => { api = module; onChange(); }).catch(() => {});

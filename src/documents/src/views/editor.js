@@ -1632,7 +1632,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
   async function changePackage(transform) {
-    if (!engine || pkg?.readOnly || reopening) return false;
+    // Viewing mode, and a shared document held read-only while it connects, change nothing: the reopened editor
+    // would also have come back editable.
+    if (!engine || pkg?.readOnly || engine.viewOnly || reopening) return false;
     // The editor reopens on the changed package, which the room does not hold: the others would not get it, and
     // the editor would stop sharing with them.
     if (collab.live) { error(new Error('Themes, style sets, watermarks and page backgrounds cannot be changed while the document is shared. Stop sharing to change them.')); return false; }
@@ -1651,7 +1653,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   async function stepDesignVersion(direction) {
     const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
-    if (collab.live) return;
+    if (collab.live || engine?.viewOnly) return;
     const entry = from.pop(); if (!entry) return;
     reopening = true;
     try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after)) to.push(entry); else from.push(entry); }
