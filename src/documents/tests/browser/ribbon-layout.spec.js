@@ -25,6 +25,29 @@ test('a large drop-down keeps its arrow beside the last word of its label', asyn
   }
 });
 
+test('a large split button keeps its two-line label clear of its arrow', async ({ page }) => {
+  for (const width of [1440, 600]) {
+    await openEditor(page, width);
+    await tab(page, 'Review').click();
+    // Every glyph of a large split button sits inside one of its two halves, and none crosses the line between them.
+    const crossing = await page.evaluate(() => [...document.querySelectorAll('.ribbon-panel:not([hidden]) .ribbon-split.is-large')].filter(wrap => wrap.offsetParent).flatMap(wrap => {
+      const [main, arrow] = wrap.children, range = document.createRange();
+      return [main, arrow].flatMap(half => {
+        const box = half.getBoundingClientRect(), bad = [];
+        for (const node of half.querySelectorAll('span')) {
+          if (!node.textContent.trim() || node.children.length) continue;
+          range.selectNodeContents(node);
+          for (const r of range.getClientRects()) if (r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5) bad.push(`${main.getAttribute('aria-label')}: ${node.textContent}`);
+        }
+        return bad;
+      });
+    }));
+    expect(crossing, `Review at ${width}px`).toEqual([]);
+    await expect(page.getByRole('button', { name: 'Track Changes', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Track Changes options', exact: true })).toBeVisible();
+  }
+});
+
 test('the ribbon reopens a folded group once there is room for it again', async ({ page }) => {
   for (const width of [800, 900, 1000, 1100, 1200]) {
     await openEditor(page, width);

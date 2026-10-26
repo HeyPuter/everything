@@ -60,6 +60,16 @@ export function split(main, { label, open, size = 'small' } = {}) {
   const arrow = el('button.ribbon-split-arrow', { type: 'button', 'aria-label': label, title: label, 'aria-haspopup': 'menu',
     onclick: e => open(arrow, e) }, el('span.ribbon-caret', { 'aria-hidden': 'true' }));
   arrow.addEventListener('mousedown', e => e.preventDefault());
+  // A large split button has room for one line of label above its arrow. A longer label ends on the
+  // arrow's half, beside the arrow (as "Track" over "Changes ▾"), instead of running down over it.
+  const shown = size === 'large' ? main.querySelector(':scope > .ribbon-large-label') : null;
+  const text = shown?.textContent.trim() || '';
+  const at = text.lastIndexOf(' ');
+  if (at > 0) {
+    if (!main.hasAttribute('aria-label')) main.setAttribute('aria-label', text);
+    shown.textContent = text.slice(0, at);
+    arrow.prepend(el('span.ribbon-split-label', { 'aria-hidden': 'true' }, text.slice(at + 1)));
+  }
   const wrap = el(`span.ribbon-split.is-${size}`, {}, main, arrow);
   wrap.arrow = arrow;
   return wrap;
