@@ -909,6 +909,10 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   const state = M.tableContent(model, table);
   model.checkpoint();
   table.rows.splice(first, sorted.length, ...sorted.map(item => item.row));
+  // Repeating as a header row belongs to the table's top rows: a row sorted into the body stops repeating and
+  // the row sorted into its place repeats instead (sorting with "Header row" leaves the header rows out).
+  const headers = rows.map(({ row }) => !!row.header);
+  sorted.forEach(({ row }, i) => { if (!!row.header !== headers[i]) { row.header = headers[i]; row.headerChanged = true; } });
   M.applyTableContent(model, table, state);
   validate(model);
   model.didChange(); return true;

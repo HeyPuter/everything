@@ -203,6 +203,24 @@ describe('table commands', () => {
     expect(T.sortDate('3/4/2024')).toBe(Date.UTC(2024, 2, 4));
   });
 
+  it('sorting a repeated header row into the body without "Header row" leaves the repeat on the top row', async () => {
+    const { pkg, doc } = tableDocument(3, 1);
+    const fill = (r, text) => { at(doc, r, 0); doc.select(doc.selection.focus, doc.selection.focus + 2); doc.replace(text); };
+    ['Name', 'Zed', 'Amy'].forEach((text, r) => fill(r, text));
+    at(doc, 0, 0); expect(doc.setTableHeaderRows(1)).toBe(true);
+    const history = doc.history.length;
+    expect(T.sortTable(doc, { keys: [{ column: 0, type: 'text' }], header: false })).toBe(true);
+    expect(shape(doc)).toEqual(['Amy', 'Name', 'Zed']);
+    // The table still repeats its first row, which is now Amy's; Name's row, moved into the body, does not repeat.
+    expect(doc.tables[0].rows.map(row => !!row.header)).toEqual([true, false, false]);
+    expect(doc.history.length).toBe(history + 1);
+    const { reopened } = await roundTrip(pkg, doc);
+    expect(reopened.tables[0].rows.map(row => !!row.header)).toEqual([true, false, false]);
+    doc.undo();
+    expect(shape(doc)).toEqual(['Name', 'Zed', 'Amy']);
+    expect(doc.tables[0].rows.map(row => !!row.header)).toEqual([true, false, false]);
+  });
+
   it('converts text to a table and back', async () => {
     const pkg = createDocx([paragraph('Name\tQty'), paragraph('Pens\t2'), paragraph('Ink\t1\textra'), paragraph('After')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
     const doc = open(pkg);
