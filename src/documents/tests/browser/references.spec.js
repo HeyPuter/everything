@@ -460,3 +460,33 @@ test('the Bookmarks and Go To dialogs leave out the hidden bookmarks a table of 
   await expect(goTo.locator('select:not([size]) option')).toHaveText(['Mine']);
   expect(errors).toEqual([]);
 });
+
+test('changing a cited source\'s tag in Manage Sources keeps its citations', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine, m = engine.model; engine.execute(() => { m.replace('Claim one. Claim two.'); m.select('Claim one'.length); return true; }); engine.focus(); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Insert Citation', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Add New Source…' }).click();
+  const create = page.getByRole('dialog', { name: 'Create Source' });
+  await create.getByLabel('Author', { exact: true }).fill('Lovelace, Ada');
+  await create.getByLabel('Title', { exact: true }).fill('Notes on engines');
+  await create.getByLabel('Year', { exact: true }).fill('2020');
+  await create.locator('button[type=submit]').click();
+  await expect.poll(() => engineText(page)).toBe('Claim one (Lovelace, 2020). Claim two.');
+  await ribbon(page).getByRole('button', { name: 'Manage Sources', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Source Manager' });
+  await manager.getByLabel('Current list', { exact: true }).selectOption({ index: 0 });
+  await manager.getByRole('button', { name: 'Edit…' }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Source' });
+  await edit.getByLabel('Tag name').fill('Ada2020');
+  await edit.locator('button[type=submit]').click();
+  await expect(edit).toBeHidden();
+  await manager.locator('button[type=submit]').click();
+  await expect.poll(() => engineText(page)).toBe('Claim one (Lovelace, 2020). Claim two.');
+  await page.evaluate(() => window.__docs.current.view.engine.focus());
+  await page.keyboard.press('F9');
+  await expect.poll(() => engineText(page)).toBe('Claim one (Lovelace, 2020). Claim two.');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.session.body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.instruction)).filter(Boolean))).toEqual(expect.arrayContaining([expect.stringContaining('Ada2020')]));
+  expect(errors).toEqual([]);
+});

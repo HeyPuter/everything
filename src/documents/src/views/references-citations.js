@@ -29,22 +29,29 @@ export function createCitationCommands(ctx) {
   const currentStyle = () => documentData().style;
 
   /** Save the document's sources (and style) and refresh every citation and bibliography. */
-  async function saveSources(sources, style = currentStyle()) {
+  /** `renamed` ([oldTag, newTag]) points the citations of a source whose tag was changed at its new tag. */
+  async function saveSources(sources, style = currentStyle(), { renamed = null } = {}) {
     if (!ready()) throw new Error('This document is open read-only.');
     const [, fields, styles] = await engineModules();
     const { data } = documentData();
     const info = styles.CITATION_STYLES[style];
     fields.writeBibliographyPart(pkg().parts, { ...data, style, styleName: `${info.name} ${info.edition}`, sources });
     pendingStyle = null;
-    await refreshFields(sources, style);
+    await refreshFields(sources, style, renamed);
     editor()?.onChange?.();
   }
-  async function refreshFields(sources = documentData().data.sources, style = currentStyle()) {
+  async function refreshFields(sources = documentData().data.sources, style = currentStyle(), renamed = null) {
     const engine = editor();
     const paragraphs = engine?.session.body.paragraphs || [];
     if (!paragraphs.some(p => p.fieldMarkers?.some(m => ['CITATION', 'BIBLIOGRAPHY'].includes(m.field.type)))) return;
-    await runBody((body, fields) => { fields.updateCitations(body, sources, style); fields.updateBibliographies(body, sources, style); return true; }, { modules: ['bibliography'], refresh: false });
+    await runBody((body, fields) => {
+      if (renamed) fields.renameCitedTag(body, ...renamed);
+      fields.updateCitations(body, sources, style); fields.updateBibliographies(body, sources, style); return true;
+    }, { modules: ['bibliography'], refresh: false });
   }
+  /** Save a document source edited in the source dialog; a changed tag takes its citations along. */
+  const saveEditedSource = (source, draft) => saveSources(documentData().data.sources.map(s => s.tag === source.tag ? draft : s), currentStyle(),
+    { renamed: draft.tag.toLowerCase() !== source.tag.toLowerCase() ? [source.tag, draft.tag] : null });
 
   async function setStyle(style) {
     const engine = ready(); if (!engine) return;
@@ -241,7 +248,7 @@ export function createCitationCommands(ctx) {
       sourceDialog({ source, ...(inMaster ? { existing: () => master, place: 'the master list' } : {}), onSave: async draft => {
         if (inMaster) { master = saveMasterSources(master.map(s => s.tag === source.tag ? draft : s)); }
         else {
-          await saveSources(documentData().data.sources.map(s => s.tag === source.tag ? draft : s));
+          await saveEditedSource(source, draft);
           if (master.some(s => s.tag === source.tag)) master = rememberSources([draft]);
         }
         fill();
@@ -331,7 +338,7 @@ export function createCitationCommands(ctx) {
     const range = await citationAt(); if (!range) return;
     const source = documentData().data.sources.find(s => s.tag.toLowerCase() === range.citation.tags[0].toLowerCase());
     if (!source) { error(new Error(`This document has no source named ${range.citation.tags[0]}.`)); return; }
-    sourceDialog({ source, onSave: async draft => { await saveSources(documentData().data.sources.map(s => s.tag === source.tag ? draft : s)); } });
+    sourceDialog({ source, onSave: async draft => { await saveEditedSource(source, draft); } });
   }
   function contextItems() {
     let range = null;

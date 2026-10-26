@@ -7,7 +7,7 @@ import { parseXml } from './docx-xml.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { BIB_NS, newGuid, parseSources, serializeSources, parseCitation, citationInstruction, bibliographyInstruction } from './bibliography.js';
 import { CITATION_STYLES, DEFAULT_STYLE, citationContext, formatBibliography, formatCitation } from './citation-styles.js';
-import { fieldsOfType, newBodyField, writeBlockField, writeInlineField } from './generated-fields.js';
+import { fieldsOfType, newBodyField, setFieldInstruction, writeBlockField, writeInlineField } from './generated-fields.js';
 
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CUSTOM_XML = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/customXml';
@@ -87,6 +87,17 @@ export function styleOf(data) {
 /** CITATION fields with their parsed instruction, in document order. */
 export function citationFields(paragraphs) {
   return bodyFieldRanges(paragraphs).filter(r => r.field.type === 'CITATION').map(r => ({ ...r, citation: parseCitation(r.field.instruction) })).filter(r => r.citation);
+}
+/** Point the citations of source `from` at its new tag `to` (a source's tag was changed); returns how many changed. */
+export function renameCitedTag(doc, from, to) {
+  const same = tag => String(tag).toLowerCase() === String(from).toLowerCase();
+  let changed = 0;
+  for (const { field } of citationFields(doc.paragraphs).filter(r => r.citation.tags.some(same))) {
+    const range = citationFields(doc.paragraphs).find(r => r.field.id === field.id);
+    const citation = { ...range.citation, tags: range.citation.tags.map(tag => same(tag) ? to : tag) };
+    if (setFieldInstruction(doc, range, citationInstruction({ ...citation, lcid: citation.lcid || '1033' }))) changed++;
+  }
+  return changed;
 }
 /** Tags in order of first citation. */
 export const citedTags = paragraphs => [...new Set(citationFields(paragraphs).flatMap(r => r.citation.tags))];
