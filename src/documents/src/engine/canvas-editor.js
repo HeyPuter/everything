@@ -4,6 +4,7 @@ import { decodeShape } from './canvas-shapes.js';
 import { wordPosition, optionWordPosition } from './word-navigation.js';
 import { carriesFormatting, copyFragment, fragmentHtml, htmlFragment, pasteFragment, formattedPasteFits, copiesPicture, pictureHtml, htmlPicture } from './clipboard-fragment.js';
 import { xmlAttributeText } from './text-limits.js';
+import { textEdit, followEdit } from './text-edit.js';
 import { showLink } from './link-appearance.js';
 import { revisionView } from './revisions.js';
 
@@ -270,15 +271,44 @@ export class CanvasEditor {
     this.tintLayers = { ...this.tintLayers, [layer]: tints };
     tints = Object.values(this.tintLayers).flat().sort((a, b) => a.start - b.start || a.end - b.end);
     const current = this.rangeTints || [];
-    if (tints.length === current.length && tints.every((t, i) => t.start === current[i].start && t.end === current[i].end && t.fill === current[i].fill)) return;
-    this.rangeTints = tints; this.tintRects = null; this.paint();
+    const same = tints.length === current.length && tints.every((t, i) => t.start === current[i].start && t.end === current[i].end && t.fill === current[i].fill);
+    if (!same) { this.rangeTints = tints; this.tintRects = null; }
+    this.noteOverlayText();
+    if (!same) this.paint();
   }
   /** Vertical bars in the left margin beside lines that touch the given ranges (tracked changes). */
   // side: 'left', 'right' or 'outside' (right on odd pages, left on even ones).
   setMarginBars(ranges = [], color = '#7a7a7a', side = 'left') {
     const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
-    if (key === this.marginBarKey) return;
-    this.marginBarKey = key; this.marginBars = { ranges, color, side }; this.paint();
+    const same = key === this.marginBarKey;
+    if (!same) { this.marginBarKey = key; this.marginBars = { ranges, color, side }; }
+    this.noteOverlayText();
+    if (!same) this.paint();
+  }
+  /** The body text that the tints' and bars' offsets refer to, while there are any. */
+  noteOverlayText() {
+    this.overlayText = this.rangeTints?.length || this.marginBars?.ranges.length ? this.session.body.text : undefined;
+  }
+  /**
+   * Carry the tints and bars across an edit to the body, before the edit is painted. Whoever set them
+   * sets them again once it has caught up (the comments and tracked changes after each keystroke), and
+   * finding them where they already are then costs no second paint of the pages on screen.
+   */
+  followOverlays() {
+    const before = this.overlayText;
+    if (before === undefined) return;
+    const text = this.session.body.text, edit = textEdit(before, text);
+    this.overlayText = text;
+    if (!edit) return;
+    if (this.rangeTints?.length) {
+      this.tintLayers = Object.fromEntries(Object.entries(this.tintLayers).map(([layer, tints]) => [layer, followEdit(tints, edit)]));
+      this.rangeTints = followEdit(this.rangeTints, edit); this.tintRects = null;
+    }
+    if (this.marginBars?.ranges.length) {
+      const { color, side } = this.marginBars, ranges = followEdit(this.marginBars.ranges, edit, { endAfter: true });
+      this.marginBars = { ranges, color, side };
+      this.marginBarKey = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
+    }
   }
   rangeTintRects() {
     const tints = this.rangeTints, layout = this.session.path === null ? this.selectionLayout : null;
@@ -615,6 +645,7 @@ export class CanvasEditor {
   }
   relayout() {
     this.tablePaintCache = new Map();
+    this.followOverlays();
     ({ layout: this.layout, storyLayout: this.storyLayout } = this.computeLayout());
     if (this.session.path !== null) {
       this.storyPage = this.session.page;
