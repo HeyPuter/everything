@@ -2048,8 +2048,15 @@ export class TextDocument {
         // The author's own pending insertions simply disappear; other text is marked
         // deleted (another reviewer's insertion keeps its insertion beneath the deletion).
         const me = this.revisionAuthor || 'Author';
-        const removals = nearbyRevisionRanges(this.paragraphs, start, end).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
+        let removals = nearbyRevisionRanges(this.paragraphs, start, end).filter(r => r.type === 'ins' && r.author === me && r.start < end && r.end > start)
           .map(r => [Math.max(start, r.start), Math.min(end, r.end)]);
+        // A MACROBUTTON prompt is a placeholder to type over: it goes with its field, as it does untracked, and only
+        // the typed text is tracked. Marked deleted, it left a field whose label could not be saved, and every
+        // save failed.
+        if (this.hasMacroButtons) {
+          const prompts = bodyFieldRanges(this.paragraphs).filter(r => r.field.type === 'MACROBUTTON' && start <= r.start && r.end <= end && r.start < r.end).map(r => [r.start, r.end]);
+          if (prompts.length) removals = [...removals, ...prompts].sort((a, b) => a[0] - b[0]).reduce((out, [a, b]) => { const last = out.at(-1); if (last && a <= last[1]) last[1] = Math.max(last[1], b); else out.push([a, b]); return out; }, []);
+        }
         const deletion = deletionRevision = this.newRevision('del');
         // Deleting next to the author's own deletion from moments ago (Backspace or Delete held down) extends it,
         // as typing extends an insertion, so it stays one change even when it crosses a clock second.

@@ -67,3 +67,17 @@ it('replaces multiple matches within one prompt only once',async()=>{
  expect(count).toBeGreaterThan(0);expect(()=>bodyFieldRanges(d.paragraphs)).not.toThrow();
  expect(model(await DocxPackage.open(await save(p,d))).text).toBe(d.text);
 });
+it.each(['tests/fixtures/macro-buttons/editing.docx','public/fixtures/macro-button-labels.docx','tests/fixtures/nested-body-fields/control.docx'])('with Track Changes on, typing over a prompt in %s inserts tracked text and still saves',async path=>{
+ const p=await DocxPackage.open(readFileSync(path)),d=model(p);
+ const prompts=bodyFieldRanges(d.paragraphs).filter(r=>r.field.type==='MACROBUTTON');
+ expect(prompts.length).toBeGreaterThan(0);
+ d.trackChanges=true;d.revisionAuthor='Reviewer';
+ for(const r of [...prompts].reverse()){d.select(r.start+1);d.replace('Typed');}
+ expect(d.revisions.map(r=>[r.type,d.text.slice(r.start,r.end)])).toEqual(prompts.map(()=>['ins','Typed']));
+ expect(bodyFieldRanges(d.paragraphs).filter(r=>r.field.type==='MACROBUTTON')).toHaveLength(0);
+ const again=model(await DocxPackage.open(await save(p,d)));
+ expect(again.text).toBe(d.text);
+ expect(again.revisions.map(r=>r.type)).toEqual(prompts.map(()=>'ins'));
+ for(let i=0;i<prompts.length;i++)d.undo();
+ expect(unzipSync(await save(p,d))).toEqual(p.parts);
+});

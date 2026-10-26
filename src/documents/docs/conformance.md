@@ -5470,8 +5470,11 @@ on typing, including a locked field, but preserves and formats its instruction
 on italic application. Moving right crosses the prompt as one unit. These
 behaviors are implemented with instruction-backed atomic prompt ranges. Clicking
 or selecting inside a prompt selects its complete visible label; arrow movement
-crosses it, and replacement/deletion removes its field. Boundary typing inserts
-outside it. Find replacement expands a hit to its owning prompt and replaces
+crosses it, and replacement/deletion removes its field. With Track Changes on the
+prompt and its field are still removed (untracked, as a placeholder typed over) and
+only the typed text is a tracked insertion (`w:ins`); a deleted MACROBUTTON field
+(`w:del` around its `fldChar`/`w:delInstrText` runs) is not written. Boundary typing
+inserts outside it. Find replacement expands a hit to its owning prompt and replaces
 multiple hits in the same prompt once. Formatting retains the field. Whole-prompt
 bookmarks and hyperlinks are emitted outside the instruction. Undo restores the
 original package, including unchanged parts and caches.
