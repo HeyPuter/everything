@@ -449,3 +449,15 @@ test('dialogs put their buttons at the end of the row', async ({ page }) => {
     await expect(dialog).toHaveCount(0);
   }
 });
+
+test('the zoom slider reads its value as a percentage', async ({ page }) => {
+  await openEditor(page);
+  const slider = page.getByRole('slider', { name: 'Zoom slider' });
+  await expect(slider).toHaveAttribute('aria-valuetext', '100%');
+  await page.getByRole('button', { name: 'Zoom In', exact: true }).click();
+  await expect(slider).toHaveValue('110');
+  await expect(slider).toHaveAttribute('aria-valuetext', '110%');
+  await slider.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuetext', '109%');
+});
