@@ -42,7 +42,7 @@ import { hasRunBackground, runBackground, foregroundBackground, runBackgroundRec
 import { paintColor } from './colors.js';
 import { TextDocument, boundaries, locate, paragraphFormat, paragraphText } from './model.js';
 import { cellContext } from './tables.js';
-import { cellBlockRects, cellBlockPlacements } from './table-selection.js';
+import { cellBlockRects, cellBlockPlacements, wholeRows } from './table-selection.js';
 import { clearCells } from './table-editing.js';
 import { paragraphEdges } from './paragraph-geometry.js';
 import { pageGeometry } from './page-settings.js';
@@ -1582,6 +1582,7 @@ export class CanvasEditor {
     }
     if (e.key === 'Enter' && !e.altKey) {
       e.preventDefault();
+      if (!this.readOnly && !this.viewOnly) this.narrowCellBlock();
       const done = this.execute(() => mod ? (e.shiftKey ? this.model.insertColumnBreak() : this.model.insertPageBreak()) : e.shiftKey ? this.model.replace('\v') : this.model.insertParagraph());
       // A new paragraph ends the word before it, which may be an address to link.
       if (done && !mod && !e.shiftKey) {
@@ -1845,15 +1846,30 @@ export class CanvasEditor {
     const { text, html } = this.clipboardData();
     e.clipboardData.setData('text/plain', text);
     if (html) e.clipboardData.setData('text/html', html);
-    if (cut) this.cutSelection();
+    if (cut) this.deleteSelection();
   }
   /**
-   * Remove what a cut takes: the selected text, or the contents of a block of table cells. A block's text range
-   * runs through every cell between its corners in reading order (or covers only its first cell), so removing
-   * that range cleared cells that were not selected.
+   * Remove the selection, as a cut or Clear Contents does: the selected text, or the contents of a block of table
+   * cells. A block's text range runs through every cell between its corners in reading order (or covers only its
+   * first cell), so removing that range cleared cells that were not selected.
    */
-  cutSelection() {
+  deleteSelection() {
     return this.execute(() => this.model.activeCellBlock ? clearCells(this.model) : this.model.replace(''));
+  }
+  /**
+   * Typing, a break or a paste over a block of table cells replaces the first cell's text only; the other cells
+   * keep theirs, rather than the cells between the block's corners in reading order losing theirs. Whole rows are
+   * one stretch of text, which they replace.
+   */
+  narrowCellBlock() {
+    const model = this.model, block = model.cellBlock && model.activeCellBlock;
+    if (!block) return;
+    if (wholeRows(block.table, block)) { model.cellBlock = null; return; }
+    const first = cellBlockPlacements(block.table, block)[0]?.cell;
+    const from = model.paragraphs.findIndex(p => p.cellId === first?.id), to = model.paragraphs.findLastIndex(p => p.cellId === first?.id);
+    if (from < 0) return;
+    model.select(model.paragraphOffset(from), model.paragraphOffset(to) + paragraphText(model.paragraphs[to]).length);
+    this.syncInput();
   }
   /** Whether the selection is one picture that copies as itself (see clipboardData). */
   copiesPicture() { return copiesPicture(this.model); }

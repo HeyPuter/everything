@@ -73,7 +73,7 @@ export function createEditCommands({ editor, pkg, editLink, searchQuery = () => 
       const [start, end] = engine.model.range;
       if (start === end && !engine.model.selectedImage) return;
       engine.finishComposition();
-      engine.execute(() => engine.model.replace(''));
+      engine.deleteSelection();
       engine.focus();
     },
     canClearContents: () => { const engine = ready(); return !!engine && (engine.model.range[0] !== engine.model.range[1] || !!engine.model.selectedImage); },

@@ -18,7 +18,7 @@ function editor(text) {
   const model = new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets);
   model.replace(text);
   const engine = { model, session: { future: [], history: [], path: null }, viewOnly: false,
-    execute(fn) { return fn() !== false; }, finishComposition() {}, focus() {}, redo: vi.fn(), selectMatch(m) { model.select(m.start, m.end); } };
+    execute(fn) { return fn() !== false; }, deleteSelection() { return this.execute(() => model.replace('')); }, finishComposition() {}, focus() {}, redo: vi.fn(), selectMatch(m) { model.select(m.start, m.end); } };
   return { engine, pkg };
 }
 
