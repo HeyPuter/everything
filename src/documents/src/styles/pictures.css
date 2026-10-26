@@ -90,7 +90,7 @@
 .pic-spacer { flex: 1; }
 .pic-selection-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .pic-selection-row { display: flex; align-items: center; gap: 2px; border-radius: 6px; border: 1px solid transparent; }
-.pic-selection-row[aria-selected="true"] { background: var(--ed-accent-wash, var(--accent-wash)); }
+.pic-selection-row.is-selected { background: var(--ed-accent-wash, var(--accent-wash)); }
 .pic-selection-row.is-hidden .pic-selection-name { color: var(--ink-3); font-style: italic; }
 .pic-selection-row.is-dragging { opacity: .5; }
 .pic-selection-row.drop-before { border-top-color: var(--accent); }

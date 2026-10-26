@@ -15,7 +15,9 @@ const KIND_ICONS = { picture: 'pictures', shape: 'shapes', textBox: 'textBox', g
 
 export function createPane(context) {
   const { editor, ready, commands, onClose, runImages } = context;
-  const list = el('ul.pic-selection-list', { role: 'listbox', 'aria-label': 'Objects on this page', 'aria-multiselectable': 'true' });
+  // A list of buttons rather than a listbox: a listbox's options cannot hold buttons, and each row holds two.
+  // The selected objects are the list's current items.
+  const list = el('ul.pic-selection-list', { 'aria-label': 'Objects on this page' });
   const status = el('p.pic-hint.pic-selection-status', { 'aria-live': 'polite' });
   const showAll = el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => setAll(false) }, 'Show All');
   const hideAll = el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => setAll(true) }, 'Hide All');
@@ -108,7 +110,8 @@ export function createPane(context) {
     const focused = list.contains(document.activeElement) ? document.activeElement.closest('li')?.dataset.id : null;
     list.replaceChildren(...items.map(image => {
       const kind = drawingKind(image), floating = isPositionedImage(image);
-      const name = el('button.pic-selection-name', { type: 'button', title: image.name, onclick: e => { if (e.detail < 2) select(image, e.shiftKey || e.ctrlKey || e.metaKey); },
+      const selected = ids.has(image.id);
+      const name = el('button.pic-selection-name', { type: 'button', title: image.name, 'aria-current': selected ? 'true' : null, onclick: e => { if (e.detail < 2) select(image, e.shiftKey || e.ctrlKey || e.metaKey); },
         onkeydown: e => {
           if (isComposing(e)) return;
           if (e.key === 'F2') { e.preventDefault(); rename(row, image); }
@@ -118,7 +121,7 @@ export function createPane(context) {
         } }, commandIconEl(KIND_ICONS[kind] || 'shapes', 16), el('span', {}, image.name || 'Object'), floating ? null : el('span.pic-hint', {}, ' · in line'));
       const eye = el('button.icon-btn.pic-selection-eye', { type: 'button', 'aria-pressed': String(!image.hidden), 'aria-label': `${image.hidden ? 'Show' : 'Hide'} ${image.name}`, title: image.hidden ? 'Show' : 'Hide',
         onclick: async () => { await commands.setHidden(image, !image.hidden); refresh(true); } }, iconEl('eye', 16));
-      const row = el('li.pic-selection-row', { role: 'option', 'aria-selected': String(ids.has(image.id)), dataset: { id: String(image.id) }, draggable: floating ? 'true' : 'false', className: `pic-selection-row${image.hidden ? ' is-hidden' : ''}` }, name, eye);
+      const row = el('li.pic-selection-row', { dataset: { id: String(image.id) }, draggable: floating ? 'true' : 'false', className: `pic-selection-row${image.hidden ? ' is-hidden' : ''}${selected ? ' is-selected' : ''}` }, name, eye);
       if (floating) {
         row.addEventListener('dragstart', e => { dragging = image; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(image.id)); row.classList.add('is-dragging'); });
         row.addEventListener('dragend', () => { dragging = null; row.classList.remove('is-dragging'); for (const r of list.children) r.classList.remove('drop-before', 'drop-after'); });
@@ -146,5 +149,5 @@ export function createPane(context) {
     showAll.disabled = hideAll.disabled = !items.length || !ready();
     if (focused) list.querySelector(`li[data-id="${focused}"] .pic-selection-name`)?.focus();
   }
-  return { node, refresh: () => refresh(), show: () => queueMicrotask(() => list.querySelector('[aria-selected="true"] .pic-selection-name, .pic-selection-name')?.focus()), close: () => node.remove() };
+  return { node, refresh: () => refresh(), show: () => queueMicrotask(() => list.querySelector('.pic-selection-name[aria-current="true"], .pic-selection-name')?.focus()), close: () => node.remove() };
 }

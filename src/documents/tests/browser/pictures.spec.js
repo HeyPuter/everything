@@ -204,26 +204,30 @@ test('selection pane, align, group and ungroup', async ({ page }, info) => {
   const ribbon = await insertShape(page, 'Rectangle', { x: 460, y: 470 });
   await ribbon.getByRole('button', { name: 'Selection Pane', exact: true }).click();
   const pane = page.getByRole('complementary', { name: 'Selection pane' });
-  await expect(pane.getByRole('option')).toHaveCount(2);
+  await expect(pane.getByRole('listitem')).toHaveCount(2);
+  // A list of buttons (a listbox's options cannot hold the name and visibility buttons); selected objects are current.
+  await expect(pane.getByRole('listbox')).toHaveCount(0);
+  await expect(pane.getByRole('listitem').nth(1).getByRole('button')).toHaveCount(2);
+  await expect(pane.locator('[aria-current="true"]')).toHaveCount(1);
   await shot(page, 'selection-pane');
   // Rename and select both from the pane.
-  const first = pane.getByRole('option').first().locator('.pic-selection-name');
+  const first = pane.getByRole('listitem').first().locator('.pic-selection-name');
   await first.dblclick();
   await pane.getByRole('textbox').fill('Blue box'); await pane.getByRole('textbox').press('Enter');
-  await expect(pane.getByRole('option').first()).toContainText('Blue box');
-  await pane.getByRole('option').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await expect(pane.getByRole('listitem').first()).toContainText('Blue box');
+  await pane.getByRole('listitem').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
   await ribbon.getByRole('button', { name: 'Align', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Align Top' }).click();
-  await pane.getByRole('option').first().locator('.pic-selection-name').click();
-  await pane.getByRole('option').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
+  await pane.getByRole('listitem').first().locator('.pic-selection-name').click();
+  await pane.getByRole('listitem').nth(1).locator('.pic-selection-name').click({ modifiers: ['Shift'] });
   await ribbon.getByRole('button', { name: 'Group', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Group', exact: true }).click();
-  await expect(pane.getByRole('option')).toHaveCount(1);
+  await expect(pane.getByRole('listitem')).toHaveCount(1);
   let saved = await save(page, info, 'grouped');
   expect(saved.xml('word/document.xml')).toMatch(/<wpg:wgp>/);
   await ribbon.getByRole('button', { name: 'Group', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Ungroup' }).click();
-  await expect(pane.getByRole('option')).toHaveCount(2);
+  await expect(pane.getByRole('listitem')).toHaveCount(2);
   saved = await save(page, info, 'ungrouped');
   expect(saved.xml('word/document.xml')).not.toMatch(/<wpg:wgp>/);
   expect(saved.xml('word/document.xml')).toMatch(/name="Blue box"/);
