@@ -187,7 +187,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
         }
       } else text = await navigator.clipboard.readText();
       if (!destroyed && engine === editor && revision === editor.session.revision && JSON.stringify(selection) === JSON.stringify(editor.model.range)) {
-        if (picture && !text) await editor.insertImageFile(picture);
+        if (picture && !text.replace(/\ufffc/g, '')) await editor.insertImageFile(picture);
         else editor.pasteData(text, html);
       }
       if (!destroyed) engine?.focus();

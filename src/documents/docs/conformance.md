@@ -21611,7 +21611,11 @@ the final partial paragraph keeps the destination's formatting. HTML from
 other applications maps semantic tags and common inline styles; plain values
 (not bold, black) leave the destination's formatting. Selections or destinations
 with tables, fields, content controls, pictures or notes keep the plain-text
-path, as does a plain-text-only clipboard. Unit tests cover HTML conversion and
+path, as does a plain-text-only clipboard. On that path an object's U+FFFC
+placeholder is never copied as a character: a field copies its result (§17.16),
+an equation its text, a note reference the number or mark it shows (§17.11.14),
+and a picture its alternative text; pasted text drops U+FFFC, so a copy pasted
+back adds no invisible stray characters. Unit tests cover HTML conversion and
 embedded fragments; browser regressions cover in-document round trips, cut, the
 Edit menu, HTML from other web editors, undo, export and the plain fallbacks. The
 exported document.xml, styles.xml and numbering.xml pass `npm run check:conformance`.

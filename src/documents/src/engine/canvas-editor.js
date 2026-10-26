@@ -170,8 +170,8 @@ export class CanvasEditor {
     listen(this.input, 'paste', e => {
       if (this.composition || !e.clipboardData) return;
       e.preventDefault();
-      const text = e.clipboardData.getData('text/plain');
-      // A copied picture or screenshot arrives as a file with no text beside it.
+      const text = e.clipboardData.getData('text/plain').replace(/\ufffc/g, '');
+      // A copied picture or screenshot arrives as a file with no text beside it (or only an object's U+FFFC).
       const picture = !text && [...(e.clipboardData.files || [])].find(file => PASTED_PICTURE.test(file.type));
       if (picture) { if (!this.readOnly) this.insertImageFile(picture).catch(error => this.onError(error)); return; }
       this.pasteData(text, e.clipboardData.getData('text/html'));
@@ -1792,10 +1792,18 @@ export class CanvasEditor {
   /** The selection as plain text, and as formatted HTML when it holds only text. */
   clipboardData() {
     const fragment = copyFragment(this.model);
-    return { text: this.model.clipboardText(), html: fragment ? fragmentHtml(fragment) : '' };
+    // A note reference copies as the number or mark it shows on the page.
+    const noteText = (run, at) => {
+      const shown = this.selectionLayout.lines.find(line => line.start <= at && at < line.end)?.fragments?.find(f => f.noteMark && f.start === at)?.text;
+      return (shown || '').replace(/[\u200b\u2002]/g, '');
+    };
+    return { text: this.model.clipboardText(noteText), html: fragment ? fragmentHtml(fragment) : '' };
   }
   /** Paste with the clipboard's formatting where the document can take it, else as plain text. */
   pasteData(text, html = '') {
+    // U+FFFC stands in for an object (a picture, field or note) in other applications' text, and is
+    // this document's own placeholder for one: pasted as a character it would be an invisible stray.
+    text = String(text || '').replace(/\ufffc/g, '');
     const fragment = html && carriesFormatting(this.model) && !this.model.tableContext ? htmlFragment(html) : null;
     if (fragment && fragment.paragraphs.some(p => p.text) && formattedPasteFits(fragment) && this.execute(() => pasteFragment(this.model, fragment), () => {}, undefined, true)) return;
     if (text) this.execute(() => this.model.replace(text));

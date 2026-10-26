@@ -382,13 +382,19 @@ export class TextDocument {
     const p = this.sectionPageSettings;
     return p.width - p.left - p.right;
   }
-  clipboardText() {
+  /**
+   * The selection as plain text. An object's place holder character (U+FFFC) is not text: a field
+   * gives its result, an equation its text and a note reference `noteText(run, offset)` (the number
+   * shown, which only layout knows), so neither another application nor a paste back here gets it.
+   */
+  clipboardText(noteText = () => '') {
     const [start, end] = this.range; let at = 0, text = '';
     for (const p of this.paragraphs) {
       for (const run of p.runs) {
         const length = run.text.length;
         if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
         else if (run.bodySymbol) { if (at >= start && at < end) text += bodySymbolText(run, run.text); }
+        else if (run.text === '\ufffc') { if (at >= start && at < end) text += run.field ? run.field.cachedText || '' : run.math ? run.math.text || '' : run.noteMark ? noteText(run, at) || '' : ''; }
         else text += run.text.slice(Math.max(0, start - at), Math.max(0, end - at));
         at += length;
       }

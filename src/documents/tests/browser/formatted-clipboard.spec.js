@@ -117,3 +117,21 @@ test('Paste without formatting inserts only the text, from the keyboard or the E
     expect(await state(page, 'Rich', 12)).toMatchObject({ style: 'Normal', bold: 'true' });
   } finally { await context.close(); }
 });
+
+test('a note reference copies as the mark it shows, and pasting back adds no stray object character', async ({ page }) => {
+  await page.goto('/playground.html');
+  const field = input(page), previous = await field.elementHandle();
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/footnote-recovery/chicago.docx');
+  await expect.poll(() => previous.evaluate(e => e.isConnected)).toBe(false);
+  await expect(field).toHaveJSProperty('readOnly', false);
+  const objects = async () => [...await field.inputValue()].filter(c => c === '￼').length;
+  const before = await objects();
+  // The claim and the note reference after it.
+  await select(page, 'First annotated claim', 0, 'First annotated claim'.length + 1);
+  const copied = await field.evaluate(el => { const data = new DataTransfer(); el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true })); return data.getData('text/plain'); });
+  expect(copied).toBe('First annotated claim‡');
+  await field.press('ControlOrMeta+End');
+  await paste(page, '', copied + '￼');
+  await expect(field).toHaveValue(/First annotated claim‡$/);
+  expect(await objects()).toBe(before);
+});
