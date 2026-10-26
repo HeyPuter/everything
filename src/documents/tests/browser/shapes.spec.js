@@ -149,3 +149,56 @@ test('a new text box or WordArt opens with its sample text selected, so typing r
   await expect(dialog).toBeHidden();
   expect(await drawingText()).toBe('Headline');
 });
+
+test('double-clicking a text box, chart or diagram opens it for editing; a picture is only selected', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Body text.');
+  // The middle of the selected drawing on screen.
+  const middle = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, image = e.model.selectedImage;
+    const floating = e.layout.floatingObjects.find(f => f.image === image);
+    if (floating) { const c = e.canvases[floating.page].getBoundingClientRect(); return { x: c.left + (floating.x + floating.width / 2) * e.zoom, y: c.top + (floating.y + floating.height / 2) * e.zoom }; }
+    const line = e.layout.lines.find(l => l.fragments.some(f => f.image === image)), f = line.fragments.find(f => f.image === image), c = e.canvases[line.page].getBoundingClientRect();
+    return { x: c.left + (f.x + 20) * e.zoom, y: c.top + (line.baseline - 20) * e.zoom };
+  });
+  const reopen = async name => {
+    const at = await middle();
+    await input.press('ControlOrMeta+End');
+    await page.mouse.dblclick(at.x, at.y);
+    const dialog = page.getByRole('dialog', { name, exact: true });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(dialog).toBeHidden();
+  };
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Simple Text Box/ }).click();
+  await page.getByRole('dialog', { name: 'Edit drawing text' }).getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await reopen('Edit drawing text');
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Chart', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Insert Chart' }).getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await reopen('Edit Chart');
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Diagram', exact: true }).click();
+  await page.locator('.menu [role=menuitem]').first().click();
+  await page.getByRole('dialog', { name: 'Diagram' }).getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await reopen('Edit Diagram');
+  // A picture has nothing to open: a double-click selects it.
+  await input.press('ControlOrMeta+End'); await input.press('Enter');
+  await page.evaluate(async bytes => {
+    const e = window.__docs.current.view.engine;
+    await e.insertImageFile(new File([new Uint8Array(bytes)], 'icon.png', { type: 'image/png' }));
+  }, [...(await import('node:fs')).readFileSync('public/icons/icon-64.png')]);
+  const at = await middle();
+  await input.press('ControlOrMeta+End');
+  await page.mouse.dblclick(at.x, at.y);
+  await expect.poll(() => page.evaluate(() => !!window.__docs.current.view.engine.model.selectedImage)).toBe(true);
+  await page.waitForTimeout(300);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+});

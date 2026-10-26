@@ -1547,6 +1547,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
       preparePicture: pictureFile,
     });
+    // Double-clicking a chart, diagram or text box edits it (insert-tab.js).
+    created.onOpenDrawing = () => { if (!pkg.readOnly) editorCommands.openSelectedDrawing?.(); };
     // Undo past the editor's own history steps back through design-wide changes.
     created.onHistoryEnd = direction => {
       const list = direction === 'undo' ? designVersions.undo : designVersions.redo;

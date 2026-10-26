@@ -1293,7 +1293,10 @@ export class CanvasEditor {
     if (this.unit?.presses === 2 && this.unit.model === this.model && this.unit.path === this.session.path) return;
     const pos = this.point(e);
     if (this.pointImage) {
-      this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection(); return;
+      this.model.select(this.pointImage.start, this.pointImage.end); this.focus(); this.onSelection();
+      // Double-clicking a drawing opens what it holds for editing, where the app can (onOpenDrawing).
+      if (!this.readOnly && !this.viewOnly && this.model.selectedImage) this.onOpenDrawing?.(this.model.selectedImage);
+      return;
     }
     const word = this.wordAt(e, pos);
     if (word) { this.model.select(word.start, word.end); this.focus(); this.onSelection(); }

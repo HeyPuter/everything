@@ -273,6 +273,18 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       }, { replace: current?.image || null });
     } });
   }
+  /** A double-click on a drawing: edit a chart's data, a diagram's items or a text box's text. */
+  function openSelectedDrawing() {
+    const engine = ready(), image = engine?.model.selectedImage; if (!image) return false;
+    if (image.kind === 'chart') { commands.editChart(); return true; }
+    if (selectedDiagram()) { insertDiagram(); return true; }
+    let frames = [];
+    try { frames = pkg().drawingTextFrames(image, engine.model.assets); } catch { return false; }
+    // A drawing with several text frames has them listed in its menu; one with a single frame opens it.
+    if (frames.length !== 1 || frames[0].reason) return false;
+    base.editDrawingText?.();
+    return true;
+  }
   function diagramItems() {
     const sample = [{ text: 'One', children: [] }, { text: 'Two', children: [] }, { text: 'Three', children: [] }];
     return [...galleryItems([{ items: DIAGRAM_LAYOUTS.map(layout => ({ label: layout.name, hint: `${layout.category}: ${layout.hint}`, preview: diagramSketch(layout.id, layout.id === 'orgChart' ? [{ text: 'Lead', children: sample }] : sample, 'blue', 96, 54), onSelect: () => insertDiagram(layout.id) })) }], { columns: 3, label: 'Diagram layouts' }),
@@ -739,7 +751,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }, { signal: keyAbort.signal, capture: true });
 
   const commands = {
-    insertRibbon, coverPageItems, pictureItems, insertPictureFile, openShapes, insertShapeAt, insertIcons, insertDiagram, diagramItems, screenshot,
+    insertRibbon, coverPageItems, pictureItems, insertPictureFile, openShapes, insertShapeAt, insertIcons, insertDiagram, diagramItems, screenshot, openSelectedDrawing,
     headerItems, pageNumberItems, formatPageNumbers, removePageNumbers,
     insertPageNumber: (event, button) => openMenu({ anchor: button || document.activeElement, label: 'Page Number', minWidth: 220, items: pageNumberItems(), pointer: !!event?.detail, onClose: event?.detail ? () => editor()?.focus() : null }),
     textBoxItems, insertTextBox: () => insertTextBoxDesign(TEXT_BOX_DESIGNS[0]), wordArtItems, insertWordArt, insertSignatureLine,
