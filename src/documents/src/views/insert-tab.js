@@ -76,7 +76,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const fail = e => { error(e); editor()?.focus(); };
   const toBody = engine => { engine.finishComposition(); if (engine.session.path !== null) engine.editStory(null); };
   const activeKind = engine => engine?.session.path ? engine.pageStories?.stories[engine.session.path]?.kind : null;
-  const textWidth = engine => { const p = engine.model.pageSettings; return Math.max(EMU_PER_INCH, (p.width - p.left - p.right - (p.gutterAtTop ? 0 : p.gutter || 0)) * TWIP_EMU); };
+  // The width a new drawing fits at the caret: its section's text width, or its table cell's.
+  const textWidth = engine => {
+    const model = engine.model, p = model.sectionPageSettings, context = model.tableContext;
+    const box = context && engine.selectionLayout?.cells.find(cell => cell.id === context.cell.id);
+    const twips = box ? box.width * 15 - context.cell.margins.left - context.cell.margins.right : p.width - p.left - p.right - (p.gutterAtTop ? 0 : p.gutter || 0);
+    return Math.max(box ? EMU_PER_INCH / 2 : EMU_PER_INCH, twips * TWIP_EMU);
+  };
   const title = () => documentProperties(pkg()?.parts || {}).title || String(docName() || '').replace(/\.docx$/i, '') || 'Document Title';
   const today = () => new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date());
   /** Run an editor transaction, reporting failures; returns whether it applied. */
