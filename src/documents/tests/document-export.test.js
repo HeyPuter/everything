@@ -326,3 +326,16 @@ describe('Markdown text split between runs it writes alike', () => {
     }
   });
 });
+
+describe('Markdown text that starts the document', () => {
+  it('keeps a no-break space before what would start a list', () => {
+    const doc = blankDoc();
+    doc.replace(' + not an item\n 1. nor this');
+    const markdown = documentMarkdown(doc);
+    const back = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(back, fragment);
+    expect(back.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual([' + not an item', ' 1. nor this']);
+    expect(back.paragraphs.some(p => p.list)).toBe(false);
+  });
+});

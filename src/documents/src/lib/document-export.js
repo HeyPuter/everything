@@ -307,7 +307,9 @@ function blocksMarkdown(blocks, model) {
 
 export function documentMarkdown(model) {
   model = finalModel(model);
-  return `${blocksMarkdown(blocksOf(model), model).trim()}\n`;
+  // Only the separators go: a no-break space starting the text is the text's own, and without it a "+ " or
+  // "1. " after it would start a list.
+  return `${blocksMarkdown(blocksOf(model), model).replace(/^[ \n]+|[ \t\n]+$/g, '')}\n`;
 }
 
 /* ---- Plain text ---- */
