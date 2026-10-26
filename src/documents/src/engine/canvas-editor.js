@@ -968,6 +968,8 @@ export class CanvasEditor {
             ctx.restore();
           });
         }
+        // Spelling marks belong to the body's text: a picture in front of the text covers them as it covers the words.
+        if (!pageStory && !printing) for (const overlay of this.overlays) if (overlay.spelling) overlay(ctx, index, geometry);
         paintFloating(false);
       }
       for (const label of this.lineNumbers || []) if (label.page === index) {
@@ -976,7 +978,7 @@ export class CanvasEditor {
       }
       if (geometry.pageBorders?.zOrder !== 'back') for (const border of pageBorders) paintParagraphBorder(ctx, border);
       if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active);
-      if (!printing) for (const overlay of this.overlays) overlay(ctx, index, geometry);
+      if (!printing) for (const overlay of this.overlays) if (!overlay.spelling) overlay(ctx, index, geometry);
       if (!printing && controlRects) paintControlCarets(ctx, controlRects, index, scale);
       if (composedRects.length) paintCompositionUnderline(ctx, composedRects, this.selectionLayout.lines, index, scale);
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {

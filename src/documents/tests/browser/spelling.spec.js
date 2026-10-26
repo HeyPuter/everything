@@ -104,3 +104,35 @@ test('Thai text is not checked against the English dictionary, and Thai can be c
   await expect(dialog.getByRole('option')).toHaveCount(1);
   await expect(dialog.getByRole('option')).toContainText('th-TH');
 });
+
+test('a picture in front of the text covers the spelling marks under it, as it covers the words', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.evaluate(() => { localStorage.removeItem('documents:dictionary'); localStorage.removeItem('documents:spellcheck'); });
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Zorblaxx quuxlyy wordsz heree and more misspelld wordz here.');
+  await expect(proofing(page)).toHaveAttribute('aria-label', /errors found/);
+  await page.evaluate(async () => {
+    const e = window.__docs.current.view.engine; e.model.select(0); e.syncInput();
+    const canvas = Object.assign(document.createElement('canvas'), { width: 300, height: 80 }), g = canvas.getContext('2d');
+    g.fillStyle = '#22aa66'; g.fillRect(0, 0, 300, 80);
+    await e.insertImageFile(new File([await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))], 'cover.png', { type: 'image/png' }));
+  });
+  await page.getByRole('button', { name: /Wrap Text/ }).first().click();
+  await page.getByRole('menuitemradio', { name: 'In Front of Text' }).click();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.layout.floatingObjects.length)).toBe(1);
+  // Every pixel of the picture is the picture: no red wave over it where the words under it are misspelled.
+  const marks = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine; e.model.select(e.model.text.length); e.syncInput(); e.paint();
+    const f = e.layout.floatingObjects[0], canvas = e.canvases[0], scale = canvas.width / e.layout.page.width;
+    const count = (left, top, width, height) => {
+      const data = canvas.getContext('2d').getImageData(Math.ceil(left * scale), Math.ceil(top * scale), Math.floor(width * scale), Math.floor(height * scale)).data; let red = 0;
+      for (let i = 0; i < data.length; i += 4) if (data[i] - data[i + 1] > 60 && data[i] - data[i + 2] > 60) red++;
+      return red;
+    };
+    return { covered: count(f.x + 2, f.y + 2, f.width - 4, f.height - 4), beside: count(f.x + f.width + 2, f.y, e.layout.page.width - e.layout.page.right - f.x - f.width - 4, 30) };
+  });
+  // The misspelled words beside the picture keep their marks once checking has caught up with the change.
+  await expect.poll(async () => (await marks()).beside).toBeGreaterThan(0);
+  expect((await marks()).covered).toBe(0);
+});
