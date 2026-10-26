@@ -135,3 +135,13 @@ test('a note reference copies as the mark it shows, and pasting back adds no str
   await expect(field).toHaveValue(/First annotated claim‡$/);
   expect(await objects()).toBe(before);
 });
+
+test('a copied phone or email link stays a link in the HTML other applications paste', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('Call us or write');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(0, 7); e.setHyperlink('tel:+1-555-0100'); e.model.select(11, 16); e.setHyperlink('mailto:team@example.com'); });
+  await select(page, 'Call us or write');
+  const html = await input(page).evaluate(el => { const data = new DataTransfer(); el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true })); return data.getData('text/html'); });
+  expect(html).toContain('<a href="tel:+1-555-0100">');
+  expect(html).toContain('<a href="mailto:team@example.com">');
+});

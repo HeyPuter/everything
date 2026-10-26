@@ -21601,7 +21601,7 @@ document end and extension. Caret movement only; no OOXML change.
 Copy and cut previously put only plain text on the clipboard, so pasting, even
 within the same document, dropped headings, lists and emphasis. A text-only
 selection now also carries HTML (headings, lists, bold/italic/underline/strike,
-super/subscript, color, highlight, size, font and http(s)/mailto links), which
+super/subscript, color, highlight, size, font and http(s)/mailto/tel links), which
 other applications paste with formatting; the editor's own fragment is embedded
 in that HTML for an exact paste back. Paste inserts the text, then applies
 paragraph styles (§17.7.4, matched by id then name), alignment, list kind and

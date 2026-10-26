@@ -62,3 +62,11 @@ it('reads Word’s empty paragraphs as empty, without the no-break space that ho
 <p class=MsoNormal>Third&nbsp;word<o:p></o:p></p><!--EndFragment--></body></html>`;
   expect(texts(word)).toEqual(['First', '', 'Third word']);
 });
+
+it('writes tel: and mailto: links into the copied HTML, and never unsafe schemes', () => {
+  const run = (text, link) => ({ text, link, format: { bold: false, italic: false } });
+  const html = fragmentHtml({ paragraphs: [{ text: 'Call mail bad data', mark: false, styleId: null, alignment: 'left', list: null,
+    runs: [run('Call', 'tel:+1-555-0100'), run(' mail', 'mailto:a@example.com'), run(' bad', 'javascript:alert(1)'), run(' data', 'data:text/html,x')] }] });
+  const anchors = [...new DOMParser().parseFromString(html, 'text/html').querySelectorAll('a')].map(a => [a.textContent, a.getAttribute('href')]);
+  expect(anchors).toEqual([['Call', 'tel:+1-555-0100'], [' mail', 'mailto:a@example.com']]);
+});

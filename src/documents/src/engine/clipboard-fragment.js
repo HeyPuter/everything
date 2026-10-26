@@ -74,7 +74,8 @@ function runHtml(run) {
   if (f.underlineStyle && f.underlineStyle !== 'none') html = `<u>${html}</u>`;
   if (f.italic) html = `<i>${html}</i>`;
   if (f.bold) html = `<b>${html}</b>`;
-  if (run.link && /^(https?:|mailto:)/i.test(run.link)) html = `<a href="${escape(run.link)}">${html}</a>`;
+  // The schemes a link here may have (checkedHyperlinkTarget); nothing else becomes an href.
+  if (run.link && /^(https?:|mailto:|tel:)/i.test(run.link)) html = `<a href="${escape(run.link)}">${html}</a>`;
   return html;
 }
 
