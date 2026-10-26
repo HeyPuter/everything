@@ -331,13 +331,14 @@ export function openDiagramDialog({ initial = null, editing = false, onInsert, o
   const preview = el('div.insert-diagram-preview', { 'aria-hidden': 'true' });
   const layouts = el('div.insert-diagram-layouts', { role: 'listbox', 'aria-label': 'Layouts' });
   const sample = parseOutline('One\nTwo\nThree\nFour');
-  const options = DIAGRAM_LAYOUTS.map(entry => el('button.insert-diagram-layout', { type: 'button', role: 'option', 'aria-selected': String(entry.id === layout), title: `${entry.name}: ${entry.hint}`, dataset: { layout: entry.id },
-    onclick: () => { layout = entry.id; for (const o of options) o.setAttribute('aria-selected', String(o.dataset.layout === layout)); render(); } },
+  const options = DIAGRAM_LAYOUTS.map(entry => el('button.insert-diagram-layout', { type: 'button', role: 'option', 'aria-selected': String(entry.id === layout), tabindex: entry.id === layout ? 0 : -1, title: `${entry.name}: ${entry.hint}`, dataset: { layout: entry.id },
+    onclick: () => { layout = entry.id; for (const o of options) { o.setAttribute('aria-selected', String(o.dataset.layout === layout)); o.tabIndex = o.dataset.layout === layout ? 0 : -1; } render(); } },
   diagramSketch(entry.id, entry.id === 'orgChart' ? parseOutline('Lead\n  A\n  B\n  C') : sample, 'blue', 120, 68), el('span', {}, entry.name), el('span.insert-diagram-category', {}, entry.category)));
   layouts.append(...options);
   layouts.addEventListener('keydown', e => {
     const at = options.indexOf(document.activeElement), step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
-    if (at < 0 || !step) return; e.preventDefault(); const next = options[(at + step + options.length) % options.length]; next.focus(); next.click();
+    const edge = { Home: options[0], End: options.at(-1) }[e.key];
+    if (at < 0 || !step && !edge) return; e.preventDefault(); const next = edge || options[(at + step + options.length) % options.length]; next.focus(); next.click();
   });
   const render = () => preview.replaceChildren(diagramSketch(layout, parseOutline(outline.value), colors.value));
   outline.addEventListener('input', render); colors.addEventListener('change', render);

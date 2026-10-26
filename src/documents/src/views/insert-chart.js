@@ -36,8 +36,17 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   let type = data.type;
   const groups = [...new Set(CHART_TYPES.map(t => t.group))];
   const typeList = el('div.insert-chart-types', { role: 'listbox', 'aria-label': 'Chart type' });
-  const options = CHART_TYPES.map(t => el('button.insert-chart-type', { type: 'button', role: 'option', 'aria-selected': String(t.id === type), dataset: { type: t.id }, onclick: () => setType(t.id) }, t.label));
-  for (const group of groups) typeList.append(el('div.menu-header', {}, group), ...options.filter(o => CHART_TYPES.find(t => t.id === o.dataset.type).group === group));
+  // One tab stop: the arrow keys, Home and End choose among the types.
+  const options = CHART_TYPES.map(t => el('button.insert-chart-type', { type: 'button', role: 'option', 'aria-selected': String(t.id === type), tabindex: t.id === type ? 0 : -1, dataset: { type: t.id }, onclick: () => setType(t.id) }, t.label));
+  for (const group of groups) typeList.append(el('div.menu-header', { role: 'presentation' }, group), ...options.filter(o => CHART_TYPES.find(t => t.id === o.dataset.type).group === group));
+  typeList.addEventListener('keydown', e => {
+    const at = options.indexOf(document.activeElement);
+    const next = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: options.length - 1 }[e.key];
+    if (at < 0 || next === undefined || e.altKey || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    const option = options[Math.max(0, Math.min(options.length - 1, next))];
+    option.focus(); setType(option.dataset.type);
+  });
   const title = el('input.input', { type: 'text', value: data.title || '', 'aria-label': 'Chart title' });
   const legend = el('select.input', { 'aria-label': 'Legend' }, el('option', { value: 'r' }, 'Right'), el('option', { value: 'b' }, 'Bottom'), el('option', { value: '' }, 'None'));
   legend.value = data.legend ?? '';
@@ -47,7 +56,7 @@ export function openChartDialog({ initial = null, onInsert, onClose }) {
   const single = () => ['pie', 'doughnut'].includes(type);
   function setType(next) {
     type = next;
-    for (const o of options) o.setAttribute('aria-selected', String(o.dataset.type === type));
+    for (const o of options) { o.setAttribute('aria-selected', String(o.dataset.type === type)); o.tabIndex = o.dataset.type === type ? 0 : -1; }
     if (single() && data.series.length > 1) data.series = data.series.slice(0, 1);
     drawGrid(); render();
   }
