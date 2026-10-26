@@ -166,11 +166,35 @@ function mountSignInGate(requestedHash, what) {
   }) });
 }
 
-function showLoading(label = 'Opening') {
+/**
+ * The screen while something opens. `cancel`: what leaving does, offered once the wait is noticeable (a large file
+ * on a slow connection, a request that hangs), since inside the Puter desktop there is no browser Back button.
+ */
+function showLoading(label = 'Opening', { cancel = null } = {}) {
+  const leave = cancel && el('button.btn.btn-outline', { type: 'button', hidden: true, style: { marginTop: '6px' }, onclick: cancel }, 'Cancel');
   appRoot.replaceChildren(el('div.auth-view', {},
     el('div.auth-card', {},
       el('span.spin', { html: icon('spinner', 28), style: { color: 'var(--ink-3)' } }),
-      el('p.auth-sub', { style: { marginTop: '14px' } }, label))));
+      el('p.auth-sub', { style: { marginTop: '14px' } }, label),
+      leave)));
+  if (leave) setTimeout(() => { leave.hidden = false; }, LOADING_CANCEL_MS);
+}
+const LOADING_CANCEL_MS = 1500;
+
+/**
+ * `work` (a document being read, a room being joined), or LEFT as soon as the address moves away from `hash`: going
+ * back or elsewhere does not wait for a slow or hanging request. What `work` comes to after that is nobody's.
+ */
+const LEFT = Symbol('left');
+async function unlessLeft(hash, work) {
+  let stop = () => {};
+  const left = new Promise((resolve) => {
+    const check = () => { if (location.hash !== hash) resolve(LEFT); };
+    window.addEventListener('hashchange', check);
+    stop = () => window.removeEventListener('hashchange', check);
+  });
+  work.catch(() => {});
+  try { return await Promise.race([work, left]); } finally { stop(); }
 }
 
 const nav = {
@@ -272,6 +296,8 @@ async function route({ newDocument = false } = {}) {
   const explicitNew = newDocument || requestedNewDocument;
   requestedNewDocument = false;
   const requestedHash = location.hash;
+  // An open abandoned when the address moved away: wherever it is now (back here too) is routed afresh.
+  let abandoned = false;
   try {
     // An invitation to a shared document (#collab-…): join its room, then open what it holds.
     let invitation = null;
@@ -280,7 +306,7 @@ async function route({ newDocument = false } = {}) {
       if (current?.kind === 'editor' && current.view.doc.collab?.link?.room === invitation.room) return;
       if (!await unmount()) return;
       if (location.hash !== requestedHash) return;
-      await openInvitation(invitation, requestedHash);
+      abandoned = await openInvitation(invitation, requestedHash) === LEFT;
       return;
     }
     const { route: r, path, template } = parseHash(requestedHash);
@@ -302,9 +328,10 @@ async function route({ newDocument = false } = {}) {
       const customPath = customTemplatePath(template);
       if (customPath) {
         if (session.signedOut) { mountSignInGate(requestedHash, 'template'); return; }
-        showLoading();
+        showLoading('Opening', { cancel: () => go(HOME) });
         try {
-          const doc = await Doc.fromTemplateFile(customPath);
+          const doc = await unlessLeft(requestedHash, Doc.fromTemplateFile(customPath));
+          if (doc === LEFT) { abandoned = true; return; }
           if (location.hash !== requestedHash) return;
           openEditor(doc);
         } catch (e) {
@@ -321,9 +348,10 @@ async function route({ newDocument = false } = {}) {
       return;
     }
     if (session.signedOut) { mountSignInGate(requestedHash, 'document'); return; }
-    showLoading();
+    showLoading('Opening', { cancel: () => go(HOME) });
     try {
-      const doc = await Doc.fromPath(path);
+      const doc = await unlessLeft(requestedHash, Doc.fromPath(path));
+      if (doc === LEFT) { abandoned = true; return; }
       if (location.hash !== requestedHash) return;
       openEditor(doc);
     } catch (e) {
@@ -335,19 +363,21 @@ async function route({ newDocument = false } = {}) {
   } finally {
     routing = false;
     // Hash changes during an awaited save/read must be processed after it settles.
-    if (location.hash !== requestedHash) route();
+    if (abandoned || location.hash !== requestedHash) route();
   }
 }
 
 /** Join a shared document from its link and open the editor on the room's state. */
 async function openInvitation(link, requestedHash) {
   if (!link.local && session.signedOut) { mountSignInGate(requestedHash, 'shared document'); return; }
-  showLoading('Joining the shared document');
+  showLoading('Joining the shared document', { cancel: () => go(HOME) });
   try {
     const { joinRoom } = await import('./collab/live.js');
     const user = { id: session.user?.uuid || session.username, name: session.username };
-    const joined = await joinRoom(link, user);
-    if (location.hash !== requestedHash) { joined.client.close().catch(() => {}); return; }
+    const joining = joinRoom(link, user);
+    const joined = await unlessLeft(requestedHash, joining);
+    // Left while joining: the room is left too, whenever the join comes to an end.
+    if (joined === LEFT || location.hash !== requestedHash) { joining.then((j) => j.client.close().catch(() => {}), () => {}); return joined === LEFT ? LEFT : undefined; }
     // The room holds the document; this tab never writes a file of its own unless sharing ends.
     const doc = new Doc({ name: joined.name, blob: new Blob([joined.base], { type: P.DOCX_MIME }) });
     doc.setSaving(false);
