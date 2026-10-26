@@ -237,7 +237,8 @@ button.bs-row:hover, .bs-row:hover { background: var(--ed-hover); }
 @media (forced-colors: active) { .bs-side { border-right: 1px solid CanvasText; } .bs-tab[aria-selected='true'] { outline: 2px solid Highlight; } }
 
 /* ---- Preferences ---- */
-.modal-panel.pref-panel { width: min(760px, 96vw); }
+/* Wider than other dialogs on larger screens; on a phone a bottom sheet the full width of the screen, like the rest. */
+@media (width > 640px) { .modal-panel.pref-panel { width: min(760px, 96vw); } }
 .pref-dialog { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 18px; min-height: 340px; }
 .pref-nav { display: grid; align-content: start; gap: 2px; padding-right: 14px; border-right: 1px solid var(--hairline); }
 .pref-tab { padding: 8px 12px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-2); font: 400 13px/1.2 var(--font); text-align: start; }
@@ -256,7 +257,7 @@ button.bs-row:hover, .bs-row:hover { background: var(--ed-hover); }
 @media (max-width: 640px) { .pref-dialog { grid-template-columns: 1fr; } .pref-nav { display: flex; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--hairline); padding: 0 0 8px; } .pref-tab { flex: none; } .pref-row { flex-wrap: wrap; } }
 
 /* ---- Customize Keyboard ---- */
-.modal-panel.kb-panel { width: min(880px, 96vw); }
+@media (width > 640px) { .modal-panel.kb-panel { width: min(880px, 96vw); } }
 .kb-dialog { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); grid-template-rows: auto auto; gap: 14px 18px; }
 .kb-browse { display: grid; gap: 8px; grid-template-rows: auto minmax(0, 1fr); min-width: 0; }
 .kb-filters { display: grid; grid-template-columns: 150px 1fr; gap: 8px; }

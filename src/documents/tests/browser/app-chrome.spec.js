@@ -461,3 +461,13 @@ test('the zoom slider reads its value as a percentage', async ({ page }) => {
   await page.keyboard.press('ArrowLeft');
   await expect(slider).toHaveAttribute('aria-valuetext', '109%');
 });
+
+test('on a phone, Preferences opens as a full-width sheet like the other dialogs', async ({ page }) => {
+  await openEditor(page, 390);
+  await text(page).focus();
+  await page.keyboard.press('ControlOrMeta+,');
+  const panel = page.locator('.modal-root:not(.closing) .modal-panel');
+  await expect(panel).toHaveAttribute('aria-label', 'Preferences');
+  // Its desktop width (96vw) applied on phones too, leaving it inset 8px from both edges.
+  expect(await panel.evaluate(node => { const box = node.getBoundingClientRect(); return [Math.round(box.left), Math.round(box.width)]; })).toEqual([0, 390]);
+});
