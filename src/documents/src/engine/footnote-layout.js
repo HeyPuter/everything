@@ -62,6 +62,31 @@ export function measureNote(story, display, numbers, geometry, measure, numberin
     { pageNumber: 1, pageCount: 1, sectionPageCount: 1 }, { styles: options.styles, drawingLayouts: options.drawingLayouts, onUnsupported: options.bestEffort ? () => {} : undefined, stylesKey: options.storyStylesKey, storyKeys: options.storyKeys, contentKey: options.contentKey });
 }
 
+/**
+ * The line that holds each referenced note's reference (its page, top `y`, `height` and `bottom`), and
+ * the top of the body text on each page.
+ */
+function referenceExtents(placed, refs) {
+  const byParagraph = new Map(), tops = new Map(), lines = new Map();
+  for (const line of placed.lines) {
+    if (line.virtual || line.pageStory) continue;
+    if (!(line.y >= tops.get(line.page))) tops.set(line.page, line.y);
+    const list = byParagraph.get(line.paragraphId);
+    if (list) list.push(line); else byParagraph.set(line.paragraphId, [line]);
+  }
+  const extents = new Map();
+  for (const ref of refs) {
+    if (lines.has(ref.id)) continue;
+    const list = byParagraph.get(ref.paragraphId) || [];
+    const line = list.find(l => l.start <= ref.position && ref.position < l.end) || list.find(l => l.start <= ref.position && ref.position <= l.end);
+    if (!line) continue;
+    // One object per line, so references sharing a line compare equal.
+    if (!extents.has(line)) extents.set(line, { page: line.page, y: line.y, height: line.height, bottom: line.y + line.height });
+    lines.set(ref.id, extents.get(line));
+  }
+  return { lines, tops };
+}
+
 /** For each reference, the line of its paragraph that holds it: measurement, not pagination, decides this. */
 function referenceLines(placed, refs) {
   const byParagraph = new Map();
@@ -99,11 +124,33 @@ export function layoutWithFootnotes(plan, layout, measure, numbering, options, f
     return heights.get(key);
   };
   const needed = (placed, pages) => {
-    const next = {};
+    const next = {}, { lines, tops } = referenceExtents(placed, plan.refs);
     for (const [page, ids] of pages) {
-      const geometry = placed.pages[page] || placed.page;
+      const geometry = placed.pages[page] || placed.page, bottom = geometry.height - geometry.bottom;
       const notes = ids.filter(id => plan.stories.has(id));
-      if (notes.length) next[page] = Math.ceil(FOOTNOTE_SEPARATOR + notes.reduce((sum, id) => sum + noteHeight(id, geometry), 0));
+      if (!notes.length) continue;
+      const heights = notes.map(id => noteHeight(id, geometry));
+      // Notes are kept whole: the notes that fit beneath their reference lines stay, in order, and
+      // the first that does not moves to the next page with its reference line (and any reference
+      // sharing that line). Reserving every note of the page instead could leave no room for the
+      // body at all, emptying the page and the next.
+      let kept = 0, sum = 0;
+      while (kept < notes.length && lines.get(notes[kept]).bottom + Math.ceil(FOOTNOTE_SEPARATOR + (sum + heights[kept])) <= bottom + 1e-6) sum += heights[kept++];
+      if (kept === notes.length) { next[page] = Math.ceil(FOOTNOTE_SEPARATOR + sum); continue; }
+      while (kept > 0 && lines.get(notes[kept - 1]) === lines.get(notes[kept])) kept--;
+      if (kept) { next[page] = Math.max(Math.ceil(FOOTNOTE_SEPARATOR + heights.slice(0, kept).reduce((total, height) => total + height, 0)), Math.floor(bottom - lines.get(notes[kept]).y)); continue; }
+      const first = lines.get(notes[0]), alone = Math.ceil(FOOTNOTE_SEPARATOR + heights[0]);
+      // A first note too tall to fit beneath its reference line even at the top of a page would push the
+      // line on and on, and then be drawn over the body. Its line starts the next page, where the note
+      // has the most room, and at the top of a page the notes keep the room beneath the page's reference
+      // lines; what does not fit is cut off at the page edge (continuing a note on the next page is not
+      // supported).
+      if (alone <= bottom - tops.get(page) - first.height) next[page] = alone;
+      else if (first.y > tops.get(page) + 1e-6) next[page] = Math.floor(bottom - first.y);
+      else {
+        const lowest = Math.max(...notes.map(id => lines.get(id).bottom));
+        next[page] = Math.max(0, Math.min(Math.ceil(FOOTNOTE_SEPARATOR + heights.reduce((total, height) => total + height, 0)), Math.floor(bottom - lowest)));
+      }
     }
     return next;
   };

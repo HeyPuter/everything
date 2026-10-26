@@ -22117,8 +22117,15 @@ Supported subset:
 - Unchanged documents save byte for byte; a note whose reference is deleted is removed on save.
   The macOS reference application opens new notes with their numbers and separator.
 
+Notes are kept whole: on each page the notes that fit beneath their reference lines stay, in order,
+and the first that does not moves to the next page with its reference line, so a page referencing
+more notes than it can hold keeps its body text and passes the rest on (reserving every note of
+the page had emptied pages and drawn notes over the body). A note too tall to fit beneath its
+reference line on any page starts the next page with that line, and is cut off at the page edge.
+`tests/tall-footnotes.test.js` covers both.
+
 Gaps: notes that do not fit split across pages in the native reference but are kept whole here (the continuation
-separator is not drawn); numbering that restarts each page or section, custom reference marks,
+separator is not drawn, and a note taller than the room beneath its reference is cut off); numbering that restarts each page or section, custom reference marks,
 endnotes, notes containing tables, bookmarks or comments, and footnotes in headers/footers still
 open read-only or display only. Next/Previous Footnote and Show Notes are not offered yet.
 Tests: `tests/footnotes.test.js`.
