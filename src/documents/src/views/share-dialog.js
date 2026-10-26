@@ -97,14 +97,18 @@ export function openShareDialog(api) {
 
   /* ---- Access ---- */
   const access = el('div.sh-access', { role: 'list', 'aria-label': 'People with access' });
+  // Each change reloads the list; when reloads overlap, only the latest one's answer is shown.
+  let accessRequest = 0;
   async function renderAccess() {
+    const request = ++accessRequest;
     const session = live();
     revoke.hidden = !session || session.local;
     stop.hidden = !session || !session.canManage;
     if (!session) { access.replaceChildren(el('p.sh-muted', {}, 'Only you. Invite people or copy a link to start editing together.')); return; }
     access.replaceChildren(el('p.sh-muted', {}, 'Loading…'));
     let data;
-    try { data = await session.members(); } catch (e) { access.replaceChildren(el('p.sh-muted', {}, e.message)); return; }
+    try { data = await session.members(); } catch (e) { if (request === accessRequest) access.replaceChildren(el('p.sh-muted', {}, e.message)); return; }
+    if (request !== accessRequest) return;
     const here = new Set(session.people().map(p => p.name));
     const rows = data.members.map(m => el('div.sh-person', { role: 'listitem' },
       el('span.sh-avatar', { 'aria-hidden': 'true' }, initials(m.username)),
