@@ -15,9 +15,15 @@ export function openPreferences({ sections, section = null, onClose }) {
   const body = el('div.pref-body', { role: 'tabpanel', tabindex: -1 });
   const tabs = sections.map(s => el('button.pref-tab', { type: 'button', role: 'tab', id: `pref-tab-${s.id}`, 'aria-selected': 'false', tabIndex: -1, onclick: () => show(s.id) }, s.label));
   nav.append(...tabs);
+  // The sections run down the side, or across the top in a narrow window (the dialog's CSS): the arrows follow the layout.
+  const across = typeof matchMedia === 'function' ? matchMedia('(max-width: 640px)') : null;
+  const orient = () => nav.setAttribute('aria-orientation', across?.matches ? 'horizontal' : 'vertical');
+  orient();
+  across?.addEventListener?.('change', orient);
   nav.addEventListener('keydown', e => {
     const at = tabs.indexOf(document.activeElement);
-    const next = e.key === 'ArrowDown' ? at + 1 : e.key === 'ArrowUp' ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
+    const [back, forward] = across?.matches ? ['ArrowLeft', 'ArrowRight'] : ['ArrowUp', 'ArrowDown'];
+    const next = e.key === forward ? at + 1 : e.key === back ? at - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
     if (at < 0 || next === null) return;
     e.preventDefault();
     const tab = tabs[(next + tabs.length) % tabs.length];
@@ -58,7 +64,7 @@ export function openPreferences({ sections, section = null, onClose }) {
     refreshers = [];
     body.replaceChildren(el('h3.pref-heading', {}, s.label), ...(s.note ? [el('p.pref-note', {}, s.note)] : []), ...s.controls.filter(Boolean).map(control).filter(Boolean));
   }
-  const modal = openModal({ title: 'Preferences', wide: true, onClose, content: el('div.pref-dialog', {}, nav, body) });
+  const modal = openModal({ title: 'Preferences', wide: true, onClose: () => { across?.removeEventListener?.('change', orient); onClose?.(); }, content: el('div.pref-dialog', {}, nav, body) });
   modal.panel.classList.add('pref-panel');
   show(section || sections[0].id);
   tabs.find(t => t.getAttribute('aria-selected') === 'true')?.focus();

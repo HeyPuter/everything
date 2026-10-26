@@ -239,4 +239,24 @@ describe('preferences', () => {
     modal.close();
     vi.unstubAllGlobals();
   });
+
+  it('moves between sections with Left and Right when a narrow window lays them out across the top', async () => {
+    vi.stubGlobal('matchMedia', query => ({ matches: query === '(max-width: 640px)', addEventListener() {}, removeEventListener() {} }));
+    const { openPreferences } = await import('../src/views/preferences.js');
+    const modal = openPreferences({ sections: [
+      { id: 'a', label: 'First', controls: [] },
+      { id: 'b', label: 'Second', controls: [] },
+    ] });
+    const tab = id => modal.panel.querySelector(`[id="pref-tab-${id}"]`);
+    const press = (id, key) => tab(id).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    expect(modal.panel.querySelector('.pref-nav').getAttribute('aria-orientation')).toBe('horizontal');
+    tab('a').focus();
+    press('a', 'ArrowRight');
+    expect(tab('b').getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tab('b'));
+    press('b', 'ArrowLeft');
+    expect(tab('a').getAttribute('aria-selected')).toBe('true');
+    modal.close();
+    vi.unstubAllGlobals();
+  });
 });
