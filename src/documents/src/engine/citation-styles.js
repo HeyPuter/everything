@@ -33,7 +33,8 @@ function monthIndex(value) {
 const pageRange = value => clean(value).replace(/\s*(?:-|–|—|to)\s*/g, '–');
 const isRange = value => /[–,]/.test(pageRange(value));
 const doiOf = url => /^(?:https?:\/\/(?:dx\.)?doi\.org\/|doi:\s*)(10\.\S+)$/i.exec(clean(url))?.[1] || (/^10\.\d{4,}\/\S+$/.test(clean(url)) ? clean(url) : null);
-const initials = name => clean(name).split(/[\s.]+/).filter(Boolean).map(part => part.split('-').map(p => `${p[0].toUpperCase()}.`).join('-')).join(' ');
+// "Jean-Paul" and "J.-P." both give "J.-P."; an empty piece ("J.-" or a stray hyphen) gives nothing rather than failing.
+const initials = name => clean(name).split(/\s+/).map(word => word.split('-').map(piece => piece.split('.').filter(Boolean).map(p => `${[...p][0].toUpperCase()}.`).join(' ')).filter(Boolean).join('-')).filter(Boolean).join(' ');
 const ordinal = n => { const v = Number(n); if (!Number.isInteger(v)) return clean(n); const s = ['th', 'st', 'nd', 'rd'], m = v % 100; return v + (s[(m - 20) % 10] || s[m] || s[0]); };
 const editionText = (edition, abbreviation = 'ed.') => { const e = clean(edition); if (!e) return ''; return /^\d+$/.test(e) ? `${ordinal(e)} ${abbreviation}` : /ed\.?$/i.test(e) ? e : `${e} ${abbreviation}`; };
 const sentence = text => { const t = clean(text); return !t ? '' : /[.?!]$/.test(t) ? t : `${t}.`; };

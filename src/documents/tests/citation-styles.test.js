@@ -91,6 +91,17 @@ describe('Harvard', () => {
   });
 });
 
+describe('initials', () => {
+  it('keeps hyphenated initials and never fails on a stray hyphen', () => {
+    const sartre = { tag: 'Sar43', type: 'Book', names: { Author: [person('Sartre', 'J.-P.')] }, fields: { Title: 'Being and nothingness', Year: '1943', Publisher: 'Gallimard' } };
+    const camus = { tag: 'Cam42', type: 'Book', names: { Author: [person('Camus', 'Jean-Albert', '-')] }, fields: { Title: 'The stranger', Year: '1942', Publisher: 'Gallimard' } };
+    for (const style of ['apa', 'chicago', 'harvard', 'ieee', 'mla']) expect(() => formatBibliography(style, [sartre, camus]), style).not.toThrow();
+    const apa = Object.fromEntries(formatBibliography('apa', [sartre, camus]).map(e => [e.tag, text(e.runs)]));
+    expect(apa.Sar43).toBe('Sartre, J.-P. (1943). Being and nothingness. Gallimard.');
+    expect(apa.Cam42).toMatch(/^Camus, J\.-A\. \(1942\)/);
+  });
+});
+
 describe('citation instructions and tags', () => {
   it('round-trips CITATION switches', () => {
     const instruction = citationInstruction({ tags: ['Ada20', 'Hop19'], pages: '12-14', prefix: 'see', suffix: 'for details', noYear: true });
