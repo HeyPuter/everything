@@ -1252,6 +1252,11 @@ export class DocxPackage {
       moveNames[side] = node.localName.endsWith('Start') ? node.getAttributeNS(W, 'name') || '' : null;
     };
     const isMoveRange = node => node.namespaceURI === W && ['moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd'].includes(node.localName);
+    const moveRangeOpen = () => moveNames.from !== null || moveNames.to !== null;
+    // A paragraph inside a move range that it does not wholly contain (one between the
+    // paragraphs, or opened or closed in another paragraph) cannot reuse its source XML:
+    // that lacks the range's other marker. Saving writes its moves with their own ranges.
+    const crossingMoves = new WeakSet();
     const readRevision = node => {
       for (const attr of [...node.attributes]) if (attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/' && !(attr.namespaceURI === W && ['id', 'author', 'date', 'name'].includes(attr.localName))) throw new UnsupportedDocumentError(`revision attribute ${attr.name}`);
       const type = ['ins', 'moveTo'].includes(node.localName) ? 'ins' : 'del';
@@ -1320,7 +1325,7 @@ export class DocxPackage {
       wrapper.append(...labels);macroPrompts.set(wrapper,field);return [wrapper];
     });
     const readParagraph = (node, context = {}) => {
-      const sourceNode=node;
+      const sourceNode=node, movedInto = moveRangeOpen();
       if (preview) node = previewMacroButtons(node);
       else if(!context.drawingText&&!context.pageStory)node=projectPrompts(node);
       if (context.drawingText) node = normalizeFields(node, !context.pageStory);
@@ -1637,6 +1642,7 @@ export class DocxPackage {
         issues.delete('paragraph page breaks inside table cells');
         issues.add(`Table cell in ${context.pageStory || 'word/document.xml'}: paragraph page break is ignored in this read-only preview; its text, formatting and pictures are retained.`);
       }
+      if (movedInto || moveRangeOpen()) crossingMoves.add(p);
       if (!context.drawingText && !context.pageStory) {
         originals.set(p.id, { signature: signature(p), xml: serializeFragment(sourceNode), ...(proofingSafe && proofAnchors.length ? { proofAnchors, proofText: paragraphText(p) } : {}) });
         if (savedSpellingComplete && proofingSafe) spellingAnchors.set(p.id, proofAnchors);
@@ -1749,7 +1755,9 @@ export class DocxPackage {
     try { bodyFieldRanges(paragraphs); } catch(error) { throw new UnsupportedDocumentError(error.message); }
     for (const group of blockControlGroups(paragraphs)) group.control.signature = blockControlSignature(group.paragraphs, group.control);
     for (const p of paragraphs) {
-      const original = originals.get(p.id); if (original && !original.blockMarkers) original.signature = signature(p);
+      const original = originals.get(p.id);
+      if (original && crossingMoves.has(p)) original.signature = null;
+      else if (original && !original.blockMarkers) original.signature = signature(p);
     }
     documentBlocks(paragraphs, tables);
     try {
@@ -1811,7 +1819,7 @@ export class DocxPackage {
         }, null);
         if (story.paragraphs) pkg.storyOriginals.set(path, {
           signature: JSON.stringify({ paragraphs: story.paragraphs, tables: story.tables }),
-          paragraphs: new Map(story.paragraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])),
+          paragraphs: new Map(story.paragraphs.map(p => [p.id, { signature: crossingMoves.has(p) ? null : signature(p), xml: p.storySource }])),
         });
       }
     }
@@ -1847,7 +1855,7 @@ export class DocxPackage {
           const path = footnoteStoryPath(notesPath, id);
           const editable = !preview && !noteParagraphs.some(p => p.bookmarks?.length || p.fieldMarkers?.length || p.sectionEnd) && !noteTables.length;
           definition.stories[path] = { kind, noteId: id, paragraphs: noteParagraphs, tables: noteTables, editable };
-          pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: signature(p), xml: p.storySource }])) });
+          pkg.storyOriginals.set(path, { signature: JSON.stringify({ paragraphs: noteParagraphs, tables: noteTables }), paragraphs: new Map(noteParagraphs.map(p => [p.id, { signature: crossingMoves.has(p) ? null : signature(p), xml: p.storySource }])) });
           wanted.delete(id);
         }
         if (wanted.size) throw new UnsupportedDocumentError(`a missing ${kind}`);

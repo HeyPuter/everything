@@ -23345,7 +23345,11 @@ Supported subset:
 - Text cut and pasted while tracking becomes a move: `moveFrom`/`moveTo` wrappers with
   `moveFromRangeStart/End` and `moveToRangeStart/End` named pairs per paragraph. Imported moves keep
   their range names. Moves display in green with double strikethrough/underline and accept or reject
-  as deletions/insertions.
+  as deletions/insertions. A paragraph inside a move range it does not wholly contain (a range
+  between paragraphs around moved paragraphs, or one opened in one paragraph and closed in another)
+  is rewritten on save with its moves in their own named range, as edited moves are, so editing
+  elsewhere neither drops the range markers nor leaves an end without its start
+  (`tests/move-range-docx.test.js`).
 - `revisionView` `insDel`/`formatting` are written from Show Markup; `doNotTrackMoves` and
   `doNotTrackFormatting` from Tracking Options and honored while editing. `hideSpellingErrors` and
   `hideGrammaticalErrors` are written from the Spelling menu. `writeProtection recommended="1"` is
