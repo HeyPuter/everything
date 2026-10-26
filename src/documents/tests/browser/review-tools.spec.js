@@ -691,3 +691,32 @@ test('choosing a comment in the Reviewing Pane selects its text after edits befo
   await expect.poll(() => input.evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd))).toBe('beta');
   expect(errors).toEqual([]);
 });
+
+test('typing before a comment moves its card without rebuilding the comment column', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input.fill('Alpha beta gamma delta.');
+  await onTab(page, 'review');
+  await select(input, 6, 10);
+  await review(page).getByRole('button', { name: 'New Comment', exact: true }).click();
+  await page.locator('.ed-comment-draft textarea').fill('About beta');
+  await page.locator('.ed-comment-draft').getByRole('button', { name: 'Post' }).click();
+  const card = page.locator('.ed-comment-card');
+  await expect(card).toHaveCount(1);
+  await input.focus();
+  await select(input, 0);
+  const top = await card.evaluate(node => { node.dataset.probe = 'kept'; return node.getBoundingClientRect().top; });
+  // Rebuilding every card on each keystroke made typing slow in a document with many comments.
+  await page.keyboard.type('Intro');
+  await page.keyboard.press('Enter');
+  await expect(input).toHaveValue('Intro\nAlpha beta gamma delta.');
+  await expect(card).toHaveAttribute('data-probe', 'kept');
+  // The card still follows its anchor down to the next line, and still selects the words it is on.
+  await expect.poll(() => card.evaluate(node => node.getBoundingClientRect().top)).toBeGreaterThan(top + 10);
+  await card.click();
+  await expect.poll(() => page.evaluate(() => { const model = window.__docs.current.view.engine.model; return model.text.slice(...model.range); })).toBe('beta');
+  expect(errors).toEqual([]);
+});

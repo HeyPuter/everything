@@ -382,8 +382,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function place() {
     const engine = editor(); if (!engine || !layer.isConnected) return;
     const items = [...layer.querySelectorAll('.ed-comment-card')];
+    // Look every card's thread up in one pass: a lookup per card made each keystroke slow in a much-reviewed document.
+    const byId = new Map(threads().map(t => [t.id, t]));
     const anchored = items.map(node => {
-      const id = node.dataset.thread, thread = id ? threads().find(t => t.id === id) : null;
+      const id = node.dataset.thread, thread = id ? byId.get(id) : null;
       const start = node.dataset.anchor !== undefined ? Number(node.dataset.anchor) : id ? thread?.start : draft?.start;
       return { node, geometry: start === null || start === undefined ? null : engine.positionGeometry(start), active: node.classList.contains('is-active') };
     }).filter(item => item.geometry).sort((a, b) => a.geometry.top - b.geometry.top);
@@ -400,6 +402,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     anchored.forEach((item, i) => {
       item.node.style.top = `${Math.max(8, tops[i])}px`;
       item.node.style.left = `${right + 16}px`;
+      item.node.style.display = '';
     });
     for (const node of items) if (!anchored.some(item => item.node === node)) node.style.display = 'none';
   }
@@ -436,7 +439,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const visible = commentsShown && (list.length > 0 || !!draft) || balloons.length > 0;
     if (scroller.classList.contains('has-comment-markup') !== visible) { scroller.classList.toggle('has-comment-markup', visible); positionsKey = ''; queueMicrotask(onShift); }
     layer.hidden = !visible;
-    const sig = JSON.stringify([list, activeId, editing, !!draft, commentsShown, !!ready(), balloons, locked()]);
+    // Where the threads are anchored does not change the cards (place() follows the anchors), so typing before
+    // a comment does not rebuild every card.
+    const sig = JSON.stringify([JSON.stringify(list, (key, value) => key === 'start' || key === 'end' ? undefined : value), activeId, editing, !!draft, commentsShown, !!ready(), balloons, locked()]);
     if (force || sig !== signature) {
       signature = sig;
       const focused = layer.contains(document.activeElement) ? document.activeElement : null;
