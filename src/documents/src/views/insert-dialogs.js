@@ -181,7 +181,9 @@ export function openSymbolDialog({ onInsert, onClose }) {
     const [, from, to] = SYMBOL_SUBSETS[Number(subset.value)];
     const chars = []; for (let cp = from; cp <= to && chars.length < 512; cp++) { const ch = String.fromCodePoint(cp); if (assigned(ch)) chars.push(ch); }
     grid.replaceChildren(...chars.map(ch => cell(ch, choose)));
-    const first = grid.firstElementChild; if (first) first.tabIndex = 0;
+    // The grid's Tab stop is the chosen character when the subset holds it, so Enter there inserts what the dialog describes.
+    const start = [...grid.children].find(b => b.textContent === chosen);
+    if (start) { start.tabIndex = 0; start.setAttribute('aria-selected', 'true'); } else if (grid.firstElementChild) grid.firstElementChild.tabIndex = 0;
   };
   // The recent symbols are one Tab stop too (each cell alone was out of the keyboard's reach); Left, Right, Home and End move along them.
   const drawRecent = () => { recent.replaceChildren(...recentSymbols().map(ch => cell(ch, choose))); if (recent.firstElementChild) recent.firstElementChild.tabIndex = 0; };
@@ -211,7 +213,8 @@ export function openSymbolDialog({ onInsert, onClose }) {
     if (index >= 0 && subset.value !== String(index)) { subset.value = String(index); drawGrid(); }
     const button = [...grid.children].find(b => b.textContent === ch); if (button) { choose(ch, button); button.scrollIntoView({ block: 'nearest' }); }
   });
-  subset.addEventListener('change', drawGrid);
+  // Another subset chooses its first character, as the arrows choose the one they reach.
+  subset.addEventListener('change', () => { drawGrid(); const first = grid.firstElementChild; if (first && first.textContent !== chosen) choose(first.textContent, first); });
   font.addEventListener('change', () => { for (const b of [...grid.children, ...recent.children]) b.style.fontFamily = fontStyle(); preview.style.fontFamily = fontStyle(); });
   const special = el('div.ed-choice-list.insert-special', { role: 'listbox', 'aria-label': 'Special characters' }, ...SPECIAL_CHARACTERS.map(([label, ch]) =>
     el('button.ed-choice.insert-special-row', { type: 'button', role: 'option', 'aria-selected': 'false', onclick: e => { chosen = ch; for (const o of special.children) o.setAttribute('aria-selected', String(o === e.currentTarget)); describe(ch); },
@@ -236,8 +239,11 @@ export function openSymbolDialog({ onInsert, onClose }) {
     return false; // Stay open for the next character, as symbol tables do.
   } });
   dialog.primary.textContent = 'Insert';
+  // Open on the subset that holds the chosen (most recent) symbol, with that symbol chosen and focused.
+  const home = SYMBOL_SUBSETS.findIndex(([, a, b]) => chosen.codePointAt(0) >= a && chosen.codePointAt(0) <= b);
+  if (home >= 0) subset.value = String(home);
   drawGrid(); drawRecent(); describe(chosen);
-  grid.firstElementChild?.focus();
+  (grid.querySelector('[tabindex="0"]') || grid.firstElementChild)?.focus();
   return dialog.modal;
 }
 

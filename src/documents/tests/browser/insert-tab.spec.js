@@ -341,6 +341,31 @@ test('the Date and Time and Special Characters lists are one Tab stop with arrow
   expect(errors).toEqual([]);
 });
 
+test('the Symbol dialog opens on the symbol it shows, so Enter inserts that symbol', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Price ' });
+  await input.press('ControlOrMeta+End');
+  await ribbon.getByRole('button', { name: 'Symbol', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'More Symbols…' }).click();
+  const symbols = page.getByRole('dialog', { name: 'Symbol' });
+  const grid = symbols.getByRole('grid', { name: 'Characters' });
+  // The most recent symbol (the euro sign at first) is the one described, chosen in the grid, and focused.
+  await expect(symbols.getByRole('textbox', { name: 'Character code (hexadecimal)' })).toHaveValue('20AC');
+  await expect(symbols.getByRole('combobox', { name: 'Subset' })).toHaveValue(/\d+/);
+  const focused = grid.locator(':focus');
+  await expect(focused).toHaveText('€');
+  await expect(focused).toHaveAttribute('aria-selected', 'true');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => input.inputValue()).toBe('Price €');
+  // Another subset chooses its first character, so the grid and the description agree again.
+  await symbols.getByRole('combobox', { name: 'Subset' }).selectOption({ label: 'Arrows' });
+  await expect(symbols.getByRole('textbox', { name: 'Character code (hexadecimal)' })).toHaveValue('2190');
+  await expect(grid.getByRole('gridcell', { selected: true })).toHaveText('←');
+  await symbols.getByRole('button', { name: 'Insert' }).click();
+  await symbols.getByRole('button', { name: 'Cancel' }).click();
+  await expect.poll(() => input.inputValue()).toBe('Price €←');
+  expect(errors).toEqual([]);
+});
+
 test('Text from File reads Unicode and Windows text files as opening them does', async ({ page }) => {
   const { input, errors, ribbon } = await start(page, { text: 'Start' });
   const insert = async (name, buffer) => {
