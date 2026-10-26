@@ -328,6 +328,36 @@ test('zoom: dialog presets, many pages, text width and Ctrl + wheel', async ({ p
   await expect(slider).toHaveValue(now);
 });
 
+test('the Zoom dialog\'s Many pages grid is one Tab stop that the arrow keys move over', async ({ page }) => {
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/Every page/);
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  const grid = dialog.getByRole('grid', { name: 'Many pages' });
+  expect(await grid.getByRole('gridcell').evaluateAll(cells => cells.filter(c => c.tabIndex >= 0).length)).toBe(1);
+  await grid.getByRole('gridcell').first().focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(grid.getByRole('gridcell', { name: '2 by 1 pages' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(grid.getByRole('gridcell', { name: '2 by 2 pages' })).toBeFocused();
+  await expect(dialog.getByText('2 × 2 pages')).toBeVisible();
+  await page.keyboard.press('End');
+  await expect(grid.getByRole('gridcell', { name: '4 by 2 pages' })).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(grid.getByRole('gridcell', { name: '1 by 2 pages' })).toBeFocused();
+  expect(await grid.getByRole('gridcell').evaluateAll(cells => cells.filter(c => c.tabIndex >= 0).length)).toBe(1);
+  // Tab leaves the grid, and comes back to the cell it left.
+  await page.keyboard.press('Tab');
+  expect(await grid.evaluate(g => g.contains(document.activeElement))).toBe(false);
+  await page.keyboard.press('Shift+Tab');
+  await expect(grid.getByRole('gridcell', { name: '1 by 2 pages' })).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('.canvas-pages')).toHaveClass(/is-multipage/);
+});
+
 test('the Zoom dialog fits its fields inside the dialog', async ({ page }) => {
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'New', exact: true }).click();

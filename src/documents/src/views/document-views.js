@@ -257,6 +257,21 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const mark = (cols, rowsCount) => { manyLabel.textContent = `${cols} × ${rowsCount} pages`; for (const cell of grid.querySelectorAll('.view-many-cell')) cell.classList.toggle('is-on', cell.dataset.col <= cols && cell.dataset.row <= rowsCount); };
     grid.addEventListener('mouseleave', () => mark(...many));
     mark(...many);
+    // One Tab stop, on the pages chosen; the arrows move over the cells (marking as they go), Home and End along a row.
+    const cells = [...grid.querySelectorAll('.view-many-cell')];
+    const cellAt = (col, row) => cells.find(cell => Number(cell.dataset.col) === col && Number(cell.dataset.row) === row);
+    const tabStop = target => { for (const cell of cells) cell.tabIndex = cell === target ? 0 : -1; };
+    tabStop(cellAt(...many) || cells[0]);
+    grid.addEventListener('focusin', e => { if (e.target.matches?.('.view-many-cell')) tabStop(e.target); });
+    grid.addEventListener('keydown', e => {
+      const cell = e.target.closest?.('.view-many-cell');
+      if (!cell || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const col = Number(cell.dataset.col), row = Number(cell.dataset.row);
+      const keys = { ArrowRight: [col + 1, row], ArrowLeft: [col - 1, row], ArrowDown: [col, row + 1], ArrowUp: [col, row - 1], Home: [1, row], End: [4, row] };
+      if (!keys[e.key]) return;
+      e.preventDefault();
+      cellAt(...keys[e.key])?.focus();
+    });
     const disabledFit = mode !== 'print';
     if (disabledFit) for (const r of radios.slice(3)) { r.disabled = true; r.parentElement.title = 'Available in Print Layout'; }
     // The choice the zoom is at now starts checked: 100% at 100%, Page width while the page follows the window.
