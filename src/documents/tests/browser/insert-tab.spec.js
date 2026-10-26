@@ -419,3 +419,16 @@ test('a picture Puter AI could not make is explained in plain words', async ({ p
   await expect(dialog).not.toContainText('Generating');
   await expect(dialog.getByRole('button', { name: 'Generate', exact: true })).toBeEnabled();
 });
+
+test('a picture made with Puter AI takes its description as its alternative text', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await (await onTab(page, 'insert')).locator('#ribbon-panel-insert').getByRole('button', { name: 'Pictures', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Generate with AI…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Generate a Picture' });
+  await dialog.getByRole('textbox', { name: 'Describe the picture' }).fill('A lighthouse at dawn');
+  await dialog.getByRole('button', { name: 'Generate', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.model.paragraphs.flatMap(p => p.runs).find(r => r.image)?.image.alt)).toBe('A lighthouse at dawn');
+});

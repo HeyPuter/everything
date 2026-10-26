@@ -134,7 +134,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
 
   /* ---- Pictures ---- */
-  async function insertPictureFile(file) {
+  async function insertPictureFile(file, { alt = '' } = {}) {
     const engine = ready(); if (!engine || !file) return;
     try {
       engine.finishComposition(); afterSelectedDrawing(engine);
@@ -149,7 +149,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         return;
       }
       // Other raster formats (GIF, WebP, BMP, AVIF) are stored as PNG, which every DOCX reader shows.
-      await engine.insertImageFile(await pictureFile(file)); onChange();
+      await engine.insertImageFile(await pictureFile(file), alt ? { alt } : {}); onChange();
     } catch (e) { fail(e); }
   }
   const pictureInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/tiff,image/gif,image/webp,image/bmp,image/svg+xml,.svg,.tif,.tiff', hidden: true, 'aria-label': 'Insert picture file',
@@ -164,7 +164,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
           let image;
           try { image = await P.makeImage(prompt); } catch (e) { throw generationError(e); }
           return imageFileFromSource(image, prompt);
-        }, onInsert: file => insertPictureFile(file) }) }] : []),
+        }, onInsert: (file, { alt } = {}) => insertPictureFile(file, { alt }) }) }] : []),
       ...(canCapture() ? [{ separator: true }, { label: 'Screenshot…', icon: 'screenshot', disabled: !engine, onSelect: screenshot }] : []),
     ];
   }

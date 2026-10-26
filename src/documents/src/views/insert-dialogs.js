@@ -398,7 +398,8 @@ export function openGenerateDialog({ generate, onInsert, onClose }) {
   const dialog = formDialog({ title: 'Generate a Picture', submit: 'Generate', onClose, content: [field('Describe the picture', prompt), preview,
     el('p.field-hint', {}, 'The description is sent to Puter AI to make the picture. Review it before inserting.')],
   onSubmit: async () => {
-    if (file) { await onInsert(file); return true; }
+    // The description the picture was made from is its alternative text, which screen readers announce.
+    if (file) { await onInsert(file, { alt: prompt.value.trim() }); return true; }
     if (busy) return false;
     if (!prompt.value.trim()) throw new Error('Describe the picture first.');
     busy = true; dialog.primary.disabled = true; preview.replaceChildren(el('span.field-hint', {}, 'Generating…'));
