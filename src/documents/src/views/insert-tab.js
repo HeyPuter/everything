@@ -535,7 +535,13 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
         const { decodeTextFile } = await import('../lib/importers.js');
         const raw = decodeTextFile(await file.arrayBuffer(), /\.html?$/i.test(file.name) ? 'html' : null);
         if (/\.(md|markdown)$/i.test(file.name)) { const { markdownHtml } = await import('../lib/markdown-html.js'); fragment = formatted ? htmlFragment(markdownHtml(raw)) : null; text = raw; }
-        else if (/\.html?$/i.test(file.name)) { fragment = formatted ? htmlFragment(raw) : null; text = new DOMParser().parseFromString(raw, 'text/html').body.textContent || ''; }
+        else if (/\.html?$/i.test(file.name)) {
+          // Without formatting (in a table cell, say) the page's text goes in as its paragraphs, not as the markup's
+          // raw text content, which runs paragraphs together and includes the text of scripts and styles.
+          const converted = htmlFragment(raw);
+          fragment = formatted ? converted : null;
+          text = converted ? converted.paragraphs.map(p => p.text).join('\n') : '';
+        }
         else text = raw.replace(/\r\n?/g, '\n').replace(/\n+$/, '');
       }
       run(engine, () => fragment ? pasteFragment(engine.model, fragment) : engine.model.replace(text));

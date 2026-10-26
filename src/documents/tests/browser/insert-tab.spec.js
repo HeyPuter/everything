@@ -357,3 +357,18 @@ test('Text from File reads Unicode and Windows text files as opening them does',
   await expect.poll(() => input.inputValue()).toBe('Start\nGrüße 😀\nZweite Zeile\nCafé €5');
   expect(errors).toEqual([]);
 });
+
+test('Text from File puts a web page in a table cell as its paragraphs, without its scripts or styles', async ({ page }) => {
+  const { input, errors, ribbon } = await start(page, { text: 'Start' });
+  await ribbon.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert', exact: true }).click();
+  await ribbon.getByRole('button', { name: 'Object', exact: true }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('menuitem', { name: 'Text from File…' }).click();
+  await (await chooser).setFiles({ name: 'page.html', mimeType: 'text/html', buffer: Buffer.from('<!doctype html><html><head><title>Page</title></head><body><style>p { color: red }</style><script>var secret = 1;</script>\n<h1>Heading</h1>\n<p>First\n   paragraph.</p><p>Second<br>line</p></body></html>') });
+  await expect.poll(() => input.inputValue()).toContain('Heading\nFirst paragraph.\nSecond');
+  expect(await input.inputValue()).not.toMatch(/color: red|secret/);
+  // The caret was in the table's first cell, where formatting does not carry: the text went in there.
+  await expect(ribbon.page().getByRole('tab', { name: 'Table Design' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
