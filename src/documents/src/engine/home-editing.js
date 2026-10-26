@@ -68,6 +68,14 @@ function sentenceStartsAt(text, position) {
  * kept: only letters within ordinary text runs change. Returns whether the text changed.
  */
 export function changeCase(model, mode) {
+  // A block of table cells changes cell by cell, in the case chosen for the whole block; the cells between its
+  // corners in reading order, which its text range also runs through, keep theirs.
+  if (model.cellBlock && !model.inBlockCellPass) {
+    let text = '';
+    if (mode === 'cycle') model.blockCellPass(() => { text += `${model.text.slice(...model.range)} `; return false; });
+    const pass = model.blockCellPass(() => changeCase(model, text ? nextCycleCase(text) : mode));
+    if (pass !== undefined) return pass;
+  }
   let [start, end] = model.range;
   const text = model.text, caretOnly = start === end;
   if (start === end) {

@@ -520,6 +520,8 @@ export class TextDocument {
     return true;
   }
   clearDirectParagraphFormatting() {
+    const pass = this.blockCellPass(() => this.clearDirectParagraphFormatting());
+    if (pass !== undefined) return pass;
     const targets = new Set(this.selectedParagraphs.filter(hasDirectParagraphFormatting).map(p => p.id));
     if (!targets.size) return false;
     const paragraphs = this.paragraphs.map(p => {
@@ -563,6 +565,8 @@ export class TextDocument {
   }
   setParagraphStyle(id) {
     if (id && this.styles.definitions[id]?.type !== 'paragraph') throw new Error('Choose a paragraph style.');
+    const pass = this.blockCellPass(() => this.setParagraphStyle(id));
+    if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
     if (targets.every(p => (p.styleId || '') === id)) return false;
     const next = targets.map(p => resolveStyledParagraph({ ...copy(p), styleId: id || null, styleChanged: true }, this.styles, this.numbering));
@@ -592,15 +596,25 @@ export class TextDocument {
     const kinds = this.selectedParagraphs.map(p => listKind(this.numbering, p.list));
     return kinds.every(k => k === kinds[0]) ? kinds[0] : 'mixed';
   }
-  toggleList(kind) {
+  toggleList(kind, cells = null) {
     if (!['bullet', 'number'].includes(kind)) throw new Error('Choose bullets or numbering.');
-    const targets = this.selectedParagraphs, remove = this.listFormatting === kind;
+    // A block of cells is listed or unlisted as a whole, numbered on through its cells in reading order.
+    if (!cells && this.cellBlock && !this.inBlockCellPass) {
+      const kinds = [];
+      this.blockCellPass(() => { kinds.push(this.listFormatting); return false; });
+      if (kinds.length) {
+        const shared = { remove: kinds.every(k => k === kind), numId: null };
+        return this.blockCellPass(() => this.toggleList(kind, shared));
+      }
+    }
+    const targets = this.selectedParagraphs, remove = cells ? cells.remove : this.listFormatting === kind;
     this.checkpoint();
-    let numId;
-    if (!remove) {
+    let numId = cells?.numId;
+    if (!remove && !numId) {
       const first = this.paragraphs.indexOf(targets[0]), previous = this.paragraphs[first - 1];
       const existing = targets.find(p => listKind(this.numbering, p.list) === kind) || (previous && listKind(this.numbering, previous.list) === kind ? previous : null);
       numId = existing?.list.numId || newList(this.numbering, kind);
+      if (cells) cells.numId = numId;
     }
     for (const p of targets) {
       // A direct numId=0 overrides inherited numbering when removing a list.
@@ -1635,6 +1649,8 @@ export class TextDocument {
     return { paragraphs, typingStyle: null };
   }
   setCharacterStyle(id) {
+    const pass = this.blockCellPass(() => this.setCharacterStyle(id));
+    if (pass !== undefined) return pass;
     const next = this.characterStyleState(id);
     if (this.characterStyle === id) return false;
     if (next.paragraphs === this.paragraphs) { this.typingStyle = next.typingStyle; this.stylesEnabled = true; return false; }
@@ -1768,6 +1784,8 @@ export class TextDocument {
   get italic() { return this.runFormatting.italic === true; }
   get underline() { return this.runFormatting.underline === true; }
   clearDirectTextFormatting() {
+    const pass = this.blockCellPass(() => this.clearDirectTextFormatting());
+    if (pass !== undefined) return pass;
     const [start, end] = this.textFormattingRange, location = locate(this.paragraphs, start);
     if (start === end && this.paragraphs[location.index].runs.length) {
       const p = this.paragraphs[location.index], next = clearedRun(this.typingRun());
