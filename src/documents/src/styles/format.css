@@ -77,6 +77,8 @@
 .fmt-level-item[aria-selected="true"] { background: var(--accent); color: #fff; }
 .fmt-multilevel-fields { display: grid; gap: 10px; }
 .fmt-list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-bottom: 10px; }
+/* The commands under the gallery wrap on a phone rather than widen the sheet past the window. */
+.fmt-bullets-dialog .fmt-list-grid + .row { flex-wrap: wrap; }
 .fmt-list-tile { display: grid; place-items: center; height: 82px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: #fff; color: #222; }
 .fmt-list-tile[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .fmt-list-tile-sample { display: grid; gap: 6px; width: 70%; }

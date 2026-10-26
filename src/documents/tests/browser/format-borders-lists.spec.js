@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { onTab, downloadDocx } from './helpers/editor-tools.js';
+import { onTab, downloadDocx, menuBarMenu } from './helpers/editor-tools.js';
 import { reopenDocx } from './helpers/reopen-docx.js';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readFileSync } from 'node:fs';
@@ -162,4 +162,26 @@ test('Define New Multilevel List: per-level number format and style', async ({ p
   expect(saved.xml('word/numbering.xml')).toMatch(/<w:lvl w:ilvl="1"><w:start w:val="1"\/><w:numFmt w:val="lowerLetter"\/><w:suff w:val="tab"\/><w:lvlText w:val="%1.%2\)"\/>/);
   await reopenDocx(page, input, saved.path, 'Top\nNested\nNext');
   expect(errors).toEqual([]);
+});
+
+test('Bullets and Numbering fits a phone, with every tab\'s buttons inside the sheet', async ({ page }) => {
+  for (const width of [320, 375]) {
+    await page.setViewportSize({ width, height: 700 });
+    await page.goto('/mock.html#/new');
+    await page.locator('.ribbon-card').waitFor();
+    await expect(page.getByRole('textbox', { name: 'Document text' })).toBeVisible();
+    await (await menuBarMenu(page, 'Format')).getByRole('menuitem', { name: 'Bullets and Numbering…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Bullets and Numbering' });
+    for (const tab of ['Bulleted', 'Numbered', 'Multilevel']) {
+      await dialog.getByRole('tab', { name: tab }).click();
+      const outside = await dialog.evaluate(panel => {
+        const box = panel.getBoundingClientRect();
+        return [...panel.querySelectorAll('button')].filter(n => n.getClientRects().length)
+          .filter(n => { const r = n.getBoundingClientRect(); return r.right > box.right + 0.5 || r.left < box.left - 0.5; }).map(n => n.textContent.trim() || n.getAttribute('aria-label'));
+      });
+      expect(outside, `${tab} at ${width}px`).toEqual([]);
+    }
+    await dialog.getByRole('button', { name: 'Close', exact: true }).last().click();
+    await expect(dialog).toHaveCount(0);
+  }
 });
