@@ -261,6 +261,9 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     mark(...many);
     const disabledFit = mode !== 'print';
     if (disabledFit) for (const r of radios.slice(3)) { r.disabled = true; r.parentElement.title = 'Available in Print Layout'; }
+    // The choice the zoom is at now starts checked: 100% at 100%, Page width while the page follows the window.
+    const current = startMulti ? null : radios.find(r => !r.disabled && (startSetting === 'fit' ? r.value === 'width' : Number(r.value) === startSetting));
+    if (current) { current.checked = true; choice = current.value === 'width' ? 'width' : Number(current.value); }
     function apply(value, live) {
       if (value === 'width') w.zoomTo?.('width');
       else if (value === 'page') w.zoomTo?.('page');

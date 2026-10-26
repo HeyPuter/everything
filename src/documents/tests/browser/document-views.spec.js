@@ -246,6 +246,9 @@ test('zoom: dialog presets, many pages, text width and Ctrl + wheel', async ({ p
   await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
   // A closing dialog lingers for its exit animation; use the open one.
   const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  // The preset the zoom is at starts chosen.
+  await expect(dialog.getByRole('radio', { name: '100%' })).toBeChecked();
+  await expect(dialog.getByRole('radio', { checked: true })).toHaveCount(1);
   await dialog.getByText('75%').click();
   await expect(slider).toHaveValue('75');
   await dialog.getByRole('gridcell', { name: '2 by 1 pages' }).click();
@@ -300,8 +303,14 @@ test('cancelling the Zoom dialog keeps the page following the window width', asy
   const fitted = await pageWidth();
   await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
   const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name: 'Zoom' });
+  await expect(dialog.getByRole('radio', { name: 'Page width' })).toBeChecked();
   await dialog.getByText('200%').click();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(zoom).toHaveValue('fit');
+  // OK with Page width still chosen keeps the page following the window, rather than fixing its scale.
+  await (await viewTab(page)).getByRole('button', { name: 'Zoom', exact: true }).click();
+  await expect(dialog.getByRole('radio', { name: 'Page width' })).toBeChecked();
+  await dialog.getByRole('button', { name: 'OK' }).click();
   await expect(zoom).toHaveValue('fit');
   // Still Page Width, the page follows a narrower window.
   await page.setViewportSize({ width: 1000, height: 900 });
