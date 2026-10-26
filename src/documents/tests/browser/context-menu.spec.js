@@ -52,6 +52,21 @@ test('the ContextMenu key opens the document menu on its first item', async ({ p
   await expect(input(page)).toBeFocused();
 });
 
+test('Shift+F10 opens the document menu on its first item, on a Mac too', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Opened from the keyboard');
+  await input(page).focus();
+  // A Mac keyboard has no menu key, and Chrome there does not turn Shift+F10 into a contextmenu event.
+  await page.keyboard.press('Shift+F10');
+  const menu = page.getByRole('menu', { name: 'Document menu' });
+  await expect(menu).toHaveCount(1);
+  await expect(menu.getByRole('menuitem', { name: 'Undo', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(input(page)).toBeFocused();
+});
+
 test('a right-click in a table offers its row and column commands', async ({ page }) => {
   await page.goto('/mock.html#/new');
   await expect((await onTab(page, 'home')).getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();

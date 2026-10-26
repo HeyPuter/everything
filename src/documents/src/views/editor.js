@@ -1256,6 +1256,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (shortcutCode(e) === 'KeyH' && !e.altKey && engine && (MOD_KEY === 'Cmd' ? e.metaKey && e.shiftKey : e.ctrlKey && !e.shiftKey)) { e.preventDefault(); openFind(); return; }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === '/') { e.preventDefault(); editorCommands.openShortcuts(); return; }
     if (e.key === 'F7' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && engine) { e.preventDefault(); proofing.openPane(); return; }
+    // Shift+F10 opens the document's menu, as the ContextMenu key does. Chrome turns it into a contextmenu event
+    // everywhere but on a Mac, whose keyboards have no menu key: there it would leave the menu out of the keyboard's reach.
+    if (IS_MAC && e.key === 'F10' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && engine && e.target === engine.input) {
+      e.preventDefault(); openDocumentContextMenu({ event: { button: -1, clientX: 0, clientY: 0 } }); return;
+    }
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && shortcutCode(e) === 'KeyV' && engine && host.contains(e.target)) { e.preventDefault(); pastePlainText(); return; }
     const action = formattingShortcut(e);
     if (action) { e.preventDefault(); action(); }

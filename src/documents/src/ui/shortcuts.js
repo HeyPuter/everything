@@ -88,6 +88,7 @@ const GROUPS = [
     ...(IS_MAC ? [['Cmd + Option + M', 'Paragraph settings'], ['Cmd + Ctrl + Shift + F', 'Focus']] : []),
     [['Tab', 'Shift + Tab'], 'Next or previous table cell'],
     [['Tab', 'Shift + Tab'], 'Demote or promote a list item, at its start'],
+    ['Shift + F10', 'Open the menu for the selection'],
     ['Escape', 'Close a panel or menu; in the document, Tab then moves to the toolbar'],
   ]],
 ];
