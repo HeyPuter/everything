@@ -16,6 +16,15 @@ describe('words to check', () => {
   it('keeps contractions whole, normalizes curly apostrophes and drops possessive s', () => {
     expect(words('Sam’s book, don’t ask, isn\'t it')).toEqual(['Sam', 'book', "don't", 'ask', "isn't", 'it']);
   });
+  it('locates the checked word inside a possessive, so a correction keeps the \'s', () => {
+    const text = 'I saw recieve’s notice and don’t care.';
+    const located = wordsToCheck(text).map(w => [text.slice(w.start, w.end), text.slice(w.wordStart ?? w.start, w.wordEnd ?? w.end)]);
+    expect(located).toContainEqual(['recieve’s', 'recieve']);
+    expect(located).toContainEqual(['don’t', 'don’t']);
+    // Replacing the located word leaves the possessive ending in place.
+    const m = wordsToCheck(text).find(w => w.word === 'recieve');
+    expect(text.slice(0, m.wordStart) + 'receive' + text.slice(m.wordEnd)).toBe('I saw receive’s notice and don’t care.');
+  });
   it('checks the parts of a hyphenated compound and reports their positions', () => {
     const list = wordsToCheck('a well-knwn fact');
     expect(list.map(w => [w.word, w.start, w.end])).toEqual([['a', 0, 1], ['well', 2, 6], ['knwn', 7, 11], ['fact', 12, 16]]);

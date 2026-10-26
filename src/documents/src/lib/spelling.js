@@ -32,7 +32,7 @@ export function proofingText(text, paragraphs) {
 }
 
 /**
- * The words spelling checks: [{ start, end, word }]. Hyphenated compounds are checked part by part;
+ * The words spelling checks: [{ start, end, word, wordStart?, wordEnd? }]. Hyphenated compounds are checked part by part;
  * apostrophes inside a word stay part of it and typographic ones are normalized.
  */
 export function wordsToCheck(text) {
@@ -54,9 +54,12 @@ export function wordsToCheck(text) {
     if (word.length > 1 && word === word.toUpperCase() && /\p{Lu}/u.test(word)) continue;
     // The only dictionary is English: a word with no Latin letter (Thai, Cyrillic, Han...) is not checked.
     if (!/\p{Script=Latin}/u.test(word)) continue;
-    // Possessive and contraction forms the dictionary may lack: check the word itself.
+    // Possessive and contraction forms the dictionary may lack: check the word itself. When that is less
+    // than the segment, wordStart and wordEnd say where it is, so a correction keeps the "'s" and apostrophes.
     const trimmed = word.replace(/'s$/i, '').replace(/^'+|'+$/g, '');
-    words.push({ start, end, word: trimmed || word });
+    if (!trimmed || trimmed === word) { words.push({ start, end, word: trimmed || word }); continue; }
+    const wordStart = start + word.match(/^'*/)[0].length;
+    words.push({ start, end, word: trimmed, wordStart, wordEnd: wordStart + trimmed.length });
   }
   return words;
 }

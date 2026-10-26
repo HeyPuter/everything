@@ -772,3 +772,16 @@ test('typing before a comment leaves the Comments pane list as it is', async ({ 
   await expect.poll(() => page.evaluate(() => { const model = window.__docs.current.view.engine.model; return model.text.slice(...model.range); })).toBe('beta');
   expect(errors).toEqual([]);
 });
+
+test('correcting a misspelled possessive keeps its ’s', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'I saw recieve’s notice.');
+  await select(input, 0);
+  await input.press('F7');
+  await expect(page.locator('.ed-proof-context mark')).toHaveText('recieve’s', { timeout: 15000 });
+  await expect(page.locator('.ed-proof-suggestion').first()).toHaveText('receive');
+  await page.locator('.ed-proof-actions').getByRole('button', { name: 'Change', exact: true }).click();
+  await expect(input).toHaveValue('I saw receive’s notice.');
+  expect(errors).toEqual([]);
+});

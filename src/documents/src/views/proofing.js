@@ -121,7 +121,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     if (engine.session.path !== null) engine.editStory(null);
     const at = locate(m);
     if (!at) { schedule(0); return false; }
-    const ok = engine.execute(() => { engine.model.select(at.start, at.end); engine.model.replace(text); });
+    const ok = engine.execute(() => { engine.model.select(at.wordStart ?? at.start, at.wordEnd ?? at.end); engine.model.replace(text); });
     engine.focus(); engine.onSelection?.();
     schedule(0);
     return ok ? at : false;
@@ -133,7 +133,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     if (engine.session.path !== null) engine.editStory(null);
     const targets = occurrences(word).filter(m => !ignoredOnce.has(`${m.start}:${m.word}`)).reverse();
     if (!targets.length) return false;
-    const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.start, m.end); engine.model.replace(text); } });
+    const ok = engine.execute(() => { for (const m of targets) { engine.model.select(m.wordStart ?? m.start, m.wordEnd ?? m.end); engine.model.replace(text); } });
     schedule(0);
     return ok;
   }
