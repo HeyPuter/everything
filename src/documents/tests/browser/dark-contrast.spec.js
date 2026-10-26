@@ -77,6 +77,27 @@ test.describe('dark theme', () => {
     await expect(page.locator('.table-formula-result.is-error')).toBeVisible();
     for (const item of await measure(page, '.table-formula-result.is-error')) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
   });
+  test('the status bar\'s accessibility errors stay readable', async ({ page }) => {
+    await open(page);
+    // A table without a header row is an accessibility error.
+    await page.getByRole('tab', { name: 'Insert', exact: true }).click();
+    await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+    await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+    const status = page.locator('.ed-status-accessibility[data-state="errors"]');
+    await expect(status).toBeVisible({ timeout: 15000 });
+    for (const item of await measure(page, '.ed-status-accessibility[data-state="errors"]')) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+test('the status bar\'s accessibility errors stay readable in the light theme', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page);
+  await page.getByRole('tab', { name: 'Insert', exact: true }).click();
+  await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+  await expect(page.locator('.ed-status-accessibility[data-state="errors"]')).toBeVisible({ timeout: 15000 });
+  for (const item of await measure(page, '.ed-status-accessibility[data-state="errors"]')) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
 });
 
 test('the light theme shows a style sample in the style’s own color', async ({ page }) => {

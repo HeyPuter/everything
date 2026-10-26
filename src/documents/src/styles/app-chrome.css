@@ -144,7 +144,7 @@ input:disabled + .ed-switch { opacity: .5; }
 @media (max-width: 700px) { .ed-zoom-slider-wrap, .ed-status-views, .ed-status-track { display: none; } }
 /* The accessibility check shrinks to its icon, then leaves the status bar to the page and word counts and the language. */
 .ed-status-accessibility { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.ed-status-accessibility[data-state='errors'] { color: var(--ed-danger, #b3261e); }
+.ed-status-accessibility[data-state='errors'] { color: var(--critical); }
 @media (max-width: 1100px) { .ed-status-accessibility > span { display: none; } }
 /* Below 900px the view buttons go too (the View tab and menu keep them): with them, the zoom controls left the
    word count cut in half and the spelling button clipped out of sight while still taking focus. */
