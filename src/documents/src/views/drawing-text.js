@@ -7,7 +7,7 @@ const MARGIN = 360; // Twips around the draft's text.
 
 // A rich draft owns its own positions and local history. Apply publishes one
 // drawing mutation to the document history; cancel never changes the document.
-export function openDrawingText({ engine, pkg, image, frame }) {
+export function openDrawingText({ engine, pkg, image, frame, select = null }) {
   const descriptor = pkg.drawingTextFrames(image, engine.model.assets)[frame];
   if (!descriptor || descriptor.reason) throw new Error(descriptor?.reason || 'This drawing text is unavailable.');
   const assets = {}, images = new Map();
@@ -62,6 +62,9 @@ export function openDrawingText({ engine, pkg, image, frame }) {
       protectedPageFields: true,
     });
     draft.input.setAttribute('data-testid', 'drawing-text-input');
+    // A new drawing's sample text starts selected, so typing replaces it.
+    const at = select ? draft.model.text.indexOf(select) : -1;
+    if (at >= 0) draft.model.select(at, at + select.length);
     draft.focus();
   } catch (e) { modal.close(); throw e; }
   return modal;

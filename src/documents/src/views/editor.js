@@ -715,11 +715,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     const image = engine?.model.selectedImage;
     if (!image || !pkg) return [];
     return pkg.drawingTextFrames(image, engine.model.assets).map(frame => ({ label: `Text frame ${frame.index + 1}`, disabled: !!frame.reason || !!pkg.readOnly, hint: frame.reason,
-      onSelect: async () => {
-        const editor = engine;
+      // `options.select`: text to select when the editor opens (a new drawing's sample text).
+      onSelect: async options => {
+        const editor = engine, select = typeof options?.select === 'string' ? options.select : null;
         try {
           const { openDrawingText } = await import('./drawing-text.js');
-          if (!destroyed && engine === editor && editor.model.selectedImage === image) drawingTextModal = openDrawingText({ engine, pkg, image, frame: frame.index });
+          if (!destroyed && engine === editor && editor.model.selectedImage === image) drawingTextModal = openDrawingText({ engine, pkg, image, frame: frame.index, select });
         } catch (e) { if (!destroyed) error(e); }
       } }));
   };
@@ -775,7 +776,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const review = createReview({ editor: () => engine, pkg: () => pkg, host: () => (engine && !failed ? host : null), error, author: () => session.username, onChange: () => update(), onShift: () => { fitWidth(); rulers?.update(); }, hooks: reviewHooks });
   // Insert tab: galleries, pictures, drawings, fields, equations and symbols (insert-tab.js).
   const insert = createInsert({ editor: () => engine, pkg: () => pkg, error, docName: () => title.value, user: () => (!local && session.signedIn ? session.username : ''), onChange: () => update(),
-    base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: () => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(),
+    base: { editHeader: editorCommands.editHeader, insertBlankPage: editorCommands.insertBlankPage, updateFields: editorCommands.updateFields, editDrawingText: options => editorCommands.drawingTextItems()?.find(item => !item.disabled)?.onSelect(options),
       link: () => editHyperlink(), bookmark: () => bookmarks.click(), comment: () => review.commands?.newComment?.() } });
   const baseMenu = editorCommands.extendMenu, baseContextItems = editorCommands.contextMenuItems;
   Object.assign(editorCommands, insert.commands);

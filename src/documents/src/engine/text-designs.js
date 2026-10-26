@@ -39,28 +39,45 @@ export function paragraphXml({ text = '', align = null, run = {}, spaceAfter = n
   return `<w:p>${pPr ? `<w:pPr>${pPr}</w:pPr>` : ''}${runs}</w:p>`;
 }
 
-/** Text box gallery: [id, name, hint, build(text) → shape params]. Sizes in inches; placement in the column. */
+// Each design's sample text, shown until the box is given text of its own.
+const PROMPTS = Object.freeze({
+  simple: 'Type your text here. Text boxes can sit anywhere on the page.',
+  sidebar: 'Use a sidebar for notes, a summary or a list of key points beside the main text.',
+  quote: 'Draw the reader in with a memorable line from the document.',
+  banded: 'An announcement or heading across the page',
+  note: 'Add a short note here.',
+  callout: 'Point out something important.',
+});
+export const WORDART_PROMPT = 'Your text here';
+
+/** Text box gallery: [id, name, hint, prompt, build(text) → shape params]. Sizes in inches; placement in the column. */
 export const TEXT_BOX_DESIGNS = Object.freeze([
   { id: 'simple', name: 'Simple Text Box', hint: 'A plain box with a thin outline', width: 2.5, height: 1.2,
     shape: { fill: 'FFFFFF', line: '000000', lineWidth: 6350 },
-    paragraphs: text => [paragraphXml({ text: text || 'Type your text here. Text boxes can sit anywhere on the page.' })] },
+    prompt: PROMPTS.simple,
+    paragraphs: text => [paragraphXml({ text: text || PROMPTS.simple })] },
   { id: 'sidebar', name: 'Sidebar', hint: 'A tall shaded panel at the right', width: 2, height: 4.5, align: 'right',
     shape: { fill: 'DEEAF6', line: null, lineWidth: 0 },
+    prompt: PROMPTS.sidebar,
     paragraphs: text => [paragraphXml({ text: 'Sidebar Title', run: { bold: true, size: 14, color: DARK }, spaceAfter: 6 }),
-      paragraphXml({ text: text || 'Use a sidebar for notes, a summary or a list of key points beside the main text.', run: { size: 10, color: '262626' } })] },
+      paragraphXml({ text: text || PROMPTS.sidebar, run: { size: 10, color: '262626' } })] },
   { id: 'quote', name: 'Pull Quote', hint: 'A large centered quotation in an accent frame', width: 4.5, height: 1.3, align: 'center',
     shape: { fill: null, line: ACCENT, lineWidth: 28575 }, anchor: 'ctr',
-    paragraphs: text => [paragraphXml({ text: `“${text || 'Draw the reader in with a memorable line from the document.'}”`, align: 'center', run: { italic: true, size: 16, color: ACCENT }, spaceAfter: 4 }),
+    prompt: PROMPTS.quote,
+    paragraphs: text => [paragraphXml({ text: `“${text || PROMPTS.quote}”`, align: 'center', run: { italic: true, size: 16, color: ACCENT }, spaceAfter: 4 }),
       paragraphXml({ text: '— Name', align: 'right', run: { size: 10, color: '595959' } })] },
   { id: 'banded', name: 'Banded', hint: 'White text on a dark band', width: 6.5, height: 0.8,
     shape: { fill: DARK, line: null, lineWidth: 0 }, anchor: 'ctr',
-    paragraphs: text => [paragraphXml({ text: text || 'An announcement or heading across the page', align: 'center', run: { bold: true, size: 16, color: 'FFFFFF' } })] },
+    prompt: PROMPTS.banded,
+    paragraphs: text => [paragraphXml({ text: text || PROMPTS.banded, align: 'center', run: { bold: true, size: 16, color: 'FFFFFF' } })] },
   { id: 'note', name: 'Note', hint: 'A soft yellow note with an accent outline', width: 2.5, height: 1.5,
     shape: { fill: 'FFF2CC', line: 'BF9000', lineWidth: 9525 },
-    paragraphs: text => [paragraphXml({ text: 'Note', run: { bold: true, color: '7F6000' }, spaceAfter: 3 }), paragraphXml({ text: text || 'Add a short note here.', run: { size: 10, color: '3F3F3F' } })] },
+    prompt: PROMPTS.note,
+    paragraphs: text => [paragraphXml({ text: 'Note', run: { bold: true, color: '7F6000' }, spaceAfter: 3 }), paragraphXml({ text: text || PROMPTS.note, run: { size: 10, color: '3F3F3F' } })] },
   { id: 'callout', name: 'Rounded Callout', hint: 'A rounded box with an accent fill', width: 2.75, height: 1.25, preset: 'roundRect',
     shape: { fill: ACCENT, line: null, lineWidth: 0 }, anchor: 'ctr',
-    paragraphs: text => [paragraphXml({ text: text || 'Point out something important.', align: 'center', run: { size: 12, color: 'FFFFFF' } })] },
+    prompt: PROMPTS.callout,
+    paragraphs: text => [paragraphXml({ text: text || PROMPTS.callout, align: 'center', run: { size: 12, color: 'FFFFFF' } })] },
 ]);
 
 /** WordArt styles: original combinations of fill, outline and shadow over a bold display face. */
@@ -89,8 +106,8 @@ export function textBoxParams(design, { id, order = 1, text = '', textWidth = 6.
 }
 
 /** Shape parameters for WordArt: an unfilled, unbordered box that grows to fit its large text. */
-export function wordArtParams(style, { id, order = 1, text = 'Your text here', size = 40, textWidth = 6.5 * EMU_PER_INCH } = {}) {
-  const lines = String(text || 'Your text here').split('\n');
+export function wordArtParams(style, { id, order = 1, text = WORDART_PROMPT, size = 40, textWidth = 6.5 * EMU_PER_INCH } = {}) {
+  const lines = String(text || WORDART_PROMPT).split('\n');
   const longest = Math.max(...lines.map(l => [...l].length));
   const width = Math.min(textWidth, Math.max(EMU_PER_INCH, Math.round(longest * size * 0.62 / 72 * EMU_PER_INCH + 182880)));
   const height = Math.round(lines.length * size * 1.3 / 72 * EMU_PER_INCH + 91440);

@@ -105,3 +105,47 @@ test('the drawing text editor lays its lines out as wide as the text box', async
   expect(await scroller.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
+
+test('a new text box or WordArt opens with its sample text selected, so typing replaces it', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Body text.');
+  const dialog = page.getByRole('dialog', { name: 'Edit drawing text' });
+  const draftText = () => dialog.getByRole('textbox', { name: 'Drawing text' }).inputValue();
+  const drawingText = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, image = e.model.selectedImage, scene = e.model.assets[image.assetId].scene;
+    const find = node => node.text ? node : node.children?.map(find).find(Boolean);
+    return find(scene).text.paragraphs.map(p => p.runs.map(r => r.text).join('')).join('\n');
+  });
+  const insertBox = async name => {
+    await input.press('ControlOrMeta+End');
+    await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'Text Box', exact: true }).click();
+    await page.getByRole('menuitem', { name: new RegExp(`^${name}`) }).click();
+    await expect(dialog).toBeVisible();
+  };
+  // A plain box: its sample text goes as the first key is typed.
+  await insertBox('Simple Text Box');
+  await page.keyboard.type('Boxed words');
+  expect(await draftText()).toBe('Boxed words');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await drawingText()).toBe('Boxed words');
+  // A sidebar keeps its title: only the sample body text is selected.
+  await insertBox('Sidebar');
+  await page.keyboard.type('Key points');
+  expect(await draftText()).toBe('Sidebar Title\nKey points');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  // WordArt's sample text is replaced the same way.
+  await input.press('ControlOrMeta+End');
+  await (await onTab(page, 'insert')).locator('.ribbon-card').getByRole('button', { name: 'WordArt', exact: true }).click();
+  await page.locator('.menu').getByRole('menuitem').first().click();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.type('Headline');
+  expect(await draftText()).toBe('Headline');
+  await dialog.getByRole('button', { name: 'Apply', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect(await drawingText()).toBe('Headline');
+});

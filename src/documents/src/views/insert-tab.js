@@ -17,7 +17,7 @@ import { galleryItems, pagePreview, textPreview } from './insert-gallery.js';
 import { openDateTime, openFieldDialog, openFormatPageNumbers, openSymbolDialog, openEquationDialog, openIconsDialog, openDiagramDialog, openSignatureDialog, openDropCapDialog, openGenerateDialog, recentSymbols, rememberSymbol, diagramSketch } from './insert-dialogs.js';
 import { COVER_DESIGNS, insertCoverPage, removeCoverPage, coverPageRange } from '../engine/cover-pages.js';
 import { HEADER_DESIGNS, PAGE_NUMBER_DESIGNS, writeStoryLines, removePageNumberParagraphs, storyPageField } from '../engine/header-footer-designs.js';
-import { TEXT_BOX_DESIGNS, WORDART_STYLES, textBoxParams, wordArtParams, signatureLineParams, textShapeXml } from '../engine/text-designs.js';
+import { TEXT_BOX_DESIGNS, WORDART_STYLES, WORDART_PROMPT, textBoxParams, wordArtParams, signatureLineParams, textShapeXml } from '../engine/text-designs.js';
 import { SHAPE_PRESETS, LINE_PRESETS, UNFILLED_PRESETS, DEFAULT_SHAPE_STYLE, shapeDrawingXml } from '../engine/authored-shapes.js';
 import { readDrawingFragment, placeDrawing, freshDrawingAssetId, nextDrawingId, nextDrawingOrder, EMU_PER_INCH } from '../engine/inserted-drawings.js';
 import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
@@ -98,7 +98,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       const revision = engine.session.revision, model = engine.model;
       const fragment = await build(engine, replace?.id ?? nextDrawingId(model), nextDrawingOrder(model));
       const ok = await placeDrawing(engine, fragment, { replace, revision });
-      if (ok) { onChange(); if (edit) base.editDrawingText?.(); }
+      // `edit` may say what to select in the drawing's text: the sample text a new box shows.
+      if (ok) { onChange(); if (edit) base.editDrawingText?.(typeof edit === 'function' ? edit() : undefined); }
       return ok;
     } catch (e) { fail(e); return false; }
   }
@@ -397,13 +398,16 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     const lines = [0, 1, 2].map(i => ({ x: x + 4, y: y + 5 + i * 6, h: 2, w: Math.max(6, w - 10 - i * 6), color: design.shape.fill && design.shape.fill !== 'FFFFFF' && !design.shape.fill.startsWith('F') && !design.shape.fill.startsWith('D') ? '#FFFFFF' : '#2F5597' }));
     return pagePreview([...body, ...lines], { bands: [{ x, y, w, h, color: fill === 'none' ? '#FFFFFF' : fill, stroke: stroke === 'none' ? (fill === 'none' ? '#2F5597' : undefined) : stroke }], width: 56 });
   }
+  // A new box opens for editing with its sample text selected, so typing replaces it; text it was made from stays.
   function insertTextBoxDesign(design, rect = null) {
+    let prompt = null;
     insertDrawing((engine, id, order) => {
       const text = rect ? '' : selectedText(engine);
+      prompt = text ? null : design.prompt;
       if (rect) engine.model.select(rect.position);
       const placement = rect ? { width: rect.dragged ? Math.max(EMU_PER_INCH / 4, rect.width) : null, height: rect.dragged ? Math.max(EMU_PER_INCH / 8, rect.height) : null, anchor: { horizontal: 'page', vertical: 'page', x: rect.x, y: rect.y, wrap: 'square', behind: false, order } } : {};
       return sceneFragment(engine, textShapeXml(textBoxParams(design, { id, order, text, textWidth: textWidth(engine), ...placement })));
-    }, { edit: true });
+    }, { edit: () => ({ select: prompt }) });
   }
   function textBoxItems() {
     const engine = ready();
@@ -418,7 +422,12 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     return galleryItems([{ items: WORDART_STYLES.map(style => ({ label: style.name, preview: textPreview('A', wordArtCss(style)), disabled: !engine, onSelect: () => insertWordArt(style) })) }], { columns: 4, size: 'small', label: 'WordArt styles' });
   }
   function insertWordArt(style) {
-    insertDrawing((engine, id, order) => sceneFragment(engine, textShapeXml(wordArtParams(style, { id, order, text: selectedText(engine) || 'Your text here', textWidth: textWidth(engine) }))), { edit: true });
+    let prompt = null;
+    insertDrawing((engine, id, order) => {
+      const text = selectedText(engine);
+      prompt = text ? null : WORDART_PROMPT;
+      return sceneFragment(engine, textShapeXml(wordArtParams(style, { id, order, text: text || WORDART_PROMPT, textWidth: textWidth(engine) })));
+    }, { edit: () => ({ select: prompt }) });
   }
   function insertSignatureLine() {
     if (!ready()) return;
