@@ -12,7 +12,7 @@ import { promptDialog, confirmDialog } from '../ui/modal.js';
 import { drawShapeThumbnail } from '../ui/shape-controls.js';
 import { small } from '../ui/ribbon.js';
 import * as P from '../lib/puter.js';
-import { imageFileFromSource } from '../lib/imagegen.js';
+import { imageFileFromSource, generationError } from '../lib/imagegen.js';
 import { galleryItems, pagePreview, textPreview } from './insert-gallery.js';
 import { openDateTime, openFieldDialog, openFormatPageNumbers, openSymbolDialog, openEquationDialog, openIconsDialog, openDiagramDialog, openSignatureDialog, openDropCapDialog, openGenerateDialog, recentSymbols, rememberSymbol, diagramSketch } from './insert-dialogs.js';
 import { COVER_DESIGNS, insertCoverPage, removeCoverPage, coverPageRange } from '../engine/cover-pages.js';
@@ -159,7 +159,11 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       { label: 'This Device…', icon: 'folderOpen', disabled: !engine, onSelect: () => pictureInput.click() },
       ...(P.canPickFiles() ? [{ label: 'From Puter…', icon: 'pictures', disabled: !engine, onSelect: async () => { try { const file = await P.pickImage(); if (file) await insertPictureFile(file); } catch (e) { fail(e); } } }] : []),
       ...(P.canMakeImages() ? [{ label: 'Generate with AI…', icon: 'pictures', disabled: !engine, onSelect: () => openGenerateDialog({ onClose: () => queueMicrotask(() => editor()?.focus()),
-        generate: async prompt => imageFileFromSource(await P.makeImage(prompt), prompt), onInsert: file => insertPictureFile(file) }) }] : []),
+        generate: async prompt => {
+          let image;
+          try { image = await P.makeImage(prompt); } catch (e) { throw generationError(e); }
+          return imageFileFromSource(image, prompt);
+        }, onInsert: file => insertPictureFile(file) }) }] : []),
       ...(canCapture() ? [{ separator: true }, { label: 'Screenshot…', icon: 'screenshot', disabled: !engine, onSelect: screenshot }] : []),
     ];
   }

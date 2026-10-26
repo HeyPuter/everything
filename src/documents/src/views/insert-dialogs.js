@@ -388,6 +388,10 @@ export function openGenerateDialog({ generate, onInsert, onClose }) {
       const url = URL.createObjectURL(file);
       preview.replaceChildren(el('img', { src: url, alt: prompt.value.trim(), onload: () => URL.revokeObjectURL(url) }));
       dialog.primary.textContent = 'Insert';
+    } catch (e) {
+      // The error shows below; "Generating…" does not stay above it.
+      preview.replaceChildren();
+      throw e;
     } finally { busy = false; dialog.primary.disabled = false; }
     return false;
   } });

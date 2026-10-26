@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { fileNameForPrompt, parseDataUrl, imageFileFromSource } from '../src/lib/imagegen.js';
+import { fileNameForPrompt, parseDataUrl, imageFileFromSource, generationError } from '../src/lib/imagegen.js';
 
 // A 1x1 PNG.
 const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -86,5 +86,18 @@ describe('image from a description', () => {
     expect(cancel).toHaveBeenCalledOnce(); expect(blob).not.toHaveBeenCalled();
     expect(parseDataUrl('data:image/svg+xml,%E2%9C%93', { maxBytes: 3 }).bytes).toHaveLength(3);
     expect(() => parseDataUrl('data:image/svg+xml,%E2%9C%93', { maxBytes: 2 })).toThrow('15 MB');
+  });
+});
+
+describe('a picture that could not be made', () => {
+  it('is explained in plain words, whatever shape the SDK rejected with', () => {
+    // Puter's SDK rejects with its own { error: { code, message } } object, not an Error: "[object Object]" before.
+    const sdkError = { success: false, error: { code: 'insufficient_funds', message: 'Insufficient funds' } };
+    expect(generationError(sdkError).message).toBe('Your Puter AI allowance has run out for now.');
+    expect(generationError(sdkError).cause).toBe(sdkError);
+    expect(generationError({ error: { code: 'unauthorized' } }).message).toBe('Sign in to Puter to generate pictures.');
+    expect(generationError(new TypeError('Failed to fetch')).message).toBe('The AI service could not be reached. Check your connection.');
+    expect(generationError({ error: { message: 'Your request was rejected by the safety system.' } }).message).toMatch(/Try describing it differently/);
+    for (const other of [new Error('Request failed with status code 500'), 'oops', undefined, {}]) expect(generationError(other).message).toBe('The picture could not be generated. Try again in a moment.');
   });
 });

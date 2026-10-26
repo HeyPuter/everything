@@ -9,6 +9,21 @@ import { MAX_IMAGE_BYTES, readImageBlob } from './images.js';
 
 const tooLarge = () => new Error('Images must be under 15 MB');
 
+/**
+ * The readable message for a picture Puter AI could not make. The SDK rejects with an Error or with its
+ * own { error: { code, message } } object, whose wording is the provider's; the provider's error stays on
+ * the readable one as its cause.
+ */
+export function generationError(e) {
+  const detail = `${e?.message || ''} ${e?.error?.message || ''} ${e?.error?.code || e?.code || ''} ${typeof e === 'string' ? e : ''}`;
+  const message = /insufficient|balance|credit|funds|quota|allowance|402/i.test(detail) ? 'Your Puter AI allowance has run out for now.'
+    : /sign.?in|unauthori[sz]ed|401/i.test(detail) ? 'Sign in to Puter to generate pictures.'
+      : /network|failed to fetch|offline|timed? ?out/i.test(detail) ? 'The AI service could not be reached. Check your connection.'
+        : /moderat|safety|content.?policy|flagged|inappropriate/i.test(detail) ? 'That description cannot be made into a picture. Try describing it differently.'
+          : 'The picture could not be generated. Try again in a moment.';
+  return new Error(message, { cause: e });
+}
+
 /** A short, safe file stem from the description: "a red fox in snow" -> "a-red-fox-in-snow". */
 export function fileNameForPrompt(prompt, ext = 'png') {
   const stem = String(prompt || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
