@@ -281,11 +281,11 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
       ['width', 'height'].every(key => page[key] === nextSectionPage[key]) &&
       (sourceBlocks[blockIndex - 1]?.table && page.compatibilityMode >= 15 || currentSection.count === 0));
     // A cell's AutoFit widths, remembered across layouts by what they read: the cell's own properties
-    // and borders, its paragraphs and list labels, the page, numbering and revision view. Cells holding
-    // nested tables or pictures are measured every time, as their paragraphs are (measureBlock).
+    // and borders, its paragraphs (pictures included, by content: the widths are numbers) and list
+    // labels, the page, numbering and revision view. Cells holding nested tables are measured every time.
     const cellWidths = (cell, page, borders) => {
       const compute = () => cellIntrinsicWidths(cell, measure, page, numbering, markers, borders);
-      if (!paragraphCache || cell.content.some(block => !block.paragraph || block.paragraph.runs.some(r => r.image))) return compute();
+      if (!paragraphCache || cell.content.some(block => !block.paragraph)) return compute();
       let key;
       try {
         const content = cell.content.map(({ paragraph, index }) => {
@@ -304,11 +304,11 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const textMeasure = page.rotatedCellText ? (text, style) => rotatedCellTextMetrics(measure(text, style), style) : measure;
         const hints = page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) };
         const run = () => measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges, hints, !cellEdges && keepBoundaryLine);
-        // A cell paragraph's key adds its cell edges and neighbours. Rows wrapping around drawings,
-        // unequal columns and drawings themselves (whose objects keep their identity) are always
-        // measured again.
-        let key = null;
-        if (paragraphCache && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt && !block.paragraph.runs.some(r => r.image)) {
+        // A cell paragraph's key adds its cell edges and neighbours. Rows wrapping around drawings and
+        // unequal columns are always measured again. A paragraph's pictures are measured by their
+        // content, and a reused measurement is given the paragraph's own picture objects.
+        let key = null, pictures = null;
+        if (paragraphCache && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt) {
           try {
             // The same key string in every pass keeps its hash: the cache does not hash a long paragraph again.
             let keys = paragraphKeys.get(block.paragraph);
@@ -316,9 +316,10 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
             const context = JSON.stringify([pageKey(page), markers[block.index] ?? null, !cellEdges && keepBoundaryLine, edges ?? null, sharedKey]);
             key = keys.byContext.get(context);
             if (key === undefined) keys.byContext.set(context, key = `[${keys.content},${context}]`);
+            if (block.paragraph.runs.some(r => r.image)) pictures = block.paragraph.runs.flatMap(r => r.image ? [r.image] : []);
           } catch { key = null; }
         }
-        const measured = key === null ? readOnlyMeasurement(run()) : paragraphCache.measure(key, block.offset, run);
+        const measured = key === null ? readOnlyMeasurement(run()) : paragraphCache.measure(key, block.offset, run, pictures);
         // Removing a floating frame from body flow must not join paragraph
         // borders across the source paragraph that interrupted the group.
         return [!page.paragraphFrameFlow && framePlan.byParagraph.has(previous?.id) ? { ...measured, borderGroupStart: true } : measured];

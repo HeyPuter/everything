@@ -131,6 +131,53 @@ it('keeps reusing paragraphs on pages a square-wrapped picture does not reach', 
   expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
 });
 
+it('reuses paragraphs holding pictures, which keep the paragraph\'s own picture objects', () => {
+  // Inline pictures, and positioned ones that text does not wrap around, in body paragraphs and AutoFit cells.
+  const picture = (i, anchor) => ({ id: `pic${i}`, assetId: 'pic', alt: `Picture ${i}`, width: 914400, height: 457200 + i * 100,
+    ...(anchor ? { anchor: { horizontal: 'column', vertical: 'paragraph', x: 0, y: 0, order: i, wrap: anchor, distances: { T: 0, B: 0, L: 0, R: 0 }, behind: false } } : {}) });
+  const withPicture = (text, image) => { const p = paragraph(`${text} `); p.runs.push({ ...p.runs[0], text: '\uFFFC', image }, { ...p.runs[0], text: ` after ${text}.` }); return p; };
+  const doc = new TextDocument([paragraph('Intro'), paragraph(''), ...Array.from({ length: 120 }, (_, i) => withPicture(`Picture ${i} ${sentence(i)}`, picture(i, i % 10 === 5 ? 'none' : i % 10 === 7 ? 'topAndBottom' : null)))], { compatibilityMode: 15 });
+  doc.select(6); doc.insertTable(10, 2);
+  Object.assign(doc.tables[0], { layout: 'autofit', width: { type: 'auto', value: 0 } });
+  doc.paragraphs.filter(p => p.cellId).forEach((p, i) => { const cell = withPicture(`Cell ${i}`, picture(500 + i)); cell.cellId = p.cellId; Object.assign(p, { runs: cell.runs }); });
+  const { measure, calls, cache } = cachedMeasure();
+  const own = layout => {
+    const pictures = new Set(doc.paragraphs.flatMap(p => p.runs.map(r => r.image).filter(Boolean)));
+    const shown = [...layout.lines.flatMap(line => line.fragments), ...layout.floatingObjects].filter(f => f.image).map(f => f.image);
+    return shown.length > 120 && shown.every(image => pictures.has(image));
+  };
+  const first = lay(doc, measure);
+  expect(own(first)).toBe(true);
+  expect(first.floatingObjects.length).toBeGreaterThan(10);
+  // Typing before every picture measures none of them again.
+  doc.select(2); doc.replace('typed ');
+  calls.length = 0;
+  cache.nextGeneration();
+  const edited = lay(doc, measure);
+  expect(calls.filter(text => /Picture|Cell/.test(text))).toEqual([]);
+  expect(plain(edited)).toEqual(plain(lay(doc, metrics)));
+  expect(own(edited)).toBe(true);
+  // Undo puts back copies of the pictures, equal to the remembered ones: the layout holds the copies.
+  doc.undo();
+  calls.length = 0;
+  cache.nextGeneration();
+  const undone = lay(doc, measure);
+  expect(calls.filter(text => /Picture|Cell/.test(text))).toEqual([]);
+  expect(own(undone)).toBe(true);
+  expect(plain(undone)).toEqual(plain(lay(doc, metrics)));
+  // Resizing a picture measures its paragraph again.
+  const resized = doc.paragraphs.find(p => p.runs.some(r => r.image?.id === 'pic40')).runs.find(r => r.image);
+  resized.image = { ...resized.image, width: 3 * 914400 };
+  doc.didChange?.();
+  calls.length = 0;
+  cache.nextGeneration();
+  const larger = lay(doc, measure);
+  expect(calls.some(text => text.includes('Picture 40 '))).toBe(true);
+  expect(calls.some(text => text.includes('Picture 41 '))).toBe(false);
+  expect(own(larger)).toBe(true);
+  expect(plain(larger)).toEqual(plain(lay(doc, metrics)));
+});
+
 it('reuses table cell paragraphs that did not change, with the same layout as a fresh measurement', () => {
   const doc = new TextDocument([paragraph('Intro'), paragraph('')]);
   doc.select(6); doc.insertTable(60, 3);

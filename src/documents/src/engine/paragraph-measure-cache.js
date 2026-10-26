@@ -42,6 +42,8 @@ function offsetPlan(value, list) {
   const stops = STOP_LISTS.has(list);
   let keys = null, children = null;
   for (const key in value) {
+    // A picture is the document's own object, not a measured part.
+    if (key === 'image') continue;
     const item = value[key];
     if (typeof item === 'number') { if (OFFSET_KEYS.has(key) || stops && key === 'offset') (keys ||= []).push(key); }
     else if (item && typeof item === 'object') { const plan = offsetPlan(item, key); if (plan) (children ||= []).push([key, plan]); }
@@ -62,6 +64,39 @@ function shifted(value, plan, delta) {
   for (const [key, child] of plan.children) copy[key] = shifted(value[key], child, delta);
   return copy;
 }
+
+// Where a measured paragraph holds its pictures, worked out once for each remembered paragraph from
+// the pictures it was measured with. The pictures are the document's own objects, which an edit
+// elsewhere (Undo, for one) can replace with equal copies; the measurement stays the same, and a
+// reused one is copied along this plan to hold the paragraph's current pictures. null where none.
+function picturePlan(value, pictures) {
+  if (Array.isArray(value)) {
+    let items = null;
+    for (let i = 0; i < value.length; i++) {
+      const item = value[i], plan = item && typeof item === 'object' ? picturePlan(item, pictures) : null;
+      if (plan) (items ||= []).push([i, plan]);
+    }
+    return items && { items };
+  }
+  let keys = null, children = null;
+  for (const key in value) {
+    const item = value[key];
+    if (!item || typeof item !== 'object') continue;
+    if (pictures.has(item)) (keys ||= []).push([key, pictures.get(item)]);
+    else if (key !== 'image') { const plan = picturePlan(item, pictures); if (plan) (children ||= []).push([key, plan]); }
+  }
+  return keys || children ? { keys: keys || [], children: children || [] } : null;
+}
+function withPictures(value, plan, pictures) {
+  const copy = Array.isArray(value) ? value.slice() : { ...value };
+  if (plan.items) for (const [i, child] of plan.items) copy[i] = withPictures(value[i], child, pictures);
+  else {
+    for (const [key, index] of plan.keys) copy[key] = pictures[index];
+    for (const [key, child] of plan.children) copy[key] = withPictures(value[key], child, pictures);
+  }
+  return copy;
+}
+const samePictures = (a, b) => a === b || (!!a && !!b && a.length === b.length && a.every((picture, i) => picture === b[i]));
 
 // Development and test builds freeze measured paragraphs, so a layout stage that changes one
 // in place fails loudly instead of corrupting the paragraphs every later layout shares. Pictures
@@ -153,24 +188,33 @@ export class ParagraphMeasureCache {
     for (const [key, entry] of this.stories) if (entry.used < this.generation - keep) this.stories.delete(key);
     for (const [key, entry] of this.cells) if (entry.used < this.generation - keep) this.cells.delete(key);
   }
-  /** The measured paragraph for `key` at document `offset`, measuring it with `measure()` on a miss. */
-  measure(key, offset, measure) {
+  /**
+   * The measured paragraph for `key` at document `offset`, measuring it with `measure()` on a miss.
+   * `pictures` lists the paragraph's pictures in order (null when it has none): a reused measurement
+   * holds these very objects, however equal earlier ones were.
+   */
+  measure(key, offset, measure, pictures = null) {
     const entry = this.entries.get(key);
     if (entry) {
       // Most recently used entries stay; the oldest go first if the cache is ever full.
       this.entries.delete(key); this.entries.set(key, entry); entry.used = this.generation;
-      if (entry.offset !== offset) {
+      if (entry.offset !== offset || !samePictures(entry.pictures, pictures)) {
         // Moved copies are made from the paragraph as first measured, along its offset plan.
         if (entry.plan === undefined) entry.plan = offsetPlan(entry.base);
-        const moved = entry.plan ? readOnlyMeasurement(shifted(entry.base, entry.plan, offset - entry.baseOffset)) : entry.base;
+        let moved = entry.plan && offset !== entry.baseOffset ? shifted(entry.base, entry.plan, offset - entry.baseOffset) : entry.base;
+        if (!samePictures(entry.basePictures, pictures)) {
+          if (entry.picturePlan === undefined) entry.picturePlan = picturePlan(entry.base, new Map(entry.basePictures.map((picture, i) => [picture, i])));
+          if (entry.picturePlan) moved = withPictures(moved, entry.picturePlan, pictures);
+        }
+        if (moved !== entry.base) readOnlyMeasurement(moved);
         const name = this.flowNames.get(entry.base);
         if (name) this.flowNames.set(moved, name);
-        entry.measured = moved; entry.offset = offset;
+        entry.measured = moved; entry.offset = offset; entry.pictures = pictures;
       }
       return entry.measured;
     }
     const measured = readOnlyMeasurement(measure());
-    this.entries.set(key, { offset, measured, base: measured, baseOffset: offset, plan: undefined, used: this.generation });
+    this.entries.set(key, { offset, measured, base: measured, baseOffset: offset, plan: undefined, pictures, basePictures: pictures, picturePlan: undefined, used: this.generation });
     // Past the limit the least recently used entry goes, unless this layout used it too: a document with
     // more paragraphs than the limit would otherwise evict each before its next use, and every keystroke
     // would measure the whole document again. nextGeneration() still forgets what layouts stop using.
