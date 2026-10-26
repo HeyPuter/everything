@@ -73,3 +73,25 @@ test('A reply that echoes a note reference puts no invisible object character in
   expect(await page.evaluate(() => window.__docs.current.view.engine.model.text)).not.toContain('￼');
   expect((await page.evaluate(() => window.prompts)).join('')).not.toContain('￼');
 });
+
+test('A reply with bullets and numbers goes in as list paragraphs, not as text with markers', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled({ timeout: 20000 });
+  await page.evaluate(() => { puter.ai.chat = async () => ({ message: { content: 'TEXT:\nKey points:\n\n- Faster saves\n- New templates\n\nNext steps:\n\n1. Install\n2. Restart' } }); });
+  const text = page.getByRole('textbox', { name: 'Document text' });
+  await text.focus();
+  await page.keyboard.type('Release notes');
+  await page.locator('.as-title-button').click();
+  const pane = page.getByRole('complementary', { name: 'Assistant pane' });
+  await pane.getByRole('radio', { name: 'Whole document' }).click();
+  await pane.getByRole('textbox', { name: 'Message the assistant' }).fill('Draft the key points and next steps as lists.');
+  await pane.getByRole('textbox', { name: 'Message the assistant' }).press('Enter');
+  await pane.getByRole('button', { name: 'Insert at Cursor' }).click();
+  await expect(text).toHaveValue('Release notesKey points:\nFaster saves\nNew templates\nNext steps:\nInstall\nRestart');
+  const lists = await page.evaluate(async () => { const { listKind } = await import('/src/engine/numbering.js'); const m = window.__docs.current.view.engine.model; return m.paragraphs.map(p => (p.list ? listKind(m.numbering, p.list) : '-')); });
+  expect(lists).toEqual(['-', 'bullet', 'bullet', '-', 'number', 'number']);
+  // One undo takes the whole reply back.
+  await pane.getByRole('button', { name: 'Undo' }).click();
+  await expect(text).toHaveValue('Release notes');
+});

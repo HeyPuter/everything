@@ -118,6 +118,21 @@ export function answerParagraphs(text) {
 }
 
 /**
+ * An answer's paragraphs as document paragraphs: a bulleted item, and a numbered one in a run counting up
+ * from 1, becomes list text without its marker ({ text, list: 'bullet' | 'number' }); the rest stay text.
+ */
+export function listItems(paragraphs) {
+  const items = paragraphs.map((text) => (/^• /.test(text) ? { text: text.slice(2), list: 'bullet' } : { text, list: null }));
+  for (let i = 0; i < paragraphs.length;) {
+    let j = i;
+    while (j < paragraphs.length && Number(/^(\d{1,3})[.)]\s/.exec(paragraphs[j])?.[1]) === j - i + 1) j++;
+    for (let k = i; k < j; k++) items[k] = { text: paragraphs[k].replace(/^\d{1,3}[.)]\s+/, ''), list: 'number' };
+    i = Math.max(j, i + 1);
+  }
+  return items;
+}
+
+/**
  * Ask the model. `chat(prompt)` is Puter's chat (injectable for tests);
  * resolves the cleaned answer or throws a readable error.
  */

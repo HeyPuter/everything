@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AI_ACTIONS, aiActionById, buildPrompt, textFence, responseText, cleanAnswer, answerParagraphs, askAi, readableText, insertableText } from '../src/lib/ai.js';
+import { AI_ACTIONS, aiActionById, buildPrompt, textFence, responseText, cleanAnswer, answerParagraphs, askAi, readableText, insertableText, listItems } from '../src/lib/ai.js';
 
 describe('writing assistant', () => {
   it('offers rewrite, translate, continue, and a free-form action', () => {
@@ -102,5 +102,14 @@ describe('the text the AI reads', () => {
   });
   it('drops object characters from a reply before it goes into the document', () => {
     expect(insertableText(`First claim${O}. Second.`)).toBe('First claim. Second.');
+  });
+});
+
+describe('list items in a reply', () => {
+  it('takes bullets and numbers counting from 1 as list items, and leaves other numbers as text', () => {
+    expect(listItems(answerParagraphs('Plan:\n\n- Draft\n- Review\n\n1. Send\n2) Archive\n\n2024. A year\n3. Out of order'))).toEqual([
+      { text: 'Plan:', list: null }, { text: 'Draft', list: 'bullet' }, { text: 'Review', list: 'bullet' },
+      { text: 'Send', list: 'number' }, { text: 'Archive', list: 'number' }, { text: '2024. A year', list: null }, { text: '3. Out of order', list: null },
+    ]);
   });
 });
