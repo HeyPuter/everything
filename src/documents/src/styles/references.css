@@ -81,7 +81,8 @@
 .ref-panel-body .ref-section { gap: 6px; }
 .ref-panel .ref-actions { padding: 10px 14px 12px; border-top: 1px solid var(--hairline); flex-wrap: wrap; }
 .ref-long-citation.input { resize: vertical; min-height: 64px; font: inherit; }
-@media (max-width: 640px) { .ref-panel { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-height: 70dvh; } }
+/* A sheet across the bottom of a phone, with the same margin on both sides (the desktop width cap would leave more on the right). */
+@media (max-width: 640px) { .ref-panel { top: auto; bottom: 8px; left: 8px; right: 8px; width: auto; max-width: none; max-height: 70dvh; } }
 
 /* ---- Smart Lookup ---- */
 .ref-lookup-pane { border-right: 0; border-left: 1px solid var(--hairline); }

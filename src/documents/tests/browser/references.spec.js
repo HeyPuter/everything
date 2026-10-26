@@ -557,3 +557,15 @@ test('a caption and a cross-reference inserted with Track Changes on are tracked
   await expect.poll(() => engineText(page)).toBe('Chart one');
   expect(errors).toEqual([]);
 });
+
+test('on a phone the Mark Index Entry panel sits evenly across the window', async ({ page }) => {
+  await openEditor(page, 375);
+  await input(page).fill('Index this word.');
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(6, 10); el.dispatchEvent(new Event('select', { bubbles: true })); });
+  await page.keyboard.press('ControlOrMeta+Alt+Shift+X');
+  const mark = page.getByRole('dialog', { name: 'Mark Index Entry' });
+  await expect(mark).toBeVisible();
+  const box = await mark.boundingBox();
+  const width = await page.evaluate(() => document.documentElement.clientWidth);
+  expect(Math.round(box.x)).toBe(Math.round(width - box.x - box.width));
+});
