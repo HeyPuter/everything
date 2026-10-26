@@ -847,23 +847,23 @@ export class CanvasEditor {
         if (!tablePaint || tablePaint.scale !== scale) {
           const sourceTableBorders = (pageStory ? this.storyLayout.tableBorders : this.layout.tableBorders).filter(stroke => stroke.page === index);
           const tableBorders = deviceTableBorders(ctx, sourceTableBorders, printing, geometry);
-          const filledCells = paintedCells.filter(cell => cell.page === index && cell.fill);
-          tablePaint = { scale, tableBorders, filledCells, fillRects: deviceTableFillRects(ctx, paintedCells.filter(cell => cell.page === index), sourceTableBorders, tableBorders, printing) };
+          const pageCells = paintedCells.filter(cell => cell.page === index), filledCells = pageCells.filter(cell => cell.fill);
+          tablePaint = { scale, tableBorders, pageCells, filledCells, fillRects: deviceTableFillRects(ctx, pageCells, sourceTableBorders, tableBorders, printing) };
           this.tablePaintCache.set(cacheKey, tablePaint);
         }
-        const { tableBorders, filledCells, fillRects } = tablePaint;
+        const { tableBorders, pageCells, filledCells, fillRects } = tablePaint;
         for (const cell of filledCells) {
           const rect = fillRects.get(cell.id);
           ctx.fillStyle = cell.fill;
           if (rect.width > 0 && rect.height > 0) ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
         }
         const pageLines = (pageStory ? this.storyLayout.lines : [...this.layout.lines, ...(this.layout.repeatedLines || [])]).filter(line => line.page === index);
-        const backgrounds = paragraphBackgrounds(pageLines, geometry, paintedCells);
+        const backgrounds = paragraphBackgrounds(pageLines, geometry, pageCells);
         const paragraphBorders = (pageStory ? this.storyLayout.borders : this.layout.paragraphBorders || []).filter(border => border.page === index);
         const paintedParagraphInk = paintParagraphBackgrounds(ctx, new Set([...backgrounds.values()].map(value => value.rect).filter(Boolean)), paragraphBorders);
         // Dashed gridlines mark borderless cell edges on screen (View Gridlines); they never print.
         for (const guide of printing || this.showTableGridlines === false ? [false] : [true, false]) for (const stroke of tableBorders) if (stroke.guide === guide) paintTableBorder(ctx, stroke);
-        paintCellDiagonals(ctx, paintedCells.filter(cell => cell.page === index && (cell.borders?.tl2br || cell.borders?.tr2bl)));
+        paintCellDiagonals(ctx, pageCells.filter(cell => cell.borders?.tl2br || cell.borders?.tr2bl));
         for (const border of paragraphBorders) paintParagraphBorder(ctx, border, paintedParagraphInk.get(border));
         // Run backgrounds precede selection and glyphs, including repeated headers.
         const surfaceGeometry = geometry;

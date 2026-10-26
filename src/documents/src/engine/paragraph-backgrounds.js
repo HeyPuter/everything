@@ -18,9 +18,13 @@ export function paragraphBackgroundRect(line, page, cell) {
 /** Union each paragraph fragment so tall glyphs and decorations between its
  * lines see the same background. Repeated headers retain their placed bounds. */
 export function paragraphBackgrounds(lines, page, cells) {
-  const groups = new Map(), result = new Map();
+  const groups = new Map(), result = new Map(), boxes = new Map();
+  // Each line looks up its own cell fragment: a page of a long table paints thousands of lines over
+  // thousands of cells, which searching the cells for every line made slow to paint.
+  const cellKey = (id, pageIndex, column) => `${id}\u0000${pageIndex}\u0000${column}`;
+  for (const c of cells) { const key = cellKey(c.id, c.page, c.column); if (!boxes.has(key)) boxes.set(key, c); }
   for (const line of lines) {
-    const cell = cells.find(c => c.id === line.cellId && c.page === line.page && c.column === line.column);
+    const cell = line.cellId == null ? undefined : boxes.get(cellKey(line.cellId, line.page, line.column));
     let rect = paragraphBackgroundRect(line, line.storyGeometry ? { ...line.storyGeometry, background: page.background } : page, cell);
     if (rect) {
       const key = `${line.page}:${line.column ?? 0}:${line.paragraphId}`;

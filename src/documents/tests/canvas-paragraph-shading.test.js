@@ -176,6 +176,19 @@ it('unifies wrapped paragraph bands for foreground contrast without crossing pag
   expect(first.height).toBeGreaterThan(result.lines[0].height); expect(first.y + first.height).toBeLessThanOrEqual(110);
 });
 
+it('finds each line\'s cell once per page, however long the table', () => {
+  // A page of a long table: every line looks up its own cell fragment among thousands.
+  const cells = Array.from({ length: 3000 }, (_, i) => ({ id: `cell${i % 1500}`, page: i < 1500 ? 0 : 1, column: undefined, x: 10, y: i, width: 50, height: 1, fill: i === 1501 ? '#FF0000' : undefined }));
+  const lines = Array.from({ length: 1500 }, (_, i) => ({ cellId: `cell${i}`, page: 1, y: i, height: 1, paragraphId: `p${i}` }));
+  let reads = 0;
+  const counted = new Proxy(cells, { get(target, key, receiver) { if (typeof key === 'string' && /^\d+$/.test(key)) reads++; return Reflect.get(target, key, receiver); } });
+  const result = paragraphBackgrounds(lines, { width: 200, height: 2000, top: 0, bottom: 0 }, counted);
+  expect(reads).toBeLessThanOrEqual(cells.length);
+  // Each line still sits on its own page's fragment of its cell.
+  expect(result.get(lines[1]).base).toBe('#FF0000');
+  expect(result.get(lines[2]).base).toBe('#FFFFFF');
+});
+
 it('shades an outdented list label without changing list geometry or source text', () => {
   const doc = new TextDocument([paragraph('Numbered paragraph')]); doc.toggleList('number');
   const before = layout(doc); doc.setParagraphFormat({ paragraphShading: '224466' }); const after = layout(doc);
