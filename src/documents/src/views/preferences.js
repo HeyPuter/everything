@@ -8,7 +8,7 @@ import { segmented } from '../ui/segmented.js';
  * where it applies. Sections come from the editor: [{ id, label, controls: [control] }], where a control is
  *   { type: 'toggle', label, hint?, get(), set(value), disabled? (boolean, or a function read again after every change) }
  *   { type: 'choice', label, hint?, options: [[value, label]], get(), set(value) }
- *   { type: 'button', label, hint?, run() }
+ *   { type: 'button', label, hint?, run(), closes? } (closes: the dialog goes first, for what cannot show over it)
  */
 export function openPreferences({ sections, section = null, onClose }) {
   const nav = el('div.pref-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Preference sections' });
@@ -53,7 +53,7 @@ export function openPreferences({ sections, section = null, onClose }) {
     }
     if (def.type === 'button') {
       return el('div.pref-row', {}, el('span.pref-text', {}, el('span.pref-label', {}, def.label), hint),
-        el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => { def.run(); } }, def.action || 'Open…'));
+        el('button.btn.btn-outline.btn-sm', { type: 'button', onclick: () => { if (def.closes) modal.close(); def.run(); } }, def.action || 'Open…'));
     }
     return null;
   }

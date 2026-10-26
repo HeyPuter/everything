@@ -957,7 +957,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       { id: 'keyboard', label: 'Keyboard', controls: [
         { type: 'button', label: 'Customize Keyboard', hint: 'Give any command a shortcut of your own.', action: 'Customize…', run: () => editorCommands.customizeKeyboard() },
         { type: 'button', label: 'Keyboard shortcuts', hint: `${MOD_KEY}+/`, action: 'Show', run: () => editorCommands.openShortcuts() },
-        { type: 'button', label: 'KeyTips', hint: `Press and release ${IS_MAC ? 'Option' : 'Alt'} to label the ribbon with keys.`, action: 'Show', run: () => chrome.showKeyTips() },
+        { type: 'button', label: 'KeyTips', hint: `Press and release ${IS_MAC ? 'Option' : 'Alt'} to label the ribbon with keys.`, action: 'Show', closes: true, run: () => chrome.showKeyTips() },
       ] },
     ];
     return openPreferences({ sections, section, onClose: () => queueMicrotask(() => engine?.focus()) });
