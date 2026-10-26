@@ -527,6 +527,14 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     hadSession = !session.signedOut;
   };
   session.addEventListener('change', onSession);
+  // A list that could not load (offline, say) loads by itself once the connection is back; Retry is for the rest.
+  const onOnline = () => {
+    if (!error || destroyed) return;
+    // The keyboard on Retry goes to the first document, as a press of Retry would take it.
+    if (list.contains(document.activeElement)) keepFocus = { index: 0 };
+    load();
+  };
+  window.addEventListener('online', onOnline);
 
   return {
     el: root,
@@ -536,6 +544,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
       // A menu opened from this view (the templates list, a row's options) goes with it.
       if (menuAnchor() && root.contains(menuAnchor())) closeMenu();
       session.removeEventListener('change', onSession); document.removeEventListener('keydown', onKey);
+      window.removeEventListener('online', onOnline);
     },
     reload: load,
   };

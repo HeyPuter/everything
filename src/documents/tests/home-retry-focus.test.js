@@ -51,3 +51,19 @@ it('keeps the keyboard on Retry while the list fails, then on the first document
   expect(document.activeElement).toBe(view.el.querySelector('.file-row .file-main'));
   expect(document.activeElement.textContent).toContain('Report');
 });
+
+it('loads the list by itself once the connection is back, with the keyboard on its first document', async () => {
+  expect(retryButton()).toBeDefined();
+  retryButton().focus();
+  listFiles.mockResolvedValue([{ name: 'Report.docx', path: 'Documents/Report.docx', size: 10, modified: 2 }]);
+  window.dispatchEvent(new Event('online'));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(retryButton()).toBeUndefined();
+  expect(view.el.querySelector('.file-row')?.textContent).toContain('Report');
+  expect(document.activeElement).toBe(view.el.querySelector('.file-row .file-main'));
+  // A list that loaded is not read again for a later reconnection.
+  listFiles.mockClear();
+  window.dispatchEvent(new Event('online'));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(listFiles).not.toHaveBeenCalled();
+});
