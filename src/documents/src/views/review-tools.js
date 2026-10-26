@@ -69,7 +69,7 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
         Object.assign(revisionView.options, options);
         rememberTrackingOptions();
         if (!pkg()?.readOnly && (doc.trackMoves !== !settings.doNotTrackMoves || doc.trackFormatting !== !settings.doNotTrackFormatting)) setSettings({ doNotTrackMoves: !doc.trackMoves, doNotTrackFormatting: !doc.trackFormatting });
-        applyTrackingSettings(); review.setPaneOrientation?.(options.paneOrientation); editor()?.relayout(); review.refresh(true); onChange();
+        applyTrackingSettings(); review.commands.setPaneOrientation(options.paneOrientation); editor()?.relayout(); review.refresh(true); onChange();
       }, onClose: () => queueMicrotask(() => editor()?.focus()) });
   }
   function applyTrackingSettings() {

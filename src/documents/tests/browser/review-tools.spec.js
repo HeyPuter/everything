@@ -720,3 +720,30 @@ test('typing before a comment moves its card without rebuilding the comment colu
   await expect.poll(() => page.evaluate(() => { const model = window.__docs.current.view.engine.model; return model.text.slice(...model.range); })).toBe('beta');
   expect(errors).toEqual([]);
 });
+
+test('the Reviewing Pane orientation chosen in Tracking Options applies at once and the dialog shows the current one', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await newDocument(page, 'Alpha beta gamma delta.');
+  await onTab(page, 'review');
+  await (await reviewButton(page, 'Reviewing Pane', 'Tracking')).click();
+  const pane = page.getByRole('complementary', { name: 'Reviewing Pane' });
+  await expect(pane).toHaveAttribute('data-orientation', 'vertical');
+  const options = async () => {
+    await page.locator('#ribbon-panel-review [aria-label="Tracking Options"]').evaluate(b => b.click());
+    return page.getByRole('dialog', { name: 'Tracking Options' });
+  };
+  let dialog = await options();
+  await dialog.getByLabel('Reviewing Pane orientation').selectOption('horizontal');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toHaveAttribute('data-orientation', 'horizontal');
+  // Back to vertical from the ribbon; the dialog then offers vertical, and OK keeps it.
+  await page.locator('#ribbon-panel-review [aria-label="Reviewing Pane options"]').evaluate(b => b.click());
+  await page.getByRole('menuitemradio', { name: 'Reviewing Pane Vertical' }).click();
+  await expect(pane).toHaveAttribute('data-orientation', 'vertical');
+  dialog = await options();
+  await expect(dialog.getByLabel('Reviewing Pane orientation')).toHaveValue('vertical');
+  await dialog.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toHaveAttribute('data-orientation', 'vertical');
+  expect(errors).toEqual([]);
+});

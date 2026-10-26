@@ -167,7 +167,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     get paneShown() { return paneShown; },
     toggleReviewingPane(on = !paneShown) { paneShown = on; paneSignature = ''; refresh(true); },
-    setPaneOrientation(value = 'vertical') { paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
+    // The Tracking Options dialog shows (and keeps) the orientation chosen here.
+    setPaneOrientation(value = 'vertical') { paneOrientation = value; revisionView.options.paneOrientation = value; pane.dataset.orientation = value; refresh(true); },
     /** 'everyone' writes Track Changes into the document; 'mine' tracks this session only. */
     get trackingMode() { const body = editor()?.session.body; return !body?.trackChanges ? 'off' : body.trackChangesMode === 'mine' ? 'mine' : 'everyone'; },
     setTrackingMode(mode) {
