@@ -5,7 +5,7 @@
  * fields, headers and footers, notes, comments and hidden text do not.
  */
 import { documentBlocks } from '../engine/tables.js';
-import { listKind, listMarkers } from '../engine/numbering.js';
+import { listKind, listMarkers, levelFor } from '../engine/numbering.js';
 import { TextDocument } from '../engine/model.js';
 import { hasRevisions } from '../engine/revisions.js';
 
@@ -91,6 +91,7 @@ function runHtml(run, heading = false) {
   if (link) html = `<a href="${escapeHtml(link)}">${html}</a>`;
   return html;
 }
+const LIST_TYPES = { lowerLetter: 'a', upperLetter: 'A', lowerRoman: 'i', upperRoman: 'I' };
 // A heading numbered through a list ("1.2 Scope") stays a heading, its number written before its text, as the
 // page shows it: written as a list item, it lost its heading level.
 const headingNumber = (p, level, markers) => (level && markers.get(p)?.replace(/\t$/, ' ')) || '';
@@ -120,7 +121,9 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
       if (lists.at(-1)?.depth === depth) html += '</li>';
       else {
         const start = tag === 'ol' ? numbers.get(p) ?? 1 : 1;
-        html += `<${tag}${start !== 1 ? ` start="${start}"` : ''}>`;
+        // A list numbered with letters or Roman numerals keeps them: "see (b)" still finds item b.
+        const type = tag === 'ol' ? LIST_TYPES[(() => { try { return levelFor(model.numbering, p.list).format; } catch { return null; } })()] : null;
+        html += `<${tag}${type ? ` type="${type}"` : ''}${start !== 1 ? ` start="${start}"` : ''}>`;
         lists.push({ tag, depth });
       }
     }

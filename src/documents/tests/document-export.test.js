@@ -339,3 +339,15 @@ describe('Markdown text that starts the document', () => {
     expect(back.paragraphs.some(p => p.list)).toBe(false);
   });
 });
+
+describe('web page lists numbered with letters or Roman numerals', () => {
+  it('keep their kind of numbering', () => {
+    const doc = blankDoc();
+    doc.replace('First\nSecond'); doc.select(0, doc.text.length); doc.toggleList('number');
+    const { numId } = doc.paragraphs[0].list, abstract = doc.numbering.abstracts[doc.numbering.instances[numId].abstractId];
+    for (const [format, type] of [['lowerLetter', 'a'], ['upperRoman', 'I'], ['decimal', null]]) {
+      abstract.levels[0] = { ...abstract.levels[0], format };
+      expect(body(documentHtml(doc))).toBe(`<ol${type ? ` type="${type}"` : ''}><li>First</li><li>Second</li></ol>`);
+    }
+  });
+});
