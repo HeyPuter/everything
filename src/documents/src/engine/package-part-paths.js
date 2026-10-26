@@ -21,6 +21,15 @@ export function relativePartTarget(sourcePart, targetPart) {
   return [...from.map(() => '..'), ...to].join('/');
 }
 
+/**
+ * The ZIP item a resolved relationship target names. Part names are percent-encoded IRIs, and
+ * producers store their ZIP items either decoded or exactly as encoded; prefer the decoded item.
+ */
+export function partPathForUrl(parts, url) {
+  const encoded = url.pathname.slice(1), decoded = decodeURIComponent(encoded);
+  return Object.hasOwn(parts, decoded) || !Object.hasOwn(parts, encoded) ? decoded : encoded;
+}
+
 /** The largest DOCX file the editor opens. */
 export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
 

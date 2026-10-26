@@ -1,5 +1,5 @@
 import { parseXml } from './docx-xml.js';
-import { relationshipPartPath } from './package-part-paths.js';
+import { partPathForUrl, relationshipPartPath } from './package-part-paths.js';
 
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -31,7 +31,7 @@ export function drawingImageCorrespondence(parts, sourcePart) {
       if (rel.getAttribute('Type') !== `${R}/image` || ![null, 'Internal'].includes(rel.getAttribute('TargetMode')) || !target) return undefined;
       const url = new URL(target, `https://docx.invalid/${sourcePart}`);
       if (url.origin !== 'https://docx.invalid' || url.search || url.hash) return undefined;
-      const path = decodeURIComponent(url.pathname).slice(1);
+      const path = partPathForUrl(parts, url);
       if (!declarations) {
         declarations = { overrides: new Map(), defaults: new Map() };
         const types = parseXml(parts['[Content_Types].xml']);

@@ -192,3 +192,18 @@ it('opens GIF pictures for editing, keeps their bytes, and saves a new GIF pictu
   expect(reopened.readOnly).not.toBe(true);
   expect(Object.values(reopened.assets).filter(asset => asset.mime === 'image/gif')).toHaveLength(2);
 });
+
+it('opens pictures whose part names are stored percent-encoded in the package', async () => {
+  // Part names are IRIs: a name with a space is "image%201.png", and some producers store the ZIP item that way.
+  const parts = unzipSync(source), bytes = parts['word/media/image1.png'];
+  delete parts['word/media/image1.png']; parts['word/media/image%201.png'] = bytes;
+  parts['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('Target="media/image1.png"', 'Target="media/image%201.png"'));
+  const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });
+  expect(pkg.readOnly).not.toBe(true);
+  expect(pkg.assets['word/media/image%201.png'].bytes).toEqual(bytes);
+  const doc = model(pkg);
+  doc.select(0); doc.replace('Edited ');
+  const saved = unzipSync(await save(pkg, doc));
+  expect(saved['word/media/image%201.png']).toEqual(bytes);
+  expect((await DocxPackage.open(zipSync(saved))).readOnly).not.toBe(true);
+});

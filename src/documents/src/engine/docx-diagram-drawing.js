@@ -1,6 +1,7 @@
 // Read-only saved diagram drawings (MS-ODRAWXML section 2.10). The data model
 // and layout remain authoritative; this adapter does not claim to run layout.
 import {parseXml} from './docx-xml.js';
+import {partPathForUrl} from './package-part-paths.js';
 import {UnsupportedDocumentError} from './errors.js';
 import {WPG,WPS} from './docx-compatibility.js';
 export const DGM='http://schemas.openxmlformats.org/drawingml/2006/diagram';
@@ -50,7 +51,7 @@ export function readDiagramParts(parts,rels,types,reference,sourcePart) {
     const rel=matches[0];
     if(rel.getAttribute('Type')!==relationType||rel.hasAttribute('TargetMode')&&rel.getAttribute('TargetMode')!=='Internal')fail('external or mismatched relationships');
     let url,path;
-    try {url=new URL(rel.getAttribute('Target'),`https://docx.invalid/${sourcePart}`);path=decodeURIComponent(url.pathname).slice(1);}catch{fail('invalid part targets');}
+    try {url=new URL(rel.getAttribute('Target'),`https://docx.invalid/${sourcePart}`);path=partPathForUrl(parts,url);}catch{fail('invalid part targets');}
     if(url.origin!=='https://docx.invalid'||url.search||url.hash||!parts[path])fail('missing or external parts');
     const matchesType=[...types.getElementsByTagNameNS(CT,'Override')].filter(n=>n.getAttribute('PartName')===`/${path}`);
     if(matchesType.length!==1||matchesType[0].getAttribute('ContentType')!==contentType)fail('incorrect part content types');

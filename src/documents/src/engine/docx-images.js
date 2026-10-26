@@ -23,7 +23,7 @@ import { readDrawingEffects } from './docx-drawing-effects.js';
 import { pictureResolution } from './picture-resolution.js';
 import { readPictureTile } from './picture-tiles.js';
 import { DGM, readDiagramDrawing } from './docx-diagram-drawing.js';
-import { relationshipPartPath, relativePartTarget } from './package-part-paths.js';
+import { partPathForUrl, relationshipPartPath, relativePartTarget } from './package-part-paths.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 export const WP = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing';
@@ -442,7 +442,7 @@ export function imageReader(parts, assets, readParagraph, readSchemeColor, readS
       if (!relId || matches.length !== 1) fail('missing or ambiguous image relationships');
       const rel = matches[0]; if (rel.getAttribute('Type') !== `${R}/image` || rel.hasAttribute('TargetMode') && rel.getAttribute('TargetMode') !== 'Internal') fail('external or non-image relationships');
       let url, path;
-      try { url = new URL(rel.getAttribute('Target'), `https://docx.invalid/${sourcePart}`); path = decodeURIComponent(url.pathname).slice(1); } catch { fail('invalid image targets'); }
+      try { url = new URL(rel.getAttribute('Target'), `https://docx.invalid/${sourcePart}`); path = partPathForUrl(parts, url); } catch { fail('invalid image targets'); }
       if (url.origin !== 'https://docx.invalid' || url.search || url.hash || !parts[path]) fail('missing or external image parts');
       const bytes = parts[path],wmfViewport={width:width/9525,height:height/9525}; let info;
       try { info = vector ? svgInfo(bytes) : isEmf(bytes) ? emfInfo(bytes,{inspectText:opacity!==1}) : isWmf(bytes) ? wmfInfo(bytes,wmfViewport) : imageInfo(bytes); } catch (e) { fail(e.message); }

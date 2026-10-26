@@ -1,5 +1,6 @@
 // Original DrawingML cached column-chart reader. Source chart parts are immutable.
 import { parseXml } from './docx-xml.js';
+import { partPathForUrl } from './package-part-paths.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { drawingColor } from './docx-drawing-style.js';
 import { readChartText, readChartRichTitle } from './docx-chart-text.js';
@@ -290,7 +291,7 @@ export function readChart(parts, reference, readSchemeColor, readFonts) {
   const rel = matches[0];
   if (rel.getAttribute('Type') !== `${R}/chart` || ![null, 'Internal'].includes(rel.getAttribute('TargetMode'))) fail('external or non-chart relationships');
   let url, path;
-  try { url = new URL(rel.getAttribute('Target'), 'https://docx.invalid/word/document.xml'); path = decodeURIComponent(url.pathname).slice(1); } catch { fail('invalid targets'); }
+  try { url = new URL(rel.getAttribute('Target'), 'https://docx.invalid/word/document.xml'); path = partPathForUrl(parts, url); } catch { fail('invalid targets'); }
   if (url.origin !== 'https://docx.invalid' || url.search || url.hash || !parts[path]) fail('missing or external parts');
   // A chart can replace its containing document's theme. Do not resolve its
   // scheme colors against that document when a chart-local override is present.
