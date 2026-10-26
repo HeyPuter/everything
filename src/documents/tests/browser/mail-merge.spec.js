@@ -447,3 +447,39 @@ test('Mailings commands are unavailable while the document is protected against 
   await expect(ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).first()).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+test('undo while previewing keeps showing the current recipient', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Hi ');
+  await caret(input, -1);
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients' }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  const grid = page.getByRole('dialog', { name: 'New Address List' });
+  await grid.getByLabel('First Name, entry 1').fill('Alice');
+  await grid.getByRole('button', { name: 'New Entry' }).click();
+  await grid.getByLabel('First Name, entry 2').fill('Bob');
+  await grid.getByRole('button', { name: 'OK' }).click();
+  await expect(grid).toBeHidden();
+  await caret(input, -1);
+  await ribbon(page).getByRole('button', { name: 'Insert Merge Field' }).click();
+  await page.getByRole('menuitem', { name: 'First Name', exact: true }).click();
+  await ribbon(page).getByRole('button', { name: 'Preview Results' }).click();
+  await expect(input).toHaveValue('Hi Alice');
+  await caret(input, -1);
+  await page.keyboard.type('!');
+  await expect(input).toHaveValue('Hi Alice!');
+  await ribbon(page).getByRole('button', { name: 'Next Record' }).click();
+  await expect(input).toHaveValue('Hi Bob!');
+  await input.focus();
+  await page.keyboard.press('ControlOrMeta+z');
+  // The typed "!" goes; the field still shows record 2, as the record box says.
+  await expect(input).toHaveValue('Hi Bob');
+  await expect(ribbon(page).getByRole('spinbutton', { name: 'Go to record' })).toHaveValue('2');
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect(input).toHaveValue('Hi Bob!');
+  expect(errors).toEqual([]);
+});

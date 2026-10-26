@@ -28,7 +28,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !protectedDocument() ? engine : null; };
   const fail = e => { error(e); };
   // Highlighting is a view preference for this session, like formatting marks; it is not saved.
-  let engineModules = null, answers = {}, highlighted = false;
+  let engineModules = null, answers = {}, highlighted = false, seenSteps = null;
   const modules = async () => (engineModules ||= await Promise.all([import('../engine/merge-fields.js'), import('../engine/mail-merge-model.js'), import('../engine/docx-mail-merge.js'), import('../engine/mail-documents.js'), import('fflate')])
     .then(([fields, model, docx, documents, zip]) => ({ fields, model, docx, documents, zip })));
   // Recipient lists and the merge evaluator are small; load them before the first command needs them.
@@ -426,8 +426,16 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
   return {
     commands: { mailMergeWizard: () => wizard.show(), mailEnvelopes: () => envelopes().catch(fail), mailLabels: () => labels().catch(fail) },
     extraTabs, extendMenu, pane: el('div.mm-pane-host', {}, wizard.pane, fileInput), wizard,
-    /** Called on every editor update: keeps highlighting in step with edits. */
-    refresh() { if (highlighted || editor()?.tintLayers?.mergeFields?.length) refreshHighlight(); },
+    /** Called on every editor update: keeps highlighting in step with edits, and the preview with undo. */
+    refresh() {
+      if (highlighted || editor()?.tintLayers?.mergeFields?.length) refreshHighlight();
+      // Previewing a record is not an undo step, so undo and redo bring back field results of the record shown
+      // when the step was taken: show the current record's again.
+      const engine = editor(), steps = engine?.session ? [engine.session, engine.session.history.length, engine.session.future.length] : null;
+      const travelled = steps && seenSteps && steps[0] === seenSteps[0] && steps[2] !== seenSteps[2] && steps[1] !== seenSteps[1];
+      seenSteps = steps;
+      if (travelled && state().preview && loaded) queueMicrotask(() => refreshPreview());
+    },
     mm,
   };
 }
