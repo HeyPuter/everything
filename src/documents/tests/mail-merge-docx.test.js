@@ -195,6 +195,17 @@ describe('editing merge fields in the model', () => {
     const again = model(await DocxPackage.open(out));
     expect(mergeFieldRanges(again).map(f => f.code)).toEqual(fields.map(f => f.code));
   });
+  it('inserts a field over a selection as a tracked change with Track Changes on', async () => {
+    const { d } = await blankModel('Dear world, hello.');
+    d.trackChanges = true; d.revisionAuthor = 'Reviewer';
+    d.select(5, 10); insertMergeField(d, ' MERGEFIELD "First Name" ');
+    expect(d.revisions.map(r => [r.type, d.text.slice(r.start, r.end)])).toEqual([['del', 'world'], ['ins', '«First Name»']]);
+    const [field] = mergeFieldRanges(d);
+    expect(d.text.slice(field.range.start, field.range.end)).toBe('«First Name»');
+    d.resolveRevisions(true);
+    expect(d.text).toBe('Dear «First Name», hello.');
+    expect(d.text.slice(mergeFieldRanges(d)[0].range.start, mergeFieldRanges(d)[0].range.end)).toBe('«First Name»');
+  });
   it('keeps a field result\'s formatting through a recipient without a value', async () => {
     const { pkg, d } = await blankModel('Hi ');
     d.select(3); insertMergeField(d, ' MERGEFIELD "First Name" '); d.replace('!');

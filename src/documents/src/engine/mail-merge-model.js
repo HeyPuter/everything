@@ -41,7 +41,9 @@ const displayText = text => String(text ?? '').replace(/\r\n?|\n/g, '\v');
 export function insertMergeField(model, instruction, text = null) {
   const field = newMergeField(instruction);
   const shown = displayText(text ?? placeholderResults([{ code: instruction, type: fieldKeyword(instruction) }])[0] ?? '');
-  if (model.range[0] !== model.range[1]) model.replaceUntracked('', { checkpoint: false });
+  // Replacing a selection is an ordinary edit: with Track Changes on, the selection is marked deleted
+  // and the field follows it, marked inserted, as typing over the selection would be.
+  if (model.range[0] !== model.range[1]) model.replace('', { checkpoint: false });
   let at = model.range[0];
   const ranges = model.paragraphs.some(p => p.fieldMarkers?.length) ? bodyFieldRanges(model.paragraphs) : [];
   // A field is not placed inside another merge field's result: it goes after that field.
@@ -49,7 +51,7 @@ export function insertMergeField(model, instruction, text = null) {
   if (inside) { at = inside.end; model.select(at); }
   // Typing at an empty field result fills it; a new field beside it must leave it empty.
   const empty = new Set(ranges.filter(r => r.start === at && r.end === at).map(r => r.field.id));
-  if (shown) model.replaceUntracked(shown, { checkpoint: false });
+  if (shown) model.replace(shown, { checkpoint: false });
   const { index, offset } = paragraphAt(model.paragraphs, at);
   const p = model.paragraphs[index];
   for (const marker of p.fieldMarkers || []) if (marker.type === 'end' && empty.has(marker.field.id)) marker.offset = offset;
@@ -260,7 +262,11 @@ export function insertEnvelope(model, { width, height, delivery = '', returnAddr
   model.select(deliveryStart, deliveryStart + deliveryText.length);
   model.setParagraphFormat({ spaceBefore, spaceAfter: 0, indentLeft: left, firstLine: 0, alignment: 'left' });
   if (fontSize && deliveryText) model.setRunFormat({ fontSize });
-  if (deliveryField) { model.select(deliveryStart); insertMergeField(model, deliveryField); }
+  // The envelope is written untracked, its address field with it.
+  if (deliveryField) {
+    const tracking = model.trackChanges; model.trackChanges = false;
+    try { model.select(deliveryStart); insertMergeField(model, deliveryField); } finally { model.trackChanges = tracking; }
+  }
   if (!empty) {
     const { settings, xml } = envelopeSection(width, height);
     const index = paragraphAt(model.paragraphs, deliveryStart).index;
