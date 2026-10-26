@@ -379,10 +379,10 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     customToc: () => toc.customDialog(),
     updateAllFields,
     canUpdateFields: () => !!ready() && (hasToc() || !!base.canUpdateFields?.()),
-    updateFields() {
-      if (!hasToc()) { base.updateFields?.(); return; }
-      toc.updateTable(false, 'pages');
-    },
+    // Update Fields (Tools menu, the field's context menu, after inserting a field) does what F9 does:
+    // sequences, references, dates, citations and page numbers, including the table of contents' pages.
+    // It refreshed only page references before, so SEQ and REF results stayed stale.
+    updateFields: () => updateAllFields(),
     smartLookup: () => lookup.open(),
     canSmartLookup: () => lookup.available(),
     extendMenu,

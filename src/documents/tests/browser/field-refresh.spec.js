@@ -73,3 +73,36 @@ test('relative and hyperlink switches refresh while unsupported results retain a
   await reopenDocx(page, input, { name: 'switches-updated.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: bytes }, await input.inputValue());
   await page.screenshot({ path: info.outputPath('switches-and-retained-cache.png'), fullPage: true });
 });
+test('Update Fields on the Tools menu and after inserting a field updates sequences as F9 does', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('One: ');
+  const menu = async name => page.getByRole('menubar', { name: 'Menu bar' }).getByRole('menuitem', { name, exact: true }).click();
+  async function sequence() {
+    await menu('Insert');
+    await page.getByRole('menu', { name: 'Insert', exact: true }).getByRole('menuitem', { name: 'Field…' }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'Field' });
+    await dialog.getByLabel('Field names').selectOption('SEQ');
+    await dialog.getByLabel('Field argument').fill('Figure');
+    await dialog.locator('button[type=submit]').click();
+    await expect(dialog).toBeHidden();
+  }
+  await sequence(); await page.keyboard.type(' Two: '); await sequence(); await page.keyboard.type(' Three: '); await sequence();
+  await expect(input).toHaveValue('One: 1 Two: 2 Three: 3');
+  // A sequence number put in front of the others: Tools › Update Fields renumbers them all.
+  await input.evaluate(el => { el.focus(); el.setSelectionRange(0, 0); el.dispatchEvent(new Event('select')); });
+  await page.keyboard.type('Zero: ');
+  await page.evaluate(async () => {
+    const { insertBodyField } = await import('/src/engine/field-results.js');
+    const engine = window.__docs.current.view.engine;
+    engine.execute(() => { engine.model.select('Zero: '.length); insertBodyField(engine.model, ' SEQ Figure ', '9'); engine.model.replace(' '); });
+  });
+  await expect(input).toHaveValue('Zero: 9 One: 1 Two: 2 Three: 3');
+  await menu('Tools');
+  await page.getByRole('menu', { name: 'Tools', exact: true }).getByRole('menuitem', { name: /Update Fields/ }).click();
+  await expect(input).toHaveValue('Zero: 1 One: 2 Two: 3 Three: 4');
+  expect(errors).toEqual([]);
+});
