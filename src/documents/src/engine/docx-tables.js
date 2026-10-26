@@ -39,6 +39,12 @@ function integer(raw, fallback = 0) {
   if (!/^\d+$/.test(raw) || !Number.isSafeInteger(Number(raw)) || Number(raw) > 31680) fail('invalid measurements');
   return Number(raw);
 }
+function checkGridChange(node) {
+  const previous = children(node);
+  if (!/^[+-]?\d+$/.test(attr(node, 'id') ?? '') || previous.length !== 1 || previous[0].namespaceURI !== W || previous[0].localName !== 'tblGrid'
+    || children(previous[0]).some(n => n.namespaceURI !== W || n.localName !== 'gridCol')) fail('changed grids');
+  for (const column of children(previous[0])) integer(attr(column, 'w'));
+}
 function flag(n) {
   if (!n) return false;
   const v = attr(n, 'val');
@@ -296,7 +302,12 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
   if (!['fixed', 'autofit'].includes(format.layout)) fail('an unknown layout algorithm');
   if (!['left', 'center', 'right', 'start', 'end'].includes(format.alignment)) fail('unsupported table alignment');
   format.alignment = { start: 'left', end: 'right' }[format.alignment] || format.alignment;
-  const columns = children(grid).map(n => { if (n.namespaceURI !== W || n.localName !== 'gridCol') fail('changed grids'); return integer(attr(n, 'w')); });
+  // A recorded previous grid (§17.13.5.33 tblGridChange, written even unchanged by
+  // some producers) may follow the columns. The current grid is the one laid out;
+  // the record stays in the table shell and is carried over when the grid is rewritten.
+  const gridItems = children(grid), gridChange = gridItems.at(-1)?.namespaceURI === W && gridItems.at(-1).localName === 'tblGridChange' ? gridItems.pop() : null;
+  if (gridChange) checkGridChange(gridChange);
+  const columns = gridItems.map(n => { if (n.namespaceURI !== W || n.localName !== 'gridCol') fail('changed grids'); return integer(attr(n, 'w')); });
   if (!columns.length || columns.length > 32 || format.layout === 'fixed' && columns.some(w => !w)) fail('missing, zero or excessive grid columns');
   const table = { id: tableId('t'), ...format, styleId: styleId || null, grid: columns, shell: shell(node, ['tblPr', 'tblGrid']), rows: [] }, paragraphs = [], contentByCell = new Map(), wrappedCellSources = new Map();
   const conditional = conditionalStyle(chain, pr, cellBase, rowBase, readColor, preview, properties);
@@ -435,7 +446,9 @@ export function writeTable(block, doc, writeParagraph) {
   }
   if (!table.shell || table.gridChanged) {
     const grid = make('tblGrid'); for (const w of table.grid) grid.append(prop('gridCol', { w }));
-    const old = child(node, 'tblGrid'); if (old) old.replaceWith(grid); else node.append(grid);
+    const old = child(node, 'tblGrid'), change = child(old, 'tblGridChange');
+    if (change) grid.append(change);
+    if (old) old.replaceWith(grid); else node.append(grid);
   }
   if (table.widthChanged || table.layoutChanged || table.alignmentChanged || table.indentChanged) {
     let pr = child(node, 'tblPr'); if (!pr) { pr = make('tblPr'); node.prepend(pr); }
