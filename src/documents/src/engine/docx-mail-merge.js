@@ -313,13 +313,31 @@ function resultRuns(doc, text, properties) {
   return [run];
 }
 
-/** Replace one field in place with its result text; `all` is the content in document order. */
-function replaceField(doc, field, text, all) {
+const paragraphOf = node => { while (node && !isW(node, 'p')) node = node.parentNode; return node; };
+
+/**
+ * Replace one field in place with its result text; `all` is the content in document order. Top-level
+ * nodes the replacement removes are added to `dropped` (they have no parent to be removed from).
+ */
+function replaceField(doc, field, text, all, dropped) {
   if (field.simple) { field.element.replaceWith(...resultRuns(doc, text, field.resultProperties)); return; }
-  const span = all.slice(all.indexOf(field.begin), all.indexOf(field.end) + 1), inSpan = new Set(span);
+  const span = all.slice(all.indexOf(field.begin), all.indexOf(field.end) + 1);
+  const first = paragraphOf(field.begin), last = paragraphOf(field.end);
   for (const n of resultRuns(doc, text, field.resultProperties)) field.begin.parentNode.insertBefore(n, field.begin);
-  // Runs (and simple fields) between the delimiters go; bookmarks and other markup stay.
-  for (const n of span) if ((isW(n, 'r') || isW(n, 'fldSimple')) && !inSpan.has(n.parentNode)) n.remove();
+  // Runs (and simple fields) between the delimiters go, also those in a paragraph, hyperlink or other
+  // wrapper within them; bookmarks and other markup stay.
+  for (const n of span) if (isW(n, 'r') || isW(n, 'fldSimple')) n.remove();
+  // A result over several paragraphs (an address block saved with its lines as paragraphs) holds their
+  // marks: the paragraphs within it go, and what follows the field joins the paragraph it starts in,
+  // ended by the mark after the field.
+  if (!first || !last || first === last || first.parentNode !== last.parentNode) return;
+  const drop = node => { if (node.parentNode) node.remove(); else dropped.add(node); };
+  for (const n of span) if (n.parentNode === first.parentNode && n !== last && (isW(n, 'p') || isW(n, 'tbl'))) drop(n);
+  for (const n of [...last.children]) if (!isW(n, 'pPr')) first.append(n);
+  child(first, 'pPr')?.remove();
+  const marks = child(last, 'pPr');
+  if (marks) first.prepend(marks);
+  drop(last);
 }
 
 /**
@@ -339,8 +357,9 @@ export function mergeDocumentParts(sourceParts, { data, mapping = {}, answers = 
   const output = [];
   plan.forEach((copy, index) => {
     const nodes = template.map(n => n.cloneNode(true));
-    const fields = xmlMergeFields(nodes), all = nodes.flatMap(n => [n, ...documentOrder(n)]);
-    fields.forEach((field, i) => { if (copy.results[i] !== null && copy.results[i] !== undefined) replaceField(doc, field, copy.results[i], all); });
+    const fields = xmlMergeFields(nodes), all = nodes.flatMap(n => [n, ...documentOrder(n)]), dropped = new Set();
+    fields.forEach((field, i) => { if (copy.results[i] !== null && copy.results[i] !== undefined) replaceField(doc, field, copy.results[i], all, dropped); });
+    if (dropped.size) nodes.splice(0, nodes.length, ...nodes.filter(n => !dropped.has(n)));
     if (index) for (const n of nodes) for (const e of [n, ...documentOrder(n)]) {
       // Later copies drop bookmarks and comment anchors whose ids and names must stay unique.
       if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].some(name => isW(e, name))) e.remove();

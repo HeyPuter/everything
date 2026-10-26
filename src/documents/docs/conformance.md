@@ -23500,7 +23500,11 @@ processors read, and keeps its recipient list inside the document.
   not use it, and they will report the merge's data source as unavailable.
 - **Merged output**: Edit Individual Documents copies the saved body once per
   output document, replaces every merge field (and its nested fields) with
-  plain result runs (line breaks as `w:br`), separates copies with next-page
+  plain result runs (line breaks as `w:br`); a cached result that spans
+  paragraphs (§17.16.18: the paragraph marks between `separate` and `end`
+  belong to the result) loses those paragraphs, and the text after the field
+  joins the paragraph the field starts in, ended by the mark after the field.
+  It separates copies with next-page
   section breaks cloned from the final `w:sectPr` (a directory runs copies
   together), removes later copies' bookmarks and comment anchors, renumbers
   `wp:docPr` ids, and drops `w:mailMerge` and the recipient part.

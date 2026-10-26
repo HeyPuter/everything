@@ -1,7 +1,7 @@
 import { beforeAll, afterAll, it, expect, describe } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
-import { unzipSync, zipSync, strFromU8 } from 'fflate';
+import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
@@ -108,6 +108,25 @@ describe('merging to a new document', () => {
     const reopened = await DocxPackage.open(zipSync(parts));
     expect(reopened.readOnly).toBeFalsy();
     expect(reopened.paragraphs.filter(p => p.sectionEnd)).toHaveLength(1);
+  });
+  it('replaces a field result that spans paragraphs in every copy, keeping the text after it', () => {
+    // An address block saved while previewing record 1, its lines as paragraphs, as desktop word processors save one.
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+    const r = t => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`, fld = kind => `<w:r><w:fldChar w:fldCharType="${kind}"/></w:r>`;
+    const instr = t => `<w:r><w:instrText xml:space="preserve">${t}</w:instrText></w:r>`;
+    const body = `<w:p><w:pPr><w:jc w:val="left"/></w:pPr>${r('To: ')}${fld('begin')}${instr(' ADDRESSBLOCK ')}${fld('separate')}${r('Rosa Vidal')}</w:p>`
+      + `<w:p>${r('1 Pier Rd')}</w:p><w:p><w:pPr><w:jc w:val="center"/></w:pPr>${r('Oslo')}${fld('end')}${r(' (home)')}</w:p>`
+      + `<w:p>${r('Dear ')}${fld('begin')}${instr(' MERGEFIELD "First Name" ')}${fld('separate')}${r('Rosa')}${fld('end')}${r(',')}</w:p><w:sectPr/>`;
+    const source = { 'word/document.xml': strToU8(`<w:document xmlns:w="${W}"><w:body>${body}</w:body></w:document>`) };
+    const two = { ...list, rows: list.rows.slice(0, 2) };
+    const { parts } = mergeDocumentParts(source, { data: mergeRecords(two), mapping: { first: 'First Name', last: 'Last Name', city: 'City', address1: 'Address Line 1' } });
+    const text = partText(parts['word/document.xml']);
+    expect(text).toBe('To: Ms. Rosa Vidal\n1 Pier Rd\nOslo\nNorway (home)\nDear Rosa,\nTo: Ken Ito\n9 Elm St\nAustin\nUnited States (home)\nDear Ken,');
+    expect(text.match(/Pier/g)).toHaveLength(1);
+    // The paragraph keeps the mark after the field (its centering), as that mark is not part of the result.
+    const xml = strFromU8(parts['word/document.xml']);
+    expect(xml.match(/<w:jc w:val="center"\/>/g)).toHaveLength(2);
+    expect(xml).not.toContain('w:val="left"');
   });
   it('fills label sheets with NEXT and a directory without breaks', async () => {
     const source = unzipSync(fixture('labels.docx'));
