@@ -20,3 +20,33 @@ it('searches again only when the document or the search changes, not when the ca
   query.value = 'dog'; panel.refresh();
   expect(matches.mock.calls.length).toBe(calls + 2);
 });
+
+it('searches the user\'s selection, not the match it selected, and keeps searching it after a replacement', () => {
+  // A tiny document: Replace changes `text`, and matches come from it within the scope's range.
+  let text = 'cat A cat B cat C | cat D cat E', range = [0, 17];
+  const find = (query, options) => [...text.matchAll(new RegExp(query, 'g'))].map(m => ({ start: m.index, end: m.index + query.length, text: query }))
+    .filter(m => !options.within || options.within[0] <= m.start && m.end <= options.within[1]);
+  const api = {
+    matches: find, range: () => range, textLength: () => text.length, highlight() {}, readOnly: () => false, close() {},
+    select: m => { range = [m.start, m.end]; },
+    replace: (query, replacement, options) => {
+      const m = find(query, options).find(m => m.start === range[0] && m.end === range[1]); if (!m) return 0;
+      text = text.slice(0, m.start) + replacement + text.slice(m.end); range = [m.start + replacement.length, m.start + replacement.length]; return 1;
+    },
+  };
+  const panel = findReplacePanel(api);
+  document.body.append(panel.node);
+  panel.open('', { advanced: true });
+  const query = panel.node.querySelector('[aria-label="Find text"]'), scope = panel.node.querySelector('[aria-label="Search in"]');
+  query.value = 'cat'; query.dispatchEvent(new Event('input'));
+  // Typing selected the first match; the scope is still the selection made before.
+  expect(range).toEqual([0, 3]);
+  scope.value = 'selection'; scope.dispatchEvent(new Event('change'));
+  expect(panel.node.querySelector('.canvas-find-count').textContent).toBe('1 of 3');
+  panel.node.querySelector('[aria-label="Replace with"]').value = 'dogs';
+  const replaceButton = [...panel.node.querySelectorAll('button')].find(b => b.textContent === 'Replace');
+  for (let i = 0; i < 4; i++) if (!replaceButton.disabled) replaceButton.click();
+  expect(text).toBe('dogs A dogs B dogs C | cat D cat E');
+  expect(scope.value).toBe('selection');
+  expect(panel.node.querySelector('.canvas-find-count').textContent).toBe('No matches');
+});

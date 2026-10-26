@@ -20,7 +20,7 @@ const ADVANCED_FLAGS = [['wildcards', 'Use wildcards'], ['matchPrefix', 'Match p
  * scope (selection, headers and footers) and formatting to find and to replace with.
  *
  * api: matches(query, options), range(), select(match), highlight(matches), replace(query, text, options, all),
- * readOnly(), close(); optional: chooseFont(seed, done), chooseParagraph(seed, done), styles(), scopes().
+ * readOnly(), close(); optional: chooseFont(seed, done), chooseParagraph(seed, done), styles(), scopes(), textLength().
  */
 export function findReplacePanel(api) {
   const query = el('input.input', { 'aria-label': 'Find text', type: 'text', spellcheck: false, maxLength: MAX_DOCUMENT_CHARACTERS });
@@ -31,8 +31,11 @@ export function findReplacePanel(api) {
   const notice = el('p.canvas-find-notice', { role: 'status', 'aria-live': 'polite' });
   const error = el('p.field-error', { role: 'alert', hidden: true });
   let findFormat = {}, replaceFormat = {}, within = null, lastField = query;
+  // The selection the user made, as opposed to the match the panel selected while searching: "Current
+  // selection" searches the user's, though typing the query has since selected its first match.
+  let userRange = null, panelRange = null;
   const scope = el('select.input', { 'aria-label': 'Search in', onchange: () => {
-    within = scope.value === 'selection' ? [...api.range()] : null;
+    within = scope.value === 'selection' ? [...(userRange && userRange[0] !== userRange[1] ? userRange : api.range())] : null;
     notice.textContent = ''; navigate();
   } }, el('option', { value: 'document' }, 'Main document'), el('option', { value: 'selection' }, 'Current selection'));
   for (const [value, label] of api.scopes?.() || []) scope.append(el('option', { value }, label));
@@ -120,6 +123,8 @@ export function findReplacePanel(api) {
   let searched = null;
   function refresh() {
     if (node.hidden) { searched = null; api.highlight?.([]); return { matches: [], current: -1 }; }
+    const range = api.range();
+    if (!panelRange || range[0] !== panelRange[0] || range[1] !== panelRange[1]) { userRange = [...range]; panelRange = null; }
     let matches = [];
     const searching = !!query.value || Object.keys(findFormat).length > 0;
     const version = api.version?.() || null, key = JSON.stringify([query.value, options()]);
@@ -144,13 +149,16 @@ export function findReplacePanel(api) {
     if (direction && current >= 0) index = (current + direction + matches.length) % matches.length;
     else if (direction < 0) { index = matches.findLastIndex(m => m.start < start); if (index < 0) index = matches.length - 1; }
     else { index = matches.findIndex(m => m.start >= start); if (index < 0) index = 0; }
-    api.select(matches[index]); refresh();
+    api.select(matches[index]); panelRange = [...api.range()]; refresh();
   }
   function change(every) {
     try {
+      const length = api.textLength?.();
       const total = api.replace(query.value, replacement.value, options(), every);
-      // A replacement inside the searched selection moves its end.
-      if (within) { within = null; scope.value = 'document'; }
+      // A replacement inside the searched selection moves its end: the search stays within it.
+      const delta = api.textLength?.() - length;
+      if (within && Number.isFinite(delta)) within = [within[0], within[1] + delta];
+      else if (within) { within = null; scope.value = 'document'; }
       if (!every) navigate(1); else refresh();
       notice.textContent = `Replaced ${total} ${total === 1 ? 'match' : 'matches'}.`; error.hidden = true;
     } catch (e) { error.textContent = e.message; error.hidden = false; }
@@ -162,6 +170,7 @@ export function findReplacePanel(api) {
   query.addEventListener('keydown', e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); navigate(e.shiftKey ? -1 : 1); } });
   replacement.addEventListener('keydown', e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); if (!replace.disabled) change(false); } });
   return { node, refresh, close, open(selected = '', { advanced = false } = {}) {
+    if (node.hidden) { userRange = [...api.range()]; panelRange = null; }
     if (node.hidden && selected && !/[\u0000-\u001f￼]/u.test(selected)) query.value = selected;
     if (advanced) setMore(true);
     node.hidden = false; notice.textContent = ''; navigate(); query.focus(); query.select();
