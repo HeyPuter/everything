@@ -145,7 +145,9 @@ export function insertColumns(model, { left = false, count = null, widths: measu
   checkLength(model, table.rows.length * n);
   const position = left ? block.left : block.right, automatic = table.layout === 'autofit';
   let grid;
-  if (automatic) { grid = [...table.grid]; grid.splice(position, 0, ...Array(n).fill(0)); }
+  // New AutoFit columns start as wide as the column beside them (the others keep their widths); only a grid
+  // that holds no widths (fitting the contents) takes unsized ones. A zero-width column is not one.
+  if (automatic) { grid = [...table.grid]; grid.splice(position, 0, ...Array(n).fill(table.grid.every(w => w > 0) ? table.grid[left ? position : position - 1] : 0)); }
   else {
     // New columns match the column beside them; the table keeps its width.
     const base = columnWidths(model, table, measured), total = Math.round(sum(base));

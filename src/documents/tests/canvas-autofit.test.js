@@ -128,7 +128,8 @@ it('inserts and deletes AutoFit columns without requiring or flattening width pr
   for (const tableIndex of [0, 1]) {
     let table = doc.tables[tableIndex]; const before = doc.snapshot(), original = layout(doc), grid = [...table.grid], preferred = structuredClone(table.width);
     doc.selectCell(table.rows[0].cells[0].id); doc.insertTableColumn();
-    expect(table.grid).toEqual([grid[0], 0, ...grid.slice(1)]); expect(table.width).toEqual(preferred);
+    // The new column starts as wide as the one it follows, never zero-width.
+    expect(table.grid).toEqual([grid[0], grid[0], ...grid.slice(1)]); expect(table.width).toEqual(preferred);
     expect(table.rows.every(row => row.cells[1].width.type === 'auto')).toBe(true);
     doc.replace('Inserted'); const changed = layout(doc);
     expect(changed.cells.length).toBeGreaterThan(original.cells.length);

@@ -23231,7 +23231,10 @@ shells. Supported authoring subset:
   after insert/delete/split of columns, cell splits and Draw Table lines;
   `w:gridSpan` (§17.4.17) and `w:vMerge` restart/continue (§17.4.84) for
   rectangular merges, splits into rows × columns, split table and Draw/Eraser.
-  Merging keeps each non-empty cell's paragraphs in reading order.
+  Merging keeps each non-empty cell's paragraphs in reading order. A column
+  inserted into an AutoFit table (§17.4.52 `autofit`) is written with the width
+  of the column beside it, never a zero-width `w:gridCol`; only a grid that
+  holds no widths (AutoFit to contents) keeps an unsized one.
 - Deleting a selection that wholly encloses a table and text around it removes
   the whole `w:tbl`; a selection reaching only into a table clears its cells.
 - Rows that end early: Delete Cells → Shift cells left and Insert Cells → Shift

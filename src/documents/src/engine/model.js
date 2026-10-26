@@ -1151,8 +1151,10 @@ export class TextDocument {
     if (table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Column insertion in tables with omitted grid cells is not supported yet.');
     if (documentLength(this.paragraphs) + table.rows.length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     if (table.grid.length >= 32) throw new Error('This table already has 32 columns.');
+    // An AutoFit column starts as wide as the one it follows (the other columns keep their widths); only a
+    // grid that holds no widths (fitting the contents) takes an unsized one. A zero-width column is not one.
     const automatic = table.layout === 'autofit'; let grid = [...table.grid], total;
-    if (automatic) grid.splice(position, 0, 0);
+    if (automatic) grid.splice(position, 0, table.grid.every(w => w > 0) ? table.grid[position - 1] : 0);
     else {
       const old = fixedColumnWidths(table, this.sectionWritingWidth);
       total = Math.round(old.reduce((a,b) => a+b, 0));

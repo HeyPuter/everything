@@ -510,3 +510,22 @@ describe('deleting a selection around tables', () => {
     valid(doc);
   });
 });
+
+describe('inserting columns into an AutoFit table', () => {
+  it('gives a new column to the right a real width, from the toolbar and the engine API, and saves no zero-width grid column', async () => {
+    for (const insert of [doc => T.insertColumns(doc, {}), doc => doc.insertTableColumn()]) for (const column of [0, 2]) {
+      const { pkg, doc } = tableDocument(2, 3);
+      at(doc, 0, 0); T.autofitTable(doc, 'window');
+      at(doc, 0, column); insert(doc);
+      const table = doc.tables[0];
+      expect(table.grid).toHaveLength(4);
+      // The new column is as wide as the one it follows; the others keep their widths.
+      expect(table.grid).toEqual([3120, 3120, 3120, 3120]);
+      // The table stays AutoFit to the window: the cells keep automatic widths.
+      expect([table.layout, table.width]).toEqual(['autofit', { type: 'pct', value: 5000 }]);
+      expect(tableCells(table).every(cell => cell.width?.type === 'auto')).toBe(true);
+      const { xml } = await roundTrip(pkg, doc);
+      expect(xml).not.toContain('<w:gridCol w:w="0"/>');
+    }
+  });
+});
