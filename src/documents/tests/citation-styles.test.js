@@ -111,6 +111,20 @@ describe('titles ending in a question or exclamation mark', () => {
   });
 });
 
+describe('sources missing a part', () => {
+  it('leave no double space where the author, title or book title would be', () => {
+    const anonymous = { tag: 'Anon', type: 'Book', names: {}, fields: { Title: 'Common prayers', Publisher: 'Parish Press' } };
+    const untitled = { tag: 'Unt', type: 'BookSection', names: { Author: [person('Turing', 'Alan')], Editor: [person('Church', 'Alonzo')] }, fields: { BookTitle: 'Foundations', Year: '2018', Publisher: 'Logic House' } };
+    const film = { tag: 'Film', type: 'Film', names: { Director: [person('Varda', 'Agnes')] }, fields: { Year: '2017', ProductionCompany: 'Ciné-Tamaris' } };
+    const entries = style => Object.fromEntries(formatBibliography(style, [anonymous, untitled, film]).map(e => [e.tag, text(e.runs)]));
+    expect(entries('apa').Anon).toBe('Common prayers. (n.d.). Parish Press.');
+    expect(entries('harvard').Anon).toBe('Common prayers (no date) Parish Press.');
+    expect(entries('apa').Unt).toBe('Turing, A. (2018). In A. Church (Ed.), Foundations. Logic House.');
+    expect(entries('mla').Film).toBe('Directed by Agnes Varda, Ciné-Tamaris, 2017.');
+    for (const style of ['apa', 'mla', 'chicago', 'harvard', 'ieee']) for (const entry of Object.values(entries(style))) expect(entry, style).not.toMatch(/ {2}|^ /);
+  });
+});
+
 describe('initials', () => {
   it('keeps hyphenated initials and never fails on a stray hyphen', () => {
     const sartre = { tag: 'Sar43', type: 'Book', names: { Author: [person('Sartre', 'J.-P.')] }, fields: { Title: 'Being and nothingness', Year: '1943', Publisher: 'Gallimard' } };

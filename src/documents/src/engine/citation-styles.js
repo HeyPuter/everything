@@ -73,7 +73,18 @@ class Runs {
     if (last.italic) this.list.push({ text: mark }); else last.text += mark;
     return this;
   }
-  done() { const last = this.list.at(-1); if (last) last.text = last.text.replace(/\s+$/, ''); return this.list; }
+  /** The finished runs. A part left out for a missing field (an author, a title) leaves no double space behind. */
+  done() {
+    let before = ' ';
+    for (const run of this.list) {
+      run.text = run.text.replace(/ {2,}/g, ' ');
+      if (before.endsWith(' ')) run.text = run.text.replace(/^ +/, '');
+      if (run.text) before = run.text;
+    }
+    this.list = this.list.filter(run => run.text);
+    const last = this.list.at(-1); if (last) last.text = last.text.replace(/\s+$/, '');
+    return this.list;
+  }
 }
 
 /* ---- Name lists per style ---- */
