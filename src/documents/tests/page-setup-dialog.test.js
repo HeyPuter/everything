@@ -97,4 +97,20 @@ describe('Columns dialog', () => {
     expect(apply).not.toHaveBeenCalled();
     expect(document.querySelector('[role="alert"]').hidden).toBe(false);
   });
+  it('keeps the width and spacing fields in place when one of them changes, so Tab lands on the next one', () => {
+    openColumns({ columns: presetColumns('left', available), available, unit: 'in', apply: () => true });
+    const first = field('Width of column 1 (in)'), spacing = field('Spacing of column 1 (in)'), second = field('Width of column 2 (in)');
+    // Tab commits the field it leaves; the field it moves to must still be in the dialog.
+    spacing.focus();
+    first.value = '3'; first.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(field('Spacing of column 1 (in)')).toBe(spacing);
+    expect(field('Width of column 2 (in)')).toBe(second);
+    expect(second.value).toBe('3');
+    expect(document.activeElement).toBe(spacing);
+    // A new number of columns brings new rows.
+    const count = field('Number of columns');
+    count.value = '3'; count.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(field('Width of column 3 (in)')).not.toBeNull();
+    expect(field('Spacing of column 3 (in)').disabled).toBe(true);
+  });
 });

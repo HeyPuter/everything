@@ -64,6 +64,7 @@ export function openColumns({ columns, available, unit = recallUnit(), scopes = 
   const scope = el('select.input', { 'aria-label': 'Apply to' }, ...scopes.map(([value, label]) => el('option', { value }, label)));
   scope.value = initialScope && scopes.some(([v]) => v === initialScope) ? initialScope : scopes[0][0];
   const show = twips => String(Number((twips / per).toFixed(2)));
+  let fields = [];
 
   function setCount(next) {
     count = next;
@@ -107,16 +108,21 @@ export function openColumns({ columns, available, unit = recallUnit(), scopes = 
   function render() {
     for (const button of presets.children) button.setAttribute('aria-pressed', String(columnPreset(result()) === button.dataset.preset));
     equalBox.disabled = count === 1;
-    const header = el('div.ps-columns-row.is-head', { role: 'row' }, ...['Column', `Width (${unit})`, `Spacing (${unit})`].map(text => el('span', { role: 'columnheader' }, text)));
-    const rows = entries.map((entry, i) => {
-      const field = (key, label, disabled) => el('input.input', { type: 'number', min: 0, step, value: show(entry[key]), disabled, 'aria-label': `${label} of column ${i + 1} (${unit})`,
+    // The rows are rebuilt only when the number of columns changes. A change to one field (committed by Tab or a
+    // click elsewhere) updates the others in place, so the field the keyboard just moved to is still there.
+    if (fields.length !== entries.length) {
+      const header = el('div.ps-columns-row.is-head', { role: 'row' }, ...['Column', `Width (${unit})`, `Spacing (${unit})`].map(text => el('span', { role: 'columnheader' }, text)));
+      fields = entries.map((entry, i) => ['width', 'space'].map(key => el('input.input', { type: 'number', min: 0, step, 'aria-label': `${key === 'width' ? 'Width' : 'Spacing'} of column ${i + 1} (${unit})`,
         onchange: e => edit(i, key, Math.round(Number(e.target.value) * per)),
-        onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); e.target.dispatchEvent(new Event('change')); } } });
-      return el('div.ps-columns-row', { role: 'row' }, el('span', { role: 'cell' }, `${i + 1}:`),
-        el('span', { role: 'cell' }, field('width', 'Width', equal && i > 0 || count === 1)),
-        el('span', { role: 'cell' }, field('space', 'Spacing', i === count - 1 || equal && i > 0)));
+        onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); e.target.dispatchEvent(new Event('change')); } } })));
+      table.replaceChildren(header, ...fields.map(([width, space], i) => el('div.ps-columns-row', { role: 'row' }, el('span', { role: 'cell' }, `${i + 1}:`),
+        el('span', { role: 'cell' }, width), el('span', { role: 'cell' }, space))));
+    }
+    entries.forEach((entry, i) => {
+      const [width, space] = fields[i];
+      width.value = show(entry.width); width.disabled = equal && i > 0 || count === 1;
+      space.value = show(entry.space); space.disabled = i === count - 1 || equal && i > 0;
     });
-    table.replaceChildren(header, ...rows);
     // Preview: the columns on a page, with the line between them.
     const scale = 120 / available;
     let x = 0;
