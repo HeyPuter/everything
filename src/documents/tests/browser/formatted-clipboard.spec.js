@@ -36,7 +36,7 @@ test('copy and paste inside a document keeps headings, lists and text formatting
     // The whole block, including the last item's paragraph mark.
     await select(page, 'Plan\nBold start then plain\nFirst item\nSecond item\n'); await input(page).press('ControlOrMeta+c');
     const html = await page.evaluate(async () => { const [item] = await navigator.clipboard.read(); return item.types.includes('text/html') ? (await item.getType('text/html')).text() : ''; });
-    expect(html).toContain('<h1>'); expect(html).toMatch(/<b><span[^>]*>Bold start<\/span><\/b>/); expect(html).toContain('<ul><li>');
+    expect(html).toMatch(/<h1[ >]/); expect(html).toMatch(/<b><span[^>]*>Bold start<\/span><\/b>/); expect(html).toMatch(/<ul><li[ >]/);
     await input(page).press('ControlOrMeta+End'); await input(page).press('ControlOrMeta+v');
     const value = 'Plan\nBold start then plain\nFirst item\nSecond item\n';
     await expect(input(page)).toHaveValue(value + value);
@@ -144,4 +144,21 @@ test('a copied phone or email link stays a link in the HTML other applications p
   const html = await input(page).evaluate(el => { const data = new DataTransfer(); el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true })); return data.getData('text/html'); });
   expect(html).toContain('<a href="tel:+1-555-0100">');
   expect(html).toContain('<a href="mailto:team@example.com">');
+});
+
+test('tabs and runs of spaces stay in the HTML a copy gives other applications', async ({ page }) => {
+  await blank(page);
+  await input(page).fill('Name\tQty   (three spaces)\nPens\t2');
+  await select(page, 'Name\tQty   (three spaces)\nPens\t2');
+  const html = await input(page).evaluate(el => {
+    const data = new DataTransfer(); el.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData('text/html');
+  });
+  // Another web application's rich-text field takes the HTML as it is.
+  const pasted = await page.evaluate(html => {
+    const box = document.createElement('div'); box.contentEditable = 'true'; document.body.append(box); box.focus();
+    document.execCommand('insertHTML', false, html);
+    const lines = [...box.querySelectorAll('p')].map(p => p.innerText); box.remove(); return lines;
+  }, html);
+  expect(pasted).toEqual(['Name\tQty   (three spaces)', 'Pens\t2']);
 });

@@ -87,8 +87,9 @@ export function fragmentHtml(fragment) {
     if (openList !== kind) { if (openList) html += `</${openList}>`; if (kind) html += `<${kind}>`; openList = kind; }
     const heading = /^Heading([1-6])$/.exec(p.styleId || '')?.[1] || (p.styleId === 'Title' ? '1' : null);
     const tag = kind ? 'li' : heading ? `h${heading}` : 'p';
-    const align = p.alignment && p.alignment !== 'left' ? ` style="text-align:${p.alignment === 'both' ? 'justify' : p.alignment}"` : '';
-    html += `<${tag}${align}>${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
+    // Tabs and runs of spaces are the text's own, which HTML collapses into one space unless told otherwise.
+    const align = p.alignment && p.alignment !== 'left' ? `;text-align:${p.alignment === 'both' ? 'justify' : p.alignment}` : '';
+    html += `<${tag} style="white-space:pre-wrap${align}">${p.runs.map(runHtml).join('') || '<br>'}</${tag}>`;
   }
   if (openList) html += `</${openList}>`;
   return `<div ${FRAGMENT_ATTRIBUTE}="${escape(JSON.stringify(fragment))}">${html}</div>`;
