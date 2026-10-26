@@ -216,6 +216,8 @@ Puter's AI (the playground) the pane, its buttons and menu items are not offered
   one person's version.
 - Document-level settings outside the model (Restrict Editing's protection, review settings,
   document properties) are not shared live; the writing tab saves its own.
+- Design changes that rewrite the package (themes, style sets, watermarks, page backgrounds) are
+  refused while a document is shared: the editor would reopen on a package the room does not hold.
 - Transport is request-based (about one second of latency on Puter); the Whiteboard app's WebRTC
   peer links are not used yet. Puter event notices are not used either.
 - Remote carets are painted in the body only (not in headers, footers or notes).

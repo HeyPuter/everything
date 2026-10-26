@@ -1027,7 +1027,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (andDownload) P.downloadBlob(blob, P.ensureDocx(title.value || 'Untitled document').replace(/\.docx$/i, '.pdf'));
     return blob;
   };
-  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, local, error, onChange: () => update(), documentName: () => title.value, user: collabUser,
+  // Edits made while the document is shared are undone through the room, not the editor's history: an earlier
+  // Design change undone afterwards would reopen the package as it was then, without them.
+  const collab = createCollaboration({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, local, error, onChange: () => { if (collab?.live) { designVersions.undo = []; designVersions.redo = []; } update(); }, documentName: () => title.value, user: collabUser,
     saveFirst: () => save(), exportDocx: exportDocxBlob, exportPdf: exportPdfBlob, signIn: async () => !session.signedOut || await session.signIn(), readOnly: () => !!pkg?.readOnly });
   const versionHistory = createVersionHistory({ editor: () => (failed ? null : engine), pkg: () => pkg, doc, error, author: () => session.username, live: () => collab.live,
     restoreFile: version => restoreVersionFile(version, { confirm: false }), onChange: () => fitWidth(),
@@ -1563,7 +1565,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // Undo past the editor's own history steps back through design-wide changes.
     created.onHistoryEnd = direction => {
       const list = direction === 'undo' ? designVersions.undo : designVersions.redo;
-      if (!list.length || reopening) return false;
+      if (!list.length || reopening || collab.live) return false;
       stepDesignVersion(direction);
       return true;
     };
@@ -1605,6 +1607,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
   async function changePackage(transform) {
     if (!engine || pkg?.readOnly || reopening) return false;
+    // The editor reopens on the changed package, which the room does not hold: the others would not get it, and
+    // the editor would stop sharing with them.
+    if (collab.live) { error(new Error('Themes, style sets, watermarks and page backgrounds cannot be changed while the document is shared. Stop sharing to change them.')); return false; }
     engine.finishComposition();
     reopening = true;
     try {
@@ -1620,6 +1625,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   async function stepDesignVersion(direction) {
     const from = direction === 'undo' ? designVersions.undo : designVersions.redo, to = direction === 'undo' ? designVersions.redo : designVersions.undo;
+    if (collab.live) return;
     const entry = from.pop(); if (!entry) return;
     reopening = true;
     try { if (await reopenPackage(direction === 'undo' ? entry.before : entry.after)) to.push(entry); else from.push(entry); }
@@ -1628,7 +1634,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   }
   editorCommands.changePackage = changePackage;
   // The context menu's Undo and Redo also step through package-level (Design) changes.
-  editorCommands.packageHistory = () => ({ undo: designVersions.undo.length > 0, redo: designVersions.redo.length > 0 });
+  editorCommands.packageHistory = () => ({ undo: !collab.live && designVersions.undo.length > 0, redo: !collab.live && designVersions.redo.length > 0 });
   editorCommands.exportPackage = () => engine && !pkg?.readOnly ? engine.export(pkg) : null;
 
   const ready = (async () => {
