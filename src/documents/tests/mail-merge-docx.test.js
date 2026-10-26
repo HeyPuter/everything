@@ -128,6 +128,27 @@ describe('merging to a new document', () => {
     expect(xml.match(/<w:jc w:val="center"\/>/g)).toHaveLength(2);
     expect(xml).not.toContain('w:val="left"');
   });
+  it('gives every merged letter notes of its own', async () => {
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', T = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+    const files = {
+      '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/></Types>',
+      '_rels/.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${T}/officeDocument" Target="word/document.xml"/></Relationships>`,
+      'word/_rels/document.xml.rels': `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${T}/footnotes" Target="footnotes.xml"/></Relationships>`,
+      'word/document.xml': `<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">Dear </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> MERGEFIELD "First Name" </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>«First Name»</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:t>, see the terms.</w:t></w:r><w:r><w:footnoteReference w:id="1"/></w:r></w:p><w:sectPr/></w:body></w:document>`,
+      'word/footnotes.xml': `<w:footnotes xmlns:w="${W}" xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote><w:footnote w:id="1"><w:p w14:paraId="1A2B3C4D"><w:r><w:footnoteRef/></w:r><w:r><w:t xml:space="preserve"> Terms apply.</w:t></w:r></w:p></w:footnote></w:footnotes>`,
+    };
+    const source = Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)]));
+    const { parts } = mergeDocumentParts(source, { data: mergeRecords(list), mapping: { first: 'First Name' } });
+    const xml = strFromU8(parts['word/document.xml']);
+    expect(xml.match(/<w:footnoteReference w:id="(\d+)"\/>/g)).toEqual(['<w:footnoteReference w:id="1"/>', '<w:footnoteReference w:id="2"/>', '<w:footnoteReference w:id="3"/>']);
+    const notes = strFromU8(parts['word/footnotes.xml']);
+    expect(notes.match(/<w:footnote w:id="\d+">/g)).toEqual(['<w:footnote w:id="1">', '<w:footnote w:id="2">', '<w:footnote w:id="3">']);
+    expect(notes.match(/paraId/g)).toHaveLength(1);
+    const merged = await DocxPackage.open(zipSync(parts));
+    expect(merged.readOnly).toBeFalsy();
+    const stories = Object.entries(merged.pageStories.stories).filter(([path]) => path.startsWith('word/footnotes.xml#'));
+    expect(stories.map(([path, story]) => [path, story.paragraphs.map(p => p.runs.map(r => r.text).join('')).join('')])).toEqual([1, 2, 3].map(id => [`word/footnotes.xml#${id}`, '\uFFFC Terms apply.']));
+  });
   it('fills label sheets with NEXT and a directory without breaks', async () => {
     const source = unzipSync(fixture('labels.docx'));
     const data = mergeRecords({ ...list, rows: [...list.rows, ...list.rows, ...list.rows].map(r => ({ ...r, included: true })) });

@@ -23601,8 +23601,10 @@ processors read, and keeps its recipient list inside the document.
   joins the paragraph the field starts in, ended by the mark after the field.
   It separates copies with next-page
   section breaks cloned from the final `w:sectPr` (a directory runs copies
-  together), removes later copies' bookmarks and comment anchors, renumbers
-  `wp:docPr` ids, and drops `w:mailMerge` and the recipient part.
+  together), removes later copies' bookmarks and comment anchors, gives later
+  copies their own copies of the footnotes and endnotes they refer to
+  (§17.11.14 `footnoteReference`, §17.11.7 `endnoteReference`: one reference per
+  note), renumbers `wp:docPr` ids, and drops `w:mailMerge` and the recipient part.
 - **Envelopes and labels**: an envelope is its own section with a page size
   of the envelope (§17.6.13 `pgSz`, landscape `orient`), placed first, or the
   whole page setup of an empty document. Label sheets are fixed-layout tables

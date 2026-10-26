@@ -354,6 +354,25 @@ export function mergeDocumentParts(sourceParts, { data, mapping = {}, answers = 
   const plan = planMerge(codes, { data, mapping, answers, onIssue });
   if (!plan.length) throw new Error('No recipients are left to merge. Check the recipient list and any Skip Record If rules.');
   for (const n of template) n.remove();
+  // A note belongs to one reference (§17.11.14, §17.11.7): each later copy gets copies of the notes it refers to.
+  // Sharing them, every letter's reference pointed at the first letter's note.
+  const notes = [['footnotes', 'footnote', 'footnoteReference'], ['endnotes', 'endnote', 'endnoteReference']].map(([kind, name, reference]) => {
+    const link = elements(relationships(parts, 'word/document.xml').doc.documentElement, 'Relationship', REL).find(n => n.getAttribute('Type') === `${R}/${kind}` && n.getAttribute('TargetMode') !== 'External');
+    const path = link && resolveTarget('word/document.xml', link.getAttribute('Target'));
+    if (!path || !parts[path]) return null;
+    const part = parseXml(parts[path]), byId = new Map(elements(part.documentElement, name).map(n => [n.getAttributeNS(W, 'id'), n]));
+    return { path, part, byId, reference, next: Math.max(0, ...[...byId.keys()].map(Number).filter(Number.isFinite)) + 1, changed: false };
+  }).filter(Boolean);
+  const copyNote = (kind, e) => {
+    const source = kind.byId.get(e.getAttributeNS(W, 'id')); if (!source) return;
+    const note = source.cloneNode(true), id = String(kind.next++);
+    note.setAttributeNS(W, 'w:id', id);
+    for (const n of documentOrder(note)) {
+      if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].some(name => isW(n, name)) || isW(n, 'r') && child(n, 'commentReference')) n.remove();
+      else for (const attr of [...n.attributes]) if (['paraId', 'textId'].includes(attr.localName) && attr.namespaceURI?.includes('wordml')) n.removeAttributeNode(attr);
+    }
+    kind.part.documentElement.append(note); e.setAttributeNS(W, 'w:id', id); kind.changed = true;
+  };
   const output = [];
   plan.forEach((copy, index) => {
     const nodes = template.map(n => n.cloneNode(true));
@@ -364,6 +383,7 @@ export function mergeDocumentParts(sourceParts, { data, mapping = {}, answers = 
       // Later copies drop bookmarks and comment anchors whose ids and names must stay unique.
       if (['bookmarkStart', 'bookmarkEnd', 'commentRangeStart', 'commentRangeEnd'].some(name => isW(e, name))) e.remove();
       else if (isW(e, 'r') && child(e, 'commentReference')) e.remove();
+      else for (const kind of notes) if (isW(e, kind.reference)) copyNote(kind, e);
     }
     const last = index === plan.length - 1;
     if (!last && type !== 'catalog') {
@@ -392,6 +412,7 @@ export function mergeDocumentParts(sourceParts, { data, mapping = {}, answers = 
     for (const attr of [...e.attributes]) if (['paraId', 'textId'].includes(attr.localName) && attr.namespaceURI?.includes('wordml')) e.removeAttributeNode(attr);
   }
   save(parts, 'word/document.xml', doc);
+  for (const kind of notes) if (kind.changed) save(parts, kind.path, kind.part);
   // The result is an ordinary document: no merge settings and no recipient list.
   writeMailMerge(parts, null);
   return { parts, copies: plan };
