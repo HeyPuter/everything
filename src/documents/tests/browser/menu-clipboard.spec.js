@@ -52,3 +52,26 @@ test('Shift+Delete on a selection is left to the browser, which cuts on Windows 
   expect(await keydown({ key: 'Delete', code: 'Delete', shiftKey: true })).toBe(true);
   await expect(input(page)).toHaveValue('world');
 });
+
+test('after a design change reopens the document, the Paste options menu still pastes into it', async ({ browser }) => {
+  const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'], viewport: { width: 1440, height: 900 } });
+  const page = await context.newPage();
+  try {
+    await page.goto('/mock.html#/new');
+    await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+    await input(page).fill('Quarterly report');
+    // A theme rewrites the package and opens it again in place, with a new engine.
+    await page.locator('#ribbon-tab-design').click();
+    await page.locator('.ribbon-card').getByRole('button', { name: 'Themes' }).click();
+    await page.getByRole('menu', { name: 'Themes' }).getByRole('menuitemradio', { name: 'Harbor theme' }).click();
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.commands.packageHistory().undo)).toBe(true);
+    await page.evaluate(() => navigator.clipboard.writeText(' for May'));
+    await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(e.model.text.length); e.syncInput(); e.focus(); });
+    await page.locator('#ribbon-tab-home').click();
+    await page.getByRole('button', { name: 'Paste options', exact: true }).click();
+    await page.getByRole('menu', { name: 'Paste options' }).getByRole('menuitem', { name: 'Keep Text Only' }).click();
+    await expect(input(page)).toHaveValue('Quarterly report for May');
+    // Its paste options chip offers the modes for what was pasted.
+    await expect(page.getByRole('button', { name: 'Pasted text options' })).toBeVisible();
+  } finally { await context.close(); }
+});

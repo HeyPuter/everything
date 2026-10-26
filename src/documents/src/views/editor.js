@@ -1607,16 +1607,27 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     engine.setZoom(scale);
     const length = engine.model.text.length;
     engine.model.select(Math.min(range[0], length), Math.min(range[1], length));
-    editorCommands.restoreMarks(engine);
-    proofing.attach(engine);
-    reviewTools.attach(engine);
-    engineApi().attachShapeEditing(engine, error, () => pkg);
+    attachTools(engine);
     engine.relayout();
     host.scrollTop = scrollTop; host.scrollLeft = scrollLeft;
     doc.changed(); update(); updateStatus();
     // A menu or dialog opened while the package reopened keeps the keyboard.
     if (!document.activeElement?.closest?.('.menu, .modal-root')) engine.focus();
     return true;
+  }
+  /**
+   * The tools that work through the engine: paste options, proofing, table and picture gestures, review marks.
+   * A package reopened in place (a design change, or its undo) has a new engine, which needs every one of them:
+   * those left on the old one pasted from the menus into it, out of sight, and lost table and picture handling.
+   */
+  function attachTools(editor) {
+    editorCommands.restoreMarks(editor);
+    formatArea.attach(editor);
+    proofing.attach(editor);
+    tables.attach(editor);
+    reviewTools.attach(editor);
+    engineApi().attachShapeEditing(editor, error, () => pkg);
+    pictures.attach(editor);
   }
   /** Apply a package change: transform(blob) resolves to the changed package (a Blob) or null for none. */
   async function changePackage(transform) {
@@ -1692,13 +1703,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine.relayout();
       doc.template = null;
     }
-    editorCommands.restoreMarks(engine);
-    formatArea.attach(engine);
-    proofing.attach(engine);
-    tables.attach(engine);
-    reviewTools.attach(engine);
-    engineApi().attachShapeEditing(engine, error, () => pkg);
-    pictures.attach(engine);
+    attachTools(engine);
     rulers = createCanvasRulers({ host, surface, editor: () => engine, openParagraph: () => paragraphGeometry.click(), openPage: () => pageSetup.click() });
     // In a tablet-sized or narrow window (under 1024px) a page wider than the view at 100% opens at Fit
     // width, as on phones; desktop windows keep 100% and scroll.
