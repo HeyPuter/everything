@@ -234,6 +234,11 @@ function fromForeignHtml(body) {
     const next = inherited(node, format);
     const ctx = { ...context };
     if (tag === 'A' && /^(https?:|mailto:|tel:)/i.test(node.getAttribute('href') || '')) ctx.link = node.getAttribute('href');
+    // Word writes a tab as no-break spaces styled mso-tab-count, and a run of spaces as no-break spaces styled
+    // mso-spacerun, so a browser shows their width: they are a tab and ordinary spaces.
+    const declared = node.getAttribute?.('style') || '', tabs = /mso-tab-count\s*:\s*(\d+)/i.exec(declared)?.[1];
+    if (tabs) { append('\t'.repeat(Math.max(1, Math.min(Number(tabs), 64))), next, ctx.link); return; }
+    if (/mso-spacerun\s*:\s*yes/i.test(declared)) { append(node.textContent.replace(/\u00a0/g, ' '), next, ctx.link, true); return; }
     // Preformatted text (pre, or white-space: pre or pre-wrap, as Google Docs and code editors write it) keeps its
     // tabs, runs of spaces and line breaks.
     const space = node.style?.whiteSpace;

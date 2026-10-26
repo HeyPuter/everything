@@ -26,6 +26,14 @@ it('keeps the tabs, spaces and indentation of preformatted text, as Google Docs 
   expect(texts(own.replace(new RegExp(`\\s${FRAGMENT_ATTRIBUTE}="[^"]*"`), ''))).toEqual(['\tTab   spaced']);
 });
 
+it('pastes Word\'s tabs and runs of spaces as a tab and spaces, not no-break spaces', () => {
+  const nbsp = n => '&nbsp;'.repeat(n);
+  expect(texts(`<p class=MsoNormal>Name<span style='mso-tab-count:1'>${nbsp(11)} </span>Qty<o:p></o:p></p><p class=MsoNormal>Pens<span style='mso-tab-count:2'>${nbsp(22)} </span>2<o:p></o:p></p>`)).toEqual(['Name\tQty', 'Pens\t\t2']);
+  expect(texts(`<p class=MsoNormal><span style='mso-spacerun:yes'>${nbsp(2)} </span>indented, two<span style='mso-spacerun:yes'>${nbsp(1)} </span>spaces<o:p></o:p></p>`)).toEqual(['   indented, two  spaces']);
+  // The tab takes the formatting around it.
+  expect(htmlFragment(`<p class=MsoNormal><b>bold<span style='mso-tab-count:1'>${nbsp(3)} </span>after</b></p>`).paragraphs[0].runs).toEqual([{ text: 'bold\tafter', format: expect.objectContaining({ bold: true }) }]);
+});
+
 it('marks headings and nested lists, and keeps a lone phrase in the destination paragraph', () => {
   const fragment = htmlFragment('<h3>Title</h3><ol><li>One<ul><li>Inner</li></ul></li></ol>');
   expect(fragment.paragraphs.map(p => [p.text, p.styleName, p.list, p.mark])).toEqual([
