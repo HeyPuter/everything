@@ -56,6 +56,21 @@ test('a run of Backspace or Delete presses undoes in one step', async ({ page })
   await input(page).press('ControlOrMeta+Shift+z'); await expect(input(page)).toHaveValue('Hello bra');
 });
 
+test('in Text mode a run of Backspace or Delete presses also undoes in one step', async ({ page }) => {
+  await blank(page);
+  await page.getByRole('checkbox', { name: 'Text mode', exact: true }).check();
+  await input(page).focus();
+  await page.keyboard.type('Hello brave world');
+  // The field handles the keys itself here; the document takes them from its input events.
+  for (let i = 0; i < 8; i++) await input(page).press('Backspace');
+  await expect(input(page)).toHaveValue('Hello bra');
+  await input(page).evaluate(el => { el.setSelectionRange(0, 0); el.dispatchEvent(new Event('select')); });
+  for (let i = 0; i < 3; i++) await input(page).press('Delete');
+  await expect(input(page)).toHaveValue('lo bra');
+  await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('Hello bra');
+  await input(page).press('ControlOrMeta+z'); await expect(input(page)).toHaveValue('Hello brave world');
+});
+
 test('Cmd+Backspace and Cmd+Delete stop at the edge of the line as laid out, not of the paragraph', async ({ page }) => {
   await blank(page);
   const long = 'This paragraph is long enough to wrap onto a second line of the page, so deleting to the start of the line removes only its last visual line.';

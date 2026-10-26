@@ -1627,8 +1627,6 @@ export class CanvasEditor {
       insertText: () => this.model.replace(e.data || ''),
       insertLineBreak: () => this.model.replace('\v'),
       insertParagraph: () => this.model.insertParagraph(),
-      deleteContentBackward: () => this.model.delete(-1),
-      deleteContentForward: () => this.model.delete(1),
       // Cmd+Backspace and Cmd+Fn+Backspace on a Mac. The native field's line is the whole paragraph.
       deleteSoftLineBackward: () => this.deleteToLineEdge(-1),
       deleteSoftLineForward: () => this.deleteToLineEdge(1),
@@ -1654,6 +1652,11 @@ export class CanvasEditor {
         setTimeout(() => { if (this.awaitedInput === expected) { this.awaitedInput = null; this.syncInput(); } });
       } else { e.preventDefault(); this.syncInput(); }
       return;
+    }
+    // Backspace and Delete reach here in Text mode and from on-screen keyboards: a run of them is
+    // one undo step, as with the keys in the document.
+    if (e.inputType === 'deleteContentBackward' || e.inputType === 'deleteContentForward') {
+      e.preventDefault(); this.deleteText(e.inputType === 'deleteContentBackward' ? -1 : 1); return;
     }
     if (actions[e.inputType]) { e.preventDefault(); this.execute(actions[e.inputType]); }
   }
