@@ -62,7 +62,7 @@ button[aria-label="Pen Color"] { position: relative; }
 .table-sort-key > .input { width: 100%; min-width: 0; }
 .table-formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .table-formula-result { font-size: 13px; color: var(--ink-2); min-height: 18px; }
-.table-formula-result.is-error { color: var(--danger, #b3261e); }
+.table-formula-result.is-error { color: var(--critical); }
 
 /* Table properties: a section list and one scrolling page. */
 .table-properties { display: grid; gap: 10px; }

@@ -66,6 +66,17 @@ test.describe('dark theme', () => {
     expect(none.length).toBeGreaterThan(0);
     for (const item of none) expect(item.ratio).toBeGreaterThanOrEqual(4.5);
   });
+  test('a formula\'s error message stays readable', async ({ page }) => {
+    await open(page);
+    await page.getByRole('tab', { name: 'Insert', exact: true }).click();
+    await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+    await page.getByRole('menuitem', { name: '3 columns, 3 rows' }).click();
+    await (await menuBarMenu(page, 'Table')).getByRole('menuitem', { name: 'Formula…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Formula' });
+    await dialog.getByRole('textbox', { name: 'Formula' }).fill('=');
+    await expect(page.locator('.table-formula-result.is-error')).toBeVisible();
+    for (const item of await measure(page, '.table-formula-result.is-error')) expect(item.ratio, item.text).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 test('the light theme shows a style sample in the style’s own color', async ({ page }) => {
