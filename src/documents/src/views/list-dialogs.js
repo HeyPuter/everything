@@ -1,4 +1,4 @@
-import { el, fieldId } from '../ui/dom.js';
+import { el, fieldId, isComposing } from '../ui/dom.js';
 import { openSymbolPicker } from '../ui/symbols.js';
 import { NUMBER_STYLES, LIST_SUFFIXES } from '../engine/list-definitions.js';
 import { fontChoices } from './font-picker.js';
@@ -41,10 +41,23 @@ export function openDefineBullet({ level, apply, onClose }) {
   const preview = listPreview();
   function paint() {
     for (const button of grid.children) button.setAttribute('aria-checked', String(button.textContent === character));
+    // The group is one Tab stop, on the chosen bullet (the first when the character is not one of these).
+    const stop = [...grid.children].find(button => button.textContent === character) || grid.firstChild;
+    for (const button of grid.children) button.tabIndex = button === stop ? 0 : -1;
     if ([...custom.value][0] !== character) custom.value = character;
     paintList(preview, [[character], [character], [character]], { alignment: alignment.value, font: font.input.value.trim(), color: color.value });
   }
   for (const ch of BULLET_CHOICES) grid.append(el('button.fmt-symbol', { type: 'button', role: 'radio', 'aria-label': `Bullet ${ch}`, 'aria-checked': 'false', onclick: () => { character = ch; paint(); } }, ch));
+  // The arrows choose the previous or next bullet, as in any group of radio buttons; Home and End the first and last.
+  grid.addEventListener('keydown', e => {
+    if (isComposing(e) || e.altKey || e.ctrlKey || e.metaKey) return;
+    const buttons = [...grid.children], at = buttons.indexOf(e.target);
+    const next = { ArrowRight: at + 1, ArrowDown: at + 1, ArrowLeft: at - 1, ArrowUp: at - 1, Home: 0, End: buttons.length - 1 }[e.key];
+    if (at < 0 || next === undefined) return;
+    e.preventDefault();
+    const button = buttons[(next + buttons.length) % buttons.length];
+    button.click(); button.focus();
+  });
   font.input.addEventListener('input', paint);
   const more = el('button.btn.btn-outline', { type: 'button', onclick: () => openSymbolPicker({ onPick: ch => { character = ch; paint(); } }) }, 'Symbol…');
   paint();
@@ -53,7 +66,7 @@ export function openDefineBullet({ level, apply, onClose }) {
       el('div.fmt-grid', {}, field('Font', font.node), field('Color', color), field('Alignment', alignment)),
       el('div.ed-font-preview-frame', {}, el('span.field-label', {}, 'Preview'), preview)],
     submit: () => apply({ character, font: font.input.value.trim() || null, color: color.value === 'auto' ? null : color.value, alignment: alignment.value }) });
-  grid.querySelector('[aria-checked="true"]')?.focus() || grid.firstChild.focus();
+  (grid.querySelector('[aria-checked="true"]') || grid.firstChild).focus();
   return modal;
 }
 
