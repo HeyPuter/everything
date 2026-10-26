@@ -130,6 +130,7 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
   const notes = footnotePlan(pageStories, paragraphs), endnotes = endnotePlan(pageStories, paragraphs), source = paragraphs;
   const numberNotes = () => numberedParagraphs(source, { footnote: notes?.numbers || new Map(), endnote: endnotes?.numbers || new Map() });
   if (notes || endnotes) paragraphs = numberNotes();
+  const visited = new Set();
   for (let attempt = 0; attempt < MAX_PAGES; attempt++) {
     // Page counts reach the body only through the header and footer heights they produce.
     const storyHeights = totals ? new Map() : undefined, storyHeightCache = new Map(), paragraphKeys = new WeakMap();
@@ -155,11 +156,17 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
     if (!totals) return aligned();
     const sectionCounts = [];
     for (const regions of placed.pageRegions) for (const section of new Set((regions || []).map(r => r.section))) sectionCounts[section] = (sectionCounts[section] || 0) + 1;
-    const next = { pageCount: placed.pageCount, sectionCounts };
-    if (JSON.stringify(next) === JSON.stringify(counts)) return aligned();
+    const next = { pageCount: placed.pageCount, sectionCounts }, key = JSON.stringify(next);
+    if (key === JSON.stringify(counts)) return aligned();
     // When the new counts leave every header and footer this layout measured at the same height,
     // laying out again with them would place everything exactly as it is now.
-    if ([...storyHeights.values()].every(story => story.measure(next) === story.height)) return aligned();
+    const heights = [...storyHeights.values()].map(story => [story.measure(next), story.height]);
+    if (heights.every(([height, reserved]) => height === reserved)) return aligned();
+    // A count whose header or footer is shorter than a smaller count's (Roman numerals: "viii" is
+    // longer than "ix") can make the counts alternate for ever. Once they come round again, keep the
+    // first layout that left its headers and footers at least the room they now take.
+    visited.add(JSON.stringify(counts));
+    if (visited.has(key) && heights.every(([height, reserved]) => height <= reserved + 1e-6)) return aligned();
     counts = next;
   }
   throw new Error('Header/footer page-count fields did not converge during pagination.');

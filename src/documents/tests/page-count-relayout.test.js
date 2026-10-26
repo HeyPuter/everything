@@ -84,3 +84,28 @@ it('reuses page stories measured alike by an earlier layout, reporting their uns
   expect(again).toBe(once);
   expect(unsupported).toEqual(['Chapter-prefixed page numbers are not supported yet.', 'Chapter-prefixed page numbers are not supported yet.']);
 });
+
+it('settles a page count whose footer is shorter than a smaller count\'s, with the footer clear of the body', () => {
+  // "Pages: VIII" wraps onto a second line of this 80 px footer, "Pages: IX" does not: with a two-line
+  // footer the body takes nine pages, with a one-line footer eight. Each count gives the other.
+  const roman = { kind: 'footer', paragraphs: [paragraph('', { runs: [{ text: 'Pages: ' }, { text: '￼', field: { type: 'NUMPAGES', cachedText: '1', generalFormat: 'upperRoman' } }], format: { spaceAfter: 0 } })] };
+  const definition = { evenAndOdd: false, sections: [{ header: {}, footer: { default: 'roman' } }], stories: { roman } };
+  const settings = { ...DEFAULT_PAGE_SETTINGS, width: 4080, left: 1440, right: 1440, height: 5880, top: 1440, bottom: 300, footer: 0 };
+  const measure = text => ({ width: text.length * 8, ascent: 15, descent: 5 });
+  let laidOut = 0;
+  for (let count = 97; count <= 104; count++) {
+    const paragraphs = Array.from({ length: count }, (_, i) => paragraph(`L${i}`, { format: { spaceAfter: 0 } }));
+    const counting = (text, style) => { if (text === 'L0') laidOut++; return measure(text, style); };
+    laidOut = 0;
+    const result = layoutDocument(paragraphs, counting, pageGeometry(settings), undefined, [], definition);
+    // Laid out a handful of times, not once per page the preview allows.
+    expect(laidOut).toBeLessThan(10);
+    const placed = layoutPageStories(result, definition, [settings], measure);
+    for (let index = 0; index < result.pageCount; index++) {
+      const footerTop = Math.min(...placed.lines.filter(line => line.page === index).map(line => line.y));
+      const bodyBottom = Math.max(...result.lines.filter(line => line.page === index).map(line => line.y + line.height));
+      expect(bodyBottom).toBeLessThanOrEqual(footerTop);
+    }
+    expect(placed.lines.at(-1).fragments.map(f => f.text).join('')).toContain(['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][result.pageCount]);
+  }
+});

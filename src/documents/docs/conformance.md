@@ -4421,7 +4421,11 @@ The read-only preview parses ordinary story paragraphs using the document's
 styles and paints them at header/footer distances. The field parser retains
 simple and complex field XML (§17.16), including split instruction runs and
 cached results. PAGE, NUMPAGES and SECTIONPAGES use layout counts; optional
-MERGEFORMAT is accepted. Automatic PAGE/NUMPAGES in page stories refresh even when locked; locked SECTIONPAGES retains its cached text (see the reference controls below). Reflow does
+MERGEFORMAT is accepted. Automatic PAGE/NUMPAGES in page stories refresh even when locked; locked SECTIONPAGES retains its cached text (see the reference controls below). The body is laid
+out again until the counts its headers and footers were measured with are the counts it produces.
+Counts that alternate (a Roman NUMPAGES whose next value is shorter, so the page count flips back)
+settle on the first layout that left its headers and footers at least the room they take; the
+reference application updates such fields once instead. Reflow does
 not overwrite source field XML or the source package. Paragraph shading and
 borders use story coordinates, separately from body selection and hit testing.
 
