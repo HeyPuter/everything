@@ -8,6 +8,8 @@ import { iconEl } from '../ui/icons.js';
 import { canUseAi, aiChat } from '../lib/puter.js';
 import { responseText, textFence } from '../lib/ai.js';
 
+const SENTENCE_END = /[\p{Sentence_Terminal}\n\v\f]/u, SENTENCE_REACH = 200;
+
 /** The phrase to look up and its sentence, from a document text and selection. */
 export function lookupTarget(text, start, end) {
   let from = start, to = end;
@@ -18,9 +20,13 @@ export function lookupTarget(text, start, end) {
     while (to < text.length && word.test(text[to])) to++;
   }
   const phrase = text.slice(from, to).replace(/[\s￼]+/g, ' ').trim().slice(0, 120);
-  const before = text.slice(0, from), after = text.slice(to);
-  const sentenceStart = Math.max(before.search(/[^.!?\n]*$/), 0), endMatch = /[.!?\n]/.exec(after);
-  const sentence = (before.slice(sentenceStart) + text.slice(from, to) + (endMatch ? after.slice(0, endMatch.index + 1) : after.slice(0, 200))).replace(/[\s￼]+/g, ' ').trim().slice(0, 400);
+  // The sentence ends at any script's sentence punctuation (。 ！ ？ ؟ । as well as . ! ?) or a break, and keeps
+  // to the 200 characters on either side of the term, so it always holds the term it explains.
+  let first = from, stop = to;
+  while (first > 0 && from - first < SENTENCE_REACH && !SENTENCE_END.test(text[first - 1])) first--;
+  while (stop < text.length && stop - to < SENTENCE_REACH && !SENTENCE_END.test(text[stop])) stop++;
+  if (stop < text.length && stop - to < SENTENCE_REACH && SENTENCE_END.test(text[stop]) && text[stop] !== '\n') stop++;
+  const sentence = text.slice(first, Math.min(stop, to + SENTENCE_REACH)).replace(/[\s￼]+/g, ' ').trim().slice(0, 120 + 2 * SENTENCE_REACH);
   return { phrase, sentence };
 }
 
