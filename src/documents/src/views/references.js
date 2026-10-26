@@ -124,9 +124,10 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   };
   /**
    * Run `action(body, ...modules)` on the document body as one undo step, without tracking changes,
-   * then refresh page references (all, or `result.only`). Returns the action's result.
+   * then refresh page references (all, or `result.only`). Returns the action's result. With `track`, text the
+   * action inserts (a caption, a cross-reference) is then a tracked insertion when Track Changes is on.
    */
-  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false } = {}) {
+  async function runBody(action, { modules = ['captions'], refresh = true, keepFocus = false, track = false } = {}) {
     const engine = ready(); if (!engine) return false;
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
@@ -137,8 +138,12 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     let result;
     try {
       engine.execute(() => {
+        const before = track && tracking ? body.text : null;
         result = action(body, ...loaded);
         if (result === false) return false;
+        // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
+        // tracking locked it could not be inserted at all.
+        if (before !== null) body.trackInsertion(before);
         if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
         return result;
       });
@@ -222,7 +227,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       el('div.ref-two-column.ref-tight', {}, field('Label', label), field('Position', position)),
       exclude, field('Numbering', format),
       el('div.row', {}, newLabel, deleteLabel),
-    ], onSubmit: () => runBody((doc, c) => c.insertCaption(doc, { label: label.value, text: caption.value.trim(), above: position.value === 'above', format: format.value, excludeLabel: exclude.box.checked }), { modules: ['captions'] }) });
+    ], onSubmit: () => runBody((doc, c) => c.insertCaption(doc, { label: label.value, text: caption.value.trim(), above: position.value === 'above', format: format.value, excludeLabel: exclude.box.checked }), { modules: ['captions'], track: true }) });
     caption.focus();
   }
 
@@ -272,7 +277,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     ], onSubmit: async () => {
       const target = kinds.find(k => k[0] === type.value)[2][Number(list.value)];
       if (!target) throw new Error('Choose an item to refer to.');
-      await runBody((body, c) => { c.insertCrossReference(body, target, { show: show.value, hyperlink: hyperlink.box.checked, aboveBelow: aboveBelow.box.checked }); return true; });
+      await runBody((body, c) => { c.insertCrossReference(body, target, { show: show.value, hyperlink: hyperlink.box.checked, aboveBelow: aboveBelow.box.checked }); return true; }, { track: true });
     } });
     insertButton = dialog.submit;
     list.addEventListener('dblclick', () => dialog.form.requestSubmit());

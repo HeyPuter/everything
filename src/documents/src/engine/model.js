@@ -2084,6 +2084,26 @@ export class TextDocument {
     }
     return result;
   }
+  /**
+   * After a command that wrote text untracked (a caption, a cross-reference, a table of contents), record what it
+   * inserted as a tracked insertion, as typing it would have been. Only a single inserted stretch is recorded;
+   * returns whether the change was one.
+   */
+  trackInsertion(previousText) {
+    const text = this.text, limit = previousText.length;
+    if (text.length <= limit) return false;
+    let start = 0, tail = 0;
+    while (start < limit && text[start] === previousText[start]) start++;
+    while (tail < limit - start && text[text.length - 1 - tail] === previousText[limit - 1 - tail]) tail++;
+    if (start + tail !== limit) return false;
+    const revision = this.newRevision('ins'), touched = new Set();
+    eachRevisionTarget(this.paragraphs, start, text.length - tail, ({ paragraph, run, mark }) => {
+      if (mark) paragraph.markRevision = { ...revision };
+      else { run.revision = { ...revision }; delete run.formatRevision; touched.add(paragraph); }
+    });
+    for (const p of touched) p.runs = normalize(p.runs);
+    return true;
+  }
   newRevision(type) { return { type, author: this.revisionAuthor || 'Author', date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') }; }
   trackedReplace(text, { checkpoint = true, ...rest } = {}) {
     const [start, end] = this.range, backward = this.selection.focus < this.selection.anchor;

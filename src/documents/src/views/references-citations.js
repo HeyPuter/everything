@@ -66,7 +66,7 @@ export function createCitationCommands(ctx) {
   async function cite(tag, options = {}) {
     const engine = ready(); if (!engine) return;
     const { data, style } = documentData();
-    await runBody((body, fields) => fields.insertCitation(body, { tags: [tag], ...options }, data.sources, style), { modules: ['bibliography'], refresh: false });
+    await runBody((body, fields) => fields.insertCitation(body, { tags: [tag], ...options }, data.sources, style), { modules: ['bibliography'], refresh: false, track: true });
     // A newly cited source can change IEEE numbering, same-year letters and every bibliography.
     await refreshFields(data.sources, style);
   }
@@ -271,7 +271,7 @@ export function createCitationCommands(ctx) {
   /* ---- Bibliography ---- */
   async function insertBibliography(heading = null) {
     const { data, style } = documentData();
-    await runBody((body, fields) => fields.insertBibliography(body, data.sources, style, { heading }), { modules: ['bibliography'], refresh: false });
+    await runBody((body, fields) => fields.insertBibliography(body, data.sources, style, { heading }), { modules: ['bibliography'], refresh: false, track: true });
   }
   function bibliographyItems(focusEditor) {
     const disabled = !ready();

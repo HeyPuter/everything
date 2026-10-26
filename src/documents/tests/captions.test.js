@@ -68,6 +68,51 @@ describe('captions and cross-references', () => {
     expect(reopened.text.split('\n').at(-1)).toBe('Conclusion entire: Figure 1: Second chart caption: Second chart label: Figure 1');
   });
 
+  it('records a caption, cross-reference or table of contents inserted with Track Changes on as a tracked insertion', async () => {
+    const { insertTableOfContents } = await import('../src/engine/toc.js');
+    const { protectionGuard } = await import('../src/engine/protection.js');
+    const { StorySession } = await import('../src/engine/story-session.js');
+    const inserts = [
+      ['caption below', d => { d.select(d.text.indexOf('Chart two')); insertCaption(d, { label: 'Figure', text: 'Second chart' }); }, 'Chart one\nChart two\nFigure 1: Second chart\nConclusion'],
+      ['caption above', d => { d.select(2); insertCaption(d, { label: 'Figure', text: 'First', above: true }); }, 'Figure 1: First\nChart one\nChart two\nConclusion'],
+      ['caption at the end', d => { d.select(d.text.length); insertCaption(d, { label: 'Table', text: 'Last' }); }, 'Chart one\nChart two\nConclusion\nTable 1: Last'],
+      ['cross-reference', d => { d.select(0, 5); d.addBookmark('First'); d.select(d.text.length); insertCrossReference(d, referenceTargets(d).bookmarks[0]); }, 'Chart one\nChart two\nConclusionChart'],
+      ['table of contents', d => { d.select(0); d.setParagraphStyle(Object.values(d.styles.definitions).find(s => s.name?.toLowerCase() === 'heading 1').id); d.select(0); insertTableOfContents(d, {}); }, null],
+    ];
+    for (const [name, insert, expected] of inserts) {
+      const { pkg, d } = await setup();
+      const original = d.text, shape = m => m.paragraphs.map(p => [m.text && p.runs.map(r => r.text).join(''), p.styleId || null]);
+      const originalShape = JSON.stringify(shape(d));
+      d.trackChanges = true; d.revisionAuthor = 'Me';
+      const session = new StorySession(d);
+      // Locked tracking (trackedChanges protection) lets the insertion through once it is tracked.
+      session.guard = protectionGuard({ enforcement: true, edit: 'trackedChanges' });
+      // As References commands run: untracked, then what was inserted is recorded as inserted.
+      d.trackChanges = false;
+      try { session.run(m => { const before = m.text; insert(m); expect(m.trackInsertion(before), name).toBe(true); }); } finally { d.trackChanges = true; }
+      if (expected) expect(d.text, name).toBe(expected);
+      expect(d.revisions.map(r => r.type), name).toEqual(['ins']);
+      const bytes = await save(pkg, d);
+      const reopened = new TextDocument((await DocxPackage.open(bytes)).paragraphs);
+      expect(reopened.revisions.map(r => [r.type, r.author]), name).toEqual([['ins', 'Me']]);
+      reopened.resolveRevisions(false);
+      expect(reopened.text, name).toBe(original);
+      d.resolveRevisions(false);
+      expect(d.text, name).toBe(original);
+      if (name !== 'table of contents') expect(JSON.stringify(shape(d)), name).toBe(originalShape);
+    }
+  });
+  it('leaves a command that changed more than one stretch untracked', async () => {
+    const { d } = await setup();
+    d.select(d.text.indexOf('Chart two')); insertCaption(d, { label: 'Figure', text: 'Two' });
+    const before = d.text;
+    d.select(2); insertCaption(d, { label: 'Figure', text: 'One' });
+    // The new caption renumbered the one after it: two changes, not one insertion.
+    expect(d.text).toBe('Chart one\nFigure 1: One\nChart two\nFigure 2: Two\nConclusion');
+    expect(d.trackInsertion(before)).toBe(false);
+    expect(d.revisions).toEqual([]);
+  });
+
   it('places a table caption below the table', async () => {
     const { d } = await setup();
     d.select(d.text.indexOf('Conclusion')); d.insertTable(2, 2);

@@ -29,7 +29,7 @@ export function createTocCommands(ctx) {
       const existing = tableFor(toc, body, false);
       if (existing) return toc.insertTableOfContents(body, { existing, options: toc.contentsOptions({ levels: design.levels, pageNumbers: design.pageNumbers !== false, rightAlign: design.rightAlign !== false }), leader: design.leader, rightAlign: design.rightAlign !== false, boldTop: !!design.boldTop });
       return toc.insertTableOfContents(body, { title: design.title, options: toc.contentsOptions({ levels: design.levels, pageNumbers: design.pageNumbers !== false, rightAlign: design.rightAlign !== false }), leader: design.leader, rightAlign: design.rightAlign !== false, boldTop: !!design.boldTop });
-    }, { modules: ['toc'] });
+    }, { modules: ['toc'], track: true });
   }
 
   function galleryItems(focusEditor) {
@@ -106,7 +106,7 @@ export function createTocCommands(ctx) {
       await runBody((doc, t) => {
         const target = tableFor(t, doc, false);
         return t.insertTableOfContents(doc, { existing: target, title: target ? null : title.value.trim(), options: next, leader: leader.value, rightAlign: rightAlign.box.checked, boldTop: target ? null : false });
-      }, { modules: ['toc'] });
+      }, { modules: ['toc'], track: true });
     } });
   }
 
@@ -210,7 +210,7 @@ export function createTocCommands(ctx) {
       const target = tableFor(t, doc, true);
       const next = t.figuresOptions({ label: label.value || 'Figure', includeLabel: includeLabel.box.checked, hyperlinks: links.box.checked, pageNumbers: pageNumbers.box.checked, rightAlign: rightAlign.box.checked });
       return t.insertTableOfContents(doc, { existing: target, title: null, options: next, leader: leader.value, rightAlign: rightAlign.box.checked, boldTop: false });
-    }, { modules: ['toc'] }) });
+    }, { modules: ['toc'], track: true }) });
   }
 
   return {

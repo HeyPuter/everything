@@ -524,3 +524,36 @@ test('a cross-reference to a footnote numbered from 1 on each page shows the num
   await expect.poll(() => engineText(page)).toMatch(/See note 1$/);
   expect(errors).toEqual([]);
 });
+
+test('a caption and a cross-reference inserted with Track Changes on are tracked insertions', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.keyboard.type('Chart one');
+  await expect.poll(() => engineText(page)).toBe('Chart one');
+  await page.keyboard.press('ControlOrMeta+Shift+e');
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.body.trackChanges)).toBe(true);
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Insert Caption', exact: true }).click();
+  const caption = page.getByRole('dialog', { name: 'Caption' });
+  await caption.getByLabel('Caption text').fill('Revenue');
+  await caption.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect.poll(() => engineText(page)).toBe('Chart one\nFigure 1: Revenue');
+  await expect(input(page)).toBeFocused();
+  await page.keyboard.press('Enter'); await page.keyboard.type('See ');
+  await expect.poll(() => engineText(page)).toBe('Chart one\nFigure 1: Revenue\nSee ');
+  await ribbon(page).getByRole('button', { name: 'Cross-reference', exact: true }).click();
+  const xref = page.getByRole('dialog', { name: 'Cross-reference' });
+  await xref.getByLabel('Reference type').selectOption('Figure');
+  await xref.getByLabel('Insert reference to').selectOption('label');
+  await xref.getByRole('button', { name: 'Insert', exact: true }).click();
+  await expect.poll(() => engineText(page)).toBe('Chart one\nFigure 1: Revenue\nSee Figure 1');
+  const changes = () => page.evaluate(() => { const body = window.__docs.current.view.engine.session.body; return body.revisions.map(r => [r.type, body.text.slice(r.start, r.end)]); });
+  // Everything after "Chart one" is inserted: the caption, the typing and the cross-reference.
+  await expect.poll(async () => { const list = await changes(); return [[...new Set(list.map(c => c[0]))], list.map(c => c[1]).join('')]; }).toEqual([['ins'], '\nFigure 1: Revenue\nSee Figure 1']);
+  const xml = strFromU8((await download(page, info, 'tracked-captions.docx'))['word/document.xml']);
+  expect(xml).toMatch(/<w:ins [^>]*><w:r>(?:<w:rPr>.*?<\/w:rPr>)?<w:t xml:space="preserve">Figure <\/w:t>/);
+  // Rejecting every change leaves the document as it was before the caption.
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.execute(() => engine.session.body.resolveRevisions(false)); });
+  await expect.poll(() => engineText(page)).toBe('Chart one');
+  expect(errors).toEqual([]);
+});

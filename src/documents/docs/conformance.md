@@ -22103,6 +22103,10 @@ Supported subset:
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
   `endnoteReference`) records the reference run as an insertion, written inside `w:ins`.
 - Replace All records each replacement as a deletion of the found text and an insertion.
+- A caption, cross-reference, citation, bibliography or table of contents inserted with Track Changes on is
+  recorded as a tracked insertion (`w:ins`, with its paragraph marks) when the command inserts one stretch of
+  text. A command that also renumbers or rewrites other text (a caption before existing ones, an IEEE citation,
+  a rebuilt table) is applied untracked, and with tracking locked it is refused.
 - Updating fields (Update Fields, Update page references, mail merge previews) is not itself tracked; a
   result that was wholly a tracked insertion or deletion keeps that change after the update. The field's
   begin/separate/end characters are written outside `w:ins`/`w:del` (an approximation).
