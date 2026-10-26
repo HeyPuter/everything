@@ -67,6 +67,18 @@ describe('tracked changes inside content controls', () => {
     expect(revisions(reopened.paragraphs)).toEqual(expected);
     expect(reopened.paragraphs[0].runs.filter(r => r.link).map(r => r.text).join('')).toBe('linkXed words');
   });
+  for (const [name, body] of [
+    ['a paragraph plain-text control', '<w:sdt><w:sdtPr><w:id w:val="9"/><w:text/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>Inside text</w:t></w:r></w:p></w:sdtContent></w:sdt><w:p><w:r><w:t>Last</w:t></w:r></w:p>'],
+    ['a cell plain-text control', '<w:tbl><w:tblPr><w:tblW w:w="4000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="4000"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4000" w:type="dxa"/></w:tcPr><w:sdt><w:sdtPr><w:id w:val="9"/><w:text/></w:sdtPr><w:sdtContent><w:p><w:r><w:t>Inside text</w:t></w:r></w:p></w:sdtContent></w:sdt></w:tc></w:tr></w:tbl><w:p><w:r><w:t>Last</w:t></w:r></w:p>'],
+  ]) it(`reopens a tracked deletion inside ${name} for editing`, async () => {
+    const { pkg, model } = await tracked(body);
+    const at = model.text.indexOf('Inside') + 2;
+    model.select(at, at + 3); model.replace('');
+    expect(revisions(model.paragraphs).map(([type, text]) => [type, text])).toEqual([['del', 'sid']]);
+    const reopened = await DocxPackage.open(await save(pkg, model));
+    expect(reopened.readOnly).toBeFalsy();
+    expect(revisions(reopened.paragraphs).map(([type, text]) => [type, text])).toEqual([['del', 'sid']]);
+  });
   it('still rejects text outside runs and revisions in an inline control', async () => {
     const pkg = await DocxPackage.open(await fixture(control('richText').replace('<w:r><w:t>Inside text</w:t></w:r>', '<w:ins w:id="1" w:author="A"><w:r><w:t>In</w:t></w:r></w:ins><w:fldSimple w:instr="PAGE"><w:r><w:t>1</w:t></w:r></w:fldSimple>')), { bestEffort: true });
     expect(pkg.readOnly).toBe(true);

@@ -238,8 +238,8 @@ export function contentControlReader(readRunProperties, parts = {}) {
       // actual plain-text contents must stay in a single paragraph/cell.
       // Typing replaces the cache; formatting still targets the whole control.
       if (kind !== 'inline' && (!paragraphs.length || paragraphs.length !== 1 && !placeholder || children(container).some(n => n.namespaceURI !== W || !['p', ...(kind === 'cell' ? ['tcPr'] : [])].includes(n.localName)))) fail('plain-text controls spanning multiple paragraphs or tables');
-      const runs = kind === 'inline' ? inlineItems : paragraphs.flatMap(p => children(p)).filter(n => n.localName !== 'pPr');
-      if (!runs.length || runs.some(n => n.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd', ...(commentable ? ['commentRangeStart', 'commentRangeEnd'] : [])].includes(n.localName))) fail('non-text plain-control contents');
+      const runs = kind === 'inline' ? inlineItems : paragraphs.flatMap(p => trackedRuns(children(p).filter(n => n.localName !== 'pPr')) || [null]);
+      if (!runs.length || runs.some(n => !n || n.namespaceURI !== W || !['r', 'proofErr', 'bookmarkStart', 'bookmarkEnd', ...(commentable ? ['commentRangeStart', 'commentRangeEnd'] : [])].includes(n.localName))) fail('non-text plain-control contents');
       const referenceMark = r => commentable && children(r).some(n => n.namespaceURI === W && n.localName === 'commentReference') && children(r).every(n => n.namespaceURI === W && ['rPr', 'commentReference'].includes(n.localName));
       for (const r of runs.filter(n => n.localName === 'r' && !referenceMark(n))) if (children(r).some(n => n.namespaceURI !== W || !['rPr', deletedRun(r) ? 'delText' : 't', 'tab', 'br', 'cr', 'lastRenderedPageBreak'].includes(n.localName))) fail('non-text plain-control runs');
       const formats = runs.filter(n => n.localName === 'r' && !referenceMark(n)).map(r => readRunProperties(child(r, 'rPr')));

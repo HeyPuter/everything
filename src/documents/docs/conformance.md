@@ -23358,7 +23358,8 @@ Supported subset:
   control's text, so it now counts as a change of the control and its contents are rewritten
   with the `w:del` wrapper instead of reusing the source runs. Inline control contents may hold
   `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), also
-  within a hyperlink there, with `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
+  within a hyperlink there, with `delText` in deleted runs, so such a document reopens editable.
+  The paragraphs of a paragraph or cell plain-text control may hold the same wrappers. Other wrapper contents keep the
   read-only fallback (`tests/control-revisions-docx.test.js`).
 - A paragraph whose mark is a tracked insertion or deletion (§17.13.5.16/.14 in `pPr/rPr`) is read
   with the markup-compatibility context of its ancestors, as other paragraphs are. Its floating
