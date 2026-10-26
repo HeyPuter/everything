@@ -483,3 +483,38 @@ test('undo while previewing keeps showing the current recipient', async ({ page 
   await expect(input).toHaveValue('Hi Bob!');
   expect(errors).toEqual([]);
 });
+
+test('renaming a column in Edit Entries keeps it matched to its address field', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await ribbon(page).getByRole('button', { name: 'Select Recipients' }).click();
+  await page.getByRole('menuitem', { name: 'Type a New List…' }).click();
+  const grid = page.getByRole('dialog', { name: 'New Address List' });
+  await grid.getByLabel('First Name, entry 1').fill('Rosa');
+  await grid.getByLabel('Last Name, entry 1').fill('Vidal');
+  await grid.getByLabel('City, entry 1').fill('Oslo');
+  await grid.getByRole('button', { name: 'OK' }).click();
+  await expect(grid).toBeHidden();
+  await caret(input, 0);
+  await ribbon(page).getByRole('button', { name: 'Address Block' }).click();
+  await page.getByRole('dialog', { name: 'Insert Address Block' }).getByRole('button', { name: 'Insert' }).click();
+  await ribbon(page).getByRole('button', { name: 'Preview Results' }).click();
+  await expect(input).toHaveValue('Rosa Vidal\nOslo');
+  await ribbon(page).getByRole('button', { name: 'Edit Recipient List' }).click();
+  const recipients = page.getByRole('dialog', { name: 'Mail Merge Recipients' });
+  await recipients.getByRole('button', { name: 'Edit Entries…' }).click();
+  const entries = page.getByRole('dialog', { name: 'Edit Entries' });
+  await entries.getByRole('button', { name: 'Customize Columns…' }).click();
+  const columns = page.getByRole('dialog', { name: 'Customize Columns' });
+  await columns.getByRole('option', { name: 'Last Name' }).click();
+  await columns.getByLabel('Column name').fill('Family');
+  await columns.getByRole('button', { name: 'Rename' }).click();
+  await columns.getByRole('button', { name: 'OK' }).click();
+  await entries.getByRole('button', { name: 'OK' }).click();
+  await recipients.getByRole('button', { name: 'OK' }).click();
+  await expect(input).toHaveValue('Rosa Vidal\nOslo');
+  expect(errors).toEqual([]);
+});

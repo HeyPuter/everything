@@ -12,9 +12,13 @@ const stayOnEnter = e => { if (e.key === 'Enter' && !isComposing(e)) e.preventDe
 const PAGE = 200;
 const clone = list => structuredClone(list);
 
-/** The grid editor for a list's entries (Type a New List, Edit entries). onSave(list) receives the edited copy. */
+/**
+ * The grid editor for a list's entries (Type a New List, Edit entries). onSave(list, renamed) receives the
+ * edited copy and, for each of the list's original column names, its name now (null when it was removed).
+ */
 export function openRecipientGrid({ list, title = 'New Address List', onSave }) {
   const draft = clone(list || { columns: [...DEFAULT_COLUMNS], rows: [], sort: [], filters: [] });
+  const renamed = new Map(draft.columns.map(column => [column, column]));
   if (!draft.rows.length) draft.rows.push({ values: draft.columns.map(() => ''), included: true });
   let page = 0, query = '';
   const table = el('table.mm-grid', { role: 'grid', 'aria-label': 'Recipient entries' });
@@ -58,6 +62,10 @@ export function openRecipientGrid({ list, title = 'New Address List', onSave }) 
   const search = input('', { type: 'search', placeholder: 'Find in list', 'aria-label': 'Find in list', oninput: () => { query = search.value.trim().toLowerCase(); page = 0; render(); }, onkeydown: stayOnEnter });
   const customize = button('Customize Columns…', () => openColumns(draft.columns, (columns, mapping) => {
     draft.rows = draft.rows.map(row => ({ ...row, values: mapping.map(from => from === null ? '' : row.values[from] ?? '') }));
+    for (const [original, current] of renamed) {
+      const at = mapping.indexOf(draft.columns.indexOf(current));
+      renamed.set(original, current !== null && at >= 0 ? columns[at] : null);
+    }
     draft.columns = columns;
     draft.sort = (draft.sort || []).filter(s => columns.includes(s.column));
     draft.filters = (draft.filters || []).filter(f => columns.includes(f.column));
@@ -70,7 +78,7 @@ export function openRecipientGrid({ list, title = 'New Address List', onSave }) 
   ], onSubmit: () => {
     const rows = draft.rows.filter(row => row.values.some(v => String(v).trim()));
     if (!rows.length) throw new Error('Type at least one entry, or press Cancel.');
-    onSave({ ...draft, rows: rows.map(row => ({ ...row, values: row.values.map(v => String(v ?? '').trim()) })) });
+    onSave({ ...draft, rows: rows.map(row => ({ ...row, values: row.values.map(v => String(v ?? '').trim()) })) }, renamed);
   }, focus: table.querySelector('input') });
   return modal;
 }
@@ -179,7 +187,15 @@ export function openRecipientList({ state, onApply, onEditEntries }) {
       button('Sort and Filter…', () => openFilter(draft, render)),
       button('Find Duplicates…', () => openDuplicates(draft, render)),
       button('Check Addresses…', () => openValidation(draft, mapping)),
-      button('Edit Entries…', () => onEditEntries(draft, edited => { Object.assign(draft, edited); render(); })),
+      button('Edit Entries…', () => onEditEntries(draft, (edited, renamed) => {
+        Object.assign(draft, edited);
+        // Field matching follows renamed columns, and forgets removed ones, rather than naming columns that are gone.
+        for (const [key, column] of Object.entries(mapping)) {
+          const now = renamed?.has(column) ? renamed.get(column) : column;
+          if (now && draft.columns.includes(now)) mapping[key] = now; else delete mapping[key];
+        }
+        render();
+      })),
       el('span.grow'), search),
     el('div.mm-grid-wrap', {}, table), el('div.mm-grid-foot', {}, summary, pager),
   ], onSubmit: () => onApply(draft, mapping) });
