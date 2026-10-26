@@ -608,15 +608,17 @@ export class CanvasEditor {
       const geometry = this.layout.pages[index] || this.layout.page;
       canvas.dataset.page = index;
       const ratio = window.devicePixelRatio || 1;
+      // Shown at exactly its backing store's size: the browser draws a canvas at a whole number of
+      // CSS pixels, so a fractional page size (A4, fit-width and slider zooms, or any odd number of
+      // device pixels on a 2x display) would otherwise be resampled, which blurs every page.
+      const cssWidth = Math.max(1, Math.round(geometry.width * this.zoom)), cssHeight = Math.max(1, Math.round(geometry.height * this.zoom));
+      const width = Math.round(cssWidth * ratio), height = Math.round(cssHeight * ratio);
       // Assigning a dimension clears and reallocates the canvas even when unchanged, and pages
       // off screen are repainted only later: keep the backing store of pages that kept their size.
-      const width = Math.round(geometry.width * this.zoom * ratio), height = Math.round(geometry.height * this.zoom * ratio);
       if (canvas.width !== width) canvas.width = width;
       if (canvas.height !== height) canvas.height = height;
-      // Shown at exactly its backing store's size: a fractional page size (A4, fit-width and
-      // slider zooms) would otherwise make the browser resample, and blur, every page.
-      canvas.style.width = `${width / ratio}px`;
-      canvas.style.height = `${height / ratio}px`;
+      canvas.style.width = `${cssWidth}px`;
+      canvas.style.height = `${cssHeight}px`;
     });
     this.pages.style.gap = `${this.layout.page.gap * this.zoom}px`;
     this.syncInput(); this.paint(); this.onSelection();
