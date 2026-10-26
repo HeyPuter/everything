@@ -7259,8 +7259,53 @@ Option+Arrow and double-click already did; `tests/word-navigation.test.js`
 covers Thai and Khmer, and Latin, Greek and Chinese runs keep the native
 reference's units. Remaining gaps: word count
 and spelling still treat a run of these scripts as one word; Tai Tham, Tai Viet
-and New Tai Lue (also class SA) are not segmented; CJK and East Asian kinsoku
-rules (§17.3.1.16) remain separate.
+and New Tai Lue (also class SA) are not segmented. Chinese and Japanese
+breaking is described in the next section.
+
+## Chinese and Japanese line breaking
+
+ECMA-376 Part 1 §17.3.3.31 (`t`) does not define where a line may break.
+§17.3.1.16 (`kinsoku`) controls the East Asian rules for the first and last
+character of a line, and the settings part's `noLineBreaksAfter` and
+`noLineBreaksBefore` (§17.15.1) can replace their character lists, which
+otherwise follow the application's defaults. This engine applies the default
+rules to every paragraph.
+Chinese and Japanese are written without spaces, and a line may break before or
+after any ideograph or kana (UAX #14 line-break class ID,
+https://www.unicode.org/reports/tr14/), including beside Latin text and
+digits. Before, only spaces were break opportunities, so a Chinese run after
+English words moved whole to the next line, leaving the line before half
+empty, and Chinese or Japanese text was split by the forced grapheme break
+wherever the width ran out, starting lines with `。`, `」` or small kana.
+
+A boundary next to a Han, Hiragana, Katakana or Bopomofo character, CJK
+punctuation (U+3001–U+303F), the middle dot and prolonged sound mark, or a
+fullwidth or halfwidth form is now a break opportunity, shared by paragraph
+layout, the floating-object word check, justification contraction and AutoFit
+intrinsic minimum widths, the same opportunities Thai uses. The East Asian line
+rules are applied with the default Japanese and Chinese lists: no break before
+closing punctuation (`、。，．：；？！）」』】〕〉》”’`), small kana, the iteration
+marks, the prolonged sound mark `ー`, the ellipsis `…`, hyphens, straight quotes
+and halfwidth equivalents, none after opening punctuation and currency signs
+(`（「『【〔〈《“‘$£¥`), and none inside a doubled dash `——`. Spaces, tabs,
+inline objects and Hangul keep the existing rules, so Korean still wraps between
+words. Breaks are chosen by character, not by the `lang` value, and no source
+text or package part is rewritten.
+
+`tools/cjk_wrap_fixture.py` manually constructs `public/fixtures/cjk-wrap.docx`
+(English followed by Chinese, Japanese with brackets and small kana, Chinese
+quotation, dash, ellipsis and title punctuation, Chinese across source runs,
+and Korean). `tests/cjk-line-breaking.test.js` covers layout at every width,
+intrinsic widths, editing, undo and package preservation;
+`tests/browser/cjk-wrap.spec.js` checks the line rules with browser canvas
+measurement through editing, undo, export and reopen. No native reference was
+recorded: line positions follow the browser's fonts, not a reference
+application's. Remaining gaps: `w:kinsoku w:val="0"`, `w:wordWrap`,
+`w:overflowPunct` (hanging punctuation), `w:topLinePunct`, custom
+`noLineBreaksAfter`/`noLineBreaksBefore` lists and `strictFirstAndLastChars` are
+not read; justified Chinese and Japanese lines stretch only their spaces, not
+the gaps between characters; word movement, word count and spelling still treat
+a run of ideographs as one word.
 
 ## Body editing with retained nonempty headers and footers
 
@@ -23133,8 +23178,9 @@ Gaps: break points are a heuristic, not a dictionary; ambiguous English
 divisions (stress-dependent single consonants) may differ from desktop word
 processors, and only English is hyphenated. Table AutoFit minimum widths ignore
 automatic break points. Line positions of hyphenated text are not claimed to match
-any other renderer. The East Asian `w:kinsoku`-style line rules and
-`w:hyphenationZone` interaction with justification compression are not
+any other renderer. The East Asian `w:kinsoku` line rules apply only with their
+default character lists (see Chinese and Japanese line breaking), and the
+`w:hyphenationZone` interaction with justification compression is not
 modeled.
 ## Design tab: themes, style sets, watermarks and page fill effects (2026-10-13)
 
