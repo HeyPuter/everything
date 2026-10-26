@@ -353,7 +353,8 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
 /* Sort Text dialog */
 .ed-sort-row { display: grid; grid-template-columns: 90px 1fr; align-items: center; gap: 8px; }
 .ed-sort-value { font-size: 13px; color: var(--ink); }
-.ed-sort-order { display: flex; gap: 18px; border: 0; padding: 0 0 0 98px; margin: 0; font-size: 13px; }
+/* A fieldset is as wide as its content by default; this one wraps its choices instead of widening a phone's sheet. */
+.ed-sort-order { display: flex; flex-wrap: wrap; gap: 8px 18px; min-width: 0; border: 0; padding: 0 0 0 98px; margin: 0; font-size: 13px; }
 .ed-sort-order label, .ed-check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 
 /* Format Painter: a brush cursor over the pages while it is armed. */

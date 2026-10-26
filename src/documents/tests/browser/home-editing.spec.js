@@ -143,3 +143,24 @@ test('edits the independent control with every Home editing command and reopens 
   await expect(button(page, 'Bold')).toHaveAttribute('aria-pressed', 'true');
   expect(errors).toEqual([]);
 });
+
+test('the Sort Text dialog fits a 320-pixel window', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const input = await newDocument(page, 'pear\nApple\nfig');
+  await input.press('ControlOrMeta+a');
+  await onTab(page, 'home');
+  await button(page, 'Sort').click();
+  const dialog = page.getByRole('dialog', { name: 'Sort Text' });
+  await expect(dialog).toBeVisible();
+  // Nothing in the sheet runs past its edge, so every choice and the OK button can be seen and reached.
+  const outside = await dialog.evaluate(panel => {
+    const box = panel.getBoundingClientRect();
+    return [...panel.querySelectorAll('select, input, label, button')].filter(n => n.getClientRects().length)
+      .filter(n => { const r = n.getBoundingClientRect(); return r.right > box.right + 0.5 || r.left < box.left - 0.5; }).map(n => n.textContent.trim() || n.getAttribute('aria-label'));
+  });
+  expect(outside).toEqual([]);
+  expect(await dialog.evaluate(panel => panel.scrollWidth <= panel.clientWidth)).toBe(true);
+  await dialog.getByLabel('Descending').check();
+  await dialog.getByRole('button', { name: 'OK' }).click();
+  await expect(input).toHaveValue('pear\nfig\nApple');
+});
