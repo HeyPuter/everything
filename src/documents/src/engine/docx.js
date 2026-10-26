@@ -1352,7 +1352,12 @@ export class DocxPackage {
           const pair = revisionNodes.length === 2 && revisionNodes[0].localName === 'ins' && revisionNodes[1].localName === 'del';
           if (context.drawingText || context.pageStory || revisionNodes.length > 1 && !pair) throw new UnsupportedDocumentError('tracked paragraph marks outside the main body');
           markRevision = pair ? { ...readRevision(revisionNodes[1]), inserted: (({ author, date }) => ({ author, date }))(readRevision(revisionNodes[0])) } : readRevision(revisionNodes[0]);
+          const source = node;
           node = node.cloneNode(true);
+          // Keep the inherited markup-compatibility and namespace context (an ancestor's
+          // mc:Ignorable) that this paragraph's retained drawings are read in.
+          let top = node;
+          for (let parent = source.parentElement; parent; parent = parent.parentElement) { const shell = parent.cloneNode(false); shell.appendChild(top); top = shell; }
           for (const n of children(child(child(node, 'pPr'), 'rPr'))) if (n.namespaceURI === W && ['ins', 'del', 'moveFrom', 'moveTo'].includes(n.localName)) n.remove();
         }
       }

@@ -23360,6 +23360,11 @@ Supported subset:
   `ins`/`del`/`moveFrom`/`moveTo` wrappers of runs (one deletion nested in an insertion), also
   within a hyperlink there, with `delText` in deleted runs, so such a document reopens editable. Other wrapper contents keep the
   read-only fallback (`tests/control-revisions-docx.test.js`).
+- A paragraph whose mark is a tracked insertion or deletion (§17.13.5.16/.14 in `pPr/rPr`) is read
+  with the markup-compatibility context of its ancestors, as other paragraphs are. Its floating
+  drawings' ignorable `wp14:sizeRelH`/`sizeRelV` (declared ignorable on the document root, as on
+  every anchor desktop word processors write) no longer make the document open read-only, including
+  after a tracked deletion of a paragraph holding a picture (`tests/tracked-mark-drawings.test.js`).
 - A comment whose range starts, ends or lies inside an inline rich-text content control
   (§17.13.4.4 `commentRangeStart`, §17.13.4.3 `commentRangeEnd`, §17.13.4.5 `commentReference`)
   is written with its markers and reference mark inside `sdtContent`, as desktop word processors
