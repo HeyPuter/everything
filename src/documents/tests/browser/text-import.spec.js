@@ -92,3 +92,16 @@ test('a Word template opens for editing and saves as a document', async ({ page 
   expect(types).not.toContain('template.main+xml');
   await reopenDocx(page, input(page), path, `Dear Rosa, ${original}`);
 });
+
+test('a text file too long to open shows why, with ways forward', async ({ page }) => {
+  await page.goto('/mock.html#/home');
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByRole('button', { name: 'Import', exact: true }).first().click();
+  // Past the editor's page limit: the import fails once the editor is already showing.
+  const lines = Array.from({ length: 9000 }, (_, i) => `Line ${i + 1}`).join('\n');
+  await (await chooser).setFiles({ name: 'long.txt', mimeType: 'text/plain', buffer: Buffer.from(lines) });
+  const message = page.locator('.canvas-message.editor-error');
+  await expect(message).toBeVisible({ timeout: 15000 });
+  await expect(message).toContainText('up to 200 pages');
+  await expect(message.getByRole('button', { name: 'Back to documents', exact: true })).toBeInViewport();
+});

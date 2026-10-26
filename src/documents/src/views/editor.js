@@ -1706,6 +1706,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       button('New document', () => newDoc?.(), { className: 'btn btn-outline' }));
     message.replaceChildren(el('p.canvas-message-text', {}, e.message || 'Could not open this document.'), actions);
     message.classList.add('canvas-message-error', 'editor-error');
+    // The notice bar may have been hidden while the editor was attaching (it had no notices then).
+    message.hidden = false;
     host.hidden = true;
     renderStatus('Could not open', 'alert', 'error');
     status.disabled = true;
