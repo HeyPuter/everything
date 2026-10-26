@@ -21,19 +21,21 @@ const swatch = color => !color || color === 'auto' ? '#000' : `#${color}`;
 export function openFontDialog({ format: f, sample = '', apply, onClose, setDefault = null, textEffects = null, ligatures = false, title = 'Font' }) {
   const patch = {};
   const set = values => { Object.assign(patch, values); preview(); };
+  const unset = (...keys) => { for (const key of keys) delete patch[key]; preview(); };
   const current = key => key in patch ? patch[key] : f[key];
 
   /* ---- Font tab ---- */
   const fontName = f.fontAscii === f.fontHAnsi ? f.fontAscii : '';
   const fonts = el('datalist', { id: 'ed-font-dialog-fonts' }, ...fontChoices().map(name => el('option', { value: name })));
   const font = el('input.input', { type: 'text', value: fontName || '', placeholder: fontName ? '' : 'Mixed', list: fonts.id, 'aria-label': 'Font', autocomplete: 'off',
-    oninput: () => { const name = font.value.trim(); if (name) set({ fontAscii: name, fontHAnsi: name }); else { delete patch.fontAscii; delete patch.fontHAnsi; preview(); } } });
+    oninput: () => { const name = font.value.trim(); if (name) set({ fontAscii: name, fontHAnsi: name }); else unset('fontAscii', 'fontHAnsi'); } });
   const style = el('select.input', { 'aria-label': 'Font style', onchange: () => set({ bold: style.value.startsWith('bold'), italic: /italic/i.test(style.value) }) },
     ...(fontStyle(f) ? [] : [el('option', { value: '', disabled: true }, 'Mixed')]), ...STYLES.map(([value, label]) => el('option', { value }, label)));
   style.value = fontStyle(f);
   const sizes = el('datalist', { id: 'ed-font-dialog-sizes' }, ...FALLBACK_SIZES.map(size => el('option', { value: size })));
   const size = el('input.input', { type: 'number', min: 1, max: 1638, step: 0.5, value: f.fontSize ?? '', placeholder: f.fontSize == null ? 'Mixed' : '', list: sizes.id, 'aria-label': 'Size',
-    oninput: () => { if (size.value && size.checkValidity()) set({ fontSize: Number(size.value), fontSizeCs: Number(size.value) }); } });
+    // An emptied field leaves the size as it was, as an emptied Font name does, rather than applying the last size typed.
+    oninput: () => { if (!size.value) unset('fontSize', 'fontSizeCs'); else if (size.checkValidity()) set({ fontSize: Number(size.value), fontSizeCs: Number(size.value) }); } });
   const colorButton = (label, key) => {
     // The label names the button; the color it shows is read as its description.
     const chip = el('span.ed-font-chip'), name = el('span.ed-font-color-name', { id: fieldId('color-name') });
@@ -74,7 +76,7 @@ export function openFontDialog({ format: f, sample = '', apply, onClose, setDefa
   /* ---- Advanced tab ---- */
   const scales = el('datalist', { id: 'ed-font-dialog-scales' }, ...SCALES.map(n => el('option', { value: n })));
   const scale = el('input.input', { type: 'number', min: 1, max: 600, step: 1, value: f.textScale ?? '', placeholder: f.textScale == null ? 'Mixed' : '', list: scales.id, 'aria-label': 'Scale (%)',
-    oninput: () => { if (scale.value && scale.checkValidity()) set({ textScale: Number(scale.value) }); } });
+    oninput: () => { if (!scale.value) unset('textScale'); else if (scale.checkValidity()) set({ textScale: Number(scale.value) }); } });
   const signed = (value, positive, negative) => value === null ? '' : value > 0 ? positive : value < 0 ? negative : 'normal';
   const amount = (label, value) => el('input.input', { type: 'number', min: 0, max: 1584, step: 0.05, value: value ? Math.abs(value) : '', placeholder: value === null ? 'Mixed' : '', 'aria-label': label });
   const spacing = el('select.input', { 'aria-label': 'Spacing' }, el('option', { value: '', disabled: true, hidden: f.characterSpacing !== null }, 'Mixed'),
