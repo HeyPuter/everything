@@ -15,7 +15,8 @@ export function goToTargets(engine, kind) {
     return Array.from({ length: engine.layout.pageCount }, (_, i) => { if (first.has(i)) last = first.get(i); return { position: last, label: `Page ${i + 1}` }; });
   }
   if (kind === 'line') return lines.map((line, i) => ({ position: line.start, label: `Line ${i + 1}` }));
-  if (kind === 'bookmark') return engine.bookmarks.map(b => ({ position: b.start, label: b.name, id: b.id }));
+  // Hidden bookmarks (_Toc…, _Ref…, _GoBack) are not offered, as in the Bookmarks dialog.
+  if (kind === 'bookmark') return engine.bookmarks.filter(b => !b.name?.startsWith('_')).map(b => ({ position: b.start, label: b.name, id: b.id }));
   if (kind === 'heading') return engine.outline.map(entry => ({ position: entry.start, label: entry.text }));
   const out = [];
   let at = 0, inTable = false;

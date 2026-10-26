@@ -440,3 +440,23 @@ test('the References tab fits a phone screen', async ({ page }) => {
   expect(box.width).toBeLessThanOrEqual(390);
   await shot(page, 'caption-390');
 });
+
+test('the Bookmarks and Go To dialogs leave out the hidden bookmarks a table of contents adds', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await typeDocument(page);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine, m = engine.model; engine.execute(() => { m.select(m.text.indexOf('Engines')); m.addBookmark('Mine'); m.select(0); return true; }); engine.focus(); });
+  await onTab(page, 'references');
+  await ribbon(page).getByRole('button', { name: 'Table of Contents', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Classic/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.bookmarks.filter(b => b.name.startsWith('_Toc')).length)).toBeGreaterThan(0);
+  await (await onTab(page, 'insert')).getByRole('button', { name: 'Bookmarks', exact: true }).click();
+  const list = page.getByRole('listbox', { name: 'Document bookmarks', exact: true });
+  await expect(list.locator('option')).toHaveText([/^Mine · page 1$/]);
+  await page.getByRole('dialog', { name: 'Bookmarks' }).getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.ed-statusbar').getByRole('button', { name: /^Page 1 of 1/ }).click();
+  const goTo = page.getByRole('dialog', { name: 'Go To' });
+  await goTo.getByRole('listbox', { name: 'Go to what' }).selectOption('bookmark');
+  await expect(goTo.locator('select:not([size]) option')).toHaveText(['Mine']);
+  expect(errors).toEqual([]);
+});
