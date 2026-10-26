@@ -431,3 +431,21 @@ test('on a phone, panes open together stay within reach below the page', async (
   const bottoms = () => page.evaluate(() => [document.querySelector('.styles-pane'), document.querySelector('.canvas-editor-content')].map(node => Math.round(node.getBoundingClientRect().bottom)));
   await expect.poll(async () => { const [pane, column] = await bottoms(); return pane <= column; }).toBe(true);
 });
+
+test('dialogs put their buttons at the end of the row', async ({ page }) => {
+  await openEditor(page);
+  await text(page).fill('Two words');
+  // Word Count, Zoom and Share lay out their buttons with .modal-actions, which once had no style of its own:
+  // the buttons sat at the start of the row, unlike every other dialog's.
+  for (const [menu, item, name, button] of [['Tools', /^Word Count…/, 'Word Count', 'Close'], ['View', /^Zoom…/, 'Zoom', 'OK'], ['Tools', /^Share…/, /^Share/, 'Done']]) {
+    await (await openMenu(page, menu)).getByRole('menuitem', { name: item }).click();
+    const dialog = page.locator('.modal-root:not(.closing)').getByRole('dialog', { name });
+    const gap = await dialog.locator('.modal-actions').getByRole('button', { name: button, exact: true }).evaluate(b => {
+      const panel = b.closest('.modal-panel');
+      return Math.round(panel.getBoundingClientRect().right - parseFloat(getComputedStyle(panel).paddingRight) - b.getBoundingClientRect().right);
+    });
+    expect(Math.abs(gap)).toBeLessThanOrEqual(2);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  }
+});

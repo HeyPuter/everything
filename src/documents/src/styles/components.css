@@ -122,6 +122,8 @@
 
 .row { display: flex; align-items: center; gap: 10px; }
 .row-end { justify-content: flex-end; }
+/* A dialog's buttons, at the end of the row as .row.row-end puts them. */
+.modal-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
 .grow { flex: 1; min-width: 0; }
 .muted { color: var(--ink-3); }
 .small { font-size: 12.5px; }
