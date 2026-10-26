@@ -22,6 +22,27 @@ test('a rename that fails sizes the title back to the name it keeps', async ({ p
   await expect.poll(() => title(page).evaluate(el => el.style.width)).toBe(width);
 });
 
+test('a save that fails stands out in the title bar, in light and dark', async ({ page }) => {
+  await openEditor(page, 1440);
+  await text(page).fill('Draft');
+  const pill = page.locator('.ed-titlebar .canvas-save-status');
+  await expect(pill).toHaveAttribute('aria-label', 'Saved to Puter');
+  const quiet = await pill.evaluate(el => getComputedStyle(el).color);
+  await page.evaluate(() => window.__puterFaults.push({ op: 'write', message: 'The cloud is unreachable' }));
+  await text(page).press('End');
+  await page.keyboard.type(' two');
+  await expect(pill).toHaveAttribute('aria-label', 'Not saved');
+  for (const [scheme, critical] of [['light', 'rgb(194, 42, 42)'], ['dark', 'rgb(239, 111, 111)']]) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await expect.poll(() => pill.evaluate(el => getComputedStyle(el).color)).toBe(critical);
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.evaluate(() => { window.__puterFaults.length = 0; });
+  await pill.click();
+  await expect(pill).toHaveAttribute('aria-label', 'Saved to Puter');
+  expect(await pill.evaluate(el => getComputedStyle(el).color)).toBe(quiet);
+});
+
 test('a long name truncates instead of crowding the save status, Search and account button', async ({ page }) => {
   for (const width of [920, 1000, 1440]) {
     await openEditor(page, width);

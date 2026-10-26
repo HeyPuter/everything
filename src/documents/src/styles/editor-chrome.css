@@ -66,6 +66,8 @@
 .ed-header .canvas-title { font: 400 13px/1.3 var(--font); text-align: center; padding: 3px 8px; color: var(--ed-ink); }
 .ed-header .canvas-title:hover { background: var(--ed-hover); }
 .ed-header .canvas-save-status { font-size: 12px; color: var(--ed-ink-3); }
+/* Quiet while all is well; a save that failed, or cannot go out offline, stands out as the editor's own pill does. */
+.ed-header .canvas-save-status:is(.error, .offline) { color: var(--critical); }
 .ed-header .canvas-title-actions { justify-content: flex-end; gap: 6px; }
 .ed-header .canvas-title-actions > * { flex-shrink: 0; }
 .ed-search {
