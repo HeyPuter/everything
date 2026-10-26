@@ -24,7 +24,7 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
   let scope = 'selection', history = [], busy = false, stopped = null;
   const pane = sidePane({ title: 'Assistant', label: 'Assistant pane', className: 'as-pane', onOpen: () => { renderContext(); renderEmpty(); fab.setAttribute('aria-expanded', 'true'); titleButton.setAttribute('aria-pressed', 'true'); }, onClose: () => { fab.setAttribute('aria-expanded', 'false'); titleButton.setAttribute('aria-pressed', 'false'); editor()?.focus(); } });
   pane.heading.prepend(el('span.as-mark', { 'aria-hidden': 'true' }, commandIconEl('assistant', 16)));
-  const newChat = el('button.btn.btn-ghost.btn-sm.as-new', { type: 'button', onclick: () => { history = []; log.replaceChildren(); renderEmpty(); input.focus(); } }, 'New chat');
+  const newChat = el('button.btn.btn-ghost.btn-sm.as-new', { type: 'button', onclick: () => { stopped = null; busy = false; send.disabled = false; history = []; log.replaceChildren(); renderEmpty(); input.focus(); } }, 'New chat');
   pane.heading.after(newChat);
 
   const log = el('div.as-log', { role: 'log', 'aria-label': 'Conversation with the assistant', tabIndex: -1 });
@@ -124,7 +124,10 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
       if (stopped !== token) return;
       waiting.classList.add('is-error');
       waiting.replaceChildren(el('p', {}, e?.message && !/AI service|could not answer/i.test(e.message) && e.message.length < 140 ? e.message : assistantError(e)));
-    } finally { busy = false; send.disabled = false; }
+    } finally {
+      // A reply that New chat left behind no longer holds the conversation up.
+      if (stopped === token) { busy = false; send.disabled = false; }
+    }
   }
 
   function answerView(answer, p) {
