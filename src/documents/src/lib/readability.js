@@ -4,6 +4,8 @@
  * over an English syllable estimate; the passive-voice share is a pattern-based estimate.
  */
 
+import { countWords } from '../core/text.js';
+
 const segmenter = granularity => (typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter('en', { granularity }) : null);
 const WORDS = segmenter('word'), SENTENCES = segmenter('sentence');
 
@@ -74,7 +76,7 @@ export function textStatistics(text) {
   const syllablesPerWord = wordList.length ? syllableCount / wordList.length : 0;
   const passive = sentenceList.filter(isPassive).length;
   return {
-    words: wordList.length,
+    words: countWords(source),
     characters: [...source.replace(/\n/g, '')].length,
     charactersNoSpaces: [...source.replace(/\s/g, '')].length,
     paragraphs: paragraphList.length,

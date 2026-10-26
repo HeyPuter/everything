@@ -1443,6 +1443,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   function updateWordCount() {
     const text = engine.model.text, [a, b] = engine.model.range;
     if (text !== counted.text || a !== counted.a || b !== counted.b) {
+      // The Word Count dialog counts with the same rule, so the two always agree.
       const total = text === counted.text ? counted.total : countWords(text);
       const chosen = a !== b ? countWords(text.slice(a, b)) : null;
       counted = { text, a, b, total, chosen };

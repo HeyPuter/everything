@@ -1,5 +1,6 @@
 import { it, expect, describe } from 'vitest';
 import { syllables, textStatistics, isPassive, easeLabel, sentences } from '../src/lib/readability.js';
+import { countWords } from '../src/core/text.js';
 import { checkAccessibility, contrastRatio, luminance } from '../src/lib/accessibility.js';
 import { grammarPrompt, parseSuggestions, locateSuggestions, batches, checkGrammar, parseTranslation, translateParagraphs } from '../src/lib/proofing-ai.js';
 import { mentionPieces, mentionsIn } from '../src/views/mentions.js';
@@ -28,6 +29,17 @@ describe('readability', () => {
     expect(s).toMatchObject({ words: 5, paragraphs: 2, characters: 24, charactersNoSpaces: 21 });
     expect(s.averages.wordsPerSentence).toBe(2.5);
     expect(textStatistics('').readability).toEqual({ fleschReadingEase: 0, fleschKincaidGrade: 0, passivePercent: 0 });
+  });
+
+  it('counts words between spaces, as the status bar and the Word Count dialog both show them', () => {
+    const text = 'E-mail the well-known co-op today. It costs $5.50 (or 5,000 yen) — fine.';
+    expect(countWords(text)).toBe(13);
+    expect(textStatistics(text).words).toBe(13);
+    expect(countWords('  one\ttwo\nthree\u000efour  ')).toBe(4);
+    expect([countWords(''), countWords('   '), countWords('\uFFFC'), countWords('a picture \uFFFC here')]).toEqual([0, 0, 0, 3]);
+    // Thai, Lao, Khmer and Myanmar, written without spaces, count the words in them.
+    expect(countWords('ภาษาไทยง่ายนิดเดียว')).toBeGreaterThan(1);
+    expect(textStatistics('ภาษาไทยง่ายนิดเดียว').words).toBe(countWords('ภาษาไทยง่ายนิดเดียว'));
   });
 
   it('estimates passive sentences', () => {

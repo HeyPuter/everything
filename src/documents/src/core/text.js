@@ -6,10 +6,11 @@
  * a lone dash. Combining marks and the zero-width joiners Persian and Indic
  * scripts write inside words sit inside their word and split nothing.
  * Thai, Lao, Khmer and Myanmar put no spaces between words, so a run that
- * holds them counts the words Intl.Segmenter finds in it.
+ * holds them counts the words Intl.Segmenter finds in it. Pictures and note
+ * marks (U+FFFC) are not words, and a column break separates words.
  */
 
-const WORD_RE = /[^\s\u200B]+/gu;
+const WORD_RE = /[^\s\u200B\u000e]+/gu;
 const WHITESPACE_RE = /\s/;
 const SPACELESS_RE = /[\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}]/u;
 let segmenter;
@@ -24,7 +25,9 @@ function spacelessWords(token) {
 
 export function countWords(text) {
   if (!text) return 0;
-  const s = String(text), m = s.match(WORD_RE);
+  let s = String(text);
+  if (s.includes('\uFFFC')) s = s.replace(/\uFFFC/g, '');
+  const m = s.match(WORD_RE);
   if (!m) return 0;
   if (!SPACELESS_RE.test(s)) return m.length;
   let count = 0;
