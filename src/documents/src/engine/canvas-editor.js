@@ -1800,7 +1800,14 @@ export class CanvasEditor {
       const revision = this.session.revision;
       this.session.run(() => {
         const value = this.input.value, a = this.input.selectionStart, b = this.input.selectionEnd;
+        const text = this.inputText, model = this.model, selection = model.selection, revision = model.revision;
+        const typing = [model.typingFormat, model.typingStyle, model.typingDirectCleared];
         this.reconcile(value, false, { caret: a === b ? a : null, backward: /Backward$/.test(e?.inputType || '') });
+        // A change the document refuses (Option or Ctrl+Backspace across a table's edge) leaves the selection as it
+        // was, rather than on what the field removed, where typing would go next; the field takes the text back.
+        if (!this.composition && model.revision === revision && text !== value) {
+          model.selection = selection; [model.typingFormat, model.typingStyle, model.typingDirectCleared] = typing;
+        }
         this.followNativeSelection(value, a, b);
       }, () => { this.validateStory(); this.relayout(); this.revealCaret(); }, { record: !this.composition });
       if (!this.composition && revision !== this.session.revision) this.onChange();

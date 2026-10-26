@@ -111,6 +111,24 @@ test('deleting a word with the platform chord removes that word, not letters shi
   expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([4, 4]);
 });
 
+test('a word deletion the document refuses, at the edge of a table, leaves the caret where it was', async ({ page }) => {
+  await blank(page);
+  await page.keyboard.type('Intro');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.insertTable(1, 2); e.focus(); });
+  await page.keyboard.insertText('a'); await input(page).press('Tab'); await page.keyboard.insertText('b');
+  await page.evaluate(() => { const e = window.__docs.current.view.engine; e.model.select(e.model.text.length); e.syncInput(); });
+  await page.keyboard.insertText('After');
+  const value = await input(page).inputValue(), start = value.indexOf('After');
+  await input(page).evaluate((el, at) => { el.setSelectionRange(at, at); el.dispatchEvent(new Event('select')); }, start);
+  // Backspace at the start of the paragraph after a table does nothing; neither does the delete-word chord the native field handles.
+  await input(page).press(process.platform === 'darwin' ? 'Alt+Backspace' : 'Control+Backspace');
+  await expect(input(page)).toHaveValue(value);
+  expect(await page.evaluate(() => [...window.__docs.current.view.engine.model.range])).toEqual([start, start]);
+  // What is typed next goes where the caret is, not into the table.
+  await page.keyboard.insertText('Then ');
+  await expect(input(page)).toHaveValue(value.replace('After', 'Then After'));
+});
+
 test('with Track Changes on, word and line deletions leave the caret before what they struck out', async ({ page }) => {
   await blank(page);
   await input(page).fill('one two three\nfour five six');
