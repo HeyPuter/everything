@@ -231,4 +231,14 @@ describe('exported links', () => {
       expect(targets(back)).toEqual(expected);
     }
   });
+  it('keeps a link that follows an exclamation mark, rather than reading it back as a picture', () => {
+    const doc = blankDoc();
+    doc.replace('Wow!docs and more');
+    doc.select(4, 8); doc.setHyperlink('https://example.com/');
+    const markdown = documentMarkdown(doc);
+    expect(markdown).toBe('Wow\\![docs](https://example.com/) and more\n');
+    const back = blankDoc();
+    pasteFragment(back, htmlFragment(markdownHtml(markdown)));
+    expect(back.paragraphs[0].runs.map(r => [r.text, r.link?.target ?? null])).toEqual([['Wow!', null], ['docs', 'https://example.com/'], [' and more', null]]);
+  });
 });

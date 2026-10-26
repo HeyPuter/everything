@@ -182,11 +182,15 @@ function runMarkdown(piece, before, after, touching = false) {
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
 const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
   const pieces = p.runs.map(run => runPieces(run, heading)).filter(piece => piece.text);
-  let previous = '';
-  return pieces.map((piece, i) => {
+  const written = [];
+  pieces.forEach((piece, i) => {
+    const previous = written[i - 1] || '';
     const touching = !!pieces[i - 1]?.core && !pieces[i - 1].trail && /[*~]$/.test(previous);
-    return (previous = runMarkdown(piece, edge(pieces[i - 1], true), edge(pieces[i + 1], false), touching));
-  }).join('').replace(/^\0+|\0+$/g, '')
+    written.push(runMarkdown(piece, edge(pieces[i - 1], true), edge(pieces[i + 1], false), touching));
+    // An exclamation mark just before a link would make it a picture ("Wow![docs](…)"), which drops its text.
+    if (piece.link && !piece.lead && previous.endsWith('!')) written[i - 1] = `${previous.slice(0, -1)}\\!`;
+  });
+  return written.join('').replace(/^\0+|\0+$/g, '')
     .split(BREAK).map(escapeLineStart).join(heading ? ' ' : lineBreak);
 };
 function blocksMarkdown(blocks, model) {
