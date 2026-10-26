@@ -270,6 +270,8 @@ test('a gallery\'s More menu opened from the keyboard closes back to its button,
   for (const [tabName, more, menu] of [['Home', 'More Styles', 'Styles'], ['Design', 'More Style Sets', 'Style Sets'], ['Table Design', 'More Table Styles', 'Table Styles']]) {
     await tab(page, tabName).click();
     const button = page.locator('.ribbon-panel:not([hidden])').getByRole('button', { name: more, exact: true });
+    // It says it opens a menu, as the ribbon's other menu buttons do.
+    await expect(button).toHaveAttribute('aria-haspopup', 'menu');
     await button.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator(`.menu[aria-label="${menu}"]`)).toBeVisible();
@@ -292,6 +294,7 @@ test('a gallery\'s More menu opened from the keyboard closes back to its button,
   await page.locator('canvas.canvas-page').first().click({ position: { x: 200, y: 400 } });
   await tab(page, 'Shape Format').click();
   const more = page.locator('.ribbon-panel:not([hidden])').getByRole('button', { name: 'More Shape Styles', exact: true });
+  await expect(more).toHaveAttribute('aria-haspopup', 'menu');
   await more.focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('.menu[aria-label="Shape Styles"]')).toBeVisible();

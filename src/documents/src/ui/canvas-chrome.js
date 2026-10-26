@@ -175,7 +175,7 @@ export function createCanvasChrome({ title, status, account, local, controls: c,
       { label: 'Modify Style…', icon: 'editStyle', disabled: c.editStyle.disabled, onSelect: () => c.editStyle.click() },
       { label: 'Clear Formatting', icon: 'clearFormat', disabled: c.clearParagraphFormatting.disabled, onSelect: () => c.clearParagraphFormatting.click() }]) });
   });
-  galleryMore.classList.add('ribbon-gallery-more');
+  galleryMore.classList.add('ribbon-gallery-more'); galleryMore.setAttribute('aria-haspopup', 'menu');
   noFocusSteal(galleryMore);
   let gallerySignature = '';
   function refreshGallery() {
