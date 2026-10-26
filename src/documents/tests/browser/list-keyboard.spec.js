@@ -48,3 +48,36 @@ test('Enter on an empty nested list item steps it out a level, then ends the lis
   await page.keyboard.press('Enter'); await page.keyboard.press('Enter');
   expect(await items(page)).toEqual([['Alpha', 0], ['Inner', 1], ['Bravo', 0], ['', null]]);
 });
+
+test('on a Mac, Option+Shift+Arrow selects by word in a list item and Control+Shift+Arrow changes its level', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha bravo\nCharlie');
+  await input(page).evaluate(el => { el.setSelectionRange(0, 19); el.dispatchEvent(new Event('select')); });
+  await page.getByRole('button', { name: 'Bulleted list', exact: true }).click();
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(11, 11); el.dispatchEvent(new Event('select')); });
+  // Option+Shift+Left selects the word before the caret, as in every Mac text field.
+  await input(page).press('Alt+Shift+ArrowLeft');
+  expect(await input(page).evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual([6, 11]);
+  expect(await items(page)).toEqual([['Alpha bravo', 0], ['Charlie', 0]]);
+  // Control+Shift+Right and Left demote and promote the item there, as Control+Shift+Up and Down move paragraphs.
+  await input(page).press('Control+Shift+ArrowRight');
+  expect(await items(page)).toEqual([['Alpha bravo', 1], ['Charlie', 0]]);
+  await input(page).press('Control+Shift+ArrowLeft');
+  expect(await items(page)).toEqual([['Alpha bravo', 0], ['Charlie', 0]]);
+});
+
+test('elsewhere Alt+Shift+Right and Left change a list item\'s level', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'Win32' }));
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Alpha bravo\nCharlie');
+  await input(page).evaluate(el => { el.setSelectionRange(0, 19); el.dispatchEvent(new Event('select')); });
+  await page.getByRole('button', { name: 'Bulleted list', exact: true }).click();
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(11, 11); el.dispatchEvent(new Event('select')); });
+  await input(page).press('Alt+Shift+ArrowRight');
+  expect(await items(page)).toEqual([['Alpha bravo', 1], ['Charlie', 0]]);
+  await input(page).press('Alt+Shift+ArrowLeft');
+  expect(await items(page)).toEqual([['Alpha bravo', 0], ['Charlie', 0]]);
+});

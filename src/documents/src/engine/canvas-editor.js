@@ -1570,7 +1570,10 @@ export class CanvasEditor {
       if (letter === 'a') { this.model.select(0, this.model.text.length); this.syncInput(); this.paint(); this.onSelection(); }
       return;
     }
-    if (e.altKey && e.shiftKey && !mod && ['ArrowLeft', 'ArrowRight'].includes(e.key) && this.model.selectedParagraphs.every(p => p.list)) {
+    // A list item's level: Alt+Shift+Right/Left, and Control+Shift+Right/Left on a Mac (beside Control+Shift+Up/Down,
+    // which move paragraphs there), where Option+Shift+Right/Left selects by word as in every Mac text field.
+    const levelChord = MAC ? e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey : e.altKey && e.shiftKey && !mod;
+    if (levelChord && ['ArrowLeft', 'ArrowRight'].includes(e.key) && this.model.selectedParagraphs.every(p => p.list)) {
       e.preventDefault(); this.changeListLevel(e.key === 'ArrowRight' ? 1 : -1); return;
     }
     if (e.key === 'Enter' && !e.altKey) {

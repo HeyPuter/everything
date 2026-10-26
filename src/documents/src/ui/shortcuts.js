@@ -40,7 +40,7 @@ const GROUPS = [
     [[`${MOD_KEY} + J`, `${MOD_KEY} + Shift + J`], 'Justify'],
     [`${MOD_KEY} + Shift + 8`, 'Bulleted list'],
     [`${MOD_KEY} + Shift + 7`, 'Numbered list'],
-    [`${ALT} + Shift + Right / Left`, 'Change list level'],
+    [IS_MAC ? 'Ctrl + Shift + Right / Left' : 'Alt + Shift + Right / Left', 'Change list level'],
     [`${MOD_KEY} + ${ALT} + 0`, 'Normal style'],
     [`${MOD_KEY} + ${ALT} + 1 … 6`, 'Heading 1 to 6'],
     ['Shift + Enter', 'Line break'],

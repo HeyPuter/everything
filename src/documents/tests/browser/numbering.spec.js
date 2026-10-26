@@ -37,7 +37,7 @@ test('edits inherited lists, restarts and nests items, and reopens a validated n
   expect(await range()).toEqual(originalSelection);
   await undo.click(); expect(await range()).toEqual(originalSelection); await redo.click();
   await choose('Nested continuation');
-  await input.press('Alt+Shift+ArrowRight');
+  await input.press(process.platform === 'darwin' ? 'Control+Shift+ArrowRight' : 'Alt+Shift+ArrowRight');
   const geometry = page.getByRole('button', { name: 'Indents and tabs', exact: true });
   await geometry.click();
   await expect(page.getByRole('spinbutton', { name: 'Left indent (in)', exact: true })).toHaveValue('1.5');

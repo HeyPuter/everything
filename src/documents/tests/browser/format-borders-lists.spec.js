@@ -156,7 +156,7 @@ test('Define New Multilevel List: per-level number format and style', async ({ p
   await dialog.getByRole('button', { name: 'OK' }).click();
   await expect(dialog).toHaveCount(0);
   await select(input, 'Nested');
-  await input.press('Alt+Shift+ArrowRight');
+  await input.press(process.platform === 'darwin' ? 'Control+Shift+ArrowRight' : 'Alt+Shift+ArrowRight');
   await expect(page.getByRole('button', { name: 'Numbered list', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const saved = await save(page, info, 'multilevel.docx');
   expect(saved.xml('word/numbering.xml')).toMatch(/<w:lvl w:ilvl="1"><w:start w:val="1"\/><w:numFmt w:val="lowerLetter"\/><w:suff w:val="tab"\/><w:lvlText w:val="%1.%2\)"\/>/);

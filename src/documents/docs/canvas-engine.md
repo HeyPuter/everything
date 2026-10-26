@@ -571,7 +571,7 @@ ordinary paragraph that explicitly disables inherited numbering.
 
 Use **Bulleted list** or **Numbered list** on selected paragraphs. The same button
 removes that list kind. **Increase indent**/**Decrease indent**, or
-Alt+Shift+Right/Left, change list levels. **Restart numbering at 1** starts a
+Alt+Shift+Right/Left (Control+Shift+Right/Left on a Mac), change list levels. **Restart numbering at 1** starts a
 separate sequence for the remaining contiguous items at that level or deeper.
 Enter continues a list; Enter on an empty item or Backspace at the start removes
 its list formatting. Undo restores the labels, geometry and text selection.
