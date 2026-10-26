@@ -490,3 +490,37 @@ test('changing a cited source\'s tag in Manage Sources keeps its citations', asy
   expect(await page.evaluate(() => window.__docs.current.view.engine.session.body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.instruction)).filter(Boolean))).toEqual(expect.arrayContaining([expect.stringContaining('Ada2020')]));
   expect(errors).toEqual([]);
 });
+
+test('a cross-reference to a footnote numbered from 1 on each page shows the number on its page', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await openEditor(page);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine, m = engine.model; engine.execute(() => { m.replace('Alpha para\fBeta para\fGamma para'); return true; }); });
+  await onTab(page, 'references');
+  for (const [word, note] of [['Alpha', 'Note one'], ['Beta', 'Note two'], ['Gamma', 'Note three']]) {
+    await page.evaluate(w => { const engine = window.__docs.current.view.engine; if (engine.session.path !== null) engine.editStory(null); const m = engine.session.body; m.select(m.text.indexOf(w) + w.length); engine.focus(); }, word);
+    await ribbon(page).getByRole('button', { name: 'Insert Footnote', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.session.path)).not.toBeNull();
+    await page.keyboard.type(note);
+  }
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.editStory(null); engine.model.select(engine.model.text.length); engine.focus(); });
+  await ribbon(page).getByRole('button', { name: 'Footnote and Endnote Settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Footnote and Endnote' });
+  await settings.getByLabel('Numbering').selectOption('eachPage');
+  await settings.getByRole('button', { name: 'Apply' }).click();
+  await settings.getByRole('button', { name: 'Cancel' }).click();
+  await expect(settings).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.__docs.current.view.engine.layout.footnoteAreas.map(a => a.notes.map(n => n.display).join()))).toEqual(['1', '1', '1']);
+  await page.evaluate(() => { const engine = window.__docs.current.view.engine; engine.model.select(engine.model.text.length); engine.focus(); });
+  await page.keyboard.type(' See note ');
+  await ribbon(page).getByRole('button', { name: 'Cross-reference', exact: true }).click();
+  const reference = page.getByRole('dialog', { name: 'Cross-reference' });
+  await reference.getByLabel('Reference type').selectOption('footnote');
+  await expect(reference.getByLabel('For which item').locator('option')).toHaveText(['1 Note one', '1 Note two', '1 Note three']);
+  await reference.getByLabel('For which item').selectOption({ index: 2 });
+  await reference.getByLabel('Insert reference to').selectOption('number');
+  await reference.getByRole('button', { name: 'Insert' }).click();
+  await expect.poll(() => engineText(page)).toMatch(/See note 1$/);
+  await page.keyboard.press('F9');
+  await expect.poll(() => engineText(page)).toMatch(/See note 1$/);
+  expect(errors).toEqual([]);
+});

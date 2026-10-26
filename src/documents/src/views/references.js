@@ -160,7 +160,13 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const engine = editor(), notesModule = await import('../engine/footnotes.js');
     const definition = engine?.pageStories, paragraphs = engine?.session.body.paragraphs || [];
     const maps = {};
-    for (const kind of ['footnote', 'endnote']) maps[kind] = notesModule.noteNumbers(paragraphs, definition?.[`${kind}s`] || { format: kind === 'footnote' ? 'decimal' : 'lowerRoman' }, kind);
+    for (const kind of ['footnote', 'endnote']) {
+      const settings = definition?.[`${kind}s`] || { format: kind === 'footnote' ? 'decimal' : 'lowerRoman' };
+      // Footnotes numbered from 1 on each page are numbered by the pages the layout put them on, as shown.
+      let pages = null;
+      if (kind === 'footnote' && settings.restart === 'eachPage') { pages = new Map(); for (const area of engine?.layout?.footnoteAreas || []) for (const note of area.notes) pages.set(note.id, area.page); }
+      maps[kind] = notesModule.noteNumbers(paragraphs, settings, kind, pages);
+    }
     return maps;
   }
   /** Update every field this editor can evaluate: sequences, references, citations, bibliographies and page numbers. */
