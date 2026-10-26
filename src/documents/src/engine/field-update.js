@@ -142,7 +142,7 @@ export function updateSequenceFields(model, options) {
         if (model.text.slice(range.start, range.end).includes('\n')) continue;
         model.select(range.start, range.end);
         model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
-        model.replace(text, { checkpoint: false });
+        model.replaceResult(text, { checkpoint: false });
         updated.add(range.field.id); applied++;
       }
       if (!applied) break;

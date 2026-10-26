@@ -117,7 +117,7 @@ export function refreshPageReferences(model, layoutOf, definition, { dirtyOnly =
         anchor = mapPosition(anchor); focus = mapPosition(focus);
         model.select(change.start, change.end);
         model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
-        if (model.text.slice(change.start, change.end) !== change.text) model.replace(change.text, { checkpoint: false });
+        if (model.text.slice(change.start, change.end) !== change.text) model.replaceResult(change.text, { checkpoint: false });
         const current = bodyFieldRanges(model.paragraphs).find(r => r.field.id === change.field.id), field = current?.field;
         if (!field) throw new Error('Refresh removed the page-reference envelope.');
         cleanDirty(field);

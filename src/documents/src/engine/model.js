@@ -47,7 +47,7 @@ import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPE
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -2065,6 +2065,23 @@ export class TextDocument {
     // inserted: line endings are normalized and placeholders can change the span.
     const inserted = documentLength(this.paragraphs) - length + (end - start);
     if (result && inserted > 0) clearRevisions(this.paragraphs, start, start + inserted);
+    return result;
+  }
+  /**
+   * Replace the selection untracked, as a field's refreshed result is: the new text keeps the tracked insertion
+   * or deletion the replaced text had, so a field a reviewer inserted (or deleted) still is after an update.
+   */
+  replaceResult(text, options = {}) {
+    const [start, end] = this.range, revision = sharedRevision(this.paragraphs, start, end), length = documentLength(this.paragraphs), tracking = this.trackChanges;
+    this.trackChanges = false;
+    let result;
+    try { result = this.replace(text, options); } finally { this.trackChanges = tracking; }
+    const inserted = documentLength(this.paragraphs) - length + (end - start);
+    if (result && revision && inserted > 0) {
+      const touched = new Set();
+      eachRevisionTarget(this.paragraphs, start, start + inserted, ({ paragraph, run, mark }) => { if (!mark) { run.revision = { ...revision }; touched.add(paragraph); } });
+      for (const p of touched) p.runs = normalize(p.runs);
+    }
     return result;
   }
   newRevision(type) { return { type, author: this.revisionAuthor || 'Author', date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') }; }

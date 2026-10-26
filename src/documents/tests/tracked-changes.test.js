@@ -8,6 +8,8 @@ import { pasteFragment } from '../src/engine/clipboard-fragment.js';
 import { insertBodyField } from '../src/engine/field-results.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
 import { insertCrossReference, referenceTargets } from '../src/engine/captions.js';
+import { updateSequenceFields } from '../src/engine/field-update.js';
+import { insertMergeField, mergeFieldRanges, applyMergeResults } from '../src/engine/mail-merge-model.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -446,3 +448,42 @@ it('replaces thousands of matches with Track Changes on in linear time', () => {
   doc.resolveRevisions(true);
   expect(doc.paragraphs[1999].runs.map(r => r.text).join('')).toBe("Clause 1999: the Contractor shall notify the Contractor's agent.");
 }, 120000);
+
+describe('fields inside tracked changes', () => {
+  const seq = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> SEQ Figure \\* ARABIC </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>7</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>';
+  const withField = wrapper => {
+    const files = unzipSync(trackedDocx());
+    files['word/document.xml'] = strToU8(`<w:document xmlns:w="${W}"><w:body><w:p><w:r><w:t xml:space="preserve">Figure </w:t></w:r>${wrapper(seq)}<w:r><w:t xml:space="preserve"> caption</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`);
+    return zipSync(files);
+  };
+  it('keeps a field result a reviewer inserted marked inserted when the field updates', async () => {
+    const { pkg, model } = await open(withField(x => `<w:ins w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z">${x}</w:ins>`));
+    expect(updateSequenceFields(model)).toBe(1);
+    expect(summary(model)).toEqual([['ins', 'Ada', '1']]);
+    expect(model.trackChanges).toBe(true);
+    const again = await open(await save(pkg, model));
+    expect(summary(again.model)).toEqual([['ins', 'Ada', '1']]);
+    again.model.resolveRevisions(false);
+    expect(again.model.text).toBe('Figure  caption');
+  });
+  it('keeps a deleted field result deleted when the field updates', async () => {
+    const { pkg, model } = await open(withField(x => `<w:del w:id="1" w:author="Ada" w:date="2026-01-01T00:00:00Z">${x.replace(/<w:t>/g, '<w:delText>').replace(/<\/w:t>/g, '</w:delText>')}</w:del>`));
+    expect(summary(model)).toEqual([['del', 'Ada', '7']]);
+    updateSequenceFields(model);
+    expect(summary(model)).toEqual([['del', 'Ada', '1']]);
+    const again = await open(await save(pkg, model));
+    again.model.resolveRevisions(true);
+    expect(again.model.text).toBe('Figure  caption');
+  });
+  it('keeps a merge field inserted with Track Changes on marked inserted while previewing recipients', async () => {
+    const { model } = await open(trackedDocx());
+    model.select(model.text.length); insertMergeField(model, ' MERGEFIELD First ');
+    expect(summary(model).at(-1)).toEqual(['ins', 'Me', '«First»']);
+    applyMergeResults(model, mergeFieldRanges(model), ['Alexander']);
+    expect(summary(model).at(-1)).toEqual(['ins', 'Me', 'Alexander']);
+    applyMergeResults(model, mergeFieldRanges(model), ['Bo']);
+    expect(summary(model).at(-1)).toEqual(['ins', 'Me', 'Bo']);
+    model.resolveRevisions(false);
+    expect(model.text).toBe('Keep  removed end.Second');
+  });
+});

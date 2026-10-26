@@ -22101,6 +22101,9 @@ Supported subset:
 - Inserting a footnote or endnote reference (§17.11.14 `footnoteReference`, §17.11.7
   `endnoteReference`) records the reference run as an insertion, written inside `w:ins`.
 - Replace All records each replacement as a deletion of the found text and an insertion.
+- Updating fields (Update Fields, Update page references, mail merge previews) is not itself tracked; a
+  result that was wholly a tracked insertion or deletion keeps that change after the update. The field's
+  begin/separate/end characters are written outside `w:ins`/`w:del` (an approximation).
 - All Markup (inline colour, underline and strikethrough with left-margin change bars), Simple
   Markup and No Markup (deleted text hidden), and Original (inserted text hidden).
 - Unchanged documents save byte for byte; revisions survive untracked edits and round trips.

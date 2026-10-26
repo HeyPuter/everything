@@ -202,6 +202,24 @@ export function revisionRanges(paragraphs) {
   return ranges.map((range, index) => [range, index]).sort((a, b) => a[0].start - b[0].start || a[1] - b[1]).map(([range]) => range);
 }
 
+/** The tracked insertion or deletion every run in [start, end) has (a field's result), or null. Nothing is split. */
+export function sharedRevision(paragraphs, start, end) {
+  if (start >= end) return null;
+  let at = 0, shared;
+  for (const p of paragraphs) {
+    for (const run of p.runs) {
+      const from = at; at += run.text.length;
+      if (at <= start || !run.text) continue;
+      if (from >= end) return shared || null;
+      if (!run.revision || shared && !sameRevision(shared, run.revision)) return null;
+      shared ||= run.revision;
+    }
+    if (at >= end) return shared || null;
+    at++;
+  }
+  return shared || null;
+}
+
 export const hasRevisions = paragraphs => paragraphs.some(p => p.markRevision || paragraphFormatChange(p) || p.runs.some(r => r.revision || runFormatChange(r)));
 
 /** The authors who made changes, in first-appearance order. */

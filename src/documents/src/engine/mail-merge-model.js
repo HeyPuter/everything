@@ -126,7 +126,7 @@ export function applyMergeResults(model, fields, results) {
       // A result emptied for a recipient without a value keeps its formatting on the field, so the next
       // value (or the placeholder) is bold again where the field was bold, not like the text before it.
       if (range.end > range.start) { const run = runAt(model.paragraphs, range.start); if (run) range.field.resultFormatting = resultFormatting(run); }
-      model.replaceUntracked(value, { checkpoint: false });
+      model.replaceResult(value, { checkpoint: false });
       const saved = range.start === range.end && value && range.field.resultFormatting;
       if (saved) {
         const { index } = paragraphAt(model.paragraphs, range.start), p = model.paragraphs[index], from = range.start - offsetOf(model.paragraphs, index), to = from + value.length;
