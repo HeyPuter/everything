@@ -571,7 +571,8 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
     const info = imageInfo(asset.bytes);
     rels ||= parts[relPath] ? parseXml(parts[relPath]) : parseXml(`<Relationships xmlns="${REL}"/>`);
     types ||= parseXml(parts['[Content_Types].xml']);
-    let index = 1, path; do { path = `word/media/canvas-image${index++}.${info.mime === 'image/png' ? 'png' : info.mime === 'image/tiff' ? 'tiff' : 'jpg'}`; } while (parts[path]);
+    const extension = { 'image/png': 'png', 'image/tiff': 'tiff', 'image/gif': 'gif' }[info.mime] || 'jpg';
+    let index = 1, path; do { path = `word/media/canvas-image${index++}.${extension}`; } while (parts[path]);
     const ids = new Set(children(rels.documentElement).map(n => n.getAttribute('Id'))); let id = 'rImage1', number = 1; while (ids.has(id)) id = `rImage${++number}`;
     const rel = rels.createElementNS(REL, 'Relationship'); for (const [key, value] of Object.entries({ Id: id, Type: `${R}/image`, Target: relativePartTarget(sourcePart, path) })) rel.setAttribute(key, value);
     rels.documentElement.append(rel); parts[path] = asset.bytes; relations.set(image.assetId, id);

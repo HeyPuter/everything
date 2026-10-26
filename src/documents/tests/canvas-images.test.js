@@ -163,7 +163,32 @@ it('rejects unsupported drawing forms, transforms, broken relationships, invalid
     ['wrong content type', xml => [...xml.documentElement.children].find(n => n.getAttribute('Extension') === 'png').setAttribute('ContentType', 'image/svg+xml'), '[Content_Types].xml'],
     ['missing asset', (xml, parts) => { delete parts['word/media/image1.png']; }],
   ]) await expect(DocxPackage.open(change(mutate, path))).rejects.toThrow(/pictures/);
-  expect(() => imageInfo(new Uint8Array([1, 2, 3]))).toThrow(/PNG, JPEG or TIFF/);
+  expect(() => imageInfo(new Uint8Array([1, 2, 3]))).toThrow(/PNG, JPEG, GIF or TIFF/);
   const asset = new Uint8Array(Object.values((await DocxPackage.open(source)).assets)[0].bytes); new DataView(asset.buffer).setUint32(16, 10000);
   expect(() => imageInfo(asset)).toThrow(/8,192/);
+});
+
+it('opens GIF pictures for editing, keeps their bytes, and saves a new GIF picture as a GIF part', async () => {
+  // A 1×1 GIF89a, as web graphics pasted into documents are stored.
+  const gif = Uint8Array.from(atob('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'), c => c.charCodeAt(0));
+  expect(imageInfo(gif)).toEqual({ mime: 'image/gif', width: 1, height: 1 });
+  const parts = unzipSync(source);
+  delete parts['word/media/image2.png']; parts['word/media/image2.gif'] = gif;
+  parts['word/_rels/document.xml.rels'] = strToU8(strFromU8(parts['word/_rels/document.xml.rels']).replace('Target="media/image2.png"', 'Target="media/image2.gif"'));
+  parts['[Content_Types].xml'] = strToU8(strFromU8(parts['[Content_Types].xml']).replace('<Default ', '<Default Extension="gif" ContentType="image/gif"/><Default '));
+  const pkg = await DocxPackage.open(zipSync(parts), { bestEffort: true });
+  expect(pkg.readOnly).not.toBe(true);
+  expect(pkg.assets['word/media/image2.gif']).toMatchObject({ mime: 'image/gif' });
+  const doc = model(pkg);
+  doc.select(0); doc.replace('Edited ');
+  doc.assets.newGif = { bytes: gif, mime: 'image/gif' };
+  doc.select(doc.text.length); doc.insertImage('newGif', { width: EMU_PER_INCH, height: EMU_PER_INCH });
+  const saved = unzipSync(await save(pkg, doc));
+  expect(saved['word/media/image2.gif']).toEqual(gif);
+  const added = Object.keys(saved).filter(name => /^word\/media\/canvas-image\d+\.gif$/.test(name));
+  expect(added).toHaveLength(1); expect(saved[added[0]]).toEqual(gif);
+  expect(strFromU8(saved['[Content_Types].xml'])).toContain(`PartName="/${added[0]}" ContentType="image/gif"`);
+  const reopened = await DocxPackage.open(zipSync(saved));
+  expect(reopened.readOnly).not.toBe(true);
+  expect(Object.values(reopened.assets).filter(asset => asset.mime === 'image/gif')).toHaveLength(2);
 });
