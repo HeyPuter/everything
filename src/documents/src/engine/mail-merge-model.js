@@ -73,6 +73,37 @@ export function mergeFieldRanges(model) {
 /** Whether the document has any merge fields. */
 export const hasMergeFields = model => mergeFieldRanges(model).some(f => MERGE_TYPES.has(f.type));
 
+/** The run holding document position `position` (the one starting there), or null. */
+function runAt(paragraphs, position) {
+  const { index, offset } = paragraphAt(paragraphs, position);
+  let at = 0;
+  for (const run of paragraphs[index].runs) { if (offset < at + run.text.length) return run; at += run.text.length; }
+  return null;
+}
+// What a result run's formatting is made of: everything but its text and the objects and annotations it holds.
+const NOT_FORMATTING = ['text', 'image', 'contentControl', 'positionalTab', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear', 'field', 'revision', 'formatRevision', 'math', 'link'];
+const resultFormatting = run => { const out = structuredClone(run); for (const key of NOT_FORMATTING) delete out[key]; return out; };
+
+/** Runs with the plain text in [from, to) given `formatting`; text a line break or object holds keeps its own. */
+function withFormatting(runs, from, to, formatting) {
+  const out = []; let at = 0;
+  const plain = run => !run.image && !run.math && !run.field && !run.noteMark && !run.bodySymbol && !run.noBreakHyphen && !run.breakClear && !run.contentControl;
+  const push = run => {
+    const last = out.at(-1);
+    if (last && plain(last) && plain(run) && JSON.stringify({ ...last, text: '' }) === JSON.stringify({ ...run, text: '' })) last.text += run.text;
+    else out.push(run);
+  };
+  for (const run of runs) {
+    const start = at, end = at + run.text.length; at = end;
+    if (end <= from || start >= to || !plain(run)) { push({ ...run }); continue; }
+    const a = Math.max(from, start) - start, b = Math.min(to, end) - start;
+    if (a) push({ ...run, text: run.text.slice(0, a) });
+    push({ ...structuredClone(formatting), text: run.text.slice(a, b) });
+    if (b < run.text.length) push({ ...run, text: run.text.slice(b) });
+  }
+  return out;
+}
+
 /** Replace field results in place (no tracking); returns how many changed. */
 export function applyMergeResults(model, fields, results) {
   const text = model.text, changes = [];
@@ -90,7 +121,15 @@ export function applyMergeResults(model, fields, results) {
       model.select(range.start, range.end);
       model.typingFormat = {}; model.typingStyle = null; model.typingDirectCleared = false;
       if (range.start === range.end && !value) continue;
+      // A result emptied for a recipient without a value keeps its formatting on the field, so the next
+      // value (or the placeholder) is bold again where the field was bold, not like the text before it.
+      if (range.end > range.start) { const run = runAt(model.paragraphs, range.start); if (run) range.field.resultFormatting = resultFormatting(run); }
       model.replaceUntracked(value, { checkpoint: false });
+      const saved = range.start === range.end && value && range.field.resultFormatting;
+      if (saved) {
+        const { index } = paragraphAt(model.paragraphs, range.start), p = model.paragraphs[index], from = range.start - offsetOf(model.paragraphs, index), to = from + value.length;
+        p.runs = withFormatting(p.runs, from, to, saved);
+      }
     }
   } finally { model.trackChanges = tracking; }
   const max = model.text.length;

@@ -195,6 +195,23 @@ describe('editing merge fields in the model', () => {
     const again = model(await DocxPackage.open(out));
     expect(mergeFieldRanges(again).map(f => f.code)).toEqual(fields.map(f => f.code));
   });
+  it('keeps a field result\'s formatting through a recipient without a value', async () => {
+    const { pkg, d } = await blankModel('Hi ');
+    d.select(3); insertMergeField(d, ' MERGEFIELD "First Name" '); d.replace('!');
+    d.select(3, 3 + '«First Name»'.length); d.toggleBold();
+    const bold = () => d.paragraphs[0].runs.filter(r => r.bold).map(r => r.text);
+    expect(bold()).toEqual(['«First Name»']);
+    const preview = value => applyMergeResults(d, mergeFieldRanges(d), [value]);
+    preview('');
+    expect(d.text).toBe('Hi !');
+    preview('Bob');
+    expect(d.text).toBe('Hi Bob!');
+    expect(bold()).toEqual(['Bob']);
+    preview(''); applyMergeResults(d, mergeFieldRanges(d), placeholderResults(mergeFieldRanges(d)));
+    expect(bold()).toEqual(['«First Name»']);
+    // The remembered formatting is not written to the file.
+    expect(strFromU8(unzipSync(await save(pkg, d))['word/document.xml'])).not.toContain('resultFormatting');
+  });
   it('builds label sheets that open editable and propagates the first label', async () => {
     const layout = LABEL_LAYOUTS.find(l => l.id === 'letter-10');
     expect(layoutProblems(layout)).toEqual([]);
