@@ -199,6 +199,8 @@ select.input, select.select {
 }
 
 .input[aria-invalid="true"] { border-color: var(--critical); }
+/* A field that does not apply just now (the Paragraph dialog's "By" with no special indent) looks it, as a disabled button does. */
+.input:disabled, .select:disabled { opacity: 0.45; cursor: default; }
 
 /* Segmented control */
 .segmented {

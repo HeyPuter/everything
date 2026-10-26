@@ -141,6 +141,22 @@ test('Paragraph dialog: indents, spacing, line and page breaks with preview, Tab
   expect(errors).toEqual([]);
 });
 
+test('a Paragraph dialog field that does not apply looks unavailable', async ({ page }) => {
+  const { input } = await blank(page, 'One paragraph');
+  await caret(input, 'One');
+  await ribbon(page, 'Paragraph Settings').click();
+  const dialog = page.getByRole('dialog', { name: 'Paragraph' });
+  // With no special indent, "By" is disabled; it was drawn exactly like the fields beside it.
+  const by = dialog.getByLabel('Special indent by (in)'), left = dialog.getByLabel('Left indent (in)');
+  await expect(by).toBeDisabled();
+  await expect(left).toHaveCSS('opacity', '1');
+  expect(Number(await by.evaluate(n => getComputedStyle(n).opacity))).toBeLessThan(0.6);
+  await dialog.getByLabel('Special indent', { exact: true }).selectOption('firstLine');
+  await expect(by).toBeEnabled();
+  await expect(by).toHaveCSS('opacity', '1');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('Format dialogs bring forward the tab holding an invalid value instead of ignoring OK', async ({ page }) => {
   const { input, errors } = await blank(page, 'First paragraph text');
   await select(input, 'First');
