@@ -106,7 +106,16 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const afterSelectedDrawing = engine => { if (engine.model.selectedImage) { engine.model.select(engine.model.range[1]); engine.syncInput(); } };
   const sceneFragment = (engine, xml) => readDrawingFragment(xml, { sourceParts: pkg().parts, assetId: freshDrawingAssetId(engine.model) });
   const withDescription = (xml, text) => text ? xml.replace(/(<wp:docPr [^>]*?)(\/?>)/, (_, open, close) => `${open} descr="${String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/\n/g, '&#10;')}"${close}`) : xml;
-  const selectedText = engine => { const [a, b] = engine.model.range; return a === b ? '' : engine.model.text.slice(a, b).replace(/[\uFFFC\f\v\u000e]/g, '').trim(); };
+  // The text a new text box or WordArt takes from the selection it replaces. A selection that holds more than
+  // text (pictures, equations, notes, page or column breaks) or reaches across table cells stays where it is,
+  // and the new object goes after it.
+  const selectedText = engine => {
+    const model = engine.model, [a, b] = model.range;
+    if (a === b) return '';
+    const text = model.text.slice(a, b);
+    if (/[\uFFFC\f\u000e]/.test(text) || model.activeCellBlock || new Set(model.selectedParagraphs.map(p => p.cellId || null)).size > 1) { model.select(b); engine.syncInput(); return ''; }
+    return text.replace(/\v/g, '\n').trim();
+  };
 
   /* ---- Pages ---- */
   function coverPreview(design) {
