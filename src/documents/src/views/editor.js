@@ -557,9 +557,19 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ] });
   };
   const spacingInput = (key, label) => {
+    // The value already applied (Enter, then leaving the field) is not applied again.
+    const unchanged = () => !!engine && input.value !== '' && Number(input.value) === engine.model.paragraphFormatting[key];
     const input = el('input.canvas-spacing', { type: 'number', min: 0, max: 600, step: 'any', disabled: true, 'aria-label': label, placeholder: 'Mixed', onchange: () => {
       if (input.value === '' || !input.checkValidity()) { input.reportValidity(); update(); return; }
-      engine?.setParagraphFormat({ [key]: Number(input.value) });
+      if (!unchanged()) engine?.setParagraphFormat({ [key]: Number(input.value) });
+    },
+    // Enter applies a typed value and goes back to the document, as in the indent fields, also when nothing changed.
+    onkeydown: e => {
+      if (e.key !== 'Enter' || isComposing(e)) return;
+      e.preventDefault();
+      if (input.value !== '' && !input.checkValidity()) { input.reportValidity(); return; }
+      if (input.value !== '' && !unchanged()) input.dispatchEvent(new Event('change'));
+      engine?.focus();
     } });
     return input;
   };

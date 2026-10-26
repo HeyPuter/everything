@@ -330,6 +330,21 @@ test('the arrow keys step the Layout tab\'s indent and spacing fields, keeping t
   const after = await paragraph();
   expect(after.left).toBe(288); // 0.2 in, in twips
   expect(await panel.getByRole('spinbutton', { name: 'Space before paragraph (pt)', exact: true }).inputValue()).toBe('2');
+  // So does Enter in a spacing field, whether or not its value changed; a typed value applies first, in one step.
+  for (const name of ['Space before paragraph (pt)', 'Space after paragraph (pt)']) {
+    await panel.getByRole('spinbutton', { name, exact: true }).focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('textbox', { name: 'Document text' })).toBeFocused();
+  }
+  const spaceAfter = () => page.evaluate(() => window.__docs.current.view.engine.model.paragraphFormatting.spaceAfter);
+  const was = await spaceAfter();
+  await panel.getByRole('spinbutton', { name: 'Space after paragraph (pt)', exact: true }).fill('9');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeFocused();
+  expect(await spaceAfter()).toBe(9);
+  expect((await paragraph()).before).toBe(2);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(spaceAfter).toBe(was);
   // A table row's height: stepping kept the caret in the table, so the table's tab stays.
   await page.keyboard.press('ControlOrMeta+End'); await page.keyboard.press('Enter');
   await tab(page, 'Insert').click();
