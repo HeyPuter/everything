@@ -42,7 +42,19 @@ let viewGridlines = true;
 export function createTableTools({ editor, pkg, error = () => {}, onChange = () => {}, controls = {} }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const model = () => ready()?.model || null;
-  const block = () => { const m = model(); try { return m ? T.selectionBlock(m) : null; } catch { return null; } };
+  // Every table control asks for the selection's block (and the alignment grid for its state) on each
+  // refresh, over a hundred times a keystroke; each answer walks the whole table. Work them out once
+  // per document state and selection.
+  let memo = null;
+  const current = m => !!memo && memo.model === m && memo.revision === m.revision && memo.tables === m.tables && memo.paragraphs === m.paragraphs
+    && memo.anchor === m.selection.anchor && memo.focus === m.selection.focus && memo.cellBlock === m.cellBlock;
+  const block = () => {
+    const m = model(); if (!m) return null;
+    if (current(m)) return memo.block;
+    let value = null; try { value = T.selectionBlock(m); } catch { value = null; }
+    memo = { model: m, revision: m.revision, tables: m.tables, paragraphs: m.paragraphs, anchor: m.selection.anchor, focus: m.selection.focus, cellBlock: m.cellBlock, block: value };
+    return value;
+  };
   const inTable = () => !!block();
   const pen = { style: 'single', size: 4, color: '000000' };
   let lastPreset = 'all', lastShading = null;
@@ -411,6 +423,10 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   const sizeInputs = [];
   function alignmentState() {
     const m = model(), b = block(); if (!m || !b) return null;
+    if (!('alignment' in memo)) memo.alignment = measureAlignment(m, b);
+    return memo.alignment;
+  }
+  function measureAlignment(m, b) {
     const cells = cellBlockPlacements(b.table, b).map(p => p.cell);
     const vertical = cells.every(cell => (cell.vertical || 'top') === (cells[0].vertical || 'top')) ? cells[0].vertical || 'top' : null;
     const ids = new Set(cells.map(c => c.id)), aligns = new Set(m.paragraphs.filter(p => ids.has(p.cellId)).map(p => p.format?.alignment || 'left'));
