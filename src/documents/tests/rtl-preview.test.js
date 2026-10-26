@@ -48,3 +48,41 @@ it.each(['bidi'])('keeps unsupported paragraph %s guarded independently of run d
  await expect(DocxPackage.open(zipSync(parts))).rejects.toMatchObject({name:'UnsupportedDocumentError'});
  const preview=await DocxPackage.open(zipSync(parts),{bestEffort:true});expect(preview.readOnly).toBe(true);expect(preview.parts).toEqual(parts);
 });
+it('opens paragraphs and sections that state left-to-right direction explicitly for editing',async()=>{
+ const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+ const parts=unzipSync(readFileSync('public/fixtures/two-paragraphs.docx'));
+ const xml=strFromU8(parts['word/document.xml']);
+ parts['word/document.xml']=strToU8(xml.replace('<w:p>','<w:p><w:pPr><w:bidi w:val="0"/></w:pPr>').replace('<w:docGrid','<w:bidi w:val="off"/><w:docGrid'));
+ const pkg=await DocxPackage.open(zipSync(parts),{bestEffort:true});
+ expect(pkg.readOnly).not.toBe(true);
+ const doc=new TextDocument(pkg.paragraphs,pkg.pageSettings,pkg.numbering,pkg.styles,pkg.tables,pkg.assets);
+ doc.select(0);doc.setParagraphFormat({alignment:'center'});doc.replace('Z');
+ const saved=unzipSync(new Uint8Array(await pkg.export(doc.paragraphs).arrayBuffer()));
+ const out=new DOMParser().parseFromString(strFromU8(saved['word/document.xml']),'application/xml');
+ const flags=[...out.getElementsByTagNameNS(W,'bidi')].map(n=>[n.parentNode.localName,n.getAttributeNS(W,'val')]);
+ expect(flags).toEqual([['pPr','0'],['sectPr','off']]);
+ const reopened=await DocxPackage.open(zipSync(saved),{bestEffort:true});
+ expect(reopened.readOnly).not.toBe(true);expect(reopened.paragraphs[0].runs.map(r=>r.text).join('')).toMatch(/^Z/);
+});
+it('opens list levels that state left-to-right direction explicitly for editing',async()=>{
+ const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+ const numbering=`<w:numbering xmlns:w="${W}"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/><w:lvlJc w:val="left"/><w:pPr><w:bidi w:val="0"/><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>`;
+ const files={
+  '[Content_Types].xml':'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>',
+  '_rels/.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
+  'word/_rels/document.xml.rels':'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/></Relationships>',
+  'word/numbering.xml':numbering,
+  'word/document.xml':`<w:document xmlns:w="${W}"><w:body><w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Item</w:t></w:r></w:p><w:sectPr/></w:body></w:document>`,
+ };
+ const parts=Object.fromEntries(Object.entries(files).map(([k,v])=>[k,strToU8(v)]));
+ const pkg=await DocxPackage.open(zipSync(parts),{bestEffort:true});
+ expect(pkg.readOnly).not.toBe(true);
+ const doc=new TextDocument(pkg.paragraphs,pkg.pageSettings,pkg.numbering,pkg.styles,pkg.tables,pkg.assets);
+ expect(doc.paragraphs[0].list).toMatchObject({numId:'1',level:0});
+ doc.select(0);doc.replace('First ');
+ const saved=unzipSync(new Uint8Array(await pkg.export(doc.paragraphs,doc.pageSettings,doc.numbering).arrayBuffer()));
+ expect(saved['word/numbering.xml']).toEqual(parts['word/numbering.xml']);
+ // An enabled direction on a level still opens read-only.
+ parts['word/numbering.xml']=strToU8(numbering.replace('<w:bidi w:val="0"/>','<w:bidi/>'));
+ expect((await DocxPackage.open(zipSync(parts),{bestEffort:true})).readOnly).toBe(true);
+});

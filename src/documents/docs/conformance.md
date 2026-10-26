@@ -24257,3 +24257,12 @@ document base, file system or custom protocol handling); level properties outsid
 the subset above remain unsupported; no claim of reference-application pixel
 equivalence for list paragraph properties.
 
+
+## DOCX reading and writing: review round 6
+
+Files from other producers that opened read-only, or lost content on save, without a
+reason in the document itself. Each row has a unit regression that fails without the fix.
+
+| Feature | Specification basis | Supported subset and evidence |
+| --- | --- | --- |
+| Explicit left-to-right direction | ECMA-376 Part 1 §17.3.1.6 `bidi` (paragraph), §17.6.1 `bidi` (section), §17.17.4 on/off values | A paragraph, section or list-level (§17.9.23 numbering `pPr`) `w:bidi` whose value is off (`0`, `false`, `off`) states the default direction and no longer opens the document read-only. The element is kept in place through edits and save. An enabled `w:bidi` (absent value, `1`, `true`, `on`) still opens read-only because right-to-left paragraph and section layout are not implemented. `tests/rtl-preview.test.js`; the edited export passes `check:conformance`. |

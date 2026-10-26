@@ -1187,10 +1187,12 @@ export class DocxPackage {
     // declaration is ordinary inherited formatting, not unsupported direction.
     // Tracked formatting changes (rPrChange/pPrChange) are retained in the
     // property XML; the previous formatting they record is never displayed.
+    // Right-to-left paragraphs and sections (§17.3.1.6, §17.6.1) are guarded; an explicit
+    // off value (<w:bidi w:val="0"/>, written by several producers) is the default direction.
     const forbidden = ['bidi'];
     const recordedFormatting = node => { for (let a = node.parentNode; a; a = a.parentNode) if (a.namespaceURI === W && ['rPrChange', 'pPrChange'].includes(a.localName)) return true; return false; };
     for (const name of forbidden) {
-      const nodes = activeNodes.filter(n => n.namespaceURI === W && n.localName === name && !recordedFormatting(n));
+      const nodes = activeNodes.filter(n => n.namespaceURI === W && n.localName === name && enabled(n) && !recordedFormatting(n));
       if (nodes.length) unsupported(name);
     }
     for (const [index, section] of activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').entries()) {

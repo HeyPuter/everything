@@ -79,7 +79,9 @@ export function readNumbering(parts, readGeometry, readColor, readFonts, onError
     const suffix = val(child(node, 'suff')) || 'tab';
     if (!['left', 'center', 'right'].includes(alignment) || !['tab', 'space', 'nothing'].includes(suffix)) throw new Error('Unsupported numbering alignment or suffix.');
     let pPr = child(node, 'pPr');
-    const unsupported = children(pPr).filter(n => n.namespaceURI !== W || !LEVEL_PPR.includes(n.localName));
+    // An explicit left-to-right direction (w:bidi off) is the default and needs no support.
+    const defaultDirection = n => n.namespaceURI === W && n.localName === 'bidi' && ['0', 'false', 'off'].includes(n.getAttributeNS(W, 'val'));
+    const unsupported = children(pPr).filter(n => (n.namespaceURI !== W || !LEVEL_PPR.includes(n.localName)) && !defaultDirection(n));
     if (unsupported.length) {
       const messages = [...new Set(unsupported.map(n => `Unsupported numbering paragraph property: ${n.localName}.`))];
       if (!onError) throw new Error(messages[0]);
