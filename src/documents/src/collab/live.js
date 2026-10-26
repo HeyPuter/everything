@@ -72,6 +72,17 @@ export class LiveSession extends EventTarget {
   get local() { return !!this.link.local; }
   get status() { return this.client.status; }
   get pending() { return this.client.outbox.size; }
+
+  /** Send the changes the room has not received yet, batch after batch while it takes them. Resolves whether none are left. */
+  async deliver() {
+    const client = this.client;
+    for (let left = Infinity; !client.closed && client.outbox.size && client.outbox.size < left;) {
+      left = client.outbox.size;
+      await client.sending;
+      await client.send().catch(() => {});
+    }
+    return !client.outbox.size;
+  }
   get canManage() { return canManage(this.role) || (this.local && this.role === 'owner'); }
 
   listen() {

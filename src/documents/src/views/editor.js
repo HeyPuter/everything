@@ -1712,6 +1712,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     get engine() { return engine; },
     /** Whether the document opened as a read-only preview or not at all, so that nothing here can save it. */
     get unsaveable() { return settled && !doc.exporter; },
+    /** Whether changes to a shared document have not reached the others yet, and are kept nowhere else (collab.js). */
+    get undelivered() { return collab.undelivered; },
     get commands() { return editorCommands; },
     async flush() {
       if (destroyed) return true;
@@ -1720,7 +1722,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (doc.dirty && !doc.exporter) return false;
       // A save that never answers (a stalled connection) must not keep the user in the editor: after a while
       // leaving asks, as it does after a failed save, and the save itself goes on.
-      const flushing = doc.flush();
+      // In a shared document this tab does not save, the edits are only safe once the room has them.
+      const flushing = doc.flush().then(saved => saved && collab.deliver());
       flushing.catch(() => {});
       let timer;
       // Time spent in Puter's Save dialog is the user's, not a stalled connection: the wait starts over while it is open.

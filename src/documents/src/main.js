@@ -74,7 +74,7 @@ async function unmount(stillWanted = () => true) {
       if (saved) break;
       // The URL shows the document while the user decides.
       history.replaceState(null, '', ownHash());
-      const choice = await leaveDialog(doc, { unsaveable: !!leaving.view.unsaveable });
+      const choice = await leaveDialog(doc, { unsaveable: !!leaving.view.unsaveable, undelivered: !!leaving.view.undelivered });
       if (!stillWanted() || current !== leaving) return false;
       // A place chosen while the dialog was open (a link, the back button) is where to go; staying shows the document again.
       const moved = location.hash !== ownHash();
@@ -102,7 +102,15 @@ const leaveQuestionOpen = () => [...document.querySelectorAll('.modal-root:not(.
  * What to do with edits that could not be written: 'stay', 'leave' (and lose
  * them), or, without a session, 'sign-in' so they can be saved after all.
  */
-function leaveDialog(doc, { unsaveable = false } = {}) {
+function leaveDialog(doc, { unsaveable = false, undelivered = false } = {}) {
+  // Changes to a shared document someone else saves: the room has not received them (offline, say).
+  if (undelivered) {
+    return confirmDialog({
+      title: LEAVE_TITLES[0],
+      message: 'Your latest changes have not reached the shared document yet, so nobody else has them. Keep editing until the connection is back, or leave: this browser keeps them and sends them the next time you open the document here.',
+      confirmLabel: 'Leave', cancelLabel: 'Keep editing',
+    }).then((leave) => (leave ? 'leave' : 'stay'));
+  }
   // A preview, or a file that could not be opened, has no save to try again: say what staying is for.
   if (unsaveable) {
     return confirmDialog({
@@ -455,7 +463,8 @@ function setupFileDrop() {
 function setupUnloadGuard() {
   const doc = () => (current?.kind === 'editor' ? current.view.doc : null);
   window.addEventListener('beforeunload', (e) => {
-    if (!needsUnloadWarning(doc())) return;
+    // A shared document's changes that have not reached the others yet are at stake as much as unsaved ones.
+    if (!needsUnloadWarning(doc()) && !(current?.kind === 'editor' && current.view.undelivered)) return;
     e.preventDefault();
     e.returnValue = '';
   });

@@ -57,7 +57,7 @@ export async function readyToClose({ open, leaveDialog }) {
   for (;;) {
     if (await view.flush()) return true;
     if (!still()) return false;
-    const choice = await leaveDialog(doc, { unsaveable: !!view.unsaveable });
+    const choice = await leaveDialog(doc, { unsaveable: !!view.unsaveable, undelivered: !!view.undelivered });
     if (!still() || choice === 'stay') return false;
     if (choice === 'leave') return true;
     // 'sign-in': with a session the save can go through; then try again.

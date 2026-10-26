@@ -211,9 +211,22 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
     { separator: true },
   ];
 
+  /**
+   * Whether this tab has changes to a shared document that it does not save itself (a guest's, another owner tab's)
+   * and that have not reached the room: they are nowhere else yet. The browser keeps them for the next visit to the
+   * document from here, which the person may never make.
+   */
+  const undelivered = () => !!live && doc.writes === false && live.pending > 0;
+
   return {
     avatars, banner, attach, share, ensureShared, extendTab, extendMenu, shareItems,
     get live() { return live; },
+    get undelivered() { return undelivered(); },
+    /** Send those changes now (before leaving the document); resolves whether none are left. */
+    async deliver() {
+      if (undelivered()) await live.deliver();
+      return !undelivered();
+    },
     commands: {
       share,
       /** Who is in the document, for the title bar: [{ name, color, role, me }]. */

@@ -208,7 +208,7 @@ describe('closing the Puter window', () => {
     puter.fs.write.mockRejectedValueOnce(new Error('quota'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await closeWindow()).toBe(false);
-    expect(leaveDialog).toHaveBeenCalledWith(doc, { unsaveable: false });
+    expect(leaveDialog).toHaveBeenCalledWith(doc, { unsaveable: false, undelivered: false });
     expect(puter.exit).not.toHaveBeenCalled();
     leaveDialog.mockResolvedValueOnce('leave');
     puter.fs.write.mockRejectedValueOnce(new Error('quota'));

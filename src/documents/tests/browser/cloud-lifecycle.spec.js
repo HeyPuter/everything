@@ -153,6 +153,38 @@ test('Save As in a shared document goes on in a copy the others do not see', asy
   await ownerContext.close(); await guestContext.close();
 });
 
+test('a guest leaving a shared document with changes the others have not received is asked first', async ({ browser }) => {
+  test.setTimeout(120000);
+  const ownerContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const owner = await ownerContext.newPage();
+  await owner.goto('/mock.html?user=ada#/new');
+  await expect(owner.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await text(owner).fill('Quarterly plan.');
+  await expect(status(owner)).toHaveAttribute('aria-label', 'Saved to Puter');
+  const link = await shareForEditing(owner);
+  const guestContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  const guest = await guestContext.newPage();
+  await guest.goto(link.replace('mock.html', 'mock.html?user=bob'));
+  await expect.poll(() => text(guest).evaluate(el => el.value), { timeout: 15000 }).toBe('Quarterly plan.');
+  await guestContext.setOffline(true);
+  await text(guest).evaluate(el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); el.dispatchEvent(new Event('select')); });
+  await text(guest).pressSequentially(' Offline note.');
+  await expect(guest.locator('.cl-chip')).toContainText('waiting', { timeout: 15000 });
+  // The owner saves the file, so nothing is "unsaved" here; the changes are still in this tab only.
+  expect(await warnsOnUnload(guest)).toBe(true);
+  await guest.getByRole('button', { name: 'All Documents' }).click();
+  const question = guest.getByRole('dialog', { name: 'Leave without saving?' });
+  await expect(question).toContainText('have not reached the shared document yet');
+  await question.getByRole('button', { name: 'Keep editing' }).click();
+  expect(await guest.evaluate(() => window.__docs.current.kind)).toBe('editor');
+  // Back online, leaving delivers them first and asks nothing.
+  await guestContext.setOffline(false);
+  await guest.getByRole('button', { name: 'All Documents' }).click();
+  await expect(guest.getByRole('heading', { name: 'Your documents' })).toBeVisible({ timeout: 15000 });
+  await expect.poll(() => text(owner).evaluate(el => el.value), { timeout: 15000 }).toBe('Quarterly plan. Offline note.');
+  await ownerContext.close(); await guestContext.close();
+});
+
 test('File > Save: pressing Save As twice saves one copy and says so', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Original');
