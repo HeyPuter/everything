@@ -1489,7 +1489,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if (doc.exporter) saveButton.disabled = false;
     refreshTitle();
   }
+  // A name typed in the title and not confirmed yet (Enter, or the keyboard leaving the field, confirms it).
+  let titleTyped = false;
   const onTitle = async () => {
+    titleTyped = false;
     const name = title.value.trim() || 'Untitled document';
     title.value = name;
     try {
@@ -1504,11 +1507,11 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     } catch (e) { title.value = doc.name; refreshTitle(); error(e); }
   };
   title.addEventListener('change', onTitle);
-  title.addEventListener('input', refreshTitle);
+  title.addEventListener('input', () => { titleTyped = true; refreshTitle(); });
   title.addEventListener('keydown', e => {
     if (isComposing(e)) return;
     if (e.key === 'Enter') { e.preventDefault(); title.blur(); engine?.focus(); }
-    if (e.key === 'Escape') { e.preventDefault(); title.value = doc.name; refreshTitle(); title.blur(); engine?.focus(); }
+    if (e.key === 'Escape') { e.preventDefault(); titleTyped = false; title.value = doc.name; refreshTitle(); title.blur(); engine?.focus(); }
   });
   doc.addEventListener('status', updateStatus);
   // An autosave refused because another window changed the file is not tried again, so the user hears of it, once
@@ -1749,6 +1752,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     async flush() {
       if (destroyed) return true;
       engine?.finishComposition();
+      // A name still being typed in the title is the document's: All Documents and the window's close button leave the keyboard there.
+      if (titleTyped) await onTitle();
       // A clean document still waits for a rename or copy under way (doc.flush), or leaving would cancel it.
       if (doc.dirty && !doc.exporter) {
         // A template not laid out yet holds nothing of the user's: leaving it asks nothing.
