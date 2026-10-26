@@ -701,6 +701,10 @@ export class TextDocument {
     // A new section: validate the result before changing anything, so a failure leaves the document as it was.
     const [start, end] = this.range;
     if (scope === 'selection' && start === end) throw new Error('Select the text to give its own settings.');
+    // Sections that already have these settings need no breaks of their own (one column for text
+    // that has one column): splitting them would change nothing but the document's section marks.
+    const covered = this.sectionIndexAt(start), through = scope === 'selection' ? this.sectionIndexAt(Math.max(start, end - 1)) : this.sectionCount - 1;
+    if (!changed(plan(covered, through))) return false;
     this.checkpoint();
     let caret = start;
     if (scope === 'selection' && !this.startsSection(end)) this.insertSectionBreakAt(end, breakType);

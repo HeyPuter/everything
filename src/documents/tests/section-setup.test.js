@@ -96,6 +96,29 @@ describe('page settings by section', () => {
     expect(doc.text.slice(...doc.range)).toBe('Two');
     expect(() => layout(doc)).not.toThrow();
   });
+  it('inserts no section breaks when the selected text or the rest of the document already has the settings', () => {
+    const { doc } = fresh('One', 'Two', 'Three');
+    const before = doc.text;
+    doc.select(4, 7);
+    // One column (no columns) for text that already has one column changes nothing.
+    expect(doc.setPageSettings({ columns: null }, { scope: 'selection', breakType: 'continuous' })).toBe(false);
+    doc.select(5);
+    expect(doc.setPageSettings({ columns: null, left: doc.pageSettings.left }, { scope: 'forward', breakType: 'continuous' })).toBe(false);
+    expect(doc.sectionCount).toBe(1);
+    expect(doc.text).toBe(before);
+    // Text inside a two-column section asks for two columns again: still one section of its own.
+    const columns = { count: 2, space: 720, equalWidth: true, separator: false };
+    doc.select(4, 7);
+    doc.setPageSettings({ columns }, { scope: 'selection', breakType: 'continuous' });
+    expect(doc.sectionCount).toBe(3);
+    const text = doc.text;
+    doc.select(6, 7);
+    expect(doc.setPageSettings({ columns }, { scope: 'selection', breakType: 'continuous' })).toBe(false);
+    expect([doc.sectionCount, doc.text]).toEqual([3, text]);
+    // A real change still splits the section.
+    expect(doc.setPageSettings({ columns: null }, { scope: 'selection', breakType: 'continuous' })).toBe(true);
+    expect(doc.sectionCount).toBe(5);
+  });
   it('rolls back a section change that cannot fit', () => {
     const { doc } = fresh('One', 'Two');
     doc.select(5);
