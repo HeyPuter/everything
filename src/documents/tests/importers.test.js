@@ -77,16 +77,39 @@ describe('decodeTextFile', () => {
     expect(decodeTextFile(page('<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=ks_c_5601-1987">'), 'html')).toContain('<p>한글</p>');
     expect(decodeTextFile(bytes(ascii('<?xml version="1.0" encoding="EUC-KR"?><html><body>'), hangul), 'html')).toContain('한글');
     // Only an HTML file carries a declaration; other kinds keep the plain fallback.
-    expect(decodeTextFile(page('<meta charset="euc-kr">'), 'text')).not.toContain('한글');
+    const cyrillic = bytes(ascii('<meta charset="windows-1251"><p>'), 0xcc, 0xe8, 0xf0);
+    expect(decodeTextFile(cyrillic, 'html')).toContain('Мир');
+    expect(decodeTextFile(cyrillic, 'text')).not.toContain('Мир');
     expect(declaredCharset(page('<meta charset="euc-kr">'))).toBe('euc-kr');
     expect(declaredCharset(page(''))).toBeNull();
     // Valid UTF-8 wins over a stale declaration; unknown and unusable labels fall back to the byte sniff.
     expect(decodeTextFile(bytes(ascii('<meta charset="euc-kr">'), [...Buffer.from('한글', 'utf8')]), 'html')).toContain('한글');
-    expect(decodeTextFile(page('<meta charset="x-nonsense">'), 'html')).not.toContain('한글');
+    expect(decodeTextFile(page('<meta charset="x-nonsense">'), 'html')).toContain('<p>한글</p>');
     expect(decodeTextFile(page('<meta charset="iso-2022-kr">'), 'html')).not.toBe('\ufffd');
     expect(decodeTextFile(bytes(ascii('<meta charset="windows-1252"><p>caf'), 0xe9, 0x20, 0x93), 'html')).toContain('café “');
     // A page that claims UTF-16 but holds single bytes is read like one without the claim, as browsers do.
     for (const label of ['unicode', 'utf-16', 'UTF-16LE', 'ucs-2']) expect(decodeTextFile(bytes(ascii(`<meta charset="${label}"><p>caf`), 0xe9), 'html')).toContain('café');
+  });
+});
+
+describe('legacy Korean, Japanese and Chinese text', () => {
+  // Bytes as Windows editors of each language saved them (EUC-KR/CP949, Shift_JIS, GBK), written out here.
+  const korean = [0xb4, 0xeb, 0xc7, 0xd1, 0xb9, 0xce, 0xb1, 0xb9, 0xc0, 0xba, 0x20, 0xb9, 0xce, 0xc1, 0xd6, 0xb0, 0xf8, 0xc8, 0xad, 0xb1, 0xb9, 0xc0, 0xcc, 0xb4, 0xd9, 0x2e];
+  const japanese = [0x96, 0xbc, 0x91, 0x4f, 0x82, 0xcd, 0x82, 0xdc, 0x82, 0xbe, 0x96, 0xb3, 0x82, 0xa2, 0x81, 0x42];
+  const chinese = [0xce, 0xd2, 0xc3, 0xc7, 0xbd, 0xf1, 0xcc, 0xec, 0xd4, 0xda, 0xd5, 0xe2, 0xc0, 0xef, 0xbf, 0xaa, 0xbb, 0xe1, 0xa1, 0xa3];
+  it('reads a file saved in its language\'s legacy code page as its text, not as replacement characters', () => {
+    expect(decodeTextFile(new Uint8Array(korean))).toBe('대한민국은 민주공화국이다.');
+    expect(decodeTextFile(new Uint8Array(japanese))).toBe('名前はまだ無い。');
+    expect(decodeTextFile(new Uint8Array(chinese))).toBe('我们今天在这里开会。');
+    expect(decodeTextFile(new Uint8Array([...korean, 0x0a, ...korean]), 'markdown')).toBe('대한민국은 민주공화국이다.\n대한민국은 민주공화국이다.');
+  });
+  it('leaves Western text in Windows-1252, whose accented letters some of those code pages also accept', () => {
+    for (const text of ['Le cœur a ses raisons que la raison ne connaît point. Ça va très bien, déjà vu, à côté.',
+      'Größe, Straße, übermäßig schön; Fußgänger über die Brücke.', '¿Qué tal? ¡Mañana será otro día! El niño comió piña.',
+      'Não há ação sem reação. O coração é grande.', 'Þórður og Ægir fóru í ferðalag. Ég á þrjá hesta.', '© ® ° ± × ÷ µ ¶ · ¼ ½ ¾ £ ¥ € §']) {
+      const bytes = new Uint8Array([...text].map(ch => ({ 'œ': 0x9c, '€': 0x80 })[ch] ?? ch.charCodeAt(0)));
+      expect(decodeTextFile(bytes)).toBe(text);
+    }
   });
 });
 
