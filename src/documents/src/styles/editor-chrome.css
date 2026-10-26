@@ -261,6 +261,12 @@
 .ed-status-right { margin-left: auto; flex: none; }
 /* Between phone and desktop widths the language gives way, so the zoom controls stay whole. */
 .ed-status-left { flex: 0 1 auto; overflow: hidden; }
+/* The narrowest phones (and a desktop window zoomed to 400%) have no room for both halves on one line: the
+   right half goes under the left rather than cutting the page and word counts off. */
+@media (max-width: 420px) {
+  .ed-statusbar.canvas-statusbar { flex-wrap: wrap; row-gap: 0; }
+  .ed-status-left { flex-shrink: 0; max-width: 100%; }
+}
 .ed-status-item { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; white-space: nowrap; }
 button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { background: var(--ed-hover); }
 .ed-statusbar .canvas-text-mode { margin-left: 0; padding: 0 6px; }
