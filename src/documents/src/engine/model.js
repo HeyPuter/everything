@@ -553,6 +553,8 @@ export class TextDocument {
     this.pageSettings = settings; this.didChange(); return true;
   }
   adjustIndent(delta) {
+    const pass = this.blockCellPass(() => this.adjustIndent(delta));
+    if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs, current = targets.map(p => paragraphFormat(p, this.numbering).indentLeft);
     // Decreasing stops at the margin, as Decrease Indent does; an existing negative indent is left alone.
     const values = current.map(value => validateIndent(delta < 0 ? Math.max(Math.min(value, 0), value + delta) : value + delta));
@@ -636,6 +638,8 @@ export class TextDocument {
     this.didChange(); return true;
   }
   changeListLevel(delta) {
+    const pass = this.blockCellPass(() => this.changeListLevel(delta));
+    if (pass !== undefined) return pass;
     const targets = this.selectedParagraphs;
     if (!targets.every(p => p.list)) return this.adjustIndent(delta * 720);
     if (targets.some(p => p.list.level + delta < 0 || p.list.level + delta > 8)) return false;
