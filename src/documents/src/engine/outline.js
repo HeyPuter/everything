@@ -7,7 +7,8 @@ export function outlineEntries(paragraphs) {
   return paragraphs.flatMap(p => {
     const end = start + p.runs.reduce((n, r) => n + r.text.length, 0), level = p.format?.outlineLevel ?? 9;
     const entry = { id: p.id, start, end, level: level + 1,
-      text: p.runs.map(r => r.image ? r.image.alt || '[Image]' : r.text).join('').replace(/\s+/gu, ' ').trim() || '(Empty heading)' };
+      // A note reference, field or equation is an object character, which a heading's name does not show.
+      text: p.runs.map(r => r.image ? r.image.alt || '[Image]' : r.math ? r.math.text || '' : r.text.replace(/\uFFFC/g, '')).join('').replace(/\s+/gu, ' ').trim() || '(Empty heading)' };
     start = end + 1;
     return level < 9 ? [entry] : [];
   });

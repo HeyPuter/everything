@@ -121,3 +121,12 @@ it('rejects invalid levels and malformed active declarations before changing his
     await expect(DocxPackage.open(zipSync(parts))).rejects.toThrow(/outline/);
   }
 });
+
+it('names a heading without the object characters of its note references, fields and equations', () => {
+  const doc = new TextDocument([paragraph('History'), paragraph('Body')]);
+  doc.select(0, 7); doc.setOutlineLevel(1);
+  doc.select(7); doc.insertFootnoteReference('1', 'footnote');
+  doc.select(0); doc.insertMathRun({ xml: '<m:oMath/>', text: 'x²' }); doc.replace(' ');
+  expect(doc.text.split('\n')[0]).toBe('￼ History￼');
+  expect(headings(doc)).toEqual([['x² History', 2]]);
+});
