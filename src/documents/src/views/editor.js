@@ -948,7 +948,9 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     ];
     return openPreferences({ sections, section, onClose: () => queueMicrotask(() => engine?.focus()) });
   }
-  const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile,
+  // Filled in once the review tools (which own document protection) exist.
+  const mailingHooks = {};
+  const mailings = createMailings({ editor: () => (failed ? null : engine), pkg: () => pkg, error, onChange: () => update(), markDirty: () => doc.changed(), importFile, protectedDocument: () => !!mailingHooks.protectedDocument?.(),
     print: capture => printPages({ host, signal: printAbort.signal, capture }), documentTitle: () => title?.value?.trim(), layoutChanged: () => { fitWidth(); rulers?.update(); } });
   Object.assign(editorCommands, mailings.commands);
   const baseExtraTabs = editorCommands.extraTabs;
@@ -958,6 +960,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   // Review tools: Editor pane, Thesaurus, Accessibility, Language, Compare, Restrict Editing (review-tools.js).
   const reviewTools = createReviewTools({ editor: () => engine, pkg: () => pkg, error, author: () => session.username, review, proofing, commands: editorCommands, documentName: () => title.value, openDocument: file => importFile?.(file),
     currentBytes: async () => new Uint8Array(await (pkg.readOnly ? doc.blob : engine.export(pkg)).arrayBuffer()), onChange: () => update() });
+  // Under protection (other than Lock Tracking) the Mailings commands, which rewrite the document and its settings, are unavailable.
+  mailingHooks.protectedDocument = () => reviewTools.protectionEnforced && !reviewTools.trackingLocked;
   Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
   Object.assign(editorCommands, reviewTools.commands);
   const reviewFileItems = editorCommands.fileItems;

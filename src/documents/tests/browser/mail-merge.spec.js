@@ -422,3 +422,28 @@ test('previews an imported main document with nested rules and keeps its data so
   expect(strFromU8(parts['word/document.xml'])).toContain('<w:instrText xml:space="preserve"> IF "</w:instrText>');
   expect(errors).toEqual([]);
 });
+
+test('Mailings commands are unavailable while the document is protected against editing', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Locked contract text.');
+  await page.locator('#ribbon-tab-review').click();
+  await page.locator('#ribbon-panel-review [aria-label="Restrict Editing"]').evaluate(b => b.click());
+  const pane = page.getByRole('complementary', { name: 'Restrict Editing pane' });
+  await pane.getByRole('checkbox', { name: 'Allow only this type of editing in the document:' }).check();
+  await pane.getByRole('button', { name: 'Yes, Start Enforcing Protection' }).click();
+  await page.getByRole('dialog', { name: 'Start Enforcing Protection' }).getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(pane).toContainText('protected from unintentional editing');
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  for (const name of ['Select Recipients', 'Start Mail Merge', 'Insert Merge Field']) await expect(ribbon(page).getByRole('button', { name, exact: true }).first(), name).toBeDisabled();
+  // Stopping protection makes them available again.
+  await page.locator('#ribbon-tab-review').click();
+  await pane.getByRole('button', { name: 'Stop Protection' }).click();
+  await page.getByRole('dialog', { name: 'Stop Protection' }).getByRole('button', { name: 'Stop Protection' }).click();
+  await expect(pane.getByRole('button', { name: 'Yes, Start Enforcing Protection' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Mailings' }).click();
+  await expect(ribbon(page).getByRole('button', { name: 'Select Recipients', exact: true }).first()).toBeEnabled();
+  expect(errors).toEqual([]);
+});

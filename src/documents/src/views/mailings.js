@@ -23,8 +23,9 @@ const HIGHLIGHT = 'rgba(128, 128, 128, 0.28)';
 const RECIPIENT_FILES = ['.csv', '.tsv', '.txt', '.xlsx'];
 const sdk = () => (typeof puter !== 'undefined' ? puter : null);
 
-export function createMailings({ editor, pkg, error, onChange = () => {}, markDirty = () => {}, importFile, print, documentTitle = () => '', focus = () => editor()?.focus(), layoutChanged = () => {} }) {
-  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
+export function createMailings({ editor, pkg, error, onChange = () => {}, markDirty = () => {}, importFile, print, documentTitle = () => '', focus = () => editor()?.focus(), layoutChanged = () => {}, protectedDocument = () => false }) {
+  // A document open read-only, or protected against editing, cannot become a main document or change its merge.
+  const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !protectedDocument() ? engine : null; };
   const fail = e => { error(e); };
   // Highlighting is a view preference for this session, like formatting marks; it is not saved.
   let engineModules = null, answers = {}, highlighted = false;
@@ -41,7 +42,7 @@ export function createMailings({ editor, pkg, error, onChange = () => {}, markDi
     return loaded.fields.autoMatchFields(s.list.columns);
   };
   function setState(patch) {
-    const p = pkg(); if (!p || p.readOnly) return;
+    const p = pkg(); if (!p || p.readOnly || protectedDocument()) return;
     const next = { ...BLANK, ...state(), ...patch };
     p.mailMerge = next.type || next.list || Object.keys(next.mapping || {}).length ? next : null;
     markDirty();
