@@ -36,4 +36,20 @@ describe('Symbol dialog keyboard', () => {
     await vi.runAllTimersAsync();
     expect(onInsert).toHaveBeenCalledWith(DEFAULT_RECENT.at(-1), null);
   });
+
+  it('inserts the character Enter is pressed on, and stays open for the next', async () => {
+    const onInsert = vi.fn();
+    const modal = openSymbolDialog({ onInsert });
+    const cells = [...modal.panel.querySelectorAll('[aria-label="Characters"] button')];
+    cells[0].focus();
+    press(cells[0], 'ArrowRight');
+    press(cells[1], 'Enter');
+    await vi.runAllTimersAsync();
+    expect(onInsert).toHaveBeenCalledWith(cells[1].textContent, null);
+    expect(modal.panel.isConnected).toBe(true);
+    const special = [...modal.panel.querySelectorAll('[aria-label="Special characters"] [role="option"]')];
+    press(special[0], 'Enter');
+    await vi.runAllTimersAsync();
+    expect(onInsert).toHaveBeenLastCalledWith('\u2014', null);
+  });
 });

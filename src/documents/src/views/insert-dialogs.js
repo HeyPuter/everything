@@ -218,6 +218,13 @@ export function openSymbolDialog({ onInsert, onClose }) {
       ondblclick: () => { chosen = ch; dialog.form.requestSubmit(); } },
     el('span.insert-special-char', {}, /[\s\u00AD\u200B\u2060]/.test(ch) ? '\u00B7' : ch), el('span', {}, label), el('span.insert-special-keys', {}, `U+${ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')}`))));
   listboxKeys(special, option => option.click());
+  // Enter inserts the character it is on, as a double-click does (the dialog stays open for the next); Space only chooses it.
+  const insertOnEnter = e => {
+    if (e.key !== 'Enter' || isComposing(e) || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const button = e.target.closest?.('button'); if (!button) return;
+    e.preventDefault(); button.click(); dialog.form.requestSubmit();
+  };
+  for (const node of [grid, recent, special]) node.addEventListener('keydown', insertOnEnter);
   const symbolsPane = el('div.insert-symbol-pane', {}, el('div.insert-symbol-filters', {}, field('Font', font), field('Subset', subset)), grid,
     el('div.insert-symbol-footer', {}, preview, el('div', {}, name, field('Character code', code))), el('span.field-label', {}, 'Recently used symbols'), recent);
   const specialPane = el('div.insert-symbol-pane', { hidden: true }, special);
