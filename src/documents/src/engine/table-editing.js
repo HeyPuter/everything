@@ -1145,6 +1145,21 @@ export function clearCells(model) {
   const state = M.tableContent(model, table);
   const empty = placements.every(({ cell }) => { const content = state.byCell.get(cell.id) || []; return content.length === 1 && !paragraphText(content[0]); });
   if (empty) return false;
+  const saved = { tableId: table.id, top: block.top, bottom: block.bottom, left: block.left, right: block.right };
+  if (model.trackChanges) {
+    // With Track Changes on, each cell's text is marked deleted, as Delete marks a selection; the cells stay.
+    let changed = false, checkpoint = true;
+    for (const { cell } of [...placements].reverse()) {
+      const first = model.paragraphs.findIndex(p => p.cellId === cell.id), last = model.paragraphs.findLastIndex(p => p.cellId === cell.id);
+      if (first < 0) continue;
+      const start = model.paragraphOffset(first), end = model.paragraphOffset(last) + paragraphText(model.paragraphs[last]).length;
+      if (start === end) continue;
+      model.select(start, end);
+      if (model.replace('', { checkpoint })) { changed = true; checkpoint = false; }
+    }
+    model.setCellBlock(saved);
+    return changed;
+  }
   model.checkpoint();
   for (const { cell } of placements) state.byCell.set(cell.id, [blankFor(state, cell, cell)]);
   M.applyTableContent(model, table, state);

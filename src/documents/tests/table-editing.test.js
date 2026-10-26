@@ -7,6 +7,7 @@ import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells, verticalMerges, rowGrid, documentBlocks } from '../src/engine/tables.js';
 import * as T from '../src/engine/table-editing.js';
 import { blockFor, ownerPlacements } from '../src/engine/table-selection.js';
+import { StorySession } from '../src/engine/story-session.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -538,4 +539,24 @@ it('explains that text holding a picture text wraps around cannot become a table
   const before = doc.text;
   expect(() => T.convertTextToTable(doc, { separator: 'tab' })).toThrow(/picture or shape that text wraps around.*In Line with Text/);
   expect([doc.text, doc.tables.length]).toEqual([before, 0]);
+});
+
+describe('clearing a block of cells with Track Changes on', () => {
+  it('marks each cell’s text as deleted, keeping the cells, in one undo step', async () => {
+    const { pkg, doc } = tableDocument(2, 3);
+    doc.trackChanges = true;
+    block(doc, 0, 1, 1, 2);
+    const session = new StorySession(doc), before = JSON.stringify(doc.paragraphs);
+    expect(session.run(() => T.clearCells(doc))).toBe(true);
+    const runs = doc.paragraphs.filter(p => p.cellId).flatMap(p => p.runs.map(r => [r.text, r.revision?.type ?? null]));
+    expect(runs).toEqual([['a0', null], ['a1', 'del'], ['a2', null], ['b0', null], ['b1', 'del'], ['b2', null]]);
+    expect(doc.activeCellBlock).toMatchObject({ top: 0, bottom: 1, left: 1, right: 2 });
+    const { reopened } = await roundTrip(pkg, doc);
+    reopened.resolveRevisions(true);
+    expect(shape(reopened)).toEqual(['a0  a2', 'b0  b2']);
+    // Clearing again finds nothing left to delete.
+    expect(T.clearCells(doc)).toBe(false);
+    session.undo();
+    expect(JSON.stringify(doc.paragraphs)).toBe(before);
+  });
 });
