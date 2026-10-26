@@ -15,3 +15,20 @@ export function paintInsertionCaret(ctx, caret, scale, clip) {
   ctx.fillRect(caret.x, caret.y, width, caret.height);
   ctx.restore();
 }
+
+// Text an input method is still composing is underlined, as native fields mark it, so the part a
+// conversion or commit will change stands apart from the committed text around it. The line sits
+// just below the baseline of the text it marks (rects from selectionRects, one per line).
+export function paintCompositionUnderline(ctx, rects, lines, page, scale) {
+  const thickness = Math.max(1, Math.round(scale)) / scale;
+  ctx.save();
+  ctx.fillStyle = '#3c4043';
+  for (const rect of rects) {
+    if (rect.page !== page || !(rect.width > 0)) continue;
+    const line = lines.find(l => l.page === page && !l.cellText && l.y <= rect.y + 1e-6 && rect.y < l.y + l.height);
+    const bottom = rect.y + rect.height - thickness;
+    const y = line ? Math.min(line.baseline + Math.max(2, thickness * 2), bottom) : bottom;
+    ctx.fillRect(rect.x, y, rect.width, thickness);
+  }
+  ctx.restore();
+}

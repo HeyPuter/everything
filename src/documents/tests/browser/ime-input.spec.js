@@ -64,3 +64,27 @@ test('with Track Changes on, text composed over a selection leaves the caret aft
     .toEqual([['Hello ', null], ['world', 'del'], ['你好', 'ins'], ['X', 'ins'], [' again', null]]);
   expect(await state(page)).toMatchObject({ text: 'Hello world你好X again', range: [14, 14], composing: false });
 });
+
+test('text still being composed is underlined until it is committed', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill('Hello ');
+  await input(page).press('End');
+  // The darkest ink just below the baseline under the composed text, across its width.
+  const underline = () => page.evaluate(() => {
+    const e = window.__docs.current.view.engine, line = e.selectionLayout.lines[0], c = e.canvases[0], scale = c.width / e.layout.pages[0].width;
+    const from = line.stops.find(s => s.offset === 6).x, to = line.stops.find(s => s.offset === 9).x;
+    const data = c.getContext('2d').getImageData(Math.round(from * scale) + 2, Math.round((line.baseline + 1) * scale), Math.round((to - from) * scale) - 4, Math.round(3 * scale)).data;
+    let darkest = 255;
+    for (let i = 0; i < data.length; i += 4) { const v = Math.max(data[i], data[i + 1], data[i + 2]); darkest = Math.min(darkest, v); }
+    return darkest;
+  });
+  const cdp = await page.context().newCDPSession(page);
+  for (const text of ['k', 'ka', 'かn', 'かんj', 'かんじ']) await cdp.send('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
+  expect(await underline()).toBeLessThan(128);
+  expect(await page.evaluate(() => window.__docs.current.view.engine.compositionRange())).toEqual([6, 9]);
+  await cdp.send('Input.insertText', { text: 'かんじ' });
+  await expect(input(page)).toHaveValue('Hello かんじ');
+  expect(await page.evaluate(() => window.__docs.current.view.engine.compositionRange())).toBeNull();
+  expect(await underline()).toBeGreaterThan(200);
+});

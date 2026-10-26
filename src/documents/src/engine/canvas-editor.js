@@ -11,7 +11,7 @@ const MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navi
 import { inlineControlCaret, adjacentInlineControl, moveInlineControlCaret, documentStartControlCaret, moveInlineControlHomeEnd, emptyControlPointerCaret, pointerControlSelection } from './content-control-caret.js';
 import { paintControlCarets } from './canvas-control-caret.js';
 import { paintStoryChrome, storyBoundaries } from './canvas-story-chrome.js';
-import { paintInsertionCaret } from './canvas-caret.js';
+import { paintInsertionCaret, paintCompositionUnderline } from './canvas-caret.js';
 import { cellTextLocalPoint } from './cell-text-direction.js';
 import { pageStorySelectionLayout } from './page-story-positions.js';
 import { pageStoryAtPoint } from './page-story-hit.js';
@@ -153,7 +153,10 @@ export class CanvasEditor {
         this.syncInput(); this.paint();
       }
       this.composition = entry;
+      // Where the composed text begins in the native field, and what it is so far (compositionRange).
+      this.compositionStart = this.input.selectionStart; this.compositionText = '';
     });
+    listen(this.input, 'compositionupdate', e => { if (this.composition) this.compositionText = e.data || ''; });
     listen(this.input, 'compositionend', () => this.finishComposition());
     listen(this.input, 'select', () => this.nativeSelection());
     listen(this.input, 'keyup', () => this.nativeSelection());
@@ -713,6 +716,8 @@ export class CanvasEditor {
     const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
     const found = printing ? [] : this.findHighlightRects();
     const tinted = printing ? [] : this.rangeTintRects();
+    const composing = printing ? null : this.compositionRange();
+    const composedRects = composing ? selectionRects(this.selectionLayout, ...composing) : [];
     for (const index of indices || canvases.keys()) {
       const canvas = canvases[index], ctx = canvas.getContext('2d'), geometry = this.layout.pages[index] || this.layout.page;
       // A canvas keeps its pixels and drawing state between paints (resizeCanvases keeps unchanged sizes).
@@ -930,6 +935,7 @@ export class CanvasEditor {
       if (storyChrome && storyChrome.active !== 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, storyChrome.active);
       if (!printing) for (const overlay of this.overlays) overlay(ctx, index, geometry);
       if (!printing && controlRects) paintControlCarets(ctx, controlRects, index, scale);
+      if (composedRects.length) paintCompositionUnderline(ctx, composedRects, this.selectionLayout.lines, index, scale);
       if (!printing && start === end && caret.page === index && document.activeElement === this.input && !this.accessible) {
         const line = lineAtPosition(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage);
         const clip = line.cellClip;
@@ -1745,6 +1751,16 @@ export class CanvasEditor {
     const typingFormat = this.model.typingFormat, typingStyle = this.model.typingStyle, typingDirectCleared = this.model.typingDirectCleared;
     this.model.select(a, b, same ? selection.controlCaret : undefined, same ? selection.controlSelection : undefined);
     this.model.typingFormat = typingFormat; this.model.typingStyle = typingStyle; this.model.typingDirectCleared = typingDirectCleared;
+  }
+  /**
+   * The text an input method is still composing, as document offsets, or null. With Track Changes on,
+   * the text the composition replaced stays in the document before it, struck out, but not in the field.
+   */
+  compositionRange() {
+    if (!this.composition || this.compositionStart == null || !this.compositionText) return null;
+    const start = this.compositionStart + Math.max(0, this.inputText.length - this.input.value.length);
+    const end = Math.min(start + this.compositionText.length, this.model.text.length);
+    return end > start ? [start, end] : null;
   }
   finishComposition() {
     if (!this.composition) return;
