@@ -932,6 +932,27 @@ test('typing before tracked changes leaves the Reviewing Pane list as it is, and
   // A change to what an entry shows does rebuild the list.
   await page.evaluate(() => { const engine = window.__docs.current.view.engine, m = engine.model; engine.execute(() => { m.trackChanges = true; m.revisionAuthor = 'Ada'; m.select(m.text.indexOf('new ') + 4); m.replace('x'); m.trackChanges = false; }); });
   await expect(items.nth(1)).toContainText('new x');
+});
+
+test('the Spelling pane\'s suggestions are one Tab stop that the arrow keys choose from', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const input = await newDocument(page, 'I will recieve it.');
+  await select(input, 0);
+  await input.press('F7');
+  await expect(page.locator('.ed-proof-context mark')).toHaveText('recieve', { timeout: 15000 });
+  const list = page.getByRole('complementary', { name: 'Spelling' }).getByRole('listbox', { name: 'Suggestions' });
+  const options = list.getByRole('option');
+  expect(await options.count()).toBeGreaterThan(1);
+  expect(await options.evaluateAll(all => all.filter(o => o.tabIndex >= 0).length)).toBe(1);
+  await options.first().focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(options.nth(1)).toBeFocused();
+  await expect(options.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(options.first()).toHaveAttribute('aria-selected', 'false');
+  const second = await options.nth(1).textContent();
+  await page.locator('.ed-proof-actions').getByRole('button', { name: 'Change', exact: true }).click();
+  await expect(input).toHaveValue(`I will ${second} it.`);
   expect(errors).toEqual([]);
 });
 

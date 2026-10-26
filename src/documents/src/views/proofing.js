@@ -1,4 +1,4 @@
-import { el, isComposing } from '../ui/dom.js';
+import { el, isComposing, listboxKeys } from '../ui/dom.js';
 import { iconEl } from '../ui/icons.js';
 import { engineApi } from '../lib/engine-api.js';
 import { wordsToCheck, proofingText, loadSpeller } from '../lib/spelling.js';
@@ -146,6 +146,9 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
   const status = el('p.ed-proof-status', { role: 'status' });
   const context = el('p.ed-proof-context');
   const suggestions = el('div.ed-proof-suggestions', { role: 'listbox', 'aria-label': 'Suggestions' });
+  const chooseSuggestion = item => { for (const other of suggestions.children) other.setAttribute('aria-selected', String(other === item)); };
+  // One Tab stop, on the chosen suggestion; the arrows move through the suggestions and choose as they go.
+  const settleSuggestions = listboxKeys(suggestions, chooseSuggestion);
   const button = (label, onclick, primary = false) => el(primary ? 'button.btn.btn-primary' : 'button.btn.btn-outline', { type: 'button', onclick }, label);
   const change = button('Change', () => {
     const choice = selectedSuggestion(); if (!current || !choice) return;
@@ -189,10 +192,11 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     const options = speller.suggest(current.word);
     suggestions.replaceChildren(...(options.length ? options : ['(no suggestions)']).map((option, i) => {
       const item = el('button.ed-proof-suggestion', { type: 'button', role: 'option', 'aria-selected': String(!i && !!options.length), dataset: { value: options.length ? option : '' }, disabled: !options.length,
-        onclick: () => { for (const other of suggestions.children) other.setAttribute('aria-selected', String(other === item)); },
+        onclick: () => chooseSuggestion(item),
         ondblclick: () => change.click() }, option);
       return item;
     }));
+    settleSuggestions();
     for (const control of [change, changeAll]) control.disabled = !options.length || !editable();
     for (const control of [ignoreOnce, ignoreAllButton, add]) control.disabled = false;
     onState();
