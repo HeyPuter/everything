@@ -38,7 +38,7 @@ export function parseLookup(answer) {
   return { definition, related };
 }
 
-export function createSmartLookup({ editor, error }) {
+export function createSmartLookup({ editor }) {
   const heading = el('h2', {}, 'Smart Lookup');
   const query = el('input.input.ref-lookup-query', { type: 'search', 'aria-label': 'Look up', placeholder: 'Type a word or phrase', onkeydown: e => { if (e.key === 'Enter' && !isComposing(e)) { e.preventDefault(); run({ phrase: query.value.trim(), sentence: query.value.trim() }); } } });
   const status = el('p.ref-lookup-status', { role: 'status', 'aria-live': 'polite' });
@@ -71,9 +71,12 @@ export function createSmartLookup({ editor, error }) {
         el('a.ref-lookup-web', { href: `https://duckduckgo.com/?q=${encodeURIComponent(target.phrase)}`, target: '_blank', rel: 'noopener noreferrer' }, 'Search the web'));
     } catch (e) {
       if (id !== request) return;
-      status.textContent = 'Smart Lookup could not reach Puter AI. Try again in a moment.';
+      // The pane says what went wrong; the SDK's error (often an object, not an Error) is for the console.
+      const detail = `${e?.message || ''} ${e?.error?.message || ''} ${e?.error?.code || ''}`;
+      status.textContent = /insufficient|balance|credit|funds|quota|allowance|402/i.test(detail) ? 'Your Puter AI allowance has run out for now.'
+        : 'Smart Lookup could not reach Puter AI. Try again in a moment.';
       result.replaceChildren();
-      error?.(e);
+      console.error(e);
     }
   }
 
