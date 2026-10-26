@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AI_ACTIONS, aiActionById, buildPrompt, textFence, responseText, cleanAnswer, answerParagraphs, askAi } from '../src/lib/ai.js';
+import { AI_ACTIONS, aiActionById, buildPrompt, textFence, responseText, cleanAnswer, answerParagraphs, askAi, readableText, insertableText } from '../src/lib/ai.js';
 
 describe('writing assistant', () => {
   it('offers rewrite, translate, continue, and a free-form action', () => {
@@ -82,5 +82,25 @@ describe('writing assistant', () => {
     await expect(askAi(aiActionById('improve'), 'x', { chat: async () => { throw new Error('This model\'s maximum context length limit is 8192 tokens'); } })).rejects.toThrow('Select less text');
     await expect(askAi(aiActionById('improve'), 'x', { chat: async () => { throw new Error('boom'); } })).rejects.toThrow('could not answer');
     await expect(askAi(aiActionById('improve'), 'x', { chat: async () => ({ message: { content: '' } }) })).rejects.toThrow('nothing to use');
+  });
+});
+
+describe('the text the AI reads', () => {
+  const O = '\ufffc';
+  const paragraphs = [
+    { runs: [{ text: 'Sales were ' }, { text: O, field: { cachedText: '$5M' } }, { text: ' as ' }, { text: O, math: { text: 'x=2' } }, { text: ' shows' }, { text: O, noteMark: { type: 'footnote' } }, { text: '.' }] },
+    { runs: [{ text: 'Old', revision: { type: 'del' } }, { text: 'New', revision: { type: 'ins' } }, { text: ' text ' }, { text: O, image: { alt: 'Chart' } }] },
+  ];
+  it('gives fields and equations as text, leaves out pictures, note references and deleted text', () => {
+    expect(readableText(paragraphs)).toBe('Sales were $5M as x=2 shows.\nNew text ');
+  });
+  it('reads a range of the document text, with the paragraph mark when the range takes it in', () => {
+    // The first paragraph is 25 characters (each object one), so its mark is at 25.
+    expect(readableText(paragraphs, 0, 5)).toBe('Sales');
+    expect(readableText(paragraphs, 17, 26)).toBe(' shows.\n');
+    expect(readableText(paragraphs, 26, 32)).toBe('New');
+  });
+  it('drops object characters from a reply before it goes into the document', () => {
+    expect(insertableText(`First claim${O}. Second.`)).toBe('First claim. Second.');
   });
 });

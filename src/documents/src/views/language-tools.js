@@ -8,6 +8,7 @@ import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
 import { translateParagraphs } from '../lib/proofing-ai.js';
+import { readableText, insertableText } from '../lib/ai.js';
 import { LANGUAGES, languageName, englishLanguageName, sidePane, button, hint, preference } from './review-ui.js';
 
 export const DETECT_LANGUAGE = preference('documents:detect-language', true);
@@ -70,7 +71,8 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
   const selection = () => {
     const engine = editor(); if (!engine) return null;
     const [a, b] = engine.model.range;
-    return a === b ? null : { start: a, end: b, text: engine.model.text.slice(a, b), path: engine.session.path };
+    // `original` is the document's own text, to see whether it changed; `text` is what is translated.
+    return a === b ? null : { start: a, end: b, original: engine.model.text.slice(a, b), text: readableText(engine.model.paragraphs, a, b), path: engine.session.path };
   };
   function describe() {
     const chosen = selection();
@@ -87,7 +89,7 @@ export function createTranslatePane({ editor, pkg, error, openDocument, document
     try {
       const paragraphs = await translateParagraphs(chosen.text.split('\n'), englishLanguageName(target.value), { chat: prompt => P.aiChat(prompt), signal });
       if (signal.aborted) return;
-      result = { ...chosen, original: chosen.text, text: paragraphs.join('\n') };
+      result = { ...chosen, text: insertableText(paragraphs.join('\n')) };
       output.replaceChildren(...paragraphs.map(text => el('p', {}, text)));
       status.textContent = `Translated into ${languageName(target.value)}.`;
       insert.disabled = !!pkg()?.readOnly; copy.disabled = false;

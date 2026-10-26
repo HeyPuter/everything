@@ -12,7 +12,7 @@
 import { el, isComposing, MOD_KEY, shortcutCode } from '../ui/dom.js';
 import { toast } from '../ui/toast.js';
 import * as P from '../lib/puter.js';
-import { aiActionById, askAi, answerParagraphs } from '../lib/ai.js';
+import { aiActionById, askAi, answerParagraphs, readableText, insertableText } from '../lib/ai.js';
 import { assistantPrompt, readReply, assistantError, SUGGESTIONS, MAX_ASSISTANT_CHARS } from '../lib/assistant.js';
 import { sidePane, hint } from './review-ui.js';
 import { commandIconEl } from '../ui/ribbon.js';
@@ -61,12 +61,13 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     if (engine.session.path !== null) return null;
     const [start, end] = engine.model.range;
     if (start === end) return null;
-    return { start, end, text: engine.model.text.slice(start, end) };
+    // `original` is the document's own text, to see whether it changed; `text` is what the assistant reads.
+    return { start, end, original: engine.model.text.slice(start, end), text: readableText(engine.model.paragraphs, start, end) };
   }
   function payload() {
     const engine = editor(); if (!engine) return null;
     if (scope === 'selection') { const s = selection(); return s ? { scope, ...s } : null; }
-    return { scope, text: engine.session.body.text };
+    return { scope, text: readableText(engine.session.body.paragraphs) };
   }
   function setScope(next) { scope = next; renderContext(); renderEmpty(); input.focus(); }
   function renderContext() {
@@ -158,10 +159,10 @@ export function createAssistantPane({ editor, pkg, error, available = () => P.ca
     engine.finishComposition();
     if (engine.session.path !== null) engine.editStory(null);
     const model = engine.model;
-    if (p.start !== undefined && (how === 'replace' || how === 'below' || how === 'after') && model.text.slice(p.start, p.end) !== p.text) {
+    if (p.start !== undefined && (how === 'replace' || how === 'below' || how === 'after') && model.text.slice(p.start, p.end) !== p.original) {
       error(new Error('The selected text changed since you asked. Select it again and ask once more.')); return;
     }
-    const text = answer.paragraphs.join('\n');
+    const text = insertableText(answer.paragraphs.join('\n'));
     const ok = engine.execute(() => {
       const m = engine.model;
       if (how === 'replace') m.select(p.start, p.end);
