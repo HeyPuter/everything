@@ -248,13 +248,12 @@ function blurPlane(plane, width, height, radius) {
       sum += plane[row + Math.min(width - 1, x + radius + 1)] - plane[row + Math.max(0, x - radius)];
     }
   }
-  for (let x = 0; x < width; x++) {
-    let sum = 0;
-    for (let k = -radius; k <= radius; k++) sum += tmp[clamp(k, 0, height - 1) * width + x];
-    for (let y = 0; y < height; y++) {
-      out[y * width + x] = sum / size;
-      sum += tmp[Math.min(height - 1, y + radius + 1) * width + x] - tmp[Math.max(0, y - radius) * width + x];
-    }
+  // The vertical pass keeps a running sum per column and walks the rows in memory order.
+  const sums = new Float64Array(width);
+  for (let k = -radius; k <= radius; k++) { const row = clamp(k, 0, height - 1) * width; for (let x = 0; x < width; x++) sums[x] += tmp[row + x]; }
+  for (let y = 0; y < height; y++) {
+    const row = y * width, next = Math.min(height - 1, y + radius + 1) * width, last = Math.max(0, y - radius) * width;
+    for (let x = 0; x < width; x++) { out[row + x] = sums[x] / size; sums[x] += tmp[next + x] - tmp[last + x]; }
   }
   return out;
 }
@@ -427,8 +426,9 @@ export const ARTISTIC_EFFECTS = Object.freeze([
 
 /** Saturation: 0 is gray, 1 unchanged, above 1 more vivid (up to 4). */
 export function adjustSaturation(image, factor) {
-  check(image); const k = clamp(Number(factor), 0, 4);
-  return mapPixels(image, (r, g, b) => { const y = luma(r, g, b); return [r, g, b].map(c => clamp(y + (c - y) * k)); });
+  check(image); const k = clamp(Number(factor), 0, 4), out = copy(image), d = out.data;
+  for (let j = 0; j < d.length; j += 4) { const y = luma(d[j], d[j + 1], d[j + 2]); for (let c = j; c < j + 3; c++) d[c] = clamp(y + (d[c] - y) * k); }
+  return out;
 }
 
 /**
@@ -439,8 +439,9 @@ export function adjustTemperature(image, kelvin) {
   check(image);
   const t = clamp((6500 - clamp(Number(kelvin) || 6500, 1500, 11500)) / 5000, -1, 1);
   const gains = [1 + 0.32 * t, 1 + 0.06 * t, 1 - 0.32 * t];
-  const norm = luma(...gains);
-  return mapPixels(image, (r, g, b) => [r, g, b].map((c, i) => clamp(c * gains[i] / norm)));
+  const norm = luma(...gains), out = copy(image), d = out.data;
+  for (let j = 0; j < d.length; j += 4) for (let i = 0; i < 3; i++) d[j + i] = clamp(d[j + i] * gains[i] / norm);
+  return out;
 }
 
 /** Sharpen (amount > 0, an unsharp mask) or soften (amount < 0, a blur), amount in -1..1. */
@@ -448,12 +449,10 @@ export function sharpenSoften(image, amount) {
   check(image); const a = clamp(Number(amount) || 0, -1, 1);
   if (!a) return copy(image);
   const scale = scaleFor(image);
-  if (a < 0) {
-    const blurred = blurImage(image, Math.max(1, Math.round(scale * (1 + -a * 2))));
-    return mapPixels(image, (r, g, b, i) => [r, g, b].map((c, k) => c + (blurred.data[i * 4 + k] - c) * -a));
-  }
-  const blurred = blurImage(image, Math.max(1, Math.round(scale)));
-  return mapPixels(image, (r, g, b, i) => [r, g, b].map((c, k) => clamp(c + (c - blurred.data[i * 4 + k]) * a * 1.6)));
+  const blurred = blurImage(image, Math.max(1, Math.round(a < 0 ? scale * (1 + -a * 2) : scale))).data, out = copy(image), d = out.data;
+  // Each colour channel moves toward its blurred value (soften) or away from it (sharpen); alpha stays.
+  for (let j = 0; j < d.length; j += 4) for (let k = j; k < j + 3; k++) { const c = d[k]; d[k] = a < 0 ? c + (blurred[k] - c) * -a : clamp(c + (c - blurred[k]) * a * 1.6); }
+  return out;
 }
 
 /* ---- Resampling ---- */

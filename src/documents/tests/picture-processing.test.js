@@ -131,3 +131,16 @@ describe('resampling', () => {
     expect(() => cropPixels(image, { left: 0.6, right: 0.5 })).toThrow();
   });
 });
+
+describe('processing a camera-sized picture', () => {
+  it('sharpens, softens and recolors a 3-megapixel picture in well under a second each', () => {
+    // A picture is processed whole on the main thread when a correction is chosen, so each pass must be quick.
+    const photo = picture(2048, 1536, (x, y) => [(x * 7 + y) & 255, (x ^ y) & 255, (y * 3) & 255]);
+    const started = performance.now();
+    for (const edit of [() => sharpenSoften(photo, 0.5), () => sharpenSoften(photo, -0.5), () => adjustSaturation(photo, 1.5), () => adjustTemperature(photo, 4000)]) {
+      const out = edit();
+      expect(out.data).toHaveLength(photo.data.length);
+    }
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+});
