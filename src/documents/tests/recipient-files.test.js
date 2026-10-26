@@ -122,4 +122,18 @@ describe('email messages', () => {
     expect(plainText(d)).toBe('Dear Rosa,\n');
     expect(documentHtml(d)).toContain('<p>Dear Rosa,</p>');
   });
+  it('sends the text as it reads with tracked changes accepted, leaving deleted text out', () => {
+    const d = new TextDocument([paragraph('Your fee is $100.'), paragraph('Old closing line.'), paragraph('Regards')]);
+    d.trackChanges = true; d.revisionAuthor = 'Me';
+    d.select(13, 16); d.replace('150');
+    // The second paragraph and its mark are deleted: what follows joins the paragraph before it.
+    d.select(20, 38); d.replace('');
+    expect(d.text).toBe('Your fee is $100150.\nOld closing line.\nRegards');
+    expect(plainText(d)).toBe('Your fee is $150.\nRegards\n');
+    const html = documentHtml(d);
+    expect(html).toContain('<p>Your fee is $150.</p>');
+    expect(html).toContain('<p>Regards</p>');
+    expect(html).not.toContain('100');
+    expect(html).not.toContain('Old closing');
+  });
 });
