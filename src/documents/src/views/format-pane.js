@@ -61,7 +61,7 @@ export function createPane(context) {
   const check = (label, checked, onChange, disabled = false) => { const id = `pic-field-${++ids}`; return el('label.pic-check', { htmlFor: id }, el('input', { type: 'checkbox', id, checked, disabled, onchange: e => onChange(e.target.checked) }), label); };
   const colorButton = (label, value, onPick, none) => {
     const hex = value === 'none' || !value ? null : presets.resolveColor(value, palette());
-    const button = el('button.btn.btn-outline.pic-color-button', { type: 'button', 'aria-label': `${label}: ${hex ? `#${hex}` : 'none'}`, onclick: () => pickColor(button, label, value, onPick, none) },
+    const button = el('button.btn.btn-outline.pic-color-button', { type: 'button', 'aria-label': `${label}: ${hex ? `#${hex}` : 'none'}`, dataset: { focusKey: label }, onclick: () => pickColor(button, label, value, onPick, none) },
       el(hex ? 'span.pic-color-chip' : 'span.pic-color-chip.is-none', { style: { background: hex ? `#${hex}` : 'transparent' } }), el('span', {}, hex ? `#${hex}` : 'None'));
     return button;
   };
@@ -207,9 +207,10 @@ export function createPane(context) {
     tabButtons.find(b => b.dataset.section === 'picture').hidden = !picture;
     if (section === 'picture' && !picture) section = 'fill';
     for (const button of tabButtons) { const on = button.dataset.section === section; button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1; if (on) body.setAttribute('aria-labelledby', button.id); }
-    // Controls get new ids on each render: the focused one is found again by its section, group and label.
+    // Controls get new ids on each render: the focused one is found again by its section, group and label
+    // (a color button by its label alone, since its name also tells the color it changes).
     const keyOf = n => [n.closest('details')?.querySelector('summary')?.textContent, n.closest('[role="radiogroup"]')?.getAttribute('aria-label'),
-      n.getAttribute('aria-label') || n.labels?.[0]?.textContent || n.closest('label')?.textContent || n.textContent, n.tagName, n.type].join('\u0000');
+      n.dataset.focusKey || n.getAttribute('aria-label') || n.labels?.[0]?.textContent || n.closest('label')?.textContent || n.textContent, n.tagName, n.type].join('\u0000');
     const focusedKey = document.activeElement && body.contains(document.activeElement) ? keyOf(document.activeElement) : null;
     if (!image || !info) { body.replaceChildren(el('p.pic-empty', {}, 'Select a picture or shape to format it.')); return; }
     if (kind(image) === 'chart' || kind(image) === 'diagram' || kind(image) === 'other') { body.replaceChildren(el('p.pic-empty', {}, 'This object keeps its own formatting. Use Layout & Properties to change its size and position.'), ...layoutSection(image, info)); return; }

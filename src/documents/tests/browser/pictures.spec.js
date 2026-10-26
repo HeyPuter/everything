@@ -208,6 +208,28 @@ test('shape styles, fill, outline, effects, WordArt and Format pane', async ({ p
   expect(errors).toEqual([]);
 });
 
+test('the Format pane\'s color menus return the keyboard to the pane', async ({ page }) => {
+  const { errors } = await start(page);
+  const ribbon = await insertShape(page, 'Rectangle');
+  await ribbon.getByRole('button', { name: 'Format Shape', exact: true }).click();
+  const pane = page.getByRole('complementary', { name: 'Format pane' });
+  const fill = pane.getByRole('button', { name: /^Fill color: / });
+  await fill.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('menu', { name: 'Fill color' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu', { name: 'Fill color' })).toHaveCount(0);
+  await expect(fill).toBeFocused();
+  // Choosing a color formats the shape and leaves the keyboard on the same button, now naming the new color.
+  const before = await fill.getAttribute('aria-label');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('Enter');
+  await expect(fill).not.toHaveAttribute('aria-label', before);
+  await expect(fill).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('selection pane, align, group and ungroup', async ({ page }, info) => {
   test.setTimeout(180000);
   const { input, errors } = await start(page);

@@ -501,7 +501,8 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       { separator: true }, { custom: form }, ...more];
   }
   function pickColor(anchor, label, value, onPick, none) {
-    return openMenu({ anchor, label, className: 'pic-color-menu', minWidth: 260, items: colorItems({ label, value, onPick, none }), onClose: () => editor()?.focus() });
+    // Opened from the Format pane, which keeps the keyboard: closing goes back to the pane's color button.
+    return openMenu({ anchor, label, className: 'pic-color-menu', minWidth: 260, items: colorItems({ label, value, onPick, none }) });
   }
   const weightItems = (current, onPick) => presets.LINE_WEIGHTS.map(([label, width]) => ({ label, radio: true, checked: current === width, onSelect: () => onPick(width) }));
   const dashItems = (current, onPick) => presets.DASHES.map(([label, dash]) => ({ label, radio: true, checked: current === dash, onSelect: () => onPick(dash) }));
