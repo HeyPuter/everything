@@ -192,6 +192,34 @@ test('Read Mode turns pages, blocks typing, changes page colour and returns with
   await expect(page.locator('.canvas-host')).not.toHaveClass(/is-reading/);
 });
 
+test('Tab reaches the Read Mode tools and page buttons from the pages, and Shift+Tab comes back', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto('/playground.html');
+  await page.getByRole('button', { name: 'Across pages', exact: true }).click();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toHaveValue(/Every page/);
+  const before = await input.inputValue();
+  await (await viewTab(page)).getByRole('button', { name: 'Read Mode', exact: true }).click();
+  const toolbar = page.getByRole('toolbar', { name: 'Read Mode' });
+  await expect(page.locator('.canvas-host')).toBeFocused();
+  const reached = [];
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press('Tab');
+    reached.push(await page.evaluate(() => document.activeElement.getAttribute('aria-label') || document.activeElement.textContent.trim()));
+  }
+  for (const name of ['Tools', 'View', 'Edit Document', 'Next screen']) expect(reached, name).toContain(name);
+  // Back from the toolbar to the pages, where the arrows still turn them.
+  await toolbar.getByRole('button', { name: 'Tools' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('.canvas-host')).toBeFocused();
+  await page.keyboard.type('zz');
+  expect(await input.inputValue()).toBe(before);
+  await page.keyboard.press('Escape');
+  await expect(toolbar).toBeHidden();
+  // Editing again, Tab is the document's own key once more.
+  await expect(input).toBeFocused();
+});
+
 test('Read Mode stays read-only after going to a heading from the Navigation pane', async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await headings(page);

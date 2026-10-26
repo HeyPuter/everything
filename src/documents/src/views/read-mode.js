@@ -18,7 +18,7 @@ const letterSpacing = () => typeof CanvasRenderingContext2D !== 'undefined' && '
 
 export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigation, readAloud, readAloudActive, documentTitle }) {
   let active = false, width = 'default', color = 'none', textSpacing = false, focusLines = 0, focusLine = null, screen = 0, perScreen = 1, columnGap = 32;
-  let restoreZoom = null, wheelAt = 0, wheelTotal = 0;
+  let restoreZoom = null, wheelAt = 0, wheelTotal = 0, textInput = null, textInputTabIndex = null;
   const title = el('span.read-title');
   const counter = el('span.read-counter', { role: 'status', 'aria-live': 'polite' });
   const menuButton = (label, items) => {
@@ -172,6 +172,11 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
       root.classList.add('ed-read-mode');
       host.classList.add('is-reading');
       host.tabIndex = 0; host.setAttribute('aria-label', 'Document pages. Use the arrow keys to turn pages; Escape returns to editing.');
+      // The text input inside the pages would take the next Tab and hand focus straight back to the pages
+      // (see focusin below), so Tab never reached the reading tools: it is out of the Tab order while reading.
+      textInput = host.querySelector('.canvas-input');
+      textInputTabIndex = textInput?.getAttribute('tabindex') ?? null;
+      textInput?.setAttribute('tabindex', '-1');
       host.parentElement.append(toolbar, back, next, footer);
       if (!ed.overlays.includes(overlay)) ed.overlays.push(overlay);
       keyAbort.current = new AbortController();
@@ -196,6 +201,7 @@ export function createReadMode({ editor, host, root: rootOf, exit, toggleNavigat
       root.classList.remove('ed-read-mode', 'read-line-focus');
       host.classList.remove('is-reading', 'read-inverse', 'read-sepia');
       host.removeAttribute('tabindex'); host.setAttribute('aria-label', 'Document pages');
+      if (textInput) { if (textInputTabIndex === null) textInput.removeAttribute('tabindex'); else textInput.setAttribute('tabindex', textInputTabIndex); textInput = null; }
       for (const node of [toolbar, back, next, footer]) node.remove();
       if (ed) { const at = ed.overlays.indexOf(overlay); if (at >= 0) ed.overlays.splice(at, 1); }
       return restoreZoom;
