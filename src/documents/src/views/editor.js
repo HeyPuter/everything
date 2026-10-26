@@ -1730,7 +1730,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       if (destroyed) return true;
       engine?.finishComposition();
       // A clean document still waits for a rename or copy under way (doc.flush), or leaving would cancel it.
-      if (doc.dirty && !doc.exporter) return false;
+      if (doc.dirty && !doc.exporter) {
+        // A template not laid out yet holds nothing of the user's: leaving it asks nothing.
+        return !!doc.untouchedTemplate;
+      }
       // A save that never answers (a stalled connection) must not keep the user in the editor: after a while
       // leaving asks, as it does after a failed save, and the save itself goes on.
       // In a shared document this tab does not save, the edits are only safe once the room has them.

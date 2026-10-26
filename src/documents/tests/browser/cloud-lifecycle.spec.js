@@ -211,6 +211,24 @@ test('an autosave refused because another window changed the file says so once, 
   await expect(status(page)).toHaveAttribute('aria-label', 'Saved to Puter');
 });
 
+test('leaving a template before it has opened asks nothing, since nothing in it is the user\'s', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // A slow first visit: the editor's code takes a while to arrive.
+  let release;
+  const arrived = new Promise(resolve => { release = resolve; });
+  await page.route(/engine-chunk\.js/, async route => { await arrived; await route.continue(); });
+  await page.goto('/mock.html#/home');
+  await expect(page.getByRole('heading', { name: 'Your documents' })).toBeVisible();
+  await page.evaluate(() => { location.hash = '#/new/letter'; });
+  await expect.poll(() => page.evaluate(() => window.__docs.current?.kind)).toBe('editor');
+  expect(await warnsOnUnload(page)).toBe(false);
+  await page.evaluate(() => { location.hash = '#/home'; });
+  await expect(page.getByRole('heading', { name: 'Your documents' })).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  release();
+  expect(Object.keys(await drive(page))).toEqual([]);
+});
+
 test('File > Save: pressing Save As twice saves one copy and says so', async ({ page }) => {
   await openEditor(page);
   await text(page).fill('Original');

@@ -54,7 +54,7 @@ export function setAutosaveEnabled(on) {
 
 export function needsUnloadWarning(doc) {
   if (!doc) return false;
-  return doc.dirty || doc.status === 'saving' || !!doc._saving;
+  return (doc.dirty && !doc.untouchedTemplate) || doc.status === 'saving' || !!doc._saving;
 }
 
 /**
@@ -116,6 +116,14 @@ export class Doc extends EventTarget {
 
   get dirty() {
     return this.version !== this.savedVersion;
+  }
+
+  /**
+   * A new document from a built-in template that the editor has not laid out yet, nor the user renamed: unsaved, but
+   * nothing in it is the user's, so leaving it loses nothing.
+   */
+  get untouchedTemplate() {
+    return !!this.template && !this.exporter && !this.blob && !this.pendingImport && !this._deleted && this.version === 1;
   }
 
   get fileName() {

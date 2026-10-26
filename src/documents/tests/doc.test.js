@@ -818,6 +818,24 @@ describe('Doc', () => {
     await saving;
     expect(needsUnloadWarning(doc)).toBe(false);
   });
+
+  it('counts a template the editor has not laid out yet as nothing to lose, until it is renamed or laid out', async () => {
+    const doc = Doc.blank({ template: 'letter', name: 'Letter' });
+    expect(doc.dirty).toBe(true);
+    expect(doc.untouchedTemplate).toBe(true);
+    expect(needsUnloadWarning(doc)).toBe(false);
+    expect(await doc.rename('Letter to Sam')).toBeNull();
+    expect(doc.untouchedTemplate).toBe(false);
+    expect(needsUnloadWarning(doc)).toBe(true);
+    const laidOut = Doc.blank({ template: 'letter', name: 'Letter' });
+    laidOut.attach(async () => blob('letter'));
+    expect(laidOut.untouchedTemplate).toBe(false);
+    expect(needsUnloadWarning(laidOut)).toBe(true);
+    // Imports and a template file of the user's own carry bytes: they are not untouched templates.
+    expect(new Doc({ dirty: true, blob: blob('import') }).untouchedTemplate).toBe(false);
+    expect(Doc.fromTextImport('Notes', { value: 'x', type: 'text' }).untouchedTemplate).toBe(false);
+    doc.destroy(); laidOut.destroy();
+  });
 });
 
 describe('Doc versioning', () => {
