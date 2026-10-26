@@ -161,9 +161,14 @@ const mdEscape = text => text.replace(/([\\`*_[\]#<>|~])/g, '\\$1').replace(/&(?
 // as typed, backslashes and all. Trailing punctuation ends the sentence, not the address, as in GitHub's
 // autolinks. An address an autolink cannot carry (one with a pipe, which would split a table cell) and a
 // www. address that needs escapes start with a character reference instead, so no reader links them and
-// their escapes read back as text.
-const WEB_ADDRESS = /(?<![A-Za-z])(?:https?:\/\/|www\.)[^\s<>\u0000-\u001f\u007f]+/giu;
-function mdText(text) {
+// their escapes read back as text. So does a www. address that runs straight into more than whitespace (an
+// escaped "<", or the next run's text or emphasis markers): a reader's www. link goes on to the next
+// whitespace, and would take those characters, backslashes and markers into its text.
+const WEB_ADDRESS = /(?<![A-Za-z])(?:https?:\/\/[^\s<>\u0000-\u001f\u007f]+|www\.[^\s<>\u0000-\u001f\u007f]*)/giu;
+// An address written so that no reader links it: its first character, and that of any address inside it
+// ("www.a.org]http://b.org"), as a character reference.
+const unlinked = address => mdEscape(address).replace(/(?:https?:\/\/|www\.)/gi, start => `&#${start.charCodeAt(0)};${start.slice(1)}`);
+function mdText(text, next = '') {
   let out = '', at = 0;
   for (const match of text.matchAll(WEB_ADDRESS)) {
     let address = match[0];
@@ -174,7 +179,7 @@ function mdText(text) {
         else break;
       }
       out += `${mdEscape(text.slice(at, match.index))}<${address}>`;
-    } else if (mdEscape(address) !== address) out += `${mdEscape(text.slice(at, match.index))}&#${address.charCodeAt(0)};${mdEscape(address.slice(1))}`;
+    } else if (mdEscape(address) !== address || !/^[\s\u000e]?$/.test(text[match.index + address.length] ?? next)) out += `${mdEscape(text.slice(at, match.index))}${unlinked(address)}`;
     else continue;
     at = match.index + address.length;
   }
@@ -186,11 +191,12 @@ const escapeLineStart = line => line.replace(/^(?: {4,}|\t)/, space => `&#${spac
   .replace(/^( {0,3})([-+=])/, '$1\\$2').replace(/^( {0,3}\d{1,9})([.)])/, '$1\\$2');
 // Breaks stand as NUL (which document text cannot hold) until the paragraph knows how its lines break.
 const BREAK = '\0';
-// A run's escaped text, split around its core when the run writes markers, tags or a link around it.
-function runPieces(run, heading) {
+// A run's escaped text, split around its core when the run writes markers, tags or a link around it. `next`
+// is the character the paragraph's text goes on with after the run.
+function runPieces(run, heading, next) {
   const link = safeLink(run);
   // A link's text cannot hold another link, so an address in it stays escaped text.
-  const text = (link ? mdEscape : mdText)(runText(run)).replace(/[\v\f\u000e]/g, BREAK);
+  const text = (link ? mdEscape : mdText)(runText(run), next).replace(/[\v\f\u000e]/g, BREAK);
   const strike = run.strikethrough && run.strikethrough !== 'none', bold = run.bold && !heading;
   if (!/[^\s\0]/.test(text) || !(strike || run.italic || bold || ['superscript', 'subscript'].includes(run.verticalAlign) || link)) return { text };
   // Breaks at a run's edges stay outside its emphasis markers, as spaces do.
@@ -223,7 +229,9 @@ function runMarkdown(piece, before, after, touching = false) {
 /** A paragraph's Markdown, its line, page and column breaks written as `lineBreak`. */
 // A break at either end of a paragraph has no line to start: Markdown would show a backslash there.
 const paragraphMarkdown = (p, heading = false, lineBreak = '\\\n') => {
-  const pieces = p.runs.map(run => runPieces(run, heading)).filter(piece => piece.text);
+  const texts = p.runs.map(runText), following = [];
+  for (let i = texts.length - 1, next = ''; i >= 0; i--) { following[i] = next; next = texts[i][0] || next; }
+  const pieces = p.runs.map((run, i) => runPieces(run, heading, following[i])).filter(piece => piece.text);
   const written = [];
   pieces.forEach((piece, i) => {
     const previous = written[i - 1] || '';

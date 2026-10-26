@@ -276,3 +276,35 @@ describe('tracked changes', () => {
     expect(doc.text).toBe('Hello oldnew world\nSecond part');
   });
 });
+
+describe('Markdown web addresses next to other text', () => {
+  // Each character with its formatting: a reader may link part of an address, which splits its runs.
+  const styled = doc => doc.paragraphs.map(p => p.runs.flatMap(r => [...r.text].map(c => `${c}${r.bold ? 'b' : ''}${r.strikethrough && r.strikethrough !== 'none' ? 's' : ''}`)).join('|'));
+  const reopen = markdown => {
+    const doc = blankDoc(), fragment = htmlFragment(markdownHtml(markdown));
+    for (const p of fragment.paragraphs) p.mark = true;
+    pasteFragment(doc, fragment);
+    return doc;
+  };
+  it('reads back the text and formatting that follow a www. address', () => {
+    // A reader's www. link goes on to the next whitespace: it took the next run's markers, an escaped "<"
+    // and an address glued to it into its text, backslashes and all.
+    for (const [text, word, format] of [
+      ['See www.example.org<b> now'],
+      ['Go to www.example.org/start then', 'org/start', { strikethrough: 'single' }],
+      ['Go to www.example.org/start then', 'example.org/start', { strikethrough: 'single' }],
+      ['Site www.example.orgBold here', 'Bold here', { bold: true }],
+      ['Old www.example.org]http://b.example.com/a_b|c end'],
+    ]) {
+      const doc = blankDoc();
+      doc.replace(text);
+      if (word) { const at = text.indexOf(word); doc.select(at, at + word.length); doc.setRunFormat(format); }
+      expect(styled(reopen(documentMarkdown(doc)))).toEqual(styled(doc));
+    }
+  });
+  it('leaves a www. address that ends at a space or the paragraph end for readers to link', () => {
+    const doc = blankDoc();
+    doc.replace('Visit www.example.org today or www.example.net.');
+    expect(documentMarkdown(doc)).toBe('Visit www.example.org today or www.example.net.\n');
+  });
+});
