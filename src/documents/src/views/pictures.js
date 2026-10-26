@@ -62,6 +62,10 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   const isPicture = image => !!image && kind(image) === 'picture';
   const isShape = image => !!image && ['shape', 'textBox'].includes(kind(image));
   const formattable = image => !!image && ['picture', 'shape', 'textBox', 'group'].includes(kind(image)) && !image.anchor?.relativeSize;
+  // Drawings in table cells do not wrap text yet: they stay in line, or in front of or behind the text.
+  const WRAPPING = ['square', 'tight', 'through', 'topAndBottom'];
+  const inTableCell = image => !!image && !!ready()?.model.paragraphs.some(p => p.cellId && p.runs.some(r => r.image === image));
+  const CELL_HINT = 'Not in table cells yet';
   const theme = () => themeColors(pkg()?.parts || {});
   const palette = () => ({ ...presets.FALLBACK_THEME, ...(theme() || {}) });
   /** The drawings Arrange commands act on: the multi-selection, or the selected drawing. */
@@ -458,7 +462,7 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
     const engine = ready(), image = selected(); if (!engine || !image) return;
     engine.finishComposition();
     const { openLayoutDialog } = await import('./size-position.js');
-    openLayoutDialog({ engine, image, describe, tab, kind: kind(image), apply: async (edit, label) => {
+    openLayoutDialog({ engine, image, describe, tab, kind: kind(image), inTableCell: inTableCell(image), apply: async (edit, label) => {
       // Failures are shown in the dialog, which stays open.
       const engine = ready(), current = engine?.model.selectedImage;
       if (!current) throw new Error('Select the object again.');
@@ -605,8 +609,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
   }
   function wrapItems() {
     const image = selected(), mode = wrapModeOf(image), ok = !!image && editable();
-    const chartLike = !!image && !formattable(image);
-    const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value), onSelect: () => setWrap(value) });
+    const chartLike = !!image && !formattable(image), cell = inTableCell(image);
+    const option = (label, value, icon) => ({ label, icon, radio: true, checked: mode === value, disabled: !ok || chartLike && !['inline', 'square', 'topAndBottom', 'behind', 'front'].includes(value) || cell && WRAPPING.includes(value) && mode !== value,
+      ...(cell && WRAPPING.includes(value) && mode !== value ? { hint: CELL_HINT } : {}), onSelect: () => setWrap(value) });
     const vertical = image?.anchor && describe(image)?.frame?.vertical?.relativeFrom;
     const canFix = !!image?.anchor && image.anchor.wrap === 'none';
     return [option('In Line with Text', 'inline', 'wrapInline'), option('Square', 'square', 'wrapSquare'), option('Tight', 'tight', 'wrapTight'), option('Through', 'through', 'wrapThrough'),
@@ -617,11 +622,11 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       { separator: true }, { label: 'More Layout Options…', icon: 'position', disabled: !ok, onSelect: () => openSizePosition('wrapping') }];
   }
   function positionItems() {
-    const image = selected(), ok = !!image && editable() && formattable(image);
+    const image = selected(), ok = !!image && editable() && formattable(image) && !inTableCell(image);
     const grid = el('div.menu-custom-grid.pic-position-grid', { role: 'group', 'aria-label': 'With Text Wrapping', dataset: { columns: '3' } },
       ...POSITION_PRESETS.map(preset => el('button.swatch.pic-position-item', { type: 'button', role: 'menuitem', tabindex: -1, disabled: !ok, 'aria-label': `Position in ${preset[1]} with Square Text Wrapping`, title: `Position in ${preset[1]} with Square Text Wrapping`,
         onclick: () => { closeMenu(); positionPreset(preset); } }, positionThumb(preset[2], preset[3]))));
-    return [{ label: 'In Line with Text', radio: true, checked: wrapModeOf(image) === 'inline', disabled: !ok, onSelect: () => setWrap('inline') }, { header: 'With Text Wrapping' }, { custom: grid },
+    return [{ label: 'In Line with Text', radio: true, checked: wrapModeOf(image) === 'inline', disabled: !image || !editable() || !formattable(image), onSelect: () => setWrap('inline') }, { header: inTableCell(image) ? `With Text Wrapping (${CELL_HINT.toLowerCase()})` : 'With Text Wrapping' }, { custom: grid },
       { separator: true }, { label: 'More Layout Options…', disabled: !image || !editable(), onSelect: () => openSizePosition('position') }];
   }
   const floating = () => !!selected() && isPositionedImage(selected()) && editable();
@@ -1014,8 +1019,9 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
         const image = selected(); if (!image) return;
         const mode = wrapModeOf(image);
         const icons = [['In Line with Text', 'inline', 'wrapInline'], ['Square', 'square', 'wrapSquare'], ['Tight', 'tight', 'wrapTight'], ['Through', 'through', 'wrapThrough'], ['Top and Bottom', 'topAndBottom', 'wrapTopBottom'], ['Behind Text', 'behind', 'behindText'], ['In Front of Text', 'front', 'inFront']];
+        const cell = inTableCell(image);
         const grid = el('div.menu-custom-grid.pic-layout-grid', { role: 'group', 'aria-label': 'Text wrapping', dataset: { columns: '4' } },
-          ...icons.map(([label, value, icon]) => el('button.swatch.pic-layout-item', { type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(mode === value), 'aria-label': label, title: label, disabled: !editable() || (!formattable(image) && ['tight', 'through'].includes(value)),
+          ...icons.map(([label, value, icon]) => el('button.swatch.pic-layout-item', { type: 'button', role: 'menuitemradio', tabindex: -1, 'aria-checked': String(mode === value), 'aria-label': label, title: cell && WRAPPING.includes(value) ? `${label} (${CELL_HINT.toLowerCase()})` : label, disabled: !editable() || (!formattable(image) && ['tight', 'through'].includes(value)) || cell && WRAPPING.includes(value) && mode !== value,
             onclick: () => { closeMenu(); setWrap(value); } }, commandIconEl(icon, 20))));
         openMenu({ anchor, label: 'Layout Options', className: 'pic-layout-menu', minWidth: 210, items: [{ header: 'In Line with Text and With Text Wrapping' }, { custom: grid }, { separator: true },
           { label: 'Move with Text', radio: true, checked: !!image.anchor && describe(image)?.frame?.vertical?.relativeFrom !== 'page', disabled: !image.anchor || image.anchor.wrap !== 'none', onSelect: () => setMoveWithText(true) },

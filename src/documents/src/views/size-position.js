@@ -17,7 +17,7 @@ const inches = emu => Math.round(emu / IN * 100) / 100;
 const WRAPS = [['inline', 'In line with text', 'wrapInline'], ['square', 'Square', 'wrapSquare'], ['tight', 'Tight', 'wrapTight'], ['through', 'Through', 'wrapThrough'], ['topAndBottom', 'Top and bottom', 'wrapTopBottom'], ['behind', 'Behind text', 'behindText'], ['front', 'In front of text', 'inFront']];
 let ids = 0;
 
-export function openLayoutDialog({ engine, image, describe, tab = 'position', kind, apply, frameOf, offsetsFor, place, onClose }) {
+export function openLayoutDialog({ engine, image, describe, tab = 'position', kind, inTableCell = false, apply, frameOf, offsetsFor, place, onClose }) {
   const info = describe(image) || {};
   const frame = info.frame || { inline: !image.anchor };
   const laidOut = image.anchor ? frameOf() : null;
@@ -33,8 +33,10 @@ export function openLayoutDialog({ engine, image, describe, tab = 'position', ki
   const currentWrap = frame.inline ? 'inline' : frame.wrap?.type === 'none' ? (frame.behind ? 'behind' : 'front') : frame.wrap?.type || 'front';
   const wrapGroup = `pic-wrap-${++ids}`;
   const wrapRadios = WRAPS.map(([value, label, icon]) => {
-    const input = el('input', { type: 'radio', name: wrapGroup, value, checked: value === currentWrap, id: id(), disabled: !formattable && ['tight', 'through'].includes(value) });
-    return { value, input, node: el('label.pic-wrap-choice', { htmlFor: input.id }, input, commandIconEl(icon, 32), el('span', {}, label)) };
+    // Drawings in table cells do not wrap text yet.
+    const unavailable = inTableCell && ['square', 'tight', 'through', 'topAndBottom'].includes(value) && value !== currentWrap;
+    const input = el('input', { type: 'radio', name: wrapGroup, value, checked: value === currentWrap, id: id(), disabled: !formattable && ['tight', 'through'].includes(value) || unavailable });
+    return { value, input, node: el('label.pic-wrap-choice', { htmlFor: input.id, ...(unavailable ? { title: 'Not in table cells yet' } : {}) }, input, commandIconEl(icon, 32), el('span', {}, label)) };
   });
   const wrapValue = () => wrapRadios.find(r => r.input.checked)?.value || currentWrap;
   const sideGroup = `pic-side-${++ids}`;
