@@ -6,7 +6,10 @@ import { openParagraphShading } from '../src/views/paragraph-shading.js';
 import { createNavigationPane } from '../src/views/navigation-pane.js';
 import { closeMenu } from '../src/ui/menu.js';
 const anchor = () => { const node = document.createElement('button'); document.body.append(node); node.focus(); return node; };
-afterEach(() => { closeMenu(); document.body.replaceChildren(); });
+// jsdom has no CSS.escape; the navigation pane uses it to put focus back on a moved heading.
+globalThis.CSS ??= { escape: value => String(value).replace(/[^\w-]/g, ch => `\\${ch}`) };
+// Let frames the pane asked for run while the document still exists.
+afterEach(async () => { await new Promise(resolve => requestAnimationFrame(resolve)); closeMenu(); document.body.replaceChildren(); });
 it('previews table dimensions with keyboard navigation and inserts exactly once', () => {
   const apply = vi.fn(), popup = openInsertTable(apply, { anchor: anchor() });
   const cell = popup.menu.querySelector('[aria-label="3 columns, 2 rows"]'); cell.focus();

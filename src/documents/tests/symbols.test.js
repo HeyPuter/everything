@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { SYMBOL_GROUPS, symbolName, openSymbolPicker } from '../src/ui/symbols.js';
 import { formatToday } from '../src/lib/editor-helpers.js';
 
 describe('symbols', () => {
+  // A closed dialog leaves the page 200 ms later; let that finish before the environment goes away.
+  afterEach(() => new Promise(resolve => setTimeout(resolve, 250)));
+
   it('lists distinct single characters with readable names for the cryptic ones', () => {
     const all = SYMBOL_GROUPS.flatMap(([, chars]) => chars);
     expect(all.length).toBeGreaterThan(60);
