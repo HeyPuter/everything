@@ -1327,7 +1327,23 @@ export class TextDocument {
     delete run.image; delete run.contentControl; delete run.positionalTab; delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen; delete run.breakClear; delete run.field; delete run.revision; delete run.math;
     // Boundary typing is plain text; strictly interior edits extend the link.
     const link = hyperlinkAt(this.paragraphs, position);
-    if (!link || position <= link.start || position >= link.end) delete run.link;
+    if (!link || position <= link.start || position >= link.end) {
+      // Nor does it look like a link: typed beside one, it takes the colour, underline and character style
+      // of the text before the link (as after a link just made, showLink), or after it when the link
+      // starts the paragraph. A paragraph that is only the link keeps its look.
+      const ended = run.link ? hyperlinkAt(this.paragraphs, position, 'backward') : null;
+      const range = ended?.end === position ? ended : run.link && link?.start === position ? link : null;
+      if (range) {
+        const { index, offset } = locate(this.paragraphs, range.start), end = offset + range.end - range.start;
+        const beside = offset > 0 ? this.formatAt(range.start, 'backward') : end < paragraphLength(this.paragraphs[index]) ? this.formatAt(range.end, 'forward') : null;
+        if (beside && !beside.link) {
+          const look = { color: beside.color, underline: beside.underlineStyle !== 'none', underlineStyle: beside.underlineStyle, underlineColor: beside.underlineColor };
+          Object.assign(run, look); run.overrides = { ...run.overrides, ...look };
+          run.styleId = beside.styleId || null; run.styleChanged = true;
+        }
+      }
+      delete run.link;
+    }
     if (this.typingStyle) { run.styleId = this.typingStyle.id || null; run.styleChanged = true; }
     Object.assign(run, this.typingFormat); run.overrides = { ...run.overrides, ...this.typingFormat };
     if (this.stylesEnabled) {

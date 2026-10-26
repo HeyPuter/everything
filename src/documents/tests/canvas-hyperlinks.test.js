@@ -6,6 +6,7 @@ import { DocxPackage, createDocx, W } from '../src/engine/docx.js';
 import { TextDocument, paragraph } from '../src/engine/model.js';
 import { checkedHyperlinkTarget, hyperlinkRanges, openableHyperlink } from '../src/engine/hyperlinks.js';
 import { hyperlinkAtPoint } from '../src/engine/hyperlink-hit.js';
+import { showLink, LINK_COLOR } from '../src/engine/link-appearance.js';
 import { layoutDocument, caretRect, hitTest, selectionRects } from '../src/engine/layout.js';
 import { pageGeometry } from '../src/engine/page-settings.js';
 import { fontMetrics } from '../src/engine/font-metrics.js';
@@ -66,6 +67,29 @@ it('extends interior typing, leaves boundary typing unlinked, and preserves repl
   d.select(1); d.replace('L'); d.select(7); d.replace('R'); expect(hyperlinkRanges(d.paragraphs).map(r=>d.text.slice(r.start,r.end))).toEqual(['bcXde']);
   d.select(2,7); d.replace('á😀'); expect(hyperlinkRanges(d.paragraphs).map(r=>d.text.slice(r.start,r.end))).toEqual(['á😀']);
   d.select(0,4); d.replace('outside'); expect(d.paragraphs[0].runs[0].link).toBeUndefined();
+});
+
+it('types plain-looking text after an existing link, in the formatting from before it', async () => {
+  const d=new TextDocument([paragraph('Visit site now')]); d.select(6,10); d.setHyperlink(TARGET); showLink(d);
+  // Typed straight after a link made earlier, the text was neither linked nor meant to look linked, but took the link's colour and underline.
+  d.select(10); d.replace('X');
+  const typed=d.paragraphs[0].runs.find(r=>r.text==='X');
+  expect(typed.link).toBeUndefined(); expect(typed).toMatchObject({color:'auto',underlineStyle:'none'});
+  expect(d.paragraphs[0].runs.find(r=>r.text==='site')).toMatchObject({color:LINK_COLOR,underlineStyle:'single'});
+  // Inside the link typing still extends it in its look; a pending choice at the caret still applies after it.
+  d.select(8); d.replace('Y'); expect(d.paragraphs[0].runs.find(r=>r.link).text).toBe('siYte');
+  d.select(11); d.setRunFormat({underlineStyle:'double'}); d.replace('Z'); expect(d.paragraphs[0].runs.find(r=>r.text==='Z')).toMatchObject({underlineStyle:'double'});
+  d.undo(); d.undo(); d.undo(); d.undo(); expect(d.text).toBe('Visit site now');
+});
+
+it('types plain-looking text before a link that starts its paragraph, in the formatting after it', async () => {
+  const d=new TextDocument([paragraph('site now')]); d.select(0,4); d.setHyperlink(TARGET); showLink(d);
+  d.select(0); d.replace('X');
+  const typed=d.paragraphs[0].runs.find(r=>r.text==='X');
+  expect(typed.link).toBeUndefined(); expect(typed).toMatchObject({color:'auto',underlineStyle:'none'});
+  // A paragraph that is only the link keeps its look either side: there is no other text to follow.
+  const only=new TextDocument([paragraph('site')]); only.select(0,4); only.setHyperlink(TARGET); showLink(only);
+  only.select(4); only.replace('Y'); expect(only.paragraphs[0].runs.find(r=>r.text==='Y')).toMatchObject({color:LINK_COLOR});
 });
 
 it('splits and rejoins linked paragraphs, preserves source suffixes, and does not link inserted multiline text', async () => {

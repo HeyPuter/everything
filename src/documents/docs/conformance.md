@@ -21683,7 +21683,11 @@ them. A new link now takes the document's Hyperlink character style when it has
 one (§17.7.4.17 rStyle), and otherwise blue (0563C1) single-underlined direct
 formatting (§17.3.2.6 color, §17.3.2.40 u); changing an existing
 link's address keeps its look. Text typed straight after a new link continues
-with the formatting from before it. Links pasted or imported from HTML or
+with the formatting from before it, and so does text typed at the end of any
+existing link, or before a link that starts its paragraph (color, underline
+and character style come from the text on the link's other side; a paragraph
+that is only the link keeps its look; other run properties carry on).
+Links pasted or imported from HTML or
 Markdown without their own color get the same look. The style or formatting is
 part of the same undo step as the link. Model-level hyperlink APIs are
 unchanged. Browser regressions cover insertion, wrapping a selection, address
