@@ -45,7 +45,9 @@ export function createNavigationPane(api) {
   node.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || isComposing(e)) return;
     e.preventDefault();
-    if (search.value) { search.value = ''; runSearch(); search.focus(); return; }
+    // With a search, Escape clears it and goes back to the document (at the result chosen), as the find bar's does,
+    // leaving the pane open; without one it closes the pane.
+    if (search.value) { search.value = ''; runSearch(); api.focusEditor(); return; }
     api.close(); api.focusEditor();
   });
 
