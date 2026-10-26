@@ -23904,8 +23904,11 @@ Advanced options search the joined document text (paragraph marks as `^p`), head
 ^+ ^= ^^`, find-only `^? ^# ^$ ^w ^g`, replace-only `^&`. Wildcards (case-sensitive): `? * [ ] [!]
 {n,m} @ < > ( )` and `\1`–`\9` in the replacement. Formatting conditions cover run properties,
 paragraph properties and paragraph/character styles; replacement formatting is applied through the
-ordinary formatting commands after the text replacement, in one transaction. Not supported: sounds
-like, all word forms, and replacing with paragraph marks inside table cells.
+ordinary formatting commands after the text replacement, in one transaction. `^g` matches inline
+pictures only; no pattern (`^g`, `^?`, wildcards) matches a field, equation or note reference, and
+`^p` never matches the paragraph mark that ends a section (`w:sectPr` in `w:pPr`; a section break is
+Word's `^b`, not supported here). Not supported: sounds like, all word forms, `^b`, and replacing
+with paragraph marks inside table cells.
 
 ### Paste
 

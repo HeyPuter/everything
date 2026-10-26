@@ -142,3 +142,33 @@ it('replaces thousands of matches across a long document in linear time', () => 
   expect(doc.undo()).toBe(true);
   expect(doc.text.split('\n').at(-1)).toBe('Order 2999 ships in 3 days.');
 }, 120000);
+
+it('takes only pictures for ^g, and never a field, equation or note reference in any pattern', () => {
+  const doc = new TextDocument();
+  doc.replace('Total pages: ');
+  doc.select(doc.text.length); doc.insertFieldRun({ type: 'NUMPAGES', instruction: 'NUMPAGES' });
+  doc.select(doc.text.length); doc.replace('. E=mc'); doc.select(doc.text.length); doc.insertMathRun({ xml: '<m:oMath/>', text: 'x²' });
+  doc.select(doc.text.length); doc.replace(' cited'); doc.insertFootnoteReference('3', 'footnote'); doc.select(doc.text.length); doc.replace('.');
+  const objects = () => doc.paragraphs[0].runs.filter(r => r.field || r.math || r.noteMark).length;
+  expect(objects()).toBe(3);
+  expect(find(doc, '^g')).toEqual([]);
+  expect(find(doc, 'cited^?')).toEqual([]);
+  expect(find(doc, 'pages: ?.', { wildcards: true })).toEqual([]);
+  expect(doc.replaceMatches('^g', '', { advanced: true }, true)).toBe(0);
+  expect(doc.replaceMatches('cited^?', 'quoted', { advanced: true }, true)).toBe(0);
+  expect(objects()).toBe(3);
+  // A picture is still found.
+  const picture = [{ id: 'p1', runs: [{ text: 'See ' }, { text: '￼', image: { assetId: 'a', id: 1 } }, { text: ' here' }] }];
+  expect(advancedFind(picture, '^g').map(m => m.start)).toEqual([4]);
+  expect(advancedFind(picture, 'See ^?').map(m => m.text)).toEqual(['See ￼']);
+});
+
+it('does not take a section break for a paragraph mark', () => {
+  const { doc } = documentWith(['First section.', 'Second section.']);
+  doc.paragraphs[0].sectionEnd = { ...doc.pageSettings, orientation: 'landscape' };
+  expect(find(doc, '^p')).toEqual([]);
+  expect(find(doc, 'section.^pSecond')).toEqual([]);
+  expect(doc.replaceMatches('^p', ' ', { advanced: true }, true)).toBe(0);
+  expect(doc.paragraphs).toHaveLength(2);
+  expect(doc.paragraphs[0].sectionEnd).toBeTruthy();
+});

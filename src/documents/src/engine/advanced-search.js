@@ -181,6 +181,11 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     return graphemes.get(i);
   };
   const spanAt = position => { let lo = 0, hi = spans.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (spans[mid].start <= position) lo = mid; else hi = mid - 1; } return lo; };
+  const pictureAt = position => {
+    const s = spans[spanAt(position)]; let at = s.start;
+    for (const run of s.p.runs) { if (position < at + run.text.length) return !!run.image; at += run.text.length; }
+    return false;
+  };
   const accept = (start, end, groups) => {
     if (start < low || end > high || end <= start) return;
     const first = spanAt(start), last = spanAt(Math.max(start, end - 1));
@@ -193,6 +198,11 @@ export function advancedFind(paragraphs, query, options = {}, context = {}) {
     // never matches across one, and replacing such a match edited the wrong cells.
     const crossed = end === spans[last].end + 1 ? last + 1 : last;
     for (let i = first; i < crossed; i++) if ((spans[i].p.cellId || null) !== (spans[i + 1]?.p.cellId || null)) return;
+    // ^p is a paragraph mark, not a section break (Word's ^b): replacing one ended the section and lost its page setup.
+    for (let i = first; i < crossed; i++) if (spans[i].p.sectionEnd) return;
+    // An object character is a picture only when it is one: ^g, ^? and wildcards never take a field,
+    // equation or note reference, which Replace All then deleted.
+    for (let at = text.indexOf('\uFFFC', start); at >= 0 && at < end; at = text.indexOf('\uFFFC', at + 1)) if (!pictureAt(at)) return;
     // Never match half a grapheme or half a picture.
     const s = spans[first], e = spans[last];
     if (!startsAt(first).has(start)) return;
