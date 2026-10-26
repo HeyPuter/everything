@@ -44,7 +44,9 @@ export function openDateTime({ onInsert, onClose }) {
   let chosen = DATE_PICTURES.includes(preferred) ? preferred : DATE_PICTURES[0];
   const options = DATE_PICTURES.map(picture => {
     const option = el('button.ed-choice', { type: 'button', role: 'option', 'aria-selected': String(picture === chosen), dataset: { picture }, onclick: () => pick(picture),
-      ondblclick: () => { pick(picture); dialog.form.requestSubmit(); } }, formatDatePicture(now, picture));
+      ondblclick: () => { pick(picture); dialog.form.requestSubmit(); },
+      // Enter inserts the format it is on, as a double-click does; Space only chooses it.
+      onkeydown: e => { if (e.key === 'Enter' && !isComposing(e) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); pick(picture); dialog.form.requestSubmit(); } } }, formatDatePicture(now, picture));
     return option;
   });
   list.append(...options);

@@ -1,4 +1,4 @@
-import { el, fieldId } from '../ui/dom.js';
+import { el, fieldId, isComposing } from '../ui/dom.js';
 import { styleDisplayName } from '../lib/style-names.js';
 import { BULLET_LIBRARY, NUMBER_LIBRARY, MULTILEVEL_LIBRARY } from '../engine/list-library.js';
 import { styleRun, styleProperties } from '../engine/styles.js';
@@ -120,6 +120,8 @@ export function openStyleDialog({ styles: getStyles, describe, usage, current = 
     buttons.create.disabled = actions.readOnly();
   }
   list.addEventListener('keydown', e => {
+    // Enter applies the chosen style, as a double-click does: the list is not a field, so Enter would not reach the form.
+    if (e.key === 'Enter' && !isComposing(e) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) { e.preventDefault(); modal.form.requestSubmit(); return; }
     const items = [...list.children], at = items.findIndex(i => i.getAttribute('aria-selected') === 'true');
     const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
     if (!step) return;
