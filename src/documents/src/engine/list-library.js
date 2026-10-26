@@ -23,7 +23,7 @@ export function libraryIndex(level, kind) {
 
 /** The level the selection's list markers are at, when they agree. */
 function selectedList(model) {
-  const lists = model.selectedParagraphs.map(p => p.list);
+  const lists = model.commandParagraphs.map(p => p.list);
   if (!lists.every(Boolean) || lists.some(l => l.numId !== lists[0].numId || l.level !== lists[0].level)) return null;
   return lists[0];
 }
@@ -55,7 +55,7 @@ export function applyListLibrary(model, kind, index) {
     }
   }
   abstract.levels[levelIndex] = marker(abstract.levels[levelIndex]);
-  const targets = current && currentKind ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.selectedParagraphs;
+  const targets = current && currentKind ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.commandParagraphs;
   for (const p of targets) {
     p.list = { numId, level: p.list?.numId === current?.numId && current ? p.list.level : levelIndex, direct: true };
     p.listChanged = true;
@@ -81,7 +81,7 @@ export function applyMultilevelList(model, index) {
   const numId = newList(model.numbering, kind);
   const abstract = model.numbering.abstracts[model.numbering.instances[numId].abstractId];
   abstract.levels = abstract.levels.map((level, i) => ({ ...level, ...entry[1](i), markerStyle: {} }));
-  const targets = current ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.selectedParagraphs;
+  const targets = current ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.commandParagraphs;
   for (const p of targets) { p.list = { numId, level: current ? p.list.level : 0, direct: true }; p.listChanged = true; }
   model.didChange();
   return true;

@@ -19,7 +19,7 @@ export const NUMBER_STYLES = Object.freeze([['decimal', '1, 2, 3'], ['decimalZer
 
 /** The list the selection is in when every selected paragraph shares one list and level, else null. */
 export function selectedListLevel(model) {
-  const lists = model.selectedParagraphs.map(p => p.list);
+  const lists = model.commandParagraphs.map(p => p.list);
   if (!lists.length || !lists.every(Boolean) || lists.some(l => l.numId !== lists[0].numId || l.level !== lists[0].level)) return null;
   return lists[0];
 }
@@ -109,7 +109,7 @@ export function redefineList(model, kind, edit, { startLevel = 0 } = {}) {
   edit(abstract.levels, current?.level ?? startLevel);
   model.checkpoint();
   model.numbering = numbering;
-  const targets = current ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.selectedParagraphs;
+  const targets = current ? model.paragraphs.filter(p => p.list?.numId === current.numId) : model.commandParagraphs;
   for (const p of targets) {
     p.list = { numId, level: current ? p.list.level : startLevel, direct: true };
     p.listChanged = true;

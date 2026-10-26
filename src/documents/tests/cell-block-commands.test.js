@@ -1,10 +1,12 @@
 import { beforeAll, afterAll, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { createDocx, WRITING_STYLES } from '../src/engine/docx.js';
+import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells } from '../src/engine/tables.js';
 import { changeCase } from '../src/engine/home-editing.js';
-import { listKind } from '../src/engine/numbering.js';
+import { listKind, listMarkers } from '../src/engine/numbering.js';
+import { applyListLibrary, applyMultilevelList, BULLET_LIBRARY } from '../src/engine/list-library.js';
+import { defineBullet, selectedListLevel } from '../src/engine/list-definitions.js';
 
 let dom;
 beforeAll(() => { dom = new JSDOM(); globalThis.DOMParser = dom.window.DOMParser; globalThis.XMLSerializer = dom.window.XMLSerializer; });
@@ -20,7 +22,7 @@ function blockDocument() {
   tableCells(table).forEach((cell, i) => { doc.selectCell(cell.id); doc.replace(`${'abc'[i % 3]}${Math.floor(i / 3) + 1}`); });
   const select = () => { doc.select(doc.text.indexOf('a1'), doc.text.indexOf('b2') + 2); doc.cellBlock = { tableId: table.id, top: 0, bottom: 1, left: 0, right: 2 }; };
   select();
-  return { doc, select, cell: text => doc.paragraphs.find(p => p.cellId && paragraphText(p).toLowerCase() === text) };
+  return { pkg, doc, select, cell: text => doc.paragraphs.find(p => p.cellId && paragraphText(p).toLowerCase() === text) };
 }
 
 it('styles, lists, clearing and case changes over a block of cells leave the cells between its corners alone', () => {
@@ -78,4 +80,35 @@ it('indents and list levels over a block of cells reach its cells and only them,
   expect(['a1', 'b1', 'a2', 'b2'].map(t => cell(t).list.level)).toEqual([1, 1, 1, 1]);
   expect(cell('c1').list).toBeFalsy();
   expect(indent('c1')).toBe(0);
+});
+
+it('the bullet and numbering libraries and Define New Bullet reach every cell of a block and only those', async () => {
+  const { pkg, doc, select, cell } = blockDocument();
+  const table = doc.tables.at(-1);
+  const marker = t => { const i = doc.paragraphs.indexOf(cell(t)); return listMarkers(doc.paragraphs, doc.numbering)[i]?.text ?? null; };
+  // A selected column: its text range covers only the first cell.
+  const column = () => doc.setCellBlock({ tableId: table.id, top: 0, bottom: 3, left: 1, right: 2 });
+  column();
+  const square = BULLET_LIBRARY.findIndex(([, ch]) => ch === '■');
+  const before = doc.history.length;
+  expect(applyListLibrary(doc, 'bullet', square)).toBe(true);
+  expect(['b1', 'b2', 'b3', 'a1', 'c1'].map(marker)).toEqual(['■', '■', '■', null, null]);
+  expect(doc.history.length).toBe(before + 1);
+  // The column is now one list level: the gallery shows it, and a new marker changes all of it.
+  column();
+  expect(selectedListLevel(doc)).toBeTruthy();
+  expect(defineBullet(doc, { character: '✓' })).toBe(true);
+  expect(['b1', 'b2', 'b3', 'a1', 'c1'].map(marker)).toEqual(['✓', '✓', '✓', null, null]);
+  // A block dragged from a1 to b2 leaves c1, which its text range runs through, alone.
+  select();
+  expect(applyListLibrary(doc, 'number', 0)).toBe(true);
+  expect(['a1', 'b1', 'a2', 'b2', 'c1'].map(marker)).toEqual(['1.', '2.', '3.', '4.', null]);
+  select();
+  expect(applyMultilevelList(doc, 1)).toBe(true);
+  expect(['a1', 'b1', 'a2', 'b2', 'c1'].map(marker)).toEqual(['1)', '2)', '3)', '4)', null]);
+  const blob = await pkg.export(doc.paragraphs, doc.pageSettings, doc.numbering, doc.styles, doc.tables, doc.assets);
+  const reopened = await DocxPackage.open(new Uint8Array(await blob.arrayBuffer()));
+  const reopenedMarkers = listMarkers(reopened.paragraphs, reopened.numbering);
+  const at = t => reopenedMarkers[reopened.paragraphs.findIndex(p => p.cellId && paragraphText(p) === t)]?.text ?? null;
+  expect(['a1', 'b1', 'c1', 'a2', 'b2', 'b3'].map(at)).toEqual(['1)', '2)', null, '3)', '4)', '✓']);
 });

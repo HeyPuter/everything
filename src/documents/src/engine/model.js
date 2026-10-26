@@ -449,6 +449,15 @@ export class TextDocument {
     const stop = end > start && locate(this.paragraphs, end).offset === 0 ? last - 1 : last;
     return this.paragraphs.slice(first, Math.max(first, stop) + 1);
   }
+  /**
+   * The paragraphs a paragraph command acts on: those of the selected text, or of each cell of a block of cells,
+   * whose text range would otherwise reach only a column's first cell, or the cells between a block's corners.
+   */
+  get commandParagraphs() {
+    const out = [];
+    if (this.blockCellPass(() => { out.push(...this.selectedParagraphs); return false; }) === undefined) return this.selectedParagraphs;
+    return out;
+  }
   get paragraphFormatting() {
     const formats = this.selectedParagraphs.map(p => paragraphFormat(p, this.numbering, this.pageSettings));
     return Object.fromEntries(Object.keys(PARAGRAPH_FORMAT).map(key => [key, formats.every(f => sameValue(f[key], formats[0][key])) ? formats[0][key] : null]));
