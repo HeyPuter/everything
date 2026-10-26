@@ -44,6 +44,21 @@ describe('the room a shared file rejoins', () => {
     expect(await rememberedRoom('Documents/Plan.docx')).toBeNull();
   });
 
+  it('is not joined by a file renamed to the name of a shared one deleted elsewhere', async () => {
+    // Shared, then deleted in the Puter desktop: the app never heard of it, and the memory stayed.
+    await rememberRoom('Documents/Plan.docx', ROOM);
+    P.__fs.set('Documents/Notes.docx', new Blob(['x']));
+    const doc = new Doc({ name: 'Notes', path: 'Documents/Notes.docx' });
+    expect(await doc.rename('Plan')).toBeNull();
+    expect(await rememberedRoom('Documents/Plan.docx')).toBeNull();
+  });
+
+  it('is not joined by a file the document list renames to that name', async () => {
+    await rememberRoom('Documents/Plan.docx', ROOM);
+    await moveRoom('Documents/Notes.docx', 'Documents/Plan.docx');
+    expect(await rememberedRoom('Documents/Plan.docx')).toBeNull();
+  });
+
   it('is forgotten when the file is deleted, and never joined by a new file at its path', async () => {
     P.__fs.set('Documents/Plan.docx', new Blob(['x']));
     const shared = new Doc({ name: 'Plan', path: 'Documents/Plan.docx' });

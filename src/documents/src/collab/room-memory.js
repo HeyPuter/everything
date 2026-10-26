@@ -45,13 +45,12 @@ export async function rememberRoom(path, value) {
   catch { /* the owner can share again */ }
 }
 
-/** A renamed file keeps its room. */
+/** A renamed file keeps its room, and only its own: a room left under the new name (a file shared there, then deleted elsewhere) is forgotten. */
 export async function moveRoom(from, to) {
   if (!from || !to || from === to) return;
   const room = await rememberedRoom(from);
-  if (!room) return;
   await rememberRoom(to, room);
-  await rememberRoom(from, null);
+  if (room) await rememberRoom(from, null);
 }
 
 /** A deleted file, or a new file at a path, has no room. */
