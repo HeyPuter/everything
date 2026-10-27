@@ -389,6 +389,24 @@ export class CanvasEditor {
       this.relayout(); if (!quiet) this.onError(e); onFailure?.(e); return false;
     }
   }
+  /**
+   * Tab (1) and Shift+Tab (-1) in a table. Tab in the last cell adds a row: an edit, one step to undo.
+   * Otherwise the caret only goes to another cell (or out before the table), and that is done as a caret
+   * move is: the document is unchanged, so it is not laid out again and the copy kept for the next undo
+   * step stays. The rest is what the edit command does with an unchanged document.
+   */
+  tabCell(direction) {
+    if (this.readOnly || this.viewOnly) return;
+    this.finishComposition();
+    const move = this.model.cellMove(direction);
+    let valid = true;
+    try { this.validateStory(); } catch { valid = false; }
+    // A story the command would refuse (and report) goes through the command, as before.
+    if (!move || move.addRow || !valid) { this.execute(() => this.model.moveCell(direction, move)); return; }
+    this.model.moveCell(direction, move);
+    this.preferredX = null; this.caretAffinity = 'forward';
+    this.syncInput(); this.paint(); this.onSelection(); this.revealCaret();
+  }
   setTableProperties(patch) { return this.execute(() => this.model.setTableProperties(patch)); }
   /** Lay out a body model as this editor would, for field refreshes inside a transaction. */
   layoutModel(model) {
@@ -1676,7 +1694,7 @@ export class CanvasEditor {
     // Escape then Tab leaves the editor; Shift+Tab also keeps normal focus navigation.
     if (e.key === 'Escape') { if (this.session.path !== null) { e.preventDefault(); this.editStory(null); } else this.leaveWithTab = true; return; }
     if (e.key === 'Tab' && !mod && !e.altKey && !leaveWithTab && this.model.tableContext) {
-      e.preventDefault(); this.execute(() => this.model.moveCell(e.shiftKey ? -1 : 1)); return;
+      e.preventDefault(); this.tabCell(e.shiftKey ? -1 : 1); return;
     }
     // At the start of list items, Tab demotes them and Shift+Tab promotes them, as in other word processors.
     // At the top level Shift+Tab still moves focus on.

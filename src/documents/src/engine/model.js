@@ -1185,12 +1185,21 @@ export class TextDocument {
     if (index < 0) return false;
     this.select(this.paragraphOffset(index)); return true;
   }
-  moveCell(direction) {
-    const context = this.tableContext; if (!context) return false;
+  /**
+   * Where Tab (1) or Shift+Tab (-1) goes from the caret's cell: { cell } to select, { addRow } after the last
+   * cell, or { before } the table, out of its first cell. Only adding a row changes the document.
+   */
+  cellMove(direction) {
+    const context = this.tableContext; if (!context) return null;
     const cells = editableCells(context.table), index = cells.findIndex(c => c.id === context.cell.id);
-    if (cells[index + direction]) { this.selectCell(cells[index + direction].id); return false; }
-    if (direction > 0) return this.insertTableRow();
-    const p = this.paragraphs.findIndex(p => p.cellId === context.cell.id);
+    if (cells[index + direction]) return { cell: cells[index + direction].id };
+    return direction > 0 ? { addRow: true } : { before: context.cell.id };
+  }
+  moveCell(direction, move = this.cellMove(direction)) {
+    if (!move) return false;
+    if (move.cell) { this.selectCell(move.cell); return false; }
+    if (move.addRow) return this.insertTableRow();
+    const p = this.paragraphs.findIndex(p => p.cellId === move.before);
     this.select(Math.max(0, this.paragraphOffset(p) - 1)); return false;
   }
   insertTable(rows = 2, columns = 2, availableWidth) {
