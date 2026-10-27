@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Packet Studio — hex frame decode and filter for demo captures. Omnipeek-inspired." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Packet Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand">
+        <img src="icon-128.png" width="28" height="28" alt="" />
+        <h1>Packet Studio</h1>
+      </header>
+      <main class="layout">
+        <section class="filters panel">
+          <label>Protocol
+            <select id="proto">
+              <option value="ALL">All</option>
+              <option>ARP</option>
+              <option>DNS</option>
+              <option>TCP</option>
+              <option>UDP</option>
+              <option>HTTP</option>
+            </select>
+          </label>
+          <label>Contains <input id="text" type="search" placeholder="filter text" /></label>
+        </section>
+        <table id="list" class="panel">
+          <thead>
+            <tr><th>#</th><th>ms</th><th>Proto</th><th>Src</th><th>Dst</th><th>Summary</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <pre id="hex" class="panel" aria-live="polite"></pre>
+      </main>
+      <details class="help">
+        <summary>DOCUMENTED vs LIVE</summary>
+        <p>
+          Omnipeek (DOCUMENTED) captures LIVE traffic from NICs/adapters. This v0 ships a demo capture,
+          protocol filters, and hex decode only — no fabricated LIVE packet capture.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
