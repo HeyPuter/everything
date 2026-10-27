@@ -2693,6 +2693,8 @@ function splitTextToColumns(wb, args, env) {
   if (blockedArray) throw new ToolError(`The pieces would land on part of an array formula's result in ${qualified(wb, sheetId, boundsOf(blockedArray.plan.entries))}. Give another destination.`);
   const written = new Set(entries.map(({ r, c }) => cellKey(r, c)));
   const hit = spillsHit(wb, sheetId, bounds, (r, c) => written.has(cellKey(r, c)));
+  // A piece reading "=IMPORTDATA(…)" becomes that formula, as typed: blocked before it is written, as one typed is.
+  const distrusted = reachingNote(env, entries.some(({ cell }) => cell?.f != null && reachesOut(wb, cell.f)));
   let rows = 0, cols = 0, reason = null;
   wb.transaction('AI edit', () => {
     for (const { run, plan } of plans) {
@@ -2709,6 +2711,7 @@ function splitTextToColumns(wb, args, env) {
     split: qualified(wb, sheetId, t.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
     ...(t.options?.delimiters?.length ? { delimiters: t.options.delimiters } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
+    ...(distrusted ? { blocked_note: distrusted } : {}),
   };
 }
 
