@@ -24,7 +24,7 @@ import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
 import { formatValue, fontKeyFor, parseTime, ymdToSerial, parseInput, editText } from './format.js';
-import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H } from './charts.js';
+import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H, chartTitles } from './charts.js';
 import { subtypeOf, chartSubtype, changeSubtypePatch } from './chart-subtypes.js';
 import { effectiveFontTheme } from './font-theme.js';
 import { findAll, replaceCells, replaceInText, compilePattern, cellMatches, searchBudget } from './search.js';
@@ -814,7 +814,7 @@ function workbookInfo(wb, env) {
         ...(s.frozenRows || s.frozenCols ? { frozen: { rows: s.frozenRows || 0, columns: s.frozenCols || 0 } } : {}),
         ...(s.protected ? { protected: true } : {}),
         ...(s.tables?.length ? { tables: s.tables.map((t) => ({ name: t.name, range: rangeName(t.range), columns: wb.tableColumns(s.id, t) })) } : {}),
-        ...(chartsOf(s).length ? { charts: [...chartsOf(s).slice(0, 80).map((c) => ({ id: c.id, type: c.type, title: c.title ? clip(c.title, 200) : undefined, data: chartSource(c) })),
+        ...(chartsOf(s).length ? { charts: [...chartsOf(s).slice(0, 80).map((c) => ({ id: c.id, type: c.type, title: shownTitles(wb, s.id, c).title ? clip(shownTitles(wb, s.id, c).title, 200) : undefined, data: chartSource(c) })),
           ...(chartsOf(s).length > 80 ? [`(${chartsOf(s).length - 80} more; get_sheet_details lists them)`] : [])] } : {}),
         ...(sheetFilters(s).length ? { filtered: sheetFilters(s).map((f) => rangeName(f.range)).join(', ') } : {}),
         ...(pivotsOf(wb, s).length ? { pivot_tables: pivotsOf(wb, s).map((p) => p.name) } : {}),
@@ -830,6 +830,16 @@ function workbookInfo(wb, env) {
 
 /** A sheet's charts: the objects that are not pictures, shapes, text, SmartArt, slicers or controls. */
 const chartsOf = (sheet) => (sheet.charts || []).filter((c) => objectNoun(c) === 'chart');
+
+/**
+ * A chart's titles as it shows them. One linked to a cell shows what the cell shows, whatever text the chart kept
+ * from when it was linked: listed by that text, the chart could not be found by the title on it.
+ */
+function shownTitles(wb, sheetId, chart) {
+  const linked = chart.titleRef || chart.xTitleRef || chart.yTitleRef ? chartTitles(wb, sheetId, chart) : {};
+  const text = (v) => (v == null ? '' : String(v));
+  return { title: text(linked.title ?? chart.title), xTitle: text(linked.xTitle ?? chart.xTitle), yTitle: text(linked.yTitle ?? chart.yTitle) };
+}
 
 /**
  * The cells a chart draws: its data range, or the references its series read when it has its own (every chart from
@@ -883,14 +893,17 @@ function sheetDetails(wb, args, env) {
     return shown;
   };
   const charts = chartsOf(sheet);
-  const chartInfo = list(charts, (c) => ({
-    id: c.id, type: c.type, ...(c.name ? { name: clip(c.name, 200) } : {}), ...(c.title ? { title: clip(c.title, 200) } : {}),
-    data: chartSource(c), ...(c.pivotSource?.name ? { pivot_table: c.pivotSource.name } : {}),
-    ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
-    ...(c.xTitle ? { x_title: clip(c.xTitle, 200) } : {}), ...(c.yTitle ? { y_title: clip(c.yTitle, 200) } : {}),
-    ...(c.stacked ? { stacked: c.stack100 ? '100%' : true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
-    ...(c.hidden ? { hidden: true } : {}),
-  }));
+  const chartInfo = list(charts, (c) => {
+    const t = shownTitles(wb, sheet.id, c);
+    return {
+      id: c.id, type: c.type, ...(c.name ? { name: clip(c.name, 200) } : {}), ...(t.title ? { title: clip(t.title, 200) } : {}), ...(c.titleRef ? { title_from: c.titleRef } : {}),
+      data: chartSource(c), ...(c.pivotSource?.name ? { pivot_table: c.pivotSource.name } : {}),
+      ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
+      ...(t.xTitle ? { x_title: clip(t.xTitle, 200) } : {}), ...(t.yTitle ? { y_title: clip(t.yTitle, 200) } : {}),
+      ...(c.stacked ? { stacked: c.stack100 ? '100%' : true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
+      ...(c.hidden ? { hidden: true } : {}),
+    };
+  });
   if (sheet.kind === 'chart') return { sheet: sheet.name, kind: 'chart sheet', charts: chartInfo };
   const used = dataBounds(wb, sheet.id);
   const groups = conditionalRuleGroups(sheet.rules || []);
@@ -2138,10 +2151,10 @@ function chartNamed(wb, text) {
   const byId = all.find(({ chart }) => chart.id === t);
   if (byId) return byId;
   const fold = t.toLocaleLowerCase();
-  const named = all.filter(({ chart }) => [chart.name, chart.title].some((n) => typeof n === 'string' && n.trim().toLocaleLowerCase() === fold));
+  const named = all.filter(({ sheet, chart }) => [chart.name, shownTitles(wb, sheet.id, chart).title].some((n) => typeof n === 'string' && n.trim().toLocaleLowerCase() === fold));
   if (named.length === 1) return named[0];
   if (named.length > 1) throw new ToolError(`${named.length} charts are called "${t}"; give the id of the one you mean (get_sheet_details lists them).`);
-  const listed = all.slice(0, 12).map(({ sheet, chart }) => `${chart.id} (${chart.type}${chart.title ? ` "${clip(chart.title, 40)}"` : ''} on ${sheet.name})`);
+  const listed = all.slice(0, 12).map(({ sheet, chart }) => { const title = shownTitles(wb, sheet.id, chart).title; return `${chart.id} (${chart.type}${title ? ` "${clip(title, 40)}"` : ''} on ${sheet.name})`; });
   throw new ToolError(`There is no chart "${t}". ${all.length ? `The charts are: ${listed.join(', ')}${all.length > 12 ? ', …' : ''}.` : 'The workbook has no charts.'}`);
 }
 
@@ -2241,10 +2254,11 @@ function deleteChart(wb, args) {
   const { sheet, chart } = chartNamed(wb, args.chart);
   assertWritable(wb, sheet.id, null);
   if (sheet.kind === 'chart') throw new ToolError(`That chart is the chart sheet "${sheet.name}"; delete the sheet with manage_sheet instead.`);
+  const { title } = shownTitles(wb, sheet.id, chart);
   let ok = false;
   wb.transaction('AI edit', () => { ok = wb.deleteChart(sheet.id, chart.id); });
   if (!ok) throw new ToolError('The chart could not be deleted (its sheet may be protected).');
-  return { deleted: `${chart.type} chart${chart.title ? ` "${chart.title}"` : ''} on ${sheet.name}` };
+  return { deleted: `${chart.type} chart${title ? ` "${clip(title, 80)}"` : ''} on ${sheet.name}` };
 }
 
 /**
@@ -3745,7 +3759,8 @@ export function describeCall(wb, name, args = {}, env) {
     case 'update_chart': case 'delete_chart': {
       let named = null;
       try { named = chartNamed(wb, args.chart); } catch { /* the runner explains */ }
-      const what = named ? `the ${named.chart.type} chart${named.chart.title ? ` “${clip(named.chart.title, 40)}”` : ''} on ${named.sheet.name}` : `the chart ${String(args.chart ?? '')}`;
+      const title = named ? shownTitles(wb, named.sheet.id, named.chart).title : '';
+      const what = named ? `the ${named.chart.type} chart${title ? ` “${clip(title, 40)}”` : ''} on ${named.sheet.name}` : `the chart ${String(args.chart ?? '')}`;
       if (name === 'delete_chart') return { label: `Delete ${what}`, destructive: !!named, detail: named ? 'Removes the chart and its formatting.' : null };
       return { label: `Change ${what}` };
     }

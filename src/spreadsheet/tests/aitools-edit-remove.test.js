@@ -49,6 +49,18 @@ describe('AI tools: changing and deleting charts', () => {
     expect(wb.version).toBe(before);
   });
 
+  it('knows a chart by the title it shows when that title is linked to a cell', () => {
+    const { wb, id, env, run, json } = setup();
+    const { id: chartId } = json('create_chart', { data_range: 'A1:C5', title: 'Old' });
+    // The title reads its cell; the text the chart kept is from before.
+    wb.updateChart(id, chartId, { titleRef: 'Sheet1!$A$1', title: 'Old' });
+    expect(json('get_sheet_details', {}).charts[0]).toMatchObject({ title: 'Month', title_from: 'Sheet1!$A$1' });
+    expect(json('get_workbook_info', {}).sheets[0].charts[0].title).toBe('Month');
+    expect(describeCall(wb, 'delete_chart', { chart: 'month' }, env).label).toBe('Delete the column chart “Month” on Sheet1');
+    expect(run('update_chart', { chart: 'Old', legend: 'top' }).content).toMatch(/There is no chart "Old". The charts are: \w+ \(column "Month" on Sheet1\)/);
+    expect(json('delete_chart', { chart: 'Month' }).deleted).toBe('column chart "Month" on Sheet1');
+  });
+
   it('keeps a chart stacked, and stacked to 100%, when only its type is given', () => {
     const { wb, id, run, json } = setup();
     const { id: chartId } = json('create_chart', { data_range: 'A1:C5', type: 'column', stacked: true });
