@@ -6,6 +6,23 @@ export const ENTRY_FIELDS = new Set(['XE', 'TA', 'TC']);
 // An empty entry stays before text typed at its position instead of growing a result.
 const emptyEntry = r => ENTRY_FIELDS.has(r.field.type) && r.start === r.end;
 
+// The grapheme boundaries of a paragraph's text, with its end. Field updates ask for every field's range after
+// each result they replace; segmenting the text of every paragraph with a field each time made updating the
+// fields of a long document quadratic. They are kept with the runs array and the run texts they were found in:
+// paragraph copies share their runs, and an edit that changes a run's text is seen by comparing the texts.
+const segmentedRuns = new WeakMap();
+function graphemeBoundaries(runs, text) {
+  const cache = segmentedRuns.get(runs);
+  if (cache && cache.texts.length === runs.length) {
+    let same = true;
+    for (let i = 0; i < runs.length && same; i++) same = runs[i].text === cache.texts[i];
+    if (same) return cache.boundaries;
+  }
+  const boundaries = new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
+  segmentedRuns.set(runs, { texts: runs.map(r => r.text), boundaries });
+  return boundaries;
+}
+
 // Field boundaries are zero-width document markers, not metadata on result
 // runs. Empty results and results spanning paragraph marks retain both ends.
 export function bodyFieldRanges(paragraphs) {
@@ -13,7 +30,7 @@ export function bodyFieldRanges(paragraphs) {
   for (const p of paragraphs) {
     const size = length(p);
     const text=p.fieldMarkers?.length?p.runs.map(r=>r.text).join(''):null;
-    const boundaries=text===null?null:new Set([...inlineSegments(text)].map(s=>s.index).concat(size));
+    const boundaries=text===null?null:graphemeBoundaries(p.runs,text);
     for (const marker of [...(p.fieldMarkers || [])].sort((a,b) => a.offset-b.offset || (a.order??0)-(b.order??0))) {
       if (!Number.isInteger(marker.offset) || marker.offset < 0 || marker.offset > size) throw new Error('Invalid body field position.');
       if(!boundaries.has(marker.offset))throw new Error('Body field boundaries inside grapheme clusters are not supported.');
