@@ -131,6 +131,7 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
     let pinned = null;
     const toolEnv = withSheet(() => pinned ?? (env.sheetId() !== live ? env.sheetId() : aiEnv.sheetId()));
     toolEnv.stopped = () => !!control?.stopped?.();
+    toolEnv.waiting = (note) => control?.waiting?.(note);
     const pending = runTool(wb, name, args, toolEnv);
     if (typeof pending?.then === 'function') pinned = toolEnv.sheetId();
     const result = await pending;

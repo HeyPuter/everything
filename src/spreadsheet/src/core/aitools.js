@@ -3357,6 +3357,10 @@ async function solve(wb, args, env) {
   });
   let result;
   try { result = await runSolver(p, { pause }); } catch (e) { if (e !== halted) throw e; }
+  // The user may have begun typing into a cell meanwhile. The panel holds every other change until that entry ends
+  // (see env.whenIdle): the solution waits for it too, and its report sheets, shown on the way, would commit it.
+  const idle = result && !env.stopped?.() && !edited() ? env.whenIdle?.() : null;
+  if (idle) { env.waiting?.('Waiting for you to finish the cell you are typing in'); await idle; }
   if (env.stopped?.()) return { stopped: 'The user stopped the assistant; nothing was changed.' };
   if (edited()) throw new ToolError('The workbook changed while Solver was running, so nothing was changed. Run it again.');
   const keep = args.keep !== false && !!result.x && (result.solved || args.keep_best_found === true);
@@ -3446,7 +3450,8 @@ const RUNNERS = {
  * `env`: sheetId() the active sheet, selection() → { sheetId, range }, select(sheetId, range),
  * showSheet(sheetId), autofit(sheetId, c1, c2), autofitRows(sheetId, r1, r2) (false when it cannot measure that
  * sheet's rows), distrust() when a formula that reaches out is written,
- * stopped() when the user has stopped the assistant (a long tool then gives up, changing nothing).
+ * stopped() when the user has stopped the assistant (a long tool then gives up, changing nothing), whenIdle() null or
+ * a promise that settles once the entry the user is typing ends, waiting(note) to say why a tool waits.
  */
 export function runTool(wb, name, args, env) {
   const run = RUNNERS[name];

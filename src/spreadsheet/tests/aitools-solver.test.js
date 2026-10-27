@@ -183,6 +183,31 @@ describe('solve', () => {
     } finally { Date.now = realNow; }
   });
 
+  it('waits for the entry the user is typing to end before it keeps the solution', async () => {
+    const { wb, id, env, run } = production();
+    let done;
+    const waiting = vi.fn();
+    const typing = { ...env, whenIdle: () => new Promise((resolve) => { done = resolve; }), waiting };
+    let settled = false;
+    const pending = run('solve', MODEL, typing).then((res) => { settled = true; return res; });
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    expect(waiting).toHaveBeenCalledWith('Waiting for you to finish the cell you are typing in');
+    expect(wb.getValue(id, 0, 1)).toBe(1);
+    // The entry is cancelled: nothing changed meanwhile, so the solution goes in.
+    done();
+    expect((await pending).ok).toBe(true);
+    expect(wb.getValue(id, 0, 1)).toBeCloseTo(2, 9);
+    // An entry committed meanwhile changes the workbook, and the solution is not kept over it.
+    const again = production();
+    const waitAgain = again.run('solve', MODEL, { ...again.env, whenIdle: () => new Promise((resolve) => { done = resolve; }) });
+    for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    again.wb.setInput(again.id, 0, 1, '3');
+    done();
+    expect((await waitAgain).content).toMatch(/workbook changed while Solver was running/);
+    expect(again.wb.getValue(again.id, 0, 1)).toBe(3);
+  });
+
   it('refuses variable cells that hold formulas, are protected, or lie on another sheet', async () => {
     const { wb, id, run } = production();
     expect((await run('solve', { ...MODEL, variables: 'B1:C1' })).content).toMatch(/^Error: variables: The variable cell \$C\$1 holds a formula/);
