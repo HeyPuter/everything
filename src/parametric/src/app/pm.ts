@@ -366,6 +366,6 @@ export class SelectionBox {
 
 export function fmt(v: number, kind: ParamKind, ctx: UnitContext): string {
   if (kind === 'length') return `${formatNumber(v / UNIT_SYSTEMS[ctx.units].scale, ctx.decimals)} ${UNIT_SYSTEMS[ctx.units].length}`;
-  if (kind === 'angle') return `${formatNumber(v, 2)}Â°`;
+  if (kind === 'angle') return `${formatNumber(v, 2)}°`;
   return String(v);
 }
