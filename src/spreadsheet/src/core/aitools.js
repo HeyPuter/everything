@@ -329,6 +329,15 @@ export const TOOLS = [
     piece_formats: { type: 'array', items: { type: 'string', enum: ['general', 'text', 'skip'] }, description: 'Per piece, in order: "general" (read as typed), "text" (kept exactly, e.g. leading zeros) or "skip" (left out). Default general.' },
     destination: str('Cell where the first row\'s first piece goes, e.g. "D2". Default: over the text itself.'),
   }, ['range']),
+  fn('add_sparklines', 'Draw small charts inside cells, one per row or column of data: a line, columns, or win/loss bars. The cells keep their values. Or remove the sparklines in a range.', {
+    data_range: str('The data, e.g. "B2:M10": one sparkline per row (or column) of it. A named range works for one sparkline.'),
+    location: str('The cells the sparklines go in: one row or one column of cells, as many as the data has rows (or columns), e.g. "N2:N10".'),
+    type: str('Sparkline type (default line).', { enum: ['line', 'column', 'win_loss'] }),
+    series_in: str('Whether each row or each column of the data is one sparkline (default: guessed from the shapes).', { enum: ['rows', 'columns'] }),
+    markers: bool('Line sparklines: mark every point.'),
+    highlight: { type: 'array', items: { type: 'string', enum: ['high', 'low', 'first', 'last', 'negative'] }, description: 'Points to show in an accent color.' },
+    remove: bool('Remove the sparklines in location instead (data_range is then not needed).'),
+  }, ['location']),
   fn('set_column_width', 'Set the width of columns in pixels, or fit them to their contents.', {
     sheet: SHEET, columns: str('A column or run of columns, e.g. "B" or "A:F".'), width: str('Width in pixels (24 to 800), or "fit".'),
   }, ['columns', 'width']),
@@ -2597,6 +2606,73 @@ function splitTextToColumns(wb, args, env) {
   };
 }
 
+/* ---------- Sparklines ---------- */
+
+const SPARKLINE_TYPES = { line: 'line', column: 'column', win_loss: 'stacked' };
+const SPARKLINE_POINTS = ['high', 'low', 'first', 'last', 'negative'];
+
+/** How many sparklines sit in a range's cells. */
+function sparklinesIn(wb, sheetId, range) {
+  let n = 0;
+  for (const group of wb.sheet(sheetId)?.sparklineGroups || []) {
+    for (const { ref } of group.sparklines) {
+      const at = wb.rangeFromText(sheetId, ref)?.range;
+      if (at && at.r1 >= range.r1 && at.r1 <= range.r2 && at.c1 >= range.c1 && at.c1 <= range.c2) n++;
+    }
+  }
+  return n;
+}
+
+/** A defined name the user can see, as written (no sheet), that the text names: kept as a name, so the target follows it. */
+function visibleName(wb, text) {
+  const t = String(text ?? '').trim();
+  if (!t || t.includes('!')) return null;
+  return (wb.names || []).find((n) => !n.hidden && String(n.name).toLowerCase() === t.toLowerCase()) || null;
+}
+
+function addSparklines(wb, args, env) {
+  const { sheetId, range: loc } = resolveRange(wb, args.location, env.sheetId());
+  assertWritable(wb, sheetId, loc);
+  if (args.remove) {
+    const n = sparklinesIn(wb, sheetId, loc);
+    if (!n) throw new ToolError(`There are no sparklines in ${qualified(wb, sheetId, loc)}.`);
+    let removed;
+    wb.transaction('AI edit', () => { removed = wb.clearNativeSparklines(sheetId, [loc]); });
+    if (removed == null || removed === 0) throw new ToolError(`The sparklines in ${qualified(wb, sheetId, loc)} could not be removed: a cell of theirs is protected.`);
+    return { removed_sparklines: removed, from: qualified(wb, sheetId, loc) };
+  }
+  if (loc.r2 >= MAX_ROW || loc.c2 >= MAX_COL) throw new ToolError('location must be cells such as "N2:N10", not whole rows or columns.');
+  const kind = args.type ?? 'line';
+  const type = SPARKLINE_TYPES[kind];
+  if (!type) throw new ToolError('type must be line, column or win_loss.');
+  if (args.data_range == null || !String(args.data_range).trim()) throw new ToolError('Give the data_range the sparklines are drawn from.');
+  const raw = String(args.data_range).trim().replace(/^=/, '');
+  let source;
+  const name = visibleName(wb, raw);
+  if (name) source = name.name;
+  else {
+    const data = resolveRange(wb, raw, env.sheetId());
+    // Whole columns or rows mean their data, as a chart's do.
+    const cells = data.range.r2 >= MAX_ROW || data.range.c2 >= MAX_COL ? dataOfLines(wb, data.sheetId, data.range) : data.range;
+    if (!cells) throw new ToolError(`${qualified(wb, data.sheetId, data.range)} holds no data.`);
+    source = qualified(wb, data.sheetId, cells);
+  }
+  const flags = {};
+  if (args.markers) {
+    if (type !== 'line') throw new ToolError('Markers are for line sparklines only.');
+    flags.markers = true;
+  }
+  for (const p of Array.isArray(args.highlight) ? args.highlight : []) {
+    if (!SPARKLINE_POINTS.includes(p)) throw new ToolError(`highlight takes ${SPARKLINE_POINTS.join(', ')}.`);
+    flags[p] = true;
+  }
+  const orientation = args.series_in === 'rows' ? 'rows' : args.series_in === 'columns' ? 'columns' : 'auto';
+  let error;
+  wb.transaction('AI edit', () => { error = wb.createNativeSparklines(sheetId, { source, location: rangeName(loc), type, orientation, flags }); });
+  if (error) throw new ToolError(`The sparklines could not be added: ${error.message}`);
+  return { sparklines: sparklinesIn(wb, sheetId, loc), type: kind, in: qualified(wb, sheetId, loc), data: source };
+}
+
 function setColumnWidth(wb, args, env) {
   const sheet = gridSheet(wb, args.sheet, env.sheetId());
   // A protected sheet keeps its column widths: said so, rather than a resize reported that did not happen.
@@ -2677,6 +2753,7 @@ const RUNNERS = {
   freeze_panes: freezePanes,
   remove_duplicates: removeDuplicates,
   split_text_to_columns: splitTextToColumns,
+  add_sparklines: addSparklines,
   set_column_width: setColumnWidth,
   add_note: addNote,
   select_range: selectRange,
@@ -2720,6 +2797,8 @@ export function runTool(wb, name, args, env) {
 export function callTarget(wb, name, args, env) {
   // A pivot table put at a cell is about where it goes; one on a new sheet, about its data.
   if (name === 'create_pivot_table' && args.destination) return resolveRange(wb, args.destination, env.sheetId());
+  // Sparklines are about the cells they go in.
+  if (name === 'add_sparklines' && args.location != null) return resolveRange(wb, args.location, env.sheetId());
   const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell ?? args.destination;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
@@ -2963,6 +3042,15 @@ export function describeCall(wb, name, args = {}, env) {
       } catch { /* the runner explains */ }
       const detail = [replaced && `Replaces ${holding(replaced)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       return { label: `Split the text in ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text} into columns`, destructive: !!detail, detail: detail || null };
+    }
+    case 'add_sparklines': {
+      const t = at(args.location);
+      if (args.remove) {
+        // The user's sparklines go: asked about, as removing a note is.
+        const n = t.range ? sparklinesIn(wb, t.s, t.range) : 0;
+        return { label: `Remove the sparklines in ${t.text}`, destructive: n > 0, detail: n ? `Removes ${plural(n, 'sparkline')}.` : null };
+      }
+      return { label: `Add ${{ column: 'column', win_loss: 'win/loss' }[args.type] || 'line'} sparklines to ${t.text}` };
     }
     case 'set_column_width': {
       // The columns as the runner reads them ("b:d" is B:D, a run given backwards is the same run).

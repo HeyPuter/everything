@@ -3571,7 +3571,7 @@ export class Workbook extends EventTarget {
   }
 
   /** Create a native group without replacing scalar values or existing charts. */
-  createNativeSparklines(sheetId, { source = '', location = '', type = 'line', orientation = 'auto' } = {}) {
+  createNativeSparklines(sheetId, { source = '', location = '', type = 'line', orientation = 'auto', flags = {} } = {}) {
     const sheet = this.sheet(sheetId), bad = (field, message) => ({ field, message });
     if (!sheet) return bad('location', 'Choose a worksheet destination.');
     if (!nativeSparklineChoices.type.includes(type)) return bad('type', 'Choose a sparkline type.');
@@ -3616,7 +3616,9 @@ export class Workbook extends EventTarget {
     // Excel's defaults for a new group: an empty cell is a gap in the line (not a drop to zero), and the
     // negative, high, low, first and last points and markers take accent colours once turned on, not black.
     const shade = (tint) => ({ theme: 4, ...(tint ? { tint } : {}) });
-    const group = normalizeNativeSparklineGroups([{ type, displayEmptyCellsAs: 'gap', colorSeries: shade(), colorNegative: { theme: 5 },
+    // `flags`: the group's on/off settings (markers, high, low, …) to start with, as Sparkline settings would set them.
+    const on = Object.fromEntries(Object.entries(flags || {}).filter(([key, value]) => nativeSparklineFlags.includes(key) && value === true));
+    const group = normalizeNativeSparklineGroups([{ type, ...on, displayEmptyCellsAs: 'gap', colorSeries: shade(), colorNegative: { theme: 5 },
       colorMarkers: shade(-0.499984740745262), colorFirst: shade(0.39997558519241921), colorLast: shade(0.39997558519241921),
       colorHigh: shade(), colorLow: shade(), uid: `{${crypto.randomUUID().toUpperCase()}}`, sparklines }])[0];
     this._growTo(sheet, dest.r2 + 1, dest.c2 + 1);
