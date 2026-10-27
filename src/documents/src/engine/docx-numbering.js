@@ -13,7 +13,7 @@ import { readRunSpacing } from './docx-run-spacing.js';
 import { checkedBaselineShift } from './vertical-align.js';
 import { readRunVertical } from './docx-vertical-align.js';
 import { readRunBackground } from './docx-backgrounds.js';
-import { parseXml as xml } from './docx-xml.js';
+import { parseXml as xml, setContentTypeOverride } from './docx-xml.js';
 import { strToU8 } from 'fflate';
 import { emptyNumbering, NUMBER_FORMATS } from './numbering.js';
 import { relatedPartPath } from './docx-relationships.js';
@@ -398,9 +398,8 @@ export function writeNumbering(parts, numbering) {
     const relationship = rels.createElementNS(REL, 'Relationship');
     relationship.setAttribute('Id', id); relationship.setAttribute('Type', OFFICE_REL); relationship.setAttribute('Target', path.slice(5));
     rels.documentElement.append(relationship); parts[relPath] = strToU8(serialize(rels));
-    const types = xml(parts['[Content_Types].xml']), type = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-    type.setAttribute('PartName', '/' + path); type.setAttribute('ContentType', TYPE);
-    types.documentElement.append(type); parts['[Content_Types].xml'] = strToU8(serialize(types));
+    const types = xml(parts['[Content_Types].xml']); setContentTypeOverride(types, '/' + path, TYPE);
+    parts['[Content_Types].xml'] = strToU8(serialize(types));
   }
   parts[path] = strToU8(serialize(doc));
 }

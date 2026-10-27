@@ -4,7 +4,7 @@
 // (§17.11.21, §17.11.17, §17.11.20, §17.11.19), and the notes parts with their
 // separator notes (§17.11.15, §17.11.23).
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, setContentTypeOverride } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -90,9 +90,7 @@ export function createNotesPart(parts, kind) {
   rels.documentElement.append(link);
   parts[relPath] = strToU8(serialize(rels));
   const types = parseXml(parts['[Content_Types].xml']);
-  const override = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-  override.setAttribute('PartName', '/' + path); override.setAttribute('ContentType', `${TYPE}${plural}+xml`);
-  types.documentElement.append(override);
+  setContentTypeOverride(types, '/' + path, `${TYPE}${plural}+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
   return path;
 }

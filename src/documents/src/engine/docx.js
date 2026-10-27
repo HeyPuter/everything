@@ -86,7 +86,7 @@ import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS } from
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
-import { parseXml as xml, runText } from './docx-xml.js';
+import { parseXml as xml, runText, setContentTypeOverride } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
 import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
@@ -578,9 +578,8 @@ function saveSettings(parts, settings, related, path) {
     rel.setAttribute('Id', id); rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings'); rel.setAttribute('Target', path.slice('word/'.length));
     rels.documentElement.append(rel); parts[relPath] = strToU8(serialize(rels));
     const types = xml(parts['[Content_Types].xml']);
-    const type = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-    type.setAttribute('PartName', '/' + path); type.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml');
-    types.documentElement.append(type); parts['[Content_Types].xml'] = strToU8(serialize(types));
+    setContentTypeOverride(types, '/' + path, 'application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml');
+    parts['[Content_Types].xml'] = strToU8(serialize(types));
   }
   parts[path] = strToU8(serialize(settings).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
 }
@@ -754,7 +753,7 @@ function writeStyles(parts, styles) {
     const relPath = 'word/_rels/document.xml.rels', rels = parts[relPath] ? xml(parts[relPath]) : xml(`<Relationships xmlns="${REL}"/>`);
     const ids = new Set(children(rels.documentElement).map(n => n.getAttribute('Id'))); let id = 'rStyles'; while (ids.has(id)) id += '_';
     const rel = rels.createElementNS(REL, 'Relationship'); rel.setAttribute('Id', id); rel.setAttribute('Type', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles'); rel.setAttribute('Target', path.slice(5)); rels.documentElement.append(rel); parts[relPath] = strToU8(serialize(rels));
-    const types = xml(parts['[Content_Types].xml']), type = types.createElementNS(types.documentElement.namespaceURI, 'Override'); type.setAttribute('PartName', '/' + path); type.setAttribute('ContentType', 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml'); types.documentElement.append(type); parts['[Content_Types].xml'] = strToU8(serialize(types));
+    const types = xml(parts['[Content_Types].xml']); setContentTypeOverride(types, '/' + path, 'application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml'); parts['[Content_Types].xml'] = strToU8(serialize(types));
   }
   parts[path] = strToU8(serialize(doc).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"'));
 }

@@ -11,7 +11,7 @@ import { drawingStyleReader, drawingEffectColor } from './docx-drawing-style.js'
 import { readDrawingMetadata, readDrawingCreationId } from './docx-drawing-metadata.js';
 import { readDrawingHyperlink, drawingHyperlinkWriter } from './docx-drawing-hyperlinks.js';
 import { readShapeExtensions } from './docx-shape-extensions.js';
-import { parseXml } from './docx-xml.js';
+import { parseXml, setContentTypeOverride } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { imageInfo, validateImage, normalizeCrop, normalizedRotation, imageExtents, CROP_SIDES } from './images.js';
 import { strToU8 } from 'fflate';
@@ -559,9 +559,7 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
       }
     }
     parts[part.path] = part.bytes;
-    if (part.contentType && ![...types.documentElement.children].some(n => n.localName === 'Override' && n.getAttribute('PartName') === `/${part.path}`)) {
-      const type = types.createElementNS(types.documentElement.namespaceURI, 'Override'); type.setAttribute('PartName', `/${part.path}`); type.setAttribute('ContentType', part.contentType); types.documentElement.append(type);
-    }
+    if (part.contentType) setContentTypeOverride(types, `/${part.path}`, part.contentType);
   }
   for (const image of images) {
     validateImage(image);
@@ -576,7 +574,7 @@ export function imageWriter(parts, paragraphs, assets, doc, sourcePart = 'word/d
     const ids = new Set(children(rels.documentElement).map(n => n.getAttribute('Id'))); let id = 'rImage1', number = 1; while (ids.has(id)) id = `rImage${++number}`;
     const rel = rels.createElementNS(REL, 'Relationship'); for (const [key, value] of Object.entries({ Id: id, Type: `${R}/image`, Target: relativePartTarget(sourcePart, path) })) rel.setAttribute(key, value);
     rels.documentElement.append(rel); parts[path] = asset.bytes; relations.set(image.assetId, id);
-    const type = types.createElementNS(types.documentElement.namespaceURI, 'Override'); type.setAttribute('PartName', `/${path}`); type.setAttribute('ContentType', info.mime); types.documentElement.append(type);
+    setContentTypeOverride(types, `/${path}`, info.mime);
   }
   if (rels) { parts[relPath] = strToU8(serialize(rels)); parts['[Content_Types].xml'] = strToU8(serialize(types)); }
   const writeDrawingLink = drawingHyperlinkWriter(parts, images, sourcePart);

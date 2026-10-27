@@ -2,7 +2,7 @@
 // document that has none of that kind. The part, its relationship and content
 // type are added at once; the section reference is written on export.
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, setContentTypeOverride } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
@@ -25,9 +25,7 @@ export function createPageStoryPart(parts, kind) {
   rels.documentElement.append(link);
   parts[relPath] = strToU8(serialize(rels));
   const types = parseXml(parts['[Content_Types].xml']);
-  const override = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-  override.setAttribute('PartName', '/' + path); override.setAttribute('ContentType', `${TYPE}${kind}+xml`);
-  types.documentElement.append(override);
+  setContentTypeOverride(types, '/' + path, `${TYPE}${kind}+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
   return { path, id };
 }
@@ -105,9 +103,7 @@ export function createFootnotesPart(parts) {
   rels.documentElement.append(link);
   parts[relPath] = strToU8(serialize(rels));
   const types = parseXml(parts['[Content_Types].xml']);
-  const override = types.createElementNS(types.documentElement.namespaceURI, 'Override');
-  override.setAttribute('PartName', '/' + path); override.setAttribute('ContentType', `${TYPE}footnotes+xml`);
-  types.documentElement.append(override);
+  setContentTypeOverride(types, '/' + path, `${TYPE}footnotes+xml`);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
   return path;
 }

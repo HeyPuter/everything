@@ -11,6 +11,21 @@ export function wordText(node) {
 // w:br and w:cr (§17.3.3.1, §17.3.3.4). Word shows each one as a space.
 export const runText = node => wordText(node).replace(/\r\n|[\r\n]/g, ' ');
 
+const CONTENT_TYPES = 'http://schemas.openxmlformats.org/package/2006/content-types';
+/**
+ * Declare a part's content type in a parsed [Content_Types].xml. The stream holds at most one Override
+ * per part name, and part names compare without regard to ASCII case (ECMA-376 Part 2, §9.1.1 and
+ * §10.1.2), so an entry left behind for a part the package no longer has is reused, not repeated.
+ */
+export function setContentTypeOverride(types, partName, contentType) {
+  const root = types.documentElement, key = partName.toLowerCase();
+  const [node, ...extra] = [...root.children].filter(n => n.localName === 'Override' && n.getAttribute('PartName')?.toLowerCase() === key);
+  for (const duplicate of extra) duplicate.remove();
+  const override = node || root.appendChild(types.createElementNS(root.namespaceURI || CONTENT_TYPES, 'Override'));
+  override.setAttribute('PartName', partName); override.setAttribute('ContentType', contentType);
+  return override;
+}
+
 export function parseXml(bytes) {
   let text;
   if (bytes instanceof Uint8Array) {

@@ -1,5 +1,5 @@
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { parseXml, setContentTypeOverride } from './docx-xml.js';
 
 /**
  * Package core properties (ECMA-376 Part 2, §11 "Core Properties"): the document's title, subject,
@@ -14,7 +14,6 @@ import { parseXml } from './docx-xml.js';
 export const CORE_REL = 'http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties';
 export const CORE_TYPE = 'application/vnd.openxmlformats-package.core-properties+xml';
 const PKG_REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const CT = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const CP = 'http://schemas.openxmlformats.org/package/2006/metadata/core-properties';
 const DC = 'http://purl.org/dc/elements/1.1/';
 const DCTERMS = 'http://purl.org/dc/terms/';
@@ -124,9 +123,7 @@ function createCorePart(parts) {
   rels.documentElement.append(rel);
   parts['_rels/.rels'] = strToU8(serialize(rels));
   const types = parseXml(parts['[Content_Types].xml']);
-  const override = types.createElementNS(types.documentElement.namespaceURI || CT, 'Override');
-  override.setAttribute('PartName', `/${path}`); override.setAttribute('ContentType', CORE_TYPE);
-  types.documentElement.append(override);
+  setContentTypeOverride(types, `/${path}`, CORE_TYPE);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
   return path;
 }
