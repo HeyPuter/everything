@@ -651,22 +651,30 @@ export class Chess {
    * opponent has no way to checkmate, in which case the game is drawn.
    *
    * A lone king, or a king with a single knight or a single bishop, can never
-   * mate — not even with the loser cooperating. Anything more is treated as
-   * mating material, which is where practical implementations stop: rarer dead
-   * positions (two bishops on one color, a blocked-in pawn) would need a full
+   * mate — not even with the loser cooperating. Same-colored bishops alone
+   * also cannot mate (they never control the opposite square color). Anything
+   * else with two or more minors, or a pawn/rook/queen, counts as mating
+   * material; rarer dead positions (e.g. a blocked-in pawn) would need a full
    * search of the position rather than a material count.
    */
   hasMatingMaterial(color) {
-    let minors = 0;
+    const bishopSquares = [];
+    let knights = 0;
     for (let i = 0; i < 64; i++) {
       const piece = this._board[i];
       if (piece === null || colorOf(piece) !== color) continue;
       const type = typeOf(piece);
       if (type === 'k') continue;
-      if (type === 'n' || type === 'b') minors++;
+      if (type === 'b') bishopSquares.push(i);
+      else if (type === 'n') knights++;
       else return true; // a pawn, rook, or queen is always enough
     }
-    return minors > 1;
+    const minors = bishopSquares.length + knights;
+    if (minors <= 1) return false;
+    // A knight among the minors is enough; bishops alone need opposite colors.
+    if (knights > 0) return true;
+    const shade = (i) => ((i & 7) + (i >> 3)) & 1;
+    return !bishopSquares.every((i) => shade(i) === shade(bishopSquares[0]));
   }
 
   isFiftyMoveRule() {
