@@ -176,10 +176,14 @@ describe('AI tools: data validation', () => {
   });
 
   it('refuses bounds that cannot work', () => {
-    const { run } = setup();
+    const { run, json } = setup();
     expect(run('add_validation', { range: 'B2:B5', type: 'decimal', min: 5, max: 1 }).content).toMatch(/min must not be more than max/);
     expect(run('add_validation', { range: 'B2:B5', type: 'whole', operator: 'greaterThan' }).content).toMatch(/needs min/);
     expect(run('add_validation', { range: 'B2:B5', type: 'date', min: '1/2/2024' }).content).toMatch(/YYYY-MM-DD/);
+    // A day past its month's end is no date, not the first of the next month.
+    expect(run('add_validation', { range: 'B2:B5', type: 'date', min: '2024-01-01', max: '2024-02-30' }).content).toBe('Error: max is not a date: 2024-02-30.');
+    expect(run('add_validation', { range: 'B2:B5', type: 'date', operator: 'lessThan', min: '2024-13-01' }).content).toBe('Error: min is not a date: 2024-13-01.');
+    expect(json('add_validation', { range: 'B2:B5', type: 'date', min: '2024-02-01', max: '2024-02-29' }).allows).toMatch(/2024-02-29/);
     expect(run('add_validation', { range: 'B2:B5', type: 'text_length', min: 1.5, max: 3 }).content).toMatch(/whole numbers/);
     expect(run('add_validation', { range: 'B2:B5', type: 'colour' }).content).toMatch(/type must be one of/);
   });

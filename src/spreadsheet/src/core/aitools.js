@@ -23,7 +23,7 @@ import { quoteSheet, shiftFormula, mapFormulaRefs, MAX_ROW, MAX_COL } from './re
 import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
-import { formatValue, fontKeyFor, parseTime, ymdToSerial, parseInput, editText } from './format.js';
+import { formatValue, fontKeyFor, parseTime, ymdToSerial, serialToYMD, parseInput, editText } from './format.js';
 import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H, chartTitles } from './charts.js';
 import { subtypeOf, chartSubtype, changeSubtypePatch } from './chart-subtypes.js';
 import { effectiveFontTheme } from './font-theme.js';
@@ -2432,8 +2432,11 @@ function validationBound(value, type, what) {
   if (type === 'date') {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
     if (!m) throw new ToolError(`${what} must be a date as "YYYY-MM-DD".`);
-    const serial = ymdToSerial(Number(m[1]), Number(m[2]), Number(m[3]));
-    if (!Number.isFinite(serial)) throw new ToolError(`${what} is not a date.`);
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const serial = ymdToSerial(y, mo, d);
+    // A day past its month's end rolled on into the next: "2024-02-30" made a rule up to 1 March.
+    const back = Number.isFinite(serial) ? serialToYMD(serial) : null;
+    if (!back || back.y !== y || back.m !== mo || back.d !== d) throw new ToolError(`${what} is not a date: ${t}.`);
     return serial;
   }
   if (type === 'time') {
