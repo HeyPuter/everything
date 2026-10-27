@@ -194,6 +194,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const measure = (text, style) => measureTextGeometry(text, style, measureBase);
   // Body paragraphs measured by an earlier layout with this measurer (paragraph-measure-cache.js).
   const paragraphCache = measureBase.paragraphCache?.();
+  paragraphCache?.reserve(paragraphs.length);
   // Page geometry and numbering are long; keys name them by the cache's short ids (intern).
   const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(JSON.stringify([numbering ?? null, revisionView]));
   // Paragraphs keep their content through the passes of one layout; serialize each once.

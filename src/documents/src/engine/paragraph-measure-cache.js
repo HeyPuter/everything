@@ -140,6 +140,13 @@ export class ParagraphMeasureCache {
   }
   rememberStory(key, value) { this.stories.set(key, { value, used: this.generation }); }
   /**
+   * Keep room for two measurements of each of a document's `count` paragraphs. A change to all of
+   * them (formatting the whole document) then leaves their earlier measurements for Undo; past the
+   * fixed limit, a document of more than about 5,000 paragraphs, table cells included, measured
+   * everything again on Undo too.
+   */
+  reserve(count) { this.limit = Math.max(this.limit, count * 2 + 1000); }
+  /**
    * A table cell's AutoFit content widths for `key` (layout.js names the cell's properties, borders,
    * paragraphs and list labels), computing them with `compute()` when no earlier layout did. Typing
    * elsewhere leaves every cell of a long AutoFit table as it was; measuring them all again took
