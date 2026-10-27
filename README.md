@@ -24,6 +24,19 @@ npm install
 npm run dev
 ```
 
+### Self-hosting (Docker)
+
+A parameterized Dockerfile and Compose file serve built apps with the same cache / wasm header behaviour Amplify uses via `customHttp.yml`:
+
+```sh
+docker compose up -d --build documents spreadsheet
+# Documents   → http://localhost:8081/
+# Spreadsheet → http://localhost:8082/
+# Optional:   chess (:8083), parametric (:8084)
+```
+
+See [deploy/README.md](deploy/README.md) for build args, nginx profiles (e.g. chess CSP), and how to add more apps. Cloudflare Workers stay external; Puter SDK origins are unchanged.
+
 <br>
 
 ## Office
