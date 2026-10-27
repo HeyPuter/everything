@@ -5813,54 +5813,11 @@ export class Workbook extends EventTarget {
    * or false when the rows cannot change places (see rearrangeBlocker).
    */
   removeDuplicates(sheetId, range, { header = false, columns = null } = {}) {
-    // `columns`: the (absolute) columns that decide whether two rows match; all of them when null.
     const sheet = this.sheet(sheetId);
-    if (!sheet) return false;
-    if (this._gridLocked(sheet)) return false;
-    const asked = normalizeRange(range);
-    const n = this._dataRowsOnly(sheet, asked);
-    if (!n) return false;
-    // Inside a table the header row is the table's own and was trimmed away already.
-    const table = sheet.tables.find((t) => n.r1 > t.range.r1 && n.r2 <= t.range.r2 && n.c1 >= t.range.c1 && n.c2 <= t.range.c2) || null;
-    const start = header && !table ? n.r1 + 1 : n.r1;
-    if (start > n.r2) return 0;
-    if (this.lockedIn(sheetId, { ...n, r1: start })) return false;
-    // The columns asked for decide whether two rows match: a table's other columns, taken in so that
-    // whole rows move (see _rearrangeCheck), do not join the comparison unasked.
-    const compare = columns ? new Set(columns)
-      : n.c1 !== asked.c1 || n.c2 !== asked.c2 ? new Set(Array.from({ length: asked.c2 - asked.c1 + 1 }, (_, i) => asked.c1 + i)) : null;
-    const seen = new Set();
-    const kept = [];
-    let removed = 0;
-    let changed = false;
-    let emptyGone = false;
-    for (let r = start; r <= n.r2; r++) {
-      const cells = [];
-      const parts = [];
-      for (let c = n.c1; c <= n.c2; c++) {
-        const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
-        cells.push(cell);
-        if (compare && !compare.has(c)) continue;
-        // Rows match by the text they show: a date and its serial, or 1.5 and
-        // 150%, are two values, while two cells that both read 0.3 are one.
-        parts.push(this.getDisplay(sheetId, r, c).toLowerCase());
-      }
-      // Cell text can contain any delimiter, including control characters.
-      // Keep column boundaries unambiguous so distinct rows are never deleted.
-      // Blank rows read the same as one another, so as in Excel the first of them stays and the rest go.
-      const key = JSON.stringify(parts);
-      if (seen.has(key)) {
-        removed++;
-        // A blank row that goes changes nothing when it holds nothing at all and no kept row lies below it
-        // (the rows freed at the bottom, run through again): those alone are no duplicates removed.
-        if (table || cells.some((cell, j) => cell || sheet.notes.has(cellKey(r, n.c1 + j)) || sheet.comments.has(cellKey(r, n.c1 + j)))) changed = true;
-        else emptyGone = true;
-        continue;
-      }
-      seen.add(key);
-      if (emptyGone) changed = true;
-      kept.push({ r, cells });
-    }
+    const plan = this.duplicatesPlan(sheetId, range, { header, columns });
+    if (!plan) return plan;
+    if (this.lockedIn(sheetId, { ...plan.range, r1: plan.start })) return false;
+    const { range: n, table, start, kept, removed, changed } = plan;
     if (!removed || !changed) return 0;
     const entries = [];
     const notes = [];
@@ -5902,6 +5859,63 @@ export class Workbook extends EventTarget {
       this._refilterRearranged(sheet, { r1: start, r2: n.r2 }, 'Remove duplicates');
     });
     return removed;
+  }
+
+  /**
+   * A removal of duplicates worked out without being made: { range (the rows taken, a table's widened to its
+   * columns), table, start (the first data row), kept, removed, changed }, 0 when only a header is left, or false
+   * when the rows cannot change places. `removed` counts rows that would go even when `changed` is false (blank
+   * rows at the bottom, whose going changes nothing, so nothing is removed).
+   */
+  duplicatesPlan(sheetId, range, { header = false, columns = null } = {}) {
+    // `columns`: the (absolute) columns that decide whether two rows match; all of them when null.
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    if (this._gridLocked(sheet)) return false;
+    const asked = normalizeRange(range);
+    const n = this._dataRowsOnly(sheet, asked);
+    if (!n) return false;
+    // Inside a table the header row is the table's own and was trimmed away already.
+    const table = sheet.tables.find((t) => n.r1 > t.range.r1 && n.r2 <= t.range.r2 && n.c1 >= t.range.c1 && n.c2 <= t.range.c2) || null;
+    const start = header && !table ? n.r1 + 1 : n.r1;
+    if (start > n.r2) return 0;
+    // The columns asked for decide whether two rows match: a table's other columns, taken in so that
+    // whole rows move (see _rearrangeCheck), do not join the comparison unasked.
+    const compare = columns ? new Set(columns)
+      : n.c1 !== asked.c1 || n.c2 !== asked.c2 ? new Set(Array.from({ length: asked.c2 - asked.c1 + 1 }, (_, i) => asked.c1 + i)) : null;
+    const seen = new Set();
+    const kept = [];
+    let removed = 0;
+    let changed = false;
+    let emptyGone = false;
+    for (let r = start; r <= n.r2; r++) {
+      const cells = [];
+      const parts = [];
+      for (let c = n.c1; c <= n.c2; c++) {
+        const cell = cloneCell(sheet.cells.get(cellKey(r, c)));
+        cells.push(cell);
+        if (compare && !compare.has(c)) continue;
+        // Rows match by the text they show: a date and its serial, or 1.5 and
+        // 150%, are two values, while two cells that both read 0.3 are one.
+        parts.push(this.getDisplay(sheetId, r, c).toLowerCase());
+      }
+      // Cell text can contain any delimiter, including control characters.
+      // Keep column boundaries unambiguous so distinct rows are never deleted.
+      // Blank rows read the same as one another, so as in Excel the first of them stays and the rest go.
+      const key = JSON.stringify(parts);
+      if (seen.has(key)) {
+        removed++;
+        // A blank row that goes changes nothing when it holds nothing at all and no kept row lies below it
+        // (the rows freed at the bottom, run through again): those alone are no duplicates removed.
+        if (table || cells.some((cell, j) => cell || sheet.notes.has(cellKey(r, n.c1 + j)) || sheet.comments.has(cellKey(r, n.c1 + j)))) changed = true;
+        else emptyGone = true;
+        continue;
+      }
+      seen.add(key);
+      if (emptyGone) changed = true;
+      kept.push({ r, cells });
+    }
+    return { range: n, table, start, kept, removed, changed };
   }
 
   /* ---------- Go To Special ---------- */

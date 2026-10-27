@@ -314,6 +314,11 @@ export const TOOLS = [
   fn('freeze_panes', 'Keep rows at the top and columns at the left in view while scrolling. 0 unfreezes.', {
     sheet: SHEET, rows: int('How many top rows to freeze.'), columns: int('How many left columns to freeze.'),
   }, []),
+  fn('remove_duplicates', 'Delete the rows of a range that repeat an earlier row (matched by the text the cells show, ignoring case); the first of each stays and the rows below move up within the range. In a table, its rows go from the table.', {
+    range: RANGE,
+    columns: { type: 'array', items: { type: 'string' }, description: 'Column letters that decide whether two rows are the same, e.g. ["A", "C"]. Default: every column of the range.' },
+    has_header: bool('The first row is a header that stays (default: guessed). A table\'s header is always kept.'),
+  }, ['range']),
   fn('set_column_width', 'Set the width of columns in pixels, or fit them to their contents.', {
     sheet: SHEET, columns: str('A column or run of columns, e.g. "B" or "A:F".'), width: str('Width in pixels (24 to 800), or "fit".'),
   }, ['columns', 'width']),
@@ -2392,6 +2397,52 @@ function freezePanes(wb, args, env) {
   return { sheet: sheet.name, frozen_rows: rows, frozen_columns: cols };
 }
 
+/* ---------- Duplicates ---------- */
+
+/** What a remove_duplicates call asks for, read the same way by the runner and by the question put before it. */
+function duplicatesArgs(wb, args, fallbackId) {
+  const { sheetId, range: asked } = resolveRange(wb, args.range, fallbackId);
+  // Whole columns mean their data, from where it begins, as a sort reads them.
+  const range = asked.r2 >= MAX_ROW || asked.c2 >= MAX_COL ? dataOfLines(wb, sheetId, asked) : asked;
+  if (!range) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no data.`);
+  // A range inside a table takes in the table's other columns, so those may be compared too.
+  const table = wb.tableAt?.(sheetId, range.r1, range.c1);
+  const span = table && range.c1 >= table.range.c1 && range.c2 <= table.range.c2 ? table.range : range;
+  let columns = null;
+  if (Array.isArray(args.columns) && args.columns.length) {
+    columns = [...new Set(args.columns.map((c) => columnArg(c)))];
+    const outside = columns.find((c) => c < span.c1 || c > span.c2);
+    if (outside != null) throw new ToolError(`Column ${colName(outside)} is outside ${rangeName(range)}.`);
+  }
+  const header = !!(args.has_header ?? looksLikeHeaderRow(wb, sheetId, range));
+  return { sheetId, range, header, columns };
+}
+
+function removeDuplicates(wb, args, env) {
+  const { sheetId, range, header, columns } = duplicatesArgs(wb, args, env.sheetId());
+  assertWritable(wb, sheetId, range);
+  const rows = header ? { ...range, r1: range.r1 + 1 } : range;
+  if (rows.r1 > rows.r2) throw new ToolError('There are no rows under the header.');
+  const blocker = wb.rearrangeBlocker?.(sheetId, rows, 'row');
+  if (blocker) throw new ToolError(`The rows of ${qualified(wb, sheetId, rows)} cannot be rearranged (${SORT_BLOCKERS[blocker] || 'merged cells, a table\'s edge, a pivot table or an array formula is in the way'}).`);
+  const plan = wb.duplicatesPlan(sheetId, range, { header, columns });
+  if (plan === false) throw new ToolError(`Duplicates cannot be removed from ${qualified(wb, sheetId, range)}.`);
+  let removed;
+  wb.transaction('AI edit', () => { removed = wb.removeDuplicates(sheetId, range, { header, columns }); });
+  if (removed === false) throw new ToolError(`Duplicates cannot be removed from ${qualified(wb, sheetId, range)}.`);
+  const span = plan ? plan.range : range;
+  const total = plan ? span.r2 - plan.start + 1 : 0;
+  const compared = columns || Array.from({ length: range.c2 - range.c1 + 1 }, (_, i) => range.c1 + i);
+  return {
+    range: qualified(wb, sheetId, span),
+    compared_columns: compared.map(colName),
+    header_kept: !!plan?.table || header,
+    removed_rows: removed,
+    remaining_rows: removed ? plan.kept.length : total,
+    ...(removed ? {} : { note: 'No duplicate rows were found.' }),
+  };
+}
+
 function setColumnWidth(wb, args, env) {
   const sheet = gridSheet(wb, args.sheet, env.sheetId());
   // A protected sheet keeps its column widths: said so, rather than a resize reported that did not happen.
@@ -2470,6 +2521,7 @@ const RUNNERS = {
   remove_validation: removeValidation,
   manage_sheet: manageSheet,
   freeze_panes: freezePanes,
+  remove_duplicates: removeDuplicates,
   set_column_width: setColumnWidth,
   add_note: addNote,
   select_range: selectRange,
@@ -2737,6 +2789,13 @@ export function describeCall(wb, name, args = {}, env) {
       const panes = (given, now) => Math.max(0, Math.trunc(Number(given ?? now ?? 0)) || 0);
       const rows = panes(args.rows, sheet?.frozenRows), cols = panes(args.columns, sheet?.frozenCols);
       return { label: rows || cols ? `Freeze ${[rows && plural(rows, 'row'), cols && plural(cols, 'column')].filter(Boolean).join(' and ')} on ${sheetName(args.sheet)}` : `Unfreeze ${sheetName(args.sheet)}` };
+    }
+    case 'remove_duplicates': {
+      // The rows that go, by the workbook's own plan: data taken away, so asked about.
+      let t = null, plan = null;
+      try { t = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(t.sheetId, t.range, t); } catch { /* the runner explains */ }
+      const n = plan && plan.changed ? plan.removed : 0;
+      return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat an earlier row; ${plural(plan.kept.length, 'row')} stay.` : null };
     }
     case 'set_column_width': {
       // The columns as the runner reads them ("b:d" is B:D, a run given backwards is the same run).
