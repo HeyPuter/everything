@@ -3527,8 +3527,11 @@ export function describeCall(wb, name, args = {}, env) {
     case 'find_replace': {
       let n = 0, place = '';
       try {
-        const { found, scope } = replaceMatches(wb, args, env, searchBudget(1000));
-        n = found.reduce((sum, f) => sum + f.matches.length, 0);
+        const { needle, opts, found, scope } = replaceMatches(wb, args, env, searchBudget(1000));
+        // The cells the replacement rewrites, as the runner's replaceCells finds them: a match it leaves alone (a
+        // formula found by its result, a protected cell, a spilled value) changes nothing and is not asked about.
+        const replacement = String(args.replace ?? '');
+        if (args.replace != null) for (const { sheet, matches } of found) if (matches.length) n += replaceCells(wb, sheet.id, matches, needle, replacement, { ...opts, dryRun: true });
         place = scope.range ? `in ${qualified(wb, scope.sheets[0].id, scope.range)}` : args.all_sheets ? 'on every sheet' : `on ${scope.sheets[0].name}`;
       } catch { place = args.range ? `in ${args.range}` : `on ${sheetName(args.sheet)}`; }
       const label = `Replace “${clip(String(args.find ?? ''), 40)}” with “${clip(String(args.replace ?? ''), 40)}” ${place}`;

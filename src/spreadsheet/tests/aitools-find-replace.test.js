@@ -110,4 +110,13 @@ describe('find_replace', () => {
     expect(describeCall(wb, 'find_replace', { find: 'Kiwi', replace: 'x', all_sheets: true }, env)).toMatchObject({ label: 'Replace “Kiwi” with “x” on every sheet', destructive: false });
     expect(callTarget(wb, 'find_replace', { find: 'x', replace: 'y', range: 'B2:B4' }, env).range).toEqual({ r1: 1, c1: 1, r2: 3, c2: 1 });
   });
+
+  it('counts in the approval only the cells the replacement changes, not the matches it leaves alone', () => {
+    const { wb, id, env } = setup();
+    // "10" is only in the total's result, which Replace leaves alone: nothing would change, so nothing is asked.
+    expect(describeCall(wb, 'find_replace', { find: '10', replace: '11' }, env)).toMatchObject({ destructive: false, detail: null });
+    // Of the two "West" cells one is protected, so one cell changes.
+    wb.protectRange(id, { r1: 1, c1: 1, r2: 1, c2: 1 });
+    expect(describeCall(wb, 'find_replace', { find: 'west', replace: 'Pacific' }, env).detail).toBe('Changes the 1 cell that matches.');
+  });
 });
