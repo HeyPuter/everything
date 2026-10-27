@@ -99,3 +99,25 @@ it('ranges the edit does not explain are still repainted as the review sets them
   editor.setRangeTints([], 'comments');
   expect(editor.overlayText).toBe(undefined);
 });
+
+it('typing with a search open paints once a keystroke, and the matches end up where the search puts them', async () => {
+  const { findText } = await import('../src/engine/search.js');
+  editor = new CanvasEditor(host, { paragraphs: [paragraph('A plan, a plan and a canal.'), paragraph('Another plan here.')] });
+  const search = () => editor.setFindHighlights(findText(editor.model.paragraphs, 'plan'));
+  search();
+  const paint = vi.spyOn(editor, 'paint');
+  // Before the matches, between them, and after them.
+  for (const at of [0, 9, 46]) {
+    paint.mockClear();
+    typeAt(at, 'x');
+    const shown = editor.findHighlights.map(m => [m.start, m.end]);
+    search();
+    expect(paint, `typing at ${at}`).toHaveBeenCalledTimes(1);
+    expect(editor.findHighlights.map(m => [m.start, m.end])).toEqual(shown);
+  }
+  // Typing into a match ends it: the search's answer is painted.
+  paint.mockClear();
+  typeAt(4, 'y'); search();
+  expect(paint).toHaveBeenCalledTimes(2);
+  expect(editor.findHighlights.map(m => m.start)).toEqual([13, 39]);
+});

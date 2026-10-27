@@ -262,8 +262,10 @@ export class CanvasEditor {
   // Every match of an open search is tinted; the selected one keeps the selection color.
   setFindHighlights(matches = []) {
     const current = this.findHighlights || [];
-    if (matches.length === current.length && matches.every((m, i) => m.start === current[i].start && m.end === current[i].end)) return;
-    this.findHighlights = matches; this.findRects = null; this.paint();
+    const same = matches.length === current.length && matches.every((m, i) => m.start === current[i].start && m.end === current[i].end);
+    if (!same) { this.findHighlights = matches; this.findRects = null; }
+    this.noteOverlayText();
+    if (!same) this.paint();
   }
   /** Tinted document ranges beneath the text, such as commented text: [{ start, end, fill }] in document order. */
   setRangeTints(tints = [], layer = 'default') {
@@ -285,14 +287,15 @@ export class CanvasEditor {
     this.noteOverlayText();
     if (!same) this.paint();
   }
-  /** The body text that the tints' and bars' offsets refer to, while there are any. */
+  /** The body text that the tints', bars' and search matches' offsets refer to, while there are any. */
   noteOverlayText() {
-    this.overlayText = this.rangeTints?.length || this.marginBars?.ranges.length ? this.session.body.text : undefined;
+    this.overlayText = this.rangeTints?.length || this.marginBars?.ranges.length || this.findHighlights?.length && this.session.path === null ? this.session.body.text : undefined;
   }
   /**
-   * Carry the tints and bars across an edit to the body, before the edit is painted. Whoever set them
-   * sets them again once it has caught up (the comments and tracked changes after each keystroke), and
-   * finding them where they already are then costs no second paint of the pages on screen.
+   * Carry the tints, bars and search matches across an edit to the body, before the edit is painted.
+   * Whoever set them sets them again once it has caught up (the comments, tracked changes and an open
+   * search after each keystroke), and finding them where they already are then costs no second paint
+   * of the pages on screen.
    */
   followOverlays() {
     const before = this.overlayText;
@@ -304,6 +307,8 @@ export class CanvasEditor {
       this.tintLayers = Object.fromEntries(Object.entries(this.tintLayers).map(([layer, tints]) => [layer, followEdit(tints, edit)]));
       this.rangeTints = followEdit(this.rangeTints, edit); this.tintRects = null;
     }
+    // Matches in a header or footer being edited keep its offsets.
+    if (this.findHighlights?.length && this.session.path === null) { this.findHighlights = followEdit(this.findHighlights, edit); this.findRects = null; }
     if (this.marginBars?.ranges.length) {
       const { color, side } = this.marginBars, ranges = followEdit(this.marginBars.ranges, edit, { endAfter: true });
       this.marginBars = { ranges, color, side };
