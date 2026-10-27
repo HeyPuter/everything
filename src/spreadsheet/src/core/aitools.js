@@ -42,6 +42,7 @@ import { eachStoredCell } from './sparse-range.js';
 import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
 import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
+import { detectDelimiter, splitSourceText } from './text-split.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -318,6 +319,15 @@ export const TOOLS = [
     range: RANGE,
     columns: { type: 'array', items: { type: 'string' }, description: 'Column letters that decide whether two rows are the same, e.g. ["A", "C"]. Default: every column of the range.' },
     has_header: bool('The first row is a header that stays (default: guessed). A table\'s header is always kept.'),
+  }, ['range']),
+  fn('split_text_to_columns', 'Split the text of one column into several columns (Text to Columns), by separators or at fixed character positions. The pieces go over the text and into the columns to its right, unless a destination is given.', {
+    range: str('The column of text to split, e.g. "A2:A200" or "Data!C:C". One column only.'),
+    delimiters: { type: 'array', items: { type: 'string' }, description: 'Separator characters, e.g. [","] or [";", " "]; "\\t" for tab. Default: detected (tab, comma, semicolon, pipe, then space).' },
+    consecutive_as_one: bool('Treat repeated separators as one (default false).'),
+    text_qualifier: str('Quote character that keeps separators inside a piece (default ").', { enum: ['"', '\'', 'none'] }),
+    fixed_widths: { type: 'array', items: { type: 'integer' }, description: 'Split at fixed widths instead: the character positions to cut before, e.g. [4, 6] cuts "20240115" into 2024, 01, 15.' },
+    piece_formats: { type: 'array', items: { type: 'string', enum: ['general', 'text', 'skip'] }, description: 'Per piece, in order: "general" (read as typed), "text" (kept exactly, e.g. leading zeros) or "skip" (left out). Default general.' },
+    destination: str('Cell where the first row\'s first piece goes, e.g. "D2". Default: over the text itself.'),
   }, ['range']),
   fn('set_column_width', 'Set the width of columns in pixels, or fit them to their contents.', {
     sheet: SHEET, columns: str('A column or run of columns, e.g. "B" or "A:F".'), width: str('Width in pixels (24 to 800), or "fit".'),
@@ -2443,6 +2453,150 @@ function removeDuplicates(wb, args, env) {
   };
 }
 
+/* ---------- Text to columns ---------- */
+
+const PIECE_FORMATS = ['general', 'text', 'skip'];
+
+/** What a split_text_to_columns call asks for: the text's column, the Text to Columns options (null to detect) and where the pieces go. */
+function splitArgs(wb, args, fallbackId) {
+  const { sheetId, range: asked } = resolveRange(wb, args.range, fallbackId);
+  if (asked.c1 !== asked.c2) throw new ToolError(`Text is split one column at a time: give a single column, such as ${colName(asked.c1)}${asked.r2 >= MAX_ROW ? `:${colName(asked.c1)}` : `${asked.r1 + 1}:${colName(asked.c1)}${asked.r2 + 1}`}.`);
+  const range = asked.r2 >= MAX_ROW ? dataOfLines(wb, sheetId, asked) : asked;
+  if (!range) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no text to split.`);
+  const delimiters = (Array.isArray(args.delimiters) ? args.delimiters : []).map((d) => {
+    const t = String(d);
+    const one = t === '\\t' || /^tab$/i.test(t) ? '\t' : /^space$/i.test(t) ? ' ' : t;
+    if (one.length !== 1) throw new ToolError(`"${t}" is not one character: each delimiter is a single character, such as "," or "\\t" for tab.`);
+    return one;
+  });
+  const widths = (Array.isArray(args.fixed_widths) ? args.fixed_widths : []).map((w) => {
+    const n = Number(w);
+    if (!Number.isInteger(n) || n < 1 || n > 32767) throw new ToolError('fixed_widths are character positions: whole numbers of at least 1.');
+    return n;
+  });
+  if (delimiters.length && widths.length) throw new ToolError('Give delimiters or fixed_widths, not both.');
+  const formats = (Array.isArray(args.piece_formats) ? args.piece_formats : []).map((f) => {
+    if (!PIECE_FORMATS.includes(f)) throw new ToolError('Each of piece_formats is "general", "text" or "skip".');
+    return f;
+  });
+  const qualifier = args.text_qualifier == null ? '"' : args.text_qualifier === 'none' ? '' : args.text_qualifier;
+  if (!['"', '\'', ''].includes(qualifier)) throw new ToolError('text_qualifier is ", \' or "none".');
+  let dest = null;
+  if (args.destination != null && String(args.destination).trim()) {
+    const at = resolveRange(wb, args.destination, sheetId);
+    if (at.sheetId !== sheetId) throw new ToolError('The pieces go on the same sheet as the text: give a destination cell on that sheet.');
+    dest = { r: at.range.r1, c: at.range.c1 };
+  }
+  // Plain text split by a separator found in it is the quick split; anything more is Text to Columns' choices.
+  if (!delimiters.length && !widths.length && !formats.length && !dest && args.consecutive_as_one == null && args.text_qualifier == null) {
+    return { sheetId, range, options: null, dest: null };
+  }
+  let options;
+  if (widths.length) options = { mode: 'fixed', delimiters: [], consecutive: false, qualifier: '', breaks: widths };
+  else {
+    let list = delimiters;
+    let consecutive = !!args.consecutive_as_one;
+    if (!list.length) {
+      const found = detectDelimiter(splitTexts(wb, sheetId, range));
+      if (!found) throw new ToolError(`No text in ${qualified(wb, sheetId, range)} holds a tab, comma, semicolon, pipe or space to split on; give the delimiters.`);
+      list = [found];
+      // Detected spaces split on runs of them, as the quick split does.
+      if (found === ' ' && args.consecutive_as_one == null) consecutive = true;
+    }
+    options = { mode: 'delimited', delimiters: list, consecutive, qualifier, breaks: [] };
+  }
+  if (formats.length) options.formats = formats;
+  if (dest) options.dest = dest;
+  return { sheetId, range, options, dest };
+}
+
+/** The texts a column offers to be split, as the workbook reads them. */
+function splitTexts(wb, sheetId, range) {
+  const out = [];
+  for (let r = range.r1; r <= range.r2; r++) {
+    const cell = wb.getCell(sheetId, r, range.c1);
+    const text = splitSourceText(cell, typeof cell?.v === 'number' ? wb.styleAt(sheetId, r, range.c1) : cell?.s);
+    if (text != null) out.push(text);
+  }
+  return out;
+}
+
+/**
+ * The cells a split writes, by the workbook's own plan: the rows a filter shows when the pieces go over the text, as
+ * the editor's split passes over hidden rows; the whole column when they go elsewhere. { runs: [{ run, plan }], entries }.
+ */
+function splitPlans(wb, t) {
+  const hidden = wb.sheet(t.sheetId).filterHidden;
+  const runs = [];
+  if (t.dest || !hidden?.size) runs.push(t.range);
+  else {
+    let start = null;
+    for (let r = t.range.r1; r <= t.range.r2 + 1; r++) {
+      const shown = r <= t.range.r2 && !hidden.has(r);
+      if (shown && start == null) start = r;
+      if (!shown && start != null) { runs.push({ ...t.range, r1: start, r2: r - 1 }); start = null; }
+    }
+  }
+  const plans = runs.map((run) => ({ run, plan: wb.splitTextPlan(t.sheetId, run, t.options) }));
+  return { plans, entries: plans.flatMap(({ plan }) => plan.entries || []) };
+}
+
+/** The cells a split writes over that hold something else now: not the text being split, where its first piece goes back in. */
+function splitReplaces(wb, t, entries) {
+  const inPlace = !t.dest || (t.dest.r === t.range.r1 && t.dest.c === t.range.c1);
+  let n = 0;
+  for (const { r, c, cell } of entries) {
+    if (inPlace && c === t.range.c1) continue;
+    const now = wb.getCell(t.sheetId, r, c);
+    if (!holds(now)) continue;
+    if (now.f == null && cell?.f == null && (now.v ?? null) === (cell?.v ?? null)) continue;
+    n++;
+  }
+  return n;
+}
+
+const boundsOf = (entries) => entries.reduce((b, { r, c }) => ({ r1: Math.min(b.r1, r), c1: Math.min(b.c1, c), r2: Math.max(b.r2, r), c2: Math.max(b.c2, c) }), { r1: Infinity, c1: Infinity, r2: -1, c2: -1 });
+
+function splitTextToColumns(wb, args, env) {
+  const t = splitArgs(wb, args, env.sheetId());
+  const { sheetId } = t;
+  assertWritable(wb, sheetId, null);
+  const { plans, entries } = splitPlans(wb, t);
+  if (plans.some(({ plan }) => plan.reason === 'room')) throw new ToolError('The pieces would run past the last column of the sheet. Split into a destination further left, or skip some pieces.');
+  if (!entries.length) {
+    const what = t.options?.mode === 'fixed' ? 'is long enough to cut at those positions' : t.options ? 'holds those delimiters' : 'holds a tab, comma, semicolon, pipe or space to split on';
+    throw new ToolError(`No text in ${qualified(wb, sheetId, t.range)} ${what}, so nothing was split.`);
+  }
+  if (entries.length > MAX_WRITE_CELLS * 10) throw new ToolError(`The split would write ${entries.length.toLocaleString('en-US')} cells; split fewer rows at a time.`);
+  // Refused whole, before anything is written, where the workbook would refuse a part of it.
+  const merged = entries.find(({ r, c }) => wb._coveredByMerge?.(sheetId, r, c));
+  if (merged) throw new ToolError(`A piece would land in ${cellName(merged.r, merged.c)}, inside a merged cell. Unmerge it, or give another destination.`);
+  const locked = entries.find(({ r, c }) => wb.isLockedIn(sheetId, { r1: r, c1: c, r2: r, c2: c }));
+  if (locked) throw new ToolError(`A piece would land in ${cellName(locked.r, locked.c)}, which is a protected range.`);
+  const bounds = boundsOf(entries);
+  const blockedArray = plans.find(({ plan }) => plan.entries && wb.arrayEditBlocked(sheetId, boundsOf(plan.entries)));
+  if (blockedArray) throw new ToolError(`The pieces would land on part of an array formula's result in ${qualified(wb, sheetId, boundsOf(blockedArray.plan.entries))}. Give another destination.`);
+  const written = new Set(entries.map(({ r, c }) => cellKey(r, c)));
+  const hit = spillsHit(wb, sheetId, bounds, (r, c) => written.has(cellKey(r, c)));
+  let rows = 0, cols = 0, reason = null;
+  wb.transaction('AI edit', () => {
+    for (const { run, plan } of plans) {
+      if (!plan.entries) continue;
+      const out = wb.splitTextToColumns(sheetId, run, t.options);
+      rows += out.rows;
+      cols = Math.max(cols, out.cols);
+      reason ??= out.reason;
+    }
+  });
+  if (!rows) throw new ToolError(reason === 'merged' ? 'The pieces would land inside merged cells.' : reason === 'protected' ? 'The pieces would land in a protected range.' : `${qualified(wb, sheetId, t.range)} could not be split.`);
+  const blocked = blockedSpills(wb, sheetId, hit);
+  return {
+    split: qualified(wb, sheetId, t.range), cells_split: rows, columns: cols, written: qualified(wb, sheetId, bounds),
+    ...(t.options?.delimiters?.length ? { delimiters: t.options.delimiters } : {}),
+    ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
+  };
+}
+
 function setColumnWidth(wb, args, env) {
   const sheet = gridSheet(wb, args.sheet, env.sheetId());
   // A protected sheet keeps its column widths: said so, rather than a resize reported that did not happen.
@@ -2522,6 +2676,7 @@ const RUNNERS = {
   manage_sheet: manageSheet,
   freeze_panes: freezePanes,
   remove_duplicates: removeDuplicates,
+  split_text_to_columns: splitTextToColumns,
   set_column_width: setColumnWidth,
   add_note: addNote,
   select_range: selectRange,
@@ -2796,6 +2951,18 @@ export function describeCall(wb, name, args = {}, env) {
       try { t = duplicatesArgs(wb, args, sheetId); plan = wb.duplicatesPlan(t.sheetId, t.range, t); } catch { /* the runner explains */ }
       const n = plan && plan.changed ? plan.removed : 0;
       return { label: `Remove duplicate rows from ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text}`, destructive: n > 0, detail: n ? `Deletes ${plural(n, 'row')} that repeat an earlier row; ${plural(plan.kept.length, 'row')} stay.` : null };
+    }
+    case 'split_text_to_columns': {
+      let t = null, replaced = 0, spills = 0;
+      try {
+        t = splitArgs(wb, args, sheetId);
+        const { entries } = splitPlans(wb, t);
+        replaced = splitReplaces(wb, t, entries);
+        const written = new Set(entries.map(({ r, c }) => cellKey(r, c)));
+        spills = entries.length ? spillsHit(wb, t.sheetId, boundsOf(entries), (r, c) => written.has(cellKey(r, c))).length : 0;
+      } catch { /* the runner explains */ }
+      const detail = [replaced && `Replaces ${holding(replaced)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      return { label: `Split the text in ${t ? qualified(wb, t.sheetId, t.range) : at(args.range).text} into columns`, destructive: !!detail, detail: detail || null };
     }
     case 'set_column_width': {
       // The columns as the runner reads them ("b:d" is B:D, a run given backwards is the same run).

@@ -95,3 +95,73 @@ describe('remove_duplicates', () => {
     expect(wb.getValue(id, 3, 0)).toBe('ann');
   });
 });
+
+describe('split_text_to_columns', () => {
+  it('splits by a detected separator over the text and into the columns to its right', () => {
+    const { wb, id, run } = setup([['Smith, John, 42'], ['Doe, Jane, 37']]);
+    const res = run('split_text_to_columns', { range: 'A1:A2' });
+    expect(res.ok).toBe(true);
+    expect(JSON.parse(res.content)).toMatchObject({ cells_split: 2, columns: 3, written: 'Sheet1!A1:C2' });
+    expect([wb.getValue(id, 0, 0), wb.getValue(id, 0, 1), wb.getValue(id, 0, 2)]).toEqual(['Smith', 'John', 42]);
+    expect(wb.undoLabels()).toHaveLength(1);
+    wb.undo();
+    expect(wb.getValue(id, 0, 0)).toBe('Smith, John, 42');
+    expect(wb.getCell(id, 0, 1)).toBeFalsy();
+  });
+
+  it('takes the separators, the quote, repeated separators and per-piece formats', () => {
+    const { wb, id, run } = setup([['"a;b";;007;x']]);
+    run('split_text_to_columns', { range: 'A1', delimiters: [';'], consecutive_as_one: true, piece_formats: ['general', 'text', 'skip'] });
+    expect([wb.getValue(id, 0, 0), wb.getValue(id, 0, 1), wb.getCell(id, 0, 2)]).toEqual(['a;b', '007', undefined]);
+  });
+
+  it('cuts at fixed widths, into a destination, leaving the text as it is', () => {
+    const { wb, id, run } = setup([[20240115], [20231231]]);
+    const res = run('split_text_to_columns', { range: 'A1:A2', fixed_widths: [4, 6], destination: 'C1' });
+    expect(JSON.parse(res.content).written).toBe('Sheet1!C1:E2');
+    expect([wb.getValue(id, 0, 2), wb.getValue(id, 0, 3), wb.getValue(id, 0, 4)]).toEqual([2024, 1, 15]);
+    expect(wb.getValue(id, 1, 0)).toBe(20231231);
+  });
+
+  it('asks before writing over cells that hold data, counting as the split writes', () => {
+    const { describe } = setup([['a,b,c', 'keep', null], ['d,e', null, 'also']]);
+    const d = describe('split_text_to_columns', { range: 'A1:A2' });
+    expect(d).toMatchObject({ label: 'Split the text in Sheet1!A1:A2 into columns', destructive: true });
+    expect(d.detail).toBe('Replaces 1 cell that already holds data.');
+    const { describe: clean } = setup([['a,b'], ['c,d']]);
+    expect(clean('split_text_to_columns', { range: 'A1:A2' }).destructive).toBe(false);
+  });
+
+  it('passes over rows a filter hides, as the split command does', () => {
+    const { wb, id, run } = setup([['Name'], ['a,1'], ['b,2'], ['c,3']]);
+    wb.sheet(id).filterHidden.add(2);
+    run('split_text_to_columns', { range: 'A2:A4' });
+    expect(wb.getValue(id, 1, 0)).toBe('a');
+    expect(wb.getValue(id, 2, 0)).toBe('b,2');
+    expect(wb.getValue(id, 3, 1)).toBe(3);
+  });
+
+  it('refuses more than one column, text with no separator, merged and protected cells, writing nothing', () => {
+    const { wb, id, run } = setup([['a,b', 'x'], ['plain', null]]);
+    expect(run('split_text_to_columns', { range: 'A1:B2' }).content).toMatch(/one column at a time/);
+    expect(run('split_text_to_columns', { range: 'A2' }).content).toMatch(/nothing was split/);
+    wb.mergeCells(id, { r1: 0, c1: 1, r2: 0, c2: 2 });
+    const merged = run('split_text_to_columns', { range: 'A1', delimiters: [','], destination: 'C1' });
+    expect(merged.content).toMatch(/inside a merged cell/);
+    wb.protectRange(id, { r1: 0, c1: 5, r2: 0, c2: 5 });
+    expect(run('split_text_to_columns', { range: 'A1', delimiters: [','], destination: 'E1' }).content).toMatch(/protected range/);
+    expect(wb.getValue(id, 0, 0)).toBe('a,b');
+    expect(wb.undoLabels()).toEqual(['Protect range', 'Merge cells']);
+  });
+
+  it('refuses a destination on another sheet', () => {
+    const { wb, run } = setup([['a,b']]);
+    wb.addSheet('Other');
+    expect(run('split_text_to_columns', { range: 'Sheet1!A1', destination: 'Other!A1' }).content).toMatch(/same sheet/);
+  });
+
+  it('targets the text it splits', () => {
+    const { wb, env } = setup([['a,b']]);
+    expect(callTarget(wb, 'split_text_to_columns', { range: 'A1' }, env).range).toEqual({ r1: 0, c1: 0, r2: 0, c2: 0 });
+  });
+});
