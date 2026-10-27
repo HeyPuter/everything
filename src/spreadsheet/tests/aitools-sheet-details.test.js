@@ -164,4 +164,13 @@ describe('AI tools: what the model sees besides values', () => {
     expect(text).toMatch(/Comments:\nG11: Ana: Question 10 .*\n\(\d+ more comment threads; read a smaller range to see them.\)/);
     expect(text).toMatch(/Merged cells \(each shows its top-left cell's value\): A201:B201, .* and 40 more/);
   });
+
+  it('holds the names get_workbook_info lists to a count and a length', () => {
+    const { wb, run } = setup();
+    for (let i = 0; i < 120; i++) wb.defineName(`Calc_${i}`, `LAMBDA(x, ${Array.from({ length: 300 }, (_, j) => `x*${j}`).join('+')})`);
+    const info = JSON.parse(run('get_workbook_info', {}).content);
+    expect(info.named_ranges).toHaveLength(101);
+    expect(info.named_ranges[0].refers_to.length).toBeLessThan(310);
+    expect(info.named_ranges[100]).toBe('(20 more names)');
+  });
 });

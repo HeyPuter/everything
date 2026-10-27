@@ -823,9 +823,18 @@ function workbookInfo(wb, env) {
         ...(s.notes?.size || s.comments?.size ? { notes: s.notes?.size || 0, comment_threads: s.comments?.size || 0 } : {}),
       };
     }),
-    // Hidden names are the app's own bookkeeping (a pivot table's or Solver's definition), not the user's names.
-    named_ranges: (wb.names || []).filter((n) => !n.hidden).slice(0, 100).map((n) => ({ name: n.name, refers_to: n.ref, ...(n.sheet ? { scope: n.sheet } : {}) })),
+    named_ranges: namedRanges(wb),
   };
+}
+
+/**
+ * The user's names, held to a count and a length: a book of LAMBDA functions holds names of thousands of characters
+ * each. Hidden names are the app's own bookkeeping (a pivot table's or Solver's definition), not the user's names.
+ */
+function namedRanges(wb) {
+  const names = (wb.names || []).filter((n) => !n.hidden);
+  const listed = names.slice(0, 100).map((n) => ({ name: n.name, refers_to: clip(String(n.ref ?? ''), 300), ...(n.sheet ? { scope: n.sheet } : {}) }));
+  return names.length > listed.length ? [...listed, `(${names.length - listed.length} more names)`] : listed;
 }
 
 /** A sheet's charts: the objects that are not pictures, shapes, text, SmartArt, slicers or controls. */
