@@ -3324,8 +3324,15 @@ async function solve(wb, args, env) {
   p.options = { ...p.options, maxTime: Math.min(seconds, p.options.maxTime ?? Infinity) };
   // A change made meanwhile (the user typing, a co-author's edit) would be overwritten by values worked out without it.
   const version = wb.version;
-  const halt = () => { if (env.stopped?.() || wb.version !== version) p.cancelled = true; };
-  const result = await runSolver(p, { onProgress: halt });
+  // Heard after each pause, before Solver works on: a further slice wrote its trial values over a cell the user had
+  // typed into meanwhile, then put back the value that cell held when the solve began (and over rows inserted above
+  // them, into cells that had moved), out of the undo history.
+  const halted = {};
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+    if (env.stopped?.() || wb.version !== version) throw halted;
+  });
+  let result;
+  try { result = await runSolver(p, { pause }); } catch (e) { if (e !== halted) throw e; }
   if (env.stopped?.()) return { stopped: 'The user stopped the assistant; nothing was changed.' };
   if (wb.version !== version) throw new ToolError('The workbook changed while Solver was running, so nothing was changed. Run it again.');
   const keep = args.keep !== false && !!result.x && (result.solved || args.keep_best_found === true);

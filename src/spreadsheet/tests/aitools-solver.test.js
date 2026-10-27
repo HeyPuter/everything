@@ -122,6 +122,30 @@ describe('solve', () => {
     expect(hasSolverModel(wb, id)).toBe(false);
   });
 
+  it('leaves a variable cell the user typed into between its slices, and rows inserted meanwhile, as the user left them', async () => {
+    const realNow = Date.now;
+    let now = 0;
+    // The clock leaps 50ms at each look, so every slice is one step and a pause follows it.
+    Date.now = () => (now += 50);
+    try {
+      for (const edit of [
+        (wb, id) => wb.setInput(id, 0, 1, '7'),
+        (wb, id) => wb.insertRows(id, 0, 1),
+      ]) {
+        const { wb, id, run } = production();
+        wb.setInput(id, 5, 1, '=(B1-3)^2+(B2+1)^2');
+        const pending = run('solve', { objective: 'B6', goal: 'min', variables: 'B1:B2', max_seconds: 120 });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        edit(wb, id);
+        const typed = [0, 1, 2].map((r) => wb.getValue(id, r, 1));
+        const res = await pending;
+        expect(res.content).toMatch(/workbook changed while Solver was running/);
+        expect([0, 1, 2].map((r) => wb.getValue(id, r, 1))).toEqual(typed);
+        expect(hasSolverModel(wb, id)).toBe(false);
+      }
+    } finally { Date.now = realNow; }
+  });
+
   it('refuses variable cells that hold formulas, are protected, or lie on another sheet', async () => {
     const { wb, id, run } = production();
     expect((await run('solve', { ...MODEL, variables: 'B1:C1' })).content).toMatch(/^Error: variables: The variable cell \$C\$1 holds a formula/);
