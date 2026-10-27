@@ -1,0 +1,15 @@
+:root { --bg:#0a0f16; --ink:#e7eef7; --muted:#90a0b4; --accent:#7ad0ff; --panel:#121a24; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font); background:radial-gradient(700px 400px at 10% 0%, #1b2a40, transparent 55%), var(--bg); color:var(--ink); }
+#app { max-width:1000px; margin:0 auto; padding:1rem; }
+.brand { display:flex; gap:.6rem; align-items:center; margin-bottom:1rem; }
+.brand h1 { margin:0; font-size:1.25rem; }
+.layout { display:grid; grid-template-columns:280px 1fr; gap:1rem; }
+@media (max-width:800px){ .layout { grid-template-columns:1fr; } }
+.panel { background:var(--panel); border-radius:1rem; padding:.85rem; border:1px solid rgba(255,255,255,.08); }
+ul#nodes { list-style:none; padding:0; margin:0; display:grid; gap:.45rem; font-size:.85rem; color:var(--muted); }
+ul#nodes strong { color:var(--ink); }
+#view { width:100%; border-radius:.7rem; display:block; background:#0e141c; }
+label { display:block; margin-top:.75rem; color:var(--muted); font-size:.85rem; }
+.help { margin-top:1rem; color:var(--muted); }
+.help summary { cursor:pointer; color:var(--ink); font-weight:600; }
