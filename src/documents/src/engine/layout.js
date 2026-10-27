@@ -1195,15 +1195,19 @@ export function caretRect(layout, position, affinity = 'forward', pageHint = nul
 }
 const visibleCellLine = line => !line.cellClip || line.y < line.cellClip.bottom && line.y + Math.max(line.height, 1) > line.cellClip.top && (line.cellClip.left === undefined || (line.cellText ? line.x + line.width > line.cellClip.left && line.x < line.cellClip.right : line.stops.at(-1).x >= line.cellClip.left && line.stops[0].x < line.cellClip.right));
 const pageStart = (layout, page) => layout.pageOffsets?.[page] ?? page * layout.page.height;
-export function verticalLine(layout, line, direction, x) {
-  if (line.cellText) {
-    const localY = line.cellText.line.y;
-    return [...layout.lines, ...(layout.repeatedLines || [])]
-      .filter(candidate => candidate.cellText && candidate.cellId === line.cellId && candidate.page === line.page
-        && candidate.column === line.column && visiblePageLine(layout, candidate)
-        && direction * (candidate.cellText.line.y - localY) > 1e-6)
-      .sort((a, b) => Math.abs(a.cellText.line.y - localY) - Math.abs(b.cellText.line.y - localY))[0];
-  }
+/**
+ * The lines a vertical caret step chooses from, kept for one layout. ArrowUp and ArrowDown take one
+ * step and PageUp and PageDown take one per line on screen; each step used to copy every line, index
+ * every cell box and sort all the lines above or below. The index holds the lines (body, then repeated
+ * header copies), the cell boxes and each line's flow position, the last two worked out when first read.
+ */
+const verticalIndexes = new WeakMap();
+function verticalIndex(layout) {
+  const known = verticalIndexes.get(layout), repeated = layout.repeatedLines || [], cells = layout.cells || [];
+  if (known && known.lines === layout.lines && known.lineCount === layout.lines.length && known.repeated === layout.repeatedLines && known.repeatedCount === repeated.length
+    && known.cells === layout.cells && known.cellCount === cells.length && known.pages === layout.pages && known.pageRegions === layout.pageRegions
+    && known.pageOffsets === layout.pageOffsets && known.page === layout.page) return known;
+  // A line's place in the reading flow: pages, then a page's columns (or each region's columns) one after another.
   let flowHeight = 0;
   const flowOffsets = layout.pages?.some(p => p.columns && !p.storyKind) ? layout.pages.map(p => { const start = flowHeight; flowHeight += p.height * (p.columns?.count || 1); return start; }) : null;
   let regionOffset = 0;
@@ -1218,29 +1222,82 @@ export function verticalLine(layout, line, direction, x) {
       : flowOffsets ? flowOffsets[l.page] + (l.column || 0) * layout.pages[l.page].height : pageStart(layout, l.page);
   };
   const y = l => flowStart(l) + (l.cellClip ? Math.max(l.cellClip.top, Math.min(l.y + l.height / 2, l.cellClip.bottom)) : l.y + l.height / 2);
-  const rowId = layout.cells?.find(c => c.id === line.cellId)?.rowId;
-  const rowCells = new Set(rowId ? layout.cells.filter(c => c.rowId === rowId).map(c => c.id) : []);
-  const boxes = new Map((layout.cells || []).map(c => [`${c.id}/${c.page}/${c.column ?? 0}`, c]));
-  const current = (layout.cells || []).filter(c => c.id === line.cellId && (!line.header || c.page === line.page));
-  const candidates = [...layout.lines, ...(layout.repeatedLines || [])].filter(l => {
-    if (!visiblePageLine(layout, l)) return false;
-    if (direction * (y(l) - y(line)) <= 1e-6) return false;
-    if (l.cellId === line.cellId) return !line.header || l.page === line.page;
-    const box = boxes.get(`${l.cellId}/${l.page}/${l.column ?? 0}`);
-    return !rowCells.has(l.cellId) && !current.some(c => box && box.page === c.page && box.column === c.column && box.y < c.y + c.height - 1e-6 && box.y + box.height > c.y + 1e-6);
+  const all = [...layout.lines, ...repeated], count = all.length;
+  // Later boxes of the same cell, page and column replace earlier ones, as one map of them all did.
+  const boxes = new Map(cells.map(c => [`${c.id}/${c.page}/${c.column ?? 0}`, c]));
+  const box = all.map(l => boxes.get(`${l.cellId}/${l.page}/${l.column ?? 0}`));
+  const firstCell = new Map(), cellBoxes = new Map(), rows = new Map(), cellTextLines = new Map();
+  for (const c of cells) {
+    if (!firstCell.has(c.id)) firstCell.set(c.id, c);
+    if (!cellBoxes.has(c.id)) cellBoxes.set(c.id, []);
+    cellBoxes.get(c.id).push(c);
+    if (!rows.has(c.rowId)) rows.set(c.rowId, new Set());
+    rows.get(c.rowId).add(c.id);
+  }
+  all.forEach((l, i) => { if (l.cellText) { if (!cellTextLines.has(l.cellId)) cellTextLines.set(l.cellId, []); cellTextLines.get(l.cellId).push(i); } });
+  // 0: not read yet. Visibility and positions are read only for the lines a step looks at.
+  const visibleState = new Uint8Array(count), middleKnown = new Uint8Array(count), middle = new Float64Array(count), edgeKnown = new Uint8Array(count), edge = new Float64Array(count);
+  const index = {
+    lines: layout.lines, lineCount: layout.lines.length, repeated: layout.repeatedLines, repeatedCount: repeated.length, cells: layout.cells, cellCount: cells.length,
+    pages: layout.pages, pageRegions: layout.pageRegions, pageOffsets: layout.pageOffsets, page: layout.page,
+    all, box, firstCell, cellBoxes, rows, cellTextLines, y, flowStart,
+    visible: i => (visibleState[i] ||= visiblePageLine(layout, all[i]) ? 1 : 2) === 1,
+    middle: i => { if (!middleKnown[i]) { middle[i] = y(all[i]); middleKnown[i] = 1; } return middle[i]; },
+    // The flow position of a line's cell box top.
+    edge: i => { if (!edgeKnown[i]) { const cell = box[i]; edge[i] = flowStart(cell) + cell.y; edgeKnown[i] = 1; } return edge[i]; },
+  };
+  verticalIndexes.set(layout, index);
+  return index;
+}
+// The candidate whose keys come first, the earliest in line order among equals: the first of a stable
+// sort by those keys. Keys that are not numbers have no order, so those candidates are sorted as before.
+function firstByKeys(candidates, keys, compare) {
+  if (keys.some(k => k.some(Number.isNaN))) return candidates.map((c, i) => i).sort((a, b) => compare(keys[a], keys[b])).map(i => candidates[i])[0];
+  let best = 0;
+  for (let i = 1; i < candidates.length; i++) if (compare(keys[i], keys[best]) < 0) best = i;
+  return candidates[best];
+}
+export function verticalLine(layout, line, direction, x) {
+  const index = verticalIndex(layout), { all } = index;
+  if (line.cellText) {
+    const localY = line.cellText.line.y, found = [], keys = [];
+    for (const i of index.cellTextLines.get(line.cellId) || []) {
+      const candidate = all[i];
+      if (candidate.page === line.page && candidate.column === line.column && index.visible(i) && direction * (candidate.cellText.line.y - localY) > 1e-6) {
+        found.push(candidate); keys.push([Math.abs(candidate.cellText.line.y - localY)]);
+      }
+    }
+    return firstByKeys(found, keys, (a, b) => a[0] - b[0]);
+  }
+  let lineY;
+  const rowId = index.firstCell.get(line.cellId)?.rowId;
+  const rowCells = rowId ? index.rows.get(rowId) || new Set() : new Set();
+  const current = (index.cellBoxes.get(line.cellId) || []).filter(c => !line.header || c.page === line.page);
+  const candidates = [];
+  for (let i = 0; i < all.length; i++) {
+    if (!index.visible(i)) continue;
+    const middle = index.middle(i);
+    lineY ??= index.y(line);
+    if (direction * (middle - lineY) <= 1e-6) continue;
+    const l = all[i];
+    if (l.cellId === line.cellId) { if (!line.header || l.page === line.page) candidates.push(i); continue; }
+    if (rowCells.has(l.cellId)) continue;
+    const box = index.box[i];
+    let overlaps = false;
+    for (const c of current) if (box && box.page === c.page && box.column === c.column && box.y < c.y + c.height - 1e-6 && box.y + box.height > c.y + 1e-6) { overlaps = true; break; }
+    if (!overlaps) candidates.push(i);
+  }
+  if (!candidates.length) return undefined;
+  lineY ??= index.y(line);
+  const inCell = line.cellId ? candidates.filter(i => all[i].cellId === line.cellId) : [];
+  if (inCell.length) return firstByKeys(inCell.map(i => all[i]), inCell.map(i => [Math.abs(index.middle(i) - lineY)]), (a, b) => a[0] - b[0]);
+  const keys = candidates.map(i => {
+    const l = all[i], cell = index.box[i], targetX = x + (l.columnOffset || 0) - (line.columnOffset || 0);
+    const distance = cell ? Math.max(cell.x - targetX, 0, targetX - cell.x - cell.width) : Math.max(l.stops[0].x - targetX, 0, targetX - l.stops.at(-1).x);
+    const verticalDistance = cell ? Math.max(0, direction * (index.edge(i) + (direction < 0 ? cell.height : 0) - lineY)) : Math.abs(index.middle(i) - lineY);
+    return [verticalDistance, distance, Math.abs(index.middle(i) - lineY)];
   });
-  const inCell = line.cellId ? candidates.filter(l => l.cellId === line.cellId) : [];
-  const distance = l => {
-    const cell = boxes.get(`${l.cellId}/${l.page}/${l.column ?? 0}`);
-    const targetX = x + (l.columnOffset || 0) - (line.columnOffset || 0);
-    return cell ? Math.max(cell.x - targetX, 0, targetX - cell.x - cell.width) : Math.max(l.stops[0].x - targetX, 0, targetX - l.stops.at(-1).x);
-  };
-  const verticalDistance = l => {
-    const cell = boxes.get(`${l.cellId}/${l.page}/${l.column ?? 0}`);
-    return cell ? Math.max(0, direction * (flowStart(cell) + cell.y + (direction < 0 ? cell.height : 0) - y(line))) : Math.abs(y(l) - y(line));
-  };
-  if (inCell.length) return inCell.sort((a,b) => Math.abs(y(a) - y(line)) - Math.abs(y(b) - y(line)))[0];
-  return candidates.sort((a,b) => verticalDistance(a) - verticalDistance(b) || distance(a) - distance(b) || Math.abs(y(a) - y(line)) - Math.abs(y(b) - y(line)))[0];
+  return firstByKeys(candidates.map(i => all[i]), keys, (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
 }
 export function hitTest(layout, page, x, y) {
   return hitTestStop(layout, page, x, y).offset;
