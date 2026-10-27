@@ -353,6 +353,9 @@ export const TOOLS = [
   fn('set_column_width', 'Set the width of columns in pixels, or fit them to their contents.', {
     sheet: SHEET, columns: str('A column or run of columns, e.g. "B" or "A:F".'), width: str('Width in pixels (24 to 800), or "fit".'),
   }, ['columns', 'width']),
+  fn('set_row_height', 'Set the height of rows in pixels, or fit them to their contents (wrapped text, larger fonts).', {
+    sheet: SHEET, rows: str('A row, a run of rows or several, e.g. "3", "2:20" or "1,4:6".'), height: str('Height in pixels (18 to 400; a default row is about 20), or "fit".'),
+  }, ['rows', 'height']),
   fn('add_note', 'Attach a note (comment) to a cell, or replace its note. An empty text removes it.', {
     cell: str('The cell, e.g. "D4" or "Sheet2!B7".'), text: str('The note.'),
   }, ['cell', 'text']),
@@ -2793,6 +2796,80 @@ function setColumnWidth(wb, args, env) {
   return { resized: `${colName(lo)}${hi > lo ? `:${colName(hi)}` : ''} on ${sheet.name}`, width };
 }
 
+/* ---------- Rows and columns: height, hiding ---------- */
+
+/**
+ * Rows ("3", "2:20", "1,4:6") or columns ("C", "B:D", "A,C:E") as sorted runs of 0-based indices that do not
+ * overlap, so "2:5,4:8" is counted (and hidden) once.
+ */
+function lineRunsArg(text, axis) {
+  const parts = String(text ?? '').split(',').map((p) => p.trim().replace(/\$/g, '')).filter(Boolean);
+  if (!parts.length) throw new ToolError(axis === 'row' ? 'No rows were given, e.g. "3:5".' : 'No columns were given, e.g. "B:D".');
+  const at = (t) => {
+    if (axis === 'col') return columnArg(t);
+    const n = /^\d+$/.test(t) ? Number(t) : NaN;
+    if (!(n >= 1 && n <= MAX_ROW + 1)) throw new ToolError(`"${t}" is not a row number such as 5.`);
+    return n - 1;
+  };
+  const runs = parts.map((p) => {
+    const [a, b = a, extra] = p.split(':');
+    if (extra != null) throw new ToolError(`"${p}" is not a ${axis === 'row' ? 'row' : 'column'} or a run of them.`);
+    const i = at(a.trim()), j = at(b.trim());
+    return { from: Math.min(i, j), to: Math.max(i, j) };
+  }).sort((x, y) => x.from - y.from);
+  const out = [];
+  for (const run of runs) {
+    const last = out[out.length - 1];
+    if (last && run.from <= last.to + 1) last.to = Math.max(last.to, run.to);
+    else out.push({ ...run });
+  }
+  return out;
+}
+
+const runLength = (runs) => runs.reduce((n, { from, to }) => n + to - from + 1, 0);
+
+/** "rows 3–5, 9" or "columns B–D": the lines a step acts on, as the chat names them. */
+function linesLabel(axis, runs) {
+  const one = (i) => (axis === 'row' ? String(i + 1) : colName(i));
+  const many = runs.length > 1 || runs[0].to > runs[0].from;
+  const listed = runs.slice(0, 6).map(({ from, to }) => (to > from ? `${one(from)}–${one(to)}` : one(from))).join(', ');
+  return `${axis === 'row' ? 'row' : 'column'}${many ? 's' : ''} ${listed}${runs.length > 6 ? ', …' : ''}`;
+}
+
+function setRowHeight(wb, args, env) {
+  const sheet = gridSheet(wb, args.sheet, env.sheetId());
+  assertWritable(wb, sheet.id, null);
+  const runs = lineRunsArg(args.rows, 'row');
+  const where = `${linesLabel('row', runs)} on ${sheet.name}`;
+  if (String(args.height ?? '').trim().toLowerCase() === 'fit') {
+    if (!env.autofitRows) throw new ToolError('Rows cannot be fitted here; give a height in pixels.');
+    // Rows past the last one holding anything (or a height of its own) have nothing to fit: a run to the sheet's
+    // end stops there, as Fit rows does over whole columns.
+    let last = wb.usedRange(sheet.id)?.r2 ?? -1;
+    for (const r of sheet.rowHeights.keys()) if (r > last) last = r;
+    const fit = runs.map(({ from, to }) => ({ from, to: Math.min(to, Math.max(from, last)) }));
+    if (runLength(fit) > 5000) throw new ToolError('At most 5,000 rows can be fitted at once.');
+    let ok = true;
+    // The editor measures text on the sheet in view alone; it says so before fitting anything.
+    wb.transaction('AI edit', () => { for (const { from, to } of fit) if (ok) ok = env.autofitRows(sheet.id, from, to) !== false; });
+    if (!ok) throw new ToolError(`Rows can be fitted only on the sheet the user is looking at. Show ${quoteSheet(sheet.name)} first (manage_sheet with action "activate"), or give a height in pixels.`);
+    return { fitted: where };
+  }
+  const height = Math.round(Number(args.height));
+  if (!(height >= MIN_ROW_PX && height <= MAX_ROW_PX)) throw new ToolError(`height must be ${MIN_ROW_PX} to ${MAX_ROW_PX} pixels, or "fit".`);
+  // Every row of the sheet is the sheet's default height, as Row Height… over the whole sheet sets it.
+  if (runs.length === 1 && runs[0].from === 0 && runs[0].to >= MAX_ROW) {
+    wb.transaction('AI edit', () => wb.setDefaultLineSize(sheet.id, 'row', height));
+    return { resized: `every row on ${sheet.name}`, height };
+  }
+  if (runLength(runs) > 20000) throw new ToolError('At most 20,000 rows at once; to size every row, give rows "1:1048576".');
+  wb.transaction('AI edit', () => { for (const { from, to } of runs) for (let r = from; r <= to; r++) wb.setRowHeight(sheet.id, r, height); });
+  return { resized: where, height };
+}
+
+// The sizes the Row height dialog takes.
+const MIN_ROW_PX = 18, MAX_ROW_PX = 400;
+
 function addNote(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
   assertWritable(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 });
@@ -3025,6 +3102,7 @@ const RUNNERS = {
   add_sparklines: addSparklines,
   set_link: setLink,
   set_column_width: setColumnWidth,
+  set_row_height: setRowHeight,
   add_note: addNote,
   goal_seek: goalSeek,
   solve,
@@ -3036,7 +3114,8 @@ const RUNNERS = {
  * workbook moved on), target ({ sheetId, range } the call acted on, for the user to jump to) },
  * or a promise of it for a tool that takes a while (solve), which gives the page its frames back as it works.
  * `env`: sheetId() the active sheet, selection() → { sheetId, range }, select(sheetId, range),
- * showSheet(sheetId), autofit(sheetId, c1, c2), distrust() when a formula that reaches out is written,
+ * showSheet(sheetId), autofit(sheetId, c1, c2), autofitRows(sheetId, r1, r2) (false when it cannot measure that
+ * sheet's rows), distrust() when a formula that reaches out is written,
  * stopped() when the user has stopped the assistant (a long tool then gives up, changing nothing).
  */
 export function runTool(wb, name, args, env) {
@@ -3363,6 +3442,12 @@ export function describeCall(wb, name, args = {}, env) {
       const many = lo != null ? hi > lo : String(args.columns).includes(':');
       const cols = lo != null ? `${colName(lo)}${many ? `:${colName(hi)}` : ''}` : String(args.columns ?? '');
       return { label: String(args.width).trim().toLowerCase() === 'fit' ? `Fit column${many ? 's' : ''} ${cols} to ${many ? 'their' : 'its'} contents` : `Set column${many ? 's' : ''} ${cols} to ${args.width}px` };
+    }
+    case 'set_row_height': {
+      let rows = String(args.rows ?? '');
+      try { rows = linesLabel('row', lineRunsArg(args.rows, 'row')); } catch { /* the runner explains */ }
+      const fit = String(args.height ?? '').trim().toLowerCase() === 'fit';
+      return { label: fit ? `Fit ${rows} on ${sheetName(args.sheet)} to their contents` : `Set ${rows} on ${sheetName(args.sheet)} to ${args.height}px` };
     }
     case 'add_note': {
       // A note the cell already has is the user's writing: replacing or removing it asks, as replacing a value does.

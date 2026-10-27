@@ -6537,6 +6537,8 @@ export function editorView({ doc, goHome, openPath, newDoc, templateDoc, importF
     select: (sheetId, range) => { const ok = selectLocation(sheetId, range); return ok !== false && ok !== null; },
     showSheet: (sheetId) => { if (!wb.sheet(sheetId)?.hidden) wb.setActiveSheet(sheetId); },
     autofit: (sheetId, c1, c2) => autofitColumns(c1, c2, sheetId),
+    // Rows are measured as the grid draws them, so only on the sheet in view.
+    autofitRows: (sheetId, r1, r2) => { if (sheetId !== grid.sheetId) return false; grid.autoFitRows(r1, r2, { force: true }); return true; },
     // A formula the AI writes that reaches outside the file was put together from the sheet's own cells, which
     // anyone may have written: it waits for the user's Allow, as one pasted from a web page does.
     distrust: () => doc.distrustExternal(),
