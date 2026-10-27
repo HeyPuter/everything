@@ -50,11 +50,13 @@ export function openModal({ title, content, onClose, wide = false }) {
     document.removeEventListener('keydown', onKey, true);
     onClose?.();
     setTimeout(() => {
+      // The dialog's own document: by now the page may have gone (a removed frame, a finished test).
+      const doc = rootNode.ownerDocument;
       // Focus returns to the opener only when nothing else claimed it meanwhile.
-      const active = document.activeElement;
-      const unclaimed = !active || active === document.body || rootNode.contains(active);
+      const active = doc.activeElement;
+      const unclaimed = !active || active === doc.body || rootNode.contains(active);
       rootNode.remove();
-      if (!document.querySelector('.modal-root')) document.body.classList.remove('modal-open');
+      if (!doc.querySelector('.modal-root')) doc.body?.classList.remove('modal-open');
       if (unclaimed && opener?.isConnected && !opener.closest('[inert]')) opener.focus({ preventScroll: true });
     }, 200);
   }
