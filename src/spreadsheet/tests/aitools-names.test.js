@@ -111,6 +111,20 @@ describe('AI tool manage_name', () => {
     expect(wb.namedEntry('Prices')).toBeTruthy();
   });
 
+  it('asks before a rename that also changes what the name refers to, and says what it referred to', () => {
+    const { wb, id, env, run } = setup();
+    run('manage_name', { action: 'define', name: 'Rate', refers_to: '=0.1' });
+    run('write_cells', { start_cell: 'D1', values: [['=Rate*2']] });
+    expect(describeCall(wb, 'manage_name', { action: 'rename', name: 'Rate', new_name: 'Tax' }, env)).toEqual({ label: 'Rename Rate to Tax' });
+    expect(describeCall(wb, 'manage_name', { action: 'rename', name: 'Rate', new_name: 'Tax', refers_to: '=0.1' }, env)).toEqual({ label: 'Rename Rate to Tax' });
+    const d = describeCall(wb, 'manage_name', { action: 'rename', name: 'Rate', new_name: 'Tax', refers_to: '=0.5' }, env);
+    expect(d).toMatchObject({ label: 'Rename Rate to Tax, referring to 0.5', destructive: true });
+    expect(d.detail).toBe('It refers to 0.1 now, and 1 formula that uses it will change with it.');
+    const res = parsed(run('manage_name', { action: 'rename', name: 'Rate', new_name: 'Tax', refers_to: '=0.5' }));
+    expect(res).toMatchObject({ renamed: 'Rate', to: 'Tax', refers_to: '0.5', replaced: 'It referred to 0.1 before.' });
+    expect(wb.getValue(id, 0, 3)).toBe(1);
+  });
+
   it('refuses to rename or delete a name that is not there, naming the one in another scope', () => {
     const { run } = setup();
     run('manage_name', { action: 'define', name: 'Rate', refers_to: '=0.3', scope: 'Sheet1' });

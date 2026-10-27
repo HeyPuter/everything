@@ -3165,7 +3165,7 @@ function manageName(wb, args, env) {
   if (!to) throw new ToolError('Give new_name, the name to rename it to.');
   wb.transaction('AI edit', () => { problem = wb.renameName(existing.name, scope, to, refText); });
   if (problem) throw new ToolError(`${label} could not be renamed to ${to}: ${problem}.`);
-  return { renamed: label, to, refers_to: refText, ...(note ? { note } : {}) };
+  return { renamed: label, to, refers_to: refText, ...(existing.ref !== refText ? { replaced: `It referred to ${existing.ref} before.` } : {}), ...(note ? { note } : {}) };
 }
 
 function addNote(wb, args, env) {
@@ -3825,13 +3825,16 @@ export function describeCall(wb, name, args = {}, env) {
         const uses = had && !had.hidden ? nameUses(wb, had) : 0;
         return { label: `Delete the name ${label}`, destructive: !!had, detail: had ? (uses ? `Formulas that use it (${uses}) will show #NAME?.` : 'Removes the name.') : null };
       }
-      if (args.action === 'rename') return { label: `Rename ${label} to ${String(args.new_name ?? '').trim()}` };
+      const renamed = `Rename ${label} to ${String(args.new_name ?? '').trim()}`;
+      // A rename keeps what the name refers to unless refers_to is given; given, it changes it as define does, and asks.
+      if (args.action === 'rename' && (args.refers_to == null || args.refers_to === '')) return { label: renamed };
       let ref = String(args.refers_to ?? '').trim();
       try { ref = nameRefText(wb, args.refers_to, env); } catch { /* the runner explains */ }
       if (had && ref && had.ref !== ref) {
         const uses = nameUses(wb, had);
-        return { label: `Change ${label} to refer to ${clip(ref, 60)}`, destructive: true, detail: `It refers to ${clip(had.ref, 80)} now${uses ? `, and ${plural(uses, 'formula')} that use${uses === 1 ? 's' : ''} it will change with it` : ''}.` };
+        return { label: args.action === 'rename' ? `${renamed}, referring to ${clip(ref, 60)}` : `Change ${label} to refer to ${clip(ref, 60)}`, destructive: true, detail: `It refers to ${clip(had.ref, 80)} now${uses ? `, and ${plural(uses, 'formula')} that use${uses === 1 ? 's' : ''} it will change with it` : ''}.` };
       }
+      if (args.action === 'rename') return { label: renamed };
       return { label: `Define the name ${label} as ${clip(ref, 60)}` };
     }
     case 'add_note': {
