@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { runTool, describeCall, callTarget, changesWorkbook } from '../src/core/aitools.js';
+import { addComment, getThread } from '../src/core/comments.js';
 
 function setup() {
   const wb = new Workbook();
@@ -261,5 +262,20 @@ describe('move_range', () => {
     d = describeCall(wb, 'move_range', { source: 'A1:B2', destination: 'K1' }, env);
     expect(d.destructive).toBe(false);
     expect(callTarget(wb, 'move_range', { source: 'A1:B2', destination: 'K1' }, env).range).toEqual({ r1: 0, c1: 10, r2: 1, c2: 11 });
+  });
+
+  it('asks before a move or a copy takes comment threads off where it lands, and counts notes only when a copy replaces them', () => {
+    const { wb, id, env, run } = setup();
+    addComment(wb, id, 0, 10, 'Check this', 'Ann');
+    wb.setNote(id, 1, 10, 'Kept');
+    // A move takes the destination's thread and note, though the cells hold no data.
+    expect(describeCall(wb, 'move_range', { source: 'A1:A2', destination: 'K1' }, env).detail).toBe('Replaces 1 note and 1 comment thread there.');
+    // A copy bringing neither leaves both; one bringing a thread replaces the thread.
+    expect(describeCall(wb, 'copy_range', { source: 'A1:A2', destination: 'K1' }, env)).toMatchObject({ destructive: false, detail: null });
+    addComment(wb, id, 0, 0, 'Source', 'Ann');
+    expect(describeCall(wb, 'copy_range', { source: 'A1:A2', destination: 'K1' }, env).detail).toBe('Replaces 1 comment thread there.');
+    run('copy_range', { source: 'A1:A2', destination: 'K1' });
+    expect(getThread(wb, id, 0, 10).items[0].text).toBe('Source');
+    expect(wb.getNote(id, 1, 10)).toBe('Kept');
   });
 });

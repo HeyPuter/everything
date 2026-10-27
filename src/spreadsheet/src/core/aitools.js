@@ -1206,6 +1206,18 @@ function usedExtent(wb, sheetId, range) {
   return r2 < range.r1 || c2 < range.c1 ? null : { ...range, r2, c2 };
 }
 
+/** Do the lines a copy of the range takes hold a note (kind "notes") or a comment thread ("comments")? */
+function copiesAny(wb, sheetId, range, includeHidden, kind) {
+  const map = wb.sheet(sheetId)?.[kind];
+  if (!map?.size) return false;
+  for (const key of map.keys()) {
+    const { r, c } = parseKey(key);
+    if (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2) continue;
+    if (includeHidden || (!wb.isRowHidden(sheetId, r) && !wb.isHidden(sheetId, 'col', c))) return true;
+  }
+  return false;
+}
+
 const cellsIn = (range) => (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
 const overlapping = (a, b) => !(a.r2 < b.r1 || a.r1 > b.r2 || a.c2 < b.c1 || a.c1 > b.c2);
 const within = (inner, outer) => inner.r1 >= outer.r1 && inner.r2 <= outer.r2 && inner.c1 >= outer.c1 && inner.c2 <= outer.c2;
@@ -3484,17 +3496,31 @@ export function describeCall(wb, name, args = {}, env) {
       try { to = landing(wb, name, args, env); } catch { /* the runner explains */ }
       const dest = to ? qualified(wb, to.sheetId, to.range) : String(args.destination ?? '');
       const what = move ? 'all' : args.what || 'all';
-      let replaced = 0, notes = 0, spills = 0;
+      let replaced = 0, notes = 0, threads = 0, spills = 0;
       if (to && what !== 'formats') {
         // Where a move's old and new places overlap, its own cells are not data it replaces.
         const both = move && src.s === to.sheetId && src.range && overlapping(src.range, to.range) ? {
           r1: Math.max(src.range.r1, to.range.r1), c1: Math.max(src.range.c1, to.range.c1), r2: Math.min(src.range.r2, to.range.r2), c2: Math.min(src.range.c2, to.range.c2),
         } : null;
         replaced = filled(to.sheetId, to.range) - (both ? filled(to.sheetId, both) : 0);
-        if (what === 'all') notes = notesIn(wb, to.sheetId, to.range) - (both ? notesIn(wb, to.sheetId, both) : 0);
+        if (move) {
+          // A move takes the notes and comment threads off where it lands.
+          notes = notesIn(wb, to.sheetId, to.range) - (both ? notesIn(wb, to.sheetId, both) : 0);
+          threads = notesIn(wb, to.sheetId, to.range, 'comments') - (both ? notesIn(wb, to.sheetId, both, 'comments') : 0);
+        } else if (what === 'all') {
+          // A copy replaces the destination's notes only when it brings notes, and its comment threads (over the first
+          // block, and not when transposed) only when it brings threads, as Paste All does.
+          const range = usedExtent(wb, src.s, src.range);
+          const lines = !range ? null : args.include_hidden ? { rows: range.r2 - range.r1 + 1, cols: range.c2 - range.c1 + 1 } : (({ rows, cols }) => ({ rows: rows.length, cols: cols.length }))(wb.visibleIndices(src.s, range));
+          if (lines && copiesAny(wb, src.s, range, !!args.include_hidden, 'notes')) notes = notesIn(wb, to.sheetId, to.range);
+          if (lines && !args.transpose && copiesAny(wb, src.s, range, !!args.include_hidden, 'comments')) {
+            threads = notesIn(wb, to.sheetId, { r1: to.range.r1, c1: to.range.c1, r2: to.range.r1 + lines.rows - 1, c2: to.range.c1 + lines.cols - 1 }, 'comments');
+          }
+        }
         spills = spillsHit(wb, to.sheetId, to.range).length;
       }
-      const detail = [replaced && `Replaces ${holding(replaced)}.`, notes && `Replaces ${plural(notes, 'note')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
+      const detail = [replaced && `Replaces ${holding(replaced)}.`, annotations.length && `Replaces ${annotations.join(' and ')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
       return { label, destructive: !!detail, detail: detail || null };
     }
