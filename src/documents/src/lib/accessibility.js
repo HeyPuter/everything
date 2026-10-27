@@ -108,15 +108,25 @@ export function checkAccessibility({ paragraphs, tables = [], pageSettings = {} 
   });
   flushEmpty();
 
+  // Each cell's paragraphs and each table's first paragraph, in document order, found once: looking
+  // through every paragraph for each row took seconds in a document with long tables.
+  const cellParagraphs = new Map(), tableFirst = new Map();
+  paragraphs.forEach((p, i) => {
+    if (!p.cellId) return;
+    if (!cellParagraphs.has(p.cellId)) cellParagraphs.set(p.cellId, []);
+    cellParagraphs.get(p.cellId).push(i);
+    const table = cellOf.get(p.cellId)?.table;
+    if (table && !tableFirst.has(table)) tableFirst.set(table, i);
+  });
   for (const table of tables) {
-    const first = paragraphs.findIndex(p => p.cellId && cellOf.get(p.cellId)?.table === table);
+    const first = tableFirst.get(table) ?? -1;
     if (first < 0) continue;
     const tableStart = starts[first];
     if (!table.rows.some(row => row.header) && table.rows.length > 1 && on('tableHeader')) add('tableHeader', tableStart, tableStart, `Table with ${table.rows.length} rows`, { kind: 'headerRow', cellId: paragraphs[first].cellId });
     if (on('mergedCells') && table.rows.some(row => row.cells.some(cell => (cell.span || 1) > 1 || cell.vMerge))) add('mergedCells', tableStart, tableStart, 'Merged cells');
     if (on('blankRows')) for (const row of table.rows) {
       const ids = new Set(row.cells.map(c => c.id));
-      const own = paragraphs.map((p, i) => [p, i]).filter(([p]) => ids.has(p.cellId));
+      const own = [...ids].flatMap(id => cellParagraphs.get(id) || []).sort((a, b) => a - b).map(i => [paragraphs[i], i]);
       if (own.length && own.every(([p]) => !text(p).trim() && !p.runs.some(r => r.image))) add('blankRows', starts[own[0][1]], starts[own[0][1]], 'All cells in this row are empty', { kind: 'deleteRow', cellId: own[0][0].cellId });
     }
   }
