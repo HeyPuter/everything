@@ -151,7 +151,7 @@ export const TOOLS = [
     range: RANGE,
     formula: str('The formula for the top-left cell, starting with =, e.g. "=C2*D2".'),
   }, ['range', 'formula']),
-  fn('clear_range', 'Clear cells: their contents, their formatting, or both. Clearing formats also takes conditional formatting off the cells and unmerges them, as Clear Formats does.', {
+  fn('clear_range', 'Clear cells: their contents, their formatting, or both. Clearing formats also takes conditional formatting off the cells and unmerges them, as Clear Formats does. Rows a filter hides are left as they are.', {
     range: RANGE,
     what: str('"contents" (default), "formats", or "all".', { enum: ['contents', 'formats', 'all'] }),
   }, ['range']),
@@ -1231,21 +1231,46 @@ function fillFormula(wb, args, env) {
   };
 }
 
+/**
+ * The runs of a range's rows that a filter does not hide: what Clear clears, as the editor's leaves the filtered-out
+ * rows as they are (rows the user hid are cleared with the rest, as there).
+ */
+function shownRowRuns(wb, sheetId, range) {
+  const hidden = wb.sheet(sheetId)?.filterHidden;
+  if (!hidden?.size) return [range];
+  const out = [];
+  let start = null;
+  for (let r = range.r1; r <= range.r2 + 1; r++) {
+    const shown = r <= range.r2 && !hidden.has(r);
+    if (shown && start == null) start = r;
+    if (!shown && start != null) { out.push({ ...range, r1: start, r2: r - 1 }); start = null; }
+  }
+  return out;
+}
+
 function clearRange(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
   const what = args.what || 'contents';
   if (!['contents', 'formats', 'all'].includes(what)) throw new ToolError('what must be "contents", "formats" or "all".');
   assertWritable(wb, sheetId, range);
+  // The rows a filter hides keep what they hold, as the editor's Clear leaves them: the user sees the rows that show,
+  // and the data in the others went with them unseen.
+  const runs = shownRowRuns(wb, sheetId, range);
+  const hidden = wb.sheet(sheetId).filterHidden;
+  const filtered = (range.r2 - range.r1 + 1) - runs.reduce((n, rg) => n + rg.r2 - rg.r1 + 1, 0);
+  const left = filtered ? { note: `${filtered} row${filtered === 1 ? '' : 's'} a filter hides ${filtered === 1 ? 'was' : 'were'} left as ${filtered === 1 ? 'it was' : 'they were'}, as Clear leaves them.` } : {};
+  if (!runs.length) return { cleared: 0, ...left };
+  const filled = () => runs.reduce((n, rg) => n + filledCells(wb, sheetId, rg), 0);
   const before = wb.version;
   wb.transaction('AI edit', () => {
-    wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents' });
+    wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents', skipRow: filtered ? (r) => hidden.has(r) : null });
     // Conditional formats and merged blocks are formatting too, which Clear Formats and Clear All take off with the
     // rest (see the editor's clearRulesAndMerges): left on, the cleared cells stayed highlighted, or merged.
-    const refused = wb.version === before && what === 'all' && filledCells(wb, sheetId, range);
-    if (what !== 'contents' && !refused) { clearRules(wb, sheetId, [range]); wb.unmergeCells(sheetId, range); }
+    const refused = wb.version === before && what === 'all' && filled();
+    if (what !== 'contents' && !refused) { clearRules(wb, sheetId, runs); for (const rg of runs) wb.unmergeCells(sheetId, rg); }
   });
-  if (wb.version === before && filledCells(wb, sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
-  return { cleared: qualified(wb, sheetId, range), what };
+  if (wb.version === before && filled()) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
+  return { cleared: qualified(wb, sheetId, range), what, ...left };
 }
 
 /* ---------- Copying, moving and replacing ---------- */
@@ -3648,9 +3673,11 @@ export function describeCall(wb, name, args = {}, env) {
     case 'clear_range': {
       const t = at(args.range);
       const what = args.what || 'contents';
-      const n = what === 'formats' ? 0 : filled(t.s, t.range);
+      // What the runner clears: the rows a filter shows.
+      const runs = t.s != null && t.range ? shownRowRuns(wb, t.s, t.range) : [];
+      const n = what === 'formats' ? 0 : runs.reduce((sum, rg) => sum + filled(t.s, rg), 0);
       // Clearing formats takes the conditional formats off the cells too, which remove_conditional_format asks about.
-      const rules = what !== 'contents' && t.s != null && t.range ? conditionalRuleGroups(wb.sheet(t.s)?.rules || []).filter((g) => g.rules.some((r) => overlaps(r.range, t.range))).length : 0;
+      const rules = what !== 'contents' ? conditionalRuleGroups(wb.sheet(t.s)?.rules || []).filter((g) => g.rules.some((r) => runs.some((rg) => overlaps(r.range, rg)))).length : 0;
       const detail = [n && `Removes ${plural(n, 'cell')} of data.`, rules && `Takes ${rules === 1 ? 'a conditional formatting rule' : `${rules} conditional formatting rules`} off these cells.`].filter(Boolean).join(' ');
       return { label: `Clear ${what === 'all' ? 'everything in' : what === 'formats' ? 'the formatting of' : ''} ${t.text}`.replace(/\s+/g, ' '), destructive: !!detail, detail: detail || null };
     }

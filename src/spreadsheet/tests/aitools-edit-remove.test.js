@@ -270,6 +270,23 @@ describe('AI tools: clearing formats', () => {
     expect(describeCall(wb, 'clear_range', { range: 'E1:F9', what: 'formats' }, env)).toMatchObject({ destructive: false, detail: null });
   });
 
+  it('leaves the rows a filter hides as they are, as Clear does', () => {
+    const { wb, id, env, run, json } = setup();
+    json('filter_range', { range: 'A1:C5', columns: [{ column: 'A', values: ['Jan', 'Mar'] }] });
+    json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 1 });
+    wb.mergeCells(id, { r1: 2, c1: 1, r2: 2, c2: 2 }); // Feb's row, hidden
+    expect(describeCall(wb, 'clear_range', { range: 'B2:C5', what: 'all' }, env).detail).toBe('Removes 4 cells of data. Takes a conditional formatting rule off these cells.');
+    wb.clearHistory();
+    expect(json('clear_range', { range: 'B2:C5', what: 'all' }).note).toBe('2 rows a filter hides were left as they were, as Clear leaves them.');
+    expect([1, 2, 3, 4].map((r) => wb.getValue(id, r, 1))).toEqual([null, 12, null, 14]);
+    expect(wb.sheet(id).rules.map((r) => r.range)).toEqual([{ r1: 2, c1: 1, r2: 2, c2: 1 }, { r1: 4, c1: 1, r2: 4, c2: 1 }]);
+    expect(wb.sheet(id).merges).toHaveLength(1);
+    expect(wb.undoLabels(5)).toHaveLength(1);
+    // Rows that show and are already empty are cleared of nothing, without an error for the hidden rows' data.
+    expect(run('clear_range', { range: 'B2:B5' }).ok).toBe(true);
+    expect(wb.getValue(id, 2, 1)).toBe(12);
+  });
+
   it('leaves them when only contents are cleared', () => {
     const { wb, id, json } = setup();
     json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
