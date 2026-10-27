@@ -1,0 +1,189 @@
+:root {
+  --bg: #e8eef5;
+  --ink: #1a2430;
+  --muted: #5a6a7a;
+  --panel: #f7fafc;
+  --accent: #2a6fb0;
+  --accent-ink: #fff;
+  --canvas-frame: #c5d0dc;
+  --font: 'DM Sans', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121820;
+    --ink: #e8eef5;
+    --muted: #93a4b8;
+    --panel: #1a222c;
+    --accent: #5aa0e0;
+    --accent-ink: #0a1520;
+    --canvas-frame: #2a3544;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(900px 480px at 12% -10%, rgba(42, 111, 176, 0.18), transparent 55%),
+    radial-gradient(700px 400px at 90% 0%, rgba(90, 160, 224, 0.12), transparent 50%),
+    var(--bg);
+}
+
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1rem 1rem 2rem;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.75rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+}
+
+.brand img {
+  border-radius: 0.45rem;
+}
+
+.tagline {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 800px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.toolbox,
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--canvas-frame) 70%, transparent);
+  border-radius: 0.85rem;
+  padding: 0.65rem;
+  box-shadow: 0 8px 28px rgba(20, 40, 70, 0.06);
+}
+
+.toolbox button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-align: left;
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.5rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.toolbox button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.toolbox button:hover {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.canvas-wrap {
+  background: var(--panel);
+  border-radius: 1rem;
+  padding: 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--canvas-frame) 70%, transparent);
+  box-shadow: 0 12px 36px rgba(20, 40, 70, 0.08);
+}
+
+#canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 0.45rem;
+  cursor: crosshair;
+  background: #fff;
+  touch-action: none;
+  box-shadow: inset 0 0 0 1px var(--canvas-frame);
+}
+
+.options label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.options input[type='color'] {
+  width: 100%;
+  height: 2.2rem;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.options input[type='range'] {
+  width: 7.5rem;
+}
+
+.btn {
+  font: inherit;
+  font-weight: 700;
+  border: 0;
+  border-radius: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.btn.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--canvas-frame) 80%, transparent);
+}
+
+.help {
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.help summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 700;
+}

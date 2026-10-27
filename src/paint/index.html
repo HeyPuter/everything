@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Paint — classic bitmap drawing in your browser. Pencil, brush, eraser, shapes, fill, undo, and PNG export."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <meta name="theme-color" content="#2a6fb0" />
+    <title>Paint</title>
+  </head>
+  <body>
+    <noscript>
+      <p>Paint needs JavaScript enabled in your browser.</p>
+    </noscript>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <img src="icon-128.png" width="28" height="28" alt="" />
+          <h1>Paint</h1>
+        </div>
+        <p class="tagline">MS Paint–inspired bitmap editor · original code</p>
+      </header>
+
+      <main class="shell">
+        <aside class="toolbox" aria-label="Tools">
+          <button type="button" data-tool="pencil" title="Pencil">Pencil</button>
+          <button type="button" data-tool="brush" title="Brush">Brush</button>
+          <button type="button" data-tool="eraser" title="Eraser">Eraser</button>
+          <button type="button" data-tool="line" title="Line">Line</button>
+          <button type="button" data-tool="rect" title="Rectangle">Rect</button>
+          <button type="button" data-tool="ellipse" title="Ellipse">Ellipse</button>
+          <button type="button" data-tool="fill" title="Fill">Fill</button>
+        </aside>
+
+        <section class="canvas-wrap">
+          <canvas id="canvas" width="800" height="520" aria-label="Drawing canvas"></canvas>
+        </section>
+
+        <aside class="options" aria-label="Options">
+          <label>
+            Color
+            <input id="color" type="color" value="#1a1a1a" />
+          </label>
+          <label>
+            Size
+            <input id="size" type="range" min="1" max="48" value="3" />
+          </label>
+          <button type="button" class="btn" id="undo">Undo</button>
+          <button type="button" class="btn secondary" id="clear">Clear</button>
+          <button type="button" class="btn" id="export">Export PNG</button>
+        </aside>
+      </main>
+
+      <details class="help">
+        <summary>About</summary>
+        <p>
+          Original browser Paint inspired by classic MS Paint. Tools: pencil, brush, eraser, line,
+          rectangle, ellipse, and flood fill — plus undo and PNG export. Not affiliated with Microsoft.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
