@@ -23,7 +23,7 @@ import { quoteSheet, shiftFormula, MAX_ROW, MAX_COL } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
-import { formatValue, fontKeyFor, parseTime, ymdToSerial } from './format.js';
+import { formatValue, fontKeyFor, parseTime, ymdToSerial, parseInput } from './format.js';
 import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H } from './charts.js';
 import { subtypeOf, chartSubtype, changeSubtypePatch } from './chart-subtypes.js';
 import { effectiveFontTheme } from './font-theme.js';
@@ -33,7 +33,7 @@ import { dataBounds } from './aiformula.js';
 import { cellFromInput, objectNoun } from './workbook.js';
 import { getThread } from './comments.js';
 import { tableRows } from './tables.js';
-import { sheetFilters, filterTable } from './sheet-filters.js';
+import { sheetFilters, filterTable, sameFilterRange } from './sheet-filters.js';
 import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
 import { eachStoredCell } from './sparse-range.js';
 import { describeRule } from './condformat.js';
@@ -59,6 +59,7 @@ const NUMBER_FORMATS = ['general', 'number', 'currency', 'percent', 'date', 'tim
 const RULE_KINDS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'notContains', 'beginsWith', 'endsWith', 'empty', 'notEmpty', 'dup', 'unique', 'top', 'bottom', 'formula', 'scale', 'databar'];
 const NUMERIC_RULES = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'top', 'bottom']);
 const HEX = /^#[0-9a-f]{6}$/i;
+const FILTER_CONDITIONS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'notContains', 'beginsWith', 'endsWith', 'empty', 'notEmpty', 'top', 'bottom', 'above_average', 'below_average', 'formula'];
 
 /* ---------- Formulas that reach out ---------- */
 
@@ -177,6 +178,28 @@ export const TOOLS = [
     has_header: bool('The first row of the range is a header that stays in place (default: guessed).'),
     only_these_columns: bool('Sort these columns on their own although the rows go on into the columns beside them, which pulls each row apart (default false: such a sort is refused, and the whole block should be sorted instead).'),
   }, ['range', 'keys']),
+  fn('filter_range', 'Filter a list so only the rows that meet the criteria show (Data ▸ Filter); rows are hidden, not deleted. Filters an existing filter or table at the range, or turns a filter on over the range (its first row the header). Also clears every criterion ("clear") or removes the filter ("remove"). Returns how many rows show.', {
+    range: str('The list: its range, a cell inside it, or a table name, e.g. "A1:F200", "Sales!B5" or "Orders".'),
+    action: str('"apply" (default) sets the criteria given; "clear" shows every row again; "remove" turns the filter off.', { enum: ['apply', 'clear', 'remove'] }),
+    columns: {
+      type: 'array',
+      description: 'Criteria by column. An entry with neither values nor condition clears that column\'s criteria; columns not listed keep theirs.',
+      items: {
+        type: 'object',
+        properties: {
+          column: str('Column letter, e.g. "C", or the header text, e.g. "Region".'),
+          values: { type: 'array', items: { type: ['string', 'number', 'boolean', 'null'] }, description: 'Keep rows showing one of these values, as shown in the cells; "" keeps blank rows.' },
+          condition: str('Or keep rows meeting a condition. top/bottom keep the N largest/smallest (value N, default 10); formula keeps rows for which a formula written for the first data row is TRUE (value "=C2>100").', { enum: FILTER_CONDITIONS }),
+          value: { type: ['string', 'number'], description: 'What the condition compares with: a number, a date as "YYYY-MM-DD", text, N for top/bottom, or the formula.' },
+          value2: { type: ['string', 'number'], description: 'The upper bound for between.' },
+          percent: bool('top/bottom: N is a percentage of the rows.'),
+        },
+        required: ['column'],
+        additionalProperties: false,
+      },
+    },
+    clear_others: bool('Also clear the criteria of columns not listed (default false).'),
+  }, ['range']),
   fn('create_chart', 'Insert a chart drawn from a range. The first row and column are used as series names and categories when they hold text.', {
     data_range: RANGE,
     type: str('Chart type.', { enum: CHART_TYPES.map(([t]) => t) }),
@@ -1184,6 +1207,225 @@ function looksLikeHeaderRow(wb, sheetId, range) {
   return text > 0 && (numbers > 0 || text === range.c2 - range.c1 + 1);
 }
 
+/* ---------- Filters ---------- */
+
+/** The rows a filter judges: those under its header, as far as the sheet goes. */
+function filterDataRows(wb, sheetId, range) {
+  return { r1: range.r1 + 1, r2: Math.min(range.r2, wb.sheet(sheetId).rows - 1) };
+}
+
+/** How many of a filter's rows show, and how many it judges. */
+function filterShown(wb, sheetId, range) {
+  const { r1, r2 } = filterDataRows(wb, sheetId, range);
+  const hidden = wb.sheet(sheetId).filterHidden;
+  let shown = 0;
+  for (let r = r1; r <= r2; r++) if (!hidden.has(r)) shown++;
+  return { shown, rows: Math.max(0, r2 - r1 + 1) };
+}
+const shownCounts = (wb, sheetId, range) => { const { shown, rows } = filterShown(wb, sheetId, range); return { rows_shown: shown, data_rows: rows }; };
+
+/** A column of a filter, by letter or by its header's text. */
+function filterColumn(wb, sheetId, range, text) {
+  const t = String(text ?? '').trim();
+  const c = colIndex(t.replace(/\$/g, ''));
+  if (c >= range.c1 && c <= range.c2) return c;
+  for (let col = range.c1; col <= range.c2; col++) if (wb.getDisplay(sheetId, range.r1, col).trim().toLowerCase() === t.toLowerCase() && t) return col;
+  const headers = [];
+  for (let col = range.c1; col <= range.c2 && headers.length < 30; col++) headers.push(`${colName(col)} "${clip(wb.getDisplay(sheetId, range.r1, col), 40)}"`);
+  throw new ToolError(`"${t}" is not a column of the filter over ${rangeName(range)}. Its columns are ${headers.join(', ')}.`);
+}
+
+const NUMERIC_FILTERS = new Set(['gt', 'gte', 'lt', 'lte', 'between']);
+
+/** A condition's number (a date as "YYYY-MM-DD" too), read as the filter menu reads what is typed; null when it is none. */
+function filterNumber(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (v == null) return null;
+  const parsed = parseInput(String(v).trim());
+  return parsed.f == null && typeof parsed.v === 'number' ? parsed.v : null;
+}
+
+/**
+ * The criterion for one column, as the filter menu stores it: a value list matched to the texts the column shows,
+ * a condition, a formula, or a top N / average kept as Excel writes it. Null clears the column. `missing` collects
+ * the values asked for that no row shows.
+ */
+function filterCriterion(wb, sheetId, range, col, spec, missing) {
+  const sheet = wb.sheet(sheetId);
+  const header = wb.getDisplay(sheetId, range.r1, col) || colName(col);
+  if (Array.isArray(spec.values) && spec.condition) throw new ToolError(`Give either values or a condition for column ${colName(col)}, not both.`);
+  if (Array.isArray(spec.values)) {
+    if (!spec.values.length) throw new ToolError(`values for column ${colName(col)} is empty; leave it out to clear the column's criteria.`);
+    // The texts the column shows, by their folded spelling and by the number behind them.
+    const byText = new Map(), byNumber = new Map();
+    const { r1, r2 } = filterDataRows(wb, sheetId, range);
+    for (let r = r1; r <= r2; r++) {
+      const text = wb.getDisplay(sheetId, r, col);
+      const key = text.toLowerCase();
+      if (!byText.has(key)) byText.set(key, new Set());
+      byText.get(key).add(text);
+      const v = wb.getValue(sheetId, r, col);
+      if (typeof v === 'number' && Number.isFinite(v)) { if (!byNumber.has(v)) byNumber.set(v, new Set()); byNumber.get(v).add(text); }
+    }
+    const kept = new Set();
+    for (const given of spec.values) {
+      const text = given == null ? '' : typeof given === 'boolean' ? (given ? 'TRUE' : 'FALSE') : String(given);
+      let found = byText.get(text.toLowerCase());
+      if (!found && text !== '') { const n = filterNumber(given); if (n != null) found = byNumber.get(n); }
+      if (found) for (const t of found) kept.add(t);
+      else missing.push(`${header}: ${text === '' ? '(blanks)' : `"${clip(text, 60)}"`}`);
+    }
+    if (!kept.size) {
+      const shown = [...byText.values()].map((s) => [...s][0]).filter((t) => t !== '').slice(0, 20).map((t) => `"${clip(t, 40)}"`);
+      throw new ToolError(`No row of column ${colName(col)} ("${header}") shows ${spec.values.length === 1 ? 'that value' : 'any of those values'}. Values are matched as the cells show them; some it holds: ${shown.join(', ') || 'none'}.`);
+    }
+    return wb._filterValueKeys(sheet, col, { values: [...kept] }, { range });
+  }
+  const op = spec.condition;
+  if (op == null || op === '') return null;
+  if (!FILTER_CONDITIONS.includes(op)) throw new ToolError(`condition must be one of ${FILTER_CONDITIONS.join(', ')}.`);
+  if (op === 'empty' || op === 'notEmpty') return { op };
+  if (op === 'above_average' || op === 'below_average') return { native: `<dynamicFilter type="${op === 'above_average' ? 'aboveAverage' : 'belowAverage'}"/>` };
+  if (op === 'top' || op === 'bottom') {
+    const n = spec.value == null || spec.value === '' ? 10 : Number(spec.value);
+    if (!Number.isInteger(n) || n < 1 || n > (spec.percent ? 100 : 500)) throw new ToolError(`For ${op}, value is how many rows to keep: a whole number from 1 to ${spec.percent ? '100 (percent)' : 500}.`);
+    return { native: `<top10${op === 'bottom' ? ' top="0"' : ''}${spec.percent ? ' percent="1"' : ''} val="${n}"/>` };
+  }
+  if (op === 'formula') {
+    const f = String(spec.value ?? '').trim();
+    if (!f) throw new ToolError(`A formula condition needs its formula in value, written for the first data row, e.g. "=${colName(col)}${range.r1 + 2}>100".`);
+    const body = f.replace(/^=/, '');
+    try { parseFormula(body); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
+    if (reachesOut(wb, body)) throw new ToolError('A filter\'s formula cannot reach outside the workbook.');
+    return { formula: `=${body}` };
+  }
+  if (spec.value == null || spec.value === '') throw new ToolError(`The "${op}" condition needs a value.`);
+  if (NUMERIC_FILTERS.has(op)) {
+    const value = filterNumber(spec.value);
+    const value2 = op === 'between' ? filterNumber(spec.value2) : undefined;
+    if (value == null || (op === 'between' && value2 == null)) throw new ToolError(`The "${op}" condition needs ${op === 'between' ? 'two numbers, value and value2' : 'a number'} (a date as "YYYY-MM-DD").`);
+    return { op, value, ...(op === 'between' ? { value2 } : {}) };
+  }
+  // Equal and not equal take the number when the value reads as one, as the menu does; the text conditions the text.
+  if (op === 'eq' || op === 'neq') { const n = filterNumber(spec.value); return { op, value: n ?? String(spec.value) }; }
+  return { op, value: String(spec.value) };
+}
+
+/** One column's criterion in words, for the model and the chat. */
+function criterionText(crit) {
+  const q = (v) => (v === '' ? '(blanks)' : typeof v === 'number' ? String(v) : `"${clip(String(v), 40)}"`);
+  if (Array.isArray(crit.values)) return `one of ${crit.values.slice(0, 8).map(q).join(', ')}${crit.values.length > 8 ? ` and ${crit.values.length - 8} more` : ''}`;
+  if (crit.op) {
+    const ops = { gt: '>', gte: '>=', lt: '<', lte: '<=', eq: '=', neq: '<>' };
+    if (ops[crit.op]) return `${ops[crit.op]} ${q(crit.value)}`;
+    if (crit.op === 'between') return `between ${q(crit.value)} and ${q(crit.value2)}`;
+    if (crit.op === 'empty' || crit.op === 'notEmpty') return crit.op === 'empty' ? 'blank' : 'not blank';
+    return `${{ contains: 'contains', notContains: 'does not contain', beginsWith: 'begins with', endsWith: 'ends with' }[crit.op] || crit.op} ${q(crit.value)}`;
+  }
+  if (crit.formula) return `formula ${crit.formula}`;
+  if (crit.color != null) return crit.color ? `fill ${crit.color}` : 'no fill';
+  if (crit.text != null) return `contains ${q(crit.text)}`;
+  if (typeof crit.native === 'string') {
+    const top = crit.native.match(/^<top10\b([^>]*)>/);
+    if (top) return `${/\btop="(0|false)"/.test(top[1]) ? 'bottom' : 'top'} ${top[1].match(/\bval="([^"]*)"/)?.[1] ?? 10}${/\bpercent="(1|true)"/.test(top[1]) ? '%' : ''}`;
+    const dyn = crit.native.match(/^<dynamicFilter\b[^>]*\btype="([^"]*)"/);
+    if (dyn) return dyn[1] === 'aboveAverage' ? 'above average' : dyn[1] === 'belowAverage' ? 'below average' : `dynamic filter ${dyn[1]}`;
+    return 'a condition kept from the file';
+  }
+  return 'a criterion';
+}
+
+/** The filters on a sheet, as the model is told of them: range, table, criteria by column, rows shown. */
+export function filterSummaries(wb, sheetId) {
+  const sheet = wb.sheet(sheetId);
+  if (!sheet || sheet.kind === 'chart') return [];
+  return sheetFilters(sheet).map((f) => {
+    const table = filterTable(sheet, f);
+    const { shown, rows } = filterShown(wb, sheetId, f.range);
+    const criteria = Object.keys(f.criteria).map(Number).sort((a, b) => a - b)
+      .map((c) => `${colName(c)} ("${clip(wb.getDisplay(sheetId, f.range.r1, c), 40)}"): ${criterionText(f.criteria[c])}`);
+    return { range: rangeName(f.range), ...(table ? { table: table.name } : {}), criteria, rows_shown: `${shown} of ${rows}` };
+  });
+}
+
+/**
+ * The filter a call is about: the one over the list's first cell, or its table's, with the range a new one would
+ * take. Whole columns mean their data; a single cell the block of data around it, as Data ▸ Filter takes them.
+ */
+function filterTarget(wb, sheetId, asked) {
+  const sheet = wb.sheet(sheetId);
+  const whole = asked.r2 >= MAX_ROW || asked.c2 >= MAX_COL;
+  const area = whole ? dataOfLines(wb, sheetId, asked) : asked;
+  const at = area || asked;
+  const filter = wb.filterAt(sheetId, at.r1, at.c1);
+  const table = (filter && filterTable(sheet, filter)) || wb.tableAt?.(sheetId, at.r1, at.c1) || null;
+  if (table) {
+    if (table.headerRow === false) throw new ToolError(`The table ${table.name} has no header row, so it cannot be filtered. The user can turn on its Header Row from Table Design.`);
+    const range = { r1: table.range.r1, c1: table.range.c1, r2: tableRows(table).dataEnd, c2: table.range.c2 };
+    return { filter: sheetFilters(sheet).find((f) => filterTable(sheet, f)?.id === table.id) || null, table, range };
+  }
+  if (filter) return { filter, table: null, range: filter.range };
+  const single = asked.r1 === asked.r2 && asked.c1 === asked.c2;
+  const range = single ? wb.dataRegion(sheetId, asked.r1, asked.c1) : area;
+  if (!range) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no data to filter.`);
+  if (range.r1 >= range.r2) throw new ToolError(`${qualified(wb, sheetId, range)} needs a header row and at least one row under it to be filtered.`);
+  const crossed = (sheet.tables || []).find((t) => t.range.r1 <= range.r2 && t.range.r2 >= range.r1 && t.range.c1 <= range.c2 && t.range.c2 >= range.c1);
+  if (crossed) throw new ToolError(`${qualified(wb, sheetId, range)} crosses the table ${crossed.name}. Filter the table by its name, or a range clear of it.`);
+  return { filter: null, table: null, range };
+}
+
+function filterRange(wb, args, env) {
+  const { sheetId, range: asked } = resolveRange(wb, args.range, env.sheetId());
+  const sheet = wb.sheet(sheetId);
+  assertWritable(wb, sheetId, null);
+  const action = args.action || 'apply';
+  if (!['apply', 'clear', 'remove'].includes(action)) throw new ToolError('action must be "apply", "clear" or "remove".');
+  const { filter, table, range } = filterTarget(wb, sheetId, asked);
+  const where = qualified(wb, sheetId, range);
+  if (action !== 'apply') {
+    if (!filter) throw new ToolError(`There is no filter on ${where} to ${action}.`);
+    if (action === 'clear') {
+      if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'AI edit', { target: filter });
+      return { cleared: where, ...shownCounts(wb, sheetId, range) };
+    }
+    // A table keeps its filter with the buttons hidden, as Data ▸ Filter leaves it: removed outright, its slicers would go too.
+    if (table) {
+      wb.transaction('AI edit', () => {
+        if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'AI edit', { target: filter });
+        const live = sheetFilters(wb.sheet(sheetId)).find((f) => filterTable(sheet, f)?.id === table.id);
+        if (live && live.showButtons !== false) wb._setFilter(sheet, { ...live, showButtons: false }, 'AI edit', { target: live });
+      });
+    } else wb._setFilter(sheet, null, 'AI edit', { target: filter });
+    return { removed: `the filter on ${where}`, rows_shown: 'all' };
+  }
+  const specs = Array.isArray(args.columns) ? args.columns : [];
+  if (!specs.length && filter) throw new ToolError(`${where} already has a filter. Give columns with criteria, or use action "clear" or "remove".`);
+  const criteria = filter && !args.clear_others ? { ...filter.criteria } : {};
+  const missing = [];
+  const seen = new Set();
+  for (const spec of specs) {
+    const col = filterColumn(wb, sheetId, range, spec?.column);
+    if (seen.has(col)) throw new ToolError(`Column ${colName(col)} is listed twice.`);
+    seen.add(col);
+    const crit = filterCriterion(wb, sheetId, range, col, spec || {}, missing);
+    if (crit) criteria[col] = crit; else delete criteria[col];
+  }
+  // A table's own filter is filtered in place; a list without one gets the sheet's filter, which takes the place of
+  // any other one on the sheet (a sheet has one besides its tables' own), as Data ▸ Filter does.
+  const next = { ...(filter || { range }), range: { ...range }, criteria };
+  const replaced = !filter && !table ? sheetFilters(sheet).find((f) => !filterTable(sheet, f)) : null;
+  wb._setFilter(sheet, next, 'AI edit', filter ? { target: filter } : { create: true });
+  const after = sheetFilters(wb.sheet(sheetId)).find((f) => sameFilterRange(f, next));
+  if (!after) throw new ToolError(`The filter on ${where} could not be set.`);
+  return {
+    filtered: where, ...(table ? { table: table.name } : {}),
+    criteria: Object.keys(after.criteria).map(Number).sort((a, b) => a - b).map((c) => `${colName(c)} ("${clip(wb.getDisplay(sheetId, range.r1, c), 40)}"): ${criterionText(after.criteria[c])}`),
+    ...shownCounts(wb, sheetId, range),
+    ...(replaced ? { note: `The filter that was on ${qualified(wb, sheetId, replaced.range)} was removed: a sheet has one filter besides its tables' own.` } : {}),
+    ...(missing.length ? { values_not_found: missing.slice(0, 20) } : {}),
+  };
+}
+
 function createChart(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.data_range, env.sheetId());
   assertWritable(wb, sheetId, null);
@@ -1706,6 +1948,7 @@ const RUNNERS = {
   delete_rows: (wb, args, env) => lines(wb, args, env, { axis: 'row', remove: true }),
   delete_columns: (wb, args, env) => lines(wb, args, env, { axis: 'col', remove: true }),
   sort_range: sortRange,
+  filter_range: filterRange,
   create_chart: createChart,
   update_chart: updateChart,
   delete_chart: deleteChart,
@@ -1857,6 +2100,16 @@ export function describeCall(wb, name, args = {}, env) {
       return { label: `Delete ${which} on ${sheetName(args.sheet)}`, destructive: removes.length > 0, detail: removes.length ? `Removes ${removes.join(' and ')}.` : null };
     }
     case 'sort_range': return { label: `Sort ${at(args.range).text}` };
+    case 'filter_range': {
+      // Named by the list the filter is over, as the runner finds it (a table, a filter around the cell, the data block).
+      const t = at(args.range);
+      let where = t.text;
+      try { const found = filterTarget(wb, t.s, t.range); where = found.table ? found.table.name : qualified(wb, t.s, found.range); } catch { /* the runner explains */ }
+      if (args.action === 'clear') return { label: `Show every row of the filter on ${where}` };
+      if (args.action === 'remove') return { label: `Remove the filter from ${where}` };
+      const cols = (Array.isArray(args.columns) ? args.columns : []).map((c) => String(c?.column ?? '')).filter(Boolean);
+      return { label: `Filter ${where}${cols.length ? ` by ${clip(cols.join(', '), 60)}` : ''}` };
+    }
     case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };
     case 'update_chart': case 'delete_chart': {
       let named = null;
