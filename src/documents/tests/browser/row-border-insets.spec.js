@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
 import {reopenDocx} from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 const reference={...JSON.parse(readFileSync('tests/fixtures/row-border-insets/positions.json','utf8')),
  ...JSON.parse(readFileSync('tests/fixtures/compound-row-insets/positions.json','utf8'))};
 for(const name of Object.keys(reference)) test(`${name}: native row positions, edit, undo and reopen`,async({page},info)=>{
@@ -15,6 +16,7 @@ for(const name of Object.keys(reference)) test(`${name}: native row positions, e
  await page.getByLabel('Open DOCX file').setInputFiles(fixture);
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/^Lead/);await expect(input).toHaveJSProperty('readOnly',false);
  const check=async()=>{
+  await paintAllPages(page);
   const actual=await page.evaluate(()=>[...document.querySelectorAll('canvas.canvas-page')].flatMap((canvas,page)=>[...(window.rowPaint.get(canvas)||new Map())].map(([text,y])=>({page,text,y:y*.75}))));
   for(const w of reference[name]){const a=actual.find(a=>a.page===w.page&&a.text===w.text);expect(a).toBeDefined();expect(Math.abs(a.y-w.y),JSON.stringify({actual:a,word:w})).toBeLessThan(.2);}
  };

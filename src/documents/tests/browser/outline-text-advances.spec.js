@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {unzipSync} from 'fflate';
 import {reopenDocx} from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 const root='tests/fixtures/outline-text-advances/', path=root+'control.docx', bytes=readFileSync(path);
 const reference=JSON.parse(readFileSync(root+'reference.json')), cases=JSON.parse(readFileSync(root+'cases.json'));
 
@@ -30,7 +31,7 @@ test('uses native reference outline advances and preserves the independent docum
  expect(result.rows).toHaveLength(reference.rows.length);
  reference.rows.forEach((r,i)=>{const a=result.rows[i];expect(a.text.trim()).toBe(r.text.trim());expect(a.page).toBe(r.page);expect(Math.abs(a.x-r.x)).toBeLessThan(.3);expect(Math.abs(a.y-r.y)).toBeLessThan(.3);});
  await page.getByLabel('Open DOCX file').setInputFiles(path);const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/^Control 00/);await expect(input).toHaveJSProperty('readOnly',false);await expect(page.locator('canvas.canvas-page')).toHaveCount(24);
- const painted=await page.evaluate(()=>window.outlineMarkers);for(const marker of reference.markers)expect(painted.some(p=>p.page===marker.page&&Math.abs(p.x-marker.x)<.3),JSON.stringify(marker)).toBe(true);
+ await paintAllPages(page);const painted=await page.evaluate(()=>window.outlineMarkers);for(const marker of reference.markers)expect(painted.some(p=>p.page===marker.page&&Math.abs(p.x-marker.x)<.3),JSON.stringify(marker)).toBe(true);
  const original=await input.inputValue(),parts=unzipSync(bytes),save=async name=>{const pending=page.waitForEvent('download');await page.getByRole('button',{name:'Download .docx',exact:true}).click();const dest=info.outputPath(name+'.docx');await(await pending).saveAs(dest);return dest;};
  expect(unzipSync(readFileSync(await save('noedit')))).toEqual(parts);await input.press('ControlOrMeta+Home');await page.keyboard.insertText('Edited ');const edited=await save('edited'),exported=unzipSync(readFileSync(edited));for(const[n,data]of Object.entries(parts))if(n!=='word/document.xml')expect(exported[n]).toEqual(data);
  await input.press('ControlOrMeta+z');await expect(input).toHaveValue(original);expect(unzipSync(readFileSync(await save('undo')))).toEqual(parts);await reopenDocx(page,input,edited,'Edited '+original);await expect(input).toHaveJSProperty('readOnly',false);

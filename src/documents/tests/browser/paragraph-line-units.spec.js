@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 for (const name of ['paragraph-line-units', 'paragraph-line-units-default-24']) test(`${name} matches native gaps through edit/reopen/undo`, async ({ page }, info) => {
   const ref = JSON.parse(readFileSync(`tests/fixtures/${name}/reference.json`));
   const source = `public/fixtures/${name}.docx`, bytes = readFileSync(source);
@@ -22,6 +23,7 @@ for (const name of ['paragraph-line-units', 'paragraph-line-units-default-24']) 
   const check = async () => {
     await expect(page.locator('#playground-error')).toBeEmpty();
     await expect(page.locator('canvas.canvas-page')).toHaveCount(ref.cases.length);
+    await paintAllPages(page);
     const labels = await page.evaluate(() => window.gapLabels);
     expect(Object.keys(labels)).toHaveLength(ref.cases.length * 4);
     for (const c of ref.cases) expect(Math.abs(labels[c.id + 'C'] - 2 * labels[c.id + 'B'] + labels[c.id + 'A'] - c.gap), c.id).toBeLessThan(.25);

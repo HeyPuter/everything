@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { unzipSync } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 const source = 'public/fixtures/conditional-row-header.docx';
 const ref = JSON.parse(readFileSync('tests/fixtures/conditional-row-header/reference.json'));
 
@@ -28,6 +29,7 @@ test('matches native conditional row headers, formatting and page repetitions th
   const check = async () => {
     await expect(page.locator('#playground-error')).toBeEmpty();
     await expect(page.locator('canvas.canvas-page')).toHaveCount(ref.pages.length);
+    await paintAllPages(page);
     const pages = await page.locator('canvas.canvas-page').evaluateAll(cs => cs.map(c => [...(window.rowHeaderText.get(c)?.values() || [])]));
     for (const [i, expected] of ref.pages.entries()) {
       expect(pages[i].map(x => x.text).sort(), `page ${i + 1}`).toEqual(expected.map(x => x.text).sort());

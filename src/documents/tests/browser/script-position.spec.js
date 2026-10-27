@@ -32,7 +32,7 @@ for(const name of groups)test(`paints native script baselines: ${name}`,async({p
    }
    return fill.call(this,text,x,y,...args);
   };
-  try{editor.paint();return {paints,pages:editor.layout.pageCount};}finally{CanvasRenderingContext2D.prototype.fillText=fill;editor.destroy();host.remove();}
+  try{editor.paint();editor.flushPaint();return {paints,pages:editor.layout.pageCount};}finally{CanvasRenderingContext2D.prototype.fillText=fill;editor.destroy();host.remove();}
  },{fonts,source:readFileSync(root+file).toString('base64')});
  expect(actual.paints).toHaveLength(expected.length*2);
  const comparisons=expected.map((row,i)=>{

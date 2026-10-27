@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
 import {unzipSync} from 'fflate';
 import {reopenDocx} from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 const reference=JSON.parse(readFileSync('tests/fixtures/compound-row-rounding/reference.json','utf8'));
 test('compound-border rows retain native spacing across sizes and height rules',async({page},info)=>{
  await page.addInitScript(()=>{
@@ -19,6 +20,7 @@ test('compound-border rows retain native spacing across sizes and height rules',
  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toHaveValue(/Case 15 row 9/);await expect(input).toHaveJSProperty('readOnly',false);
  await expect(page.locator('canvas.canvas-page')).toHaveCount(15);
  const check=async()=>{
+  await paintAllPages(page);
   const actual=await page.evaluate(()=>[...document.querySelectorAll('canvas.canvas-page')].flatMap((c,page)=>[...(window.rowPaint.get(c)||new Map())].map(([text,y])=>({page,text,y:y*.75}))));
   expect(actual).toHaveLength(135);
   for(const w of reference.positions){const a=actual.find(a=>a.page===w.page&&a.text===w.text);expect(a).toBeDefined();expect(Math.abs(a.y-w.y),JSON.stringify({actual:a,word:w})).toBeLessThan(.2);}

@@ -64,7 +64,7 @@ test('typing repaints only the pages on screen, and a page scrolled into view is
   }
 });
 
-test('moving the caret repaints only the pages on screen; a document of up to 80 pages paints every page', async ({page}) => {
+test('moving the caret repaints only the pages on screen; a document of up to 8 pages paints every page', async ({page}) => {
   await page.evaluate(() => { editor.input.setSelectionRange(0, 0); editor.nativeSelection(); painted.clear(); });
   await page.keyboard.press('ArrowRight');
   expect(await page.evaluate(() => editor.model.selection.focus)).toBe(1);
@@ -74,17 +74,51 @@ test('moving the caret repaints only the pages on screen; a document of up to 80
   await page.evaluate(() => editor.flushPaint());
   expect(await page.evaluate(() => editor.stalePages.size)).toBe(0);
   // Read in the same task as the paint, counting the editor's own pages only.
-  const short = await page.evaluate(async () => {
+  const paintOf = paragraphs => page.evaluate(async paragraphs => {
+    const {paragraph} = await import('/src/engine/model.js');
+    const host = editor.host, Editor = editor.constructor; editor.destroy();
+    window.editor = new Editor(host, {paragraphs: Array.from({length: paragraphs}, (_, i) => paragraph(`Short ${i}. ${'Words fill the line. '.repeat(10)}`))});
+    editor.focus(); painted.clear(); editor.paint();
+    return {count: editor.canvases.length, painted: editor.canvases.filter(canvas => painted.has(canvas)).length, stale: editor.stalePages.size};
+  }, paragraphs);
+  const short = await paintOf(20);
+  expect(short.count).toBeGreaterThan(1);
+  expect(short.count).toBeLessThanOrEqual(8);
+  expect(short.painted).toBe(short.count);
+  expect(short.stale).toBe(0);
+  // Painting all of a 13- to 80-page document took most of each keystroke and caret move.
+  const medium = await paintOf(250);
+  expect(medium.count).toBeGreaterThan(12);
+  expect(medium.count).toBeLessThanOrEqual(80);
+  expect(medium.painted).toBeLessThan(8);
+  expect(medium.painted + medium.stale).toBe(medium.count);
+});
+
+test('a document of a few dozen pages shows current pages when scrolled, read or idle', async ({page}) => {
+  const count = await page.evaluate(async () => {
     const {paragraph} = await import('/src/engine/model.js');
     const host = editor.host, Editor = editor.constructor; editor.destroy();
     window.editor = new Editor(host, {paragraphs: Array.from({length: 250}, (_, i) => paragraph(`Short ${i}. ${'Words fill the line. '.repeat(10)}`))});
-    editor.focus(); painted.clear(); editor.paint();
-    return {count: editor.canvases.length, painted: editor.canvases.filter(canvas => painted.has(canvas)).length, stale: editor.stalePages.size};
+    editor.focus();
+    return editor.canvases.length;
   });
-  expect(short.count).toBeGreaterThan(12);
-  expect(short.count).toBeLessThanOrEqual(80);
-  expect(short.painted).toBe(short.count);
-  expect(short.stale).toBe(0);
+  expect(count).toBeGreaterThan(12);
+  expect(count).toBeLessThanOrEqual(80);
+  await page.evaluate(() => { painted.clear(); editor.input.setSelectionRange(0, 0); editor.nativeSelection(); });
+  await page.keyboard.press('Enter');
+  const last = count - 1, middle = Math.floor(count / 2);
+  expect(await page.evaluate(last => editor.stalePages.has(last), last)).toBe(true);
+  await page.evaluate(last => { editor.canvases[last].scrollIntoView(); }, last);
+  await expect.poll(() => page.evaluate(last => editor.stalePages.has(last), last)).toBe(false);
+  expect(await page.evaluate(last => pixels(last), last)).toBe(await page.evaluate(last => fresh(last), last));
+  expect(await page.evaluate(middle => editor.stalePages.has(middle), middle)).toBe(true);
+  const read = await page.evaluate(middle => pixels(middle), middle);
+  expect(read).toBe(await page.evaluate(middle => fresh(middle), middle));
+  await expect.poll(() => page.evaluate(() => {
+    for (const task of idleTasks.splice(0)) task({didTimeout: false, timeRemaining: () => 10});
+    return editor.stalePages.size;
+  }), {timeout: 10000}).toBe(0);
+  expect(await page.evaluate(index => pixels(index), 2)).toBe(await page.evaluate(index => fresh(index), 2));
 });
 
 test('a long selection is worked out once for all the pages painted after it', async ({page}) => {

@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
 import {unzipSync} from 'fflate';
 import {reopenDocx} from './helpers/reopen-docx.js';
 import {expectBodyEditParts} from './helpers/expect-body-edit-parts.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 const root='tests/fixtures/native-underlines/',ref=JSON.parse(readFileSync(root+'reference.json'));
 
 test('matches native underline offsets and thickness without changing advances or edit/export behavior',async({page},info)=>{
@@ -23,7 +24,7 @@ test('matches native underline offsets and thickness without changing advances o
     return {current:make(measure),previous:make(legacy)};
   },bytes.toString('base64'));
   expect(actual.current).toHaveLength(ref.cases.length);writeFileSync(info.outputPath('geometry.json'),JSON.stringify(actual,null,2));
-  const paint=await page.evaluate(()=>window.nativeUnderlinePaint);
+  await paintAllPages(page);const paint=await page.evaluate(()=>window.nativeUnderlinePaint);
   for(const [i,row] of ref.cases.entries()){
     const a=actual.current[i],previous=actual.previous[i],label=`${row.font} ${row.size} bold=${row.bold} italic=${row.italic}`;
     expect(a.page,label).toBe(row.page);expect(a.rects,label).toHaveLength(1);

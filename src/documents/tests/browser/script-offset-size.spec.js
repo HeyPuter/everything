@@ -29,7 +29,7 @@ for(const name of ['script-sub-offset','script-sub-offset-threshold'])test(`pain
    }
    return native.call(this,text,...args);
   };
-  try{editor.paint();return paints;}finally{CanvasRenderingContext2D.prototype.fillText=native;editor.destroy();host.remove();}
+  try{editor.paint();editor.flushPaint();return paints;}finally{CanvasRenderingContext2D.prototype.fillText=native;editor.destroy();host.remove();}
  },{fonts,source:source.toString('base64')});
  const expected=reference.cases.flatMap((c,page)=>c.rows.map(row=>({...row,page})));
  expect(actual).toHaveLength(expected.length);

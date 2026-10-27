@@ -59,8 +59,9 @@ import { paintDecodedImage, imageInfo, decodeImage, decodeImages, validateImageA
 let nextAsset = 0;
 // A document longer than this paints only the pages on screen (and a screenful either side) at
 // once; the rest are painted when they scroll into view, when their pixels are read, or while the
-// browser is idle.
-const EAGER_PAGES = 80;
+// browser is idle. Painting every page of a document of a few dozen pages took most of each
+// keystroke and caret move.
+const EAGER_PAGES = 8;
 // Pages off screen are painted once changes have paused this long (schedulePaint).
 const QUIET_PAINT_MS = 600;
 

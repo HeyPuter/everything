@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { unzipSync, zipSync, strToU8, strFromU8 } from 'fflate';
 import { reopenDocx } from './helpers/reopen-docx.js';
+import {paintAllPages} from './helpers/paint-pages.js';
 async function choose(input, text) { await input.evaluate((el, text) => { const at = el.value.indexOf(text); if (at < 0) throw new Error('Missing text'); el.setSelectionRange(at, at + text.length); el.dispatchEvent(new Event('select', { bubbles: true })); }, text); }
 async function download(page, info, name) { const event = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download .docx', exact: true }).click(); const path = info.outputPath(name); await (await event).saveAs(path); return path; }
 async function press(button) { await button.focus(); await button.press('Enter'); }
@@ -13,6 +14,7 @@ test('paints single/double strokes, edits direct and inherited declarations with
   const errors = []; page.on('pageerror', e => errors.push(e.message)); await page.goto('/playground.html'); await showAllTools(page); await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/strikethrough.docx'); const input = page.getByRole('textbox', { name: 'Document text' }); await expect(input).toHaveValue(/^Strikethrough Á😀/); const text = await input.inputValue();
   const single = page.getByRole('button', { name: 'Strikethrough', exact: true }), double = page.getByRole('button', { name: 'Double strikethrough', exact: true });
   for (const button of [single, double]) { await expect(button.locator('svg')).toHaveAttribute('aria-hidden', 'true'); await expect(button).toBeEnabled(); }
+  await paintAllPages(page);
   const paint = await page.evaluate(async () => {
     const { DocxPackage } = await import('/src/engine/docx.js'), { layoutDocument } = await import('/src/engine/layout.js'), { loadCanvasFonts, measureCanvasText } = await import('/src/engine/canvas-text.js'), { pageGeometry } = await import('/src/engine/page-settings.js'); const pkg = await DocxPackage.open(new Uint8Array(await (await fetch('/fixtures/strikethrough.docx')).arrayBuffer())), c = document.createElement('canvas').getContext('2d');
     await loadCanvasFonts(pkg); const layout = layoutDocument(pkg.paragraphs, (text, style) => measureCanvasText(c, text, style), pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables);
