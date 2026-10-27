@@ -131,24 +131,36 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     try {
       await engine.fontRefresh;
       // A page range and copies from File > Print choose and repeat sheets; the browser's dialog does the rest.
-      const capture = () => {
-        const sheets = engine.printSheets();
-        const chosen = Array.isArray(pages) && pages.length ? pages.map(n => sheets[n - 1]).filter(Boolean) : sheets;
+      // Only the chosen pages are painted.
+      const capture = async () => {
+        const range = Array.isArray(pages) && pages.length ? pages : null;
+        const sheets = engine.printSheets(range && range.map(n => n - 1));
+        const chosen = range ? range.map(n => sheets[n - 1]).filter(Boolean) : [...sheets];
+        if (copies <= 1) return chosen;
+        // Every copy shows one picture of each page: copies of the painted canvases took the memory of
+        // a document's worth of print-resolution pages for each copy.
+        const pictures = await Promise.all(chosen.map(sheetPicture));
+        pictureUrls.push(...pictures);
+        for (const sheet of chosen) sheet.width = sheet.height = 0;
         const out = [];
-        for (let copy = 0; copy < Math.max(1, copies); copy++) out.push(...(copy ? chosen.map(cloneSheet) : chosen));
+        for (let copy = 0; copy < copies; copy++) out.push(...chosen.map((sheet, i) => sheetImage(sheet, pictures[i])));
         return out;
       };
-      const printed = await printPages({ host, signal: printAbort.signal, capture });
-      if (!printed && !destroyed) error(new Error('The document could not be prepared for printing. Please try again.'));
+      const pictureUrls = [];
+      try {
+        const printed = await printPages({ host, signal: printAbort.signal, capture });
+        if (!printed && !destroyed) error(new Error('The document could not be prepared for printing. Please try again.'));
+      } finally { for (const url of pictureUrls) URL.revokeObjectURL(url); }
     } catch (e) { if (!destroyed) error(e); }
     finally { printing = false; if (!destroyed) printButton.disabled = !engine; }
   }
-  function cloneSheet(sheet) {
-    const copy = document.createElement('canvas');
-    copy.className = sheet.className; copy.style.cssText = sheet.style.cssText;
-    copy.width = sheet.width; copy.height = sheet.height;
-    copy.getContext('2d')?.drawImage(sheet, 0, 0);
-    return copy;
+  // A printed page as a picture its copies share (lossless, at the canvas's own resolution).
+  const sheetPicture = sheet => new Promise((resolve, reject) => sheet.toBlob(blob => blob ? resolve(URL.createObjectURL(blob)) : reject(new Error('The document could not be prepared for printing. Please try again.')), 'image/png'));
+  function sheetImage(sheet, url) {
+    const image = document.createElement('img');
+    image.className = sheet.className; image.style.cssText = sheet.style.cssText; image.alt = '';
+    image.src = url;
+    return image;
   }
   // The clipboard commands the context menu and the Edit menu share. Each works on the selection as it was when
   // chosen: a write that resolves after the selection or document moved on leaves the document alone.
@@ -1134,7 +1146,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     previewPages: async (into, max) => {
       if (!engine) return;
       await engine.fontRefresh;
-      const sheets = engine.printSheets();
+      // Only the pages shown are painted.
+      const sheets = engine.printSheets(Array.from({ length: max }, (_, i) => i));
       into.replaceChildren(...sheets.slice(0, max).map((sheet, i) => {
         const scale = 150 / sheet.width, thumb = document.createElement('canvas');
         thumb.width = Math.round(sheet.width * scale); thumb.height = Math.round(sheet.height * scale);

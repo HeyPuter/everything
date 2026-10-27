@@ -724,7 +724,11 @@ export class CanvasEditor {
     this.pages.style.gap = `${this.layout.page.gap * this.zoom}px`;
     this.syncInput(); this.paint(); this.onSelection();
   }
-  printSheets() {
+  /**
+   * The printed pages, painted at print resolution: a canvas for each page, at its index. With `pages`
+   * (indices of printed pages), only those are painted; the others are left out (holes in the list).
+   */
+  printSheets(pages = null) {
     this.finishComposition();
     // Printing always uses the authored pages, whatever view is on screen, and leaves out hidden text,
     // which is laid out only while the formatting marks show it: lay the pages out privately and put the
@@ -737,21 +741,23 @@ export class CanvasEditor {
       try {
         const printed = this.computeLayout(null);
         Object.assign(this, printed, { selectionLayout: printed.layout, tablePaintCache: new Map(), drawingPageContexts: drawingPageContexts(printed.layout, this.pageStories), view: null });
-        return this.paintSheets();
+        return this.paintSheets(pages);
       } finally { revisionView.showHidden = shown; Object.assign(this, screen); }
     }
-    return this.paintSheets();
+    return this.paintSheets(pages);
   }
-  paintSheets() {
+  paintSheets(pages = null) {
     this.printedLayout = { layout: this.layout, storyLayout: this.storyLayout };
-    const sheets = this.layout.pages.map(geometry => {
-      const canvas = document.createElement('canvas');
+    const count = this.layout.pages.length, sheets = new Array(count);
+    const chosen = pages ? [...new Set(pages)].filter(index => Number.isInteger(index) && index >= 0 && index < count).sort((a, b) => a - b) : [...sheets.keys()];
+    for (const index of chosen) {
+      const geometry = this.layout.pages[index], canvas = document.createElement('canvas');
       canvas.className = 'document-page';
       canvas.style.width = `${geometry.width}px`; canvas.style.height = `${geometry.height}px`;
       canvas.width = Math.round(geometry.width * 2); canvas.height = Math.round(geometry.height * 2);
-      return canvas;
-    });
-    this.paint({ canvases: sheets, printing: true });
+      sheets[index] = canvas;
+    }
+    this.paint({ canvases: sheets, printing: true, pages: chosen });
     return sheets;
   }
   /** Indices of the page canvases on screen, with a screenful of margin; every page in a short document. */
@@ -813,7 +819,7 @@ export class CanvasEditor {
         this.stalePages = new Set(canvases.map((_, index) => index).filter(index => !shown.has(index)));
         this.changedAt = performance.now();
       }
-    }
+    } else if (pages) indices = pages.filter(index => canvases[index]);
     const [start, end] = this.model.range;
     // A shape selected on its own shows only its frame handles.
     const shapeOnly = end === start + 1 && this.drawingEditor?.canResize(this.model.selectedImage);
