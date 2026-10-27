@@ -368,7 +368,8 @@ export function pasteFragment(model, fragment) {
   // The caller's session keeps the state before the paste; per-command
   // snapshots of the whole document would only make a long paste quadratic.
   model.checkpoint = () => {};
-  try { applyFragment(model, fragment, start); } finally { delete model.checkpoint; }
+  // Formatting leaves the pasted text as it is: commands need not join or count through it each time.
+  try { model.withFixedText(() => applyFragment(model, fragment, start)); } finally { delete model.checkpoint; }
   return true;
 }
 

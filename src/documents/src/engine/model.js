@@ -395,7 +395,36 @@ export class TextDocument {
     const block = this.hasBlockControls ? blockControlGroups(this.paragraphs).filter(r => r.control.placeholder && position >= r.start && (position < r.end || r.start === r.end && position === r.start)).at(-1) : undefined;
     return block ? { ...block, paragraph: block.paragraphs[0], localStart: 0, runs: block.paragraphs.flatMap(p => p.runs) } : undefined;
   }
-  get text() { return cachedDocumentText(this); }
+  get text() { return this.fixedText?.text ?? cachedDocumentText(this); }
+  /**
+   * Run commands that change only formatting: a formatted paste or import applies a command to each of
+   * its paragraphs and runs. The text stays as it is, so it is joined once instead of confirmed by every
+   * command, and a position's paragraph is found from the paragraphs' starts rather than by counting
+   * through every paragraph before it. Commands of long batches then cost no more for a longer document.
+   */
+  withFixedText(action) {
+    if (this.fixedText) return action();
+    const text = cachedDocumentText(this), ends = [];
+    let at = -1;
+    for (const p of this.paragraphs) ends.push(at += paragraphLength(p) + 1);
+    this.fixedText = { text, ends };
+    try { return action(); }
+    finally {
+      this.fixedText = null;
+      if (import.meta.env?.DEV && cachedDocumentText(this) !== text) throw new Error('A formatting command changed the document text.');
+    }
+  }
+  /** locate() in this document's paragraphs. */
+  locate(position) {
+    const fixed = this.fixedText;
+    if (!fixed || fixed.ends.length !== this.paragraphs.length) return locate(this.paragraphs, position);
+    // The first paragraph ending at or after the position, as locate() counts.
+    const at = Math.max(0, position), ends = fixed.ends;
+    let low = 0, high = ends.length - 1;
+    while (low < high) { const middle = (low + high) >> 1; if (ends[middle] >= at) high = middle; else low = middle + 1; }
+    const start = low ? ends[low - 1] + 1 : 0;
+    return { index: low, offset: Math.min(at - start, ends[low] - start) };
+  }
   get sectionPageSettings() {
     for (let i = locate(this.paragraphs, this.range[0]).index; i < this.paragraphs.length; i++) {
       if (this.paragraphs[i].sectionEnd) return this.paragraphs[i].sectionEnd;
@@ -443,10 +472,10 @@ export class TextDocument {
   }
   get selectedParagraphs() {
     const [start, end] = this.range;
-    const first = locate(this.paragraphs, start).index;
-    const last = locate(this.paragraphs, end).index;
+    const first = this.locate(start).index;
+    const located = this.locate(end), last = located.index;
     // A selection ending at the next paragraph's start does not format that paragraph.
-    const stop = end > start && locate(this.paragraphs, end).offset === 0 ? last - 1 : last;
+    const stop = end > start && located.offset === 0 ? last - 1 : last;
     return this.paragraphs.slice(first, Math.max(first, stop) + 1);
   }
   /**
@@ -634,7 +663,8 @@ export class TextDocument {
     this.checkpoint();
     let numId = cells?.numId;
     if (!remove && !numId) {
-      const first = this.paragraphs.indexOf(targets[0]), previous = this.paragraphs[first - 1];
+      // The selected paragraphs start at the range's start (selectedParagraphs).
+      const first = this.locate(this.range[0]).index, previous = this.paragraphs[first - 1];
       const existing = targets.find(p => listKind(this.numbering, p.list) === kind) || (previous && listKind(this.numbering, previous.list) === kind ? previous : null);
       numId = existing?.list.numId || newList(this.numbering, kind);
       if (cells) cells.numId = numId;
@@ -1458,7 +1488,9 @@ export class TextDocument {
   }
   get hyperlink() {
     const [start, end] = this.range;
-    const found = hyperlinkAt(this.paragraphs, start) || (start === end ? hyperlinkAt(this.paragraphs, start, 'backward') : null);
+    // A link stays within its paragraph: only the links of the paragraph holding the start can hold it.
+    const { index, offset } = this.locate(start), links = hyperlinkRanges(this.paragraphs, index, index + 1, start - offset);
+    const found = links.find(r => r.start <= start && start < r.end) || (start === end ? links.find(r => r.start < start && start <= r.end) : null) || null;
     return found && end <= found.end ? found : null;
   }
   get bookmarks() { return bookmarkEntries(this.paragraphs, this.tables); }
@@ -1609,9 +1641,11 @@ export class TextDocument {
   }
   changeHyperlink(start, end, link) {
     if(this.hasHyperlinkFields)unwrapEditedFieldHyperlinks(this.paragraphs,bodyFieldRanges(this.paragraphs),start,end);
-    let at = 0;
-    for (const p of this.paragraphs) {
-      const length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
+    // Paragraphs before the one holding the start, and after the end, keep their links.
+    const first = this.locate(start);
+    let at = start - first.offset;
+    for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
+      const p = this.paragraphs[i], length = paragraphLength(p), a = Math.max(0, start - at), b = Math.min(length, end - at);
       if (b > a) p.runs = normalize([...sliceRuns(p.runs, 0, a), ...sliceRuns(p.runs, a, b).map(r => {
         const next = { ...r };
         if (r.image?.hyperlink || r.image?.hyperlinkChanged) {
@@ -1699,8 +1733,11 @@ export class TextDocument {
       return Object.fromEntries(Object.keys(RUN_FORMAT).map(key => [key, format[key]]));
     }
     const formats = [];
-    let at = 0;
-    for (const p of this.paragraphs) {
+    // No paragraph before the one holding the start has text or a mark in the range, nor any after the end.
+    const first = this.locate(start);
+    let at = start - first.offset;
+    for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
+      const p = this.paragraphs[i];
       for (const run of p.runs) {
         if (at < end && at + run.text.length > start) formats.push(formatRun(run));
         at += run.text.length;
@@ -1868,7 +1905,8 @@ export class TextDocument {
       else if (['color', 'underlineColor'].includes(key)) patch[key] = normalizeColor(value);
       else if (typeof value !== 'boolean') throw new Error('Text formatting must be on or off.');
     }
-    if (!Object.keys(patch).length || Object.entries(patch).every(([k, v]) => this.runFormatting[k] === v)) return false;
+    const current = Object.keys(patch).length ? this.runFormatting : null;
+    if (!current || Object.entries(patch).every(([k, v]) => current[k] === v)) return false;
     const [start, end] = this.textFormattingRange;
     if (patch.textScale && patch.textScale !== 100 && start !== end) {
       let offset = 0;
@@ -1895,9 +1933,11 @@ export class TextDocument {
       return false;
     }
     this.checkpoint();
-    let at = 0;
-    for (const p of this.paragraphs) {
-      const length = paragraphLength(p);
+    // Paragraphs before the one holding the start, and after the end, are left as they are.
+    const first = this.locate(start);
+    let at = start - first.offset;
+    for (let i = first.index; i < this.paragraphs.length && at <= end; i++) {
+      const p = this.paragraphs[i], length = paragraphLength(p);
       const a = Math.max(0, start - at), b = Math.min(length, end - at);
       if (a < b) p.runs = normalize([
         ...sliceRuns(p.runs, 0, a),

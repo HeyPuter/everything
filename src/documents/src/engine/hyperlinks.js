@@ -32,9 +32,11 @@ export const openableHyperlink = link => {
   try { checkedHyperlinkTarget(link?.target); return true; } catch { return false; }
 };
 
-export function hyperlinkRanges(paragraphs) {
-  const result = []; let offset = 0;
-  for (const p of paragraphs) {
+/** The links of the paragraphs from `first` up to `last`, the first starting at document position `offset`. */
+export function hyperlinkRanges(paragraphs, first = 0, last = paragraphs.length, offset = 0) {
+  const result = [];
+  for (let index = first; index < last; index++) {
+    const p = paragraphs[index];
     let last = null;
     for (const run of p.runs) {
       const end = offset + run.text.length;
