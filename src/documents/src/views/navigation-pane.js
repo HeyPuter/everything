@@ -8,7 +8,8 @@ const THUMB_WIDTH = 132;
  * The Navigation pane: search the document, then browse by Headings (a collapsible outline that
  * tracks the current heading), Pages (thumbnails) or Results (each match in its context).
  *
- * api: navigate(paragraphId), goToPage(index), pages() → canvases, search(text) → matches,
+ * api: navigate(paragraphId), goToPage(index), pages() → canvases, flushPages() → paint the pages left for later,
+ *      search(text) → matches,
  *      text() → document text, selectMatch(match), highlight(matches), close(), focusEditor(),
  *      version() → optional list of values that change whenever the searched text may have,
  *      headingActions() → optional { canEdit(), move(id, targetId, 'before' | 'after'), promote(id), demote(id),
@@ -53,7 +54,7 @@ export function createNavigationPane(api) {
   });
 
   function select(id) {
-    tab = id;
+    tab = id; allThumbnails = true;
     for (const button of tabButtons) { const on = button.id === `nav-tab-${id}`; button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1; }
     for (const [key, panel] of Object.entries(panels)) panel.hidden = key !== id;
     render();
@@ -203,14 +204,20 @@ export function createNavigationPane(api) {
       { label: 'Collapse All', onSelect: () => { collapsed = new Set(entries.filter((e, i) => entries[i + 1]?.level > e.level).map(e => e.id)); signature = ''; renderHeadings(); refocus(entries.findLast(e => e.start <= entry.start && e.level === 1)?.id || entry.id); } },
     ] });
   }
-  let pagesToken = 0;
+  // Thumbnails draw the screen pages scaled down, so they show exactly what the document shows. Shown
+  // afresh, every page is painted and drawn; after that a thumbnail is drawn again only when its page has
+  // been painted (pagesPainted). Typing paints the pages on screen, and the rest once typing pauses:
+  // painting every page and drawing every thumbnail after each keystroke held up typing.
+  let pagesToken = 0, allThumbnails = true;
+  const paintedPages = new Set();
   function renderPages() {
-    const canvases = api.pages();
     const token = ++pagesToken;
-    // Thumbnails draw the screen pages scaled down, so they show exactly what the document shows.
     requestAnimationFrame(() => {
       if (token !== pagesToken || node.hidden || tab !== 'pages') return;
-      const currentPage = api.currentPage();
+      const all = allThumbnails;
+      if (all) api.flushPages?.();
+      const canvases = api.pages(), currentPage = api.currentPage();
+      allThumbnails = false;
       while (pageGrid.children.length > canvases.length) pageGrid.lastChild.remove();
       canvases.forEach((source, i) => {
         // Each list item holds a button, so the page is announced as a button in a list of pages.
@@ -224,12 +231,16 @@ export function createNavigationPane(api) {
         item.lastChild.textContent = String(i + 1);
         if (i === currentPage) item.setAttribute('aria-current', 'page'); else item.removeAttribute('aria-current');
         const thumb = item.firstChild, ratio = source.height / source.width || 1.294, scale = window.devicePixelRatio || 1;
-        thumb.width = Math.round(THUMB_WIDTH * scale); thumb.height = Math.round(THUMB_WIDTH * ratio * scale);
+        const width = Math.round(THUMB_WIDTH * scale), height = Math.round(THUMB_WIDTH * ratio * scale);
+        if (!all && thumb.source === source && thumb.width === width && thumb.height === height && !paintedPages.has(i)) return;
+        thumb.source = source;
+        thumb.width = width; thumb.height = height;
         thumb.style.width = `${THUMB_WIDTH}px`; thumb.style.height = `${Math.round(THUMB_WIDTH * ratio)}px`;
         const ctx = thumb.getContext('2d');
         ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, thumb.width, thumb.height);
         if (source.width) ctx.drawImage(source, 0, 0, thumb.width, thumb.height);
       });
+      paintedPages.clear();
     });
   }
   function renderResults() {
@@ -281,10 +292,16 @@ export function createNavigationPane(api) {
       render();
     },
     open({ focus = true } = {}) {
-      node.hidden = false; signature = ''; render();
+      node.hidden = false; signature = ''; allThumbnails = true; render();
       if (focus) (tab === 'headings' && (headingList.querySelector('[aria-current]') || headingList.querySelector('.nav-heading')) || search).focus();
     },
     hide() { node.hidden = true; if (search.value) api.highlight([]); },
+    /** The document painted these pages: their thumbnails are drawn again. */
+    pagesPainted(indices) {
+      if (node.hidden || tab !== 'pages') return;
+      for (const index of indices) paintedPages.add(index);
+      renderPages();
+    },
     focusSearch() { search.focus(); search.select(); },
     setSearch(text) { search.value = text; runSearch(); search.focus(); search.select(); },
     /** The text searched for last, for Find Next. */

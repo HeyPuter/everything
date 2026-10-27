@@ -1058,6 +1058,8 @@ export class CanvasEditor {
       }
     }
     if (!printing) { this.positionInput(caret); this.imageInteraction?.update(); this.schedulePaint(); }
+    // Page thumbnails follow the pages as they are painted (the Navigation pane).
+    if (indices?.length) this.onPagesPainted?.(indices);
   }
   positionInput(caret) {
     if (this.accessible) return;

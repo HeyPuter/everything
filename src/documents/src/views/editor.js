@@ -477,7 +477,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       engine.model.select(target.position); engine.caretAffinity = 'forward'; engine.caretPage = null;
       engine.focus(); engine.revealCaret(); engine.onSelection();
     },
-    pages: () => { engine?.flushPaint?.(); return engine?.canvases || []; }, currentPage: () => engine?.caretPageIndex ?? 0,
+    pages: () => engine?.canvases || [], flushPages: () => engine?.flushPaint?.(), currentPage: () => engine?.caretPageIndex ?? 0,
     search: text => { try { return engine?.model.findMatches(text, {}) || []; } catch { return []; } },
     version: () => (engine ? [engine, engine.session.revision, engine.session.body.revision, engine.session.path, engine.model, engine.model.revision, engine.model.trackChanges] : null),
     text: () => engine?.model.text || '', selectMatch: match => engine?.selectMatch(match), highlight: matches => engine?.setFindHighlights(matches),
@@ -1586,6 +1586,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       linkTyping: (text, end) => autolinkEnabled() ? linkCandidateBefore(text, end) : null,
       preparePicture: pictureFile,
     });
+    created.onPagesPainted = pages => { if (engine === created) outlinePanel.pagesPainted(pages); };
     // Double-clicking a chart, diagram or text box edits it (insert-tab.js).
     created.onOpenDrawing = () => { if (!pkg.readOnly) editorCommands.openSelectedDrawing?.(); };
     // Undo past the editor's own history steps back through design-wide changes.
