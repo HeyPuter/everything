@@ -65,6 +65,22 @@ const EAGER_PAGES = 8;
 // Pages off screen are painted once changes have paused this long (schedulePaint).
 const QUIET_PAINT_MS = 600;
 
+/**
+ * The change bars' ranges with those that touch or overlap joined into one, in document order. A bar marks every
+ * line a range touches (starts at or before the line's end and ends after its start), and a joined range touches
+ * exactly the lines its parts do, so the bars are painted the same. Typing on in a tracked insertion splits it
+ * into ranges a second each (or around text typed inside it), while the bars carried across the keystroke cover
+ * it whole: joined, the two are found equal and the pages are not painted a second time for each keystroke.
+ */
+export function joinedBarRanges(ranges) {
+  const sorted = ranges.map(r => ({ start: r.start, end: r.end })).sort((a, b) => a.start - b.start), joined = [];
+  for (const range of sorted) {
+    const last = joined.at(-1);
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end); else joined.push(range);
+  }
+  return joined;
+}
+
 /** Canvas paint surface plus a real textarea for native input, composition and accessible text. */
 export class CanvasEditor {
   constructor(host, { paragraphs, pageSettings, numbering, styles, tables, pageStories, comments = null, trackChanges, assets = {}, images = new Map(), borrowImages = false, drawingLayouts, inputLabel, readOnly = false, protectedPageFields = false, onChange = () => {}, onSelection = () => {}, onSave = () => {}, onLink = () => {}, onOpenLink = () => {}, onLinkClick = () => {}, onError = () => {}, onContextMenu = () => {}, onUpdateFields = null, correctTyping = null, linkTyping = null, measure = null, preparePicture = null } = {}) {
@@ -282,6 +298,7 @@ export class CanvasEditor {
   /** Vertical bars in the left margin beside lines that touch the given ranges (tracked changes). */
   // side: 'left', 'right' or 'outside' (right on odd pages, left on even ones).
   setMarginBars(ranges = [], color = '#7a7a7a', side = 'left') {
+    ranges = joinedBarRanges(ranges);
     const key = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
     const same = key === this.marginBarKey;
     if (!same) { this.marginBarKey = key; this.marginBars = { ranges, color, side }; }
@@ -311,7 +328,7 @@ export class CanvasEditor {
     // Matches in a header or footer being edited keep its offsets.
     if (this.findHighlights?.length && this.session.path === null) { this.findHighlights = followEdit(this.findHighlights, edit); this.findRects = null; }
     if (this.marginBars?.ranges.length) {
-      const { color, side } = this.marginBars, ranges = followEdit(this.marginBars.ranges, edit, { endAfter: true });
+      const { color, side } = this.marginBars, ranges = joinedBarRanges(followEdit(this.marginBars.ranges, edit, { endAfter: true }));
       this.marginBars = { ranges, color, side };
       this.marginBarKey = JSON.stringify([ranges.map(r => [r.start, r.end]), color, side]);
     }

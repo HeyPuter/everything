@@ -121,3 +121,47 @@ it('typing with a search open paints once a keystroke, and the matches end up wh
   expect(paint).toHaveBeenCalledTimes(2);
   expect(editor.findHighlights.map(m => m.start)).toEqual([13, 39]);
 });
+
+it('joins change bars that touch or overlap, which mark exactly the lines their parts mark', async () => {
+  const { joinedBarRanges } = await import('../src/engine/canvas-editor.js');
+  expect(joinedBarRanges([{ start: 9, end: 12 }, { start: 2, end: 4 }, { start: 4, end: 6 }, { start: 5, end: 5 }, { start: 12, end: 12 }, { start: 13, end: 14 }]))
+    .toEqual([{ start: 2, end: 6 }, { start: 9, end: 12 }, { start: 13, end: 14 }]);
+  // The painter's test for a line beside a bar, over random ranges (empty ones too) and lines.
+  const marks = (bars, line) => bars.some(r => r.start <= line.end && r.end > line.start);
+  let seed = 3;
+  const random = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  for (let round = 0; round < 400; round++) {
+    const ranges = Array.from({ length: random(8) }, () => { const start = random(40); return { start, end: start + random(6) }; });
+    const joined = joinedBarRanges(ranges);
+    for (let i = 1; i < joined.length; i++) expect(joined[i].start).toBeGreaterThan(joined[i - 1].end);
+    for (let start = 0; start < 48; start++) for (let end = start; end < start + 6; end++) expect(marks(joined, { start, end }), JSON.stringify([ranges, start, end])).toBe(marks(ranges, { start, end }));
+  }
+});
+
+it('typing inside an earlier tracked insertion paints once a keystroke', () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  try {
+    vi.setSystemTime(new Date('2026-01-02T03:04:05Z'));
+    editor = new CanvasEditor(host, { paragraphs: [paragraph('Alpha beta gamma delta.'), paragraph('Second paragraph here.')] });
+    editor.model.trackChanges = true; editor.relayout();
+    typeAt(6, 'xyz'); reviewOverlays();
+    expect(editor.marginBars.ranges.map(r => [r.start, r.end])).toEqual([[6, 9]]);
+    const paint = vi.spyOn(editor, 'paint');
+    // A minute later, typing between its letters makes an insertion of its own inside the first one: three ranges,
+    // [6, 7], [7, 8] and [8, 10], beside which the bar is one.
+    vi.setSystemTime(new Date('2026-01-02T03:05:05Z'));
+    typeAt(7, 'q'); reviewOverlays();
+    expect(paint).toHaveBeenCalledTimes(1);
+    expect(editor.session.body.revisions.map(r => [r.start, r.end])).toEqual([[6, 7], [7, 8], [8, 10]]);
+    // Typing a letter the same as the one after the caret: where the keystroke went cannot be told from the text,
+    // so the ranges carried across it end at a neighbouring letter, and still give the same one bar.
+    for (const [i, at] of [[0, 8], [1, 9], [2, 10]]) {
+      paint.mockClear();
+      typeAt(at, 'y'); reviewOverlays();
+      expect(paint, `keystroke ${i}`).toHaveBeenCalledTimes(1);
+    }
+    expect(editor.model.text.slice(0, 17)).toBe('Alpha xqyyyyzbeta');
+    expect(editor.session.body.revisions.length).toBeGreaterThan(1);
+    expect(editor.marginBars.ranges.map(r => [r.start, r.end])).toEqual([[6, 13]]);
+  } finally { vi.useRealTimers(); }
+});
