@@ -1697,21 +1697,31 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     await loadCanvasFonts();
     if (destroyed) { releasePictures(); return; }
     engine = createEngine(CanvasEditor, images, opened.measure);
-    if (importedText) {
+    // Documents keep to a number of pages. An imported file past it is described as a file too long to
+    // open, not as a limit of the "preview" it never reached.
+    const importing = action => {
+      try { action(); }
+      catch (e) {
+        const pages = /^This preview supports up to (\d+) pages/.exec(e?.message || '')?.[1];
+        if (pages) throw new Error(`This file is too long to open here. A document can have up to ${pages} pages, and this file would need more. Split it into shorter files and open each one.`);
+        throw e;
+      }
+    };
+    if (importedText) importing(() => {
       // The imported text is the starting point, not an edit: it adds no undo step.
       engine.session.run(() => { engine.model.replace(importedText); engine.model.select(0); }, () => engine.validateStory(), { record: false });
       engine.relayout();
-    }
+    });
     // Pictures in a Markdown file or web page are not brought in yet: the notices say how many were left out.
     const omittedPictures = importedHtml && /<img\b/i.test(importedHtml) ? new DOMParser().parseFromString(importedHtml, 'text/html').querySelectorAll('img').length : 0;
     if (importedHtml !== null) {
       const fragment = htmlFragment(importedHtml);
-      if (fragment) {
+      if (fragment) importing(() => {
         // In a new document every imported block keeps its own formatting.
         for (const p of fragment.paragraphs) p.mark = true;
         engine.session.run(() => { pasteFragment(engine.model, fragment); engine.model.select(0); }, () => engine.validateStory(), { record: false });
         engine.relayout();
-      }
+      });
     }
     if (doc.pendingImport) doc.pendingImport = null;
     if (template) {

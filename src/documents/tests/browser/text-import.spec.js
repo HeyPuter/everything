@@ -113,7 +113,9 @@ test('a text file too long to open shows why, with ways forward', async ({ page 
   await (await chooser).setFiles({ name: 'long.txt', mimeType: 'text/plain', buffer: Buffer.from(lines) });
   const message = page.locator('.canvas-message.editor-error');
   await expect(message).toBeVisible({ timeout: 15000 });
-  await expect(message).toContainText('up to 200 pages');
+  // In words about the file, not about a preview it never reached.
+  await expect(message).toContainText('This file is too long to open here. A document can have up to 200 pages, and this file would need more. Split it into shorter files and open each one.');
+  await expect(message).not.toContainText('preview');
   await expect(message.getByRole('button', { name: 'Back to documents', exact: true })).toBeInViewport();
 });
 
