@@ -14,7 +14,7 @@
 import { el, isComposing, MOD_KEY, scrollBehavior, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { openModal } from '../ui/modal.js';
 import { toast } from '../ui/toast.js';
-import { paintFormattingMarks, formattingMarks } from '../engine/formatting-marks.js';
+import { paintFormattingMarks, breakMarks, sectionBreakLabels } from '../engine/formatting-marks.js';
 import { isContinuousView, usesScreenGeometry } from '../engine/document-views.js';
 import { BODY_LEVEL, moveOutlineSection, setOutlineLevels, promotedLevel, demotedLevel, deleteOutlineSection, insertOutlineHeading, outlineUnits, subtreeEnd } from '../engine/outline-editing.js';
 import { createOutlineView } from './outline-view.js';
@@ -58,11 +58,17 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   const breakOverlay = (ctx, index, geometry) => {
     const engine = editor();
     if (mode !== 'draft' || !engine) return;
-    if (breakOverlay.cache?.layout !== engine.layout) breakOverlay.cache = { layout: engine.layout, pages: new Map() };
+    if (breakOverlay.cache?.layout !== engine.layout) breakOverlay.cache = { layout: engine.layout, pages: new Map(), lines: null, sections: null };
     const cache = breakOverlay.cache;
     if (!cache.pages.has(index)) {
-      const body = engine.session.body, lines = engine.layout.lines.filter(l => l.page === index && !l.pageStory);
-      cache.pages.set(index, formattingMarks(lines, body.text, body.paragraphs, body.pageSettings, geometry).filter(m => m.kind === 'break' || m.kind === 'section'));
+      // Once for each layout: the body's lines by page, and its section breaks' labels.
+      if (!cache.lines) {
+        cache.lines = new Map();
+        for (const line of engine.layout.lines) if (!line.pageStory) { if (!cache.lines.has(line.page)) cache.lines.set(line.page, []); cache.lines.get(line.page).push(line); }
+        const body = engine.session.body;
+        cache.sections = sectionBreakLabels(body.paragraphs, body.pageSettings);
+      }
+      cache.pages.set(index, breakMarks(cache.lines.get(index) || [], geometry, cache.sections));
     }
     const marks = cache.pages.get(index);
     // The formatting marks already draw these when shown.

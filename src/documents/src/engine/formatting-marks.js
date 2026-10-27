@@ -11,6 +11,22 @@ export const MARK_COLOR = '#4A78B0';
 const BREAK_LABELS = { page: 'Page Break', column: 'Column Break' };
 const SECTION_LABELS = { nextPage: 'Section Break (Next Page)', continuous: 'Section Break (Continuous)', evenPage: 'Section Break (Even Page)', oddPage: 'Section Break (Odd Page)', nextColumn: 'Section Break (Next Column)' };
 
+/**
+ * The label of each section break, by the id of the paragraph that ends the section, as paragraphRoles
+ * gives it: a break shows how the following section starts.
+ */
+export function sectionBreakLabels(paragraphs, pageSettings) {
+  const labels = new Map();
+  let following = pageSettings;
+  for (let i = paragraphs.length - 1; i >= 0; i--) {
+    const end = paragraphs[i].sectionEnd;
+    if (!end) continue;
+    labels.set(paragraphs[i].id, SECTION_LABELS[following?.sectionType] || SECTION_LABELS.nextPage);
+    following = end;
+  }
+  return labels;
+}
+
 /** The paragraphs ending a table cell show the end-of-cell mark instead of a pilcrow. */
 function paragraphRoles(paragraphs, pageSettings) {
   const roles = new Map();
@@ -79,6 +95,30 @@ export function formattingMarks(lines, text, paragraphs, pageSettings, page) {
       if (role.section) marks.push({ kind: 'section', x: endX, width: right - endX, y: baseline, size, text: role.section, cell: line });
       else marks.push({ kind: role.cellEnd ? 'cell' : 'paragraph', x: endX, y: baseline, size, cell: line });
     }
+  }
+  return marks;
+}
+
+/**
+ * Only the page, column and section break marks of formattingMarks, as it gives them (Draft view labels
+ * its breaks with these): without the marks of every space and line end, they take a fraction of the
+ * time. `sections` is sectionBreakLabels of the story's paragraphs.
+ */
+export function breakMarks(lines, page, sections) {
+  const marks = [];
+  for (const line of lines) {
+    if (line.virtual) continue;
+    const local = line.cellText?.line || line;
+    const label = BREAK_LABELS[local.hardBreak], section = local.paragraphEnd ? sections.get(line.paragraphId) : undefined;
+    if (!label && !section) continue;
+    const size = Math.max(6, (local.ascent || 12) * 1.05), baseline = local.baseline, stops = local.stops || [];
+    // The x of the line's last caret stop at its end, as formattingMarks reads it.
+    let at = stops.length - 1;
+    while (at >= 0 && stops[at].offset !== local.end) at--;
+    const endX = (at >= 0 ? stops[at].x : undefined) ?? (local.stops?.at(-1)?.x ?? 0);
+    const right = Math.max(endX + 40, page.width - page.right);
+    if (label) marks.push({ kind: 'break', x: endX, width: right - endX, y: baseline, size, text: label, cell: line });
+    if (section) marks.push({ kind: 'section', x: endX, width: right - endX, y: baseline, size, text: section, cell: line });
   }
   return marks;
 }
