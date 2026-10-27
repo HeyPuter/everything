@@ -67,6 +67,19 @@ describe('AI tool merge_cells', () => {
     expect(run('merge_cells', { range: 'G1:G3', action: 'merge_across' }).content).toMatch(/at least two columns/);
   });
 
+  it('counts only the values of the rows it merges, not those of a row an array formula keeps from merging', () => {
+    const { wb, id, env, run } = setup();
+    wb.setArrayFormula(id, { r1: 2, c1: 1, r2: 2, c2: 2 }, '={1,2}');
+    const d = describeCall(wb, 'merge_cells', { range: 'A2:C4', action: 'merge_across' }, env);
+    expect(d.detail).toBe('Keeps only the top-left value of each row: deletes 4 other cells of data.');
+    const res = parsed(run('merge_cells', { range: 'A2:C4', action: 'merge_across' }));
+    expect(res.values_deleted).toMatch(/: 4 other cells of data were cleared/);
+    expect(res.not_merged).toMatch(/A3:C3/);
+    expect(wb.getValue(id, 2, 1)).toBe(1);
+    // Over the array formula alone, nothing is merged and nothing is said to be cleared.
+    expect(describeCall(wb, 'merge_cells', { range: 'A3:C3' }, env).destructive).toBe(false);
+  });
+
   it('grows a merge to take in a merged cell it overlaps', () => {
     const { wb, id, run } = setup();
     run('merge_cells', { range: 'E1:F1' });

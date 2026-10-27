@@ -3019,8 +3019,14 @@ function mergeBlocksOf(range, across) {
 
 /** How many cells of the blocks, past each block's top-left one, hold a value or a formula: what a merge deletes. */
 function mergeDrops(wb, sheetId, blocks) {
+  const sheet = wb.sheet(sheetId);
   let n = 0;
-  for (const b of blocks) n += filledCells(wb, sheetId, b) - (holds(wb.getCell(sheetId, b.r1, b.c1)) ? 1 : 0);
+  for (const b of blocks) {
+    // A block over an array formula entered with Ctrl+Shift+Enter is not merged (see Workbook.mergeBlocks), and
+    // keeps its values: counted, a merge across rows one of which held such a formula said more were cleared than were.
+    if (sheet && wb._fixedArrays(sheet).overlapping(b).next().value) continue;
+    n += filledCells(wb, sheetId, b) - (holds(wb.getCell(sheetId, b.r1, b.c1)) ? 1 : 0);
+  }
   return n;
 }
 
