@@ -46,7 +46,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const cards = new Map();
   const readAloud = createReadAloud({ editor, onState: () => onChange() });
   /* ---- Reviewing Pane: every comment and change in document order ---- */
-  let paneShown = false, paneSignature = '';
+  let paneShown = false, paneSignature = '', paneEntries = [];
   const paneList = el('div.review-pane-list', { role: 'list' });
   const paneSummary = el('p.review-pane-summary');
   let paneOrientation = revisionView.options.paneOrientation || 'vertical';
@@ -75,13 +75,35 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const summary = `${n(changes.length + notes.length, 'revision', 'revisions')}: ${n(count('ins'), 'insertion', 'insertions')}, ${n(count('del'), 'deletion', 'deletions')}, ${count('format')} formatting, ${n(notes.length, 'comment', 'comments')}`;
     // Where the changes are does not change the list (an entry selects its change where it is when chosen), so
     // typing before them does not rebuild every entry.
-    const sig = JSON.stringify([summary, items.map(item => [item.kind, item.author, item.date, item.text])]);
+    const entries = items.map(item => JSON.stringify([item.kind, item.author, item.date, item.text]));
+    const sig = JSON.stringify([summary, entries]);
     if (sig === paneSignature) return;
-    paneSignature = sig;
+    const shown = paneSignature ? paneEntries : null;
+    paneSignature = sig; paneEntries = entries;
     paneSummary.textContent = summary;
-    paneList.replaceChildren(...items.map((item, index) => listItem(el('button.review-pane-item', { type: 'button', onclick: () => { const current = editor(); if (current) paneItems(current).items[index]?.select(); } },
-      el('span.review-pane-head', {}, el('strong', {}, item.author || 'Unknown author'), ' ', el('span', {}, item.kind)),
-      el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)')))));
+    // An entry selects the change or comment at its place in the list when it is chosen.
+    const entry = item => {
+      const node = listItem(el('button.review-pane-item', { type: 'button', onclick: () => { const current = editor(), index = [...paneList.children].indexOf(node); if (current && index >= 0) paneItems(current).items[index]?.select(); } },
+        el('span.review-pane-head', {}, el('strong', {}, item.author || 'Unknown author'), ' ', el('span', {}, item.kind)),
+        el('span.review-pane-text', {}, item.text.replace(/\ufffc/g, '').slice(0, 200) || '(formatting)')));
+      return node;
+    };
+    // Typing in a tracked change changes what one entry shows: only the entries that changed are built again, so
+    // the list is not rebuilt (and laid out again) at every keystroke. The list is rebuilt whole when it held no
+    // entries, and while it has the keyboard, as it always was.
+    if (shown?.length && items.length && paneList.childElementCount === shown.length && !paneList.contains(document.activeElement)) {
+      let head = 0, tail = 0;
+      while (head < shown.length && head < entries.length && shown[head] === entries[head]) head++;
+      while (tail < shown.length - head && tail < entries.length - head && shown[shown.length - 1 - tail] === entries[entries.length - 1 - tail]) tail++;
+      // The list keeps its scroll position, as a rebuilt one does: entries changed above the ones in view do not
+      // scroll it to keep those in place.
+      const top = paneList.scrollTop, children = [...paneList.children], after = children[shown.length - tail] || null;
+      for (const node of children.slice(head, shown.length - tail)) node.remove();
+      for (let index = head; index < entries.length - tail; index++) paneList.insertBefore(entry(items[index]), after);
+      if (paneList.scrollTop !== top) paneList.scrollTop = top;
+      return;
+    }
+    paneList.replaceChildren(...items.map(entry));
     if (!items.length) paneList.append(el('p.field-hint', {}, 'No comments or tracked changes.'));
   }
   /**
