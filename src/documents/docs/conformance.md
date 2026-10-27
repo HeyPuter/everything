@@ -22263,6 +22263,18 @@ Clause: §17.3.2.41 `vanish`. Documents with hidden text no longer open read-onl
 the text (search, copy and save keep them) and are laid out with no width; `revisionView.showHidden`
 lets a Show/Hide ¶ control lay them out. Tests: `tests/hidden-text.test.js`.
 
+## Long block content controls (2026-10-26)
+
+ECMA-376 Part 1 §17.5.2 (`w:sdt`, `w:sdtContent`): a block-level control may hold any number of
+paragraphs, as when a template wraps the whole body in one. Each paragraph inside refers to the
+control, and paragraph copies (editing, undo, the open-time signatures) copied it. The control kept
+its complete source XML and a signature listing every paragraph's text, so memory grew with the
+square of its length: 2,000 paragraphs took 2.4 s to open, 5,000 failed with "Invalid string
+length" and 8,000 crashed the tab. A block, row or cell control's contents are always written from
+the document, so its retained shell now keeps only `w:sdtPr`/`w:sdtEndPr` and an empty
+`w:sdtContent`, and its signature is a digest. Inline controls, whose unchanged contents are written
+from the shell, keep it whole. Test: `tests/long-block-control.test.js`.
+
 ## Long style inheritance chains (2026-10-26)
 
 ECMA-376 Part 1 §17.7.4.3 (`basedOn`) sets no limit on the length of a style inheritance chain.

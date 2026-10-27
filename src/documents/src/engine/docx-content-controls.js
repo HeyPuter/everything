@@ -272,6 +272,11 @@ export function contentControlReader(readRunProperties, parts = {}) {
       }
     }
     const prompt = persistent && !picture ? placeholderRuns(child(child(pr, 'placeholder'), 'docPart')?.getAttributeNS(W, 'val'), kind) : undefined;
-    return { content, control: { id: `sdt${++count}`, shell: serializeFragment(node), ...(hiddenAppearance ? { hiddenAppearance: true } : {}), ...(picture ? { picture: true } : {}), ...(plain ? { plainText: true, multiLine: ['true', '1', 'on'].includes(plain.getAttributeNS(W, 'multiLine')) } : {}), ...(persistent ? { persistent: true, ...(prompt ? { ...(kind !== 'inline' ? { placeholderParagraphs: prompt.runs } : { placeholderRuns: prompt.runs }), ...(prompt.bookmarks.some(p => p.length) ? { placeholderBookmarks: prompt.bookmarks } : {}) } : {}) } : {}), placeholder, inputRun: readRunProperties(child(pr, 'rPr')) } };
+    // A block, row or cell control's contents are always written from the document, never from its
+    // shell, so the shell keeps only the wrapper. Every paragraph inside refers to the control, and
+    // copies of a paragraph copy it: a shell holding the contents grew with the square of their length.
+    let shellNode = node;
+    if (kind !== 'inline') { shellNode = node.cloneNode(false); for (const n of children(node)) shellNode.append(n.namespaceURI === W && n.localName === 'sdtContent' ? n.cloneNode(false) : n.cloneNode(true)); }
+    return { content, control: { id: `sdt${++count}`, shell: serializeFragment(shellNode), ...(hiddenAppearance ? { hiddenAppearance: true } : {}), ...(picture ? { picture: true } : {}), ...(plain ? { plainText: true, multiLine: ['true', '1', 'on'].includes(plain.getAttributeNS(W, 'multiLine')) } : {}), ...(persistent ? { persistent: true, ...(prompt ? { ...(kind !== 'inline' ? { placeholderParagraphs: prompt.runs } : { placeholderRuns: prompt.runs }), ...(prompt.bookmarks.some(p => p.length) ? { placeholderBookmarks: prompt.bookmarks } : {}) } : {}) } : {}), placeholder, inputRun: readRunProperties(child(pr, 'rPr')) } };
   };
 }

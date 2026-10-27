@@ -43,7 +43,16 @@ export function blockControlGroups(paragraphs) {
 export function blockControlSignature(paragraphs, control) {
   // The nearest temporary wrapper owns the edit. Enclosing
   // temporary wrappers stay intact when a nested temporary wrapper is removed.
-  return JSON.stringify(paragraphs.filter(p => p.blockControls?.at(-1)?.id === control.id).map(p => [p.id, p.cellId, controlContentSignature(p.runs)]));
+  // A digest, not the text: each paragraph inside keeps the control, so a signature holding every
+  // paragraph's text grew with the square of the control's length (8,000 paragraphs ran out of memory).
+  return digest(JSON.stringify(paragraphs.filter(p => p.blockControls?.at(-1)?.id === control.id).map(p => [p.id, p.cellId, controlContentSignature(p.runs)])));
+}
+// Two independent 32-bit FNV-1a style hashes and the length: equal contents give equal digests, and
+// different contents practically never collide.
+function digest(text) {
+  let a = 0x811c9dc5, b = 0x01000193 ^ text.length;
+  for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = Math.imul(b ^ c, 0x5bd1e995); b ^= b >>> 15; }
+  return `${text.length}:${(a >>> 0).toString(36)}:${(b >>> 0).toString(36)}`;
 }
 
 export function changedBlockControls(paragraphs, tables = [], groups = blockControlGroups(paragraphs)) {
