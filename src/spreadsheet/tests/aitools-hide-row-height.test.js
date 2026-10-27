@@ -60,6 +60,20 @@ describe('AI tool set_hidden', () => {
     expect(wb.isRowHidden(id, 2)).toBe(true);
   });
 
+  it('shows every hidden row of the sheet, and hides every row below the data, as Unhide and Hide do', () => {
+    const { wb, id, run } = setup();
+    wb.setHidden(id, 'row', [2, 600000], true);
+    wb.clearHistory();
+    expect(parsed(run('set_hidden', { rows: '1:1048576', hidden: false }))).toMatchObject({ shown: 'rows 1–1048576 on Sheet1', changed: 2 });
+    expect(wb.sheet(id).hiddenRows.size).toBe(0);
+    expect(parsed(run('set_hidden', { rows: '6:1048576', hidden: true })).changed).toBe(1048571);
+    expect(wb.isRowHidden(id, 4)).toBe(false);
+    expect(wb.isRowHidden(id, 5) && wb.isRowHidden(id, 1048575)).toBe(true);
+    expect(wb.undoLabels(5)).toHaveLength(2);
+    wb.undo();
+    expect(wb.sheet(id).hiddenRows.size).toBe(0);
+  });
+
   it('refuses bad lines, both or neither axis, a protected sheet and hiding every row', () => {
     const { wb, id, run } = setup();
     expect(run('set_hidden', { rows: 'B', hidden: true }).content).toMatch(/not a row number/);

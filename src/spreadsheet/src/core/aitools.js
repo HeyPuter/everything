@@ -2975,8 +2975,8 @@ function setHidden(wb, args, env) {
   const runs = lineRunsArg(hasRows ? args.rows : args.columns, axis);
   const hide = args.hidden !== false;
   const where = `${linesLabel(axis, runs)} on ${sheet.name}`;
-  const n = runLength(runs);
-  if (n > 100000) throw new ToolError('At most 100,000 rows or columns at once.');
+  // No cap on how many: showing every row ("1:1048576") or hiding every row below the data ("20:1048576") is the
+  // whole sheet, as Hide and Unhide over the selected rows take it; refused past 100,000, neither could be done.
   const set = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
   const indices = [];
   if (hide) for (const { from, to } of runs) for (let i = from; i <= to; i++) indices.push(i);
