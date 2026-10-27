@@ -361,8 +361,13 @@ export class LocalMedia extends Emitter {
 
   stopScreenShare() {
     if (!this.screenStream) return;
-    for (const track of this.screenStream.getTracks()) track.stop();
+    // Drop the reference before stopping tracks. MediaStreamTrack.stop()
+    // fires 'ended' synchronously; the listener below would otherwise see
+    // screenStream still set, re-enter, and emit 'screen' off twice —
+    // which unpublishes and broadcasts state a second time for no reason.
+    const stream = this.screenStream;
     this.screenStream = null;
+    for (const track of stream.getTracks()) track.stop();
     this.emit('screen', { on: false, stream: null });
   }
 
