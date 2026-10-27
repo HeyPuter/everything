@@ -73,7 +73,10 @@ export function conditionalRangesCoverSource(source, ranges, sheetName) {
 export function distinctConditionalRanges(ranges) {
   const out = [];
   for (const range of ranges) {
-    const left = out.reduce((items, cut) => removeRangeRecords(items, cut), [{ range }]);
+    // Only the areas it meets can take anything from it: cutting it by every area before it, a rule of thousands of
+    // areas (one on every other row) took a minute to clear from a few cells.
+    const left = out.reduce((items, cut) => (cut.r1 <= range.r2 && cut.r2 >= range.r1 && cut.c1 <= range.c2 && cut.c2 >= range.c1
+      ? removeRangeRecords(items, cut) : items), [{ range }]);
     out.push(...left.map(item => item.range));
   }
   return out;

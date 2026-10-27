@@ -115,6 +115,17 @@ describe('AI tools: removing conditional formatting', () => {
     expect(wb.sheet(id).rules.map((r) => r.range)).toEqual([{ r1: 3, c1: 1, r2: 4, c2: 1 }]);
   });
 
+  it('takes a rule of thousands of areas off a few cells without freezing', () => {
+    const { wb, id, json } = setup();
+    // A rule from a file on every other row: 20,000 areas, one rule.
+    wb.sheet(id).rules = Array.from({ length: 20000 }, (_, i) => ({ id: `r${i}`, type: 'gt', value: 5, range: { r1: i * 2, c1: 3, r2: i * 2, c2: 3 }, style: { bg: '#ff0000' } }));
+    const started = Date.now();
+    expect(json('remove_conditional_format', { range: 'D1:D100' }).removed).toBe('1 rule from Sheet1!D1:D100');
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(wb.sheet(id).rules).toHaveLength(19950);
+    expect(wb.sheet(id).rules[0].range).toEqual({ r1: 100, c1: 3, r2: 100, c2: 3 });
+  });
+
   it('clears a whole sheet, and says when there was nothing to clear', () => {
     const { wb, id, run, json } = setup();
     json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
