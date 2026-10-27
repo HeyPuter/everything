@@ -177,6 +177,40 @@ describe('cells', () => {
   });
 });
 
+describe('inserting a table', () => {
+  const blocks = doc => documentBlocks(doc.paragraphs, doc.tables).map(b => b.type === 'table' ? 'table' : paragraphText(b.paragraph));
+  const document = texts => { const pkg = createDocx(texts.map(text => paragraph(text)), undefined, undefined, undefined, [], {}, WRITING_STYLES); return { pkg, doc: open(pkg) }; };
+  it('puts it in place of an empty paragraph, or before a paragraph at its start, with no empty paragraph above', async () => {
+    // Word places the table at the paragraph, which then follows the table.
+    const { pkg, doc } = document(['Before', '', 'After']);
+    doc.select('Before\n'.length); doc.insertTable(2, 2, 9000);
+    expect(blocks(doc)).toEqual(['Before', 'table', '', 'After']);
+    expect(doc.tableContext.table).toBe(doc.tables[0]);
+    const { reopened, xml } = await roundTrip(pkg, doc);
+    expect(blocks(reopened)).toEqual(['Before', 'table', '', 'After']);
+    expect(xml).toMatch(/>Before<\/w:t><\/w:r><\/w:p><w:tbl>/);
+    expect(doc.history).toHaveLength(1);
+    doc.undo();
+    expect([blocks(doc), doc.tables]).toEqual([['Before', '', 'After'], []]);
+
+    const heading = document(['Before', 'Heading']).doc;
+    heading.select('Before\n'.length); heading.insertTable(1, 2, 9000);
+    expect(blocks(heading)).toEqual(['Before', 'table', 'Heading']);
+    const first = document(['Only']).doc;
+    first.select(0); first.insertTable(1, 1, 9000);
+    expect(blocks(first)).toEqual(['table', 'Only']);
+    // Inside a paragraph it is split around the table.
+    const middle = document(['Before']).doc;
+    middle.select(3); middle.insertTable(1, 1, 9000);
+    expect(blocks(middle)).toEqual(['Bef', 'table', 'ore']);
+    // Right after another table the paragraph is split too: adjacent tables would join into one.
+    const after = document(['']).doc;
+    after.select(0); after.insertTable(1, 1, 9000);
+    after.select(after.text.length); after.insertTable(1, 1, 9000);
+    expect(blocks(after)).toEqual(['table', '', 'table', '']);
+  });
+});
+
 describe('table commands', () => {
   it('splits a table above the selected row', async () => {
     const { pkg, doc } = tableDocument(3, 2, ['Intro']);
@@ -184,7 +218,7 @@ describe('table commands', () => {
     expect(doc.tables).toHaveLength(2);
     expect(shape(doc, doc.tables[0])).toEqual(['a0 a1']);
     expect(shape(doc, doc.tables[1])).toEqual(['b0 b1', 'c0 c1']);
-    expect(documentBlocks(doc.paragraphs, doc.tables).map(b => b.type)).toEqual(['paragraph', 'paragraph', 'table', 'paragraph', 'table', 'paragraph']);
+    expect(documentBlocks(doc.paragraphs, doc.tables).map(b => b.type)).toEqual(['paragraph', 'table', 'paragraph', 'table', 'paragraph']);
     const { reopened } = await roundTrip(pkg, doc);
     expect(reopened.tables).toHaveLength(2);
   });
@@ -245,7 +279,7 @@ describe('table commands', () => {
     T.convertTextToTable(doc, { separator: 'tab', availableWidth: 8000 });
     const nested = doc.tables.find(t => t.parentCellId === cell.id);
     expect(nested.rows.map(r => r.cells.length)).toEqual([2, 2]);
-    expect(documentBlocks(doc.paragraphs, doc.tables)[1].rows[0].cells[0].content.map(b => b.type)).toEqual(['table', undefined]);
+    expect(documentBlocks(doc.paragraphs, doc.tables).find(b => b.type === 'table').rows[0].cells[0].content.map(b => b.type)).toEqual(['table', undefined]);
     const { reopened } = await roundTrip(pkg, doc);
     expect(reopened.tables).toHaveLength(2);
   });
@@ -476,7 +510,7 @@ describe('deleting a selection around tables', () => {
   it('removes a table the selection encloses together with text around it', async () => {
     const { pkg, doc } = tableDocument(2, 2, ['Before']);
     doc.select(doc.text.length); doc.replace('After');
-    expect(doc.text).toBe('Before\n\na0\na1\nb0\nb1\nAfter');
+    expect(doc.text).toBe('Before\na0\na1\nb0\nb1\nAfter');
     // From inside the paragraph before to inside the one after: the two ends join.
     doc.select(3, doc.text.length - 2);
     expect(doc.replace('')).toBe(true);
@@ -490,9 +524,9 @@ describe('deleting a selection around tables', () => {
     const other = tableBetween().doc;
     other.select(0, other.text.length); other.replace('X');
     expect([other.text, other.tables.length]).toEqual(['X', 0]);
-    // A selection from the end of the paragraph before to the start of the one after takes just the table.
+    // A selection from the start of the table to the start of the paragraph after takes just the table.
     const exact = tableBetween().doc;
-    exact.select(exact.text.indexOf('\na0'), exact.text.indexOf('After'));
+    exact.select(exact.text.indexOf('a0'), exact.text.indexOf('After'));
     exact.replace('');
     expect([exact.text, exact.tables.length]).toEqual(['Before\nAfter', 0]);
   });

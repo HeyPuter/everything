@@ -1209,10 +1209,16 @@ export class TextDocument {
       });
       table.rows.push(row);
     }
-    const location = locate(this.paragraphs, this.range[0]);
-    this.replace('\n'); // One transaction splits the surrounding paragraph.
+    const location = locate(this.paragraphs, this.range[0]), here = this.paragraphs[location.index], before = this.paragraphs[location.index - 1];
+    // At the start of a paragraph, or in an empty one, the table goes before it, as in Word: splitting
+    // there would leave an extra empty paragraph above the table. A paragraph right after a table at
+    // the same level is still split, since adjacent tables would join into one.
+    const insideHere = cellId => { for (let at = cellId && cellContext(this.tables, cellId); at; at = at.table.parentCellId && cellContext(this.tables, at.table.parentCellId)) if (at.table.parentCellId === here.cellId) return true; return false; };
+    const ahead = location.offset === 0 && (!before || before.cellId === here.cellId || (here.cellId ? !insideHere(before.cellId) : !before.cellId));
+    if (ahead) this.checkpoint();
+    else this.replace('\n'); // One transaction splits the surrounding paragraph.
     this.styles = styles; this.stylesEnabled = true;
-    this.paragraphs.splice(location.index + 1, 0, ...content); this.tables.push(table);
+    this.paragraphs.splice(location.index + (ahead ? 0 : 1), 0, ...content); this.tables.push(table);
     this.selectCell(table.rows[0].cells[0].id); this.didChange(); return true;
   }
   insertTableRow() {

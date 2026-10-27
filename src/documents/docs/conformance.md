@@ -23355,6 +23355,12 @@ and `docx.js` (styles part). Regressions: `tests/table-editing.test.js`,
 and rewrite only changed declarations; untouched rows and cells keep their source
 shells. Supported authoring subset:
 
+- Placement: with the caret in an empty paragraph, or at the start of a paragraph,
+  Insert Table puts the `w:tbl` before that paragraph, as Word does, instead of
+  splitting it and leaving an empty paragraph above the table. Inside a paragraph,
+  and in a paragraph that directly follows a table at the same level (two adjacent
+  `w:tbl` elements would read as one table), the paragraph is split around the table.
+
 - Grid and spans: `w:tblGrid`/`w:gridCol` (§17.4.48/§17.4.16) are rewritten
   after insert/delete/split of columns, cell splits and Draw Table lines;
   `w:gridSpan` (§17.4.17) and `w:vMerge` restart/continue (§17.4.84) for

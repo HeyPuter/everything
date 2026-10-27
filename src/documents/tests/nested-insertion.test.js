@@ -27,7 +27,9 @@ for(const label of ['Outer before','Inner line 1','Outer after'])for(const posit
   expect(border.x+border.width).toBeLessThanOrEqual(owner.x+owner.width-parent.cell.margins.right/15+1e-6);
  }
  const suffix=original.slice(at),prefix=original.slice(0,at);
- expect(doc.text).toBe(prefix+'\n\n\n\n\n'+suffix);
+ // At the start of a paragraph the table goes before it; elsewhere, or right after another table
+ // (Outer after follows the inner table), the paragraph is split around it.
+ expect(doc.text).toBe(prefix+(position==='start'&&label!=='Outer after'?'\n\n\n\n':'\n\n\n\n\n')+suffix);
  const bytes=await save(pkg,doc),reopened=model(await DocxPackage.open(bytes));
  expect(reopened.text).toBe(doc.text);expect(reopened.tables).toHaveLength(3);
  const xml=new DOMParser().parseFromString(strFromU8(unzipSync(bytes)['word/document.xml']),'application/xml');
