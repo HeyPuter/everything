@@ -165,6 +165,24 @@ describe('solve', () => {
     } finally { Date.now = realNow; }
   });
 
+  it('adds its reports without taking the user back from the sheet they went to while it worked', async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => (now += 50);
+    try {
+      const { wb, id, run } = production();
+      const other = wb.addSheet('Other');
+      wb.setActiveSheet(id);
+      wb.setInput(id, 5, 1, '=(B1-3)^2+(B2+1)^2');
+      const pending = run('solve', { objective: 'B6', goal: 'min', variables: 'B1:B2', max_seconds: 120, reports: ['answer'] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      wb.setActiveSheet(other.id);
+      const res = await pending;
+      expect(JSON.parse(res.content).reports_added).toEqual(['Answer Report 1']);
+      expect(wb.activeSheetId).toBe(other.id);
+    } finally { Date.now = realNow; }
+  });
+
   it('refuses variable cells that hold formulas, are protected, or lie on another sheet', async () => {
     const { wb, id, run } = production();
     expect((await run('solve', { ...MODEL, variables: 'B1:C1' })).content).toMatch(/^Error: variables: The variable cell \$C\$1 holds a formula/);

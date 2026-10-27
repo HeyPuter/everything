@@ -930,6 +930,7 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
     built.push({ title, ...build(wb, p, result, when) });
   }
   const reportSheetIds = [];
+  const front = wb.activeSheetId;
   // Written on the model's sheet (and the reports' own) alone: with the sheet grouped with others, the values kept
   // went onto the same cells of every other sheet in the group, as typing into a group does.
   wb.transaction(label, () => alone(wb, () => {
@@ -949,8 +950,9 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
       wb.setCells(added.id, report.entries, label);
       report.widths.forEach((w, c) => wb.setColWidth(added.id, c, w));
     }
-    // A new sheet becomes the active one; the model's sheet stays in front.
-    if (reportSheetIds.length) wb.setActiveSheet(sheetId);
+    // A new sheet becomes the active one; the sheet in front stays there: the model's from the dialog, and whichever
+    // the user has gone to while the assistant's solve ran, rather than the view jumping back to the model's.
+    if (reportSheetIds.length) wb.setActiveSheet(wb.sheet(front) ? front : sheetId);
   }));
   return { reportSheetIds };
 }
