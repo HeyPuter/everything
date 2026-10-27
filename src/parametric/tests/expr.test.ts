@@ -25,6 +25,11 @@ describe('expression evaluator', () => {
     expect(evaluate('1rad', { kind: 'angle' })).toBeCloseTo(57.29578, 4);
   });
 
+  it('accepts degree symbol and deg suffix for angles', () => {
+    expect(evaluate('45\u00B0', { kind: 'angle' })).toBe(45);
+    expect(evaluate('45deg', { kind: 'angle' })).toBe(45);
+  });
+
   it('looks up variables and rejects unknown names', () => {
     expect(evaluate('W/2 + 1', { lookup: (n) => (n === 'W' ? 10 : undefined) })).toBe(6);
     expect(() => evaluate('Q + 1')).toThrow(ExprError);

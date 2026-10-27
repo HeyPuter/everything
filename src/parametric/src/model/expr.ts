@@ -47,7 +47,7 @@ function tokenize(src: string): Tok[] {
       i += m[0].length;
       continue;
     }
-    if (/[A-Za-z_"'Â°]/.test(ch)) {
+    if (/[A-Za-z_"'°]/.test(ch)) {
       if (ch === '"' || ch === "'") {
         // Quoted variable name, or an inch/foot mark right after a number.
         const prev = out[out.length - 1];
@@ -58,8 +58,9 @@ function tokenize(src: string): Tok[] {
         i = end + 1;
         continue;
       }
-      if (ch === 'Â°') { out.push({ k: 'name', v: 'Â°' }); i++; continue; }
-      const m = /^[A-Za-z_][A-Za-z0-9_@.]*/.exec(src.slice(i))!;
+      if (ch === '°') { out.push({ k: 'name', v: '°' }); i++; continue; }
+      const m = /^[A-Za-z_][A-Za-z0-9_@.]*/.exec(src.slice(i));
+      if (!m) throw new ExprError(`Unexpected "${ch}"`);
       out.push({ k: 'name', v: m[0] });
       i += m[0].length;
       continue;

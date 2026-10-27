@@ -671,7 +671,7 @@ export class SketchEditor implements ViewportTool {
           this.app.viewport.overlay.append(el);
         }
         const v = measureDimension(sk, d);
-        const text = d.type === 'angle' ? `${formatNumber(v, Math.max(0, decimals - 1))}Â°` : `${d.type === 'diameter' ? 'âŒ€' : d.type === 'radius' ? 'R' : ''}${formatNumber(v / UNIT_SYSTEMS[units].scale, decimals)}`;
+        const text = d.type === 'angle' ? `${formatNumber(v, Math.max(0, decimals - 1))}°` : `${d.type === 'diameter' ? '⌀' : d.type === 'radius' ? 'R' : ''}${formatNumber(v / UNIT_SYSTEMS[units].scale, decimals)}`;
         el.textContent = d.driven ? `(${text})` : text;
         el.className = `dim-label${d.driven ? ' driven' : ''}${bad.has(d.id) ? ' bad' : ''}${typeof d.value === 'string' ? ' expr' : ''}${sel.has(d.id) ? ' selected' : ''}`;
         el.title = `${d.name}${typeof d.value === 'string' ? ` = ${d.value.replace(/^=/, '')}` : ''}`;
@@ -828,7 +828,7 @@ export class SketchEditor implements ViewportTool {
     if (from) {
       const len = dist2(from, s.p) / sc;
       const ang = (Math.atan2(s.p[1] - from[1], s.p[0] - from[0]) * 180) / Math.PI;
-      text = `L ${formatNumber(len, dec)}  A ${formatNumber(ang, 1)}Â°`;
+      text = `L ${formatNumber(len, dec)}  A ${formatNumber(ang, 1)}°`;
     }
     tip.append(text);
     tip.hidden = false;
