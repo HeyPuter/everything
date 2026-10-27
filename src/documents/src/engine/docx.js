@@ -1782,7 +1782,12 @@ export class DocxPackage {
           // failed before it could register an original. This is display-only.
           const recovered = previewParagraphs(node);
           if (context.cellId && !recovered.length) recovered.push(paragraph());
-          for (const p of recovered) Object.assign(p, context, { storySource: serializeFragment(node) });
+          // Only the table reader and story originals read it, so body blocks need none: a
+          // recovered table has a paragraph per cell, and each copy of the whole table made
+          // opening one with thousands of cells quadratic, past the longest string a snapshot can hold.
+          const sourced = context.cellId || context.pageStory || context.drawingText;
+          const storySource = sourced && recovered.length ? serializeFragment(node) : undefined;
+          for (const p of recovered) Object.assign(p, context, sourced ? { storySource } : {});
           result.push(...recovered);
         }
       }
