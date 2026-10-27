@@ -362,6 +362,11 @@ export const TOOLS = [
     columns: str('Columns, e.g. "C", "B:D" or "A,C:E".'),
     hidden: bool('true hides them, false shows them again.'),
   }, ['hidden']),
+  fn('merge_cells', 'Merge cells into one, or unmerge them. A merged cell keeps only its top-left value: the other values in it are deleted.', {
+    range: RANGE,
+    action: str('"merge" makes the range one cell (default), "merge_across" merges each row of it on its own, "unmerge" splits every merged cell the range touches.', { enum: ['merge', 'merge_across', 'unmerge'] }),
+    center: bool('Center the text, as Merge & Center does (default true for merge, false for merge_across).'),
+  }, ['range']),
   fn('add_note', 'Attach a note (comment) to a cell, or replace its note. An empty text removes it.', {
     cell: str('The cell, e.g. "D4" or "Sheet2!B7".'), text: str('The note.'),
   }, ['cell', 'text']),
@@ -2904,6 +2909,91 @@ function setHidden(wb, args, env) {
   return { [hide ? 'hidden' : 'shown']: where, changed: pending.length, ...(byFilter ? { note: byFilter } : {}) };
 }
 
+/* ---------- Merged cells ---------- */
+
+/**
+ * The cells a merge takes: whole columns or rows as far as the sheet's data goes (not a million rows), grown to take in
+ * the whole of every merged cell they touch, as a selection over part of one takes it in.
+ */
+function mergeArea(wb, sheetId, asked) {
+  const used = wb.usedRange(sheetId);
+  const range = { ...asked };
+  if (range.r2 >= MAX_ROW) range.r2 = Math.max(range.r1, Math.min(range.r2, used?.r2 ?? range.r1));
+  if (range.c2 >= MAX_COL) range.c2 = Math.max(range.c1, Math.min(range.c2, used?.c2 ?? range.c1));
+  return wb.expandToMerges(sheetId, range);
+}
+
+/** The blocks a merge makes of its range: the range itself, or each row of it. */
+function mergeBlocksOf(range, across) {
+  if (!across) return [range];
+  const blocks = [];
+  for (let r = range.r1; r <= range.r2; r++) blocks.push({ r1: r, c1: range.c1, r2: r, c2: range.c2 });
+  return blocks;
+}
+
+/** How many cells of the blocks, past each block's top-left one, hold a value or a formula: what a merge deletes. */
+function mergeDrops(wb, sheetId, blocks) {
+  let n = 0;
+  for (const b of blocks) n += filledCells(wb, sheetId, b) - (holds(wb.getCell(sheetId, b.r1, b.c1)) ? 1 : 0);
+  return n;
+}
+
+/** The table whose header or data cells a range overlaps, which cannot be merged; its totals row can. */
+function tableInMerge(wb, sheetId, range) {
+  return (wb.sheet(sheetId)?.tables || []).find((t) => !(range.r2 < t.range.r1 || range.r1 > tableRows(t).dataEnd || range.c2 < t.range.c1 || range.c1 > t.range.c2)) || null;
+}
+
+function mergeCells(wb, args, env) {
+  const { sheetId, range: asked } = resolveRange(wb, args.range, env.sheetId());
+  const action = args.action || 'merge';
+  if (!['merge', 'merge_across', 'unmerge'].includes(action)) throw new ToolError('action must be merge, merge_across or unmerge.');
+  if (action === 'unmerge') {
+    const hit = wb.mergesIn(sheetId, asked);
+    if (!hit.length) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no merged cells.`);
+    for (const g of hit) assertWritable(wb, sheetId, g);
+    wb.transaction('AI edit', () => wb.unmergeCells(sheetId, asked));
+    return { unmerged: hit.slice(0, 20).map((g) => qualified(wb, sheetId, g)), ...(hit.length > 20 ? { more: hit.length - 20 } : {}) };
+  }
+  const across = action === 'merge_across';
+  const range = mergeArea(wb, sheetId, asked);
+  if (across ? range.c1 === range.c2 : range.r1 === range.r2 && range.c1 === range.c2) {
+    throw new ToolError(across ? 'merge_across needs at least two columns.' : 'A single cell cannot be merged; give a range of two or more cells.');
+  }
+  if ((range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1) > 20000) throw new ToolError('At most 20,000 cells can be merged at once.');
+  assertWritable(wb, sheetId, range);
+  const table = tableInMerge(wb, sheetId, range);
+  if (table) throw new ToolError(`${qualified(wb, sheetId, range)} overlaps the table ${table.name}, whose header and data cells cannot be merged.`);
+  const blocks = mergeBlocksOf(range, across);
+  const dropped = mergeDrops(wb, sheetId, blocks);
+  // A merged cell shows its top-left cell alone, so results a formula spilled into the rest of it are blocked.
+  const firsts = new Set(blocks.map((b) => cellKey(b.r1, b.c1)));
+  const hit = spillsHit(wb, sheetId, range, (r, c) => !firsts.has(cellKey(r, c)));
+  const center = args.center ?? !across;
+  let merged = [];
+  wb.transaction('AI edit', () => {
+    // Merged cells already inside the range give way to the new blocks, as Merge Across replaces them.
+    if (across) wb.unmergeCells(sheetId, range);
+    merged = wb.mergeBlocks(sheetId, blocks);
+    if (!center) return;
+    for (const [i, b] of blocks.entries()) {
+      // Asked for, the text is centred; by default only a cell with no alignment of its own is, as the toolbar does.
+      if (merged[i] && (args.center === true || !wb.styleAt(sheetId, b.r1, b.c1)?.align)) wb.applyStyle(sheetId, { r1: b.r1, c1: b.c1, r2: b.r1, c2: b.c1 }, { align: 'center' });
+    }
+  });
+  const done = merged.filter(Boolean).length;
+  // The workbook refuses a block over an array formula entered with Ctrl+Shift+Enter (the checks above cover the rest).
+  if (!done) throw new ToolError(`${qualified(wb, sheetId, range)} could not be merged: an array formula is in the way.`);
+  const refused = blocks.filter((b, i) => !merged[i]);
+  const blocked = blockedSpills(wb, sheetId, hit);
+  return {
+    merged: across ? `each row of ${qualified(wb, sheetId, range)}` : qualified(wb, sheetId, range),
+    ...(rangeName(range) !== rangeName(asked) && !(asked.r2 >= MAX_ROW || asked.c2 >= MAX_COL) ? { note: `Grown to ${rangeName(range)} to take in the merged cells it overlapped.` } : {}),
+    ...(dropped ? { values_deleted: `Only the top-left value${across ? ' of each row' : ''} was kept: ${dropped} other cell${dropped === 1 ? '' : 's'} of data ${dropped === 1 ? 'was' : 'were'} cleared.` } : {}),
+    ...(refused.length ? { not_merged: `${refused.length} row${refused.length === 1 ? '' : 's'} (${refused.slice(0, 5).map((b) => rangeName(b)).join(', ')}) could not be merged: an array formula is in the way.` } : {}),
+    ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
+  };
+}
+
 function addNote(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
   assertWritable(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 });
@@ -3138,6 +3228,7 @@ const RUNNERS = {
   set_column_width: setColumnWidth,
   set_row_height: setRowHeight,
   set_hidden: setHidden,
+  merge_cells: mergeCells,
   add_note: addNote,
   goal_seek: goalSeek,
   solve,
@@ -3489,6 +3580,24 @@ export function describeCall(wb, name, args = {}, env) {
       let which = String((axis === 'row' ? args.rows : args.columns) ?? '');
       try { which = linesLabel(axis, lineRunsArg(axis === 'row' ? args.rows : args.columns, axis)); } catch { /* the runner explains */ }
       return { label: `${args.hidden === false ? 'Show' : 'Hide'} ${which} on ${sheetName(args.sheet)}` };
+    }
+    case 'merge_cells': {
+      const t = at(args.range);
+      const action = args.action || 'merge';
+      if (action === 'unmerge') return { label: `Unmerge the merged cells in ${t.text}` };
+      // Merging keeps the top-left value alone: the other values the blocks hold are deleted, and asked about.
+      const across = action === 'merge_across';
+      let dropped = 0, spills = 0, text = t.text;
+      if (t.range) {
+        const range = mergeArea(wb, t.s, t.range);
+        const blocks = mergeBlocksOf(range, across);
+        dropped = mergeDrops(wb, t.s, blocks);
+        const firsts = new Set(blocks.map((b) => cellKey(b.r1, b.c1)));
+        spills = spillsHit(wb, t.s, range, (r, c) => !firsts.has(cellKey(r, c))).length;
+        text = qualified(wb, t.s, range);
+      }
+      const detail = [dropped && `Keeps only the top-left value${across ? ' of each row' : ''}: deletes ${plural(dropped, 'other cell')} of data.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      return { label: across ? `Merge each row of ${text}` : `Merge ${text}`, destructive: !!detail, detail: detail || null };
     }
     case 'add_note': {
       // A note the cell already has is the user's writing: replacing or removing it asks, as replacing a value does.
