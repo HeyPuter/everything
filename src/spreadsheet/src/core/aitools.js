@@ -31,7 +31,7 @@ import { findAll, replaceCells, replaceInText, compilePattern, cellMatches, sear
 import { copyMergeLayout } from './clipboard.js';
 import { composePaste } from './paste-special.js';
 import { formulaReachesOut } from './reaches-out.js';
-import { upperName } from './formula/tokenizer.js';
+import { tokenize, upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
 import { cellFromInput, objectNoun, safeLinkUrl } from './workbook.js';
 import { getThread, copyThreads, pasteThreads } from './comments.js';
@@ -3109,6 +3109,14 @@ const BARE_REF = /^(?:\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}
 function nameRefText(wb, text, env) {
   const t = String(text ?? '').trim().replace(/^=/, '');
   if (!t) throw new ToolError('Give refers_to: a range such as "Sheet1!B2:B20" or a formula such as "=0.2".');
+  // Several ranges ("A1:B2,D4") are anchored each, as one is: left bare, the name meant those cells on whichever sheet
+  // a formula used it from.
+  let tokens = null;
+  try { tokens = tokenize(t); } catch { /* a formula the workbook judges */ }
+  if (tokens?.length > 2 && tokens.length % 2 && tokens.every((k, i) => (i % 2 ? k.type === 'comma' : k.type === 'ref'))) {
+    const parts = tokens.filter((k, i) => i % 2 === 0).map((k) => nameRefText(wb, t.slice(k.start, k.end), env));
+    if (parts.every((part) => wb.parseNamedRef(part))) return parts.join(',');
+  }
   const ref = wb.parseNamedRef(t);
   if (!BARE_REF.test(t) && (!ref || ref.spill || ref.sheetEnd)) return t;
   let found;

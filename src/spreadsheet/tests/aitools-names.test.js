@@ -41,6 +41,17 @@ describe('AI tool manage_name', () => {
     expect(wb.namedRef('Col').kind).toBeTruthy();
   });
 
+  it('anchors each range of several on its sheet, so the name means the same cells from every sheet', () => {
+    const { wb, id, run } = setup();
+    const two = wb.addSheet('Q1 Data');
+    wb.setActiveSheet(id);
+    expect(parsed(run('manage_name', { action: 'define', name: 'Picked', refers_to: "B2:B3, 'Q1 Data'!C1,D:D" })).refers_to)
+      .toBe("Sheet1!$B$2:$B$3,'Q1 Data'!$C$1,Sheet1!$D:$D");
+    wb.setInput(two.id, 0, 2, '10');
+    wb.setInput(two.id, 4, 4, '=SUM(Picked)');
+    expect(wb.getValue(two.id, 4, 4)).toBe(15);
+  });
+
   it('defines a named formula as given', () => {
     const { wb, id, run } = setup();
     expect(parsed(run('manage_name', { action: 'define', name: 'TaxRate', refers_to: '=0.2' })).refers_to).toBe('0.2');
