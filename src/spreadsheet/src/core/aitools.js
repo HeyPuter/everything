@@ -2068,7 +2068,7 @@ function createPivotTable(wb, args, env) {
     ...(dest ? {} : { new_sheet: wb.sheet(sheetId).name }),
     summarizes: `${aggLabel} of ${label(spec.valueField)} by ${label(spec.rowField)}${spec.colField != null ? ` and ${label(spec.colField)}` : ''}`,
     row_labels: built.rowCount, ...(spec.colField != null ? { column_labels: built.colCount } : {}),
-    ...(filterAt ? { filter: `${label(spec.filters[0].field)}: the cell ${qualified(wb, sheetId, { r1: area.r1 + filterAt.r, c1: area.c1 + filterAt.c, r2: area.r1 + filterAt.r, c2: area.c1 + filterAt.c })} picks the value (now ${JSON.stringify(wb.getValue(sheetId, area.r1 + filterAt.r, area.c1 + filterAt.c))}).` } : {}),
+    ...(filterAt ? { filter: `${label(spec.filters[0].field)}: the cell ${qualified(wb, sheetId, { r1: area.r1 + filterAt.r, c1: area.c1 + filterAt.c, r2: area.r1 + filterAt.r, c2: area.c1 + filterAt.c })} picks the value (now ${JSON.stringify(wb.getDisplay(sheetId, area.r1 + filterAt.r, area.c1 + filterAt.c))}).` } : {}),
     ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     note: 'The totals are live formulas over the source; new categories in the source appear after the user refreshes the pivot table.',
   };

@@ -78,6 +78,14 @@ describe('create_pivot_table', () => {
     expect(run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Quarter', filter_value: 'Q9' }).content).toMatch(/"Quarter" has no value "Q9"\. Some it has: "Q1", "Q2"/);
   });
 
+  it('names the date a filter starts on as the cell shows it', () => {
+    const { wb, id, run } = setup();
+    wb.applyStyle(id, { r1: 1, c1: 1, r2: 5, c2: 1 }, { fmt: 'custom', code: 'yyyy-mm-dd' });
+    for (let r = 1; r <= 5; r++) wb.setInput(id, r, 1, r < 3 ? '2024-01-15' : '2024-02-01');
+    const out = parsed(run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Rep', filter_value: '2024-01-15' }));
+    expect(out.filter).toBe(`Rep: the cell 'Pivot of Sheet1'!B1 picks the value (now "2024-01-15").`);
+  });
+
   it('puts it at a cell on an existing sheet, with its formulas there, and Refresh rebuilds it in place', () => {
     const { wb, id, run } = setup();
     const out = parsed(run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Rep', destination: 'F3' }));
