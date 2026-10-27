@@ -3143,6 +3143,12 @@ function nameUses(wb, entry) {
 /** The workbook's name a sheet's name of the same spelling stands in front of, which its formulas fall back to once it goes. */
 const shadowedName = (wb, entry) => (entry.sheet ? nameIn(wb, entry.name, null) : null);
 
+// Excel's built-in names (_xlnm.Print_Area, _xlnm._FilterDatabase, …): the file's own way of saving a print area or a
+// filter. One defined by hand did nothing here, then became the print area once the file was saved and opened again
+// (or two print areas, which Excel repairs).
+const BUILT_IN_NAME = /^_xlnm\./i;
+const builtInRefusal = (name) => new ToolError(`${name} is one of the names Excel keeps for itself (a print area, a filter); a name cannot start with _xlnm.`);
+
 function manageName(wb, args, env) {
   const action = args.action;
   if (!['define', 'rename', 'delete'].includes(action)) throw new ToolError('action must be define, rename or delete.');
@@ -3153,6 +3159,7 @@ function manageName(wb, args, env) {
   const label = scope ? `${quoteSheet(scope)}!${existing?.name ?? name}` : existing?.name ?? name;
   // Names the workbook keeps for itself (a print area, a pivot table's settings) are hidden: not the user's to change.
   if (existing?.hidden) throw new ToolError(`${label} is a hidden name the workbook keeps for itself; it cannot be changed here.`);
+  if (action === 'define' && !existing && BUILT_IN_NAME.test(name)) throw builtInRefusal(name);
   if (action !== 'define' && !existing) {
     const elsewhere = (wb.names || []).filter((n) => !n.hidden && n.name.toLowerCase() === name.toLowerCase()).map((n) => (n.sheet ? `${quoteSheet(n.sheet)}!${n.name} (scope ${n.sheet})` : `${n.name} (workbook scope)`));
     throw new ToolError(`There is no name ${label}${scope ? '' : ' in the workbook scope'}.${elsewhere.length ? ` There is ${elsewhere.join(' and ')}.` : ''}`);
@@ -3178,6 +3185,7 @@ function manageName(wb, args, env) {
   }
   const to = String(args.new_name ?? '').trim();
   if (!to) throw new ToolError('Give new_name, the name to rename it to.');
+  if (BUILT_IN_NAME.test(to) && to.toLowerCase() !== existing.name.toLowerCase()) throw builtInRefusal(to);
   wb.transaction('AI edit', () => { problem = wb.renameName(existing.name, scope, to, refText); });
   if (problem) throw new ToolError(`${label} could not be renamed to ${to}: ${problem}.`);
   return { renamed: label, to, refers_to: refText, ...(existing.ref !== refText ? { replaced: `It referred to ${existing.ref} before.` } : {}), ...(note ? { note } : {}) };

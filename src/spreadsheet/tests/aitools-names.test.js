@@ -173,6 +173,14 @@ describe('AI tool manage_name', () => {
     expect(wb.names.length).toBe(1);
   });
 
+  it('refuses Excel\'s built-in names, which a saved file reads as a print area or a filter', () => {
+    const { wb, run } = setup();
+    expect(run('manage_name', { action: 'define', name: '_xlnm.Print_Area', refers_to: 'A1:B4', scope: 'Sheet1' }).content).toMatch(/cannot start with _xlnm\./);
+    run('manage_name', { action: 'define', name: 'Area', refers_to: 'A1:B4' });
+    expect(run('manage_name', { action: 'rename', name: 'Area', new_name: '_XLNM._FilterDatabase' }).content).toMatch(/cannot start with _xlnm\./);
+    expect(wb.names.map((n) => n.name)).toEqual(['Area']);
+  });
+
   it('distrusts a name that reaches outside the workbook, as a formula that does', () => {
     const { env, run } = setup();
     const res = parsed(run('manage_name', { action: 'define', name: 'Grab', refers_to: '=LAMBDA(u, IMPORTDATA(u))' }));
