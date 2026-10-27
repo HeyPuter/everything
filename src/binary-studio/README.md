@@ -20,8 +20,9 @@ their UI, assets, or proprietary code.
 - **Hex + ASCII view** — synchronized selection with disassembly
 - **x86 / x86-64 disassembly** — address, bytes, mnemonic, operands for a
   practical core of integer instructions; unknown opcodes become `db`
-- **Functions & CFG data** — entry + symbol + call-target / prologue heuristics,
-  basic blocks and successor edges (no graph renderer yet)
+- **Functions & CFG view** — entry + symbol + call-target / prologue heuristics,
+  basic blocks and successor edges rendered as an SVG control-flow graph (click
+  a block to sync hex / disassembly)
 - **Strings** — ASCII and simple UTF-16LE extraction with filter
 - **Sessions** — comments and bookmarks persisted in `localStorage` (keyed by
   optional SHA-256 of the file)

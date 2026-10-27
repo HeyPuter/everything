@@ -1,5 +1,6 @@
 import { analyzeBinary } from '../engine/analyze.js';
 import { formatAddr } from '../engine/bytes.js';
+import { cfgToSvg, layoutCfg } from '../engine/cfg-layout.js';
 import {
   deleteSession,
   listSessions,
@@ -56,6 +57,10 @@ export function mountApp(root) {
         <h2 class="panel-title">Disassembly</h2>
         <div class="panel-body" data-disasm></div>
       </section>
+      <section class="panel panel-cfg">
+        <h2 class="panel-title">CFG <span class="panel-hint" data-cfg-title></span></h2>
+        <div class="panel-body cfg-body" data-cfg></div>
+      </section>
       <section class="panel panel-hex">
         <h2 class="panel-title">Hex</h2>
         <div class="panel-body" data-hex></div>
@@ -80,6 +85,7 @@ export function mountApp(root) {
       <ul>
         <li>PE and ELF loaders with safe reject of truncated / malformed input</li>
         <li>Focused x86 / x86-64 decoder (not full Capstone coverage)</li>
+        <li>Per-function CFG layout (basic blocks + edges)</li>
         <li>Session annotations stored in localStorage</li>
       </ul>
       <div class="drop-hint">
@@ -96,6 +102,8 @@ export function mountApp(root) {
     welcome: root.querySelector('[data-welcome]'),
     functions: root.querySelector('[data-functions]'),
     disasm: root.querySelector('[data-disasm]'),
+    cfg: root.querySelector('[data-cfg]'),
+    cfgTitle: root.querySelector('[data-cfg-title]'),
     hex: root.querySelector('[data-hex]'),
     side: root.querySelector('[data-side]'),
     saveBtn: root.querySelector('[data-action="save"]'),
@@ -159,6 +167,11 @@ export function mountApp(root) {
     if (!row) return;
     selectOffset(Number(row.dataset.offset));
   });
+  els.cfg.addEventListener('click', (ev) => {
+    const node = ev.target.closest('[data-start]');
+    if (!node) return;
+    selectOffset(Number(node.dataset.start));
+  });
   els.functions.addEventListener('click', (ev) => {
     const row = ev.target.closest('[data-fn]');
     if (!row || !state.analysis) return;
@@ -212,6 +225,7 @@ export function mountApp(root) {
     );
     if (fn) state.activeFunctionId = fn.id;
     renderDisasm();
+    renderCfg();
     renderHex();
     renderFunctions();
     if (state.sideTab === 'annotate') renderSide();
@@ -224,8 +238,31 @@ export function mountApp(root) {
     showError(null);
     renderFunctions();
     renderDisasm();
+    renderCfg();
     renderHex();
     renderSide();
+  }
+
+  function renderCfg() {
+    const a = state.analysis;
+    const fn =
+      a?.functions?.find((f) => f.id === state.activeFunctionId) || a?.functions?.[0];
+    if (!els.cfg) return;
+    if (!fn?.blocks?.length) {
+      if (els.cfgTitle) els.cfgTitle.textContent = '';
+      els.cfg.innerHTML = '<div class="empty">Select a function with basic blocks.</div>';
+      return;
+    }
+    if (els.cfgTitle) els.cfgTitle.textContent = `· ${fn.name}`;
+    const layout = layoutCfg(fn.blocks);
+    const selectedStart =
+      fn.blocks.find(
+        (b) =>
+          state.selectedOffset != null &&
+          state.selectedOffset >= b.start &&
+          state.selectedOffset < b.end,
+      )?.start ?? fn.blocks[0].start;
+    els.cfg.innerHTML = cfgToSvg(layout, { selectedStart });
   }
 
   function renderFunctions() {
