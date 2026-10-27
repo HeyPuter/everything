@@ -10,6 +10,7 @@ const THUMB_WIDTH = 132;
  *
  * api: navigate(paragraphId), goToPage(index), pages() → canvases, search(text) → matches,
  *      text() → document text, selectMatch(match), highlight(matches), close(), focusEditor(),
+ *      version() → optional list of values that change whenever the searched text may have,
  *      headingActions() → optional { canEdit(), move(id, targetId, 'before' | 'after'), promote(id), demote(id),
  *      remove(id), insert(id, 'before' | 'after' | 'sub'), select(id) }: headings can then be dragged to
  *      reorder their sections, and their context menu promotes, demotes, adds and deletes them.
@@ -60,9 +61,19 @@ export function createNavigationPane(api) {
 
   /* ---- Search: highlights every match in the document and lists them under Results ---- */
   let current = -1;
+  // The last search, kept while the document and the search are the same: a caret move does not search again.
+  let searched = null;
+  function find(text) {
+    if (!text) return [];
+    const version = api.version?.() || null;
+    if (version && searched?.text === text && searched.version.length === version.length && searched.version.every((v, i) => v === version[i])) return searched.matches;
+    const found = api.search(text);
+    searched = version ? { text, version, matches: found } : null;
+    return found;
+  }
   function runSearch() {
     const text = search.value;
-    matches = text ? api.search(text) : [];
+    matches = find(text);
     current = -1;
     api.highlight(matches);
     status.textContent = !text ? '' : matches.length ? `${matches.length} result${matches.length === 1 ? '' : 's'}` : 'No matches';
@@ -228,11 +239,24 @@ export function createNavigationPane(api) {
     const body = matches.length ? api.text() : '';
     // Choosing a result redraws the list; keyboard focus stays on the same row instead of dropping to the page.
     const focused = [...resultList.querySelectorAll('.nav-result')].indexOf(document.activeElement);
-    resultList.replaceChildren(...matches.slice(0, 500).map((match, i) => {
+    // A row whose words are unchanged stays as it is: typing moves the matches after it, not their context,
+    // and rebuilding hundreds of rows held up every keystroke.
+    const shown = matches.slice(0, 500);
+    shown.forEach((match, i) => {
       const start = Math.max(body.lastIndexOf('\n', match.start - 1) + 1, match.start - 40), end = Math.min(...[body.indexOf('\n', match.end), match.end + 60].filter(n => n >= 0));
-      return el('li', {}, el('button.nav-result', { type: 'button', 'aria-current': i === current ? 'true' : null, onclick: () => { current = i; api.selectMatch(match); status.textContent = `Result ${i + 1} of ${matches.length}`; renderResults(); } },
-        (start > 0 && body[start - 1] !== '\n' ? '…' : '') + body.slice(start, match.start), el('mark', {}, body.slice(match.start, match.end)), body.slice(match.end, end)));
-    }));
+      const parts = [(start > 0 && body[start - 1] !== '\n' ? '…' : '') + body.slice(start, match.start), body.slice(match.start, match.end), body.slice(match.end, end)];
+      const key = parts.join('\u0000'), row = resultList.children[i];
+      if (row?.dataset.key === key) {
+        const button = row.firstChild;
+        if (i === current) button.setAttribute('aria-current', 'true'); else button.removeAttribute('aria-current');
+        return;
+      }
+      // The row chooses the match at its place in the list when clicked, so a kept row chooses the moved match.
+      const next = el('li', { dataset: { key } }, el('button.nav-result', { type: 'button', 'aria-current': i === current ? 'true' : null, onclick: () => { current = i; api.selectMatch(matches[i]); status.textContent = `Result ${i + 1} of ${matches.length}`; renderResults(); } },
+        parts[0], el('mark', {}, parts[1]), parts[2]));
+      if (row) row.replaceWith(next); else resultList.append(next);
+    });
+    while (resultList.children.length > shown.length) resultList.lastChild.remove();
     if (focused >= 0) (resultList.querySelectorAll('.nav-result')[Math.min(focused, matches.length - 1)] || search).focus();
   }
   function render() {
@@ -249,7 +273,7 @@ export function createNavigationPane(api) {
       entries = nextEntries; position = caret;
       if (node.hidden) return;
       if (search.value) {
-        matches = api.search(search.value); api.highlight(matches);
+        matches = find(search.value); api.highlight(matches);
         // The count and the current result follow edits to the document.
         if (current >= matches.length) current = -1;
         status.textContent = !matches.length ? 'No matches' : current >= 0 ? `Result ${current + 1} of ${matches.length}` : `${matches.length} result${matches.length === 1 ? '' : 's'}`;
