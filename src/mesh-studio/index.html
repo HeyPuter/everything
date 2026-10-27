@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Mesh Studio — local procedural meshes from prompts, OBJ export. Meshy/Tripo-inspired, no cloud models." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Mesh Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="brand">
+        <img src="icon-128.png" width="28" height="28" alt="" />
+        <h1>Mesh Studio</h1>
+      </div>
+      <main class="panel">
+        <div class="row">
+          <input id="prompt" value="rolling hills terrain" aria-label="Prompt" />
+          <button class="btn" id="generate" type="button">Generate</button>
+          <button class="btn secondary" id="download" type="button">Download OBJ</button>
+        </div>
+        <canvas id="view" width="900" height="420"></canvas>
+        <p id="meta"></p>
+        <pre id="obj"></pre>
+      </main>
+      <details class="help">
+        <summary>About / #33</summary>
+        <p>
+          Answers <a href="https://github.com/HeyPuter/everything/issues/33">#33</a> with a local procedural mesh
+          studio. Keyword prompts map to box/sphere/terrain generators and OBJ export — not Meshy/Tripo/Higgsfield
+          cloud models (DOCUMENTED).
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
