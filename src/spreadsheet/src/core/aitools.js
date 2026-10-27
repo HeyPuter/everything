@@ -1485,12 +1485,17 @@ function hiddenMatches(wb, sheet, needle, opts, range) {
   return n;
 }
 
-/** Does the replacement turn one of these cells into a formula that reaches outside the workbook, which it did not before? */
+/**
+ * Does the replacement leave one of these cells holding a formula that reaches outside the workbook? One that reached
+ * out before counts too, as a formula written in its place does: rewritten, it may fetch from another address, or
+ * send other cells there.
+ */
 function replacementReaches(wb, sheetId, matches, needle, replacement, opts) {
   for (const { r, c } of matches) {
     const cell = wb.getCell(sheetId, r, c);
     if (!cell || (cell.v == null && cell.f == null)) continue;
-    if (cell.f != null && reachesOut(wb, cell.f)) continue;
+    // A formula Replace leaves alone (formulas left out, or hidden on a protected sheet) is not rewritten.
+    if (cell.f != null && (opts.formulas === false || wb.formulaHiddenAt(sheetId, r, c))) continue;
     // Text that would read as a formula keeps its apostrophe through a replace (see replaceCells), and stays text.
     const isText = cell.f == null && typeof cell.v === 'string';
     if (isText && editText(cell).startsWith("'")) continue;
