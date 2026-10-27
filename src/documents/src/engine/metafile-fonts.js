@@ -1,4 +1,5 @@
 import { fileFontFamily } from './file-fonts.js';
+import { loadLocalFace } from './local-font-probe.js';
 // Generated metafile SVGs embed explicitly supplied file fonts. Other faces
 // still require availability in the isolated image document.
 // Probe installed faces without registering an alias or downloading a font.
@@ -13,7 +14,7 @@ export async function missingMetafileFonts(groups) {
       if (fileFontFamily(name)) { available.set(name, true); continue; }
       const quoted = JSON.stringify(name);
       try {
-        await new FontFace('Metafile font probe', `local(${quoted})`).load();
+        await loadLocalFace('Metafile font probe', `local(${quoted})`);
         available.set(name, true);
       } catch { available.set(name, false); }
     }

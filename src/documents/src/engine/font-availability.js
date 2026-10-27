@@ -4,6 +4,7 @@ import { localFontVersion } from './local-fonts.js';
 import { prepareSyntheticAdvance } from './synthetic-advance.js';
 import { embeddedFontSources, isEmbeddedFont } from './embedded-fonts.js';
 import { fileFontFamily, fileFontSources } from './file-fonts.js';
+import { loadLocalFace } from './local-font-probe.js';
 export { isBundledFont } from './font-families.js';
 
 // Explicit user file selections take precedence; otherwise native families do.
@@ -104,7 +105,7 @@ export async function checkEmbeddedNativeFont(name) {
   if (!isBundledFont(name) || typeof FontFace === 'undefined') return;
   const key = name.trim().toLowerCase();
   if (!bundledNativeProbes.has(key)) bundledNativeProbes.set(key, (async () => {
-    try { await new FontFace('Canvas native font probe', `local(${cssFontString(name)})`).load(); nativeAvailability.set(key, true); }
+    try { await loadLocalFace('Canvas native font probe', `local(${cssFontString(name)})`); nativeAvailability.set(key, true); }
     catch { nativeAvailability.set(key, familyIsSelectable(name)); }
   })());
   await bundledNativeProbes.get(key);
@@ -177,7 +178,7 @@ export async function checkFontAvailability(name) {
       return;
     }
     try {
-      const face = await new FontFace(name, `local(${cssFontString(name)})`).load();
+      const face = await loadLocalFace(name, `local(${cssFontString(name)})`);
       // local() also accepts full/PostScript face names that cannot be selected
       // as CSS families. Bind that installed face under the document's name so
       // measurement and painting actually use the font we report as available.
@@ -248,7 +249,7 @@ export async function prepareCanvasFont(name) {
       ];
       const resolved = await Promise.all(candidates.map(async candidate => {
         const source = candidate.names.map(n => `local(${cssFontString(n)})`).join(', ');
-        try { return { face: await new FontFace(name, source, candidate.descriptors).load(), source, descriptors: candidate.descriptors }; }
+        try { return { face: await loadLocalFace(name, source, candidate.descriptors), source, descriptors: candidate.descriptors }; }
         catch { return null; }
       }));
       if (!resolved[0]) continue;

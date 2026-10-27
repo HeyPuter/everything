@@ -1,3 +1,5 @@
+import { loadLocalFace } from '../../engine/local-font-probe.js';
+
 /** Resolve unavailable Hanword fonts locally before the editor measures text. */
 const sans = ['Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR', 'Noto Sans KR', 'Arial', 'Liberation Sans', 'DejaVu Sans'];
 const serif = ['Batang', 'AppleMyungjo', 'Noto Serif CJK KR', 'Noto Serif KR', 'Times New Roman', 'Liberation Serif'];
@@ -12,7 +14,7 @@ export async function prepareHanwordFonts(model) {
   if (typeof FontFace === 'undefined') return;
   const available = new Map();
   const local = (name) => {
-    if (!available.has(name)) available.set(name, Promise.resolve().then(() => new FontFace('Documents font probe', `local(${JSON.stringify(name)})`).load()).then(() => true, () => false));
+    if (!available.has(name)) available.set(name, Promise.resolve().then(() => loadLocalFace('Documents font probe', `local(${JSON.stringify(name)})`)).then(() => true, () => false));
     return available.get(name);
   };
   const names = [...new Set(model.chars.flatMap((c) => [c?.font, c?.eastAsia]).filter(Boolean))];

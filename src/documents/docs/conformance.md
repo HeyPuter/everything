@@ -5611,6 +5611,17 @@ reference and measured Franklin Gothic Demi mismatch. Browser regressions
 compare registered-face advances to a separately loaded reference; mandatory
 unit cases cover the same selection distinction without depending on host fonts.
 This does not solve general line metrics, synthesized styles or missing fonts.
+
+Bounded lookups (2026-10-26): Chrome on macOS can block the page's thread inside
+`FontFace.load()` for the `local()` name of an on-demand system font that is not
+downloaded (NanumGothic, NanumMyeongjo, Osaka in headless Chrome); while it is stuck,
+lookups of other missing names stall too. A DOCX or Hanword file naming such a font
+froze while opening. Every `local()` lookup (document fonts, exact-face variants,
+metafile fonts, Hanword replacements) is now asked first in a worker with a 2 s
+deadline, 250 ms once a lookup has stalled. A name not answered in time counts as
+not installed under that name and falls back as before (the CSS family check still
+finds a family the browser can render); the page loads only names a worker found.
+`tests/local-font-probe.test.js`, `tests/browser/stuck-font-lookup.spec.js`.
 ## Rotated preset lines inside drawing groups
 
 ECMA-376 Part 1 §§20.1.7.5–20.1.7.6 and §20.1.10.3 define group/shape
