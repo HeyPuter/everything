@@ -797,7 +797,8 @@ function workbookInfo(wb, env) {
         ...(s.frozenRows || s.frozenCols ? { frozen: { rows: s.frozenRows || 0, columns: s.frozenCols || 0 } } : {}),
         ...(s.protected ? { protected: true } : {}),
         ...(s.tables?.length ? { tables: s.tables.map((t) => ({ name: t.name, range: rangeName(t.range), columns: wb.tableColumns(s.id, t) })) } : {}),
-        ...(chartsOf(s).length ? { charts: chartsOf(s).map((c) => ({ id: c.id, type: c.type, title: c.title || undefined, data: chartSource(c) })) } : {}),
+        ...(chartsOf(s).length ? { charts: [...chartsOf(s).slice(0, 80).map((c) => ({ id: c.id, type: c.type, title: c.title ? clip(c.title, 200) : undefined, data: chartSource(c) })),
+          ...(chartsOf(s).length > 80 ? [`(${chartsOf(s).length - 80} more; get_sheet_details lists them)`] : [])] } : {}),
         ...(sheetFilters(s).length ? { filtered: sheetFilters(s).map((f) => rangeName(f.range)).join(', ') } : {}),
         ...(pivotsOf(wb, s).length ? { pivot_tables: pivotsOf(wb, s).map((p) => p.name) } : {}),
         ...(s.rules?.length ? { conditional_formats: conditionalRuleGroups(s.rules).length } : {}),
@@ -866,10 +867,10 @@ function sheetDetails(wb, args, env) {
   };
   const charts = chartsOf(sheet);
   const chartInfo = list(charts, (c) => ({
-    id: c.id, type: c.type, ...(c.name ? { name: c.name } : {}), ...(c.title ? { title: c.title } : {}),
+    id: c.id, type: c.type, ...(c.name ? { name: clip(c.name, 200) } : {}), ...(c.title ? { title: clip(c.title, 200) } : {}),
     data: chartSource(c), ...(c.pivotSource?.name ? { pivot_table: c.pivotSource.name } : {}),
     ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
-    ...(c.xTitle ? { x_title: c.xTitle } : {}), ...(c.yTitle ? { y_title: c.yTitle } : {}),
+    ...(c.xTitle ? { x_title: clip(c.xTitle, 200) } : {}), ...(c.yTitle ? { y_title: clip(c.yTitle, 200) } : {}),
     ...(c.stacked ? { stacked: c.stack100 ? '100%' : true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
     ...(c.hidden ? { hidden: true } : {}),
   }));
@@ -878,6 +879,7 @@ function sheetDetails(wb, args, env) {
   const groups = conditionalRuleGroups(sheet.rules || []);
   const hiddenRows = [...(sheet.hiddenRows || [])];
   const filterRows = [...(sheet.filterHidden || [])];
+  const pivots = pivotsOf(wb, sheet);
   const out = {
     sheet: sheet.name,
     data: used ? rangeName(used) : 'empty',
@@ -887,7 +889,8 @@ function sheetDetails(wb, args, env) {
     ...(groups.length ? {
       // In priority order: where rules overlap, the earlier one wins.
       conditional_formats: list(groups, ({ rule, rules }) => ({
-        id: rule.id, applies_to: rules.map((p) => rangeName(p.range)).join(', '), rule: describeRule(rule),
+        // A rule from a file can hold thousands of areas, and a formula of thousands of characters.
+        id: rule.id, applies_to: lineList(rules.map((p) => rangeName(p.range)), 40), rule: clip(describeRule(rule), 400),
         ...(ruleStyleText(rule.style) ? { format: ruleStyleText(rule.style) } : {}),
         ...(rule.type === 'scale' ? { colors: [rule.from, rule.mid, rule.to].filter(Boolean).join(' → ') } : {}),
       })),
@@ -902,13 +905,13 @@ function sheetDetails(wb, args, env) {
     ...(hiddenRows.length ? { hidden_rows: lineRuns(hiddenRows, 'row') } : {}),
     ...(sheet.hiddenCols?.size ? { hidden_columns: lineRuns([...sheet.hiddenCols], 'col') } : {}),
     ...(sheetFilters(sheet).length ? {
-      filters: sheetFilters(sheet).map((f) => ({
+      filters: list(sheetFilters(sheet), (f) => ({
         range: rangeName(f.range), ...(filterTable(sheet, f) ? { table: filterTable(sheet, f).name } : {}),
         ...(Object.keys(f.criteria || {}).length ? { filtered_columns: Object.keys(f.criteria).map((c) => colName(Number(c))).join(', ') } : {}),
         rows_hidden: filterRows.filter((r) => r > f.range.r1 && r <= f.range.r2).length,
       })),
     } : {}),
-    ...(pivotsOf(wb, sheet).length ? { pivot_tables: pivotsOf(wb, sheet) } : {}),
+    ...(pivots.length ? { pivot_tables: list(pivots, (p) => p) } : {}),
     ...(charts.length ? { charts: chartInfo } : {}),
     ...(sheet.sparklineGroups?.length ? { sparklines: list(sheet.sparklineGroups, (g) => ({ type: g.type === 'stacked' ? 'win/loss' : g.type, cells: lineList(g.sparklines.map((s) => `${s.ref} ← ${s.formula ?? ''}`), 20) })) } : {}),
     ...(sheet.notes?.size ? { notes: lineList(keyedIn(sheet.notes, FULL).map(({ r, c }) => cellName(r, c)), 120) } : {}),

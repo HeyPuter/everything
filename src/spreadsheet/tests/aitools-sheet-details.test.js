@@ -131,4 +131,22 @@ describe('AI tools: what the model sees besides values', () => {
     const changed = JSON.parse(runTool(wb, 'update_chart', { chart: chart.id, type: 'column' }, env).content);
     expect(changed.data).toBe(details.charts[0].data);
   });
+
+  it('holds a rule of thousands of areas, a long formula and many charts to a length', () => {
+    const { wb, id, run } = setup();
+    const sheet = wb.sheet(id);
+    // A rule from a file, on every other row: one rule of 5,000 areas.
+    sheet.rules = Array.from({ length: 5000 }, (_, i) => ({ id: `r${i}`, type: 'gt', value: 5, range: { r1: i * 2, c1: 3, r2: i * 2, c2: 3 }, style: { bg: '#ff0000' } }));
+    sheet.rules.push({ id: 'long', type: 'formula', value: `=${Array.from({ length: 2000 }, (_, i) => `A${i + 1}`).join('+')}>0`, range: { r1: 0, c1: 6, r2: 9, c2: 6 }, style: { bold: true } });
+    const text = run('get_sheet_details', {}).content;
+    const [first, second] = JSON.parse(text).conditional_formats;
+    expect(first.applies_to).toMatch(/^D1, D3, D5, .* and 4960 more$/);
+    expect(second.rule.length).toBeLessThan(500);
+    expect(text.length).toBeLessThan(4000);
+    for (let i = 0; i < 100; i++) run('create_chart', { data_range: 'A1:C4', title: `Chart ${i} ${'x'.repeat(400)}` });
+    const charts = JSON.parse(run('get_workbook_info', {}).content).sheets[0].charts;
+    expect(charts).toHaveLength(81);
+    expect(charts[0].title.length).toBeLessThan(210);
+    expect(charts[80]).toBe('(20 more; get_sheet_details lists them)');
+  });
 });
