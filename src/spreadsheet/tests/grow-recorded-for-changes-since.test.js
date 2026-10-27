@@ -52,7 +52,7 @@ describe('growing a sheet records the change it announces', () => {
     const id = wb.sheets[0].id;
     const before = wb.version;
     expect(wb.ensureSize(id, 400, 26)).toBe(true);
-    expect(wb.changesSince(before)).toEqual([{ version: wb.version, type: 'layout', sheetId: id, box: null, formula: false }]);
+    expect(wb.changesSince(before)).toEqual([{ version: wb.version, type: 'layout', sheetId: id, box: null, formula: false, grow: true }]);
     // And the record still reaches back across it: a write after a growth is still reported with its box.
     const across = wb.version;
     wb.setInput(id, 300, 2, 'x');

@@ -12034,7 +12034,8 @@ export class Workbook extends EventTarget {
       // changesSince answers "anything may have changed" for every span across it. Growth is the most frequent
       // version bump there is — a flick past the last row fires several — so that hole sent every chart, and
       // anything else built from the book, back over its whole range after a scroll.
-      this._changeLog.push({ version: this.version, type: 'layout', sheetId: sheet.id, box: null, formula: false });
+      // `grow` tells it from a change of layout, for a reader that minds edits alone (the assistant's Solver).
+      this._changeLog.push({ version: this.version, type: 'layout', sheetId: sheet.id, box: null, formula: false, grow: true });
       if (this._changeLog.length > CHANGE_LOG * 2) this._changeLog.splice(0, this._changeLog.length - CHANGE_LOG);
       this._announce('layout', sheet.id);
     }

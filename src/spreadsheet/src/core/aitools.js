@@ -3323,18 +3323,25 @@ async function solve(wb, args, env) {
   // The time limit bounds this run only; the model is saved with the options it had.
   p.options = { ...p.options, maxTime: Math.min(seconds, p.options.maxTime ?? Infinity) };
   // A change made meanwhile (the user typing, a co-author's edit) would be overwritten by values worked out without it.
-  const version = wb.version;
+  // A scroll that reaches past the sheet's last row grows it, and a zoom is a view setting: neither is an edit, and
+  // either threw a long solve away.
+  let version = wb.version;
+  const edited = () => {
+    if (wb.version === version) return false;
+    if (wb.changesSince(version)?.every((e) => e.grow || e.type === 'view')) { version = wb.version; return false; }
+    return true;
+  };
   // Heard after each pause, before Solver works on: a further slice wrote its trial values over a cell the user had
   // typed into meanwhile, then put back the value that cell held when the solve began (and over rows inserted above
   // them, into cells that had moved), out of the undo history.
   const halted = {};
   const pause = () => new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
-    if (env.stopped?.() || wb.version !== version) throw halted;
+    if (env.stopped?.() || edited()) throw halted;
   });
   let result;
   try { result = await runSolver(p, { pause }); } catch (e) { if (e !== halted) throw e; }
   if (env.stopped?.()) return { stopped: 'The user stopped the assistant; nothing was changed.' };
-  if (wb.version !== version) throw new ToolError('The workbook changed while Solver was running, so nothing was changed. Run it again.');
+  if (edited()) throw new ToolError('The workbook changed while Solver was running, so nothing was changed. Run it again.');
   const keep = args.keep !== false && !!result.x && (result.solved || args.keep_best_found === true);
   const allowed = availableReports(p, result);
   const built = reports.filter((r) => allowed.includes(r));

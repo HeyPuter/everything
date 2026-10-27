@@ -146,6 +146,25 @@ describe('solve', () => {
     } finally { Date.now = realNow; }
   });
 
+  it('goes on when the user only scrolls past the last row or zooms while it works', async () => {
+    const realNow = Date.now;
+    let now = 0;
+    Date.now = () => (now += 50);
+    try {
+      const { wb, id, run } = production();
+      wb.setInput(id, 5, 1, '=(B1-3)^2+(B2+1)^2');
+      wb.clearHistory();
+      const pending = run('solve', { objective: 'B6', goal: 'min', variables: 'B1:B2', max_seconds: 120 });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      wb.ensureSize(id, wb.sheet(id).rows + 100, wb.sheet(id).cols);
+      wb.setSheetView(id, { viewZoom: 1.5 });
+      const res = await pending;
+      expect(res.ok).toBe(true);
+      expect(wb.getValue(id, 0, 1)).toBeCloseTo(3, 3);
+      expect(wb.undoLabels(5)).toEqual(['AI edit']);
+    } finally { Date.now = realNow; }
+  });
+
   it('refuses variable cells that hold formulas, are protected, or lie on another sheet', async () => {
     const { wb, id, run } = production();
     expect((await run('solve', { ...MODEL, variables: 'B1:C1' })).content).toMatch(/^Error: variables: The variable cell \$C\$1 holds a formula/);
