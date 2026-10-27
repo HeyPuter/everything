@@ -33,7 +33,7 @@ import { composePaste } from './paste-special.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
-import { cellFromInput, objectNoun } from './workbook.js';
+import { cellFromInput, objectNoun, safeLinkUrl } from './workbook.js';
 import { getThread, copyThreads, pasteThreads } from './comments.js';
 import { tableRows } from './tables.js';
 import { sheetFilters, filterTable, sameFilterRange } from './sheet-filters.js';
@@ -43,7 +43,6 @@ import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
 import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
 import { detectDelimiter, splitSourceText } from './text-split.js';
-import { safeLinkUrl } from './workbook.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -352,6 +351,11 @@ export const TOOLS = [
   fn('add_note', 'Attach a note (comment) to a cell, or replace its note. An empty text removes it.', {
     cell: str('The cell, e.g. "D4" or "Sheet2!B7".'), text: str('The note.'),
   }, ['cell', 'text']),
+  fn('goal_seek', 'Goal Seek: find the number for one input cell that makes a formula cell show a target value, and write it into the input cell. Both cells are on one sheet; the input must hold a number or be blank.', {
+    set_cell: str('The formula cell that should reach the value, e.g. "B10" or "Loan!B10".'),
+    to_value: num('The value it should reach.'),
+    by_changing: str('The input cell to change, on the same sheet, e.g. "B3".'),
+  }, ['set_cell', 'to_value', 'by_changing']),
   fn('select_range', 'Select a range in the user\'s view (switching sheets if needed) to point them at something. Changes nothing.', {
     range: RANGE,
   }, ['range']),
@@ -2784,6 +2788,67 @@ function addNote(wb, args, env) {
   };
 }
 
+/* ---------- What-if: Goal Seek ---------- */
+
+const oneCellRange = ({ r, c }) => ({ r1: r, c1: c, r2: r, c2: c });
+
+/** One cell a call names, with its sheet; a range of more than one cell is refused. */
+function oneCell(wb, text, sheetId, what) {
+  const { sheetId: s, range } = resolveRange(wb, text, sheetId);
+  const merge = wb.mergeAt?.(s, range.r1, range.c1);
+  // A merged cell named by its whole area is that one cell.
+  const single = (range.r1 === range.r2 && range.c1 === range.c2) || (merge && merge.r1 === range.r1 && merge.c1 === range.c1 && merge.r2 === range.r2 && merge.c2 === range.c2);
+  if (!single) throw new ToolError(`${what} must be one cell, not ${qualified(wb, s, range)}.`);
+  return { sheetId: s, r: range.r1, c: range.c1 };
+}
+
+/** The cell a Goal Seek changes: by_changing, read on the sheet of the cell it sets. */
+function goalSeekCells(wb, args, env) {
+  const target = oneCell(wb, args.set_cell, env.sheetId(), 'set_cell');
+  const variable = oneCell(wb, args.by_changing, target.sheetId, 'by_changing');
+  return { target, variable };
+}
+
+/** Refuse a cell under a merged cell's top-left one: a value written there is stored where no one sees it. */
+function assertNotUnderMerge(wb, sheetId, { r, c }, what) {
+  const merge = wb.mergeAt?.(sheetId, r, c);
+  if (merge && (merge.r1 !== r || merge.c1 !== c)) throw new ToolError(`${what} ${cellName(r, c)} is inside the merged cell ${rangeName(merge)}; use ${cellName(merge.r1, merge.c1)}.`);
+}
+
+function goalSeek(wb, args, env) {
+  const { target, variable } = goalSeekCells(wb, args, env);
+  if (variable.sheetId !== target.sheetId) throw new ToolError('by_changing must be on the same sheet as set_cell.');
+  const goal = typeof args.to_value === 'string' ? Number(args.to_value.trim()) : Number(args.to_value);
+  if (args.to_value == null || args.to_value === '' || !Number.isFinite(goal)) throw new ToolError('to_value must be a number.');
+  const sheetId = target.sheetId;
+  const name = (p) => qualified(wb, sheetId, oneCellRange(p));
+  assertWritable(wb, sheetId, oneCellRange(variable), { contents: true });
+  assertNotUnderMerge(wb, sheetId, variable, 'by_changing');
+  const from = wb.getDisplay(sheetId, variable.r, variable.c);
+  const before = wb.version;
+  const res = wb.goalSeek(sheetId, target, goal, variable, { label: 'AI edit' });
+  if (!res.ok) {
+    const hint = {
+      'The cell to set must contain a formula': `${name(target)} holds no formula. set_cell must be a formula that depends on by_changing.`,
+      'The cell to change must hold a number, not a formula': `${name(variable)} holds a formula. by_changing must be an input cell that holds a number or is blank.`,
+      'Choose a different cell to change': 'set_cell and by_changing are the same cell.',
+      'The cell to change shows part of an array formula\'s result': `${name(variable)} shows part of an array formula's result, so it cannot take a number.`,
+      'The sheet is protected': `${wb.sheet(sheetId).name} is protected. The user can unprotect it from the sheet tab's menu.`,
+      'The cell to change is protected': `${name(variable)} is locked on a protected sheet.`,
+      'The formula does not produce a number': `${name(target)} does not show a number (it shows ${wb.getDisplay(sheetId, target.r, target.c) || 'nothing'}), whatever ${name(variable)} holds.`,
+      'Could not find a value that reaches the goal': `No value of ${name(variable)} makes ${name(target)} reach ${goal}: the formula may never reach it, or may not depend on that cell. Nothing was changed.`,
+    }[res.reason] || `${res.reason}.`;
+    throw new ToolError(hint);
+  }
+  const result = modelValue(res.result);
+  const shows = wb.getDisplay(sheetId, target.r, target.c);
+  if (wb.version === before) return { set_cell: name(target), already: `${name(target)} already shows ${shows}, so ${name(variable)} was left as it is.` };
+  return {
+    changed: name(variable), from: from || '(blank)', to: wb.getDisplay(sheetId, variable.r, variable.c), value: res.value,
+    set_cell: name(target), now_shows: shows, ...(typeof result === 'number' && result !== goal ? { exact_result: result } : {}),
+  };
+}
+
 function selectRange(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
   if (!env.select) throw new ToolError('Nothing can be selected here.');
@@ -2831,6 +2896,7 @@ const RUNNERS = {
   set_link: setLink,
   set_column_width: setColumnWidth,
   add_note: addNote,
+  goal_seek: goalSeek,
   select_range: selectRange,
 };
 
@@ -2875,6 +2941,8 @@ export function callTarget(wb, name, args, env) {
   // Sparklines are about the cells they go in; a link about its one cell.
   if (name === 'add_sparklines' && args.location != null) return resolveRange(wb, args.location, env.sheetId());
   if (name === 'set_link' && args.cell != null) { const found = resolveRange(wb, args.cell, env.sheetId()); return { ...found, range: { r1: found.range.r1, c1: found.range.c1, r2: found.range.r1, c2: found.range.c1 } }; }
+  // A Goal Seek changes its input cell, which is what the step links to.
+  if (name === 'goal_seek') { const { variable: v } = goalSeekCells(wb, args, env); return { sheetId: v.sheetId, range: oneCellRange(v) }; }
   const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell ?? args.destination;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
@@ -3162,6 +3230,18 @@ export function describeCall(wb, name, args = {}, env) {
       if (!text.trim()) return { label: `Remove the note from ${t.text}`, destructive: !!had, detail: had ? 'Removes the note the cell has.' : null };
       const replaces = !!had && had !== cutText(text, MAX_NOTE);
       return { label: `${replaces ? 'Replace the note on' : 'Add a note to'} ${t.text}`, destructive: replaces, detail: replaces ? 'Replaces the note the cell has.' : null };
+    }
+    case 'goal_seek': {
+      // The input cell is read on the sheet of the cell it sets, as the runner reads it.
+      let cells = null;
+      try { cells = goalSeekCells(wb, args, env); } catch { /* the runner explains */ }
+      const name = (p) => qualified(wb, p.sheetId, oneCellRange(p));
+      const set = cells ? name(cells.target) : String(args.set_cell ?? '');
+      const by = cells ? name(cells.variable) : String(args.by_changing ?? '');
+      const label = `Goal seek: set ${set} to ${args.to_value} by changing ${by}`;
+      const v = cells?.variable;
+      const shown = v && holds(wb.getCell(v.sheetId, v.r, v.c)) ? wb.getDisplay(v.sheetId, v.r, v.c) : null;
+      return { label, destructive: shown != null, detail: shown != null ? `Replaces the value in ${by} (now ${shown}).` : null };
     }
     default: return { label: name };
   }

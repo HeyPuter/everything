@@ -6071,9 +6071,9 @@ export class Workbook extends EventTarget {
    * `target` evaluate to `goal`. Secant iterations with a widening step when
    * the formula is flat; the trial values never touch history, only the
    * answer is written (one undo step). Returns { ok, value, result,
-   * iterations } or { ok: false, reason }.
+   * iterations } or { ok: false, reason }. `label` names the undo step.
    */
-  goalSeek(sheetId, target, goal, variable, { maxIter = 200, tol = 1e-9 } = {}) {
+  goalSeek(sheetId, target, goal, variable, { maxIter = 200, tol = 1e-9, label = 'Goal seek' } = {}) {
     const sheet = this.sheet(sheetId);
     if (!sheet) return { ok: false, reason: 'No such sheet' };
     if (this._gridLocked(sheet)) return { ok: false, reason: 'The sheet is protected' };
@@ -6157,7 +6157,7 @@ export class Workbook extends EventTarget {
     this._invalidate();
     if (result === null || Number.isNaN(result)) return { ok: false, reason: Number.isNaN(result) ? 'The formula does not produce a number' : 'Could not find a value that reaches the goal', iterations };
     if (met) return { ok: true, value: start, result: this.getValue(sheetId, target.r, target.c), iterations };
-    this.setCells(sheetId, [{ r: variable.r, c: variable.c, cell: { v: clean, f: null, s: original?.s } }], 'Goal seek');
+    this.setCells(sheetId, [{ r: variable.r, c: variable.c, cell: { v: clean, f: null, s: original?.s } }], label);
     return { ok: true, value: clean, result: this.getValue(sheetId, target.r, target.c), iterations };
   }
 
