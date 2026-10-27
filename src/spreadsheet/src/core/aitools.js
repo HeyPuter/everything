@@ -23,17 +23,18 @@ import { quoteSheet, shiftFormula, MAX_ROW, MAX_COL } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
-import { formatValue, fontKeyFor, parseTime, ymdToSerial, parseInput } from './format.js';
+import { formatValue, fontKeyFor, parseTime, ymdToSerial, parseInput, editText } from './format.js';
 import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H } from './charts.js';
 import { subtypeOf, chartSubtype, changeSubtypePatch } from './chart-subtypes.js';
 import { effectiveFontTheme } from './font-theme.js';
+import { findAll, replaceCells, replaceInText, compilePattern, cellMatches, searchBudget } from './search.js';
+import { copyMergeLayout } from './clipboard.js';
+import { composePaste } from './paste-special.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
 import { cellFromInput, objectNoun } from './workbook.js';
 import { getThread, copyThreads, pasteThreads } from './comments.js';
-import { copyMergeLayout } from './clipboard.js';
-import { composePaste } from './paste-special.js';
 import { tableRows } from './tables.js';
 import { sheetFilters, filterTable, sameFilterRange } from './sheet-filters.js';
 import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
@@ -158,6 +159,17 @@ export const TOOLS = [
     source: RANGE,
     destination: str('Top-left cell of where the cells go, e.g. "H2" or "Archive!A1". Without a sheet it means the active sheet.'),
   }, ['source', 'destination']),
+  fn('find_replace', 'Replace text in cells, as Find & Replace\'s Replace all does. Searches the active sheet unless given a range, a sheet or all_sheets; hidden rows, columns and sheets are left alone. Returns how many cells changed and which.', {
+    find: str('The text to find.'),
+    replace: str('The text to put in its place; "" removes it.'),
+    range: str('Search only this range, e.g. "B2:B200" or "Data!A:A".'),
+    sheet: str('Search only this sheet. Defaults to the active sheet.'),
+    all_sheets: bool('Search every sheet (default false).'),
+    match_case: bool('Match upper and lower case exactly (default false).'),
+    whole_cell: bool('Only cells whose whole content is the text (default false).'),
+    in_formulas: bool('Replace inside formula text too, such as a sheet name or a constant a formula uses (default true). False leaves formulas alone.'),
+    regex: bool('find is a regular expression, and $1, $2… in replace insert its groups (default false).'),
+  }, ['find', 'replace']),
   fn('format_cells', 'Format a range. Give only the properties to change.', {
     range: RANGE,
     bold: bool('Bold on or off.'),
@@ -1094,7 +1106,7 @@ function clearRange(wb, args, env) {
   return { cleared: qualified(wb, sheetId, range), what };
 }
 
-/* ---------- Copying and moving ---------- */
+/* ---------- Copying, moving and replacing ---------- */
 
 const isWholeLines = (range) => range.r2 >= MAX_ROW || range.c2 >= MAX_COL;
 
@@ -1323,6 +1335,122 @@ function moveRangeTool(wb, args, env) {
   if (!done) throw new ToolError(moveProblem(wb, sheetId, src, dstId, dst));
   const errors = whole ? [] : formulaErrors(wb, dstId, dst);
   return { moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst), ...(errors.length ? { formula_errors: errors } : {}) };
+}
+
+/** Why Replace leaves a match alone, as Find & Replace says it. */
+const LEFT_ALONE = {
+  protected: 'protected', formula: 'formula results (the text is in what the formula shows, not in the formula)',
+  spill: 'values spilled by an array formula', display: 'only in how the number is formatted',
+};
+
+/** The sheets and range a find_replace searches. */
+function replaceScope(wb, args, env) {
+  if (args.range) {
+    const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
+    return { sheets: [wb.sheet(sheetId)], range, hiddenSheets: [] };
+  }
+  if (args.all_sheets) {
+    const grids = wb.sheets.filter((s) => s.kind !== 'chart');
+    return { sheets: grids.filter((s) => !s.hidden), range: null, hiddenSheets: grids.filter((s) => s.hidden) };
+  }
+  return { sheets: [gridSheet(wb, args.sheet, env.sheetId())], range: null, hiddenSheets: [] };
+}
+
+const replaceOptions = (args) => ({ matchCase: !!args.match_case, wholeCell: !!args.whole_cell, formulas: args.in_formulas !== false, regex: !!args.regex });
+
+/** The matching cells of each sheet searched, as Find & Replace finds them. */
+function replaceMatches(wb, args, env, budget) {
+  const needle = String(args.find ?? '');
+  if (!needle) throw new ToolError('Nothing to find.');
+  const opts = replaceOptions(args);
+  if (opts.regex && !compilePattern(needle, opts)) throw new ToolError(`"${needle}" is not a regular expression that can be searched with (or it nests one repeat inside another, such as (a+)+, which can take too long).`);
+  const scope = replaceScope(wb, args, env);
+  const found = scope.sheets.map((sheet) => ({ sheet, matches: findAll(wb, sheet.id, needle, { ...opts, range: scope.range, budget }) }));
+  return { needle, opts, scope, found };
+}
+
+/** How many cells match in the rows and columns a search passes over: hidden ones, and those a filter hides. */
+function hiddenMatches(wb, sheet, needle, opts, range) {
+  if (!sheet.hiddenRows.size && !sheet.hiddenCols.size && !sheet.filterHidden?.size) return 0;
+  let n = 0;
+  for (const [key, cell] of sheet.cells) {
+    if (cell.v == null && cell.f == null) continue;
+    const { r, c } = parseKey(key);
+    if (range && (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2)) continue;
+    if (!sheet.hiddenRows.has(r) && !sheet.filterHidden?.has(r) && !sheet.hiddenCols.has(c)) continue;
+    const hiddenFormula = cell.f != null && wb.formulaHiddenAt(sheet.id, r, c);
+    if (cellMatches(cell, formatValue(wb.getValue(sheet.id, r, c), cell.s), needle, hiddenFormula ? { ...opts, formulas: false } : opts)) n++;
+  }
+  return n;
+}
+
+/** Does the replacement turn one of these cells into a formula that reaches outside the workbook, which it did not before? */
+function replacementReaches(wb, sheetId, matches, needle, replacement, opts) {
+  for (const { r, c } of matches) {
+    const cell = wb.getCell(sheetId, r, c);
+    if (!cell || (cell.v == null && cell.f == null)) continue;
+    if (cell.f != null && reachesOut(wb, cell.f)) continue;
+    // Text that would read as a formula keeps its apostrophe through a replace (see replaceCells), and stays text.
+    const isText = cell.f == null && typeof cell.v === 'string';
+    if (isText && editText(cell).startsWith("'")) continue;
+    const display = formatValue(wb.getValue(sheetId, r, c), cell.s);
+    for (const source of [isText ? cell.v : editText(cell), display]) {
+      const next = replaceInText(source, needle, replacement, opts);
+      if (next != null && /^\s*=/.test(next) && reachesOut(wb, next.replace(/^\s*=/, ''))) return true;
+    }
+  }
+  return false;
+}
+
+function findReplace(wb, args, env) {
+  if (args.replace == null) throw new ToolError('Give the replacement text in replace, or "" to remove the text found.');
+  const replacement = String(args.replace);
+  const budget = searchBudget(args.regex ? 1000 : 3000);
+  const { needle, opts, scope, found } = replaceMatches(wb, args, env, budget);
+  const hidden = [];
+  for (const { sheet } of found) { const n = hiddenMatches(wb, sheet, needle, opts, scope.range); if (n) hidden.push(`${n} in hidden rows or columns of ${quoteSheet(sheet.name)}`); }
+  for (const sheet of scope.hiddenSheets) { const n = findAll(wb, sheet.id, needle, opts).length; if (n) hidden.push(`${n} on the hidden sheet ${quoteSheet(sheet.name)}`); }
+  const total = found.reduce((n, f) => n + f.matches.length, 0);
+  const notes = [
+    ...(hidden.length ? [`Matches left alone because they are hidden: ${hidden.join('; ')}.`] : []),
+    ...(budget.exceeded ? ['The search ran out of time before it reached every cell, so more matches may remain.'] : []),
+  ];
+  if (!total) return { replaced: 0, note: ['No cells match.', ...notes].join(' ') };
+  const reached = found.some(({ sheet, matches }) => replacementReaches(wb, sheet.id, matches, needle, replacement, opts));
+  const distrusted = reachingNote(env, reached);
+  // What each matched cell holds now, to say afterwards which ones the replacement changed.
+  const before = found.map(({ sheet, matches }) => matches.map(({ r, c }) => wb.getCell(sheet.id, r, c)));
+  const skipped = [];
+  let n = 0;
+  wb.transaction('AI edit', () => {
+    for (const { sheet, matches } of found) if (matches.length) n += replaceCells(wb, sheet.id, matches, needle, replacement, { ...opts, skipped });
+  });
+  const changed = [];
+  found.forEach(({ sheet, matches }, k) => matches.forEach(({ r, c }, i) => {
+    if (wb.getCell(sheet.id, r, c) !== before[k][i]) changed.push(qualified(wb, sheet.id, { r1: r, c1: c, r2: r, c2: c }));
+  }));
+  const counts = new Map();
+  for (const { reason } of skipped) counts.set(reason, (counts.get(reason) || 0) + 1);
+  const alone = [...counts].map(([reason, k]) => `${k} ${LEFT_ALONE[reason] || reason}`);
+  if (!n && alone.length) throw new ToolError(`Nothing was replaced: the ${total} match${total === 1 ? '' : 'es'} could not be changed (${alone.join('; ')}).${notes.length ? ` ${notes.join(' ')}` : ''}`);
+  const errors = [];
+  for (const { sheet, matches } of found) {
+    for (const { r, c } of matches) {
+      if (errors.length >= 8) break;
+      if (wb.getCell(sheet.id, r, c)?.f == null) continue;
+      const shown = formulaErrors(wb, sheet.id, { r1: r, c1: c, r2: r, c2: c }, 1);
+      if (shown.length) errors.push(`${quoteSheet(sheet.name)}!${shown[0]}`);
+    }
+  }
+  return {
+    replaced: n,
+    cells: changed.slice(0, 20),
+    ...(changed.length > 20 ? { more: `and ${changed.length - 20} more` } : {}),
+    ...(alone.length ? { left_alone: alone.join('; ') } : {}),
+    ...(errors.length ? { formula_errors: errors } : {}),
+    ...(notes.length ? { note: notes.join(' ') } : {}),
+    ...(distrusted ? { blocked_note: distrusted } : {}),
+  };
 }
 
 function colorArg(value, what) {
@@ -2322,6 +2450,7 @@ const RUNNERS = {
   clear_range: clearRange,
   copy_range: copyRangeTool,
   move_range: moveRangeTool,
+  find_replace: findReplace,
   format_cells: formatCells,
   insert_rows: (wb, args, env) => lines(wb, args, env, { axis: 'row', remove: false }),
   insert_columns: (wb, args, env) => lines(wb, args, env, { axis: 'col', remove: false }),
@@ -2487,6 +2616,16 @@ export function describeCall(wb, name, args = {}, env) {
       const detail = [replaced && `Replaces ${holding(replaced)}.`, notes && `Replaces ${plural(notes, 'note')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
       return { label, destructive: !!detail, detail: detail || null };
+    }
+    case 'find_replace': {
+      let n = 0, place = '';
+      try {
+        const { found, scope } = replaceMatches(wb, args, env, searchBudget(1000));
+        n = found.reduce((sum, f) => sum + f.matches.length, 0);
+        place = scope.range ? `in ${qualified(wb, scope.sheets[0].id, scope.range)}` : args.all_sheets ? 'on every sheet' : `on ${scope.sheets[0].name}`;
+      } catch { place = args.range ? `in ${args.range}` : `on ${sheetName(args.sheet)}`; }
+      const label = `Replace “${clip(String(args.find ?? ''), 40)}” with “${clip(String(args.replace ?? ''), 40)}” ${place}`;
+      return { label, destructive: n > 0, detail: n ? `Changes the ${plural(n, 'cell')} that match${n === 1 ? 'es' : ''}.` : null };
     }
     case 'format_cells': return { label: `Format ${at(args.range).text}` };
     case 'insert_rows': return { label: `Insert ${plural(lineCount(args.count), 'row')} above row ${lineNumber(args.before_row)} on ${sheetName(args.sheet)}` };
