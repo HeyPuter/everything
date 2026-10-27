@@ -281,6 +281,25 @@ export function runRevisionDisplay(run) {
   return null;
 }
 
+/**
+ * What measuring `paragraphs` reads of revisionView, as text: the display (runRevisionDisplay) of each
+ * of their changed runs in order, and showHidden once one of their runs is hidden text, or always with
+ * `hidden` (page stories gain hidden text from their styles while they are measured); '' when nothing.
+ * Layout reads the view nowhere else (layout.js measureParagraph). Measurements are remembered by this
+ * instead of by the whole view: a new reviewer, or another Display for Review, left no paragraph's
+ * measurement usable, though only paragraphs with changes or hidden text are displayed differently.
+ */
+export function revisionViewKey(paragraphs, hidden = false) {
+  try {
+    let key = '';
+    for (const p of paragraphs) for (const run of p.runs) {
+      if (run.vanish) hidden = true;
+      if (run.revision || run.formatRevision) key += `${JSON.stringify(runRevisionDisplay(run))},`;
+    }
+    return hidden ? `${revisionView.showHidden}:${key}` : key;
+  } catch { return JSON.stringify(revisionView); }
+}
+
 /** Human-readable names of what a formatting revision changed, e.g. ['Bold', 'Font size 14 pt']. */
 export function describeFormatChange(target, previous = target.formatRevision?.previous) {
   const paragraph = Array.isArray(target.runs);

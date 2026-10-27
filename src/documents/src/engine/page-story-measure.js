@@ -4,7 +4,7 @@ import { isPositionedImage } from './images.js';
 import { pageFieldValue } from './docx-page-fields.js';
 import { resolveStyledParagraph } from './styles.js';
 import { pageStoryPositions } from './page-story-positions.js';
-import { revisionView } from './revisions.js';
+import { revisionViewKey } from './revisions.js';
 
 // Development builds check that a content name always stands for the same content.
 const namedContent = new Map();
@@ -45,7 +45,8 @@ function storyMeasureKey(cache, story, geometry, numbering, context, { styles, d
     if (paragraphs === undefined) { paragraphs = cache.intern(JSON.stringify(story.paragraphs)); storyKeys?.set(story.paragraphs, paragraphs); }
     content = [paragraphs, { ...story, paragraphs: undefined }];
   }
-  return JSON.stringify([content, geometry, numbering ?? null, context, revisionView,
+  // Of the revision view, only what the story's own changes and hidden text show (revisionViewKey).
+  return JSON.stringify([content, geometry, numbering ?? null, context, revisionViewKey(story.paragraphs, true),
     styles ? cache.intern(stylesKey ?? JSON.stringify(styles)) : null, drawingLayouts ? [...drawingLayouts] : null, !!onUnsupported]);
 }
 

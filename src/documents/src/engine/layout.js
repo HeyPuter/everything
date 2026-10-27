@@ -32,7 +32,7 @@ import { LineBuilder } from './line-builder.js';
 import { bidiCharacters, bidiLineCharacters, bidiRtlSpace } from './bidi-text.js';
 import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
-import { revisionView, runRevisionDisplay } from './revisions.js';
+import { revisionView, runRevisionDisplay, revisionViewKey } from './revisions.js';
 import { inlineSegments, EMU_PER_PX, drawingOffsetPixels, imageExtents, inlineImageExtents, inlineImagePaintFrame, normalizedRotation, isPositionedImage, isSideWrappedImage } from './images.js';
 import { squareFlowHints, squareFlowSignature, squareRow, squareHintsKey, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
 import { positionedImageFrame, positionedImageContains, positionedImageBounds, isCellRelativePosition, isPageBasedCellPosition } from './positioned-images.js';
@@ -138,7 +138,7 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
     const storyScope = measureBase.paragraphCache ? { storyStylesKey: JSON.stringify(storyOptions.styles ?? null), storyKeys: new WeakMap(), storyStories: pageStories } : {};
     // Everything besides the blocks that decides where footnote references land and how tall their notes are.
     const flowContext = () => measureBase.paragraphCache && JSON.stringify([counts, storiesContentKey(pageStories), storyOptions.styles ?? null, numbering ?? null, !!storyOptions.bestEffort,
-      storyOptions.drawingLayouts ? [...storyOptions.drawingLayouts] : null, revisionView]);
+      storyOptions.drawingLayouts ? [...storyOptions.drawingLayouts] : null, revisionViewKey(Object.values(pageStories?.stories || {}).flatMap(story => story.paragraphs || []), true)]);
     const flow = () => notes
       ? layoutWithFootnotes(notes, noteReserve => layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys, noteReserve }), measureBase, numbering, { ...storyOptions, ...storyScope }, flowContext())
       : layoutWithWrap(paragraphs, measureBase, page, numbering, tables, pageStories, { ...storyOptions, ...storyScope, ...counts, storyHeights, storyHeightCache, paragraphKeys });
@@ -196,9 +196,18 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
   const paragraphCache = measureBase.paragraphCache?.();
   paragraphCache?.reserve(paragraphs.length);
   // Page geometry and numbering are long; keys name them by the cache's short ids (intern).
-  const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(JSON.stringify([numbering ?? null, revisionView]));
-  // Paragraphs keep their content through the passes of one layout; serialize each once.
+  const pageKeys = new WeakMap(), sharedKey = paragraphCache && paragraphCache.intern(JSON.stringify(numbering ?? null));
+  // Paragraphs keep their content through the passes of one layout; serialize each once. A paragraph's
+  // content includes what its measurement reads of the revision view (revisionViewKey), not the whole view.
   const paragraphKeys = storyOptions.paragraphKeys || new WeakMap();
+  const contentKeys = paragraph => {
+    let keys = paragraphKeys.get(paragraph);
+    if (!keys) {
+      const view = revisionViewKey([paragraph]);
+      paragraphKeys.set(paragraph, keys = { content: view ? `${JSON.stringify(paragraph)},${JSON.stringify(view)}` : JSON.stringify(paragraph), byContext: new Map() });
+    }
+    return keys;
+  };
   // What pagination reads of each block, in order (paragraph-measure-cache.js flowName). Only footnote
   // settling reads it (layoutWithFootnotes); naming a table serializes all of its measured rows.
   let flowNames = paragraphCache && storyOptions.noteReserve !== undefined ? [] : null;
@@ -282,18 +291,15 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
       ['width', 'height'].every(key => page[key] === nextSectionPage[key]) &&
       (sourceBlocks[blockIndex - 1]?.table && page.compatibilityMode >= 15 || currentSection.count === 0));
     // A cell's AutoFit widths, remembered across layouts by what they read: the cell's own properties
-    // and borders, its paragraphs (pictures included, by content: the widths are numbers) and list
-    // labels, the page, numbering and revision view. Cells holding nested tables are measured every time.
+    // and borders, its paragraphs (pictures included, by content: the widths are numbers, with what they
+    // read of the revision view) and list labels, the page and numbering. Cells holding nested tables
+    // are measured every time.
     const cellWidths = (cell, page, borders) => {
       const compute = () => cellIntrinsicWidths(cell, measure, page, numbering, markers, borders);
       if (!paragraphCache || cell.content.some(block => !block.paragraph)) return compute();
       let key;
       try {
-        const content = cell.content.map(({ paragraph, index }) => {
-          let keys = paragraphKeys.get(paragraph);
-          if (!keys) paragraphKeys.set(paragraph, keys = { content: JSON.stringify(paragraph), byContext: new Map() });
-          return `${keys.content},${JSON.stringify(markers[index] ?? null)}`;
-        });
+        const content = cell.content.map(({ paragraph, index }) => `${contentKeys(paragraph).content},${JSON.stringify(markers[index] ?? null)}`);
         key = `${pageKey(page)}:${sharedKey}:${JSON.stringify([{ ...cell, content: undefined }, borders ?? null])}:[${content.join(',')}]`;
       } catch { return compute(); }
       return paragraphCache.cellWidths(key, compute);
@@ -313,8 +319,7 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         if (paragraphCache && !page.rotatedCellText && !page.columnWidthAt) {
           try {
             // The same key string in every pass keeps its hash: the cache does not hash a long paragraph again.
-            let keys = paragraphKeys.get(block.paragraph);
-            if (!keys) paragraphKeys.set(block.paragraph, keys = { content: JSON.stringify(block.paragraph), byContext: new Map() });
+            const keys = contentKeys(block.paragraph);
             const wrap = squareHintsKey(hints, block.paragraph.id, block.offset);
             const context = JSON.stringify([pageKey(page), markers[block.index] ?? null, !cellEdges && keepBoundaryLine, edges ?? null, sharedKey, ...(wrap === null ? [] : [wrap])]);
             key = keys.byContext.get(context);
