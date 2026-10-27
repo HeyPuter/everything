@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Analytics Studio — local dashboards and aggregates. Power BI/Tableau-inspired." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Analytics Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Analytics Studio</h1></header>
+      <main id="board" class="board"></main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>Power BI / Tableau (DOCUMENTED) connect to LIVE warehouses and scheduled refreshes. This v0 aggregates seeded local rows into KPI/bar widgets — no fabricated LIVE data connectors.</p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "analytics-studio-puter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Power BI/Tableau-inspired local dashboards and aggregates.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8"
+  }
+}
