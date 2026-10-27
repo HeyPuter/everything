@@ -195,3 +195,27 @@ describe('AI tools: data validation', () => {
     expect(run('remove_validation', { range: 'B2:B5' }).content).toMatch(/Sheet1 is protected/);
   });
 });
+
+describe('AI tools: clearing formats', () => {
+  it('takes conditional formatting and merges off the cells, as Clear Formats does, in one step', () => {
+    const { wb, id, json } = setup();
+    json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
+    wb.mergeCells(id, { r1: 5, c1: 0, r2: 5, c2: 2 });
+    wb.clearHistory();
+    json('clear_range', { range: 'A3:C6', what: 'formats' });
+    expect(wb.sheet(id).rules.map((r) => r.range)).toEqual([{ r1: 1, c1: 1, r2: 1, c2: 1 }]);
+    expect(wb.sheet(id).merges).toEqual([]);
+    expect(wb.getValue(id, 2, 1)).toBe(12);
+    expect(wb.undoLabels(5)).toHaveLength(1);
+    wb.undo();
+    expect(wb.sheet(id).rules[0].range).toEqual({ r1: 1, c1: 1, r2: 4, c2: 1 });
+    expect(wb.sheet(id).merges).toHaveLength(1);
+  });
+
+  it('leaves them when only contents are cleared', () => {
+    const { wb, id, json } = setup();
+    json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
+    json('clear_range', { range: 'B2:B5' });
+    expect(wb.sheet(id).rules).toHaveLength(1);
+  });
+});

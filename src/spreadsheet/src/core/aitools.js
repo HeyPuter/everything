@@ -150,7 +150,7 @@ export const TOOLS = [
     range: RANGE,
     formula: str('The formula for the top-left cell, starting with =, e.g. "=C2*D2".'),
   }, ['range', 'formula']),
-  fn('clear_range', 'Clear cells: their contents, their formatting, or both.', {
+  fn('clear_range', 'Clear cells: their contents, their formatting, or both. Clearing formats also takes conditional formatting off the cells and unmerges them, as Clear Formats does.', {
     range: RANGE,
     what: str('"contents" (default), "formats", or "all".', { enum: ['contents', 'formats', 'all'] }),
   }, ['range']),
@@ -1181,7 +1181,13 @@ function clearRange(wb, args, env) {
   if (!['contents', 'formats', 'all'].includes(what)) throw new ToolError('what must be "contents", "formats" or "all".');
   assertWritable(wb, sheetId, range);
   const before = wb.version;
-  wb.transaction('AI edit', () => wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents' }));
+  wb.transaction('AI edit', () => {
+    wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents' });
+    // Conditional formats and merged blocks are formatting too, which Clear Formats and Clear All take off with the
+    // rest (see the editor's clearRulesAndMerges): left on, the cleared cells stayed highlighted, or merged.
+    const refused = wb.version === before && what === 'all' && filledCells(wb, sheetId, range);
+    if (what !== 'contents' && !refused) { clearRules(wb, sheetId, [range]); wb.unmergeCells(sheetId, range); }
+  });
   if (wb.version === before && filledCells(wb, sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
   return { cleared: qualified(wb, sheetId, range), what };
 }
