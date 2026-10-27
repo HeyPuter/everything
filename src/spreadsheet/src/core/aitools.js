@@ -2973,7 +2973,9 @@ function setHidden(wb, args, env) {
   assertWritable(wb, sheet.id, null);
   const axis = hasRows ? 'row' : 'col';
   const runs = lineRunsArg(hasRows ? args.rows : args.columns, axis);
-  const hide = args.hidden !== false;
+  // Read strictly: "false" (a string) or a missing hidden hid the rows the model meant to show.
+  if (typeof args.hidden !== 'boolean') throw new ToolError('hidden must be true (hide them) or false (show them).');
+  const hide = args.hidden;
   const where = `${linesLabel(axis, runs)} on ${sheet.name}`;
   // No cap on how many: showing every row ("1:1048576") or hiding every row below the data ("20:1048576") is the
   // whole sheet, as Hide and Unhide over the selected rows take it; refused past 100,000, neither could be done.

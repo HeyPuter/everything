@@ -81,6 +81,7 @@ describe('AI tool set_hidden', () => {
     expect(run('set_hidden', { rows: '2', columns: 'B', hidden: true }).content).toMatch(/not both/);
     expect(run('set_hidden', { hidden: true }).content).toMatch(/Give rows or columns/);
     expect(run('set_hidden', { rows: '2:3:4', hidden: true }).content).toMatch(/run of them/);
+    for (const hidden of ['false', undefined, 0]) expect(run('set_hidden', { rows: '2', hidden }).content).toMatch(/hidden must be true .* or false/);
     expect(run('set_hidden', { columns: 'A:XFD', hidden: true }).content).toMatch(/at least one column showing/);
     wb.setSheetProtected(id, true);
     expect(run('set_hidden', { rows: '2', hidden: true }).content).toMatch(/protected/);
