@@ -31,7 +31,9 @@ import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
 import { cellFromInput, objectNoun } from './workbook.js';
-import { getThread } from './comments.js';
+import { getThread, copyThreads, pasteThreads } from './comments.js';
+import { copyMergeLayout } from './clipboard.js';
+import { composePaste } from './paste-special.js';
 import { tableRows } from './tables.js';
 import { sheetFilters, filterTable, sameFilterRange } from './sheet-filters.js';
 import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
@@ -60,6 +62,8 @@ const RULE_KINDS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains'
 const NUMERIC_RULES = new Set(['gt', 'gte', 'lt', 'lte', 'between', 'top', 'bottom']);
 const HEX = /^#[0-9a-f]{6}$/i;
 const FILTER_CONDITIONS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'notContains', 'beginsWith', 'endsWith', 'empty', 'notEmpty', 'top', 'bottom', 'above_average', 'below_average', 'formula'];
+const COPY_WHAT = ['all', 'values', 'formulas', 'formats'];
+const MAX_COPY_CELLS = 200000; // as much as the editor copies at once
 
 /* ---------- Formulas that reach out ---------- */
 
@@ -143,6 +147,17 @@ export const TOOLS = [
     range: RANGE,
     what: str('"contents" (default), "formats", or "all".', { enum: ['contents', 'formats', 'all'] }),
   }, ['range']),
+  fn('copy_range', 'Copy cells to another place, as copy and paste does: relative references in formulas shift with the copy, and notes, merged cells, conditional formats and validation come along. Hidden and filtered-out rows and columns are left out, as a copy leaves them, unless include_hidden is set. A destination range that is a multiple of the source\'s size is filled with repeated copies. Replaces what is at the destination.', {
+    source: RANGE,
+    destination: str('Where the copy goes: its top-left cell, e.g. "F2" or "Summary!A1", or a range to repeat the copy across. Without a sheet it means the active sheet.'),
+    what: str('"all" (default), "values" (what the cells show, without formulas, keeping the destination\'s formatting), "formulas" (keeping the destination\'s formatting) or "formats".', { enum: COPY_WHAT }),
+    transpose: bool('Turn the rows into columns (default false).'),
+    include_hidden: bool('Copy hidden and filtered-out rows and columns too (default false).'),
+  }, ['source', 'destination']),
+  fn('move_range', 'Move cells to another place, as cut and paste does: they leave the source with their formulas, formatting, notes and merges, and formulas elsewhere that refer to them follow them. Replaces what is at the destination.', {
+    source: RANGE,
+    destination: str('Top-left cell of where the cells go, e.g. "H2" or "Archive!A1". Without a sheet it means the active sheet.'),
+  }, ['source', 'destination']),
   fn('format_cells', 'Format a range. Give only the properties to change.', {
     range: RANGE,
     bold: bool('Bold on or off.'),
@@ -1077,6 +1092,237 @@ function clearRange(wb, args, env) {
   wb.transaction('AI edit', () => wb.clearRange(sheetId, range, { contents: what !== 'formats', styles: what !== 'contents' }));
   if (wb.version === before && filledCells(wb, sheetId, range)) throw new ToolError(`${qualified(wb, sheetId, range)} could not be cleared (it may cross part of an array formula or a pivot table).`);
   return { cleared: qualified(wb, sheetId, range), what };
+}
+
+/* ---------- Copying and moving ---------- */
+
+const isWholeLines = (range) => range.r2 >= MAX_ROW || range.c2 >= MAX_COL;
+
+/** Whole columns or rows as far as the sheet's content goes, as a copy takes them; null when they hold nothing. */
+function usedExtent(wb, sheetId, range) {
+  if (!isWholeLines(range)) return range;
+  const used = wb.usedRange(sheetId);
+  if (!used) return null;
+  const r2 = range.r2 >= MAX_ROW ? Math.min(range.r2, used.r2) : range.r2;
+  const c2 = range.c2 >= MAX_COL ? Math.min(range.c2, used.c2) : range.c2;
+  return r2 < range.r1 || c2 < range.c1 ? null : { ...range, r2, c2 };
+}
+
+const cellsIn = (range) => (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
+const overlapping = (a, b) => !(a.r2 < b.r1 || a.r1 > b.r2 || a.c2 < b.c1 || a.c1 > b.c2);
+const within = (inner, outer) => inner.r1 >= outer.r1 && inner.r2 <= outer.r2 && inner.c1 >= outer.c1 && inner.c2 <= outer.c2;
+
+/**
+ * What a copy of the range carries, as the editor's copy gathers it for a paste in this workbook: the cells (formulas
+ * and styles), the values they show, notes, comment threads, merges, conditional formats, validation, sparklines and
+ * pivot tables. Hidden and filtered-out lines are left out unless `includeHidden`, as a copy of what is on screen.
+ */
+function copySnapshot(wb, sheetId, range, includeHidden) {
+  const sheet = wb.sheet(sheetId);
+  const lines = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const { rows, cols, all } = includeHidden ? { rows: lines(range.r1, range.r2), cols: lines(range.c1, range.c2), all: true } : wb.visibleIndices(sheetId, range);
+  if (!rows.length || !cols.length) throw new ToolError(`Every row or column of ${qualified(wb, sheetId, range)} is hidden, so nothing is on show to copy. Set include_hidden to copy them anyway.`);
+  const cells = all ? wb.copyRange(sheetId, range, { sameBook: true }) : wb.copyCells(sheetId, rows, cols, { sameBook: true });
+  // The values as copied for Paste Values: errors as errors, a picture in a cell as nothing.
+  const values = rows.map((r) => cols.map((c) => {
+    const v = wb.getValue(sheetId, r, c);
+    if (v && typeof v === 'object') return typeof v.error === 'string' ? { error: v.error } : null;
+    if (typeof v === 'number' && !Number.isFinite(v)) return { error: '#NUM!' };
+    return v ?? null;
+  }));
+  let notes = sheet.notes.size ? rows.map((r) => cols.map((c) => wb.getNote(sheetId, r, c))) : null;
+  if (notes && !notes.some((row) => row.some(Boolean))) notes = null;
+  return {
+    cells, values, notes, rows, cols, all,
+    origin: { r: range.r1, c: range.c1, sheetId, ...(all ? {} : { rows, cols }) },
+    merges: copyMergeLayout(sheet.merges, rows, cols).ranges,
+    conditionalFormats: wb.copyConditionalFormats(sheetId, rows, cols),
+    validations: wb.copyValidations(sheetId, rows, cols),
+    nativeSparklines: wb.copyNativeSparklines(sheetId, rows, cols),
+    nativePivots: wb.copyNativePivots(sheetId, rows, cols),
+    threads: copyThreads(wb, sheetId, rows, cols),
+  };
+}
+
+/** The workbook's refusals of a paste, in words the model can act on. */
+const PASTE_REFUSALS = {
+  protected: 'part of the destination is protected',
+  'array-edit': 'it would land on part of an array formula, or a copied array formula would not fit there',
+  'pivot-edit': 'it would land on part of a pivot table',
+  'merge-paste': 'it would land on part of a merged cell',
+};
+
+/** Run `fn`, gathering the refusals the workbook announces for this sheet while it runs. */
+function collectRefusals(wb, sheetId, fn) {
+  const refused = [];
+  const hear = ({ detail }) => { if (PASTE_REFUSALS[detail?.type] && (detail.sheetId == null || detail.sheetId === sheetId)) refused.push(detail.type); };
+  wb.addEventListener('change', hear);
+  try { fn(() => refused.length > 0); } finally { wb.removeEventListener('change', hear); }
+  return refused;
+}
+
+/** Where a copy lands: the block it fills, how often it repeats, and the range it repeats over (null for once). */
+function copyPlacement(wb, args, h, w, env) {
+  const dest = resolveRange(wb, args.destination, env.sheetId());
+  const transpose = !!args.transpose;
+  // A whole column or row as the destination is its first cell: repeated down a million rows, one row would freeze the tab.
+  const repeatOver = !transpose && !isWholeLines(dest.range) && cellsIn(dest.range) > 1 ? dest.range : null;
+  const reps = transpose ? { rows: 1, cols: 1 } : wb.pasteReps(h, w, repeatOver);
+  const H = transpose ? w : h * reps.rows, W = transpose ? h : w * reps.cols;
+  const block = { r1: dest.range.r1, c1: dest.range.c1, r2: dest.range.r1 + H - 1, c2: dest.range.c1 + W - 1 };
+  const once = repeatOver && reps.rows * reps.cols === 1 && (dest.range.r2 !== block.r2 || dest.range.c2 !== block.c2);
+  return { sheetId: dest.sheetId, block, repeatOver, reps, transpose, once };
+}
+
+function copyRangeTool(wb, args, env) {
+  const what = args.what ?? 'all';
+  if (!COPY_WHAT.includes(what)) throw new ToolError(`what must be one of ${COPY_WHAT.join(', ')}.`);
+  const { sheetId, range: asked } = resolveRange(wb, args.source, env.sheetId());
+  const range = usedExtent(wb, sheetId, asked);
+  if (!range) throw new ToolError(`${qualified(wb, sheetId, asked)} holds nothing to copy.`);
+  if (cellsIn(range) > MAX_COPY_CELLS) throw new ToolError(`At most ${MAX_COPY_CELLS.toLocaleString('en-US')} cells can be copied at once.`);
+  const snap = copySnapshot(wb, sheetId, range, !!args.include_hidden);
+  const h = snap.cells.length, w = snap.cells[0].length;
+  const at = copyPlacement(wb, args, h, w, env);
+  const { sheetId: dstId, block } = at;
+  if (cellsIn(block) > MAX_COPY_CELLS) throw new ToolError(`The copy would fill more than ${MAX_COPY_CELLS.toLocaleString('en-US')} cells; copy to a smaller range.`);
+  if (!wb.canEnsureSize(dstId, block.r2 + 1, block.c2 + 1)) throw new ToolError('The copy would run past the edge of the sheet.');
+  const contents = what !== 'formats';
+  // On a protected sheet, values and formulas may go into the cells formatted as unlocked, as typing may; formatting may not.
+  if (wb.isProtected(dstId) && (what === 'all' || what === 'formats') && unlockedCells(wb, dstId, block)) {
+    throw new ToolError(`${wb.sheet(dstId).name} is protected, so its formatting cannot change. Copy with what "values" or "formulas" to fill its unlocked cells.`);
+  }
+  assertWritable(wb, dstId, block, { contents: what === 'values' || what === 'formulas' });
+  if (contents && wb.arrayEditBlocked(dstId, block)) throw new ToolError(`${qualified(wb, dstId, block)} crosses part of an array formula's result. Copy around it, or clear the array first.`);
+  if (!contents && wb.nativePivotOverlap?.(dstId, block)) throw new ToolError(`${qualified(wb, dstId, block)} is part of a pivot table, whose formatting a copy cannot change.`);
+  const formulas = what === 'all' || what === 'formulas';
+  const reached = formulas && snap.cells.some((row) => row.some((cell) => cell?.f != null && reachesOut(wb, cell.f)));
+  const note = reachingNote(env, reached);
+  const hit = contents ? spillsHit(wb, dstId, block) : [];
+  // Values a merged cell at the destination hides take nothing, as a paste leaves them out (unless the copy brings its own merges).
+  let lost = 0;
+  if (contents && !(what === 'all' && snap.merges.length)) {
+    for (let r = block.r1; r <= block.r2; r++) for (let c = block.c1; c <= block.c2; c++) {
+      if (!wb._coveredByMerge(dstId, r, c)) continue;
+      const i = at.transpose ? c - block.c1 : (r - block.r1) % h, j = at.transpose ? r - block.r1 : (c - block.c1) % w;
+      if (holds(snap.cells[i]?.[j])) lost++;
+    }
+  }
+  const { r1: r, c1: c } = block;
+  let pasted = null;
+  const refused = collectRefusals(wb, dstId, (wasRefused) => {
+    wb.ensureSize(dstId, block.r2 + 1, block.c2 + 1);
+    wb.transaction('AI edit', () => {
+      if (at.transpose) {
+        const sheet = wb.sheet(dstId);
+        pasted = composePaste(wb, dstId, snap, r, c, null, { what, transpose: true }, { rows: sheet.rows, cols: sheet.cols })?.pasted;
+      } else if (what === 'all') {
+        pasted = wb.pasteCells(dstId, snap.cells, r, c, snap.origin, at.repeatOver, {
+          notes: snap.notes, merges: snap.merges, conditionalFormats: snap.conditionalFormats, validations: snap.validations,
+          nativeSparklines: snap.nativeSparklines, nativePivots: snap.nativePivots,
+        });
+        if (!wasRefused()) pasteThreads(wb, dstId, snap.threads, r, c);
+      } else if (what === 'formulas') {
+        pasted = wb.pasteCells(dstId, snap.cells, r, c, snap.origin, at.repeatOver, { keepStyles: true, nativeSparklines: snap.nativeSparklines });
+      } else if (what === 'values') {
+        wb.pasteLiteralValues(dstId, snap.values, r, c, at.repeatOver);
+      } else {
+        wb.pasteStyles(dstId, snap.cells, r, c, at.repeatOver, { merges: snap.merges, conditionalFormats: snap.conditionalFormats });
+      }
+      // Rows or columns pasted beside a table join it, as they do after a paste; formatting alone does not.
+      if (contents && !wasRefused() && !snap.nativePivots) wb.extendTableToCover(dstId, block);
+    });
+  });
+  if (refused.length) throw new ToolError(`Nothing was copied: ${PASTE_REFUSALS[refused[0]]}.`);
+  const losses = pasted?.mergeLosses ?? lost;
+  const hiddenRows = range.r2 - range.r1 + 1 - snap.rows.length, hiddenCols = range.c2 - range.c1 + 1 - snap.cols.length;
+  const left = [hiddenRows && `${hiddenRows} hidden row${hiddenRows === 1 ? '' : 's'}`, hiddenCols && `${hiddenCols} hidden column${hiddenCols === 1 ? '' : 's'}`].filter(Boolean);
+  const errors = formulas ? formulaErrors(wb, dstId, block) : [];
+  const blocked = blockedSpills(wb, dstId, hit);
+  return {
+    copied: qualified(wb, sheetId, range), to: qualified(wb, dstId, block), what,
+    ...(at.transpose ? { transposed: true } : {}),
+    ...(at.reps.rows * at.reps.cols > 1 ? { copies: at.reps.rows * at.reps.cols } : {}),
+    ...(at.once ? { note_on_destination: `The destination is not a multiple of the source's size, so the copy went in once, at ${cellName(r, c)}.` } : {}),
+    ...(left.length ? { left_out: `${left.join(' and ')} of the source ${left.length > 1 || hiddenRows + hiddenCols > 1 ? 'were' : 'was'} not copied. Set include_hidden to copy them.` } : {}),
+    ...(losses ? { not_pasted_under_merged_cells: `${losses} value${losses === 1 ? '' : 's'} fell under merged cells at the destination and ${losses === 1 ? 'was' : 'were'} left out.` } : {}),
+    ...(errors.length ? { formula_errors: errors } : {}),
+    ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
+    ...(note ? { note } : {}),
+  };
+}
+
+/** Why a move was refused, as near as the workbook's own checks say. */
+function moveProblem(wb, srcId, src, dstId, dst) {
+  const source = wb.sheet(srcId), target = wb.sheet(dstId);
+  const where = qualified(wb, srcId, src);
+  if (wb.arrayEditBlocked(srcId, src, { whole: true }) || wb._splitsSpill?.(source, src)) return `${where} takes part of an array formula's results without the formula, or part of an array. Move the whole array with its formula.`;
+  const torn = source.merges.find((m) => overlapping(m, src) && !within(m, src));
+  if (torn) return `${where} takes part of the merged cell ${rangeName(torn)}. Include all of it, or unmerge it first.`;
+  const landing = target.merges.find((m) => overlapping(m, dst) && !within(m, dst) && !(dstId === srcId && within(m, src)));
+  if (landing) return `The cells would land on part of the merged cell ${rangeName(landing)}.`;
+  const tornTable = source.tables.find((t) => overlapping(t.range, src) && !within(t.range, src) && !within(src, t.range));
+  if (tornTable) return `${where} takes part of the table ${tornTable.name} along with cells outside it. Move the whole table, or only cells inside it.`;
+  const moving = source.tables.filter((t) => within(t.range, src));
+  const shift = (g) => ({ r1: g.r1 + dst.r1 - src.r1, c1: g.c1 + dst.c1 - src.c1, r2: g.r2 + dst.r1 - src.r1, c2: g.c2 + dst.c1 - src.c1 });
+  const struck = moving.length && target.tables.find((o) => (dstId !== srcId || !moving.includes(o)) && moving.some((t) => overlapping(shift(t.range), o.range)));
+  if (struck) return `The table the cells carry would land on the table ${struck.name}.`;
+  if (wb.pivotMoveEditBlocked?.(srcId, src, dstId, dst)) return 'A pivot table is in the way: a move cannot take part of one, or land on one.';
+  return `${where} could not be moved to ${qualified(wb, dstId, dst)}: it would run past the edge of the sheet, or a table, merged cells, a pivot table or an array formula is in the way.`;
+}
+
+/**
+ * The cells a move takes and where they land. Whole columns or rows move whole within their sheet, their formatting
+ * and rules with them; to another sheet the cells go as far as the sheet's content reaches, as a cut and paste takes
+ * them. `src` is null when that is nothing.
+ */
+function movePlacement(wb, args, env) {
+  const { sheetId, range: asked } = resolveRange(wb, args.source, env.sheetId());
+  const dest = resolveRange(wb, args.destination, env.sheetId());
+  const dstId = dest.sheetId;
+  const across = dstId !== sheetId;
+  const src = across ? usedExtent(wb, sheetId, asked) : asked;
+  if (!src) return { sheetId, asked, src: null, dstId, across };
+  const whole = isWholeLines(src);
+  const r0 = whole && src.r2 >= MAX_ROW ? 0 : dest.range.r1, c0 = whole && src.c2 >= MAX_COL ? 0 : dest.range.c1;
+  const dst = { r1: r0, c1: c0, r2: r0 + src.r2 - src.r1, c2: c0 + src.c2 - src.c1 };
+  return { sheetId, asked, src, dstId, dst, across, whole };
+}
+
+/** Where a copy or a move would land: { sheetId, range } of the block it fills, or null. Throws when it names no place. */
+function landing(wb, name, args, env) {
+  if (name === 'move_range') {
+    const at = movePlacement(wb, args, env);
+    return at.src ? { sheetId: at.dstId, range: at.dst } : null;
+  }
+  const { sheetId, range: asked } = resolveRange(wb, args.source, env.sheetId());
+  const range = usedExtent(wb, sheetId, asked);
+  if (!range || cellsIn(range) > MAX_COPY_CELLS) return null;
+  const shown = args.include_hidden ? { rows: [range.r1], cols: [range.c1] } : wb.visibleIndices(sheetId, range);
+  const h = args.include_hidden ? range.r2 - range.r1 + 1 : shown.rows.length, w = args.include_hidden ? range.c2 - range.c1 + 1 : shown.cols.length;
+  if (!h || !w) return null;
+  const at = copyPlacement(wb, args, h, w, env);
+  return { sheetId: at.sheetId, range: at.block };
+}
+
+function moveRangeTool(wb, args, env) {
+  const { sheetId, asked, src, dstId, dst, across, whole } = movePlacement(wb, args, env);
+  if (!src) throw new ToolError(`${qualified(wb, sheetId, asked)} holds nothing to move.`);
+  if (!whole && cellsIn(src) > MAX_COPY_CELLS) throw new ToolError(`At most ${MAX_COPY_CELLS.toLocaleString('en-US')} cells can be moved at once.`);
+  const { r1: r0, c1: c0 } = dst;
+  if (!across && r0 === src.r1 && c0 === src.c1) throw new ToolError(`${qualified(wb, sheetId, src)} is already there.`);
+  if (!whole && !wb.canEnsureSize(dstId, dst.r2 + 1, dst.c2 + 1)) throw new ToolError('The cells would run past the edge of the sheet.');
+  assertWritable(wb, sheetId, src);
+  assertWritable(wb, dstId, dst);
+  let done = null;
+  wb.transaction('AI edit', () => {
+    if (!across) { done = wb.moveRange(sheetId, src, r0, c0); return; }
+    wb.ensureSize(dstId, dst.r2 + 1, dst.c2 + 1);
+    done = wb.placeMoved(dstId, r0, c0, wb.copyRange(sheetId, src, { sameBook: true }), { sheetId, range: src });
+  });
+  if (!done) throw new ToolError(moveProblem(wb, sheetId, src, dstId, dst));
+  const errors = whole ? [] : formulaErrors(wb, dstId, dst);
+  return { moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst), ...(errors.length ? { formula_errors: errors } : {}) };
 }
 
 function colorArg(value, what) {
@@ -2074,6 +2320,8 @@ const RUNNERS = {
   write_cells: writeCells,
   fill_formula: fillFormula,
   clear_range: clearRange,
+  copy_range: copyRangeTool,
+  move_range: moveRangeTool,
   format_cells: formatCells,
   insert_rows: (wb, args, env) => lines(wb, args, env, { axis: 'row', remove: false }),
   insert_columns: (wb, args, env) => lines(wb, args, env, { axis: 'col', remove: false }),
@@ -2136,9 +2384,14 @@ export function runTool(wb, name, args, env) {
 export function callTarget(wb, name, args, env) {
   // A pivot table put at a cell is about where it goes; one on a new sheet, about its data.
   if (name === 'create_pivot_table' && args.destination) return resolveRange(wb, args.destination, env.sheetId());
-  const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell;
+  const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell ?? args.destination;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
+  // A copy or a move is about where it lands: the block the source fills there.
+  if (name === 'copy_range' || name === 'move_range') {
+    const block = landing(wb, name, args, env);
+    if (block) return block;
+  }
   // A note goes on one cell, the range's first.
   if (name === 'add_note') found.range = { r1: found.range.r1, c1: found.range.c1, r2: found.range.r1, c2: found.range.c1 };
   if (name === 'write_cells' && Array.isArray(args.values)) {
@@ -2213,6 +2466,27 @@ export function describeCall(wb, name, args = {}, env) {
       const what = args.what || 'contents';
       const n = what === 'formats' ? 0 : filled(t.s, t.range);
       return { label: `Clear ${what === 'all' ? 'everything in' : what === 'formats' ? 'the formatting of' : ''} ${t.text}`.replace(/\s+/g, ' '), destructive: n > 0, detail: n ? `Removes ${plural(n, 'cell')} of data.` : null };
+    }
+    case 'copy_range': case 'move_range': {
+      const move = name === 'move_range';
+      const src = at(args.source);
+      let to = null;
+      try { to = landing(wb, name, args, env); } catch { /* the runner explains */ }
+      const dest = to ? qualified(wb, to.sheetId, to.range) : String(args.destination ?? '');
+      const what = move ? 'all' : args.what || 'all';
+      let replaced = 0, notes = 0, spills = 0;
+      if (to && what !== 'formats') {
+        // Where a move's old and new places overlap, its own cells are not data it replaces.
+        const both = move && src.s === to.sheetId && src.range && overlapping(src.range, to.range) ? {
+          r1: Math.max(src.range.r1, to.range.r1), c1: Math.max(src.range.c1, to.range.c1), r2: Math.min(src.range.r2, to.range.r2), c2: Math.min(src.range.c2, to.range.c2),
+        } : null;
+        replaced = filled(to.sheetId, to.range) - (both ? filled(to.sheetId, both) : 0);
+        if (what === 'all') notes = notesIn(wb, to.sheetId, to.range) - (both ? notesIn(wb, to.sheetId, both) : 0);
+        spills = spillsHit(wb, to.sheetId, to.range).length;
+      }
+      const detail = [replaced && `Replaces ${holding(replaced)}.`, notes && `Replaces ${plural(notes, 'note')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      const label = move ? `Move ${src.text} to ${dest}` : `Copy ${what === 'all' ? '' : `the ${what} of `}${src.text} to ${dest}`;
+      return { label, destructive: !!detail, detail: detail || null };
     }
     case 'format_cells': return { label: `Format ${at(args.range).text}` };
     case 'insert_rows': return { label: `Insert ${plural(lineCount(args.count), 'row')} above row ${lineNumber(args.before_row)} on ${sheetName(args.sheet)}` };
