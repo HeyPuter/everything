@@ -356,6 +356,12 @@ export const TOOLS = [
   fn('set_row_height', 'Set the height of rows in pixels, or fit them to their contents (wrapped text, larger fonts).', {
     sheet: SHEET, rows: str('A row, a run of rows or several, e.g. "3", "2:20" or "1,4:6".'), height: str('Height in pixels (18 to 400; a default row is about 20), or "fit".'),
   }, ['rows', 'height']),
+  fn('set_hidden', 'Hide whole rows or columns, or show hidden ones again. Their contents stay as they are. Give rows or columns, not both.', {
+    sheet: SHEET,
+    rows: str('Rows, e.g. "5", "3:8" or "2,4,10:12".'),
+    columns: str('Columns, e.g. "C", "B:D" or "A,C:E".'),
+    hidden: bool('true hides them, false shows them again.'),
+  }, ['hidden']),
   fn('add_note', 'Attach a note (comment) to a cell, or replace its note. An empty text removes it.', {
     cell: str('The cell, e.g. "D4" or "Sheet2!B7".'), text: str('The note.'),
   }, ['cell', 'text']),
@@ -2870,6 +2876,34 @@ function setRowHeight(wb, args, env) {
 // The sizes the Row height dialog takes.
 const MIN_ROW_PX = 18, MAX_ROW_PX = 400;
 
+function setHidden(wb, args, env) {
+  const sheet = gridSheet(wb, args.sheet, env.sheetId());
+  const hasRows = args.rows != null && args.rows !== '', hasCols = args.columns != null && args.columns !== '';
+  if (hasRows === hasCols) throw new ToolError('Give rows or columns (not both).');
+  // A protected sheet keeps its rows and columns as they are: said so, rather than a change reported that did not happen.
+  assertWritable(wb, sheet.id, null);
+  const axis = hasRows ? 'row' : 'col';
+  const runs = lineRunsArg(hasRows ? args.rows : args.columns, axis);
+  const hide = args.hidden !== false;
+  const where = `${linesLabel(axis, runs)} on ${sheet.name}`;
+  const n = runLength(runs);
+  if (n > 100000) throw new ToolError('At most 100,000 rows or columns at once.');
+  const set = axis === 'row' ? sheet.hiddenRows : sheet.hiddenCols;
+  const indices = [];
+  if (hide) for (const { from, to } of runs) for (let i = from; i <= to; i++) indices.push(i);
+  else for (const { from, to } of runs) indices.push(...wb.hiddenWithin(sheet.id, axis, from, to));
+  // Rows a filter hides stay hidden when shown by hand, as in the app: the filter decides them.
+  let filtered = 0;
+  if (!hide && axis === 'row') for (const i of sheet.filterHidden) if (!set.has(i) && runs.some(({ from, to }) => i >= from && i <= to)) filtered++;
+  const byFilter = filtered ? `${filtered.toLocaleString('en-US')} row${filtered === 1 ? ' is' : 's are'} hidden by a filter, not by hand: change or clear the filter to show ${filtered === 1 ? 'it' : 'them'}.` : null;
+  const pending = indices.filter((i) => set.has(i) !== hide);
+  if (!pending.length) return { [hide ? 'hidden' : 'shown']: where, changed: 0, note: hide ? 'They were hidden already.' : byFilter || 'None of them was hidden.' };
+  let ok;
+  wb.transaction('AI edit', () => { ok = wb.setHidden(sheet.id, axis, pending, hide); });
+  if (!ok) throw new ToolError(`${where} cannot all be hidden: a sheet keeps at least one ${axis === 'row' ? 'row' : 'column'} showing.`);
+  return { [hide ? 'hidden' : 'shown']: where, changed: pending.length, ...(byFilter ? { note: byFilter } : {}) };
+}
+
 function addNote(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
   assertWritable(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 });
@@ -3103,6 +3137,7 @@ const RUNNERS = {
   set_link: setLink,
   set_column_width: setColumnWidth,
   set_row_height: setRowHeight,
+  set_hidden: setHidden,
   add_note: addNote,
   goal_seek: goalSeek,
   solve,
@@ -3448,6 +3483,12 @@ export function describeCall(wb, name, args = {}, env) {
       try { rows = linesLabel('row', lineRunsArg(args.rows, 'row')); } catch { /* the runner explains */ }
       const fit = String(args.height ?? '').trim().toLowerCase() === 'fit';
       return { label: fit ? `Fit ${rows} on ${sheetName(args.sheet)} to their contents` : `Set ${rows} on ${sheetName(args.sheet)} to ${args.height}px` };
+    }
+    case 'set_hidden': {
+      const axis = args.rows != null && args.rows !== '' ? 'row' : 'col';
+      let which = String((axis === 'row' ? args.rows : args.columns) ?? '');
+      try { which = linesLabel(axis, lineRunsArg(axis === 'row' ? args.rows : args.columns, axis)); } catch { /* the runner explains */ }
+      return { label: `${args.hidden === false ? 'Show' : 'Hide'} ${which} on ${sheetName(args.sheet)}` };
     }
     case 'add_note': {
       // A note the cell already has is the user's writing: replacing or removing it asks, as replacing a value does.

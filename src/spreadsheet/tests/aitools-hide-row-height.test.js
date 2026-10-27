@@ -14,6 +14,66 @@ function setup(extra = {}) {
 
 const parsed = (res) => JSON.parse(res.content);
 
+describe('AI tool set_hidden', () => {
+  it('hides rows and shows them again, each one undo step', () => {
+    const { wb, id, env, run } = setup();
+    expect(changesWorkbook('set_hidden')).toBe(true);
+    expect(describeCall(wb, 'set_hidden', { rows: '3:4', hidden: true }, env).label).toBe('Hide rows 3–4 on Sheet1');
+    const res = parsed(run('set_hidden', { rows: '3:4', hidden: true }));
+    expect(res).toMatchObject({ hidden: 'rows 3–4 on Sheet1', changed: 2 });
+    expect(wb.isRowHidden(id, 2) && wb.isRowHidden(id, 3)).toBe(true);
+    expect(wb.isRowHidden(id, 1)).toBe(false);
+    expect(wb.undoLabels(5)).toHaveLength(1);
+    expect(describeCall(wb, 'set_hidden', { rows: '1:10', hidden: false }, env).label).toBe('Show rows 1–10 on Sheet1');
+    expect(parsed(run('set_hidden', { rows: '1:10', hidden: false }))).toMatchObject({ shown: 'rows 1–10 on Sheet1', changed: 2 });
+    expect(wb.isRowHidden(id, 2)).toBe(false);
+    wb.undo();
+    expect(wb.isRowHidden(id, 2)).toBe(true);
+  });
+
+  it('hides columns, and lists of rows or columns', () => {
+    const { wb, id, run } = setup();
+    expect(parsed(run('set_hidden', { columns: 'B, D:E', hidden: true })).hidden).toBe('columns B, D–E on Sheet1');
+    expect([1, 3, 4].every((c) => wb.isHidden(id, 'col', c))).toBe(true);
+    expect(wb.isHidden(id, 'col', 2)).toBe(false);
+    expect(parsed(run('set_hidden', { rows: '2,4:5,5', hidden: true })).changed).toBe(3);
+  });
+
+  it('says nothing changed when they were already that way', () => {
+    const { run } = setup();
+    run('set_hidden', { rows: '2', hidden: true });
+    const again = run('set_hidden', { rows: '2', hidden: true });
+    expect(again.ok).toBe(true);
+    expect(again.changed).toBe(false);
+    expect(again.content).toMatch(/hidden already/);
+    expect(run('set_hidden', { rows: '9', hidden: false }).content).toMatch(/None of them was hidden/);
+  });
+
+  it('says rows a filter hides stay hidden', () => {
+    const { wb, id, run } = setup();
+    wb.sheet(id).filterHidden.add(2);
+    run('set_hidden', { rows: '4', hidden: true });
+    const res = parsed(run('set_hidden', { rows: '1:5', hidden: false }));
+    expect(res.changed).toBe(1);
+    expect(res.note).toMatch(/1 row is hidden by a filter/);
+    expect(run('set_hidden', { rows: '3', hidden: false }).content).toMatch(/hidden by a filter[\s\S]*nothing in the workbook changed/);
+    expect(wb.isRowHidden(id, 2)).toBe(true);
+  });
+
+  it('refuses bad lines, both or neither axis, a protected sheet and hiding every row', () => {
+    const { wb, id, run } = setup();
+    expect(run('set_hidden', { rows: 'B', hidden: true }).content).toMatch(/not a row number/);
+    expect(run('set_hidden', { columns: '3', hidden: true }).content).toMatch(/column letter/);
+    expect(run('set_hidden', { rows: '2', columns: 'B', hidden: true }).content).toMatch(/not both/);
+    expect(run('set_hidden', { hidden: true }).content).toMatch(/Give rows or columns/);
+    expect(run('set_hidden', { rows: '2:3:4', hidden: true }).content).toMatch(/run of them/);
+    expect(run('set_hidden', { columns: 'A:XFD', hidden: true }).content).toMatch(/at least one column showing/);
+    wb.setSheetProtected(id, true);
+    expect(run('set_hidden', { rows: '2', hidden: true }).content).toMatch(/protected/);
+    expect(wb.isRowHidden(id, 1)).toBe(false);
+  });
+});
+
 describe('AI tool set_row_height', () => {
   it('sets rows to a height in pixels as one undo step', () => {
     const { wb, id, env, run } = setup();
