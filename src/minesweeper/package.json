@@ -1,0 +1,21 @@
+{
+  "name": "minesweeper-puter",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Classic Minesweeper — beginner through expert, chords, first-click safety, and best times. No frameworks, just the web.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vite": "^8.2.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@fontsource/dm-sans": "^5.2.8"
+  }
+}
