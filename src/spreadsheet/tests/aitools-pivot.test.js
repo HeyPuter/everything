@@ -95,6 +95,19 @@ describe('create_pivot_table', () => {
     expect(block(wb, id, 5, 5, 9, 6)).toEqual([['East', 80], ['North', 45], ['South', 210], ['West', 420], ['Total', 755]]);
   });
 
+  it('keeps a dropdown of the user\'s in the block it takes through Refresh, which rebuilds only its own', () => {
+    const { wb, id, run } = setup();
+    wb.addValidation(id, { range: { r1: 6, c1: 5, r2: 6, c2: 5 }, type: 'list', source: ['a', 'b'] });
+    run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Rep', destination: 'F1' });
+    wb.setInput(id, 5, 0, 'South');
+    expect(refreshPivot(wb, id)).toEqual({ rows: 4 });
+    expect(wb.sheet(id).validations.map((v) => [v.type, v.range])).toEqual([
+      ['list', { r1: 6, c1: 5, r2: 6, c2: 5 }],
+      ['list', { r1: 0, c1: 6, r2: 0, c2: 6 }],
+    ]);
+    expect(wb.validationAt(id, 0, 6).source[0]).toBe('(All)');
+  });
+
   it('asks before putting it over cells that hold data, and clears the block it takes', () => {
     const { wb, id, env, run } = setup();
     run('write_cells', { start_cell: 'G2', values: [['old'], ['old'], [null], [null], ['keep me out']] });

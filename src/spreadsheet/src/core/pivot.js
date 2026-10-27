@@ -629,7 +629,10 @@ export function refreshPivot(wb, sheetId, { force = false, replaceChanged = fals
   // otherwise have the cells it rewrote written over the same cells of every other sheet in the group.
   const alone = (fn) => (wb._withoutGroup ? wb._withoutGroup(fn) : fn());
   wb.transaction('Refresh PivotTable', () => alone(() => {
-    for (const v of sheet.validations.filter((v) => v.type === 'list' && v.range.r1 >= old.r1 && v.range.r2 <= old.r2 && v.range.c1 >= old.c1 && v.range.c2 <= old.c2)) wb.deleteValidation(sheetId, v.id);
+    // Its own filter dropdowns go (the cells beside each filter's label), not a dropdown of the user's in the block:
+    // a pivot put at a cell on a sheet of theirs leaves their rules there as they were.
+    const filterCell = (v) => v.range.r1 === v.range.r2 && v.range.c1 === v.range.c2 && v.range.c1 === old.c1 + 1 && v.range.r1 >= old.r1 && v.range.r1 < old.r1 + (filter != null ? 1 : 0);
+    for (const v of sheet.validations.filter((v) => v.type === 'list' && filterCell(v))) wb.deleteValidation(sheetId, v.id);
     wb.setCells(sheetId, entries, 'Refresh PivotTable');
     for (const fc of built.filterCells) {
       wb.addValidation(sheetId, { range: { r1: fc.r + dr, c1: fc.c + dc, r2: fc.r + dr, c2: fc.c + dc }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
