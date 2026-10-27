@@ -1619,8 +1619,8 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const designVersions = { undo: [], redo: [] };
   let reopening = false;
   async function reopenPackage(blob) {
-    const { CanvasEditor, openCanvasDocument } = engineApi();
-    const opened = await openCanvasDocument(blob);
+    const { CanvasEditor, openCanvasDocument, registerRevisionAuthors } = engineApi();
+    const opened = await openCanvasDocument(blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) });
     if (opened.pkg.readOnly || destroyed) {
       for (const image of opened.images.values()) image.close();
       if (destroyed) return false;
@@ -1693,7 +1693,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
   const ready = (async () => {
     const engineModules = await loadEngine();
     provideEngineApi(engineModules);
-    const { CanvasEditor, createDocx, WRITING_STYLES, paragraph, openCanvasDocument, loadCanvasFonts, htmlFragment, pasteFragment } = engineModules;
+    const { CanvasEditor, createDocx, WRITING_STYLES, paragraph, openCanvasDocument, loadCanvasFonts, htmlFragment, pasteFragment, registerRevisionAuthors } = engineModules;
     // Plain text becomes one paragraph per line, without the file's final line ending.
     const imported = doc.pendingImport, importedText = imported?.type === 'text' ? imported.value.replace(/\n+$/, '') : null;
     // Markdown and HTML become headings, lists, paragraphs and character formatting.
@@ -1704,7 +1704,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // A new document starts from the page and Design defaults the user set, if any.
     // A host that already opened the file (the local playground validates it first) hands it over once.
     const handed = doc.opened; doc.opened = null;
-    const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
+    const opened = handed || (doc.blob ? await openCanvasDocument(doc.blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) }) : await editorCommands.newDocumentDefaults?.(blank(), openCanvasDocument) || { pkg: blank(), images: new Map() });
     pkg = opened.pkg; openedAssets.set(pkg, Object.keys(pkg.assets || {}));
     const images = opened.images; decodedPictures = images;
     await loadCanvasFonts();

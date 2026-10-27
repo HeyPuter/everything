@@ -1,4 +1,5 @@
 import { openCanvasDocument } from './engine/open-document.js';
+import { registerRevisionAuthors } from './engine/revisions.js';
 import './styles/index.css';
 import { el } from './ui/dom.js';
 import { editorView } from './views/editor.js';
@@ -27,7 +28,8 @@ const open = async (name, blob, { initial = false, collab = null } = {}) => {
   let opened = null;
   const release = () => { for (const image of opened?.images.values() || []) image.close(); };
   try {
-    if (blob) opened = await openCanvasDocument(blob);
+    // Reviewers' colors are set before the first layout, as the editor does (registerRevisionAuthors).
+    if (blob) opened = await openCanvasDocument(blob, { beforeLayout: pkg => registerRevisionAuthors(pkg.paragraphs) });
   }
   catch (e) { document.getElementById('playground-error').textContent = e.message; return; }
   if (token !== request) { release(); return; }

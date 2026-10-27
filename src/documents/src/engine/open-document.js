@@ -34,9 +34,12 @@ async function decodedDocument(pkg, measure) {
 /**
  * Open for display even when the editing or layout subset is insufficient. `measure` is the
  * measurer that validated the layout; an editor of `pkg` can start from its measurements.
+ * `beforeLayout(pkg)` sets up what the editor's layout reads (its reviewers' colors) beforehand, so
+ * those measurements stay usable.
  */
-export async function openCanvasDocument(input) {
+export async function openCanvasDocument(input, { beforeLayout } = {}) {
   let pkg = await DocxPackage.open(input, { bestEffort: true });
+  beforeLayout?.(pkg);
   try {
     if (pkg.readOnly) new TextDocument(pkg.paragraphs, pkg.pageSettings, pkg.numbering, pkg.styles, pkg.tables, pkg.assets, { displayOnly: true });
     const preparation = await validateCanvasLayout(pkg);

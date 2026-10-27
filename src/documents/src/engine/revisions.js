@@ -223,6 +223,15 @@ export function sharedRevision(paragraphs, start, end) {
 export const hasRevisions = paragraphs => paragraphs.some(p => p.markRevision || paragraphFormatChange(p) || p.runs.some(r => r.revision || runFormatChange(r)));
 
 /** The authors who made changes, in first-appearance order. */
+/**
+ * Give the reviewers of `paragraphs` their colors in the order they first appear (revisionColor).
+ * The colors are part of every measured paragraph, so a document's reviewers are given theirs
+ * before it is first laid out: given later, they changed the colors on screen at the first edit
+ * and made it measure the whole document again.
+ */
+export function registerRevisionAuthors(paragraphs) {
+  for (const name of revisionAuthors(paragraphs)) if (!revisionView.authors.includes(name)) revisionView.authors.push(name);
+}
 export function revisionAuthors(paragraphs) {
   const authors = [];
   for (const range of revisionRanges(paragraphs)) if (!authors.includes(range.author)) authors.push(range.author);

@@ -6,7 +6,7 @@
 import { el, listItem, isComposing, relativeTime, MOD_KEY, shortcutCode, typesCharacter } from '../ui/dom.js';
 import { openMenu } from '../ui/menu.js';
 import { initialsFor } from '../engine/comments.js';
-import { revisionView, revisionAuthors, describeFormatChange } from '../engine/revisions.js';
+import { revisionView, registerRevisionAuthors, describeFormatChange } from '../engine/revisions.js';
 import { createReadAloud } from './read-aloud.js';
 import { renderMentions } from './mentions.js';
 
@@ -488,7 +488,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     tints(list);
     const body = engine.session.body;
     body.revisionAuthor = author() || 'Author';
-    for (const name of revisionAuthors(body.paragraphs)) if (!revisionView.authors.includes(name)) revisionView.authors.push(name);
+    registerRevisionAuthors(body.paragraphs);
     const o = revisionView.options, barColor = o.changeBarColor && !['auto', 'author'].includes(o.changeBarColor) ? `#${o.changeBarColor}` : revisionView.mode === 'simple' ? '#C4314B' : '#7A7A7A';
     engine.setMarginBars?.(['all', 'simple'].includes(revisionView.mode) && o.changeBars !== 'none' ? shownChanges(body.revisions) : [], barColor, o.changeBars === 'none' ? 'left' : o.changeBars || 'left');
     const label = markupButton?.querySelector('.ribbon-small-label'), name = MARKUP_VIEWS.find(([mode]) => mode === revisionView.mode)?.[1];
