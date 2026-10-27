@@ -139,11 +139,13 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     try {
       engine.execute(() => {
         const before = track && tracking ? body.text : null;
+        // Fields there were before, so the ones the action adds are recorded as inserted with their text.
+        const fields = before !== null ? new Set(body.paragraphs.flatMap(p => (p.fieldMarkers || []).map(m => m.field.id))) : null;
         result = action(body, ...loaded);
         if (result === false) return false;
         // Untracked, a caption or cross-reference inserted with Track Changes on stayed after Reject All, and with
         // tracking locked it could not be inserted at all.
-        if (before !== null) body.trackInsertion(before);
+        if (before !== null) body.trackInsertion(before, fields);
         if (refresh || result?.only) refreshModule.refreshPageReferences(body, model => engine.layoutModel(model), engine.pageStories, { checkpoint: false, only: result?.only || null });
         return result;
       });

@@ -8,6 +8,7 @@ import { fieldInstructionTokens } from './docx-page-fields.js';
 import { formatPageNumber } from './page-numbering.js';
 import { newBodyField } from './toc.js';
 import { bodyFieldRanges, newFieldEndOrder } from './body-fields.js';
+import { sharedRevision } from './revisions.js';
 import { countWords } from '../core/text.js';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -189,6 +190,8 @@ export function insertBodyField(model, instruction, result) {
   const p = model.paragraphs[index], order = Math.max(0, ...model.paragraphs.flatMap(q => (q.fieldMarkers || []).map(m => m.order ?? 0))) + 1;
   for (const marker of p.fieldMarkers || []) if (marker.type === 'end' && empty.has(marker.field.id)) marker.offset = start - at;
   const end = start - at + text.length, endOrder = text ? newFieldEndOrder(p, end, order + 1) : order + 1;
+  // With Track Changes on, the field's code is part of the insertion its result is (§17.13.5.18).
+  if (model.trackChanges) field.revision = { ...(text && sharedRevision(model.paragraphs, start, start + text.length) || model.newRevision('ins')) };
   (p.fieldMarkers ||= []).push({ type: 'start', field, offset: start - at, order }, { type: 'end', field, offset: end, order: endOrder });
   model.hasBodyFields = true;
   bodyFieldRanges(model.paragraphs);

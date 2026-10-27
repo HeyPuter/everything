@@ -2102,7 +2102,7 @@ export class TextDocument {
    * inserted as a tracked insertion, as typing it would have been. Only a single inserted stretch is recorded;
    * returns whether the change was one.
    */
-  trackInsertion(previousText) {
+  trackInsertion(previousText, previousFields = null) {
     const text = this.text, limit = previousText.length;
     if (text.length <= limit) return false;
     let start = 0, tail = 0;
@@ -2115,6 +2115,10 @@ export class TextDocument {
       else { run.revision = { ...revision }; delete run.formatRevision; touched.add(paragraph); }
     });
     for (const p of touched) p.runs = normalize(p.runs);
+    // Fields the command added (`previousFields` holds the ids there were before) are inserted, code and all.
+    if (previousFields && this.paragraphs.some(p => p.fieldMarkers?.length)) for (const f of bodyFieldRanges(this.paragraphs)) {
+      if (!previousFields.has(f.field.id) && start <= f.start && f.end <= text.length - tail) setFieldRevision(this.paragraphs, f.field.id, revision);
+    }
     return true;
   }
   newRevision(type) { return { type, author: this.revisionAuthor || 'Author', date: new Date().toISOString().replace(/\.\d+Z$/, 'Z') }; }
@@ -2143,6 +2147,10 @@ export class TextDocument {
           if (prompts.length) removals = [...removals, ...prompts].sort((a, b) => a[0] - b[0]).reduce((out, [a, b]) => { const last = out.at(-1); if (last && a <= last[1]) last[1] = Math.max(last[1], b); else out.push([a, b]); return out; }, []);
         }
         const deletion = deletionRevision = this.newRevision('del');
+        // A field the deletion takes whole (as an untracked deletion would remove it) is deleted code and all;
+        // the author's own inserted field simply goes. Only its result text was marked, so accepting the
+        // deletion left an empty field.
+        const wholeFields = !this.paragraphs.some(p => p.fieldMarkers?.length) ? [] : bodyFieldRanges(this.paragraphs).filter(r => r.field.type !== 'MACROBUTTON' && start <= r.start && r.end <= end && (start < r.start || r.end < end));
         // Deleting next to the author's own deletion from moments ago (Backspace or Delete held down) extends it,
         // as typing extends an insertion, so it stays one change even when it crosses a clock second.
         const now = Date.now();
@@ -2156,11 +2164,17 @@ export class TextDocument {
           if (isMark) { if (!boundary(paragraph)) paragraph.markRevision = mark(paragraph.markRevision); }
           else run.revision = mark(run.revision);
         });
+        const ownFields = new Set();
+        for (const { field } of wholeFields) {
+          if (field.revision?.type === 'ins' && field.revision.author === me && !field.revision.move) ownFields.add(field.id);
+          else setFieldRevision(this.paragraphs, field.id, mark(field.revision));
+        }
         for (const [a, b] of removals.reverse()) {
           this.selection = { anchor: a, focus: b };
           this.replaceUntracked('', { checkpoint: false });
           removed += b - a;
         }
+        if (ownFields.size) { removeFields(this.paragraphs, ownFields); this.hasBodyFields = this.paragraphs.some(p => p.fieldMarkers?.length); }
       }
       const insertAt = end - removed;
       if (text) {

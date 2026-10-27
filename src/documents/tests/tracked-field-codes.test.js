@@ -1,9 +1,10 @@
-import { beforeAll, afterAll, it, expect } from 'vitest';
+import { beforeAll, afterAll, describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { DocxPackage } from '../src/engine/docx.js';
 import { TextDocument } from '../src/engine/model.js';
 import { bodyFieldRanges } from '../src/engine/body-fields.js';
+import { insertBodyField } from '../src/engine/field-results.js';
 
 // A field inserted or deleted with Track Changes on has its code (begin, instruction, separator and end
 // delimiters) inside the w:ins or w:del as well as its result (§17.13.5.18 ins, §17.13.5.14 del, §17.16.18
@@ -114,4 +115,60 @@ it('resolves a field another reviewer deleted from an insertion like its text', 
   pkg = await DocxPackage.open(docx(nested)); doc = model(pkg);
   expect(doc.resolveRevisions(false)).toBe(true);
   expect(fields(doc)).toEqual([]); expect(doc.text).toBe('\nSecond');
+});
+
+describe('fields changed with Track Changes on', () => {
+  const plain = `<w:p><w:r><w:t xml:space="preserve">Date: </w:t></w:r>${field()}<w:r><w:t xml:space="preserve"> end</w:t></w:r></w:p>`;
+  const tracking = async source => { const pkg = await DocxPackage.open(docx(source)), doc = model(pkg); doc.trackChanges = true; doc.revisionAuthor = 'Me'; return { pkg, doc }; };
+
+  it('inserts a field, code and all, and rejecting it removes the field', async () => {
+    const { pkg, doc } = await tracking('<w:p><w:r><w:t xml:space="preserve">Hello </w:t></w:r></w:p>');
+    doc.select(6); insertBodyField(doc, ' DATE ', 'today');
+    expect(fields(doc)).toEqual([{ start: 6, end: 11, revision: 'ins' }]);
+    const out = await save(pkg, doc);
+    expect(body(out)).toMatch(/<w:ins [^>]*w:author="Me"[^>]*><w:r><w:fldChar w:fldCharType="begin"\/>[^]*<w:t[^>]*>today<\/w:t><\/w:r><w:r><w:fldChar w:fldCharType="end"\/><\/w:r><\/w:ins>/);
+    expect(fields(model(await DocxPackage.open(zipSync(out))))).toEqual([{ start: 6, end: 11, revision: 'ins' }]);
+    expect(doc.resolveRevisions(false)).toBe(true);
+    expect(doc.text).toBe('Hello \nSecond'); expect(fields(doc)).toEqual([]);
+  });
+
+  it('records the fields a command added when its insertion is tracked afterwards', async () => {
+    const { doc } = await tracking(plain);
+    doc.trackChanges = false;
+    const before = doc.text, ids = new Set(bodyFieldRanges(doc.paragraphs).map(f => f.field.id));
+    doc.select(0); insertBodyField(doc, ' TIME ', 'noon');
+    expect(doc.trackInsertion(before, ids)).toBe(true);
+    expect(fields(doc)).toEqual([{ start: 0, end: 4, revision: 'ins' }, { start: 10, end: 15, revision: null }]);
+  });
+
+  it('deletes a whole field, code and all, so accepting removes it here and after reopening', async () => {
+    const { pkg, doc } = await tracking(plain);
+    doc.select(5, 12); doc.replace('');
+    expect(fields(doc)).toEqual([{ start: 6, end: 11, revision: 'del' }]);
+    const out = await save(pkg, doc);
+    expect(body(out)).toMatch(/<w:del [^>]*w:author="Me"[^>]*><w:r><w:delText xml:space="preserve"> <\/w:delText><\/w:r><w:r><w:fldChar w:fldCharType="begin"\/><\/w:r><w:r><w:delInstrText xml:space="preserve"> DATE <\/w:delInstrText><\/w:r>[^]*<w:fldChar w:fldCharType="end"\/><\/w:r><w:r><w:delText xml:space="preserve"> <\/w:delText><\/w:r><\/w:del>/);
+    const reopened = model(await DocxPackage.open(zipSync(out)));
+    expect(reopened.resolveRevisions(true)).toBe(true);
+    expect(reopened.text).toBe('Date:end\nSecond'); expect(fields(reopened)).toEqual([]);
+    expect(doc.resolveRevisions(false)).toBe(true);
+    expect(doc.text).toBe('Date: today end\nSecond'); expect(fields(doc)).toEqual([{ start: 6, end: 11, revision: null }]);
+  });
+
+  it('deletes only the result when only the result is selected, as an untracked deletion does', async () => {
+    const { doc } = await tracking(plain);
+    doc.select(6, 11); doc.replace('');
+    expect(fields(doc)).toEqual([{ start: 6, end: 11, revision: null }]);
+  });
+
+  it('removes the author\'s own inserted field and marks another reviewer\'s deleted', async () => {
+    const own = await tracking('<w:p><w:r><w:t xml:space="preserve">Hello </w:t></w:r></w:p>');
+    own.doc.select(6); insertBodyField(own.doc, ' DATE ', 'today'); own.doc.select(5, 11); own.doc.replace('');
+    // The space before it is someone else's text, so it is marked deleted; the field and its result go.
+    expect(own.doc.text).toBe('Hello \nSecond'); expect(fields(own.doc)).toEqual([]);
+    const other = await tracking(inserted);
+    other.doc.select(5, 12); other.doc.replace('');
+    const [range] = bodyFieldRanges(other.doc.paragraphs);
+    expect(range.field.revision).toMatchObject({ type: 'del', author: 'Me', inserted: { author: 'Reviewer' } });
+    expect(body(await save(other.pkg, other.doc))).toMatch(/<w:ins [^>]*w:author="Reviewer"[^>]*><w:del [^>]*w:author="Me"[^>]*><w:r><w:fldChar w:fldCharType="begin"\/>/);
+  });
 });
