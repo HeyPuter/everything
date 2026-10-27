@@ -134,6 +134,24 @@ describe('AI tool manage_name', () => {
     expect(run('manage_name', { action: 'rename', name: 'Rate', scope: 'Sheet1' }).content).toMatch(/new_name/);
   });
 
+  it('counts the formulas that reach a sheet\'s name from other sheets, and says when a workbook name takes over', () => {
+    const { wb, id, env, run } = setup();
+    wb.addSheet('Two');
+    wb.setActiveSheet(id);
+    run('manage_name', { action: 'define', name: 'Local', refers_to: '=7', scope: 'Two' });
+    run('write_cells', { start_cell: 'E1', values: [['=Two!Local+1', '="Local"', '=LET(Local, 2, Local)']] });
+    expect(describeCall(wb, 'manage_name', { action: 'delete', name: 'Local', scope: 'Two' }, env).detail).toBe('Formulas that use it (1) will show #NAME?.');
+    expect(parsed(run('manage_name', { action: 'delete', name: 'Local', scope: 'Two' })).note).toBe('1 formula uses it and now shows #NAME?.');
+    expect(wb.getValue(id, 0, 4)).toMatchObject({ error: '#NAME?' });
+    // A sheet's name in front of the workbook's of that spelling: its formulas go back to the workbook's.
+    run('manage_name', { action: 'define', name: 'Tax', refers_to: '=1' });
+    run('manage_name', { action: 'define', name: 'Tax', refers_to: '=2', scope: 'Sheet1' });
+    run('write_cells', { start_cell: 'F1', values: [['=Tax']] });
+    expect(describeCall(wb, 'manage_name', { action: 'delete', name: 'Tax', scope: 'Sheet1' }, env).detail).toBe("Formulas that use it (1) will use the workbook's Tax (1) instead.");
+    expect(parsed(run('manage_name', { action: 'delete', name: 'Tax', scope: 'Sheet1' })).note).toBe("1 formula uses it and now uses the workbook's Tax (1).");
+    expect(wb.getValue(id, 0, 5)).toBe(1);
+  });
+
   it('deletes a name, asks first, and says which formulas lost it', () => {
     const { wb, id, env, run } = setup();
     run('manage_name', { action: 'define', name: 'Prices', refers_to: 'B2:B4' });

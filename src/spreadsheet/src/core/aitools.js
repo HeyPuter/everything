@@ -3115,20 +3115,27 @@ function nameRefText(wb, text, env) {
   return wb.refTextFor(found.sheetId, { r1, c1, r2, c2 });
 }
 
-/** How many formulas use a name (cells on the sheets it reaches, and other names): what a delete leaves at #NAME?. */
+/**
+ * How many formulas use a name (cells, and other names): what a delete leaves at #NAME?. A use is one a rename
+ * follows (see Workbook._renameNameIn): a sheet's name reached from another sheet as Sheet2!Rate counts, and a
+ * LET variable or a text of that spelling does not.
+ */
 function nameUses(wb, entry) {
-  const names = new Set([upperName(entry.name)]);
   const key = entry.name.toLowerCase();
+  const scope = entry.sheet || null;
+  const uses = (formula, owner) => {
+    const f = String(formula ?? '');
+    if (!f.toLowerCase().includes(key)) return false;
+    try { return wb._renameNameIn(f, owner, entry.name, scope, `${entry.name}_`) !== f; } catch { return mentionsName(f, new Set([upperName(entry.name)])); }
+  };
   let n = 0;
-  for (const s of wb.sheets) {
-    if (s.kind === 'chart') continue;
-    // A sheet with a name of that spelling of its own reaches that one, not the workbook's.
-    if (entry.sheet ? s.name !== entry.sheet : (wb.names || []).some((m) => m.sheet === s.name && m.name.toLowerCase() === key)) continue;
-    for (const cell of s.cells.values()) if (cell.f != null && mentionsName(cell.f, names)) n++;
-  }
-  for (const m of wb.names || []) if (m !== entry && mentionsName(String(m.ref ?? ''), names)) n++;
+  for (const s of wb.sheets) for (const cell of s.cells.values()) if (cell.f != null && uses(cell.f, s.name)) n++;
+  for (const m of wb.names || []) if (m !== entry && uses(m.ref, m.sheet || null)) n++;
   return n;
 }
+
+/** The workbook's name a sheet's name of the same spelling stands in front of, which its formulas fall back to once it goes. */
+const shadowedName = (wb, entry) => (entry.sheet ? nameIn(wb, entry.name, null) : null);
 
 function manageName(wb, args, env) {
   const action = args.action;
@@ -3146,8 +3153,10 @@ function manageName(wb, args, env) {
   }
   if (action === 'delete') {
     const uses = nameUses(wb, existing);
+    const fallback = shadowedName(wb, existing);
     wb.transaction('AI edit', () => wb.deleteName(existing.name, scope));
-    return { deleted: label, ...(uses ? { note: `${uses} formula${uses === 1 ? ' uses' : 's use'} it and now show${uses === 1 ? 's' : ''} #NAME?.` } : {}) };
+    const now = fallback ? `now use${uses === 1 ? 's' : ''} the workbook's ${fallback.name} (${fallback.ref})` : `now show${uses === 1 ? 's' : ''} #NAME?`;
+    return { deleted: label, ...(uses ? { note: `${uses} formula${uses === 1 ? ' uses' : 's use'} it and ${now}.` } : {}) };
   }
   const refText = action === 'rename' && (args.refers_to == null || args.refers_to === '') ? existing.ref : nameRefText(wb, args.refers_to, env);
   const note = reachingNote(env, reachesOut(wb, refText));
@@ -3823,7 +3832,9 @@ export function describeCall(wb, name, args = {}, env) {
       const label = scope ? `${quoteSheet(scope)}!${had?.name ?? name}` : had?.name ?? name;
       if (args.action === 'delete') {
         const uses = had && !had.hidden ? nameUses(wb, had) : 0;
-        return { label: `Delete the name ${label}`, destructive: !!had, detail: had ? (uses ? `Formulas that use it (${uses}) will show #NAME?.` : 'Removes the name.') : null };
+        const fallback = had && shadowedName(wb, had);
+        const then = fallback ? `will use the workbook's ${fallback.name} (${clip(fallback.ref, 60)}) instead` : 'will show #NAME?';
+        return { label: `Delete the name ${label}`, destructive: !!had, detail: had ? (uses ? `Formulas that use it (${uses}) ${then}.` : 'Removes the name.') : null };
       }
       const renamed = `Rename ${label} to ${String(args.new_name ?? '').trim()}`;
       // A rename keeps what the name refers to unless refers_to is given; given, it changes it as define does, and asks.
