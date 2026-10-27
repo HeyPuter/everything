@@ -22263,6 +22263,16 @@ Clause: §17.3.2.41 `vanish`. Documents with hidden text no longer open read-onl
 the text (search, copy and save keep them) and are laid out with no width; `revisionView.showHidden`
 lets a Show/Hide ¶ control lay them out. Tests: `tests/hidden-text.test.js`.
 
+## Long style inheritance chains (2026-10-26)
+
+ECMA-376 Part 1 §17.7.4.3 (`basedOn`) sets no limit on the length of a style inheritance chain.
+The style lists (toolbar gallery, Styles pane, style dialogs) check every style by resolving its
+whole chain, which costs the square of the longest chain, and the toolbar refreshed its list on
+every keystroke: with a chain 3,000 styles long each key took over five seconds. The checked list is
+now kept for the styles and numbering it was computed from (edits replace those objects), so typing
+stays immediate; opening such a document still checks the chain once. Cyclic chains still open
+read-only as before. Test: `tests/style-choice-cache.test.js`.
+
 ## Document nesting limit (2026-10-26)
 
 ECMA-376 Part 1 sets no limit on how deeply `w:hyperlink`, `w:fldSimple`, `w:smartTag`,

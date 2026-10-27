@@ -335,6 +335,23 @@ function normalize(runs) {
   return result;
 }
 
+// The styles offered in style lists, each with the error that keeps it from being applied. Checking
+// a style resolves its whole basedOn chain, so checking them all costs the square of the longest
+// chain: a file with a chain thousands of styles long took seconds on every keystroke, since the
+// toolbar refreshes its list. Style and numbering edits replace those objects rather than change
+// them, so a result stays valid for the pair it was computed from.
+const styleChoiceCache = new WeakMap();
+function styleChoices(model, type, check) {
+  let entry = styleChoiceCache.get(model.styles);
+  if (!entry || entry.numbering !== model.numbering) styleChoiceCache.set(model.styles, entry = { numbering: model.numbering });
+  entry[type] ??= Object.values(model.styles.definitions).filter(s => s.type === type).map(s => {
+    let error = s.error;
+    try { check(s); } catch (e) { error = e.message; }
+    return { id: s.id, name: s.name, error };
+  });
+  return entry[type].map(choice => ({ ...choice }));
+}
+
 export class TextDocument {
   constructor(paragraphs = [paragraph()], pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}, { displayOnly = false, comments = null, trackChanges } = {}) {
     this.assets = { ...assets }; // Immutable bytes stay out of text/history snapshots.
@@ -608,13 +625,7 @@ export class TextDocument {
     const ids = this.selectedParagraphs.map(p => effectiveStyleId(p, this.styles) || '');
     return ids.every(id => id === ids[0]) ? ids[0] : null;
   }
-  get paragraphStyles() {
-    return Object.values(this.styles.definitions).filter(s => s.type === 'paragraph').map(s => {
-      let error = s.error;
-      try { resolveStyledParagraph({ runs: [], styleId: s.id }, this.styles, this.numbering); } catch (e) { error = e.message; }
-      return { id: s.id, name: s.name, error };
-    });
-  }
+  get paragraphStyles() { return styleChoices(this, 'paragraph', s => resolveStyledParagraph({ runs: [], styleId: s.id }, this.styles, this.numbering)); }
   setParagraphStyle(id) {
     if (id && this.styles.definitions[id]?.type !== 'paragraph') throw new Error('Choose a paragraph style.');
     const pass = this.blockCellPass(() => this.setParagraphStyle(id));
@@ -1682,13 +1693,7 @@ export class TextDocument {
     }
     return ids.every(id => id === ids[0]) ? ids[0] ?? '' : null;
   }
-  get characterStyles() {
-    return Object.values(this.styles.definitions).filter(s => s.type === 'character').map(s => {
-      let error = s.error;
-      try { resolveCharacterRun({ styleId: s.id, styleManaged: true }, this.styles, this.styles.defaults.run); } catch (e) { error = e.message; }
-      return { id: s.id, name: s.name, error };
-    });
-  }
+  get characterStyles() { return styleChoices(this, 'character', s => resolveCharacterRun({ styleId: s.id, styleManaged: true }, this.styles, this.styles.defaults.run)); }
   characterStyleState(id, styles = this.styles) {
     if (typeof id !== 'string' || id && styles.definitions[id]?.type !== 'character') throw new Error('Choose a character style.');
     const [start, end] = this.textFormattingRange, location = locate(this.paragraphs, start);
