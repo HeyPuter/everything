@@ -43,6 +43,14 @@ describe('remove_duplicates', () => {
     expect(column(wb, id, 2, 4)).toEqual(['Amount', 10, 20, 30]);
   });
 
+  it('takes the columns given as one string, and refuses them given as anything else but a list', () => {
+    const { wb, id, run, describe } = setup(people);
+    expect(describe('remove_duplicates', { range: 'A1:C6', columns: 'A, B' }).detail).toMatch(/^Deletes 2 rows/);
+    expect(JSON.parse(run('remove_duplicates', { range: 'A1:C6', columns: 'A, B' }).content)).toMatchObject({ compared_columns: ['A', 'B'], removed_rows: 2 });
+    expect(column(wb, id, 0, 4)).toEqual(['Name', 'Ann', 'Bob', 'Cy']);
+    expect(run('remove_duplicates', { range: 'A1:C6', columns: { A: true } }).content).toMatch(/columns must be a list/);
+  });
+
   it('reads whole columns as their data, and the header from it', () => {
     const { wb, id, run } = setup([[null], [null], ...people]);
     const out = JSON.parse(run('remove_duplicates', { range: 'A:C' }).content);
@@ -113,6 +121,15 @@ describe('split_text_to_columns', () => {
     const { wb, id, run } = setup([['"a;b";;007;x']]);
     run('split_text_to_columns', { range: 'A1', delimiters: [';'], consecutive_as_one: true, piece_formats: ['general', 'text', 'skip'] });
     expect([wb.getValue(id, 0, 0), wb.getValue(id, 0, 1), wb.getCell(id, 0, 2)]).toEqual(['a;b', '007', undefined]);
+  });
+
+  it('takes a lone separator or width given in place of a list', () => {
+    const { wb, id, run } = setup([['a,b;c']]);
+    run('split_text_to_columns', { range: 'A1', delimiters: ';' });
+    expect([wb.getValue(id, 0, 0), wb.getValue(id, 0, 1)]).toEqual(['a,b', 'c']);
+    const { wb: wb2, id: id2, run: run2 } = setup([['2024,01']]);
+    run2('split_text_to_columns', { range: 'A1', fixed_widths: 4 });
+    expect([wb2.getValue(id2, 0, 0), wb2.getValue(id2, 0, 1)]).toEqual([2024, ',01']);
   });
 
   it('cuts at fixed widths, into a destination, leaving the text as it is', () => {

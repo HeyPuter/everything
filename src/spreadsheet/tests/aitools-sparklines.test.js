@@ -38,6 +38,13 @@ describe('add_sparklines', () => {
     expect(run('add_sparklines', { data_range: 'B2:E3', location: 'H2:H3', type: 'column', markers: true }).content).toMatch(/Markers are for line sparklines only/);
   });
 
+  it('takes highlighted points given as one string', () => {
+    const { wb, id, run } = setup();
+    run('add_sparklines', { data_range: 'B2:E3', location: 'G2:G3', highlight: 'high, low' });
+    expect(groups(wb, id)[0]).toMatchObject({ high: true, low: true });
+    expect(run('add_sparklines', { data_range: 'B2:E3', location: 'H2:H3', highlight: true }).content).toMatch(/highlight must be a list/);
+  });
+
   it('draws from another sheet and from a named range', () => {
     const { wb, id, run } = setup();
     wb.addSheet('Summary');

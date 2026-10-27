@@ -500,6 +500,18 @@ function columnArg(text, what = 'column') {
   return c;
 }
 
+/**
+ * A list argument: the list, or a lone string or number given in its place as that one item (or, with `split`, the
+ * items a string names apart by commas or spaces). Anything else is refused rather than taken for no list at all.
+ */
+function listArg(value, name, { split = null } = {}) {
+  if (value == null) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && split) return value.split(split).filter(Boolean);
+  if (typeof value === 'string' || typeof value === 'number') return [value];
+  throw new ToolError(`${name} must be a list.`);
+}
+
 function count(n, fallback = 1, max = 5000) {
   const v = n == null ? fallback : Math.trunc(Number(n));
   if (!Number.isFinite(v) || v < 1) throw new ToolError('The count must be a whole number of at least 1.');
@@ -2534,8 +2546,9 @@ function duplicatesArgs(wb, args, fallbackId) {
   const table = wb.tableAt?.(sheetId, range.r1, range.c1);
   const span = table && range.c1 >= table.range.c1 && range.c2 <= table.range.c2 ? table.range : range;
   let columns = null;
-  if (Array.isArray(args.columns) && args.columns.length) {
-    columns = [...new Set(args.columns.map((c) => columnArg(c)))];
+  const listed = listArg(args.columns, 'columns', { split: /[\s,]+/ });
+  if (listed.length) {
+    columns = [...new Set(listed.map((c) => columnArg(c)))];
     const outside = columns.find((c) => c < span.c1 || c > span.c2);
     if (outside != null) throw new ToolError(`Column ${colName(outside)} is outside ${rangeName(range)}.`);
   }
@@ -2578,19 +2591,19 @@ function splitArgs(wb, args, fallbackId) {
   if (asked.c1 !== asked.c2) throw new ToolError(`Text is split one column at a time: give a single column, such as ${colName(asked.c1)}${asked.r2 >= MAX_ROW ? `:${colName(asked.c1)}` : `${asked.r1 + 1}:${colName(asked.c1)}${asked.r2 + 1}`}.`);
   const range = asked.r2 >= MAX_ROW ? dataOfLines(wb, sheetId, asked) : asked;
   if (!range) throw new ToolError(`${qualified(wb, sheetId, asked)} holds no text to split.`);
-  const delimiters = (Array.isArray(args.delimiters) ? args.delimiters : []).map((d) => {
+  const delimiters = listArg(args.delimiters, 'delimiters').map((d) => {
     const t = String(d);
     const one = t === '\\t' || /^tab$/i.test(t) ? '\t' : /^space$/i.test(t) ? ' ' : t;
     if (one.length !== 1) throw new ToolError(`"${t}" is not one character: each delimiter is a single character, such as "," or "\\t" for tab.`);
     return one;
   });
-  const widths = (Array.isArray(args.fixed_widths) ? args.fixed_widths : []).map((w) => {
+  const widths = listArg(args.fixed_widths, 'fixed_widths', { split: /[\s,]+/ }).map((w) => {
     const n = Number(w);
     if (!Number.isInteger(n) || n < 1 || n > 32767) throw new ToolError('fixed_widths are character positions: whole numbers of at least 1.');
     return n;
   });
   if (delimiters.length && widths.length) throw new ToolError('Give delimiters or fixed_widths, not both.');
-  const formats = (Array.isArray(args.piece_formats) ? args.piece_formats : []).map((f) => {
+  const formats = listArg(args.piece_formats, 'piece_formats', { split: /[\s,]+/ }).map((f) => {
     if (!PIECE_FORMATS.includes(f)) throw new ToolError('Each of piece_formats is "general", "text" or "skip".');
     return f;
   });
@@ -2771,7 +2784,7 @@ function addSparklines(wb, args, env) {
     if (type !== 'line') throw new ToolError('Markers are for line sparklines only.');
     flags.markers = true;
   }
-  for (const p of Array.isArray(args.highlight) ? args.highlight : []) {
+  for (const p of listArg(args.highlight, 'highlight', { split: /[\s,]+/ })) {
     if (!SPARKLINE_POINTS.includes(p)) throw new ToolError(`highlight takes ${SPARKLINE_POINTS.join(', ')}.`);
     flags[p] = true;
   }
