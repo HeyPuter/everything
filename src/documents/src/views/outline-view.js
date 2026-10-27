@@ -106,30 +106,38 @@ export function createOutlineView({ editor, readOnly, error, onState = () => {} 
   function updateRow(item, row) {
     const [symbol, text] = item.children, p = row.paragraph;
     const level = row.table ? BODY_LEVEL : row.level, isCollapsed = row.parent && collapsed.has(row.id);
-    item.style.setProperty('--outline-indent', `${indentOf(row, row.index)}px`);
-    item.setAttribute('aria-level', String(Math.min(level, 9)));
-    item.dataset.level = String(level);
-    item.classList.toggle('is-heading', level < BODY_LEVEL);
-    item.classList.toggle('is-collapsed', !!isCollapsed);
-    item.classList.toggle('is-table', !!row.table);
-    if (row.parent) item.setAttribute('aria-expanded', String(!isCollapsed)); else item.removeAttribute('aria-expanded');
-    symbol.dataset.kind = row.table ? 'table' : level >= BODY_LEVEL ? 'body' : row.parent ? 'parent' : 'leaf';
+    const indent = indentOf(row, row.index);
     const label = row.table ? 'Table' : row.text.trim() || (level < BODY_LEVEL ? 'Empty heading' : 'Empty paragraph');
-    symbol.setAttribute('aria-label', row.parent ? `${isCollapsed ? 'Expand' : 'Select'} ${label}` : `Select ${label}`);
-    symbol.title = row.parent ? 'Click to select this heading and its text. Double-click to expand or collapse.' : level < BODY_LEVEL ? 'Heading without text under it' : 'Body text';
     const canType = editable() && !row.table && plainParagraph(p);
     const value = row.table ? 'Table' : canType ? row.text : displayText(p);
     const mode = canType ? 'plaintext-only' : 'false';
-    if (text.getAttribute('contenteditable') !== mode) text.setAttribute('contenteditable', mode);
-    text.tabIndex = 0;
-    text.setAttribute('aria-label', `${LEVEL_NAMES[Math.min(level, BODY_LEVEL) - 1]}: ${label}`);
+    const style = row.table ? {} : textStyle(p), placeholder = !value && level < BODY_LEVEL ? 'Heading' : '';
+    // A row drawn from the same values keeps its attributes and styles: typing redraws the outline after
+    // every keystroke, and writing them again for every row of a long document took most of that.
+    const drawn = JSON.stringify([indent, level, !!isCollapsed, !!row.table, !!row.parent, label, mode, style, placeholder]);
+    if (item.drawn !== drawn) {
+      item.drawn = drawn;
+      item.style.setProperty('--outline-indent', `${indent}px`);
+      item.setAttribute('aria-level', String(Math.min(level, 9)));
+      item.dataset.level = String(level);
+      item.classList.toggle('is-heading', level < BODY_LEVEL);
+      item.classList.toggle('is-collapsed', !!isCollapsed);
+      item.classList.toggle('is-table', !!row.table);
+      if (row.parent) item.setAttribute('aria-expanded', String(!isCollapsed)); else item.removeAttribute('aria-expanded');
+      symbol.dataset.kind = row.table ? 'table' : level >= BODY_LEVEL ? 'body' : row.parent ? 'parent' : 'leaf';
+      symbol.setAttribute('aria-label', row.parent ? `${isCollapsed ? 'Expand' : 'Select'} ${label}` : `Select ${label}`);
+      symbol.title = row.parent ? 'Click to select this heading and its text. Double-click to expand or collapse.' : level < BODY_LEVEL ? 'Heading without text under it' : 'Body text';
+      if (text.getAttribute('contenteditable') !== mode) text.setAttribute('contenteditable', mode);
+      text.tabIndex = 0;
+      text.setAttribute('aria-label', `${LEVEL_NAMES[Math.min(level, BODY_LEVEL) - 1]}: ${label}`);
+      Object.assign(text.style, { fontFamily: '', fontSize: '', fontWeight: '', fontStyle: '', color: '' }, style);
+      text.dataset.placeholder = placeholder;
+    }
     if (text.textContent !== value && !(document.activeElement === text && composing)) {
       const restore = document.activeElement === text ? caretOffset(text) : null;
       text.textContent = value;
       if (restore !== null) placeCaret(text, Math.min(restore, value.length));
     }
-    Object.assign(text.style, { fontFamily: '', fontSize: '', fontWeight: '', fontStyle: '', color: '' }, row.table ? {} : textStyle(p));
-    text.dataset.placeholder = !value && level < BODY_LEVEL ? 'Heading' : '';
   }
   function markCurrent() {
     for (const [id, item] of rowNodes) item.classList.toggle('is-current', id === focusedId);
