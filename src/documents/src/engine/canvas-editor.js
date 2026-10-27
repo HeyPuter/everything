@@ -217,7 +217,8 @@ export class CanvasEditor {
     }
     this.relayout();
   }
-  focus() { this.input.focus({ preventScroll: true }); this.syncInput(); this.paint(); }
+  /** Give the document the keyboard and paint it; { paint: false } when the caller paints once it has moved the view. */
+  focus({ paint = true } = {}) { this.input.focus({ preventScroll: true }); this.syncInput(); if (paint) this.paint(); }
   /** The page the caret is on: a header or footer's own page while editing one. */
   get caretPageIndex() {
     if (this.session.path !== null) return this.storyPage ?? 0;

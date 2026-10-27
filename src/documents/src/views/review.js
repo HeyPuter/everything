@@ -146,7 +146,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     pinnedRange = engine.model.range.join();
     // The document's text field takes the selection too: going back to it with the keyboard kept its own,
     // which the next key put back.
-    if (focusDocument) engine.focus(); else engine.syncInput();
+    // Painted once, after the view has moved to the thread.
+    if (focusDocument) engine.focus({ paint: false }); else engine.syncInput();
     engine.revealCaret?.(); engine.paint(); onChange();
     cards.get(thread.id)?.scrollIntoView?.({ block: 'nearest' });
   }
@@ -258,7 +259,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       engine.finishComposition();
       if (engine.session.path !== null) engine.editStory(null);
       body.select(next.start, Math.min(next.end, body.text.length)); navigated = next;
-      engine.focus(); engine.revealCaret?.(); engine.paint(); onChange();
+      // Painted once, after the view has moved to the change.
+      engine.focus({ paint: false }); engine.revealCaret?.(); engine.paint(); onChange();
     },
     get shown() { return commentsShown; },
     hasComments() { return threads().length > 0; },
