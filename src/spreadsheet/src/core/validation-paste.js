@@ -45,6 +45,18 @@ export function mapPastedValidations(copied, h, w, r0, c0, repeat, transpose = f
   });
 }
 
+/**
+ * Validation taken off a block of cells: a rule inside it goes, and one reaching past it keeps its parts outside,
+ * each a rule of its own that reads (a custom formula, a dependent list) from its own corner. The same list when
+ * no rule touches the block.
+ */
+export function clearValidationsIn(saved, area, newId) {
+  const records = saved.map((rule, index) => ({ range: rule.range, rule, index }));
+  const remaining = removeRangeRecords(records, area);
+  if (remaining.length === records.length && remaining.every((r, i) => r === records[i])) return saved;
+  return remaining.map(({ rule, range }) => (['r1', 'c1', 'r2', 'c2'].every(k => range[k] === rule.range[k]) ? rule : piece(rule, range, newId())));
+}
+
 /** Replace validation only where cells were actually written, in the same undo step. */
 export function replaceValidations(saved, incoming, cells, newId) {
   if (incoming === null || !cells.length || !saved.length && !incoming.length) return saved;

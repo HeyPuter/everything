@@ -66,7 +66,7 @@ describe('AI tools: what the model sees besides values', () => {
     const d = JSON.parse(res.content);
     const sheet = wb.sheet(id);
     expect(d.conditional_formats).toEqual([{ id: sheet.rules[0].id, applies_to: 'B2:C4', rule: expect.stringMatching(/10/), format: 'fill #ffcccc, bold' }]);
-    expect(d.data_validation).toEqual([{ id: sheet.validations[0].id, range: 'A2:A4', allows: 'Dropdown list: West, East, North' }]);
+    expect(d.data_validation).toEqual([{ id: sheet.validations[0].id, range: 'A2:A4', allows: 'List: West, East, North' }]);
     expect(d.charts).toEqual([expect.objectContaining({ id: sheet.charts[0].id, type: 'line', title: 'Sales', data: 'A1:C4', placed_at: 'E1' })]);
     expect(d.merged_cells).toBe('A9:B9');
     expect(d.hidden_rows).toBe('6:8');

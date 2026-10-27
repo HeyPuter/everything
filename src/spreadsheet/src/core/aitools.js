@@ -23,8 +23,10 @@ import { quoteSheet, shiftFormula, MAX_ROW, MAX_COL } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
-import { formatValue } from './format.js';
-import { CHART_TYPES } from './charts.js';
+import { formatValue, fontKeyFor, parseTime, ymdToSerial } from './format.js';
+import { CHART_TYPES, CHART_MIN_W, CHART_MIN_H } from './charts.js';
+import { subtypeOf, chartSubtype, changeSubtypePatch } from './chart-subtypes.js';
+import { effectiveFontTheme } from './font-theme.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
@@ -32,9 +34,10 @@ import { cellFromInput, objectNoun } from './workbook.js';
 import { getThread } from './comments.js';
 import { tableRows } from './tables.js';
 import { sheetFilters, filterTable } from './sheet-filters.js';
-import { conditionalRuleGroups } from './conditional-groups.js';
+import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
+import { eachStoredCell } from './sparse-range.js';
 import { describeRule } from './condformat.js';
-import { VALIDATION_TYPES, VALIDATION_OPERATORS } from './validation.js';
+import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
 import { pivotDefinitionState, readPivotDefinition } from './pivot.js';
 
 /** A request the workbook refused, in words the model can act on. */
@@ -184,6 +187,20 @@ export const TOOLS = [
     stacked: bool('Stack the series (column, bar, area).'),
     series_in: str('Whether each column or each row of the data is one series (default: guessed).', { enum: ['columns', 'rows'] }),
   }, ['data_range', 'type']),
+  fn('update_chart', 'Change a chart: its type, data, titles, stacking, legend, position or size. Give only what changes; an empty title removes it.', {
+    chart: str('The chart\'s id from get_sheet_details or get_workbook_info, or its title or name when no other chart shares it.'),
+    type: str('New chart type.', { enum: CHART_TYPES.map(([t]) => t) }),
+    data_range: str('New data range, on the chart\'s sheet, read as create_chart reads it.'),
+    series_in: str('Whether each column or each row of the data is one series.', { enum: ['columns', 'rows', 'auto'] }),
+    title: str('Chart title.'), x_title: str('Horizontal axis title.'), y_title: str('Vertical axis title.'),
+    stacked: bool('Stack the series (column, bar, line, area).'),
+    legend: str('Where the legend goes, or none.', { enum: ['bottom', 'top', 'right', 'none'] }),
+    anchor_cell: str('Cell to move the chart\'s top-left corner to.'),
+    width: num('Width in pixels.'), height: num('Height in pixels.'),
+  }, ['chart']),
+  fn('delete_chart', 'Delete a chart.', {
+    chart: str('The chart\'s id from get_sheet_details or get_workbook_info, or its title or name when no other chart shares it.'),
+  }, ['chart']),
   fn('create_table', 'Turn a range into a table with a header row, a filter and banded rows. Tables can be referred to by name in formulas (Table1[Amount]).', {
     range: RANGE, name: str('Table name (letters, digits and underscores).'), totals_row: bool('Add a totals row (default false).'),
   }, ['range']),
@@ -200,12 +217,34 @@ export const TOOLS = [
     max_color: str('Color scale: color of the highest values (#rrggbb).'),
     bar_color: str('Data bars: bar color (#rrggbb).'),
   }, ['range', 'rule']),
+  fn('remove_conditional_format', 'Remove conditional formatting: one rule by its id, every rule from some cells (a rule reaching past them keeps the rest of its range), or every rule on a sheet.', {
+    rule_id: str('The rule\'s id from get_sheet_details.'),
+    range: str('Or: the cells to clear of rules, e.g. "B2:B50".'),
+    sheet: str('Or: a sheet to clear of every rule, with whole_sheet.'),
+    whole_sheet: bool('Remove every rule on the sheet.'),
+  }),
   fn('add_dropdown', 'Give cells a dropdown list of allowed values (data validation).', {
     range: RANGE,
     options: { type: 'array', items: { type: 'string' }, description: 'The choices, when they are listed here.' },
     source_range: str('Or: a range whose cells hold the choices, e.g. "Lists!A2:A20".'),
     strict: bool('Refuse values not in the list (default true); false only warns.'),
   }, ['range']),
+  fn('add_validation', 'Limit what cells may hold (data validation other than a dropdown): whole or decimal numbers, dates or times in bounds, text of some length, a custom formula that must be TRUE, or checkboxes. Replaces the rule on exactly the same cells. Dates as "YYYY-MM-DD", times as "HH:MM".', {
+    range: RANGE,
+    type: str('What the cells may hold.', { enum: ['whole', 'decimal', 'date', 'time', 'text_length', 'custom', 'checkbox'] }),
+    operator: str('How values compare with min (and max). Default between.', { enum: VALIDATION_OPERATORS.map(([k]) => k) }),
+    min: { type: ['number', 'string'], description: 'The bound to compare with (the lower one for between).' },
+    max: { type: ['number', 'string'], description: 'The upper bound, for between and notBetween.' },
+    formula: str('For custom: a formula written for the range\'s top-left cell, TRUE for allowed values, e.g. "=COUNTIF($A:$A,A2)=1".'),
+    strict: bool('Refuse values that break the rule (default true); false only warns.'),
+    allow_blank: bool('Blank cells are allowed (default true).'),
+    prompt: str('A message shown beside a selected cell.'),
+    error_message: str('The message shown when a value is refused.'),
+  }, ['range', 'type']),
+  fn('remove_validation', 'Remove data validation (dropdowns included): one rule by its id, or every rule from some cells (a rule reaching past them keeps the rest of its range).', {
+    rule_id: str('The rule\'s id from get_sheet_details.'),
+    range: str('Or: the cells to clear of validation, e.g. "C2:C100".'),
+  }),
   fn('manage_sheet', 'Add, rename, duplicate, delete or show a sheet.', {
     action: str('What to do.', { enum: ['add', 'rename', 'duplicate', 'delete', 'activate'] }),
     sheet: str('The sheet to act on (the name for a new sheet when adding).'),
@@ -642,18 +681,10 @@ function ruleStyleText(style) {
   return parts.length ? parts.join(', ') : undefined;
 }
 
-/** A validation rule in words: what the cells may hold. */
+/** A validation rule in words: what the cells may hold (dates as dates). */
 function validationText(v) {
-  const label = VALIDATION_TYPES.find((t) => t.value === v.type)?.label || v.type;
-  if (v.type === 'list') {
-    const src = Array.isArray(v.source) ? v.source.slice(0, 50).map((o) => clip(String(o), 80)).join(', ') : String(v.source ?? '');
-    return `${label}: ${src}`;
-  }
-  if (v.type === 'formula') return `${label}: ${v.source ?? ''}`;
-  if (v.type === 'any' || v.type === 'checkbox') return label;
-  const op = v.operator || 'between';
-  const bounds = op === 'between' || op === 'notBetween' ? `${v.min ?? '…'} and ${v.max ?? '…'}` : `${v.min ?? ''}`;
-  return `${label}, ${(VALIDATION_OPERATORS.find(([k]) => k === op)?.[1] || op).toLowerCase()} ${bounds}`;
+  if (v.type === 'list' && Array.isArray(v.source)) return `List: ${v.source.slice(0, 50).map((o) => clip(String(o), 80)).join(', ')}${v.source.length > 50 ? ', …' : ''}`;
+  return clip(describeValidation(v), 400);
 }
 
 /**
@@ -1174,7 +1205,120 @@ function createChart(wb, args, env) {
     stacked: !!args.stacked, seriesIn: args.series_in === 'rows' ? 'rows' : args.series_in === 'columns' ? 'cols' : 'auto',
   });
   if (id == null) throw new ToolError('The chart could not be added.');
-  return { chart: `${type} chart of ${qualified(wb, sheetId, data)}`, placed_at: cellName(anchor.r, anchor.c) };
+  return { chart: `${type} chart of ${qualified(wb, sheetId, data)}`, id, placed_at: cellName(anchor.r, anchor.c) };
+}
+
+/** The chart a call names: by its id, or by a title or name no other chart shares. With the sheet it is on. */
+function chartNamed(wb, text) {
+  const t = String(text ?? '').trim();
+  if (!t) throw new ToolError('Name the chart by the id get_sheet_details gives it.');
+  const all = wb.sheets.flatMap((sheet) => chartsOf(sheet).map((chart) => ({ sheet, chart })));
+  const byId = all.find(({ chart }) => chart.id === t);
+  if (byId) return byId;
+  const fold = t.toLocaleLowerCase();
+  const named = all.filter(({ chart }) => [chart.name, chart.title].some((n) => typeof n === 'string' && n.trim().toLocaleLowerCase() === fold));
+  if (named.length === 1) return named[0];
+  if (named.length > 1) throw new ToolError(`${named.length} charts are called "${t}"; give the id of the one you mean (get_sheet_details lists them).`);
+  const listed = all.slice(0, 12).map(({ sheet, chart }) => `${chart.id} (${chart.type}${chart.title ? ` "${clip(chart.title, 40)}"` : ''} on ${sheet.name})`);
+  throw new ToolError(`There is no chart "${t}". ${all.length ? `The charts are: ${listed.join(', ')}${all.length > 12 ? ', …' : ''}.` : 'The workbook has no charts.'}`);
+}
+
+const STACKABLE = new Set(['column', 'bar', 'line', 'area']);
+// The Change Chart Type subtype a type (and stacking) means, so a type change keeps what both types share as the
+// dialog does. A type missing here is a subtype of its own name.
+const SUBTYPES = {
+  column: (stacked) => (stacked ? 'columnStacked' : 'columnClustered'),
+  bar: (stacked) => (stacked ? 'barStacked' : 'barClustered'),
+  area: (stacked) => (stacked ? 'areaStacked' : 'area'),
+  line: (stacked, markers) => `line${stacked ? 'Stacked' : ''}${markers ? 'Markers' : ''}`,
+  donut: () => 'doughnut', combo: () => 'comboColumnLine', stock: () => 'stockHlc', surface: () => 'surface3d',
+};
+
+/** The theme's body font, which a chart's text takes when it changes type (as the editor's Change Chart Type). */
+function themeChartFont(wb) {
+  const name = effectiveFontTheme(wb.fontTheme)?.minor?.latin?.typeface || 'Calibri';
+  return fontKeyFor(name, { literal: true }) || 'calibri';
+}
+
+function updateChart(wb, args, env) {
+  const { sheet, chart } = chartNamed(wb, args.chart);
+  assertWritable(wb, sheet.id, null);
+  const patch = {};
+  const changes = [];
+  const kept = [];
+  if (args.type != null || args.stacked != null) {
+    const type = String(args.type ?? chart.type);
+    if (!CHART_TYPES.some(([t]) => t === type)) throw new ToolError(`type must be one of ${CHART_TYPES.map(([t]) => t).join(', ')}.`);
+    if (args.stacked && !STACKABLE.has(type)) throw new ToolError(`A ${type} chart cannot be stacked; only column, bar, line and area charts can.`);
+    const stacked = args.stacked ?? (type === chart.type ? !!chart.stacked : false);
+    const now = subtypeOf(chart);
+    const markers = chart.type === 'line' ? /Markers$/.test(now || '') : true;
+    const subtype = (SUBTYPES[type] || (() => type))(stacked, markers);
+    // Stacked to 100% stays so while only the type changes between charts that stack.
+    const same = subtype === now || (type === chart.type && args.stacked == null);
+    if (same) kept.push(`It is already a ${stacked && STACKABLE.has(type) ? 'stacked ' : ''}${type} chart.`);
+    else {
+      const typed = chartSubtype(subtype) ? changeSubtypePatch(chart, subtype, { font: themeChartFont(wb) }) : { type, stacked };
+      if (!typed) throw new ToolError(`The chart could not be made a ${type} chart.`);
+      Object.assign(patch, typed);
+      changes.push(stacked && STACKABLE.has(type) ? `type: stacked ${type}` : `type: ${type}`);
+    }
+  }
+  if (args.data_range != null) {
+    if (sheet.kind === 'chart') throw new ToolError(`The chart on the chart sheet "${sheet.name}" reads its series from references of its own; the user can change them with Select Data.`);
+    const { sheetId, range } = resolveRange(wb, args.data_range, sheet.id);
+    if (sheetId !== sheet.id) throw new ToolError(`The chart is on ${sheet.name}; its data must be on that sheet too.`);
+    const data = dataOfLines(wb, sheetId, range);
+    if (!data) throw new ToolError(`${qualified(wb, sheetId, range)} holds no data to chart.`);
+    // As Select Data takes a plain range: the series' own references, if it had any, give way to it.
+    Object.assign(patch, { range: data, sourceRefs: undefined });
+    changes.push(`data: ${rangeName(data)}`);
+  }
+  if (args.series_in != null) {
+    if (!['columns', 'rows', 'auto'].includes(args.series_in)) throw new ToolError('series_in must be columns, rows or auto.');
+    patch.seriesIn = args.series_in === 'columns' ? 'cols' : args.series_in;
+    changes.push(`series in ${args.series_in}`);
+  }
+  // A title typed here replaces one linked to a cell, as typing it in the chart does.
+  if (args.title != null) { patch.title = cutText(String(args.title), 200); patch.titleRef = undefined; changes.push('title'); }
+  if (args.x_title != null) { patch.xTitle = cutText(String(args.x_title), 80); patch.xTitleRef = undefined; changes.push('horizontal axis title'); }
+  if (args.y_title != null) { patch.yTitle = cutText(String(args.y_title), 80); patch.yTitleRef = undefined; changes.push('vertical axis title'); }
+  if (args.legend != null) {
+    if (!['bottom', 'top', 'right', 'none'].includes(args.legend)) throw new ToolError('legend must be bottom, top, right or none.');
+    Object.assign(patch, args.legend === 'none' ? { legend: false } : { legend: true, legendPos: args.legend });
+    changes.push(`legend ${args.legend}`);
+  }
+  if (args.anchor_cell != null) {
+    if (sheet.kind === 'chart') throw new ToolError('A chart sheet\'s chart fills its sheet; it has no cell to move to.');
+    const at = resolveRange(wb, args.anchor_cell, sheet.id);
+    if (at.sheetId !== sheet.id) throw new ToolError(`The chart is on ${sheet.name}; it can only move within that sheet.`);
+    Object.assign(patch, { anchor: { r: at.range.r1, c: at.range.c1 }, dx: 0, dy: 0 });
+    changes.push(`moved to ${cellName(at.range.r1, at.range.c1)}`);
+  }
+  for (const [key, field, min] of [['width', 'w', CHART_MIN_W], ['height', 'h', CHART_MIN_H]]) {
+    if (args[key] == null) continue;
+    const n = Math.round(Number(args[key]));
+    if (!(n >= min && n <= 4000)) throw new ToolError(`${key} must be ${min} to 4000 pixels.`);
+    patch[field] = n;
+    changes.push(`${key} ${n}px`);
+  }
+  if (!changes.length) {
+    if (kept.length) return { chart: chart.id, unchanged: kept.join(' ') };
+    throw new ToolError('Nothing to change was given.');
+  }
+  wb.transaction('AI edit', () => wb.updateChart(sheet.id, chart.id, patch, 'AI edit'));
+  const after = wb.chartById(sheet.id, chart.id);
+  return { chart: chart.id, sheet: sheet.name, changed: changes, ...(after ? { type: after.type, ...(after.range ? { data: rangeName(after.range) } : {}) } : {}) };
+}
+
+function deleteChart(wb, args) {
+  const { sheet, chart } = chartNamed(wb, args.chart);
+  assertWritable(wb, sheet.id, null);
+  if (sheet.kind === 'chart') throw new ToolError(`That chart is the chart sheet "${sheet.name}"; delete the sheet with manage_sheet instead.`);
+  let ok = false;
+  wb.transaction('AI edit', () => { ok = wb.deleteChart(sheet.id, chart.id); });
+  if (!ok) throw new ToolError('The chart could not be deleted (its sheet may be protected).');
+  return { deleted: `${chart.type} chart${chart.title ? ` "${chart.title}"` : ''} on ${sheet.name}` };
 }
 
 /**
@@ -1264,7 +1408,52 @@ function addConditionalFormat(wb, args, env) {
   let id;
   wb.transaction('AI edit', () => { id = wb.addRule(sheetId, rule); });
   if (id == null) throw new ToolError('The rule could not be added.');
-  return { rule: `${type} on ${qualified(wb, sheetId, range)}` };
+  return { rule: `${type} on ${qualified(wb, sheetId, range)}`, id };
+}
+
+/** The sheet whose rules (conditional formats, or with `kind` 'validations' validation rules) hold the id given. */
+function ruleSheet(wb, id, kind = 'rules') {
+  const t = String(id ?? '').trim();
+  const sheet = wb.sheets.find((s) => (s[kind] || []).some((r) => r.id === t));
+  if (!sheet) throw new ToolError(`There is no ${kind === 'rules' ? 'conditional formatting rule' : 'validation rule'} with the id "${t}"; get_sheet_details lists each sheet's rules and their ids.`);
+  return { sheet, id: t };
+}
+
+/**
+ * What a remove_conditional_format call takes away, before it does: the sheet, the rule groups it touches (the rules
+ * Manage Rules lists), and how. Shared with describeCall, which asks about it.
+ */
+function conditionalRemoval(wb, args, env) {
+  if (args.rule_id) {
+    const { sheet, id } = ruleSheet(wb, args.rule_id);
+    const group = conditionalRuleGroups(sheet.rules).find((g) => g.rules.some((r) => r.id === id));
+    return { sheet, how: 'rule', id, touched: 1, label: `the rule ${describeRule(group.rule)} on ${group.rules.map((p) => rangeName(p.range)).join(', ')}` };
+  }
+  if (args.range) {
+    const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
+    const sheet = wb.sheet(sheetId);
+    const touched = conditionalRuleGroups(sheet.rules || []).filter((g) => g.rules.some((r) => overlaps(r.range, range))).length;
+    return { sheet, how: 'range', range, touched, label: `the rules on ${qualified(wb, sheetId, range)}` };
+  }
+  if (args.whole_sheet) {
+    const sheet = gridSheet(wb, args.sheet, env.sheetId());
+    return { sheet, how: 'sheet', touched: conditionalRuleGroups(sheet.rules || []).length, label: `every rule on ${sheet.name}` };
+  }
+  throw new ToolError('Give rule_id, a range, or whole_sheet with a sheet.');
+}
+
+function removeConditionalFormat(wb, args, env) {
+  const plan = conditionalRemoval(wb, args, env);
+  assertWritable(wb, plan.sheet.id, null);
+  if (!plan.touched) return { removed: 0, note: `${plan.how === 'sheet' ? plan.sheet.name : qualified(wb, plan.sheet.id, plan.range)} has no conditional formatting.` };
+  let touched = 0;
+  wb.transaction('AI edit', () => {
+    if (plan.how === 'rule') touched = wb.deleteRuleGroup(plan.sheet.id, plan.id) ? 1 : 0;
+    else touched = clearRules(wb, plan.sheet.id, plan.how === 'range' ? [plan.range] : null);
+  });
+  if (!touched) throw new ToolError('The rules could not be removed (the sheet may be protected).');
+  const left = conditionalRuleGroups(plan.sheet.rules || []).length;
+  return { removed: plan.how === 'rule' ? plan.label : `${touched} rule${touched === 1 ? '' : 's'} from ${plan.how === 'sheet' ? plan.sheet.name : qualified(wb, plan.sheet.id, plan.range)}`, rules_left_on_sheet: left };
 }
 
 /** The validation rule on exactly these cells, which a new one replaces (a range has one rule). */
@@ -1288,6 +1477,121 @@ function addDropdown(wb, args, env) {
   wb.transaction('AI edit', () => { id = wb.addValidation(sheetId, { range, type: 'list', source, strict: args.strict !== false }); });
   if (id == null) throw new ToolError('The dropdown could not be added.');
   return { dropdown: qualified(wb, sheetId, range), choices: Array.isArray(source) ? source.length : source, ...(replaced ? { replaced: 'the rule these cells had before' } : {}) };
+}
+
+const VALIDATION_KINDS = { whole: 'whole', decimal: 'number', date: 'date', time: 'time', text_length: 'text', custom: 'formula', checkbox: 'checkbox' };
+
+/** A bound as the rule keeps it: a number, a date as its serial, a time as a fraction of a day. */
+function validationBound(value, type, what) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new ToolError(`${what} must be a finite number.`);
+    return value;
+  }
+  const t = String(value).trim();
+  if (type === 'date') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+    if (!m) throw new ToolError(`${what} must be a date as "YYYY-MM-DD".`);
+    const serial = ymdToSerial(Number(m[1]), Number(m[2]), Number(m[3]));
+    if (!Number.isFinite(serial)) throw new ToolError(`${what} is not a date.`);
+    return serial;
+  }
+  if (type === 'time') {
+    const v = parseTime(t);
+    if (v == null || !Number.isFinite(v)) throw new ToolError(`${what} must be a time as "HH:MM".`);
+    return v;
+  }
+  const n = Number(t.replace(/,/g, ''));
+  if (!t || !Number.isFinite(n)) throw new ToolError(`${what} must be a number.`);
+  return n;
+}
+
+/** Cells of a range already holding values its new rule refuses, held to a count: Excel leaves them as they are. */
+function breakingCells(wb, sheetId, range, most = 8) {
+  const found = [];
+  let n = 0;
+  eachStoredCell(wb.sheet(sheetId), range, (r, c, cell) => {
+    if (cell.v == null && cell.f == null) return;
+    const v = wb.getValue(sheetId, r, c);
+    if (v == null || v === '' || wb.validateCell(sheetId, r, c).ok) return;
+    if (n++ < most) found.push(cellName(r, c));
+  });
+  return { n, found };
+}
+
+function addValidation(wb, args, env) {
+  const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
+  assertWritable(wb, sheetId, null);
+  const type = VALIDATION_KINDS[args.type];
+  if (!type) throw new ToolError(`type must be one of ${Object.keys(VALIDATION_KINDS).join(', ')}.`);
+  const rule = { range, type, strict: args.strict !== false, allowBlank: args.allow_blank !== false };
+  if (type === 'formula') {
+    const f = String(args.formula ?? '').trim();
+    if (!f) throw new ToolError('A custom rule needs its formula.');
+    const text = f.startsWith('=') ? f : `=${f}`;
+    if (reachesOut(wb, text.slice(1))) throw new ToolError('A rule\'s formula cannot reach outside the workbook.');
+    try { parseFormula(text.slice(1)); } catch (e) { throw new ToolError(`The formula could not be read: ${e?.message || 'syntax error'}.`); }
+    // As the dialog refuses it: an unknown name or a broken reference fails on every cell alike.
+    const result = wb.evalRuleFormula(sheetId, text, range, range.r1, range.c1);
+    const code = result && typeof result === 'object' ? result.error : null;
+    if (code === '#NAME?' || code === '#REF!') throw new ToolError(`For ${cellName(range.r1, range.c1)} the formula gives ${code} (${explainedError(wb, { error: code })}), so the rule would refuse every value.`);
+    rule.source = text;
+  } else if (type !== 'checkbox') {
+    const op = args.operator || 'between';
+    if (!VALIDATION_OPERATORS.some(([k]) => k === op)) throw new ToolError(`operator must be one of ${VALIDATION_OPERATORS.map(([k]) => k).join(', ')}.`);
+    const dual = op === 'between' || op === 'notBetween';
+    let min = validationBound(args.min, type, 'min');
+    let max = dual ? validationBound(args.max, type, 'max') : undefined;
+    // As the dialog asks: one bound for a comparison; between may leave one open, except for whole numbers and times.
+    if ((!dual || op === 'notBetween' || type === 'whole' || type === 'time') && min == null) throw new ToolError(`A ${op} rule needs min.`);
+    if ((op === 'notBetween' || (dual && (type === 'whole' || type === 'time'))) && max == null) throw new ToolError(`A ${op} rule needs max.`);
+    if (dual && min == null && max == null) throw new ToolError('Give min, max or both.');
+    if (type === 'text' && [min, max].some((n) => n != null && (n < 0 || !Number.isInteger(n)))) throw new ToolError('Text lengths are whole numbers of 0 or more.');
+    if (dual && min != null && max != null && min > max) throw new ToolError('min must not be more than max.');
+    rule.min = min;
+    if (dual) rule.max = max;
+    if (op !== 'between') rule.operator = op;
+  } else {
+    rule.allowBlank = true;
+  }
+  if (args.prompt) rule.prompt = cutText(String(args.prompt).trim(), 255);
+  if (args.error_message) rule.message = cutText(String(args.error_message).trim(), 255);
+  const replaced = sameRangeValidation(wb, sheetId, range);
+  let id;
+  wb.transaction('AI edit', () => { id = wb.addValidation(sheetId, rule); });
+  if (id == null) throw new ToolError('The rule could not be added (the sheet may be protected).');
+  const broken = type === 'checkbox' ? { n: 0, found: [] } : breakingCells(wb, sheetId, range);
+  return {
+    validation: qualified(wb, sheetId, range), allows: validationText(rule), id,
+    ...(replaced ? { replaced: `the ${replaced.type === 'list' ? 'dropdown' : 'rule'} these cells had before` } : {}),
+    ...(broken.n ? { note: `${broken.n} cell${broken.n === 1 ? ' already holds a value' : 's already hold values'} the rule does not allow (${broken.found.join(', ')}${broken.n > broken.found.length ? ', …' : ''}); they are kept as they are, as in Excel.` } : {}),
+  };
+}
+
+/** What a remove_validation call takes away, before it does (shared with describeCall). */
+function validationRemoval(wb, args, env) {
+  if (args.rule_id) {
+    const { sheet, id } = ruleSheet(wb, args.rule_id, 'validations');
+    const rule = sheet.validations.find((v) => v.id === id);
+    return { sheet, how: 'rule', id, rules: [rule], label: `the ${rule.type === 'list' ? 'dropdown' : 'validation rule'} on ${quoteSheet(sheet.name)}!${rangeName(rule.range)}` };
+  }
+  if (args.range) {
+    const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
+    const sheet = wb.sheet(sheetId);
+    const rules = (sheet.validations || []).filter((v) => overlaps(v.range, range));
+    return { sheet, how: 'range', range, rules, label: `the validation on ${qualified(wb, sheetId, range)}` };
+  }
+  throw new ToolError('Give rule_id, or the range to clear of validation.');
+}
+
+function removeValidation(wb, args, env) {
+  const plan = validationRemoval(wb, args, env);
+  assertWritable(wb, plan.sheet.id, null);
+  if (!plan.rules.length) return { removed: 0, note: `${qualified(wb, plan.sheet.id, plan.range)} has no data validation.` };
+  let ok = false;
+  wb.transaction('AI edit', () => { ok = plan.how === 'rule' ? wb.deleteValidation(plan.sheet.id, plan.id) : wb.clearValidations(plan.sheet.id, plan.range); });
+  if (!ok) throw new ToolError('The validation could not be removed (the sheet may be protected).');
+  return { removed: plan.label, rules_left_on_sheet: plan.sheet.validations.length };
 }
 
 function manageSheet(wb, args, env) {
@@ -1403,9 +1707,14 @@ const RUNNERS = {
   delete_columns: (wb, args, env) => lines(wb, args, env, { axis: 'col', remove: true }),
   sort_range: sortRange,
   create_chart: createChart,
+  update_chart: updateChart,
+  delete_chart: deleteChart,
   create_table: createTable,
   add_conditional_format: addConditionalFormat,
+  remove_conditional_format: removeConditionalFormat,
   add_dropdown: addDropdown,
+  add_validation: addValidation,
+  remove_validation: removeValidation,
   manage_sheet: manageSheet,
   freeze_panes: freezePanes,
   set_column_width: setColumnWidth,
@@ -1549,6 +1858,13 @@ export function describeCall(wb, name, args = {}, env) {
     }
     case 'sort_range': return { label: `Sort ${at(args.range).text}` };
     case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };
+    case 'update_chart': case 'delete_chart': {
+      let named = null;
+      try { named = chartNamed(wb, args.chart); } catch { /* the runner explains */ }
+      const what = named ? `the ${named.chart.type} chart${named.chart.title ? ` “${clip(named.chart.title, 40)}”` : ''} on ${named.sheet.name}` : `the chart ${String(args.chart ?? '')}`;
+      if (name === 'delete_chart') return { label: `Delete ${what}`, destructive: !!named, detail: named ? 'Removes the chart and its formatting.' : null };
+      return { label: `Change ${what}` };
+    }
     case 'create_table': {
       // Its header formulas become the text they show, and the result says so.
       const t = at(args.range);
@@ -1557,6 +1873,13 @@ export function describeCall(wb, name, args = {}, env) {
       return { label: `Make ${t.text} a table`, destructive: n > 0, detail: n ? `Turns ${plural(n, 'formula')} in the header row into the text ${n === 1 ? 'it shows' : 'they show'}.` : null };
     }
     case 'add_conditional_format': return { label: `Highlight ${at(args.range).text} (${args.rule})` };
+    case 'remove_conditional_format': {
+      let plan = null;
+      try { plan = conditionalRemoval(wb, args, env); } catch { /* the runner explains */ }
+      if (!plan) return { label: 'Remove conditional formatting' };
+      const n = plan.touched;
+      return { label: `Remove ${plan.label}`, destructive: n > 0, detail: n ? `${plan.how === 'range' ? 'Takes' : 'Removes'} ${n === 1 ? 'a conditional formatting rule' : `${n} conditional formatting rules`}${plan.how === 'range' ? ' off these cells' : ''}.` : null };
+    }
     case 'add_dropdown': {
       // A range has one rule: the one on exactly these cells (the user's list of choices, or a rule of their own) goes.
       const t = at(args.range);
@@ -1564,6 +1887,21 @@ export function describeCall(wb, name, args = {}, env) {
       if (!had) return { label: `Add a dropdown to ${t.text}` };
       const list = had.type === 'list';
       return { label: `Replace the ${list ? 'dropdown' : 'validation rule'} on ${t.text}`, destructive: true, detail: list ? 'Replaces the dropdown these cells have, and its choices.' : 'Replaces the rule these cells have for what they may hold.' };
+    }
+    case 'add_validation': {
+      const t = at(args.range);
+      const had = t.s != null && t.range ? sameRangeValidation(wb, t.s, t.range) : null;
+      if (!had) return { label: `Limit what ${t.text} may hold` };
+      const list = had.type === 'list';
+      return { label: `Replace the ${list ? 'dropdown' : 'validation rule'} on ${t.text}`, destructive: true, detail: list ? 'Replaces the dropdown these cells have, and its choices.' : 'Replaces the rule these cells have for what they may hold.' };
+    }
+    case 'remove_validation': {
+      let plan = null;
+      try { plan = validationRemoval(wb, args, env); } catch { /* the runner explains */ }
+      if (!plan) return { label: 'Remove data validation' };
+      const n = plan.rules.length, lists = plan.rules.filter((v) => v.type === 'list').length;
+      const kinds = lists === n ? (n === 1 ? 'a dropdown' : `${n} dropdowns`) : n === 1 ? 'a validation rule' : `${n} validation rules`;
+      return { label: `Remove ${plan.label}`, destructive: n > 0, detail: n ? `${plan.how === 'range' ? 'Takes' : 'Removes'} ${kinds}${plan.how === 'range' ? ' off these cells' : ''}.` : null };
     }
     case 'manage_sheet': {
       // A sheet not named is the active one, which the runner acts on: the question says which sheet it is.

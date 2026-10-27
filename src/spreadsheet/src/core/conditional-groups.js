@@ -3,6 +3,7 @@ import { conditionalPredicateField, rebaseConditionalPredicate } from './conditi
 import { shiftFormula, sameSheetName } from './refs.js';
 import { duplicateSourceAreas, duplicateSourceFormula } from './conditional-duplicates.js';
 import { removeRangeRecords, forEachRangeRecordIn } from './range-records.js';
+import { normalizeRange } from './cell.js';
 
 const statistical = new Set(['scale', 'databar', 'icons', 'dup', 'unique', 'top', 'bottom']);
 const equal = (a, b) => {
@@ -128,4 +129,38 @@ export function splitConditionalRanges(text) {
   }
   parts.push(value.slice(start).trim());
   return quote || brackets || parts.some(part => !part) ? null : parts;
+}
+
+/** What is left of rectangle `a` once `b` is taken out of it: up to four rectangles. */
+export function subtractRange(a, b) {
+  const r1 = Math.max(a.r1, b.r1), r2 = Math.min(a.r2, b.r2), c1 = Math.max(a.c1, b.c1), c2 = Math.min(a.c2, b.c2);
+  if (r1 > r2 || c1 > c2) return [a];
+  const out = [];
+  if (a.r1 < r1) out.push({ r1: a.r1, c1: a.c1, r2: r1 - 1, c2: a.c2 });
+  if (r2 < a.r2) out.push({ r1: r2 + 1, c1: a.c1, r2: a.r2, c2: a.c2 });
+  if (a.c1 < c1) out.push({ r1, c1: a.c1, r2, c2: c1 - 1 });
+  if (c2 < a.c2) out.push({ r1, c1: c2 + 1, r2, c2: a.c2 });
+  return out;
+}
+
+/** Clear rules from the selected ranges (or every rule on the sheet) as one undo step. Returns how many rules were touched. */
+export function clearRules(wb, sheetId, ranges = null) {
+  const sheet = wb.sheet(sheetId);
+  if (!sheet) return 0;
+  const groups = conditionalRuleGroups(sheet.rules);
+  let touched = 0;
+  wb.transaction('Clear rules', () => {
+    for (const group of groups) {
+      const areas = group.rules.map(rule => normalizeRange(rule.range));
+      const left = ranges ? ranges.reduce((list, cut) => list.flatMap(area => subtractRange(area, normalizeRange(cut))), areas) : [];
+      if (ranges && left.length === areas.length && left.every((area, i) => JSON.stringify(area) === JSON.stringify(areas[i]))) continue;
+      touched++;
+      // Alternating colours left on part of their range keep counting from the rule's first row, rather than
+      // starting over with a header wherever the cleared cells cut them.
+      const origin = group.rule.type === 'bands' && !group.rule.bandOrigin && areas.length === 1 ? { bandOrigin: duplicateSourceFormula(areas) } : {};
+      if (!left.length) wb.deleteRuleGroup(sheetId, group.rules[0].id);
+      else wb.setRuleAreas(sheetId, group.rules[0].id, origin, left);
+    }
+  });
+  return touched;
 }

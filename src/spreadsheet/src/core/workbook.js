@@ -18,7 +18,7 @@ import { nativeSparklineDateMismatch, nativeSparklineLocation } from './native-s
 import { importedNativeSparklines } from './native-sparkline-import.js';
 import { packedMoveReferences } from './packed-move-refs.js';
 import { copyNativeSparklines, mapPastedNativeSparklines, replacePastedNativeSparklines } from './native-sparkline-paste.js';
-import { copyValidations, mapPastedValidations, replaceValidations, moveValidations } from './validation-paste.js';
+import { copyValidations, mapPastedValidations, replaceValidations, moveValidations, clearValidationsIn } from './validation-paste.js';
 import { NATIVE_ICON_SETS, nativeIconFor, nativeIconCount } from './native-icons.js';
 import { conditionalRuleGroups, conditionalGroupPieces, distinctConditionalRanges, splitRulePieces } from './conditional-groups.js';
 import { moveConditionalFormats, conditionalMoveBlocks } from './conditional-move.js';
@@ -11010,6 +11010,14 @@ export class Workbook extends EventTarget {
     const sheet = this.sheet(sheetId);
     if (!sheet || !sheet.validations.some((v) => v.id === id)) return false;
     return this._setValidations(sheet, sheet.validations.filter((v) => v.id !== id), 'Delete validation');
+  }
+
+  /** Take validation off a block of cells; rules reaching past it keep their parts outside (see clearValidationsIn). One undo step. */
+  clearValidations(sheetId, range) {
+    const sheet = this.sheet(sheetId);
+    if (!sheet) return false;
+    const next = clearValidationsIn(sheet.validations, normalizeRange(range), newId);
+    return next !== sheet.validations && this._setValidations(sheet, next, 'Clear validation');
   }
 
   /** The last rule covering (r, c) wins, so newer rules override older ones. */
