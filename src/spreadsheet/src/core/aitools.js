@@ -19,7 +19,7 @@ import { fillColorCss } from './fill-color.js';
  */
 
 import { cellName, colName, colIndex, rangeName, normalizeRange, cellKey, parseKey, MAX_TEXT, cutText } from './cell.js';
-import { quoteSheet, shiftFormula, MAX_ROW, MAX_COL } from './refs.js';
+import { quoteSheet, shiftFormula, mapFormulaRefs, MAX_ROW, MAX_COL } from './refs.js';
 import { parseFormula } from './formula/parser.js';
 import { evaluateFormula, resetArrayBudget } from './formula/evaluator.js';
 import { isError, isRange } from './formula/functions.js';
@@ -43,6 +43,7 @@ import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
 import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
 import { detectDelimiter, splitSourceText } from './text-split.js';
+import { ENGINES, RELATIONS, MAX_VARIABLES, emptyModel, hasSolverModel, readSolverModel, solverNameEntries, parseRanges, prepareSolver, runSolver, applySolverResult, availableReports } from './solver.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -58,6 +59,10 @@ const MAX_FIND_SPILLS = 1e6; // spilled values a find looks at on one sheet: an 
 const MAX_CALC_CELLS = 400;
 const MAX_CALC_TEXT = 10000; // a single text result, such as a TEXTJOIN of a column
 const MAX_NOTE = 4000; // the most of a note the workbook keeps
+const SOLVE_SECONDS = 30; // a solve's time limit unless the call gives one; the chat waits for it
+const SOLVE_MAX_SECONDS = 120;
+const MAX_CONSTRAINTS = 200;
+const MAX_LISTED = 50; // variable cells a solve's result lists by value
 
 const NUMBER_FORMATS = ['general', 'number', 'currency', 'percent', 'date', 'time', 'datetime', 'text', 'scientific'];
 const RULE_KINDS = ['gt', 'gte', 'lt', 'lte', 'between', 'eq', 'neq', 'contains', 'notContains', 'beginsWith', 'endsWith', 'empty', 'notEmpty', 'dup', 'unique', 'top', 'bottom', 'formula', 'scale', 'databar'];
@@ -356,6 +361,24 @@ export const TOOLS = [
     to_value: num('The value it should reach.'),
     by_changing: str('The input cell to change, on the same sheet, e.g. "B3".'),
   }, ['set_cell', 'to_value', 'by_changing']),
+  fn('solve', `Solver: change several variable cells so a formula cell (the objective) is as large or small as it can be, or equals a value, while constraints hold. The model is saved on the sheet, where Data ▸ Solver opens it. Omit objective to run the model already saved on the sheet. Runs for up to ${SOLVE_SECONDS} seconds by default.`, {
+    objective: str('One formula cell, e.g. "B10" or "Plan!B10". The variables and constraints are on its sheet.'),
+    goal: str('Maximize, minimize, or reach value (default max).', { enum: ['max', 'min', 'value'] }),
+    value: num('For goal "value": the number the objective should equal.'),
+    variables: str('The cells Solver changes: ranges separated by commas, e.g. "B2:B5,D2". They must hold numbers or be blank.'),
+    constraints: { type: 'array', description: 'Constraints. int, bin (0 or 1) and dif (all different whole numbers 1 to N) apply to variable cells and take no value.', items: { type: 'object', properties: {
+      cell: str('A cell or range, e.g. "C10" or "B2:B5".'),
+      relation: str('How it compares.', { enum: RELATIONS.map(([r]) => r) }),
+      value: { type: ['number', 'string'], description: 'The right side for <=, = and >=: a number, a cell, a range the size of the left side, or a formula.' },
+    }, required: ['cell', 'relation'], additionalProperties: false } },
+    method: str('simplex for linear models (exact, fast), grg for smooth nonlinear ones (default), evolutionary for non-smooth ones (needs bounds on every variable).', { enum: ENGINES.map(([e]) => e) }),
+    non_negative: bool('Variables without a lower bound of their own cannot go below 0 (default true).'),
+    max_seconds: num(`Time limit in seconds (default ${SOLVE_SECONDS}, at most ${SOLVE_MAX_SECONDS}).`),
+    keep: bool('Keep the solution in the variable cells (default true). false reports it and leaves the cells as they were.'),
+    keep_best_found: bool('Also keep the best values found when Solver stops at a limit without a solution (default false: they are restored).'),
+    reports: { type: 'array', description: 'Report sheets to add before the model\'s sheet.', items: { type: 'string', enum: ['answer', 'sensitivity', 'limits'] } },
+    sheet: str('For a saved model, without objective: its sheet. Defaults to the active sheet.'),
+  }),
   fn('select_range', 'Select a range in the user\'s view (switching sheets if needed) to point them at something. Changes nothing.', {
     range: RANGE,
   }, ['range']),
@@ -2788,7 +2811,7 @@ function addNote(wb, args, env) {
   };
 }
 
-/* ---------- What-if: Goal Seek ---------- */
+/* ---------- What-if: Goal Seek and Solver ---------- */
 
 const oneCellRange = ({ r, c }) => ({ r1: r, c1: c, r2: r, c2: c });
 
@@ -2849,6 +2872,113 @@ function goalSeek(wb, args, env) {
   };
 }
 
+/**
+ * The model a solve call describes, on the objective's sheet: the one saved there, with what the call gives in its
+ * place, or a new one from the call. Options the user set in the Solver dialog are kept. Throws a ToolError.
+ */
+function solverModel(wb, args, env) {
+  let sheetId;
+  if (args.objective != null && String(args.objective).trim()) sheetId = oneCell(wb, args.objective, env.sheetId(), 'objective').sheetId;
+  else sheetId = gridSheet(wb, args.sheet, env.sheetId()).id;
+  const saved = hasSolverModel(wb, sheetId) ? readSolverModel(wb, sheetId) : null;
+  const fresh = args.objective != null && String(args.objective).trim() !== '';
+  if (!fresh && !saved) throw new ToolError(`No Solver model is saved on ${wb.sheet(sheetId).name}. Give the objective, the variables and any constraints.`);
+  const model = fresh ? { ...emptyModel(), options: { ...(saved?.options || emptyModel().options) } } : saved;
+  const text = (v) => String(v ?? '').trim().replace(/^=/, '');
+  // Saved as Solver saves its references, absolute ($B$4): a relative one in a defined name moves with the cell
+  // another spreadsheet reads it from.
+  const anchored = (v) => mapFormulaRefs(text(v), (ref) => ({ ...ref, absR1: true, absC1: true, absR2: true, absC2: true }));
+  if (fresh) model.objective = anchored(args.objective);
+  if (args.goal != null) {
+    if (!['max', 'min', 'value'].includes(args.goal)) throw new ToolError('goal must be max, min or value.');
+    model.goal = args.goal;
+  }
+  if (args.value != null) model.value = Number(args.value);
+  if (model.goal === 'value' && (args.value == null && fresh || !Number.isFinite(Number(model.value)))) throw new ToolError('Give the number the objective should equal in value.');
+  if (args.variables != null) model.variables = anchored(args.variables);
+  if (!model.variables) throw new ToolError('Give the variable cells Solver may change.');
+  if (args.constraints != null) {
+    if (!Array.isArray(args.constraints)) throw new ToolError('constraints must be a list.');
+    if (args.constraints.length > MAX_CONSTRAINTS) throw new ToolError(`At most ${MAX_CONSTRAINTS} constraints.`);
+    model.constraints = args.constraints.map((k, i) => {
+      const rel = k?.relation;
+      if (!RELATIONS.some(([r]) => r === rel)) throw new ToolError(`Constraint ${i + 1}: relation must be one of ${RELATIONS.map(([r]) => r).join(', ')}.`);
+      const lhs = anchored(k.cell);
+      if (!lhs) throw new ToolError(`Constraint ${i + 1} names no cell.`);
+      if (['int', 'bin', 'dif'].includes(rel)) return { lhs, rel, rhs: { int: 'integer', bin: 'binary', dif: 'AllDifferent' }[rel] };
+      if (k.value == null || text(k.value) === '') throw new ToolError(`Constraint ${i + 1} (${rel}) needs a value: a number, a cell or a formula.`);
+      if (typeof k.value === 'number' && !Number.isFinite(k.value)) throw new ToolError(`Constraint ${i + 1}: the value must be finite.`);
+      return { lhs, rel, rhs: typeof k.value === 'number' ? String(k.value) : anchored(k.value) };
+    });
+  } else if (fresh) model.constraints = [];
+  if (args.method != null) {
+    if (!ENGINES.some(([e]) => e === args.method)) throw new ToolError(`method must be one of ${ENGINES.map(([e]) => e).join(', ')}.`);
+    model.engine = args.method;
+  }
+  if (args.non_negative != null) model.nonNegative = !!args.non_negative;
+  return { sheetId, model, saved };
+}
+
+/** Do two models say the same, read as the names they are saved in (references compared without $ or case)? */
+function sameModel(wb, sheetId, a, b) {
+  const flat = (m) => solverNameEntries(wb, sheetId, m).map((n) => `${n.name}=${String(n.ref).replace(/\$/g, '').toUpperCase()}`).sort().join('\n');
+  return flat(a) === flat(b);
+}
+
+async function solve(wb, args, env) {
+  const { sheetId, model } = solverModel(wb, args, env);
+  const sheet = wb.sheet(sheetId);
+  const seconds = args.max_seconds == null ? SOLVE_SECONDS : Number(args.max_seconds);
+  if (!(seconds > 0 && seconds <= SOLVE_MAX_SECONDS)) throw new ToolError(`max_seconds must be more than 0 and at most ${SOLVE_MAX_SECONDS}.`);
+  const reports = Array.isArray(args.reports) ? [...new Set(args.reports.map(String))] : [];
+  if (reports.some((r) => !['answer', 'sensitivity', 'limits'].includes(r))) throw new ToolError('reports may be answer, sensitivity and limits.');
+  if (reports.length && wb.structureProtected) throw new ToolError('The workbook\'s structure is protected, so report sheets cannot be added. Leave reports out.');
+  // Protected ranges and merged cells are the tools' checks; the rest (formulas, text, locked cells, sizes) Solver's own.
+  const ranges = parseRanges(wb, sheetId, model.variables);
+  if (ranges) {
+    for (const g of ranges) {
+      if ((g.r2 - g.r1 + 1) * (g.c2 - g.c1 + 1) > MAX_VARIABLES) throw new ToolError(`A model can have at most ${MAX_VARIABLES} variable cells.`);
+      assertWritable(wb, sheetId, g, { contents: true });
+      for (let r = g.r1; r <= g.r2; r++) for (let c = g.c1; c <= g.c2; c++) assertNotUnderMerge(wb, sheetId, { r, c }, 'The variable cell');
+    }
+  }
+  const p = prepareSolver(wb, sheetId, model);
+  if (p.error) {
+    const field = { objective: 'objective', variables: 'variables', value: 'value', constraint: 'constraints' }[p.field];
+    throw new ToolError(`${field ? `${field}: ` : ''}${p.error} (the model is on ${quoteSheet(sheet.name)}).`);
+  }
+  // The time limit bounds this run only; the model is saved with the options it had.
+  p.options = { ...p.options, maxTime: Math.min(seconds, p.options.maxTime ?? Infinity) };
+  // A change made meanwhile (the user typing, a co-author's edit) would be overwritten by values worked out without it.
+  const version = wb.version;
+  const halt = () => { if (env.stopped?.() || wb.version !== version) p.cancelled = true; };
+  const result = await runSolver(p, { onProgress: halt });
+  if (env.stopped?.()) return { stopped: 'The user stopped the assistant; nothing was changed.' };
+  if (wb.version !== version) throw new ToolError('The workbook changed while Solver was running, so nothing was changed. Run it again.');
+  const keep = args.keep !== false && !!result.x && (result.solved || args.keep_best_found === true);
+  const allowed = availableReports(p, result);
+  const built = reports.filter((r) => allowed.includes(r));
+  const { reportSheetIds: added } = applySolverResult(wb, p, result, { keep, reports: built, label: 'AI edit' });
+  const at = (v) => qualified(wb, sheetId, oneCellRange(v));
+  const values = p.vars.slice(0, MAX_LISTED).map((v, j) => ({ cell: at(v), value: keep ? wb.getDisplay(sheetId, v.r, v.c) : result.x?.[j] ?? null }));
+  const kept = keep ? 'The solution was kept in the variable cells.'
+    : !result.x ? 'There is no solution to keep; the variable cells were left as they were.'
+    : args.keep === false ? 'The values found were not kept: the variable cells were left as they were.'
+    : 'Solver stopped before it found a solution, so the variable cells were left as they were. Run again with keep_best_found to keep the best values found.';
+  return {
+    status: result.status, message: result.message,
+    objective: { cell: at(p.objective), value: keep ? wb.getDisplay(sheetId, p.objective.r, p.objective.c) : modelValue(Number.isFinite(result.objective) ? result.objective : null), before: modelValue(Number.isFinite(p.objectiveBefore) ? p.objectiveBefore : null) },
+    [keep ? 'variables' : 'values_found']: result.x || keep ? values : undefined,
+    ...(p.vars.length > MAX_LISTED ? { more_variables: p.vars.length - MAX_LISTED } : {}),
+    kept, method: ENGINES.find(([e]) => e === model.engine)?.[1], seconds: Math.round(result.seconds * 10) / 10,
+    ...(result.status === 'localOptimal' ? { note: 'GRG Nonlinear finds a local optimum; another starting point may find a better one.' } : {}),
+    ...(result.status === 'timeLimit' && args.max_seconds == null ? { note: `Stopped at the ${seconds}-second limit; a larger max_seconds may get further.` } : {}),
+    ...(added.length ? { reports_added: added.map((id) => wb.sheet(id)?.name) } : {}),
+    ...(built.length < reports.length ? { reports_not_added: reports.filter((r) => !built.includes(r)).map((r) => `${r} (not available for this result)`) } : {}),
+    saved_model: `Saved on ${quoteSheet(sheet.name)}, where Data ▸ Solver opens it.`,
+  };
+}
+
 function selectRange(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.range, env.sheetId());
   if (!env.select) throw new ToolError('Nothing can be selected here.');
@@ -2897,14 +3027,17 @@ const RUNNERS = {
   set_column_width: setColumnWidth,
   add_note: addNote,
   goal_seek: goalSeek,
+  solve,
   select_range: selectRange,
 };
 
 /**
  * Carry out one tool call. Returns { ok, content (the text the model reads), changed (the
- * workbook moved on), target ({ sheetId, range } the call acted on, for the user to jump to) }.
+ * workbook moved on), target ({ sheetId, range } the call acted on, for the user to jump to) },
+ * or a promise of it for a tool that takes a while (solve), which gives the page its frames back as it works.
  * `env`: sheetId() the active sheet, selection() → { sheetId, range }, select(sheetId, range),
- * showSheet(sheetId), autofit(sheetId, c1, c2), distrust() when a formula that reaches out is written.
+ * showSheet(sheetId), autofit(sheetId, c1, c2), distrust() when a formula that reaches out is written,
+ * stopped() when the user has stopped the assistant (a long tool then gives up, changing nothing).
  */
 export function runTool(wb, name, args, env) {
   const run = RUNNERS[name];
@@ -2915,10 +3048,22 @@ export function runTool(wb, name, args, env) {
   try {
     target = callTarget(wb, name, args || {}, env);
   } catch { /* the runner says what is wrong with the address */ }
+  const failed = (e) => {
+    if (!(e instanceof ToolError)) console.error(e);
+    return { ok: false, content: `Error: ${e instanceof ToolError ? e.message : `something went wrong (${e?.message || e}).`}`, changed: wb.version !== before, target: null };
+  };
+  let result;
   try {
     // A tool writes on the sheet its call names alone: with that sheet grouped with others (several tabs selected),
     // the cells it wrote, cleared or formatted were changed on every other sheet of the group too, unannounced.
-    const result = wb._withoutGroup ? wb._withoutGroup(() => run(wb, args || {}, env)) : run(wb, args || {}, env);
+    result = wb._withoutGroup ? wb._withoutGroup(() => run(wb, args || {}, env)) : run(wb, args || {}, env);
+  } catch (e) {
+    return failed(e);
+  }
+  if (typeof result?.then === 'function') return result.then(finished, failed);
+  return finished(result);
+
+  function finished(result) {
     const changed = wb.version !== before;
     let content = typeof result === 'string' ? result : JSON.stringify(result);
     // A change the workbook quietly declined (a locked cell, an edit it would not make) must not read as made,
@@ -2928,9 +3073,6 @@ export function runTool(wb, name, args, env) {
     const sheetAfter = env.sheetId();
     if (sheetAfter !== sheetBefore && wb.sheet(sheetAfter)) content += `\nNote: the active sheet is now "${wb.sheet(sheetAfter).name}"; ranges without a sheet name now refer to it.`;
     return { ok: true, content, changed, target };
-  } catch (e) {
-    if (!(e instanceof ToolError)) console.error(e);
-    return { ok: false, content: `Error: ${e instanceof ToolError ? e.message : `something went wrong (${e?.message || e}).`}`, changed: wb.version !== before, target: null };
   }
 }
 
@@ -2943,6 +3085,8 @@ export function callTarget(wb, name, args, env) {
   if (name === 'set_link' && args.cell != null) { const found = resolveRange(wb, args.cell, env.sheetId()); return { ...found, range: { r1: found.range.r1, c1: found.range.c1, r2: found.range.r1, c2: found.range.c1 } }; }
   // A Goal Seek changes its input cell, which is what the step links to.
   if (name === 'goal_seek') { const { variable: v } = goalSeekCells(wb, args, env); return { sheetId: v.sheetId, range: oneCellRange(v) }; }
+  // Goal Seek and Solver change their input cells, which is what the step links to.
+  if (name === 'solve') { const { sheetId, model } = solverModel(wb, args, env); const ranges = parseRanges(wb, sheetId, model.variables); return ranges ? { sheetId, range: ranges[0] } : null; }
   const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell ?? args.destination;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
@@ -3242,6 +3386,25 @@ export function describeCall(wb, name, args = {}, env) {
       const v = cells?.variable;
       const shown = v && holds(wb.getCell(v.sheetId, v.r, v.c)) ? wb.getDisplay(v.sheetId, v.r, v.c) : null;
       return { label, destructive: shown != null, detail: shown != null ? `Replaces the value in ${by} (now ${shown}).` : null };
+    }
+    case 'solve': {
+      let built = null;
+      try { built = solverModel(wb, args, env); } catch { /* the runner explains */ }
+      if (!built) return { label: args.objective ? `Solve for ${args.objective}` : 'Run the Solver model' };
+      const { sheetId: s, model, saved } = built;
+      const goal = { max: 'maximize', min: 'minimize' }[model.goal] || `set to ${model.value}`;
+      const objective = parseRanges(wb, s, model.objective)?.[0];
+      const ranges = parseRanges(wb, s, model.variables) || [];
+      const label = `Solve: ${goal} ${objective ? qualified(wb, s, objective) : model.objective} by changing ${ranges.length ? ranges.map((g) => qualified(wb, s, g)).join(', ') : model.variables}`;
+      const data = ranges.reduce((n, g) => n + filledCells(wb, s, g), 0);
+      const replacesModel = !!saved && !sameModel(wb, s, saved, model);
+      const reports = Array.isArray(args.reports) ? new Set(args.reports).size : 0;
+      const detail = [
+        data && args.keep !== false && `Replaces the values in ${plural(data, 'variable cell')} with the solution, if one is found.`,
+        replacesModel && `Replaces the Solver model saved on ${wb.sheet(s).name}.`,
+        reports && `Adds ${plural(reports, 'report sheet')}.`,
+      ].filter(Boolean).join(' ');
+      return { label, destructive: !!(data && args.keep !== false) || replacesModel, detail: detail || null };
     }
     default: return { label: name };
   }

@@ -123,12 +123,19 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
   let aiSheet = null;
   const withSheet = (sheetId) => Object.assign(Object.create(env), { sheetId });
   const aiEnv = withSheet(() => (aiSheet != null && wb.sheet(aiSheet) ? aiSheet : env.sheetId()));
-  const runPinned = (name, args) => {
+  const runPinned = async (name, args, control) => {
     const live = env.sheetId();
-    // Once a step has moved the user's view, the sheet it moved to is the assistant's (and the step says so).
-    const result = runTool(wb, name, args, withSheet(() => (env.sheetId() !== live ? env.sheetId() : aiEnv.sheetId())));
+    // Once a step has moved the user's view, the sheet it moved to is the assistant's (and the step says so). A tool
+    // that takes a while (the Solver) moves no view: the sheets the user looks at meanwhile are their own. It hears a
+    // stop, and gives up changing nothing.
+    let pinned = null;
+    const toolEnv = withSheet(() => pinned ?? (env.sheetId() !== live ? env.sheetId() : aiEnv.sheetId()));
+    toolEnv.stopped = () => !!control?.stopped?.();
+    const pending = runTool(wb, name, args, toolEnv);
+    if (typeof pending?.then === 'function') pinned = toolEnv.sheetId();
+    const result = await pending;
     // Showing a sheet or selecting on it points the assistant there, even when the user was already looking at it.
-    if (env.sheetId() !== live || (result.ok && (name === 'select_range' || (name === 'manage_sheet' && args?.action === 'activate')))) aiSheet = env.sheetId();
+    if (pinned == null && (env.sheetId() !== live || (result.ok && (name === 'select_range' || (name === 'manage_sheet' && args?.action === 'activate'))))) aiSheet = env.sheetId();
     return result;
   };
 
@@ -144,7 +151,7 @@ export function createAiPanel(ctx, env, { onToggle, onBusy } = {}) {
         await idle;
         if (control?.stopped?.()) return { skipped: true };
       }
-      return runPinned(name, args);
+      return runPinned(name, args, control);
     },
     // The wait comes first, before the change is weighed and asked about: a value the user commits meanwhile into the
     // cells it writes is data it replaces. (It waits again if an entry was begun while its question was open.)

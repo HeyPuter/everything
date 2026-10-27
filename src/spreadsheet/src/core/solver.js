@@ -920,7 +920,7 @@ const REPORT_BUILDERS = { answer: ['Answer Report', answerReport], sensitivity: 
  * Finish a solve as one undo step: save the model, keep the solution (or leave the original values) and add
  * the chosen reports as sheets before the model's. Returns { reportSheetIds }.
  */
-export function applySolverResult(wb, p, result, { keep = true, reports = [], when = new Date().toLocaleString() } = {}) {
+export function applySolverResult(wb, p, result, { keep = true, reports = [], when = new Date().toLocaleString(), label = 'Solver' } = {}) {
   const sheetId = p.sheetId;
   const built = [];
   const allowed = availableReports(p, result);
@@ -932,12 +932,12 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
   const reportSheetIds = [];
   // Written on the model's sheet (and the reports' own) alone: with the sheet grouped with others, the values kept
   // went onto the same cells of every other sheet in the group, as typing into a group does.
-  wb.transaction('Solver', () => alone(wb, () => {
-    saveSolverModel(wb, sheetId, p.model, 'Solver');
+  wb.transaction(label, () => alone(wb, () => {
+    saveSolverModel(wb, sheetId, p.model, label);
     if (keep && result.x) {
       const sheet = wb.sheet(sheetId);
       const entries = p.vars.map((v, j) => ({ r: v.r, c: v.c, cell: { v: result.x[j], f: null, ...(sheet.cells.get(cellKey(v.r, v.c))?.s ? { s: sheet.cells.get(cellKey(v.r, v.c)).s } : {}) } }));
-      wb.setCells(sheetId, entries, 'Solver');
+      wb.setCells(sheetId, entries, label);
     }
     for (const report of built) {
       let k = 1;
@@ -946,7 +946,7 @@ export function applySolverResult(wb, p, result, { keep = true, reports = [], wh
       const added = wb.addSheet(`${report.title} ${k}`, index);
       if (!added) continue;
       reportSheetIds.push(added.id);
-      wb.setCells(added.id, report.entries, 'Solver');
+      wb.setCells(added.id, report.entries, label);
       report.widths.forEach((w, c) => wb.setColWidth(added.id, c, w));
     }
     // A new sheet becomes the active one; the model's sheet stays in front.
