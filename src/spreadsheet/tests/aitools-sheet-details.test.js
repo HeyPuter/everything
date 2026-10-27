@@ -149,4 +149,19 @@ describe('AI tools: what the model sees besides values', () => {
     expect(charts[0].title.length).toBeLessThan(210);
     expect(charts[80]).toBe('(20 more; get_sheet_details lists them)');
   });
+
+  it('holds a read\'s notes and comments to a text budget, and says what more there is', () => {
+    const { wb, id, run } = setup();
+    for (let r = 10; r < 110; r++) wb.setNote(id, r, 5, `Note ${r} ${'word '.repeat(300)}`);
+    for (let r = 10; r < 70; r++) {
+      addComment(wb, id, r, 6, `Question ${r} ${'why '.repeat(200)}`, 'Ana');
+      for (let i = 0; i < 6; i++) replyToThread(wb, id, r, 6, `Answer ${i} ${'because '.repeat(100)}`, 'Ben');
+    }
+    for (let r = 200; r < 300; r++) wb.mergeCells(id, { r1: r, c1: 0, r2: r, c2: 1 });
+    const text = run('read_range', { range: 'A:G' }).content;
+    expect(text.length).toBeLessThan(30000);
+    expect(text).toMatch(/\(\d+ more notes; read a smaller range to see them.\)/);
+    expect(text).toMatch(/Comments:\nG11: Ana: Question 10 .*\n\(\d+ more comment threads; read a smaller range to see them.\)/);
+    expect(text).toMatch(/Merged cells \(each shows its top-left cell's value\): A201:B201, .* and 40 more/);
+  });
 });

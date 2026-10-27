@@ -750,30 +750,47 @@ function cellExtras(wb, sheetId, range) {
   const sheet = wb.sheet(sheetId);
   const out = [];
   const name = (r, c) => cellName(r, c);
+  // The notes and threads share a text budget as the values have theirs: 100 long notes and 60 threads of long
+  // replies came to 300,000 characters, past what the read itself is held to.
+  let room = MAX_READ_CHARS / 2;
+  const fits = (line) => (room -= line.length + 1) >= 0;
   const notes = keyedIn(sheet.notes, range);
   if (notes.length) {
-    out.push('Notes:', ...notes.slice(0, 100).map(({ key, r, c }) => `${name(r, c)}: ${clip(plain(sheet.notes.get(key)), 1000)}`));
-    if (notes.length > 100) out.push(`(${notes.length - 100} more notes; read a smaller range to see them.)`);
+    const lines = [];
+    for (const { key, r, c } of notes.slice(0, 100)) {
+      const line = `${name(r, c)}: ${clip(plain(sheet.notes.get(key)), 1000)}`;
+      if (lines.length && !fits(line)) break;
+      lines.push(line);
+    }
+    out.push('Notes:', ...lines);
+    if (notes.length > lines.length) out.push(`(${notes.length - lines.length} more notes; read a smaller range to see them.)`);
   }
   const threads = keyedIn(sheet.comments, range);
   if (threads.length) {
-    out.push('Comments:', ...threads.slice(0, 60).map(({ key, r, c }) => {
+    const lines = [];
+    for (const { key, r, c } of threads.slice(0, 60)) {
       const t = sheet.comments.get(key);
-      return `${name(r, c)}${t.done ? ' (resolved)' : ''}: ${threadText(t)}`;
-    }));
-    if (threads.length > 60) out.push(`(${threads.length - 60} more comment threads; read a smaller range to see them.)`);
+      const line = `${name(r, c)}${t.done ? ' (resolved)' : ''}: ${threadText(t)}`;
+      if (lines.length && !fits(line)) break;
+      lines.push(line);
+    }
+    out.push('Comments:', ...lines);
+    if (threads.length > lines.length) out.push(`(${threads.length - lines.length} more comment threads; read a smaller range to see them.)`);
   }
-  const merges = (wb.mergesIn?.(sheetId, range) || []).slice(0, 60);
-  if (merges.length) out.push(`Merged cells (each shows its top-left cell's value): ${merges.map(rangeName).join(', ')}`);
+  const merges = wb.mergesIn?.(sheetId, range) || [];
+  if (merges.length) out.push(`Merged cells (each shows its top-left cell's value): ${lineList(merges.map(rangeName), 60)}`);
   const links = [];
+  let moreLinks = 0;
   for (const [key, cell] of sheet.cells) {
-    if (!cell?.hyperlink || links.length >= 60) continue;
+    if (!cell?.hyperlink) continue;
     const { r, c } = parseKey(key);
     if (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2) continue;
+    if (links.length >= 60) { moreLinks++; continue; }
     const link = wb.linkAt(sheetId, r, c);
     if (link) links.push(`${name(r, c)} → ${clip(plain(link.url), 300)}`);
   }
   if (links.length) out.push('Links:', ...links.sort());
+  if (moreLinks) out.push(`(${moreLinks} more links; read a smaller range to see them.)`);
   const hiddenCols = [];
   for (let c = range.c1; c <= range.c2; c++) if (wb.isHidden?.(sheetId, 'col', c)) hiddenCols.push(c);
   if (hiddenCols.length) out.push(`Hidden columns: ${lineRuns(hiddenCols, 'col')}`);
