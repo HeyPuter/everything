@@ -797,7 +797,7 @@ function workbookInfo(wb, env) {
         ...(s.frozenRows || s.frozenCols ? { frozen: { rows: s.frozenRows || 0, columns: s.frozenCols || 0 } } : {}),
         ...(s.protected ? { protected: true } : {}),
         ...(s.tables?.length ? { tables: s.tables.map((t) => ({ name: t.name, range: rangeName(t.range), columns: wb.tableColumns(s.id, t) })) } : {}),
-        ...(chartsOf(s).length ? { charts: chartsOf(s).map((c) => ({ id: c.id, type: c.type, title: c.title || undefined, data: c.range ? rangeName(c.range) : undefined })) } : {}),
+        ...(chartsOf(s).length ? { charts: chartsOf(s).map((c) => ({ id: c.id, type: c.type, title: c.title || undefined, data: chartSource(c) })) } : {}),
         ...(sheetFilters(s).length ? { filtered: sheetFilters(s).map((f) => rangeName(f.range)).join(', ') } : {}),
         ...(pivotsOf(wb, s).length ? { pivot_tables: pivotsOf(wb, s).map((p) => p.name) } : {}),
         ...(s.rules?.length ? { conditional_formats: conditionalRuleGroups(s.rules).length } : {}),
@@ -812,6 +812,16 @@ function workbookInfo(wb, env) {
 
 /** A sheet's charts: the objects that are not pictures, shapes, text, SmartArt, slicers or controls. */
 const chartsOf = (sheet) => (sheet.charts || []).filter((c) => objectNoun(c) === 'chart');
+
+/**
+ * The cells a chart draws: its data range, or the references its series read when it has its own (every chart from
+ * a file, and one whose series were set one by one), whose range is only a placeholder: such a chart read "A1".
+ */
+function chartSource(chart) {
+  const refs = (chart.sourceRefs || []).flatMap((s) => [s.categories, s.values, s.sizes]).filter((ref) => typeof ref === 'string' && ref);
+  if (chart.sourceRefs?.length) return refs.length ? `series from ${lineList([...new Set(refs)].map((ref) => clip(ref, 120)), 12)}` : 'series of its own values';
+  return chart.range ? rangeName(chart.range) : undefined;
+}
 
 /**
  * A sheet's pivot tables: those read from a file (kept as Excel wrote them) and the one Insert ▸ PivotTable built,
@@ -857,7 +867,7 @@ function sheetDetails(wb, args, env) {
   const charts = chartsOf(sheet);
   const chartInfo = list(charts, (c) => ({
     id: c.id, type: c.type, ...(c.name ? { name: c.name } : {}), ...(c.title ? { title: c.title } : {}),
-    ...(c.range ? { data: rangeName(c.range) } : {}),
+    data: chartSource(c), ...(c.pivotSource?.name ? { pivot_table: c.pivotSource.name } : {}),
     ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
     ...(c.xTitle ? { x_title: c.xTitle } : {}), ...(c.yTitle ? { y_title: c.yTitle } : {}),
     ...(c.stacked ? { stacked: c.stack100 ? '100%' : true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
@@ -2204,7 +2214,7 @@ function updateChart(wb, args, env) {
   }
   wb.transaction('AI edit', () => wb.updateChart(sheet.id, chart.id, patch, 'AI edit'));
   const after = wb.chartById(sheet.id, chart.id);
-  return { chart: chart.id, sheet: sheet.name, changed: changes, ...(after ? { type: after.type, ...(after.range ? { data: rangeName(after.range) } : {}) } : {}) };
+  return { chart: chart.id, sheet: sheet.name, changed: changes, ...(after ? { type: after.type, data: chartSource(after) } : {}) };
 }
 
 function deleteChart(wb, args) {

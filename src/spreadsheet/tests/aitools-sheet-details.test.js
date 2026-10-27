@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { Workbook } from '../src/core/workbook.js';
 import { addComment, replyToThread, setThreadResolved } from '../src/core/comments.js';
 import { runTool, describeCall, changesWorkbook, TOOLS } from '../src/core/aitools.js';
+import { workbookFromFile } from '../src/core/io.js';
+import { chartXlsx } from './helpers/xlsx-chart-fixture.js';
 
 function setup() {
   const wb = new Workbook();
@@ -114,5 +116,19 @@ describe('AI tools: what the model sees besides values', () => {
     const res = run('get_sheet_details', { sheet: 'Nope' });
     expect(res.ok).toBe(false);
     expect(res.content).toMatch(/no sheet named "Nope". The sheets are: "Sheet1"/);
+  });
+
+  it('names the cells a chart from a file draws, not the placeholder range it keeps', async () => {
+    const wb = await workbookFromFile(new Uint8Array(chartXlsx({ embedded: true })), 'run.xlsx');
+    const sheet = wb.sheets[0];
+    const env = { sheetId: () => sheet.id, selection: () => null, distrust: vi.fn(), select: vi.fn(() => true) };
+    const chart = sheet.charts[0];
+    expect(chart.sourceRefs.length).toBe(2);
+    const details = JSON.parse(runTool(wb, 'get_sheet_details', {}, env).content);
+    expect(details.charts[0].data).toBe('series from Data!$A$1:$A$80, Data!$B$1:$B$80, Data!$C$1:$C$22');
+    const info = JSON.parse(runTool(wb, 'get_workbook_info', {}, env).content);
+    expect(info.sheets[0].charts[0].data).toBe(details.charts[0].data);
+    const changed = JSON.parse(runTool(wb, 'update_chart', { chart: chart.id, type: 'column' }, env).content);
+    expect(changed.data).toBe(details.charts[0].data);
   });
 });
