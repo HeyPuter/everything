@@ -380,6 +380,72 @@ export function pivotRangeProblem(wb, sheetId, range) {
   return null;
 }
 
+/* ---------- Placing a built pivot ---------- */
+
+/** The name Insert ▸ PivotTable gives the sheet it adds: "Pivot of Sales", then "Pivot of Sales 2", within 31 characters. */
+export function pivotSheetName(wb, sourceSheetId) {
+  const base = `Pivot of ${wb.sheet(sourceSheetId).name}`;
+  const withSuffix = (suffix) => base.slice(0, 31 - suffix.length).replace(/[\uD800-\uDBFF]$/, '') + suffix;
+  let name = withSuffix('');
+  let k = 2;
+  while (wb.sheetByName(name)) name = withSuffix(` ${k++}`);
+  return name;
+}
+
+/** The dropdown in a filter cell above the table, as the pivot writes it at (r, c). */
+const filterDropdown = (wb, sheetId, fc, r, c) => wb.addValidation(sheetId, { range: { r1: r, c1: c, r2: r, c2: c }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
+
+/**
+ * Write a built pivot table to a new sheet (named `name`, or as pivotSheetName names it), as one undo step `label`,
+ * with its definition kept for Refresh. Returns the new sheet, or null when no sheet could be added (Protect
+ * Workbook locks the structure).
+ */
+export function writePivotSheet(wb, sourceSheetId, built, { name = null, label = 'Insert pivot table' } = {}) {
+  const sheetName = name || pivotSheetName(wb, sourceSheetId);
+  let sheet = null;
+  wb.transaction(label, () => {
+    sheet = wb.addSheet(sheetName);
+    if (!sheet) return;
+    wb.setCells(sheet.id, built.cells, label);
+    built.widths.forEach((w, c) => wb.setColWidth(sheet.id, c, w));
+    for (let c = 1; c < built.cols; c++) wb.setColWidth(sheet.id, c, 110);
+    for (const fc of built.filterCells) filterDropdown(wb, sheet.id, fc, fc.r, fc.c);
+    wb.setFrozen(sheet.id, built.headerRow + 1, 0);
+    // Its definition stays with it, so Refresh can build it again over the source as it grows (see refreshPivot).
+    if (built.spec) wb._setNames(namesWithPivotDefinition(wb, sourceSheetId, built, sheet.name, { r1: 0, c1: 0, r2: built.rows - 1, c2: built.cols - 1 }), label);
+  });
+  return sheet;
+}
+
+/**
+ * Write a built pivot table with its top-left cell at `at` on an existing sheet, as one undo step `label`: the block
+ * it takes is cleared first, its formulas moved there as Refresh moves them, and its definition kept for Refresh (a
+ * sheet keeps one, so the caller makes sure the sheet holds none yet). Returns the block it takes.
+ */
+export function writePivotAt(wb, sourceSheetId, built, sheetId, at, { label = 'Insert pivot table' } = {}) {
+  const sheet = wb.sheet(sheetId);
+  const dr = at.r, dc = at.c;
+  const area = { r1: dr, c1: dc, r2: dr + built.rows - 1, c2: dc + built.cols - 1 };
+  const moved = (f) => (dr || dc ? mapFormulaRefs(f, (ref) => (ref.sheet ? ref : { ...ref, r1: ref.r1 + dr, r2: ref.r2 + dr, c1: ref.c1 + dc, c2: ref.c2 + dc })) : f);
+  const written = new Set();
+  const entries = built.cells.map(({ r, c, cell }) => {
+    written.add(cellKey(r + dr, c + dc));
+    return { r: r + dr, c: c + dc, cell: cell.f != null ? { ...cell, f: moved(cell.f) } : cell };
+  });
+  // What the block held where the table has nothing (the row under its filters) is cleared, so it is the table's alone.
+  for (const key of sheet.cells.keys()) {
+    const { r, c } = parseKey(key);
+    if (r >= area.r1 && r <= area.r2 && c >= area.c1 && c <= area.c2 && !written.has(key)) entries.push({ r, c, cell: null });
+  }
+  wb.transaction(label, () => {
+    wb.ensureSize(sheetId, area.r2 + 1, area.c2 + 1);
+    wb.setCells(sheetId, entries, label);
+    for (const fc of built.filterCells) filterDropdown(wb, sheetId, fc, fc.r + dr, fc.c + dc);
+    if (built.spec) wb._setNames(namesWithPivotDefinition(wb, sourceSheetId, built, sheet.name, area), label);
+  });
+  return area;
+}
+
 /* ---------- Refresh ---------- */
 
 /**

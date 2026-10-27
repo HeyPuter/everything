@@ -38,7 +38,7 @@ import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
 import { eachStoredCell } from './sparse-range.js';
 import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
-import { pivotDefinitionState, readPivotDefinition } from './pivot.js';
+import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -200,6 +200,17 @@ export const TOOLS = [
     },
     clear_others: bool('Also clear the criteria of columns not listed (default false).'),
   }, ['range']),
+  fn('create_pivot_table', 'Summarize a list as a pivot table, as Insert ▸ PivotTable builds it: one field down the rows, optionally one across the columns, one value field summarized, with totals, and optionally a filter cell above it. Its cells are live formulas over the data; the user\'s Refresh rebuilds it to pick up new categories. Goes on a new sheet unless a destination is given.', {
+    data_range: str('The list, its first row the field names: a range, a cell inside it, or a table name.'),
+    rows: str('The field whose values become the rows: its header text, or its column letter.'),
+    columns: str('Optional field whose values become the columns.'),
+    values: str('The field to summarize.'),
+    summarize: str('How to summarize the values (default sum).', { enum: PIVOT_AGGS.map(([k]) => k) }),
+    filter: str('Optional field to filter the table by: a cell above it picks one of its values.'),
+    filter_value: { type: ['string', 'number', 'boolean'], description: 'The value the filter starts on (default all).' },
+    destination: str('Top-left cell to put it at on an existing sheet, e.g. "Summary!A1". Default: a new sheet.'),
+    new_sheet_name: str('Name for the new sheet (default "Pivot of <source sheet>").'),
+  }, ['data_range', 'rows', 'values']),
   fn('create_chart', 'Insert a chart drawn from a range. The first row and column are used as series names and categories when they hold text.', {
     data_range: RANGE,
     type: str('Chart type.', { enum: CHART_TYPES.map(([t]) => t) }),
@@ -1426,6 +1437,127 @@ function filterRange(wb, args, env) {
   };
 }
 
+/* ---------- Pivot tables ---------- */
+
+/** The list a pivot summarizes: a range, whole columns as their data, or a single cell as the block of data around it. */
+function pivotSource(wb, text, sheetId) {
+  const { sheetId: s, range: asked } = resolveRange(wb, text, sheetId);
+  const single = asked.r1 === asked.r2 && asked.c1 === asked.c2;
+  const range = single ? wb.dataRegion(s, asked.r1, asked.c1) : asked.r2 >= MAX_ROW || asked.c2 >= MAX_COL ? dataOfLines(wb, s, asked) : asked;
+  if (!range) throw new ToolError(`${qualified(wb, s, asked)} holds no data to summarize.`);
+  return { sheetId: s, range };
+}
+
+/** A field of the source by its header (any case) or its column letter, as its offset in the range. */
+function pivotField(fields, range, text, what) {
+  if (text == null || text === '') return null;
+  const t = String(text).trim();
+  const byLabel = fields.find((f) => f.label.trim().toLowerCase() === t.toLowerCase());
+  if (byLabel) return byLabel.index;
+  const c = colIndex(t.replace(/\$/g, ''));
+  if (c >= range.c1 && c <= range.c2) return c - range.c1;
+  throw new ToolError(`"${t}" (${what}) is not a field of ${rangeName(range)}. Its fields are ${fields.slice(0, 40).map((f) => `"${clip(f.label, 40)}"`).join(', ')}.`);
+}
+
+/**
+ * The spec the PivotTable dialog builds from its choices, checked as the dialog checks them, and the destination:
+ * { spec, fields, source, dest: { sheetId, at } | null }.
+ */
+function pivotPlan(wb, args, env) {
+  const source = pivotSource(wb, args.data_range, env.sheetId());
+  const problem = pivotRangeProblem(wb, source.sheetId, source.range);
+  if (problem) throw new ToolError(`${qualified(wb, source.sheetId, source.range)} cannot be summarized: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}.`);
+  const fields = pivotFields(wb, source.sheetId, source.range);
+  const rowField = pivotField(fields, source.range, args.rows, 'rows');
+  const valueField = pivotField(fields, source.range, args.values, 'values');
+  if (rowField == null || valueField == null) throw new ToolError('Give the field for the rows and the field to summarize.');
+  const colField = pivotField(fields, source.range, args.columns, 'columns');
+  const filterField = pivotField(fields, source.range, args.filter, 'filter');
+  if (colField != null && colField === rowField) throw new ToolError('The rows and columns must be different fields.');
+  if (filterField != null && (filterField === rowField || filterField === colField)) throw new ToolError('The filter must be a field other than the rows and columns.');
+  const agg = args.summarize || 'sum';
+  if (!PIVOT_AGGS.some(([k]) => k === agg)) throw new ToolError(`summarize must be one of ${PIVOT_AGGS.map(([k]) => k).join(', ')}.`);
+  // A sum of a field that holds no number is a table of zeros: said, so the model counts it instead.
+  if (agg !== 'count') {
+    const col = source.range.c1 + valueField;
+    let numbers = false;
+    for (let r = source.range.r1 + 1, last = Math.min(source.range.r2, wb.usedRange(source.sheetId)?.r2 ?? source.range.r2); r <= last && !numbers; r++) numbers = typeof wb.getValue(source.sheetId, r, col) === 'number';
+    if (!numbers) throw new ToolError(`"${fields[valueField].label}" holds no numbers to ${agg === 'sum' ? 'add up' : `take the ${agg} of`}. Use summarize "count" to count its rows.`);
+  }
+  if (filterField == null && args.filter_value != null && args.filter_value !== '') throw new ToolError('filter_value needs a filter field to pick it from.');
+  const filters = [];
+  if (filterField != null) {
+    let value = null;
+    if (args.filter_value != null && args.filter_value !== '') {
+      const values = pivotFieldValues(wb, source.sheetId, source.range, filterField);
+      const given = args.filter_value;
+      const n = typeof given === 'number' ? given : filterNumber(given);
+      value = values.find((v) => (typeof v === 'string' ? v.toLowerCase() === String(given).toLowerCase() : v === given || (n != null && v === n)));
+      if (value === undefined) throw new ToolError(`"${fields[filterField].label}" has no value ${JSON.stringify(given)}. Some it has: ${values.slice(0, 20).map((v) => JSON.stringify(v)).join(', ')}.`);
+    }
+    filters.push({ field: filterField, value });
+  }
+  const spec = { range: source.range, rowField, colField, valueField, agg, filters };
+  let dest = null;
+  if (args.destination) {
+    const found = resolveRange(wb, args.destination, env.sheetId());
+    dest = { sheetId: found.sheetId, at: { r: found.range.r1, c: found.range.c1 } };
+  }
+  return { spec, fields, source, dest };
+}
+
+/** The block a pivot of `built` takes at a destination, and why it cannot go there (or null). */
+function pivotDestinationProblem(wb, source, dest, built) {
+  const area = { r1: dest.at.r, c1: dest.at.c, r2: dest.at.r + built.rows - 1, c2: dest.at.c + built.cols - 1 };
+  const where = qualified(wb, dest.sheetId, area);
+  const sheet = wb.sheet(dest.sheetId);
+  if (!wb.canEnsureSize(dest.sheetId, area.r2 + 1, area.c2 + 1)) return { area, problem: `The pivot table needs ${where}, which runs past the edge of the sheet.` };
+  if (hasPivotDefinition(wb, dest.sheetId)) return { area, problem: `${quoteSheet(sheet.name)} already holds a pivot table built here, and a sheet keeps one for Refresh. Put this one on a new sheet (leave out destination) or on another sheet.` };
+  const s = source.range;
+  if (source.sheetId === dest.sheetId && s.r1 <= area.r2 && s.r2 >= area.r1 && s.c1 <= area.c2 && s.c2 >= area.c1) return { area, problem: `The pivot table would take ${where}, over its own data. Put it beside the data or on a new sheet.` };
+  const table = (sheet.tables || []).find((t) => t.range.r1 <= area.r2 && t.range.r2 >= area.r1 && t.range.c1 <= area.c2 && t.range.c2 >= area.c1);
+  if (table) return { area, problem: `The pivot table would take ${where}, which crosses the table ${table.name}.` };
+  if (wb.mergesIn(dest.sheetId, area).length) return { area, problem: `The pivot table would take ${where}, which holds merged cells.` };
+  if (wb.arrayEditBlocked(dest.sheetId, area) || wb.nativePivotOverlap?.(dest.sheetId, area)) return { area, problem: `The pivot table would take ${where}, which crosses an array formula's results or another pivot table.` };
+  return { area, problem: null };
+}
+
+function createPivotTable(wb, args, env) {
+  const { spec, fields, source, dest } = pivotPlan(wb, args, env);
+  if (dest) assertWritable(wb, dest.sheetId, null);
+  else if (wb.structureProtected) throw new ToolError('The workbook\'s structure is protected, so no sheet can be added for the pivot table. Give a destination cell on an existing sheet, or the user can turn this off with Review ▸ Protect Workbook.');
+  const name = args.new_sheet_name ? String(args.new_sheet_name).trim() : null;
+  if (dest && name) throw new ToolError('Give either a destination or a new_sheet_name, not both.');
+  if (name) { const problem = wb.validateSheetName(name); if (problem) throw new ToolError(`"${name}" cannot name a sheet: ${problem}`); }
+  let built;
+  try { built = buildPivot(wb, source.sheetId, spec); } catch (e) { if (e instanceof PivotSizeError) throw new ToolError(e.message); throw e; }
+  if (!built.rowCount) throw new ToolError(`"${fields[spec.rowField].label}" has no values to group the rows by.`);
+  let sheetId, area;
+  if (dest) {
+    const checked = pivotDestinationProblem(wb, source, dest, built);
+    if (checked.problem) throw new ToolError(checked.problem);
+    assertWritable(wb, dest.sheetId, checked.area);
+    sheetId = dest.sheetId;
+    area = writePivotAt(wb, source.sheetId, built, sheetId, dest.at, { label: 'AI edit' });
+  } else {
+    const sheet = writePivotSheet(wb, source.sheetId, built, { name, label: 'AI edit' });
+    if (!sheet) throw new ToolError('No sheet could be added for the pivot table.');
+    sheetId = sheet.id;
+    area = { r1: 0, c1: 0, r2: built.rows - 1, c2: built.cols - 1 };
+  }
+  const label = (i) => fields[i].label;
+  const aggLabel = PIVOT_AGGS.find(([k]) => k === spec.agg)[1];
+  const filterAt = built.filterCells[0];
+  return {
+    pivot_table: qualified(wb, sheetId, area),
+    ...(dest ? {} : { new_sheet: wb.sheet(sheetId).name }),
+    summarizes: `${aggLabel} of ${label(spec.valueField)} by ${label(spec.rowField)}${spec.colField != null ? ` and ${label(spec.colField)}` : ''}`,
+    row_labels: built.rowCount, ...(spec.colField != null ? { column_labels: built.colCount } : {}),
+    ...(filterAt ? { filter: `${label(spec.filters[0].field)}: the cell ${qualified(wb, sheetId, { r1: area.r1 + filterAt.r, c1: area.c1 + filterAt.c, r2: area.r1 + filterAt.r, c2: area.c1 + filterAt.c })} picks the value (now ${JSON.stringify(wb.getValue(sheetId, area.r1 + filterAt.r, area.c1 + filterAt.c))}).` } : {}),
+    note: 'The totals are live formulas over the source; new categories in the source appear after the user refreshes the pivot table.',
+  };
+}
+
 function createChart(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.data_range, env.sheetId());
   assertWritable(wb, sheetId, null);
@@ -1949,6 +2081,7 @@ const RUNNERS = {
   delete_columns: (wb, args, env) => lines(wb, args, env, { axis: 'col', remove: true }),
   sort_range: sortRange,
   filter_range: filterRange,
+  create_pivot_table: createPivotTable,
   create_chart: createChart,
   update_chart: updateChart,
   delete_chart: deleteChart,
@@ -2001,6 +2134,8 @@ export function runTool(wb, name, args, env) {
 
 /** The cells a call is about, when it names some: what the step in the chat links to. Throws when it names none. */
 export function callTarget(wb, name, args, env) {
+  // A pivot table put at a cell is about where it goes; one on a new sheet, about its data.
+  if (name === 'create_pivot_table' && args.destination) return resolveRange(wb, args.destination, env.sheetId());
   const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
@@ -2109,6 +2244,21 @@ export function describeCall(wb, name, args = {}, env) {
       if (args.action === 'remove') return { label: `Remove the filter from ${where}` };
       const cols = (Array.isArray(args.columns) ? args.columns : []).map((c) => String(c?.column ?? '')).filter(Boolean);
       return { label: `Filter ${where}${cols.length ? ` by ${clip(cols.join(', '), 60)}` : ''}` };
+    }
+    case 'create_pivot_table': {
+      // Where it goes, and, at a destination, the data the block it takes would replace: that is asked about first.
+      let plan = null;
+      try { plan = pivotPlan(wb, args, env); } catch { /* the runner explains */ }
+      const what = `${args.summarize || 'sum'} of ${args.values} by ${args.rows}${args.columns ? ` and ${args.columns}` : ''}`;
+      if (!plan) return { label: `Add a pivot table (${clip(what, 80)})` };
+      const src = qualified(wb, plan.source.sheetId, plan.source.range);
+      if (!plan.dest) return { label: `Add a pivot table of ${src} (${clip(what, 80)}) on a new sheet${args.new_sheet_name ? ` named ${args.new_sheet_name}` : ` "${pivotSheetName(wb, plan.source.sheetId)}"`}` };
+      let size = null;
+      try { size = previewPivot(wb, plan.source.sheetId, plan.spec); } catch { /* the runner explains */ }
+      const area = size && { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r + size.rows - 1, c2: plan.dest.at.c + size.cols - 1 };
+      const n = area ? filledCells(wb, plan.dest.sheetId, area) : 0;
+      const at = area ? qualified(wb, plan.dest.sheetId, area) : qualified(wb, plan.dest.sheetId, { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r, c2: plan.dest.at.c });
+      return { label: `Add a pivot table of ${src} (${clip(what, 80)}) at ${at}`, destructive: n > 0, detail: n ? `Replaces ${holding(n)}.` : null };
     }
     case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };
     case 'update_chart': case 'delete_chart': {

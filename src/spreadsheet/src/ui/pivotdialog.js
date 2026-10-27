@@ -7,7 +7,7 @@
 import { el } from './dom.js';
 import { openModal, fieldAlert } from './modal.js';
 import { toast } from './toast.js';
-import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, namesWithPivotDefinition, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
+import { buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotAllLabel, pivotRangeProblem, writePivotSheet, PivotSizeError, PIVOT_AGGS } from '../core/pivot.js';
 import { formatValue, dateTimeKind } from '../core/format.js';
 import { rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
@@ -17,29 +17,10 @@ import * as S from '../core/selection.js';
  * or null when no sheet could be added (Protect Workbook locks the structure, and the workbook says so itself).
  */
 export function insertPivotSheet(wb, sheetId, built) {
-  const base = `Pivot of ${wb.sheet(sheetId).name}`;
-  const withSuffix = (suffix) => base.slice(0, 31 - suffix.length).replace(/[\uD800-\uDBFF]$/, '') + suffix;
-  let name = withSuffix('');
-  let k = 2;
-  while (wb.sheetByName(name)) name = withSuffix(` ${k++}`);
-  let added = false;
-  wb.transaction('Insert pivot table', () => {
-    const sheet = wb.addSheet(name);
-    if (!sheet) return;
-    added = true;
-    wb.setCells(sheet.id, built.cells, 'Insert pivot table');
-    built.widths.forEach((w, c) => wb.setColWidth(sheet.id, c, w));
-    for (let c = 1; c < built.cols; c++) wb.setColWidth(sheet.id, c, 110);
-    for (const fc of built.filterCells) {
-      wb.addValidation(sheet.id, { range: { r1: fc.r, c1: fc.c, r2: fc.r, c2: fc.c }, type: 'list', source: fc.values, strict: false, allowBlank: true, prompt: `Pick a value to filter the table, or ${fc.values[0]}` });
-    }
-    wb.setFrozen(sheet.id, built.headerRow + 1, 0);
-    // Its definition stays with it, so Refresh can build it again over the source as it grows (see refreshPivot).
-    if (built.spec) wb._setNames(namesWithPivotDefinition(wb, sheetId, built, sheet.name, { r1: 0, c1: 0, r2: built.rows - 1, c2: built.cols - 1 }), 'Insert pivot table');
-  });
-  if (!added) return null;
-  toast(`Pivot table added on ${name}`, { icon: 'check' });
-  return name;
+  const sheet = writePivotSheet(wb, sheetId, built);
+  if (!sheet) return null;
+  toast(`Pivot table added on ${sheet.name}`, { icon: 'check' });
+  return sheet.name;
 }
 
 export function openPivotDialog(ctx) {
