@@ -860,7 +860,7 @@ function sheetDetails(wb, args, env) {
     ...(c.range ? { data: rangeName(c.range) } : {}),
     ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
     ...(c.xTitle ? { x_title: c.xTitle } : {}), ...(c.yTitle ? { y_title: c.yTitle } : {}),
-    ...(c.stacked ? { stacked: true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
+    ...(c.stacked ? { stacked: c.stack100 ? '100%' : true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
     ...(c.hidden ? { hidden: true } : {}),
   }));
   if (sheet.kind === 'chart') return { sheet: sheet.name, kind: 'chart sheet', charts: chartInfo };
@@ -2116,13 +2116,14 @@ function chartNamed(wb, text) {
 }
 
 const STACKABLE = new Set(['column', 'bar', 'line', 'area']);
-// The Change Chart Type subtype a type (and stacking) means, so a type change keeps what both types share as the
-// dialog does. A type missing here is a subtype of its own name.
+// The Change Chart Type subtype a type (and stacking, to 100% or not) means, so a type change keeps what both types
+// share as the dialog does. A type missing here is a subtype of its own name.
+const stacking = (stacked, full) => (stacked ? (full ? 'Stacked100' : 'Stacked') : '');
 const SUBTYPES = {
-  column: (stacked) => (stacked ? 'columnStacked' : 'columnClustered'),
-  bar: (stacked) => (stacked ? 'barStacked' : 'barClustered'),
-  area: (stacked) => (stacked ? 'areaStacked' : 'area'),
-  line: (stacked, markers) => `line${stacked ? 'Stacked' : ''}${markers ? 'Markers' : ''}`,
+  column: (stacked, markers, full) => (stacked ? `column${stacking(stacked, full)}` : 'columnClustered'),
+  bar: (stacked, markers, full) => (stacked ? `bar${stacking(stacked, full)}` : 'barClustered'),
+  area: (stacked, markers, full) => `area${stacking(stacked, full)}`,
+  line: (stacked, markers, full) => `line${stacking(stacked, full)}${markers ? 'Markers' : ''}`,
   donut: () => 'doughnut', combo: () => 'comboColumnLine', stock: () => 'stockHlc', surface: () => 'surface3d',
 };
 
@@ -2142,18 +2143,21 @@ function updateChart(wb, args, env) {
     const type = String(args.type ?? chart.type);
     if (!CHART_TYPES.some(([t]) => t === type)) throw new ToolError(`type must be one of ${CHART_TYPES.map(([t]) => t).join(', ')}.`);
     if (args.stacked && !STACKABLE.has(type)) throw new ToolError(`A ${type} chart cannot be stacked; only column, bar, line and area charts can.`);
-    const stacked = args.stacked ?? (type === chart.type ? !!chart.stacked : false);
+    // Only what is given changes: a stacked column chart made a bar chart is a stacked bar chart, not a clustered one,
+    // and one stacked to 100% stays so (the call has no way to ask for 100%, so it never takes it away unasked).
+    const stacked = STACKABLE.has(type) && (args.stacked ?? (STACKABLE.has(chart.type) && !!chart.stacked));
+    const full = stacked && !!chart.stack100;
+    const kind = `${stacked ? `${full ? '100% ' : ''}stacked ` : ''}${type}`;
     const now = subtypeOf(chart);
     const markers = chart.type === 'line' ? /Markers$/.test(now || '') : true;
-    const subtype = (SUBTYPES[type] || (() => type))(stacked, markers);
-    // Stacked to 100% stays so while only the type changes between charts that stack.
+    const subtype = (SUBTYPES[type] || (() => type))(stacked, markers, full);
     const same = subtype === now || (type === chart.type && args.stacked == null);
-    if (same) kept.push(`It is already a ${stacked && STACKABLE.has(type) ? 'stacked ' : ''}${type} chart.`);
+    if (same) kept.push(`It is already a ${kind} chart.`);
     else {
       const typed = chartSubtype(subtype) ? changeSubtypePatch(chart, subtype, { font: themeChartFont(wb) }) : { type, stacked };
       if (!typed) throw new ToolError(`The chart could not be made a ${type} chart.`);
       Object.assign(patch, typed);
-      changes.push(stacked && STACKABLE.has(type) ? `type: stacked ${type}` : `type: ${type}`);
+      changes.push(`type: ${kind}`);
     }
   }
   if (args.data_range != null) {

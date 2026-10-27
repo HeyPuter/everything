@@ -49,6 +49,26 @@ describe('AI tools: changing and deleting charts', () => {
     expect(wb.version).toBe(before);
   });
 
+  it('keeps a chart stacked, and stacked to 100%, when only its type is given', () => {
+    const { wb, id, run, json } = setup();
+    const { id: chartId } = json('create_chart', { data_range: 'A1:C5', type: 'column', stacked: true });
+    expect(json('update_chart', { chart: chartId, type: 'bar' }).changed).toEqual(['type: stacked bar']);
+    expect(wb.chartById(id, chartId)).toMatchObject({ type: 'bar', stacked: true });
+    wb.updateChart(id, chartId, { type: 'column', stacked: true, stack100: true });
+    expect(json('update_chart', { chart: chartId, type: 'area' }).changed).toEqual(['type: 100% stacked area']);
+    expect(wb.chartById(id, chartId)).toMatchObject({ type: 'area', stacked: true, stack100: true });
+    // Asked to stack a chart stacked to 100%, it already is.
+    expect(run('update_chart', { chart: chartId, stacked: true }).content).toContain('It is already a 100% stacked area chart.');
+    expect(wb.chartById(id, chartId).stack100).toBe(true);
+    expect(json('get_sheet_details', {}).charts[0].stacked).toBe('100%');
+    // Unstacking still unstacks, and a type that cannot stack does not.
+    json('update_chart', { chart: chartId, stacked: false });
+    expect(wb.chartById(id, chartId)).toMatchObject({ type: 'area', stacked: false, stack100: false });
+    json('update_chart', { chart: chartId, stacked: true });
+    expect(json('update_chart', { chart: chartId, type: 'pie' }).changed).toEqual(['type: pie']);
+    expect(wb.chartById(id, chartId).stacked).toBe(false);
+  });
+
   it('refuses stacking a pie, data on another sheet, and a protected sheet', () => {
     const { wb, id, run, json } = setup();
     const { id: chartId } = json('create_chart', { data_range: 'A1:B5', type: 'pie' });
