@@ -1325,60 +1325,96 @@ export function imageAtPoint(layout, page, x, y, { includeBehindText = false } =
   }
   return textHit ? null : behind;
 }
+// The lines a selection's rectangles are made of: a line wrapped around drawings by its segments.
+const selectionLines = layout => [...layout.lines, ...(layout.repeatedLines || [])].flatMap(line => line.wrapSegments && !line.cellText
+  ? line.wrapSegments.map(segment => ({ ...segment, page: line.page, baseline: line.baseline, clip: line.clip, y: line.y + (line.wrapBefore || 0), height: line.height - (line.wrapBefore || 0), ...(line.oversizedInlineHeight ? { oversizedInlineHeight: true } : {}), cellClip: line.cellClip })) : [line]);
 export function selectionRects(layout, start, end) {
-  return [...layout.lines, ...(layout.repeatedLines || [])].flatMap(line => line.wrapSegments && !line.cellText
-    ? line.wrapSegments.map(segment => ({ ...segment, page: line.page, baseline: line.baseline, clip: line.clip, y: line.y + (line.wrapBefore || 0), height: line.height - (line.wrapBefore || 0), ...(line.oversizedInlineHeight ? { oversizedInlineHeight: true } : {}), cellClip: line.cellClip })) : [line]).flatMap(line => {
-    if (end <= line.start || start > line.end || start === line.end && !line.paragraphEnd && !line.hardBreak) return [];
-    if (line.cellText) {
-      const pictures = line.fragments.filter(f => f.uprightImage && start < f.end && end > f.start);
-      let ranges = [[start, end]];
-      for (const picture of pictures) ranges = ranges.flatMap(([a, b]) => b <= picture.start || a >= picture.end ? [[a, b]]
-        : [...(a < picture.start ? [[a, picture.start]] : []), ...(b > picture.end ? [[picture.end, b]] : [])]);
-      const localLayout = { page: { width: Infinity }, lines: [{ ...line.cellText.line, page: 0 }] };
-      const local = ranges.flatMap(([a, b]) => selectionRects(localLayout, a, b));
-      const rects = local.map(rect => ({ ...cellTextRect(line.cellText.matrix, rect), page: line.page }));
-      for (const picture of pictures) {
-        const rect = normalizedRotation(picture.image.rotation)
-          ? clipCellRect(positionedImageBounds(inlineImagePaintFrame(picture.image, picture.uprightImage.x, picture.uprightImage.y)), {left:line.x,right:line.x+line.width,top:-Infinity,bottom:Infinity})
-          : picture.uprightImage;
-        if (rect) rects.push({...rect,page:line.page});
-      }
-      return rects.map(rect => clipCellRect(rect, line.cellClip)).filter(Boolean);
+  return finishSelectionRects(layout, selectionLines(layout).flatMap(line => lineSelectionRects(layout, line, start, end)), start, end);
+}
+/**
+ * selectionRects for many ranges of one layout: the spelling marks, comment and change tints and
+ * suggestion underlines each look at every range. Each call of selectionRects copies and reads every
+ * line, and a long document holds thousands of both; this one sorts the lines by where they start
+ * once and reads only those a range reaches. The rectangles are selectionRects', in its order.
+ */
+const rectFinders = new WeakMap();
+export function selectionRectFinder(layout) {
+  const count = layout.lines.length + (layout.repeatedLines?.length || 0), known = rectFinders.get(layout);
+  if (known && known.lines === layout.lines && known.count === count) return known.find;
+  const lines = selectionLines(layout);
+  let find = (start, end) => selectionRects(layout, start, end);
+  if (lines.every(line => Number.isFinite(line.start) && Number.isFinite(line.end))) {
+    const order = lines.map((_, i) => i).sort((a, b) => lines[a].start - lines[b].start || a - b);
+    // The furthest end of the lines up to each place in that order: lines before the first to reach a range's start end before it.
+    const reach = new Float64Array(order.length);
+    for (let k = 0, furthest = -Infinity; k < order.length; k++) reach[k] = furthest = Math.max(furthest, lines[order[k]].end);
+    find = (start, end) => {
+      let low = 0, high = order.length;
+      while (low < high) { const mid = (low + high) >> 1; if (reach[mid] < start) low = mid + 1; else high = mid; }
+      // A line outside these gives no rectangles (lineSelectionRects): it ends before the range or starts at or past its end.
+      const reached = [];
+      for (let k = low; k < order.length && lines[order[k]].start < end; k++) if (lines[order[k]].end >= start) reached.push(order[k]);
+      reached.sort((a, b) => a - b);
+      return finishSelectionRects(layout, reached.flatMap(i => lineSelectionRects(layout, lines[i], start, end)), start, end);
+    };
+  }
+  rectFinders.set(layout, { lines: layout.lines, count, find });
+  return find;
+}
+function lineSelectionRects(layout, line, start, end) {
+  if (end <= line.start || start > line.end || start === line.end && !line.paragraphEnd && !line.hardBreak) return [];
+  if (line.cellText) {
+    const pictures = line.fragments.filter(f => f.uprightImage && start < f.end && end > f.start);
+    let ranges = [[start, end]];
+    for (const picture of pictures) ranges = ranges.flatMap(([a, b]) => b <= picture.start || a >= picture.end ? [[a, b]]
+      : [...(a < picture.start ? [[a, picture.start]] : []), ...(b > picture.end ? [[picture.end, b]] : [])]);
+    const localLayout = { page: { width: Infinity }, lines: [{ ...line.cellText.line, page: 0 }] };
+    const local = ranges.flatMap(([a, b]) => selectionRects(localLayout, a, b));
+    const rects = local.map(rect => ({ ...cellTextRect(line.cellText.matrix, rect), page: line.page }));
+    for (const picture of pictures) {
+      const rect = normalizedRotation(picture.image.rotation)
+        ? clipCellRect(positionedImageBounds(inlineImagePaintFrame(picture.image, picture.uprightImage.x, picture.uprightImage.y)), {left:line.x,right:line.x+line.width,top:-Infinity,bottom:Infinity})
+        : picture.uprightImage;
+      if (rect) rects.push({...rect,page:line.page});
     }
-    const a = line.stops.find(s => s.offset >= Math.max(start, line.start)) || line.stops.at(-1);
-    const b = [...line.stops].reverse().find(s => s.offset <= Math.min(end, line.end)) || line.stops[0];
-    const newline = (line.paragraphEnd || line.hardBreak) && end > line.end ? 7 : 0;
-    const edge = Math.min(line.hangingRight ?? Infinity, line.textClip?.right ?? Infinity);
-    const width = Math.min(Math.max(0, b.x - a.x) + newline, Math.max(0, edge - a.x));
-    const collapsed = !width && (b.offset > a.offset || newline) && (a.hanging || b.hanging);
-    const rects = line.bidi ? line.fragments.flatMap(f=>{
-      if(!f.caretStops || end<=f.start || start>=f.end) return [];
-      const first=f.caretStops.find(s=>s.offset>=Math.max(start,f.start)) || f.caretStops.at(-1);
-      const last=[...f.caretStops].reverse().find(s=>s.offset<=Math.min(end,f.end)) || f.caretStops[0];
-      const x=Math.max(line.textClip?.left ?? -Infinity,f.x+Math.min(first.x,last.x));
-      const right=Math.min(edge,f.x+Math.max(first.x,last.x));
-      return [clipCellRect({page:line.page,x,y:line.y,width:Math.max(0,right-x),height:line.height},line.cellClip)];
-    }) : [clipCellRect({ page: line.page, x: collapsed ? a.x - 1 : a.x, y: line.y, width: collapsed ? 1 : width, height: line.height }, line.cellClip)];
-    if(line.bidi && newline) rects.push(clipCellRect({page:line.page,x:b.x,y:line.y,width:newline,height:line.height},line.cellClip));
-    for (const f of line.fragments || []) if (f.image && normalizedRotation(f.image.rotation) && !isPositionedImage(f.image) && start < f.end && end > f.start) {
-      const rect = positionedImageBounds(inlineImagePaintFrame(f.image, f.x, line.baseline - f.ascent));
+    return rects.map(rect => clipCellRect(rect, line.cellClip)).filter(Boolean);
+  }
+  const a = line.stops.find(s => s.offset >= Math.max(start, line.start)) || line.stops.at(-1);
+  const b = [...line.stops].reverse().find(s => s.offset <= Math.min(end, line.end)) || line.stops[0];
+  const newline = (line.paragraphEnd || line.hardBreak) && end > line.end ? 7 : 0;
+  const edge = Math.min(line.hangingRight ?? Infinity, line.textClip?.right ?? Infinity);
+  const width = Math.min(Math.max(0, b.x - a.x) + newline, Math.max(0, edge - a.x));
+  const collapsed = !width && (b.offset > a.offset || newline) && (a.hanging || b.hanging);
+  const rects = line.bidi ? line.fragments.flatMap(f=>{
+    if(!f.caretStops || end<=f.start || start>=f.end) return [];
+    const first=f.caretStops.find(s=>s.offset>=Math.max(start,f.start)) || f.caretStops.at(-1);
+    const last=[...f.caretStops].reverse().find(s=>s.offset<=Math.min(end,f.end)) || f.caretStops[0];
+    const x=Math.max(line.textClip?.left ?? -Infinity,f.x+Math.min(first.x,last.x));
+    const right=Math.min(edge,f.x+Math.max(first.x,last.x));
+    return [clipCellRect({page:line.page,x,y:line.y,width:Math.max(0,right-x),height:line.height},line.cellClip)];
+  }) : [clipCellRect({ page: line.page, x: collapsed ? a.x - 1 : a.x, y: line.y, width: collapsed ? 1 : width, height: line.height }, line.cellClip)];
+  if(line.bidi && newline) rects.push(clipCellRect({page:line.page,x:b.x,y:line.y,width:newline,height:line.height},line.cellClip));
+  for (const f of line.fragments || []) if (f.image && normalizedRotation(f.image.rotation) && !isPositionedImage(f.image) && start < f.end && end > f.start) {
+    const rect = positionedImageBounds(inlineImagePaintFrame(f.image, f.x, line.baseline - f.ascent));
+    const bottom = Math.min(rect.y + rect.height, line.y + line.height);
+    rect.y = Math.max(rect.y, line.y); rect.height = Math.max(0, bottom - rect.y);
+    rects.push(clipCellRect({page: line.page, ...rect}, line.cellClip));
+  }
+  for (const f of line.fragments || []) if ((f.image?.flatLine || f.image?.flatGroup) && !isPositionedImage(f.image) && start < f.end && end > f.start) {
+    const e = imageExtents(f.image);
+    const rect = flatLineRect(f.image, f.x + e.left / EMU_PER_PX, line.baseline - f.ascent + e.top / EMU_PER_PX, f.image.width / EMU_PER_PX, f.image.height / EMU_PER_PX);
+    if (line.clip) {
       const bottom = Math.min(rect.y + rect.height, line.y + line.height);
       rect.y = Math.max(rect.y, line.y); rect.height = Math.max(0, bottom - rect.y);
-      rects.push(clipCellRect({page: line.page, ...rect}, line.cellClip));
     }
-    for (const f of line.fragments || []) if ((f.image?.flatLine || f.image?.flatGroup) && !isPositionedImage(f.image) && start < f.end && end > f.start) {
-      const e = imageExtents(f.image);
-      const rect = flatLineRect(f.image, f.x + e.left / EMU_PER_PX, line.baseline - f.ascent + e.top / EMU_PER_PX, f.image.width / EMU_PER_PX, f.image.height / EMU_PER_PX);
-      if (line.clip) {
-        const bottom = Math.min(rect.y + rect.height, line.y + line.height);
-        rect.y = Math.max(rect.y, line.y); rect.height = Math.max(0, bottom - rect.y);
-      }
-      rects.push(clipCellRect({ page: line.page, ...rect }, line.cellClip));
-    }
-    const visible = rects.filter(Boolean);
-    return line.oversizedInlineHeight ? visible.map(rect =>
-      clipCellRect(rect, { left: 0, right: physicalWidth(layout, line.page), top: 0, bottom: (layout.pages?.[line.page] || layout.page).height })).filter(Boolean) : visible;
-  }).concat((layout.floatingObjects || []).filter(f => start < f.end && end > f.start).map(f => clipCellRect({ page: f.page, ...((f.image.flatLine || f.image.flatGroup) ? flatLineRect(f.image,f.x,f.y,f.width,f.height) : positionedImageBounds(f)) }, f.cellClip)).filter(Boolean))
+    rects.push(clipCellRect({ page: line.page, ...rect }, line.cellClip));
+  }
+  const visible = rects.filter(Boolean);
+  return line.oversizedInlineHeight ? visible.map(rect =>
+    clipCellRect(rect, { left: 0, right: physicalWidth(layout, line.page), top: 0, bottom: (layout.pages?.[line.page] || layout.page).height })).filter(Boolean) : visible;
+}
+function finishSelectionRects(layout, rects, start, end) {
+  return rects.concat((layout.floatingObjects || []).filter(f => start < f.end && end > f.start).map(f => clipCellRect({ page: f.page, ...((f.image.flatLine || f.image.flatGroup) ? flatLineRect(f.image,f.x,f.y,f.width,f.height) : positionedImageBounds(f)) }, f.cellClip)).filter(Boolean))
     .map(rect => rect.x >= 0 && rect.x + rect.width <= physicalWidth(layout, rect.page) ? rect
       : clipCellRect(rect, { left: 0, right: physicalWidth(layout, rect.page), top: -Infinity, bottom: Infinity })).filter(Boolean);
 }

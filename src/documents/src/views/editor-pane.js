@@ -163,9 +163,10 @@ export function createEditorPane({ editor, pkg, proofing, error, onState = () =>
     const engine = editor();
     if (!engine || pkg()?.reviewSettings?.hideGrammaticalErrors || !aiSuggestions.length || engine.session.path !== null) return;
     ctx.save(); ctx.strokeStyle = '#2F6FD0'; ctx.lineWidth = 1;
+    const rectsOf = engineApi().selectionRectFinder(engine.layout);
     for (const s of aiSuggestions) {
       if (ignoredSuggestions.has(key(s))) continue;
-      for (const r of engineApi().selectionRects(engine.layout, s.start, s.end)) {
+      for (const r of rectsOf(s.start, s.end)) {
         if (r.page !== index || r.width < 2) continue;
         const y = r.y + r.height - 2;
         ctx.beginPath(); ctx.moveTo(r.x, y + 0.5); ctx.lineTo(r.x + r.width, y + 0.5); ctx.moveTo(r.x, y - 1.5); ctx.lineTo(r.x + r.width, y - 1.5); ctx.stroke();

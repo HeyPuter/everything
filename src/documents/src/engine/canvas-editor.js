@@ -51,7 +51,7 @@ import { pageBorderStrokes } from './page-borders.js';
 import { lineNumberLabels } from './line-numbers.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
-import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects } from './layout.js';
+import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds } from './positioned-images.js';
 import { createImageInteraction } from './image-interaction.js';
@@ -320,7 +320,9 @@ export class CanvasEditor {
     if (!tints?.length || !layout) return [];
     if (this.tintRects?.layout === layout) return this.tintRects.rects;
     const rects = [], { page, pages } = layout;
-    for (const tint of tints) if (tint.end > tint.start) for (const rect of selectionRects({ lines: [...layout.lines, ...(layout.repeatedLines || [])], page, pages }, tint.start, tint.end)) rects.push({ ...rect, fill: tint.fill });
+    // Tints cover text, not floating drawings: the lines alone.
+    const rectsOf = selectionRectFinder({ lines: [...layout.lines, ...(layout.repeatedLines || [])], page, pages });
+    for (const tint of tints) if (tint.end > tint.start) for (const rect of rectsOf(tint.start, tint.end)) rects.push({ ...rect, fill: tint.fill });
     this.tintRects = { layout, rects };
     return rects;
   }

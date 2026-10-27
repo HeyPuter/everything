@@ -8,7 +8,7 @@ export { validateCanvasTextSupport, loadCanvasFonts } from '../engine/canvas-tex
 export { openCanvasDocument } from '../engine/open-document.js';
 
 // Editor view features that need layout, drawing or codec code (see engine-api.js).
-export { selectionRects } from '../engine/layout.js';
+export { selectionRects, selectionRectFinder } from '../engine/layout.js';
 export { setFormattingMarks, formattingMarksVisible } from '../engine/formatting-marks.js';
 export { insertShape, insertTextBox, updateShape, selectedShape, attachShapeEditing } from '../engine/shape-editing.js';
 export { openShapeGallery } from '../ui/shape-controls.js';

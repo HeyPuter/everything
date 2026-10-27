@@ -74,7 +74,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     if (results.revision !== body.revision || !results.misspelled.length) return;
     const layout = engine.layout;
     if (results.layout !== layout) { results.layout = layout; results.rects = null; }
-    results.rects ??= results.misspelled.flatMap(m => engineApi().selectionRects(layout, m.start, m.end).map(rect => ({ ...rect })));
+    if (!results.rects) { const rectsOf = engineApi().selectionRectFinder(layout); results.rects = results.misspelled.flatMap(m => rectsOf(m.start, m.end).map(rect => ({ ...rect }))); }
     ctx.save();
     ctx.strokeStyle = '#E0221B'; ctx.lineWidth = 1;
     for (const r of results.rects) {
