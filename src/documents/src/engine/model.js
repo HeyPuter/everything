@@ -355,6 +355,11 @@ function styleChoices(model, type, check) {
   return entry[type].map(choice => ({ ...choice }));
 }
 
+/**
+ * The tables, in order, that hold any of the cells `ids`. The toolbar asks for the selection's cells and rows
+ * many times a keystroke; working out every table's merged cells for each answer was slow beside long tables.
+ */
+const tablesWithCells = (tables, ids) => ids.size ? tables.filter(table => table.rows.some(row => row.cells.some(cell => ids.has(cell.id)))) : [];
 export class TextDocument {
   constructor(paragraphs = [paragraph()], pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}, { displayOnly = false, comments = null, trackChanges } = {}) {
     this.assets = { ...assets }; // Immutable bytes stay out of text/history snapshots.
@@ -908,7 +913,7 @@ export class TextDocument {
     const block = this.activeCellBlock;
     if (block) return cellBlockPlacements(block.table, block).map(p => p.cell);
     const ids = new Set(this.selectedParagraphs.map(p => p.cellId).filter(Boolean));
-    return this.tables.flatMap(table => editableCells(table).filter(cell => ids.has(cell.id)));
+    return tablesWithCells(this.tables, ids).flatMap(table => editableCells(table).filter(cell => ids.has(cell.id)));
   }
   get cellVerticalAlignment() {
     const cells = this.selectedTableCells, value = cells[0]?.vertical || 'top';
@@ -920,7 +925,7 @@ export class TextDocument {
   }
   get cellBorderValues() {
     const ids = new Set(this.selectedTableCells.map(cell => cell.id));
-    return this.tables.flatMap(table => {
+    return tablesWithCells(this.tables, ids).flatMap(table => {
       const owners = verticalMerges(table);
       return table.rows.flatMap((row, rowIndex) => rowGrid(row).filter(({ cell }) => ids.has(cell.id)).map(({ cell, column, span }) => {
         const owner = owners.get(cell.id);
@@ -1139,9 +1144,9 @@ export class TextDocument {
   get selectedTableRows() {
     const block = this.activeCellBlock;
     if (block) return block.table.rows.slice(block.top, block.bottom + 1);
-    const rows = new Map();
-    for (const table of this.tables) for (const [id, owner] of verticalMerges(table)) if (id === owner.cell.id) rows.set(id, table.rows.slice(owner.rowIndex, owner.endRow + 1));
-    return [...new Set(this.selectedParagraphs.flatMap(p => rows.get(p.cellId) || []))];
+    const paragraphs = this.selectedParagraphs, ids = new Set(paragraphs.map(p => p.cellId).filter(Boolean)), rows = new Map();
+    for (const table of tablesWithCells(this.tables, ids)) for (const [id, owner] of verticalMerges(table)) if (ids.has(id) && id === owner.cell.id) rows.set(id, table.rows.slice(owner.rowIndex, owner.endRow + 1));
+    return [...new Set(paragraphs.flatMap(p => rows.get(p.cellId) || []))];
   }
   get tableRowKeep() { const rows = this.selectedTableRows; return rows.length && rows.every(r => r.cantSplit === rows[0].cantSplit) ? rows[0].cantSplit : null; }
   get tableRowHeight() {
