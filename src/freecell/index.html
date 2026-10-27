@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Play FreeCell free in your browser. Classic Microsoft-style deal numbers, free cells, cascades, foundations, and supermoves."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="icon-128.png" />
+    <meta name="theme-color" content="#1f6b4a" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1714" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FreeCell" />
+    <meta property="og:title" content="FreeCell — classic deals in your browser" />
+    <meta
+      property="og:description"
+      content="Microsoft-style FreeCell with deal numbers, free cells, alternating cascades, and foundation builds."
+    />
+    <title>FreeCell</title>
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = (JSON.parse(localStorage.getItem('freecell.settings.v1')) || {}).theme;
+        } catch (e) {}
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
+  </head>
+  <body>
+    <noscript>
+      <p class="noscript-note">
+        FreeCell runs entirely in your browser and needs JavaScript. Enable it to play.
+      </p>
+    </noscript>
+
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <img src="icon-128.png" alt="" width="28" height="28" />
+          </span>
+          <h1 class="brand-name">FreeCell</h1>
+        </div>
+        <div class="segmented" role="group" aria-label="Colour theme">
+          <button type="button" data-theme="light" aria-pressed="false" title="Light theme">Light</button>
+          <button type="button" data-theme="dark" aria-pressed="false" title="Dark theme">Dark</button>
+          <button type="button" data-theme="system" aria-pressed="false" title="Match system">System</button>
+        </div>
+      </header>
+
+      <main class="shell">
+        <section class="toolbar" aria-label="Game controls">
+          <label class="field">
+            Deal #
+            <input id="deal-number" type="number" min="1" max="2147483647" value="1" />
+          </label>
+          <button type="button" class="btn" id="new-game">New game</button>
+          <button type="button" class="btn secondary" id="random-deal">Random (1–32000)</button>
+          <button type="button" class="btn secondary" id="auto-move">Auto home</button>
+          <p id="status" class="status" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="table" aria-label="FreeCell table">
+          <div class="top-row">
+            <div id="freecells" class="freecells" aria-label="Free cells"></div>
+            <div id="foundations" class="foundations" aria-label="Foundations"></div>
+          </div>
+          <div id="cascades" class="cascades" aria-label="Cascades"></div>
+        </section>
+
+        <details class="help">
+          <summary>How to play</summary>
+          <ul>
+            <li>Build foundations up by suit from Ace to King.</li>
+            <li>Build cascades down by alternating colours. Empty cascades accept any card.</li>
+            <li>Each free cell holds one card. Longer runs use freecells and empty columns (supermove).</li>
+            <li>Select a card, then a destination. Select the same pile again to auto-place when legal.</li>
+            <li>Deal numbers match the classic Microsoft FreeCell RNG (DOCUMENTED public algorithm).</li>
+          </ul>
+        </details>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

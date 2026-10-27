@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/everything.png" width="300" alt="Everything"></p>
+﻿<p align="center"><img src="assets/everything.png" width="300" alt="Everything"></p>
 
 <h3 align="center">The world’s software. Rebuilt, and open-sourced.</h3>
 
@@ -144,6 +144,8 @@ npm run dev
 <tr><td width="296" valign="middle" nowrap><a href="https://backgammon.puter.com/"><img src="src/backgammon/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="src/backgammon/">Backgammon</a></strong></td><td width="420" valign="middle">Play against the computer or a friend, locally or online.</td><td width="150" valign="middle" nowrap><a href="https://backgammon.puter.com/">Try it</a>&nbsp;|&nbsp;<a href="src/backgammon/">Source</a></td></tr>
 <tr><td width="296" valign="middle" nowrap><a href="https://checkers.puter.com/"><img src="src/checkers/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="https://checkers.puter.com/">Checkers</a></strong></td><td width="420" valign="middle">American checkers against the computer or a friend.</td><td width="150" valign="middle" nowrap><a href="https://checkers.puter.com/">Try it</a>&nbsp;|&nbsp;<a href="src/checkers/">Source</a></td></tr>
 <tr><td width="296" valign="middle" nowrap><a href="https://solitaire.puter.com/"><img src="src/solitaire/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="https://solitaire.puter.com/">Solitaire</a></strong></td><td width="420" valign="middle">Klondike (draw one or three, optional Vegas scoring) and Spider solitaire, with optional cloud saves.</td><td width="150" valign="middle" nowrap><a href="https://solitaire.puter.com/">Try it</a>&nbsp;|&nbsp;<a href="src/solitaire/">Source</a></td></tr>
+<tr><td width="296" valign="middle" nowrap><a href="src/freecell/"><img src="src/freecell/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="src/freecell/">FreeCell</a></strong></td><td width="420" valign="middle">Classic FreeCell with Microsoft-style deal numbers, free cells, and supermoves.</td><td width="150" valign="middle" nowrap><a href="src/freecell/">Source</a></td></tr>
+<tr><td width="296" valign="middle" nowrap><a href="src/freecell/"><img src="src/freecell/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="src/freecell/">FreeCell</a></strong></td><td width="420" valign="middle">Classic FreeCell with Microsoft-style deal numbers, free cells, and supermoves.</td><td width="150" valign="middle" nowrap><a href="src/freecell/">Source</a></td></tr>
 <tr><td width="296" valign="middle" nowrap><a href="https://sudoku.puter.com/"><img src="src/sudoku/icon-128.png" width="48" height="48" alt="" align="center"></a> &nbsp; <strong><a href="https://sudoku.puter.com/">Sudoku</a></strong></td><td width="420" valign="middle">Four difficulty levels, daily puzzles, and hints that explain the logic.</td><td width="150" valign="middle" nowrap><a href="https://sudoku.puter.com/">Try it</a>&nbsp;|&nbsp;<a href="src/sudoku/">Source</a></td></tr>
 </table>
 
@@ -152,3 +154,4 @@ npm run dev
 ## License
 
 This repository, including all its contents, sub-projects, modules, and components, is licensed under [MIT](LICENSE) unless explicitly stated otherwise. Third-party libraries included in this repository may be subject to their own licenses.
+
