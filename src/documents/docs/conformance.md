@@ -22300,6 +22300,11 @@ file downloads unchanged. Documents over the browser's own XML nesting limit (ab
 Chrome) still fail with "The DOCX contains invalid XML." Tests: `tests/docx-nesting-limit.test.js`,
 `tests/browser/deep-nesting.spec.js`.
 
+The body's (and a block content control's) paragraphs were also gathered with one spread
+`push(...)` call, which runs out of stack at roughly 120,000 entries: a file with 150,000 empty
+paragraphs reported "Maximum call stack size exceeded". They are now appended one by one, and
+such a file reaches the 200-page preview limit with its own message.
+
 ## Equations (2026-10-09)
 
 Clause: §22.1 Office Math. `m:oMath` and `m:oMathPara` no longer make a document read-only. Each

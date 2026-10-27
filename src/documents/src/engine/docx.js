@@ -1764,7 +1764,7 @@ export class DocxPackage {
             if (control.persistent && children(content).some(n => n.namespaceURI === W && n.localName === 'tbl'))
               throw new UnsupportedDocumentError('persistent controls around tables');
             control.scope = context.cellId || null;
-            result.push(...readBlocks(children(content), { ...context, blockControls: [...(context.blockControls || []), control] }, depth + 1, blockTables));
+            for (const block of readBlocks(children(content), { ...context, blockControls: [...(context.blockControls || []), control] }, depth + 1, blockTables)) result.push(block);
           } else if (node.localName === 'tbl') {
             if (context.blockControls?.some(control => control.persistent)) throw new UnsupportedDocumentError('persistent controls around tables');
             const parsed = readTable(node, readParagraph, stylesRoot, readColor, (contents, cellContext) => readBlocks(contents, { ...context, ...cellContext, ...((context.blockControls || cellContext.blockControls) ? { blockControls: [...(context.blockControls || []), ...(cellContext.blockControls || [])] } : {}) }, depth + 1, blockTables).map(p => ({ source: p.storySource || originals.get(p.id).xml, paragraph: p })), readBookmark, blockTables, p => resolveStyledParagraph(p, styles, numbering, { displayOnly: preview }), readControl, pageSettings.compatibilityMode, preview, readEffectsStyles, error => recordPreviewIssue(issues, error));
@@ -1798,7 +1798,7 @@ export class DocxPackage {
       }
       return result;
     };
-    paragraphs.push(...readBlocks(children(body)));
+    for (const p of readBlocks(children(body))) paragraphs.push(p);
     bodyFields.finish();
     const comments = attempt(() => readComments(parts), []);
     {

@@ -38,3 +38,16 @@ for (const [name, [body, text]] of Object.entries(cases)) test(`a document with 
   expect(readFileSync(await (await download).path()).equals(bytes)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+// A block list was spread into one push() call, which runs out of stack at about 120,000 entries.
+for (const [name, body] of Object.entries({
+  'the body': '<w:p/>'.repeat(150000),
+  'a content control': `<w:sdt><w:sdtPr><w:id w:val="1"/></w:sdtPr><w:sdtContent>${'<w:p/>'.repeat(150000)}</w:sdtContent></w:sdt>`,
+})) test(`150,000 paragraphs in ${name} reach the page limit with its message, not a stack overflow`, async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toBeVisible();
+  await page.getByLabel('Open DOCX file').setInputFiles({ name: 'long.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docx(body) });
+  await expect(page.locator('#playground-error')).toHaveText('This preview supports up to 200 pages. Reduce the document length or adjust its formatting.', { timeout: 20000 });
+  expect(errors).toEqual([]);
+});
