@@ -43,6 +43,7 @@ import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
 import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
 import { detectDelimiter, splitSourceText } from './text-split.js';
+import { safeLinkUrl } from './workbook.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -338,6 +339,13 @@ export const TOOLS = [
     highlight: { type: 'array', items: { type: 'string', enum: ['high', 'low', 'first', 'last', 'negative'] }, description: 'Points to show in an accent color.' },
     remove: bool('Remove the sparklines in location instead (data_range is then not needed).'),
   }, ['location']),
+  fn('set_link', 'Put a hyperlink on a cell, to a web address, an email address or a place in this workbook, or remove it. Without text, the cell keeps what it shows (an empty cell shows the address).', {
+    cell: str('The cell, e.g. "B4" or "Index!A2".'),
+    url: str('A web address (https://…) or an email address.'),
+    location: str('Or a place in this workbook: a cell or range ("Summary!A1"; without a sheet, on the cell\'s own sheet) or a named range.'),
+    text: str('Text the cell shows. It replaces what the cell holds.'),
+    remove: bool('Remove the cell\'s link instead; the cell keeps what it shows.'),
+  }, ['cell']),
   fn('set_column_width', 'Set the width of columns in pixels, or fit them to their contents.', {
     sheet: SHEET, columns: str('A column or run of columns, e.g. "B" or "A:F".'), width: str('Width in pixels (24 to 800), or "fit".'),
   }, ['columns', 'width']),
@@ -2673,6 +2681,72 @@ function addSparklines(wb, args, env) {
   return { sparklines: sparklinesIn(wb, sheetId, loc), type: kind, in: qualified(wb, sheetId, loc), data: source };
 }
 
+/* ---------- Links ---------- */
+
+/** The address a set_link call links to: a web or email address, or "#…" for a place in the workbook. */
+function linkTarget(wb, args, sheetId) {
+  const url = args.url != null ? String(args.url).trim() : '';
+  const place = args.location != null ? String(args.location).trim().replace(/^#/, '') : '';
+  if (url && place) throw new ToolError('Give url or location, not both.');
+  if (place) {
+    const name = visibleName(wb, place);
+    if (name) return `#${wb.nameLabel ? wb.nameLabel(name) : name.name}`;
+    const at = resolveRange(wb, place, sheetId);
+    const address = wb.internalLinkFor(at.sheetId, at.range);
+    if (!address) throw new ToolError(`"${place}" is not a place in this workbook that can be linked to.`);
+    return address;
+  }
+  if (!url) throw new ToolError('Give the url (a web or email address) or the location in this workbook to link to.');
+  if (url.startsWith('#')) return linkTarget(wb, { location: url }, sheetId);
+  // Only web pages and email: no scripts, data, files or other programs.
+  const safe = safeLinkUrl(url);
+  if (!safe || !/^(?:https?:\/\/[^/]|mailto:.)/i.test(safe)) throw new ToolError(`"${clip(url, 80)}" is not a web address (http or https) or an email address. Only those, and places in this workbook, can be linked to.`);
+  return safe;
+}
+
+/** What a linked cell shows when the call gives no text: what it shows now, its value kept (a number stays a number, a formula its formula). */
+function keptLabel(wb, sheetId, r, c) {
+  const cell = wb.getCell(sheetId, r, c);
+  if (!holds(cell)) return null;
+  const v = cell.f != null ? wb.getValue(sheetId, r, c) : cell.v;
+  return v != null && typeof v !== 'object' ? v : undefined;
+}
+
+function setLink(wb, args, env) {
+  const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
+  const { r1: r, c1: c } = range;
+  const one = { r1: r, c1: c, r2: r, c2: c };
+  const at = qualified(wb, sheetId, one);
+  assertWritable(wb, sheetId, one, { contents: true });
+  const merge = wb.mergeAt?.(sheetId, r, c);
+  if (merge && (merge.r1 !== r || merge.c1 !== c)) throw new ToolError(`${at} is inside the merged cell ${rangeName(merge)}; put the link on ${cellName(merge.r1, merge.c1)}.`);
+  const existing = wb.linkAt(sheetId, r, c);
+  if (args.remove) {
+    if (!existing) throw new ToolError(`${at} has no link.`);
+    wb.transaction('AI edit', () => wb.removeLink(sheetId, r, c));
+    if (wb.linkAt(sheetId, r, c)) throw new ToolError(`The link on ${at} could not be removed.`);
+    return { link_removed: at, shows: wb.getDisplay(sheetId, r, c) };
+  }
+  const url = linkTarget(wb, args, sheetId);
+  const table = wb.tableAt?.(sheetId, r, c);
+  if (table && r === tableRows(table).header) throw new ToolError(`${at} is a table's header, which holds its column's name and cannot hold a link.`);
+  if (wb.arrayEditBlocked(sheetId, one)) throw new ToolError(`${at} is part of an array formula's result.`);
+  const text = args.text != null && String(args.text).trim() ? cutText(String(args.text).trim(), MAX_TEXT) : null;
+  let label = text;
+  if (label == null) {
+    const kept = keptLabel(wb, sheetId, r, c);
+    if (kept === undefined) throw new ToolError(`${at} shows an error, which a link cannot show; give the text it should show.`);
+    // An empty cell shows a place by its address, without the #.
+    label = kept ?? (url.startsWith('#') ? url.slice(1).replace(/'/g, '') : '');
+  }
+  if (!wb.canEnsureSize(sheetId, r + 1, c + 1)) throw new ToolError('The cell is past the edge of the sheet.');
+  wb.ensureSize(sheetId, r + 1, c + 1);
+  let ok;
+  wb.transaction('AI edit', () => { ok = wb.setLink(sheetId, r, c, url, label); });
+  if (!ok) throw new ToolError(`A link could not be put on ${at}.`);
+  return { linked: at, to: url, shows: wb.getDisplay(sheetId, r, c), ...(existing && existing.url !== url ? { replaced: `the link to ${existing.url}` } : {}) };
+}
+
 function setColumnWidth(wb, args, env) {
   const sheet = gridSheet(wb, args.sheet, env.sheetId());
   // A protected sheet keeps its column widths: said so, rather than a resize reported that did not happen.
@@ -2754,6 +2828,7 @@ const RUNNERS = {
   remove_duplicates: removeDuplicates,
   split_text_to_columns: splitTextToColumns,
   add_sparklines: addSparklines,
+  set_link: setLink,
   set_column_width: setColumnWidth,
   add_note: addNote,
   select_range: selectRange,
@@ -2797,8 +2872,9 @@ export function runTool(wb, name, args, env) {
 export function callTarget(wb, name, args, env) {
   // A pivot table put at a cell is about where it goes; one on a new sheet, about its data.
   if (name === 'create_pivot_table' && args.destination) return resolveRange(wb, args.destination, env.sheetId());
-  // Sparklines are about the cells they go in.
+  // Sparklines are about the cells they go in; a link about its one cell.
   if (name === 'add_sparklines' && args.location != null) return resolveRange(wb, args.location, env.sheetId());
+  if (name === 'set_link' && args.cell != null) { const found = resolveRange(wb, args.cell, env.sheetId()); return { ...found, range: { r1: found.range.r1, c1: found.range.c1, r2: found.range.r1, c2: found.range.c1 } }; }
   const text = args.range ?? args.start_cell ?? args.data_range ?? args.cell ?? args.destination;
   if (text == null) return null;
   const found = resolveRange(wb, text, env.sheetId());
@@ -3051,6 +3127,22 @@ export function describeCall(wb, name, args = {}, env) {
         return { label: `Remove the sparklines in ${t.text}`, destructive: n > 0, detail: n ? `Removes ${plural(n, 'sparkline')}.` : null };
       }
       return { label: `Add ${{ column: 'column', win_loss: 'win/loss' }[args.type] || 'line'} sparklines to ${t.text}` };
+    }
+    case 'set_link': {
+      // A link the cell has, and what it shows, are the user's: replacing or removing them asks.
+      const t = at(args.cell);
+      if (t.range) { t.range = { r1: t.range.r1, c1: t.range.c1, r2: t.range.r1, c2: t.range.c1 }; t.text = qualified(wb, t.s, t.range); }
+      const had = t.range ? wb.linkAt(t.s, t.range.r1, t.range.c1) : null;
+      if (args.remove) return { label: `Remove the link from ${t.text}`, destructive: !!had, detail: had ? `Removes the link to ${clip(had.url, 80)}.` : null };
+      let url = null;
+      try { url = t.range ? linkTarget(wb, args, t.s) : null; } catch { /* the runner explains */ }
+      const text = args.text != null && String(args.text).trim() ? String(args.text).trim() : null;
+      const cell = t.range ? wb.getCell(t.s, t.range.r1, t.range.c1) : null;
+      const shown = cell?.f != null ? wb.getValue(t.s, t.range.r1, t.range.c1) : cell?.v;
+      const replacesText = text != null && holds(cell) && String(shown ?? '') !== text;
+      const replacesLink = !!had && url != null && had.url !== url;
+      const detail = [replacesLink && `Replaces its link to ${clip(had.url, 80)}.`, replacesText && `Replaces what the cell holds${cell.f != null ? ' (a formula)' : ''} with "${clip(text, 60)}".`].filter(Boolean).join(' ');
+      return { label: `Link ${t.text} to ${clip(url ?? String(args.url ?? args.location ?? ''), 80)}`, destructive: !!detail, detail: detail || null };
     }
     case 'set_column_width': {
       // The columns as the runner reads them ("b:d" is B:D, a run given backwards is the same run).
