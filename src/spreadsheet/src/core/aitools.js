@@ -367,6 +367,13 @@ export const TOOLS = [
     action: str('"merge" makes the range one cell (default), "merge_across" merges each row of it on its own, "unmerge" splits every merged cell the range touches.', { enum: ['merge', 'merge_across', 'unmerge'] }),
     center: bool('Center the text, as Merge & Center does (default true for merge, false for merge_across).'),
   }, ['range']),
+  fn('manage_name', 'Define, redefine, rename or delete a named range or named formula. Formulas that use a renamed name follow the rename.', {
+    action: str('"define" adds a name, or changes what an existing one refers to; "rename"; "delete".', { enum: ['define', 'rename', 'delete'] }),
+    name: str('The name, e.g. "TaxRate".'),
+    refers_to: str('What it stands for: a range such as "Sales!B2:B20" (anchored with $ for you) or a formula such as "=0.2" or "=LAMBDA(x, x*1.2)". Needed to define; for rename, only to change it too.'),
+    new_name: str('The new name, when renaming.'),
+    scope: str('A sheet name, for a name only that sheet\'s formulas see. Defaults to the whole workbook.'),
+  }, ['action', 'name']),
   fn('add_note', 'Attach a note (comment) to a cell, or replace its note. An empty text removes it.', {
     cell: str('The cell, e.g. "D4" or "Sheet2!B7".'), text: str('The note.'),
   }, ['cell', 'text']),
@@ -2994,6 +3001,94 @@ function mergeCells(wb, args, env) {
   };
 }
 
+/* ---------- Named ranges and formulas ---------- */
+
+/** The sheet a name is scoped to (its name as the workbook spells it), or null for the workbook. */
+function nameScope(wb, scope, env) {
+  if (scope == null || String(scope).trim() === '') return null;
+  return sheetNamed(wb, scope, env.sheetId()).name;
+}
+
+/** The name defined in exactly this scope, or null. */
+function nameIn(wb, name, scope) {
+  const key = String(name ?? '').trim().toLowerCase();
+  return (wb.names || []).find((n) => (n.sheet || null) === scope && n.name.toLowerCase() === key) || null;
+}
+
+const BARE_REF = /^(?:\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?|\$?[A-Z]{1,3}:\$?[A-Z]{1,3}|\$?\d+:\$?\d+)$/i;
+
+/**
+ * What a name refers to, as the workbook keeps it: a range anchored on its sheet ("B2:B20" from the active sheet is
+ * Sheet1!$B$2:$B$20, as Define Name fills it in), whole columns as $B:$B; anything else, a formula, as it was given.
+ */
+function nameRefText(wb, text, env) {
+  const t = String(text ?? '').trim().replace(/^=/, '');
+  if (!t) throw new ToolError('Give refers_to: a range such as "Sheet1!B2:B20" or a formula such as "=0.2".');
+  const ref = wb.parseNamedRef(t);
+  if (!BARE_REF.test(t) && (!ref || ref.spill || ref.sheetEnd)) return t;
+  let found;
+  try { found = resolveRange(wb, t, env.sheetId()); } catch { return t; }
+  const sheet = quoteSheet(wb.sheet(found.sheetId).name);
+  const { r1, c1, r2, c2 } = found.range;
+  const scope = lineScope(found.range);
+  if (scope === 'columns') return `${sheet}!$${colName(c1)}:$${colName(c2)}`;
+  if (scope === 'rows') return `${sheet}!$${r1 + 1}:$${r2 + 1}`;
+  return wb.refTextFor(found.sheetId, { r1, c1, r2, c2 });
+}
+
+/** How many formulas use a name (cells on the sheets it reaches, and other names): what a delete leaves at #NAME?. */
+function nameUses(wb, entry) {
+  const names = new Set([upperName(entry.name)]);
+  const key = entry.name.toLowerCase();
+  let n = 0;
+  for (const s of wb.sheets) {
+    if (s.kind === 'chart') continue;
+    // A sheet with a name of that spelling of its own reaches that one, not the workbook's.
+    if (entry.sheet ? s.name !== entry.sheet : (wb.names || []).some((m) => m.sheet === s.name && m.name.toLowerCase() === key)) continue;
+    for (const cell of s.cells.values()) if (cell.f != null && mentionsName(cell.f, names)) n++;
+  }
+  for (const m of wb.names || []) if (m !== entry && mentionsName(String(m.ref ?? ''), names)) n++;
+  return n;
+}
+
+function manageName(wb, args, env) {
+  const action = args.action;
+  if (!['define', 'rename', 'delete'].includes(action)) throw new ToolError('action must be define, rename or delete.');
+  const name = String(args.name ?? '').trim();
+  if (!name) throw new ToolError('No name was given.');
+  const scope = nameScope(wb, args.scope, env);
+  const existing = nameIn(wb, name, scope);
+  const label = scope ? `${quoteSheet(scope)}!${existing?.name ?? name}` : existing?.name ?? name;
+  // Names the workbook keeps for itself (a print area, a pivot table's settings) are hidden: not the user's to change.
+  if (existing?.hidden) throw new ToolError(`${label} is a hidden name the workbook keeps for itself; it cannot be changed here.`);
+  if (action !== 'define' && !existing) {
+    const elsewhere = (wb.names || []).filter((n) => !n.hidden && n.name.toLowerCase() === name.toLowerCase()).map((n) => (n.sheet ? `${quoteSheet(n.sheet)}!${n.name} (scope ${n.sheet})` : `${n.name} (workbook scope)`));
+    throw new ToolError(`There is no name ${label}${scope ? '' : ' in the workbook scope'}.${elsewhere.length ? ` There is ${elsewhere.join(' and ')}.` : ''}`);
+  }
+  if (action === 'delete') {
+    const uses = nameUses(wb, existing);
+    wb.transaction('AI edit', () => wb.deleteName(existing.name, scope));
+    return { deleted: label, ...(uses ? { note: `${uses} formula${uses === 1 ? ' uses' : 's use'} it and now show${uses === 1 ? 's' : ''} #NAME?.` } : {}) };
+  }
+  const refText = action === 'rename' && (args.refers_to == null || args.refers_to === '') ? existing.ref : nameRefText(wb, args.refers_to, env);
+  const note = reachingNote(env, reachesOut(wb, refText));
+  let problem;
+  if (action === 'define') {
+    wb.transaction('AI edit', () => { problem = wb.defineName(name, refText, scope); });
+    if (problem) throw new ToolError(`${label} could not be defined: ${problem}.`);
+    return {
+      defined: scope ? `${quoteSheet(scope)}!${name}` : name, refers_to: refText, scope: scope || 'workbook',
+      ...(existing && existing.ref !== refText ? { replaced: `It referred to ${existing.ref} before.` } : {}),
+      ...(note ? { note } : {}),
+    };
+  }
+  const to = String(args.new_name ?? '').trim();
+  if (!to) throw new ToolError('Give new_name, the name to rename it to.');
+  wb.transaction('AI edit', () => { problem = wb.renameName(existing.name, scope, to, refText); });
+  if (problem) throw new ToolError(`${label} could not be renamed to ${to}: ${problem}.`);
+  return { renamed: label, to, refers_to: refText, ...(note ? { note } : {}) };
+}
+
 function addNote(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
   assertWritable(wb, sheetId, { r1: range.r1, c1: range.c1, r2: range.r1, c2: range.c1 });
@@ -3229,6 +3324,7 @@ const RUNNERS = {
   set_row_height: setRowHeight,
   set_hidden: setHidden,
   merge_cells: mergeCells,
+  manage_name: manageName,
   add_note: addNote,
   goal_seek: goalSeek,
   solve,
@@ -3598,6 +3694,26 @@ export function describeCall(wb, name, args = {}, env) {
       }
       const detail = [dropped && `Keeps only the top-left value${across ? ' of each row' : ''}: deletes ${plural(dropped, 'other cell')} of data.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
       return { label: across ? `Merge each row of ${text}` : `Merge ${text}`, destructive: !!detail, detail: detail || null };
+    }
+    case 'manage_name': {
+      // A name is the user's work as a cell is: changing what one refers to, or deleting one, asks.
+      const name = String(args.name ?? '').trim();
+      let scope = null;
+      try { scope = nameScope(wb, args.scope, env); } catch { /* the runner explains */ }
+      const had = nameIn(wb, name, scope);
+      const label = scope ? `${quoteSheet(scope)}!${had?.name ?? name}` : had?.name ?? name;
+      if (args.action === 'delete') {
+        const uses = had && !had.hidden ? nameUses(wb, had) : 0;
+        return { label: `Delete the name ${label}`, destructive: !!had, detail: had ? (uses ? `Formulas that use it (${uses}) will show #NAME?.` : 'Removes the name.') : null };
+      }
+      if (args.action === 'rename') return { label: `Rename ${label} to ${String(args.new_name ?? '').trim()}` };
+      let ref = String(args.refers_to ?? '').trim();
+      try { ref = nameRefText(wb, args.refers_to, env); } catch { /* the runner explains */ }
+      if (had && ref && had.ref !== ref) {
+        const uses = nameUses(wb, had);
+        return { label: `Change ${label} to refer to ${clip(ref, 60)}`, destructive: true, detail: `It refers to ${clip(had.ref, 80)} now${uses ? `, and ${plural(uses, 'formula')} that use${uses === 1 ? 's' : ''} it will change with it` : ''}.` };
+      }
+      return { label: `Define the name ${label} as ${clip(ref, 60)}` };
     }
     case 'add_note': {
       // A note the cell already has is the user's writing: replacing or removing it asks, as replacing a value does.
