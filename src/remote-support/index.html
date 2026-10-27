@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Remote Support — consent-based screen view/control demo. TeamViewer/AnyDesk-inspired." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Remote Support</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Remote Support</h1></header>
+      <main class="layout">
+        <aside class="panel">
+          <button class="btn" id="invite" type="button">Invite local guest</button>
+          <button class="btn secondary" id="grant" type="button">Guest: grant consent</button>
+          <button class="btn secondary" id="deny" type="button">Guest: deny</button>
+          <button class="btn secondary" id="control" type="button">Enable control</button>
+          <button class="btn" id="end" type="button">End session</button>
+          <h2>Connections</h2>
+          <ul id="connections"></ul>
+        </aside>
+        <section>
+          <canvas id="screen" width="640" height="360" aria-label="Mock screen preview"></canvas>
+          <p id="status" role="status"></p>
+          <h2>Audit log</h2>
+          <pre id="audit"></pre>
+        </section>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>
+          TeamViewer/AnyDesk (DOCUMENTED) open LIVE remote sessions across the network.
+          This v0 is a consent-first UI with a mock local loopback preview and audit log —
+          no silent capture, no unauthorized access tooling, and no fabricated LIVE peers.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

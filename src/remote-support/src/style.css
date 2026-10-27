@@ -1,0 +1,19 @@
+:root { --bg:#0b1520; --ink:#eaf2fa; --muted:#93a8bc; --accent:#3d8bfd; --panel:#121e2a; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font); color:var(--ink); background:radial-gradient(700px 360px at 80% 0%,#1a3a5c,transparent 55%),var(--bg); }
+#app { max-width:1100px; margin:0 auto; padding:1rem; }
+.brand { display:flex; gap:.6rem; align-items:center; margin-bottom:1rem; }
+.brand h1 { margin:0; font-size:1.25rem; }
+.brand img { border-radius:.45rem; }
+.layout { display:grid; grid-template-columns:240px 1fr; gap:.75rem; }
+@media (max-width:800px){ .layout{ grid-template-columns:1fr; } }
+.panel { background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:.85rem; display:flex; flex-direction:column; gap:.45rem; }
+.panel h2, section h2 { margin:.5rem 0 .35rem; font-size:.85rem; color:var(--muted); }
+.btn { font:inherit; font-weight:700; border:0; border-radius:.55rem; padding:.5rem .75rem; background:var(--accent); color:#fff; cursor:pointer; }
+.btn.secondary { background:transparent; color:var(--ink); border:1px solid rgba(255,255,255,.16); }
+#screen { width:100%; border-radius:.85rem; display:block; background:#000; }
+#status { color:var(--muted); font-size:.85rem; }
+#audit { background:var(--panel); border-radius:.75rem; padding:.75rem; max-height:12rem; overflow:auto; font-size:.75rem; color:var(--muted); }
+#connections { margin:0; padding-left:1.1rem; color:var(--muted); }
+.help { margin-top:1rem; color:var(--muted); }
+.help summary { cursor:pointer; color:var(--ink); font-weight:700; }
