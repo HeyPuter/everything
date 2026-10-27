@@ -2372,12 +2372,17 @@ export class TextDocument {
       return start !== end && only({ type: 'ins', author: insertion.author, date: insertion.date }) ? { id, removed: true } : { id, removed: false, revision: insertion };
     });
     this.checkpoint();
+    // The paragraphs whose runs this splits or changes in place; others it replaces or gives new runs. Only
+    // these have their runs joined again at the end: joining every paragraph's runs changed all that could
+    // be joined, so one Accept or Reject measured most of the document again.
+    const touched = new Set(), runsBefore = new Map(this.paragraphs.map(p => [p, p.runs]));
     // Rejecting a deletion of another reviewer's insertion brings that insertion back. Rejecting a range (or
     // all changes) rejects that insertion too when it is in scope, as a second Reject All would have: the text
     // goes, instead of staying as an insertion after Reject All.
     if (!accept && start !== end) {
       const restored = new Set();
       for (const r of targets) if (r.type === 'del') eachRevisionTarget(this.paragraphs, r.start, r.end, ({ paragraph, run, mark }) => {
+        touched.add(paragraph);
         const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision', inserted = target[key]?.inserted;
         if (target[key]?.type === 'del' && inserted && only({ type: 'ins', author: inserted.author, date: inserted.date })) { target[key] = { type: 'ins', ...inserted }; restored.add(paragraph); }
       });
@@ -2406,11 +2411,12 @@ export class TextDocument {
           const resolve = (target, kind) => { if (accept) acceptFormatChange(target, kind); else if (!rejectFormatChange(target)) this.formatRejectSkipped = true; else if (kind === 'run') acceptFormatChange(target, 'run'); };
           for (let i = indexAt(r.start); i < this.paragraphs.length && starts[i] < r.end; i++) {
             const p = this.paragraphs[i], at = starts[i], size = paragraphLength(p);
-            let touched = false;
+            touched.add(p);
+            let resolved = false;
             const change = paragraphFormatChange(p);
-            if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); touched = true; }
-            eachRevisionTarget([p], Math.max(r.start, at) - at, Math.min(r.end, at + size) - at, ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); touched = true; } });
-            if (touched && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
+            if (change && only(change) && at >= r.start && at + size + 1 <= r.end + 1) { resolve(p, 'paragraph'); resolved = true; }
+            eachRevisionTarget([p], Math.max(r.start, at) - at, Math.min(r.end, at + size) - at, ({ run, mark }) => { const runChange = !mark && runFormatChange(run); if (runChange && only(runChange)) { resolve(run, 'run'); resolved = true; } });
+            if (resolved && !accept && this.stylesEnabled) resolveStyledParagraph(p, this.styles, this.numbering);
           }
           continue;
         }
@@ -2418,6 +2424,7 @@ export class TextDocument {
         // Rejecting a deletion of another reviewer's insertion restores that insertion.
         const kept = revision => revision?.inserted && !accept ? { type: 'ins', ...revision.inserted } : undefined;
         if (keep) visitWithin(r.start, r.end, ({ paragraph, run, mark }) => {
+          touched.add(paragraph);
           const target = mark ? paragraph : run, key = mark ? 'markRevision' : 'revision', next = kept(target[key]);
           if (next) target[key] = next; else delete target[key];
           // Deleted text hides a formatting change made to it before. Rejecting a selection or all changes brings
@@ -2455,7 +2462,7 @@ export class TextDocument {
     if (removedFields.size) removeFields(this.paragraphs, removedFields);
     for (const outcome of fieldOutcomes) if (!outcome.removed) setFieldRevision(this.paragraphs, outcome.id, outcome.revision);
     if (removedFields.size) this.hasBodyFields = this.paragraphs.some(p => p.fieldMarkers?.length);
-    for (const p of this.paragraphs) p.runs = normalize(p.runs);
+    for (const p of this.paragraphs) if (touched.has(p) || runsBefore.get(p) !== p.runs) p.runs = normalize(p.runs);
     // Removing a change can join the characters on either side of the caret into one.
     const at = nextBoundary(this.paragraphs, Math.min(caret, documentLength(this.paragraphs)));
     this.selection = { anchor: at, focus: at };
