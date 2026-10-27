@@ -309,8 +309,11 @@ function clearRevisions(paragraphs, start, end) {
     at += size + 1; if (at > end) break;
   }
   if (!found) return;
-  eachRevisionTarget(paragraphs, start, end, ({ run, mark }) => { if (!mark) delete run.revision; });
-  for (const p of paragraphs) if (p.runs.length > 1) p.runs = normalize(p.runs);
+  // Only the paragraphs in the range have runs split here. Joining every paragraph's runs changed all
+  // of them on a keystroke beside a tracked change, so the whole document was measured again.
+  const touched = new Set();
+  eachRevisionTarget(paragraphs, start, end, ({ paragraph, run, mark }) => { touched.add(paragraph); if (!mark) delete run.revision; });
+  for (const p of touched) if (p.runs.length > 1) p.runs = normalize(p.runs);
 }
 /**
  * The changes of the paragraphs that reach [start, end], including the mark just before it. Only their

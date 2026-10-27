@@ -22,7 +22,7 @@ function reviewedDocx(count) {
   return Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([name, xml]) => [name, strToU8(xml)]))));
 }
 
-for (const [where, paragraph, offset] of [['away from', 0, 3]]) test(`the first keystroke ${where} a tracked change measures only its paragraph again`, async ({ page }) => {
+for (const [where, paragraph, offset] of [['away from', 0, 3], ['beside', 2, 28]]) test(`the first keystroke ${where} a tracked change measures only its paragraph again`, async ({ page }) => {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto('/playground.html');
   // Count the measured paragraphs that each layout cannot take from the cache.
