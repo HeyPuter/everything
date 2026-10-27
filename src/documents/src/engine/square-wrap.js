@@ -88,6 +88,23 @@ export function squareHintsReach(hints, paragraphId) {
   return hints.exclusions.some(e => e.page >= first && e.page <= last + 1);
 }
 
+// Everything hints let squareRow and clearingBreakTarget read for one paragraph, null when they
+// cannot change it (squareHintsReach): its lines in the previous pass and the exclusions on their
+// pages and the next one. Offsets count from `offset`, the paragraph's start, since they are only
+// compared with one another, so a paragraph that text typed before it moved keeps its key.
+export function squareHintsKey(hints, paragraphId, offset) {
+  if (!squareHintsReach(hints, paragraphId)) return null;
+  const lines = hints.paragraphs.get(paragraphId);
+  let first = Infinity, last = -Infinity;
+  for (const line of lines) { first = Math.min(first, line.page); last = Math.max(last, line.page); }
+  // JSON writes every infinite or missing number as null; keep them apart.
+  const n = value => value === undefined ? 'u' : Number.isFinite(value) ? value : String(value);
+  return JSON.stringify([
+    lines.map(l => [n(l.page), n(l.y), n(l.height), n(l.fitHeight), n(l.wrapBefore), n(l.oversizedInlineHeight), n(l.start - offset), n(l.end - offset)]),
+    hints.exclusions.filter(e => e.page >= first && e.page <= last + 1).map(e => [n(e.page), n(e.left), n(e.right), n(e.top), n(e.bottom), e.side ?? null, !!e.table, e.cellId ?? null, e.start === undefined ? 'u' : n(e.start - offset)]),
+  ]);
+}
+
 export function squareRow(hints, paragraphId, index, edges, page, minimumWidth = 0, paragraphBefore = 0, clearance = null) {
   const previous = hints?.paragraphs.get(paragraphId);
   if (!previous?.length) return { intervals: [edges], before: 0 };

@@ -34,7 +34,7 @@ import { createParagraphPaginator } from './pagination.js';
 import { paragraphText, paragraphFormat, runFormat } from './model.js';
 import { revisionView, runRevisionDisplay } from './revisions.js';
 import { inlineSegments, EMU_PER_PX, drawingOffsetPixels, imageExtents, inlineImageExtents, inlineImagePaintFrame, normalizedRotation, isPositionedImage, isSideWrappedImage } from './images.js';
-import { squareFlowHints, squareFlowSignature, squareRow, squareHintsReach, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
+import { squareFlowHints, squareFlowSignature, squareRow, squareHintsKey, joinSquareLine, clearingBreakTarget } from './square-wrap.js';
 import { positionedImageFrame, positionedImageContains, positionedImageBounds, isCellRelativePosition, isPageBasedCellPosition } from './positioned-images.js';
 import { resolveDrawingCollisions } from './drawing-collisions.js';
 import { floatingParagraph } from './floating-images.js';
@@ -304,16 +304,18 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
         const textMeasure = page.rotatedCellText ? (text, style) => rotatedCellTextMetrics(measure(text, style), style) : measure;
         const hints = page.paragraphFrameFlow ? undefined : wrapHints && { ...wrapHints, exclusions: wrapHints.exclusions.filter(e => cellEdges ? e.cellId === block.paragraph.cellId : !e.cellId) };
         const run = () => measureParagraph(block.paragraph, block.offset, textMeasure, page, markers[block.index], numbering, edges, hints, !cellEdges && keepBoundaryLine);
-        // A cell paragraph's key adds its cell edges and neighbours. Rows wrapping around drawings and
-        // unequal columns are always measured again. A paragraph's pictures are measured by their
-        // content, and a reused measurement is given the paragraph's own picture objects.
+        // A cell paragraph's key adds its cell edges and neighbours, and one that drawings can wrap
+        // around adds what wrapping reads (squareHintsKey). Unequal columns are always measured
+        // again. A paragraph's pictures are measured by their content, and a reused measurement is
+        // given the paragraph's own picture objects.
         let key = null, pictures = null;
-        if (paragraphCache && !squareHintsReach(hints, block.paragraph.id) && !page.rotatedCellText && !page.columnWidthAt) {
+        if (paragraphCache && !page.rotatedCellText && !page.columnWidthAt) {
           try {
             // The same key string in every pass keeps its hash: the cache does not hash a long paragraph again.
             let keys = paragraphKeys.get(block.paragraph);
             if (!keys) paragraphKeys.set(block.paragraph, keys = { content: JSON.stringify(block.paragraph), byContext: new Map() });
-            const context = JSON.stringify([pageKey(page), markers[block.index] ?? null, !cellEdges && keepBoundaryLine, edges ?? null, sharedKey]);
+            const wrap = squareHintsKey(hints, block.paragraph.id, block.offset);
+            const context = JSON.stringify([pageKey(page), markers[block.index] ?? null, !cellEdges && keepBoundaryLine, edges ?? null, sharedKey, ...(wrap === null ? [] : [wrap])]);
             key = keys.byContext.get(context);
             if (key === undefined) keys.byContext.set(context, key = `[${keys.content},${context}]`);
             if (block.paragraph.runs.some(r => r.image)) pictures = block.paragraph.runs.flatMap(r => r.image ? [r.image] : []);
