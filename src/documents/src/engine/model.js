@@ -1526,13 +1526,25 @@ export class TextDocument {
   /** Comments with their current anchors, in document order; replies follow their parent. */
   get commentList() {
     const comments = this.comments || [], anchors = new Map(commentAnchors(this.paragraphs).map(a => [a.id, a]));
-    const roots = comments.filter(c => !c.parentId || !comments.some(p => p.id === c.parentId));
+    // Comments by id (the first of a repeated id) and replies by parent, in the comments' order: a search of every
+    // comment for each one made listing a much-commented document's comments slow.
+    const byId = new Map(), replies = new Map();
+    for (const c of comments) {
+      if (!byId.has(c.id)) byId.set(c.id, c);
+      if (c.parentId) { if (!replies.has(c.parentId)) replies.set(c.parentId, []); replies.get(c.parentId).push(c); }
+    }
+    const roots = comments.filter(c => !c.parentId || !byId.has(c.parentId));
     const position = c => anchors.get(c.id)?.start ?? Infinity;
     roots.sort((a, b) => position(a) - position(b) || Number(a.id) - Number(b.id));
     const list = [];
-    for (const root of roots) for (const id of commentThread(comments, root.id)) {
-      const c = comments.find(item => item.id === id);
-      list.push({ ...c, start: anchors.get(id)?.start ?? anchors.get(root.id)?.start ?? null, end: anchors.get(id)?.end ?? anchors.get(root.id)?.end ?? null, rootId: root.id });
+    for (const root of roots) {
+      // The thread: the root, then its replies breadth first, each once (as commentThread lists them).
+      const ids = [root.id], seen = new Set(ids);
+      for (let i = 0; i < ids.length; i++) for (const c of replies.get(ids[i]) || []) if (!seen.has(c.id)) { seen.add(c.id); ids.push(c.id); }
+      for (const id of ids) {
+        const c = byId.get(id);
+        list.push({ ...c, start: anchors.get(id)?.start ?? anchors.get(root.id)?.start ?? null, end: anchors.get(id)?.end ?? anchors.get(root.id)?.end ?? null, rootId: root.id });
+      }
     }
     return list;
   }

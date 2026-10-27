@@ -107,7 +107,17 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const locked = () => !!hooks.trackingLocked?.();
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
-  const threads = () => { const engine = editor(); return engine?.model.comments ? commentThreads(engine.model.commentList) : []; };
+  /**
+   * The document's comment threads. They are read several times for each keystroke (the column, the caret's
+   * thread, the ribbon), and the document changes only with a new revision, so they are listed once for each.
+   */
+  let listed = null;
+  const threads = () => {
+    const model = editor()?.model; if (!model?.comments) return [];
+    if (listed?.model !== model || listed.revision !== model.revision || listed.comments !== model.comments || listed.paragraphs !== model.paragraphs || listed.count !== model.comments.length)
+      listed = { model, revision: model.revision, comments: model.comments, paragraphs: model.paragraphs, count: model.comments.length, threads: commentThreads(model.commentList) };
+    return listed.threads;
+  };
 
   // Keys typed in a comment stay in the comment: the document's chords must not act on it.
   layer.addEventListener('keydown', e => {
@@ -431,7 +441,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       item.node.style.left = `${right + 16}px`;
       item.node.style.display = '';
     });
-    for (const node of items) if (!anchored.some(item => item.node === node)) node.style.display = 'none';
+    const placed = new Set(anchored.map(item => item.node));
+    for (const node of items) if (!placed.has(node)) node.style.display = 'none';
   }
 
   function tints(list) {
