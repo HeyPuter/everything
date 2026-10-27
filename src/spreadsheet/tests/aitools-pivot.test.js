@@ -107,6 +107,16 @@ describe('create_pivot_table', () => {
     expect(describeCall(wb, 'create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount' }, env)).toEqual({ label: 'Add a pivot table of Sheet1!A1:D6 (sum of Amount by Region) on a new sheet "Pivot of Sheet1"' });
   });
 
+  it('asks before putting it over the results another formula spills, and says the formula is blocked', () => {
+    const { wb, id, env, run } = setup();
+    wb.setInput(id, 0, 9, '=SEQUENCE(8)');
+    const args = { data_range: 'A1:D6', rows: 'Region', values: 'Amount', destination: 'I3' };
+    expect(describeCall(wb, 'create_pivot_table', args, env)).toMatchObject({ destructive: true, detail: 'Blocks the results a formula spills into these cells: it will show #SPILL!.' });
+    const out = parsed(run('create_pivot_table', args));
+    expect(wb.getValue(id, 0, 9)).toEqual({ error: '#SPILL!' });
+    expect(out.spills_blocked[0]).toMatch(/^Sheet1!J1 now shows #SPILL!/);
+  });
+
   it('refuses a destination over its own data, a sheet already holding one, a protected sheet, and a locked structure', () => {
     const { wb, id, run } = setup();
     expect(run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', destination: 'C3' }).content).toMatch(/over its own data/);

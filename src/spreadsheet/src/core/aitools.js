@@ -42,7 +42,7 @@ import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
 import { eachStoredCell } from './sparse-range.js';
 import { describeRule } from './condformat.js';
 import { VALIDATION_OPERATORS, describeValidation } from './validation.js';
-import { pivotDefinitionState, readPivotDefinition, buildPivot, previewPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
+import { pivotDefinitionState, readPivotDefinition, buildPivot, pivotFields, pivotFieldValues, pivotRangeProblem, hasPivotDefinition, writePivotSheet, writePivotAt, pivotSheetName, PivotSizeError, PIVOT_AGGS } from './pivot.js';
 import { detectDelimiter, splitSourceText } from './text-split.js';
 import { ENGINES, RELATIONS, MAX_VARIABLES, emptyModel, hasSolverModel, readSolverModel, solverNameEntries, parseRanges, prepareSolver, runSolver, applySolverResult, availableReports } from './solver.js';
 
@@ -2016,6 +2016,13 @@ function pivotDestinationProblem(wb, source, dest, built) {
   return { area, problem: null };
 }
 
+/** The formulas whose spilled results a pivot of `built` at a destination would write over (see spillsHit). */
+function pivotSpillsHit(wb, dest, built) {
+  const written = new Set(built.cells.map(({ r, c }) => cellKey(r + dest.at.r, c + dest.at.c)));
+  const area = { r1: dest.at.r, c1: dest.at.c, r2: dest.at.r + built.rows - 1, c2: dest.at.c + built.cols - 1 };
+  return spillsHit(wb, dest.sheetId, area, (r, c) => written.has(cellKey(r, c)));
+}
+
 function createPivotTable(wb, args, env) {
   const { spec, fields, source, dest } = pivotPlan(wb, args, env);
   if (dest) assertWritable(wb, dest.sheetId, null);
@@ -2026,13 +2033,15 @@ function createPivotTable(wb, args, env) {
   let built;
   try { built = buildPivot(wb, source.sheetId, spec); } catch (e) { if (e instanceof PivotSizeError) throw new ToolError(e.message); throw e; }
   if (!built.rowCount) throw new ToolError(`"${fields[spec.rowField].label}" has no values to group the rows by.`);
-  let sheetId, area;
+  let sheetId, area, blocked = [];
   if (dest) {
     const checked = pivotDestinationProblem(wb, source, dest, built);
     if (checked.problem) throw new ToolError(checked.problem);
     assertWritable(wb, dest.sheetId, checked.area);
     sheetId = dest.sheetId;
+    const hit = pivotSpillsHit(wb, dest, built);
     area = writePivotAt(wb, source.sheetId, built, sheetId, dest.at, { label: 'AI edit' });
+    blocked = blockedSpills(wb, sheetId, hit);
   } else {
     const sheet = writePivotSheet(wb, source.sheetId, built, { name, label: 'AI edit' });
     if (!sheet) throw new ToolError('No sheet could be added for the pivot table.');
@@ -2048,6 +2057,7 @@ function createPivotTable(wb, args, env) {
     summarizes: `${aggLabel} of ${label(spec.valueField)} by ${label(spec.rowField)}${spec.colField != null ? ` and ${label(spec.colField)}` : ''}`,
     row_labels: built.rowCount, ...(spec.colField != null ? { column_labels: built.colCount } : {}),
     ...(filterAt ? { filter: `${label(spec.filters[0].field)}: the cell ${qualified(wb, sheetId, { r1: area.r1 + filterAt.r, c1: area.c1 + filterAt.c, r2: area.r1 + filterAt.r, c2: area.c1 + filterAt.c })} picks the value (now ${JSON.stringify(wb.getValue(sheetId, area.r1 + filterAt.r, area.c1 + filterAt.c))}).` } : {}),
+    ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
     note: 'The totals are live formulas over the source; new categories in the source appear after the user refreshes the pivot table.',
   };
 }
@@ -3599,12 +3609,15 @@ export function describeCall(wb, name, args = {}, env) {
       if (!plan) return { label: `Add a pivot table (${clip(what, 80)})` };
       const src = qualified(wb, plan.source.sheetId, plan.source.range);
       if (!plan.dest) return { label: `Add a pivot table of ${src} (${clip(what, 80)}) on a new sheet${args.new_sheet_name ? ` named ${args.new_sheet_name}` : ` "${pivotSheetName(wb, plan.source.sheetId)}"`}` };
-      let size = null;
-      try { size = previewPivot(wb, plan.source.sheetId, plan.spec); } catch { /* the runner explains */ }
-      const area = size && { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r + size.rows - 1, c2: plan.dest.at.c + size.cols - 1 };
+      let built = null;
+      try { built = buildPivot(wb, plan.source.sheetId, plan.spec); } catch { /* the runner explains */ }
+      const area = built && { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r + built.rows - 1, c2: plan.dest.at.c + built.cols - 1 };
       const n = area ? filledCells(wb, plan.dest.sheetId, area) : 0;
+      // Its cells written over another formula's spilled results block them, as a value typed there would.
+      const spills = built ? pivotSpillsHit(wb, plan.dest, built).length : 0;
       const at = area ? qualified(wb, plan.dest.sheetId, area) : qualified(wb, plan.dest.sheetId, { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r, c2: plan.dest.at.c });
-      return { label: `Add a pivot table of ${src} (${clip(what, 80)}) at ${at}`, destructive: n > 0, detail: n ? `Replaces ${holding(n)}.` : null };
+      const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      return { label: `Add a pivot table of ${src} (${clip(what, 80)}) at ${at}`, destructive: !!detail, detail: detail || null };
     }
     case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };
     case 'update_chart': case 'delete_chart': {
