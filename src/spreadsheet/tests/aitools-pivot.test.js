@@ -151,6 +151,9 @@ describe('create_pivot_table', () => {
     const out = parsed(run('create_pivot_table', args));
     expect(wb.getValue(id, 0, 9)).toEqual({ error: '#SPILL!' });
     expect(out.spills_blocked[0]).toMatch(/^Sheet1!J1 now shows #SPILL!/);
+    // One in the block, under its filter, is cleared with the block: replaced, not blocked.
+    wb.setInput(id, 1, 12, '=SEQUENCE(3)');
+    expect(describeCall(wb, 'create_pivot_table', { ...args, filter: 'Rep', destination: 'L1' }, env)).toMatchObject({ detail: 'Replaces 1 cell that already holds data.' });
   });
 
   it('refuses a destination over its own data, a sheet already holding one, a protected sheet, and a locked structure', () => {

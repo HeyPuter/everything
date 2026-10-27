@@ -2032,7 +2032,9 @@ function pivotDestinationProblem(wb, source, dest, built) {
 function pivotSpillsHit(wb, dest, built) {
   const written = new Set(built.cells.map(({ r, c }) => cellKey(r + dest.at.r, c + dest.at.c)));
   const area = { r1: dest.at.r, c1: dest.at.c, r2: dest.at.r + built.rows - 1, c2: dest.at.c + built.cols - 1 };
-  return spillsHit(wb, dest.sheetId, area, (r, c) => written.has(cellKey(r, c)));
+  // A formula inside the block is cleared with the rest of it, so it is replaced, not blocked.
+  return spillsHit(wb, dest.sheetId, area, (r, c) => written.has(cellKey(r, c)))
+    .filter(({ r, c }) => r < area.r1 || r > area.r2 || c < area.c1 || c > area.c2);
 }
 
 function createPivotTable(wb, args, env) {
