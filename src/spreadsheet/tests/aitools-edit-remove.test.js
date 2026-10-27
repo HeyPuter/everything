@@ -81,6 +81,18 @@ describe('AI tools: changing and deleting charts', () => {
     expect(wb.chartById(id, chartId).stacked).toBe(false);
   });
 
+  it('does not switch rows and columns of series set one by one, unless given a range', () => {
+    const { wb, id, run, json } = setup();
+    const { id: chartId } = json('create_chart', { data_range: 'A1:C5', type: 'column' });
+    wb.updateChart(id, chartId, { sourceRefs: [{ name: 'Sales', categories: 'Sheet1!$A$2:$A$5', values: 'Sheet1!$B$2:$B$5' }] });
+    wb.clearHistory();
+    expect(run('update_chart', { chart: chartId, series_in: 'rows' }).content).toMatch(/series read references of their own \(series from Sheet1!\$A\$2:\$A\$5, Sheet1!\$B\$2:\$B\$5\), so they cannot be switched/);
+    expect(wb.undoLabels(5)).toEqual([]);
+    json('update_chart', { chart: chartId, data_range: 'A1:C5', series_in: 'rows' });
+    expect(wb.chartById(id, chartId)).toMatchObject({ seriesIn: 'rows', range: { r1: 0, c1: 0, r2: 4, c2: 2 } });
+    expect(wb.chartById(id, chartId).sourceRefs).toBeUndefined();
+  });
+
   it('leaves a pivot chart drawing its pivot table, in a type Excel allows', () => {
     const { wb, id, run, json } = setup();
     const { id: chartId } = json('create_chart', { data_range: 'A1:C5', type: 'column' });

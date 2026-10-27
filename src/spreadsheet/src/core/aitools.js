@@ -2256,6 +2256,9 @@ function updateChart(wb, args, env) {
   }
   if (args.series_in != null) {
     if (!['columns', 'rows', 'auto'].includes(args.series_in)) throw new ToolError('series_in must be columns, rows or auto.');
+    // Series read from references of their own have no rows and columns to switch, as Select Data's Switch Row/Column
+    // is off for them: the setting was stored and said to be made, and the chart drew the same.
+    if (chart.sourceRefs?.length && args.data_range == null) throw new ToolError(`The chart's series read references of their own (${chartSource(chart)}), so they cannot be switched between rows and columns. Give a data_range to chart a range instead.`);
     patch.seriesIn = args.series_in === 'columns' ? 'cols' : args.series_in;
     changes.push(`series in ${args.series_in}`);
   }
