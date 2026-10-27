@@ -239,6 +239,17 @@ describe('move_range', () => {
     expect(res.content).toMatch(/protected/);
   });
 
+  it('says when it moved rows a filter hid along with the ones on show', () => {
+    const { wb, id, run, json } = setup();
+    run('filter_range', { range: 'A1:D4', columns: [{ column: 'A', values: ['Apples', 'Plums'] }] });
+    const other = wb.addSheet('Archive');
+    const res = json(run('move_range', { source: 'A2:D4', destination: 'Archive!A1' }));
+    // As a cut and paste of the block, the Pears row moves too, which the model is told.
+    expect(wb.getValue(other.id, 1, 0)).toBe('Pears');
+    expect(res.hidden_moved).toBe('1 hidden or filtered-out row of the source moved with it.');
+    expect(json(run('move_range', { source: 'Archive!A:D', destination: 'Archive!F1' })).hidden_moved).toBeUndefined();
+  });
+
   it('says when the cells are already there', () => {
     const { run } = setup();
     const res = run('move_range', { source: 'A1:B2', destination: 'A1' });

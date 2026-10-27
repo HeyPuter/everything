@@ -162,7 +162,7 @@ export const TOOLS = [
     transpose: bool('Turn the rows into columns (default false).'),
     include_hidden: bool('Copy hidden and filtered-out rows and columns too (default false).'),
   }, ['source', 'destination']),
-  fn('move_range', 'Move cells to another place, as cut and paste does: they leave the source with their formulas, formatting, notes and merges, and formulas elsewhere that refer to them follow them. Replaces what is at the destination.', {
+  fn('move_range', 'Move cells to another place, as cut and paste does: they leave the source with their formulas, formatting, notes and merges, and formulas elsewhere that refer to them follow them. Hidden and filtered-out rows inside the block move with it. Replaces what is at the destination.', {
     source: RANGE,
     destination: str('Top-left cell of where the cells go, e.g. "H2" or "Archive!A1". Without a sheet it means the active sheet.'),
   }, ['source', 'destination']),
@@ -1426,6 +1426,11 @@ function moveRangeTool(wb, args, env) {
   assertWritable(wb, sheetId, src);
   assertWritable(wb, dstId, dst);
   const hit = whole ? [] : spillsHit(wb, dstId, dst).filter((a) => across || !within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src));
+  // A move takes the hidden and filtered-out lines of the block too, where a copy leaves them: the model is told, or
+  // it takes the rows a filter shows for all it moved. Whole columns plainly take their hidden rows, and whole rows their columns.
+  const source = wb.sheet(sheetId);
+  const hiddenRows = src.r2 >= MAX_ROW ? 0 : new Set([...source.hiddenRows, ...source.filterHidden].filter((r) => r >= src.r1 && r <= src.r2)).size;
+  const hiddenCols = src.c2 >= MAX_COL ? 0 : [...source.hiddenCols].filter((c) => c >= src.c1 && c <= src.c2).length;
   let done = null;
   wb.transaction('AI edit', () => {
     if (!across) { done = wb.moveRange(sheetId, src, r0, c0); return; }
@@ -1435,7 +1440,12 @@ function moveRangeTool(wb, args, env) {
   if (!done) throw new ToolError(moveProblem(wb, sheetId, src, dstId, dst));
   const errors = whole ? [] : formulaErrors(wb, dstId, dst);
   const blocked = blockedSpills(wb, dstId, hit);
-  return { moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst), ...(errors.length ? { formula_errors: errors } : {}), ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}) };
+  const hidden = [hiddenRows && `${hiddenRows} hidden or filtered-out row${hiddenRows === 1 ? '' : 's'}`, hiddenCols && `${hiddenCols} hidden column${hiddenCols === 1 ? '' : 's'}`].filter(Boolean);
+  return {
+    moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst),
+    ...(hidden.length ? { hidden_moved: `${hidden.join(' and ')} of the source moved with it.` } : {}),
+    ...(errors.length ? { formula_errors: errors } : {}), ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}),
+  };
 }
 
 /** Why Replace leaves a match alone, as Find & Replace says it. */
