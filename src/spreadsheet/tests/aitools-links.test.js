@@ -34,6 +34,18 @@ describe('set_link', () => {
     expect(wb.linkAt(id, 0, 2).url).toBe('mailto:name@example.com');
   });
 
+  it('keeps the number or formula when the text given is what the cell already shows', () => {
+    const { wb, id, run, describe } = setup();
+    wb.applyStyle(id, { r1: 0, c1: 1, r2: 0, c2: 1 }, { fmt: 'number', dec: 0, group: true });
+    expect(wb.getDisplay(id, 0, 1)).toBe('1,000');
+    for (const [cell, text] of [['B1', '1,000'], ['C1', '2000']]) expect(describe('set_link', { cell, url: 'https://example.com', text }).destructive).toBe(false);
+    run('set_link', { cell: 'B1', url: 'https://example.com', text: '1,000' });
+    run('set_link', { cell: 'C1', url: 'https://example.com', text: '2000' });
+    expect(wb.getCell(id, 0, 1)).toMatchObject({ v: 1000, hyperlink: 'https://example.com' });
+    expect(wb.getCell(id, 0, 2).f).toBe('B1*2');
+    expect(wb.getValue(id, 0, 2)).toBe(2000);
+  });
+
   it('shows the given text, or the address in an empty cell', () => {
     const { wb, id, run } = setup();
     run('set_link', { cell: 'D1', url: 'https://example.com', text: 'Example' });

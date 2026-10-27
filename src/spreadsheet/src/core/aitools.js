@@ -2813,6 +2813,15 @@ function keptLabel(wb, sheetId, r, c) {
   return v != null && typeof v !== 'object' ? v : undefined;
 }
 
+/**
+ * Is `text` what the cell shows now, by its value or its formatted text? Then the link keeps the value itself, as the
+ * Insert Link dialog does with text left as it was: a number stays a number a SUM counts, a formula its formula.
+ */
+function showsText(wb, sheetId, r, c, text) {
+  const v = keptLabel(wb, sheetId, r, c);
+  return v != null && (String(v) === text || wb.getDisplay(sheetId, r, c) === text);
+}
+
 function setLink(wb, args, env) {
   const { sheetId, range } = resolveRange(wb, args.cell, env.sheetId());
   const { r1: r, c1: c } = range;
@@ -2833,7 +2842,7 @@ function setLink(wb, args, env) {
   if (table && r === tableRows(table).header) throw new ToolError(`${at} is a table's header, which holds its column's name and cannot hold a link.`);
   if (wb.arrayEditBlocked(sheetId, one)) throw new ToolError(`${at} is part of an array formula's result.`);
   const text = args.text != null && String(args.text).trim() ? cutText(String(args.text).trim(), MAX_TEXT) : null;
-  let label = text;
+  let label = text != null && showsText(wb, sheetId, r, c, text) ? keptLabel(wb, sheetId, r, c) : text;
   if (label == null) {
     const kept = keptLabel(wb, sheetId, r, c);
     if (kept === undefined) throw new ToolError(`${at} shows an error, which a link cannot show; give the text it should show.`);
@@ -3725,8 +3734,7 @@ export function describeCall(wb, name, args = {}, env) {
       try { url = t.range ? linkTarget(wb, args, t.s) : null; } catch { /* the runner explains */ }
       const text = args.text != null && String(args.text).trim() ? String(args.text).trim() : null;
       const cell = t.range ? wb.getCell(t.s, t.range.r1, t.range.c1) : null;
-      const shown = cell?.f != null ? wb.getValue(t.s, t.range.r1, t.range.c1) : cell?.v;
-      const replacesText = text != null && holds(cell) && String(shown ?? '') !== text;
+      const replacesText = text != null && holds(cell) && !showsText(wb, t.s, t.range.r1, t.range.c1, cutText(text, MAX_TEXT));
       const replacesLink = !!had && url != null && had.url !== url;
       const detail = [replacesLink && `Replaces its link to ${clip(had.url, 80)}.`, replacesText && `Replaces what the cell holds${cell.f != null ? ' (a formula)' : ''} with "${clip(text, 60)}".`].filter(Boolean).join(' ');
       return { label: `Link ${t.text} to ${clip(url ?? String(args.url ?? args.location ?? ''), 80)}`, destructive: !!detail, detail: detail || null };
