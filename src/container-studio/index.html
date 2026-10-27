@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Container Studio — Docker Desktop-inspired containers/images/volumes UI with honest demo mode." />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="icon-128.png" type="image/png" sizes="128x128" />
+    <title>Container Studio</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="brand"><img src="icon-128.png" width="28" height="28" alt="" /><h1>Container Studio</h1><span id="mode" class="badge">DEMO</span></header>
+      <p id="notice" class="notice"></p>
+      <div class="row">
+        <button class="btn secondary" id="bridge" type="button">Request local Docker bridge</button>
+      </div>
+      <main class="grid">
+        <section class="panel"><h2>Containers</h2><div id="containers"></div></section>
+        <section class="panel"><h2>Images</h2><ul id="images"></ul></section>
+        <section class="panel"><h2>Volumes</h2><ul id="volumes"></ul></section>
+        <section class="panel"><h2>Compose</h2><ul id="compose"></ul></section>
+      </main>
+      <details class="help"><summary>DOCUMENTED vs LIVE</summary>
+        <p>
+          Docker Desktop (DOCUMENTED) talks to a LIVE local/engine API. This v0 defaults to a labeled DEMO
+          catalog. “Local bridge” only activates when an authorized bridge is available — the browser build
+          never fabricates LIVE Docker access.
+        </p>
+      </details>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
