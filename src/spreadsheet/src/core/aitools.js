@@ -3632,7 +3632,10 @@ export function describeCall(wb, name, args = {}, env) {
       const t = at(args.range);
       const what = args.what || 'contents';
       const n = what === 'formats' ? 0 : filled(t.s, t.range);
-      return { label: `Clear ${what === 'all' ? 'everything in' : what === 'formats' ? 'the formatting of' : ''} ${t.text}`.replace(/\s+/g, ' '), destructive: n > 0, detail: n ? `Removes ${plural(n, 'cell')} of data.` : null };
+      // Clearing formats takes the conditional formats off the cells too, which remove_conditional_format asks about.
+      const rules = what !== 'contents' && t.s != null && t.range ? conditionalRuleGroups(wb.sheet(t.s)?.rules || []).filter((g) => g.rules.some((r) => overlaps(r.range, t.range))).length : 0;
+      const detail = [n && `Removes ${plural(n, 'cell')} of data.`, rules && `Takes ${rules === 1 ? 'a conditional formatting rule' : `${rules} conditional formatting rules`} off these cells.`].filter(Boolean).join(' ');
+      return { label: `Clear ${what === 'all' ? 'everything in' : what === 'formats' ? 'the formatting of' : ''} ${t.text}`.replace(/\s+/g, ' '), destructive: !!detail, detail: detail || null };
     }
     case 'copy_range': case 'move_range': {
       const move = name === 'move_range';

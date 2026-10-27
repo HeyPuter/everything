@@ -243,6 +243,17 @@ describe('AI tools: clearing formats', () => {
     expect(wb.sheet(id).merges).toHaveLength(1);
   });
 
+  it('asks first when the formats it clears include conditional formatting', () => {
+    const { wb, env, json } = setup();
+    json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
+    json('add_conditional_format', { range: 'C2:C5', rule: 'scale' });
+    expect(describeCall(wb, 'clear_range', { range: 'B4:C9', what: 'formats' }, env)).toEqual({ label: 'Clear the formatting of Sheet1!B4:C9', destructive: true, detail: 'Takes 2 conditional formatting rules off these cells.' });
+    expect(describeCall(wb, 'clear_range', { range: 'B2:B3', what: 'all' }, env)).toEqual({ label: 'Clear everything in Sheet1!B2:B3', destructive: true, detail: 'Removes 2 cells of data. Takes a conditional formatting rule off these cells.' });
+    // Contents alone leave the rules, and formats away from them ask nothing.
+    expect(describeCall(wb, 'clear_range', { range: 'B2:B3' }, env).detail).toBe('Removes 2 cells of data.');
+    expect(describeCall(wb, 'clear_range', { range: 'E1:F9', what: 'formats' }, env)).toMatchObject({ destructive: false, detail: null });
+  });
+
   it('leaves them when only contents are cleared', () => {
     const { wb, id, json } = setup();
     json('add_conditional_format', { range: 'B2:B5', rule: 'gt', value: 10 });
