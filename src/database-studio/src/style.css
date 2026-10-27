@@ -1,0 +1,23 @@
+:root { --bg:#0b1020; --ink:#e8eefc; --muted:#93a0c0; --accent:#6ea8ff; --panel:#141a2c; --font:'DM Sans',system-ui,sans-serif; }
+* { box-sizing:border-box; }
+body { margin:0; font-family:var(--font); color:var(--ink); background:radial-gradient(720px 380px at 10% -10%,#1a2a55,transparent 55%),var(--bg); }
+#app { max-width:1100px; margin:0 auto; padding:1rem; }
+.brand { display:flex; gap:.6rem; align-items:center; margin-bottom:1rem; }
+.brand h1 { margin:0; font-size:1.25rem; }
+.brand img { border-radius:.45rem; }
+.layout { display:grid; grid-template-columns:200px 1fr; gap:.75rem; }
+@media (max-width:800px){ .layout{ grid-template-columns:1fr; } }
+.panel, .work { background:var(--panel); border:1px solid rgba(255,255,255,.08); border-radius:1rem; padding:.85rem; }
+.panel h2 { margin:0 0 .5rem; font-size:.95rem; }
+#tables { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.35rem; }
+#tables button { width:100%; text-align:left; font:inherit; font-weight:600; padding:.45rem .6rem; border-radius:.5rem; border:1px solid transparent; background:transparent; color:var(--ink); cursor:pointer; }
+#tables button:hover { background:rgba(110,168,255,.12); }
+textarea { width:100%; font:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:.85rem; padding:.65rem; border-radius:.55rem; border:1px solid rgba(255,255,255,.12); background:#0c1220; color:var(--ink); resize:vertical; }
+.row { display:flex; gap:.75rem; align-items:center; margin:.65rem 0; }
+.btn { font:inherit; font-weight:700; border:0; border-radius:.55rem; padding:.5rem .85rem; background:var(--accent); color:#061018; cursor:pointer; }
+#status { color:var(--muted); font-size:.85rem; margin:0; }
+#grid table { width:100%; border-collapse:collapse; font-size:.9rem; }
+#grid th, #grid td { border-bottom:1px solid rgba(255,255,255,.08); padding:.4rem .5rem; text-align:left; }
+#grid th { color:var(--muted); font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; }
+.help { margin-top:1rem; color:var(--muted); }
+.help summary { cursor:pointer; color:var(--ink); font-weight:700; }
