@@ -81,6 +81,18 @@ describe('AI tools: changing and deleting charts', () => {
     expect(wb.chartById(id, chartId).stacked).toBe(false);
   });
 
+  it('leaves a pivot chart drawing its pivot table, in a type Excel allows', () => {
+    const { wb, id, run, json } = setup();
+    const { id: chartId } = json('create_chart', { data_range: 'A1:C5', type: 'column' });
+    wb.updateChart(id, chartId, { pivotSource: { name: 'Sheet1!PivotTable1', standalone: false } });
+    expect(json('get_sheet_details', {}).charts[0].pivot_table).toBe('Sheet1!PivotTable1');
+    wb.clearHistory();
+    expect(run('update_chart', { chart: chartId, data_range: 'A1:B5' }).content).toMatch(/is a pivot chart of Sheet1!PivotTable1: it draws that pivot table/);
+    expect(run('update_chart', { chart: chartId, type: 'scatter' }).content).toMatch(/a pivot chart cannot be a scatter chart/);
+    expect(wb.undoLabels(5)).toEqual([]);
+    expect(json('update_chart', { chart: chartId, type: 'line', title: 'By month' }).changed).toEqual(['type: line', 'title']);
+  });
+
   it('refuses stacking a pie, data on another sheet, and a protected sheet', () => {
     const { wb, id, run, json } = setup();
     const { id: chartId } = json('create_chart', { data_range: 'A1:B5', type: 'pie' });

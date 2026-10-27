@@ -2193,6 +2193,8 @@ function chartNamed(wb, text) {
 }
 
 const STACKABLE = new Set(['column', 'bar', 'line', 'area']);
+// The types Excel does not make a pivot chart of.
+const NO_PIVOT_CHART = new Set(['scatter', 'bubble', 'stock', 'treemap', 'sunburst', 'histogram', 'boxWhisker', 'waterfall', 'funnel']);
 // The Change Chart Type subtype a type (and stacking, to 100% or not) means, so a type change keeps what both types
 // share as the dialog does. A type missing here is a subtype of its own name.
 const stacking = (stacked, full) => (stacked ? (full ? 'Stacked100' : 'Stacked') : '');
@@ -2213,6 +2215,7 @@ function themeChartFont(wb) {
 function updateChart(wb, args, env) {
   const { sheet, chart } = chartNamed(wb, args.chart);
   assertWritable(wb, sheet.id, null);
+  const pivot = chart.pivotSource?.name ? clip(chart.pivotSource.name, 120) : null;
   const patch = {};
   const changes = [];
   const kept = [];
@@ -2220,6 +2223,7 @@ function updateChart(wb, args, env) {
     const type = String(args.type ?? chart.type);
     if (!CHART_TYPES.some(([t]) => t === type)) throw new ToolError(`type must be one of ${CHART_TYPES.map(([t]) => t).join(', ')}.`);
     if (args.stacked && !STACKABLE.has(type)) throw new ToolError(`A ${type} chart cannot be stacked; only column, bar, line and area charts can.`);
+    if (pivot && NO_PIVOT_CHART.has(type)) throw new ToolError(`The chart is a pivot chart of ${pivot}, and a pivot chart cannot be a ${type} chart (as in Excel).`);
     // Only what is given changes: a stacked column chart made a bar chart is a stacked bar chart, not a clustered one,
     // and one stacked to 100% stays so (the call has no way to ask for 100%, so it never takes it away unasked).
     const stacked = STACKABLE.has(type) && (args.stacked ?? (STACKABLE.has(chart.type) && !!chart.stacked));
@@ -2238,6 +2242,9 @@ function updateChart(wb, args, env) {
     }
   }
   if (args.data_range != null) {
+    // A pivot chart draws its pivot table, which Excel keeps it to: series over cells of its own are lost, or the file
+    // is repaired, when Excel next reads it.
+    if (pivot) throw new ToolError(`The chart is a pivot chart of ${pivot}: it draws that pivot table, so its data changes with the pivot table's fields, not with a range.`);
     if (sheet.kind === 'chart') throw new ToolError(`The chart on the chart sheet "${sheet.name}" reads its series from references of its own; the user can change them with Select Data.`);
     const { sheetId, range } = resolveRange(wb, args.data_range, sheet.id);
     if (sheetId !== sheet.id) throw new ToolError(`The chart is on ${sheet.name}; its data must be on that sheet too.`);
