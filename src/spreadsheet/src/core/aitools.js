@@ -3627,8 +3627,12 @@ export function describeCall(wb, name, args = {}, env) {
       const n = area ? filledCells(wb, plan.dest.sheetId, area) : 0;
       // Its cells written over another formula's spilled results block them, as a value typed there would.
       const spills = built ? pivotSpillsHit(wb, plan.dest, built).length : 0;
+      // A filter cell's dropdown takes the place of a rule the user gave exactly that cell.
+      const rules = (built?.filterCells || []).map(({ r, c }) => ({ r: plan.dest.at.r + r, c: plan.dest.at.c + c }))
+        .map(({ r, c }) => ({ r, c, rule: sameRangeValidation(wb, plan.dest.sheetId, { r1: r, c1: c, r2: r, c2: c }) })).filter(({ rule }) => rule);
       const at = area ? qualified(wb, plan.dest.sheetId, area) : qualified(wb, plan.dest.sheetId, { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r, c2: plan.dest.at.c });
-      const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
+      const detail = [n && `Replaces ${holding(n)}.`, spills && blocksSpills(spills),
+        rules.length && `Replaces the ${rules.every(({ rule }) => rule.type === 'list') ? 'dropdown' : 'validation rule'} on ${rules.map(({ r, c }) => cellName(r, c)).join(', ')} with the filter's dropdown.`].filter(Boolean).join(' ');
       return { label: `Add a pivot table of ${src} (${clip(what, 80)}) at ${at}`, destructive: !!detail, detail: detail || null };
     }
     case 'create_chart': return { label: `Add a ${args.type || 'column'} chart of ${at(args.data_range).text}` };

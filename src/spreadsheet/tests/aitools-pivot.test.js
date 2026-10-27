@@ -108,6 +108,14 @@ describe('create_pivot_table', () => {
     expect(wb.validationAt(id, 0, 6).source[0]).toBe('(All)');
   });
 
+  it('asks before its filter dropdown takes the place of a rule on that cell', () => {
+    const { wb, id, env } = setup();
+    wb.addValidation(id, { range: { r1: 0, c1: 6, r2: 0, c2: 6 }, type: 'list', source: ['a', 'b'] });
+    const args = { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Rep', destination: 'F1' };
+    expect(describeCall(wb, 'create_pivot_table', args, env)).toMatchObject({ destructive: true, detail: 'Replaces the dropdown on G1 with the filter\'s dropdown.' });
+    expect(describeCall(wb, 'create_pivot_table', { ...args, destination: 'F2' }, env)).toMatchObject({ destructive: false });
+  });
+
   it('asks before putting it over cells that hold data, and clears the block it takes', () => {
     const { wb, id, env, run } = setup();
     run('write_cells', { start_cell: 'G2', values: [['old'], ['old'], [null], [null], ['keep me out']] });
