@@ -264,6 +264,18 @@ describe('move_range', () => {
     expect(callTarget(wb, 'move_range', { source: 'A1:B2', destination: 'K1' }, env).range).toEqual({ r1: 0, c1: 10, r2: 1, c2: 11 });
   });
 
+  it('warns of a spill it blocks, but not of one moving with the cells, and says when it blocked one', () => {
+    const { wb, id, env, run, json } = setup();
+    wb.setInput(id, 0, 9, '=SEQUENCE(3)');
+    // The array moves along with its rows: nothing is blocked, and nothing is asked.
+    expect(describeCall(wb, 'move_range', { source: 'J1:J3', destination: 'J2' }, env)).toMatchObject({ destructive: false });
+    expect(describeCall(wb, 'move_range', { source: '1:4', destination: 'A2' }, env).detail ?? '').not.toMatch(/SPILL/);
+    // A value moved into its results blocks them.
+    wb.setInput(id, 9, 0, 9);
+    expect(describeCall(wb, 'move_range', { source: 'A10', destination: 'J2' }, env).detail).toMatch(/#SPILL!/);
+    expect(json(run('move_range', { source: 'A10', destination: 'J2' })).spills_blocked[0]).toMatch(/^Sheet1!J1 now shows #SPILL!/);
+  });
+
   it('asks before a move or a copy takes comment threads off where it lands, and counts notes only when a copy replaces them', () => {
     const { wb, id, env, run } = setup();
     addComment(wb, id, 0, 10, 'Check this', 'Ann');

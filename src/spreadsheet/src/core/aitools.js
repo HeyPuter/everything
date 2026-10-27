@@ -1425,6 +1425,7 @@ function moveRangeTool(wb, args, env) {
   if (!whole && !wb.canEnsureSize(dstId, dst.r2 + 1, dst.c2 + 1)) throw new ToolError('The cells would run past the edge of the sheet.');
   assertWritable(wb, sheetId, src);
   assertWritable(wb, dstId, dst);
+  const hit = whole ? [] : spillsHit(wb, dstId, dst).filter((a) => across || !within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src));
   let done = null;
   wb.transaction('AI edit', () => {
     if (!across) { done = wb.moveRange(sheetId, src, r0, c0); return; }
@@ -1433,7 +1434,8 @@ function moveRangeTool(wb, args, env) {
   });
   if (!done) throw new ToolError(moveProblem(wb, sheetId, src, dstId, dst));
   const errors = whole ? [] : formulaErrors(wb, dstId, dst);
-  return { moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst), ...(errors.length ? { formula_errors: errors } : {}) };
+  const blocked = blockedSpills(wb, dstId, hit);
+  return { moved: qualified(wb, sheetId, src), to: qualified(wb, dstId, dst), ...(errors.length ? { formula_errors: errors } : {}), ...(blocked.length ? { spills_blocked: blocked.slice(0, 8) } : {}) };
 }
 
 /** Why Replace leaves a match alone, as Find & Replace says it. */
@@ -3522,7 +3524,8 @@ export function describeCall(wb, name, args = {}, env) {
             threads = notesIn(wb, to.sheetId, { r1: to.range.r1, c1: to.range.c1, r2: to.range.r1 + lines.rows - 1, c2: to.range.c1 + lines.cols - 1 }, 'comments');
           }
         }
-        spills = spillsHit(wb, to.sheetId, to.range).length;
+        // An array formula moving with the cells takes its results along: it blocks nothing.
+        spills = spillsHit(wb, to.sheetId, to.range).filter((a) => !(move && src.s === to.sheetId && within({ r1: a.r, c1: a.c, r2: a.r, c2: a.c }, src.range))).length;
       }
       const annotations = [notes && plural(notes, 'note'), threads && plural(threads, 'comment thread')].filter(Boolean);
       const detail = [replaced && `Replaces ${holding(replaced)}.`, annotations.length && `Replaces ${annotations.join(' and ')} there.`, spills && blocksSpills(spills)].filter(Boolean).join(' ');
