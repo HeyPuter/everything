@@ -312,7 +312,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     queueMicrotask(grow);
     return el('div.wcc-editor', {}, input, mentions, el('div.wcc-actions', {}, cancel, submit));
   }
-  function entry(comment, thread, isRoot) {
+  function entry(comment, thread, isRoot, names) {
     const editable = !!ready();
     const more = el('button.icon-btn.wcc-more', { type: 'button', 'aria-label': `More thread actions for ${comment.author || 'comment'}`, title: 'More thread actions', disabled: !editable,
       onclick: () => openMenu({ anchor: more, label: 'Comment actions', items: [
@@ -324,10 +324,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
     const body = editing === comment.id
       ? textEditor({ value: comment.text, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; run(() => editor().model.editComment(comment.id, text)); refresh(true); }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
-      : el('div.wcc-text', {}, ...renderMentions(comment.text, hooks.people?.() || []));
+      // Only text with an @ can mention anyone.
+      : el('div.wcc-text', {}, ...renderMentions(comment.text, String(comment.text || '').includes('@') ? names() : []));
     return el(`div.wcc-entry${editing === comment.id ? '.is-editing' : ''}`, { dataset: { commentId: comment.id } }, head, body);
   }
-  function card(thread) {
+  function card(thread, names) {
     const done = thread.root.done, active = thread.id === activeId;
     const node = el(`article.ed-comment-card${done ? '.is-resolved' : ''}${active ? '.is-active' : ''}`, { dataset: { thread: thread.id }, tabIndex: 0, 'aria-label': `Comment by ${thread.root.author || 'unknown author'}${done ? ', resolved' : ''}` });
     node.addEventListener('click', e => { if (!e.target.closest('button, textarea')) selectThread(thread, { focusDocument: false }); });
@@ -337,7 +338,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
         el('div.wcc-text.is-clamped', {}, thread.root.text));
       return node;
     }
-    node.append(entry(thread.root, thread, true), ...thread.replies.map(reply => entry(reply, thread, false)));
+    node.append(entry(thread.root, thread, true, names), ...thread.replies.map(reply => entry(reply, thread, false, names)));
     if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !ready(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
     else if (ready()) node.append(el('div.wcc-reply', {}, textEditor({ placeholder: 'Reply', submitLabel: 'Reply',
       onSubmit: text => { run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); },
@@ -473,7 +474,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const focused = layer.contains(document.activeElement) ? document.activeElement : null;
       const keep = focused?.matches?.('textarea') ? { thread: focused.closest('[data-thread]')?.dataset.thread, value: focused.value, start: focused.selectionStart, end: focused.selectionEnd, draft: !!focused.closest('.ed-comment-draft') } : null;
       cards.clear();
-      const nodes = visible && commentsShown ? list.map(thread => { const node = card(thread); cards.set(thread.id, node); return node; }) : [];
+      // The review's people are found once for the whole column: finding them reads every tracked change, and
+      // doing that for each comment made rebuilding the column of a much-commented document slow.
+      let people = null;
+      const names = () => people ??= hooks.people?.() || [];
+      const nodes = visible && commentsShown ? list.map(thread => { const node = card(thread, names); cards.set(thread.id, node); return node; }) : [];
       if (visible && commentsShown && draft) nodes.push(draftCard());
       if (balloons.length) { const body = engine.session.body, documentText = body.text, summarize = formatSummaries(body); nodes.push(...balloons.map(change => balloonCard(change, documentText, summarize))); }
       layer.replaceChildren(...nodes);
