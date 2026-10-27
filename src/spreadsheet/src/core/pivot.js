@@ -467,6 +467,7 @@ function parseFields(text) {
 }
 
 /** The definition kept for the pivot table on a sheet: { source, area, fields } as their texts, or null. */
+export function readPivotDefinition(wb, sheetId) { return readDefinition(wb, sheetId); }
 function readDefinition(wb, sheetId) {
   const sheet = wb.sheet(sheetId);
   if (!sheet) return null;

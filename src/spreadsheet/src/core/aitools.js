@@ -28,9 +28,14 @@ import { CHART_TYPES } from './charts.js';
 import { formulaReachesOut } from './reaches-out.js';
 import { upperName } from './formula/tokenizer.js';
 import { dataBounds } from './aiformula.js';
-import { cellFromInput } from './workbook.js';
+import { cellFromInput, objectNoun } from './workbook.js';
 import { getThread } from './comments.js';
 import { tableRows } from './tables.js';
+import { sheetFilters, filterTable } from './sheet-filters.js';
+import { conditionalRuleGroups } from './conditional-groups.js';
+import { describeRule } from './condformat.js';
+import { VALIDATION_TYPES, VALIDATION_OPERATORS } from './validation.js';
+import { pivotDefinitionState, readPivotDefinition } from './pivot.js';
 
 /** A request the workbook refused, in words the model can act on. */
 export class ToolError extends Error {}
@@ -105,8 +110,9 @@ const fn = (name, description, properties = {}, required = []) => ({
 });
 
 export const TOOLS = [
-  fn('get_workbook_info', 'List the sheets (with the range their data occupies, frozen panes, tables and charts), the named ranges, the active sheet and the user\'s selection. Call this first when you need to know what is in the workbook.'),
-  fn('read_range', 'Read cells as the user sees them (formatted values), with the formulas behind them. Rows are numbered and columns tab-separated. Read before you change anything, and read again to check your work. Large ranges are cut; read the rest in further calls.', {
+  fn('get_workbook_info', 'List the sheets (with the range their data occupies, frozen panes, tables, charts, filters, pivot tables and how many rules and notes each has), the named ranges, the active sheet and the user\'s selection. Call this first when you need to know what is in the workbook.'),
+  fn('get_sheet_details', 'List what a sheet holds besides its values: conditional formatting and data validation rules, charts and their settings (with the ids the tools that change or remove them take), pivot tables, filters, merged cells, hidden rows and columns, sparklines, protected ranges, and which cells have notes or comments.', { sheet: SHEET }),
+  fn('read_range', 'Read cells as the user sees them (formatted values), with the formulas behind them, and their notes, comments, merged cells, links and hidden columns. Rows are numbered and columns tab-separated. Read before you change anything, and read again to check your work. Large ranges are cut; read the rest in further calls.', {
     range: RANGE,
     include_formulas: bool('List the formulas behind the cells (default true).'),
     include_formats: bool('Also describe number formats, bold, fills and colors (default false).'),
@@ -220,7 +226,7 @@ export const TOOLS = [
 ];
 
 export const TOOL_NAMES = new Set(TOOLS.map((t) => t.function.name));
-const READ_TOOLS = new Set(['get_workbook_info', 'read_range', 'calculate', 'find', 'select_range']);
+const READ_TOOLS = new Set(['get_workbook_info', 'get_sheet_details', 'read_range', 'calculate', 'find', 'select_range']);
 
 /** Does this tool change the workbook? */
 export const changesWorkbook = (name) => TOOL_NAMES.has(name) && !READ_TOOLS.has(name);
@@ -468,7 +474,11 @@ function readRange(wb, args, env) {
   // Whole columns (or rows) from where their data begins: A:Z over data from row 300 read 96 empty rows from A1, each
   // read "cut short" and pointing on to the next.
   const data = dataOfLines(wb, sheetId, asked);
-  if (!data) return `${qualified(wb, sheetId, asked)} is empty.`;
+  if (!data) {
+    // Cells with no values may still hold notes, comments or links.
+    const extras = cellExtras(wb, sheetId, asked);
+    return extras.length ? [`${qualified(wb, sheetId, asked)} holds no values.`, ...extras].join('\n') : `${qualified(wb, sheetId, asked)} is empty.`;
+  }
   const width = data.c2 - data.c1 + 1;
   const maxRows = Math.max(1, Math.floor(MAX_READ_CELLS / width));
   const shown = { ...data, r2: Math.min(data.r2, data.r1 + maxRows - 1), c2: Math.min(data.c2, data.c1 + Math.max(0, MAX_READ_CELLS - 1)) };
@@ -502,7 +512,81 @@ function readRange(wb, args, env) {
     const formats = formatLines(wb, sheetId, shown);
     if (formats.length) out.push('Formats:', ...formats);
   }
+  // Notes and the like over the whole range asked, which may reach past its values; over what was shown when the read was cut.
+  out.push(...cellExtras(wb, sheetId, shown.r2 < data.r2 || shown.c2 < data.c2 ? shown : asked));
   return out.join('\n');
+}
+
+/** "C, E:G" or "5:7, 20": sorted line numbers as runs, columns by letter. */
+function lineRuns(indices, axis, limit = 40) {
+  const sorted = [...new Set(indices)].sort((a, b) => a - b);
+  const runs = [];
+  for (const i of sorted) {
+    const last = runs.at(-1);
+    if (last && i === last[1] + 1) last[1] = i; else runs.push([i, i]);
+  }
+  const name = (i) => (axis === 'col' ? colName(i) : String(i + 1));
+  const text = runs.slice(0, limit).map(([a, b]) => (a === b ? name(a) : `${name(a)}:${name(b)}`)).join(', ');
+  return runs.length > limit ? `${text} and ${runs.length - limit} more` : text;
+}
+
+const overlaps = (a, b) => a.r1 <= b.r2 && a.r2 >= b.r1 && a.c1 <= b.c2 && a.c2 >= b.c1;
+
+/** The cells of a sheet's map (notes, comment threads) that lie in a range, row by row. */
+function keyedIn(map, range) {
+  if (!map?.size) return [];
+  return [...map.keys()].map((key) => ({ key, ...parseKey(key) }))
+    .filter(({ r, c }) => r >= range.r1 && r <= range.r2 && c >= range.c1 && c <= range.c2)
+    .sort((a, b) => a.r - b.r || a.c - b.c);
+}
+
+/** A comment thread as one line: who wrote what, its replies after. */
+function threadText(thread, most = 6) {
+  const items = thread.items.slice(0, most).map((i) => `${plain(i.author || 'Someone')}: ${clip(plain(i.text), 600)}`);
+  const more = thread.items.length - most;
+  return `${items.join(' / ')}${more > 0 ? ` / (${more} more replies)` : ''}`;
+}
+
+/**
+ * What a read shows besides values and formulas, as the user sees it on the cells: their notes and comment threads
+ * (the user's own writing), merged blocks, links, hidden columns, and whether rules apply there. Without these the
+ * model could not answer "what do the comments say", wrote a note over one it never saw, and took a merged title for
+ * a value in each of its cells.
+ */
+function cellExtras(wb, sheetId, range) {
+  const sheet = wb.sheet(sheetId);
+  const out = [];
+  const name = (r, c) => cellName(r, c);
+  const notes = keyedIn(sheet.notes, range);
+  if (notes.length) {
+    out.push('Notes:', ...notes.slice(0, 100).map(({ key, r, c }) => `${name(r, c)}: ${clip(plain(sheet.notes.get(key)), 1000)}`));
+    if (notes.length > 100) out.push(`(${notes.length - 100} more notes; read a smaller range to see them.)`);
+  }
+  const threads = keyedIn(sheet.comments, range);
+  if (threads.length) {
+    out.push('Comments:', ...threads.slice(0, 60).map(({ key, r, c }) => {
+      const t = sheet.comments.get(key);
+      return `${name(r, c)}${t.done ? ' (resolved)' : ''}: ${threadText(t)}`;
+    }));
+    if (threads.length > 60) out.push(`(${threads.length - 60} more comment threads; read a smaller range to see them.)`);
+  }
+  const merges = (wb.mergesIn?.(sheetId, range) || []).slice(0, 60);
+  if (merges.length) out.push(`Merged cells (each shows its top-left cell's value): ${merges.map(rangeName).join(', ')}`);
+  const links = [];
+  for (const [key, cell] of sheet.cells) {
+    if (!cell?.hyperlink || links.length >= 60) continue;
+    const { r, c } = parseKey(key);
+    if (r < range.r1 || r > range.r2 || c < range.c1 || c > range.c2) continue;
+    const link = wb.linkAt(sheetId, r, c);
+    if (link) links.push(`${name(r, c)} → ${clip(plain(link.url), 300)}`);
+  }
+  if (links.length) out.push('Links:', ...links.sort());
+  const hiddenCols = [];
+  for (let c = range.c1; c <= range.c2; c++) if (wb.isHidden?.(sheetId, 'col', c)) hiddenCols.push(c);
+  if (hiddenCols.length) out.push(`Hidden columns: ${lineRuns(hiddenCols, 'col')}`);
+  const ruled = [(sheet.rules || []).some((rule) => overlaps(rule.range, range)) && 'conditional formatting', (sheet.validations || []).some((v) => overlaps(v.range, range)) && 'data validation'].filter(Boolean);
+  if (ruled.length) out.push(`(Part of this range has ${ruled.join(' and ')}; get_sheet_details lists the rules.)`);
+  return out;
 }
 
 function workbookInfo(wb, env) {
@@ -520,12 +604,128 @@ function workbookInfo(wb, env) {
         ...(s.frozenRows || s.frozenCols ? { frozen: { rows: s.frozenRows || 0, columns: s.frozenCols || 0 } } : {}),
         ...(s.protected ? { protected: true } : {}),
         ...(s.tables?.length ? { tables: s.tables.map((t) => ({ name: t.name, range: rangeName(t.range), columns: wb.tableColumns(s.id, t) })) } : {}),
-        ...(s.charts?.length ? { charts: s.charts.filter((c) => c.type !== 'image' && c.type !== 'text' && c.type !== 'smartart').map((c) => ({ type: c.type, title: c.title || undefined, data: c.range ? rangeName(c.range) : undefined })) } : {}),
+        ...(chartsOf(s).length ? { charts: chartsOf(s).map((c) => ({ id: c.id, type: c.type, title: c.title || undefined, data: c.range ? rangeName(c.range) : undefined })) } : {}),
+        ...(sheetFilters(s).length ? { filtered: sheetFilters(s).map((f) => rangeName(f.range)).join(', ') } : {}),
+        ...(pivotsOf(wb, s).length ? { pivot_tables: pivotsOf(wb, s).map((p) => p.name) } : {}),
+        ...(s.rules?.length ? { conditional_formats: conditionalRuleGroups(s.rules).length } : {}),
+        ...(s.validations?.length ? { validation_rules: s.validations.length } : {}),
+        ...(s.notes?.size || s.comments?.size ? { notes: s.notes?.size || 0, comment_threads: s.comments?.size || 0 } : {}),
       };
     }),
-    named_ranges: (wb.names || []).slice(0, 100).map((n) => ({ name: n.name, refers_to: n.ref, ...(n.sheet ? { scope: n.sheet } : {}) })),
+    // Hidden names are the app's own bookkeeping (a pivot table's or Solver's definition), not the user's names.
+    named_ranges: (wb.names || []).filter((n) => !n.hidden).slice(0, 100).map((n) => ({ name: n.name, refers_to: n.ref, ...(n.sheet ? { scope: n.sheet } : {}) })),
   };
 }
+
+/** A sheet's charts: the objects that are not pictures, shapes, text, SmartArt, slicers or controls. */
+const chartsOf = (sheet) => (sheet.charts || []).filter((c) => objectNoun(c) === 'chart');
+
+/**
+ * A sheet's pivot tables: those read from a file (kept as Excel wrote them) and the one Insert ▸ PivotTable built,
+ * whose definition its sheet keeps for Refresh.
+ */
+function pivotsOf(wb, sheet) {
+  const out = (wb.nativePivots?.tables || []).filter((p) => p.owner === sheet.id).map((p) => ({ name: p.name, location: p.ref }));
+  const built = sheet.kind === 'chart' ? null : readPivotDefinition(wb, sheet.id);
+  if (built) {
+    const { row, col, value, agg, filter } = built.fields;
+    out.push({ name: 'PivotTable', location: built.area, source: built.source, fields: { rows: row ?? undefined, columns: col ?? undefined, values: value ? `${agg || 'sum'} of ${value}` : undefined, filter: filter ?? undefined },
+      ...(pivotDefinitionState(wb, sheet.id) === 'changed' ? { note: 'Its cells have been changed since it was built, so Refresh leaves it alone.' } : {}) });
+  }
+  return out;
+}
+
+/** A cell style a rule paints, in words. */
+function ruleStyleText(style) {
+  if (!style) return undefined;
+  const parts = [style.bg && `fill ${fillColorCss(style.bg)}`, typeof style.color === 'string' && `text ${style.color}`, style.bold && 'bold', style.italic && 'italic', style.strike && 'strikethrough', style.underline && 'underline'].filter(Boolean);
+  return parts.length ? parts.join(', ') : undefined;
+}
+
+/** A validation rule in words: what the cells may hold. */
+function validationText(v) {
+  const label = VALIDATION_TYPES.find((t) => t.value === v.type)?.label || v.type;
+  if (v.type === 'list') {
+    const src = Array.isArray(v.source) ? v.source.slice(0, 50).map((o) => clip(String(o), 80)).join(', ') : String(v.source ?? '');
+    return `${label}: ${src}`;
+  }
+  if (v.type === 'formula') return `${label}: ${v.source ?? ''}`;
+  if (v.type === 'any' || v.type === 'checkbox') return label;
+  const op = v.operator || 'between';
+  const bounds = op === 'between' || op === 'notBetween' ? `${v.min ?? '…'} and ${v.max ?? '…'}` : `${v.min ?? ''}`;
+  return `${label}, ${(VALIDATION_OPERATORS.find(([k]) => k === op)?.[1] || op).toLowerCase()} ${bounds}`;
+}
+
+/**
+ * Everything on a sheet besides its cells' values: what read_range does not show. Each list is held to a length,
+ * and says when there is more. Ids are what update_chart, delete_chart, remove_conditional_format and
+ * remove_validation take.
+ */
+function sheetDetails(wb, args, env) {
+  const sheet = sheetNamed(wb, args.sheet, env.sheetId());
+  const most = 80;
+  const list = (items, map) => {
+    const shown = items.slice(0, most).map(map);
+    if (items.length > most) shown.push(`(${items.length - most} more)`);
+    return shown;
+  };
+  const charts = chartsOf(sheet);
+  const chartInfo = list(charts, (c) => ({
+    id: c.id, type: c.type, ...(c.name ? { name: c.name } : {}), ...(c.title ? { title: c.title } : {}),
+    ...(c.range ? { data: rangeName(c.range) } : {}),
+    ...(sheet.kind !== 'chart' && c.anchor ? { placed_at: cellName(c.anchor.r, c.anchor.c), size: `${Math.round(c.w)}×${Math.round(c.h)}px` } : {}),
+    ...(c.xTitle ? { x_title: c.xTitle } : {}), ...(c.yTitle ? { y_title: c.yTitle } : {}),
+    ...(c.stacked ? { stacked: true } : {}), ...(c.seriesIn && c.seriesIn !== 'auto' ? { series_in: c.seriesIn === 'cols' ? 'columns' : 'rows' } : {}),
+    ...(c.hidden ? { hidden: true } : {}),
+  }));
+  if (sheet.kind === 'chart') return { sheet: sheet.name, kind: 'chart sheet', charts: chartInfo };
+  const used = dataBounds(wb, sheet.id);
+  const groups = conditionalRuleGroups(sheet.rules || []);
+  const hiddenRows = [...(sheet.hiddenRows || [])];
+  const filterRows = [...(sheet.filterHidden || [])];
+  const out = {
+    sheet: sheet.name,
+    data: used ? rangeName(used) : 'empty',
+    ...(sheet.protected ? { protected: true } : {}),
+    ...(sheet.protectedRanges?.length ? { protected_ranges: list(sheet.protectedRanges, (p) => rangeName(p.range)) } : {}),
+    ...(sheet.tables?.length ? { tables: list(sheet.tables, (t) => ({ name: t.name, range: rangeName(t.range), ...(t.totalsRow ? { totals_row: true } : {}) })) } : {}),
+    ...(groups.length ? {
+      // In priority order: where rules overlap, the earlier one wins.
+      conditional_formats: list(groups, ({ rule, rules }) => ({
+        id: rule.id, applies_to: rules.map((p) => rangeName(p.range)).join(', '), rule: describeRule(rule),
+        ...(ruleStyleText(rule.style) ? { format: ruleStyleText(rule.style) } : {}),
+        ...(rule.type === 'scale' ? { colors: [rule.from, rule.mid, rule.to].filter(Boolean).join(' → ') } : {}),
+      })),
+    } : {}),
+    ...(sheet.validations?.length ? {
+      data_validation: list(sheet.validations, (v) => ({
+        id: v.id, range: rangeName(v.range), allows: validationText(v), ...(v.strict === false ? { strict: false } : {}),
+        ...(v.prompt ? { prompt: clip(plain(v.prompt), 200) } : {}),
+      })),
+    } : {}),
+    ...(sheet.merges?.length ? { merged_cells: lineList(sheet.merges.map(rangeName), 120) } : {}),
+    ...(hiddenRows.length ? { hidden_rows: lineRuns(hiddenRows, 'row') } : {}),
+    ...(sheet.hiddenCols?.size ? { hidden_columns: lineRuns([...sheet.hiddenCols], 'col') } : {}),
+    ...(sheetFilters(sheet).length ? {
+      filters: sheetFilters(sheet).map((f) => ({
+        range: rangeName(f.range), ...(filterTable(sheet, f) ? { table: filterTable(sheet, f).name } : {}),
+        ...(Object.keys(f.criteria || {}).length ? { filtered_columns: Object.keys(f.criteria).map((c) => colName(Number(c))).join(', ') } : {}),
+        rows_hidden: filterRows.filter((r) => r > f.range.r1 && r <= f.range.r2).length,
+      })),
+    } : {}),
+    ...(pivotsOf(wb, sheet).length ? { pivot_tables: pivotsOf(wb, sheet) } : {}),
+    ...(charts.length ? { charts: chartInfo } : {}),
+    ...(sheet.sparklineGroups?.length ? { sparklines: list(sheet.sparklineGroups, (g) => ({ type: g.type === 'stacked' ? 'win/loss' : g.type, cells: lineList(g.sparklines.map((s) => `${s.ref} ← ${s.formula ?? ''}`), 20) })) } : {}),
+    ...(sheet.notes?.size ? { notes: lineList(keyedIn(sheet.notes, FULL).map(({ r, c }) => cellName(r, c)), 120) } : {}),
+    ...(sheet.comments?.size ? { comment_threads: lineList(keyedIn(sheet.comments, FULL).map(({ r, c }) => cellName(r, c)), 120) } : {}),
+    ...(sheet.frozenRows || sheet.frozenCols ? { frozen: { rows: sheet.frozenRows || 0, columns: sheet.frozenCols || 0 } } : {}),
+  };
+  return out;
+}
+
+const FULL = { r1: 0, c1: 0, r2: MAX_ROW, c2: MAX_COL };
+/** Addresses joined, held to a count. */
+const lineList = (items, most) => `${items.slice(0, most).join(', ')}${items.length > most ? ` and ${items.length - most} more` : ''}`;
 
 function calculate(wb, args, env) {
   const sheet = sheetNamed(wb, args.sheet, env.sheetId());
@@ -1189,6 +1389,7 @@ function selectRange(wb, args, env) {
 
 const RUNNERS = {
   get_workbook_info: (wb, args, env) => workbookInfo(wb, env),
+  get_sheet_details: sheetDetails,
   read_range: readRange,
   calculate,
   find: (wb, args) => find(wb, args),
@@ -1281,6 +1482,7 @@ export function describeCall(wb, name, args = {}, env) {
   const blocksSpills = (n) => `Blocks the results ${n === 1 ? 'a formula spills' : `${n} formulas spill`} into these cells: ${n === 1 ? 'it' : 'they'} will show #SPILL!.`;
   switch (name) {
     case 'get_workbook_info': return { label: 'Look over the workbook' };
+    case 'get_sheet_details': return { label: `Look over the sheet ${sheetName(args.sheet)}` };
     case 'read_range': return { label: `Read ${at(args.range).text}` };
     case 'calculate': return { label: `Calculate ${clip(String(args.formula ?? ''), 80)}` };
     case 'find': return { label: `Search for “${clip(String(args.query ?? ''), 40)}”` };
