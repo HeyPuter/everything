@@ -137,6 +137,23 @@ describe('filter_range', () => {
     expect(wb.undoLabels(1)).toEqual(['AI edit']);
   });
 
+  it('shows a table\'s filter buttons again when it filters the table after they were hidden', () => {
+    const { wb, id, run } = setup();
+    run('create_table', { range: 'A1:D7', name: 'Sales' });
+    run('filter_range', { range: 'Sales', action: 'remove' });
+    // Removing it again is refused: the filter is already off.
+    expect(run('filter_range', { range: 'Sales', action: 'remove' }).content).toMatch(/already off/);
+    const before = wb.undoLabels().length;
+    run('filter_range', { range: 'Sales', columns: [{ column: 'Rep', values: ['Bo'] }] });
+    expect(hidden(wb, id)).toEqual([1, 3, 4, 5, 6]);
+    // Rows hidden with no buttons in the header row would leave nothing on screen to say why they went.
+    expect(tableFilterButtonOn(wb, id, wb.sheet(id).tables[0])).toBe(true);
+    expect(wb.undoLabels()).toHaveLength(before + 1);
+    wb.undo();
+    expect(tableFilterButtonOn(wb, id, wb.sheet(id).tables[0])).toBe(false);
+    expect(hidden(wb, id)).toEqual([]);
+  });
+
   it('refuses a range that crosses a table, and a protected sheet', () => {
     const { wb, id, run } = setup();
     run('create_table', { range: 'B1:C7', name: 'Reps' });

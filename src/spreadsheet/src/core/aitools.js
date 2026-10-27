@@ -36,6 +36,7 @@ import { dataBounds } from './aiformula.js';
 import { cellFromInput, objectNoun, safeLinkUrl } from './workbook.js';
 import { getThread, copyThreads, pasteThreads } from './comments.js';
 import { tableRows } from './tables.js';
+import { tableFilterButtonOn } from './table-header-row.js';
 import { sheetFilters, filterTable, sameFilterRange } from './sheet-filters.js';
 import { conditionalRuleGroups, clearRules } from './conditional-groups.js';
 import { eachStoredCell } from './sparse-range.js';
@@ -1873,6 +1874,7 @@ function filterRange(wb, args, env) {
     }
     // A table keeps its filter with the buttons hidden, as Data ▸ Filter leaves it: removed outright, its slicers would go too.
     if (table) {
+      if (!Object.keys(filter.criteria).length && !tableFilterButtonOn(wb, sheetId, table)) throw new ToolError(`The filter on ${table.name} is already off.`);
       wb.transaction('AI edit', () => {
         if (Object.keys(filter.criteria).length) wb._setFilter(sheet, { ...filter, criteria: {} }, 'AI edit', { target: filter });
         const live = sheetFilters(wb.sheet(sheetId)).find((f) => filterTable(sheet, f)?.id === table.id);
@@ -1896,6 +1898,9 @@ function filterRange(wb, args, env) {
   // A table's own filter is filtered in place; a list without one gets the sheet's filter, which takes the place of
   // any other one on the sheet (a sheet has one besides its tables' own), as Data ▸ Filter does.
   const next = { ...(filter || { range }), range: { ...range }, criteria };
+  // A table whose filter buttons are hidden (Table Design ▸ Filter Button off, or the filter removed) has its filter off:
+  // filtering it shows them again, as Data ▸ Filter does, or rows went missing with nothing in the header to say why.
+  if (table && filter && Object.keys(criteria).length && !tableFilterButtonOn(wb, sheetId, table)) { delete next.showButtons; delete next.hiddenButtons; }
   const replaced = !filter && !table ? sheetFilters(sheet).find((f) => !filterTable(sheet, f)) : null;
   wb._setFilter(sheet, next, 'AI edit', filter ? { target: filter } : { create: true });
   const after = sheetFilters(wb.sheet(sheetId)).find((f) => sameFilterRange(f, next));
