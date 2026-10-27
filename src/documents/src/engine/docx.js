@@ -985,9 +985,23 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
             }
           }else {
           useLink(boundary.link,container);
-          if(boundary.type==='start' && boundary.field.simple && p.fieldMarkers.some(m=>m.type==='end'&&m.field.id===boundary.field.id)){
+          // A tracked field writes its delimiters inside its insertion or deletion, so accepting or rejecting it
+          // (here or in another editor) removes the whole field, not just its result. A simple field cannot sit
+          // in a revision (§17.13.5.18 CT_RunTrackChange), so a tracked one is written with delimiters.
+          const tracked=boundary.field.revision;
+          if(!tracked && boundary.type==='start' && boundary.field.simple && p.fieldMarkers.some(m=>m.type==='end'&&m.field.id===boundary.field.id)){
             const wrapper=bodyFieldSimpleShell(boundary.field,doc);fieldContainer().append(wrapper);fieldContainers.push({node:wrapper,id:boundary.field.id});
-          }else if(boundary.type==='end'&&fieldContainers.at(-1)?.id===boundary.field.id){fieldContainers.pop();}
+          }else if(!tracked && boundary.type==='end'&&fieldContainers.at(-1)?.id===boundary.field.id){fieldContainers.pop();}
+          else if(tracked){
+            for(const node of bodyFieldBoundary(boundary,doc)){
+              // Deleted field code is w:delInstrText (§17.16, deleted field code), as deleted text is w:delText.
+              if(tracked.type==='del')for(const code of [...node.getElementsByTagNameNS(W,'instrText')]){
+                const deleted=make('delInstrText');for(const attr of [...code.attributes])deleted.setAttributeNode(attr.cloneNode(true));
+                deleted.append(...code.childNodes);code.replaceWith(deleted);
+              }
+              place(node,{revision:tracked});
+            }
+          }
           else parent.append(...bodyFieldBoundary(boundary,doc));
           }
           continue;
@@ -1465,8 +1479,8 @@ export class DocxPackage {
           if (next.done) { pendingChildren.pop(); continue; }
           const t = next.value;
           if (t === rPr) continue;
-          if (!context.drawingText && !context.pageStory && t.namespaceURI === W && ['fldChar','instrText'].includes(t.localName)) {
-            push();bodyFields.token(t,r,textPosition,fieldMarkers,link);continue;
+          if (!context.drawingText && !context.pageStory && t.namespaceURI === W && (['fldChar','instrText'].includes(t.localName) || t.localName === 'delInstrText' && currentRevision?.type === 'del')) {
+            push();bodyFields.token(t,r,textPosition,fieldMarkers,link,currentRevision);continue;
           }
           if (!context.drawingText && !context.pageStory && bodyFields.inCode) { if (bodyFields.absorb(t, r)) continue; throw new UnsupportedDocumentError('visible content inside a body field instruction'); }
           if (t.namespaceURI === W && t.localName === 't') text += runText(t);

@@ -4,7 +4,7 @@ import { typedScriptRuns } from './script-input.js';
 import {noteMarkRanges,noteMarkSelection} from './note-marks.js';
 import {bodySymbolText} from './body-symbols.js';
 import { plainTextFormattingRange, checkPlainTextObjects, formatPlainTextInputs } from './plain-text-controls.js';
-import { bodyFieldRanges, replacedBodyFields, placeBodyFields, renameBodyFieldBookmarks, macroButtonSelection } from './body-fields.js';
+import { bodyFieldRanges, replacedBodyFields, placeBodyFields, renameBodyFieldBookmarks, macroButtonSelection, setFieldRevision, removeFields } from './body-fields.js';
 import { synchronizeTocFormatting } from './toc-field-formatting.js';
 import { synchronizeFieldHyperlinks, unwrapEditedFieldHyperlinks } from './body-field-hyperlinks.js';
 import { selectedPictureControl, checkPictureControlEdit } from './picture-controls.js';
@@ -47,7 +47,7 @@ import { validatePageSettings, readingPageSize, DOCUMENT_PAGE_KEYS, SECTION_TYPE
 import { OBJECT, inlineSegments, validateImage, normalizeCrop, normalizedRotation, rotationOutsets, imageExtents, CROP_SIDES, isPositionedImage, nextDrawingId } from './images.js';
 import { outlineEntries, builtinOutlineLevel } from './outline.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
-import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision } from './revisions.js';
+import { eachRevisionTarget, revisionRanges, hasRevisions, runFormatChange, paragraphFormatChange, acceptFormatChange, rejectFormatChange, sharedRevision, sameRevision } from './revisions.js';
 import { footnoteReferenceRun } from './footnotes.js';
 import { commentAnchors, nextCommentId, addCommentMarkers, removeCommentMarkers, commentThread, checkedCommentText, initialsFor } from './comments.js';
 /** Original canvas engine. Positions are UTF-16 offsets in paragraphs joined by '\n'. */
@@ -2261,7 +2261,22 @@ export class TextDocument {
     const changes = () => (start === end ? this.revisionsAt(start, end) : revisionRanges(this.paragraphs).filter(r => r.start < end && r.end > start)).filter(r => only(r))
       .map(r => ({ ...r, start: start === end ? r.start : Math.max(start, r.start), end: start === end ? r.end : Math.min(end, r.end) }));
     let targets = changes();
-    if (!targets.length) return false;
+    // A field inserted or deleted as a whole is resolved with the change its result is part of, or, resolving a
+    // stretch of the document, whenever it lies inside it (an index entry or empty result has no text of its own).
+    // Its code goes with it: resolving only the result left an empty field behind.
+    const fieldTargets = !this.paragraphs.some(p => p.fieldMarkers?.length) ? [] : bodyFieldRanges(this.paragraphs).filter(f => f.field.revision && (
+      start !== end && start <= f.start && f.end <= end && only(f.field.revision) ||
+      targets.some(r => r.type !== 'format' && sameRevision(r, f.field.revision) && r.start <= f.start && f.end <= r.end)));
+    if (!targets.length && !fieldTargets.length) return false;
+    const fieldOutcomes = fieldTargets.map(({ field: { id, revision } }) => {
+      if (revision.type === 'ins') return { id, removed: !accept };
+      if (accept) return { id, removed: true };
+      // Rejecting the deletion of another reviewer's insertion brings that insertion back; rejecting a stretch
+      // rejects that insertion too when it is in scope, as for text.
+      if (!revision.inserted) return { id, removed: false, revision: null };
+      const insertion = { type: 'ins', ...revision.inserted };
+      return start !== end && only({ type: 'ins', author: insertion.author, date: insertion.date }) ? { id, removed: true } : { id, removed: false, revision: insertion };
+    });
     this.checkpoint();
     // Rejecting a deletion of another reviewer's insertion brings that insertion back. Rejecting a range (or
     // all changes) rejects that insertion too when it is in scope, as a second Reject All would have: the text
@@ -2275,7 +2290,7 @@ export class TextDocument {
       if (restored.size) { for (const p of restored) p.runs = normalize(p.runs); targets = changes(); }
     }
     this.trackingInternal = true;
-    const caret = targets[0].start;
+    const caret = targets[0]?.start ?? fieldTargets[0].start;
     try {
       // Changes that keep their text (formatting, and the side of a change being kept) first, while every
       // range still holds; then the removals, from the last, so each earlier range stays where it was.
@@ -2342,6 +2357,10 @@ export class TextDocument {
         }
       }
     } finally { this.trackingInternal = false; }
+    const removedFields = new Set(fieldOutcomes.filter(o => o.removed).map(o => o.id));
+    if (removedFields.size) removeFields(this.paragraphs, removedFields);
+    for (const outcome of fieldOutcomes) if (!outcome.removed) setFieldRevision(this.paragraphs, outcome.id, outcome.revision);
+    if (removedFields.size) this.hasBodyFields = this.paragraphs.some(p => p.fieldMarkers?.length);
     for (const p of this.paragraphs) p.runs = normalize(p.runs);
     // Removing a change can join the characters on either side of the caret into one.
     const at = nextBoundary(this.paragraphs, Math.min(caret, documentLength(this.paragraphs)));

@@ -2,9 +2,12 @@ import { UnsupportedDocumentError } from './errors.js';
 import { serializeFragment } from './docx-compatibility.js';
 import { fieldInstructionTokens, pageFieldInstruction, pageFieldSegments, writePageFieldResult } from './docx-page-fields.js';
 import { checkedHyperlinkDestination, hyperlinkId } from './hyperlinks.js';
+import { sameRevision } from './revisions.js';
 const W='http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const is=(n,name)=>n.namespaceURI===W && n.localName===name;
 const fail=message=>{throw new UnsupportedDocumentError(message);};
+// The same tracked insertion or deletion, including the insertion a deletion sits in.
+const sameChange=(a,b)=>sameRevision(a,b)&&JSON.stringify(a?.inserted||null)===JSON.stringify(b?.inserted||null);
 
 // Retain the authored TOC/PAGEREF instructions and cached results. This is not
 // their evaluator: opening/editing must not regenerate a manually edited TOC.
@@ -88,7 +91,17 @@ export function bodyFieldReader(nextOrder = () => 0) {
       if(properties)fragment.append(properties.cloneNode(true));fragment.append(node.cloneNode(true));
       active.opening+=serializeFragment(fragment);return true;
     },
-    token(node, run, offset, markers, link){
+    // `revision` is the tracked change the delimiter sits in. A field whose begin, separator and end
+    // delimiters share one change was inserted or deleted as a whole (§17.13.5.18, §17.13.5.14); the field
+    // keeps it as `revision`, so saving writes those delimiters back inside it.
+    token(node, run, offset, markers, link, revision=null){
+      // Deleted field code is w:delInstrText (§17.16, deleted field code). The retained envelope holds it as w:instrText; the
+      // field's deletion turns it back on save.
+      if(is(node,'delInstrText')&&revision?.type==='del'){
+        const code=node.ownerDocument.createElementNS(W,`${node.prefix?node.prefix+':':''}instrText`);
+        for(const attr of [...node.attributes])code.setAttributeNode(attr.cloneNode(true));
+        code.append(...[...node.childNodes].map(n=>n.cloneNode(true)));node=code;
+      }
       if(!is(node,'fldChar')&&!is(node,'instrText'))return false;
       const active=stack.at(-1);
       const fragment=run.cloneNode(false),properties=[...run.children].find(n=>is(n,'rPr'));
@@ -108,8 +121,9 @@ export function bodyFieldReader(nextOrder = () => 0) {
         active.opening+=source;return true;
       }
       if(kind==='begin'){
-        stack.push({field:{id:`bodyField${++count}`},opening:source,instruction:'',phase:'code',nested:[]});
+        stack.push({field:{id:`bodyField${++count}`},opening:source,instruction:'',phase:'code',nested:[],revision,tracked:!!revision});
       }else if(kind==='separate'&&active?.phase==='code'){
+        if(!sameChange(active.revision,revision))active.tracked=false;
         if(/^\s*HYPERLINK(?:\s|$)/i.test(active.instruction)){
           const {hyperlink}=bodyFieldInstruction(active.instruction);
           active.field.resultLink={...hyperlink,id:hyperlinkId(),fieldId:active.field.id};
@@ -120,6 +134,7 @@ export function bodyFieldReader(nextOrder = () => 0) {
         Object.assign(active.field,parsed(active.opening+source));
         if(active.field.type==='XE'&&active.phase!=='code')fail('an XE field with a result');
         if(active.field.hyperlink&&!active.field.resultLink)active.field.resultLink={...active.field.hyperlink,id:hyperlinkId(),fieldId:active.field.id};
+        if(active.tracked&&sameChange(active.revision,revision))active.field.revision=structuredClone(revision);
         markers.push({type:'end',offset,field:active.field,order:nextOrder(),...(link?{link}:{})});stack.pop();
       }else fail('an unmatched body field delimiter');
       return true;
