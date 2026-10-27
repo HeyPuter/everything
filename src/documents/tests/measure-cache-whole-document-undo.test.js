@@ -8,7 +8,8 @@ import { ParagraphMeasureCache } from '../src/engine/paragraph-measure-cache.js'
 // Formatting a whole document and then undoing it lays every paragraph out twice over. The measured
 // paragraphs were kept up to a fixed 10,000, so in a document of more than about 5,000 paragraphs
 // (table cells included) the formatting pushed out the measurements Undo needed, and Undo measured
-// the whole document again. The cache now keeps room for two measurements of every paragraph.
+// the whole document again. The cache now keeps room for two measurements of every paragraph (three:
+// the third for another view, measure-cache-views.test.js).
 const context = { fontKerning: 'auto', getTransform: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }), measureText: text => ({ width: [...text].length * 6 }) };
 const lay = (paragraphs, measure) => { measure.paragraphCache().nextGeneration(); return layoutDocument(paragraphs, measure, pageGeometry(DEFAULT_PAGE_SETTINGS)); };
 
@@ -33,6 +34,6 @@ it('undoes formatting the whole of a long document from the measurements it had'
 it('keeps its limit for short documents and never lowers it', () => {
   const cache = new ParagraphMeasureCache();
   cache.reserve(100); expect(cache.limit).toBe(10000);
-  cache.reserve(8000); expect(cache.limit).toBe(17000);
-  cache.reserve(10); expect(cache.limit).toBe(17000);
+  cache.reserve(8000); expect(cache.limit).toBe(25000);
+  cache.reserve(10); expect(cache.limit).toBe(25000);
 });

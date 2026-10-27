@@ -677,7 +677,8 @@ export class CanvasEditor {
   }
   /** Lay the body and its page stories out for a view (null: the authored pages). */
   computeLayout(view = this.view) {
-    this.measure.paragraphCache?.().nextGeneration();
+    // Each view keeps its last layout's measurements while another is shown (paragraph-measure-cache.js).
+    this.measure.paragraphCache?.().nextGeneration(view?.kind ?? null);
     const body = this.session.body;
     const stories = view ? viewPageStories(this.pageStories, view.kind) : this.pageStories;
     let layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, stories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}), ...(view ? { viewGeometry: viewGeometry(view) } : {}) });

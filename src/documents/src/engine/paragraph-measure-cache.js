@@ -130,7 +130,7 @@ function flowJson(measured, horizontal) {
 }
 
 export class ParagraphMeasureCache {
-  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); }
+  constructor(limit = 10000) { this.limit = limit; this.entries = new Map(); this.generation = 0; this.names = new Map(); this.nextName = 0; this.flowNames = new WeakMap(); this.flows = new Map(); this.stories = new Map(); this.cells = new Map(); this.view = null; this.viewGenerations = new Map(); }
   /** A page story measured earlier with the same inputs (page-story-measure.js), or undefined. */
   story(key) {
     const entry = this.stories.get(key);
@@ -140,12 +140,12 @@ export class ParagraphMeasureCache {
   }
   rememberStory(key, value) { this.stories.set(key, { value, used: this.generation }); }
   /**
-   * Keep room for two measurements of each of a document's `count` paragraphs. A change to all of
-   * them (formatting the whole document) then leaves their earlier measurements for Undo; past the
-   * fixed limit, a document of more than about 5,000 paragraphs, table cells included, measured
-   * everything again on Undo too.
+   * Keep room for three measurements of each of a document's `count` paragraphs: the current ones,
+   * earlier ones for Undo after a change to all of them (formatting the whole document), and those of
+   * the view last shown (nextGeneration). Past the fixed limit, a document of more than about 3,000
+   * paragraphs, table cells included, measured everything again on Undo or on going back to that view.
    */
-  reserve(count) { this.limit = Math.max(this.limit, count * 2 + 1000); }
+  reserve(count) { this.limit = Math.max(this.limit, count * 3 + 1000); }
   /**
    * A table cell's AutoFit content widths for `key` (layout.js names the cell's properties, borders,
    * paragraphs and list labels), computing them with `compute()` when no earlier layout did. Typing
@@ -185,15 +185,25 @@ export class ParagraphMeasureCache {
     return name;
   }
   /**
-   * The owner starts a new layout of its document: forget the paragraphs that none of the last
-   * few layouts used (versions replaced by edits), so memory follows the document's size.
+   * The owner starts a new layout of its document, for `view` (a name for what it lays out to: the
+   * printed pages or a screen view). Forget the paragraphs that none of the last few layouts used
+   * (versions replaced by edits), so memory follows the document's size; but keep those of the last
+   * layout for every other view. Paragraphs measured for another view (Web Layout, Draft) have other
+   * keys, and typing a few characters here would otherwise forget them all, so going back to that view
+   * measured the whole document again. The limit still bounds them: past it, the least recently used
+   * go first (measure).
    */
-  nextGeneration(keep = 4) {
+  nextGeneration(view = null, keep = 4) {
+    if (view !== this.view) { this.viewGenerations.set(this.view, this.generation); this.view = view; }
     this.generation++;
-    for (const [key, entry] of this.entries) if (entry.used < this.generation - keep) this.entries.delete(key);
-    for (const [text, name] of this.names) if (name.used < this.generation - keep) this.names.delete(text);
-    for (const [key, entry] of this.stories) if (entry.used < this.generation - keep) this.stories.delete(key);
-    for (const [key, entry] of this.cells) if (entry.used < this.generation - keep) this.cells.delete(key);
+    // The view shown again keeps its last layout's paragraphs for this one, which uses them.
+    const oldest = this.generation - keep, viewLasts = new Set(this.viewGenerations.values());
+    this.viewGenerations.delete(view);
+    const stale = entry => entry.used < oldest && !viewLasts.has(entry.used);
+    for (const [key, entry] of this.entries) if (stale(entry)) this.entries.delete(key);
+    for (const [text, name] of this.names) if (stale(name)) this.names.delete(text);
+    for (const [key, entry] of this.stories) if (stale(entry)) this.stories.delete(key);
+    for (const [key, entry] of this.cells) if (stale(entry)) this.cells.delete(key);
   }
   /**
    * The measured paragraph for `key` at document `offset`, measuring it with `measure()` on a miss.
@@ -231,5 +241,5 @@ export class ParagraphMeasureCache {
     }
     return measured;
   }
-  clear() { this.entries.clear(); this.names.clear(); this.flowNames = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
+  clear() { this.entries.clear(); this.names.clear(); this.viewGenerations.clear(); this.flowNames = new WeakMap(); this.flows.clear(); this.stories.clear(); this.cells.clear(); }
 }
