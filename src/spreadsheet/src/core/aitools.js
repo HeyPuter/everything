@@ -151,7 +151,7 @@ export const TOOLS = [
     range: RANGE,
     formula: str('The formula for the top-left cell, starting with =, e.g. "=C2*D2".'),
   }, ['range', 'formula']),
-  fn('clear_range', 'Clear cells: their contents, their formatting, or both. Clearing formats also takes conditional formatting off the cells and unmerges them, as Clear Formats does. Rows a filter hides are left as they are.', {
+  fn('clear_range', 'Clear cells: their contents, their formatting, or both. Clearing formats also takes conditional formatting off the cells and unmerges them, as Clear Formats does. Rows a filter hides are left as they are. Notes and comments stay, even with "all" (add_note with empty text removes a note).', {
     range: RANGE,
     what: str('"contents" (default), "formats", or "all".', { enum: ['contents', 'formats', 'all'] }),
   }, ['range']),
