@@ -22263,6 +22263,21 @@ Clause: §17.3.2.41 `vanish`. Documents with hidden text no longer open read-onl
 the text (search, copy and save keep them) and are laid out with no width; `revisionView.showHidden`
 lets a Show/Hide ¶ control lay them out. Tests: `tests/hidden-text.test.js`.
 
+## Document nesting limit (2026-10-26)
+
+ECMA-376 Part 1 sets no limit on how deeply `w:hyperlink`, `w:fldSimple`, `w:smartTag`,
+`w:customXml`, `w:sdt`, revisions, nested `w:tbl` or `m:oMath` content may nest. The readers walk
+the XML recursively, so a generated or hostile file nested thousands of levels deep exhausted the
+stack ("Maximum call stack size exceeded") and did not open; tables nested 800 deep took half a
+minute. A part whose elements nest more than 800 levels deep (`MAX_XML_DEPTH`; real documents stay
+far below, tables nested 60 deep are about 200 levels) is now refused by the structured reader with
+the issue "content nested more than 800 levels deep", and the document opens as a read-only
+preview of each paragraph's text (and equation characters), read without recursion. Formatting,
+macro-button labels and projected field results are not shown in that preview, and the original
+file downloads unchanged. Documents over the browser's own XML nesting limit (about 5,000 levels in
+Chrome) still fail with "The DOCX contains invalid XML." Tests: `tests/docx-nesting-limit.test.js`,
+`tests/browser/deep-nesting.spec.js`.
+
 ## Equations (2026-10-09)
 
 Clause: §22.1 Office Math. `m:oMath` and `m:oMathPara` no longer make a document read-only. Each
@@ -23870,9 +23885,10 @@ claim of full OOXML conformance or of layout fidelity with other consumers.
   operand followed by more terms before a relation) and run formatting other than plain style.
 - Nesting depth: an equation's structure is read to 400 elements deep (about 200 nested
   structures, far beyond Word's own equations). Deeper content shows, previews and reads into Edit
-  Equation as its plain characters, so a generated or hostile file nested thousands deep opens
-  instead of exhausting the stack; its `m:oMath` XML is still saved unchanged. Tests:
-  `tests/office-math.test.js`, `tests/browser/deep-equation.spec.js`.
+  Equation as its plain characters instead of exhausting the stack; its `m:oMath` XML is still
+  saved unchanged. A part nested more than 800 elements deep in all opens as a read-only text
+  preview (see Document nesting limit). Tests: `tests/office-math.test.js`,
+  `tests/browser/deep-equation.spec.js`.
   Typed linear input builds structures at most 48 levels deep (a chain such as `a/b/c/…` or a
   stack of accents counts one level per step); deeper brackets, roots, operators, accents and
   slashes stay literal characters, as other input that does not build up does. Tests:

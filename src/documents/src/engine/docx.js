@@ -23,7 +23,7 @@ import { readTextOutline, writeTextOutline, W14 } from './text-outline.js';
 import { readSectionColumns } from './section-columns.js';
 import { fontReader, writeFontProperties, removeFontProperty } from './docx-fonts.js';
 import { FONT_DEFAULTS } from './font-families.js';
-import { previewParagraphs } from './docx-preview.js';
+import { previewParagraphs, flatPreviewParagraphs } from './docx-preview.js';
 import { recordPreviewIssue } from './preview-issues.js';
 import { previewMacroButtons, readMacroButtonField, writeMacroButtonLabel } from './docx-macro-buttons.js';
 import { formatPageNumber } from './page-numbering.js';
@@ -86,7 +86,7 @@ import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS } from
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
-import { parseXml as xml, runText, setContentTypeOverride } from './docx-xml.js';
+import { parseXml as xml, runText, setContentTypeOverride, xmlDepthExceeds } from './docx-xml.js';
 import { emptyNumbering, levelFor, listMarkers } from './numbering.js';
 import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
@@ -1174,11 +1174,13 @@ export class DocxPackage {
     }
   }
   static preview(parts) {
-    const doc = xml(parts['word/document.xml']);
+    const doc = xml(parts['word/document.xml'], { depthLimit: Infinity });
     const body = [...doc.documentElement.children].find(n => n.localName === 'body');
     if (!body) throw new Error('The DOCX has no document body.');
-    projectCachedFieldResults(body);
-    const paragraphs = previewParagraphs(body);
+    // Content nested beyond what the recursive readers handle still shows its text.
+    const deep = xmlDepthExceeds(doc.documentElement);
+    if (!deep) projectCachedFieldResults(body);
+    const paragraphs = deep ? flatPreviewParagraphs(body) : previewParagraphs(body);
     if (!paragraphs.length) paragraphs.push(paragraph());
     if (documentText(paragraphs).length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     const pkg = new DocxPackage(parts, paragraphs, new Map(), DEFAULT_PAGE_SETTINGS, emptyNumbering(), emptyStyles());

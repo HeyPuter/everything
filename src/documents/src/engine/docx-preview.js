@@ -3,6 +3,7 @@ import { MC, alternateBranch } from './docx-compatibility.js';
 import { previewMacroButtons } from './docx-macro-buttons.js';
 import { runText } from './docx-xml.js';
 
+const MATH = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
 const children = node => [...(node?.children || [])];
 const word = (node, name) => WORD.has(node.namespaceURI) && node.localName === name;
@@ -11,21 +12,27 @@ const child = (node, name) => children(node).find(n => word(n, name));
 // A display-only projection. Never serialize this approximation over the source.
 // Walk visible content, not textContent: field instructions, deleted revisions,
 // property metadata and unused alternate branches are not document text.
+const SKIPPED = ['pPr', 'rPr', 'sectPr', 'tblPr', 'trPr', 'tcPr', 'sdtPr', 'del', 'moveFrom', 'instrText', 'delText'];
+const inlineText = (node, name) => name === 't' ? runText(node)
+  : name === 'tab' ? '\t' : ['br', 'cr'].includes(name) ? '\v'
+  : name === 'noBreakHyphen' ? '\u2011' : name === 'softHyphen' ? '\u00ad' : null;
+const chosenBranch = node => {
+  try { return alternateBranch(node); }
+  catch { return children(node).find(n => n.localName === 'Fallback') || children(node).find(n => n.localName === 'Choice'); }
+};
+
 export function previewParagraphs(root) {
   const result = [], runs = [];
   const flush = () => { result.push(paragraph('', { runs: runs.splice(0) })); };
   const walk = (node, format = {}) => {
     if (['p', 'sdtContent', 'hyperlink'].some(name => word(node, name))) node = previewMacroButtons(node);
     if (node.namespaceURI === MC && node.localName === 'AlternateContent') {
-      let branch;
-      try { branch = alternateBranch(node); }
-      catch { branch = children(node).find(n => n.localName === 'Fallback') || children(node).find(n => n.localName === 'Choice'); }
-      for (const n of children(branch)) walk(n, format);
+      for (const n of children(chosenBranch(node))) walk(n, format);
       return;
     }
     if (WORD.has(node.namespaceURI)) {
       const name = node.localName;
-      if (['pPr', 'rPr', 'sectPr', 'tblPr', 'trPr', 'tcPr', 'sdtPr', 'del', 'moveFrom', 'instrText', 'delText'].includes(name)) return;
+      if (SKIPPED.includes(name)) return;
       if (name === 'r') {
         const properties = child(node, 'rPr');
         format = { ...format };
@@ -34,9 +41,7 @@ export function previewParagraphs(root) {
           if (property) format[key] = !['false', '0', 'off'].includes(property.getAttributeNS(node.namespaceURI, 'val'));
         }
       }
-      const text = name === 't' ? runText(node)
-        : name === 'tab' ? '\t' : ['br', 'cr'].includes(name) ? '\v'
-        : name === 'noBreakHyphen' ? '\u2011' : name === 'softHyphen' ? '\u00ad' : null;
+      const text = inlineText(node, name);
       if (text !== null) { runs.push({ text, ...format }); return; }
       if (name === 'p') {
         if (runs.length) flush();
@@ -47,6 +52,31 @@ export function previewParagraphs(root) {
     for (const n of children(node)) walk(n, format);
   };
   walk(root);
+  if (runs.length) flush();
+  return result;
+}
+
+// The same text without walking recursively, for a document nested deeper than the recursive readers
+// handle (MAX_XML_DEPTH): each paragraph's text in order, with an equation's characters, but without
+// formatting, macro-button labels or projected field results.
+export function flatPreviewParagraphs(root) {
+  const result = [], end = {};
+  let runs = [];
+  const flush = () => { result.push(paragraph('', { runs })); runs = []; };
+  const pushChildren = (stack, node) => { const list = children(node); for (let i = list.length - 1; i >= 0; i--) stack.push(list[i]); };
+  for (const stack = [root]; stack.length;) {
+    const node = stack.pop();
+    if (node === end) { flush(); continue; }
+    if (node.namespaceURI === MC && node.localName === 'AlternateContent') { const branch = chosenBranch(node); if (branch) pushChildren(stack, branch); continue; }
+    if (WORD.has(node.namespaceURI)) {
+      const name = node.localName;
+      if (SKIPPED.includes(name)) continue;
+      const text = inlineText(node, name);
+      if (text !== null) { runs.push({ text }); continue; }
+      if (name === 'p') { if (runs.length) flush(); stack.push(end); }
+    } else if (node.namespaceURI === MATH && node.localName === 't') { runs.push({ text: node.textContent }); continue; }
+    pushChildren(stack, node);
+  }
   if (runs.length) flush();
   return result;
 }

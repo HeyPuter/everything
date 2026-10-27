@@ -3,11 +3,11 @@ import { readFileSync } from 'node:fs';
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate';
 import { onTab, downloadDocx } from './helpers/editor-tools.js';
 
-// An equation of brackets nested 1,500 deep: generated, not typed. Every reader that walks the equation
-// recursively (its display text, the preview, Edit Equation) used to exhaust the stack, so the whole
-// document failed to open with "Maximum call stack size exceeded".
+// An equation of brackets nested 390 deep: generated, not typed, and just inside the document nesting
+// limit (docx-xml.js). Equation readers walk 200 levels of it structurally (office-math.js) and read
+// the rest as text; walking all of it recursively once exhausted the stack.
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main', M = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
-const DEPTH = 1500;
+const DEPTH = 390;
 const equation = `<m:oMath>${'<m:d><m:e>'.repeat(DEPTH)}<m:r><m:t>x</m:t></m:r>${'</m:e></m:d>'.repeat(DEPTH)}</m:oMath>`;
 const docx = () => zipSync(Object.fromEntries(Object.entries({
   '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
