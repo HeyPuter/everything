@@ -78,6 +78,13 @@ describe('create_pivot_table', () => {
     expect(run('create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', filter: 'Quarter', filter_value: 'Q9' }).content).toMatch(/"Quarter" has no value "Q9"\. Some it has: "Q1", "Q2"/);
   });
 
+  it('names the new sheet in the question as the runner names it', () => {
+    const { wb, env } = setup();
+    const label = (name) => describeCall(wb, 'create_pivot_table', { data_range: 'A1:D6', rows: 'Region', values: 'Amount', new_sheet_name: name }, env).label;
+    expect(label('  ')).toBe('Add a pivot table of Sheet1!A1:D6 (sum of Amount by Region) on a new sheet "Pivot of Sheet1"');
+    expect(label(' Summary ')).toBe('Add a pivot table of Sheet1!A1:D6 (sum of Amount by Region) on a new sheet named Summary');
+  });
+
   it('names the date a filter starts on as the cell shows it', () => {
     const { wb, id, run } = setup();
     wb.applyStyle(id, { r1: 1, c1: 1, r2: 5, c2: 1 }, { fmt: 'custom', code: 'yyyy-mm-dd' });

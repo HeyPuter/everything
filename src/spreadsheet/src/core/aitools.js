@@ -3633,7 +3633,9 @@ export function describeCall(wb, name, args = {}, env) {
       const what = `${args.summarize || 'sum'} of ${args.values} by ${args.rows}${args.columns ? ` and ${args.columns}` : ''}`;
       if (!plan) return { label: `Add a pivot table (${clip(what, 80)})` };
       const src = qualified(wb, plan.source.sheetId, plan.source.range);
-      if (!plan.dest) return { label: `Add a pivot table of ${src} (${clip(what, 80)}) on a new sheet${args.new_sheet_name ? ` named ${args.new_sheet_name}` : ` "${pivotSheetName(wb, plan.source.sheetId)}"`}` };
+      // The sheet's name as the runner takes it: trimmed, and the default one when only spaces are given.
+      const named = args.new_sheet_name != null ? String(args.new_sheet_name).trim() : '';
+      if (!plan.dest) return { label: `Add a pivot table of ${src} (${clip(what, 80)}) on a new sheet${named ? ` named ${named}` : ` "${pivotSheetName(wb, plan.source.sheetId)}"`}` };
       let built = null;
       try { built = buildPivot(wb, plan.source.sheetId, plan.spec); } catch { /* the runner explains */ }
       const area = built && { r1: plan.dest.at.r, c1: plan.dest.at.c, r2: plan.dest.at.r + built.rows - 1, c2: plan.dest.at.c + built.cols - 1 };
