@@ -7485,6 +7485,22 @@ was re-exported and produced pixel-identical pages. Validation: 88 unit tests,
 schema checks, and production build/license checks pass. The corrected fixture
 also passed its six unit cases and browser case on rerun.
 
+### Editable page-number building blocks
+
+Word's Insert > Page Number designs save a header or footer whose paragraphs sit in
+one or two nested block-level `w:sdt` wrappers with `w:docPartObj`/`w:docPartGallery`
+"Page Numbers (Top of Page)" or "(Bottom of Page)" (§§17.5.2.29, 17.5.2.13). A story
+whose controls are all such block wrappers, with only `id`, `alias`, `tag`, `rPr` or an
+unlocked `lock` besides `docPartObj`, is now read through the body's block-control
+reader instead of being projected: it is editable, and saving writes each wrapper's
+original shell (properties and `sdtEndPr`) around its current paragraphs; an
+unedited story keeps its part byte for byte. Any other control in a header or
+footer (inline, locked, rich text, plain text…), and notes, keep the retained
+behavior above. If the control reader refuses a wrapper the story falls back to
+retained display. The independently authored `page-number-parts.docx`
+(`tests/fixtures/page-number-parts`) covers Top of Page, Bottom of Page with
+`sdtEndPr`, and a nested "Page X of Y" footer with PAGE and NUMPAGES.
+
 ## Retained page-story tables
 
 ECMA-376 Part 1 §§17.10.2/17.10.5 govern footer/header references; §17.4.38

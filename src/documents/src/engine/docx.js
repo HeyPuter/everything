@@ -1146,6 +1146,24 @@ function previewEmbeddedPackage(bytes) {
   } }));
   return DocxPackage.preview(parts).paragraphs;
 }
+
+// Word's page-number building blocks (Insert > Page Number, "Page X of Y") wrap a header or footer's
+// paragraphs in block-level document-part controls (§17.5.2.13 docPartObj), sometimes one inside another.
+// Such a story is edited like any other: the wrappers are kept as block controls and written back
+// around their paragraphs. Any other control (inline, locked, or of another kind) keeps the story retained.
+function documentPartStory(root) {
+  const controls = [...root.getElementsByTagNameNS(W, 'sdt')];
+  if (!controls.length || root.namespaceURI !== W || !['hdr', 'ftr'].includes(root.localName)) return false;
+  return controls.every(control => {
+    const parent = control.parentElement;
+    const block = parent === root || parent?.namespaceURI === W && parent.localName === 'sdtContent' && parent.parentElement?.localName === 'sdt' && parent.parentElement.parentElement && (parent.parentElement.parentElement === root || parent.parentElement.parentElement.localName === 'sdtContent');
+    const properties = children(control).find(n => n.namespaceURI === W && n.localName === 'sdtPr');
+    const own = properties ? children(properties) : [];
+    return block && own.some(n => n.namespaceURI === W && n.localName === 'docPartObj')
+      && own.every(n => n.namespaceURI === W && (['id', 'docPartObj', 'rPr', 'alias', 'tag'].includes(n.localName) || n.localName === 'lock' && n.getAttributeNS(W, 'val') === 'unlocked'));
+  });
+}
+
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
@@ -1907,10 +1925,11 @@ export class DocxPackage {
       const activeStories = pkg.pageStories ? activePageStoryPaths(pkg.pageStories) : new Set();
       for (const [path, story] of Object.entries(pkg.pageStories?.stories || {})) {
         if (!activeStories.has(path)) { story.paragraphs = []; story.tables = []; continue; }
-        story.paragraphs = attempt(() => {
+        const readStory = documentParts => {
           const root = xml(parts[path]).documentElement;
-          story.editable = !preview && !hasPageStoryControls(root);
-          if (preview) {
+          story.editable = !preview && (documentParts || !hasPageStoryControls(root));
+          if (documentParts) { /* Block document-part wrappers are read as block controls below. */ }
+          else if (preview) {
             projectControlContents(root);
             projectCachedFieldResults(root, styles, field => {
               // A picture result (INCLUDEPICTURE) shows as its picture in the preview.
@@ -1923,7 +1942,7 @@ export class DocxPackage {
           } else projectRetainedStoryControls(root);
           // Tables and relationships have story-local registries.
           // In preview, let readBlocks recover locally instead of losing the story.
-          if (children(root).some(n => n.namespaceURI !== W || !['p', 'tbl'].includes(n.localName))) unsupported('page story blocks not yet implemented');
+          if (children(root).some(n => n.namespaceURI !== W || !['p', 'tbl', ...(documentParts ? ['sdt'] : [])].includes(n.localName))) unsupported('page story blocks not yet implemented');
           // Story bookmarks still need an editable identity scope.
           // Runs, drawings, scoped hyperlinks and page fields use strict readers. Proofing marks
           // (§17.13.8.1 proofErr, cached spelling results) are left out of a rewritten story.
@@ -1935,6 +1954,12 @@ export class DocxPackage {
           documentBlocks(paragraphs, story.tables);
           checkMarkers(paragraphs);
           return paragraphs;
+        };
+        story.paragraphs = attempt(() => {
+          const documentParts = !preview && documentPartStory(xml(parts[path]).documentElement);
+          if (!documentParts) return readStory(false);
+          // Wrappers the control reader refuses keep the story retained, shown as before.
+          try { return readStory(true); } catch (error) { if (!(error instanceof UnsupportedDocumentError)) throw error; return readStory(false); }
         }, null);
         if (story.paragraphs) pkg.storyOriginals.set(path, {
           signature: JSON.stringify({ paragraphs: story.paragraphs, tables: story.tables }),
@@ -2219,7 +2244,7 @@ export class DocxPackage {
         root = children(doc.documentElement).find(n => n.namespaceURI === W && n.localName === element && n.getAttributeNS(W, 'id') !== null && BigInt(n.getAttributeNS(W, 'id')).toString() === noteId);
         if (!root) { root = doc.createElementNS(W, `w:${element}`); root.setAttributeNS(W, 'w:id', noteId); doc.documentElement.append(root); }
       }
-      if (hasPageStoryControls(root)) throw new Error('Page stories containing content controls are retained without editing.');
+      if (hasPageStoryControls(root) && (noteId !== null || !documentPartStory(root))) throw new Error('Page stories containing content controls are retained without editing.');
       if (paragraphs.some(p => p.sectionEnd || p.bookmarks?.length || p.pageStory && p.pageStory !== part)) throw new Error('Invalid page-story paragraph scope.');
       if (changedContentControls(paragraphs).size || changedBlockControls(paragraphs, tables).size) throw new Error('Modified page-story controls are not supported.');
       const blocks = documentBlocks(paragraphs, tables);
