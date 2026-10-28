@@ -17,7 +17,7 @@ import { dictionaryBreaks } from './dictionary-breaks.js';
 // spaces stay within a word; forced grapheme wrapping remains possible.
 // Floating anchors have zero text width and do not split the surrounding word.
 // `wordBreak` marks the end of a Thai, Lao, Khmer or Myanmar word, or a break beside an ideograph or kana (dictionary-breaks.js).
-export const breakAfter = (text, image, noBreakHyphen = false, wordBreak = false) => wordBreak || text === OBJECT && !isPositionedImage(image) || text === '\u00ad' || text === '-' && !noBreakHyphen || /\s/u.test(text) && !/[\u00a0\u202f\u2007]/u.test(text);
+export const breakAfter = (text, image, noBreakHyphen = false, wordBreak = false) => wordBreak || text === OBJECT && !isPositionedImage(image) || text === '\u00ad' || text === '-' && !noBreakHyphen || /\s/u.test(text) && !/[\u00a0\u202f\u2007\ufeff]/u.test(text);
 const shapeKey = style => `${(style.fontFamily || style.fontAscii || '').toLowerCase()}/${style.capitalization}/${style.bold}/${style.italic}/${style.fontSize}/${style.verticalAlign}/${style.baselineShift}/${style.characterSpacing}/${style.textScale}/${kerningEnabled(style)}`;
 function withoutTrailingSpaces(chars, page) {
   if (page.wrapTrailSpaces) return chars;

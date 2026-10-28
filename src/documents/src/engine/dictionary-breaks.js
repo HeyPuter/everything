@@ -25,10 +25,12 @@ const OPEN_SPACE = /[\s\ufffc]/u;
 // punctuation that follows it. U+2010 compounds stay together, as the reference controls under
 // tests/fixtures/hyphen-wrap show.
 const BREAK_AFTER = /[\u200b\u2013\u2014]/u;
+// A word joiner (or a zero-width no-break space) forbids a break on either side (UAX #14 class WJ).
+const WORD_JOINER = /[\u2060\ufeff]/u;
 function dashBreaks(text, breaks) {
   for (let index = 0; index < text.length - 1; index++) {
     const c = text[index], next = text[index + 1];
-    if (!BREAK_AFTER.test(c) || OPEN_SPACE.test(next) || c !== '\u200b' && (next === c || NO_START.has(next))) continue;
+    if (!BREAK_AFTER.test(c) || OPEN_SPACE.test(next) || WORD_JOINER.test(next) || c !== '\u200b' && (next === c || NO_START.has(next))) continue;
     breaks.add(index + 1);
   }
 }

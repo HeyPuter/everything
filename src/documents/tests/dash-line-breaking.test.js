@@ -31,3 +31,9 @@ it('sizes AutoFit cells to the widest part between dashes', () => {
   const metrics = text => cellIntrinsicWidths({ margins: { left: 0, right: 0 }, content: [{ paragraph: paragraph('', { format: { spaceAfter: 0 }, runs: [{ text }] }), index: 0 }] }, measure, page, undefined, []);
   expect(metrics('long—er—word')).toMatchObject({ min: 40, max: 96 });
 });
+
+it('never wraps at a zero-width no-break space or beside a word joiner', () => {
+  // U+FEFF counted as white space, so a line ended there and split the joined text.
+  expect(lines('aaaa bbbbbbbbbbbb\ufeffcccccccccccc', 25)).toEqual(['aaaa ', 'bbbbbbbbbbbb\ufeffcccccccccccc']);
+  expect(lines('x aaaa\u2014\u2060bbbb', 8)).toEqual(['x ', 'aaaa\u2014\u2060bb', 'bb']);
+});
