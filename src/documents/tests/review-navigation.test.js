@@ -63,3 +63,22 @@ it('Next and Previous pass over the changes and comments of reviewers hidden in 
     expect(review.commands.activeThread().start).toBe(2);
   } finally { revisionView.options.hiddenAuthors = []; }
 });
+
+it('leaves Track Changes as the document has it while protection allows only comments, forms or no changes', () => {
+  editor = new CanvasEditor(host, { paragraphs: [paragraph('Protected text.')], comments: [] });
+  let protection = { edit: 'comments', enforcement: true };
+  const errors = [];
+  review = createReview({ editor: () => editor, pkg: () => ({}), host: () => host, error: e => errors.push(e.message), author: () => 'Ada', hooks: { protection: () => protection } });
+  review.refresh(true);
+  const revision = editor.session.revision;
+  expect(review.commands.canTrack()).toBe(false);
+  review.commands.toggleTracking();
+  review.commands.setTrackingMode('mine');
+  expect(review.commands.tracking).toBe(false);
+  expect(editor.session.revision).toBe(revision);
+  expect(errors).toEqual(['This document is protected: Track Changes cannot be turned on or off.', 'This document is protected: Track Changes cannot be turned on or off.']);
+  protection = null;
+  expect(review.commands.canTrack()).toBe(true);
+  review.commands.toggleTracking();
+  expect(review.commands.tracking).toBe(true);
+});

@@ -133,6 +133,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   const locked = () => !!hooks.trackingLocked?.();
   // Document protection that allows no comments: read only, or filling in forms.
   const commentsRefused = () => ['readOnly', 'forms'].includes(hooks.protection?.()?.edit);
+  // Protection other than locked tracking keeps Track Changes as the document has it.
+  const trackingFixed = () => ['readOnly', 'comments', 'forms'].includes(hooks.protection?.()?.edit);
+  const fixedTracking = () => error(new Error('This document is protected: Track Changes cannot be turned on or off.'));
   // Whether comments can be replied to, edited, resolved and deleted.
   const annotating = () => !!ready() && !commentsRefused();
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
@@ -236,16 +239,18 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     setTrackingMode(mode) {
       const engine = ready(); if (!engine) return;
       if (locked() && mode === 'off') { error(new Error('Tracking is locked. Unlock it to turn Track Changes off.')); return; }
+      if (trackingFixed()) { fixedTracking(); return; }
       engine.session.body.trackChangesMode = mode === 'mine' ? 'mine' : 'everyone';
       commands.toggleTracking(mode !== 'off', { force: true });
     },
     /* ---- Tracked changes ---- */
     get tracking() { return !!editor()?.session.body.trackChanges; },
-    canTrack() { return !!ready(); },
+    canTrack() { return !!ready() && !trackingFixed(); },
     toggleTracking(on = !commands.tracking, { force = false } = {}) {
       const engine = ready(); if (!engine) return;
       engine.finishComposition();
       if (!on && locked()) { error(new Error('Tracking is locked. Unlock it to turn Track Changes off.')); return; }
+      if (trackingFixed() && !!engine.session.body.trackChanges !== !!on) { fixedTracking(); return; }
       if (!!engine.session.body.trackChanges === !!on) { if (force) { engine.session.revision++; engine.onChange(); onChange(); } return; }
       engine.session.body.trackChanges = !!on;
       engine.session.revision++;
