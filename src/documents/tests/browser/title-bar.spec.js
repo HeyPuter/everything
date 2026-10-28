@@ -167,3 +167,26 @@ test('the document details popover holds its fields and buttons inside its frame
     await page.keyboard.press('Escape');
   }
 });
+
+test('the document name stays put while AutoSave goes from unsaved to saving to saved', async ({ browser }) => {
+  for (const width of [1280, 1440, 1600, 1760]) {
+    // A page of its own each time: a second "Untitled document" would be renamed by its first save.
+    const page = await browser.newPage();
+    await openEditor(page, width);
+    // Every state the save status passes through, with where the name then starts.
+    await page.evaluate(() => {
+      window.titleAt = [];
+      const name = document.querySelector('.ed-titlebar .canvas-title'), status = document.querySelector('.ed-titlebar .canvas-save-status');
+      new MutationObserver(() => window.titleAt.push([status.getAttribute('aria-label'), Math.round(name.getBoundingClientRect().left)]))
+        .observe(status, { attributes: true, childList: true, subtree: true });
+    });
+    await text(page).pressSequentially('Draft', { delay: 30 });
+    await expect(page.locator('.ed-titlebar .canvas-save-status')).toHaveAttribute('aria-label', 'Saved to Puter');
+    const seen = await page.evaluate(() => window.titleAt);
+    expect(new Set(seen.map(([state]) => state)), `${width}px`).toEqual(new Set(['Unsaved changes', 'Saving…', 'Saved to Puter']));
+    expect([...new Set(seen.map(([, left]) => left))], `${width}px: ${JSON.stringify(seen)}`).toHaveLength(1);
+    // And the name is shown whole.
+    expect(await title(page).evaluate(el => el.scrollWidth <= el.clientWidth), `${width}px`).toBe(true);
+    await page.close();
+  }
+});

@@ -102,10 +102,17 @@ input:disabled + .ed-switch { opacity: .5; }
 .ed-ribbon-reveal[hidden] { display: none; }
 
 /* Narrower windows give the menus one button, then shorten the pills. */
-/* Below 1520px the document's name wins over the routine save label (its cloud icon still shows the state) and a wide search box. */
-@media (max-width: 1520px) { .ed-header .ed-search { width: 150px; } .ed-share .ed-pill-label { display: none; } .ed-header .ed-menubar .menu-btn { padding: 0 5px; }
-  .ed-header .canvas-save-status:is(.saved, .local) .save-label { display: none; } }
-@media (max-width: 1360px) { .ed-mode-label, .ed-autosave-label, .ed-header .canvas-save-status:is(.saved, .local, .unsaved) .save-label { display: none; } .ed-header .ed-search { width: 150px; } }
+/* Below 1520px the document's name wins over a wide search box and the Share label. */
+@media (max-width: 1520px) { .ed-header .ed-search { width: 150px; } .ed-share .ed-pill-label { display: none; } .ed-header .ed-menubar .menu-btn { padding: 0 5px; } }
+/* It wins over the routine save labels too (the cloud icon still shows the state). Each edit runs through unsaved, saving
+   and saved: all three are icons alone until there is room for their labels, and then keep room for the longest of them,
+   so the centered name does not shift at every save. */
+@media (max-width: 1680px) { .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: none; } }
+@media (min-width: 1681px) {
+  .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label { display: inline-grid; }
+  .ed-header .canvas-save-status:is(.saved, .local, .unsaved, .saving) .save-label::before { content: 'Unsaved changes'; height: 0; overflow: hidden; visibility: hidden; }
+}
+@media (max-width: 1360px) { .ed-mode-label, .ed-autosave-label { display: none; } .ed-header .ed-search { width: 150px; } }
 @media (max-width: 1100px) { .ed-header .ed-menubar { display: none; } .ed-menus-button { display: inline-flex; } }
 @media (max-width: 900px) { .ed-header .ed-search { width: 34px; padding: 0 8px; } .ed-header .ed-search:focus-within { width: 200px; } .ed-header .ed-search-input:not(:focus) { width: 0; } }
 @media (max-width: 700px) {
