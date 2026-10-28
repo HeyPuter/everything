@@ -163,3 +163,24 @@ test('a phone-sized window that grows shows the rulers by default', async ({ pag
   await page.setViewportSize({ width: 1280, height: 800 });
   await expect(page.getByRole('group', { name: 'Horizontal ruler' })).toBeVisible();
 });
+
+test('contrast themes keep the ruler\'s marks, indent markers and text area visible', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await open(page);
+  // Contrast themes replace backgrounds with the window color; whatever is drawn as a fill must keep a color of its own.
+  const fills = await page.evaluate(() => {
+    const ruler = document.querySelector('.canvas-ruler-horizontal');
+    const ground = getComputedStyle(ruler).backgroundColor;
+    const fill = node => node ? getComputedStyle(node).backgroundColor : null;
+    return {
+      ground,
+      tick: fill(ruler.querySelector('.canvas-ruler-tick.half')),
+      firstLine: fill(ruler.querySelector('[data-kind="firstLine"]')),
+      hanging: fill(ruler.querySelector('[data-kind="hanging"]')),
+      // The text area is told from the margins by an edge when fills are gone.
+      writingEdge: getComputedStyle(ruler.querySelector('.canvas-ruler-writing')).borderLeftStyle,
+    };
+  });
+  for (const part of ['tick', 'firstLine', 'hanging']) expect(fills[part], part).not.toBe(fills.ground);
+  expect(fills.writingEdge).not.toBe('none');
+});

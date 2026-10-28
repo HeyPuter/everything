@@ -160,6 +160,18 @@
 .canvas-ruler-guide { position: absolute; pointer-events: none; z-index: 4; border-color: var(--accent); }
 .canvas-ruler-guide[data-axis='x'] { bottom: 0; border-left: 1px dashed; }
 .canvas-ruler-guide[data-axis='y'] { right: 0; border-top: 1px dashed; }
+/* Contrast themes replace fills with the window color: the ticks and indent markers, which are fills, keep the text
+   color, and the text area keeps an edge to tell it from the margins. */
+@media (forced-colors: active) {
+  .canvas-ruler-tick { forced-color-adjust: none; background: CanvasText; opacity: 1; }
+  .canvas-ruler-tick span { color: CanvasText; }
+  .canvas-ruler-handle:is([data-kind='firstLine'], [data-kind='hanging'], [data-kind='indentRight']) { forced-color-adjust: none; color: ButtonText; }
+  .canvas-ruler-handle:is([data-kind='firstLine'], [data-kind='hanging'], [data-kind='indentRight']):hover { color: Highlight; }
+  .canvas-ruler-handle:is([data-kind='firstLine'], [data-kind='hanging'], [data-kind='indentRight']):disabled { color: GrayText; opacity: 1; }
+  .canvas-ruler-writing { box-sizing: border-box; }
+  .canvas-ruler-horizontal .canvas-ruler-writing { border-inline: 1px solid CanvasText; }
+  .canvas-ruler-vertical .canvas-ruler-writing { border-block: 1px solid CanvasText; }
+}
 .canvas-ruler-value { position: absolute; top: 34px; left: 34px; z-index: 5; padding: 4px 8px; background: var(--surface); color: var(--ink); border: 1px solid var(--hairline-strong); border-radius: 4px; font-size: 12px; }
 /* The style dialog's fields come in titled groups. */
 .canvas-style-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--hairline); }
