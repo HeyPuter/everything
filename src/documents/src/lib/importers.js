@@ -159,7 +159,49 @@ export function decodeTextFile(bytes, kind = null) {
   if (valid >= damaged) return utf8;
   const cjk = legacyCjkText(b);
   if (cjk != null) return cjk;
+  const other = legacyAlphabetText(b);
+  if (other != null) return other;
   try { return new TextDecoder('windows-1252').decode(b); } catch { return utf8; }
+}
+
+/**
+ * The Windows code pages of the other alphabets, each with the letters written most often in its languages
+ * (Russian and Ukrainian; Greek; Hebrew; Arabic). Their letters sit on the bytes Windows-1252 gives to accented
+ * Latin letters.
+ */
+const LEGACY_ALPHABETS = [
+  { encoding: 'windows-1251', script: /\p{Script=Cyrillic}/u, common: new Set('оеаинтсрвлкмдпуі') },
+  { encoding: 'windows-1253', script: /\p{Script=Greek}/u, common: new Set('αοεινστηκρπυμλάέήίόύώ') },
+  { encoding: 'windows-1255', script: /\p{Script=Hebrew}/u, common: new Set('יוהלאמרבתנשעכד') },
+  { encoding: 'windows-1256', script: /\p{Script=Arabic}/u, common: new Set('الينمورتبعهدفك') },
+];
+
+/**
+ * The text of a file in the Windows code page of a Cyrillic, Greek, Hebrew or Arabic text (as Notepad saved it
+ * before Unicode); null when the bytes do not read as one. Read in Windows-1252, such a text is accented Latin
+ * letters throughout ("Ïðèâåò" for "Привет"). An encoding is taken only when its letters make up the text beyond
+ * ASCII, stand in words of their own rather than among Latin letters (as a Western text's accented letters do,
+ * "café"), and are mostly its language's common ones. A short text says too little and stays Windows-1252.
+ */
+function legacyAlphabetText(b) {
+  let best = null;
+  for (const { encoding, script, common } of LEGACY_ALPHABETS) {
+    let text;
+    try { text = new TextDecoder(encoding, { fatal: true }).decode(b); } catch { continue; }
+    const sample = text.slice(0, 65536);
+    let wide = 0, own = 0, usual = 0;
+    for (const ch of sample) {
+      if (ch <= '\x7f') continue;
+      wide++;
+      if (script.test(ch)) { own++; if (common.has(ch.toLowerCase())) usual++; }
+    }
+    if (own < 8 || own / wide < 0.8) continue;
+    const words = sample.split(/[^\p{L}\p{M}]+/u).filter((word) => script.test(word));
+    if (words.filter((word) => /[A-Za-z]/.test(word)).length > words.length * 0.1) continue;
+    const score = usual / own;
+    if (score >= 0.3 && (!best || score > best.score)) best = { text, score };
+  }
+  return best ? best.text : null;
 }
 
 // The characters written most often in Korean and in Chinese text. Text in the other language, or in a

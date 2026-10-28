@@ -116,6 +116,29 @@ describe('legacy Korean, Japanese and Chinese text', () => {
   });
 });
 
+describe('legacy Cyrillic, Greek, Hebrew and Arabic text', () => {
+  const encode = (text, encoding) => {
+    // The code page's byte for each character, found by decoding every byte (TextDecoder only decodes).
+    const table = new Map([...new TextDecoder(encoding).decode(Uint8Array.from({ length: 256 }, (_, i) => i))].map((ch, i) => [ch, i]));
+    return new Uint8Array([...text].map(ch => table.get(ch)));
+  };
+  it('reads a file saved in its language\'s Windows code page as its text, not as accented Latin letters', () => {
+    for (const [text, encoding] of [
+      ['Привет, мир! Это обычный текстовый файл, сохранённый в Блокноте.', 'windows-1251'],
+      ['Доброго ранку! Це звичайний текст українською мовою.', 'windows-1251'],
+      ['Καλημέρα κόσμε. Αυτό είναι ένα απλό κείμενο στα ελληνικά.', 'windows-1253'],
+      ['שלום עולם. זהו קובץ טקסט פשוט בעברית.', 'windows-1255'],
+      ['مرحبا بالعالم. هذا ملف نصي بسيط باللغة العربية.', 'windows-1256'],
+    ]) expect(decodeTextFile(encode(text, encoding))).toBe(text);
+  });
+  it('still reads Western text, with a few accented letters in its words, as Windows-1252', () => {
+    for (const text of ['Le cœur a ses raisons que la raison ne connaît point. Ça va très bien, déjà vu, à côté.',
+      'Größe, Straße, übermäßig schön; Fußgänger über die Brücke.', 'Ångström, Æsir, Øresund — Ærø är så vackert.']) {
+      expect(decodeTextFile(encode(text, 'windows-1252'))).toBe(text);
+    }
+  });
+});
+
 describe('applyImport', () => {
   const fakeApi = ({ blank = true } = {}) => {
     const calls = [];
