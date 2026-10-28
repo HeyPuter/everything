@@ -89,6 +89,8 @@ function quoteFolding(query) {
 export function findText(paragraphs, query, { matchCase = false, wholeWord = false, skipDeleted = false } = {}) {
   checkedSearchText(query);
   if (!query) return [];
+  // Punctuation or spaces alone are no whole word.
+  if (wholeWord && ![...words.segment(query)].some(segment => segment.isWordLike)) return [];
   const fold = quoteFolding(query);
   if (fold) query = fold(query);
   const matchLiteral = literalMatcher(query, matchCase), simpleQuery = SIMPLE.test(query), matchSimple = simpleQuery && simpleMatcher(query, matchCase);
@@ -99,11 +101,13 @@ export function findText(paragraphs, query, { matchCase = false, wholeWord = fal
     // Segmenting every paragraph of a long document on each search held up typing while Find was open.
     const simple = simpleQuery && SIMPLE.test(searched);
     const boundaries = simple ? null : new Set([...inlineSegments(text)].map(s => s.index).concat(text.length));
-    const wordStarts = new Set(), wordEnds = new Set();
-    if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) { wordStarts.add(segment.index); wordEnds.add(segment.index + segment.segment.length); }
+    // Whole words: neither end of a match falls inside a word. A query may begin or end with punctuation
+    // ("Inc.", "C++", "$100"), whose ends are no word's start or end but still stand apart from the words around.
+    const insideWords = new Set();
+    if (wholeWord) for (const segment of words.segment(text)) if (segment.isWordLike) for (let i = 1; i < segment.segment.length; i++) insideWords.add(segment.index + i);
     let previousEnd = 0;
     for (const { start, end } of simple ? matchSimple(searched) : matchLiteral(searched)) {
-      if (start >= previousEnd && (simple || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || wordStarts.has(start) && wordEnds.has(end)) && !overlaps(deleted, start, end)) {
+      if (start >= previousEnd && (simple || boundaries.has(start) && boundaries.has(end)) && (!wholeWord || !insideWords.has(start) && !insideWords.has(end)) && !overlaps(deleted, start, end)) {
         matches.push({ start: at + start, end: at + end, paragraph, offset: start, text: text.slice(start, end) }); previousEnd = end;
       }
     }

@@ -44,6 +44,15 @@ it('uses whole-word boundaries and retries overlapping candidates rejected by a 
   expect(find("can't can canary", 'can', whole)).toEqual([[6, 9]]);
   expect(find('xa a a', 'a a', whole)).toEqual([[3, 6]]);
   expect(find('!', '!', whole)).toEqual([]);
+  // A query may start or end with punctuation; its ends still stand apart from the words around it.
+  const text = 'Acme Inc. sells C++ for $100 in the U.S. and Inc.x too; cats. U.S.A.';
+  expect(find(text, 'Inc.', whole)).toEqual([[5, 9]]);
+  expect(find(text, 'C++', whole)).toEqual([[16, 19]]);
+  expect(find(text, '$100', whole)).toEqual([[24, 28]]);
+  expect(find(text, 'U.S.', whole)).toEqual([[36, 40]]);
+  expect(find(text, 'cats.', whole)).toEqual([[56, 61]]);
+  expect(find(text, 'sells C++', whole)).toEqual([[10, 19]]);
+  expect(find(text, 'cat', whole)).toEqual([]);
 });
 
 it('keeps combining sequences, emoji modifiers and joined emoji intact, without canonical normalization', () => {
