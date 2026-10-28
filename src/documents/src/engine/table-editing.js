@@ -915,6 +915,15 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   });
   if (sorted.every((item, i) => item.index === i)) return false;
   const state = M.tableContent(model, table);
+  // Reordered, a comment or bookmark from one of these rows into another could end before it starts.
+  const rowOf = new Map(), edges = new Map();
+  rows.forEach(({ row }, i) => { for (const cell of row.cells) for (const p of state.byCell.get(cell.id) || []) rowOf.set(p, i); });
+  for (const [p, i] of rowOf) for (const marker of p.bookmarks || []) {
+    if ((marker.edge !== 'start' && marker.edge !== 'end') || marker.tableBoundary || marker.columnRange || marker.blockScope) continue;
+    if (!edges.has(marker.id)) edges.set(marker.id, {});
+    edges.get(marker.id)[marker.edge] = i;
+  }
+  if ([...edges.values()].some(({ start, end }) => start !== undefined && end !== undefined && start !== end)) throw new Error('A comment or bookmark runs from one of these rows into another, so they cannot be sorted.');
   model.checkpoint();
   table.rows.splice(first, sorted.length, ...sorted.map(item => item.row));
   // Repeating as a header row belongs to the table's top rows: a row sorted into the body stops repeating and

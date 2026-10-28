@@ -283,6 +283,25 @@ describe('table commands', () => {
     expect(shape(doc)).toEqual(['dateapple', 'banana', 'cherry']);
   });
 
+  it('does not sort rows when a comment or bookmark runs from one sorted row into another', () => {
+    const { doc } = tableDocument(3, 1);
+    const fill = (r, text) => { at(doc, r, 0); const p = doc.paragraphs.find(x => x.cellId === cellAt(doc, r, 0).id), s = doc.paragraphOffset(doc.paragraphs.indexOf(p)); doc.select(s, s + paragraphText(p).length); doc.replace(text); };
+    fill(0, 'cherry'); fill(1, 'banana'); fill(2, 'apple');
+    const s = doc.text.indexOf('cherry') + 2, e = doc.text.indexOf('banana') + 3;
+    doc.addComment({ author: 'x', text: 'note', range: [s, e] });
+    at(doc, 0, 0);
+    expect(() => T.sortTable(doc, { keys: [{ column: 0, type: 'text' }] })).toThrow(/comment/);
+    expect(shape(doc)).toEqual(['cherry', 'banana', 'apple']);
+    // A range within one row moves with it.
+    const { doc: other } = tableDocument(3, 1);
+    const set = (r, text) => { at(other, r, 0); const p = other.paragraphs.find(x => x.cellId === cellAt(other, r, 0).id), st = other.paragraphOffset(other.paragraphs.indexOf(p)); other.select(st, st + paragraphText(p).length); other.replace(text); };
+    set(0, 'cherry'); set(1, 'banana'); set(2, 'apple');
+    other.addComment({ author: 'x', text: 'note', range: [other.text.indexOf('banana'), other.text.indexOf('banana') + 3] });
+    at(other, 0, 0);
+    expect(T.sortTable(other, { keys: [{ column: 0, type: 'text' }] })).toBe(true);
+    expect(shape(other)).toEqual(['apple', 'banana', 'cherry']);
+  });
+
   it('sorting a repeated header row into the body without "Header row" leaves the repeat on the top row', async () => {
     const { pkg, doc } = tableDocument(3, 1);
     const fill = (r, text) => { at(doc, r, 0); doc.select(doc.selection.focus, doc.selection.focus + 2); doc.replace(text); };
