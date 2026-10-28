@@ -100,3 +100,9 @@ it('keeps a link whose address has spaces or line breaks around it, as a browser
   // An address that is not a web, mail or phone link still gives no link.
   expect(links('<p><a href=" javascript:alert(1)">No</a></p>')).toEqual([]);
 });
+
+it('keeps a table row on one line when its cells hold paragraphs, as Word, LibreOffice and Google Docs write them', () => {
+  expect(texts('<table><tr><td><p class="MsoNormal">Name</p></td><td><p class="MsoNormal">Qty</p></td></tr><tr><td><p>Apples</p></td><td><p>3</p></td></tr></table>')).toEqual(['Name\tQty', 'Apples\t3']);
+  expect(texts('<table><tbody><tr><td><p dir="ltr"><span>Item</span></p></td><td><div>Two</div><div>lines</div></td></tr></tbody></table><p>After</p>')).toEqual(['Item\tTwo lines', 'After']);
+  expect(texts('<table><tr><th><h3>Head</h3></th><td>Plain</td></tr></table>')).toEqual(['Head\tPlain']);
+});

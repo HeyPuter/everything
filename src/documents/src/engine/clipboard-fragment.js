@@ -152,6 +152,8 @@ export function htmlPicture(html) {
 /* ---------- HTML from this editor or another application ---------- */
 
 const BLOCKS = new Set(['P', 'DIV', 'CENTER', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TR', 'TABLE', 'UL', 'OL', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'NAV', 'MAIN', 'ADDRESS', 'FIGURE', 'FIGCAPTION', 'DL', 'DT', 'DD', 'HR', 'TBODY', 'THEAD', 'TFOOT', 'BODY']);
+/** Blocks in a table cell that keep their own lines: lists, and the rows of a table nested in it. */
+const CELL_STRUCTURE = new Set(['LI', 'UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'TR', 'DL', 'HR']);
 const SKIPPED = new Set(['SCRIPT', 'STYLE', 'HEAD', 'TITLE', 'META', 'LINK', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'IFRAME', 'OBJECT', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 const NAMED_COLORS = { black: '000000', white: 'FFFFFF', red: 'FF0000', green: '008000', blue: '0000FF', yellow: 'FFFF00', gray: '808080', grey: '808080', orange: 'FFA500', purple: '800080' };
 
@@ -268,7 +270,12 @@ function fromForeignHtml(body) {
     }
     // A list item's own paragraph wrapper (as some producers write) is the item, not another paragraph.
     const wrapper = (tag === 'P' || tag === 'DIV') && current?.list && !current.text && context.item === current;
-    const block = BLOCKS.has(tag) && !wrapper;
+    // A table row is one paragraph, its cells apart by tabs: the paragraphs Word, LibreOffice and Google Docs write in
+    // every cell are text of the row, one after another, not paragraphs of their own.
+    if (tag === 'TD' || tag === 'TH') ctx.cell = true;
+    const cellBlock = context.cell && current && BLOCKS.has(tag) && !CELL_STRUCTURE.has(tag);
+    if (cellBlock && current.text && !/[\t ]$/.test(current.text)) append(' ', format, null);
+    const block = BLOCKS.has(tag) && !wrapper && !cellBlock;
     if (block) {
       end();
       if (!['UL', 'OL', 'TABLE', 'TBODY', 'THEAD', 'TFOOT', 'DL', 'BODY'].includes(tag)) {
