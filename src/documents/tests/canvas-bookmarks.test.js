@@ -100,7 +100,7 @@ it('has zero layout width and preserves source caret positions, selection and re
   const p=await DocxPackage.open(source),d=model(p),before=layout(d);expect(before.repeatedLines.length).toBeGreaterThan(0);const link=hyperlinkRanges(d.paragraphs).find(r=>d.text.slice(r.start,r.end)==='Header link'),rects=selectionRects(before,link.start,link.end);expect(rects.length).toBeGreaterThan(1);for(const r of rects)expect(hyperlinkAtPoint(before,d.paragraphs,r.page,r.x+r.width/2,r.y+r.height/2)?.link.anchor).toBe('Target');const pos=entry(d,'Target').start+9,c=caretRect(before,pos);expect(hitTest(before,c.page,c.x,c.y+c.height/2)).toBe(pos);for(const b of [...d.bookmarks])d.removeBookmark(b.id);expect(layout(d)).toEqual(before);
 });
 
-it.each(['', '1bad','two words','éclair','a'.repeat(41)])('rejects invalid authored bookmark names without changing text/history: %s',name=>{const d=new TextDocument([paragraph('text')]),before=d.snapshot();expect(()=>d.addBookmark(name)).toThrow();expect(d.snapshot()).toEqual(before);expect(d.history).toHaveLength(0);});
+it.each(['', '1bad','two words','a-b','a'.repeat(41)])('rejects invalid authored bookmark names without changing text/history: %s',name=>{const d=new TextDocument([paragraph('text')]),before=d.snapshot();expect(()=>d.addBookmark(name)).toThrow();expect(d.snapshot()).toEqual(before);expect(d.history).toHaveLength(0);});
 
 it.each([
   ['unmatched start',xml=>elements(xml,'bookmarkEnd')[0].remove()],
@@ -113,3 +113,15 @@ it.each([
   ['invalid displaced marker',xml=>starts(xml)[0].setAttributeNS(W,'w:displacedByCustomXml','sideways')],
   ['marker content',xml=>starts(xml)[0].append(xml.createCDATASection('text'))],
 ])('rejects unsupported %s before editable open',async(label,change)=>{await expect(DocxPackage.open(revise(change))).rejects.toThrow(/bookmark/i);});
+
+it('adds and renames bookmarks named with letters of any script, as word processors allow',async()=>{
+  const p=await DocxPackage.open(source),d=model(p);
+  select(d,'Bookmarks');d.addBookmark('Закладка');
+  const target=contents(d,'Target');d.renameBookmark(entry(d,'Target').id,'Résumé_2');
+  d.select(0);d.addBookmark('書籤');
+  // A decomposed accent belongs to its letter; 40 UTF-16 units at most, as the format's readers count them.
+  d.select(1);d.addBookmark('café');d.select(2);d.addBookmark('я'.repeat(40));
+  const out=model(await DocxPackage.open(await save(p,d)));
+  expect(contents(out,'Закладка')).toBe('Bookmarks');expect(contents(out,'Résumé_2')).toBe(target);expect(contents(out,'書籤')).toBe('');expect(contents(out,'café')).toBe('');
+  for(const name of ['1st','with space','x'.repeat(41),'я'.repeat(41),'-dash','́accent','a-b'])expect(()=>d.addBookmark(name),name).toThrow();
+});

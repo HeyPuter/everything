@@ -80,3 +80,12 @@ test('the link dialog offers the document\'s bookmarks without the hidden ones a
   await expect(page.getByRole('combobox',{name:'Link bookmark',exact:true}).locator('option')).toHaveText(['Start of document','Visible']);
   await close(page,'Cancel');
 });
+
+test('adds a bookmark named in another script from the Bookmarks dialog',async({page})=>{
+  await page.goto('/playground.html'); await showAllTools(page);await page.getByRole('button',{name:'New',exact:true}).click();
+  const input=page.getByRole('textbox',{name:'Document text'});await input.fill('Глава первая');await choose(input,'Глава');
+  await manager(page);await page.getByRole('textbox',{name:'Bookmark name',exact:true}).fill('Закладка_1');
+  await page.getByRole('dialog').getByRole('button',{name:'Add bookmark',exact:true}).click();
+  await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveText([/^Закладка_1 ·/]);
+  await expect(page.getByRole('dialog').getByRole('alert')).toBeHidden();
+});

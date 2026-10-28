@@ -49,7 +49,9 @@ export function bookmarkEntries(paragraphs, tables, onInvalid) {
 }
 
 export function checkedBookmarkName(name) {
-  if (typeof name !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,39}$/.test(name)) throw new Error('Use 1–40 letters, numbers or underscores, starting with a letter or underscore.');
+  // Letters and digits of any script (Закладка, Résumé, 書籤) as word processors accept them, with their combining
+  // marks; no spaces or punctuation; at most 40 characters, counted as the format's readers count them.
+  if (typeof name !== 'string' || !/^[\p{L}_][\p{L}\p{M}\p{N}_]*$/u.test(name) || name.length > 40) throw new Error('Use 1–40 letters, numbers or underscores, starting with a letter or underscore.');
   return name;
 }
 
