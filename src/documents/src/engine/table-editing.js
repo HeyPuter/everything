@@ -572,6 +572,13 @@ export function splitTable(model) {
 export function setColumnWidths(model, table, widths, { layout, absolute = false } = {}) {
   if (widths.length !== table.grid.length || widths.some(w => !Number.isInteger(w) || w < 1 || w > MAX_WIDTH)) throw new Error('Enter a positive width for each column, up to 22 inches.');
   if (sum(widths) > MAX_WIDTH) throw new Error('The table would be wider than 22 inches.');
+  // Widths the table already has (a size box applying its value again as it loses focus) are no change.
+  const dxa = (value, width) => value?.type === 'dxa' && value.value === width;
+  const unchanged = widths.every((w, i) => w === table.grid[i]) && (!layout || table.layout === layout)
+    && (table.width?.type === 'pct' ? !absolute : dxa(table.width, Math.min(MAX_WIDTH, sum(widths))))
+    && table.rows.every(row => rowGrid(row).every(item => dxa(item.cell.width, spanWidth(widths, item.column, item.span)))
+      && (!row.gridBefore || dxa(row.widthBefore, spanWidth(widths, 0, row.gridBefore))) && (!row.gridAfter || dxa(row.widthAfter, spanWidth(widths, widths.length - row.gridAfter, row.gridAfter))));
+  if (unchanged) return false;
   model.checkpoint();
   if (layout && table.layout !== layout) { table.layout = layout; table.layoutChanged = true; }
   // `absolute`: a table sized as a share of the window becomes as wide as its columns.

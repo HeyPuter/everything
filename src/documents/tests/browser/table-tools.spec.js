@@ -206,6 +206,11 @@ test('the Width spinner shows and sets the width of each selected column', async
   await expect(width).toHaveValue(String(Number((before[0] / 1440).toFixed(2))));
   await width.fill('1.5'); await width.press('Enter');
   await expect.poll(grid).toEqual([2160, 2160, before[2]]);
+  // One Undo takes it back (the box applying its value again as it loses focus is no second step).
+  await page.getByRole('button', { name: 'Undo', exact: true }).first().click();
+  await expect.poll(grid).toEqual(before);
+  await page.getByRole('button', { name: 'Redo', exact: true }).first().click();
+  await expect.poll(grid).toEqual([2160, 2160, before[2]]);
   // A merged cell shows the width it covers.
   await page.evaluate(() => { const e = window.__docs.current.view.engine, m = e.model, t = m.tables[0]; m.setCellBlock({ tableId: t.id, top: 0, bottom: 0, left: 0, right: 2 }); });
   await (await onTab(page, 'tableLayout')).getByRole('button', { name: 'Merge Cells', exact: true }).click();
