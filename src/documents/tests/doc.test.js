@@ -193,6 +193,28 @@ describe('Doc', () => {
     expect(P.writeFile).toHaveBeenCalledTimes(1);
   });
 
+  it('saves typing that never pauses within half a minute of its first unsaved edit', async () => {
+    const doc = Doc.blank();
+    doc.attach(async () => blob(`version ${doc.version}`));
+    // A keystroke every second: no pause ever reaches the autosave's wait.
+    for (let i = 0; i < 29; i++) { doc.changed(); await vi.advanceTimersByTimeAsync(1000); }
+    expect(P.writeFile).not.toHaveBeenCalled();
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(P.writeFile).toHaveBeenCalledTimes(1);
+    // The edits typed meanwhile wait no longer than that either.
+    for (let i = 0; i < 30; i++) { doc.changed(); await vi.advanceTimersByTimeAsync(1000); }
+    expect(P.writeFile).toHaveBeenCalledTimes(2);
+    // A pause still saves after the usual wait.
+    doc.changed();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MS - 5);
+    expect(P.writeFile).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(P.writeFile).toHaveBeenCalledTimes(3);
+    expect(doc.dirty).toBe(false);
+    doc.destroy();
+  });
+
   it('keeps the document dirty when an edit lands mid-save, then saves again', async () => {
     const doc = Doc.blank();
     let resolveExport;

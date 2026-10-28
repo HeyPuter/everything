@@ -155,6 +155,7 @@ export class Doc extends EventTarget {
   /** Nothing on screen is worth saving (a file the engine could not open, a reopen): no edits pending, and the status says so. */
   discardEdits() {
     this.savedVersion = this.version;
+    this._pendingSince = null;
     this._setStatus('saved');
   }
 
@@ -206,7 +207,12 @@ export class Doc extends EventTarget {
     this.version += 1;
     if (this.writes === false) { this.savedVersion = this.version; return; }
     this._setStatus('unsaved');
-    if (this.exporter && this.autosave) this._schedule(this.autosaveDelay);
+    if (this.exporter && this.autosave) {
+      // A pause in the typing saves. Typing that never pauses that long (a long passage typed or dictated without
+      // stopping) still saves within MAX_AUTOSAVE_MS of its first unsaved edit, or a crash would take all of it.
+      this._pendingSince ??= Date.now();
+      this._schedule(Math.max(0, Math.min(this.autosaveDelay, this._pendingSince + MAX_AUTOSAVE_MS - Date.now())));
+    }
   }
 
   /** AutoSave (on unless turned off in the title bar): edits save themselves; off, they wait for Save. */
@@ -300,6 +306,8 @@ export class Doc extends EventTarget {
       // The pace follows the export and upload alone: the wait for an import's layout is not save time.
       const started = Date.now();
       const version = this.version;
+      // Edits from here on are not in this save: the longest wait for them starts with the first of them.
+      this._pendingSince = null;
       let target = this.path;
       if (!this.path || !this.isDocxPath) {
         // First save, or a non-docx source: pick a fresh name in the folder, the document's own (a rename before this save counts).
