@@ -42,8 +42,12 @@ export async function rasterize(blob, max = 1600, { pixels = Infinity, type = 'i
     const img = new Image(); img.src = url;
     try { await img.decode(); } catch { throw new Error('The picture could not be read. Choose a PNG, JPEG, GIF, WebP, BMP, TIFF or SVG image.'); }
     let width = img.naturalWidth || 300, height = img.naturalHeight || 150;
-    const scale = Math.min(1, max / Math.max(width, height), Math.sqrt(pixels / (width * height))); width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
-    if (width * height > pixels) { width = Math.max(1, Math.floor(width * scale)); height = Math.max(1, Math.floor(height * scale)); }
+    const scale = Math.min(1, max / Math.max(width, height), Math.sqrt(pixels / (width * height))), natural = { width, height };
+    width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
+    // Rounding up can overshoot the pixel limit by a few pixels: round the scaled size down instead (from
+    // the picture's own size, not the already scaled one), and trim a pixel from the longer side if still over.
+    if (width * height > pixels) { width = Math.max(1, Math.floor(natural.width * scale)); height = Math.max(1, Math.floor(natural.height * scale)); }
+    while (width * height > pixels && Math.max(width, height) > 1) { if (width >= height) width--; else height--; }
     const canvas = Object.assign(document.createElement('canvas'), { width, height });
     canvas.getContext('2d').drawImage(img, 0, 0, width, height);
     const encoded = await new Promise((resolve, reject) => canvas.toBlob(b => b ? resolve(b) : reject(new Error('The picture could not be converted.')), type, quality));
