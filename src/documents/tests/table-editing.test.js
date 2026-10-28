@@ -288,6 +288,30 @@ describe('table commands', () => {
     expect(doc.tables[0].rows.map(row => !!row.header)).toEqual([true, false, false]);
   });
 
+  it('keeps a paragraph between tables when text right after a table is converted, or a table is moved under another', async () => {
+    const { pkg, doc } = tableDocument(2, 2);
+    // The paragraph after the table: "x<Tab>y" becomes a second table, after an empty paragraph.
+    doc.select(doc.text.length); doc.replace('x\ty');
+    doc.select(doc.text.lastIndexOf('x'), doc.text.length);
+    T.convertTextToTable(doc, { separator: 'tab' });
+    expect(documentBlocks(doc.paragraphs, doc.tables).map(b => b.type)).toEqual(['table', 'paragraph', 'table', 'paragraph']);
+    const { xml, reopened } = await roundTrip(pkg, doc);
+    expect(xml).not.toMatch(/<\/w:tbl><w:tbl>/);
+    expect(reopened.tables).toHaveLength(2);
+    doc.undo();
+    expect(doc.tables).toHaveLength(1);
+    // A third table dropped on the paragraph right after the first.
+    const { doc: two } = tableDocument(2, 2, ['Top']);
+    two.select(0); two.insertTable(1, 1, 9000);
+    expect(documentBlocks(two.paragraphs, two.tables).map(b => b.type)).toEqual(['table', 'paragraph', 'table', 'paragraph']);
+    const [first, second] = [two.tables.find(t => t.rows.length === 1), two.tables.find(t => t.rows.length === 2)];
+    const after = two.paragraphs.at(-1);
+    expect(T.moveTable(two, first.id, after.id)).toBe(true);
+    expect(documentBlocks(two.paragraphs, two.tables).map(b => b.type)).toEqual(['paragraph', 'table', 'paragraph', 'table', 'paragraph']);
+    expect(two.tables.indexOf(second)).toBeGreaterThanOrEqual(0);
+    valid(two);
+  });
+
   it('converts text to a table and back', async () => {
     const pkg = createDocx([paragraph('Name\tQty'), paragraph('Pens\t2'), paragraph('Ink\t1\textra'), paragraph('After')], undefined, undefined, undefined, [], {}, WRITING_STYLES);
     const doc = open(pkg);

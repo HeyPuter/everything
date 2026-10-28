@@ -985,6 +985,25 @@ function applyAutofit(table, autofit) {
   for (const cell of tableCells(table)) cell.width = { type: 'auto', value: 0 };
 }
 
+/**
+ * Whether the paragraph before `index` lies in a table at the level of `parentId` (null: the body), so a
+ * table placed at `index` would touch it: two adjacent `w:tbl` elements read as one table.
+ */
+function tableJustBefore(model, index, parentId) {
+  for (let cellId = model.paragraphs[index - 1]?.cellId || null; cellId && cellId !== parentId;) {
+    const { table } = cellContext(model.tables, cellId);
+    if ((table.parentCellId || null) === parentId) return true;
+    cellId = table.parentCellId;
+  }
+  return false;
+}
+/** An empty paragraph to keep two tables apart, formatted like `source`, in the parent cell if any. */
+function separatorLike(model, source, parentId) {
+  const p = { ...copy(source), id: paragraph().id, runs: [] };
+  for (const key of ['list', 'bookmarks', 'fieldMarkers', 'styleChanged', 'mark', 'sectionEnd']) delete p[key];
+  return resolveStyledParagraph(p, model.styles, model.numbering);
+}
+
 /** Convert Text to Table: the selected paragraphs become rows (or, separated by paragraphs, cells). */
 export function convertTextToTable(model, { separator = 'tab', other, columns = null, autofit = 'fixed', availableWidth } = {}) {
   const char = separatorChar(separator, other), sources = model.selectedParagraphs;
@@ -1019,7 +1038,9 @@ export function convertTextToTable(model, { separator = 'tab', other, columns = 
   // A table needs a paragraph after it; the last converted paragraph's formatting supplies one if none follows.
   const after = model.paragraphs[last + 1];
   const tail = after && (after.cellId || null) === parentId ? [] : [(() => { const p = { ...copy(sources.at(-1)), id: paragraph().id, runs: [] }; delete p.list; return resolveStyledParagraph(p, styles, model.numbering); })()];
-  model.paragraphs.splice(first, last - first + 1, ...content, ...tail);
+  // Text right after a table keeps an empty paragraph between that table and the new one.
+  const head = tableJustBefore(model, first, parentId) ? [separatorLike(model, sources[0], parentId)] : [];
+  model.paragraphs.splice(first, last - first + 1, ...head, ...content, ...tail);
   model.tables.push(table);
   model.selectCell(table.rows[0].cells[0].id);
   model.didChange(); return true;
@@ -1190,8 +1211,10 @@ export function moveTable(model, tableId, beforeId) {
   if (model.paragraphs[target].cellId) throw new Error('Drop the table between paragraphs outside tables.');
   if (table.floating) throw new Error('Floating tables keep their position. Set Text wrapping to None to move one in the text.');
   model.checkpoint();
-  const moved = model.paragraphs.splice(state.start, state.count);
-  model.paragraphs.splice(model.paragraphs.findIndex(p => p.id === beforeId), 0, ...moved);
+  const moved = model.paragraphs.splice(state.start, state.count), at = model.paragraphs.findIndex(p => p.id === beforeId);
+  // Dropped right under another table: an empty paragraph keeps them two tables.
+  const head = tableJustBefore(model, at, null) ? [separatorLike(model, model.paragraphs[at], null)] : [];
+  model.paragraphs.splice(at, 0, ...head, ...moved);
   repairStructuralBookmarks(model.paragraphs, state.bookmarks, model.tables, table.id);
   normalizeBlockBookmarkScopes(model.paragraphs, model.tables);
   model.selectCell(editableCells(table)[0].id);
