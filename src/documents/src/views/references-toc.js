@@ -13,6 +13,8 @@ export function createTocCommands(ctx) {
   const { editor, ready, runBody, error } = ctx;
   const engineToc = () => import('../engine/toc.js');
   const bodyParagraphs = () => editor()?.session.body.paragraphs || [];
+  // A new table goes into the text: not while a header, footer or note is being edited.
+  const bodyReady = () => !!ready() && editor()?.session.path === null;
   let tocModule = null;
   engineToc().then(m => { tocModule = m; }).catch(() => {});
   const tables = () => { try { return tocModule ? tocModule.tocFields(bodyParagraphs()) : []; } catch { return []; } };
@@ -36,7 +38,7 @@ export function createTocCommands(ctx) {
     const designs = tocModule?.TOC_DESIGNS || [];
     return [
       { header: 'Automatic tables' },
-      ...designs.map(design => galleryItem({ label: design.name, description: design.description, disabled: !ready(), focusEditor, onSelect: () => insertDesign(design),
+      ...designs.map(design => galleryItem({ label: design.name, description: design.description, disabled: !bodyReady(), focusEditor, onSelect: () => insertDesign(design),
         preview: tablePreview(SAMPLE.filter(r => r.level <= design.levels).map(r => ({ ...r, bold: design.boldTop && r.level === 1 })), { title: design.title, leader: design.leader, rightAlign: design.rightAlign !== false, pageNumbers: design.pageNumbers !== false }) })),
     ];
   }
@@ -46,7 +48,7 @@ export function createTocCommands(ctx) {
     return [
       ...galleryItems(focusEditor),
       { separator: true },
-      { label: 'Custom Table of Contents…', icon: 'toc', disabled: !ready(), onSelect: () => customDialog() },
+      { label: 'Custom Table of Contents…', icon: 'toc', disabled: !bodyReady(), onSelect: () => customDialog() },
       { label: 'Update Table…', icon: 'updateTable', disabled: !ready() || !has, onSelect: () => updateDialog(false) },
       { label: 'Remove Table of Contents', icon: 'delete', disabled: !ready() || !has, onSelect: () => runBody((body, toc) => toc.removeTableOfContents(body, tableFor(toc, body, false)), { modules: ['toc'] }) },
     ];

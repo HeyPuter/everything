@@ -314,14 +314,15 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const style = citations.styleControl();
     const styleWrap = el('label.ribbon-spin.ref-style-wrap', { title: 'Citation style' }, el('span.ribbon-spin-label', {}, 'Style:'), style.control);
     const bibliography = menuButton('Bibliography', 'bibliography', () => citations.bibliographyItems(focusEditor), { size: 'small', text: 'Bibliography' });
-    when(citation, () => !!ready()); when(manage, () => !!ready()); when(bibliography, () => !!ready());
+    // A citation or bibliography goes into the text: unavailable in a header, footer or note, as Cross-reference is.
+    when(citation, bodyReady); when(manage, () => !!ready()); when(bibliography, bodyReady);
     when(style.control, () => { style.sync(); return !!ready(); });
     // Captions
     const caption = command('Insert Caption', 'caption', () => captionDialog(), { size: 'large', text: 'Insert Caption' });
     const figures = command('Insert Table of Figures', 'tableOfFigures', () => toc.figuresDialog(), { text: 'Insert Table of Figures' });
     const updateFigures = command('Update Table of Figures', 'updateTable', () => toc.updateDialog(true), { text: 'Update Table' });
     const xref = command('Cross-reference', 'crossReference', () => crossReferenceDialog(), { text: 'Cross-reference' });
-    when(caption, () => !!ready()); when(figures, bodyReady); when(updateFigures, () => !!ready() && toc.hasFigures()); when(xref, bodyReady);
+    when(caption, bodyReady); when(figures, bodyReady); when(updateFigures, () => !!ready() && toc.hasFigures()); when(xref, bodyReady);
     // Index
     const markEntry = command('Mark Entry', 'markEntry', () => indexes.markEntryPanel(), { size: 'large', text: 'Mark Entry', shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+Shift+X' : 'Alt+Shift+X' });
     const insertIndex = command('Insert Index', 'index', () => indexes.insertIndexDialog(), { text: 'Insert Index' });
@@ -352,8 +353,8 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       { label: 'Cross-reference…', icon: 'crossReference', disabled: disabled || !body, onSelect: () => crossReferenceDialog() },
       { separator: true },
       { label: 'Footnote…', icon: 'footnote', disabled, onSelect: () => notes.notesDialog() },
-      { label: 'Caption…', icon: 'caption', disabled, onSelect: () => captionDialog() },
-      { label: 'Index and Tables', icon: 'toc', disabled, items: [
+      { label: 'Caption…', icon: 'caption', disabled: disabled || !body, onSelect: () => captionDialog() },
+      { label: 'Index and Tables', icon: 'toc', disabled: disabled || !body, items: [
         { label: 'Index…', icon: 'index', onSelect: () => indexes.insertIndexDialog() },
         { label: 'Table of Contents…', icon: 'toc', onSelect: () => toc.customDialog() },
         { label: 'Table of Figures…', icon: 'tableOfFigures', onSelect: () => toc.figuresDialog() },
