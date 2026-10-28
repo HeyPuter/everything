@@ -410,11 +410,12 @@ export function createPictures({ editor, pkg, error, onChange = () => {}, base =
       const point = pictureFraction(frame.getBoundingClientRect(), image, e.clientX, e.clientY);
       if (!point) { done(); return; }
       e.preventDefault(); e.stopPropagation();
-      const crop = image.crop || {};
-      const { u, v } = point;
+      // The flip mirrors the cropped picture: mirror the point within what shows, then map it through the crop.
+      const shown = engine.cropInfo?.(image) || { crop: image.crop || {}, flipH: !!image.flipH, flipV: !!image.flipV }, crop = shown.crop || {};
+      const u = shown.flipH ? 1 - point.u : point.u, v = shown.flipV ? 1 - point.v : point.v;
       const sx = ((crop.left || 0) + u * (100000 - (crop.left || 0) - (crop.right || 0))) / 100000, sy = ((crop.top || 0) + v * (100000 - (crop.top || 0) - (crop.bottom || 0))) / 100000;
-      const probe = new OffscreenCanvas(1, 1).getContext('2d');
-      probe.drawImage(source, Math.floor((image.flipH ? 1 - sx : sx) * source.width), Math.floor((image.flipV ? 1 - sy : sy) * source.height), 1, 1, 0, 0, 1, 1);
+      const probe = new OffscreenCanvas(1, 1).getContext('2d'), pixel = (fraction, size) => Math.max(0, Math.min(size - 1, Math.floor(fraction * size)));
+      probe.drawImage(source, pixel(sx, source.width), pixel(sy, source.height), 1, 1, 0, 0, 1, 1);
       const [r, g, b] = probe.getImageData(0, 0, 1, 1).data;
       const rgb = [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('').toUpperCase();
       done();
