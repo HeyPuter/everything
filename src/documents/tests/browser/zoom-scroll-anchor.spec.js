@@ -67,3 +67,27 @@ test('zooming with the wheel keeps the point under the pointer', async ({page}) 
     expect(Math.abs(now.x - start.x), `zoom ${now.zoom}`).toBeLessThan(4 / now.zoom);
   }
 });
+
+// A trackpad pinch arrives as many Ctrl + wheel events of a pixel or two each. Each step is too
+// small to change the zoom by a whole percent on its own, but together they zoom as far as one
+// large step does, in either direction and at any zoom.
+test('a slow pinch zooms as far as one quick wheel step', async ({page}) => {
+  await page.setViewportSize({width: 700, height: 800});
+  await page.goto('/playground.html');
+  await page.getByRole('button', {name: 'Across pages'}).click();
+  await expect(page.locator('canvas.canvas-page')).toHaveCount(2);
+  const zoom = () => page.locator('canvas.canvas-page').first().evaluate(c => c.getBoundingClientRect().width / 816);
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await page.mouse.move(box.x + 100, Math.min(box.y + 200, 700));
+  const pinch = (delta, count) => page.evaluate(({delta, count}) => {
+    const host = document.querySelector('canvas.canvas-page').closest('.canvas-workspace, .canvas-host') || document.querySelector('canvas.canvas-page').parentElement;
+    for (let i = 0; i < count; i++) host.dispatchEvent(new WheelEvent('wheel', {deltaY: delta, ctrlKey: true, bubbles: true, cancelable: true, clientX: 200, clientY: 300}));
+  }, {delta, count});
+  const start = await zoom();
+  // Forty steps of 1.5 px: exp(60 * 0.0025) is about 1.16.
+  await pinch(-1.5, 40);
+  await expect.poll(zoom).toBeGreaterThan(start * 1.12);
+  const zoomed = await zoom();
+  await pinch(1.5, 40);
+  await expect.poll(zoom).toBeLessThan(zoomed / 1.12);
+});

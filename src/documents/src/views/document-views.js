@@ -239,15 +239,23 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
   }
 
   /* ---- Zoom: Ctrl/Cmd + wheel and trackpad pinch (which arrives as a Ctrl + wheel) ---- */
+  // The zoom the wheel is heading to before rounding to whole percents, while the zoom is still the
+  // one it last set: a pinch's events are each too small to change the rounded zoom on their own.
+  let wheelZoom = null;
   host.addEventListener('wheel', e => {
     const engine = editor(); if (!engine) return;
     if (e.ctrlKey || e.metaKey) {
       if (mode === 'read' || mode === 'outline') return;
       e.preventDefault();
-      const from = engine.zoom, to = Math.max(0.1, Math.min(2, Math.round(from * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025)) * 100) / 100));
-      if (to === from) return;
-      // Keep the point under the pointer where it is.
-      w.setZoom?.(to, { clientX: e.clientX, clientY: e.clientY });
+      const from = wheelZoom?.shown === engine.zoom ? wheelZoom.exact : engine.zoom;
+      const exact = Math.max(0.1, Math.min(2, from * Math.exp(-e.deltaY * (e.deltaMode ? 0.05 : 0.0025))));
+      const to = Math.round(exact * 100) / 100;
+      // Rounding must not move a fractional zoom (Page width) against the direction of the wheel.
+      if (to !== engine.zoom && Math.sign(to - engine.zoom) === Math.sign(exact - engine.zoom)) {
+        // Keep the point under the pointer where it is.
+        w.setZoom?.(to, { clientX: e.clientX, clientY: e.clientY });
+      }
+      wheelZoom = { exact, shown: engine.zoom };
     } else if (sideToSide && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
       // Side to side: the wheel turns pages across.
       e.preventDefault(); host.scrollLeft += e.deltaY;
