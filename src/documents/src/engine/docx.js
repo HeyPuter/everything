@@ -62,7 +62,7 @@ import { underlinePattern } from './underlines.js';
 import { readCapitalization } from './docx-capitalization.js';
 import { checkedCapitalization, resolveCapitalization, capitalizationDeclarations } from './capitalization.js';
 import { readStrike } from './docx-strikethrough.js';
-import { checkedStrike, resolveStrike } from './strikethrough.js';
+import { checkedStrike, resolveStrike, strikeDeclarations } from './strikethrough.js';
 import { readLigatures, writeLigatures, readOpenTypeFeatures } from './ligatures.js';
 import { readKerning } from './docx-kerning.js';
 import { readContextualFlag } from './docx-contextual-spacing.js';
@@ -359,11 +359,13 @@ function writeRunFormat(properties, patch, make, inheritedStrike = 'none', inher
   if ('strikethrough' in patch) {
     properties ||= make('rPr');
     const mode = patch.strikethrough, base = inheritedStrike === 'double' ? 'double' : 'single';
-    const kind = mode === 'none' ? base : mode.startsWith('double') ? 'double' : 'single';
     for (const tag of ['strike', 'dstrike']) for (const n of children(properties)) if (n.namespaceURI === W && n.localName === tag) n.remove();
-    const tag = kind === 'single' ? 'strike' : 'dstrike', node = make(tag);
-    node.setAttributeNS(W, 'w:val', mode === 'single' || mode === 'double' ? '1' : '0');
-    properties.insertBefore(node, children(properties).find(n => runOrder.indexOf(n.localName) > runOrder.indexOf(tag)) || null);
+    // A pair of declarations (both off, or one on and the other off) writes both elements.
+    for (const value of mode === 'none' ? [base + 'Off'] : strikeDeclarations(mode)) {
+      const tag = value.startsWith('double') ? 'dstrike' : 'strike', node = make(tag);
+      node.setAttributeNS(W, 'w:val', value === 'single' || value === 'double' ? '1' : '0');
+      properties.insertBefore(node, children(properties).find(n => runOrder.indexOf(n.localName) > runOrder.indexOf(tag)) || null);
+    }
   }
   for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['boldCs', 'bCs'], ['italicCs', 'iCs'], ['fontSizeCs', 'szCs'], ['cs', 'cs'], ['rtl', 'rtl'], ['noProof', 'noProof'], ['vanish', 'vanish'], ['color', 'color'], ['characterSpacing', 'spacing'], ['textScale', 'w'], ['kerning', 'kern'], ['baselineShift', 'position'], ['fontSize', 'sz'], ['highlight', 'highlight'], ['underline', 'u'], ['shading', 'shd'], ['verticalAlign', 'vertAlign']]) {
     if (!(key in patch) && !(key === 'underline' && ('underlineColor' in patch || 'underlineStyle' in patch))) continue;

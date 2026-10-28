@@ -2,7 +2,7 @@ import { readUnderline } from './docx-underlines.js';
 import { underlinePattern } from './underlines.js';
 import { checkedCapitalization } from './capitalization.js';
 import { readCapitalization } from './docx-capitalization.js';
-import { checkedStrike } from './strikethrough.js';
+import { checkedStrike, strikeDeclarations } from './strikethrough.js';
 import { readStrike } from './docx-strikethrough.js';
 import { readKerning } from './docx-kerning.js';
 import { checkedKerning } from './kerning.js';
@@ -348,7 +348,7 @@ export function writeNumbering(parts, numbering) {
     for (const [key, tag] of [['bold', 'b'], ['italic', 'i'], ['capitalization', 'caps'], ['strikethrough', 'strike'], ['color', 'color'], ['characterSpacing', 'spacing'], ['textScale', 'w'], ['kerning', 'kern'], ['baselineShift', 'position'], ['fontSize', 'sz'], ['underline', 'u'], ['shading', 'shd'], ['verticalAlign', 'vertAlign']]) if (key in level.markerStyle || key === 'underline' && ('underlineStyle' in level.markerStyle || 'underlineColor' in level.markerStyle)) {
       const v = level.markerStyle[key];
       if (key === 'capitalization') { checkedCapitalization(v, true); rPr.append(make(v.startsWith('smallCaps') ? 'smallCaps' : 'caps', ['caps', 'smallCaps'].includes(v) ? '1' : '0')); continue; }
-      if (key === 'strikethrough') { checkedStrike(v, true); rPr.append(make(v.startsWith('double') ? 'dstrike' : 'strike', ['single', 'double'].includes(v) ? '1' : '0')); continue; }
+      if (key === 'strikethrough') { checkedStrike(v, true); for (const value of strikeDeclarations(v)) rPr.append(make(value.startsWith('double') ? 'dstrike' : 'strike', ['single', 'double'].includes(value) ? '1' : '0')); continue; }
       if (key === 'underline') { const node = make('u'); if ('underline' in level.markerStyle || 'underlineStyle' in level.markerStyle) node.setAttributeNS(W, 'w:val', underlinePattern(level.markerStyle)); rPr.append(node); continue; }
       rPr.append(make(tag, key === 'shading' ? v === 'foreground' ? 'solid' : 'clear' : ['color', 'verticalAlign', 'textScale'].includes(key) ? v : key === 'characterSpacing' ? Math.round(v * 20) : ['fontSize', 'baselineShift', 'kerning'].includes(key) ? v * 2 : v ? '1' : '0'));
     }

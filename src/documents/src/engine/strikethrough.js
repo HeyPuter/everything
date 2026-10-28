@@ -1,8 +1,12 @@
 import { textFillColor } from './text-fill.js';
 import { UnsupportedDocumentError } from './errors.js';
 
+// A property set can declare both forms when at most one is on (§17.3.2.37 strike, §17.3.2.9 dstrike):
+// both off, or one on with the other off. Each pair resolves its two declarations independently.
+const combined = { bothStrikeOff: ['singleOff', 'doubleOff'], singleStrikeDoubleOff: ['single', 'doubleOff'], doubleStrikeSingleOff: ['singleOff', 'double'] };
+export const strikeDeclarations = value => combined[value] || [value];
 export function checkedStrike(value, declaration = false) {
-  if (!(declaration ? ['single', 'double', 'singleOff', 'doubleOff'] : ['none', 'single', 'double']).includes(value)) throw new UnsupportedDocumentError('invalid strikethrough value');
+  if (!(declaration ? ['single', 'double', 'singleOff', 'doubleOff', ...Object.keys(combined)] : ['none', 'single', 'double']).includes(value)) throw new UnsupportedDocumentError('invalid strikethrough value');
   return value;
 }
 
@@ -12,6 +16,10 @@ export function checkedStrike(value, declaration = false) {
 export function resolveStrike(inherited = 'none', declaration, toggle = false, defaultStrike = 'none') {
   if (declaration === undefined) return inherited;
   if (declaration === 'none') return 'none';
+  if (combined[declaration]) {
+    const [single, double] = combined[declaration].map(value => resolveStrike(inherited, value, toggle, defaultStrike));
+    return double === 'double' ? 'double' : single === 'single' ? 'single' : 'none';
+  }
   checkedStrike(declaration, true);
   const single = declaration.startsWith('single'), enabled = !declaration.endsWith('Off');
   const kind = single ? 'single' : 'double';

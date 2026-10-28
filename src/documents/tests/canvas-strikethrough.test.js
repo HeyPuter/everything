@@ -98,7 +98,8 @@ const invalidStrikeDeclarations = [
   ['duplicate declaration', n => n.after(n.cloneNode(true))],
   ['nested content', n => n.append(node(n.ownerDocument, 'b'))],
   ['unknown attribute', n => n.setAttributeNS(W, 'w:other', '1')],
-  ['conflicting form', n => n.after(node(n.ownerDocument, n.localName === 'strike' ? 'dstrike' : 'strike', '0'))],
+  // Both forms on would need a choice of form; an off declaration beside an on one does not (tests/strike-pairs.test.js).
+  ['conflicting form', n => n.after(node(n.ownerDocument, n.localName === 'strike' ? 'dstrike' : 'strike', '1'))],
 ];
 it.each(['strike', 'dstrike'].flatMap(tag => invalidStrikeDeclarations.map(([label, change]) => [tag, label, change])))('rejects %s with %s', async (tag, label, change) => {
   await expect(DocxPackage.open(revise('word/document.xml', xml => change(xml.getElementsByTagNameNS(W, tag)[0])))).rejects.toMatchObject({ name: 'UnsupportedDocumentError' });

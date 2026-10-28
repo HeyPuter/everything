@@ -25,11 +25,11 @@ function styledPackage() {
 it('names an unsupported feature of a used style once', async () => {
   const error = await DocxPackage.open(styledPackage()).catch(e => e);
   expect(error).toBeInstanceOf(UnsupportedDocumentError);
-  expect(error.feature).toBe('strike and dstrike on the same property set');
+  expect(error.feature).toBe('strike and dstrike both on in the same property set');
   expect(error.message.match(/This document contains/g)).toHaveLength(1);
   const preview = await DocxPackage.open(styledPackage(), { bestEffort: true });
   expect(preview.readOnly).toBe(true);
-  expect(preview.previewIssues).toContain('strike and dstrike on the same property set');
+  expect(preview.previewIssues).toContain('strike and dstrike both on in the same property set');
   expect(preview.previewIssues.some(issue => issue.includes('This document contains'))).toBe(false);
 });
 

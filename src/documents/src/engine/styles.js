@@ -4,7 +4,7 @@ import { FONT_DEFAULTS, FONT_SLOTS, checkedFontEdit } from './font-families.js';
 import { BORDER_SIDES, checkedParagraphBorders } from './paragraph-borders.js';
 import { checkedUnderline, underlineDeclaration } from './underlines.js';
 import { checkedCapitalization, resolveCapitalization, checkCapitalizationText, capitalizationDeclarations } from './capitalization.js';
-import { checkedStrike, resolveStrike } from './strikethrough.js';
+import { checkedStrike, resolveStrike, strikeDeclarations } from './strikethrough.js';
 import { checkedLigatures } from './ligatures.js';
 import { checkedKerning } from './kerning.js';
 import { checkedTextScale } from './text-scale.js';
@@ -66,8 +66,11 @@ export function styleRun(styles, id, inherited = styles.defaults.run, type = 'pa
   // Find the nearest declaration of each form; an off declaration of one
   // form must not erase a different form inherited through basedOn.
   const strikes = new Map();
-  chain.forEach((s, index) => { if (s.run.strikethrough !== undefined) { checkedStrike(s.run.strikethrough, true); strikes.set(s.run.strikethrough.startsWith('double') ? 'double' : 'single', { index, value: s.run.strikethrough }); } });
-  result.strikethrough = [...strikes.values()].sort((a,b) => a.index - b.index).reduce((mode, declaration) => resolveStrike(mode, declaration.value, type === 'character', resolveStrike('none', styles.defaults.run.strikethrough)), resolveStrike('none', inherited.strikethrough));
+  chain.forEach((s, index) => { if (s.run.strikethrough !== undefined) { checkedStrike(s.run.strikethrough, true); for (const value of strikeDeclarations(s.run.strikethrough)) strikes.set(value.startsWith('double') ? 'double' : 'single', { index, value }); } });
+  const strikeOrder = [...strikes.values()].sort((a,b) => a.index - b.index);
+  // Keep a pair declared at the same level simultaneous, as capitalization does.
+  if (strikeOrder.length === 2 && strikeOrder[0].index === strikeOrder[1].index) strikeOrder.splice(0, 2, { value: chain[strikeOrder[0].index].run.strikethrough });
+  result.strikethrough = strikeOrder.reduce((mode, declaration) => resolveStrike(mode, declaration.value, type === 'character', resolveStrike('none', styles.defaults.run.strikethrough)), resolveStrike('none', inherited.strikethrough));
   const capitals = new Map();
   chain.forEach((s, index) => { if (s.run.capitalization !== undefined) {
     checkedCapitalization(s.run.capitalization, true);
