@@ -11,6 +11,7 @@ import { font, layoutDocument } from './layout.js';
 import { fontMetrics, nativeFaceMetrics, clearNativeFaceMetrics } from './font-metrics.js';
 import { pageGeometry } from './page-settings.js';
 import { layoutPageStories } from './page-story-layout.js';
+import { layoutSerializer } from './page-story-measure.js';
 import { textTransform } from './text-geometry.js';
 import { kerningEnabled } from './kerning.js';
 import { FONT_SLOTS, textFontStyle, cssFontString } from './font-families.js';
@@ -350,8 +351,9 @@ export async function validateCanvasLayout(pkg) {
   // A long document is laid out more than once (footnote reservations, square wrapping): remember measurements.
   const measure = createCanvasMeasurer(context);
   const { assets, drawingLayouts, autofitApproximations } = prepareShapeAutofit(pkg.assets, measure, { bestEffort: pkg.readOnly });
-  const body = layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, pkg.pageStories, { ...(!pkg.readOnly ? { styles: pkg.styles } : {}), drawingLayouts, bestEffort: pkg.readOnly });
-  if (pkg.pageStories && !pkg.readOnly) layoutPageStories(body, pkg.pageStories, [...pkg.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), pkg.pageSettings], measure, pkg.numbering, { styles: pkg.styles, drawingLayouts });
+  const serialize = layoutSerializer();
+  const body = layoutDocument(pkg.paragraphs, measure, pageGeometry(pkg.pageSettings), pkg.numbering, pkg.tables, pkg.pageStories, { ...(!pkg.readOnly ? { styles: pkg.styles } : {}), drawingLayouts, bestEffort: pkg.readOnly, serialize });
+  if (pkg.pageStories && !pkg.readOnly) layoutPageStories(body, pkg.pageStories, [...pkg.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), pkg.pageSettings], measure, pkg.numbering, { styles: pkg.styles, drawingLayouts, serialize });
   // A later layout failure must not leave fitted scenes in the package that
   // the read-only retry will receive. Publish only a successful preparation.
   Object.assign(pkg, { assets, drawingLayouts });

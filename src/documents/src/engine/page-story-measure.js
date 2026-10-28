@@ -16,6 +16,21 @@ function checkNamedContent(name, content) {
 }
 
 /**
+ * A serializer for one layout of a document (its body and page stories): each object it is given, such as
+ * the styles or the list definitions, is serialized once however many keys read it. Objects must not
+ * change while the layout runs; a new layout takes a new serializer.
+ */
+export function layoutSerializer() {
+  const serialized = new Map();
+  return value => {
+    if (!value || typeof value !== 'object') return JSON.stringify(value ?? null);
+    let text = serialized.get(value);
+    if (text === undefined) serialized.set(value, text = JSON.stringify(value));
+    return text;
+  };
+}
+
+/**
  * Page stories as layout keys them: the session's version of their content (StorySession
  * pageStories) when it has one, so an edit to the body does not serialize every story again.
  */

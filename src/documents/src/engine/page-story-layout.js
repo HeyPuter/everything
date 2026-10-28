@@ -1,4 +1,4 @@
-import { measurePageStory, storyContentKey } from './page-story-measure.js';
+import { measurePageStory, storyContentKey, layoutSerializer } from './page-story-measure.js';
 import { pageStoryPath } from './page-stories.js';
 import { positionedImageFrame } from './positioned-images.js';
 import { resolveDrawingCollisions } from './drawing-collisions.js';
@@ -11,7 +11,7 @@ import { measureNote, FOOTNOTE_SEPARATOR } from './footnote-layout.js';
 import { watermarkFrame } from './vml-watermarks.js';
 
 // Page stories have their own offsets and are kept outside body hit testing.
-export function layoutPageStories(body, definition, sectionSettings, measure, numbering, { bestEffort = false, styles, drawingLayouts } = {}) {
+export function layoutPageStories(body, definition, sectionSettings, measure, numbering, { bestEffort = false, styles, drawingLayouts, serialize = layoutSerializer() } = {}) {
   const lines = [], borders = [], cells = [], tableBorders = [], floatingObjects = [], paragraphFrames = [], unsupported = [];
   // Word watermarks (retained VML in a header or footer), placed on each page that shows their story.
   const watermarks = [];
@@ -21,9 +21,10 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
   const resolved = new Map(), storyKeys = new WeakMap();
   // A measurer that remembers stories resolves their styles only when it measures one it has not seen.
   const remembered = !!(styles && measure.paragraphCache);
-  const styleOptions = remembered ? { styles, stylesKey: JSON.stringify(styles) } : {};
-  // Every page's stories read the same list definitions: serialize them once (storyMeasureKey).
-  const numberingKey = measure.paragraphCache ? JSON.stringify(numbering ?? null) : undefined;
+  // Every page's stories read the same styles and list definitions: serialize them once (storyMeasureKey),
+  // with the body's layout when the caller shares its serializer (layoutSerializer).
+  const styleOptions = remembered ? { styles, stylesKey: serialize(styles) } : {};
+  const numberingKey = measure.paragraphCache ? serialize(numbering) : undefined;
   const storyParagraphs = (path, story) => {
     if (!styles || remembered) return story.paragraphs;
     if (!resolved.has(path)) resolved.set(path, story.paragraphs.map(p => resolveStyledParagraph(structuredClone(p), styles, numbering)));

@@ -62,6 +62,8 @@ const RTL_SCRIPTS = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]|[\u{10800}-\u{10f
 const strongRtl = text => RTL_SCRIPTS.test(text) && [...text].some(c => RTL_SCRIPTS.test(c) && ['R', 'AL'].includes(bidiCharacterType(c)));
 export const PAGE = Object.freeze({ width: 816, height: 1056, margin: 96, gap: 24, lineHeight: 26, paragraphGap: 12, fontSize: 16 });
 export const MAX_PAGES = 200;
+// Each paragraph's cache key strings from the last layout that read it (layoutPass contentKeys).
+const earlierParagraphKeys = new WeakMap();
 export const font = style => `${style.italic ? 'italic' : 'normal'} ${style.bold ? 700 : 400} ${(style.fontSize ?? 12) * 4 / 3}px ${canvasFontFamily(style)}`;
 
 /** Layout is independent of the painter. Every caret and fragment maps to UTF-16 source offsets. */
@@ -138,7 +140,8 @@ function layoutDocumentContent(paragraphs, measureBase, page, numbering, tables,
   // The styles and list definitions are long and the same throughout this layout: every pass, page story
   // and cache key of it reads one serialization of each (page-story-measure.js, layoutPass).
   const cache = measureBase.paragraphCache?.();
-  const storyStylesKey = cache && JSON.stringify(storyOptions.styles ?? null), storyNumberingKey = cache && JSON.stringify(numbering ?? null);
+  const serialize = storyOptions.serialize || (value => JSON.stringify(value ?? null));
+  const storyStylesKey = cache && serialize(storyOptions.styles), storyNumberingKey = cache && serialize(numbering);
   for (let attempt = 0; attempt < MAX_PAGES; attempt++) {
     // Page counts reach the body only through the header and footer heights they produce.
     const storyHeights = totals ? new Map() : undefined, storyHeightCache = new Map(), paragraphKeys = new WeakMap();
@@ -212,7 +215,13 @@ function layoutPass(paragraphs, measureBase, page, numbering, tables, pageStorie
     let keys = paragraphKeys.get(paragraph);
     if (!keys) {
       const view = revisionViewKey([paragraph]);
-      paragraphKeys.set(paragraph, keys = { content: view ? `${JSON.stringify(paragraph)},${JSON.stringify(view)}` : JSON.stringify(paragraph), byContext: new Map() });
+      const content = view ? `${JSON.stringify(paragraph)},${JSON.stringify(view)}` : JSON.stringify(paragraph);
+      // An unchanged paragraph keeps the key strings of earlier layouts, whose hashes are known: looking up
+      // every paragraph of a long document by new strings hashed megabytes of text on each keystroke.
+      const earlier = earlierParagraphKeys.get(paragraph);
+      keys = earlier?.content === content && earlier.byContext.size < 16 ? earlier : { content, byContext: new Map() };
+      earlierParagraphKeys.set(paragraph, keys);
+      paragraphKeys.set(paragraph, keys);
     }
     return keys;
   };

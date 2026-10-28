@@ -30,6 +30,7 @@ import { text3dSurface } from './text-3d.js';
 import { enterCellText, leaveCellText } from './canvas-cell-text.js';
 import { tableBorderWidth } from './table-border-layout.js';
 import { layoutPageStories } from './page-story-layout.js';
+import { layoutSerializer } from './page-story-measure.js';
 import { drawingPageContexts, drawingPageContext } from './shape-page-fields.js';
 import { paintParagraphBorder } from './canvas-paragraph-borders.js';
 import { paintTableBorder, paintCellDiagonals } from './canvas-table-borders.js';
@@ -697,8 +698,10 @@ export class CanvasEditor {
     this.measure.paragraphCache?.().nextGeneration(view?.kind ?? null);
     const body = this.session.body;
     const stories = view ? viewPageStories(this.pageStories, view.kind) : this.pageStories;
-    let layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, stories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}), ...(view ? { viewGeometry: viewGeometry(view) } : {}) });
-    const storyLayout = layoutPageStories(layout, stories, [...body.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), body.pageSettings], this.measure, this.model.numbering, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, ...(!this.readOnly ? { styles: this.model.styles } : {}) });
+    // The body and its page stories read the same styles and list definitions: serialize each once.
+    const serialize = layoutSerializer();
+    let layout = layoutDocument(body.paragraphs, this.measure, pageGeometry(body.pageSettings), body.numbering, body.tables, stories, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, serialize, ...(!this.readOnly ? { styles: this.model.styles } : {}), ...(view ? { viewGeometry: viewGeometry(view) } : {}) });
+    const storyLayout = layoutPageStories(layout, stories, [...body.paragraphs.filter(p => p.sectionEnd).map(p => p.sectionEnd), body.pageSettings], this.measure, this.model.numbering, { bestEffort: this.readOnly, drawingLayouts: this.drawingLayouts, serialize, ...(!this.readOnly ? { styles: this.model.styles } : {}) });
     if (view && isContinuousView(view.kind)) layout = fitContinuousPages(layout, storyLayout);
     // Draft shows text only: floating drawings stay in the document but are not drawn or hit.
     if (view?.kind === 'draft') layout = { ...layout, floatingObjects: [] };
