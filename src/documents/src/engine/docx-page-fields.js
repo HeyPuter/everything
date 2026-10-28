@@ -5,6 +5,9 @@ import { numericFieldFormat, formatNumericField } from './numeric-field-format.j
 
 const GENERAL_NUMBER_FORMATS = new Map([['Arabic', 'decimal'], ['ArabicDash', 'numberInDash'],
   ['ROMAN', 'upperRoman'], ['roman', 'lowerRoman'], ['ALPHABETIC', 'upperLetter'], ['alphabetic', 'lowerLetter']]);
+// Arabic has no letter case to choose, so any spelling of it is read (LibreOffice writes PAGE \* ARABIC). The case
+// of roman and alphabetic chooses the result's case, so only those two exact spellings are read.
+const generalNumberFormat = name => GENERAL_NUMBER_FORMATS.get(/^arabic(dash)?$/i.test(name || '') ? (/dash$/i.test(name) ? 'ArabicDash' : 'Arabic') : name);
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const fail = message => { throw new UnsupportedDocumentError(message); };
@@ -64,7 +67,7 @@ export function pageFieldInstruction(instruction) {
   for (let i = 0; i < tokens.length; i += 2) {
     if (tokens[i] === '\\#' && numericFormat === undefined && tokens[i + 1] !== undefined) numericFormat = numericFieldFormat(tokens[i + 1]);
     else if (tokens[i] === '\\*' && tokens[i + 1]?.toUpperCase() === 'MERGEFORMAT' && !mergeFormat) mergeFormat = true;
-    else if (tokens[i] === '\\*' && GENERAL_NUMBER_FORMATS.has(tokens[i + 1])) generalFormat = GENERAL_NUMBER_FORMATS.get(tokens[i + 1]);
+    else if (tokens[i] === '\\*' && generalNumberFormat(tokens[i + 1])) generalFormat = generalNumberFormat(tokens[i + 1]);
     else fail('an unsupported page field switch');
   }
   return { type, mergeFormat, instruction, ...(numericFormat === undefined ? {} : { numericFormat }), ...(generalFormat === undefined ? {} : { generalFormat }) };

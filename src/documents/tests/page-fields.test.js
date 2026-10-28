@@ -70,3 +70,14 @@ it('retains a locked general field cache and handles zero without discarding its
  expect(pageFieldValue({...f,locked:true},{pageNumber:12})).toBeNull();
  expect(pageFieldValue({...f,locked:true},{pageNumber:12,pageStory:true})).toBe('xii');
 });
+it('reads the Arabic switch in any letter case, as LibreOffice writes it (PAGE \\* ARABIC)',()=>{
+ const context={pageNumber:27,pageCount:5,sectionPageCount:1,pageNumbering:{format:'upperRoman'}};
+ for(const format of ['ARABIC','arabic','ARABICDASH','arabicdash']){
+  const field=pageFieldInstruction(` PAGE \\* ${format} `);
+  expect(field.instruction).toBe(` PAGE \\* ${format} `);
+  expect(pageFieldValue(field,context)).toBe(/dash/i.test(format)?'- 27 -':'27');
+ }
+ expect(pageFieldValue(pageFieldInstruction('NUMPAGES \\* ARABIC'),context)).toBe('5');
+ // The case of roman and alphabetic chooses the case of the result, so only the two exact spellings are read.
+ expect(()=>pageFieldInstruction('PAGE \\* Roman')).toThrow();
+});

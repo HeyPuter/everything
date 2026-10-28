@@ -7899,7 +7899,9 @@ ECMA-376 Part 1 sections 17.16.4.3 and 17.16.4.3.1 define the `\\*` general
 formatting switch. PAGE, NUMPAGES and SECTIONPAGES now accept Arabic,
 ArabicDash, ROMAN, roman, ALPHABETIC and alphabetic, preserving the original
 instruction and cached-result XML. Case-sensitive Roman/alphabetic forms
-select the corresponding upper/lower output. General formats override section
+select the corresponding upper/lower output. Arabic and ArabicDash, which have
+no case to select, are read in any letter case (LibreOffice writes `PAGE \\*
+ARABIC`). General formats override section
 numbering; ArabicDash adds the specified spaced hyphens. The existing locked
 field behavior is retained.
 
