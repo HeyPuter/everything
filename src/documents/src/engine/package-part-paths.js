@@ -47,3 +47,24 @@ export function zipPackage(parts) {
   const stored = zipSync(Object.fromEntries(Object.entries(parts).map(([name, bytes]) => [name, PICTURE_PARTS.test(name) && incompressible(bytes) ? [bytes, { level: 0 }] : bytes])));
   return stored.length > MAX_PACKAGE_BYTES ? zipSync(parts) : stored;
 }
+
+const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const utf16 = text => Uint8Array.from([...text].flatMap(c => [c.charCodeAt(0), 0]));
+function contains(bytes, needle) {
+  outer: for (let i = bytes.indexOf(needle[0]); i !== -1 && i <= bytes.length - needle.length; i = bytes.indexOf(needle[0], i + 1)) {
+    for (let j = 1; j < needle.length; j++) if (bytes[i + j] !== needle[j]) continue outer;
+    return true;
+  }
+  return false;
+}
+/**
+ * Why bytes that are an OLE compound file ([MS-CFB] §2.2) rather than a ZIP package cannot open, or
+ * null. Office keeps a password-protected document in one ([MS-OFFCRYPTO] §2.3.4.4, its
+ * EncryptedPackage stream), as it does a Word 97–2003 document ([MS-DOC], its WordDocument stream).
+ */
+export function compoundFileProblem(bytes) {
+  if (bytes.length < 512 || CFB_SIGNATURE.some((b, i) => bytes[i] !== b)) return null;
+  if (contains(bytes, utf16('EncryptedPackage'))) return 'This document is protected with a password. Open it in Word, remove the password, save it, and open it here again.';
+  if (contains(bytes, utf16('WordDocument'))) return 'This is a Word 97–2003 document (.doc) with a .docx name. Save it as a Word Document (.docx) in Word, then open it here.';
+  return 'This file is not a DOCX package. It may be another Office format saved with a .docx name.';
+}
