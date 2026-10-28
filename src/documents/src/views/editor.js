@@ -55,6 +55,7 @@ import * as P from '../lib/puter.js';
 import { printPages } from '../lib/print.js';
 import { templateById } from '../lib/templates.js';
 import { autocorrectEnabled, capitalizeSentencesEnabled, correction, sentenceCapital } from '../lib/autocorrect.js';
+import { execClipboardCommand } from '../lib/clipboard.js';
 import { autolinkEnabled, linkCandidateBefore } from '../lib/linkify.js';
 import { layoutTemplate } from '../lib/template-layout.js';
 import { createWordCommands, documentStatistics as documentStatisticsOf } from './editor-commands.js';
@@ -178,6 +179,10 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     : e);
   const copyText = async cut => {
     const editor = engine; if (!editor) return;
+    // The browser's own Copy and Cut send the clipboard event the keyboard's do, which writes the same text and
+    // formats and needs no permission (a frame given no clipboard access refuses the clipboard API).
+    editor.focus({ paint: false });
+    if (execClipboardCommand(cut ? 'cut' : 'copy')) { if (!destroyed) engine?.focus(); return; }
     const selection = [...editor.model.range], revision = editor.session.revision;
     try {
       // The same text and HTML a keyboard copy writes: pictures as their alternative text, not as placeholders.

@@ -91,3 +91,31 @@ test('Paste from the menus explains a clipboard the browser keeps closed, and na
   }
   await expect(input(page)).toHaveValue('Hello');
 });
+
+test('Copy and Cut from the menus work in a frame given no clipboard access', async ({ page, baseURL }) => {
+  // A desktop environment hosts the app in a frame from another origin; this one allows it no clipboard API.
+  await page.goto(`${baseURL.replace('127.0.0.1', 'localhost')}/playground.html`);
+  await page.setContent(`<iframe src="${baseURL}/mock.html#/new" style="width:1200px;height:850px;border:0"></iframe>`);
+  const frame = page.frameLocator('iframe'), field = frame.getByRole('textbox', { name: 'Document text' });
+  await expect(frame.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await field.fill('Hello brave world');
+  const select = (a, b) => field.evaluate((el, [a, b]) => { el.focus(); el.setSelectionRange(a, b); el.dispatchEvent(new Event('select')); }, [a, b]);
+  // The menu opened on the selected text, just before its end, where the caret is drawn.
+  const choose = async name => {
+    const caret = await field.evaluate(el => ({ x: parseFloat(el.style.left) - 3, y: parseFloat(el.style.top) + parseFloat(el.style.height) / 2 }));
+    await frame.locator('.canvas-pages').click({ button: 'right', position: caret });
+    await frame.getByRole('menu', { name: 'Document menu' }).getByRole('menuitem', { name, exact: true }).click();
+  };
+  await select(6, 12);
+  await choose('Copy');
+  await select(17, 17);
+  await field.press('ControlOrMeta+v');
+  await expect(field).toHaveValue('Hello brave worldbrave ');
+  await select(0, 6);
+  await choose('Cut');
+  await expect(field).toHaveValue('brave worldbrave ');
+  await select(17, 17);
+  await field.press('ControlOrMeta+v');
+  await expect(field).toHaveValue('brave worldbrave Hello ');
+  await expect(frame.locator('.toast').filter({ hasText: 'clipboard' })).toHaveCount(0);
+});
