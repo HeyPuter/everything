@@ -553,3 +553,22 @@ test('Demote to Body Text offers Ctrl+Shift+N, which the browser leaves to the p
   await page.keyboard.press('Control+Shift+N');
   await expect(page.locator('.outline-row', { hasText: 'Background' })).not.toHaveClass(/is-heading/);
 });
+
+test('Focus shows the page alone, without the rulers, and Escape brings them back', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await input.fill('Words to write without distraction.');
+  const ruler = page.locator('.canvas-ruler-top');
+  await expect(ruler).toBeVisible();
+  await page.getByLabel('Status bar').getByRole('button', { name: 'Focus', exact: true }).click();
+  await expect(page.locator('.ed-workspace')).toHaveClass(/ed-focus/);
+  // The light rulers would stand out on Focus's dark surround: they go with the rest of the window.
+  await expect(ruler).toBeHidden();
+  await expect(page.locator('.canvas-ruler-side')).toBeHidden();
+  await expect(page.locator('.canvas-tab-selector')).toBeHidden();
+  await input.press('Escape');
+  await expect(page.locator('.ed-workspace')).not.toHaveClass(/ed-focus/);
+  await expect(ruler).toBeVisible();
+});

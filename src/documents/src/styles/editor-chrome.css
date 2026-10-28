@@ -284,6 +284,9 @@ button.ed-status-item:hover, .ed-status-view:hover, .ed-zoom-step:hover { backgr
 /* ---- Focus mode: the page alone ---- */
 .ed-focus .ed-header, .ed-focus .ed-ribbon, .ed-focus .ed-statusbar, .ed-focus .canvas-message { display: none !important; }
 .ed-focus .canvas-host { background: #1d1d1d; }
+/* The page alone: the rulers (and the tab-type button that goes with them) leave with the rest of the window. */
+.ed-focus .canvas-ruler-top, .ed-focus .canvas-ruler-side, .ed-focus .canvas-tab-selector { display: none; }
+.ed-focus .canvas-document-surface.has-rulers { padding-top: 0; }
 .ed-focus-exit { position: fixed; top: 12px; right: 16px; z-index: 50; }
 
 /* ---- Small dialogs ---- */
