@@ -195,9 +195,14 @@ export class CanvasEditor {
     listen(this.input, 'blur', () => { this.finishComposition(); this.paint(); });
     listen(this.input, 'copy', e => this.copy(e, false));
     listen(this.input, 'cut', e => this.copy(e, true));
+    // A later key press starts a new action: a paste after it is not the one a plain paste's clipboard read stood in for.
+    listen(this.input, 'keydown', () => { this.plainPasteReadAt = 0; });
     listen(this.input, 'paste', e => {
       // Paste without formatting (the host sets plainPaste for its chord): the text alone.
       const plain = this.plainPaste; this.plainPaste = false;
+      // The browser's paste arriving after the host read the clipboard for the same chord: already pasted.
+      const read = this.plainPasteReadAt; this.plainPasteReadAt = 0;
+      if (read && performance.now() - read < 1000) { e.preventDefault(); return; }
       if (this.composition || !e.clipboardData) return;
       e.preventDefault();
       const text = e.clipboardData.getData('text/plain').replace(/\ufffc/g, '');

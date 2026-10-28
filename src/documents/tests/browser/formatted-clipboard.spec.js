@@ -188,3 +188,31 @@ test('Paste without formatting from the keyboard needs no permission to read the
   await expect(input(page)).toHaveValue('Plain Bold ');
   expect(errors).toEqual([]);
 });
+
+for (const platform of ['MacIntel', 'Linux x86_64']) test(`Paste without formatting pastes once when the browser's paste event comes late (${platform})`, async ({ browser }) => {
+  // The chord's keydown, then the browser's own paste arriving well after it (as on a busy Linux machine), with the
+  // clipboard as the document would read it: the text comes in once, without formatting, whichever way it arrives.
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.addInitScript(value => Object.defineProperty(Navigator.prototype, 'platform', { get: () => value }), platform);
+  try {
+    await blank(page);
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await input(page).focus();
+    await page.keyboard.type('Plain ');
+    await page.evaluate(() => { navigator.clipboard.readText = async () => 'Bold'; });
+    await input(page).evaluate(el => {
+      const mac = /Mac/.test(navigator.platform);
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'V', code: 'KeyV', shiftKey: true, ctrlKey: !mac, metaKey: mac, bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(100);
+    await input(page).evaluate(el => {
+      const data = new DataTransfer(); data.setData('text/plain', 'Bold'); data.setData('text/html', '<b>Bold</b>');
+      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(100);
+    await expect(input(page)).toHaveValue('Plain Bold');
+    expect(await state(page, 'Bold', 6)).toMatchObject({ bold: 'false' });
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+});

@@ -1340,11 +1340,14 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     if ((e.ctrlKey || e.metaKey) && !e.altKey && e.shiftKey && shortcutCode(e) === 'KeyV' && engine && host.contains(e.target)) {
       // The browser's own paste for the chord (Paste as plain text, Paste and Match Style) needs no permission to
       // read the clipboard, which reading it here asks for: the document takes that paste without formatting.
-      // Where the chord pastes nothing, the clipboard is read instead.
+      // Windows and Linux browsers always paste for the chord, though the paste event can come after a timer would
+      // fire, so nothing else pastes there. On a Mac the chord may paste nothing: the clipboard is read instead, and
+      // a browser paste that still follows is dropped, so the text never comes in twice.
       if (e.target === engine.input && !pkg.readOnly) {
         const editor = engine;
         editor.plainPaste = true;
-        setTimeout(() => { if (editor.plainPaste) { editor.plainPaste = false; if (engine === editor) pastePlainText(); } });
+        if (IS_MAC) setTimeout(() => { if (editor.plainPaste) { editor.plainPaste = false; editor.plainPasteReadAt = performance.now(); if (engine === editor) pastePlainText(); } });
+        else setTimeout(() => { editor.plainPaste = false; }, 1000);
         return;
       }
       e.preventDefault(); pastePlainText(); return;
