@@ -164,3 +164,19 @@ test('a word ignored once stays ignored after text is typed or deleted before it
   await expect(input).toHaveValue(' Zorblax met the Zorblax there.');
   await reviewFromStart(17);
 });
+
+test('a word missing its apostrophe is offered the contraction, with the apostrophe autocorrect types', async ({ page }) => {
+  const input = await newDocument(page, 'I dont know why it wasnt there.');
+  await expect(proofing(page)).toHaveAttribute('aria-label', /2 errors found/);
+  const menu = await wordMenu(page, input, 'dont');
+  await expect(menu.getByRole('menuitem').first()).toHaveText('don’t');
+  await menu.getByRole('menuitem', { name: 'don’t', exact: true }).click();
+  await expect(input).toHaveValue('I don’t know why it wasnt there.');
+  await input.press('F7');
+  const pane = page.getByRole('complementary', { name: 'Spelling' });
+  await expect(pane.locator('mark')).toHaveText('wasnt');
+  await expect(pane.getByRole('option').first()).toHaveText('wasn’t');
+  await pane.getByRole('button', { name: 'Change', exact: true }).click();
+  await expect(input).toHaveValue('I don’t know why it wasn’t there.');
+  await expect(proofing(page)).toHaveAttribute('aria-label', 'Spelling: no errors');
+});

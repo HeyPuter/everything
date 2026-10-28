@@ -92,6 +92,7 @@ export function rankSuggestions(word, suggestions, limit = 6) {
     if (candidate.length !== lower.length) score += 2;
     if (candidate[0] !== lower[0]) score += 3;
     if (s !== candidate && word === lower) score += 4; // a proper noun for a lowercase word
+    if (!lower.includes("'") && candidate.replaceAll("'", '') === lower) score -= 12; // a left-out apostrophe: dont, wasnt
     return { s, score, index };
   }).sort((a, b) => a.score - b.score || a.index - b.index);
   const out = [];
@@ -112,6 +113,22 @@ export function addPersonalWord(word) {
   if (!list.includes(word)) { list.push(word); try { localStorage.setItem(PERSONAL_KEY, JSON.stringify(list.slice(-5000))); } catch { /* storage full or blocked */ } }
 }
 
+/**
+ * The words a left-out apostrophe makes of `word` (dont → don't, youre → you're, im → I'm), which the
+ * dictionary's own suggestions often miss although it is the commonest slip in a contraction.
+ */
+export function apostropheSuggestions(word, correct) {
+  if (word.includes("'") || word.length < 2 || word.length > 24) return [];
+  const out = [];
+  for (let at = 1; at < word.length; at++) {
+    const candidate = word.slice(0, at) + "'" + word.slice(at);
+    if (correct(candidate)) out.push(candidate);
+    // The pronoun I is always a capital: im → I'm, ive → I've, id → I'd, ill → I'll.
+    else if (at === 1 && word[0] === 'i' && correct('I' + candidate.slice(1))) out.push('I' + candidate.slice(1));
+  }
+  return out;
+}
+
 let speller = null;
 /** Load the dictionary once: { correct(word), suggest(word), add(word) }. */
 export function loadSpeller(base = document.baseURI) {
@@ -125,7 +142,7 @@ export function loadSpeller(base = document.baseURI) {
     for (const word of personalWords()) engine.add(word);
     return {
       correct: word => engine.correct(word) || engine.correct(word.toLowerCase()) && word[0] === word[0].toUpperCase() && word.slice(1) === word.slice(1).toLowerCase(),
-      suggest: word => rankSuggestions(word, engine.suggest(word)),
+      suggest: word => rankSuggestions(word, [...apostropheSuggestions(word, candidate => engine.correct(candidate)), ...engine.suggest(word)]),
       add: word => { engine.add(word); addPersonalWord(word); },
     };
   })().catch(error => { speller = null; throw error; });

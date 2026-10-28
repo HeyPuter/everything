@@ -3,6 +3,7 @@ import { iconEl } from '../ui/icons.js';
 import { engineApi } from '../lib/engine-api.js';
 import { wordsToCheck, proofingText, loadSpeller } from '../lib/spelling.js';
 import { proofingFingerprint, wordsInSavedRanges } from '../lib/proofing-cache.js';
+import { autocorrectEnabled } from '../lib/autocorrect.js';
 
 const ENABLED_KEY = 'documents:spellcheck';
 const LIMIT = 3000; // Past this many, a word processor stops marking and says so.
@@ -162,6 +163,8 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     schedule(0);
     return ok;
   }
+  // A contraction is offered with the apostrophe typing gives: the typographic one while autocorrect makes quotes so.
+  const suggestionsFor = word => speller.suggest(word).map(option => autocorrectEnabled() ? option.replaceAll("'", '’') : option);
   function ignoreAll(word) { ignored.add(word); schedule(0); }
   function addToDictionary(word) { speller?.add(word); known.set(word, true); schedule(0); }
 
@@ -214,7 +217,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     engine.model.select(current.start, current.end); engine.syncInput?.(); engine.paint(); engine.revealCaret(); engine.onSelection?.();
     const text = results.text, lineStart = Math.max(text.lastIndexOf('\n', current.start) + 1, current.start - 60), lineEnd = Math.min(...[text.indexOf('\n', current.end), current.end + 60].filter(n => n >= 0));
     context.replaceChildren((lineStart > 0 && text[lineStart - 1] !== '\n' ? '…' : '') + text.slice(lineStart, current.start), el('mark', {}, text.slice(current.start, current.end)), text.slice(current.end, lineEnd));
-    const options = speller.suggest(current.word);
+    const options = suggestionsFor(current.word);
     suggestions.replaceChildren(...(options.length ? options : ['(no suggestions)']).map((option, i) => {
       const item = el('button.ed-proof-suggestion', { type: 'button', role: 'option', 'aria-selected': String(!i && !!options.length), dataset: { value: options.length ? option : '' }, disabled: !options.length,
         onclick: () => chooseSuggestion(item),
@@ -266,7 +269,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
     menuItems(position) {
       const m = enabled && !pkg()?.hideSpellingErrors && engineReady()?.session.path === null ? misspellingAt(position) : null;
       if (!m || !speller) return [];
-      const options = speller.suggest(m.word).slice(0, 5);
+      const options = suggestionsFor(m.word).slice(0, 5);
       return [
         ...(options.length ? options.map(option => ({ label: option, labelStyle: { fontWeight: '600' }, disabled: !editable(), onSelect: () => replaceWord(m, option) })) : [{ label: '(no spelling suggestions)', disabled: true }]),
         { separator: true },
@@ -284,7 +287,7 @@ export function createProofing({ editor, pkg, error, onState = () => {} }) {
       await check();
       return results.misspelled.filter(m => !ignoredOnce.has(`${m.start}:${m.word}`));
     },
-    suggest(word) { return speller?.suggest(word) || []; },
+    suggest(word) { return speller ? suggestionsFor(word) : []; },
     change(m, text) { return replaceWord(m, text); },
     changeAll(word, text) { return replaceAll(word, text); },
     ignoreOnce(m) { ignoreHere(m); schedule(0); },
