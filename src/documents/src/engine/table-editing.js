@@ -12,6 +12,7 @@ import { repairStructuralBookmarks, normalizeBlockBookmarkScopes } from './bookm
 import { mergeCellControls } from './block-controls.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE, xmlAttributeText } from './text-limits.js';
 import { checkedCellAlignment } from './cell-alignment.js';
+import { keptText } from './table-formula.js';
 import { checkedCellBorder, resolveCellBorders } from './cell-borders.js';
 import { resolveCellMargins } from './cell-margins.js';
 
@@ -896,7 +897,7 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
   for (const key of keys) if (!Number.isInteger(key.column) || key.column < 0 || key.column >= table.grid.length || !['text', 'number', 'date'].includes(key.type)) throw new Error('Choose a column and type for each sort key.');
   const textOf = (row, column) => {
     const cell = rowGrid(row).find(c => c.column <= column && c.end > column)?.cell;
-    return cell ? model.paragraphs.filter(p => p.cellId === cell.id).map(paragraphText).join(' ').replace(/￼/g, '').trim() : '';
+    return cell ? model.paragraphs.filter(p => p.cellId === cell.id).map(keptText).join(' ').replace(/￼/g, '').trim() : '';
   };
   const collator = new Intl.Collator(undefined, { sensitivity: caseSensitive ? 'case' : 'base', numeric: false });
   const rows = table.rows.slice(first, last + 1).map((row, index) => ({ row, index, values: keys.map(key => {

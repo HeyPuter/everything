@@ -10,7 +10,7 @@ import { TEXT_COLORS } from './text-color.js';
 import * as T from '../engine/table-editing.js';
 import { blockFor, cellBlockPlacements, wholeRows, wholeColumns } from '../engine/table-selection.js';
 import { applyTableStyle, setTableLook, clearTableStyle, saveTableStyle, tableLook, availableTableStyles, tableStyleSpec, newTableStyleId, specFromTable, DEFAULT_LOOK } from '../engine/table-styles.js';
-import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NUMBER_FORMATS, buildInstruction } from '../engine/table-formula.js';
+import { insertFormula, evaluateFormula, suggestedFormula, FORMULA_FUNCTIONS, NUMBER_FORMATS, buildInstruction, keptText } from '../engine/table-formula.js';
 import { QUICK_TABLES, insertQuickTable } from '../engine/quick-tables.js';
 import { headerRowCount, rowGrid, verticalMerges } from '../engine/tables.js';
 import { locate } from '../engine/model.js';
@@ -249,7 +249,7 @@ export function createTableTools({ editor, pkg, error = () => {}, onChange = () 
   function sortDialog() {
     const engine = ready(); const b = block(); if (!engine || !b) return;
     engine.finishComposition();
-    const table = b.table, firstRow = table.rows[0], text = cell => engine.model.paragraphs.filter(p => p.cellId === cell.id).map(p => p.runs.map(r => r.text).join('')).join(' ').trim();
+    const table = b.table, firstRow = table.rows[0], text = cell => engine.model.paragraphs.filter(p => p.cellId === cell.id).map(keptText).join(' ').replace(/￼/g, '').trim();
     const columns = rowGrid(firstRow).map((entry, i) => ({ column: entry.column, label: `Column ${i + 1}`, header: text(entry.cell) || `Column ${i + 1}` }));
     openSortDialog({ columns, header: headerRowCount(table) > 0 || !!table.conditionalStyle?.settings.look.firstRow && !!table.styleId },
       choice => { let failure; engine.execute(() => T.sortTable(engine.model, choice), e => { failure = e; }, undefined, true); if (failure) throw failure; onChange(); return true; }, { onClose: closeFocus });

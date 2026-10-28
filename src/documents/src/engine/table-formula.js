@@ -105,9 +105,11 @@ export const columnName = column => { let name = ''; for (let n = column + 1; n 
 
 /* ---- Evaluation ---- */
 
-/** The text a cell shows (its own paragraphs, not nested tables'). */
+/** A paragraph's text with its tracked deletions left out, as it reads once changes are accepted. */
+export const keptText = p => p.runs.some(run => run.revision?.type === 'del') ? p.runs.filter(run => run.revision?.type !== 'del').map(run => run.text).join('') : paragraphText(p);
+/** The text a cell shows (its own paragraphs, not nested tables'), without tracked deletions. */
 function cellText(paragraphs, cell) {
-  return paragraphs.filter(p => p.cellId === cell.id).map(paragraphText).join(' ').replace(/\ufffc/g, '');
+  return paragraphs.filter(p => p.cellId === cell.id).map(keptText).join(' ').replace(/\ufffc/g, '');
 }
 function cellAt(table, row, column) {
   const r = table.rows[row];

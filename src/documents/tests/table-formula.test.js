@@ -92,3 +92,15 @@ it('inserts an = field with its result, updates it with Update Fields and round-
   expect(textAt(reopened, 3, 1)).toBe('25.00');
   expect(bodyFieldRanges(reopened.paragraphs)[0].field.type).toBe('=');
 });
+
+it('reads cells as they read with tracked changes accepted: deleted text does not count', () => {
+  const { doc } = sheet();
+  // A reviewer retypes Q1's 10 as 7 with Track Changes on: "10" stays as a deletion beside "7".
+  const p = doc.paragraphs.find(x => x.cellId === cellAt(doc, 1, 1).id), start = doc.paragraphOffset(doc.paragraphs.indexOf(p));
+  doc.trackChanges = true; doc.revisionAuthor = 'Reviewer';
+  doc.select(start, start + 2); doc.replace('7');
+  doc.trackChanges = false;
+  expect(p.runs.some(r => r.revision?.type === 'del')).toBe(true);
+  expect(evaluateFormula(doc, '=SUM(ABOVE)', cellAt(doc, 3, 1).id)).toBe('12');
+  expect(evaluateFormula(doc, '=B2*2', cellAt(doc, 3, 1).id)).toBe('14');
+});

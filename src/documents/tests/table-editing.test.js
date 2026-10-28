@@ -270,6 +270,19 @@ describe('table commands', () => {
     expect(T.sortDate('3/4/2024')).toBe(Date.UTC(2024, 2, 4));
   });
 
+  it('sorts cells by the text they keep once tracked changes are accepted', () => {
+    const { doc } = tableDocument(3, 1);
+    const fill = (r, text) => { at(doc, r, 0); const p = doc.paragraphs.find(x => x.cellId === cellAt(doc, r, 0).id), s = doc.paragraphOffset(doc.paragraphs.indexOf(p)); doc.select(s, s + paragraphText(p).length); doc.replace(text); };
+    fill(0, 'cherry'); fill(1, 'banana'); fill(2, 'date');
+    // A reviewer replaces "date" with "apple": "date" stays as a tracked deletion.
+    doc.trackChanges = true; doc.revisionAuthor = 'Reviewer';
+    fill(2, 'apple');
+    doc.trackChanges = false;
+    at(doc, 0, 0);
+    T.sortTable(doc, { keys: [{ column: 0, type: 'text' }] });
+    expect(shape(doc)).toEqual(['dateapple', 'banana', 'cherry']);
+  });
+
   it('sorting a repeated header row into the body without "Header row" leaves the repeat on the top row', async () => {
     const { pkg, doc } = tableDocument(3, 1);
     const fill = (r, text) => { at(doc, r, 0); doc.select(doc.selection.focus, doc.selection.focus + 2); doc.replace(text); };
