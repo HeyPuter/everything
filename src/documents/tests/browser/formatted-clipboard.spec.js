@@ -178,8 +178,10 @@ test('Paste without formatting from the keyboard needs no permission to read the
   await page.keyboard.type(' ');
   // The chord as Windows and Linux browsers take it: Paste as plain text, through the browser's own paste.
   const cdp = await page.context().newCDPSession(page);
-  const modifiers = process.platform === 'darwin' ? 4 | 8 : 2 | 8;
-  for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', { type, key: 'V', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers, ...(type === 'rawKeyDown' ? { commands: ['pasteAndMatchStyle'] } : {}) });
+  // Off a Mac, Chrome's own key binding for Ctrl+Shift+V pastes and matches style; on a Mac the command is sent as a
+  // browser that binds Cmd+Shift+V would. Sending it off a Mac as well would paste twice.
+  const mac = process.platform === 'darwin', modifiers = mac ? 4 | 8 : 2 | 8;
+  for (const type of ['rawKeyDown', 'keyUp']) await cdp.send('Input.dispatchKeyEvent', { type, key: 'V', code: 'KeyV', windowsVirtualKeyCode: 86, modifiers, ...(type === 'rawKeyDown' && mac ? { commands: ['pasteAndMatchStyle'] } : {}) });
   await expect(input(page)).toHaveValue('Plain Bold Bold');
   expect(await state(page, 'Bold', 11)).toMatchObject({ bold: 'false' });
   await expect(page.locator('.toast')).toHaveCount(0);
