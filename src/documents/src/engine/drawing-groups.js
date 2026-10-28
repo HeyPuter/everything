@@ -89,7 +89,9 @@ export async function groupDrawings(editor, images) {
   let id = nextId(model) + 1000; const ids = { next: () => id++ };
   const group = make(doc, WPG, 'wgp', {}, make(doc, WPG, 'cNvGrpSpPr'),
     make(doc, WPG, 'grpSpPr', {}, make(doc, A, 'xfrm', {}, make(doc, A, 'off', { x: 0, y: 0 }), make(doc, A, 'ext', { cx: int(width), cy: int(height) }), make(doc, A, 'chOff', { x: 0, y: 0 }), make(doc, A, 'chExt', { cx: int(width), cy: int(height) }))));
-  for (const member of members) {
+  // A group's children paint in document order: write them back to front, as they were stacked.
+  const stacked = [...members].sort((a, b) => (a.image.anchor.behind ? 0 : 1) - (b.image.anchor.behind ? 0 : 1) || (a.image.anchor.order || 0) - (b.image.anchor.order || 0) || a.start - b.start);
+  for (const member of stacked) {
     const source = member === primary ? { drawing } : materializeDrawing(pkg, model, member.image);
     if (source.parts) for (const [rel, part] of source.parts) {
       if (parts.has(rel) && parts.get(rel).path !== part.path) throw new Error('These objects use conflicting pictures and cannot be grouped.');
@@ -216,6 +218,11 @@ export async function ungroupDrawing(editor, image) {
     if (start === undefined) throw new Error('The group changed before it could be ungrouped.');
     model.select(start, start + 1); model.replace('', { checkpoint: false });
     for (const [i, fragment] of fragments.entries()) { model.select(start + i, start + i); model.replace(OBJECT, { checkpoint: false, insertedImage: fragment.image }); }
+    // The children take the group's level and those just above it: objects that were in front of the group move up to stay in front.
+    const level = image.anchor.order || 1, added = fragments.length - 1, children = new Set(fragments.map(f => f.image.id));
+    if (added > 0) for (const p of model.paragraphs) for (const run of p.runs) {
+      if (run.image?.anchor && !children.has(run.image.id) && (run.image.anchor.order || 0) > level) run.image = { ...run.image, anchor: { ...run.image.anchor, order: run.image.anchor.order + added }, anchorChanged: true };
+    }
     model.select(start, start + 1);
     return true;
   }, { revision });
