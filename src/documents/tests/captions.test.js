@@ -62,6 +62,16 @@ describe('captions and cross-references', () => {
     expect(target.captionText).toBe('Second chart');
     for (const show of ['entire', 'caption', 'label']) { d.select(d.text.length); d.replace(` ${show}: `); insertCrossReference(d, target, { show }); }
     expect(d.text.split('\n').at(-1)).toBe('Conclusion entire: Figure 1: Second chart caption: Second chart label: Figure 1');
+    // Updating fields keeps the results as inserted, and refreshes them, without reporting them as unrefreshable.
+    const issues = [];
+    expect(updateSequenceFields(d, { onIssue: issue => issues.push(issue.message) })).toBe(0);
+    expect(issues).toEqual([]);
+    d.select(d.text.indexOf('Second\uFFFC') + 7); d.replace(' bar');
+    updateSequenceFields(d, { onIssue: issue => issues.push(issue.message) });
+    expect(issues).toEqual([]);
+    expect(d.text.split('\n').at(-1)).toBe('Conclusion entire: Figure 1: Second bar chart caption: Second bar chart label: Figure 1');
+    const at = d.text.indexOf('Second\uFFFC') + 7; d.select(at, at + 4); d.replace('');
+    updateSequenceFields(d);
     const bytes = new Uint8Array(await pkg.export(d.paragraphs, d.pageSettings, d.numbering, d.styles, d.tables, d.assets, { [path]: { paragraphs: note.paragraphs, tables: [] } }).arrayBuffer());
     expect(strFromU8(unzipSync(bytes)['word/document.xml'])).not.toContain('\uFFFC');
     const reopened = new TextDocument((await DocxPackage.open(bytes)).paragraphs);

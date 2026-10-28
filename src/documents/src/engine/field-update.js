@@ -104,7 +104,10 @@ export function fieldUpdatePlan(model, { onIssue = () => {}, notes = null } = {}
       } else if (relative) value = withCases(range.end <= bookmark.start ? 'below' : 'above', cases);
       else {
         value = text.slice(bookmark.start, Math.min(bookmark.end, text.length));
-        if (bookmark.columnRange || /[\n￼]/.test(value)) { retain('A REF with structural or object content cannot be refreshed yet'); continue; }
+        if (bookmark.columnRange || value.includes('\n')) { retain('A REF with structural content cannot be refreshed yet'); continue; }
+        // Notes, pictures and equations in the target are object characters: the result leaves them out and
+        // shows breaks as spaces, as the cross-reference was inserted (captions.js).
+        value = value.replace(/\uFFFC/g, '').replace(/[\f\u000e]/g, ' ');
         value = withCases(value, cases);
       }
     } else if (type === '=') value = formulaResult(model, range.field.instruction, range.cellId || null);
