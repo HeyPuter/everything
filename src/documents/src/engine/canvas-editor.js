@@ -53,6 +53,7 @@ import { pageBorderStrokes } from './page-borders.js';
 import { lineNumberLabels } from './line-numbers.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
+import { pageLookup } from './page-lookup.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
 import { refreshPageReferences } from './page-reference-refresh.js';
 import { positionedImageBounds } from './positioned-images.js';
@@ -1176,10 +1177,18 @@ export class CanvasEditor {
     this.focus();
   }
   removeHyperlink() { this.execute(() => this.model.removeHyperlink()); this.focus(); }
-  get bookmarks() { return this.model.bookmarks.map(b => ({ id: b.id, name: b.name, start: b.start, end: b.end, page: lineAtPosition(this.selectionLayout, b.columnRange?.target ?? b.start, 'forward').page + 1 })); }
+  /** The body's bookmarks (headers, footers and notes hold none), each with the page it is on as that page is numbered. */
+  get bookmarks() {
+    const body = this.session.body, printed = pageLookup(this.layout, this.pageStories);
+    return body.bookmarks.map(b => {
+      const at = b.columnRange?.target ?? b.start, line = lineAtPosition(this.layout, at, 'forward');
+      return { id: b.id, name: b.name, start: b.start, end: b.end, page: printed(at, line.paragraphId)?.text ?? String(line.page + 1) };
+    });
+  }
   addBookmark(name) { return this.execute(() => this.model.addBookmark(name)); }
-  renameBookmark(id, name) { return this.execute(() => this.model.renameBookmark(id, name)); }
-  removeBookmark(id) { return this.execute(() => this.model.removeBookmark(id)); }
+  // A bookmark listed from a header or footer is the body's: renaming or deleting it works there.
+  renameBookmark(id, name) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.renameBookmark(id, name)); }
+  removeBookmark(id) { if (this.session.path !== null) this.editStory(null); return this.execute(() => this.model.removeBookmark(id)); }
   goToBookmark(id) {
     // Bookmarks are in the body: a link followed from a note, header or footer goes there, not to the story's start.
     this.finishComposition(); if (this.session.path !== null) this.editStory(null);
