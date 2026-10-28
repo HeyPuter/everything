@@ -106,3 +106,26 @@ test('the light theme shows a style sample in the style’s own color', async ({
   const pane = await stylesPane(page);
   await expect(pane.locator('.styles-pane-name', { hasText: 'Subtitle' })).toHaveCSS('color', 'rgb(89, 89, 89)');
 });
+
+for (const colorScheme of ['light', 'dark']) {
+  test(`Read Mode's page counter stays readable on every page color in the ${colorScheme} theme`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await open(page);
+    await page.getByRole('textbox', { name: 'Document text' }).fill('Words to read. '.repeat(400));
+    await page.getByRole('group', { name: 'Views' }).getByRole('button', { name: 'Read Mode' }).click();
+    const counter = page.locator('.read-counter');
+    await expect(counter).toContainText('of');
+    const viewMenu = async (item, choice) => {
+      await page.getByRole('toolbar', { name: 'Read Mode' }).getByRole('button', { name: 'View', exact: true }).click();
+      await page.getByRole('menuitem', { name: item, exact: true }).click();
+      await page.getByRole('menuitemradio', { name: choice, exact: true }).click();
+    };
+    const check = async (state) => { for (const item of await measure(page, '.read-counter')) expect(item.ratio, `${state}: ${item.color}`).toBeGreaterThanOrEqual(4.5); };
+    await check('None');
+    for (const color of ['Sepia', 'Inverse']) { await viewMenu('Page Color', color); await check(color); }
+    await viewMenu('Page Color', 'None');
+    await viewMenu('Line Focus', 'One Line');
+    await check('Line Focus');
+  });
+}

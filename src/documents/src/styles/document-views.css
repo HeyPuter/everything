@@ -46,14 +46,15 @@
 
 /* ---- Read Mode ---- */
 .ed-read-mode .ed-header, .ed-read-mode .ed-ribbon, .ed-read-mode .ed-statusbar, .ed-read-mode .canvas-message { display: none !important; }
-.ed-read-mode .canvas-document-surface { padding-top: 48px !important; padding-bottom: 32px; background: var(--read-backdrop, #f6f5f2); }
+/* The page counter's ink goes with the backdrop it sits on: each page color and Line Focus set both. */
+.ed-read-mode .canvas-document-surface { --read-backdrop: var(--ed-read-backdrop); --read-ink: var(--ed-ink-3); padding-top: 48px !important; padding-bottom: 32px; background: var(--read-backdrop); }
 .ed-workspace .canvas-host.is-reading { overflow: hidden; background: transparent; outline: none; cursor: default; }
 .ed-workspace .canvas-host.is-reading .canvas-pages { flex-direction: row; flex-wrap: nowrap; align-items: flex-start; gap: var(--read-gap, 32px) !important; padding: 8px var(--read-inset, 24px); width: max-content; min-width: 0; }
 .ed-workspace .canvas-host.is-reading .canvas-page { outline: 0; box-shadow: none; }
-.ed-read-mode.read-line-focus .canvas-document-surface { --read-backdrop: #2b2b2b; }
+.ed-read-mode.read-line-focus .canvas-document-surface { --read-backdrop: #2b2b2b; --read-ink: #ababab; }
 .canvas-host.read-sepia { --read-page: #f5ecd9; }
-.ed-read-mode:has(.read-sepia) .canvas-document-surface { --read-backdrop: #ece2cc; }
-.ed-read-mode:has(.read-inverse) .canvas-document-surface { --read-backdrop: #111; }
+.ed-read-mode:has(.read-sepia) .canvas-document-surface { --read-backdrop: #ece2cc; --read-ink: #616161; }
+.ed-read-mode:has(.read-inverse) .canvas-document-surface { --read-backdrop: #111; --read-ink: #ababab; }
 .canvas-host.read-inverse .canvas-page { filter: invert(1) hue-rotate(180deg); }
 .read-toolbar { position: absolute; top: 0; left: 0; right: 0; z-index: 7; display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 calc(12px + var(--safe-r, 0px)) 0 calc(12px + var(--safe-l, 0px)); background: var(--ed-frame); border-bottom: 1px solid var(--ed-line); color: var(--ed-ink); }
 .read-toolbar-start, .read-toolbar-end { display: flex; align-items: center; gap: 4px; flex: none; }
@@ -67,7 +68,7 @@
 .read-turn:disabled { opacity: .2; }
 .read-turn-back { left: 6px; }
 .read-turn-next { right: 6px; }
-.read-footer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: center; align-items: center; height: 30px; color: var(--ed-ink-3); font-size: 12px; }
+.read-footer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; display: flex; justify-content: center; align-items: center; height: 30px; color: var(--read-ink, var(--ed-ink-3)); font-size: 12px; }
 .ed-read-mode .read-aloud-bar { top: 56px; }
 @media (max-width: 700px) {
   .read-title { display: none; }

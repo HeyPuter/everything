@@ -14,6 +14,8 @@
   --ed-accent-wash: #e5ecf5;
   --ed-workspace: #f3f3f3;
   --ed-page-edge: #d4d4d4;
+  /* Behind Read Mode's pages, with no page color chosen. */
+  --ed-read-backdrop: #f6f5f2;
   /* Lines in shape thumbnails, which have no fill to stand on. */
   --ed-shape-line: #44546a;
 }
@@ -32,6 +34,7 @@
     --ed-accent-wash: #2d3d52;
     --ed-workspace: #1a1a1a;
     --ed-page-edge: #3a3a3a;
+    --ed-read-backdrop: #1a1a1a;
     --ed-shape-line: #a7b4c6;
   }
 }
@@ -49,6 +52,7 @@
   --ed-accent-wash: #2d3d52;
   --ed-workspace: #1a1a1a;
   --ed-page-edge: #3a3a3a;
+  --ed-read-backdrop: #1a1a1a;
   --ed-shape-line: #a7b4c6;
 }
 
