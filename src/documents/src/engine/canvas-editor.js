@@ -1482,6 +1482,33 @@ export class CanvasEditor {
     this.model.select(start, start + paragraphText(this.model.paragraphs[index]).length);
     this.focus(); this.onSelection();
   }
+  /**
+   * Text mode shows the text in the field itself, which scrolls to its caret as the browser types there, but not to
+   * a caret placed by a command (Enter, Undo, Find, Go To). Its line is found in a copy of the field's text up to
+   * the caret, laid out as the field lays it out, and the field scrolls just enough to show it.
+   */
+  revealFieldCaret() {
+    // Typed text is inserted by the browser, which keeps it in view, and a deletion leaves the caret in view.
+    if (this.typing || this.deleting || this.composition) return;
+    this.syncInput();
+    const input = this.input, style = getComputedStyle(input), mirror = document.createElement('div');
+    for (const property of ['boxSizing', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+      'borderStyle', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant', 'fontStretch', 'fontKerning', 'letterSpacing', 'wordSpacing', 'lineHeight',
+      'textTransform', 'textIndent', 'tabSize', 'whiteSpace', 'wordBreak', 'overflowWrap']) mirror.style[property] = style[property];
+    // The field's lines are as wide as its content box beside any scroll bar.
+    const borders = parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth), padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+    Object.assign(mirror.style, { position: 'absolute', top: '0', left: '0', visibility: 'hidden', overflow: 'hidden', height: 'auto',
+      width: `${style.boxSizing === 'border-box' ? input.clientWidth + borders : input.clientWidth - padding}px` });
+    const marker = document.createElement('span');
+    marker.textContent = '\u200b';
+    mirror.append(this.inputText.slice(0, this.model.selection.focus), marker);
+    document.body.append(mirror);
+    const top = marker.offsetTop, height = marker.offsetHeight || parseFloat(style.lineHeight) || 20;
+    mirror.remove();
+    const view = input.clientHeight, padTop = parseFloat(style.paddingTop) || 0;
+    if (top - padTop < input.scrollTop) input.scrollTop = Math.max(0, top - padTop);
+    else if (top + height > input.scrollTop + view) input.scrollTop = top + height - view + (parseFloat(style.paddingBottom) || 0);
+  }
   /** Where a body position sits in the scrolling host's content box, for margin annotations. */
   positionGeometry(position) {
     if (!this.layout || this.accessible) return null;
@@ -1493,7 +1520,7 @@ export class CanvasEditor {
       pageLeft: canvas.offsetLeft, pageRight: canvas.offsetLeft + canvas.offsetWidth, pageTop: canvas.offsetTop, textRight: (() => { const g = this.layout.pages[caret.page] || this.layout.page; return canvas.offsetLeft + (g.width - (g.right || 0)) * this.zoom; })() };
   }
   revealCaret() {
-    if (this.accessible) return;
+    if (this.accessible) { this.revealFieldCaret(); return; }
     const caret = caretRect(this.selectionLayout, this.model.selection.focus, this.caretAffinity, this.caretPage), canvas = this.canvases[caret.page];
     const top = canvas.offsetTop + caret.y * this.zoom;
     if (top < this.host.scrollTop + 12) this.host.scrollTop = Math.max(0, top - 24);
@@ -1829,8 +1856,11 @@ export class CanvasEditor {
     const merge = !!group && start === end && group.direction === direction && group.at === start &&
       group.revision === this.session.revision && group.path === this.session.path;
     this.deleteGroup = null; this.typingGroup = null;
-    if (this.execute(() => this.model.delete(direction), undefined, { record: !merge }))
-      this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
+    // A key's deletion leaves the caret where it was or a step back, already in view in Text mode's field.
+    this.deleting = true;
+    let done;
+    try { done = this.execute(() => this.model.delete(direction), undefined, { record: !merge }); } finally { this.deleting = false; }
+    if (done) this.deleteGroup = { direction, at: this.model.selection.focus, revision: this.session.revision, path: this.session.path };
   }
   // Corrections and links made as you type (the host decides which, from its
   // settings). Each is its own undo step, so Undo takes back the change alone.

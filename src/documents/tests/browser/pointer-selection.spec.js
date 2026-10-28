@@ -157,6 +157,36 @@ test('Text mode shows the text in a field that fills the editing area', async ({
   expect(caret).toBeLessThan(40);
 });
 
+test('Text mode scrolls its field to a caret that Enter, Find or Undo places out of view', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await input(page).fill(Array.from({ length: 120 }, (_, i) => `Paragraph ${i} of a document longer than the screen.`).join('\n') + '\nNeedle at the end.');
+  await page.getByRole('checkbox', { name: 'Text mode', exact: true }).check();
+  // Whether the field shows the line its caret is on, by the caret's line among the field's lines.
+  const caretShown = () => input(page).evaluate(el => {
+    // Every paragraph here fits on one line of the field.
+    const style = getComputedStyle(el), top = parseFloat(style.paddingTop), line = (el.scrollHeight - top - parseFloat(style.paddingBottom)) / el.value.split('\n').length;
+    const caretLine = el.value.slice(0, el.selectionEnd).split('\n').length - 1;
+    const first = Math.floor((el.scrollTop - top) / line), last = Math.floor((el.scrollTop + el.clientHeight - top) / line) - 1;
+    return caretLine >= first && caretLine <= last;
+  });
+  // Enter at the foot of the field: the new line comes into view.
+  await input(page).evaluate(el => { el.focus(); el.setSelectionRange(el.value.length, el.value.length); el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('select')); });
+  for (let i = 0; i < 4; i++) await input(page).press('Enter');
+  expect(await caretShown()).toBe(true);
+  // Find, from the top: the match at the end comes into view.
+  await input(page).evaluate(el => { el.setSelectionRange(0, 0); el.scrollTop = 0; el.dispatchEvent(new Event('select')); });
+  await input(page).press('ControlOrMeta+Shift+h');
+  await page.getByRole('textbox', { name: 'Find text' }).fill('Needle');
+  await expect(page.locator('.canvas-find-count')).toHaveText('1 of 1');
+  expect(await caretShown()).toBe(true);
+  await page.getByRole('button', { name: 'Close find and replace' }).click();
+  // Undo puts the caret back where the Enters were, at the end.
+  await input(page).evaluate(el => { el.scrollTop = 0; });
+  await input(page).press('ControlOrMeta+z');
+  expect(await caretShown()).toBe(true);
+});
+
 test('on a Mac, Control+click keeps the selection for the context menu it opens', async ({ page }) => {
   await page.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
   await page.goto('/mock.html#/new');
