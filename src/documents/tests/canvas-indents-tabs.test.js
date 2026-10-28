@@ -228,7 +228,8 @@ describe('DOCX indent and tab conformance', () => {
     const reopened = await DocxPackage.open(await bytes(pkg.export(doc.paragraphs)));
     expect(reopened.paragraphs[0].format.firstLine).toBe(540);
     const uncleared = await fixture({ styles: '<w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:pPr><w:ind w:hangingChars="100"/></w:pPr></w:style>', pPr: '<w:ind w:firstLine="360"/>' });
-    await expect(DocxPackage.open(uncleared)).rejects.toThrow(/character-unit/);
+    // The inherited character-unit hanging indent overrides the direct twips (§17.3.1.12); tests/character-unit-indents.test.js covers the sizes.
+    expect((await DocxPackage.open(uncleared)).paragraphs[0].format.firstLine).toBeLessThan(0);
   });
   it('clears all inherited tabs using schema-valid clear records and inherits stops through an empty source set', async () => {
     const pkg = await DocxPackage.open(await fixture({ styles: '<w:style w:type="paragraph" w:styleId="Normal" w:default="1"><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs></w:pPr></w:style>', pPr: '<w:tabs/>' }));
@@ -238,7 +239,7 @@ describe('DOCX indent and tab conformance', () => {
     expect(strFromU8(parts['word/document.xml'])).toContain('w:val="clear" w:pos="720"');
     expect((await DocxPackage.open(zipSync(parts))).paragraphs[0].format.tabs).toEqual([]);
   });
-  it.each(['<w:ind w:leftChars="100"/>', '<w:tabs><w:tab w:val="left" w:pos="720" w:leader="invalid"/></w:tabs>', '<w:tabs><w:tab w:val="left"/></w:tabs>', '<w:ind w:hanging="-20"/>'])('rejects unsupported or invalid geometry instead of flattening it: %s', async pPr => {
+  it.each(['<w:tabs><w:tab w:val="left" w:pos="720" w:leader="invalid"/></w:tabs>', '<w:tabs><w:tab w:val="left"/></w:tabs>', '<w:ind w:hanging="-20"/>'])('rejects unsupported or invalid geometry instead of flattening it: %s', async pPr => {
     await expect(DocxPackage.open(await fixture({ pPr }))).rejects.toThrow();
   });
   it('preserves legacy list tabs without using them as ordinary text tabs', async () => {

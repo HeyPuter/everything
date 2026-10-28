@@ -81,8 +81,8 @@ import { resizedPictureShell } from './picture-resize.js';
 import { OBJECT } from './images.js';
 import { isPageBasedCellPosition, isCellRelativePosition } from './positioned-images.js';
 import { documentBlocks } from './tables.js';
-import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun } from './styles.js';
-import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS } from './formatting.js';
+import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun, characterUnit } from './styles.js';
+import { resolvedFormat, geometryPatch, checkedRunFormat, PARAGRAPH_FLAGS, characterIndent } from './formatting.js';
 import { levelParagraphPatch } from './numbering-paragraph.js';
 import { UnsupportedDocumentError } from './errors.js';
 export { UnsupportedDocumentError } from './errors.js';
@@ -253,10 +253,17 @@ function writeParagraphFormat(node, p, make, numbering) {
     for (const [key, physical, logical] of [['indentLeft', 'left', 'start'], ['indentRight', 'right', 'end']]) if (key in patch) {
       // Both spellings keep the override effective for older and newer consumers.
       for (const name of [physical, logical]) ind.setAttributeNS(W, `w:${name}`, String(format[key]));
+      // A character-unit form (§17.3.1.12), declared here or inherited, would override the twips; zero turns it off.
+      if (format.characterIndents?.includes(key) || ind.hasAttributeNS(W, physical + 'Chars') || ind.hasAttributeNS(W, logical + 'Chars')) {
+        ind.setAttributeNS(W, `w:${physical}Chars`, '0');
+        if (ind.hasAttributeNS(W, logical + 'Chars')) ind.setAttributeNS(W, `w:${logical}Chars`, '0');
+      }
     }
     if ('firstLine' in patch) {
-      for (const name of ['firstLine', 'hanging']) ind.removeAttributeNS(W, name);
+      const characters = format.characterIndents?.includes('firstLine') || ['firstLineChars', 'hangingChars'].some(name => ind.hasAttributeNS(W, name));
+      for (const name of ['firstLine', 'hanging', 'firstLineChars', 'hangingChars']) ind.removeAttributeNS(W, name);
       ind.setAttributeNS(W, format.firstLine < 0 ? 'w:hanging' : 'w:firstLine', String(Math.abs(format.firstLine)));
+      if (characters) ind.setAttributeNS(W, format.firstLine < 0 ? 'w:hangingChars' : 'w:firstLineChars', '0');
     }
   }
   if ('tabs' in patch) {
@@ -722,7 +729,7 @@ function writeStyles(parts, styles) {
       // paragraph writer intentionally authors both; do not freeze inherited
       // values (or undo an explicit removal) when editing a shared style.
       const explicit = Object.fromEntries(Object.entries(pp).filter(([k,v]) => v !== null && !['lineSpacing', 'lineRule'].includes(k)));
-      writeParagraphFormat(wrapper, { shell: true, formatOverrides: explicit, format: resolvedFormat(styleProperties(styles, style.id)), inheritedTabPositions: [] }, make);
+      writeParagraphFormat(wrapper, { shell: true, formatOverrides: explicit, format: { ...resolvedFormat(styleProperties(styles, style.id), characterUnit(styles)), characterIndents: characterIndent(style.basedOn ? styleProperties(styles, style.basedOn).ind : styles.defaults.properties.ind, characterUnit(styles)).keys }, inheritedTabPositions: [] }, make);
       for (const [key, attr] of [['lineSpacing', 'line'], ['lineRule', 'lineRule']]) if (key in pp && pp[key] !== null) {
         if (!pPr()) wrapper.prepend(make('pPr'));
         let spacing = child(pPr(), 'spacing');
