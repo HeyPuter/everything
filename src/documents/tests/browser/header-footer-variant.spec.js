@@ -40,3 +40,29 @@ test('a page number at the bottom of an even-numbered page goes into the footer 
   await expect.poll(async () => (await engine(page)).active).toBe('word/footer-even.xml');
   expect((await engine(page)).body).toBe(body);
 });
+
+// Header from Top applies to the section whose header is being edited, as Page Setup's margins do, and shows its value.
+test('Header from Top changes the distance of the section being edited', async ({ page }) => {
+  await page.goto('/mock.html');
+  const input = page.getByRole('textbox', { name: 'Document text' });
+  await expect(input).toBeVisible();
+  await page.getByLabel('Open DOCX file').setInputFiles('public/fixtures/section-page-numbers.docx');
+  await expect(input).toHaveValue(/^Roman start, page 1/);
+  await expect(input).toHaveJSProperty('readOnly', false);
+  const sections = () => page.evaluate(() => { const e = window.__docs.current.view.engine; return { footers: e.session.body.sectionSettings.map(s => s.footer), path: e.session.path, range: [...e.model.range] }; });
+  const before = await sections();
+  expect(before.footers.length).toBeGreaterThan(2);
+  const path = await page.evaluate(() => {
+    const e = window.__docs.current.view.engine;
+    const p = e.storyLayout.lines.find(line => line.page === 0 && e.pageStories.stories[line.pageStory]?.kind === 'footer').pageStory;
+    e.editStory(p, 0); e.model.select(2); e.focus(); return p;
+  });
+  const distance = page.getByRole('spinbutton', { name: 'Footer from Bottom (in)' });
+  await expect(distance).toHaveValue(String(Math.round(before.footers[0] / 1440 * 100) / 100));
+  await distance.fill('1.25'); await distance.press('Enter');
+  await expect.poll(async () => (await sections()).footers).toEqual([1800, ...before.footers.slice(1)]);
+  // Still in the footer, caret where it was; one Undo restores the distance.
+  expect(await sections()).toMatchObject({ path, range: [2, 2] });
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(async () => (await sections()).footers).toEqual(before.footers);
+});

@@ -429,6 +429,22 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     close.classList.add('ribbon-wide'); // 'Close Header and Footer' in two lines
     for (const b of [header, footer, goHeader, goFooter, close]) b.addEventListener('mousedown', e => e.preventDefault());
     when(goHeader, () => activeStoryKind() !== 'header'); when(goFooter, () => activeStoryKind() !== 'footer');
+    // Header and footer distances belong to the section whose header or footer is edited (the body's last
+    // section had them before, so in a document of several sections the change landed on another section).
+    const sectionSettings = engine => { const body = engine?.session.body; return body?.sectionSettings?.[engine.sectionOfPage(currentPage(engine))] || body?.pageSettings; };
+    const shown = key => String(Math.round((sectionSettings(editor())?.[key] ?? 720) / IN * 100) / 100);
+    function setDistance(key, value) {
+      const engine = ready(); if (!engine) return;
+      engine.finishComposition();
+      const story = engine.session.path, page = currentPage(engine), section = engine.sectionOfPage(page), { anchor, focus } = engine.model.selection;
+      // Sections are the body's: apply there, then return to the header or footer with the caret where it was.
+      if (story !== null) engine.editStory(null);
+      let failure = null;
+      engine.execute(() => engine.model.setPageSettings({ [key]: value }, { scope: 'section', section }), e => { failure = e; }, undefined, true);
+      if (story !== null && engine.editStory(story, page) && engine.session.path === story) engine.model.select(anchor, focus);
+      if (failure) fail(failure);
+      onChange();
+    }
     const distance = (key, label) => {
       const input = document.createElement('input');
       Object.assign(input, { type: 'number', step: 0.05, min: 0, max: 22, className: 'canvas-spacing ribbon-number' });
@@ -437,14 +453,14 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
         // The arrows step by 0.05, but any distance in range is accepted, as Page Setup accepts it.
         const v = input.validity;
         const engine = ready(); if (!engine || input.value === '' || v.badInput || v.rangeOverflow || v.rangeUnderflow) { input.reportValidity(); return; }
-        try { engine.finishComposition(); engine.setPageSettings({ [key]: Math.round(Number(input.value) * IN) }); } catch (e) { fail(e); }
+        try { setDistance(key, Math.round(Number(input.value) * IN)); } catch (e) { fail(e); }
       });
       input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); input.dispatchEvent(new Event('change')); editor()?.focus(); } });
       when(input, () => !!ready());
-      kit.states?.push?.({ control: input, enabled: () => !!ready(), value: () => Math.round((editor()?.session.body.pageSettings[key] ?? 720) / IN * 100) / 100 });
+      kit.states?.push?.({ control: input, enabled: () => !!ready(), value: () => Number(shown(key)) });
       const wrap = document.createElement('label'); wrap.className = 'ribbon-spin'; wrap.title = label;
       wrap.append(commandIconEl(key === 'header' ? 'spaceBefore' : 'spaceAfter', 16), Object.assign(document.createElement('span'), { className: 'ribbon-spin-label', textContent: label }), input, Object.assign(document.createElement('span'), { className: 'ribbon-spin-unit', textContent: 'in' }));
-      input.value = String(Math.round((editor()?.session.body.pageSettings[key] ?? 720) / IN * 100) / 100);
+      input.value = shown(key);
       return { wrap, input };
     };
     const top = distance('header', 'Header from Top'), bottom = distance('footer', 'Footer from Bottom');
@@ -453,7 +469,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const definition = () => editor()?.pageStories;
     const firstPage = kit.check('Different First Page', () => !!definition()?.sections[editor()?.sectionOfPage(currentPage(editor())) ?? 0]?.firstPageDifferent, on => setStoryOption('first', on));
     const oddEven = kit.check('Different Odd & Even Pages', () => !!definition()?.evenAndOdd, on => setStoryOption('evenOdd', on));
-    const sync = () => { const p = editor()?.session.body.pageSettings; if (!p) return; for (const [d, key] of [[top, 'header'], [bottom, 'footer']]) if (document.activeElement !== d.input) d.input.value = String(Math.round(p[key] / IN * 100) / 100); };
+    const sync = () => { if (!editor()) return; for (const [d, key] of [[top, 'header'], [bottom, 'footer']]) if (document.activeElement !== d.input) d.input.value = shown(key); };
     when(close, () => { sync(); return true; });
     return [{ id: 'headerFooter', label: 'Header & Footer', contextual: 'headerFooter', selectOnAppear: true, groups: [
       { id: 'hfHeaderFooter', label: 'Header & Footer', icon: 'header', priority: 6, items: [header, footer, pageNumber] },
