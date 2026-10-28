@@ -122,7 +122,7 @@ export function encodeParagraph(p) {
     mark[`p:${key}`] = json(p[key]);
   }
   add(MARK, mark, attrKey(mark), -1);
-  return { text, keys, attrs, separate };
+  return { text, keys, attrs, separate, cellId: typeof p.cellId === 'string' || typeof p.cellId === 'number' ? String(p.cellId) : null };
 }
 
 /* ---------- Reading the shared body ---------- */
@@ -251,10 +251,32 @@ export function readComments(map) {
   return list.sort((a, b) => (a._order ?? 0) - (b._order ?? 0) || String(a.id).localeCompare(String(b.id), undefined, { numeric: true })).map(({ _order, ...c }) => c);
 }
 
+/**
+ * Paragraphs left in a cell that is gone: someone split a paragraph in a cell while someone else deleted its row or
+ * column, so the new paragraph's mark names that cell. Their text is kept: each goes into the cell before it (or,
+ * at the start of a table, the cell after it), or into the body outside a table. Nothing moves in the shared text,
+ * so every position stays the same index there; the next change written gives the mark its new cell.
+ */
+function adoptOrphanedCellParagraphs(paragraphs, tables) {
+  const live = new Set(tables.flatMap(table => (table.rows || []).flatMap(row => (row.cells || []).map(cell => cell.id))));
+  if (!paragraphs.some(p => p.cellId != null && !live.has(p.cellId))) return;
+  const adopt = (p, from) => { p.cellId = from.cellId; if (from.tableStyleId !== undefined) p.tableStyleId = from.tableStyleId; else delete p.tableStyleId; };
+  const orphaned = paragraphs.map(p => p.cellId != null && !live.has(p.cellId));
+  for (let i = 0; i < paragraphs.length; i++) if (orphaned[i] && i > 0 && paragraphs[i - 1].cellId != null && live.has(paragraphs[i - 1].cellId)) adopt(paragraphs[i], paragraphs[i - 1]);
+  for (let i = paragraphs.length - 1; i >= 0; i--) {
+    const p = paragraphs[i];
+    if (!orphaned[i] || live.has(p.cellId)) continue;
+    const next = paragraphs[i + 1];
+    if (next?.cellId != null && live.has(next.cellId)) adopt(p, next);
+    else { delete p.cellId; delete p.tableStyleId; }
+  }
+}
+
 /** The whole model state the shared document holds. */
 export function readState(ydoc) {
   const paragraphs = readBody(ydoc.getText('body'));
   const parts = readParts(ydoc.getMap('parts'), paragraphs);
+  adoptOrphanedCellParagraphs(paragraphs, parts.tables);
   // A document without a comments part reads as null until someone comments (the part is then created).
   const map = ydoc.getMap('comments');
   const comments = map.size ? readComments(map) : null;
@@ -311,7 +333,28 @@ export function writeBody(ytext, before, after, cache = null) {
   let index = 0;
   for (let i = 0; i < head; i++) index += old[i].encoding.text.length;
   const a = concatEncodings(old.slice(head, tailOld)), b = concatEncodings(next.slice(head, tailNew));
-  const script = diffText(a.text, b.text);
+  // A table cell's text and paragraph marks are its own. Matched by character alone, a row or column added or removed
+  // kept marks of other cells and relabelled them, and kept letters of a removed cell for those of the next ("c3" and
+  // "c4" share a "c"): someone else's typing anchored there went into another cell, or left a cell's paragraphs apart.
+  // A cell's characters match only the same characters of the same cell; the body's still match each other, so
+  // splitting and joining paragraphs there merge as text does.
+  const cellNumbers = new Map();
+  const symbols = (paragraphs, length) => {
+    const out = new Float64Array(length);
+    let at = 0;
+    for (const { encoding } of paragraphs) {
+      const { text, cellId } = encoding;
+      if (cellId != null) {
+        if (!cellNumbers.has(cellId)) cellNumbers.set(cellId, cellNumbers.size + 1);
+        const base = cellNumbers.get(cellId) * 0x110000;
+        for (let i = 0; i < text.length; i++) out[at + i] = base + text.codePointAt(i);
+      }
+      at += text.length;
+    }
+    return out;
+  };
+  const symbolsA = symbols(old.slice(head, tailOld), a.text.length), symbolsB = symbols(next.slice(head, tailNew), b.text.length);
+  const script = keepCellsLastMarks(diffText(a.text, b.text, { symbolsA, symbolsB }), a.text, symbolsA, symbolsB);
   let ai = 0, bi = 0, pos = index;
   const uniques = new Map();
   const uniqueFor = tag => { if (!uniques.has(tag)) uniques.set(tag, freshUnique(ydoc)); return uniques.get(tag); };
@@ -352,6 +395,32 @@ export function writeBody(ytext, before, after, cache = null) {
   return true;
 }
 
+/**
+ * New paragraphs in a cell go before its last mark, not after it: a cell's end is where someone else's new row or
+ * column goes, and two insertions at one place are ordered by who made them, which could put the new paragraphs in the
+ * other person's new cell. A script that keeps a cell's mark and inserts paragraphs of that cell after it (equal
+ * "…M", insert "…M") is the same text as one that inserts them before it (equal "…", insert "M…", equal "M").
+ */
+function keepCellsLastMarks(script, textA, symbolsA, symbolsB) {
+  const out = script.map(segment => ({ ...segment }));
+  let ai = 0, bi = 0;
+  for (let k = 0; k < out.length; k++) {
+    const segment = out[k], following = out[k + 1];
+    if (segment.type === 'equal' && following?.type === 'insert') {
+      const symbol = textA[ai + segment.length - 1] === MARK ? symbolsA[ai + segment.length - 1] : 0;
+      if (symbol && symbolsB[bi + segment.length - 1] === symbol && symbolsB[bi + segment.length + following.length - 1] === symbol) {
+        // The kept mark moves to the end of the insertion: equal one less, insert as long, then that mark kept.
+        segment.length -= 1;
+        out.splice(k + 2, 0, { type: 'equal', length: 1 });
+        if (!segment.length) { out.splice(k, 1); k--; continue; }
+      }
+    }
+    if (segment.type !== 'insert') ai += segment.length;
+    if (segment.type !== 'delete') bi += segment.length;
+  }
+  return out.filter(segment => segment.length);
+}
+
 function attributeChange(before = {}, after = {}) {
   const change = {};
   for (const key of Object.keys(before)) if (!(key in after)) change[key] = null;
@@ -375,7 +444,10 @@ export function encodeComments(comments) {
 export function writeState(ydoc, state, origin = null, cache = null) {
   let changed = false;
   ydoc.transact(() => {
-    const before = cache?.body ? null : readBody(ydoc.getText('body'));
+    // What the shared text holds, read as the editor reads it (paragraphs of a removed cell in the cell beside them):
+    // a paragraph the editor shows in a cell is the same paragraph in both, not one to delete and write again.
+    let before = null;
+    if (!cache?.body) { before = readBody(ydoc.getText('body')); adoptOrphanedCellParagraphs(before, readParts(ydoc.getMap('parts'), before).tables); }
     changed = writeBody(ydoc.getText('body'), before, state.paragraphs, cache) || changed;
     changed = writeRegisters(ydoc.getMap('parts'), encodeParts(state)) || changed;
     if (state.comments) {

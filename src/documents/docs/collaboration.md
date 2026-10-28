@@ -58,7 +58,15 @@ equal changes. So:
   paragraph keep one value (Yjs's deterministic winner);
 - tables, styles, list definitions and page settings are atomic registers: concurrent edits to
   different tables or styles merge; to the same table, the last structural change wins while the
-  text people typed in its cells stays (cells are body paragraphs).
+  text people typed in its cells stays (cells are body paragraphs);
+- a table cell's characters and marks are its own in the diff: one matches only the same character
+  of the same cell (the body's still match each other). A row or column added or removed therefore
+  inserts or deletes whole cells, rather than keeping another cell's mark or letters and relabelling
+  them, and text someone types in another cell meanwhile stays in that cell. New paragraphs of a
+  cell are written before its last mark, inside the cell, not where a new row or column would go;
+- a paragraph left in a cell that is gone (split in a cell while someone else deletes its row or
+  column) is read into the cell before it (at a table's start, the one after it; outside a table,
+  the body), without moving anything in the shared text, so it is kept and the table stays whole.
 
 **Reading remote changes.** An update from someone else is applied to the Yjs document (after this
 person's pending changes are written, so the diff never mistakes their text for a deletion), the
@@ -212,6 +220,10 @@ Puter's AI (the playground) the pane, its buttons and menu items are not offered
 
 - Concurrent changes to the same table's structure keep one person's structure (atomic register);
   concurrent creation of new list definitions with the same numbering id keeps one definition.
+- Typing into an empty cell (or at the very start of a cell) right where someone else inserts a row
+  or column at the same moment shares one place in the shared text with the new cells; Yjs orders
+  the two insertions by client, so that text can land in one of the new cells. Text typed in a cell
+  someone else deletes stays, in the cell after it.
 - Header, footer and note stories are atomic per story: two people editing one header at once keep
   one person's version.
 - Document-level settings outside the model (Restrict Editing's protection, review settings,

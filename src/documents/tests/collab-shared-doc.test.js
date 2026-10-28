@@ -205,3 +205,110 @@ describe('shared document mapping', () => {
     expect(readBody(ydoc.getText('body')).map(p => p.runs.map(r => r.text).join(''))).toEqual(['loose']);
   });
 });
+
+describe('typing in a table while someone else changes its structure', () => {
+  // A 3×2 table after "Intro": cells in reading order are [r1c1, r1c2, r2c1, r2c2, r3c1, r3c2].
+  const start = () => {
+    const seed = new TextDocument([paragraph('Intro')]);
+    seed.select(5); seed.insertTable(3, 2);
+    const origin = createSharedDoc(stateOf(seed));
+    const update = Y.encodeStateAsUpdate(origin);
+    // Fixed client ids: Yjs orders insertions made at one place at the same moment by them.
+    return ['ann', 'bob'].map((name, i) => { const d = new Y.Doc(); d.clientID = 1000 + i; Y.applyUpdate(d, update); return new Peer(name, d); });
+  };
+  const cells = m => (m.tables[0]?.rows || []).flatMap(r => r.cells.map(c => c.id));
+  const at = (m, cellId) => { m.select(m.paragraphOffset(m.paragraphs.findIndex(p => p.cellId === cellId))); };
+  const holder = (m, text) => m.paragraphs.find(p => p.runs.some(r => r.text.includes(text)))?.cellId;
+  const cases = {
+    'inserts a row': (m, ids) => { at(m, ids[0]); m.insertTableRow(); },
+    'deletes a row': (m, ids) => { at(m, ids[0]); m.deleteTablePart('row'); },
+    'inserts a column': (m, ids) => { at(m, ids[0]); m.insertTableColumn(); },
+    'deletes a column': (m, ids) => { at(m, ids[0]); m.deleteTablePart('column'); },
+    'merges cells': (m, ids) => { const a = m.paragraphOffset(m.paragraphs.findIndex(p => p.cellId === ids[0])), b = m.paragraphOffset(m.paragraphs.findIndex(p => p.cellId === ids[1])); m.select(a, b); m.mergeCells(); },
+  };
+  // The cell typed in: not one a new row or column goes right before (see below).
+  const targets = { 'inserts a row': 3, 'deletes a row': 3, 'inserts a column': 2, 'deletes a column': 3, 'merges cells': 3 };
+  for (const [name, change] of Object.entries(cases)) {
+    it(`keeps text typed in another cell in that cell when someone ${name}`, () => {
+      const [ann, bob] = start();
+      const ids = cells(ann.model), target = ids[targets[name]];
+      ann.edit(m => change(m, ids));
+      bob.edit(m => { at(m, target); m.replace('B2'); });
+      deliverAll([ann, bob]);
+      for (const peer of [ann, bob]) {
+        expect(holder(peer.model, 'B2'), `${peer.name}`).toBe(target);
+        // The table reads back whole: every cell has its paragraphs, in reading order.
+        expect(() => modelFrom(readState(peer.ydoc))).not.toThrow();
+      }
+      expect(bob.ydoc.getText('body').toString()).toBe(ann.ydoc.getText('body').toString());
+      expect(JSON.stringify(visible(bob.model))).toBe(JSON.stringify(visible(ann.model)));
+    });
+  }
+  it('keeps text typed in a cell someone else merges into the cell beside it, in the merged cell', () => {
+    const [ann, bob] = start();
+    const ids = cells(ann.model);
+    ann.edit(m => cases['merges cells'](m, ids));
+    bob.edit(m => { at(m, ids[1]); m.replace('B1'); });
+    deliverAll([ann, bob]);
+    for (const peer of [ann, bob]) {
+      expect(() => modelFrom(readState(peer.ydoc))).not.toThrow();
+      expect(holder(peer.model, 'B1')).toBe(ids[0]);
+    }
+    expect(bob.ydoc.getText('body').toString()).toBe(ann.ydoc.getText('body').toString());
+  });
+  it('keeps text typed in a row someone else deletes, and the table whole', () => {
+    const [ann, bob] = start();
+    const ids = cells(ann.model);
+    ann.edit(m => { at(m, ids[2]); m.deleteTablePart('row'); });
+    bob.edit(m => { at(m, ids[3]); m.replace('Lost?'); });
+    deliverAll([ann, bob]);
+    for (const peer of [ann, bob]) {
+      expect(() => modelFrom(readState(peer.ydoc))).not.toThrow();
+      expect(peer.model.tables[0].rows).toHaveLength(2);
+      // No paragraph refers to a cell that is gone.
+      const live = new Set(cells(peer.model));
+      expect(peer.model.paragraphs.filter(p => p.cellId && !live.has(p.cellId))).toEqual([]);
+      // What was typed there is kept, in the cell after it.
+      expect(holder(peer.model, 'Lost?')).toBe(ids[4]);
+    }
+    expect(bob.ydoc.getText('body').toString()).toBe(ann.ydoc.getText('body').toString());
+  });
+
+  it('stays whole and keeps everyone\'s typing under random row and column changes by one person', () => {
+    // Typing goes on after text already in a cell. (Typing into an empty cell right where someone else inserts a row
+    // or column at the same moment can still land in a new cell: the two insertions share one place in the text.)
+    const filled = () => {
+      const seed = new TextDocument([paragraph('Intro')]);
+      seed.select(5); seed.insertTable(3, 2);
+      seed.tables[0].rows.flatMap(r => r.cells).forEach((c, i) => { seed.selectCell(c.id); seed.replace(`c${i}`); });
+      const update = Y.encodeStateAsUpdate(createSharedDoc(stateOf(seed)));
+      return ['ann', 'bob'].map((name, i) => { const d = new Y.Doc(); d.clientID = 1000 + i; Y.applyUpdate(d, update); return new Peer(name, d); });
+    };
+    const end = (m, cellId) => { const i = m.paragraphs.findLastIndex(p => p.cellId === cellId); m.select(m.paragraphOffset(i) + m.paragraphs[i].runs.reduce((n, r) => n + r.text.length, 0)); };
+    for (let seed = 1; seed <= 40; seed++) {
+      const rnd = random(seed);
+      const [ann, bob] = filled();
+      const typed = [];
+      for (let step = 0; step < 12; step++) {
+        const ids = cells(ann.model);
+        if (!ids.length) break;
+        const pick = () => ids[Math.floor(rnd() * ids.length)];
+        const kind = ['inserts a row', 'deletes a row', 'inserts a column', 'deletes a column'][Math.floor(rnd() * 4)];
+        try { ann.edit(m => cases[kind](m, [pick(), pick()])); } catch { /* a change the table refuses (the last row, say) */ }
+        const own = cells(bob.model).filter(id => bob.model.paragraphs.some(p => p.cellId === id && p.runs.some(r => r.text)));
+        if (!own.length) continue;
+        const cell = own[Math.floor(rnd() * own.length)], word = `w${seed}x${step}z`;
+        bob.edit(m => { end(m, cell); m.replace(rnd() < 0.2 ? `${word}\n${word}b` : word); });
+        typed.push([word, cell]);
+        if (rnd() < 0.6) deliverAll([ann, bob]);
+      }
+      deliverAll([ann, bob]); deliverAll([ann, bob]);
+      expect(bob.ydoc.getText('body').toString(), `seed ${seed}`).toBe(ann.ydoc.getText('body').toString());
+      const model = modelFrom(readState(ann.ydoc));
+      const live = new Set(cells(model));
+      expect(model.paragraphs.filter(p => p.cellId && !live.has(p.cellId)), `seed ${seed}`).toEqual([]);
+      // What was typed in a cell that is still there is in that cell.
+      for (const [word, cell] of typed) if (live.has(cell)) expect(holder(model, word), `seed ${seed} ${word}`).toBe(cell);
+    }
+  });
+});

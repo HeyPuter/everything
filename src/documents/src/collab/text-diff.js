@@ -10,10 +10,12 @@
  * When the strings differ in more than `limit` places the middle is replaced
  * wholesale (one delete and one insert), which is still correct, only coarser.
  */
-export function diffText(a, b, { limit = 2000 } = {}) {
+export function diffText(a, b, { limit = 2000, symbolsA = null, symbolsB = null } = {}) {
   // The script works on code points: a boundary between the halves of a
   // surrogate pair would make the shared text replace both with U+FFFD.
-  const pointsA = codePoints(a), pointsB = codePoints(b);
+  // `symbolsA`/`symbolsB` (per UTF-16 index: a number above U+10FFFF, or 0 for none) tell apart characters that read
+  // alike but are not the same: such a character matches only one with the same symbol.
+  const [pointsA, wideA] = codePoints(a, symbolsA), [pointsB, wideB] = codePoints(b, symbolsB);
   let start = 0;
   const shortest = Math.min(pointsA.length, pointsB.length);
   while (start < shortest && pointsA[start] === pointsB[start]) start++;
@@ -22,10 +24,10 @@ export function diffText(a, b, { limit = 2000 } = {}) {
   const out = [];
   let atA = 0, atB = 0;
   // Segment lengths count UTF-16 code units, as callers index the strings.
-  const units = (points, from, count) => { let n = 0; for (let i = from; i < from + count; i++) n += points[i] > 0xffff ? 2 : 1; return n; };
+  const units = (wide, from, count) => { let n = 0; for (let i = from; i < from + count; i++) n += wide[i] ? 2 : 1; return n; };
   const push = (type, count) => {
     if (!count) return;
-    const length = units(type === 'insert' ? pointsB : pointsA, type === 'insert' ? atB : atA, count);
+    const length = units(type === 'insert' ? wideB : wideA, type === 'insert' ? atB : atA, count);
     if (type !== 'insert') atA += count;
     if (type !== 'delete') atB += count;
     const last = out.at(-1);
@@ -38,15 +40,16 @@ export function diffText(a, b, { limit = 2000 } = {}) {
   return out;
 }
 
-function codePoints(text) {
-  const points = new Uint32Array(text.length);
+function codePoints(text, symbols = null) {
+  const points = new Float64Array(text.length), wide = new Uint8Array(text.length);
   let n = 0;
   for (let i = 0; i < text.length; i++) {
     const code = text.codePointAt(i);
-    points[n++] = code;
+    wide[n] = code > 0xffff ? 1 : 0;
+    points[n++] = symbols?.[i] || code;
     if (code > 0xffff) i++;
   }
-  return points.subarray(0, n);
+  return [points.subarray(0, n), wide.subarray(0, n)];
 }
 
 function middleDiff(a, b, limit) {
