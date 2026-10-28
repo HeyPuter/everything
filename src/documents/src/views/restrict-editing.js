@@ -73,7 +73,10 @@ export function createRestrictEditing({ editor, pkg, error, author, onChange = (
     const engine = editor(); if (!engine || !api()) return;
     const active = readOnlyView ? { edit: 'readOnly', enforcement: true } : protection();
     engine.session.guard = api().protectionGuard(active && { ...active, lockedStyles: settings().lockedStyles || [] }, user(), { contentControlRanges: api().contentControlRanges });
-    if (active?.enforcement && active.edit === 'trackedChanges' && !engine.session.body.trackChanges) { engine.session.body.trackChanges = true; engine.session.revision++; }
+    const locked = !!active?.enforcement && active.edit === 'trackedChanges';
+    if (locked && !engine.session.body.trackChanges) { engine.session.body.trackChanges = true; engine.session.revision++; }
+    // Locked tracking records formatting changes too, whatever the document's Track formatting setting.
+    engine.session.body.trackFormatting = locked || !settings().doNotTrackFormatting;
     onChange();
   }
 

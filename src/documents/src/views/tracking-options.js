@@ -53,7 +53,7 @@ export function openTrackingOptions({ authors = () => [], doc = {}, apply, onClo
       el('span', { style: o.formatMark === 'none' ? '' : style(o.formatMark, o.formatColor) }, 'reformatted'), ' text.'));
   }
   const field = (label, control) => el('label.field.rv-field', {}, el('span.field-label', {}, label), control);
-  const check = (label, checked, onchange) => { const input = el('input', { type: 'checkbox', checked, onchange: () => { onchange(input.checked); renderPreview(); } }); return el('label.rv-check', {}, input, label); };
+  const check = (label, checked, onchange, disabled = false) => { const input = el('input', { type: 'checkbox', checked, disabled, onchange: () => { onchange(input.checked); renderPreview(); } }); return el('label.rv-check', {}, input, label); };
   const set = key => value => { o[key] = value; renderPreview(); };
   const authorRows = authors().map(name => field(name, select(`${name} color`, o.authorColors?.[name] || 'author', [['author', 'Automatic'], ...COLORS.slice(1)], value => { o.authorColors = { ...o.authorColors }; if (value === 'author') delete o.authorColors[name]; else o.authorColors[name] = value; renderPreview(); })));
   const content = el('form.ed-dialog-body.rv-tracking-options', { onsubmit: e => { e.preventDefault(); modal.close(); apply(o, d); } },
@@ -68,7 +68,8 @@ export function openTrackingOptions({ authors = () => [], doc = {}, apply, onClo
         field('Moved from', select('Moved from mark', o.moveFromMark, markOptions(DELETE_MARKS.filter(m => m !== 'hidden')), set('moveFromMark'))), field('Color', select('Move color', o.moveColor || MOVE_COLOR, COLORS.slice(1), set('moveColor'))),
         field('Moved to', select('Moved to mark', o.moveToMark, markOptions(INSERT_MARKS), set('moveToMark'))))),
     el('fieldset.rv-fieldset', {}, el('legend', {}, 'Formatting'),
-      check('Track formatting', d.trackFormatting, value => { d.trackFormatting = value; }),
+      check('Track formatting', d.trackFormatting, value => { d.trackFormatting = value; }, !!doc.formattingLocked),
+      doc.formattingLocked ? hint('Tracking is locked, so formatting changes are tracked.') : null,
       el('div.rv-grid', {}, field('Formatting', select('Formatting mark', o.formatMark, markOptions(FORMAT_MARKS), set('formatMark'))), field('Color', select('Formatting color', o.formatColor, COLORS, set('formatColor'))))),
     el('fieldset.rv-fieldset', {}, el('legend', {}, 'Balloons and pane'),
       field('Balloons', select('Balloons', o.balloons, BALLOONS, set('balloons'))),
