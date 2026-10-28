@@ -428,8 +428,11 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   }
   function removePageNumbers() {
     const engine = ready(); if (!engine) return;
+    // The section of the header or footer being edited, else of the caret: the caret's last place in the text may be
+    // in another section.
+    const page = engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0;
     toBody(engine);
-    const page = engine.caretPageIndex ?? 0, section = engine.pageStories?.sections?.[engine.sectionOfPage(page)];
+    const section = engine.pageStories?.sections?.[engine.sectionOfPage(page)];
     const paths = [...new Set(['header', 'footer'].flatMap(kind => Object.values(section?.[kind] || {})))].filter(path => engine.pageStories.stories[path]?.editable);
     let removed = 0;
     for (const path of paths) {
