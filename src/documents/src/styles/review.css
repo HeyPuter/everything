@@ -1,9 +1,9 @@
 /* Review: the comment markup column beside the pages. */
-.ed-workspace .canvas-host.has-comment-markup .canvas-pages { padding-right: 330px; }
+.ed-workspace .canvas-host.has-comment-markup .canvas-pages { padding-right: calc(var(--comment-card-width, 288px) + 42px); }
 .ed-comments-layer { position: absolute; inset: 0 auto auto 0; width: 0; height: 0; z-index: 2; }
 .ed-comments-layer[hidden] { display: none; }
 .ed-comment-card {
-  position: absolute; width: 288px; box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
+  position: absolute; width: var(--comment-card-width, 288px); box-sizing: border-box; padding: 10px 12px; border-radius: 8px;
   background: var(--ed-card); color: var(--ed-ink); border: 1px solid var(--ed-line);
   box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 2px 6px rgba(0, 0, 0, .06);
   font: 12px/1.45 var(--font); cursor: default; transition: top .12s var(--ease-spring), box-shadow .12s;
@@ -45,7 +45,7 @@
   .ed-workspace .canvas-host.has-comment-markup[data-card-pages] .canvas-page:last-child { margin-right: 312px; }
   .ed-workspace .canvas-host.has-comment-markup.is-side-to-side .canvas-pages { padding-right: 24px; }
   .ed-workspace .canvas-host.has-comment-markup.is-reading .canvas-pages { padding-right: var(--read-inset, 24px); }
-  .ed-workspace .canvas-host.has-comment-markup.view-web .canvas-pages, .ed-workspace .canvas-host.has-comment-markup.view-draft .canvas-pages { padding-right: 330px; }
+  .ed-workspace .canvas-host.has-comment-markup.view-web .canvas-pages, .ed-workspace .canvas-host.has-comment-markup.view-draft .canvas-pages { padding-right: calc(var(--comment-card-width, 288px) + 42px); }
 }
 @media (max-width: 700px) {
   .ed-workspace .canvas-host.has-comment-markup .canvas-pages { padding-right: 12px; }

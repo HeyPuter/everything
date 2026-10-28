@@ -51,3 +51,18 @@ test('in Web Layout the text leaves room for the comment cards', async ({ page }
   expect((await geometry(page)).overflow).toBeLessThanOrEqual(0);
   expect(errors).toEqual([]);
 });
+
+for (const [width, pane] of [[1100, false], [1440, true]]) {
+  test(`at ${width} pixels${pane ? ' with a side pane open' : ''} the comment column fits the window`, async ({ page }) => {
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await commented(page, width, 800);
+    if (pane) {
+      await page.getByRole('tab', { name: 'Review' }).click();
+      await page.locator('#ribbon-panel-review').getByRole('button', { name: 'Restrict Editing', exact: true }).click();
+      await expect(page.getByRole('complementary', { name: 'Restrict Editing pane' })).toBeVisible();
+    }
+    await expectBeside(page);
+    expect((await geometry(page)).overflow).toBeLessThanOrEqual(0);
+    expect(errors).toEqual([]);
+  });
+}

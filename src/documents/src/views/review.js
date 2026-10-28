@@ -499,6 +499,14 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function place() {
     const engine = editor(); if (!engine || !layer.isConnected) return;
     const items = [...layer.querySelectorAll('.ed-comment-card')];
+    // Cards narrow (to 200 pixels) where the window leaves less room beside the pages, so the column does not run
+    // off its side; pages laid across keep a full-width column after their groups.
+    const scroller = host(), across = Number(scroller?.dataset.cardPages) || 0;
+    if (scroller) {
+      const pageWidth = Math.max(0, ...(engine.canvases || []).map(canvas => canvas.offsetWidth)), inset = parseFloat(getComputedStyle(engine.pages).paddingLeft) || 0;
+      const width = across ? 288 : Math.round(Math.max(200, Math.min(288, scroller.clientWidth - inset - pageWidth - 44)));
+      if (scroller.style.getPropertyValue('--comment-card-width') !== `${width}px`) scroller.style.setProperty('--comment-card-width', `${width}px`);
+    }
     // Look every card's thread up in one pass: a lookup per card made each keystroke slow in a much-reviewed document.
     const byId = new Map(threads().map(t => [t.id, t]));
     const anchored = items.map(node => {
@@ -508,7 +516,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     }).filter(item => item.geometry).sort((a, b) => a.geometry.top - b.geometry.top);
     // Pages laid out across (Read Mode screens, Side to Side) leave room for the cards after every `across` pages:
     // a card goes beside the last page of its group, and each group's cards stack apart from the others'.
-    const across = Number(host()?.dataset.cardPages) || 0, canvases = engine.canvases || [];
+    const canvases = engine.canvases || [];
     const columnRight = item => { const page = canvases[Math.min(canvases.length - 1, (Math.floor(item.geometry.page / across) + 1) * across - 1)]; return page ? page.offsetLeft + page.offsetWidth : item.geometry.pageRight; };
     const right = Math.max(0, ...anchored.map(item => item.geometry.pageRight));
     const groups = new Map();
