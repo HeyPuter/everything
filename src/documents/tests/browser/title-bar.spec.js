@@ -169,6 +169,8 @@ test('the document details popover holds its fields and buttons inside its frame
 });
 
 test('the document name stays put while AutoSave goes from unsaved to saving to saved', async ({ browser }) => {
+  // Four fresh editors, each waiting for an autosave.
+  test.setTimeout(120000);
   for (const width of [1280, 1440, 1600, 1760]) {
     // A page of its own each time: a second "Untitled document" would be renamed by its first save.
     const page = await browser.newPage();
