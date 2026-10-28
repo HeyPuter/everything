@@ -44,6 +44,9 @@ it('offers the sign-in in place of the list, then lists the documents once signe
   expect(list.querySelector('.file-row')).toBeNull();
   const account = view.el.querySelector('.user-btn');
   expect(account.title).toBe('Not signed in');
+  // With nothing listed, sorting and searching have nothing to work on: they are not offered.
+  const tools = view.el.querySelector('.home-list-tools');
+  expect(tools.hidden).toBe(true);
 
   // Writing needs no account at all.
   [...list.querySelectorAll('button')].find((b) => b.textContent === 'New document').click();
@@ -53,6 +56,7 @@ it('offers the sign-in in place of the list, then lists the documents once signe
   await vi.waitFor(() => expect(sdk.auth.signIn).toHaveBeenCalledTimes(1));
   await vi.waitFor(() => expect(list.querySelector('.file-row .file-name')?.textContent).toBe('Report'));
   expect(list.textContent).not.toContain('Sign in to see your documents');
+  expect(tools.hidden).toBe(false);
   expect(account.title).toBe('nariman');
   expect(account.textContent).toBe('n');
 });

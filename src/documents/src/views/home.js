@@ -121,6 +121,9 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
   });
   renderAccountButton(avatar);
 
+  // Sorting and searching work on the listed documents: signed out, there is no list for them to work on.
+  const listTools = el('div.home-list-tools', {}, sortBtn, search);
+
   const root = el('div.home.view', {},
     fileInput,
     el('header.home-head', {},
@@ -135,7 +138,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
         P.canPickFiles() && el('button.btn.btn-outline.btn-lg', { type: 'button', html: icon('folderOpen', 18), onclick: openFromPuter }, el('span', {}, 'Open from Puter'))),
       el('div.home-list-head', {},
         el('h2.home-h2', {}, 'Your documents'),
-        el('div.home-list-tools', {}, sortBtn, search)),
+        listTools),
       list, listStatus),
     // Inside the Puter desktop a new document is saved where the user chooses; the list shows those with the app folder's own.
     el('footer.home-foot', {}, ...(P.asksWhereToSave()
@@ -426,6 +429,7 @@ export function homeView({ openPath, newDoc, newFromTemplate, importFile }) {
     const focusedControl = pending?.control ?? ['file-main', 'file-star-btn', 'file-menu-btn'].find((name) => active?.classList.contains(name));
     const focusedIndex = pending?.index ?? null;
     clear(list);
+    listTools.hidden = session.signedOut;
     // Loading, errors, and empty states are messages, not document list items.
     list.setAttribute('role', 'region');
     if (session.signedOut) {
