@@ -1731,7 +1731,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     // Pictures in a Markdown file or web page are not brought in yet: the notices say how many were left out.
     const omittedPictures = importedHtml && /<img\b/i.test(importedHtml) ? new DOMParser().parseFromString(importedHtml, 'text/html').querySelectorAll('img').length : 0;
     if (importedHtml !== null) {
-      const fragment = htmlFragment(importedHtml);
+      const fragment = htmlFragment(importedHtml, { copied: false });
       if (fragment) importing(() => {
         // In a new document every imported block keeps its own formatting.
         for (const p of fragment.paragraphs) p.mark = true;

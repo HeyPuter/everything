@@ -294,11 +294,15 @@ function fromForeignHtml(body) {
   return { paragraphs, foreign: true };
 }
 
-/** The fragment an HTML clipboard item holds, from this editor or converted from another application. */
-export function htmlFragment(html) {
+/**
+ * The fragment an HTML clipboard item holds, from this editor or converted from another application. `copied`: the
+ * HTML may be this editor's own copy, whose description of what was copied stands for it; a file opened or inserted
+ * is read as it is, whatever description it holds.
+ */
+export function htmlFragment(html, { copied = true } = {}) {
   if (typeof DOMParser === 'undefined' || !html) return null;
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const own = doc.querySelector(`[${FRAGMENT_ATTRIBUTE}]`);
+  const own = copied && doc.querySelector(`[${FRAGMENT_ATTRIBUTE}]`);
   if (own) {
     try {
       const fragment = JSON.parse(own.getAttribute(FRAGMENT_ATTRIBUTE));
