@@ -29,3 +29,28 @@ test('fills justified Chinese and Japanese lines to the margin with native canva
     expect(line.lastMeasured).toBeCloseTo(line.lastWidth, 3);
   }
 });
+
+test('fits justified Chinese into fractional-width table cells with native canvas metrics', async ({ page }) => {
+  await page.goto('/playground.html');
+  await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue(/A small beginning/);
+  const failures = await page.evaluate(async () => {
+    const { TextDocument, paragraph } = await import('/src/engine/model.js'), { layoutDocument } = await import('/src/engine/layout.js'), { pageGeometry } = await import('/src/engine/page-settings.js'), { measureCanvasText } = await import('/src/engine/canvas-text.js');
+    const ctx = document.createElement('canvas').getContext('2d'), failures = [];
+    const measure = (t, s) => measureCanvasText(ctx, t, s);
+    for (const format of [{}, { textScale: 115, characterSpacing: .5 }, { bold: true, fontSize: 13 }]) for (let i = 0; i < 24; i++) {
+      const doc = new TextDocument([paragraph()], { width: 5000 + i * 17, left: 720, right: 720 }); doc.insertTable(1, 1);
+      doc.replace('中文排版中两端对齐是最常见的段落对齐方式，字与字之间的间距会被均匀地拉开。'.repeat(2)); doc.select(0, doc.text.length); doc.setRunFormat(format); doc.setParagraphFormat({ alignment: 'both' });
+      try {
+        const result = layoutDocument(doc.paragraphs, measure, pageGeometry(doc.pageSettings), doc.numbering, doc.tables);
+        const justified = result.lines.filter(l => l.cellId && l.justificationSpacing);
+        if (!justified.length) failures.push({ i, format, error: 'no justified line' });
+        for (const line of justified) {
+          const box = result.cells.find(c => c.id === line.cellId && c.page === line.page), right = box.x + box.width - 7.2, end = line.stops.at(-1).x - (line.hangingRight ? 0 : line.ignoredTrailingWidth);
+          if (Math.abs(end - right) > .01) failures.push({ i, format, end, right });
+        }
+      } catch (error) { failures.push({ i, format, error: error.message }); }
+    }
+    return failures;
+  });
+  expect(failures).toEqual([]);
+});
