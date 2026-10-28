@@ -48,3 +48,16 @@ it('keeps a reply and an edit being written when the column is rebuilt around th
   card(second).querySelector('.wcc-entry.is-editing .wcc-cancel').click();
   expect(editor.model.comments.find(c => c.id === second).text).toBe('Two');
 });
+
+it('stacks the cards above the active one down from the top instead of piling them up there', () => {
+  open(['One two three four five six seven.', 'Second paragraph.']);
+  const ids = [[0, 3], [4, 7], [8, 13], [14, 18], [19, 23]].map(([a, b], i) => editor.model.addComment({ author: 'Ada', text: `c${i}`, range: [a, b] }));
+  editor.relayout();
+  review.commands.selectThreadById(ids[4]);
+  review.refresh(true);
+  const tops = ids.map(id => parseFloat(card(id).style.top));
+  expect(card(ids[4]).classList.contains('is-active')).toBe(true);
+  // Each card starts below the one before it (a card is 80 pixels high where nothing is laid out).
+  for (let i = 1; i < tops.length; i++) expect(tops[i], `card ${i}`).toBeGreaterThanOrEqual(tops[i - 1] + 88);
+  expect(tops[0]).toBeGreaterThanOrEqual(8);
+});

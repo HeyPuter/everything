@@ -472,10 +472,13 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (activeIndex >= 0) {
       for (let i = activeIndex + 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
       for (let i = activeIndex - 1; i >= 0; i--) tops[i] = Math.min(tops[i], tops[i + 1] - heights[i] - gap);
-      for (let i = 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
-    } else for (let i = 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
+    }
+    // The column starts at the top of the pages: cards with no room above the active one stack down from there
+    // (and push it down) instead of all being drawn at the top, one over another.
+    if (anchored.length) tops[0] = Math.max(8, tops[0]);
+    for (let i = 1; i < anchored.length; i++) tops[i] = Math.max(tops[i], tops[i - 1] + heights[i - 1] + gap);
     anchored.forEach((item, i) => {
-      item.node.style.top = `${Math.max(8, tops[i])}px`;
+      item.node.style.top = `${tops[i]}px`;
       item.node.style.left = `${right + 16}px`;
       item.node.style.display = '';
     });
