@@ -108,3 +108,23 @@ test('Go To jumps to pages, headings and bookmarks, and the Breaks menu inserts 
   await page.getByRole('menuitem', { name: 'Column' }).click();
   expect(await input.inputValue()).toContain('Page 2 \ntext');
 });
+
+test('Go To counts from the page of the footer being edited', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByLabel('Open DOCX file').setInputFiles('tests/fixtures/page-stories/footer-variants.docx');
+  const body = page.getByRole('textbox', { name: 'Document text' });
+  await expect(body).toHaveValue('Body page 1\nBody page 2\nBody page 3');
+  const dialog = page.getByRole('dialog', { name: 'Go To' });
+  for (const [move, expected] of [['', 'Body page 3'], ['+1', 'Body page 3'], ['-1', 'Body page 1']]) {
+    // The footer of the second page.
+    await page.evaluate(() => window.__docs.current.view.engine.editStory('word/footer-even.xml', 1));
+    const footer = page.getByRole('textbox', { name: 'Footer text' });
+    await footer.press('F5');
+    await dialog.getByLabel('Enter page number').fill(move);
+    await dialog.getByRole('button', { name: move ? 'Go To' : 'Next' }).click();
+    if (!move) await dialog.getByRole('button', { name: 'Close' }).last().click();
+    await expect(dialog).toHaveCount(0);
+    expect(await body.evaluate(el => el.value.slice(el.selectionStart, el.selectionStart + 11))).toBe(expected);
+  }
+});

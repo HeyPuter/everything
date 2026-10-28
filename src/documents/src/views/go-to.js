@@ -47,7 +47,8 @@ export function openGoTo(engine, { onClose } = {}) {
   const message = el('p.field-error', { role: 'alert', hidden: true });
   const previous = el('button.btn.btn-outline', { type: 'button', onclick: () => step(-1) }, 'Previous');
   const next = el('button.btn.btn-primary', { type: 'submit' }, 'Next');
-  const current = () => engine.model.range[0];
+  // In a header or footer, where it is is the page it is on: its own offsets are not the body's.
+  const current = () => engine.session.path === null ? engine.model.range[0] : goToTargets(engine, 'page')[engine.storyPage ?? 0]?.position ?? 0;
   function refresh() {
     const name = KINDS.find(([value]) => value === kind.value)[1];
     const bookmark = kind.value === 'bookmark';
