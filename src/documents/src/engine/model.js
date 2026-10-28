@@ -467,8 +467,10 @@ export class TextDocument {
    * `[start, end]` is another range to read instead of the selection.
    */
   clipboardText(noteText = () => '', [start, end] = this.range) {
-    let at = 0, text = '';
-    for (const p of this.paragraphs) {
+    let at = 0, text = '', rows = null;
+    // Cells of one row are separated by a tab and rows by a line, as a copied table reads in other applications.
+    const rowOf = id => { if (!rows) { rows = new Map(); for (const table of this.tables) for (const row of table.rows) for (const cell of row.cells) rows.set(cell.id, row); } return rows.get(id); };
+    for (const [index, p] of this.paragraphs.entries()) {
       for (const run of p.runs) {
         const length = run.text.length;
         if (run.image) { if (at >= start && at < end) text += run.image.alt || '[Image]'; }
@@ -477,7 +479,10 @@ export class TextDocument {
         else text += run.text.slice(Math.max(0, start - at), Math.max(0, end - at));
         at += length;
       }
-      if (at >= start && at < end) text += '\n';
+      if (at >= start && at < end) {
+        const next = this.paragraphs[index + 1];
+        text += p.cellId && next?.cellId && next.cellId !== p.cellId && rowOf(p.cellId) && rowOf(p.cellId) === rowOf(next.cellId) ? '\t' : '\n';
+      }
       at++;
     }
     return text.replace(/\u000e/g, '\n');

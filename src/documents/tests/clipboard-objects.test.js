@@ -20,6 +20,17 @@ it('copies fields as their results, equations as their text and drops bare objec
   expect(note.clipboardText((run, at) => run.noteMark && at === 5 ? '1' : '?')).toBe('Claim1');
 });
 
+it('copies a table in a selection as one line per row with a tab between cells', () => {
+  const d = new TextDocument([paragraph('Before')]);
+  d.select(6); d.insertTable(2, 3);
+  for (const [i, text] of ['a1', 'b1', 'c1', 'a2', 'b2', 'c2'].entries()) { if (i) d.moveCell(1); d.replace(text); }
+  // A second paragraph in a cell stays on its own line, as in other word processors.
+  d.select(d.text.indexOf('b2') + 2); d.insertParagraph(); d.replace('more');
+  d.select(d.text.length); d.replace('After');
+  d.select(0, d.text.length);
+  expect(d.clipboardText()).toBe('Before\na1\tb1\tc1\na2\tb2\nmore\tc2\nAfter');
+});
+
 let editor;
 afterEach(() => { editor?.destroy(); document.body.replaceChildren(); vi.restoreAllMocks(); });
 
