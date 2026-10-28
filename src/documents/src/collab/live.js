@@ -294,7 +294,11 @@ export async function shareDocument({ engine, doc, user, name, baseBytes, local,
   return { client, link, reason };
 }
 
-/** Rejoin the room of a document this account shared before (owner reopening it); `saved`: the room, when already looked up. */
+/**
+ * Rejoin the room of a document this account shared before (owner reopening it); `saved`: the room, when already looked
+ * up. Null when there is no room to join (never shared, or sharing was stopped); a room that could not be reached just
+ * now (offline, a server error) throws, since it is still the document's and its state replaces the file's once joined.
+ */
 export async function reconnect(path, user, saved) {
   if (saved === undefined) saved = await rememberedRoom(path);
   if (!saved?.server || !saved?.room) return null;
@@ -305,8 +309,8 @@ export async function reconnect(path, user, saved) {
     return { client, link: saved };
   } catch (error) {
     // Sharing was stopped (or the room is gone): forget it.
-    if (error.status === 410 || error.status === 404) await rememberRoom(path, null);
-    return null;
+    if (error.status === 410 || error.status === 404) { await rememberRoom(path, null); return null; }
+    throw error;
   }
 }
 

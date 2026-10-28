@@ -9,13 +9,15 @@ import { CollabClient } from '../src/collab/client.js';
 import { MemoryHub } from '../src/collab/transports.js';
 
 const hub = new MemoryHub(Y.encodeStateAsUpdate(createSharedDoc(editorState({ session: { body: new TextDocument([paragraph('Shared')]), storyEdits: {} } }))));
-let release = null, remembered = null;
+let release = null, remembered = null, failures = 0;
 vi.mock('../src/collab/room-memory.js', async (importOriginal) => ({ ...await importOriginal(), rememberedRoom: async () => remembered }));
 vi.mock('../src/collab/live.js', async (importOriginal) => ({
   ...await importOriginal(),
   // Joining the owner's room takes a few round trips; the test decides when they end.
   reconnect: async () => {
     await new Promise(resolve => { release = resolve; });
+    // The service could not be reached (a network failure, a server error): the room is still there.
+    if (failures > 0) { failures--; throw Object.assign(new Error('Failed to fetch'), { status: 0 }); }
     const client = new CollabClient({ transport: hub.connect('owner'), user: { id: 'u0', name: 'Ada' }, room: 'room1', sendDelay: 0 });
     await client.connect();
     return { client, link: { server: 'https://documents-abc.puter.work', room: 'room1' } };
@@ -82,5 +84,28 @@ it('keeps Viewing chosen while the room was joined', async () => {
   release();
   await attaching;
   expect(engine.viewOnly).toBe(true);
+  collab.destroy();
+});
+
+it('stays read-only with a way to try again when the room of a reopened shared document cannot be reached', async () => {
+  remembered = { server: 'https://documents-abc.puter.work', room: 'room1' };
+  release = null; failures = 1;
+  const engine = new FakeEngine('Shared');
+  const collab = open(engine);
+  collab.attach();
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  const first = release;
+  release = null;
+  first();
+  // Edits made now would neither reach the others nor survive: the room's state replaces the editor's once joined.
+  await vi.waitFor(() => expect(collab.banner.textContent).toContain('Could not connect to the shared document'));
+  expect(engine.viewOnly).toBe(true);
+  expect(collab.live).toBeNull();
+  const retry = [...collab.banner.querySelectorAll('button')].find(b => b.textContent === 'Try Again');
+  retry.click();
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  release();
+  await vi.waitFor(() => expect(collab.live).not.toBeNull());
+  expect(engine.viewOnly).toBe(false);
   collab.destroy();
 });

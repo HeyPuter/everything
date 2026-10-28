@@ -175,10 +175,24 @@ export function createCollaboration({ editor, pkg, doc, local, error, onChange =
         const saved = await remembered;
         if (!saved?.server || !saved?.room || destroyed) return;
         const release = holdEditing(editor());
-        try {
+        let found;
+        for (;;) {
           setBanner('Connecting to the shared document… You can edit it once it has opened.');
-          const { reconnect } = await loadLive();
-          const found = await reconnect(doc.path, user(), saved);
+          try {
+            const { reconnect } = await loadLive();
+            found = await reconnect(doc.path, user(), saved);
+            break;
+          } catch (e) {
+            if (destroyed) return;
+            console.warn('[documents] could not reach the shared document', e);
+            // The room is still the document's: changes made here now would not reach the others, and its state
+            // replaces the editor's once it is joined. The document reads only until it has been.
+            await new Promise(resolve => setBanner('Could not connect to the shared document, so it is open read-only. Check your connection and try again.',
+              [el('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => resolve() }, 'Try Again')]));
+            if (destroyed) return;
+          }
+        }
+        try {
           if (!live) setBanner('');
           release();
           if (found) await begin(found.client, found.link, { reopened: true });
