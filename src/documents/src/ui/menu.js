@@ -118,8 +118,14 @@ export function clickClosedMenu(anchor) {
 
 // Whether the last press was the pointer's, so a menu it opens can hold back keyboard focus rings.
 let pointerLast = false;
+// Where the mouse last was. A menu that closes or opens under a resting pointer makes the browser report the
+// pointer entering whatever is now beneath it, at the same spot: that is not the user moving onto an item.
+let pointerAt = null;
+const notePointer = (e) => { pointerAt = typeof e.clientX === 'number' ? { x: e.clientX, y: e.clientY } : null; };
+const pointerResting = (e) => !!pointerAt && typeof e.clientX === 'number' && e.clientX === pointerAt.x && e.clientY === pointerAt.y;
 if (typeof document !== 'undefined') {
-  document.addEventListener('pointerdown', () => { pointerLast = true; }, true);
+  document.addEventListener('pointerdown', (e) => { pointerLast = true; notePointer(e); }, true);
+  document.addEventListener('pointermove', notePointer, { capture: true, passive: true });
   document.addEventListener('keydown', () => { pointerLast = false; }, true);
 }
 
@@ -211,6 +217,9 @@ export function openMenu({ anchor, items, x = null, y = null, align = 'start', l
       // it is, and so an item with a submenu can show it without being clicked.
       onpointerenter: (e) => {
         if (e.pointerType && e.pointerType !== 'mouse') return;
+        // Escape from a submenu drawn over its own item (a narrow window) uncovers that item under the
+        // resting pointer; opening the submenu again then would leave Escape unable to close it.
+        if (pointerResting(e)) return;
         const at = depth();
         if (at === -1) return;
         clearTimeout(hoverTimer);

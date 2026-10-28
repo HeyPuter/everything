@@ -505,3 +505,19 @@ test('Enter in the Tabs dialog with no position typed is OK, not an error', asyn
   await expect(dialog.getByRole('listbox', { name: 'Tab stops' }).getByRole('option')).toHaveCount(1);
   await expect(dialog).toBeVisible();
 });
+
+test('Escape leaves a submenu that opened over its own item in a narrow window', async ({ page }) => {
+  await openEditor(page, 390);
+  await page.getByRole('button', { name: 'Menus', exact: true }).click();
+  // The mouse stays where it clicked: on a narrow window the File menu opens over the File item.
+  await page.getByRole('menu', { name: 'Menus' }).getByRole('menuitem', { name: 'File', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'File', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu', { name: 'File', exact: true })).toBeHidden();
+  await expect(page.getByRole('menu', { name: 'Menus' }).getByRole('menuitem', { name: 'File', exact: true })).toBeFocused();
+  // The menu stays closed: the item uncovered under the resting pointer does not open it again.
+  await page.waitForTimeout(400);
+  await expect(page.getByRole('menu', { name: 'File', exact: true })).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.menu')).toHaveCount(0);
+});
