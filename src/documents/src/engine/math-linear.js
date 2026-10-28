@@ -475,7 +475,8 @@ function fractionPart(node) {
 // The base of a script or mark: one operand the script attaches to.
 function base(node) {
   const items = editableItems(node);
-  if (items.length === 1 && (items[0].kind === 'run' && singleChar(items[0].text) || ['d', 'acc', 'bar'].includes(items[0].kind) && !/^\w+\(/.test(items[0].text))) return items[0].text;
+  // A quoted plain-text run ("x") is one operand too.
+  if (items.length === 1 && (items[0].kind === 'run' && singleChar(items[0].text) || items[0].kind === 'plain' || ['d', 'acc', 'bar'].includes(items[0].kind) && !/^\w+\(/.test(items[0].text))) return items[0].text;
   return bracket(editableSequence(node));
 }
 // Structures nested more deeply than Office Math's depth limit (each spans two or more elements)

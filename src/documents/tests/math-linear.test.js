@@ -210,6 +210,11 @@ describe('editing an existing equation', () => {
     same('sin x^2'); same('sin (a+b)'); same('sin^2 x');
   });
 
+  it('writes a quoted word with a script as it was typed', () => {
+    expect(same('"x"^2')).toBe('"x"^2');
+    expect(same('"speed"_i')).toBe('"speed"_i');
+  });
+
   it('writes every structure in a form that builds it again', () => {
     for (const { linear } of EQUATION_GALLERY) same(linear);
     // Binomials, matrices and equation arrays stay themselves; roots keep their degree.
