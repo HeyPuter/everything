@@ -24,7 +24,8 @@ it('starts a list at the number it gives', () => {
 
 it('keeps two lists one after another apart', () => {
   expect(opened('<ol><li>a</li><li>b</li></ol><ol><li>x</li><li>y</li></ol>')).toEqual(['1.\ta', '2.\tb', '1.\tx', '2.\ty']);
-  expect(opened(markdownHtml('1. a\n2. b\n\n---\n\n1. x\n2. y\n'))).toEqual(['1.\ta', '2.\tb', '1.\tx', '2.\ty']);
+  // The rule between them is a line under an empty paragraph.
+  expect(opened(markdownHtml('1. a\n2. b\n\n---\n\n1. x\n2. y\n'))).toEqual(['1.\ta', '2.\tb', '', '1.\tx', '2.\ty']);
 });
 
 it('goes on numbering an outer list after a list nested in its item', () => {
@@ -54,13 +55,22 @@ ul.lst-kix_def-1{list-style-type:none}.c2{height:11pt}.c0{margin:0;padding:0}.c4
   });
 });
 
-describe('table rows', () => {
+describe('horizontal rules and table rows', () => {
   const model = (html) => {
     const doc = new TextDocument([paragraph()]), fragment = htmlFragment(html, { copied: false });
     for (const p of fragment.paragraphs) p.mark = true;
     pasteFragment(doc, fragment);
     return doc;
   };
+  it('keeps a horizontal rule as a line under an empty paragraph, as Word draws one', () => {
+    for (const html of ['<p>Above</p><hr><p>Below</p>', markdownHtml('Above\n\n---\n\nBelow\n')]) {
+      const doc = model(html);
+      expect(doc.paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['Above', '', 'Below']);
+      expect(doc.paragraphs[1].format?.paragraphBorders?.bottom?.style).toBe('single');
+      expect(doc.paragraphs[0].format?.paragraphBorders?.bottom?.style ?? 'none').toBe('none');
+      expect(doc.paragraphs[2].format?.paragraphBorders?.bottom?.style ?? 'none').toBe('none');
+    }
+  });
   it('keeps every cell in its column when cells before it are empty', () => {
     expect(model('<table><tr><th></th><th>Q1</th><th>Q2</th></tr><tr><td>Sales</td><td></td><td>9</td></tr></table>').paragraphs.map(p => p.runs.map(r => r.text).join(''))).toEqual(['\tQ1\tQ2', 'Sales\t\t9']);
   });

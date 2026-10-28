@@ -21797,6 +21797,13 @@ many were left out). Loading adds no undo step;
 the document autosaves like other imports. Browser regressions cover Markdown and
 HTML structure, links, script removal, autosave, export and reopen.
 
+### Horizontal rules in imported HTML and Markdown (2026-10-27)
+
+An `<hr>` (and Markdown's `---`, `***` thematic breaks) opens as an empty paragraph
+with a single bottom border (`w:pBdr/w:bottom`, §17.3.1.7, size 6, space 1), as
+Word draws a rule. A rule at the very start or end of the file is left out with
+the other leading and trailing empty blocks.
+
 ### Style-sheet formatting in imported HTML (2026-10-26)
 
 HTML that sets formatting through its style sheet rather than inline styles

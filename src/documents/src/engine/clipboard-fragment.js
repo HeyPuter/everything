@@ -300,6 +300,8 @@ function fromForeignHtml(body) {
       }
     }
     if (tag === 'LI') ctx.item = current;
+    // A horizontal rule is an empty paragraph with a line under it, as Word draws one (and makes of "---").
+    if (tag === 'HR' && current) { current.rule = true; current.filled = true; }
     for (const child of node.childNodes) walk(child, next, ctx);
     if (block) end();
   };
@@ -374,6 +376,7 @@ function applyParagraph(model, p, foreign, lists = new Map()) {
   if (style) attempt(() => model.setParagraphStyle(style));
   else if (!foreign && p.styleId === null) attempt(() => model.setParagraphStyle(''));
   if (p.alignment && model.paragraphFormatting.alignment !== p.alignment) attempt(() => model.setParagraphFormat({ alignment: p.alignment }));
+  if (p.rule === true) attempt(() => model.setParagraphFormat({ paragraphBorders: { bottom: { style: 'single', size: 6, space: 1, color: 'auto' } } }));
   const current = model.listFormatting;
   if (p.list) {
     if (current !== p.list.kind) {
