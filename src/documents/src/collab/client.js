@@ -18,9 +18,13 @@ import { colorFor, randomId, PRESENCE_TTL } from './protocol.js';
 
 const OUTBOX_DB = 'documents-collab';
 
-/** Queued updates per room, in IndexedDB with a memory fallback (private windows, tests). */
+/**
+ * Queued updates per room and account, in IndexedDB with a memory fallback (private windows, tests). `account`: who
+ * made them. Another person signed in on the same computer opening the room must not send them as theirs (or, with
+ * less access, have them refused and thrown away): each account gets back its own changes only.
+ */
 export class Outbox {
-  constructor(room, session) { this.room = room; this.session = session; this.items = []; this.memory = !globalThis.indexedDB; }
+  constructor(room, session, account = '') { this.room = room; this.session = session; this.account = String(account ?? ''); this.items = []; this.memory = !globalThis.indexedDB; }
   async db() {
     if (this.memory) return null;
     this.opening ||= new Promise((resolve) => {
@@ -44,13 +48,17 @@ export class Outbox {
       } catch { resolve(null); }
     });
   }
-  /** Updates left from an earlier visit to this room in this browser (any session). */
+  /**
+   * Updates this account left from an earlier visit to this room in this browser (any session). Those of other
+   * accounts stay for them; those kept before updates named their account belong to nobody that can be told apart,
+   * and are left alone.
+   */
   async restore() {
     const all = await this.run('readonly', store => store.getAll());
-    return (all || []).filter(item => item.room === this.room).sort((a, b) => a.at - b.at || a.seq - b.seq);
+    return (all || []).filter(item => item.room === this.room && typeof item.account === 'string' && item.account === this.account).sort((a, b) => a.at - b.at || a.seq - b.seq);
   }
   async add(update) {
-    const item = { key: `${this.room}:${this.session}:${Date.now()}:${this.items.length}:${Math.random()}`, room: this.room, at: Date.now(), seq: this.items.length, update };
+    const item = { key: `${this.room}:${this.session}:${Date.now()}:${this.items.length}:${Math.random()}`, room: this.room, account: this.account, at: Date.now(), seq: this.items.length, update };
     this.items.push(item);
     await this.run('readwrite', store => store.put(item));
     return item;
@@ -79,7 +87,7 @@ export class CollabClient extends EventTarget {
     this.session = randomId(8);
     this.color = colorFor(user.id || user.name || this.session);
     this.ydoc = new Y.Doc();
-    this.outbox = new Outbox(room, this.session);
+    this.outbox = new Outbox(room, this.session, user.id || user.name || '');
     this.roster = [];
     this.status = 'connecting';
     this.role = null;

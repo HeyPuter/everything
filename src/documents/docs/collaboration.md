@@ -137,7 +137,9 @@ plus a notice; it composes with the document's own Restrict Editing guard.
 **Offline.** Every local change is queued in IndexedDB (memory where unavailable) before it is sent
 and kept until the room accepts it; the title bar shows *Offline · N waiting*; changes go out when
 the connection returns, also after a reload of the same room in this browser (Yjs updates are
-idempotent, so a change delivered twice is harmless). Changes refused for good (access removed)
+idempotent, so a change delivered twice is harmless). Queued changes name the account that made
+them: only that account's next visit to the room sends them, so someone else signed in on the same
+computer neither sends them as theirs nor has them refused and thrown away. Changes refused for good (access removed)
 are dropped and the person is told. In a tab that does not save the file (a guest's), changes the
 room has not received exist nowhere else: closing the tab warns, and leaving the document sends
 them first and asks when they cannot go out.
