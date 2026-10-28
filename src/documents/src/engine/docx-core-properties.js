@@ -40,16 +40,22 @@ const MAX_LENGTH = 4096;
 const serialize = node => new XMLSerializer().serializeToString(node);
 const decode = bytes => bytes instanceof Uint8Array ? new TextDecoder().decode(bytes) : String(bytes);
 
-/** The core-properties part named by the package relationships, or null. */
-export function corePropertiesPath(parts) {
+// The part name the package's core-properties relationship targets, whether or not the part exists, or null.
+function coreTarget(parts) {
   if (!parts['_rels/.rels']) return null;
   let rels;
   try { rels = parseXml(parts['_rels/.rels']); } catch { return null; }
   const link = [...rels.documentElement.children].find(n => n.localName === 'Relationship' && n.getAttribute('Type') === CORE_REL && n.getAttribute('TargetMode') !== 'External');
   const target = link?.getAttribute('Target');
   if (!target || /[\\?#:]/.test(target)) return null;
-  const path = target.replace(/^\//, '').split('/').filter(s => s && s !== '.').join('/');
-  return Object.hasOwn(parts, path) ? path : null;
+  const path = target.replace(/^\//, '').split('/').filter(s => s && s !== '.');
+  return path.length && !path.includes('..') ? path.join('/') : null;
+}
+
+/** The core-properties part named by the package relationships, or null. */
+export function corePropertiesPath(parts) {
+  const path = coreTarget(parts);
+  return path && Object.hasOwn(parts, path) ? path : null;
 }
 
 /** { title, subject, creator, keywords, … } as strings; properties the part lacks are ''. */
@@ -112,9 +118,19 @@ export function writeCoreProperties(parts, patch) {
 }
 
 function createCorePart(parts) {
+  const empty = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="${CP}" xmlns:dc="${DC}" xmlns:dcterms="${DCTERMS}" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="${XSI}"></cp:coreProperties>`);
+  const types = parseXml(parts['[Content_Types].xml']);
+  // A package holds one core-properties relationship (Part 2 §8.3): one left without its part gets the part.
+  const dangling = coreTarget(parts);
+  if (dangling) {
+    parts[dangling] = empty;
+    setContentTypeOverride(types, `/${dangling}`, CORE_TYPE);
+    parts['[Content_Types].xml'] = strToU8(serialize(types));
+    return dangling;
+  }
   let path = 'docProps/core.xml';
   for (let n = 2; Object.hasOwn(parts, path); n++) path = `docProps/core${n}.xml`;
-  parts[path] = strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="${CP}" xmlns:dc="${DC}" xmlns:dcterms="${DCTERMS}" xmlns:dcmitype="http://purl.org/dc/dcmitype/" xmlns:xsi="${XSI}"></cp:coreProperties>`);
+  parts[path] = empty;
   const rels = parseXml(parts['_rels/.rels']);
   const ids = new Set([...rels.documentElement.children].map(n => n.getAttribute('Id')));
   let id = 'rIdCore'; for (let n = 2; ids.has(id); n++) id = `rIdCore${n}`;
@@ -122,7 +138,6 @@ function createCorePart(parts) {
   rel.setAttribute('Id', id); rel.setAttribute('Type', CORE_REL); rel.setAttribute('Target', path);
   rels.documentElement.append(rel);
   parts['_rels/.rels'] = strToU8(serialize(rels));
-  const types = parseXml(parts['[Content_Types].xml']);
   setContentTypeOverride(types, `/${path}`, CORE_TYPE);
   parts['[Content_Types].xml'] = strToU8(serialize(types));
   return path;
