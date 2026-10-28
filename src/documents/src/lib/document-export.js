@@ -295,7 +295,9 @@ function blocksMarkdown(blocks, model) {
   for (const block of blocks) {
     if (block.type === 'table') {
       // Text already escapes its pipes (and link targets encode theirs), so none ends a cell early.
-      const rows = tableRows(block, cell => cellText(cell, p => paragraphMarkdown(p, false, '<br>'), ' \\| ', '<br>')).map(row => row.map(text => text || ' '));
+      // A cell cannot hold a Markdown list: an item keeps its number or bullet as text, as in plain text.
+      const item = p => markers.has(p) ? mdEscape(markers.get(p).replace(/\t$/, ' ')) : '';
+      const rows = tableRows(block, cell => cellText(cell, p => item(p) + paragraphMarkdown(p, false, '<br>'), ' \\| ', '<br>')).map(row => row.map(text => text || ' '));
       if (rows.length) {
         const width = Math.max(...rows.map(r => r.length));
         const pad = r => [...r, ...Array(width - r.length).fill(' ')];

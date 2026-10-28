@@ -404,3 +404,15 @@ describe('a list numbered again part-way through', () => {
     expect([...markdownHtml(markdown).matchAll(/<ol(?: start="(\d+)")?>/g)].map(m => m[1] ?? '1')).toEqual(['1', '1', '5']);
   });
 });
+
+describe('a list in a table cell', () => {
+  it('keeps its numbers and bullets in Markdown, as in plain text', () => {
+    const d = blankDoc();
+    d.replace('x');
+    d.insertTable(1, 2);
+    d.replace('Step one'); d.toggleList('number'); d.insertParagraph(); d.replace('Step two');
+    d.selectCell(d.tables[0].rows[0].cells[1].id); d.replace('Point'); d.toggleList('bullet');
+    expect(documentPlainText(d)).toContain('1.\tStep one 2.\tStep two\t•\tPoint');
+    expect(documentMarkdown(d)).toContain('| 1. Step one<br>2. Step two | • Point |');
+  });
+});
