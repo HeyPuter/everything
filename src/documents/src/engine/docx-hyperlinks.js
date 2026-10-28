@@ -1,18 +1,19 @@
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { elementChildren, parseXml } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { checkedHyperlinkTarget, hyperlinkId, internalHyperlink } from './hyperlinks.js';
 import { relationshipPartPath } from './package-part-paths.js';
+import { relationshipEntries, relationshipRoot } from './docx-relationships.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const serialize = n => new XMLSerializer().serializeToString(n);
-const children = n => [...n.children];
+const children = n => elementChildren(n);
 const relationships = (parts, path) => parts[path] ? parseXml(parts[path]) : parseXml(`<Relationships xmlns="${REL}"/>`);
 
 export function hyperlinkReader(parts, sourcePart = 'word/document.xml') {
   const path = relationshipPartPath(sourcePart);
-  let rels;
+  let root, byId;
   return node => {
     if ([...node.childNodes].some(n => [3, 4].includes(n.nodeType) && n.textContent.trim())) throw new UnsupportedDocumentError('text outside hyperlink runs');
     for (const attr of [...node.attributes]) {
@@ -28,14 +29,23 @@ export function hyperlinkReader(parts, sourcePart = 'word/document.xml') {
     if (node.hasAttributeNS(W, 'history') && !['true', 'false', '1', '0', 'on', 'off'].includes(history)) throw new UnsupportedDocumentError('invalid hyperlink history');
     const common = { id: hyperlinkId(), shell: serialize(node.cloneNode(false)), tooltip: node.getAttributeNS(W, 'tooltip') || '', history: ['true', '1', 'on'].includes(history) };
     if (!sourceId) return { ...common, anchor: node.hasAttributeNS(W, 'anchor') ? node.getAttributeNS(W, 'anchor') : null };
-    rels ||= relationships(parts, path);
-    if (rels.documentElement.namespaceURI !== REL || rels.documentElement.localName !== 'Relationships') throw new UnsupportedDocumentError('invalid hyperlink relationships part');
-    const matches = children(rels.documentElement).filter(r => r.getAttribute('Id') === sourceId);
+    // The relationships part is read once (relationshipEntries) and indexed: a document with
+    // hundreds of links would otherwise scan every relationship for each link.
+    if (!byId) {
+      const bytes = parts[path] || `<Relationships xmlns="${REL}"/>`;
+      root = relationshipRoot(bytes); byId = new Map();
+      for (const r of relationshipEntries(bytes)) {
+        const id = r.attribute('Id');
+        if (byId.has(id)) byId.get(id).push(r); else byId.set(id, [r]);
+      }
+    }
+    if (root.namespaceURI !== REL || root.localName !== 'Relationships') throw new UnsupportedDocumentError('invalid hyperlink relationships part');
+    const matches = byId.get(sourceId) || [];
     const rel = matches[0];
-    if (matches.length !== 1 || rel.namespaceURI !== REL || rel.localName !== 'Relationship' || rel.getAttribute('Type') !== `${R}/hyperlink` || rel.getAttribute('TargetMode') !== 'External') throw new UnsupportedDocumentError('missing, duplicate or unsupported hyperlink relationship');
+    if (matches.length !== 1 || rel.namespaceURI !== REL || rel.localName !== 'Relationship' || rel.attribute('Type') !== `${R}/hyperlink` || rel.attribute('TargetMode') !== 'External') throw new UnsupportedDocumentError('missing, duplicate or unsupported hyperlink relationship');
     // Part 2 relationships permit any URI reference. A destination the editor
     // cannot open (a relative or file path, unescaped spaces) is kept verbatim.
-    const target = rel.getAttribute('Target');
+    const target = rel.attribute('Target');
     let retainedTarget = false;
     try { checkedHyperlinkTarget(target); } catch { retainedTarget = true; }
     return { ...common, target, sourceId, ...(retainedTarget ? { retainedTarget } : {}) };

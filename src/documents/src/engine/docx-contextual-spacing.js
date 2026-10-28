@@ -1,8 +1,9 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 export function readContextualFlag(parent, tag = 'contextualSpacing') {
-  const nodes = [...(parent?.children || [])].filter(n => n.namespaceURI === W && n.localName === tag);
+  const nodes = childElements(parent, W, tag);
   if (nodes.length > 1) throw new UnsupportedDocumentError(`duplicate ${tag}`);
   const node = nodes[0]; if (!node) return undefined;
   if (node.children.length || node.textContent.trim() || [...node.attributes].some(a => a.namespaceURI === W && a.localName !== 'val')) throw new UnsupportedDocumentError(`unsupported ${tag} content`);

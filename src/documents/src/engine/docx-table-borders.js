@@ -1,9 +1,10 @@
 import { checkedCellBorder } from './cell-borders.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { elementChildren } from './docx-xml.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const ORDER = ['top', 'start', 'left', 'bottom', 'end', 'right', 'insideH', 'insideV', 'tl2br', 'tr2bl'];
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const fail = reason => { throw new UnsupportedDocumentError('table borders with ' + reason); };
 const flag = (node, name) => {
   const value = node.getAttributeNS(W, name);

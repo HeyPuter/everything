@@ -1,5 +1,6 @@
 import { normalizeColor, luminanceTransform } from './colors.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 
 export const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
 const fail = () => { throw new UnsupportedDocumentError('unsupported text outline properties'); };
@@ -15,7 +16,7 @@ export function checkedTextOutline(value) {
 }
 
 export function readTextOutline(rPr, readColor) {
-  const nodes = [...(rPr?.children || [])].filter(n => n.namespaceURI === W14 && n.localName === 'textOutline');
+  const nodes = childElements(rPr, W14, 'textOutline');
   if (!nodes.length) return {};
   if (nodes.length !== 1) fail();
   const node = nodes[0], children = [...node.children];

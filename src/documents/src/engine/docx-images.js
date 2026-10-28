@@ -11,7 +11,7 @@ import { drawingStyleReader, drawingEffectColor } from './docx-drawing-style.js'
 import { readDrawingMetadata, readDrawingCreationId } from './docx-drawing-metadata.js';
 import { readDrawingHyperlink, drawingHyperlinkWriter } from './docx-drawing-hyperlinks.js';
 import { readShapeExtensions } from './docx-shape-extensions.js';
-import { parseXml, setContentTypeOverride } from './docx-xml.js';
+import { elementChildren, parseXml, setContentTypeOverride } from './docx-xml.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { imageInfo, validateImage, normalizeCrop, normalizedRotation, imageExtents, CROP_SIDES } from './images.js';
 import { strToU8 } from 'fflate';
@@ -39,7 +39,7 @@ export const ASVG = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main';
 const SVG_EXTENSION = '{96dac541-7b7a-43d3-8b79-37d633b846f1}';
 const LOCAL_DPI = '{28a0092b-c50c-407e-a947-70e740481c1c}';
 const serialize = n => new XMLSerializer().serializeToString(n);
-const children = n => n ? [...n.children] : [];
+const children = n => n ? elementChildren(n) : [];
 const child = (n, ns, name) => children(n).find(c => c.namespaceURI === ns && c.localName === name);
 const fail = why => { throw new UnsupportedDocumentError(`pictures with ${why}`); };
 function check(n, ns, names) {

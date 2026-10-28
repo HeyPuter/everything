@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { elementChildren } from './docx-xml.js';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const A14 = 'http://schemas.microsoft.com/office/drawing/2010/main';
 const MAC = 'http://schemas.microsoft.com/office/mac/drawingml/2011/main';
@@ -8,7 +9,7 @@ const HIDDEN_LINE = '{91240b29-f687-4f45-9708-019b960494df}';
 const HIDDEN_FILL = '{909e8e84-426e-40dd-afc4-6f175d3dccd1}';
 const MAC_WRAP = '{c572a759-6a51-4108-aa02-dfa0a04fc94b}';
 const fail = reason => { throw new UnsupportedDocumentError(`shape extensions with ${reason}`); };
-const children = node => [...node.children];
+const children = node => elementChildren(node);
 function attributes(node, allowed) {
   for (const attr of node.attributes) if (attr.namespaceURI !== XMLNS && (attr.namespaceURI || !allowed.includes(attr.localName))) fail('unknown attributes');
   if ([...node.childNodes].some(n => [3, 4].includes(n.nodeType) && /[^ \t\r\n]/.test(n.textContent))) fail('unexpected text');

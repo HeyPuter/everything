@@ -2,6 +2,7 @@ import { UnsupportedDocumentError } from './errors.js';
 import { normalizeColor } from './colors.js';
 import { drawingEffectColor } from './docx-drawing-style.js';
 import { W14 } from './text-outline.js';
+import { childElements } from './docx-xml.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
@@ -23,7 +24,7 @@ export function checkedTextShadow(value) {
 }
 
 export function readTextShadow(properties, readColor) {
-  const nodes = [...(properties?.children || [])].filter(node => node.namespaceURI === W14 && node.localName === 'shadow');
+  const nodes = childElements(properties, W14, 'shadow');
   if (!nodes.length) return {};
   if (nodes.length !== 1) fail();
   const node = nodes[0], names = { blurRad: 'blurRadius', dist: 'distance', dir: 'direction', sx: 'scaleX', sy: 'scaleY', kx: 'skewX', ky: 'skewY', algn: 'alignment' };

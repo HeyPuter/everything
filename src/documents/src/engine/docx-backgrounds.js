@@ -1,9 +1,10 @@
 import { checkedHighlight } from './backgrounds.js';
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const fail = why => { throw new UnsupportedDocumentError(why); };
 function single(parent, tag) {
-  const nodes = [...(parent?.children || [])].filter(n => n.namespaceURI === W && n.localName === tag);
+  const nodes = childElements(parent, W, tag);
   if (nodes.length > 1) fail(`duplicate run ${tag}`);
   if (nodes[0]?.children.length) fail(`nested run ${tag}`);
   return nodes[0];

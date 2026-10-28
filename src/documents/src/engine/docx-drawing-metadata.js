@@ -1,12 +1,13 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { INK_EXTENSION_URI, readInkExtension } from './docx-ink-extension.js';
+import { elementChildren } from './docx-xml.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const DECORATIVE = 'http://schemas.microsoft.com/office/drawing/2017/decorative';
 const URI = '{C183D7F6-B498-43B3-948B-1728B52AA6E4}';
 const CREATION = 'http://schemas.microsoft.com/office/drawing/2014/main';
 const CREATION_URI = '{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}';
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 const fail = why => { throw new UnsupportedDocumentError(`drawing metadata with ${why}`); };
 function content(node, attrs = [], kind = 'decorative') {
   if ([...(node?.childNodes || [])].some(n => [3, 4].includes(n.nodeType) && /[^ \t\r\n]/.test(n.textContent))) fail('unexpected metadata text');

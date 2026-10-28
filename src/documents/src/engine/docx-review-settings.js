@@ -5,13 +5,13 @@
 // styles for formatting restrictions (§17.7.4 style `locked`). Only declarations that change are
 // rewritten; everything else in the settings and styles parts is kept as it was.
 import { strToU8 } from 'fflate';
-import { parseXml } from './docx-xml.js';
+import { elementChildren, parseXml } from './docx-xml.js';
 import { relatedPartPath } from './docx-relationships.js';
 
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const serialize = n => new XMLSerializer().serializeToString(n).replace(/^(<\?xml[^?]*encoding=)["'][^"']*["']/i, '$1"UTF-8"');
-const children = node => node ? [...node.children] : [];
+const children = node => node ? elementChildren(node) : [];
 const child = (node, name) => children(node).find(n => n.namespaceURI === W && n.localName === name);
 const flag = (node, name) => { const raw = node?.getAttributeNS(W, name); return raw === null || raw === undefined ? null : !['0', 'false', 'off'].includes(raw); };
 const present = node => !!node && flag(node, 'val') !== false;

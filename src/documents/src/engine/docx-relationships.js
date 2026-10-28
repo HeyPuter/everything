@@ -7,18 +7,31 @@ const OFFICE_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relati
 // A relationships part's entries, read once for each version of the part (its bytes, which are replaced,
 // not changed, when the part is written). The editor's controls look parts up through the main document's
 // relationships after every keystroke, and a document with hundreds of hyperlinks parsed them each time.
+// Opening reads the main document's relationships in several readers; each used to parse the part.
 const readRelationships = new WeakMap();
-/** The child elements of a relationships part's root: [{ namespaceURI, localName, attribute(name) }]. */
-export function relationshipEntries(bytes) {
-  let entries = bytes && typeof bytes === 'object' ? readRelationships.get(bytes) : undefined;
-  if (!entries) {
-    entries = Object.freeze([...parseXml(bytes).documentElement.children].map(node => {
-      const attributes = new Map([...node.attributes].filter(a => !a.namespaceURI).map(a => [a.name, a.value]));
-      return Object.freeze({ namespaceURI: node.namespaceURI, localName: node.localName, attribute: name => attributes.get(name) ?? null });
-    }));
-    if (bytes && typeof bytes === 'object') readRelationships.set(bytes, entries);
+function readRelationshipPart(bytes) {
+  let read = bytes && typeof bytes === 'object' ? readRelationships.get(bytes) : undefined;
+  if (!read) {
+    const root = parseXml(bytes).documentElement;
+    read = Object.freeze({
+      root: Object.freeze({ namespaceURI: root.namespaceURI, localName: root.localName }),
+      entries: Object.freeze([...root.children].map(node => {
+        const attributes = new Map([...node.attributes].filter(a => !a.namespaceURI).map(a => [a.name, a.value]));
+        return Object.freeze({ namespaceURI: node.namespaceURI, localName: node.localName, attribute: name => attributes.get(name) ?? null });
+      })),
+    });
+    if (bytes && typeof bytes === 'object') readRelationships.set(bytes, read);
   }
-  return entries;
+  return read;
+}
+/** The child elements of a relationships part's root: [{ namespaceURI, localName, attribute(name) }].
+ * `attribute(name)` reads an attribute without a namespace, as the element's getAttribute(name) does. */
+export function relationshipEntries(bytes) {
+  return readRelationshipPart(bytes).entries;
+}
+/** The root element's name of a relationships part: { namespaceURI, localName }. */
+export function relationshipRoot(bytes) {
+  return readRelationshipPart(bytes).root;
 }
 
 // Resolve a singleton internal relationship from the supported main-document

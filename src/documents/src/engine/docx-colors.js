@@ -1,4 +1,5 @@
-import { parseXml } from './docx-xml.js';
+import { childElements, elementChildren, parseXml } from './docx-xml.js';
+import { relationshipEntries } from './docx-relationships.js';
 import { UnsupportedDocumentError } from './errors.js';
 import { normalizeColor, themeColorTransform } from './colors.js';
 
@@ -6,12 +7,12 @@ const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const REL = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const fail = reason => { throw new UnsupportedDocumentError(`text colors with ${reason}`); };
 const names = { dark1: 'dk1', light1: 'lt1', dark2: 'dk2', light2: 'lt2', hyperlink: 'hlink', followedHyperlink: 'folHlink', ...Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`accent${i + 1}`, `accent${i + 1}`])) };
 const aliases = { background1: ['bg1', 'light1'], background2: ['bg2', 'light2'], text1: ['t1', 'dark1'], text2: ['t2', 'dark2'] };
 function only(parent, ns, name) {
-  const nodes = children(parent).filter(n => n.namespaceURI === ns && n.localName === name);
+  const nodes = childElements(parent, ns, name);
   if (nodes.length > 1) fail(`duplicate ${name}`);
   return nodes[0];
 }
@@ -25,16 +26,16 @@ export function colorReader(parts, settings) {
   let theme, mapping, themeLinks;
   const themeRelationships = () => {
     if (!themeLinks) {
-      const rels = parts['word/_rels/document.xml.rels'] && parseXml(parts['word/_rels/document.xml.rels']);
-      themeLinks = children(rels?.documentElement).filter(n => n.namespaceURI === REL && n.getAttribute('Type') === R + 'theme');
+      const rels = parts['word/_rels/document.xml.rels'] && relationshipEntries(parts['word/_rels/document.xml.rels']);
+      themeLinks = (rels || []).filter(n => n.namespaceURI === REL && n.attribute('Type') === R + 'theme');
     }
     return themeLinks;
   };
   const themeBase = name => {
     if (!theme) {
       const links = themeRelationships();
-      if (links.length !== 1 || ![null, 'Internal'].includes(links[0].getAttribute('TargetMode'))) fail('a missing, external or duplicate theme relationship');
-      const target = links[0].getAttribute('Target') || '';
+      if (links.length !== 1 || ![null, 'Internal'].includes(links[0].attribute('TargetMode'))) fail('a missing, external or duplicate theme relationship');
+      const target = links[0].attribute('Target') || '';
       if (/[\\?#%:]/.test(target)) fail('an unsupported theme target');
       const segments = (target.startsWith('/') ? target.slice(1) : 'word/' + target).split('/'), normalized = [];
       for (const segment of segments) {

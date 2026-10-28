@@ -1,8 +1,9 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { checkedCellMargins } from './cell-margins.js';
+import { elementChildren } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const ORDER = ['top', 'start', 'left', 'bottom', 'end', 'right'];
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 const fail = reason => { throw new UnsupportedDocumentError('cell margins with ' + reason); };
 
 export function readCellMargins(parent, table = false) {

@@ -50,15 +50,52 @@ export function activeDescendants(node) {
 }
 // Prefixes used in attribute VALUES (Requires/Ignorable) are invisible to the
 // XML serializer. Carry in-scope namespace declarations on detached fragments.
+// Reading a document serializes every paragraph this way, so the walks below index the
+// attribute maps and follow siblings rather than copying live collections into arrays.
 export function serializeFragment(node) {
-  const copy = node.cloneNode(true), bound = new Set();
-  for (let at = node; at?.nodeType === 1; at = at.parentElement) for (const a of at.attributes) if (a.namespaceURI === XMLNS && !bound.has(a.name)) {
-    bound.add(a.name); copy.setAttributeNS(XMLNS, a.name, a.value);
+  return serializeCopy(node.cloneNode(true), inScopeDeclarations(node));
+}
+/**
+ * serializeFragment(node) as it is now, serialized only when first asked for. The node and
+ * the declarations it inherits are copied now, so later changes to the tree cannot alter the
+ * text. Opening keeps each body paragraph's source this way: most are never asked for (an
+ * unedited save writes the original part), and serializing them all was a large share of
+ * the time to open a long document.
+ */
+export function deferredFragment(node) {
+  let copy = node.cloneNode(true), declarations = inScopeDeclarations(node), text;
+  return () => {
+    if (text === undefined) { text = serializeCopy(copy, declarations); copy = declarations = null; }
+    return text;
+  };
+}
+// The namespace declarations on `node` and its ancestors, the nearest of each prefix first.
+function inScopeDeclarations(node) {
+  const declarations = [], bound = new Set();
+  for (let at = node; at?.nodeType === 1; at = at.parentElement) {
+    const attributes = at.attributes;
+    for (let i = 0; i < attributes.length; i++) {
+      const a = attributes[i];
+      if (a.namespaceURI === XMLNS && !bound.has(a.name)) { bound.add(a.name); declarations.push([a.name, a.value]); }
+    }
   }
+  return declarations;
+}
+function serializeCopy(copy, declarations) {
+  for (const [name, value] of declarations) copy.setAttributeNS(XMLNS, name, value);
   // Detached shells have no ancestors. Bind namespaced attributes explicitly so
   // DOM serializers cannot invent a prefix and reuse it on an unbound sibling.
-  for (const element of [copy, ...copy.getElementsByTagName('*')]) for (const a of [...element.attributes]) {
-    if (a.prefix && a.namespaceURI && a.namespaceURI !== XMLNS && a.prefix !== 'xml' && element.lookupNamespaceURI(a.prefix) !== a.namespaceURI) element.setAttributeNS(XMLNS, `xmlns:${a.prefix}`, a.namespaceURI);
+  // Each element and its descendants in document order; a declaration added here is
+  // appended to the element's attributes, so the count read first covers its own.
+  for (let element = copy; element;) {
+    const attributes = element.attributes;
+    for (let i = 0, count = attributes.length; i < count; i++) {
+      const a = attributes[i];
+      if (a.prefix && a.namespaceURI && a.namespaceURI !== XMLNS && a.prefix !== 'xml' && element.lookupNamespaceURI(a.prefix) !== a.namespaceURI) element.setAttributeNS(XMLNS, `xmlns:${a.prefix}`, a.namespaceURI);
+    }
+    let next = element.firstElementChild;
+    while (!next && element !== copy) { next = element.nextElementSibling; if (!next) element = element.parentElement; }
+    element = next;
   }
   return new XMLSerializer().serializeToString(copy);
 }

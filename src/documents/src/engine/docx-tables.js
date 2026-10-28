@@ -1,4 +1,4 @@
-import { parseXml } from './docx-xml.js';
+import { elementChildren, parseXml } from './docx-xml.js';
 import { appendControlledBlocks, writeControlPlaceholder } from './docx-block-controls.js';
 import { tableBookmarkResolver } from './bookmarks.js';
 import { writeBookmark } from './docx-bookmarks.js';
@@ -20,7 +20,7 @@ import { tableStyleLook } from './table-style-regions.js';
 import { refreshConditionalTable } from './conditional-table-formatting.js';
 import { writeTableStyleProperties } from './docx-table-styles.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const child = (n, name) => children(n).find(c => c.namespaceURI === W && c.localName === name);
 const attr = (n, name) => n?.getAttributeNS(W, name);
 const normalTableStyle = style => !['1', 'true', 'on'].includes(attr(style, 'customStyle')) && attr(child(style, 'name'), 'val')?.toLowerCase() === 'normal table';

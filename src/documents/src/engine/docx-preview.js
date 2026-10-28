@@ -1,11 +1,11 @@
 import { paragraph } from './model.js';
 import { MC, alternateBranch } from './docx-compatibility.js';
 import { previewMacroButtons } from './docx-macro-buttons.js';
-import { runText } from './docx-xml.js';
+import { elementChildren, runText } from './docx-xml.js';
 
 const MATH = 'http://schemas.openxmlformats.org/officeDocument/2006/math';
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
-const children = node => [...(node?.children || [])];
+const children = node => node?.children ? elementChildren(node) : [];
 const word = (node, name) => WORD.has(node.namespaceURI) && node.localName === name;
 const child = (node, name) => children(node).find(n => word(n, name));
 

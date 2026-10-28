@@ -1,11 +1,12 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { drawingColor } from './docx-drawing-style.js';
 import { neutralSketchLine } from './sketch-line-preview.js';
+import { elementChildren } from './docx-xml.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
 const fail = why => { throw new UnsupportedDocumentError(`3D pictures with ${why}`); };
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const child = (n, name) => children(n).find(c => c.namespaceURI === A && c.localName === name);
 function check(node, attrs, names) {
   if (!node) return;

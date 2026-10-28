@@ -1,9 +1,10 @@
 import { UnsupportedDocumentError } from './errors.js';
 import { drawingColor } from './docx-drawing-style.js';
 import { checkedFontName } from './font-families.js';
+import { elementChildren } from './docx-xml.js';
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main';
-const children = n => [...(n?.children || [])];
+const children = n => n?.children ? elementChildren(n) : [];
 const child = (n, name) => children(n).find(c => c.namespaceURI === A && c.localName === name);
 const fail = why => { throw new UnsupportedDocumentError(`chart text with ${why}`); };
 function check(n, names) {

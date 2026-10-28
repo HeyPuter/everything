@@ -1,4 +1,5 @@
 import { UnsupportedDocumentError } from './errors.js';
+import { childElements } from './docx-xml.js';
 const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const W14 = 'http://schemas.microsoft.com/office/word/2010/wordml';
 const XMLNS = 'http://www.w3.org/2000/xmlns/';
@@ -8,7 +9,7 @@ export function checkedLigatures(value) {
   return value;
 }
 export function readLigatures(properties) {
-  const nodes = [...(properties?.children || [])].filter(n => n.namespaceURI === W14 && n.localName === 'ligatures');
+  const nodes = childElements(properties, W14, 'ligatures');
   if (nodes.length > 1) throw new UnsupportedDocumentError('duplicate ligature declaration');
   if (!nodes.length) return {};
   const node = nodes[0];
