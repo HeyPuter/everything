@@ -353,7 +353,7 @@ export function readTable(node, readParagraph, stylesRoot, readColor, readCellBl
         table.hasCellControls = true;
         tc = child(parsed.content, 'tc');
       }
-      if (children(tc).some(n => n.namespaceURI !== W || !['tcPr', 'p', ...(readCellBlocks ? ['tbl', 'sdt', 'bookmarkStart', 'bookmarkEnd'] : [])].includes(n.localName)) || children(tc).filter(n => n.localName === 'tcPr').length > 1) fail('unsupported cell blocks');
+      if (children(tc).some(n => n.namespaceURI !== W || !['tcPr', 'p', ...(readCellBlocks ? ['tbl', 'sdt', 'bookmarkStart', 'bookmarkEnd'] : []), ...(readCellBlocks && preview ? ['altChunk'] : [])].includes(n.localName)) || children(tc).filter(n => n.localName === 'tcPr').length > 1) fail('unsupported cell blocks');
       // Cell-style shading applies when tcPr/shd is absent, not tblPr/shd
       // ([MS-OI29500] §17.4.32). Keep table paint for its separate spacing layer.
       const cell = { id: tableId('cell'), ...properties(cellProperties, child(tc, 'tcPr'), { ...cellBase, marginDefaults, margins: resolveCellMargins(marginDefaults, cellBase.margins), shading: cellBase.shading ?? 'auto' }, readColor, false, preview), shell: shell(tc, ['tcPr']) };

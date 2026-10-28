@@ -94,6 +94,7 @@ import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js'
 import { checkedLineNumbers } from './line-number-settings.js';
 import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem } from './package-part-paths.js';
 import { canonicalMainPart } from './docx-main-part.js';
+import { altChunkParagraphs } from './docx-alt-chunks.js';
 import { unzipSync, strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
@@ -1122,6 +1123,16 @@ function hasPageStoryControls(root) {
   });
 }
 
+// The text of a WordprocessingML package imported into another (an altChunk), for a read-only preview.
+function previewEmbeddedPackage(bytes) {
+  let total = 0, count = 0;
+  const parts = canonicalMainPart(unzipSync(bytes, { filter: entry => {
+    total += entry.originalSize;
+    if (++count > 2000 || total > 50 * 1024 * 1024) throw new Error('DOCX expanded size exceeds the editor limit.');
+    return true;
+  } }));
+  return DocxPackage.preview(parts).paragraphs;
+}
 export class DocxPackage {
   constructor(parts, paragraphs, originals = new Map(), pageSettings, numbering = emptyNumbering(), styles, tables = [], assets = {}) {
     this.assets = assets;
@@ -1784,7 +1795,8 @@ export class DocxPackage {
           // promotes text to the body and invalidates the surrounding table.
           // Keep a source for the table reader even when strict paragraph import
           // failed before it could register an original. This is display-only.
-          const recovered = previewParagraphs(node);
+          const chunk = node.namespaceURI === W && node.localName === 'altChunk' && !context.pageStory ? altChunkParagraphs(parts, node, 'word/document.xml', previewEmbeddedPackage) : null;
+          const recovered = chunk || previewParagraphs(node);
           if (context.cellId && !recovered.length) recovered.push(paragraph());
           // Only the table reader and story originals read it, so body blocks need none: a
           // recovered table has a paragraph per cell, and each copy of the whole table made
