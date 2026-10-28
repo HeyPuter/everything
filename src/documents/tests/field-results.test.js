@@ -161,3 +161,22 @@ it('inserts DATE and AUTHOR fields that save as fields, reopen editable and upda
   expect(again.text).toBe('Signed on October 3, 2026 by Ada Byron.');
   setFieldContextProvider(null);
 });
+
+it('gives a PAGE field the page\'s number in its section\'s format, which a number switch overrides', () => {
+  expect(evaluateField(' PAGE ', {})).toBeNull();
+  expect(evaluateField(fieldInstruction({ name: 'PAGE' }), { page: 2 })).toBe('2');
+  expect(evaluateField(fieldInstruction({ name: 'PAGE' }), { page: 2, pageFormat: 'lowerRoman' })).toBe('ii');
+  expect(evaluateField(fieldInstruction({ name: 'PAGE', format: 'ROMAN' }), { page: 4 })).toBe('IV');
+  expect(evaluateField(fieldInstruction({ name: 'PAGE', format: 'Arabic' }), { page: 4, pageFormat: 'upperRoman' })).toBe('4');
+  expect(evaluateField(fieldInstruction({ name: 'PAGE', format: 'alphabetic' }), { page: 28, pageFormat: 'upperRoman' })).toBe('bb');
+  expect(evaluateField(' PAGE \\* roman \\* Upper ', { page: 3 })).toBe('III');
+});
+
+it('leaves a body PAGE field\'s number alone when fields update', () => {
+  const { doc } = blank();
+  doc.replace('On page ');
+  insertBodyField(doc, fieldInstruction({ name: 'PAGE' }), '7');
+  setFieldContextProvider(() => ({ now: when, page: 1, pages: 9 }));
+  try { updateSequenceFields(doc); } finally { setFieldContextProvider(null); }
+  expect(doc.text).toBe('On page 7');
+});

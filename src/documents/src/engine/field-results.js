@@ -170,11 +170,22 @@ export function evaluateField(instruction, context = {}) {
       value = properties[key] || ''; break;
     }
     case 'NUMPAGES': if (!Number.isInteger(context.pages)) return null; value = String(context.pages); break;
+    case 'PAGE': {
+      // `page` is the page's number and `pageFormat` its section's number format. A number format switch
+      // (\* roman) formats the number itself, overriding the section's format (§17.16.4.3).
+      if (!Number.isInteger(context.page) || context.page < 0) return null;
+      const switched = formats.some(f => /^(arabic|arabicdash|roman|alphabetic)$/i.test(f));
+      try { value = switched ? String(context.page) : formatPageNumber(context.page, context.pageFormat || 'decimal'); } catch { value = String(context.page); }
+      break;
+    }
     case 'NUMWORDS': if (context.text === undefined) return null; value = String(words(context.text)); break;
     case 'NUMCHARS': if (context.text === undefined) return null; value = String([...String(context.text).replace(/[\s\ufffc]/gu, '')].length); break;
     default: return null;
   }
-  for (const format of formats) if (!/^mergeformat$/i.test(format) && !/^charformat$/i.test(format)) value = applyGeneralFormat(value, format);
+  for (const format of formats) {
+    if (/^mergeformat$/i.test(format) || /^charformat$/i.test(format)) continue;
+    value = name === 'PAGE' && /^arabic$/i.test(format) ? String(context.page) : name === 'PAGE' && /^arabicdash$/i.test(format) ? `- ${context.page} -` : applyGeneralFormat(value, format);
+  }
   return value;
 }
 
@@ -218,7 +229,8 @@ export function fieldResultPlan(model, context = fieldEvaluationContext()) {
   const changes = [], text = model.text, ranges = bodyFieldRanges(model.paragraphs);
   for (const range of ranges) {
     if (range.parentId || ranges.some(r => r.parentId === range.field.id)) continue;
-    if (range.field.locked || range.field.type === 'SEQ' || range.field.type === 'REF') continue;
+    // A body PAGE field keeps the number it was given: the context's page is the caret's, not the field's.
+    if (range.field.locked || ['SEQ', 'REF', 'PAGE'].includes(range.field.type)) continue;
     if (!context && !['DATE', 'TIME'].includes(range.field.type)) continue;
     const value = evaluateField(range.field.instruction, { ...(context || {}), text });
     if (value !== null && text.slice(range.start, range.end) !== value) changes.push({ range, text: value });

@@ -24,6 +24,7 @@ import { pictureFragment, fittedSize } from '../engine/picture-insert.js';
 import { imageInfo, MAX_IMAGE_SIDE, MAX_IMAGE_PIXELS } from '../engine/images.js';
 import { diagramDrawingXml, parseDiagramDescription, DIAGRAM_LAYOUTS } from '../engine/diagram-builder.js';
 import { insertBodyField, fieldInstruction, evaluateField, packageDocumentProperties, setFieldContextProvider, DOCUMENT_PROPERTY_NAMES, formatDatePicture } from '../engine/field-results.js';
+import { pageNumberSequence } from '../engine/page-numbering.js';
 import { linearToOmml, ommlToLinear, ommlToEditableLinear, EQUATION_GALLERY } from '../engine/math-linear.js';
 import { ommlToMathml } from '../engine/omml-mathml.js';
 import { dropCapState, setDropCap } from '../engine/drop-caps.js';
@@ -87,10 +88,17 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
   const today = () => new Intl.DateTimeFormat(undefined, { dateStyle: 'long' }).format(new Date());
   /** Run an editor transaction, reporting failures; returns whether it applied. */
   const run = (engine, action) => { let failure = null; const ok = engine.execute(action, e => { failure = e; }); if (failure) fail(failure); engine.focus(); if (ok) onChange(); return ok; };
+  /** The number the caret's page shows ({ page, pageFormat }): its section's start and format apply, as in headers and footers. */
+  const caretPageNumber = engine => {
+    const index = engine?.caretPageIndex ?? 0, layout = engine?.layout;
+    if (!layout) return { page: index + 1 };
+    const numbers = pageNumberSequence(layout.pageSections || [], engine.pageStories, layout.numberingApproximations);
+    return { page: numbers[index] ?? index + 1, pageFormat: engine.pageStories?.sections?.[engine.sectionOfPage(index)]?.pageNumbering?.format };
+  };
   const fieldContext = () => {
     const engine = editor();
     return { now: new Date(), properties: packageDocumentProperties(pkg()), fileName: /\.\w+$/.test(docName() || '') ? docName() : `${docName() || 'Document'}.docx`, user: { name: user() || '' },
-      pages: engine?.layout?.pageCount, page: (engine?.caretPageIndex ?? 0) + 1 };
+      pages: engine?.layout?.pageCount, ...caretPageNumber(engine) };
   };
   setFieldContextProvider(fieldContext);
 
@@ -373,7 +381,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
       return;
     }
     // In the body, PAGE and NUMPAGES are body fields showing their current values.
-    const page = String((engine.caretPageIndex ?? 0) + 1), pages = String(engine.layout.pageCount);
+    const context = fieldContext(), page = evaluateField(fieldInstruction({ name: 'PAGE', preserve: true }), context) ?? String(context.page), pages = String(engine.layout.pageCount);
     run(engine, () => {
       for (const part of design.parts) {
         if (typeof part === 'object' && part.field) insertBodyField(engine.model, fieldInstruction({ name: part.field, preserve: true }), part.field === 'PAGE' ? page : pages);
@@ -522,7 +530,7 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     openFieldDialog({ context: { ...fieldContext(), text: engine.model.text }, bookmarks: (engine.bookmarks || []).map(b => b.name).filter(n => !n.startsWith('_')), onClose: () => queueMicrotask(() => editor()?.focus()),
       onInsert: ({ name, instruction }) => {
         const engine = ready(); if (!engine) return;
-        const cached = name === 'PAGE' ? String((engine.caretPageIndex ?? 0) + 1) : name === 'SEQ' ? '1' : name === 'REF' ? (() => { const target = /REF\s+"?([^"\s]+)/.exec(instruction)?.[1], mark = engine.bookmarks.find(b => b.name === target); return mark ? engine.model.text.slice(mark.start, mark.end) : ''; })() : null;
+        const cached = name === 'SEQ' ? '1' : name === 'REF' ? (() => { const target = /REF\s+"?([^"\s]+)/.exec(instruction)?.[1], mark = engine.bookmarks.find(b => b.name === target); return mark ? engine.model.text.slice(mark.start, mark.end) : ''; })() : null;
         insertFieldInstruction(instruction, cached);
         // A new sequence or reference number settles when fields update, as captions do.
         if (name === 'SEQ' || name === 'REF') base.updateFields?.();
