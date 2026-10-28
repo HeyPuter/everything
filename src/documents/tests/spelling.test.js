@@ -25,6 +25,19 @@ describe('words to check', () => {
     const m = wordsToCheck(text).find(w => w.word === 'recieve');
     expect(text.slice(0, m.wordStart) + 'receive' + text.slice(m.wordEnd)).toBe('I saw receive’s notice and don’t care.');
   });
+  it('checks words without their optional hyphens and zero-width characters, and locates them whole', () => {
+    const text = 'Manual hyph\u00adenation and zero\u200bwidth te\u200dst, rec\u00adieve\u00ad’s notice';
+    const list = wordsToCheck(text);
+    expect(list.map(w => w.word)).toEqual(['Manual', 'hyphenation', 'and', 'zero', 'width', 'test', 'recieve', 'notice']);
+    // A correction replaces the word with its optional hyphen, and keeps the possessive ending.
+    const hyphenated = list.find(w => w.word === 'hyphenation');
+    expect(text.slice(hyphenated.start, hyphenated.end)).toBe('hyph\u00adenation');
+    const possessive = list.find(w => w.word === 'recieve');
+    expect(text.slice(possessive.wordStart, possessive.wordEnd)).toBe('rec\u00adieve');
+    expect(text.slice(0, possessive.wordStart) + 'receive' + text.slice(possessive.wordEnd)).toBe('Manual hyph\u00adenation and zero\u200bwidth te\u200dst, receive\u00ad’s notice');
+    const speller = nspell(readFileSync('public/dictionaries/en-US.aff', 'utf8'), readFileSync('public/dictionaries/en-US.dic', 'utf8'));
+    expect(list.filter(w => !speller.correct(w.word)).map(w => w.word)).toEqual(['recieve']);
+  });
   it('checks the parts of a hyphenated compound and reports their positions', () => {
     const list = wordsToCheck('a well-knwn fact');
     expect(list.map(w => [w.word, w.start, w.end])).toEqual([['a', 0, 1], ['well', 2, 6], ['knwn', 7, 11], ['fact', 12, 16]]);

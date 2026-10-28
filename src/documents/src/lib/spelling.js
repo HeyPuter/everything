@@ -35,6 +35,7 @@ export function proofingText(text, paragraphs) {
  * The words spelling checks: [{ start, end, word, wordStart?, wordEnd? }]. Hyphenated compounds are checked part by part;
  * apostrophes inside a word stay part of it and typographic ones are normalized.
  */
+const INVISIBLE = /[\u00ad\u200b-\u200d\u2060\ufeff]/;
 export function wordsToCheck(text) {
   const words = [];
   const segmenter = new Intl.Segmenter('en', { granularity: 'word' });
@@ -49,7 +50,16 @@ export function wordsToCheck(text) {
     const after = text.slice(end).search(/[\s]/);
     const token = text.slice(before, after < 0 ? text.length : end + after).replace(/[\s\u000b\f\n]+/g, '');
     if (ADDRESS.test(token.replace(/[.,;:!?)"'’”]+$/, ''))) continue;
-    const word = segment.segment.replace(/’/g, "'");
+    // Optional hyphens (manual hyphenation) and zero-width joiners and spaces are not letters: the word is checked
+    // without them. `source[i]` is where the checked word's character i is in the segment.
+    const source = [];
+    let word = '';
+    for (let i = 0; i < segment.segment.length; i++) {
+      const c = segment.segment[i];
+      if (INVISIBLE.test(c)) continue;
+      word += c === '’' ? "'" : c; source.push(i);
+    }
+    if (!word) continue;
     if (/\d/.test(word) || /_/.test(word)) continue;
     if (word.length > 1 && word === word.toUpperCase() && /\p{Lu}/u.test(word)) continue;
     // The only dictionary is English: a word with no Latin letter (Thai, Cyrillic, Han...) is not checked.
@@ -58,8 +68,8 @@ export function wordsToCheck(text) {
     // than the segment, wordStart and wordEnd say where it is, so a correction keeps the "'s" and apostrophes.
     const trimmed = word.replace(/'s$/i, '').replace(/^'+|'+$/g, '');
     if (!trimmed || trimmed === word) { words.push({ start, end, word: trimmed || word }); continue; }
-    const wordStart = start + word.match(/^'*/)[0].length;
-    words.push({ start, end, word: trimmed, wordStart, wordEnd: wordStart + trimmed.length });
+    const lead = word.match(/^'*/)[0].length;
+    words.push({ start, end, word: trimmed, wordStart: start + source[lead], wordEnd: start + source[lead + trimmed.length - 1] + 1 });
   }
   return words;
 }

@@ -180,3 +180,14 @@ test('a word missing its apostrophe is offered the contraction, with the apostro
   await expect(input).toHaveValue('I don’t know why it wasn’t there.');
   await expect(proofing(page)).toHaveAttribute('aria-label', 'Spelling: no errors');
 });
+
+test('words with optional hyphens are checked without them, and corrected whole', async ({ page }) => {
+  // Manual hyphenation puts optional hyphens inside words.
+  const input = await newDocument(page, 'Manual hyph­enation keeps words recie­ved whole.');
+  await expect(proofing(page)).toHaveAttribute('aria-label', /1 error found/);
+  const menu = await wordMenu(page, input, 'recie');
+  await expect(menu.getByRole('menuitem').first()).toHaveText('received');
+  await menu.getByRole('menuitem', { name: 'received', exact: true }).click();
+  await expect(input).toHaveValue('Manual hyph­enation keeps words received whole.');
+  await expect(proofing(page)).toHaveAttribute('aria-label', 'Spelling: no errors');
+});
