@@ -28,6 +28,8 @@ test('a Markdown file holding an embedded copy opens as the file reads', async (
 });
 
 test('Text from File reads a web page holding an embedded copy as the page reads', async ({ page }) => {
+  // Wide enough that the Insert tab's Text group shows its buttons with any system font.
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/playground.html');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await input(page).fill('Start');

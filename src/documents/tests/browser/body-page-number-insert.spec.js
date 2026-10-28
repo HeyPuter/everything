@@ -4,6 +4,8 @@ import { onTab } from './helpers/editor-tools.js';
 // A PAGE field inserted in the body shows the page's number as the page shows it: its format switch
 // (\* roman) and the section's numbering (start and format) apply.
 async function open(page) {
+  // Wide enough that the Insert tab's Text group shows Quick Parts with any system font.
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/mock.html');
   const input = page.getByRole('textbox', { name: 'Document text' });
   await expect(input).toBeVisible();
