@@ -82,6 +82,8 @@ export const documentText = paragraphs => paragraphs.map(paragraphText).join('\n
 // texts it was joined from, and the document's with its paragraphs' texts; comparing them confirms the
 // cached text without joining, and only paragraphs whose runs changed are joined again.
 const paragraphTexts = new WeakMap(), documentTexts = new WeakMap();
+// Each model's tracked changes as of its current revision (TextDocument.revisions).
+const listedRevisions = new WeakMap();
 function cachedParagraphText(p) {
   const cache = paragraphTexts.get(p), runs = p.runs;
   if (cache && cache.runs.length === runs.length) {
@@ -2357,7 +2359,23 @@ export class TextDocument {
     if (!hasRevisions(this.paragraphs)) return [];
     return revisionRanges(this.paragraphs).filter(r => start === end ? r.start <= start && start <= r.end : r.start < end && r.end > start);
   }
-  get revisions() { return hasRevisions(this.paragraphs) ? revisionRanges(this.paragraphs) : []; }
+  /**
+   * The document's tracked changes, listed once per revision (every change to the document makes a new one,
+   * didChange). The review controls read them several times after each keystroke, and listing them reads
+   * every run of the document. Commands list them afresh (revisionRanges, revisionsAt): their edits are not
+   * a revision until they end. Callers read the list without changing it.
+   */
+  get revisions() {
+    const listed = listedRevisions.get(this);
+    if (listed?.revision === this.revision && listed.paragraphs === this.paragraphs) return listed.value;
+    const value = hasRevisions(this.paragraphs) ? revisionRanges(this.paragraphs) : [];
+    listedRevisions.set(this, { revision: this.revision, paragraphs: this.paragraphs, value });
+    return value;
+  }
+  /** revisionsAt for the review controls, from the revision's list (revisions). */
+  revisionsAround(start = this.range[0], end = this.range[1]) {
+    return this.revisions.filter(r => start === end ? r.start <= start && start <= r.end : r.start < end && r.end > start);
+  }
   /** Accept or reject the changes overlapping [start, end] (the whole document by default). */
   /** `only(change)` limits it to some changes (those Show Markup shows): the others in the range are left. */
   resolveRevisions(accept, start = 0, end = documentLength(this.paragraphs) + 1, { only = () => true } = {}) {

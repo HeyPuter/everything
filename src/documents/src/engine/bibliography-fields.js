@@ -4,6 +4,7 @@
 // customXml relationships; a new one gets its item properties part (§22.5.2.1).
 import { strToU8, strFromU8 } from 'fflate';
 import { parseXml } from './docx-xml.js';
+import { relationshipEntries } from './docx-relationships.js';
 import { bodyFieldRanges } from './body-fields.js';
 import { BIB_NS, newGuid, parseSources, serializeSources, parseCitation, citationInstruction, bibliographyInstruction } from './bibliography.js';
 import { CITATION_STYLES, DEFAULT_STYLE, citationContext, formatBibliography, formatCitation } from './citation-styles.js';
@@ -24,8 +25,8 @@ const resolve = (base, target) => {
 /** Paths of the main document's custom XML items. */
 export function customXmlItems(parts) {
   if (!parts[DOCUMENT_RELS]) return [];
-  const rels = parseXml(parts[DOCUMENT_RELS]).documentElement;
-  return [...rels.children].filter(n => n.getAttribute('Type') === CUSTOM_XML && n.getAttribute('TargetMode') !== 'External').map(n => resolve('word/document.xml', n.getAttribute('Target'))).filter(path => Object.hasOwn(parts, path));
+  // The relationships are read once for each version of the part (relationshipEntries).
+  return relationshipEntries(parts[DOCUMENT_RELS]).filter(n => n.attribute('Type') === CUSTOM_XML && n.attribute('TargetMode') !== 'External').map(n => resolve('word/document.xml', n.attribute('Target'))).filter(path => Object.hasOwn(parts, path));
 }
 
 /** The bibliography part: { path, data } (data from parseSources), or null when the document has none. */

@@ -271,7 +271,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     },
     revisionsAround() {
       const engine = editor(); if (!engine) return [];
-      return engine.session.body.revisionsAt?.(...engine.session.body.range) || [];
+      return engine.session.body.revisionsAround?.(...engine.session.body.range) || [];
     },
     hasRevisions() { return (editor()?.session.body.revisions || []).length > 0; },
     resolve(accept, scope = 'here', { moveNext = false, stopTracking = false, change = null } = {}) {
@@ -604,7 +604,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     tints(list);
     const body = engine.session.body;
     body.revisionAuthor = author() || 'Author';
-    registerRevisionAuthors(body.paragraphs);
+    // The revision's listed changes (TextDocument.revisions) are the paragraphs' revisionRanges.
+    registerRevisionAuthors(body.paragraphs, body.revisions);
     const o = revisionView.options, barColor = o.changeBarColor && !['auto', 'author'].includes(o.changeBarColor) ? `#${o.changeBarColor}` : revisionView.mode === 'simple' ? '#C4314B' : '#7A7A7A';
     engine.setMarginBars?.(['all', 'simple'].includes(revisionView.mode) && o.changeBars !== 'none' ? shownChanges(body.revisions) : [], barColor, o.changeBars === 'none' ? 'left' : o.changeBars || 'left');
     const label = markupButton?.querySelector('.ribbon-small-label'), name = MARKUP_VIEWS.find(([mode]) => mode === revisionView.mode)?.[1];

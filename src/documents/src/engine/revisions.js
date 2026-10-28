@@ -229,12 +229,13 @@ export const hasRevisions = paragraphs => paragraphs.some(p => p.markRevision ||
  * before it is first laid out: given later, they changed the colors on screen at the first edit
  * and made it measure the whole document again.
  */
-export function registerRevisionAuthors(paragraphs) {
-  for (const name of revisionAuthors(paragraphs)) if (!revisionView.authors.includes(name)) revisionView.authors.push(name);
+/** `ranges` may give the paragraphs' revisionRanges when the caller has them listed already. */
+export function registerRevisionAuthors(paragraphs, ranges) {
+  for (const name of revisionAuthors(paragraphs, ranges)) if (!revisionView.authors.includes(name)) revisionView.authors.push(name);
 }
-export function revisionAuthors(paragraphs) {
+export function revisionAuthors(paragraphs, ranges = revisionRanges(paragraphs)) {
   const authors = [];
-  for (const range of revisionRanges(paragraphs)) if (!authors.includes(range.author)) authors.push(range.author);
+  for (const range of ranges) if (!authors.includes(range.author)) authors.push(range.author);
   return authors;
 }
 

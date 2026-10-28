@@ -515,18 +515,28 @@ export function describeDrawing(shell) {
 }
 
 /** The document theme's colors by scheme name (accent1…6, dk1, lt1, dk2, lt2), or null without a theme. */
+// Each theme part's colors, read once for each version of the part (its bytes, replaced when it is written):
+// the drawing controls ask for them after every keystroke.
+const readThemeColors = new WeakMap();
 export function themeColors(parts) {
   try {
-    const path = relatedPartPath(parts, 'theme');
-    if (!path || !parts[path]) return null;
-    const root = parseXml(parts[path]).documentElement;
-    const scheme = root.getElementsByTagNameNS(A, 'clrScheme')[0];
-    if (!scheme) return null;
-    const colors = {};
-    for (const entry of scheme.children) {
-      const node = entry.firstElementChild;
-      if (node) colors[entry.localName] = (node.getAttribute('lastClr') || node.getAttribute('val') || '').toUpperCase();
+    const path = relatedPartPath(parts, 'theme'), bytes = path && parts[path];
+    if (!bytes) return null;
+    let colors = typeof bytes === 'object' ? readThemeColors.get(bytes) : undefined;
+    if (colors === undefined) {
+      colors = schemeColors(parseXml(bytes).documentElement);
+      if (typeof bytes === 'object') readThemeColors.set(bytes, colors);
     }
-    return /^[0-9A-F]{6}$/.test(colors.accent1 || '') ? colors : null;
+    return colors && { ...colors };
   } catch { return null; }
+}
+function schemeColors(root) {
+  const scheme = root.getElementsByTagNameNS(A, 'clrScheme')[0];
+  if (!scheme) return null;
+  const colors = {};
+  for (const entry of scheme.children) {
+    const node = entry.firstElementChild;
+    if (node) colors[entry.localName] = (node.getAttribute('lastClr') || node.getAttribute('val') || '').toUpperCase();
+  }
+  return /^[0-9A-F]{6}$/.test(colors.accent1 || '') ? colors : null;
 }
