@@ -180,10 +180,11 @@ export class StorySession {
   get storyEdits() {
     return Object.fromEntries([...this.models].filter(([path]) => path !== null).map(([path, model]) => [path, { paragraphs: model.paragraphs, tables: model.tables }]));
   }
-  export(pkg) {
+  export(pkg, { async = false } = {}) {
     const body = this.body;
     // Tracking "just mine" is a session choice: the document keeps its own Track Changes setting.
     const track = body.trackChangesMode === 'mine' ? !!pkg.trackRevisions : body.trackChanges;
-    return pkg.export(body.paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, this.storyEdits, body.comments, track);
+    // The asynchronous export writes the parts now and zips them off the page's thread (DocxPackage.exportAsync).
+    return pkg[async && pkg.exportAsync ? 'exportAsync' : 'export'](body.paragraphs, body.pageSettings, body.numbering, body.styles, body.tables, body.assets, this.storyEdits, body.comments, track);
   }
 }

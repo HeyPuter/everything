@@ -93,6 +93,7 @@ import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
 import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl } from './package-part-paths.js';
+import { zipPackageAsync } from './package-zip.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
 import { unzipSync, strToU8 } from 'fflate';
@@ -864,6 +865,43 @@ function writeMoveRanges(node, names, counters, make) {
     flush();
   }
 }
+// Each unchanged paragraph's source XML, parsed once: every save imports it again (importNode copies it). Saving a
+// long document parsed every paragraph's XML with a parser of its own on each autosave.
+const parsedOriginals = new WeakMap(), unparsedOriginals = new WeakMap();
+const parsedOriginal = original => {
+  let node = parsedOriginals.get(original);
+  if (!node) parsedOriginals.set(original, node = xml(original.xml).documentElement);
+  return node;
+};
+// The main document part as a save starts from it: its root and the body's final section properties, without the
+// body's content, which the save writes again. The whole part is parsed once for each version of it; each save
+// parses only this short text (a parsed copy, unlike a cloned document, keeps the XML declaration).
+const documentSkeletons = new WeakMap();
+/**
+ * Remember the skeleton of a main document part from `doc`, a parse of `bytes` that opening read: the save then
+ * needs no parse of its own. The body's content is set aside while it is serialized and put back.
+ */
+function rememberDocumentSkeleton(bytes, doc) {
+  if (!bytes || typeof bytes !== 'object' || documentSkeletons.has(bytes)) return;
+  const body = child(doc.documentElement, 'body'), section = body && child(body, 'sectPr');
+  if (!body) return;
+  const content = [...body.childNodes];
+  for (const node of content) if (node !== section) node.remove();
+  try { documentSkeletons.set(bytes, serialize(doc)); }
+  finally { body.replaceChildren(...content); }
+}
+function documentSkeleton(bytes) {
+  const keyed = !!bytes && typeof bytes === 'object';
+  let text = keyed ? documentSkeletons.get(bytes) : undefined;
+  if (text === undefined) {
+    const doc = xml(bytes);
+    const body = child(doc.documentElement, 'body'), section = body && child(body, 'sectPr');
+    if (body) for (const node of [...body.childNodes]) if (node !== section) node.remove();
+    if (!keyed) return doc;
+    documentSkeletons.set(bytes, text = serialize(doc));
+  }
+  return xml(text);
+}
 function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLink, sectionSource = p => ({ xml: p.sectionProperties, settings: p.sectionEnd })) {
   const make = name => doc.createElementNS(W, `w:${name}`);
   const moveNames = new WeakMap(), moveCounters = new Map();
@@ -872,7 +910,7 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
     const inheritedStrike = id => styleRun(styles, id || styles.defaultCharacter, paragraphRunStyle(p, styles), 'character').strikethrough;
     const original = originals.get(p.id);
     let node;
-    if (original?.signature === signature(p)) node = doc.importNode(xml(original.xml).documentElement, true);
+    if (original?.signature === signature(p)) node = doc.importNode(parsedOriginal(original), true);
     else {
       node = p.shell ? doc.importNode(xml(p.shell).documentElement, true) : make('p');
       if (!original) for (const attr of [...node.attributes]) if (['paraId', 'textId'].includes(attr.localName)) node.removeAttributeNode(attr);
@@ -1254,7 +1292,8 @@ export class DocxPackage {
     if (doc.documentElement.namespaceURI !== W) throw new UnsupportedDocumentError('a different OOXML namespace');
     const activeNodes = attempt(() => activeDescendants(doc.documentElement), () => [...doc.getElementsByTagNameNS(W, '*')]);
     const sectionSourceIndices = new Map(activeNodes.filter(n => n.namespaceURI === W && n.localName === 'sectPr').map((node, index) => [node, index]));
-    if (activeNodes.some(n => n.namespaceURI === W && n.localName === 'sdt')) bindUsedNamespaces(doc.documentElement);
+    const boundControlNamespaces = activeNodes.some(n => n.namespaceURI === W && n.localName === 'sdt');
+    if (boundControlNamespaces) bindUsedNamespaces(doc.documentElement);
     if (preview) projectControlContents(doc.documentElement);
     const body = child(doc.documentElement, 'body');
     if (!body) throw new Error('The DOCX has no document body.');
@@ -1909,6 +1948,8 @@ export class DocxPackage {
     }
     if (documentText(paragraphs).length > MAX_DOCUMENT_CHARACTERS) throw new Error(DOCUMENT_CHARACTER_LIMIT_MESSAGE);
     checkMarkers(paragraphs);
+    // Its first save starts from this parse (documentSkeleton), unless reading bound control namespaces on its root.
+    if (!preview && !boundControlNamespaces) rememberDocumentSkeleton(parts['word/document.xml'], doc);
     const pkg = new DocxPackage(parts, paragraphs, originals, pageSettings, numbering, styles, tables, assets);
     pkg.comments = comments; pkg.initialComments = JSON.stringify(comments);
     pkg.mailMerge = attempt(() => readMailMerge(parts), null); pkg.initialMailMerge = JSON.stringify(pkg.mailMerge);
@@ -2147,7 +2188,29 @@ export class DocxPackage {
     sceneAtPath(scene, frame.path).text = text;
     return { shell: serializeFragment(frame.doc.documentElement), asset: { ...asset, scene } };
   }
-  export(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
+  export(...args) { return new Blob([zipPackage(this.exportParts(...args))], { type: DOCX_TYPE }); }
+  /**
+   * Parse ahead what the first save would: the source XML of each paragraph, which the save copies for every
+   * unchanged one. `timeLeft()` gives the milliseconds this call may use (an idle period's); it returns
+   * whether any is left to do. A long document's first autosave parsed them all at once, holding the page
+   * while the user went on typing.
+   */
+  prepareSave(timeLeft) {
+    let left = unparsedOriginals.get(this);
+    if (!left) unparsedOriginals.set(this, left = [...this.originals.values()]);
+    while (left.length && timeLeft() > 1) parsedOriginal(left.pop());
+    return left.length > 0;
+  }
+  /**
+   * export(), zipped off the page's thread (package-zip.js). The parts are written at once, so the file holds the
+   * document as it is when this is called; only the deflating waits.
+   */
+  async exportAsync(...args) {
+    const parts = this.exportParts(...args);
+    return new Blob([await zipPackageAsync(parts)], { type: DOCX_TYPE });
+  }
+  /** The package parts export() zips. */
+  exportParts(paragraphs = this.paragraphs, pageSettings = this.pageSettings, numbering = this.numbering, styles = this.styles, tables = this.tables, assets = this.assets, storyEdits, comments = this.comments, trackRevisions = this.trackRevisions) {
     const parts = this.exportBodyParts(paragraphs, pageSettings, numbering, styles, tables, assets, comments, trackRevisions);
     writeDocumentType(parts);
     if (storyEdits !== undefined) this.writeStoryEdits(parts, storyEdits, numbering, styles, assets);
@@ -2161,7 +2224,7 @@ export class DocxPackage {
     this.writeNoteSettingsParts(parts);
     invalidateProofingState(parts, this.parts, this.initialProofingFingerprint !== null && this.initialProofingFingerprint !== undefined && proofingFingerprint(paragraphs) !== this.initialProofingFingerprint);
     this.writeCoreProperties(parts);
-    return new Blob([zipPackage(parts)], { type: DOCX_TYPE });
+    return parts;
   }
   /** Document properties (Part 2 §11): the file's values with this session's edits over them. */
   get coreProperties() { return { ...readCoreProperties(this.parts), ...(this.coreEdits || {}) }; }
@@ -2328,7 +2391,7 @@ export class DocxPackage {
     writeNumbering(parts, numbering);
     writeStyles(parts, styles);
     writeDefaultTabStop(parts, pageSettings.defaultTabStop, this.initialPageSettings.defaultTabStop, !this.originals.size);
-    const doc = xml(parts['word/document.xml']);
+    const doc = documentSkeleton(parts['word/document.xml']);
     if (pageSettings.backgroundPicture && JSON.stringify(pageSettings.backgroundPicture) !== JSON.stringify(this.initialPageSettings.backgroundPicture)) throw new Error('Creating a picture page background is not supported.');
     if (pageSettings.background !== this.initialPageSettings.background || !!pageSettings.backgroundPicture !== !!this.initialPageSettings.backgroundPicture || !this.originals.size && pageSettings.background !== 'auto') {
       if (pageSettings.backgroundPicture) throw new Error('Remove the picture background before changing its page color.');

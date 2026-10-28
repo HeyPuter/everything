@@ -1841,8 +1841,17 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     fitObserver = new ResizeObserver(() => { fitWidth(); engine?.revealCaret(); }); fitObserver.observe(host);
     if (!pkg.readOnly) doc.attach(async () => {
       if (engine.composition) throw new Error('Finish composing text before saving.');
-      return engine.export(pkg);
+      // Saving zips the file off the page's thread, so typing during an autosave is not held up.
+      return engine.exportAsync ? engine.exportAsync(pkg) : engine.export(pkg);
     }, { busy: () => !!engine?.composition });
+    // While the page is idle, parse ahead what the first save would (DocxPackage.prepareSave), a little at a time.
+    if (!pkg.readOnly && pkg.prepareSave && typeof requestIdleCallback === 'function') {
+      const prepared = pkg, prepare = deadline => {
+        if (destroyed || prepared !== pkg) return;
+        if (prepared.prepareSave(() => deadline.timeRemaining())) requestIdleCallback(prepare);
+      };
+      requestIdleCallback(prepare);
+    }
     if (pkg.fieldsRecalculated && !pkg.readOnly) doc.changed();
     const previewIssues = [...(pkg.previewIssues || []), ...engine.storyLayout.unsupported.map(issue =>
       `${issue.path}, page ${issue.page + 1}: ${issue.message}`)];

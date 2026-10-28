@@ -243,6 +243,8 @@ export class CanvasEditor {
   get pageStories() { return this.session.pageStories; }
   exportText() { return this.session.body.text; }
   export(pkg) { return this.session.export(pkg); }
+  /** export(), zipped off the page's thread: a Promise of the Blob. */
+  exportAsync(pkg) { return this.session.export(pkg, { async: true }); }
   editStory(path = null, page = 0) {
     if (this.readOnly || path !== null && !this.pageStories?.stories[path]?.editable) return false;
     this.finishComposition();
