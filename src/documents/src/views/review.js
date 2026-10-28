@@ -43,6 +43,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   let activeId = null, pinned = false, pinnedRange = '', draft = null, editing = null, signature = '', positionsKey = '';
   // The tracked change last selected with Previous/Next Change or from the Reviewing Pane.
   let navigated = null;
+  // Replies and edits being written, by thread or comment, with the document they belong to: rebuilding the column
+  // (the caret moving to another thread, a click in the document) kept only the words in the focused box.
+  const unsent = new Map();
+  let unsentBody = null;
   const cards = new Map();
   const readAloud = createReadAloud({ editor, onState: () => onChange() });
   /* ---- Reviewing Pane: every comment and change in document order ---- */
@@ -310,7 +314,9 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   function avatar(name, initials) {
     return el('span.wcc-avatar', { 'aria-hidden': 'true', style: { background: avatarColor(name) } }, (initials || initialsFor(name) || '?').slice(0, 2));
   }
-  function textEditor({ value = '', placeholder, submitLabel, onSubmit, onCancel }) {
+  function textEditor({ value = '', placeholder, submitLabel, onSubmit, onCancel, key = null }) {
+    if (key && unsent.has(key)) value = unsent.get(key);
+    if (key) { const submitted = onSubmit, cancelled = onCancel; onSubmit = text => { unsent.delete(key); submitted(text); }; onCancel = () => { unsent.delete(key); cancelled?.(); }; }
     const input = el('textarea.wcc-input', { rows: 1, placeholder: `${placeholder} (type @ to mention someone)`, 'aria-label': placeholder, 'aria-autocomplete': 'list' }, value);
     input.value = value;
     const grow = () => { input.style.height = 'auto'; input.style.height = `${Math.min(200, input.scrollHeight + 2)}px`; };
@@ -337,7 +343,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       mention = null; mentions.hidden = true;
       input.dispatchEvent(new Event('input')); input.focus();
     };
-    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); grow(); showMentions(); });
+    input.addEventListener('input', () => { submit.disabled = !input.value.trim(); grow(); showMentions(); if (key) unsent.set(key, input.value); });
     input.addEventListener('blur', () => { mentions.hidden = true; });
     input.addEventListener('keydown', e => {
       if (isComposing(e)) return;
@@ -363,7 +369,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const head = el('div.wcc-head', {}, avatar(comment.author, comment.initials),
       el('div.wcc-meta', {}, el('span.wcc-author', {}, comment.author || 'Unknown author'), el('span.wcc-date', { title: comment.date ? new Date(comment.date).toLocaleString() : '' }, time(comment.date))), more);
     const body = editing === comment.id
-      ? textEditor({ value: comment.text, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; run(() => editor().model.editComment(comment.id, text)); refresh(true); }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
+      ? textEditor({ value: comment.text, key: `edit:${comment.id}`, placeholder: 'Edit comment', submitLabel: 'Save', onSubmit: text => { editing = null; run(() => editor().model.editComment(comment.id, text)); refresh(true); }, onCancel: () => { editing = null; refresh(true); editor()?.focus(); } })
       // Only text with an @ can mention anyone.
       : el('div.wcc-text', {}, ...renderMentions(comment.text, String(comment.text || '').includes('@') ? names() : []));
     return el(`div.wcc-entry${editing === comment.id ? '.is-editing' : ''}`, { dataset: { commentId: comment.id } }, head, body);
@@ -380,7 +386,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     }
     node.append(entry(thread.root, thread, true, names), ...thread.replies.map(reply => entry(reply, thread, false, names)));
     if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !ready(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
-    else if (ready()) node.append(el('div.wcc-reply', {}, textEditor({ placeholder: 'Reply', submitLabel: 'Reply',
+    else if (ready()) node.append(el('div.wcc-reply', {}, textEditor({ key: `reply:${thread.id}`, placeholder: 'Reply', submitLabel: 'Reply',
       onSubmit: text => { run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); },
       onCancel: () => { activeId = null; pinned = false; refresh(true); editor()?.focus(); } })),
     el('button.btn.btn-sm.wcc-resolve', { type: 'button', title: 'Resolve thread', onclick: () => { run(() => editor().model.setCommentDone(thread.id, true)); refresh(true); } }, 'Resolve'));
@@ -491,6 +497,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     const engine = editor();
     if (!engine || !host()) { layer.remove(); return; }
     const scroller = host();
+    if (unsentBody !== engine.session.body) { unsent.clear(); unsentBody = engine.session.body; }
     if (layer.parentNode !== scroller) { scroller.append(layer); resize.disconnect(); resize.observe(scroller); }
     if (scroller.parentElement && readAloud.bar.parentNode !== scroller.parentElement) scroller.parentElement.append(readAloud.bar);
     renderPane();
