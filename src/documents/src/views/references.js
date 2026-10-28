@@ -27,6 +27,11 @@ async function pageField(type) {
 export function createReferences({ editor, pkg, error, base = {}, onChange = () => {} }) {
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const fail = e => { error(e); editor()?.focus(); };
+  /**
+   * New header and footer parts and document settings bypass the protection check every edit passes through:
+   * under Restrict Editing they are refused, as typing is.
+   */
+  const unprotected = what => { if (base.protectedDocument?.()) throw new Error(`This document is protected against editing, so ${what} cannot be changed. Stop protection under Review > Restrict Editing first.`); };
 
   /**
    * Which header/footer variant a page shows: first, even or default (§17.10.5). Even and odd go by the
@@ -54,6 +59,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
       if (!engine.pageStories.stories[existing]?.editable) throw new Error(`This document's ${kind} cannot be edited yet.`);
       engine.editStory(existing, page); return existing;
     }
+    unprotected(`its ${kind}s`);
     const { TextDocument, paragraph } = await import('../engine/model.js');
     const body = engine.session.body;
     const styleId = Object.values(body.styles.definitions || {}).find(s => s.type === 'paragraph' && s.name?.toLowerCase() === kind)?.id;
@@ -67,6 +73,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   async function setStoryOption(option, on) {
     try {
       const engine = ready(); if (!engine) return;
+      unprotected('its headers and footers');
       const kind = activeStoryKind(), page = currentPage(engine), section = engine.sectionOfPage(page);
       if (option === 'first') { pkg().setTitlePage(section, on); engine.setStoryOptions({ section, firstPageDifferent: on }); }
       else { pkg().setEvenAndOdd(on); engine.setStoryOptions({ evenAndOdd: on }); }
@@ -160,7 +167,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     onChange();
     return result;
   }
-  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
+  const ctx = { editor, pkg, error, ready, fail, runBody, pageOf, unprotected, onChange: () => onChange(), showFieldCodes: () => base.showFieldCodes?.() };
   const toc = createTocCommands(ctx);
   const notes = createNoteCommands(ctx);
   const citations = createCitationCommands(ctx);

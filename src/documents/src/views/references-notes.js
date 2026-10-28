@@ -124,6 +124,7 @@ export function createNoteCommands(ctx) {
 
   function applySettings(kind, values) {
     const engine = ready(); if (!engine) return;
+    ctx.unprotected?.('its footnote and endnote settings');
     pkg().setNoteSettings(kind, values);
     const definition = engine.session.definition, key = settingsKey(kind);
     if (definition?.[key]) {

@@ -418,6 +418,8 @@ export function createInsert({ editor, pkg, error, base = {}, docName = () => ''
     engine.finishComposition();
     const page = engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0, section = engine.sectionOfPage(page);
     openFormatPageNumbers({ current: engine.pageStories?.sections?.[section]?.pageNumbering || {}, onClose: () => queueMicrotask(() => editor()?.focus()), onApply: ({ format, start }) => {
+      // Page numbering is a section setting no protected edit check sees: refused under Restrict Editing.
+      if (base.protectedDocument?.()) throw new Error('This document is protected against editing, so its page numbering cannot be changed. Stop protection under Review > Restrict Editing first.');
       const value = format === 'decimal' && start === null ? null : { format, ...(start !== null ? { start } : {}) };
       pkg().setPageNumbering(section, value);
       engine.setStoryOptions({ section, pageNumbering: value });
