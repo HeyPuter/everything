@@ -93,6 +93,7 @@ import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
 import { zipPackage, MAX_PACKAGE_BYTES } from './package-part-paths.js';
+import { canonicalMainPart } from './docx-main-part.js';
 import { unzipSync, strToU8 } from 'fflate';
 import { paragraph, paragraphFormat, runFormat, documentText, paragraphText, PAGINATION_DEFAULTS } from './model.js';
 
@@ -1150,6 +1151,7 @@ export class DocxPackage {
         return true;
       } });
     } catch (e) { throw new Error(`Could not read this DOCX archive: ${e.message}`); }
+    parts = canonicalMainPart(parts);
     if (!parts['word/document.xml'] || !parts['[Content_Types].xml'] || !parts['_rels/.rels']) throw new Error('This file is not a supported DOCX document.');
     const types = xml(parts['[Content_Types].xml']);
     if (![...types.getElementsByTagNameNS('*', 'Override')].some(n => n.getAttribute('PartName') === '/word/document.xml' && MAIN_TYPES.has(n.getAttribute('ContentType')))) {
