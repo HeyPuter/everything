@@ -64,3 +64,19 @@ test('refuses a bookmark name starting with an underscore, which would be hidden
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('Start the name with a letter');
   await expect(page.getByRole('listbox',{name:'Document bookmarks',exact:true}).locator('option')).toHaveText([/^Draft_1 ·/]);
 });
+
+test('the link dialog offers the document\'s bookmarks without the hidden ones a table of contents adds',async({page})=>{
+  await page.goto('/mock.html#/new');
+  const input=page.getByRole('textbox',{name:'Document text'});await expect(input).toBeVisible();await input.fill('Chapter\nSee here');
+  await page.evaluate(async()=>{
+    const e=window.__docs.current.view.engine;const m=e.model;
+    const toc=await import('/src/engine/toc.js');
+    e.execute(()=>{m.select(0);m.setParagraphStyle(m.paragraphStyles.find(s=>s.name==='Heading 1').id);m.select(0);toc.insertTableOfContents(m,{});return true;});
+  });
+  await choose(input,'Chapter',true);await manager(page);await page.getByRole('textbox',{name:'Bookmark name',exact:true}).fill('Visible');await page.getByRole('dialog').getByRole('button',{name:'Add bookmark',exact:true}).click();await close(page);
+  expect(await page.evaluate(()=>window.__docs.current.view.engine.bookmarks.map(b=>b.name).some(n=>n.startsWith('_Toc')))).toBe(true);
+  await choose(input,'See here');await linkDialog(page,input);
+  await page.getByRole('combobox',{name:'Link destination type',exact:true}).selectOption('bookmark');
+  await expect(page.getByRole('combobox',{name:'Link bookmark',exact:true}).locator('option')).toHaveText(['Start of document','Visible']);
+  await close(page,'Cancel');
+});

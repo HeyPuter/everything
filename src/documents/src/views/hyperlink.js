@@ -6,7 +6,9 @@ import { hrefForToken } from '../lib/linkify.js';
 export function openHyperlink({ link, bookmarks = [], insert, apply, remove, open, anchor, focusFirst = true }) {
   const kind = el('select.input', { 'aria-label': 'Link destination type' }, el('option', { value: 'address' }, 'Address'), el('option', { value: 'bookmark' }, 'Bookmark'));
   kind.value = internalHyperlink(link) ? 'bookmark' : 'address';
-  const choices = [...new Set(bookmarks.map(b => b.name))];
+  // Hidden bookmarks (_Toc…, _Ref…, _GoBack: those tables of contents and cross-references make) are left out, as in
+  // the Bookmarks dialog; a link that already goes to one keeps it.
+  const choices = [...new Set(bookmarks.map(b => b.name).filter(name => !name?.startsWith('_')))];
   if (internalHyperlink(link) && link.anchor !== null && !choices.includes(link.anchor)) choices.push(link.anchor);
   const bookmark = el('select.input', { 'aria-label': 'Link bookmark' }, el('option', { value: 'null' }, 'Start of document'), ...choices.map(name => el('option', { value: JSON.stringify(name) }, name || '(unnamed)')));
   bookmark.value = internalHyperlink(link) ? JSON.stringify(link.anchor) : 'null';
