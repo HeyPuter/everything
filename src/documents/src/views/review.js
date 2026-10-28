@@ -276,8 +276,14 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       const engine = editor(); if (!engine) return;
       const body = engine.session.body, list = body.revisions;
       if (!list.length) return;
-      const [a, b] = body.range, at = from ?? (direction > 0 ? b : a);
-      const next = direction > 0 ? list.find(r => r.start >= at && !(r.start === a && r.end === b)) || list[0] : [...list].reverse().find(r => r.end <= at && !(r.start === a && r.end === b)) || list.at(-1);
+      const [a, b] = body.range, at = from ?? (direction > 0 ? b : a), length = body.text.length;
+      // From a selected change, step through the list: a paragraph's formatting change spans the changes inside the
+      // paragraph, so going on from its end skipped them, and going back from one of them skipped the paragraph's.
+      const same = r => r.start === a && Math.min(r.end, length) === b;
+      const went = r => navigated && r.type === navigated.type && r.author === navigated.author && r.date === navigated.date;
+      const current = from !== undefined ? -1 : list.findIndex(r => same(r) && went(r)) >= 0 ? list.findIndex(r => same(r) && went(r)) : list.findIndex(same);
+      const next = current >= 0 ? list[(current + direction + list.length) % list.length]
+        : direction > 0 ? list.find(r => r.start >= at && !same(r)) || list[0] : [...list].reverse().find(r => r.end <= at && !same(r)) || list.at(-1);
       engine.finishComposition();
       if (engine.session.path !== null) engine.editStory(null);
       body.select(next.start, Math.min(next.end, body.text.length)); navigated = next;
