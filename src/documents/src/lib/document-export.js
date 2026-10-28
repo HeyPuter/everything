@@ -124,24 +124,32 @@ function blocksHtml(blocks, model, numbers = itemNumbers(model), markers = itemM
     }
     const p = paragraphOf(block), level = headingLevel(p, model.styles);
     const kind = level ? null : kindOf(p, model.numbering), tag = kind === 'bullet' ? 'ul' : kind ? 'ol' : null;
+    let value = null;
     if (!tag) closeLists();
     else {
       const depth = listLevel(p);
       while (lists.length && lists.at(-1).depth > depth) closeList();
       if (lists.at(-1)?.depth === depth && lists.at(-1).tag !== tag) closeList();
-      if (lists.at(-1)?.depth === depth) html += '</li>';
-      else {
-        const start = tag === 'ol' ? numbers.get(p) ?? 1 : 1;
+      const number = tag === 'ol' ? numbers.get(p) : null;
+      if (lists.at(-1)?.depth === depth) {
+        html += '</li>';
+        // An item numbered again part-way through (Restart Numbering, Set Numbering Value) says its number; a browser
+        // would number it one past the item before.
+        const list = lists.at(-1);
+        if (tag === 'ol' && number != null && number !== list.number + 1) value = number;
+        list.number = number ?? list.number + 1;
+      } else {
+        const start = number ?? 1;
         // A list numbered with letters or Roman numerals keeps them: "see (b)" still finds item b.
         const type = tag === 'ol' ? LIST_TYPES[(() => { try { return levelFor(model.numbering, p.list).format; } catch { return null; } })()] : null;
         html += `<${tag}${type ? ` type="${type}"` : ''}${start !== 1 ? ` start="${start}"` : ''}>`;
-        lists.push({ tag, depth });
+        lists.push({ tag, depth, number: start });
       }
     }
     const inner = escapeHtml(headingNumber(p, level, markers)) + p.runs.map(run => runHtml(run, !!level)).join('') || '<br>';
     const alignment = p.format?.alignment;
     const align = ['center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
-    html += tag ? `<li${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
+    html += tag ? `<li${value != null ? ` value="${value}"` : ''}${align}>${inner}` : level ? `<h${level}${align}>${inner}</h${level}>` : `<p${align}>${inner}</p>`;
   }
   closeLists();
   return html;
@@ -305,12 +313,17 @@ function blocksMarkdown(blocks, model) {
       let list = lists.at(-1);
       if (list?.depth !== depth) { list = { depth, indent: list ? list.content : 0, kind: null, number: 0 }; lists.push(list); }
       const number = numbers.get(p) ?? (list.kind === kind ? list.number + 1 : 1);
+      // CommonMark takes a list's number from its first item alone: an item numbered again part-way through
+      // (Restart Numbering, Set Numbering Value) starts a list of its own, after a comment that ends the one before.
+      const restarted = previousList && kind !== 'bullet' && list.kind && list.kind !== 'bullet' && number !== list.number + 1;
       Object.assign(list, { kind, number });
       const marker = kind === 'bullet' ? '-' : `${number}.`, indent = ' '.repeat(list.indent);
       list.content = list.indent + marker.length + 1;
       // A line after a break is indented to the item's text, so it stays in the item.
       const line = `${indent}${marker} ${text.replace(/\n/g, `\n${' '.repeat(list.content)}`)}`;
-      if (previousList) out[out.length - 1] += `\n${line}`; else out.push(line);
+      if (restarted && !list.indent) out.push('<!-- -->', line);
+      else if (restarted) out[out.length - 1] += `\n\n${indent}<!-- -->\n\n${line}`;
+      else if (previousList) out[out.length - 1] += `\n${line}`; else out.push(line);
       previousList = kind;
       continue;
     }
