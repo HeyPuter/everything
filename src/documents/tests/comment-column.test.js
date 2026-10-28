@@ -95,3 +95,26 @@ it('keeps a new comment, a reply or an edit the document refuses, to post again'
   expect(editor.model.comments.map(c => c.text)).toEqual(['One, edited', 'A reply']);
   expect(card(first).querySelector('.wcc-reply textarea').value).toBe('');
 });
+
+it('offers no new comment where the document\'s protection allows none', () => {
+  editor = new CanvasEditor(host, { paragraphs: [paragraph('Protected text.')], comments: [] });
+  let protection = { edit: 'readOnly', enforcement: true };
+  const errors = [];
+  review = createReview({ editor: () => editor, pkg: () => ({}), host: () => host, error: e => errors.push(e.message), author: () => 'Ada', hooks: { protection: () => protection } });
+  editor.model.addComment({ author: 'Grace', text: 'Earlier', range: [10, 14] });
+  review.refresh(true);
+  editor.model.select(0, 9);
+  expect(review.commands.canComment()).toBe(false);
+  // The thread already there cannot be answered, resolved or changed either.
+  expect(review.layer.querySelector('.wcc-reply')).toBeNull();
+  expect(review.layer.querySelector('.wcc-more').disabled).toBe(true);
+  review.commands.newComment();
+  expect(review.layer.querySelector('.ed-comment-draft')).toBeNull();
+  expect(errors).toEqual(['This document is protected: comments cannot be added.']);
+  protection = { edit: 'forms', enforcement: true };
+  expect(review.commands.canComment()).toBe(false);
+  // Protected for comments only, or not at all, a comment can be started.
+  for (protection of [{ edit: 'comments', enforcement: true }, null]) expect(review.commands.canComment()).toBe(true);
+  review.commands.newComment();
+  expect(review.layer.querySelector('.ed-comment-draft')).not.toBeNull();
+});

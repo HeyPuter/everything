@@ -265,6 +265,8 @@ export function createReviewTools({ editor, pkg, error, author, review, proofing
     selectionChanged() { editorPane.selectionChanged(); translator.selectionChanged(); },
     get trackingLocked() { return restrict.trackingLocked; },
     get protectionEnforced() { return restrict.enforced; },
+    /** The protection in force, or null. */
+    get protection() { return restrict.enforced ? restrict.protection : null; },
     destroy() { keyAbort.abort(); for (const part of [editorPane, thesaurus, accessibility, translator, commentsPane, restrict]) part.destroy(); },
   };
 }

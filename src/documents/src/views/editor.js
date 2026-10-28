@@ -999,7 +999,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     currentBytes: async () => new Uint8Array(await (pkg.readOnly ? doc.blob : engine.export(pkg)).arrayBuffer()), onChange: () => update() });
   // Under protection (other than Lock Tracking) the Mailings commands, which rewrite the document and its settings, are unavailable.
   mailingHooks.protectedDocument = () => reviewTools.protectionEnforced && !reviewTools.trackingLocked;
-  Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
+  Object.assign(reviewHooks, { tints: reviewTools.tints, trackingLocked: () => reviewTools.trackingLocked, protection: () => reviewTools.protection, people: () => reviewTools.people(), commentsPane: reviewTools.commands.commentsPane, trackingOptions: reviewTools.commands.trackingOptions, showMarkupItems: reviewTools.commands.showMarkupItems, lockTracking: reviewTools.commands.lockTracking });
   Object.assign(editorCommands, reviewTools.commands);
   const reviewFileItems = editorCommands.fileItems;
   editorCommands.fileItems = () => [...(reviewFileItems?.() || []), ...reviewTools.fileItems()];

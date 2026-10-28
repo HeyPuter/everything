@@ -34,7 +34,7 @@ export function commentThreads(list) {
 }
 
 /**
- * hooks (filled in by the review tools): tints() for extra range tints, trackingLocked(),
+ * hooks (filled in by the review tools): tints() for extra range tints, trackingLocked(), protection(),
  * people() for @mentions, commentsPane(), trackingOptions(), showMarkupItems(), lockTracking().
  */
 export function createReview({ editor, pkg, host, error, author, onChange = () => {}, onShift = () => {}, hooks = {} }) {
@@ -131,6 +131,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   /** Changes shown under the current Show Markup choices (reviewers, kinds). */
   const shownChanges = list => list.filter(c => !revisionView.options.hiddenAuthors.includes(c.author) && (c.type === 'format' ? revisionView.options.showFormatting : revisionView.options.showInsDel));
   const locked = () => !!hooks.trackingLocked?.();
+  // Document protection that allows no comments: read only, or filling in forms.
+  const commentsRefused = () => ['readOnly', 'forms'].includes(hooks.protection?.()?.edit);
+  // Whether comments can be replied to, edited, resolved and deleted.
+  const annotating = () => !!ready() && !commentsRefused();
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly && !engine.viewOnly && engine.model.comments ? engine : null; };
   const me = () => { const name = author() || 'Author'; return { author: name, initials: initialsFor(name) }; };
   /**
@@ -179,10 +183,11 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
   }
 
   const commands = {
-    canComment() { const engine = ready(); return !!engine && engine.session.path === null; },
+    canComment() { const engine = ready(); return !!engine && engine.session.path === null && !commentsRefused(); },
     newComment() {
       const engine = ready(); if (!engine) return;
       if (engine.session.path !== null) { error(new Error('Comments can be added to the document body.')); return; }
+      if (commentsRefused()) { error(new Error('This document is protected: comments cannot be added.')); return; }
       engine.finishComposition();
       const [start, end] = engine.model.commentRange();
       commentsShown = true;
@@ -366,7 +371,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     return el('div.wcc-editor', {}, input, mentions, el('div.wcc-actions', {}, cancel, submit));
   }
   function entry(comment, thread, isRoot, names) {
-    const editable = !!ready();
+    const editable = annotating();
     const more = el('button.icon-btn.wcc-more', { type: 'button', 'aria-label': `More thread actions for ${comment.author || 'comment'}`, title: 'More thread actions', disabled: !editable,
       onclick: () => openMenu({ anchor: more, label: 'Comment actions', items: [
         { label: 'Edit comment', onSelect: () => { editing = comment.id; activeId = thread.id; pinned = true; pinnedRange = editor()?.model.range.join() ?? ''; refresh(true); queueMicrotask(() => cards.get(thread.id)?.querySelector('.wcc-entry.is-editing textarea')?.focus()); } },
@@ -392,8 +397,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
       return node;
     }
     node.append(entry(thread.root, thread, true, names), ...thread.replies.map(reply => entry(reply, thread, false, names)));
-    if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !ready(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
-    else if (ready()) node.append(el('div.wcc-reply', {}, textEditor({ key: `reply:${thread.id}`, placeholder: 'Reply', submitLabel: 'Reply',
+    if (done) node.append(el('div.wcc-resolved', {}, el('span', {}, 'Resolved'), el('button.btn.btn-sm', { type: 'button', disabled: !annotating(), onclick: () => { run(() => editor().model.setCommentDone(thread.id, false)); refresh(true); } }, 'Reopen')));
+    else if (annotating()) node.append(el('div.wcc-reply', {}, textEditor({ key: `reply:${thread.id}`, placeholder: 'Reply', submitLabel: 'Reply',
       onSubmit: text => { const ok = run(() => editor().model.replyToComment(thread.id, { ...me(), text })); refresh(true); return ok; },
       onCancel: () => { activeId = null; pinned = false; refresh(true); editor()?.focus(); } })),
     el('button.btn.btn-sm.wcc-resolve', { type: 'button', title: 'Resolve thread', onclick: () => { run(() => editor().model.setCommentDone(thread.id, true)); refresh(true); } }, 'Resolve'));
@@ -531,7 +536,7 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     layer.hidden = !visible;
     // Where the threads are anchored does not change the cards (place() follows the anchors), so typing before
     // a comment does not rebuild every card.
-    const sig = JSON.stringify([JSON.stringify(list, (key, value) => key === 'start' || key === 'end' ? undefined : value), activeId, editing, !!draft, commentsShown, !!ready(), balloons, locked()]);
+    const sig = JSON.stringify([JSON.stringify(list, (key, value) => key === 'start' || key === 'end' ? undefined : value), activeId, editing, !!draft, commentsShown, !!ready(), annotating(), balloons, locked()]);
     if (force || sig !== signature) {
       signature = sig;
       const focused = layer.contains(document.activeElement) ? document.activeElement : null;
@@ -593,10 +598,10 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     ] }) });
     for (const b of [add, remove, previous, next, show, resolve]) b.addEventListener('mousedown', e => e.preventDefault());
     when(add, () => commands.canComment());
-    when(remove, () => !!ready() && !!(commands.activeThread() || threadAtCaret()));
-    when(removeSplit.arrow, () => !!ready() && threads().length > 0);
+    when(remove, () => annotating() && !!(commands.activeThread() || threadAtCaret()));
+    when(removeSplit.arrow, () => annotating() && threads().length > 0);
     when(previous, () => threads().length > 0); when(next, () => threads().length > 0);
-    when(resolve, () => !!ready() && !!(commands.activeThread() || threadAtCaret()));
+    when(resolve, () => annotating() && !!(commands.activeThread() || threadAtCaret()));
     when(show, () => !!editor()?.model.comments, () => String(commentsShown));
     when(showSplit.arrow, () => !!editor()?.model.comments);
     const track = command('Track Changes', 'trackChanges', () => commands.toggleTracking(), { size: 'large', text: 'Track Changes', shortcut: `${MOD_KEY}+Shift+E` });
@@ -660,8 +665,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     if (!engine.model.comments) return changes;
     const thread = threadAtCaret();
     return [...changes,{ label: 'New Comment', disabled: !commands.canComment(), onSelect: () => commands.newComment() },
-      ...(thread ? [{ label: thread.root.done ? 'Reopen Comment' : 'Resolve Comment', disabled: !ready(), onSelect: () => { activeId = thread.id; commands.resolveActive(); } },
-        { label: 'Delete Comment', disabled: !ready(), onSelect: () => { activeId = thread.id; commands.deleteActive(); } }] : [])];
+      ...(thread ? [{ label: thread.root.done ? 'Reopen Comment' : 'Resolve Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.resolveActive(); } },
+        { label: 'Delete Comment', disabled: !annotating(), onSelect: () => { activeId = thread.id; commands.deleteActive(); } }] : [])];
   }
 
   const keyAbort = new AbortController();
