@@ -65,14 +65,23 @@ test('reflows tall minimum rows, preserves mixed no-ops and keeps zoomed Unicode
   await input.press('ArrowRight'); expect(await input.evaluate(el => el.selectionStart)).toBe(caret.at + 2); await page.keyboard.insertText('X'); await undo.click(); await expect(input).toHaveValue(original);
 });
 
-test('rolls back oversized repeated headers and keeps the dialog available for correction', async ({ page }) => {
+test('applies a repeated header row height taller than the page without repeating it, with one undo', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await fixture(page), text = await input.inputValue(), count = await page.locator('canvas.canvas-page').count(), undo = page.getByRole('button', { name: 'Undo', exact: true });
-  await select(input, 'Header height'); const range = await input.evaluate(el => [el.selectionStart, el.selectionEnd]); const d = await open(page);
+  const title = async () => (await onTab(page, 'tableLayout')).getByRole('button', { name: 'Row height', exact: true }).getAttribute('title');
+  await select(input, 'Header height'); const range = await input.evaluate(el => [el.selectionStart, el.selectionEnd]); let d = await open(page);
+  // A header row too tall to leave its page room for the body is no longer refused: it is laid out once,
+  // limited to a page, and the rows after it are not preceded by a repeated copy.
   await d.getByRole('spinbutton', { name: 'Minimum row height (pt)' }).fill('1584'); await d.getByRole('button', { name: 'Apply', exact: true }).click();
-  await expect(d.getByRole('alert')).toContainText('cannot fit'); await expect(undo).toBeDisabled(); await expect(input).toHaveValue(text); expect(await page.locator('canvas.canvas-page').count()).toBe(count);
-  expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(range); await expect((await onTab(page, 'tableLayout')).getByRole('button', { name: 'Row height', exact: true })).toHaveAttribute('title', 'Row height: At least 36 pt');
-  await d.getByRole('spinbutton', { name: 'Minimum row height (pt)' }).fill('42'); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(d).toHaveCount(0); await expect(input).toBeFocused();
-  await undo.click(); await expect(undo).toBeDisabled();
+  await expect(d).toHaveCount(0); await expect(input).toBeFocused(); await expect(page.locator('.toast')).toHaveCount(0);
+  await expect(input).toHaveValue(text); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(range);
+  expect(await title()).toBe('Row height: At least 1584 pt'); await expect.poll(() => page.locator('canvas.canvas-page').count()).toBeGreaterThan(count); await expect(undo).toBeEnabled();
+  // One undo restores the height, the pagination and the selection.
+  await undo.click(); expect(await title()).toBe('Row height: At least 36 pt'); await expect.poll(() => page.locator('canvas.canvas-page').count()).toBe(count);
+  await expect(undo).toBeDisabled(); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(range);
+  d = await open(page); await d.getByRole('spinbutton', { name: 'Minimum row height (pt)' }).fill('42'); await d.getByRole('button', { name: 'Apply', exact: true }).click(); await expect(d).toHaveCount(0); await expect(input).toBeFocused();
+  expect(await title()).toBe('Row height: At least 42 pt');
+  await undo.click(); await expect(undo).toBeDisabled(); expect(errors).toEqual([]);
 });
 
 test('keeps row-height controls reachable on a narrow screen', async ({ page }, info) => {

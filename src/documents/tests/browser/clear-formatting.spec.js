@@ -69,9 +69,19 @@ test('retains redo for style-only selections and permits clearing invisible dire
   await select(input, 'Language only'); await expect(size(page)).toHaveValue('12'); await reset(page).click(); await expect(size(page)).toHaveValue('12'); await expect(undo(page)).toBeEnabled(); await reset(page).click(); await undo(page).click(); await expect(undo(page)).toBeDisabled();
 });
 
-test('rolls back a reset that makes a repeated table header too tall while preserving selection and history', async ({ page }) => {
+test('applies a reset that makes a repeated table header too tall to repeat, preserving selection and history', async ({ page }) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
   const input = await fixture(page), text = await input.inputValue(); await select(input, 'Reset header label'); await style(page).selectOption('ResetHuge'); await expect(size(page)).toHaveValue('8');
   const pages = await page.locator('canvas.canvas-page').count(), selected = await input.evaluate(el => [el.selectionStart, el.selectionEnd]);
-  await reset(page).click(); await expect(page.locator('.toast').last()).toContainText(/header|fit|height/i); await expect(input).toHaveValue(text); await expect(size(page)).toHaveValue('8'); await expect(style(page)).toHaveValue('ResetHuge'); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selected); expect(await page.locator('canvas.canvas-page').count()).toBe(pages);
+  // The header row no longer leaves its page room for the table body: it is laid out once, as an
+  // ordinary row across pages, instead of the reset being refused.
+  await reset(page).click(); await expect(size(page)).toHaveValue('200'); await expect(style(page)).toHaveValue('ResetHuge');
+  await expect(page.locator('.toast')).toHaveCount(0); await expect(input).toHaveValue(text);
+  expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selected);
+  await expect.poll(() => page.locator('canvas.canvas-page').count()).toBeGreaterThan(pages);
+  // One undo restores the direct size and the pagination, keeping the selection; the next removes the style.
+  await undo(page).click(); await expect(size(page)).toHaveValue('8'); await expect(style(page)).toHaveValue('ResetHuge');
+  await expect.poll(() => page.locator('canvas.canvas-page').count()).toBe(pages); expect(await input.evaluate(el => [el.selectionStart, el.selectionEnd])).toEqual(selected);
   await undo(page).click(); await expect(style(page)).toHaveValue(''); await expect(undo(page)).toBeDisabled();
+  expect(errors).toEqual([]);
 });
