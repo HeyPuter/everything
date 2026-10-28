@@ -22179,6 +22179,16 @@ Supported subset:
 - Updating fields (Update Fields, Update page references, mail merge previews) is not itself tracked; a
   result that was wholly a tracked insertion or deletion keeps that change after the update. The field's
   begin/separate/end characters are written outside `w:ins`/`w:del` (an approximation).
+- Table structure: the Delete key on selected cells records their text as deleted (the cells stay).
+  Edits that remove or rearrange table text as a whole are not recorded as revisions (row deletion,
+  §17.13.5.13 `w:trPr/w:del`, and cell revisions, §17.13.5.4 `w:cellDel` / §17.13.5.5 `w:cellMerge`,
+  are not written), so while tracking is on Delete Rows, Delete Columns, Delete Table, Delete Cells,
+  Merge Cells (including Split Cells over several cells and the table eraser), table Sort, Convert Text
+  to Table and Convert Table to Text refuse with "… cannot be tracked yet. Turn off Track Changes to do
+  this.", as paragraph Sort and outline moves do, instead of removing text a reviewer could not see or
+  reject. Inserting rows, columns and cells stays available; a Quick Table may merge the cells of the
+  table it has just inserted. Tests: `tests/table-editing.test.js` ("with Track Changes on"),
+  `tests/browser/table-block-tracked-cut.spec.js`.
 - All Markup (inline colour, underline and strikethrough with left-margin change bars), Simple
   Markup and No Markup (deleted text hidden), and Original (inserted text hidden).
 - Unchanged documents save byte for byte; revisions survive untracked edits and round trips.

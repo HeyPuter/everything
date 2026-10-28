@@ -51,6 +51,15 @@ export function selectionBlock(model) {
   return null;
 }
 
+/**
+ * Table edits that remove or rearrange text (rows, columns, cells, a whole table, merging, sorting,
+ * converting) are not recorded as tracked changes, so with Track Changes on they refuse to run rather
+ * than change text a reviewer would never see, as sorting paragraphs does. `what` names the command.
+ */
+export function refuseUntracked(model, what) {
+  if (model.trackChanges && !model.trackingInternal) throw new Error(`${what} cannot be tracked yet. Turn off Track Changes to do this.`);
+}
+
 function requireBlock(model) {
   const block = selectionBlock(model);
   if (!block) throw new Error('Put the cursor in a table first.');
@@ -181,6 +190,7 @@ export function insertColumns(model, { left = false, count = null, widths: measu
 }
 
 function removeTable(model, table) {
+  refuseUntracked(model, 'Deleting a table');
   const state = M.tableContent(model, table);
   model.checkpoint();
   model.tables = model.tables.filter(t => t.id !== table.id);
@@ -199,6 +209,7 @@ export function deleteTable(model) { return removeTable(model, requireBlock(mode
 
 /** Delete the selected rows; deleting every row deletes the table. */
 export function deleteRows(model) {
+  refuseUntracked(model, 'Deleting table rows');
   const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockRowRange(chosen) };
   if (block.top === 0 && block.bottom === table.rows.length - 1) return removeTable(model, table);
   const state = M.tableContent(model, table);
@@ -225,6 +236,7 @@ export function deleteRows(model) {
 
 /** Delete the selected grid columns; deleting every column deletes the table. */
 export function deleteColumns(model, { widths: measured } = {}) {
+  refuseUntracked(model, 'Deleting table columns');
   const chosen = requireBlock(model), table = chosen.table, block = { ...chosen, ...blockColumnRange(chosen) };
   if (block.left === 0 && block.right === table.grid.length) return removeTable(model, table);
   if (table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Columns cannot be deleted from a table whose rows end unevenly yet.');
@@ -271,6 +283,7 @@ function requireUnmerged(table, rows, left, right, message) {
 
 /** Delete Cells: shift the cells to the right of the selection left, or the cells below it up. */
 export function deleteCells(model, { shift = 'left' } = {}) {
+  refuseUntracked(model, 'Deleting table cells');
   const block = requireBlock(model), table = block.table;
   if (shift === 'row') return deleteRows(model);
   if (shift === 'column') return deleteColumns(model);
@@ -391,6 +404,7 @@ export function insertCells(model, { shift = 'down', widths: measured } = {}) {
 
 /** Merge the selected rectangle of cells into one, keeping each non-empty cell's paragraphs. */
 export function mergeBlock(model) {
+  refuseUntracked(model, 'Merging cells');
   const block = requireBlock(model), table = block.table, placements = cellBlockPlacements(table, block);
   if (placements.length < 2) throw new Error('Select two or more cells to merge.');
   requireAligned(table, block);
@@ -897,6 +911,7 @@ export function sortDate(text) {
  * cannot read sort after the others, in either order.
  */
 export function sortTable(model, { keys, header = false, caseSensitive = false } = {}) {
+  refuseUntracked(model, 'Sorting table rows');
   if (!Array.isArray(keys) || !keys.length || keys.length > 3) throw new Error('Choose one to three sort keys.');
   const block = requireBlock(model), table = block.table;
   let [first, last] = block.bottom > block.top ? [block.top, block.bottom] : [0, table.rows.length - 1];
@@ -1026,6 +1041,7 @@ function separatorLike(model, source, parentId) {
 
 /** Convert Text to Table: the selected paragraphs become rows (or, separated by paragraphs, cells). */
 export function convertTextToTable(model, { separator = 'tab', other, columns = null, autofit = 'fixed', availableWidth } = {}) {
+  refuseUntracked(model, 'Converting text to a table');
   const char = separatorChar(separator, other), sources = model.selectedParagraphs;
   if (!sources.length || sources.every(p => !paragraphText(p)) && sources.length === 1) throw new Error('Select the text to convert.');
   // Text in one table cell becomes a table nested in that cell.
@@ -1068,6 +1084,7 @@ export function convertTextToTable(model, { separator = 'tab', other, columns = 
 
 /** Convert Table to Text: each row becomes a paragraph (cells separated), or each cell its paragraphs. */
 export function convertTableToText(model, { separator = 'tab', other } = {}) {
+  refuseUntracked(model, 'Converting a table to text');
   const char = separatorChar(separator, other), table = requireBlock(model).table;
   const ids = new Set(tableCells(table).map(cell => cell.id));
   if (model.tables.some(t => ids.has(t.parentCellId))) throw new Error('Convert the tables inside this table first.');
@@ -1183,6 +1200,7 @@ export function drawLine(model, { tableId: id, orientation, cellIds, offset, wid
 
 /** Eraser: remove the line between two cells, merging them when they line up. */
 export function eraseLine(model, { tableId: id, cellIds }) {
+  refuseUntracked(model, 'Erasing a line between cells');
   const table = model.tables.find(t => t.id === id);
   if (!table || cellIds?.length !== 2) throw new Error('Erase a line between two cells.');
   const block = blockBetween(table, cellIds[0], cellIds[1]);

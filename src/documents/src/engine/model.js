@@ -1059,6 +1059,7 @@ export class TextDocument {
     return null;
   }
   mergeCells() {
+    if (this.trackChanges && !this.trackingInternal) throw new Error('Merging cells cannot be tracked yet. Turn off Track Changes to do this.');
     const context = this.mergeCellsContext;
     if (!context) throw new Error('Select text in two or more adjacent cells within one row.');
     const { table, row, cell, column, index, cells } = context, ids = new Set(cells.map(c => c.id));
@@ -1086,6 +1087,7 @@ export class TextDocument {
     return { ...context, owner, below: owners.get(entry.cell.id) };
   }
   mergeCellBelow() {
+    if (this.trackChanges && !this.trackingInternal) throw new Error('Merging cells cannot be tracked yet. Turn off Track Changes to do this.');
     const context = this.mergeBelowContext;
     if (!context) throw new Error('The cell below must cover the same grid columns and row alignment. Align the table or split other merged cells first.');
     const { table, owner, below } = context, state = tableContent(this, table);
@@ -1304,6 +1306,7 @@ export class TextDocument {
   }
   deleteTablePart(kind = 'table') {
     const context = this.tableContext; if (!context) return false;
+    if (this.trackChanges && !this.trackingInternal) throw new Error(`Deleting ${kind === 'table' ? 'a table' : `a table ${kind}`} cannot be tracked yet. Turn off Track Changes to do this.`);
     if (!['table', 'row', 'column'].includes(kind)) throw new Error('Choose a table, row or column.');
     const { table, row, rowIndex, column, end, span } = context;
     if (kind === 'column' && table.rows.some(row => row.gridBefore || row.gridAfter)) throw new Error('Column deletion in tables with omitted grid cells is not supported yet.');

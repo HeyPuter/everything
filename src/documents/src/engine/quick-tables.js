@@ -27,6 +27,14 @@ export const QUICK_TABLES = Object.freeze([
 ]);
 
 /** Insert a quick table at the caret. `insertTable(rows, columns)` makes the empty table (it knows the writing width). */
+// Merging the cells of the table just inserted rearranges no one else's text: it runs with Track
+// Changes on too (table-editing refuses merges of existing cells then).
+function mergeNew(model) {
+  const internal = model.trackingInternal;
+  model.trackingInternal = true;
+  try { return mergeBlock(model); } finally { model.trackingInternal = internal; }
+}
+
 export function insertQuickTable(model, id, insertTable, { date } = {}) {
   const template = QUICK_TABLES.find(t => t.id === id);
   if (!template) throw new Error('Choose a quick table.');
@@ -49,14 +57,14 @@ export function insertQuickTable(model, id, insertTable, { date } = {}) {
   for (const r of spec.subheads || []) {
     const row = table.rows[r];
     model.cellBlock = { tableId: table.id, top: r, bottom: r, left: 0, right: columns };
-    mergeBlock(model);
+    mergeNew(model);
     const p = model.paragraphs.find(x => x.cellId === row.cells[0].id);
     const start = model.paragraphOffset(model.paragraphs.indexOf(p));
     model.select(start, start + paragraphText(p).length); model.setRunFormat({ bold: true, italic: true });
   }
   for (const [top, left, bottom, right] of spec.merge || []) {
     model.cellBlock = { tableId: table.id, top, bottom, left, right };
-    mergeBlock(model);
+    mergeNew(model);
     const cell = rowGrid(table.rows[top])[0].cell;
     model.selectCell(cell.id); model.setParagraphFormat({ alignment: 'center' });
   }

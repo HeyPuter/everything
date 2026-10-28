@@ -6,6 +6,7 @@ import { DocxPackage, createDocx, WRITING_STYLES } from '../src/engine/docx.js';
 import { TextDocument, paragraph, paragraphText } from '../src/engine/model.js';
 import { tableCells, verticalMerges, rowGrid, documentBlocks } from '../src/engine/tables.js';
 import * as T from '../src/engine/table-editing.js';
+import { insertQuickTable } from '../src/engine/quick-tables.js';
 import { blockFor, ownerPlacements } from '../src/engine/table-selection.js';
 import { StorySession } from '../src/engine/story-session.js';
 
@@ -144,6 +145,40 @@ describe('rows and columns', () => {
     at(doc, 0, 1); T.deleteRows(doc);
     expect(shape(doc)).toEqual(['a0/b0 b1 b2', 'c0 c1 c2']);
     valid(doc);
+  });
+});
+
+describe('with Track Changes on', () => {
+  // Removing rows, columns, cells or a whole table, merging, sorting and converting to text are not
+  // recorded as tracked changes; they refuse to run rather than remove text a reviewer would never see.
+  const tracked = () => { const { doc } = tableDocument(); doc.trackChanges = true; doc.revisionAuthor = 'Reviewer'; return doc; };
+  const refuses = (name, run) => {
+    const doc = tracked(), before = shape(doc), text = doc.text;
+    expect(() => run(doc), name).toThrow(/Track Changes/);
+    expect(shape(doc), name).toEqual(before);
+    expect(doc.text, name).toBe(text);
+  };
+  it('refuses the commands that would remove table text untracked, and leaves the table as it was', () => {
+    refuses('Delete Rows', doc => { at(doc, 1, 1); T.deleteRows(doc); });
+    refuses('Delete Columns', doc => { at(doc, 1, 1); T.deleteColumns(doc); });
+    refuses('Delete Table', doc => { at(doc, 1, 1); T.deleteTable(doc); });
+    refuses('Delete Cells', doc => { at(doc, 1, 1); T.deleteCells(doc, { shift: 'left' }); });
+    refuses('Merge Cells', doc => { block(doc, 0, 0, 1, 2); T.mergeBlock(doc); });
+    refuses('Sort', doc => { at(doc, 0, 0); T.sortTable(doc, { keys: [{ column: 0, type: 'text', descending: true }] }); });
+    refuses('Convert to Text', doc => { at(doc, 0, 0); T.convertTableToText(doc, { separator: 'tab' }); });
+    refuses('Eraser', doc => { const t = doc.tables[0]; T.eraseLine(doc, { tableId: t.id, cellIds: [t.rows[0].cells[0].id, t.rows[0].cells[1].id] }); });
+    refuses('Delete row (Table actions)', doc => { at(doc, 1, 1); doc.deleteTablePart('row'); });
+  });
+  it('still records the Delete key on cells, and allows commands that remove nothing', () => {
+    const doc = tracked();
+    block(doc, 0, 0, 0, 2); expect(T.clearCells(doc)).toBe(true);
+    expect(doc.paragraphs.some(p => p.runs.some(r => r.revision?.type === 'del'))).toBe(true);
+    at(doc, 1, 1); expect(T.insertRows(doc, {})).toBe(true);
+    expect(doc.tables[0].rows).toHaveLength(4);
+    // A Quick Table merges cells of the table it has just inserted: that still works.
+    doc.select(doc.text.length);
+    expect(insertQuickTable(doc, 'calendar', (r, c) => doc.insertTable(r, c), { date: new Date(2024, 1, 1) })).toBe(true);
+    expect(doc.tables.at(-1).rows[0].cells).toHaveLength(1);
   });
 });
 
