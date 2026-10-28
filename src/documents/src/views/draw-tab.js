@@ -152,11 +152,13 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
   async function finishErase() {
     const job = erasing; erasing = null;
     if (!job?.edited.size) return;
-    const ops = [...job.edited].map(([image, strokes]) => (strokes.length ? { replace: image, strokes } : { remove: image }));
+    const ops = [...job.edited].map(([image, strokes]) => (strokes.length ? { replace: image, strokes } : emptied(image)));
     await committer.commit(ops);
     for (const image of job.edited.keys()) hidden.delete(image);
     surface.setScene(job.page, null); repaint();
   }
+  // A drawing left without strokes goes, except a drawing canvas, which stays as an empty frame to draw in.
+  const emptied = image => inkOf(image)?.canvas ? { replace: image, strokes: [] } : { remove: image };
   /** Erase all ink on the current page or everywhere. */
   async function eraseAll(scope = 'document') {
     const engine = ready(); if (!engine) return;
@@ -219,7 +221,7 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
   }
   async function deleteSelection() {
     if (!selected) return;
-    const edited = selectionEdit(s => s), ops = [...edited].map(([image, list]) => { const keep = list.filter(e => !e.selected).map(e => e.stroke); return keep.length ? { replace: image, strokes: keep } : { remove: image }; });
+    const edited = selectionEdit(s => s), ops = [...edited].map(([image, list]) => { const keep = list.filter(e => !e.selected).map(e => e.stroke); return keep.length ? { replace: image, strokes: keep } : emptied(image); });
     setSelection(null);
     await committer.commit(ops);
   }
@@ -237,7 +239,7 @@ export function createDraw({ editor, pkg, error, onChange = () => {}, commands =
     for (const [image, list] of groups) {
       const keep = list.filter(e => !converted.has(e.stroke)).map(e => e.stroke);
       if (keep.length === list.length) continue;
-      ops.push(keep.length ? { replace: image, strokes: keep } : { remove: image });
+      ops.push(keep.length ? { replace: image, strokes: keep } : emptied(image));
     }
     for (const { shape, from } of shapes) ops.push(shapeOp(page, shape, { color: from[0].tool === 'highlighter' ? '000000' : from[0].color, width: from[0].width }));
     await committer.commit(ops);

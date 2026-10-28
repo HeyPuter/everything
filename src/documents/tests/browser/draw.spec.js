@@ -297,3 +297,29 @@ test('draws with touch on a phone-width window', async ({ browser }, info) => {
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test('erasing or deleting every stroke in a drawing canvas keeps the empty canvas', async ({ page }) => {
+  test.setTimeout(120000);
+  const { input, errors, ribbon } = await start(page, { text: 'Canvas below.' });
+  // The canvas is the document's only object once the session has put the ink into it.
+  const canvases = () => objects(input);
+  await ribbon.getByRole('button', { name: 'Drawing Canvas', exact: true }).click();
+  await expect.poll(canvases).toBe(1);
+  const box = await page.locator('canvas.canvas-page').first().boundingBox();
+  await draw(page, box, wave(150, 200, 20, 10, 25));
+  await ribbon.getByRole('button', { name: 'Eraser', exact: true }).click();
+  await expect.poll(() => objects(input)).toBe(1);
+  // The stroke eraser takes the only stroke: the canvas stays, empty.
+  await draw(page, box, [[150 + 60, 160], [150 + 60, 240]]);
+  await expect.poll(() => inkAt(page, 150 + 60, 200 + Math.sin(2) * 25)).toBe(0);
+  await expect.poll(canvases).toBe(1);
+  await input.press('ControlOrMeta+z');
+  await expect.poll(() => inkAt(page, 150 + 60, 200 + Math.sin(2) * 25)).toBeGreaterThan(0);
+  // Lasso-selected and deleted: the canvas stays too.
+  await ribbon.getByRole('button', { name: 'Lasso Select', exact: true }).click();
+  await draw(page, box, loop(130, 150, 230, 110));
+  await page.keyboard.press('Delete');
+  await expect.poll(() => inkAt(page, 150 + 60, 200 + Math.sin(2) * 25)).toBe(0);
+  await expect.poll(canvases).toBe(1);
+  expect(errors).toEqual([]);
+});
