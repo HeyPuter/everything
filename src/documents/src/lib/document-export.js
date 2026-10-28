@@ -8,11 +8,22 @@ import { documentBlocks } from '../engine/tables.js';
 import { listKind, listMarkers, levelFor } from '../engine/numbering.js';
 import { TextDocument } from '../engine/model.js';
 import { hasRevisions } from '../engine/revisions.js';
+import { bodySymbolText } from '../engine/body-symbols.js';
 
 const OBJECT = '￼';
 const escapeHtml = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// Hidden text is neither shown nor printed, so a downloaded or published copy leaves it out too.
-const runText = run => run.vanish ? '' : String(run.text || '').replace(new RegExp(OBJECT, 'g'), '');
+// Hidden text is neither shown nor printed, so a downloaded or published copy leaves it out too. An object stands
+// for text of its own, as copying it gives: an equation its text, a field its result, a symbol its character (one
+// in a symbol font's private range would read as an empty box without that font, so it goes). Pictures go.
+const PRIVATE_USE = /[\ue000-\uf8ff]/;
+function objectText(run) {
+  if (run.image) return '';
+  if (run.bodySymbol) { const symbol = bodySymbolText(run, ''); return PRIVATE_USE.test(symbol) ? '' : symbol; }
+  if (run.math) return run.math.text || '';
+  if (run.field) return run.field.cachedText || '';
+  return '';
+}
+const runText = run => run.vanish ? '' : run.text === OBJECT ? objectText(run).replace(/[\u0000-\u0008\u000b-\u001f]/g, '') : String(run.text || '').replace(new RegExp(OBJECT, 'g'), '');
 
 /** A heading level 1–6 from a paragraph's style, or 0. */
 export function headingLevel(p, styles) {

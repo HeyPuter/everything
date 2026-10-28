@@ -351,3 +351,23 @@ describe('web page lists numbered with letters or Roman numerals', () => {
     }
   });
 });
+
+describe('equations and symbols', () => {
+  const MATH = '<m:oMath xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><m:r><m:t>E=mc2</m:t></m:r></m:oMath>';
+  const doc = () => {
+    const d = blankDoc();
+    d.replace('Energy: ');
+    d.insertMathRun({ xml: MATH, text: 'E=mc2' });
+    d.replace(' then ');
+    // Symbols inserted with Word's Insert Symbol (w:sym): one a Unicode arrow, one in a symbol font's private range.
+    const at = d.paragraphs[0].runs.at(-1);
+    d.paragraphs[0].runs.push({ ...at, text: '￼', bodySymbol: { font: 'Arial', code: '2192' } }, { ...at, text: ' next', bodySymbol: undefined },
+      { ...at, text: '￼', bodySymbol: { font: 'Wingdings', code: 'F0FC' } }, { ...at, text: ' done', bodySymbol: undefined });
+    return d;
+  };
+  it('keep their text in every format, as copying them does', () => {
+    expect(documentPlainText(doc())).toBe('Energy: E=mc2 then → next done\n');
+    expect(documentMarkdown(doc())).toBe('Energy: E=mc2 then → next done\n');
+    expect(body(documentHtml(doc()))).toBe('<p>Energy: E=mc2 then → next done</p>');
+  });
+});
