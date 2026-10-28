@@ -81,6 +81,14 @@ describe('erasing and lasso', () => {
     expect(eraseFromStroke(stroke, { x: 50, y: 30 }, 5)).toEqual([stroke]);
     expect(eraseFromStroke({ ...stroke, points: line({ x: 0, y: 0 }, { x: 4, y: 0 }, 4) }, { x: 2, y: 0 }, 10)).toEqual([]);
   });
+  it('leaves a stroke as it is when the point eraser only grazes its edge', () => {
+    // Touching the ink (within the eraser and the line's half width) but no point within the cut.
+    const r = widthAt(stroke.width, 0.5, 'pen') / 2, at = { x: 50, y: 5 + r * 0.8 };
+    expect(strokeHit(stroke, at, 5)).toBe(true);
+    const pieces = eraseFromStroke(stroke, at, 5);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]).toBe(stroke);
+  });
   it('selects strokes mostly inside a loop', () => {
     const loop = [{ x: -10, y: -10 }, { x: 60, y: -10 }, { x: 60, y: 10 }, { x: -10, y: 10 }];
     expect(lassoContains(loop, { points: line({ x: 0, y: 0 }, { x: 50, y: 0 }) })).toBe(true);

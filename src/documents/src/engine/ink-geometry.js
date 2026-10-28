@@ -190,12 +190,14 @@ export function eraseFromStroke(stroke, p, radius) {
     }
     dense.push({ ...q });
   });
-  const pieces = []; let run = [];
+  const pieces = []; let run = [], cut = false;
   for (const q of dense) {
     const r = widthAt(stroke.width, q.p, stroke.tool) / 2;
-    if (dist(q, p) <= radius + r * 0.5) { if (run.length) pieces.push(run); run = []; }
+    if (dist(q, p) <= radius + r * 0.5) { cut = true; if (run.length) pieces.push(run); run = []; }
     else run.push(q);
   }
+  // Grazing the ink's edge cuts nothing: the stroke stays the same stroke (and no edit is recorded).
+  if (!cut) return [stroke];
   if (run.length) pieces.push(run);
   return pieces.filter(points => points.length > 1 || points.length === 1 && stroke.points.length === 1)
     .map(points => ({ ...stroke, points: simplify(points, 0.25) }));
