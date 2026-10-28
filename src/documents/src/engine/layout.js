@@ -12,7 +12,7 @@ import { paginateColumnWidths } from './unequal-columns.js';
 import { sectionColumnIntervals } from './section-columns.js';
 import { columnFlowPage, placeColumnFlow, columnAtPoint } from './column-layout.js';
 import { flatLineContains, flatLineRect } from './flat-drawing-lines.js';
-import { canvasFontFamily, textFontStyle } from './font-families.js';
+import { canvasFontFamily, fontSlot, textFontStyle } from './font-families.js';
 import { pageGeometry, readingPageGeometry } from './page-settings.js';
 import { layoutParagraphBorders } from './paragraph-border-layout.js';
 import { layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
@@ -853,6 +853,17 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   let chars = [];
   // Segment the whole paragraph, so a grapheme spanning two format runs stays intact.
   let runIndex = 0, runEnd = p.runs[0]?.text.length ?? 0, styleIndex = -1, runStyle, runHidden = false;
+  // A run's characters share one style object per font slot (textFontStyle reads only the slot of the
+  // text), rather than each copying the whole run format.
+  let slotStyles = new Map(), markFormat;
+  // Every line reads the paragraph mark's format; normalize it once.
+  const markRunFormat = () => markFormat ??= runFormat(p.markFormat);
+  const charStyle = text => {
+    const slot = fontSlot(text, runStyle);
+    let style = slotStyles.get(slot);
+    if (!style) slotStyles.set(slot, style = textFontStyle(text, runStyle));
+    return style;
+  };
   const wordBreaks = dictionaryBreaks(text);
   for (const s of inlineSegments(text)) {
     while (s.index >= runEnd && runIndex < p.runs.length - 1) runEnd += p.runs[++runIndex].text.length;
@@ -868,13 +879,20 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
       const display = runRevisionDisplay(p.runs[runIndex]);
       if (display?.hidden) runHidden = true; else if (display) Object.assign(runStyle, display);
       styleIndex = runIndex;
+      slotStyles = new Map();
     }
     // Inline page/column breaks in cell XML are retained but have no
     // advance or pagination effect. Keep source offsets for editing and undo.
     const ignoredCellBreak = runHidden || !!p.cellId && (s.segment === '\f' || s.segment === '\u000e');
     const noBreakHyphen = !!p.runs[runIndex]?.noBreakHyphen;
     const displayText = inlineDisplayText(p.runs[runIndex], s.segment);
-    chars.push({ text: ignoredCellBreak ? '' : displayText, ignoredCellBreak, ...(noBreakHyphen ? { noBreakHyphen: true } : {}), ...(wordBreaks?.has(s.index + s.segment.length) ? { wordBreak: true } : {}), breakClear: p.runs[runIndex]?.breakClear, start: documentOffset + s.index, end: documentOffset + s.index + s.segment.length, style: textFontStyle(displayText, runStyle), image: runHidden ? undefined : p.runs[runIndex]?.image, positionalTab: p.runs[runIndex]?.positionalTab });
+    // Assigned in order rather than spread from optional parts: this runs for every character.
+    const c = { text: ignoredCellBreak ? '' : displayText, ignoredCellBreak };
+    if (noBreakHyphen) c.noBreakHyphen = true;
+    if (wordBreaks?.has(s.index + s.segment.length)) c.wordBreak = true;
+    c.breakClear = p.runs[runIndex]?.breakClear; c.start = documentOffset + s.index; c.end = documentOffset + s.index + s.segment.length;
+    c.style = charStyle(displayText); c.image = runHidden ? undefined : p.runs[runIndex]?.image; c.positionalTab = p.runs[runIndex]?.positionalTab;
+    chars.push(c);
   }
   // Active RTL import/editing remains guarded while interaction is verified. Hebrew or Arabic typed
   // into an ordinary run (no w:rtl) is still right-to-left text (UAX #9): it is ordered by the same
@@ -892,7 +910,7 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     if (columnPage.columnWidthAt && !cellBounds) page = { ...columnPage, right: columnPage.width-columnPage.left-columnPage.columnWidthAt(chars[start]?.start ?? documentOffset+text.length) };
     if (!row) row = squareRow(wrapHints, p.id, lines.length, paragraphEdges(format, page, start <= firstIndentedStart), page, 0, format.spaceBefore * 4 / 3, clearance);
     const edges = row.intervals[pieceIndex], right = edges.right;
-    const { left, marker } = markerGeometry(start === 0 ? listMarker : null, runFormat(p.markFormat), edges.left, right, format, page, measure, documentOffset);
+    const { left, marker } = markerGeometry(start === 0 ? listMarker : null, markRunFormat(), edges.left, right, format, page, measure, documentOffset);
     const available = right - left;
     const scanner = new LineBuilder(left, right, format, page, measure, chars[start]?.start ?? documentOffset + text.length);
     let end = start, lastBreak = -1, contraction = null, visibleItems = 0, oversizedInline = false;
@@ -969,7 +987,8 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     // A forced break inside an overlong Thai or Lao word keeps vowels with their consonant.
     else if (end < chars.length && !oversizedInline) while (end - 1 > start && splitsSyllable(chars[end - 1].text, chars[end].text)) end--;
     const softBreak = !oversizedInline && end < chars.length && !['\v', '\f', '\u000e'].includes(chars[end].text) && chars[end - 1]?.text === '\u00ad' && end === lastBreak;
-    let span = chars.slice(start, end);
+    const scanned = chars.slice(start, end);
+    let span = scanned;
     if (softBreak) span[span.length - 1] = { ...span.at(-1), text: '-', discretionaryHyphen: true };
     if (autoHyphen !== null) span.push(hyphenCharacter(chars[end - 1]));
     hyphenatedLines = softBreak || autoHyphen !== null ? hyphenatedLines + 1 : 0;
@@ -979,13 +998,17 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
     const virtual = emptySectionBoundary && !keepBoundaryLine || start === chars.length && chars.at(-1)?.text === '\f' && !page.splitPgBreakAndParaMark;
     const hardBreak = chars[end]?.text === '\f' ? 'page' : chars[end]?.text === '\v' ? 'line' : chars[end]?.text === '\u000e' ? 'column' : null;
     const offset = chars[start]?.start ?? documentOffset + text.length;
-    const builder = new LineBuilder(left, right, format, page, measure, offset);
-    for (const c of span) builder.add(c);
+    // A line that ends the paragraph is what the scanner built when it ran out of characters: it
+    // added exactly this span, in order, with the same geometry. Building it again only repeats
+    // every measurement (most paragraphs are one line).
+    const reuse = end === chars.length && !contraction && !softBreak && autoHyphen === null && span === scanned;
+    const builder = reuse ? scanner : new LineBuilder(left, right, format, page, measure, offset);
+    if (!reuse) for (const c of span) builder.add(c);
     const pageBreakWithMark = hardBreak === 'page' && end === chars.length - 1 && !page.splitPgBreakAndParaMark;
     // A terminal page break sharing the paragraph mark takes that mark's
     // metrics, not the break run's font. Visible text still contributes its
     // own metrics. Manual line breaks and split page breaks remain distinct.
-    const markStyle = end === chars.length || pageBreakWithMark ? runFormat(p.markFormat) : hardBreak ? chars[end].style : null;
+    const markStyle = end === chars.length || pageBreakWithMark ? markRunFormat() : hardBreak ? chars[end].style : null;
     // Terminal-mark and manual-line-break metrics are ignored on text lines.
     // Blank lines retain their own mark/break formatting, including when the
     // two have different fonts. Page and column breaks have separate rules.

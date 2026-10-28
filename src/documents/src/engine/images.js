@@ -93,6 +93,11 @@ export function imageCropRect(crop, width, height) {
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 export function* inlineSegments(text) {
+  // In ASCII only CR LF joins two characters into one grapheme (UAX #29); text without CR needs no segmenter.
+  if (/^[\x00-\x0c\x0e-\x7f]*$/.test(text)) {
+    for (let index = 0; index < text.length; index++) yield { segment: text[index], index };
+    return;
+  }
   let offset = 0;
   for (const part of text.split(OBJECT)) {
     if (offset) yield { segment: OBJECT, index: offset - 1 };

@@ -23,7 +23,8 @@ const ranges = paragraphs => bodyFieldRanges(paragraphs).map(r => [r.field.id, r
 // paragraph with a field was split into graphemes again (to check the fields start and end between them),
 // which made Update Fields and Update Table quadratic in long documents.
 it('splits a paragraph with fields into graphemes once until its text changes', () => {
-  const paragraphs = Array.from({ length: 20 }, (_, i) => withField(`Entry ${i}\t12`, `f${i}`, 7 + String(i).length, 9 + String(i).length));
+  // Accented text: plain ASCII is split without the segmenter (inlineSegments).
+  const paragraphs = Array.from({ length: 20 }, (_, i) => withField(`Entrée ${i}\t12`, `f${i}`, 8 + String(i).length, 10 + String(i).length));
   const segment = vi.spyOn(Intl.Segmenter.prototype, 'segment');
   const first = ranges(paragraphs);
   expect(segment).toHaveBeenCalledTimes(20);
@@ -32,8 +33,8 @@ it('splits a paragraph with fields into graphemes once until its text changes', 
   expect(ranges(paragraphs.map(p => ({ ...p })))).toEqual(first);
   expect(segment).toHaveBeenCalledTimes(20);
   // A changed result is split again: only that paragraph.
-  paragraphs[3].runs = [{ ...paragraphs[3].runs[0], text: 'Entry 3\t7' }];
-  paragraphs[3].fieldMarkers[1].offset = 9;
+  paragraphs[3].runs = [{ ...paragraphs[3].runs[0], text: 'Entrée 3\t7' }];
+  paragraphs[3].fieldMarkers[1].offset = 10;
   const [, start, end] = ranges(paragraphs)[3];
   expect(end - start).toBe(1);
   expect(segment).toHaveBeenCalledTimes(21);

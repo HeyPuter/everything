@@ -337,7 +337,8 @@ export function measurePreparedText(context, prepared, text, onSeparatorReady, o
   let metrics = prepared.metrics;
   if (!metrics || metrics.face !== face || metrics.ascent !== box.fontBoundingBoxAscent || metrics.descent !== box.fontBoundingBoxDescent)
     metrics = prepared.metrics = { face, ascent: box.fontBoundingBoxAscent, descent: box.fontBoundingBoxDescent, value: fontMetrics(style, box, face) };
-  const result = { width: native.width / scale, ...metrics.value, ...(caretAdvances ? {caretAdvances} : {}) };
+  const result = { width: native.width / scale, ...metrics.value };
+  if (caretAdvances) result.caretAdvances = caretAdvances;
   if(prepared.script)result.scriptTransform=prepared.scriptTransform;
   return result;
 }

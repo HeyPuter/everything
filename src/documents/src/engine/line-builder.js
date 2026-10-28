@@ -29,12 +29,22 @@ function trackBidiSpan(span, c) {
   span.start ??= c.start;
   span.end = c.end;
 }
-const shapeKey = style => `${(style.fontFamily || style.fontAscii || '').toLowerCase()}/${style.capitalization}/${style.bold}/${style.italic}/${!!style.syntheticItalic}/${style.fontSize}/${style.verticalAlign}/${style.baselineShift}/${style.characterSpacing}/${style.textScale}/${kerningEnabled(style)}/${style.ligatures ?? 'auto'}/${style.justificationSpacing || 0}/${style.bidiLevel ?? ''}/${!!style.noteMark}/${!!style.legacyKerning}`;
+const shapeKeys = new WeakMap();
+// A style's shaping identity, built once per style object: line building compares it for every
+// character. Neither the characters' styles nor the groups built from them change these fields
+// once created (layout writes only its own output fields onto a group).
+const shapeKey = style => {
+  let key = shapeKeys.get(style);
+  if (key === undefined) shapeKeys.set(style, key = styleShapeKey(style));
+  return key;
+};
+const styleShapeKey = style => `${(style.fontFamily || style.fontAscii || '').toLowerCase()}/${style.capitalization}/${style.bold}/${style.italic}/${!!style.syntheticItalic}/${style.fontSize}/${style.verticalAlign}/${style.baselineShift}/${style.characterSpacing}/${style.textScale}/${kerningEnabled(style)}/${style.ligatures ?? 'auto'}/${style.justificationSpacing || 0}/${style.bidiLevel ?? ''}/${!!style.noteMark}/${!!style.legacyKerning}`;
 
-function measureLtrPrefix(measure, text, style) {
+function measureLtrPrefix(measure, text, group, style) {
   // Complete caret shaping adds work. Reuse unchanged ASCII prefixes between
   // fitting and final shaping within this layout's synchronous measurer.
-  let widths = prefixFragmentCaches.get(style);
+  // `style` measures as the group does; the group, made for this measurer, holds the cache.
+  let widths = prefixFragmentCaches.get(group);
   if (widths === undefined) {
     widths = null;
     if (style.ligatures && style.ligatures !== 'none' && !style.rtl && !style.cs && style.bidiDirection !== 'rtl' &&
@@ -46,7 +56,7 @@ function measureLtrPrefix(measure, text, style) {
       widths = shapes.get(key);
       if (!widths) shapes.set(key, widths = new Map());
     }
-    prefixFragmentCaches.set(style, widths);
+    prefixFragmentCaches.set(group, widths);
   }
   if (!widths || text.length > 4096 || !/^[\x20-\x7e]*$/.test(text)) return measure(text, style);
   if (!widths.has(text)) {
@@ -59,7 +69,7 @@ function measureLtrPrefix(measure, text, style) {
 function measureCompleteCarets(measure, text, style) {
   let cache = shapedCaretMeasures.get(measure);
   if (!cache) shapedCaretMeasures.set(measure, cache = new Map());
-  const key = JSON.stringify([shapeKey(style), style.fontHAnsi, style.fontEastAsia, style.fontCs, style.fontSizeCs, style.cs, style.rtl, style.fontHint, style.fontLanguage, style.fontEastAsiaLanguage, style.fontBidiLanguage, style.fontEastAsiaCharset, text, style.caretOffsets]);
+  const key = JSON.stringify([styleShapeKey(style), style.fontHAnsi, style.fontEastAsia, style.fontCs, style.fontSizeCs, style.cs, style.rtl, style.fontHint, style.fontLanguage, style.fontEastAsiaLanguage, style.fontBidiLanguage, style.fontEastAsiaCharset, text, style.caretOffsets]);
   if (!cache.has(key)) cache.set(key, measure(text, style));
   return cache.get(key);
 }
@@ -99,7 +109,7 @@ export class LineBuilder {
     this.newField(left, null, offset);
   }
   newField(before, tab, offset) {
-    this.field = { before, tab, origin: before, width: 0, contentWidth: 0, trailingStart: null, lastSpace: false, spaceMetrics: null, fragments: [], stops: [{ offset, x: 0 }], underlines: [], strikes: [], strike: null, backgrounds: [], background: null, ascent: 0, descent: 0, group: null, underline: null, numberEnd: null, numberDone: false, decimal: null };
+    this.field = { before, tab, origin: before, width: 0, contentWidth: 0, trailingStart: null, lastSpace: false, spaceMetrics: null, fragments: [], stops: [{ offset, x: 0 }], underlines: [], strikes: [], strike: null, backgrounds: [], background: null, ascent: 0, descent: 0, group: null, groupStyle: null, groupMeasure: null, underline: null, numberEnd: null, numberDone: false, decimal: null };
     this.fields.push(this.field);
   }
   get end() { return this.field.origin + this.field.width; }
@@ -107,10 +117,19 @@ export class LineBuilder {
   // advance is excluded from line fitting. Do not cross shaping boundaries.
   endBeforeSpace(next) {
     const f = this.field, g = f.group;
-    if (f.lastSpace || this.page.wrapTrailSpaces || next?.text !== ' ' || next.image || bidiRtlSpace(next) || !g || !kerningEnabled(g) || shapeKey(g) !== shapeKey(next.style)) return this.end;
-    const text = g.text + ' ', metrics = this.measure(text, g);
+    if (f.lastSpace || this.page.wrapTrailSpaces || next?.text !== ' ' || next.image || bidiRtlSpace(next) || !g || !kerningEnabled(g) || !this.sameShape(next.style)) return this.end;
+    const text = g.text + ' ', metrics = this.measure(text, f.groupMeasure);
     f.followingSpace = { group: g, text, metrics };
-    return f.origin + g.x + metrics.width - (f.spaceMetrics ||= this.measure(' ', g)).width;
+    return f.origin + g.x + metrics.width - (f.spaceMetrics ||= this.measure(' ', f.groupMeasure)).width;
+  }
+  /** Whether text in `style` continues the current group: it shapes alike. */
+  sameShape(style) {
+    const f = this.field;
+    if (!f.group) return false;
+    if (f.groupStyle === style) return true;
+    if (shapeKey(f.group) !== shapeKey(style)) return false;
+    f.groupStyle = style;
+    return true;
   }
   positionalTarget(c) { return positionalTabTarget(c.positionalTab, this.format, this.page, this.left, this.right); }
   settleSpaces() {
@@ -119,7 +138,7 @@ export class LineBuilder {
     // Native shaping can accumulate small rounding differences over a long
     // string. Settle each completed group once, while its visible caret stops
     // have already been measured in context. Only clipped stops used estimates.
-    const settled = this.measure(g.text, g); g.width = settled.width;
+    const settled = this.measure(g.text, f.groupMeasure); g.width = settled.width;
     if (settled.textParts) g.textParts = settled.textParts;
     f.width = g.x + g.width; f.stops.at(-1).x = f.width;
     g.colors.at(-1).width = g.width - g.colors.at(-1).x;
@@ -141,7 +160,7 @@ export class LineBuilder {
   discretionaryEnd() {
     const f = this.field, g = f.group;
     const width = f.width, contentWidth = f.contentWidth, origin = f.origin;
-    f.width = g.x + this.measure(g.text + '-', g).width;
+    f.width = g.x + this.measure(g.text + '-', f.groupMeasure).width;
     f.contentWidth = f.width;
     this.alignField(); const end = this.end;
     f.width = width; f.contentWidth = contentWidth; f.origin = origin;
@@ -170,12 +189,16 @@ export class LineBuilder {
       return this.end;
     }
     const f = this.field;
-    if (c.text !== ' ' || f.group && shapeKey(f.group) !== shapeKey(c.style)) this.settleSpaces();
+    const sameShape = this.sameShape(c.style);
+    if (c.text !== ' ' || f.group && !sameShape) this.settleSpaces();
     const left = f.width;
     if (c.image) f.group = null;
-    if (!c.image && (!f.group || shapeKey(f.group) !== shapeKey(c.style))) {
+    if (!c.image && !sameShape) {
       f.group = { text: '', ...c.style, x: left, start: c.start, end: c.end, width: 0, colors: [] };
-      if(c.style.bidiLevel!==undefined) f.group.textOffsets=[{offset:c.start,index:0}];
+      // The group measures as the style it copies: measuring reads none of the fields layout adds
+      // (LAYOUT_OUTPUT), so the measurer knows that style already. Bidi groups also carry offsets.
+      f.groupStyle = c.style; f.groupMeasure = c.style;
+      if(c.style.bidiLevel!==undefined) { f.group.textOffsets=[{offset:c.start,index:0}]; f.groupMeasure = f.group; }
       else if(c.style.ligatures && c.style.ligatures !== 'none') completeCaretOffsets.set(f.group,[{offset:c.start,index:0}]);
       f.fragments.push(f.group);
       f.lastSpace = false; f.spaceMetrics = null;
@@ -195,9 +218,9 @@ export class LineBuilder {
     // hanging tail does not repeatedly shape every growing whitespace prefix.
     const repeatedSpace = c.text === ' ' && f.lastSpace && !this.page.wrapTrailSpaces && this.end > this.right;
     if (!g.textOffsets && !repeatedSpace && !c.autoHyphen && g.ligatures && g.ligatures !== 'none') completeCaretOffsets.get(g)?.push({offset:c.end,index:g.text.length});
-    const space = repeatedSpace && (f.spaceMetrics ||= this.measure(' ', g));
+    const space = repeatedSpace && (f.spaceMetrics ||= this.measure(' ', f.groupMeasure));
     const shift = (c.style.baselineShift || 0) * 4 / 3;
-    const m = isPositionedImage(c.image) ? { width: 0, ascent: 0, descent: 0 } : c.image ? { width: extent.width / EMU_PER_PX, ascent: extent.height / EMU_PER_PX + shift, descent: -shift } : repeatedSpace ? { ...space, width: g.width + space.width } : nextSpace || (g.ligatures && g.ligatures !== 'none' ? measureLtrPrefix(this.measure, g.text, g) : this.measure(g.text, g));
+    const m = isPositionedImage(c.image) ? { width: 0, ascent: 0, descent: 0 } : c.image ? { width: extent.width / EMU_PER_PX, ascent: extent.height / EMU_PER_PX + shift, descent: -shift } : repeatedSpace ? { ...space, width: g.width + space.width } : nextSpace || (g.ligatures && g.ligatures !== 'none' ? measureLtrPrefix(this.measure, g.text, g, f.groupMeasure) : this.measure(g.text, f.groupMeasure));
     if (!c.image) {
       let carets = caretFragmentState.get(g);
       if (carets === undefined) {
@@ -221,7 +244,7 @@ export class LineBuilder {
           else if (f.stops.at(-1).offset === c.start) {
             // The new pair can move the preceding boundary. A prefix measured
             // before this character arrived does not include its kerning.
-            if (!widths.has(c.text)) widths.set(c.text, this.measure(c.text, g).width);
+            if (!widths.has(c.text)) widths.set(c.text, this.measure(c.text, f.groupMeasure).width);
             f.stops.at(-1).x = g.x + m.width - widths.get(c.text);
           }
         }
@@ -240,7 +263,7 @@ export class LineBuilder {
       f.lastSpace = c.text === ' ';
       if (f.lastSpace && !bidiRtlSpace(c)) {
         if (f.trailingStart === null && g.text.length > 1 && kerningEnabled(g)) {
-          f.contentWidth = f.width - (f.spaceMetrics ||= this.measure(' ', g)).width;
+          f.contentWidth = f.width - (f.spaceMetrics ||= this.measure(' ', f.groupMeasure)).width;
           // The end-of-word caret includes the pair's adjustment as well.
           f.stops.at(-1).x = f.contentWidth;
         }
@@ -251,18 +274,25 @@ export class LineBuilder {
     f.stops.push({ offset: c.end, x: f.width });
     if (!c.image) {
       let color = g.colors.at(-1);
-      if (!color || color.value !== c.style.color || color.textFill !== (c.style.textFill ?? null) || color.text3d !== (c.style.text3d ?? null) || color.textScene !== (c.style.textScene ?? null) || backgroundKey(color) !== backgroundKey(c.style) || outlineKey(color) !== outlineKey(c.style) || shadowKey(color) !== shadowKey(c.style)) { color = { value: c.style.color, textFill: c.style.textFill ?? null, textOutline: c.style.textOutline ?? null, textShadow: c.style.textShadow ?? null, text3d: c.style.text3d ?? null, textScene: c.style.textScene ?? null, highlight: c.style.highlight, shading: c.style.shading, x: left - g.x, width: 0 }; g.colors.push(color); }
+      // A span made from, or found to match, this very style object needs no comparing again.
+      if (!color || color !== this.colorSpan || c.style !== this.colorStyle) {
+        if (!color || color.value !== c.style.color || color.textFill !== (c.style.textFill ?? null) || color.text3d !== (c.style.text3d ?? null) || color.textScene !== (c.style.textScene ?? null) || backgroundKey(color) !== backgroundKey(c.style) || outlineKey(color) !== outlineKey(c.style) || shadowKey(color) !== shadowKey(c.style)) { color = { value: c.style.color, textFill: c.style.textFill ?? null, textOutline: c.style.textOutline ?? null, textShadow: c.style.textShadow ?? null, text3d: c.style.text3d ?? null, textScene: c.style.textScene ?? null, highlight: c.style.highlight, shading: c.style.shading, x: left - g.x, width: 0 }; g.colors.push(color); }
+        this.colorSpan = color; this.colorStyle = c.style;
+      }
       color.width = g.width - color.x;
     }
-    if (hasRunBackground(c.style)) {
+    // Characters of a run share their style object: what it decides about decorations is read once.
+    if (this.factStyle !== c.style) this.facts = { background: hasRunBackground(c.style), pattern: underlinePattern(c.style), visibleUnderline: visibleUnderline(c.style) }, this.factStyle = c.style;
+    const facts = this.facts;
+    if (facts.background) {
       if (!f.background || backgroundKey(f.background) !== backgroundKey(c.style) || f.background.ascent !== m.ascent || f.background.descent !== m.descent) {
         f.background = { x: left, width: 0, ascent: m.ascent, descent: m.descent, highlight: c.style.highlight, shading: c.style.shading }; f.backgrounds.push(f.background);
       }
       f.background.width = f.width - f.background.x;
       trackBidiSpan(f.background, c);
     } else f.background = null;
-    const pattern = underlinePattern(c.style);
-    if (visibleUnderline(c.style) && pattern !== 'none' && !(pattern === 'words' && underlineSpace(c.text)) && !c.image) {
+    const pattern = facts.pattern;
+    if (facts.visibleUnderline && pattern !== 'none' && !(pattern === 'words' && underlineSpace(c.text)) && !c.image) {
       const color = c.style.underlineColor === 'auto' || !c.style.underlineColor ? textFillColor(c.style) : c.style.underlineColor;
       const { offset, thickness } = underlineGeometry(pattern, m);
       if (!f.underline || f.underline.pattern !== pattern || f.underline.fontSize !== c.style.fontSize || f.underline.offset !== offset || f.underline.thickness !== thickness || f.underline.verticalAlign !== c.style.verticalAlign || f.underline.baselineShift !== c.style.baselineShift || f.underline.color !== color || backgroundKey(f.underline) !== backgroundKey(c.style)) {

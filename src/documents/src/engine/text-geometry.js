@@ -25,8 +25,12 @@ function leadingWordSpacing(text, style, measure) {
 }
 
 export function measureTextGeometry(text, style, measure) {
+  // Every measurement below is only read (each result is a new object): a measurer's own copy is not needed.
+  measure = measure.shared ?? measure;
   let fonts;
-  if (!style.fontFamily) {
+  // ASCII text has a single font slot (fontSlot): it needs no segmenting.
+  if (!style.fontFamily && /^[\x00-\x7f]*$/.test(text)) style = textFontStyle(text, style);
+  else if (!style.fontFamily) {
     fonts = [];
     for (const { segment } of inlineSegments(text)) {
       const family = textFontStyle(segment, style).fontFamily, last = fonts.at(-1);
@@ -67,9 +71,15 @@ export function measureTextGeometry(text, style, measure) {
   }
   checkSpacedAdvance(metrics.width, 0, style);
   const transform=metrics.scriptTransform??textTransform(style);
-  const decoration = fontMetrics(style);
-  const strike = { strikeOffset: metrics.strikeOffset ?? decoration.strikeOffset, strikeThickness: metrics.strikeThickness ?? decoration.strikeThickness };
-  if (!transform) return { ...metrics, ...strike, ...(style.fontFamily ? { fontFamily: style.fontFamily } : {}) };
+  // The bundled defaults, for a measurement without its own decoration metrics (canvas ones have them).
+  let decoration;
+  const fallback = () => decoration ??= fontMetrics(style);
+  const strike = { strikeOffset: metrics.strikeOffset ?? fallback().strikeOffset, strikeThickness: metrics.strikeThickness ?? fallback().strikeThickness };
+  if (!transform) {
+    const result = { ...metrics, strikeOffset: strike.strikeOffset, strikeThickness: strike.strikeThickness };
+    if (style.fontFamily) result.fontFamily = style.fontFamily;
+    return result;
+  }
   // Lines are allocated using the declared font's metrics. Script scaling
   // changes ink/carets; only an explicit position shifts the allocation box.
   const shift = (style.baselineShift || 0) * 4 / 3;
@@ -79,6 +89,6 @@ export function measureTextGeometry(text, style, measure) {
     ...(metrics.nativeUnderlineThickness === undefined ? {} : { nativeUnderlineOffset: metrics.nativeUnderlineOffset * transform.scaleY + transform.offsetY, nativeUnderlineThickness: metrics.nativeUnderlineThickness * transform.scaleY }),
     ascent: metrics.ascent * transform.scaleY - transform.offsetY,
     descent: metrics.descent * transform.scaleY + transform.offsetY,
-    underlineOffset: (metrics.underlineOffset ?? decoration.underlineOffset) * transform.scaleY + transform.offsetY,
-    underlineThickness: (metrics.underlineThickness ?? decoration.underlineThickness) * transform.scaleY };
+    underlineOffset: (metrics.underlineOffset ?? fallback().underlineOffset) * transform.scaleY + transform.offsetY,
+    underlineThickness: (metrics.underlineThickness ?? fallback().underlineThickness) * transform.scaleY };
 }

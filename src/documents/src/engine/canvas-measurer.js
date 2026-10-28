@@ -39,7 +39,7 @@ export function createCanvasMeasurer(context, { limit = 100000 } = {}) {
   };
   const fontsReady = () => { clear(); measurer.onFontsReady(); };
   // Each style's texts, and what measuring reads of the style itself (prepared on first use).
-  const measurer = (text, style) => {
+  const remembered = (text, style) => {
     checkFonts();
     let measured = byStyle.get(style);
     if (!measured) {
@@ -58,8 +58,11 @@ export function createCanvasMeasurer(context, { limit = 100000 } = {}) {
       measured.texts.set(text, result);
       if (++entries > limit) age();
     }
-    return { ...result };
+    return result;
   };
+  const measurer = (text, style) => ({ ...remembered(text, style) });
+  // The remembered measurement itself, for a caller that only reads it (text-geometry.js): no copy.
+  measurer.shared = remembered;
   measurer.paragraphCache = () => { checkFonts(); return paragraphs; };
   measurer.clear = clear;
   measurer.onFontsReady = () => {};

@@ -24,7 +24,8 @@ export const PAGINATION_DEFAULTS = Object.freeze({ keepNext: false, keepLines: f
 export const PARAGRAPH_FLAGS = Object.freeze({ mirrorIndents: false, suppressLineNumbers: false, suppressAutoHyphens: false });
 export const PARAGRAPH_FORMAT = Object.freeze({ paragraphBorders: Object.freeze({}), paragraphShading: 'auto', alignment: 'left', lineRule: 'auto', lineSpacing: 1, spaceBefore: 0, spaceAfter: 9, contextualSpacing: false, ...PAGINATION_DEFAULTS, indentLeft: 0, indentRight: 0, firstLine: 0, tabs: Object.freeze([]), outlineLevel: 9, ...PARAGRAPH_FLAGS });
 export const RUN_FORMAT = Object.freeze({ ...FONT_DEFAULTS, bold: false, italic: false, boldCs: false, italicCs: false, fontSizeCs: 12, cs: false, rtl: false, noProof: false, underline: false, underlineStyle: 'none', strikethrough: 'none', capitalization: 'normal', fontSize: 12, textOutline: null, textShadow: null, textFill: null, text3d: null, textScene: null, color: 'auto', underlineColor: 'auto', highlight: 'none', shading: 'auto', verticalAlign: 'baseline', baselineShift: 0, characterSpacing: 0, textScale: 100, kerning: 0, ligatures: 'none', vanish: false });
-export const runFormat = run => { const result = Object.fromEntries(Object.entries(RUN_FORMAT).map(([k, v]) => [k, run?.[k] ?? v])); result.underlineStyle = underlinePattern(run); result.underline = result.underlineStyle !== 'none'; if (run?.legacyKerning !== undefined) result.legacyKerning = run.legacyKerning; return result; };
+const RUN_FORMAT_KEYS = Object.keys(RUN_FORMAT);
+export const runFormat = run => { const result = {}; for (const k of RUN_FORMAT_KEYS) result[k] = run?.[k] ?? RUN_FORMAT[k]; result.underlineStyle = underlinePattern(run); result.underline = result.underlineStyle !== 'none'; if (run?.legacyKerning !== undefined) result.legacyKerning = run.legacyKerning; return result; };
 
 /**
  * Indents with their character-unit forms applied (§17.3.1.12 ind): a nonzero leftChars, rightChars,
