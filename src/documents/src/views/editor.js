@@ -91,7 +91,7 @@ import { listVersions } from '../lib/versions.js';
 import { publishPage, findSite, unpublishPage } from '../lib/publish.js';
 import { listCustomTemplates } from '../lib/customtemplates.js';
 import { Doc, versioning, publishing } from '../lib/doc.js';
-import { currentTheme, isDark, darkPage, setDarkPage } from '../ui/theme.js';
+import { currentTheme, isDark, darkPage, setDarkPage, onThemeChange } from '../ui/theme.js';
 import { UNITS, recallUnit, rememberUnit } from '../lib/units.js';
 import { setAutocorrectEnabled, setCapitalizeSentencesEnabled } from '../lib/autocorrect.js';
 import { setAutolinkEnabled } from '../lib/linkify.js';
@@ -1641,8 +1641,12 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       stepDesignVersion(direction);
       return true;
     };
+    // Dark paper on screen with the dark appearance's Dark page preference, from the first paint.
+    created.darkPage = isDark() && darkPage();
     return created;
   }
+  // Switching the appearance or the preference repaints the open pages at once.
+  const offTheme = onThemeChange(() => engine?.setDarkPage?.(isDark() && darkPage()));
   /*
    * Design-wide changes (themes, style sets, watermarks, page fills) rewrite parts of the saved package
    * and reopen the result in place. Each keeps the bytes before and after it, so Undo past the editor's
@@ -1875,6 +1879,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
       finally { clearTimeout(timer); }
     },
     destroy() {
+      offTheme();
       drawingTextModal?.close();
       printAbort.abort();
       destroyed = true; linkCard.destroy(); tables.destroy(); paragraphBorderModal?.close(); paragraphShadingModal?.close(); bookmarkModal?.close(); hyperlinkModal?.close(); pageSetupModal?.close(); paragraphModal?.close(); styleModal?.close(); tableModal?.close(); imageModal?.close(); fontPopover?.close(); colorPalette?.close(); highlightPalette?.close(); baselineModal?.close(); characterSpacingModal?.close(); textWidthModal?.close(); kerningModal?.close(); underlineModal?.close();

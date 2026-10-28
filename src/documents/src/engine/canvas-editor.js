@@ -52,6 +52,7 @@ import { pageGeometry } from './page-settings.js';
 import { pageBorderStrokes } from './page-borders.js';
 import { lineNumberLabels } from './line-numbers.js';
 import { paintPagePictureBackground } from './canvas-page-background.js';
+import { setDarkPage } from './canvas-dark-page.js';
 import { viewGeometry, viewPageStories, fitContinuousPages, isContinuousView, usesScreenGeometry } from './document-views.js';
 import { pageLookup } from './page-lookup.js';
 import { font, layoutDocument, caretRect, lineAtPosition, verticalLine, hitTestStop, nearestStop, imageAtPoint, selectionRects, selectionRectFinder } from './layout.js';
@@ -855,6 +856,12 @@ export class CanvasEditor {
     };
     this.paintTask = idle ? { idle, id: requestIdleCallback(run, { timeout: 250 }) } : { idle, id: setTimeout(run, 16) };
   }
+  /** Screen pages as dark paper with light ink (the dark appearance's Dark page preference); printing is unaffected. */
+  setDarkPage(on) {
+    if (!!this.darkPage === !!on) return;
+    this.darkPage = !!on;
+    this.paint();
+  }
   paint({ canvases = this.canvases, printing = false, pages = null } = {}) {
     if (this.destroyed || !this.layout) return;
     let indices = null;
@@ -885,6 +892,8 @@ export class CanvasEditor {
       const canvas = canvases[index], ctx = canvas.getContext('2d'), geometry = this.layout.pages[index] || this.layout.page;
       // A canvas keeps its pixels and drawing state between paints (resizeCanvases keeps unchanged sizes).
       ctx.reset?.();
+      // Dark page turns the screen's colors only; a page with a background picture keeps the picture's own light.
+      setDarkPage(ctx, !printing && !!this.darkPage && !geometry.backgroundPicture);
       setCanvasFontAlternatives(ctx, this.model.styles.fontAlternatives);
       const scale = canvas.width / geometry.width;
       ctx.setTransform(scale, 0, 0, scale, 0, 0);
