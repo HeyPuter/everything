@@ -28,12 +28,18 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
   const ready = () => { const engine = editor(); return engine && !pkg()?.readOnly ? engine : null; };
   const fail = e => { error(e); editor()?.focus(); };
 
-  /** Which header/footer variant a page shows: first, even or default (§17.10.5). */
-  function variantFor(engine, page) {
-    const definition = engine.pageStories, section = engine.sectionOfPage(page);
-    const firstPage = engine.layout.pageSections?.indexOf(section) ?? 0;
+  /**
+   * Which header/footer variant a page shows: first, even or default (§17.10.5). Even and odd go by the
+   * page's number, as layout chooses them: a section numbered from 2 shows its even story on its first sheet.
+   */
+  async function variantFor(engine, page) {
+    const definition = engine.pageStories, section = engine.sectionOfPage(page), layout = engine.layout;
+    const firstPage = layout.pageSections?.indexOf(section) ?? 0;
     if (page === firstPage && definition?.sections[section]?.firstPageDifferent) return 'first';
-    return definition?.evenAndOdd && (page + 1) % 2 === 0 ? 'even' : 'default';
+    if (!definition?.evenAndOdd) return 'default';
+    const { pageNumberSequence } = await import('../engine/page-numbering.js');
+    const number = pageNumberSequence(layout.pageSections || [], definition, layout.numberingApproximations)[page] ?? page + 1;
+    return number % 2 === 0 ? 'even' : 'default';
   }
   const currentPage = engine => engine.session.path !== null ? engine.storyPage ?? 0 : engine.caretPageIndex ?? 0;
 
@@ -42,7 +48,7 @@ export function createReferences({ editor, pkg, error, base = {}, onChange = () 
     const engine = ready(); if (!engine) return null;
     engine.finishComposition();
     page ??= currentPage(engine);
-    const section = engine.sectionOfPage(page), variant = variantFor(engine, page);
+    const section = engine.sectionOfPage(page), variant = await variantFor(engine, page);
     const existing = engine.pageStories?.sections[section]?.[kind]?.[variant];
     if (existing) {
       if (!engine.pageStories.stories[existing]?.editable) throw new Error(`This document's ${kind} cannot be edited yet.`);
