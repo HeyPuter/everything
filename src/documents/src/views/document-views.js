@@ -177,17 +177,29 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     sideToSide = on;
     engine.pages.classList.toggle('is-side-to-side', on);
     host.classList.toggle('is-side-to-side', on);
+    showThumbnails(on && thumbnails);
     if (on) {
       engine.pages.classList.remove('is-multipage');
-      // Whole pages, side by side: fit a page's height to the window.
-      const tallest = Math.max(...engine.layout.pages.map(p => p.height));
-      w.setZoom?.(Math.max(0.1, Math.min(2, Math.floor((host.clientHeight - 40) / tallest * 100) / 100)));
+      fitSideToSide();
       engine.pages.classList.add('is-side-to-side');
     } else if (!silent) w.setZoom?.(1);
-    thumbStrip.hidden = !(on && thumbnails);
-    if (on && thumbnails) paintThumbnails({ all: true });
     revealCaretHorizontally();
     if (!silent) { layoutChanged(); onState(); }
+  }
+  /** Whole pages, side by side: fit a page's height to the window. */
+  function fitSideToSide() {
+    const engine = ready(); if (!engine) return;
+    const tallest = Math.max(...engine.layout.pages.map(p => p.height));
+    w.setZoom?.(Math.max(0.1, Math.min(2, Math.floor((host.clientHeight - 40) / tallest * 100) / 100)));
+  }
+  /** The strip lies over the foot of the surface; the pages, which do not scroll up or down here, end above it. */
+  function showThumbnails(on) {
+    thumbStrip.hidden = !on;
+    if (on) paintThumbnails({ all: true });
+    host.style.marginBottom = on ? `${thumbStrip.offsetHeight}px` : '';
+    // So does the Assistant's button, which sits at the foot of the editor.
+    if (on) surface.parentElement?.style.setProperty('--view-thumbnails-height', `${thumbStrip.offsetHeight}px`);
+    else surface.parentElement?.style.removeProperty('--view-thumbnails-height');
   }
   // Shown afresh, every page is painted and every thumbnail drawn. After that a thumbnail is drawn again
   // only when its page has been painted (thumbOverlay), or is a new page or a new size. Typing paints
@@ -502,7 +514,7 @@ export function createDocumentViews({ editor, pkg, host, surface, root, error, c
     const has = () => !!ready();
     const vertical = command('Vertical', 'verticalMovement', () => setSideToSide(false), { size: 'large', attrs: { 'aria-pressed': 'true' } });
     const across = command('Side to Side', 'sideToSide', () => setSideToSide(true), { size: 'large', text: 'Side to Side', attrs: { 'aria-pressed': 'false' } });
-    const thumbs = command('Thumbnails', 'thumbnails', () => { thumbnails = !thumbnails; thumbStrip.hidden = !(sideToSide && thumbnails); paintThumbnails({ all: true }); onState(); }, { text: 'Thumbnails', attrs: { 'aria-pressed': 'false' } });
+    const thumbs = command('Thumbnails', 'thumbnails', () => { thumbnails = !thumbnails; showThumbnails(sideToSide && thumbnails); if (sideToSide) fitSideToSide(); onState(); }, { text: 'Thumbnails', attrs: { 'aria-pressed': 'false' } });
     when(vertical, has, () => String(!sideToSide)); when(across, () => has() && mode !== 'outline', () => String(sideToSide));
     when(thumbs, () => has() && sideToSide, () => String(sideToSide && thumbnails));
     const newWin = command('New Window', 'newWindow', newWindow, { size: 'large', text: 'New Window' });

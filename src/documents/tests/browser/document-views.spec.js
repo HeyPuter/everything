@@ -514,3 +514,30 @@ test('the status bar view buttons and the View and Window menus switch views and
   await (await menuBarMenu(page, 'Window')).getByRole('menuitemcheckbox', { name: 'Remove Split' }).click();
   await expect(page.locator('.view-split-pane')).toHaveCount(0);
 });
+
+test('side-to-side pages stay whole above the page thumbnails', async ({ page }) => {
+  await page.goto('/mock.html#/new');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeEnabled();
+  await page.getByRole('textbox', { name: 'Document text' }).fill(('A paragraph that helps fill three pages. '.repeat(20) + '\n').repeat(12));
+  const tab = await viewTab(page);
+  await tab.getByRole('button', { name: 'Side to Side', exact: true }).click();
+  await tab.getByRole('button', { name: 'Thumbnails', exact: true }).click();
+  const strip = page.getByRole('list', { name: 'Page thumbnails' });
+  await expect(strip).toBeVisible();
+  // The host shows the pages without scrolling up or down: none may run under the strip.
+  const overlap = () => page.evaluate(() => {
+    const strip = document.querySelector('.view-thumbnails').getBoundingClientRect();
+    const host = document.querySelector('.canvas-host').getBoundingClientRect();
+    return Math.max(0, ...[...document.querySelectorAll('.canvas-host canvas.canvas-page')].map(c => Math.min(c.getBoundingClientRect().bottom, host.bottom) - strip.top));
+  });
+  await expect.poll(overlap).toBe(0);
+  // The Assistant's button rises above the strip too.
+  await expect(page.getByRole('button', { name: 'Assistant', exact: true }).last()).toBeVisible();
+  expect(await page.evaluate(() => document.querySelector('.as-fab').getBoundingClientRect().bottom <= document.querySelector('.view-thumbnails').getBoundingClientRect().top)).toBe(true);
+  // Without the strip the pages fill the height again.
+  const height = () => page.evaluate(() => document.querySelector('.canvas-host canvas.canvas-page').getBoundingClientRect().height);
+  const withStrip = await height();
+  await tab.getByRole('button', { name: 'Thumbnails', exact: true }).click();
+  await expect(strip).toBeHidden();
+  await expect.poll(height).toBeGreaterThan(withStrip + 40);
+});
