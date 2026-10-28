@@ -538,3 +538,15 @@ test('a list of choices in a dialog draws no drop-down arrow', async ({ page }) 
   await expect(dialog).toBeVisible();
   expect(await arrows(dialog)).toEqual([['Go to what', 'none']]);
 });
+
+test('command search names the Navigation Pane chord as the platform does', async ({ page }) => {
+  await openEditor(page);
+  const search = page.getByRole('combobox', { name: 'Search for commands' });
+  await search.click(); await search.fill('navigation pane');
+  const option = page.getByRole('listbox', { name: 'Commands' }).getByRole('option', { name: /^Navigation Pane/ }).first();
+  await expect(option.locator('.ed-search-key')).toHaveText(MAC ? 'Cmd+Option+O' : 'Ctrl+Alt+O');
+  // And the chord opens it.
+  await search.press('Escape'); await search.press('Escape');
+  await text(page).press(MAC ? 'Meta+Alt+o' : 'Control+Alt+o');
+  await expect(page.getByLabel('Search document')).toBeFocused();
+});

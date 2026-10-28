@@ -527,7 +527,7 @@ export function editorView({ doc, goHome, newDoc, importFile, openPath, newFromT
     toggleOutline(true, { search: true });
     if (selected && !/[\n\f\v]/.test(selected) && selected.length <= 255) outlinePanel.setSearch(selected);
   };
-  const outline = tool('Document outline', 'outline', () => toggleOutline(), { 'aria-expanded': 'false', 'aria-controls': outlinePanel.node.id, shortcut: `${MOD_KEY}+Alt+O` });
+  const outline = tool('Document outline', 'outline', () => toggleOutline(), { 'aria-expanded': 'false', 'aria-controls': outlinePanel.node.id, shortcut: MOD_KEY === 'Cmd' ? 'Cmd+Option+O' : 'Ctrl+Alt+O' });
   const outlineLevel = el('select', { disabled: true, 'aria-label': 'Outline level', title: 'Outline level does not change text formatting', onchange: () => engine?.setOutlineLevel(outlineLevel.value === 'inherit' ? null : Number(outlineLevel.value)) },
     el('option', { value: 'mixed', disabled: true }, 'Mixed levels'), el('option', { value: 'inherit' }, 'Use style level'),
     ...Array.from({ length: 9 }, (_, i) => el('option', { value: i }, `Level ${i + 1}`)), el('option', { value: 9 }, 'Body text'));
