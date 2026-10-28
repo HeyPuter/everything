@@ -102,7 +102,9 @@ export function openCustomWatermark({ current, apply }) {
   const text = current?.kind === 'text' ? current : { text: 'DRAFT', font: null, size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal', language: 'en-US' };
   const listId = fieldId('watermark-texts');
   const words = el('input.input', { type: 'text', value: text.text, list: listId, maxLength: 120, 'aria-label': 'Text' });
-  const fonts = el('select.input', { 'aria-label': 'Font' }, el('option', { value: '' }, 'Automatic'), ...DESIGN_FONTS.map(f => el('option', { value: f, selected: f === text.font }, f)));
+  // A watermark's own font (one Word wrote, say) is offered too, so OK keeps it.
+  const fontNames = text.font && !DESIGN_FONTS.includes(text.font) ? [text.font, ...DESIGN_FONTS] : DESIGN_FONTS;
+  const fonts = el('select.input', { 'aria-label': 'Font' }, el('option', { value: '' }, 'Automatic'), ...fontNames.map(f => el('option', { value: f, selected: f === text.font }, f)));
   const size = el('select.input', { 'aria-label': 'Size' }, el('option', { value: 'auto' }, 'Auto'), ...[36, 48, 54, 60, 66, 72, 80, 90, 96, 105, 120, 144].map(n => el('option', { value: n, selected: n === text.size }, String(n))));
   const color = el('input.design-color-input', { type: 'color', value: `#${text.color || 'C0C0C0'}`, 'aria-label': 'Color' });
   const transparent = el('input', { type: 'checkbox', checked: text.semitransparent !== false });

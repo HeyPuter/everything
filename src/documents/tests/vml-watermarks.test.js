@@ -86,3 +86,19 @@ it('Design › Watermark replaces or removes a Word watermark instead of adding 
   expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
   expect((await DocxPackage.open(zipSync(parts))).readOnly).toBeFalsy();
 });
+
+it('Design › Watermark reads a Word watermark as the current one', async () => {
+  const { readWatermark } = await import('../src/engine/package-design.js');
+  const parts = unzipSync(fixture());
+  expect(readWatermark(parts)).toEqual({ kind: 'text', text: 'CONFIDENTIAL', font: 'Calibri', size: 'auto', color: 'C0C0C0', semitransparent: true, layout: 'diagonal' });
+  // Reading changes nothing.
+  expect(unzipSync(zipSync(parts))['word/header1.xml']).toEqual(unzipSync(fixture())['word/header1.xml']);
+  // A picture watermark alone: its picture, size in pixels and washout.
+  const header1 = strFromU8(parts['word/header1.xml']).replace(/<w:pict>[\s\S]*<\/w:pict>/, '');
+  const picture = readWatermark({ ...parts, 'word/header1.xml': new TextEncoder().encode(header1) });
+  expect(picture).toMatchObject({ kind: 'picture', mime: 'image/png', width: 40, height: 20, scale: 'auto', washout: true });
+  expect([...picture.bytes]).toEqual([...PNG]);
+  // A horizontal one in a solid colour.
+  const flat = strFromU8(parts['word/header1.xml']).replace('rotation:315;', '').replace('fillcolor="silver"', 'fillcolor="#FF0000"').replace('<v:fill opacity=".5"/>', '');
+  expect(readWatermark({ ...parts, 'word/header1.xml': new TextEncoder().encode(flat) })).toMatchObject({ layout: 'horizontal', color: 'FF0000', semitransparent: false });
+});

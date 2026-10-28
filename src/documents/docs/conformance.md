@@ -24525,7 +24525,12 @@ with `gain`/`blacklevel`), absolutely positioned behind the text. A `w:pict` in 
 whose only shape is such a watermark no longer makes the document open read-only. It is one retained
 object in its paragraph (one document position, no width in the line): its XML is saved unchanged,
 also when the header's text is edited, and its image part and relationship are kept. It can be deleted
-with the header's text; it cannot be edited or inserted.
+with the header's text; it cannot be edited or inserted. Design › Watermark treats it as the
+document's watermark, as Word does: the gallery and the Custom Watermark dialog show it (text, font,
+colour, see-through and diagonal or horizontal layout, read as Auto size; a PNG or JPEG picture with its
+washout), choosing a watermark replaces it, and Remove Watermark removes it from every header (the
+headers' own text stays; the picture's part and relationship are left in place, unused). While the
+watermarks are not changed, Word's XML is saved as it was.
 
 Display (an approximation): on each page whose header or footer holds one, the watermark is drawn
 beneath the page's other content, in its box placed by `mso-position-horizontal/vertical`

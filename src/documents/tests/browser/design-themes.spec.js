@@ -231,3 +231,47 @@ test('theme files import, custom paragraph spacing applies, and Set as Default s
   await page.evaluate(() => localStorage.removeItem('documents.design.defaults'));
   expect(errors).toEqual([]);
 });
+
+test('a Word watermark shows as the current watermark, and a new one or Remove Watermark replaces it', async ({ page }, info) => {
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  const FIXTURE = 'tests/fixtures/vml-watermarks/watermarks.docx';
+  const word = parts => ['word/header1.xml', 'word/header2.xml'].map(path => (strFromU8(parts[path]).match(/PowerPlusWaterMarkObject|WordPictureWatermark/g) || []).length);
+  const ours = parts => ['word/header1.xml', 'word/header2.xml'].map(path => (strFromU8(parts[path]).match(/name="Document Watermark"/g) || []).length);
+  const openFixture = async () => {
+    await page.goto('/playground.html');
+    await page.getByRole('button', { name: 'New', exact: true }).click();
+    page.once('dialog', dialog => dialog.accept());
+    await page.getByLabel('Open DOCX file').setInputFiles(FIXTURE);
+    await expect(page.getByRole('textbox', { name: 'Document text' })).toHaveValue('Body text.');
+    await onTab(page, 'design');
+  };
+  await openFixture();
+  // The gallery and the dialog show Word's CONFIDENTIAL, diagonal, in Calibri.
+  await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'CONFIDENTIAL, diagonal' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('menuitem', { name: 'Remove Watermark' })).toBeEnabled();
+  await page.getByRole('menuitem', { name: 'Custom Watermark…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Watermark' });
+  await expect(dialog.getByLabel('Text')).toHaveValue('CONFIDENTIAL');
+  await expect(dialog.getByRole('combobox', { name: 'Font' })).toHaveValue('Calibri');
+  await expect(dialog.getByRole('radio', { name: 'Diagonal' })).toHaveAttribute('aria-checked', 'true');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  // Untouched, Word's watermark saves as it was.
+  let { parts } = await saved(page, info, 'word-watermark-kept.docx');
+  expect(word(parts)).toEqual([1, 1]);
+  // A new watermark replaces Word's.
+  await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+  await page.getByRole('menuitemradio', { name: 'DRAFT, horizontal' }).click();
+  ({ parts } = await saved(page, info, 'word-watermark-replaced.docx'));
+  expect(word(parts)).toEqual([0, 0]);
+  expect(ours(parts)).toEqual([1, 1]);
+  // Remove Watermark removes Word's.
+  await openFixture();
+  await ribbon(page).getByRole('button', { name: 'Watermark' }).click();
+  await page.getByRole('menuitem', { name: 'Remove Watermark' }).click();
+  ({ parts } = await saved(page, info, 'word-watermark-removed.docx'));
+  expect(word(parts)).toEqual([0, 0]);
+  expect(ours(parts)).toEqual([0, 0]);
+  expect(strFromU8(parts['word/header1.xml'])).toContain('Acme internal');
+  expect(errors).toEqual([]);
+});
