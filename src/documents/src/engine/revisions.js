@@ -97,7 +97,7 @@ export function rejectFormatChange(target) {
   return true;
 }
 // Fields that are content or annotations, not formatting.
-const KEEP = new Set(['id', 'text', 'runs', 'revision', 'formatRevision', 'link', 'contentControl', 'image', 'math', 'field', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear', 'positionalTab', 'tocHyperlink', 'bookmarks', 'fieldMarkers', 'markRevision', 'cellId', 'tableStyleId', 'tableStyleRegions', 'blockControls', 'sectionEnd', 'sectionProperties', 'sectionSourceIndex', 'markFormat', 'markOverrides', 'markProperties', 'markPropertiesChanged', 'markHasDirectProperties', 'markStyleId', 'markStyleChanged', 'pageStory', 'storySource', 'drawingText']);
+const KEEP = new Set(['id', 'text', 'runs', 'revision', 'formatRevision', 'link', 'contentControl', 'image', 'math', 'vml', 'field', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear', 'positionalTab', 'tocHyperlink', 'bookmarks', 'fieldMarkers', 'markRevision', 'cellId', 'tableStyleId', 'tableStyleRegions', 'blockControls', 'sectionEnd', 'sectionProperties', 'sectionSourceIndex', 'markFormat', 'markOverrides', 'markProperties', 'markPropertiesChanged', 'markHasDirectProperties', 'markStyleId', 'markStyleChanged', 'pageStory', 'storySource', 'drawingText']);
 
 /** The formatting fields of a run or paragraph, for a formatting revision's `previous`. */
 export function formattingSnapshot(target) {
@@ -120,7 +120,7 @@ function paragraphKey(p) {
   const format = p.format || {};
   return JSON.stringify([p.styleId || null, Object.keys(format).sort().map(key => [key, format[key]]), p.list ? [p.list.numId, p.list.level] : null]);
 }
-const special = r => r.image || r.math || r.field || r.noteMark || r.bodySymbol || r.noBreakHyphen || r.breakClear || r.contentControl && !r.text;
+const special = r => r.image || r.math || r.vml || r.field || r.noteMark || r.bodySymbol || r.noBreakHyphen || r.breakClear || r.contentControl && !r.text;
 function mergeRuns(runs) {
   const out = [];
   for (const run of runs) {

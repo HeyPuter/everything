@@ -24455,3 +24455,27 @@ reason in the document itself. Each row has a unit regression that fails without
 | Comment styles for new comments | ECMA-376 Part 1 §17.13.4.2 `comment`, §17.13.4.5 `commentReference`, §17.7.4.17 `style`; built-in style names "annotation text" and "annotation reference" | New comments are written with the paragraph style `CommentText` and a reference run in the character style `CommentReference`, as Word writes them, but a document that had no comments usually defines neither, so the saved file referred to undefined styles. When a comment is added, the styles part now gets Word's definitions of whichever is missing (`annotation text`: based on the default paragraph style, single line spacing, 10 pt; `annotation reference`: based on the default character style, 8 pt; both priority 99, semi-hidden, unhidden when used). Existing definitions are left as they are, unchanged comments do not touch the styles part, and a package without a styles part is not given one. Unit regression `tests/comment-styles.test.js`; the export passes `check:conformance`. |
 | Revised document author in Compare | ECMA-376 Part 2 §11 core properties (the part the package relationship names; `cp:lastModifiedBy`, `dc:creator`) | Compare labels the revised document's changes with its last author. It read `docProps/core.xml` by name, so a package whose core properties part has another name (System.IO.Packaging's `package/services/metadata/core-properties/<id>.psmdcp`) gave no author and the changes fell back to the user's name. It now reads the relationship-named part, as document property fields do. Unit regression in `tests/compare-documents.test.js` (its fixture package now declares the core properties relationship). |
 | More imported list number formats | ECMA-376 Part 1 §17.9.17 `numFmt`, §17.18.59 ST_NumberFormat | Extends "Imported list number formats": `koreanCounting` (Sino-Korean numerals with 십 백 천 만, one dropped before 십, 백 and 천, as in Japanese), `koreanDigital` (digit by digit, 영 for zero), `hebrew1` (Hebrew letter numerals below 1000, with טו and טז for 15 and 16), `hebrew2` (the 22 letters), `arabicAbjad` and `arabicAlpha` (28 letters each, from أ) and `irohaFullWidth` (47 kana) are now numbered and editable. Values past a sequence, and Hebrew numerals from 1000, are written in decimal digits (this editor's approximation). Hebrew and Arabic labels are laid out in the paragraph's direction; right-to-left paragraphs remain unsupported. The rejection fixtures now use `thaiCounting` as their unsupported format. Unit regression in `tests/imported-numbering-formats.test.js`. |
+
+## Word watermarks (VML in headers and footers)
+
+Clauses: ECMA-376 Part 1 §17.3.3.19 `w:pict`; Part 4 §14.1 VML (`v:shape`, `v:shapetype`,
+`v:textpath`, `v:imagedata`, `v:fill`), with the `mso-position-*` style properties Word writes.
+
+Word's Design > Watermark puts a VML shape in a header paragraph: a WordArt text path
+(`PowerPlusWaterMarkObject…`, e.g. "CONFIDENTIAL") or a picture (`WordPictureWatermark…`, washed out
+with `gain`/`blacklevel`), absolutely positioned behind the text. A `w:pict` in a header or footer
+whose only shape is such a watermark no longer makes the document open read-only. It is one retained
+object in its paragraph (one document position, no width in the line): its XML is saved unchanged,
+also when the header's text is edited, and its image part and relationship are kept. It can be deleted
+with the header's text; it cannot be edited or inserted.
+
+Display (an approximation): on each page whose header or footer holds one, the watermark is drawn
+beneath the page's other content, in its box placed by `mso-position-horizontal/vertical`
+(`center`, `left`/`top`, `right`/`bottom`, or `margin-left`/`margin-top` offsets) relative to the
+margins or the page, and turned by its `rotation`. A text watermark is its string in its
+`font-family`, stretched to fill the box (`v:textpath fitshape`), in its `fillcolor` (named or hex) at
+its `v:fill opacity`; a picture watermark (PNG, JPEG or GIF) is drawn at its `gain` as opacity. Gaps:
+other VML in `w:pict` (and any VML in the body) still opens read-only; `blacklevel`, text-path
+adjustments, outlines, `fitpath` and wrapping other than behind the text are not drawn; watermarks are
+not shown in Read and Web views, which show no headers. Fixture: `tests/fixtures/vml-watermarks`
+(independently generated). Tests: `tests/vml-watermarks.test.js`, `tests/browser/vml-watermarks.spec.js`.

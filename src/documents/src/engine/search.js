@@ -140,7 +140,7 @@ export function replacedRuns(runs, matches, replacement) {
     if (match.replacementRuns) result.push(...match.replacementRuns);
     else if (replacement) {
       const run = { ...(removed[0].contentControl?.placeholder ? removed[0].contentControl.inputRun : removed[0]), text: replacement };
-      delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen;
+      delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen; delete run.vml;
       // New text is nobody's tracked insertion, deletion or formatting change, whatever the found text was.
       delete run.revision; delete run.formatRevision;
       if (match.control) run.contentControl = match.control;

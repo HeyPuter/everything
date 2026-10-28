@@ -35,7 +35,7 @@ export const MARK = '\n';
 /** The comments map's marker that the document has a comments part (possibly empty). */
 const PRESENT = '$part';
 /** Runs the editor never merges with their neighbours (see normalize() in model.js). */
-export const SEPARATE_RUNS = ['image', 'math', 'field', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear'];
+export const SEPARATE_RUNS = ['image', 'math', 'vml', 'field', 'noteMark', 'bodySymbol', 'noBreakHyphen', 'breakClear'];
 
 const RUN_DEFAULTS = Object.fromEntries(Object.entries(RUN_FORMAT).map(([k, v]) => [k, JSON.stringify(v)]));
 const json = value => JSON.stringify(value);

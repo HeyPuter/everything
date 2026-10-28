@@ -8,6 +8,8 @@ export function inlineDisplayText(run, text) {
   // A custom-marked note reference shows its following mark text instead of a number.
   if (run?.noteMark?.display !== undefined && text === '\ufffc') return run.noteMark.display || (run.noteMark.custom ? '\u200b' : '\u2002');
   if (run?.math && text === '\ufffc') return run.math.text;
+  // A retained VML watermark is drawn behind the page, not in the line: it takes no room there.
+  if (run?.vml && text === '\ufffc') return '\u200b';
   if (run?.noBreakHyphen) return text.replace('\u2011', '-');
   return bodySymbolText(run, text);
 }

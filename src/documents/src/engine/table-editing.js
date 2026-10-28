@@ -964,7 +964,7 @@ export function sortTable(model, { keys, header = false, caseSensitive = false }
 
 const SEPARATORS = { tab: '\t', comma: ',', paragraph: null };
 // Run properties that make a run an object or a marked change rather than plain formatted text.
-const OBJECT_RUN_KEYS = ['image', 'math', 'field', 'noteMark', 'contentControl', 'bodySymbol', 'positionalTab', 'noBreakHyphen', 'breakClear', 'revision', 'formatRevision', 'link'];
+const OBJECT_RUN_KEYS = ['image', 'math', 'vml', 'field', 'noteMark', 'contentControl', 'bodySymbol', 'positionalTab', 'noBreakHyphen', 'breakClear', 'revision', 'formatRevision', 'link'];
 function separatorChar(separator, other) {
   if (separator === 'other') { if (typeof other !== 'string' || [...other].length !== 1 || /[\n\v\f]/.test(other)) throw new Error('Type one separator character.'); return other; }
   if (!(separator in SEPARATORS)) throw new Error('Choose how the text is separated.');

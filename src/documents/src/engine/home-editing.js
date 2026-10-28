@@ -19,7 +19,7 @@ export function wordAt(text, position) {
   return null;
 }
 
-const objectRun = run => run.image || run.field || run.noteMark || run.bodySymbol || run.contentControl?.picture;
+const objectRun = run => run.image || run.vml || run.field || run.noteMark || run.bodySymbol || run.contentControl?.picture;
 const isUpper = text => text === text.toLocaleUpperCase() && text !== text.toLocaleLowerCase();
 const isLower = text => text === text.toLocaleLowerCase() && text !== text.toLocaleUpperCase();
 

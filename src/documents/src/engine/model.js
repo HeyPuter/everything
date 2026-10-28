@@ -332,7 +332,7 @@ function normalize(runs) {
   for (const run of runs) {
     if (!run.text && !run.contentControl) continue;
     const last = result.at(-1);
-    if (last && !last.image && !run.image && !last.math && !run.math && !last.field && !run.field && !last.noteMark && !run.noteMark && !last.bodySymbol && !run.bodySymbol && !last.noBreakHyphen && !run.noBreakHyphen && !last.breakClear && !run.breakClear && JSON.stringify({ ...last, text: '' }) === JSON.stringify({ ...run, text: '' })) last.text += run.text;
+    if (last && !last.image && !run.image && !last.math && !run.math && !last.field && !run.field && !last.noteMark && !run.noteMark && !last.bodySymbol && !run.bodySymbol && !last.vml && !run.vml && !last.noBreakHyphen && !run.noBreakHyphen && !last.breakClear && !run.breakClear && JSON.stringify({ ...last, text: '' }) === JSON.stringify({ ...run, text: '' })) last.text += run.text;
     else result.push({ ...run });
   }
   return result;
@@ -1497,7 +1497,7 @@ export class TextDocument {
   typingRun(position = this.selection.focus, affinity) {
     affinity ??= position === this.selection.focus && this.selection.controlCaret?.side === 'after' ? 'forward' : 'backward';
     const source = this.formatAt(position, affinity), run = this.typingDirectCleared ? clearedRun(source) : source;
-    delete run.image; delete run.contentControl; delete run.positionalTab; delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen; delete run.breakClear; delete run.field; delete run.revision; delete run.math;
+    delete run.image; delete run.contentControl; delete run.positionalTab; delete run.noteMark; delete run.bodySymbol; delete run.noBreakHyphen; delete run.breakClear; delete run.field; delete run.revision; delete run.math; delete run.vml;
     // Boundary typing is plain text; strictly interior edits extend the link.
     const link = hyperlinkAt(this.paragraphs, position);
     if (!link || position <= link.start || position >= link.end) {

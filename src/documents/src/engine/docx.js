@@ -1,3 +1,4 @@
+import { readVmlWatermark, watermarkImagePart } from './vml-watermarks.js';
 import { writeTableStyleDefinition } from './docx-table-styles.js';
 import { MAX_DOCUMENT_CHARACTERS, DOCUMENT_CHARACTER_LIMIT_MESSAGE } from './text-limits.js';
 import { rejectFormatChange } from './revisions.js';
@@ -78,7 +79,7 @@ import { colorReader } from './docx-colors.js';
 import { readTable, writeTable } from './docx-tables.js';
 import { imageReader, imageWriter, bindImageNamespaces, WP } from './docx-images.js';
 import { resizedPictureShell } from './picture-resize.js';
-import { OBJECT } from './images.js';
+import { OBJECT, imageInfo } from './images.js';
 import { isPageBasedCellPosition, isCellRelativePosition } from './positioned-images.js';
 import { documentBlocks } from './tables.js';
 import { emptyStyles, resolveStyledParagraph, resolveCharacterRun, styleProperties, paragraphRunStyle, styleRun, characterUnit } from './styles.js';
@@ -92,7 +93,7 @@ import { readNumbering, writeNumbering } from './docx-numbering.js';
 import { validateIndent, normalizeTabStops } from './paragraph-geometry.js';
 import { DEFAULT_PAGE_SETTINGS, validatePageSettings } from './page-settings.js';
 import { checkedLineNumbers } from './line-number-settings.js';
-import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem } from './package-part-paths.js';
+import { zipPackage, MAX_PACKAGE_BYTES, compoundFileProblem, relationshipPartPath, partPathForUrl } from './package-part-paths.js';
 import { canonicalMainPart } from './docx-main-part.js';
 import { altChunkParagraphs } from './docx-alt-chunks.js';
 import { unzipSync, strToU8 } from 'fflate';
@@ -1071,6 +1072,10 @@ function paragraphWriter(doc, styles, numbering, originals, writeImage, writeLin
           if (run.text !== OBJECT) throw new Error('An equation must occupy one document position.');
           parent.append(doc.importNode(xml(run.math.xml).documentElement, true)); continue;
         }
+        if (run.vml) {
+          if (run.text !== OBJECT) throw new Error('A retained VML object must occupy one document position.');
+          r.append(doc.importNode(xml(run.vml.xml).documentElement, true)); place(r, run); continue;
+        }
         if (run.noBreakHyphen) {
           if (run.text !== '\u2011') throw new Error('Invalid retained nonbreaking hyphen.');
           r.append(make('noBreakHyphen')); place(r, run); continue;
@@ -1561,6 +1566,18 @@ export class DocxPackage {
             if(context.drawingText||context.pageStory)throw new UnsupportedDocumentError('note marks outside the main body');
             let display;try{display=formatPageNumber(1,noteFormats.get(sourceNode)||defaultNoteFormat);}catch(e){throw new UnsupportedDocumentError(e.message);}
             push();text=display;push();runs.at(-1).noteMark={kind:t.localName,text:display};
+          }
+          else if (t.namespaceURI === W && t.localName === 'pict' && context.pageStory && !context.drawingText && readVmlWatermark(t)) {
+            // A Word watermark (a VML shape behind the text, in a header) is one retained object: its XML
+            // is saved unchanged and what it describes is drawn behind each page's text.
+            const watermark = readVmlWatermark(t);
+            // A picture watermark's image is decoded with the other pictures, for drawing; its part is never rewritten.
+            if (watermark.kind === 'picture') {
+              const path = watermarkImagePart(parts, context.pageStory, watermark.imageRel, { parseXml: xml, relationshipPartPath, partPathForUrl });
+              let info = null; try { info = path && imageInfo(parts[path]); } catch { info = null; }
+              if (info && ['image/png', 'image/jpeg', 'image/gif'].includes(info.mime)) { assets[path] ||= { bytes: parts[path], mime: info.mime }; watermark.assetId = path; }
+            }
+            push(); text = OBJECT; push(); runs.at(-1).vml = { xml: serializeFragment(t), watermark };
           }
           else if (t.namespaceURI === W && t.localName === 'cr') text += '\v';
           else if (t.namespaceURI === W && t.localName === 'drawing') pushDrawing(t, () => paragraphImageReader(t));

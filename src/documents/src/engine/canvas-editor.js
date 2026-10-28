@@ -18,6 +18,7 @@ import { cellTextLocalPoint } from './cell-text-direction.js';
 import { pageStorySelectionLayout } from './page-story-positions.js';
 import { pageStoryAtPoint } from './page-story-hit.js';
 import { paintImage } from './paint-image.js';
+import { paintWatermark } from './canvas-watermarks.js';
 import { prepareText3dFonts } from './text-3d-fonts.js';
 import { localFontVersion } from './local-fonts.js';
 import { createCanvasMeasurer } from './canvas-measurer.js';
@@ -906,6 +907,8 @@ export class CanvasEditor {
         // Fade the header and footer before the body paints, so body text and drawings that reach
         // into the margins keep their own colours.
         if (!pageStory && storyChrome?.active === 'body') paintStoryChrome(ctx, geometry, storyChrome.bounds, 'body');
+        // A header's or footer's Word watermark lies beneath everything else on the page.
+        if (pageStory) for (const w of this.storyLayout.watermarks || []) if (w.page === index) paintWatermark(ctx, w, this.images);
         const floatingObjects = pageStory ? this.storyLayout.floatingObjects : this.layout.floatingObjects || [];
         const paintFloating = behind => {
           // A hidden drawing (§20.4.2.5) keeps its anchor and place but paints nothing; hidden ink likewise.

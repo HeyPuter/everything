@@ -16,7 +16,7 @@ const halfPoints = value => Math.round(value * 2) / 2;
 const capMode = p => ['drop', 'margin'].includes(p?.frameProperties?.dropCap) ? p.frameProperties.dropCap : null;
 const paragraphStart = (model, index) => model.paragraphs.slice(0, index).reduce((n, p) => n + paragraphText(p).length + 1, 0);
 const copy = value => structuredClone(value);
-const plainRun = run => run.text && !run.image && !run.field && !run.noteMark && !run.math && !run.bodySymbol && !run.contentControl;
+const plainRun = run => run.text && !run.image && !run.field && !run.noteMark && !run.math && !run.vml && !run.bodySymbol && !run.contentControl;
 
 /** The caret's drop-cap frame paragraph (itself, or the one right before it) and its text paragraph. */
 function capPair(model) {

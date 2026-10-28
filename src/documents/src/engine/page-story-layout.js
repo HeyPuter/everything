@@ -8,13 +8,16 @@ import { resolveStyledParagraph } from './styles.js';
 import { shiftCellClip } from './cell-clipping.js';
 import { referencePageGeometry } from './page-settings.js';
 import { measureNote, FOOTNOTE_SEPARATOR } from './footnote-layout.js';
+import { watermarkFrame } from './vml-watermarks.js';
 
 // Page stories have their own offsets and are kept outside body hit testing.
 export function layoutPageStories(body, definition, sectionSettings, measure, numbering, { bestEffort = false, styles, drawingLayouts } = {}) {
   const lines = [], borders = [], cells = [], tableBorders = [], floatingObjects = [], paragraphFrames = [], unsupported = [];
+  // Word watermarks (retained VML in a header or footer), placed on each page that shows their story.
+  const watermarks = [];
   const borderMargins = [];
   const positions = [];
-  if (!definition) return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins };
+  if (!definition) return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, watermarks };
   const resolved = new Map(), storyKeys = new WeakMap();
   // A measurer that remembers stories resolves their styles only when it measures one it has not seen.
   const remembered = !!(styles && measure.paragraphCache);
@@ -41,6 +44,7 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       const path = pageStoryPath(definition, section, kind, numbers[page], firstPages.get(section) === page);
       const story = path && definition.stories[path];
       if (!story?.paragraphs?.length) continue;
+      for (const p of story.paragraphs) for (const run of p.runs) if (run.vml?.watermark) watermarks.push({ page, pageStory: path, watermark: run.vml.watermark, ...watermarkFrame(run.vml.watermark, geometry) });
       if (geometry.pageBorders?.offsetFrom === 'text') {
         const excluded = kind === 'header' ? geometry.bordersDoNotSurroundHeader : geometry.bordersDoNotSurroundFooter;
         const side = kind === 'header' ? 'top' : 'bottom';
@@ -108,5 +112,5 @@ export function layoutPageStories(body, definition, sectionSettings, measure, nu
       }
     }
   }
-  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions };
+  return { lines, borders, cells, tableBorders, floatingObjects, paragraphFrames, unsupported, borderMargins, positions, watermarks };
 }

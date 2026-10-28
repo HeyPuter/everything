@@ -22,7 +22,7 @@ export function carriesFormatting(model) {
   return !(model.hasContentControls || model.hasBodyFields || model.hasBlockControls || model.hasNoteMarks || model.hasPlainTextControls || model.hasMacroButtons);
 }
 
-const plainRun = run => !run.image && !run.math && !run.bodySymbol && !run.noteMark && !run.contentControl && !run.field && !/[\u000e￼]/.test(run.text);
+const plainRun = run => !run.image && !run.math && !run.vml && !run.bodySymbol && !run.noteMark && !run.contentControl && !run.field && !/[\u000e￼]/.test(run.text);
 
 /** The selection as paragraphs of formatted runs, or null when it holds more than text. */
 export function copyFragment(model) {

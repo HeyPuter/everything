@@ -47,7 +47,7 @@ function precedingComplexScript(text) {
 
 export function typedScriptRuns(text, format, precedingText = '') {
   // Ordinary text and inserted objects keep their existing path and metadata.
-  if (!text || !(format.cs || format.rtl) || format.image || format.noteMark || format.bodySymbol) return [{ ...format, text }];
+  if (!text || !(format.cs || format.rtl) || format.image || format.vml || format.noteMark || format.bodySymbol) return [{ ...format, text }];
   const chars = [...text], types = chars.map(c => ordinaryScript.test(c) ? 'L' : bidiCharacterType(c));
   // The preceding complex script carries into leading neutral input,
   // but a following ordinary LTR character in this batch takes those neutrals.
