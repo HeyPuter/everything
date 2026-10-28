@@ -113,3 +113,28 @@ it('makes web, mail and phone links clickable where their text is on the page', 
   const xref = Number(/startxref\n(\d+)/.exec(text)[1]);
   [...text.slice(xref).matchAll(/^(\d{10}) 00000 n $/gm)].map(m => Number(m[1])).forEach((offset, i) => expect(text.slice(offset, offset + `${i + 1} 0 obj`.length)).toBe(`${i + 1} 0 obj`));
 });
+
+it('writes right-to-left text in the order it is painted, so readers copy and search it in reading order', async () => {
+  const { paragraph } = await import('../src/engine/model.js');
+  const { RUN_FORMAT } = await import('../src/engine/formatting.js');
+  const { layoutDocument } = await import('../src/engine/layout.js');
+  const measure = text => ({ width: [...text].length * 8, ascent: 12, descent: 3 });
+  const p = paragraph('');
+  p.runs = [{ ...RUN_FORMAT, text: 'שָׁלוֹם', rtl: true }];
+  const line = layoutDocument([p], measure).lines[0];
+  const fragments = pageFragments([line], 0);
+  expect(fragments.map(f => [f.text, f.rtl])).toEqual([['שָׁלוֹם', true]]);
+  // A PDF holds glyphs left to right as they stand on the page: the last letter first, each with its marks.
+  const ops = textLayer(fragments, 1056);
+  const visual = ['ם', 'וֹ', 'ל', 'שָׁ'].join('');
+  expect(ops).toContain(`<${utf16Hex(visual)}> Tj`);
+  expect(textLayer([{ text: 'abc', x: 0, baseline: 10, width: 24, fontSize: 12 }], 1056)).toContain(`<${utf16Hex('abc')}> Tj`);
+});
+
+it('writes right-to-left words inside left-to-right text in the order they are painted', async () => {
+  const { visualText } = await import('../src/lib/pdf-export.js');
+  expect(visualText('Hello world')).toBe('Hello world');
+  expect(visualText('שלום עולם 2024 and Word')).toBe('2024 םלוע םולש and Word');
+  // Brackets in right-to-left text are painted mirrored; numbers after it keep their own order.
+  expect(visualText('ראה (כאן) 12')).toBe('12 (ןאכ) האר');
+});

@@ -7,6 +7,7 @@
  */
 
 import { selectionRects } from '../engine/layout.js';
+import { bidiEmbeddingLevels, bidiMirroredCharacter, bidiVisualOrder } from '../engine/bidi-text.js';
 
 const encoder = new TextEncoder();
 const PT_PER_PX = 0.75;
@@ -39,12 +40,30 @@ function codeHex(text, astral) {
   return hex.toUpperCase();
 }
 
+const graphemes = text => (typeof Intl?.Segmenter === 'function' ? [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)].map(s => s.segment) : text.match(/\P{M}\p{M}*|\p{M}+/gu) || []);
+const STRONG_RTL = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufefc]|\ud802[\udc00-\udfff]|\ud803[\udc00-\ude7f]|\ud83a[\udc00-\udfff]/;
+
+/**
+ * A run's text in the order its glyphs stand on the page, left to right, as a PDF holds them: readers put
+ * right-to-left text back in reading order. A run the layout gave a direction (`rtl`) is painted in it throughout;
+ * one without is painted in the paragraph's left-to-right order, with any right-to-left words in it reversed by the
+ * bidirectional algorithm. Each letter keeps its marks, and a bracket in right-to-left text its mirrored form.
+ */
+export function visualText(text, rtl = false) {
+  if (!rtl && !STRONG_RTL.test(text)) return text;
+  const levels = rtl ? null : bidiEmbeddingLevels(text, 'ltr');
+  let at = 0;
+  const clusters = graphemes(text).map(segment => { const level = rtl ? 1 : levels[at]; at += segment.length; return { segment, level }; });
+  return bidiVisualOrder(clusters, c => c.level).map(c => (c.level % 2 ? c.segment.replace(/^./u, ch => bidiMirroredCharacter(ch)) : c.segment)).join('');
+}
+
 /** Text-layer operators for one page: lines of [{ text, x, baseline, width, fontSize }] in page pixels. */
 export function textLayer(fragments, pageHeightPx, astral = new Map()) {
   const ops = ['BT', '3 Tr'];
   for (const f of fragments) {
-    const text = f.text.replace(/[\u0000-\u001f￼­]/g, ' ');
+    let text = f.text.replace(/[\u0000-\u001f￼­]/g, ' ');
     if (!text.trim()) continue;
+    text = visualText(text, !!f.rtl);
     const size = Math.max(1, f.fontSize || 12), width = Math.max(1, f.width * PT_PER_PX);
     // Each code advances half an em in the text font; horizontal scaling fits the run's painted width.
     const scale = Math.max(1, Math.min(10000, width / ([...text].length * size * 0.5) * 100));
@@ -152,7 +171,7 @@ export function pageFragments(lines, page) {
     // A list item's number or bullet is painted apart from its text, and is read with it: "1. First step".
     const marker = line.marker;
     if (marker?.text && marker.width > 0) out.push({ text: marker.text, x: marker.x, baseline: line.baseline, width: marker.width, fontSize: marker.fontSize });
-    for (const f of line.fragments || []) if (f.text && !f.image) out.push({ text: f.text, x: f.x, baseline: line.baseline, width: f.width, fontSize: f.fontSize });
+    for (const f of line.fragments || []) if (f.text && !f.image) out.push({ text: f.text, x: f.x, baseline: line.baseline, width: f.width, fontSize: f.fontSize, ...(f.bidiDirection === 'rtl' ? { rtl: true } : {}) });
   }
   return out;
 }
