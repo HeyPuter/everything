@@ -7239,6 +7239,14 @@ Automatic linguistic hyphenation, soft-hyphen support and general multilingual
 line-breaking rules remain separate gaps. Forced grapheme wrapping of oversized
 unbreakable content retains its existing behavior.
 
+Em dashes (U+2014), en dashes (U+2013) and zero-width spaces (U+200B) also
+provide a wrapping opportunity after the character (UAX #14 classes B2, BA and
+ZW), in paragraph layout and AutoFit minimum widths alike, so "word—word" and
+paths with zero-width spaces wrap there instead of being split mid-word. A
+doubled dash stays together, and a dash keeps closing punctuation that follows
+it on its line. `tests/dash-line-breaking.test.js` covers these cases; no native
+reference rendering was recorded for them.
+
 ## Thai, Lao, Khmer and Myanmar word wrapping
 
 ECMA-376 Part 1 §17.3.3.31 (`t`) retains literal authored text and does not
