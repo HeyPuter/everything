@@ -17,7 +17,7 @@ import { pageGeometry, readingPageGeometry } from './page-settings.js';
 import { layoutParagraphBorders } from './paragraph-border-layout.js';
 import { layoutTableBorders, tableRowBorderWidths, tableBorderWidth, cellBorderLayoutWidth, tableHorizontalInsets } from './table-border-layout.js';
 import { cellWritingTopBorder, rowTableBorder } from './cell-borders.js';
-import { checkJustificationText, justificationRange, justifiedStyle } from './justification.js';
+import { justificationRange, justifiedStyle } from './justification.js';
 import { contractionMetrics, fitContractedWord } from './justification-contraction.js';
 import { borderOutset, visibleParagraphBorders } from './paragraph-borders.js';
 import { documentBlocks, fixedColumnWidths, roundColumnWidths, autoColumnWidths, rowGrid, spanWidth, headerRowCount, minimumSpanWidth } from './tables.js';
@@ -824,7 +824,6 @@ function measureParagraph(p, documentOffset, measure, page, listMarker, numberin
   }
   const floating = floatingParagraph(p, documentOffset, format, page);
   if (floating) return floating;
-  checkJustificationText(text, format.alignment);
   if (cellBounds && page.allowSpaceOfSameStyleInTable) format.contextualSpacing = false;
   // Within a row, the next cell's first source paragraph supplies the context.
   // At the row end, an implicit Normal-style boundary is used instead.

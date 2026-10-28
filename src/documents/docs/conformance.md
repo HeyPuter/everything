@@ -1483,8 +1483,14 @@ and the clauses above, including the
 [soft-return definition](https://learn.microsoft.com/en-us/dotnet/api/documentformat.openxml.wordprocessing.donotexpandshiftreturn?view=openxml-3.0.1).
 The review distinguishes word justification from `distribute`, which also expands
 characters, and requires Arabic kashida behavior that this engine does not yet
-implement. Arabic text in a justified paragraph therefore rejects on import or
-rolls back an editing transaction.
+implement. Arabic text in a justified paragraph is justified by its word spaces,
+exactly as Latin text: it imports editable and typing Arabic into a justified
+paragraph is accepted. This is a declared approximation: the reference
+application can lengthen Arabic joins with kashida (tatweel, U+0640) instead
+of, or as well as, widening spaces, so justified Arabic lines reach the same
+margins with different inter-word gaps and no elongated joins. No kashida
+characters enter the source text (`tests/canvas-justification.test.js`,
+`tests/browser/justification.spec.js`).
 
 Declared preview policy: expansion opportunities are interior U+0020 spaces and
 U+00A0 nonbreaking spaces. Leading/trailing spaces and other fixed Unicode spaces,
@@ -1521,7 +1527,7 @@ of fractional cell widths, text scaling, character spacing and small caps with
 superscript. Screenshots cover rich paragraphs, both soft-return policies and
 continued tables with repeated headers.
 
-**Remaining gaps:** distributed and Thai justification, Arabic kashida, expansion
+**Remaining gaps:** distributed and Thai justification, Arabic kashida (justified Arabic widens spaces only), expansion
 after center/right/decimal tabs, language-specific justification rules and exact
 reference spacing across compatibility versions. No reference application was available
 for visual comparison. Browser checks cover current Chromium; other browsers

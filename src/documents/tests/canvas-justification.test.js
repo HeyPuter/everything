@@ -154,9 +154,18 @@ it.each(['<w:jc/>', '<w:jc w:val=""/>', '<w:jc w:val="both"/><w:jc w:val="left"/
   await expect(DocxPackage.open(rewrite('<w:jc w:val="both"/>', markup))).rejects.toThrow();
 });
 
-it('rejects Arabic justification rather than silently substituting inter-word spacing for kashida', async () => {
-  await expect(DocxPackage.open(rewrite('Direct both ', 'Direct both العربية '))).rejects.toThrow(/kashida/);
-  expect(() => layout(simple('العربية words'))).toThrow(/kashida/);
+it('justifies Arabic by its word spaces instead of refusing it, without kashida', async () => {
+  // Kashida elongation is not drawn: Arabic lines are filled by widening their spaces, as Latin text.
+  const pkg = await DocxPackage.open(rewrite('Direct both ', 'Direct both العربية '));
+  expect(model(pkg).paragraphs.some(p => paragraphText(p).includes('العربية'))).toBe(true);
+  const arabic = 'هذا نص عربي طويل يلتف عبر عدة أسطر للتأكد من أن التخطيط يعمل بشكل صحيح في المحرر';
+  const result = layout(simple(arabic)), lines = result.lines;
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines.slice(0, -1)) { expect(line.justificationSpacing).toBeGreaterThan(0); expect(edge(line)).toBeCloseTo(312); }
+  expect(lines.at(-1).justificationSpacing).toBeUndefined();
+  expect(lines.flatMap(l => l.fragments).every(f => !f.text.includes('\u0640'))).toBe(true);
+  const typed = simple('Alpha beta gamma delta epsilon zeta eta theta iota'); typed.select(6); typed.replace('العربية ');
+  expect(() => layout(typed)).not.toThrow();
   const doc = simple('One two'); for (const alignment of ['justify', 'distribute', 'lowKashida']) expect(() => doc.setParagraphFormat({ alignment })).toThrow();
   expect(doc.undo()).toBe(false);
 });

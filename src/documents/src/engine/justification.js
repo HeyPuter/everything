@@ -4,9 +4,9 @@ import { IDEOGRAPHIC } from './dictionary-breaks.js';
 // Display spacing only: source text and run properties never acquire this value.
 // Native Canvas word-spacing expands U+0020 and U+00A0 without breaking shaping.
 export const justificationSpace = text => text === ' ' || text === '\u00a0';
-export function checkJustificationText(text, alignment) {
-  if (alignment === 'both' && /\p{Script=Arabic}/u.test(text)) throw new UnsupportedDocumentError('Arabic kashida justification');
-}
+// Arabic is justified by its word spaces as well. Kashida elongation (U+0640 or stretched joins), which
+// the reference application can add, is not drawn: justified Arabic lines fill the measure by their
+// spaces alone. Text and source runs never acquire kashida characters.
 
 /**
  * Chinese and Japanese are written without spaces: a justified line of them is filled by widening

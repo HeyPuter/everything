@@ -44,7 +44,6 @@ import { shapeHasFields } from './shape-page-fields.js';
 import { controlSignature, controlContentSignature, contentControlRanges, changedContentControls } from './content-controls.js';
 import { MC, alternateBranch, activeDescendants, serializeFragment, bindUsedNamespaces } from './docx-compatibility.js';
 import { readParagraphBorders, writeParagraphBorders } from './docx-paragraph-borders.js';
-import { checkJustificationText } from './justification.js';
 import { readParagraphShading, writeParagraphShading } from './docx-paragraph-shading.js';
 import { hyperlinkReader, hyperlinkWriter, bindHyperlinkNamespaces } from './docx-hyperlinks.js';
 import { hyperlinkBoundaryChanges } from './hyperlinks.js';
@@ -1740,7 +1739,6 @@ export class DocxPackage {
         for (const control of [...controls, ...(context.blockControls || [])]) resolveCharacterRun({ ...control.inputRun, text: '' }, styles, paragraphRunStyle(p, styles), { displayOnly: preview });
       } catch (e) { throw e instanceof UnsupportedDocumentError ? e : new UnsupportedDocumentError(e.message); }
       if (controls.length && changedContentControls([p]).size) throw new UnsupportedDocumentError('content control boundaries inside grapheme clusters');
-      checkJustificationText(paragraphText(p), p.format.alignment);
       if (p.cellId && p.format.pageBreakBefore) {
         if (!preview) throw new UnsupportedDocumentError('paragraph page breaks inside table cells');
         issues.delete('paragraph page breaks inside table cells');

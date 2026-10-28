@@ -85,12 +85,28 @@ test('uses native shaping for expanded spaces, matches paint widths and keeps zo
 
 test('previews unsupported justification as read-only with the original available', async ({ page }) => {
   const input = await fixture(page), text = await input.inputValue();
-  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="distribute"/>', /distribute paragraph alignment/], ['Direct both ', 'Direct both العربية ', /kashida/], ['w:pos="1800" w:val="left"', 'w:pos="1800" w:val="center"', /justification after/]]) {
+  for (const [from, to, error] of [['<w:jc w:val="both"/>', '<w:jc w:val="distribute"/>', /distribute paragraph alignment/], ['w:pos="1800" w:val="left"', 'w:pos="1800" w:val="center"', /justification after/]]) {
     const parts = unzipSync(readFileSync('public/fixtures/justification.docx')), xml = strFromU8(parts['word/document.xml']); expect(xml).toContain(from); parts['word/document.xml'] = strToU8(xml.replace(from, to));
     await openReadOnlyPreview(page, { name: 'unsupported-justification.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: Buffer.from(zipSync(parts)) });   await expect(page.getByRole('button', { name: 'Download .docx', exact: true })).toBeEnabled();
   }
   await fixture(page);
-  await choose(input, 'Direct both'); await page.keyboard.insertText('العربية '); await expect(page.getByText(/kashida/)).toBeVisible(); await expect(input).toHaveValue(text);   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+});
+
+// Arabic typed into a justified paragraph is accepted and justified by its word spaces (no kashida).
+test('justifies typed Arabic by its word spaces with native canvas metrics', async ({ page }) => {
+  const input = await fixture(page), text = await input.inputValue();
+  await choose(input, 'Direct both'); await page.keyboard.insertText('العربية '); await expect(input).toHaveValue(text.replace('Direct both', 'العربية Direct both'));
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled(); await expect(page.getByText(/kashida/)).toHaveCount(0);
+  const edges = await page.evaluate(async () => {
+    const { measureCanvasText } = await import('/src/engine/canvas-text.js'), { layoutDocument } = await import('/src/engine/layout.js'), { paragraph } = await import('/src/engine/model.js');
+    const ctx = document.createElement('canvas').getContext('2d'), measure = (t, s) => measureCanvasText(ctx, t, s);
+    const arabic = 'هذا نص عربي طويل يلتف عبر عدة أسطر للتأكد من أن التخطيط يعمل بشكل صحيح في المحرر مع English words أيضا';
+    const layout = layoutDocument([paragraph(arabic, { format: { spaceAfter: 0, alignment: 'both' } })], measure, { width: 300, height: 4000, margin: 20 });
+    // Ink extents: the reordered right-to-left text spans the whole measure; the hanging space is clipped at its edge.
+    return layout.lines.map(l => ({ last: l.paragraphEnd, spacing: l.justificationSpacing, left: Math.min(...l.fragments.filter(f => f.text.trim()).map(f => f.x)), right: Math.max(...l.fragments.filter(f => f.text.trim()).map(f => f.x + f.width)) }));
+  });
+  expect(edges.length).toBeGreaterThan(2);
+  for (const line of edges.filter(l => !l.last)) { expect(line.spacing).toBeGreaterThan(0); expect(Math.abs(line.left - 20)).toBeLessThan(0.5); expect(Math.abs(line.right - 280)).toBeLessThan(0.5); }
 });
 
 test('previews justified documents when Canvas word spacing is unavailable', async ({ page }) => {
