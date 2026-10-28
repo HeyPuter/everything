@@ -59,7 +59,8 @@ export function createReview({ editor, pkg, host, error, author, onChange = () =
     paneSummary, paneList);
   /** The Reviewing Pane's entries, every comment and change in document order, as the document is now. */
   function paneItems(engine) {
-    const body = engine.session.body, changes = body.revisions, notes = threads();
+    // What Show Markup hides (a reviewer, a kind of change) is left out, as it is from the page and the margin.
+    const body = engine.session.body, changes = shownChanges(body.revisions), notes = threads().filter(t => !revisionView.options.hiddenAuthors.includes(t.root.author));
     // The document's text, read once: each read checks every paragraph, and reading it per change made typing
     // with the pane open slow in a document with many changes.
     const text = body.text, formatSummary = formatSummaries(body);

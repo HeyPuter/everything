@@ -98,3 +98,24 @@ it('Accept and Reject with the caret in a change inside a reformatted paragraph 
     expect(editor.model.paragraphs[1].format.alignment).toBe('center');
   }
 });
+
+it('the Reviewing Pane lists only what Show Markup shows', () => {
+  open(['First line.', 'Second line.']);
+  editor.model.trackChanges = true;
+  for (const [author, at, text] of [['Ada', 0, 'A '], ['Grace', 14, 'G ']]) {
+    editor.model.revisionAuthor = author;
+    editor.execute(() => { editor.model.select(at); editor.model.replace(text); });
+  }
+  editor.model.trackChanges = false;
+  editor.model.addComment({ author: 'Grace', text: 'Hers', range: [16, 20] });
+  revisionView.options.hiddenAuthors = ['Grace'];
+  try {
+    review.commands.toggleReviewingPane(true);
+    const entries = () => [...review.pane.querySelectorAll('.review-pane-item')].map(item => item.textContent);
+    expect(entries()).toEqual(['Ada InsertedA']);
+    expect(review.pane.querySelector('.review-pane-summary').textContent).toBe('1 revision: 1 insertion, 0 deletions, 0 formatting, 0 comments');
+    revisionView.options.hiddenAuthors = [];
+    review.refresh();
+    expect(entries()).toEqual(['Ada InsertedA', 'Grace InsertedG', 'Grace CommentHers']);
+  } finally { revisionView.options.hiddenAuthors = []; }
+});
