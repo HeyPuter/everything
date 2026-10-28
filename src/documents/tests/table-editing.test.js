@@ -359,6 +359,17 @@ describe('table commands', () => {
     expect(doc.paragraphs.map(paragraphText)).toEqual(['Name,Qty,', 'Pens,2,', 'Ink,1,extra', 'After']);
   });
 
+  it('converts a table with cells merged down to text with the columns still lined up', () => {
+    const { doc } = tableDocument();
+    block(doc, 0, 0, 1, 1); T.mergeBlock(doc);
+    expect(shape(doc)).toEqual(['a0/b0^ a1 a2', 'v b1 b2', 'c0 c1 c2']);
+    at(doc, 0, 1); T.convertTableToText(doc, { separator: 'tab' });
+    expect(doc.paragraphs.map(paragraphText).slice(0, 3)).toEqual(['a0\vb0\ta1\ta2', '\tb1\tb2', 'c0\tc1\tc2']);
+    // And back: the same three columns.
+    doc.select(0, doc.text.indexOf('c2') + 2);
+    expect(T.textTableShape(doc, { separator: 'tab' })).toEqual({ rows: 3, columns: 3 });
+  });
+
   it('converts text inside a cell into a nested table', async () => {
     const { pkg, doc } = tableDocument(1, 1);
     const cell = doc.tables[0].rows[0].cells[0];

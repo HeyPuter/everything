@@ -1075,9 +1075,10 @@ export function convertTableToText(model, { separator = 'tab', other } = {}) {
   };
   const output = [];
   for (const row of table.rows) {
-    const cells = row.cells.filter(cell => owners.get(cell.id).cell === cell).map(cell => state.byCell.get(cell.id) || []);
+    // A cell merged down from above holds its place in the row as an empty field, so the columns stay lined up.
+    const cells = row.cells.map(cell => owners.get(cell.id).cell === cell ? state.byCell.get(cell.id) || [] : []);
     if (char === null) { for (const content of cells) output.push(...content.map(scope)); continue; }
-    const p = scope(cells[0]?.[0] || paragraph());
+    const p = scope(cells.find(content => content.length)?.[0] || paragraph());
     p.runs = []; delete p.fieldMarkers; delete p.bookmarks;
     let at = 0;
     const append = (source, text) => {
@@ -1087,7 +1088,7 @@ export function convertTableToText(model, { separator = 'tab', other } = {}) {
       if (text) {
         // The separator takes the formatting of the text before it, as plain text: not a copy of an
         // object run (a picture, equation, note reference, field or control) nor of a change mark.
-        const style = p.runs.at(-1) || { ...(cells[0]?.[0]?.runs[0] || {}), properties: '', overrides: {} }, run = { ...copy(style), text };
+        const style = p.runs.at(-1) || { ...(cells.find(content => content.length)?.[0]?.runs[0] || {}), properties: '', overrides: {} }, run = { ...copy(style), text };
         for (const key of OBJECT_RUN_KEYS) delete run[key];
         p.runs.push(run); at += text.length;
       }
