@@ -128,11 +128,19 @@ export function createTocCommands(ctx) {
 
   async function updateTable(figures = false, mode = 'entire') {
     if (mode === 'pages') {
-      return runBody((body, toc) => {
+      // A table another application wrote can show its page numbers as plain text (LibreOffice does): with no
+      // PAGEREF fields there is nothing to refresh, and the update did nothing without saying so.
+      let plain = false;
+      const result = await runBody((body, toc) => {
         const target = tableFor(toc, body, figures);
         if (!target) return false;
-        return { only: toc.tocPageReferences(body, target) };
+        const only = toc.tocPageReferences(body, target);
+        if (!only.size && !target.options.omitPageNumbers) { plain = true; return false; }
+        return { only };
       }, { modules: ['toc'], scopedRefresh: true });
+      // Shown in the Update dialog, which stays open for the other choice.
+      if (plain) throw new Error(`This table of ${figures ? 'figures' : 'contents'} has no page-number fields to update. Choose Update entire table to rebuild it with its page numbers.`);
+      return result;
     }
     return runBody((body, toc) => {
       const target = tableFor(toc, body, figures);
